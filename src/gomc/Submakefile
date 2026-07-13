@@ -159,7 +159,7 @@ $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile $(GMI_ALL_GEN_GO)
 # packages appear (e.g. generated GMI code).
 ../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(GMI_TOOLS_GEN_GO) $(GMI_EMCSTAT_PUSH_GO) $(GMI_MOTCTL_CLIENT_GO) $(GMI_MOTSTAT_CLIENT_GO) $(GMI_EMCIO_CLIENT_GO) $(GMI_CLASSICLADDER_SERVER_GO) $(GMI_HAL_SAMPLER_STREAM_GO) $(GMI_HAL_STREAMER_STREAM_GO) $(IMPORTS_GENERATED) gomc/go.mod ../lib/libposemath.so ../lib/librs274.so Makefile.inc
 	$(ECHO) Building gomc-server
-	$(Q)cd gomc && CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
+	$(Q)cd gomc && CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
 # ---------------------------------------------------------------------------
 # ADS XML generator tool — built from cmd/ads-xml-gen within the gomc module
@@ -276,7 +276,9 @@ TARGETS += ../bin/ethercat
 # Environment shared by all Go test/lint invocations. CGO_LDFLAGS adds
 # -Wl,-rpath so test binaries find librs274.so / libposemath.so at run time
 # without LD_LIBRARY_PATH (same reason as the gomc-server recipe).
-GOMC_TESTENV := CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
+# CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
+# gets the same diagnostics as Ubuntu CI runners (builtin fortify).
+GOMC_TESTENV := CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
 
 # Run the Go unit tests over the whole module. Narrow on the command line if
 # wanted, e.g. make gomc-test GOMC_TEST_PKGS=./internal/task/...

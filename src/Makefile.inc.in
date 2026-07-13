@@ -76,7 +76,7 @@ RTPREFIX = @RTPREFIX@
 RTFLAGS = @RTFLAGS@
 KERNELDIR = @KERNELDIR@
 RTFLAGS := -Wall -I. -I@RTDIR@/include $(RTFLAGS) -D_GNU_SOURCE -Drealtime
-ULFLAGS = -Wall -g -I. -I@RTDIR@/include -D_GNU_SOURCE -Os -DLOCALE_DIR=\"$(localedir)\" -DPACKAGE=\"$(package)\"
+ULFLAGS = -Wall -g -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -I. -I@RTDIR@/include -D_GNU_SOURCE -Os -DLOCALE_DIR=\"$(localedir)\" -DPACKAGE=\"$(package)\"
 MODULE_EXT = @MODEXT@
 CC = @CC@
 MANDB = @MANDB@

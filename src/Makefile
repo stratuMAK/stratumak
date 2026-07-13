@@ -256,7 +256,11 @@ INCLUDE += $(LIBTIRPC_CFLAGS)
 # Compilation options.	Perhaps some of these should come from Makefile.inc? (CXXFLAGS now does)
 INTEGER_OVERFLOW_FLAGS := -fwrapv
 OPT := -Os $(INTEGER_OVERFLOW_FLAGS)
-DEBUG := $(DEBUG) -g -Wall -D_FORTIFY_SOURCE=2
+# -U first: Ubuntu's gcc predefines _FORTIFY_SOURCE (=3) at -O; without the
+# undef a plain -D would be a redefinition. Level 3 so local Debian builds get
+# the same fortify diagnostics (e.g. warn_unused_result on write()) as the
+# ubuntu-24.04 CI runners.
+DEBUG := $(DEBUG) -g -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
 CFLAGS := $(INCLUDE) $(OPT) $(DEBUG) $(EXTRA_DEBUG) -D_GNU_SOURCE -std=gnu11 -Werror=implicit-function-declaration $(CFLAGS) $(CPPFLAGS)
 CXXFLAGS := $(INCLUDE) $(EXTRA_DEBUG) $(DEBUG) $(OPT) -Werror=overloaded-virtual $(CXXFLAGS) $(CPPFLAGS)
 CXXFLAGS += -std=gnu++17
