@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared driver for converted streaming HAL tests (sourced by each test.sh).
 #
 # Background: the classic sampler/streamer HAL tests used

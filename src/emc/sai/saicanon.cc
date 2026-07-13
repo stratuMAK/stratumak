@@ -334,8 +334,12 @@ std::vector<CONTROL_POINT> nurbs_control_points, unsigned int k)
 {
   ECHO_WITH_ARGS("%lu, ...", (unsigned long)nurbs_control_points.size());
 
-  _sai._program_position_x = nurbs_control_points[nurbs_control_points.size()].X;
-  _sai._program_position_y = nurbs_control_points[nurbs_control_points.size()].Y;
+  /* Final position is the LAST control point.  Indexing with size() read one
+     past the end (undefined behavior) — inherited from upstream 2.9. */
+  if (!nurbs_control_points.empty()) {
+    _sai._program_position_x = nurbs_control_points.back().X;
+    _sai._program_position_y = nurbs_control_points.back().Y;
+  }
 }
 
 void ARC_FEED(int line_number,

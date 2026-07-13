@@ -677,7 +677,9 @@ int hal_pin_new(const char *name, hal_type_t type, hal_pin_dir_t dir,
 	return -EINVAL;
     }
 
-    if(*data_ptr_addr) 
+    /* data_ptr_addr is validated (NULL check) further down; guard here too —
+       this diagnostic runs first and would otherwise dereference NULL. */
+    if(data_ptr_addr != NULL && *data_ptr_addr)
     {
         rtapi_print_msg(RTAPI_MSG_ERR,
             "HAL: ERROR: pin_new(%s) called with already-initialized memory\n",
