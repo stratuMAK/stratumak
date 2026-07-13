@@ -4,11 +4,22 @@ name: Build CI
 
 on:
   push:
+    # Unfiltered push + pull_request would run everything twice for every PR
+    # branch push. Branch work is covered by the pull_request trigger.
+    branches: [gomc]
+    tags: ['*']
   pull_request:
   release:
     types: [published]
   check_suite:
     types: [rerequested]
+  # Manual trigger for the gated heavy jobs (packages, docs) without a release.
+  workflow_dispatch:
+
+# Job gating policy for this fork (upstream runs everything on every push):
+#   - gomc + rip-and-test: every push and PR — these are the merge gates.
+#   - rip-and-test-clang, cppcheck, htmldocs: post-merge pushes to gomc only.
+#   - package-*: releases/tags (feeds the release job) or manual dispatch.
 
 permissions:
   contents: read #  to fetch code (actions/checkout)
@@ -42,6 +53,7 @@ jobs:
 
   rip-and-test-clang:
     runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/gomc'
     steps:
     - name: Dump GitHub context
       env:
@@ -123,6 +135,10 @@ jobs:
 
   htmldocs:
     runs-on: ubuntu-24.04
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/gomc') ||
+      github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch'
     steps:
     - name: Dump GitHub context
       env:
@@ -148,6 +164,10 @@ jobs:
 
   package-arch:
     runs-on: ${{ matrix.runner }}
+    if: >-
+      github.event_name == 'release' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
@@ -255,6 +275,10 @@ jobs:
 
   package-indep:
     runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'release' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         image: ["debian:bullseye", "debian:bookworm", "debian:trixie", "debian:sid"]
@@ -356,6 +380,7 @@ jobs:
 
   cppcheck:
     runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/gomc'
     steps:
     - uses: actions/checkout@v2
       with:
