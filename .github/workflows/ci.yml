@@ -43,7 +43,6 @@ jobs:
         set -x
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
@@ -70,7 +69,6 @@ jobs:
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
         sudo eatmydata apt-get install -y clang
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
@@ -153,7 +151,6 @@ jobs:
       run: |
         ./scripts/travis-install-build-deps.sh
         sudo apt-get install -y eatmydata
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-build-documentation=html
