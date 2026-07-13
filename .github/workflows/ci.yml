@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 # Job gating policy for this fork (upstream runs everything on every push):
-#   - gomc + rip-and-test: every push and PR — these are the merge gates.
+#   - gomc + rip-and-test + static-checks: every push and PR — the merge gates.
 #   - rip-and-test-clang, htmldocs: post-merge pushes to gomc only.
 #   - package-*: releases/tags (feeds the release job) or manual dispatch.
 
@@ -130,6 +130,22 @@ jobs:
           tests/**/stderr
           tests/**/out.motion-logger
         if-no-files-found: ignore
+
+  # Scoped, enforcing static analysis (shellcheck over fork-owned shell,
+  # cppcheck over gomc-owned C). Needs no RIP build — fast fail on every PR.
+  static-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Install analyzers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends cppcheck shellcheck
+    - name: Static checks (gomc-owned shell + C)
+      run: ./scripts/check-static
 
   htmldocs:
     runs-on: ubuntu-24.04
