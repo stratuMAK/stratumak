@@ -4,6 +4,7 @@ package launcher
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -102,7 +103,14 @@ func (l *Launcher) startAPIServer() {
 		if err := srv.ListenAndServe(); err != nil {
 			// http.ErrServerClosed is expected on graceful shutdown
 			if err.Error() != "http: Server closed" {
-				l.logger.Error("REST API server error", "error", err)
+				// FATAL: without the REST/WS server every client (GUIs, gmi,
+				// halcmd remote, test drivers) is locked out while HAL keeps
+				// running — a headless zombie. Observed with a stale instance
+				// still holding the port ("bind: address already in use"):
+				// the next server came up headless and its test driver hung
+				// forever. Exit through the ordered shutdown path instead.
+				l.logger.Error("REST API server failed — shutting down", "error", err)
+				l.fail(fmt.Errorf("REST API server: %w", err))
 			}
 		}
 	}()

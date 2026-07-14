@@ -65,6 +65,8 @@ type Launcher struct {
 	retain      *retainInstance   // integrated retain subsystem (nil if unused)
 	apiServer   *apiserver.Server // REST API server for halcmd and external tools
 	shutdownCh  chan struct{}     // closed by signal handler to unblock wait
+	fatalMu     sync.Mutex        // guards fatalErr
+	fatalErr    error             // set by fail() before closing shutdownCh; Run returns it
 }
 
 // New creates a new Launcher with the given options and logger.
@@ -330,14 +332,16 @@ func (l *Launcher) Run() (runErr error) {
 	// 6d.5. Start the REST API server for halcmd and external tools.
 	l.startAPIServer()
 
-	// 6e. Wait for shutdown signal (Ctrl+C / SIGTERM).
+	// 6e. Wait for shutdown signal (Ctrl+C / SIGTERM) or a fatal error.
 	l.logger.Info("ready, waiting for shutdown signal (Ctrl+C to stop)")
 	<-l.shutdownCh
 
 	// Shutdown signal received — cleanup runs via deferred l.cleanup():
 	//   kill apps → stop modules → halcmd stop → halcmd unload all →
 	//   wait → realtime stop → lock
-	return nil
+	l.fatalMu.Lock()
+	defer l.fatalMu.Unlock()
+	return l.fatalErr
 }
 
 // resolveRelativePath resolves path against the INI file's directory when it
@@ -393,6 +397,18 @@ func (l *Launcher) startHalThreads() error {
 		return fmt.Errorf("hal start threads: %w", err)
 	}
 	return nil
+}
+
+// fail records a fatal runtime error (e.g. the REST server dying) and
+// triggers the ordered shutdown; Run returns the error so the process exits
+// non-zero instead of lingering as a partially-functional zombie.
+func (l *Launcher) fail(err error) {
+	l.fatalMu.Lock()
+	if l.fatalErr == nil {
+		l.fatalErr = err
+	}
+	l.fatalMu.Unlock()
+	l.shutdown()
 }
 
 // shutdown signals the main wait loop to unblock.  Called from the signal
