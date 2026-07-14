@@ -183,7 +183,12 @@ class Stat:
             "rate_ms": 50,
         }
         await self._ws.send(json.dumps(msg))
-        asyncio.get_event_loop().create_task(self._recv_loop())
+        # Keep a strong reference: asyncio holds tasks only weakly, so an
+        # unreferenced recv task can be garbage-collected mid-flight — the
+        # socket stays open but nothing reads it and the cache silently
+        # freezes at the last-delivered snapshot (observed as a boot-era
+        # STATE_ESTOP surfacing mid-run in gmi.Stat).
+        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
 
     async def _recv_loop(self):
         try:
