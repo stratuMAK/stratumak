@@ -288,13 +288,20 @@ const (
 	SpindleConstant int32 = 12
 )
 
-// IO abort reason codes (EMC_IO_ABORT_REASON_ENUM, iocontrol_stat.h).
+// IO abort reason codes (EMC_IO_ABORT_REASON_ENUM, emc.hh / iocontrol_stat.h).
+// The reason is passed to io.IoAbort AND, via interp.Abort, to Interp::on_abort
+// where it is the numeric argument to a configured [RS274NGC]ON_ABORT_COMMAND.
+// Values 1 (TASK_EXEC_ERROR) and 5 (TASK_STATE_ESTOP_RESET) exist in the C enum
+// but have no gomc call site, so they are intentionally omitted (unused-lint).
 const (
-	emcAbortAuxEstop           int32 = 2 // EMC_ABORT_AUX_ESTOP
-	emcAbortMotionOrIoRcsError int32 = 3 // EMC_ABORT_MOTION_OR_IO_RCS_ERROR
-	emcAbortTaskStateOff       int32 = 4 // EMC_ABORT_TASK_STATE_OFF
-	emcAbortTaskStateNotOn     int32 = 7 // EMC_ABORT_TASK_STATE_NOT_ON
-	emcAbortTaskAbort          int32 = 8 // EMC_ABORT_TASK_ABORT
+	emcAbortAuxEstop            int32 = 2  // EMC_ABORT_AUX_ESTOP
+	emcAbortMotionOrIoRcsError  int32 = 3  // EMC_ABORT_MOTION_OR_IO_RCS_ERROR
+	emcAbortTaskStateOff        int32 = 4  // EMC_ABORT_TASK_STATE_OFF
+	emcAbortTaskStateEstop      int32 = 6  // EMC_ABORT_TASK_STATE_ESTOP
+	emcAbortTaskStateNotOn      int32 = 7  // EMC_ABORT_TASK_STATE_NOT_ON
+	emcAbortTaskAbort           int32 = 8  // EMC_ABORT_TASK_ABORT
+	emcAbortInterpreterError    int32 = 9  // EMC_ABORT_INTERPRETER_ERROR (readahead)
+	emcAbortInterpreterErrorMDI int32 = 10 // EMC_ABORT_INTERPRETER_ERROR_MDI
 )
 
 // shutdownOpts configures a teardown (stopSignals + finishShutdown, or the
@@ -364,7 +371,7 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 	// already stopped by stopSignals).
 	t.waitRunProgramDone()
 	if t.interp != nil {
-		_ = t.interp.Abort(0, o.reason)
+		_ = t.interp.Abort(int(o.ioReason), o.reason)
 		_ = t.interp.Close()
 		_ = t.interp.Reset()
 		if o.synch {
@@ -476,7 +483,10 @@ func (t *Task) setState(state int32) error {
 		t.mu.Unlock()
 
 		if wasOn {
-			t.machineShutdown(numSpindles, emcAbortAuxEstop)
+			// Commanded ESTOP reports TASK_STATE_ESTOP; the external/aux estop
+			// input detected by the monitor reports AUX_ESTOP (2.9 emctask.cc
+			// EMC_TASK_STATE_ESTOP vs the main-loop aux-estop handler).
+			t.machineShutdown(numSpindles, emcAbortTaskStateEstop)
 		} else {
 			// Machine already down: light teardown, but still restart the
 			// sequencer (signalAbort closed seqAbort, so the goroutine is
@@ -1192,9 +1202,25 @@ func (t *Task) executeMDI(command string) error {
 // the sequencer via StartSequencer): the runProgram producer, and — via
 // faultMDI — the executeMDI/finishMDI callers. It does not touch cmdMu, so an
 // MDI caller already holding cmdMu can call it.
-func (t *Task) faultProgram(msg string) {
+func (t *Task) faultProgram(reason int32, msg string) {
 	t.operatorError(msg)
 	_ = t.motion.Abort() // stop what is already moving
+	// Run the interpreter's on_abort so it reset()s and clears the
+	// toolchange/probe/input/mdi_interrupt flags that an interrupted remapped
+	// procedure may have left set — otherwise the next tool change can fail with
+	// "Queue is not empty after tool change", and a stale probe/input flag leaks
+	// into the next run. Mirrors 2.9 emcAbortCleanup(reason) -> Interp::on_abort.
+	// The reason is also the argument passed to a configured ON_ABORT_COMMAND.
+	// Called on the interpreter-owning goroutine (the runProgram producer, or the
+	// executeMDI/finishMDI caller), so this interp access stays single-threaded.
+	// Canon output from any ON_ABORT_COMMAND is discarded — like abortLocked,
+	// gomc does not replay abort-handler motion, and discarding also avoids an
+	// EnqueueCmd deadlock against the sequencer we abort next.
+	if t.interp != nil {
+		t.canon.setDiscard(true)
+		_ = t.interp.Abort(int(reason), msg)
+		t.canon.setDiscard(false)
+	}
 	// restartSequencer aborts+joins the old sequencer and commits the terminal
 	// ExecError after the join (a concurrent monitor teardown is safe:
 	// StartSequencer generations are serialized by seqLifeMu and both writers
@@ -1209,11 +1235,22 @@ func (t *Task) faultProgram(msg string) {
 // Mirrors C++ mdi_execute_abort. Called from executeMDI and the finishMDI
 // o-word continuation — both off the sequencer goroutine.
 func (t *Task) faultMDI(msg string) {
-	t.faultProgram(msg)
+	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
+	// An MDI interpreter error additionally aborts the IO controller (reset any
+	// in-progress tool-change handshake left by a failed remapped M6) and stops
+	// the spindles, then flushes the queued MDIs + echo. Mirrors 2.9's MDI
+	// INTERP_ERROR path (emcIoAbort(10) + emcSpindleAbort(all) + mdi_execute_abort).
+	// The AUTO readahead path (faultProgram alone) deliberately does neither, to
+	// match 2.9 which only clears the interp list and runs on_abort there.
+	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.mu.Lock()
+	numSpindles := t.numSpindles
 	t.mdiQueue = t.mdiQueue[:0]
 	t.taskCommand = ""
 	t.mu.Unlock()
+	for i := 0; i < numSpindles; i++ {
+		_ = t.motion.SpindleOff(int32(i))
+	}
 }
 
 // runStartupCode executes [RS274NGC]RS274NGC_STARTUP_CODE once at task startup,
@@ -1283,7 +1320,7 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		rc, err := interp.Read()
 		if err != nil {
 			t.logger.Error("interpreter read error", "err", err, "rc", rc)
-			t.faultProgram(fmt.Sprintf("Interpreter read error: %v", err))
+			t.faultProgram(emcAbortInterpreterError, fmt.Sprintf("Interpreter read error: %v", err))
 			return
 		}
 		if rc == InterpEndfile || rc == InterpExit {
@@ -1300,7 +1337,7 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		rc, err = interp.Execute()
 		if err != nil {
 			t.logger.Error("interpreter execute error", "err", err, "rc", rc)
-			t.faultProgram(fmt.Sprintf("Interpreter error: %v", err))
+			t.faultProgram(emcAbortInterpreterError, fmt.Sprintf("Interpreter error: %v", err))
 			return
 		}
 		// Capture this line's active codes and tag the motion segments it just
@@ -1326,7 +1363,7 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 			return
 		case InterpError:
 			t.logger.Error("interpreter error", "rc", rc)
-			t.faultProgram("interpreter error")
+			t.faultProgram(emcAbortInterpreterError, "interpreter error")
 			return
 		case InterpOK:
 			// Normal — continue reading
@@ -1925,7 +1962,7 @@ func (t *Task) abortLocked() {
 	t.waitRunProgramDone()
 
 	if interp != nil {
-		_ = interp.Abort(0, "user abort")
+		_ = interp.Abort(int(emcAbortTaskAbort), "user abort")
 		_ = interp.Close()
 		_ = interp.Reset()
 		// Sync the canon endpoint from the machine BEFORE Synch (R6/C11), so the
