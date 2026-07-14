@@ -267,6 +267,12 @@ func (m *milltaskModule) Start() error {
 	// Start the sequencer goroutine (executes queued motion commands).
 	t.StartSequencer()
 
+	// Push the default blending mode to the TP, mirroring the C canon's
+	// INIT_CANON tail at task init (SET_TERM_COND(BLEND, 0.0254mm)). The
+	// boot-time interpreter init ran before the sequencer existed, so its
+	// InitCanon could not emit this itself.
+	t.pushDefaultTermCond()
+
 	// Run [RS274NGC]RS274NGC_STARTUP_CODE once, now that the interpreter's canon
 	// callbacks have a running sequencer to feed. Mirrors C emcTaskPlanInit
 	// (emctask.cc): execute the string on the interp, draining any

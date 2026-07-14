@@ -384,10 +384,41 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 // ends by restarting the sequencer uses this. Must be called with t.mu NOT held.
 func (t *Task) restartSequencer(terminalInterp InterpState, terminalExec ExecState) {
 	t.StartSequencer()
+	// Every teardown that lands here reset the interpreter while the sequencer
+	// was down, so InitCanon's default-term-cond re-emission was dropped — and
+	// the TP's term cond survives tpClear. Re-push the default unconditionally
+	// (the TP state is unknown here), mirroring 2.9 where the post-abort
+	// Interp::init's SET_TERM_COND reaches motion. AutoRun/AutoStep's plain
+	// StartSequencer deliberately does NOT do this: a run boundary emits only
+	// on change (via InitCanon), keeping program captures free of redundant
+	// SET_TERM_COND like the certified 2.9 parity golds.
+	t.pushDefaultTermCond()
 	t.mu.Lock()
 	t.interpState = terminalInterp
 	t.execState = terminalExec
 	t.mu.Unlock()
+}
+
+// pushDefaultTermCond unconditionally re-asserts the default blending mode
+// (G64 continuous, 0.0254 mm) to the TP and primes the canon's on-change
+// cache with it. For moments when the TP term cond is unknown or known-stale:
+// boot (module Start) and sequencer restarts after teardowns. Sent DIRECTLY
+// (not via the sequencer queue) so it is strictly ordered against the direct
+// motion commands the caller issues next (e.g. SetMode's SetCoord) — a queued
+// emission would land at an arbitrary point relative to them, making
+// motion-logger captures nondeterministic.
+func (t *Task) pushDefaultTermCond() {
+	if t.canon == nil {
+		return
+	}
+	if err := t.motion.SetTermCond(tpTermCondParabolic, defaultBlendTolMM); err != nil {
+		t.logger.Error("default term-cond push failed", "err", err)
+		t.canon.lastTermSet = false // TP state unknown; force re-emit on next G61/G64
+		return
+	}
+	t.canon.lastTermCond = tpTermCondParabolic
+	t.canon.lastTermTol = defaultBlendTolMM
+	t.canon.lastTermSet = true
 }
 
 // fullShutdownOpts returns the options for a full machine off/estop teardown.

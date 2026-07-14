@@ -41,6 +41,11 @@ const (
 	tpTermCondStop      = 0 // TC_TERM_COND_STOP
 	tpTermCondExact     = 1 // TC_TERM_COND_EXACT
 	tpTermCondParabolic = 2 // TC_TERM_COND_PARABOLIC (blend)
+
+	// defaultBlendTolMM is the default blending tolerance the C canon's
+	// INIT_CANON asserts at every Interp::init: 0.001 inch on an inch machine,
+	// 0.001*25.4 mm on a mm machine — 0.0254 mm either way (emccanon.cc).
+	defaultBlendTolMM = 0.0254
 )
 
 // canonModeToTPTermCond maps interpreter canon motion modes to TP term conditions.
@@ -379,6 +384,28 @@ func (c *Canon) InitCanon() {
 	c.state.g92Offset = saved.g92Offset
 	c.state.xyRotation = saved.xyRotation
 	c.state.toolOffset = saved.toolOffset
+
+	// Mirror the C canon INIT_CANON tail: re-assert the default blending mode
+	// to the TP on every interpreter init. The TP's term cond survives program
+	// end AND abort (tpClear preserves it; only tpInit resets it), so without
+	// this a G61 / G64 P<tol> would leak from one program into the next, where
+	// 2.9 guarantees a fresh SET_TERM_COND(BLEND, 0.0254mm). Routed through
+	// SetMotionControlMode so it coalesces when the TP already has the default
+	// (2.9 re-emits redundantly; motion-identical). The two init contexts this
+	// emission cannot reach the TP from are covered by pushDefaultTermCond:
+	// boot (no queue yet — skipped here via sequencerUp, module Start pushes)
+	// and teardown resets (enqueue into the aborted queue is silently dropped;
+	// restartSequencer pushes right after).
+	if c.task.sequencerUp() {
+		c.resetTermCondDefault()
+	}
+}
+
+// resetTermCondDefault re-asserts the default blending mode (G64 continuous,
+// 0.0254 mm tolerance) like the C canon's INIT_CANON tail. The tolerance is
+// passed in program units because SetMotionControlMode converts via fromProg.
+func (c *Canon) resetTermCondDefault() {
+	c.SetMotionControlMode(CanonContinuous, c.state.toProg(defaultBlendTolMM))
 }
 
 func (c *Canon) SetG5xOffset(origin int32, x, y, z, a, b, _c, u, v, w float64) {
