@@ -489,6 +489,12 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 	// its own limit, coordinated — not the traj-global cap. Matches C++
 	// STRAIGHT_TRAVERSE (getStraightVelocity/Acceleration).
 	velMax, accMax, _, _ := c.task.straightLimits(from, pos)
+	if accMax == 0 {
+		// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
+		// drops it via `if(vel && acc)`. Skip it too rather than emit a
+		// degenerate zero-length segment.
+		return
+	}
 	if velMax <= 0 {
 		velMax = s.linearFeedRate
 	}
@@ -512,10 +518,16 @@ func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
 	s.endPoint = pos
 	s.lineNo = lineno
 
-	// Set motion parameters before the move (tp uses termCond at add time)
+	vel, iniMaxVel, acc, feed := c.feedLimits(from, pos)
+	if acc == 0 {
+		// Zero-distance move: the C canon's STRAIGHT_FEED drops it via
+		// `if(vel && acc)` (and emits no params for it). Skip it too.
+		return
+	}
+	// Set motion parameters before the move (tp uses termCond at add time),
+	// emitted only when they change (enqueueMotionParams).
 	c.enqueueMotionParams()
 
-	vel, iniMaxVel, acc, feed := c.feedLimits(from, pos)
 	cmd := &LinearMoveCmd{
 		Pos:          pos,
 		Vel:          vel,
