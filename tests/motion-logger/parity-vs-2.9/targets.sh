@@ -13,10 +13,14 @@
 #                config; 1 = mm config). gomc golds are always mm (factor 1).
 #
 # Only parity-able tests are listed. Excluded and why:
-#   motion-logger/startup-gcode-abort — gomc xfail, no gold (RS274NGC_STARTUP_CODE
-#                                        never executed); nothing to certify yet.
-#   abort/{on_abort_command,stop-button}-crazy-move — gomc runs these on real
-#                                        core_sim (xfail), not motion-logger.
+#   motion-logger/startup-gcode-abort — enabled and passing with a gomc gold, but
+#                                        not a comparable oracle: 2.9 defers the
+#                                        startup move via interp_list (0 SET_LINE),
+#                                        gomc dispatches it at estop (1 SET_LINE).
+#                                        See PARITY_FINDINGS.md.
+#   abort/{on_abort_command,stop-button}-crazy-move — enabled, but run on real
+#                                        core_sim motion; pass/fail comes from
+#                                        axis position, not a motion-logger gold.
 #   basic builtin-startup / reset — machine bring-up + hygiene, never compared.
 PARITY_TARGETS=(
 "basic/g0    basic/expected.g0                  ../basic/expected.g0                                                   motion-logger/basic/expected.g0                                  -     25.4"

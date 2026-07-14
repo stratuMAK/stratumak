@@ -14,16 +14,16 @@ import (
 // for the methods it does not care about.
 type recMotionConfig struct {
 	noopMotionConfig
-	jointMin, jointMax                 map[int32]float64
-	jointBacklash, jointFerror         map[int32]float64
-	jointMinFerror, jointVel           map[int32]float64
-	jointAcc, jointJerk                map[int32]float64
-	homeOffset, home                   map[int32]float64
+	jointMin, jointMax                  map[int32]float64
+	jointBacklash, jointFerror          map[int32]float64
+	jointMinFerror, jointVel            map[int32]float64
+	jointAcc, jointJerk                 map[int32]float64
+	homeOffset, home                    map[int32]float64
 	homeFinalVel, homeSearch, homeLatch map[int32]float64
-	axisMin, axisMax                   map[int32]float64
-	axisVel, axisAcc                   map[int32]float64
-	worldHome                          Pose
-	trajVelLimit, trajAcc              float64
+	axisMin, axisMax                    map[int32]float64
+	axisVel, axisAcc                    map[int32]float64
+	worldHome                           Pose
+	trajVelLimit, trajAcc               float64
 }
 
 func newRec() *recMotionConfig {
@@ -44,9 +44,18 @@ func (r *recMotionConfig) SetJointPositionLimits(j int32, min, max float64) erro
 	r.jointMin[j], r.jointMax[j] = min, max
 	return nil
 }
-func (r *recMotionConfig) SetJointBacklash(j int32, v float64) error  { r.jointBacklash[j] = v; return nil }
-func (r *recMotionConfig) SetJointMaxFerror(j int32, v float64) error { r.jointFerror[j] = v; return nil }
-func (r *recMotionConfig) SetJointMinFerror(j int32, v float64) error { r.jointMinFerror[j] = v; return nil }
+func (r *recMotionConfig) SetJointBacklash(j int32, v float64) error {
+	r.jointBacklash[j] = v
+	return nil
+}
+func (r *recMotionConfig) SetJointMaxFerror(j int32, v float64) error {
+	r.jointFerror[j] = v
+	return nil
+}
+func (r *recMotionConfig) SetJointMinFerror(j int32, v float64) error {
+	r.jointMinFerror[j] = v
+	return nil
+}
 func (r *recMotionConfig) SetJointVelLimit(j int32, v float64) error  { r.jointVel[j] = v; return nil }
 func (r *recMotionConfig) SetJointAccLimit(j int32, v float64) error  { r.jointAcc[j] = v; return nil }
 func (r *recMotionConfig) SetJointJerkLimit(j int32, v float64) error { r.jointJerk[j] = v; return nil }
@@ -59,11 +68,17 @@ func (r *recMotionConfig) SetAxisPositionLimits(a int32, min, max float64) error
 	r.axisMin[a], r.axisMax[a] = min, max
 	return nil
 }
-func (r *recMotionConfig) SetAxisVelLimit(a int32, vel, ext float64) error { r.axisVel[a] = vel; return nil }
-func (r *recMotionConfig) SetAxisAccLimit(a int32, acc, ext float64) error { r.axisAcc[a] = acc; return nil }
-func (r *recMotionConfig) SetWorldHome(p Pose) error                       { r.worldHome = p; return nil }
-func (r *recMotionConfig) SetVelLimit(v float64) error                     { r.trajVelLimit = v; return nil }
-func (r *recMotionConfig) SetAcc(v float64) error                          { r.trajAcc = v; return nil }
+func (r *recMotionConfig) SetAxisVelLimit(a int32, vel, ext float64) error {
+	r.axisVel[a] = vel
+	return nil
+}
+func (r *recMotionConfig) SetAxisAccLimit(a int32, acc, ext float64) error {
+	r.axisAcc[a] = acc
+	return nil
+}
+func (r *recMotionConfig) SetWorldHome(p Pose) error   { r.worldHome = p; return nil }
+func (r *recMotionConfig) SetVelLimit(v float64) error { r.trajVelLimit = v; return nil }
+func (r *recMotionConfig) SetAcc(v float64) error      { r.trajAcc = v; return nil }
 
 const inch = 25.4
 

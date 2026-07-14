@@ -70,8 +70,10 @@ PARITY_FINDINGS.md  adjudication log (the load-bearing certification record)
 
 Adding a test: vendor its 2.9 gold (add a row to `targets.sh`, re-run
 `sync-oracle.sh`) and it joins `compare.sh`. Coverage today is every parity-able
-motion-logger test; `startup-gcode-abort` and the two `abort/*-crazy-move` tests
-are blocked by known gomc xfail gaps (see `PARITY_FINDINGS.md`).
+motion-logger test; `startup-gcode-abort` (incomparable oracle — 2.9 defers the
+startup move, gomc dispatches it at estop) and the two `abort/*-crazy-move`
+tests (real core_sim motion, judged by axis position not a logger gold) are
+enabled in runtests but excluded here (see `targets.sh` / `PARITY_FINDINGS.md`).
 
 ## What the normalizer keeps vs drops
 
