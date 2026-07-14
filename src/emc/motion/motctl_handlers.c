@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "motion.h"
 #include "motion_struct.h"
 #include "mot_priv.h"
@@ -34,13 +35,31 @@ typedef struct motctl_ctx {
     emcmot_struct_t *mot;
     int command_num;
     double comm_timeout; /* seconds */
+    /* Serializes whole send/ack cycles across the caller's goroutines (see
+       send_command). Process-local: every user of this motmod instance goes
+       through this one ctx (interceptors forward into it). */
+    pthread_mutex_t send_mtx;
 } motctl_ctx_t;
 
-/* Send a command to the RT side: mutex-protected write, then poll
-   for acknowledgment.  Returns 0 on success, -1 on error/timeout. */
+/* Send a command to the RT side: write the single command slot, then poll for
+   acknowledgment.  Returns 0 on success, -1 on error/timeout.
+
+   The WHOLE write+ack cycle is serialized by mc->send_mtx: the command slot is
+   single-entry and the RT side consumes it once per servo cycle, so two
+   concurrent senders (gomc has several — the sequencer goroutine, command
+   handlers, the monitor's inihal push) could otherwise overwrite each other's
+   command before RT read it — the loser's command is silently dropped and its
+   sender burns the full comm_timeout waiting for an echo that never comes
+   (observed: a queued SET_TERM_COND racing SetMode's COORD lost the COORD, and
+   the next SET_LINE was rejected "need to be enabled, in coord mode"). The
+   classic 2.9 usrmotintf had the same single-slot design but only ever one
+   sender (task); serializing here restores that invariant. */
 static int send_command(motctl_ctx_t *mc, emcmot_command_t *cmd)
 {
     emcmot_struct_t *m = mc->mot;
+    int ret = -1; /* timeout */
+
+    pthread_mutex_lock(&mc->send_mtx);
     cmd->commandNum = ++mc->command_num;
 
     rtapi_mutex_get(&m->command_mutex);
@@ -58,11 +77,13 @@ static int send_command(motctl_ctx_t *mc, emcmot_command_t *cmd)
         int cstatus = m->status_buf.slots[m->status_buf.read_idx].commandStatus;
         rtapi_mutex_give(&m->status_buf.reader_mtx);
         if (echo == cmd->commandNum) {
-            return (cstatus == EMCMOT_COMMAND_OK) ? 0 : -1;
+            ret = (cstatus == EMCMOT_COMMAND_OK) ? 0 : -1;
+            break;
         }
         rtapi_delay(rtapi_delay_max()); /* ~10 µs yield */
     }
-    return -1; /* timeout */
+    pthread_mutex_unlock(&mc->send_mtx);
+    return ret;
 }
 
 /* Helper: zero a command struct and set the opcode */
@@ -838,6 +859,7 @@ motctl_callbacks_t motctl_get_callbacks(motctl_ctx_t **ctx_out)
     mc->mot = NULL;
     mc->command_num = 0;
     mc->comm_timeout = 0;
+    pthread_mutex_init(&mc->send_mtx, NULL);
     if (ctx_out) *ctx_out = mc;
 
     motctl_callbacks_t cb = {
