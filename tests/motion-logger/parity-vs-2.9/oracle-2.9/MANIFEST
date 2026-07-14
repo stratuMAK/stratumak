@@ -1,0 +1,9 @@
+# Vendored LinuxCNC 2.9 motion-logger oracle — provenance.
+# Regenerate with ./sync-oracle.sh (reads $LCNC29). Do not hand-edit the golds.
+source_tree:   /home/sascha/source/linuxcnc-2.9
+source_commit: 50773b43537495f13af33869ce028f0a696d8871
+source_short:  50773b4353
+source_branch: verify-milltask-lcnc
+source_date:   2026-07-08 00:46:29 +0200
+synced_at:     2026-07-14 09:56:52 +0200
+files:         5
