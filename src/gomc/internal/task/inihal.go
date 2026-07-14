@@ -17,6 +17,16 @@ const (
 
 // iniHal holds the HAL component and pins for runtime INI parameter override.
 // Pin values are read each cycle; changes are pushed to the motion controller.
+//
+// Units: all length-dimensioned pins (limits, velocities, accelerations, jerk,
+// home/offset, backlash, ferror) are in gomc-internal millimeters, NOT the INI's
+// machine units. That matches the rest of gomc: the motion controller runs in mm
+// (positions, feedback, gmi API), config.go converts the INI machine-unit values
+// to mm before the initial push, and the traj pins here are initialized from the
+// already-mm t.maxVelocity/t.maxAcceleration. Values read from these pins are
+// therefore pushed to motion unchanged. A HAL file that drives these pins must
+// supply mm (as it must for every other length in gomc); do NOT wire raw
+// machine-unit [SECTION]KEY substitutions into them.
 type iniHal struct {
 	comp *hal.Component
 

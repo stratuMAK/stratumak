@@ -63,7 +63,14 @@ def wait_for_joint_to_stop(joint_number):
     sys.exit(1)
 
 
-def close_enough(a, b, epsilon=0.000001):
+# Positions here are gomc-internal millimeters. simple_tp's arrival deadband
+# TINY_DP = max_acc * period^2 * 0.001 scales with max_acc, which is now in mm/s^2
+# (25.4x larger than the old inch-scaled motion): for these configs (1000 inch/s^2
+# = 25400 mm/s^2, 1 ms servo) it is 2.54e-5 mm, so a jog legitimately stops that
+# far short of its target. The original 1e-6 epsilon was an inch tolerance that
+# happened to match the inch-scale deadband; in mm it is 25.4x too tight. Use an
+# mm-scale tolerance comfortably above the deadband (still 0.1 um).
+def close_enough(a, b, epsilon=0.0001):
     return math.fabs(a - b) < epsilon
 
 

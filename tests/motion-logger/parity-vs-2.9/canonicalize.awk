@@ -24,6 +24,17 @@
 #   SET_LINE / SET_CIRCLE : drop `id=N`  — the two trees number motion ids on
 #       different schemes (2.9 = running canonical-op counter, gomc = per-move);
 #       id is a GUI current-line tracker, not a motion parameter.
+#   SET_LINE / SET_CIRCLE : drop the per-move dynamics `vel=`,`ini_maxvel=`,`acc=`.
+#       gomc runs mm-everywhere (config vel/accel limits converted to mm) while
+#       2.9 keeps them in inch-based machine units, so no single unit factor
+#       reconciles the two: pure-linear rapids differ x25.4, G1 feeds not at all,
+#       and mixed linear+angular moves diverge non-uniformly because 2.9 blends
+#       mm displacements against inch/s limits (an inconsistency that mis-picks
+#       the limiting axis; gomc is physically correct). These per-move dynamics
+#       are therefore not a portable cross-tree quantity — compare only the
+#       geometry (positions x..w), motion_type, and turn. The FULL dynamics are
+#       still regression-checked in the self golds (gomc-vs-gomc). See
+#       PARITY_FINDINGS.md "units (mm-everywhere)".
 #   SET_VEL               : keep `vel=`, drop the 2.9-only `, ini_maxvel=` tail.
 #   SET_SPINDLESYNC       : keep `sync=`, drop the trailing field (2.9 `flags=`
 #       vs gomc `motion_type=` are incomparable encodings).
@@ -66,6 +77,9 @@ BEGIN { started = (strip_preamble ? 0 : 1) }
         line = $0
         if (line ~ /pos:/) next             # 2.9-only continuation: drop
         sub(/id=-?[0-9]+, /, "", line)      # strip id on the id= continuation
+        sub(/, ini_maxvel=[^,]*/, "", line) # drop per-move dynamics (as for SET_LINE)
+        sub(/, vel=[^,]*/, "", line)
+        sub(/, acc=[^,]*/, "", line)
         print line
     }
     next
@@ -83,7 +97,19 @@ BEGIN { started = (strip_preamble ? 0 : 1) }
     if (op=="SET_CIRCLE:") { in_circle = 1; print; next }
 
     line = $0
-    if      (op=="SET_LINE")         sub(/ id=-?[0-9]+,/, "", line)  # drop id field
+    if (op=="SET_LINE") {
+        sub(/ id=-?[0-9]+,/, "", line)           # drop id field
+        # Drop the per-move dynamics vel/ini_maxvel/acc. 2.9 expresses these in
+        # inch-based machine units while gomc (mm-everywhere) uses mm, and no
+        # single unit factor reconciles them: pure-linear rapids scale x25.4,
+        # G1 feeds not at all, and mixed linear+angular moves non-uniformly
+        # (2.9 blends mm displacements against inch/s limits — see PARITY_FINDINGS.md).
+        # Keep the portable, cross-tree-identical fields: positions x..w,
+        # motion_type, turn. The full dynamics stay in the self-regression golds.
+        sub(/, ini_maxvel=[^,]*/, "", line)
+        sub(/, vel=[^,]*/, "", line)
+        sub(/, acc=[^,]*/, "", line)
+    }
     else if (op=="SET_VEL")          sub(/,.*/, "", line)            # drop ini_maxvel tail
     else if (op=="SET_SPINDLESYNC")  sub(/,.*/, "", line)            # drop flags/motion_type tail
     print line

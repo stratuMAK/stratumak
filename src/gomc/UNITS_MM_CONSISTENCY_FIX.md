@@ -1,9 +1,15 @@
 # gomc units consistency fix — spec / handoff
 
-Status: **partially done** (position limits, linear-only-unaware) on branch `ci-trim`.
-The rest is a self-contained follow-up meant for its own branch + full-suite
-regression. This doc is the complete cold-start brief so no re-derivation is
-needed.
+Status: **DONE** on branch `verify-motion-logger` (2026-07-14). All linear
+length/velocity/accel/jerk config values are converted machine-units->mm at load
+with a linear-only (axis-index / joint TYPE) guard; inch self-golds re-captured;
+parity harness updated. See "Implementation notes" at the bottom for what
+actually landed and where it deviates from this original brief (§5 in particular).
+Original brief preserved below.
+
+Historical status: **partially done** (position limits, linear-only-unaware) on
+branch `ci-trim`. The rest was a self-contained follow-up; this doc is the
+complete cold-start brief so no re-derivation is needed.
 
 ---
 
@@ -235,3 +241,69 @@ output); only the normalizer gains the unit factor.
 - The gmi python `Stat` client gained `queue`/`queue_full` (`lib/python/gmi/stat.py`)
   as part of that port — unrelated to units, keep.
 - Parity harness lives in `tests/motion-logger/parity-vs-2.9/` (README there).
+
+---
+
+## Implementation notes (what actually landed, 2026-07-14)
+
+Convention **A (mm-everywhere)** as recommended. Changes:
+
+- `config.go`: added `axisIsLinear(index)` (X/Y/Z/U/V/W linear; A/B/C angular),
+  `jointTypeIsLinear([JOINT_n]TYPE)` (default LINEAR), `machineToMMLinear(v, linear)`,
+  and `poseLinearToMM`. Every linear length/vel/accel/jerk value in `loadJoint`,
+  `loadAxis`, the `loadConfig` per-index caches, and the `loadTraj` globals is now
+  scaled iff linear; angular values pass through. `jointLinear[]` cached on `Task`.
+  World home (`[TRAJ]HOME`) also gets its linear components scaled (a position
+  handed to motion; not in the original §4 tables but the same bug class).
+- Spindle velocities and `HOME_SEARCH_VELOCITY` (rev/s), `OFFSET_AV_RATIO`
+  (dimensionless), and anything the canon already converts are left unscaled, as §4 said.
+- `inihal.go`: **no functional change** — its length pins are gomc-internal mm by
+  design (traj pins initialised from the now-mm `t.maxVelocity`; joint/axis limit
+  pins are HAL-driven and pushed raw to mm-internal motion; no gomc code feeds INI
+  machine units into them). Added a doc comment stating the mm contract so the bug
+  isn't reintroduced. If you ever add INI->pin substitution, it must emit mm.
+- Tests: `internal/task/units_test.go` covers linear-scaled vs angular-unscaled
+  joints/axes and the two helpers.
+
+### §5 deviation — parity normalizer (IMPORTANT)
+
+§5 assumed the 2.9 oracle's linear SET_LINE fields could be brought to mm with a
+single ×25.4 factor. **That is false for the per-move dynamics** (`vel`,
+`ini_maxvel`, `acc`). 2.9 keeps velocity/accel *limits* in inch-based machine units
+while emitting *positions* in mm, so its blend mixes units. Empirically: pure-linear
+rapids scale ×25.4, G1 feeds not at all, and **mixed linear+angular moves diverge
+non-uniformly** because the mismatched units mis-pick the limiting axis (2.9 gets
+`ini_maxvel=1.66296` for basic/g1 move 1; gomc's mm-consistent `2.49444` is
+physically correct — angular-C-limited). No factor reconciles all three.
+
+Resolution actually implemented: **strip** `vel`/`ini_maxvel`/`acc` from SET_LINE
+(and SET_CIRCLE) in `canonicalize.awk` — they are not a portable cross-tree
+quantity. The cross-tree parity now certifies geometry + motion_type + sequencing
++ spindle/IO; the full per-move dynamics stay regression-checked in the self golds
+(gomc-vs-gomc). No `unit_factor` was needed in `normalize.sh` after all: the only
+other value-divergent fields (standalone `SET_ACC`/`SET_VEL`) are gomc-only
+re-emission lines already logged as parity finding #1. `compare.sh` shows exactly
+the pre-existing 5 findings, unchanged. See `parity-vs-2.9/PARITY_FINDINGS.md`
+"units (mm-everywhere)".
+
+### §6 golds re-captured
+`motion-logger/basic` (builtin-startup, g0, g1, s), `motion-logger/mountaindew`
+(trailing ABORT stripped), `interp/m98m99/12-M99-endless-main-program`. All pass.
+
+### §7 test fallout — mm HAL pins
+gomc feeds motmod mm, so HAL `joint.N.pos*` pins are mm (not 2.9's inch). Three
+`tests/motion` inch tests that read those pins and compared against inch INI/values
+broke — the fix is correct; the tests assumed machine-unit pins. Made them
+"mm-aware" (interpret the HAL values as mm) WITHOUT migrating the test:
+- `motion/g0/checkresult`: convert [AXIS_X] MAX_VELOCITY/MAX_ACCELERATION to mm via
+  [TRAJ]LINEAR_UNITS; break the accel phase on accel<=0 (the correct mm limits make
+  the 1 mm move triangular, no cruise); widen the accel epsilon to the 6-decimal
+  sample quantization at mm scale. Move stays 1 mm.
+- `motion/jogwheel-{axis,joint}`: relax close_enough epsilon 1e-6 -> 1e-4 mm. The
+  1e-6 was an inch tolerance matching simple_tp's arrival deadband TINY_DP =
+  max_acc*period^2*0.001 (2.54e-5 mm, scale-invariant); in mm it was 25.4x too
+  tight so a jog that legitimately stops within the deadband "failed". jog-scales
+  unchanged; not a motmod bug.
+Not caused by the fix (flaky under batch load, pass alone): `linuxcncrsh`,
+`remap/introspect`, `remap/fail/prolog`. Watch for other inch tests that read HAL
+joint pins as machine units — apply the same mm-aware treatment.
