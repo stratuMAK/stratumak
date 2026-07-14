@@ -692,8 +692,12 @@ func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
 	stat.setEnabled(0) // stale mirror: enable acked but not yet reflected
 
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)

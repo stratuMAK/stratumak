@@ -297,7 +297,10 @@ gomc-test-race:
 # gomc branch. The legacy findings (see gomc-lint-full) are burned down in the
 # per-submodule cleanup phase — see PRODUCTION_READINESS.md.
 # Tool version is pinned (see GOLANGCI_LINT_VERSION); config in gomc/.golangci.yml.
-GOLANGCI_LINT ?= golangci-lint
+# Default: golangci-lint from PATH, else the standard `go install` location
+# (GOPATH/bin) — `go install` does not put binaries on PATH by itself.
+GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null \
+    || echo "$(shell $(GO) env GOPATH)/bin/golangci-lint")
 GOLANGCI_LINT_VERSION := v2.12.2
 GOMC_LINT_BASE ?= gomc
 .PHONY: gomc-lint
