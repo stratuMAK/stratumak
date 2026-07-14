@@ -51,6 +51,11 @@ type monitor struct {
 
 	// Latch: suppress repeated error handling until error clears.
 	errorLatched bool
+
+	// Debounce counter for checkMotionEnabled: consecutive ticks that observed
+	// motion disabled while the task state was ON. See there for why one
+	// sample is not trustworthy right after a machine-on.
+	motionDisabledTicks int
 }
 
 func newMonitor(t *Task, mc MotionConfig, ih *iniHal, ioStat IOStatusReader) *monitor {
@@ -195,8 +200,11 @@ func (m *monitor) checkEstop() {
 	if !wasEnabled {
 		// Machine was already off (EstopReset/Off) — emc-enable-in going
 		// low is expected (e.g. HW drops it when motion is disabled).
-		// Just transition state silently, matching 2.9's determineState()
-		// which returns ESTOP without any side effects.
+		// Just transition the state, matching 2.9's determineState() which
+		// returns ESTOP without any side effects. Logged because this is
+		// the one estop path with no teardown to make it visible — a stat
+		// reader that suddenly sees STATE_ESTOP needs this breadcrumb.
+		m.task.logger.Info("emc-enable-in low while machine off — state now estop")
 		return
 	}
 
@@ -234,14 +242,33 @@ func (m *monitor) checkMotionEnabled() {
 	}
 
 	if ms.Enabled != 0 {
+		m.motionDisabledTicks = 0
 		return // motion still enabled, nothing to do
 	}
 
 	m.task.mu.Lock()
 	if m.task.state != StateOn {
 		m.task.mu.Unlock()
+		m.motionDisabledTicks = 0
 		return
 	}
+
+	// Debounce: SetState(ON) acks motion.Enable() BEFORE setting state=ON, but
+	// the motstat mirror this loop reads is only updated by the servo cycle —
+	// so for a few ms after a machine-on, a fresh state=ON can pair with a
+	// stale Enabled=0 and a single sample would spuriously switch the machine
+	// back off (observed as flaky remap tests: the machine dropped out right
+	// after "set machine on"). A real self-disable (following error, amp
+	// fault, limit, external enable drop) latches in motmod until task
+	// re-enables, so requiring consecutive samples one monitorInterval apart
+	// loses nothing — it only adds 2 ticks (20 ms) of detection latency,
+	// comparable to the classic 2.9 task-cycle granularity.
+	m.motionDisabledTicks++
+	if m.motionDisabledTicks < 3 {
+		m.task.mu.Unlock()
+		return
+	}
+	m.motionDisabledTicks = 0
 	// Motion disabled itself while the task believed the machine was on — an
 	// unexpected disable (hard limit, following error, amp fault, watchdog, or
 	// an external enable drop). Latch ExecError so the interruption is visible

@@ -682,3 +682,50 @@ func TestMonitor_EstopDetectionWhileCmdMuHeld(t *testing.T) {
 	task.cmdMu.Unlock()
 	mon.stop()
 }
+
+// TestMonitor_MotionDisabled_Debounced: a single Enabled==0 sample right after
+// machine-on must NOT switch the machine off — the motstat mirror is updated by
+// the servo cycle and can briefly lag the acked enable (the flaky-remap-test
+// race). Only a persistent disable (3 consecutive monitor ticks) trips, and an
+// enabled sample in between resets the debounce counter.
+func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
+	task, mot, io, stat, _ := newMonitorTestTask()
+	stat.setEnabled(0) // stale mirror: enable acked but not yet reflected
+
+	task.SetState(int32(StateEstopReset))
+	task.SetState(int32(StateOn))
+	task.StartSequencer()
+
+	mon := newMonitor(task, nil, nil, io)
+	// Drive checkMotionEnabled directly (no loop) to control tick count.
+	stateIsOn := func() bool {
+		task.mu.Lock()
+		defer task.mu.Unlock()
+		return task.state == StateOn
+	}
+
+	mon.checkMotionEnabled()
+	mon.checkMotionEnabled()
+	if !stateIsOn() {
+		t.Fatal("machine switched off after only 2 disabled samples (stale-mirror race not debounced)")
+	}
+
+	// A fresh enabled sample resets the debounce.
+	stat.setEnabled(1)
+	mon.checkMotionEnabled()
+	stat.setEnabled(0)
+	mon.checkMotionEnabled()
+	mon.checkMotionEnabled()
+	if !stateIsOn() {
+		t.Fatal("debounce counter not reset by an enabled sample")
+	}
+
+	// Persistent disable trips on the 3rd consecutive sample.
+	mon.checkMotionEnabled()
+	if stateIsOn() {
+		t.Fatal("persistent motion self-disable not detected after 3 consecutive samples")
+	}
+	if mot.abortCount.Load() == 0 {
+		t.Fatal("expected Abort when motion disables itself persistently")
+	}
+}
