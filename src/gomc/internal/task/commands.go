@@ -2053,7 +2053,15 @@ func (t *Task) ToolUnload() error {
 	return err
 }
 
-// WaitComplete waits for motion to complete (with timeout).
+// WaitComplete waits for the task to settle: exec state done AND the
+// interpreter idle AND no queued MDIs. Checking execState alone raced
+// no-motion MDIs (e.g. the AXIS touch-off "G10 L20 ..."): those never leave
+// ExecDone — only interpState goes busy (set synchronously by the /mdi POST,
+// cleared by the async finishMDI) — so a wait_complete right after c.mdi()
+// returned instantly and the client's next command (AXIS: program_open to
+// reload the preview) hit the "Can't open a program while one is running"
+// reject. Classic NML closed this with the echo_serial_number handshake;
+// this is the equivalent for the queue-registered-before-POST-returns model.
 func (t *Task) WaitComplete(timeout float64) error {
 	deadline := time.Now().Add(time.Duration(timeout * float64(time.Second)))
 	ticker := time.NewTicker(pollInterval)
@@ -2062,8 +2070,9 @@ func (t *Task) WaitComplete(timeout float64) error {
 	for {
 		t.mu.Lock()
 		exec := t.execState
+		settled := !t.programBusy() && len(t.mdiQueue) == 0
 		t.mu.Unlock()
-		if exec == ExecDone || exec == ExecError {
+		if (exec == ExecDone || exec == ExecError) && settled {
 			return nil
 		}
 		if timeout > 0 && time.Now().After(deadline) {
