@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <stdint.h>
+#include <errno.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,7 +57,15 @@ static inline int gomc_should_exit(int exit_fd) {
 static inline void gomc_signal_exit(int exit_fd) __attribute__((unused));
 static inline void gomc_signal_exit(int exit_fd) {
     uint64_t val = 1;
-    (void)write(exit_fd, &val, sizeof(val));
+    ssize_t rc;
+    do {
+        rc = write(exit_fd, &val, sizeof(val));
+    } while (rc < 0 && errno == EINTR);
+    // No further handling needed: an eventfd write only fails once the
+    // counter is saturated (EAGAIN), and a saturated counter already reads
+    // as POLLIN — the exit condition gomc_should_exit() polls for is set
+    // either way.
+    (void)rc;
 }
 
 #ifdef __cplusplus

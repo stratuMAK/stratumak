@@ -4,11 +4,22 @@ name: Build CI
 
 on:
   push:
+    # Unfiltered push + pull_request would run everything twice for every PR
+    # branch push. Branch work is covered by the pull_request trigger.
+    branches: [gomc]
+    tags: ['*']
   pull_request:
   release:
     types: [published]
   check_suite:
     types: [rerequested]
+  # Manual trigger for the gated heavy jobs (packages, docs) without a release.
+  workflow_dispatch:
+
+# Job gating policy for this fork (upstream runs everything on every push):
+#   - gomc + rip-and-test + static-checks: every push and PR — the merge gates.
+#   - rip-and-test-clang, htmldocs: post-merge pushes to gomc only.
+#   - package-*: releases/tags (feeds the release job) or manual dispatch.
 
 permissions:
   contents: read #  to fetch code (actions/checkout)
@@ -32,7 +43,6 @@ jobs:
         set -x
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
@@ -42,6 +52,7 @@ jobs:
 
   rip-and-test-clang:
     runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/gomc'
     steps:
     - name: Dump GitHub context
       env:
@@ -58,7 +69,6 @@ jobs:
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
         sudo eatmydata apt-get install -y clang
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
@@ -121,8 +131,28 @@ jobs:
           tests/**/out.motion-logger
         if-no-files-found: ignore
 
+  # Scoped, enforcing static analysis (shellcheck over fork-owned shell,
+  # cppcheck over gomc-owned C). Needs no RIP build — fast fail on every PR.
+  static-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Install analyzers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends cppcheck shellcheck
+    - name: Static checks (gomc-owned shell + C)
+      run: ./scripts/check-static
+
   htmldocs:
     runs-on: ubuntu-24.04
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/gomc') ||
+      github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch'
     steps:
     - name: Dump GitHub context
       env:
@@ -137,7 +167,6 @@ jobs:
       run: |
         ./scripts/travis-install-build-deps.sh
         sudo apt-get install -y eatmydata
-        sudo eatmydata apt --quiet --yes upgrade
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-build-documentation=html
@@ -148,6 +177,10 @@ jobs:
 
   package-arch:
     runs-on: ${{ matrix.runner }}
+    if: >-
+      github.event_name == 'release' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
@@ -255,6 +288,10 @@ jobs:
 
   package-indep:
     runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'release' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         image: ["debian:bullseye", "debian:bookworm", "debian:trixie", "debian:sid"]
@@ -352,26 +389,6 @@ jobs:
         name: linuxcnc-${{ steps.meta.outputs.dist }}-${{ steps.meta.outputs.arch }}
         path: artifacts/${{ steps.meta.outputs.dist }}/${{ steps.meta.outputs.arch }}
         if-no-files-found: error
-
-
-  cppcheck:
-    runs-on: ubuntu-24.04
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        submodules: true
-        fetch-depth: 0
-    - name: Perform Source Code checks that were successful in the past
-      continue-on-error: true
-      run: |
-        set -x
-        git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc refs/tags/*:refs/tags/*
-        sudo apt-get -y install cppcheck shellcheck
-        scripts/cppcheck.sh
-    - name: Shellcheck
-      continue-on-error: true
-      run: |
-        scripts/shellcheck.sh
 
 
   release:

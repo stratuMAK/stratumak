@@ -61,7 +61,7 @@ cc-option = $(shell if $(CC) $(CFLAGS) $(1) -S -o /dev/null -xc /dev/null \
 KERNELDIR := @KERNELDIR@
 CC := @CC@
 RTFLAGS = $(filter-out -ffast-math,@RTFLAGS@) -fno-fast-math $(call cc-option,-mieee-fp) -fno-unsafe-math-optimizations
-RTFLAGS := -Wall -Os -g -I. -I@RTDIR@/include $(RTFLAGS) -D_GNU_SOURCE -Drealtime
+RTFLAGS := -Wall -Os -g -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -I. -I@RTDIR@/include $(RTFLAGS) -D_GNU_SOURCE -Drealtime
 EXTRA_CFLAGS += -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos
 EMC2_HOME=@EMC2_HOME@
 RUN_IN_PLACE=@RUN_IN_PLACE@

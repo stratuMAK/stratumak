@@ -117,6 +117,10 @@ hal/components/conv_u32_s32.comp: hal/components/conv.comp.in hal/components/mkc
 
 
 CMOD_INCLUDE := gomc/pkg/cmodule
+# Shared compile flags for the hand-rolled cmod rules below. Fortify 3 keeps
+# these units at parity with the rest of the build (src/Makefile DEBUG) and
+# the Ubuntu CI runners' builtin default; -U first: Ubuntu's gcc predefines it.
+CMOD_COMP_CFLAGS := -fPIC -Os -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
 CMOD_CFLAGS  := -fPIC -Os -Wall -shared -o
 
 # Step 1: .comp → .c via modcompile
@@ -129,7 +133,7 @@ objects/cmod/%.c: hal/components/%.comp ../bin/modcompile
 ../cmod/%.so: objects/cmod/%.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 # Step 2b: kinematics comps need the GMI kins API header path.
 # These override the generic pattern rule above for kins modules.
@@ -227,7 +231,7 @@ CMOD_C_TARGETS := $(addprefix ../cmod/, $(addsuffix .so, $(CMOD_C_SRCS)))
 ../cmod/%.so: hal/components/%.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 TARGETS += $(CMOD_C_TARGETS)
 modules: $(CMOD_C_TARGETS)
@@ -248,7 +252,7 @@ objects/cmod/thermistor.c: hal/user_comps/thermistor.comp ../bin/modcompile
 ../cmod/thermistor.so: objects/cmod/thermistor.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread
 
 # wj200_vfd: hal/user_comps/wj200_vfd/wj200_vfd.comp
 objects/cmod/wj200_vfd.c: hal/user_comps/wj200_vfd/wj200_vfd.comp ../bin/modcompile
@@ -259,7 +263,7 @@ objects/cmod/wj200_vfd.c: hal/user_comps/wj200_vfd/wj200_vfd.comp ../bin/modcomp
 ../cmod/wj200_vfd.so: objects/cmod/wj200_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
 
 # pi500_vfd: hal/user_comps/pi500_vfd/pi500_vfd.comp
 objects/cmod/pi500_vfd.c: hal/user_comps/pi500_vfd/pi500_vfd.comp ../bin/modcompile
@@ -270,7 +274,7 @@ objects/cmod/pi500_vfd.c: hal/user_comps/pi500_vfd/pi500_vfd.comp ../bin/modcomp
 ../cmod/pi500_vfd.so: objects/cmod/pi500_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
 
 # svd_ps_vfd: hal/user_comps/svd-ps_vfd.comp
 objects/cmod/svd_ps_vfd.c: hal/user_comps/svd-ps_vfd.comp ../bin/modcompile
@@ -281,7 +285,7 @@ objects/cmod/svd_ps_vfd.c: hal/user_comps/svd-ps_vfd.comp ../bin/modcompile
 ../cmod/svd_ps_vfd.so: objects/cmod/svd_ps_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
 
 # hy_gt_vfd: hal/user_comps/hy_gt_vfd.comp
 objects/cmod/hy_gt_vfd.c: hal/user_comps/hy_gt_vfd.comp ../bin/modcompile
@@ -292,7 +296,7 @@ objects/cmod/hy_gt_vfd.c: hal/user_comps/hy_gt_vfd.comp ../bin/modcompile
 ../cmod/hy_gt_vfd.so: objects/cmod/hy_gt_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
 
 # gs2_vfd: hal/user_comps/gs2_vfd.comp
 objects/cmod/gs2_vfd.c: hal/user_comps/gs2_vfd.comp ../bin/modcompile
@@ -303,7 +307,7 @@ objects/cmod/gs2_vfd.c: hal/user_comps/gs2_vfd.comp ../bin/modcompile
 ../cmod/gs2_vfd.so: objects/cmod/gs2_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus
 
 # vfdb_vfd: hal/user_comps/vfdb_vfd/vfdb_vfd.comp
 objects/cmod/vfdb_vfd.c: hal/user_comps/vfdb_vfd/vfdb_vfd.comp ../bin/modcompile
@@ -314,7 +318,7 @@ objects/cmod/vfdb_vfd.c: hal/user_comps/vfdb_vfd/vfdb_vfd.comp ../bin/modcompile
 ../cmod/vfdb_vfd.so: objects/cmod/vfdb_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
 
 # vfs11_vfd: hal/user_comps/vfs11_vfd/vfs11_vfd.comp
 objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcompile
@@ -325,7 +329,7 @@ objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcomp
 ../cmod/vfs11_vfd.so: objects/cmod/vfs11_vfd.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
 
 # hy_vfd: hal/user_comps/huanyang-vfd/hy_vfd.comp + hy_comm.c
 objects/cmod/hy_vfd.c: hal/user_comps/huanyang-vfd/hy_vfd.comp ../bin/modcompile
@@ -336,12 +340,12 @@ objects/cmod/hy_vfd.c: hal/user_comps/huanyang-vfd/hy_vfd.comp ../bin/modcompile
 objects/cmod/hy_vfd.o: objects/cmod/hy_vfd.c
 	$(ECHO) "Compiling $(notdir $<)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -c -I $(CMOD_INCLUDE) -I. -Ihal/user_comps/huanyang-vfd -o $@ $<
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -c -I $(CMOD_INCLUDE) -I. -Ihal/user_comps/huanyang-vfd -o $@ $<
 
 objects/cmod/hy_comm.o: hal/user_comps/huanyang-vfd/hy_comm.c
 	$(ECHO) "Compiling $(notdir $<)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -c -Ihal/user_comps/huanyang-vfd -o $@ $<
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -c -Ihal/user_comps/huanyang-vfd -o $@ $<
 
 ../cmod/hy_vfd.so: objects/cmod/hy_vfd.o objects/cmod/hy_comm.o
 	$(ECHO) "Linking cmod $(notdir $@)"
@@ -357,7 +361,7 @@ modules: $(CMOD_USER_TARGETS)
                       | headers
 	$(ECHO) "Compiling cmod matrix_kb.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -Wextra -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
 	    -I. -I../include -Igomc/pkg/cmodule \
 	    -o $@ hal/components/matrix_kb.c \
@@ -372,7 +376,7 @@ modules: ../cmod/matrix_kb.so
                      | headers
 	$(ECHO) "Compiling cmod sendkeys.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule \
 	    -o $@ hal/user_comps/sendkeys.c \
@@ -386,7 +390,7 @@ modules: ../cmod/sendkeys.so
                     | headers
 	$(ECHO) "Compiling cmod shuttle.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule \
 	    -o $@ hal/user_comps/shuttle.c \
@@ -401,7 +405,7 @@ ifdef HAVE_LIBUSB10
                       | headers ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod xhc-hb04.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -Ilibnml/inifile -I../include \
 	    -o $@ hal/user_comps/xhc-hb04.c \
@@ -415,7 +419,7 @@ modules: ../cmod/xhc-hb04.so
                           | headers
 	$(ECHO) "Compiling cmod xhc-whb04b-6.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/xhc-whb04b-6.c \
@@ -430,7 +434,7 @@ endif # HAVE_LIBUSB10
                           | headers
 	$(ECHO) "Compiling cmod scorbot-er-3.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/scorbot-er-3.c \
@@ -444,7 +448,7 @@ modules: ../cmod/scorbot-er-3.so
                    | headers
 	$(ECHO) "Compiling cmod pmx485.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/pmx485.c \
@@ -458,7 +462,7 @@ modules: ../cmod/pmx485.so
                        | headers
 	$(ECHO) "Compiling cmod mitsub_vfd.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/mitsub_vfd.c \
@@ -472,7 +476,7 @@ modules: ../cmod/mitsub_vfd.so
                       | headers
 	$(ECHO) "Compiling cmod hal_input.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/hal_input.c \
@@ -487,7 +491,7 @@ modules: ../cmod/hal_input.so
                                  | headers
 	$(ECHO) "Compiling cmod z_level_compensation.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared \
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
 	    -I. -Igomc/pkg/cmodule -I../include \
 	    -Igomc/generated/gmi/z_level_compensation \
@@ -501,7 +505,7 @@ CMOD_GMI_HAL_SAMPLER_API := gomc/generated/gmi/hal_sampler
 ../cmod/sampler.so: hal/components/sampler.c $(CMOD_GMI_HAL_SAMPLER_API)/hal_sampler_stream_api.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HAL_SAMPLER_API) -o $@ $< $(CMOD_LDFLAGS)
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HAL_SAMPLER_API) -o $@ $< $(CMOD_LDFLAGS)
 TARGETS += ../cmod/sampler.so
 modules: ../cmod/sampler.so
 
@@ -510,7 +514,7 @@ CMOD_GMI_HAL_STREAMER_API := gomc/generated/gmi/hal_streamer
 ../cmod/streamer.so: hal/components/streamer.c $(CMOD_GMI_HAL_STREAMER_API)/hal_streamer_stream_api.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HAL_STREAMER_API) -o $@ $< $(CMOD_LDFLAGS)
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HAL_STREAMER_API) -o $@ $< $(CMOD_LDFLAGS)
 TARGETS += ../cmod/streamer.so
 modules: ../cmod/streamer.so
 
@@ -518,7 +522,7 @@ modules: ../cmod/streamer.so
 ../cmod/filestream.so: hal/components/filestream.c hal/components/hal_stream_common.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lpthread
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lpthread
 TARGETS += ../cmod/filestream.so
 modules: ../cmod/filestream.so
 

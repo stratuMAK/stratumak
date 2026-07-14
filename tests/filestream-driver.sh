@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared driver for file-backed streaming HAL tests (the `filestream` cmod).
 #
 # Replaces the WebSocket hal-stream-driver.sh: instead of a resident server plus

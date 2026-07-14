@@ -397,6 +397,10 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 	args = append(args, extraIncludes...)
 	args = append(args,
 		"-fPIC", "-Os", "-Wall",
+		// Fortify 3 to match the rest of the build (src/Makefile DEBUG) and
+		// the Ubuntu CI runners' builtin default; -U first because Ubuntu's
+		// gcc predefines it.
+		"-U_FORTIFY_SOURCE", "-D_FORTIFY_SOURCE=3",
 		"-shared",
 		"-o", soPath,
 		cPath,
