@@ -9,6 +9,8 @@
 #   gomc_rel     path (relative to this dir) of the gomc gold to compare
 #   src_rel      path under the 2.9 tree's tests/ to vendor FROM (sync only)
 #   strip        "strip" = drop inline bring-up preamble; "-" = pre-split segment
+#   units        machine-units->mm factor for the ORACLE side (25.4 = inch
+#                config; 1 = mm config). gomc golds are always mm (factor 1).
 #
 # Only parity-able tests are listed. Excluded and why:
 #   motion-logger/startup-gcode-abort — gomc xfail, no gold (RS274NGC_STARTUP_CODE
@@ -17,9 +19,9 @@
 #                                        core_sim (xfail), not motion-logger.
 #   basic builtin-startup / reset — machine bring-up + hygiene, never compared.
 PARITY_TARGETS=(
-"basic/g0    basic/expected.g0                  ../basic/expected.g0                                                   motion-logger/basic/expected.g0                                  -"
-"basic/g1    basic/expected.g1                  ../basic/expected.g1                                                   motion-logger/basic/expected.g1                                  -"
-"basic/s     basic/expected.s                   ../basic/expected.s                                                    motion-logger/basic/expected.s                                   -"
-"mountaindew mountaindew/expected.motion-logger ../mountaindew/expected.motion-logger                                  motion-logger/mountaindew/expected.motion-logger                 strip"
-"m98m99-12   m98m99-12/expected.motion-logger   ../../interp/m98m99/12-M99-endless-main-program/expected.motion-logger interp/m98m99/12-M99-endless-main-program/expected.motion-logger strip"
+"basic/g0    basic/expected.g0                  ../basic/expected.g0                                                   motion-logger/basic/expected.g0                                  -     25.4"
+"basic/g1    basic/expected.g1                  ../basic/expected.g1                                                   motion-logger/basic/expected.g1                                  -     25.4"
+"basic/s     basic/expected.s                   ../basic/expected.s                                                    motion-logger/basic/expected.s                                   -     25.4"
+"mountaindew mountaindew/expected.motion-logger ../mountaindew/expected.motion-logger                                  motion-logger/mountaindew/expected.motion-logger                 strip 25.4"
+"m98m99-12   m98m99-12/expected.motion-logger   ../../interp/m98m99/12-M99-endless-main-program/expected.motion-logger interp/m98m99/12-M99-endless-main-program/expected.motion-logger strip 25.4"
 )

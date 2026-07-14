@@ -47,20 +47,21 @@ ran=0
 for row in "${PARITY_TARGETS[@]}"; do
   # shellcheck disable=SC2086
   set -- $row
-  label="$1"; oracle_rel="$2"; gomc_rel="$3"; strip="$5"
+  label="$1"; oracle_rel="$2"; gomc_rel="$3"; strip="$5"; units="$6"
   want "$label" || continue
   ran=$((ran + 1))
   [ "$strip" = "strip" ] && strip="--strip-preamble" || strip=""
 
   new="$HERE/$gomc_rel"
-  if [ "$SELF" = 1 ]; then old="$new"; else old="$ORACLE/$oracle_rel"; fi
+  if [ "$SELF" = 1 ]; then old="$new" old_units=1; else old="$ORACLE/$oracle_rel" old_units="$units"; fi
 
   if [ ! -f "$old" ]; then printf 'SKIP        %-14s (missing oracle: %s)\n' "$label" "$oracle_rel"; continue; fi
   if [ ! -f "$new" ]; then printf 'SKIP        %-14s (missing gomc gold: %s)\n' "$label" "$gomc_rel"; continue; fi
 
   na="$(mktemp)"; nb="$(mktemp)"
-  "$HERE/normalize.sh" $strip "$old" > "$na"
-  "$HERE/normalize.sh" $strip "$new" > "$nb"
+  # Oracle side: scale machine-unit lengths to mm; gomc side is mm already.
+  "$HERE/normalize.sh" $strip --units-factor "$old_units" "$old" > "$na"
+  "$HERE/normalize.sh" $strip --units-factor 1 "$new" > "$nb"
   if diff -q "$na" "$nb" >/dev/null; then
     printf 'PARITY:     %-14s (%s motion commands)\n' "$label" "$(wc -l < "$na")"
   else

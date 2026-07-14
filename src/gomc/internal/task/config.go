@@ -117,6 +117,16 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	t.linearUnits = parseLinearUnits(ini.Get("TRAJ", "LINEAR_UNITS"))
 	t.angularUnits = parseAngularUnits(ini.Get("TRAJ", "ANGULAR_UNITS"))
 
+	// The canon (created in NewTask, before the INI is read) starts in the
+	// machine's native modal units: G20 on an inch machine, G21 on mm. The
+	// interpreter picks this up via GetExternalLengthUnitType at init. Without
+	// it an inch machine would run unit-less G-code as millimetres (25.4x
+	// small). Mirrors the C canon's INIT_CANON units derivation.
+	if t.canon != nil {
+		t.canon.state.lengthUnits = machineCanonUnits(t.linearUnits)
+		t.canonSnap = *t.canon.state
+	}
+
 	// Velocities. TRAJ velocity limits are linear (the "..._LINEAR_..." keys),
 	// so convert machine-units->mm to match the mm-internal motion controller.
 	// The minAxisVel fallback also returns machine units, so scale after it.

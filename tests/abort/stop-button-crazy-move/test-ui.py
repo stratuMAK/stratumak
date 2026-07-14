@@ -81,11 +81,14 @@ while True:
 #
 c.mode(MODE_MDI)
 c.mdi('T1M6')       # Load tool 1
-c.mdi('G0 X2 Y2')   # Move near to start
+c.mdi('G0 X2 Y2')   # Move near to start: unit-less MDI runs in the machine's
+                    # units (G20 on this inch config, matching 2.9) = 2 inches.
 c.wait_complete()
+# s.actual_position is gomc-mm: 2 in = 50.8 mm.
+start_mm = 2 * 25.4
 start_time = time.time()
 px, py = xy()
-while (abs(px - 2) > .001) or (abs(py - 2) > .001):
+while (abs(px - start_mm) > .001) or (abs(py - start_mm) > .001):
     if (time.time() - start_time) > TIMEOUT:
         sys.stderr.write("Failed to reach start position in time\n")
         sys.exit(1)
@@ -115,8 +118,9 @@ sys.stderr.write("Program partially loaded\n")
 # Now stop the program and wait for any additional motion
 #
 # Program X stepover is 2.5mm, or 0.1in; error out if the X stepover
-# exceeds 0.15 (fudge added to eliminate a legitimate stepover during
-# lag between cycles)
+# exceeds 0.15in = 3.81mm (fudge added to eliminate a legitimate stepover
+# during lag between cycles). Positions from gmi are mm.
+stepover_limit_mm = 0.15 * 25.4
 
 pre_stop_x, pre_stop_y = xy()
 c.abort()
@@ -129,9 +133,9 @@ while (time.time() - start_time) < TIMEOUT and cur_x != last_x:
     print_stats(pre_stop_x, pre_stop_y)
     cur_x, _ = xy()
     err = abs(pre_stop_x - cur_x)
-    if err > 0.15:
+    if err > stepover_limit_mm:
         sys.stderr.write(
-            'ERROR:  X axis motion stopped %.3f" past stop position\n' % err)
+            'ERROR:  X axis motion stopped %.3f mm past stop position\n' % err)
         fail = True
     last_x = cur_x
     time.sleep(TIME_INCR)

@@ -1,11 +1,14 @@
 # gomc units consistency fix — spec / handoff
 
-Status: **DONE** on branch `verify-motion-logger` (2026-07-14). All linear
-length/velocity/accel/jerk config values are converted machine-units->mm at load
-with a linear-only (axis-index / joint TYPE) guard; inch self-golds re-captured;
-parity harness updated. See "Implementation notes" at the bottom for what
-actually landed and where it deviates from this original brief (§5 in particular).
-Original brief preserved below.
+Status: **DONE** on branch `verify-motion-logger` (2026-07-14, two passes). All
+linear length/velocity/accel/jerk config values are converted machine-units->mm
+at load with a linear-only (axis-index / joint TYPE) guard; inch self-golds
+re-captured; parity harness updated. A second pass fixed the canon's startup
+modal units (G20 on inch machines — the first pass's "2.9 is unit-inconsistent"
+parity adjudication was a misdiagnosis of this gomc bug), the tool-length-offset
+program-units conversion, and restored the full dynamics comparison in the
+parity harness. See "Implementation notes" at the bottom, §5 subsection in
+particular. Original brief preserved below.
 
 Historical status: **partially done** (position limits, linear-only-unaware) on
 branch `ci-trim`. The rest was a self-contained follow-up; this doc is the
@@ -265,26 +268,50 @@ Convention **A (mm-everywhere)** as recommended. Changes:
 - Tests: `internal/task/units_test.go` covers linear-scaled vs angular-unscaled
   joints/axes and the two helpers.
 
-### §5 deviation — parity normalizer (IMPORTANT)
+### §5 deviation — parity normalizer (CORRECTED 2026-07-14, second pass)
 
-§5 assumed the 2.9 oracle's linear SET_LINE fields could be brought to mm with a
-single ×25.4 factor. **That is false for the per-move dynamics** (`vel`,
-`ini_maxvel`, `acc`). 2.9 keeps velocity/accel *limits* in inch-based machine units
-while emitting *positions* in mm, so its blend mixes units. Empirically: pure-linear
-rapids scale ×25.4, G1 feeds not at all, and **mixed linear+angular moves diverge
-non-uniformly** because the mismatched units mis-pick the limiting axis (2.9 gets
-`ini_maxvel=1.66296` for basic/g1 move 1; gomc's mm-consistent `2.49444` is
-physically correct — angular-C-limited). No factor reconciles all three.
+The first pass of this section claimed the per-move dynamics (`vel`,
+`ini_maxvel`, `acc`) were not cross-tree comparable ("2.9 blends mm
+displacements against inch/s limits", basic/g1 move 1 `1.66296` vs `2.49444`,
+ratio 1.5) and stripped them from the diff. **That was a misdiagnosis.** 2.9's
+blend is unit-consistent — `getStraightVelocity` applies `FROM_EXT_LEN` to the
+axis limits and `toExtVel`/`TO_EXT_LEN` on emission — and its INIT_CANON starts
+the interpreter in the MACHINE's modal units (G20 on inch). gomc's canon
+hardcoded its startup modal units to mm, so the same unit-less corpus programs
+ran as inches in 2.9 and as millimetres in gomc: physically different moves,
+25.4× apart, coincidentally printing identical position numbers (which is why
+geometry "matched" while dynamics didn't — both trees blended correctly, for
+different moves). Verified arithmetically: a consistent G20 blend reproduces
+2.9's `1.66296`/`415.74` exactly; a consistent G21 blend reproduces the interim
+gomc `2.49444`/`623.61` exactly.
 
-Resolution actually implemented: **strip** `vel`/`ini_maxvel`/`acc` from SET_LINE
-(and SET_CIRCLE) in `canonicalize.awk` — they are not a portable cross-tree
-quantity. The cross-tree parity now certifies geometry + motion_type + sequencing
-+ spindle/IO; the full per-move dynamics stay regression-checked in the self golds
-(gomc-vs-gomc). No `unit_factor` was needed in `normalize.sh` after all: the only
-other value-divergent fields (standalone `SET_ACC`/`SET_VEL`) are gomc-only
-re-emission lines already logged as parity finding #1. `compare.sh` shows exactly
-the pre-existing 5 findings, unchanged. See `parity-vs-2.9/PARITY_FINDINGS.md`
-"units (mm-everywhere)".
+Fixes (this branch, follow-up commit):
+- `canon.go`: `machineCanonUnits(linearUnits)` — `NewCanon`, `InitCanon` and
+  `loadTraj` (canon exists pre-config) now start/reset the modal length units
+  from `[TRAJ]LINEAR_UNITS`, mirroring INIT_CANON. Unit-less G-code on an inch
+  machine no longer runs 25.4× small.
+- `UseToolLengthOffset` now converts program units→mm on receipt (the interp
+  passes `USER_TO_PROGRAM_LEN` values; C canon did `FROM_PROG_LEN`), and the
+  `GetExternalToolLength*offset` getters hand back `toProg` (C: `TO_PROG_LEN`).
+  Angular components stay degrees. Stat/halui now report the tool offset in mm,
+  consistent with the rest of the gmi API.
+- `configcheck.go`: warns on `LINEAR_UNITS != mm` that motion's HAL pins carry
+  mm — 2.9-ported HAL scale/gain values (per-inch) must be converted.
+- Parity normalizer: §5's original plan implemented after all — per-target
+  `units` factor (25.4) in `targets.sh`, applied by `canonicalize.awk` to the
+  ORACLE side's linear positions AND dynamics (`normalize.sh --units-factor`;
+  rounding switched from %.4f absolute to 5 significant digits to match the
+  logs' %.6g precision at mm magnitudes; LC_ALL=C forced). Pure-angular moves
+  would need factor 1 (TO_EXT_ANG) — none in the corpus; the normalizer injects
+  a loud marker if one appears. After this, positions and dynamics match
+  EXACTLY; `compare.sh` shows precisely the pre-existing findings #1–#5.
+- `tests/*/test.sh` (motion-logger + m98m99): added explicit `set -e` —
+  runtests invokes `bash -x test.sh`, which bypasses the shebang's `-e`, so
+  m98m99-12's motion-logger diff had been silently advisory (false pass).
+- Golds re-captured a second time (G20 semantics): basic g0/g1/s (builtin-
+  startup unchanged — bring-up is modal-units-independent), mountaindew,
+  m98m99-12. `internal/task/units_test.go` covers the modal init and the tool
+  offset round-trip.
 
 ### §6 golds re-captured
 `motion-logger/basic` (builtin-startup, g0, g1, s), `motion-logger/mountaindew`

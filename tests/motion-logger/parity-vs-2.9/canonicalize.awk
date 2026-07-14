@@ -24,24 +24,37 @@
 #   SET_LINE / SET_CIRCLE : drop `id=N`  — the two trees number motion ids on
 #       different schemes (2.9 = running canonical-op counter, gomc = per-move);
 #       id is a GUI current-line tracker, not a motion parameter.
-#   SET_LINE / SET_CIRCLE : drop the per-move dynamics `vel=`,`ini_maxvel=`,`acc=`.
-#       gomc runs mm-everywhere (config vel/accel limits converted to mm) while
-#       2.9 keeps them in inch-based machine units, so no single unit factor
-#       reconciles the two: pure-linear rapids differ x25.4, G1 feeds not at all,
-#       and mixed linear+angular moves diverge non-uniformly because 2.9 blends
-#       mm displacements against inch/s limits (an inconsistency that mis-picks
-#       the limiting axis; gomc is physically correct). These per-move dynamics
-#       are therefore not a portable cross-tree quantity — compare only the
-#       geometry (positions x..w), motion_type, and turn. The FULL dynamics are
-#       still regression-checked in the self golds (gomc-vs-gomc). See
-#       PARITY_FINDINGS.md "units (mm-everywhere)".
 #   SET_VEL               : keep `vel=`, drop the 2.9-only `, ini_maxvel=` tail.
 #   SET_SPINDLESYNC       : keep `sync=`, drop the trailing field (2.9 `flags=`
 #       vs gomc `motion_type=` are incomparable encodings).
 #   SET_CIRCLE            : multi-line; drop the 2.9-only `pos:` continuation
 #       (the gomc cmod does not log it), keep center/normal/id(stripped).
 #
-# Float rounding is applied downstream (normalize.sh), not here.
+# unit_factor (machine-units -> mm)
+# ---------------------------------
+# gomc runs the motion stream in millimetres end to end, while 2.9 emits it in
+# the machine's units ([TRAJ]LINEAR_UNITS — inch for the current corpus). Run
+# the ORACLE side with `-v unit_factor=25.4` to bring its length-dimensioned
+# fields to mm; the gomc side runs with factor 1. Scaled per opcode:
+#   SET_LINE     : x,y,z,u,v,w (positions) and vel,ini_maxvel,acc (dynamics —
+#                  2.9's toExtVel emits TO_EXT_LEN for any move with a linear
+#                  component; see the pure-angular caveat below)
+#   SET_CIRCLE   : center x,y,z + the vel,ini_maxvel,acc continuation
+#                  (normal: is a unit vector — never scaled; arcs are always
+#                  cartesian so TO_EXT_LEN applies)
+#   SET_VEL      : vel        SET_ACC : acc
+#   SET_TERM_COND: tolerance  SET_SPINDLESYNC : sync (length per revolution)
+#   PROBE / RIGID_TAP : currently log no fields in either dialect
+# Angular fields (a,b,c) are degrees in both trees — never scaled.
+#
+# PURE-ANGULAR CAVEAT: for a move with ONLY angular displacement 2.9 emits its
+# dynamics via TO_EXT_ANG (factor 1), not TO_EXT_LEN, so the x25.4 would be
+# wrong. The corpus has no such move; rather than guess, we detect one (no
+# linear delta since the previous SET_LINE, nonzero angular delta) and inject a
+# loud marker line so the diff fails and a human adjudicates.
+#
+# Float formatting: scaled values are printed with %.9g; rounding for
+# comparison is applied downstream (normalize.sh), not here.
 #
 # strip_preamble
 # --------------
@@ -69,17 +82,60 @@ function keep(op) {
          || op=="SET_DOUT" || op=="SET_AOUT")
 }
 
-BEGIN { started = (strip_preamble ? 0 : 1) }
+# scale_keys(line, keys): multiply the value of every `k=<num>` field whose key
+# k is listed in `keys` (comma-delimited, wrapped in commas) by unit_factor.
+# Fields are ", "-separated; the first may carry an "OP " prefix which is kept.
+function scale_keys(line, keys,    n, parts, i, eq, k, v, pre, out, sep) {
+    if (unit_factor == 1 || unit_factor == "" ) return line
+    n = split(line, parts, ", ")
+    out = ""
+    for (i = 1; i <= n; i++) {
+        pre = ""
+        kv = parts[i]
+        if (i == 1 && kv !~ /^[a-z_]+=/) {      # leading "OP " or "center: " prefix
+            eq = match(kv, /[a-z_]+=[^ ]*$/)
+            if (eq == 0) { out = kv; continue } # no field on this fragment
+            pre = substr(kv, 1, RSTART - 1)
+            kv = substr(kv, RSTART)
+        }
+        eq = index(kv, "=")
+        k = substr(kv, 1, eq - 1)
+        v = substr(kv, eq + 1)
+        if (index(keys, "," k ",") > 0)
+            v = sprintf("%.9g", (v + 0) * unit_factor)
+        sep = (i == 1) ? "" : ", "
+        out = out sep pre k "=" v
+    }
+    return out
+}
+
+# field(line, key): numeric value of `key=` on the line, or 0 if absent.
+function field(line, key,    re) {
+    re = "(^|[ ,])" key "=-?[0-9.eE+-]+"
+    if (match(line, re) == 0) return 0
+    re = substr(line, RSTART, RLENGTH)
+    sub(/^.*=/, "", re)
+    return re + 0
+}
+
+BEGIN {
+    started = (strip_preamble ? 0 : 1)
+    if (unit_factor == "") unit_factor = 1
+    have_prev = 0
+    POSK = ",x,y,z,u,v,w,"
+    DYNK = ",vel,ini_maxvel,acc,"
+}
 
 # Continuation lines of a multi-line record (SET_CIRCLE) start with whitespace.
 /^[ \t]/ {
     if (started && in_circle) {
         line = $0
         if (line ~ /pos:/) next             # 2.9-only continuation: drop
-        sub(/id=-?[0-9]+, /, "", line)      # strip id on the id= continuation
-        sub(/, ini_maxvel=[^,]*/, "", line) # drop per-move dynamics (as for SET_LINE)
-        sub(/, vel=[^,]*/, "", line)
-        sub(/, acc=[^,]*/, "", line)
+        if (line ~ /center:/) line = scale_keys(line, POSK)
+        if (line ~ /id=/) {
+            sub(/id=-?[0-9]+, /, "", line)  # strip id on the id= continuation
+            line = scale_keys(line, DYNK)
+        }
         print line
     }
     next
@@ -94,23 +150,38 @@ BEGIN { started = (strip_preamble ? 0 : 1) }
     }
     if (!keep(op)) next
 
-    if (op=="SET_CIRCLE:") { in_circle = 1; print; next }
+    if (op=="SET_CIRCLE:") { in_circle = 1; have_prev = 0; print; next }
 
     line = $0
     if (op=="SET_LINE") {
         sub(/ id=-?[0-9]+,/, "", line)           # drop id field
-        # Drop the per-move dynamics vel/ini_maxvel/acc. 2.9 expresses these in
-        # inch-based machine units while gomc (mm-everywhere) uses mm, and no
-        # single unit factor reconciles them: pure-linear rapids scale x25.4,
-        # G1 feeds not at all, and mixed linear+angular moves non-uniformly
-        # (2.9 blends mm displacements against inch/s limits — see PARITY_FINDINGS.md).
-        # Keep the portable, cross-tree-identical fields: positions x..w,
-        # motion_type, turn. The full dynamics stay in the self-regression golds.
-        sub(/, ini_maxvel=[^,]*/, "", line)
-        sub(/, vel=[^,]*/, "", line)
-        sub(/, acc=[^,]*/, "", line)
+        if (unit_factor != 1) {
+            # Pure-angular detection (see header): dynamics would need factor 1.
+            lin = 0; ang = 0
+            if (have_prev) {
+                if (field(line,"x")!=px || field(line,"y")!=py || field(line,"z")!=pz \
+                 || field(line,"u")!=pu || field(line,"v")!=pv || field(line,"w")!=pw) lin = 1
+                if (field(line,"a")!=pa || field(line,"b")!=pb || field(line,"c")!=pc) ang = 1
+                if (ang && !lin)
+                    print "### PURE-ANGULAR MOVE: dynamics unit factor not applicable — adjudicate manually"
+            }
+            px=field(line,"x"); py=field(line,"y"); pz=field(line,"z")
+            pa=field(line,"a"); pb=field(line,"b"); pc=field(line,"c")
+            pu=field(line,"u"); pv=field(line,"v"); pw=field(line,"w")
+            have_prev = 1
+            line = scale_keys(line, POSK DYNK)
+        }
     }
-    else if (op=="SET_VEL")          sub(/,.*/, "", line)            # drop ini_maxvel tail
-    else if (op=="SET_SPINDLESYNC")  sub(/,.*/, "", line)            # drop flags/motion_type tail
+    else if (op=="SET_VEL") {
+        sub(/,.*/, "", line)                     # drop ini_maxvel tail
+        line = scale_keys(line, ",vel,")
+    }
+    else if (op=="SET_ACC")          line = scale_keys(line, ",acc,")
+    else if (op=="SET_TERM_COND")    line = scale_keys(line, ",tolerance,")
+    else if (op=="SET_SPINDLESYNC") {
+        sub(/,.*/, "", line)                     # drop flags/motion_type tail
+        line = scale_keys(line, ",sync,")
+    }
+    else if (op=="SET_OFFSET")       line = scale_keys(line, POSK)
     print line
 }

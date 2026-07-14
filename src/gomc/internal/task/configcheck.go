@@ -96,6 +96,17 @@ func runConfigCheck(ini *inifile.IniFile) (*configCheckResult, error) {
 		return r, nil
 	}
 
+	// gomc runs the motion controller in millimetres end to end, so on a
+	// non-mm machine every length-dimensioned HAL pin motion exposes
+	// (joint.N.motor-pos-cmd, axis.L.pos-cmd, ferror, ...) is in mm — NOT in
+	// [TRAJ]LINEAR_UNITS like LinuxCNC 2.9. A HAL file carried over from 2.9
+	// with per-inch scales (e.g. stepgen position-scale in steps/inch) would
+	// move 25.4x too far. Warn loudly so nobody finds out on hardware.
+	if lu := ini.Get("TRAJ", "LINEAR_UNITS"); lu != "" && parseLinearUnits(lu) != 1.0 {
+		r.Warnings = append(r.Warnings,
+			fmt.Sprintf("[TRAJ]LINEAR_UNITS=%s: gomc motion runs in millimetres — all length-dimensioned HAL pins (joint.N.*, axis.L.*) carry mm, not %s. HAL scale/gain values ported from LinuxCNC 2.9 (which used machine units) must be converted to per-mm.", lu, lu))
+	}
+
 	// Parse kinematics.
 	module, params := parseKinematics(kinsValue)
 	r.KinsModule = module

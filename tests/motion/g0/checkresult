@@ -241,9 +241,12 @@ if abs(max_acceleration_ipspc + (highest_seen_accel_ipc2 * cycles_per_second)) >
 #print("    decel reached but did not exceed 1/2 of max accel of %.6f i/s^2" % max_acceleration_ips2)
 
 
-# verify X stopped at 1.000000
-if samples[i][1] != 1.000000:
-    print("error: line %d: X stopped at %.6f, not at 1.000000!" % (i, samples[i][1]))
+# verify X stopped at the target: MDI g0x1 = 1 MACHINE unit (the interp starts
+# in the machine's units, G20 on this inch config, matching 2.9), and the
+# sampled HAL pin is gomc-mm — so 25.4 mm here.
+target_mm = 1.0 * mm_per_unit
+if samples[i][1] != target_mm:
+    print("error: line %d: X stopped at %.6f, not at %.6f!" % (i, samples[i][1], target_mm))
     sys.exit(1)
 
 #print("    X reached target of 1.0000")

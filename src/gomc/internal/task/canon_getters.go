@@ -195,16 +195,19 @@ func (c *Canon) GetExternalSpindle(spindle int32) (int32, error) {
 	return 1, nil // CANON_STOPPED
 }
 
-// Tool getters.
+// Tool getters. toolOffset is stored in internal mm (UseToolLengthOffset
+// converts on receipt); the interpreter expects these back in program units,
+// like the C canon's GET_EXTERNAL_TOOL_LENGTH_*OFFSET (TO_PROG_LEN). Angular
+// components are degrees in both domains.
 
 func (c *Canon) GetExternalToolLengthXoffset() (float64, error) {
-	return c.state.toolOffset.X, nil
+	return c.state.toProg(c.state.toolOffset.X), nil
 }
 func (c *Canon) GetExternalToolLengthYoffset() (float64, error) {
-	return c.state.toolOffset.Y, nil
+	return c.state.toProg(c.state.toolOffset.Y), nil
 }
 func (c *Canon) GetExternalToolLengthZoffset() (float64, error) {
-	return c.state.toolOffset.Z, nil
+	return c.state.toProg(c.state.toolOffset.Z), nil
 }
 func (c *Canon) GetExternalToolLengthAoffset() (float64, error) {
 	return c.state.toolOffset.A, nil
@@ -216,13 +219,13 @@ func (c *Canon) GetExternalToolLengthCoffset() (float64, error) {
 	return c.state.toolOffset.C, nil
 }
 func (c *Canon) GetExternalToolLengthUoffset() (float64, error) {
-	return c.state.toolOffset.U, nil
+	return c.state.toProg(c.state.toolOffset.U), nil
 }
 func (c *Canon) GetExternalToolLengthVoffset() (float64, error) {
-	return c.state.toolOffset.V, nil
+	return c.state.toProg(c.state.toolOffset.V), nil
 }
 func (c *Canon) GetExternalToolLengthWoffset() (float64, error) {
-	return c.state.toolOffset.W, nil
+	return c.state.toProg(c.state.toolOffset.W), nil
 }
 
 func (c *Canon) GetExternalToolSlot() (int32, error) {

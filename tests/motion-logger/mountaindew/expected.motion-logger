@@ -52,29 +52,29 @@ FEED_SCALE
 COORD
 SET_LINE x=0, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=5, motion_type=1, vel=0, ini_maxvel=0, acc=0, turn=-1
 SET_LINE x=0, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=6, motion_type=1, vel=0, ini_maxvel=0, acc=0, turn=-1
-SET_VEL vel=0.666667
+SET_VEL vel=16.9333
 SET_ACC acc=25400
 SET_TERM_COND termCond=2, tolerance=0.0254
-SET_LINE x=2, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=7, motion_type=2, vel=0.666667, ini_maxvel=10160, acc=25400, turn=-1
-SET_VEL vel=0.666667
+SET_LINE x=50.8, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=7, motion_type=2, vel=16.9333, ini_maxvel=10160, acc=25400, turn=-1
+SET_VEL vel=16.9333
 SET_ACC acc=25400
 SET_TERM_COND termCond=2, tolerance=0.0254
-SET_LINE x=3, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=8, motion_type=2, vel=0.666667, ini_maxvel=10160, acc=25400, turn=-1
-SET_VEL vel=0.666667
+SET_LINE x=76.2, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=8, motion_type=2, vel=16.9333, ini_maxvel=10160, acc=25400, turn=-1
+SET_VEL vel=16.9333
 SET_ACC acc=25400
 SET_TERM_COND termCond=2, tolerance=0.0254
-SET_LINE x=3, y=4, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=9, motion_type=2, vel=0.666667, ini_maxvel=10160, acc=25400, turn=-1
-SET_VEL vel=0.666667
+SET_LINE x=76.2, y=101.6, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=9, motion_type=2, vel=16.9333, ini_maxvel=10160, acc=25400, turn=-1
+SET_VEL vel=16.9333
 SET_ACC acc=25400
 SET_TERM_COND termCond=2, tolerance=0.0254
-SET_LINE x=5, y=4, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=10, motion_type=2, vel=0.666667, ini_maxvel=10160, acc=25400, turn=-1
-SET_VEL vel=0.666667
+SET_LINE x=127, y=101.6, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=10, motion_type=2, vel=16.9333, ini_maxvel=10160, acc=25400, turn=-1
+SET_VEL vel=16.9333
 SET_ACC acc=25400
 SET_TERM_COND termCond=2, tolerance=0.0254
-SET_LINE x=5, y=6, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=11, motion_type=2, vel=0.666667, ini_maxvel=10160, acc=25400, turn=-1
-SET_LINE x=0, y=0, z=0.5, a=0, b=0, c=0, u=0, v=0, w=0, id=12, motion_type=1, vel=13252.4, ini_maxvel=13252.4, acc=33131.1, turn=-1
-SET_LINE x=1, y=0, z=0.5, a=0, b=0, c=0, u=0, v=0, w=0, id=13, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
-SET_LINE x=1, y=1, z=0.5, a=0, b=0, c=0, u=0, v=0, w=0, id=14, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
-SET_LINE x=0, y=1, z=0.5, a=0, b=0, c=0, u=0, v=0, w=0, id=15, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
-SET_LINE x=0, y=0, z=0.5, a=0, b=0, c=0, u=0, v=0, w=0, id=16, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
+SET_LINE x=127, y=152.4, z=0, a=0, b=0, c=0, u=0, v=0, w=0, id=11, motion_type=2, vel=16.9333, ini_maxvel=10160, acc=25400, turn=-1
+SET_LINE x=0, y=0, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=12, motion_type=1, vel=13252.4, ini_maxvel=13252.4, acc=33131.1, turn=-1
+SET_LINE x=25.4, y=0, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=13, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
+SET_LINE x=25.4, y=25.4, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=14, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
+SET_LINE x=0, y=25.4, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=15, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
+SET_LINE x=0, y=0, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=16, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
 SPINDLE_OFF

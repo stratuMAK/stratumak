@@ -288,9 +288,23 @@ type Canon struct {
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
 var _ canon.CanonCallbacks = (*Canon)(nil)
 
+// machineCanonUnits maps the machine's [TRAJ]LINEAR_UNITS (machine-units-per-mm)
+// to the canonical G20/G21 startup mode, mirroring the C canon's INIT_CANON: an
+// inch machine starts the interpreter in G20, a mm machine in G21 (the interp
+// reads GetExternalLengthUnitType at init/synch). Unknown/unset units default to
+// mm, like INIT_CANON's "non-standard length units" fallback (and like the
+// pre-config state — loadTraj refreshes this once LINEAR_UNITS is parsed).
+func machineCanonUnits(linearUnits float64) int32 {
+	if math.Abs(linearUnits-1.0/25.4) < 1e-3 {
+		return CanonUnitsInches
+	}
+	return CanonUnitsMM
+}
+
 // NewCanon creates a Canon instance tied to a Task.
 func NewCanon(t *Task) *Canon {
 	cs := NewCanonState()
+	cs.lengthUnits = machineCanonUnits(t.linearUnits)
 	return &Canon{
 		state: cs,
 		task:  t,
@@ -349,6 +363,9 @@ func (c *Canon) InitCanon() {
 		toolOffset: c.state.toolOffset,
 	}
 	*c.state = *NewCanonState()
+	// Modal length units restart in the machine's native units (G20 on an inch
+	// machine, G21 on mm), like the C canon's INIT_CANON.
+	c.state.lengthUnits = machineCanonUnits(c.task.linearUnits)
 	c.state.g5xOffset = saved.g5xOffset
 	c.state.g5xIndex = saved.g5xIndex
 	c.state.g92Offset = saved.g92Offset
@@ -447,10 +464,15 @@ func (c *Canon) UpdateTag(_ uint64) {}
 
 func (c *Canon) UseToolLengthOffset(x, y, z, a, b, _c, u, v, w float64) {
 	s := c.state
+	// The interpreter passes tool offsets in program units (G20/G21-dependent:
+	// interp_convert.cc applies USER_TO_PROGRAM_LEN before the canon call).
+	// toolOffset lives in the internal mm domain (toAbsolute adds it to mm
+	// coordinates), so convert like the C canon's FROM_PROG_LEN; angular
+	// components are degrees in both domains.
 	s.toolOffset = Pose{
-		X: x, Y: y, Z: z,
+		X: s.fromProg(x), Y: s.fromProg(y), Z: s.fromProg(z),
 		A: a, B: b, C: _c,
-		U: u, V: v, W: w,
+		U: s.fromProg(u), V: s.fromProg(v), W: s.fromProg(w),
 	}
 }
 
