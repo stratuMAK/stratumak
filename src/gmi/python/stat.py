@@ -223,7 +223,7 @@ class Stat:
         # Motion
         "motion_mode", "enabled", "inpos", "paused", "feedrate",
         "rapidrate", "max_velocity", "velocity", "distance_to_go",
-        "current_vel", "motion_id",
+        "current_vel", "motion_id", "motion_type", "queue", "queue_full",
         # Positions
         "position", "actual_position", "probed_position",
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
@@ -304,6 +304,9 @@ class Stat:
             "distance_to_go": ("distance_to_go", 0.0),
             "current_vel": ("current_vel", 0.0),
             "motion_id": ("motion_id", 0),
+            "motion_type": ("motion_type", 0),
+            "queue": ("queue", 0),
+            "queue_full": ("queue_full", False),
         }
         if name in _MOTION_MAP:
             key, default = _MOTION_MAP[name]
