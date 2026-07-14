@@ -125,20 +125,26 @@ stepover_limit_mm = 0.15 * 25.4
 pre_stop_x, pre_stop_y = xy()
 c.abort()
 
+# Sample the live position each iteration (like the classic test's HAL-pin
+# read in the loop condition); stop when two consecutive samples are equal
+# (motion has settled). Seeding cur_x = last_x before the loop instead would
+# make the condition false on the first check and skip the overrun check
+# entirely.
 start_time = time.time()
 last_x = pre_stop_x
 fail = False
-cur_x = pre_stop_x
-while (time.time() - start_time) < TIMEOUT and cur_x != last_x:
-    print_stats(pre_stop_x, pre_stop_y)
+while (time.time() - start_time) < TIMEOUT:
+    time.sleep(TIME_INCR)
     cur_x, _ = xy()
+    if cur_x == last_x:
+        break
+    print_stats(pre_stop_x, pre_stop_y)
     err = abs(pre_stop_x - cur_x)
     if err > stepover_limit_mm:
         sys.stderr.write(
             'ERROR:  X axis motion stopped %.3f mm past stop position\n' % err)
         fail = True
     last_x = cur_x
-    time.sleep(TIME_INCR)
 
 if fail:
     sys.exit(1)
