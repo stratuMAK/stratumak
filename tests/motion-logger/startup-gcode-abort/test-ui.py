@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-
-# Ported to the gomc REST/WS API (`gmi` client). motion-logger is now an
-# interceptor between milltask and the real motmod.
+# Ported to the gomc REST/WS API (`gmi` client). motion-logger is an interceptor
+# between milltask and the real motmod.
 #
-# Github issue #49: the config runs startup gcode (RS274NGC_STARTUP_CODE =
-# o<init> call). init.ngc rapids to (-1,-2,-3), then G4 P99 dwells 99 s (the
-# abort lands here), then rapids to (1,2,3). We wait until the machine has
-# reached the first target (so we are provably inside the dwell), then abort;
-# this makes the captured command stream deterministic under real motion. The
-# second rapid never runs.
+# Github issue #49: the config runs startup gcode
+# ([RS274NGC]RS274NGC_STARTUP_CODE = o<init> call). gomc executes it at task init
+# (mirroring classic emcTaskPlanInit), before the machine is enabled — so, exactly
+# like 2.9, init.ngc produces no real motion here (the first rapid is emitted to
+# motion but never runs at estop). This test just checks that aborting after the
+# startup code has been processed produces a clean, deterministic teardown and
+# does not hang or crash. The captured command stream is diffed against
+# expected.motion-logger.
 
 import gmi
 from gmi.constants import *
@@ -17,27 +18,29 @@ import sys
 import time
 import subprocess
 
+
+def wait_for_startup(s, timeout=15.0):
+    # milltask up and idle => the startup code has already run (it executes
+    # synchronously during module Start(), before the server accepts clients).
+    # exec_state is left at EXEC_ERROR, not EXEC_DONE: init.ngc's first rapid is
+    # dispatched to motion at estop, which motmod rejects ("need to be enabled,
+    # in coord mode") — the deterministic side effect of gomc running startup
+    # motion at init while the machine is off. We only need interp idle + estop.
+    start = time.time()
+    while time.time() - start < timeout:
+        s.poll()
+        if (s.linear_units != 0.0 and s.axis_mask != 0
+                and s.interp_state == INTERP_IDLE
+                and s.task_state == STATE_ESTOP):
+            return
+        time.sleep(0.05)
+    raise SystemExit("timeout waiting for milltask startup")
+
+
 c = gmi.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
-
-# Wait until the startup gcode's first rapid to (-1,-2,-3) has completed, i.e.
-# we are in the 99 s dwell. Abort then, so the abort deterministically lands in
-# the dwell (after the first move, before the second).
-# NOTE: currently xfail — gomc parses RS274NGC_STARTUP_CODE but never executes it
-# (config.go:174 stores it in an unused field; module.go:305 reads and discards
-# it), so the startup gcode never runs and no motion happens. This wait then times
-# out. When gomc executes the startup code, remove the xfail; the ~1 s rapid makes
-# a 15 s timeout ample.
-start = time.time()
-while time.time() - start < 15.0:
-    s.poll()
-    p = s.actual_position
-    if abs(p[0] - (-1)) < 1e-3 and abs(p[1] - (-2)) < 1e-3 and abs(p[2] - (-3)) < 1e-3:
-        break
-    time.sleep(0.05)
-else:
-    raise SystemExit("timeout waiting for startup gcode first move")
+wait_for_startup(s)
 
 print("UI abort")
 sys.stdout.flush()
@@ -47,6 +50,8 @@ time.sleep(0.3)
 print("UI done with abort")
 sys.stdout.flush()
 
+# Diff here, before the server is torn down: a clean SIGTERM shutdown appends a
+# trailing ABORT to out.motion-logger that the checked-in gold must not contain.
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"])
 sys.exit(0 if status == 0 else 1)

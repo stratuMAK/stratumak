@@ -1185,6 +1185,29 @@ func (t *Task) faultMDI(msg string) {
 	t.mu.Unlock()
 }
 
+// runStartupCode executes [RS274NGC]RS274NGC_STARTUP_CODE once at task startup,
+// mirroring C emctask.cc emcTaskPlanInit: execute the string on the interp and
+// drain any INTERP_EXECUTE_FINISH continuations. Its canon output flows to the
+// sequencer like any block. Runs regardless of machine state (classic runs it
+// at init, before estop-reset); a G-code error is reported but non-fatal.
+// Called once from module Start(), after StartSequencer, before any program.
+func (t *Task) runStartupCode() {
+	if t.startupCode == "" || t.interp == nil {
+		return
+	}
+	interp := t.interp
+	setActiveCanon(t.canon)
+	t.logger.Info("running startup code", "code", t.startupCode)
+	rc, err := interp.ExecuteString(t.startupCode)
+	for err == nil && rc == InterpExecuteFinish {
+		rc, err = interp.Execute()
+	}
+	t.updateActiveCodes(interp)
+	if err != nil {
+		t.operatorError(fmt.Sprintf("startup code %q: %v", t.startupCode, err))
+	}
+}
+
 // runProgram runs the interpreter read/execute loop for the open program.
 // Called in a goroutine from AutoRun/AutoStep.
 //
