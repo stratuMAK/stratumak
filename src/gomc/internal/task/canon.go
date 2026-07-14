@@ -283,6 +283,13 @@ type Canon struct {
 	// continuation Execute to tell whether anything needs draining (E5). Plain
 	// int — interp execution is never concurrent (cmdMu / producer-owned).
 	enqueueCount int64
+	// lastParams caches the last acc/term/tol emitted by enqueueMotionParams, so
+	// it re-emits only on change — matching the C canon, which flushes
+	// SET_ACCELERATION / SET_MOTION_CONTROL_MODE only when they change rather
+	// than once per feed move. On the Canon (not CanonState) so it persists
+	// across program boundaries like the C canon's cached values.
+	lastParams    SetMotionParamsCmd
+	lastParamsSet bool
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
@@ -1234,15 +1241,23 @@ func (c *Canon) enqueue(cmd QueuedCmd) {
 	}
 }
 
-// enqueueMotionParams sets vel/acc/term-cond before a feed move.
+// enqueueMotionParams sets acc/term-cond before a feed move, but only when they
+// have changed since the last emission — matching the C canon, which flushes
+// SET_ACCELERATION / SET_MOTION_CONTROL_MODE only on change rather than once per
+// move. (Traj velocity is not emitted here; the feed rides in LinearMove.vel.)
 func (c *Canon) enqueueMotionParams() {
 	s := c.state
-	c.enqueue(&SetMotionParamsCmd{
-		Vel:       s.linearFeedRate,
+	p := SetMotionParamsCmd{
 		Acc:       c.task.maxAcceleration,
 		TermCond:  canonModeToTPTermCond(s.motionMode),
 		Tolerance: s.motionTolerance,
-	})
+	}
+	if c.lastParamsSet && p == c.lastParams {
+		return
+	}
+	c.lastParams = p
+	c.lastParamsSet = true
+	c.enqueue(&p)
 }
 
 // --- Additional QueuedCmd types for canon ---
@@ -1343,9 +1358,10 @@ type SetMotionParamsCmd struct {
 }
 
 func (c *SetMotionParamsCmd) Execute(t *Task) error {
-	if err := t.motion.SetVel(c.Vel); err != nil {
-		return err
-	}
+	// Traj velocity is set at startup / on feed-override, not per move — the
+	// per-move feed rides in each LinearMove's vel field (matching the C canon,
+	// which emits SET_VELOCITY only on change, never per feed move). So this
+	// pushes only acceleration and the blending term condition.
 	if c.Acc > 0 {
 		if err := t.motion.SetAcc(c.Acc); err != nil {
 			return err
