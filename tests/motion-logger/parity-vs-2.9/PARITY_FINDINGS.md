@@ -41,21 +41,25 @@ line if one ever appears rather than guessing (see canonicalize.awk).
 
 | # | Where | Difference | Status | Notes |
 |---|-------|-----------|--------|-------|
-| 5 | m98m99-12 | **M99 endless-main-loop position divergence.** Across the main-program M99 loop 2.9 restarts each iteration from `y=0` (full triangle); gomc **persists** position (`y=-101.6`), so from iter 2 the sub's `G1 Y-4` is a zero-distance move, emitted degenerate (`ini_maxvel=16.933, acc=0`). | OPEN — **likely NOT a gomc bug** (re-framed 2026-07-14) | Re-investigated: the interp's M99-loop code is functionally IDENTICAL in both trees (`interp_convert.cc:4570` gomc / `:4580` 2.9 — same `loop_to_beginning`+finish+`INTERP_EXECUTE_FINISH`; `loop_to_beginning` only `fseek(0)`+`sequence_number=0`, never resets position). So the divergence is NOT in milltask/interp. Confirmed against LIVE 2.9 (its `out.motion-logger` == its gold — 2.9 genuinely resets Y). **Strong hypothesis: a motion-backend artifact.** 2.9's m98m99-12 uses the FAKE `motion-logger` stub (reports position 0); gomc uses the interceptor + REAL `motmod` (reports actual position). If the loop's `EXECUTE_FINISH` re-syncs the interp from external position, 2.9 re-syncs to 0 (stub) while gomc re-syncs to the real position → gomc is MORE correct. **Verify** before adjudicating: confirm the external-position re-sync on the M99 loop, or run gomc's program against a fake/zero-position motion and check it then matches 2.9. If confirmed, ACCEPT (gomc correct; the 2.9 oracle for this test is a stub artifact) — but the degenerate `acc=0` zero-move (finding #4 class) is a separate real wart worth suppressing. |
+| 5 | m98m99-12 | **M99 endless-main-loop position divergence.** Across the main-program M99 loop 2.9 restarts each iteration from `y=0` (full triangle); gomc **persists** position (`y=-101.6`), so from iter 2 the sub's `G1 Y-4` is a zero-distance move, emitted degenerate (`ini_maxvel=16.933, acc=0`). | **ACCEPT** — verified NOT a gomc bug (2026-07-14) | VERIFIED as a fake-vs-real-motion oracle artifact; gomc is the correct side. Chain: (a) the interp M99-loop code is identical in both trees (`interp_convert.cc:4570`/`:4580`; `loop_to_beginning` = `fseek(0)`+`sequence_number=0`, never resets position). (b) BOTH trees re-sync the interp from external position on continuation — 2.9 via `taskintf.cc:1600` (`stat->position = emcmotStatus.carte_pos_cmd`), gomc via `sequencer.go:864` `interp.Synch()`. (c) 2.9's `motion-logger` STUB never updates `carte_pos_cmd` (it only sets `joint_status->pos_cmd`), so `GET_EXTERNAL_POSITION` returns **0** → 2.9's interp resets to `y=0` each loop. (d) gomc's real `motmod` reports actual `carte_pos_cmd` → gomc's interp syncs to the real position → `y` persists. So the divergence is entirely the 2.9 stub lying about position; the m98m99-12 2.9 gold is NOT a valid parity oracle for post-loop moves — cannot certify against it. The residual `acc=0` zero-distance move gomc emits (because Y correctly persists) is real but folds into **finding #4** (suppress degenerate zero-length moves). |
 | 1 | basic/g1, mountaindew, m98m99-12 | gomc emits `SET_VEL`+`SET_ACC`+`SET_TERM_COND` before **every** feed move; 2.9 emits them once / only on change | OPEN | Verbosity, not geometry — the `SET_LINE` vel/acc values themselves are identical cross-tree (re-verified after the modal-units fix). Decide: is the per-move re-emission harmless (motion coalesces it) or should gomc suppress unchanged dynamics like 2.9? |
 | 2 | basic/g0,g1,s, mountaindew, m98m99-12 | 2.9 emits a trailing `SET_SPINDLESYNC` before the final `SPINDLE_OFF`; gomc omits it | OPEN | Already noted in the milltask review (gomc omits trailing SET_SPINDLESYNC). Confirm whether motion needs the sync reset at program end. |
 | 3 | basic/s | 2.9 emits redundant `SPINDLE_ON speed=0` commands (M3 S0 and a re-issue); gomc suppresses them | OPEN | gomc collapses no-op spindle commands. Likely a benign improvement — confirm no downstream consumer relies on the redundant edge, then ACCEPT. |
 | 4 | mountaindew | gomc emits two leading zero-length rapids `SET_LINE x=0..w=0, motion_type=1, vel=0, ini_maxvel=0, acc=0` (move-to-current-position) that 2.9 does not | OPEN | Redundant no-op moves at program start. Harmless to the toolpath but extra motion queue traffic — decide whether the canon should suppress zero-distance moves. |
 
 Findings #1–#4 are command-stream *shape* (extra/omitted commands) with matching
-motion values. **#5 was re-investigated and is likely NOT a gomc bug** — a
-fake-vs-real motion-backend artifact (2.9's stub reports position 0; gomc's real
-motmod reports actual), with gomc the more-correct side; see its row for the
-one verification step remaining. The only real gomc wart it exposes is the
-degenerate `acc=0` zero-distance move (finding #4 class).
+motion values. **#5 is VERIFIED NOT a gomc bug** — a fake-vs-real motion-backend
+artifact (2.9's stub never updates `carte_pos_cmd`, so its interp resets to 0 on
+the M99 loop; gomc's real motmod reports the actual position and correctly
+persists); see its row. The only real gomc wart it exposes is the degenerate
+`acc=0` zero-distance move, folded into finding #4.
 
-## Not yet certifiable
+## Not cleanly certifiable
 
-- `motion-logger/startup-gcode-abort` — gomc xfail, no gold
-  (`RS274NGC_STARTUP_CODE` never executed). Nothing to compare until that gap is
-  closed; then vendor it and add to `targets.sh`.
+- `motion-logger/startup-gcode-abort` — now un-xfailed and passing with a gomc
+  gold (`RS274NGC_STARTUP_CODE` executes as of the startup-code commit), BUT not a
+  clean parity target: 2.9 defers the startup move via `interp_list` and emits
+  **0** SET_LINE, while gomc dispatches it to motion at estop (rejected) and emits
+  **1**. Architectural difference (canon→motion direct vs deferred interp_list),
+  documented; leave it OUT of `targets.sh` rather than diff against an
+  incomparable oracle.
