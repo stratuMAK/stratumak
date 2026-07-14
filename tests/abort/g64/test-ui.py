@@ -85,7 +85,14 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
 
     c.wait_complete()
     s.poll()
+    # Bounded: an unbounded wait here hung the whole test run when the server
+    # came up without its REST/WS listener (stale instance holding the port) —
+    # and would equally hang on any real never-moves bug.
+    deadline = time.time() + 30.0
     while s.position[1] < 1.0:
+        if time.time() > deadline:
+            raise SystemExit("%s: timeout waiting for Y to reach 1.0 (pos=%r)"
+                             % (msg, s.position[:3]))
         time.sleep(0.1)
         s.poll()
     res += check_status('%s pre-abort' % msg, expected_mode, expected_p, expected_q)
