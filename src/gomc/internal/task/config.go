@@ -65,7 +65,7 @@ func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 		if t.axisMask&(1<<a) == 0 {
 			continue
 		}
-		if err := loadAxis(ini, a, mc); err != nil {
+		if err := loadAxis(ini, t, a, mc); err != nil {
 			return fmt.Errorf("axis %d config: %w", a, err)
 		}
 		// Store per-axis max velocity/acceleration for jog clamping and for the
@@ -187,12 +187,26 @@ type jointHomingParams struct {
 	flags, volatileHome           int32
 }
 
+// machineToMM converts a length expressed in the machine's configured linear
+// units to the internal millimeters the motion controller works in. gomc's
+// canon emits move targets in mm (fromProg/toAbsolute), so every length handed
+// to motion must be mm too. Soft-limit positions were the exception: they were
+// passed straight from the INI in machine units, so on an inch machine motion
+// enforced them 25.4x too tight and rejected legal moves. linearUnits is
+// machine-units-per-mm (1.0 for mm, 1/25.4 for inch), so mm = value/linearUnits.
+func (t *Task) machineToMM(v float64) float64 {
+	if t.linearUnits <= 0 {
+		return v
+	}
+	return v / t.linearUnits
+}
+
 func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) error {
 	section := fmt.Sprintf("JOINT_%d", joint)
 
-	// Position limits
-	minLimit := getFloatOrSection(ini, section, "MIN_LIMIT", -1e99)
-	maxLimit := getFloatOrSection(ini, section, "MAX_LIMIT", 1e99)
+	// Position limits (INI machine units -> internal mm, matching move targets).
+	minLimit := t.machineToMM(getFloatOrSection(ini, section, "MIN_LIMIT", -1e99))
+	maxLimit := t.machineToMM(getFloatOrSection(ini, section, "MAX_LIMIT", 1e99))
 	if err := mc.SetJointPositionLimits(joint, minLimit, maxLimit); err != nil {
 		return err
 	}
@@ -338,12 +352,12 @@ func loadJointComp(joint int32, file string, compType int, setComp func(joint in
 	return nil
 }
 
-func loadAxis(ini *inifile.IniFile, axis int32, mc MotionConfig) error {
+func loadAxis(ini *inifile.IniFile, t *Task, axis int32, mc MotionConfig) error {
 	section := axisSection(axis)
 
-	// Position limits
-	minLimit := getFloatOrSection(ini, section, "MIN_LIMIT", -1e99)
-	maxLimit := getFloatOrSection(ini, section, "MAX_LIMIT", 1e99)
+	// Position limits (INI machine units -> internal mm, matching move targets).
+	minLimit := t.machineToMM(getFloatOrSection(ini, section, "MIN_LIMIT", -1e99))
+	maxLimit := t.machineToMM(getFloatOrSection(ini, section, "MAX_LIMIT", 1e99))
 	if err := mc.SetAxisPositionLimits(axis, minLimit, maxLimit); err != nil {
 		return err
 	}
