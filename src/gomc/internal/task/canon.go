@@ -283,13 +283,14 @@ type Canon struct {
 	// continuation Execute to tell whether anything needs draining (E5). Plain
 	// int — interp execution is never concurrent (cmdMu / producer-owned).
 	enqueueCount int64
-	// lastParams caches the last acc/term/tol emitted by enqueueMotionParams, so
-	// it re-emits only on change — matching the C canon, which flushes
-	// SET_ACCELERATION / SET_MOTION_CONTROL_MODE only when they change rather
-	// than once per feed move. On the Canon (not CanonState) so it persists
-	// across program boundaries like the C canon's cached values.
-	lastParams    SetMotionParamsCmd
-	lastParamsSet bool
+	// lastTerm* caches the last SET_TERM_COND emitted by SetMotionControlMode so
+	// it re-emits only when the blending mode/tolerance changes — matching the C
+	// canon (SET_MOTION_CONTROL_MODE), emitted at the G61/G64 parse rather than
+	// before every feed move. On the Canon (not CanonState) so it persists across
+	// program boundaries like the C canon's cached value.
+	lastTermCond int32
+	lastTermTol  float64
+	lastTermSet  bool
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
@@ -441,6 +442,18 @@ func (c *Canon) SetMotionControlMode(mode int32, tolerance float64) {
 	s := c.state
 	s.motionMode = mode
 	s.motionTolerance = s.fromProg(tolerance)
+	// Emit SET_TERM_COND here, where the blending mode/tolerance is set (G61/
+	// G64), only on change — matching the C canon (SET_MOTION_CONTROL_MODE),
+	// rather than re-emitting it before every feed move. Cached on the Canon so
+	// it persists across programs (a later program that re-asserts the same G64
+	// does not re-emit). SetMotionParamsCmd with Acc=0 sets only the term cond.
+	term := canonModeToTPTermCond(mode)
+	if !c.lastTermSet || term != c.lastTermCond || s.motionTolerance != c.lastTermTol {
+		c.lastTermCond = term
+		c.lastTermTol = s.motionTolerance
+		c.lastTermSet = true
+		c.enqueue(&SetMotionParamsCmd{TermCond: term, Tolerance: s.motionTolerance})
+	}
 }
 
 func (c *Canon) SetNaivecamTolerance(tolerance float64) {
@@ -531,10 +544,6 @@ func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
 		// `if(vel && acc)` (and emits no params for it). Skip it too.
 		return
 	}
-	// Set motion parameters before the move (tp uses termCond at add time),
-	// emitted only when they change (enqueueMotionParams).
-	c.enqueueMotionParams()
-
 	cmd := &LinearMoveCmd{
 		Pos:          pos,
 		Vel:          vel,
@@ -630,7 +639,6 @@ func (c *Canon) ArcFeed(lineno int32, firstEnd, secondEnd, firstAxis, secondAxis
 		FeedMmPerMin: s.linearFeedRate * 60,
 	}
 	c.enqueue(cmd)
-	c.enqueueMotionParams()
 }
 
 func (c *Canon) RigidTap(lineno int32, x, y, z, scale float64) {
@@ -1241,25 +1249,6 @@ func (c *Canon) enqueue(cmd QueuedCmd) {
 	}
 }
 
-// enqueueMotionParams sets acc/term-cond before a feed move, but only when they
-// have changed since the last emission — matching the C canon, which flushes
-// SET_ACCELERATION / SET_MOTION_CONTROL_MODE only on change rather than once per
-// move. (Traj velocity is not emitted here; the feed rides in LinearMove.vel.)
-func (c *Canon) enqueueMotionParams() {
-	s := c.state
-	p := SetMotionParamsCmd{
-		Acc:       c.task.maxAcceleration,
-		TermCond:  canonModeToTPTermCond(s.motionMode),
-		Tolerance: s.motionTolerance,
-	}
-	if c.lastParamsSet && p == c.lastParams {
-		return
-	}
-	c.lastParams = p
-	c.lastParamsSet = true
-	c.enqueue(&p)
-}
-
 // --- Additional QueuedCmd types for canon ---
 
 // RigidTapCmd queues a rigid tap.
@@ -1349,9 +1338,11 @@ func (c *MistOffCmd) Wait() WaitType         { return WaitNone }
 func (c *MistOffCmd) Precondition() WaitType { return WaitMotion }
 func (c *MistOffCmd) String() string         { return "MistOff" }
 
-// SetMotionParamsCmd sets velocity/acceleration/termination before a move.
+// SetMotionParamsCmd sets acceleration (when Acc>0) and the blending term
+// condition. Traj velocity is not set here — the per-move feed rides in each
+// LinearMove's vel, and the traj velocity is set at startup / on feed-override
+// (matching the C canon, which never emits SET_VELOCITY per feed move).
 type SetMotionParamsCmd struct {
-	Vel       float64
 	Acc       float64
 	TermCond  int32
 	Tolerance float64
