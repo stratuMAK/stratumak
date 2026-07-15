@@ -2087,15 +2087,20 @@ func (t *Task) abortLocked() {
 	// (2.9 emcTaskStateRestore reads motion.traj.tag; AUTO only). Used below
 	// to roll the interp's modal state back from readahead to what was
 	// actually executing when the abort hit.
+	// t.mu spans the GetStatus + map read: BuildStat's motionInfoAndPrune
+	// deletes entries below ITS status id under t.mu, so an unlocked gap here
+	// lets a fresher status cycle prune this entry first and the restore would
+	// silently no-op. GetStatus is a shared-memory copy (no t.mu paths), cheap
+	// enough to hold the lock across on this once-per-abort path.
 	var restoreTag []byte
 	if wasAuto && t.status != nil {
+		t.mu.Lock()
 		if ms, err := t.status.GetStatus(); err == nil {
-			t.mu.Lock()
 			if info, ok := t.motionMap[ms.Id]; ok {
 				restoreTag = info.Tag
 			}
-			t.mu.Unlock()
 		}
+		t.mu.Unlock()
 	}
 
 	// External calls (no mutex held — won't block stat reads).

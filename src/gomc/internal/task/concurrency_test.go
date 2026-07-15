@@ -83,6 +83,9 @@ func (f *fakeInterp) Reset() error {
 }
 func (f *fakeInterp) Abort(int, string) error     { return nil }
 func (f *fakeInterp) RestoreFromTag([]byte) error { return nil }
+func (f *fakeInterp) ActiveModesFromTag([]byte) ([]int32, []int32, []float64, bool) {
+	return nil, nil, nil, false
+}
 func (f *fakeInterp) Line() int                   { f.mu.Lock(); defer f.mu.Unlock(); return f.line }
 func (f *fakeInterp) SequenceNumber() int         { return 0 }
 func (f *fakeInterp) CallLevel() int {

@@ -565,11 +565,7 @@ func (t *Task) pinMotionState(id int32, tag []byte) {
 	var gc, mc []int32
 	var st []float64
 	if t.interp != nil {
-		if d, ok := t.interp.(interface {
-			ActiveModesFromTag([]byte) ([]int32, []int32, []float64, bool)
-		}); ok {
-			gc, mc, st, _ = d.ActiveModesFromTag(tag)
-		}
+		gc, mc, st, _ = t.interp.ActiveModesFromTag(tag)
 	}
 	t.mu.Lock()
 	if info, ok := t.motionMap[id]; ok {

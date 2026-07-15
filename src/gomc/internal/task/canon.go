@@ -1193,10 +1193,12 @@ func (c *Canon) SetToolTableEntry(pocket, toolno int32, ox, oy, oz, oa, ob, oc, 
 }
 
 func (c *Canon) ReloadTooldata() {
+	c.flushSegments()
 	c.enqueue(&ReloadTooldataCmd{})
 }
 
 func (c *Canon) ChangeToolNumber(number int32) {
+	c.flushSegments()
 	c.enqueue(&ChangeToolNumberCmd{Number: number})
 }
 
