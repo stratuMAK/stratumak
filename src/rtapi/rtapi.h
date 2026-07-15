@@ -72,34 +72,9 @@
 #define RTAPI_END_DECLS
 #endif
 
-/** RTAPI_NONBLOCKING marks a function (or function-pointer type) as safe
-    for the hard-RT path: no allocation, no locking, no blocking calls.
-    Backed by clang's function-effects analysis: "make rt-effects-check"
-    compiles the RT translation units with -Wfunction-effects and verifies
-    annotated bodies transitively.  Expands to nothing on gcc and on
-    clang < 20 (whose analysis is broken), so production builds are
-    unaffected.
-
-    RTAPI_NONBLOCKING_TRUSTED_BEGIN/END wrap a function *definition* that
-    is declared RTAPI_NONBLOCKING but cannot be verified by the compiler,
-    e.g. because it calls a libc/vDSO primitive that is non-blocking in
-    practice (clock_gettime).  Every use is a trust boundary of the RT
-    path and must carry a justification comment. */
-#if defined(__clang__) && (__clang_major__ >= 20) && defined(__has_attribute)
-#if __has_attribute(nonblocking)
-#define RTAPI_NONBLOCKING __attribute__((nonblocking))
-#define RTAPI_NONBLOCKING_TRUSTED_BEGIN \
-    _Pragma("clang diagnostic push") \
-    _Pragma("clang diagnostic ignored \"-Wfunction-effects\"")
-#define RTAPI_NONBLOCKING_TRUSTED_END \
-    _Pragma("clang diagnostic pop")
-#endif
-#endif
-#ifndef RTAPI_NONBLOCKING
-#define RTAPI_NONBLOCKING
-#define RTAPI_NONBLOCKING_TRUSTED_BEGIN
-#define RTAPI_NONBLOCKING_TRUSTED_END
-#endif
+/** Realtime function-effect annotations (RTAPI_NONBLOCKING and the
+    TRUSTED exemption pragmas) — see rtapi_rt_check.h. */
+#include "rtapi_rt_check.h"
 
 RTAPI_BEGIN_DECLS
 
