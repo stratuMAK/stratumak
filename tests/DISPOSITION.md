@@ -19,13 +19,14 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-15, full run): **242 run / 220 pass / 0 fail / 22 xfail / 0 skipped**.
+Current composition (2026-07-15, full run): **242 run / 223 pass / 0 fail / 19 xfail / 0 skipped**.
 The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
 (G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
 statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
 on_abort/stop-button crazy-move pair. `scripts/runtests` now wipes each test's `db/` persistence
-before running (interp params / tool table state leaked between runs). `lathe` and
-`remap/remap-io` XPASS intermittently (WS-lag / sync-I/O races — xfail kept).
+before running (interp params / tool table state leaked between runs). The stale-status /
+sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) was un-xfailed 2026-07-15
+(see §3a-history).
 
 ---
 
@@ -188,13 +189,11 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 | bug | tests |
 |---|---|
 | G64 blending extents (canon lacks the 2.9 naive-CAM merge; corner rounding diverges) — the original modal-restore reason is FIXED | abort/g64 |
-| M67/M62 sync-I/O + (blended) motion | single-step, remap/remap-io (racy — XPASSes intermittently) |
 | jog/teleop + joint-mode + limit status | hard-limits, halui/jogging |
 | gmi.Stat client field gaps | startup-state, mdi-queue-length |
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem |
 | stepgen array module-param instance count | modparam.0 |
 | mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
-| jog overshoot from WS-lagged gmi.Stat | lathe (intermittent XPASS) |
 | operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
 | module-loading array-count (9/17 names, num_chan=9/17) | module-loading/{encoder,sim_encoder}/{9-names,num_chan=9}, module-loading/{pid,siggen}/{17-names,num_chan=17}, module-loading/encoder_ratio/{9-names,num_chan=9} |
 
@@ -209,6 +208,28 @@ restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
 (motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
 (abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
 (mux, multiclick via filestream, §2c).
+
+**2026-07-15, M67/M62 sync-I/O + stale-status cluster (single-step, remap/remap-io,
+lathe):** the sync-I/O loss itself was the motctl single-slot send race, fixed
+2026-07-14 (`104f633164`, concurrent senders could overwrite the shared command slot
+before the RT side consumed it — the sequencer's SET_AOUT was silently dropped during
+read-ahead). Verified with position-correlated pin sampling: synced outputs apply at
+the correct segment activation in plain AUTO and in single-step. The remaining
+failures were client-side: (1) `gmi.Stat.poll()` was a no-op over the 50 ms WS push
+cache, so a driver polling right after a command could observe pre-command state
+(single-step saw `interp_state==IDLE` right after AUTO_STEP and declared the program
+finished; lathe's jog-overshoot flake was the same lag) — poll() now does a
+synchronous fresh REST GET (classic `linuxcnc.stat.poll()` semantics, benefits every
+ported driver); (2) drivers compared gomc-mm positions against inch goals
+(single-step, lathe — fixed in the drivers); (3) lathe's continuous jog was killed
+mid-travel by gomc's INTENDED 2 s jog dead-man watchdog (`task.go jogTimeout`,
+runaway protection for disconnected clients — classic NML jogs had no such contract):
+`linuxcnc_util.jog_axis` now refreshes the jog inside its wait loop. Note the old
+lathe xfail's "jog overshoot" diagnosis was doubly stale: after mm-everywhere landed,
+the test actually failed deterministically on units, and at the mm client boundary
+`vel=5` is 5 mm/s (slow) so the watchdog, not overshoot, was the stopper. Validation:
+remap-io 5/5, lathe 19/20 (single early flake never reproduced — investigate if it
+recurs in CI), single-step 4/4, full suite green.
 
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 
