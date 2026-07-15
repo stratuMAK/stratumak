@@ -203,6 +203,32 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	}
 }
 
+// TestCanon_DiscardedTermCondDoesNotPoisonCache pins the discard/cache
+// interaction: a SET_TERM_COND emission suppressed by canon discard (a
+// run-from-line seek, or an ON_ABORT_COMMAND running under abortInterp — e.g.
+// on the estop-reset path, which has no pushDefaultTermCond to re-prime the
+// cache afterwards) must NOT update the on-change cache, or the next real
+// G61/G64 with the same values would be coalesced away and the TP left on a
+// stale blending mode.
+func TestCanon_DiscardedTermCondDoesNotPoisonCache(t *testing.T) {
+	task, _, _ := newRecordingTask()
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+	c := task.canon
+
+	// Discarded G61 (exact path): dropped, and the cache must not record it.
+	c.setDiscard(true)
+	c.SetMotionControlMode(CanonExactPath, 0)
+	c.setDiscard(false)
+
+	// The same real G61 must still be emitted to the sequencer.
+	before := c.enqueued()
+	c.SetMotionControlMode(CanonExactPath, 0)
+	if c.enqueued() == before {
+		t.Fatal("real SET_TERM_COND was coalesced away by a discarded emission poisoning the cache")
+	}
+}
+
 // TestEstopReset_RunsAbortSequence pins the ESTOP→ESTOP_RESET parity with 2.9
 // emcTaskSetState(ESTOP_RESET) (emctask.cc): beyond estop-off + lube-off, the
 // transition must abort motion, IoAbort with reason 5 (resetting the IO
