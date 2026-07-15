@@ -49,6 +49,17 @@ jobs:
         eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
+    - name: Upload failure logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: runtests-failure-logs
+        path: |
+          tests/**/server.log
+          tests/**/result
+          tests/**/stderr
+          tests/**/out.motion-logger
+        if-no-files-found: ignore
 
   rip-and-test-clang:
     runs-on: ubuntu-24.04
@@ -77,12 +88,13 @@ jobs:
         eatmydata ../scripts/rip-environment runtests -p
 
   # gomc gate: build + Go vet/tests + pinned lint (no NEW findings vs the
-  # gomc merge base) + fmt + C-warning gate on gomc-owned paths + full
-  # runtests. The make targets are the source of truth (src/gomc/Submakefile);
-  # this job only orchestrates them.
+  # gomc merge base) + fmt + C-warning gate on gomc-owned paths. The make
+  # targets are the source of truth (src/gomc/Submakefile); this job only
+  # orchestrates them. The full runtests suite runs once per PR, in
+  # rip-and-test (which uploads the failure logs).
   gomc:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
     - uses: actions/checkout@v2
       with:
@@ -114,21 +126,12 @@ jobs:
         export PATH="$PATH:$HOME/go/bin"
         cd src
         make gomc-check GOMC_LINT_BASE=origin/gomc
-    - name: runtests
-      run: |
-        cd src
-        ../scripts/rip-environment runtests -p
     - name: Upload failure logs
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: gomc-failure-logs
-        path: |
-          build.log
-          tests/**/server.log
-          tests/**/result
-          tests/**/stderr
-          tests/**/out.motion-logger
+        path: build.log
         if-no-files-found: ignore
 
   # Scoped, enforcing static analysis (shellcheck over fork-owned shell,

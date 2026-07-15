@@ -19,9 +19,11 @@ AI review vs. LinuxCNC 2.9 → findings doc → fix PRs → tests → sign-off
    232 run / 224 pass / 0 fail / 8 xfail / 0 skipped
    (10 obsolete module-loading over-limit xfails removed, user ruling — see the ledger §3b);
    `tests/DISPOSITION.md` is the authoritative ledger.
-2. **CI gates** — DONE (2026-07-13): `ci.yml` `gomc` job = build + C-warning gate (owned paths,
-   `scripts/check-gomc-cwarnings`) + `make gomc-check` (vet, tests, pinned golangci-lint v2.12.2
-   with a no-NEW-findings merge-base gate, fmt) + full runtests + failure-log artifacts.
+2. **CI gates** — DONE (2026-07-13; runtests dedup 2026-07-15): `ci.yml` `gomc` job = build +
+   C-warning gate (owned paths, `scripts/check-gomc-cwarnings`) + `make gomc-check` (vet, tests,
+   pinned golangci-lint v2.12.2 with a no-NEW-findings merge-base gate, fmt). The full runtests
+   suite runs once per PR in `rip-and-test` (as the name says), which now uploads the
+   failure-log artifacts; both jobs are intended required checks.
    `nightly-gomc.yml` = `gomc-test-race` + runtests against a race-built gomc-server.
    First `-race` sweep over the full module found+fixed a data race (ads notification test mock).
    **Lint burn-down (legacy baseline, `make gomc-lint-full`, 69 findings):** 50 errcheck
