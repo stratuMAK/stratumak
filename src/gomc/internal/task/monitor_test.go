@@ -235,11 +235,17 @@ func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 
 	mon := newMonitor(task, nil, nil, io)
 
+	// Drive the watchdog with the shared per-tick status read, like loop().
+	drive := func() {
+		_, err := stat.GetStatus()
+		mon.checkCommWatchdog(err)
+	}
+
 	stat.setCommError(true)
 
 	// One below the threshold: still no fault — the machine stays ON.
 	for i := 0; i < commFailureThreshold-1; i++ {
-		mon.checkCommWatchdog()
+		drive()
 	}
 	task.mu.Lock()
 	st := task.state
@@ -249,7 +255,7 @@ func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 	}
 
 	// The threshold-crossing read triggers the fault.
-	mon.checkCommWatchdog()
+	drive()
 
 	task.mu.Lock()
 	st = task.state
@@ -276,7 +282,7 @@ func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 
 	// A subsequent good read must reset the counter (no latched fault state).
 	stat.setCommError(false)
-	mon.checkCommWatchdog()
+	drive()
 	if mon.commErrors != 0 {
 		t.Errorf("commErrors = %d after a good read, want 0", mon.commErrors)
 	}
@@ -780,31 +786,36 @@ func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
-	// Drive checkMotionEnabled directly (no loop) to control tick count.
+	// Drive checkMotionEnabled directly (no loop) to control tick count,
+	// feeding it the shared per-tick status read like loop() does.
+	drive := func() {
+		ms, err := stat.GetStatus()
+		mon.checkMotionEnabled(ms, err)
+	}
 	stateIsOn := func() bool {
 		task.mu.Lock()
 		defer task.mu.Unlock()
 		return task.state == StateOn
 	}
 
-	mon.checkMotionEnabled()
-	mon.checkMotionEnabled()
+	drive()
+	drive()
 	if !stateIsOn() {
 		t.Fatal("machine switched off after only 2 disabled samples (stale-mirror race not debounced)")
 	}
 
 	// A fresh enabled sample resets the debounce.
 	stat.setEnabled(1)
-	mon.checkMotionEnabled()
+	drive()
 	stat.setEnabled(0)
-	mon.checkMotionEnabled()
-	mon.checkMotionEnabled()
+	drive()
+	drive()
 	if !stateIsOn() {
 		t.Fatal("debounce counter not reset by an enabled sample")
 	}
 
 	// Persistent disable trips on the 3rd consecutive sample.
-	mon.checkMotionEnabled()
+	drive()
 	if stateIsOn() {
 		t.Fatal("persistent motion self-disable not detected after 3 consecutive samples")
 	}

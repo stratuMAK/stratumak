@@ -4,6 +4,8 @@ package task
 
 import (
 	"time"
+
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
 )
 
 // monitorInterval is the polling rate for the monitoring goroutine.
@@ -109,9 +111,16 @@ func (m *monitor) loop() {
 			return
 		case <-ticker.C:
 			m.checkEstop()
-			m.checkCommWatchdog()
-			m.checkMotionEnabled()
-			m.checkMotionErrors(&softLimitReported)
+			// One motion-status read per tick, shared by the three checks: a
+			// GetStatus is a full shared-memory copy + cgo conversion of the
+			// entire motion status, and per-check reads tripled that cost while
+			// letting the checks disagree about liveness within one tick.
+			if m.task.status != nil {
+				ms, err := m.task.status.GetStatus()
+				m.checkCommWatchdog(err)
+				m.checkMotionEnabled(ms, err)
+				m.checkMotionErrors(ms, err, &softLimitReported)
+			}
 			m.checkJogWatchdog()
 			if m.inihal != nil {
 				m.inihal.check(m.mc)
@@ -237,14 +246,10 @@ func (m *monitor) checkEstop() {
 // following error, amp fault, limit switch). This mirrors the old milltask's
 // determineState() which checked traj.enabled every cycle and transitioned
 // the task from ON to ESTOP_RESET when motion was no longer enabled.
-func (m *monitor) checkMotionEnabled() {
-	if m.task.status == nil {
-		return
-	}
-
-	ms, err := m.task.status.GetStatus()
+// ms/err are the tick's shared status read (see loop).
+func (m *monitor) checkMotionEnabled(ms motstat.MotionStatus, err error) {
 	if err != nil {
-		return
+		return // split-read, skip this cycle (sustained failure: comm watchdog)
 	}
 
 	if ms.Enabled != 0 {
@@ -309,14 +314,10 @@ func (m *monitor) checkMotionEnabled() {
 }
 
 // checkMotionErrors polls motion status for errors and soft limits.
-func (m *monitor) checkMotionErrors(softLimitReported *bool) {
-	if m.task.status == nil {
-		return
-	}
-
-	ms, err := m.task.status.GetStatus()
+// ms/err are the tick's shared status read (see loop).
+func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimitReported *bool) {
 	if err != nil {
-		return // split-read, skip this cycle
+		return // split-read, skip this cycle (sustained failure: comm watchdog)
 	}
 
 	// Check soft limit.
@@ -408,12 +409,9 @@ func (m *monitor) checkMotionErrors(softLimitReported *bool) {
 // real outage, never by the occasional split-read. On trip it forces the same
 // error-stop as an unexpected motion-disable (abort motion+IO, stop spindles,
 // latch ExecError, leave coolant/lube/homing), and reports the cause.
-func (m *monitor) checkCommWatchdog() {
-	if m.task.status == nil {
-		return
-	}
-
-	if _, err := m.task.status.GetStatus(); err == nil {
+// err is the tick's shared status read result (see loop).
+func (m *monitor) checkCommWatchdog(err error) {
+	if err == nil {
 		m.commErrors = 0
 		return
 	}
