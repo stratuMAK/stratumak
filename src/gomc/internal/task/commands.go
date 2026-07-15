@@ -312,14 +312,19 @@ const (
 // alone (a following error must not lose the home reference), skips the synch,
 // and latches ExecError.
 type shutdownOpts struct {
-	ioReason     int32     // EMC_ABORT_* code passed to io.IoAbort
+	// abortReason is the EMC_ABORT_* code passed to io.IoAbort AND to interp
+	// on_abort (abortInterp), where it becomes the numeric argument of a
+	// configured ON_ABORT_COMMAND. The zero value (0) is out-of-enum (the C
+	// enum starts at TASK_EXEC_ERROR=1) — always set it explicitly, ideally
+	// via fullShutdownOpts.
+	abortReason  int32
 	disable      bool      // motion.Disable() — full off only
 	coolantOff   bool      // flood + mist off (and clear their status flags)
 	lubeOff      bool      // lube off (and clear lubeOn)
 	unhome       bool      // JointUnhome(-2) volatile-home joints
 	synch        bool      // re-synch interp to machine position after reset
 	terminalExec ExecState // ExecDone (clean stop) or ExecError (fault)
-	reason       string    // interp.Abort() log reason
+	reason       string    // human-readable cause, the interp.Abort message
 }
 
 // stopSignals fires the lock-free stop signals shared by every teardown: abort
@@ -343,7 +348,7 @@ func (t *Task) stopSignals(o shutdownOpts) {
 	if o.lubeOff {
 		_ = t.io.LubeOff()
 	}
-	_ = t.io.IoAbort(o.ioReason)
+	_ = t.io.IoAbort(o.abortReason)
 	if o.unhome {
 		_ = t.motion.JointUnhome(-2) // unhome only volatile-home joints
 	}
@@ -370,7 +375,7 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 	// already stopped by stopSignals).
 	t.waitRunProgramDone()
 	if t.interp != nil {
-		t.abortInterp(o.ioReason, o.reason)
+		t.abortInterp(o.abortReason, o.reason)
 		_ = t.interp.Close()
 		_ = t.interp.Reset()
 		if o.synch {
@@ -428,9 +433,9 @@ func (t *Task) pushDefaultTermCond() {
 }
 
 // fullShutdownOpts returns the options for a full machine off/estop teardown.
-func fullShutdownOpts(ioReason int32, reason string) shutdownOpts {
+func fullShutdownOpts(abortReason int32, reason string) shutdownOpts {
 	return shutdownOpts{
-		ioReason: ioReason, disable: true, coolantOff: true, lubeOff: true,
+		abortReason: abortReason, disable: true, coolantOff: true, lubeOff: true,
 		unhome: true, synch: true, terminalExec: ExecDone, reason: reason,
 	}
 }
@@ -439,10 +444,10 @@ func fullShutdownOpts(ioReason int32, reason string) shutdownOpts {
 // STATE_OFF: abort the sequencer/mcode/motion, disable motion, stop all
 // spindles, coolant and lube, abort IO, unhome volatile-home joints, and reset
 // the interpreter. Mirrors C++ emcTaskSetState(OFF/ESTOP). Must be called
-// WITHOUT t.mu held (setState callers already hold cmdMu). ioReason is the
-// EMC_ABORT_* code passed to io.IoAbort.
-func (t *Task) machineShutdown(ioReason int32) {
-	o := fullShutdownOpts(ioReason, "machine off")
+// WITHOUT t.mu held (setState callers already hold cmdMu). abortReason is the
+// EMC_ABORT_* code passed to io.IoAbort and interp on_abort.
+func (t *Task) machineShutdown(abortReason int32) {
+	o := fullShutdownOpts(abortReason, "machine off")
 	t.stopSignals(o)
 	t.finishShutdown(o)
 }

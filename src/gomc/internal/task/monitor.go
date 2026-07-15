@@ -342,7 +342,7 @@ func (m *monitor) checkMotionEnabled(ms motstat.MotionStatus, err error) {
 	// SetState racing the trip is excluded by errorStop's atomic re-check.)
 	// The specific cause is reported separately via the motion module's
 	// operator-error message.
-	o := shutdownOpts{ioReason: emcAbortTaskStateNotOn, terminalExec: ExecError, reason: "motion disabled"}
+	o := shutdownOpts{abortReason: emcAbortTaskStateNotOn, terminalExec: ExecError, reason: "motion disabled"}
 	m.errorStop(o, true, func() {
 		m.task.logger.Warn("motion disabled — switching machine off")
 	})
@@ -393,7 +393,7 @@ func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimi
 
 	// Error stop, staying ON (matches C++ EMC_TASK_EXEC_ERROR); latch only
 	// when it actually tripped so a not-ON observation doesn't eat the latch.
-	o := shutdownOpts{ioReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion/IO error"}
+	o := shutdownOpts{abortReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion/IO error"}
 	if m.errorStop(o, false, func() {
 		if motionError && ms.OnSoftLimit == 0 {
 			m.task.logger.Error("motion error detected — aborting")
@@ -434,7 +434,7 @@ func (m *monitor) checkCommWatchdog(err error) {
 	}
 	m.commErrors = 0
 
-	o := shutdownOpts{ioReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion comm lost"}
+	o := shutdownOpts{abortReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion comm lost"}
 	m.errorStop(o, true, func() {
 		m.task.logger.Error("motion controller not responding — forcing machine off")
 		m.task.operatorError("Motion controller not responding")
