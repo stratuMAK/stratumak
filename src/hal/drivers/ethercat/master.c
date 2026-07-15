@@ -348,6 +348,21 @@ void lcec_shutdown_master(lcec_master_t *master) {
  * @note Real-time safe: must not block, sleep, or allocate memory.
  * @note Acquires/releases @c master->mutex around EtherCAT stack calls.
  */
+/* RT-side acquisition of the master mutex.  The same mutex is taken by
+ * the EtherLab master's background access via the ecrt_master_callbacks()
+ * lock pair (lcec_request_lock) around single datagram fragments, so hold
+ * times are short and bounded by design; the RT cycle must serialize its
+ * bus access against that.  TRUSTED: rtapi_mutex_get spins with
+ * sched_yield — acceptable here only because of the bounded hold times.
+ * A try-lock + skip redesign for the state-polling sites is tracked in
+ * RT_HARDENING_CHECKLIST.md. */
+static void lcec_master_rt_lock(lcec_master_t *master) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static void lcec_master_rt_lock(lcec_master_t *master) {
+  rtapi_mutex_get(&master->mutex);
+}
+GOMC_NONBLOCKING_TRUSTED_END
+
 void lcec_read_master(void *arg, long period) {
   lcec_master_t *master = (lcec_master_t *) arg;
   lcec_slave_t *slave;
@@ -380,7 +395,7 @@ void lcec_read_master(void *arg, long period) {
   }
 
   // receive process data & master state
-  rtapi_mutex_get(&master->mutex);
+  lcec_master_rt_lock(master);
   ecrt_master_receive(master->master);
   ecrt_domain_process(master->domain);
   if (check_states) {
@@ -394,7 +409,7 @@ void lcec_read_master(void *arg, long period) {
   // process slaves
   for (slave = master->first_slave; slave != NULL; slave = slave->next) {
     // get slaves state
-    rtapi_mutex_get(&master->mutex);
+    lcec_master_rt_lock(master);
     if (check_states) {
       ecrt_slave_config_state(slave->config, &slave->state);
     }
@@ -404,7 +419,7 @@ void lcec_read_master(void *arg, long period) {
     }
 
     // process read function
-    if (slave->proc_read != NULL) {
+    if (slave->proc_read) {
       slave->proc_read(slave, period);
     }
   }
@@ -440,12 +455,12 @@ void lcec_write_master(void *arg, long period) {
 
   // process slaves
   for (slave = master->first_slave; slave != NULL; slave = slave->next) {
-    if (slave->proc_write != NULL) {
+    if (slave->proc_write) {
       slave->proc_write(slave, period);
     }
   }
 
-  rtapi_mutex_get(&master->mutex);
+  lcec_master_rt_lock(master);
 
   // queue process data
   ecrt_domain_queue(master->domain);
