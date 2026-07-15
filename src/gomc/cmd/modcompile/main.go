@@ -127,9 +127,35 @@ Examples:
 // Compiler/linker settings
 const (
 	defaultCC      = "gcc"
+	defaultCXX     = "g++"
 	defaultCFlags  = "-fPIC -Os -Wall"
 	defaultLDFlags = "-shared -lm"
 )
+
+// resolveCC returns the C compiler command: $CC from the environment wins,
+// then the configure-time compiler baked into the binary, then plain gcc.
+// The result may contain arguments (e.g. "gcc -m32").
+func resolveCC() string {
+	if cc := os.Getenv("CC"); cc != "" {
+		return cc
+	}
+	if config.CCompiler != "" {
+		return config.CCompiler
+	}
+	return defaultCC
+}
+
+// resolveCXX is resolveCC for the C++ compiler (cgo CXX when rebuilding
+// gomc-server).
+func resolveCXX() string {
+	if cxx := os.Getenv("CXX"); cxx != "" {
+		return cxx
+	}
+	if config.CxxCompiler != "" {
+		return config.CxxCompiler
+	}
+	return defaultCXX
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -385,15 +411,14 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
-	cc := os.Getenv("CC")
-	if cc == "" {
-		cc = defaultCC
-	}
+	// The compiler command may carry arguments (e.g. "gcc -m32").
+	cc := strings.Fields(resolveCC())
 
-	args := []string{
-		"-I" + config.EMC2CmodIncludeDir,
-		"-I" + filepath.Join(config.EMC2Home, "include"),
-	}
+	args := append([]string(nil), cc[1:]...)
+	args = append(args,
+		"-I"+config.EMC2CmodIncludeDir,
+		"-I"+filepath.Join(config.EMC2Home, "include"),
+	)
 	args = append(args, extraIncludes...)
 	args = append(args,
 		"-fPIC", "-Os", "-Wall",
@@ -407,7 +432,7 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 		"-lm",
 	)
 
-	cmd := exec.Command(cc, args...)
+	cmd := exec.Command(cc[0], args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -471,10 +496,7 @@ func compileCFile(cPath string, outDir string) error {
 // printMakeInc outputs a Makefile snippet for external projects.
 // Each variable is wrapped in $(eval) so $(shell) newline→space conversion works.
 func printMakeInc() {
-	cc := os.Getenv("CC")
-	if cc == "" {
-		cc = defaultCC
-	}
+	cc := resolveCC()
 
 	libDir := filepath.Join(config.EMC2Home, "lib")
 
@@ -525,6 +547,8 @@ func buildServer() {
 			"-X '%s.EMC2CmodDir=%s' "+
 			"-X '%s.EMC2CmodIncludeDir=%s' "+
 			"-X '%s.EMC2GomcDir=%s' "+
+			"-X '%s.CCompiler=%s' "+
+			"-X '%s.CxxCompiler=%s' "+
 			"-X '%s.GoBinary=%s' "+
 			"-X '%s.EMC2ConfigPath=%s' "+
 			"-X '%s.EMC2NCFilesDir=%s' "+
@@ -545,6 +569,8 @@ func buildServer() {
 		pkg, config.EMC2CmodDir,
 		pkg, config.EMC2CmodIncludeDir,
 		pkg, config.EMC2GomcDir,
+		pkg, config.CCompiler,
+		pkg, config.CxxCompiler,
 		pkg, config.GoBinary,
 		pkg, config.EMC2ConfigPath,
 		pkg, config.EMC2NCFilesDir,
@@ -581,9 +607,13 @@ func buildServer() {
 		cgoC = "-I" + incDir
 		cgoLD = fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)
 	}
+	// cgo takes the compiler from the environment (default gcc); pass the
+	// configured toolchain through so the rebuild matches the original build.
 	cmd.Env = append(os.Environ(),
 		"CGO_CFLAGS="+cgoC,
 		"CGO_LDFLAGS="+cgoLD,
+		"CC="+resolveCC(),
+		"CXX="+resolveCXX(),
 	)
 
 	fmt.Fprintf(os.Stderr, "Building gomc-server...\n")

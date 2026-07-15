@@ -40,6 +40,17 @@ var (
 	// External Go plugins must use the same Go toolchain for compatibility.
 	GoBinary string
 
+	// CCompiler is the C compiler LinuxCNC was configured with ($(CC),
+	// may include arguments). modcompile uses it to build cmods and as
+	// cgo CC when rebuilding gomc-server; the CC environment variable
+	// still takes precedence.
+	CCompiler string
+
+	// CxxCompiler is the C++ compiler LinuxCNC was configured with
+	// ($(CXX), may include arguments). Used as cgo CXX when rebuilding
+	// gomc-server; the CXX environment variable still takes precedence.
+	CxxCompiler string
+
 	// EMC2ConfigPath is the colon-separated list of config search directories (@LINUXCNC_CONFIG_PATH@).
 	EMC2ConfigPath string
 

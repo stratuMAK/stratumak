@@ -49,6 +49,8 @@ GOMC_LDFLAGS := \
     -X '$(GOMC_LDFLAGS_PKG).EMC2CmodIncludeDir=$(EMC2_CMOD_INCLUDE_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2GomcDir=$(EMC2_GOMC_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).GoBinary=$(GO)' \
+    -X '$(GOMC_LDFLAGS_PKG).CCompiler=$(CC)' \
+    -X '$(GOMC_LDFLAGS_PKG).CxxCompiler=$(CXX)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2ConfigPath=$(LINUXCNC_CONFIG_PATH)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2NCFilesDir=$(EMC2_NCFILES_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2LangDir=$(EMC2_LANG_DIR)' \
@@ -147,19 +149,28 @@ gomc/go.mod: gomc/go.mod.in $(wildcard gomc/external/*/go.deps)
 $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile $(GMI_ALL_GEN_GO)
 	$(Q)cd gomc && $(TOP)/bin/modcompile regenerate-imports
 
-# Build the gomc-server binary.
+# Environment shared by all cgo-enabled Go build/test/lint invocations.
 #
+# CC/CXX: cgo takes the compiler from the *environment* (default gcc) and
+# ignores make's CC/CXX variables — pass the configured compiler through so
+# the cgo-compiled C/C++ (hallib, halscope, interp shim, generated GMI
+# bridges) is built with the same toolchain as the rest of the tree
+# (e.g. the clang CI job).
 # CGO_LDFLAGS adds -Wl,-rpath so the dynamic linker finds libposemath.so
 # and librs274.so at runtime (RIP and installed builds alike).
 # --disable-new-dtags forces DT_RPATH instead of DT_RUNPATH; RUNPATH is
 # ignored by the dynamic linker when the binary has file capabilities (setcap).
 # LIB_DIR is $(EMC2_HOME)/lib, defined in Makefile.inc.
-#
+# CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
+# gets the same diagnostics as Ubuntu CI runners (builtin fortify).
 # GOFLAGS=-mod=mod allows Go to update go.sum automatically when new local
 # packages appear (e.g. generated GMI code).
+GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
+
+# Build the gomc-server binary.
 ../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(GMI_TOOLS_GEN_GO) $(GMI_EMCSTAT_PUSH_GO) $(GMI_MOTCTL_CLIENT_GO) $(GMI_MOTSTAT_CLIENT_GO) $(GMI_EMCIO_CLIENT_GO) $(GMI_CLASSICLADDER_SERVER_GO) $(GMI_HAL_SAMPLER_STREAM_GO) $(GMI_HAL_STREAMER_STREAM_GO) $(IMPORTS_GENERATED) gomc/go.mod ../lib/libposemath.so ../lib/librs274.so Makefile.inc
 	$(ECHO) Building gomc-server
-	$(Q)cd gomc && CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
+	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
 # ---------------------------------------------------------------------------
 # ADS XML generator tool — built from cmd/ads-xml-gen within the gomc module
@@ -273,12 +284,11 @@ TARGETS += ../bin/ethercat
 # of truth for what "green" means)
 # ---------------------------------------------------------------------------
 
-# Environment shared by all Go test/lint invocations. CGO_LDFLAGS adds
-# -Wl,-rpath so test binaries find librs274.so / libposemath.so at run time
-# without LD_LIBRARY_PATH (same reason as the gomc-server recipe).
-# CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
-# gets the same diagnostics as Ubuntu CI runners (builtin fortify).
-GOMC_TESTENV := CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
+# Environment shared by all Go test/lint invocations — same cgo environment
+# as the build recipes (see GOMC_CGOENV above): test binaries find
+# librs274.so / libposemath.so via -rpath without LD_LIBRARY_PATH, and the
+# cgo-compiled C matches the configured toolchain and fortify level.
+GOMC_TESTENV := $(GOMC_CGOENV)
 
 # Run the Go unit tests over the whole module. Narrow on the command line if
 # wanted, e.g. make gomc-test GOMC_TEST_PKGS=./internal/task/...
