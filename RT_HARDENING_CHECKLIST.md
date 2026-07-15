@@ -23,11 +23,19 @@ Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited)
 - cgo + modcompile now honor the configured C/C++ compiler (`GOMC_CGOENV`, baked `config.CCompiler/CxxCompiler`): a `CC=clang` configure now clang-compiles the cgo RT translation units too — previously they silently stayed gcc even in the `rip-and-test-clang` CI job. Verified: clang-built `gomc-server`, whole tree compiles under clang.
 - The full tree is now **warning-free under clang 19** (was 264 unique sites: 218 format-security in the hostmot2 gomc HAL port, missing `override` in `rs274ngc_interp.hh`/`interp_g7x.cc`, missing virtual dtors in g7x [real UB], unused hm2_modbus helpers, C++ VLAs in `interp_convert.cc`, duplicate-const in gmicompile codegen). gcc stays at zero warnings. This clears the way for a `-Werror` clang gate. Caveat: Go's build cache replays stale cgo compile warnings on cache hits (it does not hash externally-included C headers) — force a recompile before trusting warning output.
 
+**Forbidden-call enforcement landed (2026-07-15, `rt-validate`):**
+- `RTAPI_NONBLOCKING`/`GOMC_NONBLOCKING` macro infra (rtapi.h, `gomc_rt_check.h`), inert on gcc and clang < 20.
+- HAL funct pointer *types* are nonblocking (`hal_funct_ptr_t` in hal.h, `gomc_hal_funct_t` in gomc_hal.h) — the dispatch indirection is closed.
+- Annotated + verified: rtapi time/delay/pll/port primitives, the gomc log ring producer, `@rt_safe` GMI callback types (gmicompile emits the annotation), all modcompile-generated comp functs, halscope sampler. Trust boundaries are explicit `*_TRUSTED_BEGIN/END` blocks with justification (TLS lookups, `clock_gettime` vDSO, bounded `rtapi_delay`, log-ring `vsnprintf`) — grep for `NONBLOCKING_TRUSTED` to audit.
+- `make rt-effects-check` verifies 126 RT TUs (core RTAPI/HAL + halscope + every generated .comp) with `-Werror=function-effects`; wired into the `rip-and-test-clang` CI job. Debian 13 ships only clang 19 (broken analysis), so the check uses a pinned LLVM 22.1.8 release binary, sha256-verified, downloaded once by `scripts/rt-clang.sh` — diagnostic only, gcc stays the production compiler.
+- Real findings already fixed by the analysis: `anglejog` had 7 function-local statics (shared across instances — a genuine multi-instance bug), `eoffset_per_angle` did `fprintf(stderr, ...)` in the RT path.
+
 **Biggest open gaps (priority order):**
-1. **No forbidden-call enforcement at all** (§2): no `[[clang::nonblocking]]`, no `-Wfunction-effects`, no RTSan anywhere in the tree. A Clang build+test CI job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`) that could host both.
+1. **Effects-check scope**: motmod (`emcmotController`/`emcmotCommandHandler`/`emcmotTrajPlanner`), hostmot2, lcec (EtherCAT) and other hand-written cmod TUs are not yet annotated/checked — extend `scripts/rt-effects-check.sh` TU by TU. RTSan (`-fsanitize=realtime`, needs a runtime harness against the sim) also still open.
 2. **No deadline-miss detector → E-stop** (§1.5): `unexpected_realtime_delay()` logs once per session and takes no action.
 3. **No RT priority headroom**: HAL threads are created at `sched_get_priority_max()-1` (= 98) descending (`hal_lib.c` reserves only the single top slot).
 4. **No torture CI / jitter histogram** (§3); the nightly Go race-detector suite (`nightly-gomc.yml`) exists but is a different concern, and the strict cgo pointer checker is not wired into any test target.
+5. **gcc-native complement (planned)**: objdump-based reachability check on the built cmods (roots = exported functs, forbidden = malloc/lock/blocking PLT symbols) — runs on the production gcc binaries with distro tools only; prototype exists.
 
 Item-by-item detail in §4 below.
 
@@ -154,11 +162,15 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
   — Not wired up: no `GODEBUG=cgocheck2`/`GOEXPERIMENT=cgocheck2` in `gomc-test*` targets (`src/gomc/Submakefile:286-293`) or CI. (The nightly race-detector run in `.github/workflows/nightly-gomc.yml` is valuable but checks a different property.)
 
 ### Forbidden-call enforcement
-- [ ] RT entry points annotated `[[clang::nonblocking]]` — no occurrence in the tree.
-- [ ] HAL cyclic dispatch function-pointer *type* is `nonblocking` — `hal_funct_t`/funct pointers are plain types (`hal_lib.c:2984` dispatch).
-- [ ] Clang CI job: `-Wfunction-effects -Werror` on all RT translation units — not present; note a Clang build+test job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`, post-merge on `gomc`) that could carry the flag. Since `rt-validate` the job's `CC=clang` also reaches the cgo-compiled RT units (hallib, halscope, shims) — before, cgo silently fell back to gcc there. The job is gated to post-merge pushes on `gomc`, so PR branches never trigger it.
-- [ ] Clang CI job: `-fsanitize=realtime` against the sim — not present.
-- [ ] Every `__rtsan_disable` / `NONBLOCKING_UNSAFE` exemption is reviewed & justified — N/A until RTSan is introduced (no occurrences).
+- [~] RT entry points annotated `[[clang::nonblocking]]`
+  — Done on `rt-validate` for the core + generated scope: rtapi primitives (`rtapi.h` `RTAPI_NONBLOCKING`), gomc rtapi/log producer APIs (`gomc_rt_check.h`, `gomc_rtapi.h`, `gomc_log.h`), `@rt_safe` GMI callback types (gmicompile-emitted), every modcompile-generated comp funct, halscope sampler. Open: motmod, hostmot2, lcec, hand-written cmods. GNU spelling `__attribute__((nonblocking))`, gated to clang ≥ 20 (clang 19's analysis is broken: false conversion warnings, no body verification — verified empirically).
+- [x] HAL cyclic dispatch function-pointer *type* is `nonblocking`
+  — `hal_funct_ptr_t` (hal.h) used by `hal_export_funct`, `hal_funct_t`/`hal_funct_entry_t` and the `thread_task` dispatch; `gomc_hal_funct_t` (gomc_hal.h) in the cmod vtable. On gcc the annotation is empty — types and ABI unchanged.
+- [x] Clang CI job: `-Wfunction-effects -Werror` on RT translation units
+  — `make rt-effects-check` → `scripts/rt-effects-check.sh`: 126 TUs (core RTAPI/HAL, halscope, all generated comps) with `-Werror=function-effects`; in the `rip-and-test-clang` CI job (post-merge on `gomc`) with the pinned toolchain cached. Uses LLVM 22.1.8 official release binaries (sha256-pinned per arch, X64+ARM64) via `scripts/rt-clang.sh` since no distro clang ≥ 20 exists on Debian 13. Scope grows with item 1.
+- [ ] Clang CI job: `-fsanitize=realtime` against the sim — not present; the pinned toolchain now makes this possible (needs an RTSan-instrumented sim build + runtime harness).
+- [x] Every `__rtsan_disable` / `NONBLOCKING_UNSAFE` exemption is reviewed & justified
+  — Exemption mechanism is `RTAPI_NONBLOCKING_TRUSTED_BEGIN/END` (+ GOMC variant); each of the current uses carries a justification: task-self/PLL (TLS lookup), `rtapi_get_time`/`gomc_log_now_ns` (`clock_gettime` vDSO), `rtapi_delay` (clamped ≤ 10 µs), `gomc_log_emit` (lock-free ring, fixed-buffer `vsnprintf`, drop-on-full). Audit with `grep -rn NONBLOCKING_TRUSTED src/`.
 
 ### Failure semantics
 - [ ] Deadline-miss detector in the RT cycle → E-stop on overrun
