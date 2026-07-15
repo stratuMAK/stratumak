@@ -423,7 +423,7 @@ func (g *generator) emitFunctionForwards() {
 	// RT functions and user_mainloop are orthogonal — a component can have both.
 	for _, fn := range g.comp.Functions {
 		cName := funcCName(fn.Name)
-		g.printf("static void %s(void *arg, long period);\n", cName)
+		g.printf("static void %s(void *arg, long period) GOMC_NONBLOCKING;\n", cName)
 	}
 	if g.hasUserMainloop() {
 		g.printf("static void user_mainloop(inst_t *__comp_inst);\n")
@@ -462,8 +462,8 @@ func (g *generator) emitConvenienceDefines() {
 	if g.hasFunctions() {
 		g.printf("#undef FUNCTION\n")
 		g.printf("#define FUNCTION(name_) \\\n")
-		g.printf("    static void funct_ ## name_ ## _body(inst_t *__comp_inst, long period); \\\n")
-		g.printf("    static void funct_ ## name_(void *arg, long period) { \\\n")
+		g.printf("    static void funct_ ## name_ ## _body(inst_t *__comp_inst, long period) GOMC_NONBLOCKING; \\\n")
+		g.printf("    static void funct_ ## name_(void *arg, long period) GOMC_NONBLOCKING { \\\n")
 		g.printf("        funct_ ## name_ ## _body((inst_t *)arg, period); \\\n")
 		g.printf("    } \\\n")
 		g.printf("    static void funct_ ## name_ ## _body(inst_t *__comp_inst, long period)\n\n")
