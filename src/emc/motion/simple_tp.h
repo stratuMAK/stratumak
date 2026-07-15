@@ -19,6 +19,8 @@
 #ifndef SIMPLE_TP_H
 #define SIMPLE_TP_H
 
+#include "rtapi_rt_check.h"
+
 // stopping criterion:
 #define TINY_DP(max_acc,period) (max_acc*period*period*0.001)
 
@@ -51,7 +53,7 @@ extern "C" {
    is enabled.  'period' is the period between calls, in seconds.
 */
 
-extern void simple_tp_update(simple_tp_t *tp, double period);
+extern void simple_tp_update(simple_tp_t *tp, double period) RTAPI_NONBLOCKING;
 
 
 #ifdef __cplusplus

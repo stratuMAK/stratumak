@@ -962,6 +962,15 @@ static int motmod_init(cmod_t *self)
 	return -1;
     }
 
+    /* Worst-case jerk filter buffers — allocated here once so the servo
+       thread never allocates (jerk_filter_recompute_window only
+       re-strides within this capacity). */
+    retval = jerk_filter_alloc(inst);
+    if (retval != 0) {
+	gomc_log_errorf(log, inst->name, "MOTION: jerk_filter_alloc() failed\n");
+	return -1;
+    }
+
     /* Wire up motctl/motstat handler contexts now that inst->mot_struct exists. */
     motctl_init_ctx(inst->motctl_ctx, inst->mot_struct, DEFAULT_EMCMOT_COMM_TIMEOUT);
     motstat_init_ctx(inst->motstat_ctx, inst->mot_struct, (axis_inst_t *)inst->axis_inst);

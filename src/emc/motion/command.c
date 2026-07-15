@@ -188,6 +188,7 @@ void apply_spindle_limits(spindle_status_t *s){
 /* inRange() returns non-zero if the position lies within the joint
    limits, or 0 if not.  It also reports an error for each joint limit
    violation.  It's possible to get more than one violation per move. */
+static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GOMC_NONBLOCKING;
 static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type)
 {
     double joint_pos[EMCMOT_MAX_JOINTS];
@@ -461,7 +462,7 @@ static void motcmd_trace(const emcmot_command_t *cmd)
 static inline void motcmd_trace(const emcmot_command_t *cmd) { (void)cmd; }
 #endif /* MILLTASK_PARITY_TRACE */
 
-void emcmotCommandHandler_locked(void *arg, long servo_period)
+void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)arg;
 
