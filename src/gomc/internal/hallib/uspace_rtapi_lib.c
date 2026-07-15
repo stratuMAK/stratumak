@@ -361,14 +361,14 @@ void rtapi_unlock_dl_handle(void *handle) {
 
 static void configure_memory(void)
 {
-    /* Raise memlock rlimit — needed for mlockall(), per-region mlock() and SHM_LOCK */
+    /* Raise memlock rlimit — needed for mlockall() and per-region mlock() */
     int res = setrlimit(RLIMIT_MEMLOCK, &unlimited);
     if(res < 0) perror("setrlimit");
 
     /* Memory locking strategy (Go-safe — no MCL_FUTURE):
      *   - Pre-loaded libs (libc, librtapi, vdso): mlockall(MCL_CURRENT) in rtapi_initialize_app()
      *   - HAL component .so files: rtapi_dlopen() locks PT_LOAD segments
-     *   - SysV shmem segments: SHM_LOCK in rtapi_shmem_new()
+     *   - Shared memory segments: rtapi_calloc() in rtapi_shmem_new()
      *   - Task structs: mlock() in rtapi_malloc()
      *   - Thread stacks: mlock() in task_wrapper()
      */
