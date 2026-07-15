@@ -65,4 +65,5 @@ SET_LINE x=25.4, y=0, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=11, motion_type=1
 SET_LINE x=25.4, y=25.4, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=12, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
 SET_LINE x=0, y=25.4, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=13, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
 SET_LINE x=0, y=0, z=12.7, a=0, b=0, c=0, u=0, v=0, w=0, id=14, motion_type=1, vel=10160, ini_maxvel=10160, acc=25400, turn=-1
+SET_SPINDLESYNC sync=0.000000, motion_type=0
 SPINDLE_OFF

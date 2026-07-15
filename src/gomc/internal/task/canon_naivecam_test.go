@@ -48,6 +48,17 @@ func (m *naivecamMotion) SetAoutSynched(index int32, startValue, endValue float6
 	return nil
 }
 
+func (m *naivecamMotion) SetSpindlesync(sync float64, motionType int32) error {
+	m.mu.Lock()
+	if sync != 0 {
+		m.events = append(m.events, "sync-on")
+	} else {
+		m.events = append(m.events, "sync-off")
+	}
+	m.mu.Unlock()
+	return nil
+}
+
 func newNaivecamTask(t *testing.T) (*Task, *naivecamMotion) {
 	t.Helper()
 	mot := &naivecamMotion{}
@@ -299,4 +310,52 @@ func TestNaivecam_ZeroLengthDropped(t *testing.T) {
 		t.Fatalf("expected the zero-length move dropped, got %d moves: %+v", len(moves), moves)
 	}
 	checkPos(t, moves[0], "line", 5, 0, 0)
+}
+
+// A zero-length feed is KEPT when spindle-synched — the segment must still
+// reach the TP for its sync semantics (2.9 flush_segments:
+// `(vel && acc) || canon.spindle[n].synched`). G95 counts as synched: 2.9's
+// SET_FEED_RATE starts velocity-mode sync whenever feed_mode != 0.
+func TestNaivecam_ZeroLengthKeptWhenG95Synched(t *testing.T) {
+	task, mot := newNaivecamTask(t)
+	c := task.canon
+	enableNaivecam(c, 0.1)
+
+	c.SetFeedMode(0, 1) // G95 units-per-rev
+	c.SetFeedRate(3.0)  // per-rev F word → StartSpeedFeedSynch(…, 1)
+	c.StraightFeed(1, 0, 0, 0, 0, 0, 0, 0, 0, 0) // zero-distance, synched
+	c.Finish()
+
+	events, _, moves := collectEvents(t, task, mot)
+	if len(moves) != 1 {
+		t.Fatalf("expected the zero-length synched move kept, got %d moves: %+v", len(moves), moves)
+	}
+	want := []string{"sync-on", "line"}
+	if len(events) != len(want) || events[0] != want[0] || events[1] != want[1] {
+		t.Fatalf("expected events %v (F word starts velocity sync before the move), got %v", want, events)
+	}
+}
+
+// A traverse under G95 is sync-bracketed: stop sync, traverse, restart sync
+// (2.9 STRAIGHT_TRAVERSE) — the rapid must not run spindle-synched.
+func TestG95_TraverseSyncBracket(t *testing.T) {
+	task, mot := newNaivecamTask(t)
+	c := task.canon
+
+	c.SetFeedMode(0, 1)                               // G95
+	c.SetFeedRate(3.0)                                // sync-on
+	c.StraightFeed(1, 5, 0, 0, 0, 0, 0, 0, 0, 0)      // synched feed
+	c.StraightTraverse(2, 10, 0, 0, 0, 0, 0, 0, 0, 0) // bracketed rapid
+	c.Finish()
+
+	events, _, _ := collectEvents(t, task, mot)
+	want := []string{"sync-on", "line", "sync-off", "line", "sync-on"}
+	if len(events) != len(want) {
+		t.Fatalf("expected events %v, got %v", want, events)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("expected events %v, got %v", want, events)
+		}
+	}
 }

@@ -13,16 +13,15 @@ LinuxCNC 2.9 @ 50773b4353 (see `oracle-2.9/MANIFEST`).
 
 Findings resolved: **#1 FIXED** (emit SET_VELOCITY/ACC/TERM the way 2.9 does —
 per-move standalone dynamics fully eliminated, motion identical); **#4 FIXED**
-(zero-distance-move guard — also erased #5's `acc=0` residual); **#2, #3, #5
-ACCEPT** (benign / gomc-better, evidence recorded). No finding is a motion
-correctness defect. After #1+#4, the compared program segments differ from 2.9
-**only** by the accepted findings (#2 trailing `SET_SPINDLESYNC`, #3 spindle-0
-suppression, #5 M99-loop stub artifact). The committed gomc motion-logger golds
-(`basic`, `mountaindew`, `m98m99-12`) are **certified against LinuxCNC 2.9.8** and
-frozen; the runtests self-regression golds guard drift.
-
-One optional candidate remains (not a blocker): **#2** (emit end-of-program
-`SET_SPINDLESYNC` — corpus is all-G94, so it's a `0→0` no-op). Nothing else.
+(zero-distance-move guard — also erased #5's `acc=0` residual); **#2 FIXED**
+(2026-07-15, part of the G95 velocity-sync port: SET_FEED_MODE(mode 0) now
+calls StopSpeedFeedSynch like 2.9, emitting the trailing `SET_SPINDLESYNC`
+at M2/M30 — golds re-baselined); **#3, #5 ACCEPT** (benign / gomc-better,
+evidence recorded). No finding is a motion correctness defect. The compared
+program segments now differ from 2.9 **only** by the accepted findings (#3
+spindle-0 suppression, #5 M99-loop stub artifact). The committed gomc
+motion-logger golds (`basic`, `mountaindew`, `m98m99-12`) are **certified
+against LinuxCNC 2.9.8**; the runtests self-regression golds guard drift.
 
 Ranked most-severe first.
 
@@ -58,7 +57,7 @@ line if one ever appears rather than guessing (see canonicalize.awk).
 |---|-------|-----------|--------|-------|
 | 5 | m98m99-12 | **M99 endless-main-loop position divergence.** Across the main-program M99 loop 2.9 restarts each iteration from `y=0` (full triangle); gomc **persists** position (`y=-101.6`), so from iter 2 the sub's `G1 Y-4` is a zero-distance move, emitted degenerate (`ini_maxvel=16.933, acc=0`). | **ACCEPT** — verified NOT a gomc bug (2026-07-14) | VERIFIED as a fake-vs-real-motion oracle artifact; gomc is the correct side. Chain: (a) the interp M99-loop code is identical in both trees (`interp_convert.cc:4570`/`:4580`; `loop_to_beginning` = `fseek(0)`+`sequence_number=0`, never resets position). (b) BOTH trees re-sync the interp from external position on continuation — 2.9 via `taskintf.cc:1600` (`stat->position = emcmotStatus.carte_pos_cmd`), gomc via `sequencer.go:864` `interp.Synch()`. (c) 2.9's `motion-logger` STUB never updates `carte_pos_cmd` (it only sets `joint_status->pos_cmd`), so `GET_EXTERNAL_POSITION` returns **0** → 2.9's interp resets to `y=0` each loop. (d) gomc's real `motmod` reports actual `carte_pos_cmd` → gomc's interp syncs to the real position → `y` persists. So the divergence is entirely the 2.9 stub lying about position; the m98m99-12 2.9 gold is NOT a valid parity oracle for post-loop moves — cannot certify against it. The residual `acc=0` zero-distance move gomc emits (because Y correctly persists) is real but folds into **finding #4** (suppress degenerate zero-length moves). |
 | 1 | — (resolved) | gomc emitted `SET_VEL`+`SET_ACC`+`SET_TERM_COND` before **every** feed move; 2.9 emits them once / on change | **✅ FIXED** (2026-07-14) | The motmod-cap worry was unfounded — gomc links the *same* C motmod as 2.9, so replicating 2.9's stream is safe by construction. Three changes, all matching 2.9's emission architecture: (a) removed the per-move traj `SET_VELOCITY` (`SetMotionParamsCmd` no longer sets vel — the feed rides in `SET_LINE.vel`); (b) `SET_TERM_COND` now emitted from `SetMotionControlMode` on change (at the G61/G64 parse), cached on the `Canon` so it persists across programs; (c) removed `enqueueMotionParams` — `SET_ACC` is emitted once at startup like 2.9. Result: **zero** standalone `SET_VEL`/`SET_ACC`/`SET_TERM` in the program segments — g0/g1/s/mountaindew/m98m99-12 now match 2.9 exactly modulo the other findings. Motion verified identical (all `SET_LINE` unchanged); full suite clean. |
-| 2 | basic/g0,g1,s, mountaindew, m98m99-12 | 2.9 emits a trailing `SET_SPINDLESYNC` before the final `SPINDLE_OFF`; gomc omits it | **ACCEPT** (cleanup candidate) | Benign: the sync state is re-established by the next program's canon init (and by abort/estop teardown), so the missing end-of-program reset does not affect motion. Low-priority fidelity cleanup: gomc could emit `SET_SPINDLESYNC(0)` at program end to match 2.9. |
+| 2 | basic/g0,g1,s, mountaindew, m98m99-12 | 2.9 emits a trailing `SET_SPINDLESYNC` before the final `SPINDLE_OFF`; gomc omits it | **✅ FIXED** (2026-07-15) | Root cause was deeper than fidelity: gomc's `SET_FEED_MODE` never called `StopSpeedFeedSynch` on mode 0 (2.9 emccanon.cc:522 does), and `SetFeedRate` omitted 2.9's G95 velocity-mode sync start (emccanon.cc:529). Both ported as part of the G95 velocity-sync fix; the M2/M30 feed-mode reset now emits the trailing `SET_SPINDLESYNC(0)` exactly like 2.9. Golds re-baselined (basic g0/g1/s, mountaindew, m98m99-12). |
 | 3 | basic/s | 2.9 emits redundant `SPINDLE_ON speed=0` commands (M3 S0 and a re-issue); gomc suppresses them | **ACCEPT** | gomc collapses no-op spindle commands — a strict improvement; nothing downstream relies on the redundant edge. |
 | 4 | mountaindew, m98m99-12 | gomc emitted zero-length moves `SET_LINE ... vel=0, ini_maxvel=0, acc=0` that 2.9 does not; also #5's `acc=0` degenerate loop move | **FIXED** (2026-07-14) | Mirrored 2.9's `if(vel && acc)` guard: `StraightTraverse`/`StraightFeed` now skip a move when `acc==0` (zero distance). Verified gone from the parity diff for mountaindew and m98m99-12, and it also removed **#5's residual `acc=0` move**. Golds re-captured; motion-logger tests green. |
 

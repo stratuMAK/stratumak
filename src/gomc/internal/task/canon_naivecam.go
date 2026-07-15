@@ -120,7 +120,7 @@ func (c *Canon) flushSegments() {
 	// 2.9's `if (vel && acc)`) — unless spindle-synched (G33/G95), where the
 	// segment must still reach the TP for its sync semantics (2.9's
 	// `|| synched` exception).
-	synched := s.feedMode == 2
+	synched := s.synched
 	if acc > 0 || synched {
 		cmd := &LinearMoveCmd{
 			Pos:          last.pos,

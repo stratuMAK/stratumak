@@ -90,7 +90,9 @@ type CanonState struct {
 	motionMode      int32   // CanonExact/Continuous/ExactPath
 	motionTolerance float64 // blending tolerance (mm)
 	naivecamTol     float64 // naive CAM tolerance (mm)
-	feedMode        int32   // 0=normal, 1=inverse-time, 2=units-per-rev
+	feedMode        int32   // 0 = units/min (G93/G94), 1 = units/rev (G95) — as delivered by SET_FEED_MODE
+	synched         bool    // spindle sync active (2.9 canon.spindle[n].synched); set/cleared by Start/StopSpeedFeedSynch
+	feedPerRev      float64 // last G95 F word (prog units/rev) — re-issued by the traverse sync brackets
 
 	// Feed rates (internal, mm/sec or deg/sec)
 	linearFeedRate  float64
@@ -458,6 +460,16 @@ func (c *Canon) SetTraverseRate(rate float64) {
 
 func (c *Canon) SetFeedRate(rate float64) {
 	s := c.state
+	if s.feedMode != 0 {
+		// G95 units-per-rev: every F word (re)starts velocity-mode spindle
+		// sync (2.9 SET_FEED_RATE) — the rate is per revolution, no /60. The
+		// stored linear rate is only the vel cap for synched feeds (2.9 keeps
+		// the raw prog value; here it is unit-scaled to mm like all rates).
+		c.StartSpeedFeedSynch(s.spindleNum, rate, 1)
+		s.feedPerRev = rate
+		s.linearFeedRate = s.fromProg(rate)
+		return
+	}
 	// units/min → units/sec. Linear feed is in program length units (scaled to
 	// mm); angular feed is in degrees (never unit-scaled), matching C++
 	// FROM_PROG_LEN / FROM_PROG_ANG. Both are set so the per-move blend can
@@ -481,6 +493,12 @@ func (c *Canon) SetFeedMode(spindle, mode int32) {
 	c.flushSegments()
 	c.state.feedMode = mode
 	c.state.spindleNum = spindle
+	// Leaving per-rev mode stops the spindle sync (2.9 SET_FEED_MODE) — this
+	// is also the source of the trailing SET_SPINDLESYNC at M2/M30, which
+	// resets the feed mode.
+	if mode == 0 {
+		c.StopSpeedFeedSynch()
+	}
 }
 
 func (c *Canon) SetMotionControlMode(mode int32, tolerance float64) {
@@ -571,26 +589,32 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 	// its own limit, coordinated — not the traj-global cap. Matches C++
 	// STRAIGHT_TRAVERSE (getStraightVelocity/Acceleration).
 	velMax, accMax, _, _ := c.task.straightLimits(from, pos)
-	if accMax == 0 {
-		// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
-		// drops it via `if(vel && acc)`. Skip it too rather than emit a
-		// degenerate zero-length segment.
-		return
+	// Under G95 a traverse must not run spindle-synched: bracket it with a
+	// sync stop/restart (2.9 STRAIGHT_TRAVERSE) — even around a dropped
+	// zero-length move, matching 2.9's command ordering exactly.
+	if s.feedMode != 0 {
+		c.StopSpeedFeedSynch()
 	}
-	if velMax <= 0 {
-		velMax = s.linearFeedRate
+	// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
+	// drops it via `if(vel && acc)` rather than emit a degenerate segment.
+	if accMax != 0 {
+		if velMax <= 0 {
+			velMax = s.linearFeedRate
+		}
+		c.enqueue(&LinearMoveCmd{
+			Pos:          pos,
+			Vel:          velMax,
+			IniMaxVel:    velMax,
+			Acc:          accMax,
+			MotionType:   1, // EMC_MOTION_TYPE_TRAVERSE
+			ID:           c.allocSerial(lineno),
+			FeedMmPerMin: 0, // traverse: no programmed feed
+			IndexerJ:     s.rotaryUnlockForTraverse,
+		})
 	}
-	cmd := &LinearMoveCmd{
-		Pos:          pos,
-		Vel:          velMax,
-		IniMaxVel:    velMax,
-		Acc:          accMax,
-		MotionType:   1, // EMC_MOTION_TYPE_TRAVERSE
-		ID:           c.allocSerial(lineno),
-		FeedMmPerMin: 0, // traverse: no programmed feed
-		IndexerJ:     s.rotaryUnlockForTraverse,
+	if s.feedMode != 0 {
+		c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
 	}
-	c.enqueue(cmd)
 }
 
 func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
@@ -904,6 +928,11 @@ func (c *Canon) ChangeTool(slot int32) {
 			pos.U, pos.V, pos.W = p[6], p[7], p[8]
 		}
 		velMax, accMax, _, _ := c.task.straightLimits(from, pos)
+		// Under G95 the toolchange traverse must not run spindle-synched:
+		// sync stop/restart bracket, like 2.9 CHANGE_TOOL.
+		if s.feedMode != 0 {
+			c.StopSpeedFeedSynch()
+		}
 		// Zero-distance move: drop like 2.9's `if(vel && acc)`.
 		if accMax != 0 {
 			if velMax <= 0 {
@@ -920,6 +949,9 @@ func (c *Canon) ChangeTool(slot int32) {
 				FeedMmPerMin: 0,
 				IndexerJ:     -1,
 			})
+		}
+		if s.feedMode != 0 {
+			c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
 		}
 	}
 	c.enqueue(&ToolChangeCmd{})
@@ -1109,7 +1141,10 @@ func (c *Canon) TurnProbeOff() {}
 
 func (c *Canon) StartSpeedFeedSynch(spindle int32, feedPerRev float64, velocityMode int32) {
 	c.flushSegments()
-	c.state.feedMode = 2 // units per rev
+	// Sync state is separate from the feed mode (2.9 canon.spindle[n].synched
+	// vs canon.feed_mode): G33/G76/rigid-tap sync (velocityMode 0) does not
+	// imply G95, and stopping sync must not clear a modal G95.
+	c.state.synched = true
 	c.state.spindleNum = spindle
 	c.enqueue(&SpindleSyncCmd{
 		Sync:       c.state.fromProg(feedPerRev),
@@ -1119,7 +1154,7 @@ func (c *Canon) StartSpeedFeedSynch(spindle int32, feedPerRev float64, velocityM
 
 func (c *Canon) StopSpeedFeedSynch() {
 	c.flushSegments()
-	c.state.feedMode = 0
+	c.state.synched = false
 	c.enqueue(&SpindleSyncCmd{Sync: 0, MotionType: 0})
 }
 
@@ -1157,6 +1192,10 @@ func (c *Canon) UnlockRotary(lineno, joint int32) (int32, error) {
 	// Enqueue a zero-length traverse to interrupt blending and reach final
 	// position before unlocking (matches C canon UNLOCK_ROTARY behavior).
 	s := c.state
+	// 2.9 UNLOCK_ROTARY sync-brackets this traverse under G95 too.
+	if s.feedMode != 0 {
+		c.StopSpeedFeedSynch()
+	}
 	cmd := &LinearMoveCmd{
 		Pos:          s.endPoint,
 		Vel:          1,
@@ -1168,6 +1207,9 @@ func (c *Canon) UnlockRotary(lineno, joint int32) (int32, error) {
 		IndexerJ:     -1,
 	}
 	c.enqueue(cmd)
+	if s.feedMode != 0 {
+		c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
+	}
 	// The next traverse will carry this joint number for unlock/lock.
 	c.state.rotaryUnlockForTraverse = joint
 	return 0, nil
