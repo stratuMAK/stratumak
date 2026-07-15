@@ -775,9 +775,15 @@ func (t *Task) seqFaultExit() {
 	// the hardware stop so it queues on cmdMu as early as possible.
 	go t.recoverSeqFault()
 
-	_ = t.motion.Abort()
-	_ = t.io.IoAbort(emcAbortTaskExecError)
-	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
+	if err := t.motion.Abort(); err != nil {
+		t.logger.Error("seqFaultExit: motion abort failed", "err", err)
+	}
+	if err := t.io.IoAbort(emcAbortTaskExecError); err != nil {
+		t.logger.Error("seqFaultExit: io abort failed", "err", err)
+	}
+	if err := t.motion.SpindleOff(-1); err != nil { // all-spindles broadcast
+		t.logger.Error("seqFaultExit: spindle stop failed", "err", err)
+	}
 }
 
 // --- Concrete QueuedCmd types ---

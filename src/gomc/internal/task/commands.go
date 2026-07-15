@@ -1334,10 +1334,12 @@ func (t *Task) recoverSeqFaultLocked() {
 	if !faulted {
 		return // another teardown restarted the sequencer and reset the interp
 	}
+	t.logger.Debug("recoverSeqFault: running interp on_abort + sequencer restart")
 	t.abortInterp(emcAbortTaskExecError, "sequencer exec error")
 	// StartSequencer (inside) clears seqFaulted; the terminal ExecError is
 	// re-committed after the join.
 	t.restartSequencer(InterpIdle, ExecError)
+	t.logger.Debug("recoverSeqFault: done")
 }
 
 // flushMDIQueue drops the queued MDI commands and clears the MDI echo

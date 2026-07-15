@@ -1,0 +1,7 @@
+(spindle on, some motion, then a deliberately failing M-code handler)
+m3 s500
+g1 x0.5 f60
+m102 (test_mcode_handler returns 1 -> sequencer hard fault)
+g1 x1 (readahead past the fault - must be flushed, never executed)
+m5
+m2
