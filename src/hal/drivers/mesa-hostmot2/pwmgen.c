@@ -481,14 +481,14 @@ int hm2_pwmgen_parse_md(hostmot2_t *hm2, int md_index) {
         for (i = 0; i < hm2->pwmgen.num_instances; i ++) {
             // pins
             snprintf(name, sizeof(name), "%s.pwmgen.%02d.value", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->pwmgen.instance[i].hal.pin.value), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->pwmgen.instance[i].hal.pin.value), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.pwmgen.%02d.enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->pwmgen.instance[i].hal.pin.enable), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->pwmgen.instance[i].hal.pin.enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -496,21 +496,21 @@ int hm2_pwmgen_parse_md(hostmot2_t *hm2, int md_index) {
  
             // parameters
             snprintf(name, sizeof(name), "%s.pwmgen.%02d.offset-mode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.offset_mode), hm2->llio->comp_id, name);
+            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.offset_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
             if (hm2->pwmgen.firmware_supports_dither) {
                 snprintf(name, sizeof(name), "%s.pwmgen.%02d.dither", hm2->llio->name, i);
-                r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.dither), hm2->llio->comp_id, name);
+                r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.dither), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                      HM2_ERR("error adding param '%s', aborting\n", name);
                     goto fail1;
                 }
             }
             snprintf(name, sizeof(name), "%s.pwmgen.%02d.scale", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.scale), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->pwmgen.instance[i].hal.param.scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;

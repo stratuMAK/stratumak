@@ -514,7 +514,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
 
         if (hm2->dpll_module_present) {
             snprintf(name, sizeof(name), "%s.xy2mod.read-timer-number", hm2->llio->name);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.hal->pin.dpll_rtimer_num), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.hal->pin.dpll_rtimer_num), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding read timer number param, aborting\n");
                 return -EINVAL;
@@ -524,7 +524,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
 
         if (hm2->dpll_module_present) {
             snprintf(name, sizeof(name), "%s.xy2mod.write-timer-number", hm2->llio->name);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.hal->pin.dpll_wtimer_num), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.hal->pin.dpll_wtimer_num), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding write timer number param, aborting\n");
                 return -EINVAL;
@@ -536,7 +536,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             
             // pins
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posx-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posx_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posx_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -544,7 +544,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posy-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posy_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posy_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -552,7 +552,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.velx-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.velx_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.velx_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -560,7 +560,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.vely-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.vely_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.vely_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -568,7 +568,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.accx-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.accx_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.accx_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -576,7 +576,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.accy-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.accy_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.accy_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -584,7 +584,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.velx-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.velx_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.velx_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -592,7 +592,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.vely-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.vely_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.vely_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -600,7 +600,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posx-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posx_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posx_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -608,7 +608,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posy-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posy_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posy_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -616,7 +616,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
  
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posx-scale", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posx_scale), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posx_scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -624,7 +624,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.posy-scale", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posy_scale), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.posy_scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -632,7 +632,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.xy2mod.%02d.enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.enable), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -640,7 +640,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
  
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.controlx", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.controlx), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.controlx), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -649,7 +649,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
 
  
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.controly", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.controly), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.controly), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -657,7 +657,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.commandx", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandx), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandx), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -666,7 +666,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
 
  
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.commandy", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandy), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandy), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -675,7 +675,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
 
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.18bitmodex", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.mode18bitx), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.mode18bitx), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -683,7 +683,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.18bitmodey", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.mode18bity), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.mode18bity), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -691,7 +691,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.commandmodex", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandmodex), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandmodex), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -699,7 +699,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.commandmodey", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandmodey), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->xy2mod.instance[i].hal.pin.commandmodey), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -707,7 +707,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.posx-overflow", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posx_overflow), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posx_overflow), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -715,7 +715,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.posy-overflow", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posy_overflow), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.posy_overflow), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -723,7 +723,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.velx-overflow", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.velx_overflow), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.velx_overflow), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -731,7 +731,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.vely-overflow", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.vely_overflow), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.vely_overflow), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -739,7 +739,7 @@ int hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index) {
             }
  
            snprintf(name, sizeof(name), "%s.xy2mod.%02d.status", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.status), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->xy2mod.instance[i].hal.pin.status), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;

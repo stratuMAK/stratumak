@@ -854,7 +854,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
 
         if (hm2->dpll_module_present) {
             snprintf(name, sizeof(name), "%s.stepgen.timer-number", hm2->llio->name);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.hal->pin.dpll_timer_num), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.hal->pin.dpll_timer_num), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding timer number param, aborting\n");
                 return -EINVAL;
@@ -878,7 +878,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
             // pins
             snprintf(name, sizeof(name), "%s.stepgen.%02d.position-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.position_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.position_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -886,7 +886,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.velocity-cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.velocity_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.velocity_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -894,7 +894,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.velocity-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.velocity_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.velocity_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -902,7 +902,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.position-fb", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.position_fb), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.position_fb), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -910,7 +910,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.counts", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.counts), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.counts), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -918,7 +918,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.enable), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -926,7 +926,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.control-type", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.control_type), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.control_type), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -934,7 +934,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.position-reset", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.position_reset), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.position_reset), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -944,7 +944,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             if (hm2->stepgen.firmware_supports_index) {
 
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.position-latch", hm2->llio->name, i);
-                r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.position_latch), hm2->llio->comp_id, name);
+                r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.position_latch), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -952,7 +952,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.index-enable", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->stepgen.instance[i].hal.pin.index_enable), hm2->llio->comp_id, name);
+                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->stepgen.instance[i].hal.pin.index_enable), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -960,7 +960,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
                 }
      
                snprintf(name, sizeof(name), "%s.stepgen.%02d.probe-enable", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->stepgen.instance[i].hal.pin.latch_enable), hm2->llio->comp_id, name);
+                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->stepgen.instance[i].hal.pin.latch_enable), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -968,7 +968,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.index-invert", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.index_polarity), hm2->llio->comp_id, name);
+                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.index_polarity), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -976,7 +976,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
                 }
  
                snprintf(name, sizeof(name), "%s.stepgen.%02d.probe-invert", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.latch_polarity), hm2->llio->comp_id, name);
+                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->stepgen.instance[i].hal.pin.latch_polarity), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -987,7 +987,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             // debug pins
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_pos_minus_prev_cmd", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_pos_minus_prev_cmd), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_pos_minus_prev_cmd), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -995,7 +995,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_ff_vel", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_ff_vel), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_ff_vel), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1003,7 +1003,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_s_to_match", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_s_to_match), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_s_to_match), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1011,7 +1011,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_vel_error", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_vel_error), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_vel_error), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1019,7 +1019,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_err_at_match", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_err_at_match), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_err_at_match), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1027,7 +1027,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dbg_step_rate", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_step_rate), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->stepgen.instance[i].hal.pin.dbg_step_rate), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1037,7 +1037,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
 
             // parameters
             snprintf(name, sizeof(name), "%s.stepgen.%02d.position-scale", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.position_scale), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.position_scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1045,7 +1045,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.maxvel", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.maxvel), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.maxvel), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1053,7 +1053,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.maxaccel", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.maxaccel), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.maxaccel), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1061,7 +1061,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.steplen", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.steplen), hm2->llio->comp_id, name);
+            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.steplen), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1069,7 +1069,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.stepspace", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.stepspace), hm2->llio->comp_id, name);
+            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.stepspace), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1077,7 +1077,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dirsetup", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.dirsetup), hm2->llio->comp_id, name);
+            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.dirsetup), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1085,7 +1085,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.dirhold", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.dirhold), hm2->llio->comp_id, name);
+            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.dirhold), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1093,7 +1093,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.stepgen.%02d.step_type", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.step_type), hm2->llio->comp_id, name);
+            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.step_type), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -1102,7 +1102,7 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
 
             if (hm2->stepgen.firmware_supports_swap) {
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.swap_step_dir", hm2->llio->name, i);
-                r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.swap_step_dir), hm2->llio->comp_id, name);
+                r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.swap_step_dir), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding param '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -1112,28 +1112,28 @@ int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index) {
 
             if (hm2->stepgen.instance[i].table_width > 2){
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.table-data-0", hm2->llio->name, i);
-                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[0]), hm2->llio->comp_id, name);
+                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[0]), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding param '%s', aborting\n", name);
                     r = -ENOMEM;
                     goto fail5;
                 }
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.table-data-1", hm2->llio->name, i);
-                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[1]), hm2->llio->comp_id, name);
+                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[1]), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding param '%s', aborting\n", name);
                     r = -ENOMEM;
                     goto fail5;
                 }
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.table-data-2", hm2->llio->name, i);
-                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[2]), hm2->llio->comp_id, name);
+                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[2]), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding param '%s', aborting\n", name);
                     r = -ENOMEM;
                     goto fail5;
                 }
                 snprintf(name, sizeof(name), "%s.stepgen.%02d.table-data-3", hm2->llio->name, i);
-                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[3]), hm2->llio->comp_id, name);
+                r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->stepgen.instance[i].hal.param.table[3]), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding param '%s', aborting\n", name);
                     r = -ENOMEM;

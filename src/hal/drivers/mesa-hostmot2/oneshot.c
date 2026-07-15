@@ -268,168 +268,168 @@ int hm2_oneshot_parse_md(hostmot2_t *hm2, int md_index) {
         for (i = 0; i < hm2->oneshot.num_instances; i ++) {
             // pins
             snprintf(name, sizeof(name), "%s.oneshot.%02d.width1", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.width1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.width1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.width2", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.width2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.width2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.filter1", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.filter1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.filter1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.filter2", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.filter2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.filter2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.rate", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.rate), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.rate), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_select1", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigselect1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigselect1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_select2", hm2->llio->name, i);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigselect2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigselect2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.dpll_timer_number", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.dpll_timer_num), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.dpll_timer_num), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
   
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_on_rise1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigrise1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigrise1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_on_rise2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigrise2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigrise2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_on_fall1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigfall1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigfall1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.trigger_on_fall2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigfall2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.trigfall2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.retriggerable1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.retrig1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.retrig1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.retriggerable2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.retrig2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.retrig2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.enable1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.enable1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.enable1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.enable2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.enable2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.enable2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.reset1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.reset1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.reset1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.reset2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.reset2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.reset2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.swtrigger1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.swtrig1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.swtrig1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.swtrigger2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.swtrig2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->oneshot.instance[i].hal.pin.swtrig2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.exttrigger1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.exttrig1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.exttrig1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.exttrigger2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.exttrig2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.exttrig2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
  
             snprintf(name, sizeof(name), "%s.oneshot.%02d.out1", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.out1), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.out1), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.oneshot.%02d.out2", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.out2), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->oneshot.instance[i].hal.pin.out2), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;

@@ -117,21 +117,21 @@ int hm2_rcpwmgen_parse_md(hostmot2_t *hm2, int md_index) {
          for (i = 0; i < hm2->rcpwmgen.num_instances; i ++) {
  
             snprintf(name, sizeof(name), "%s.rcpwmgen.%02d.width", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.width), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.width), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.rcpwmgen.%02d.scale", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.scale), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.rcpwmgen.%02d.offset", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.offset), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.instance[i].hal.pin.offset), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 r = -ENOMEM;
@@ -140,7 +140,7 @@ int hm2_rcpwmgen_parse_md(hostmot2_t *hm2, int md_index) {
         }
 
         snprintf(name, sizeof(name), "%s.rcpwmgen.rate", hm2->llio->name);
-        r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.hal->pin.rate), hm2->llio->comp_id, name);
+        r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->rcpwmgen.hal->pin.rate), hm2->llio->comp_id, "%s", name);
         if (r < 0) {
             HM2_ERR("error adding pin '%s', aborting\n", name);
             goto fail1;

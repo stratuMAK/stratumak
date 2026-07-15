@@ -1164,7 +1164,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    j);
                     r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                         &(chan->pins[i].bit_pins[j]),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1176,7 +1176,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                        j);
                         r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                             &(chan->pins[i].bit_pins_not[j]),
-                                            hm2->llio->comp_id, name);
+                                            hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             return r;
@@ -1189,7 +1189,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                        j);
                         r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                               &(chan->pins[i].invert[j]),
-                                              hm2->llio->comp_id, name);
+                                              hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             return r;
@@ -1204,7 +1204,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, data_dir,
                                       &(chan->pins[i].float_pin),
-                                      hm2->llio->comp_id, name);
+                                      hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1214,7 +1214,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].fullscale),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1226,7 +1226,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].maxlim),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1237,7 +1237,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].minlim),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1255,7 +1255,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_u32_newf(hm2->llio->hal, data_dir,
                                     &(chan->pins[i].u32_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1267,7 +1267,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                     &(chan->pins[i].boolean),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1278,7 +1278,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    chan->confs[i].NameString);
                     r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                         &(chan->pins[i].boolean2),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1291,7 +1291,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    chan->confs[i].NameString);
                     r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                           chan->pins[i].invert,
-                                          hm2->llio->comp_id, name);
+                                          hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1306,7 +1306,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].s32_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1316,7 +1316,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].s32_pin2),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1326,7 +1326,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].float_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1336,7 +1336,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                     &(chan->pins[i].boolean),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1347,7 +1347,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                     &(chan->pins[i].boolean2),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1357,7 +1357,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                     &(chan->pins[i].fullscale),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1368,7 +1368,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW,
                                     &(chan->pins[i].u32_param),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1385,7 +1385,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, data_dir,
                                       &(chan->pins[i].float_pin),
-                                      hm2->llio->comp_id, name);
+                                      hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;

@@ -132,14 +132,14 @@ int hm2_outm_parse_md(hostmot2_t *hm2, int md_index) {
                         goto fail0;
                     }
                     snprintf(name, sizeof(name), "%s.outm.%02d.out-%02d", hm2->llio->name, i, outm_number);
-                    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->outm.instance[i].hal.pin.out[outm_number]), hm2->llio->comp_id, name);
+                    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->outm.instance[i].hal.pin.out[outm_number]), hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         r = -ENOMEM;
                         goto fail0;
                     }
                     snprintf(name, sizeof(name), "%s.outm.%02d.invert-%02d", hm2->llio->name, i, outm_number);
-                    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->outm.instance[i].hal.pin.invert[outm_number]), hm2->llio->comp_id, name);
+                    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->outm.instance[i].hal.pin.invert[outm_number]), hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         r = -ENOMEM;

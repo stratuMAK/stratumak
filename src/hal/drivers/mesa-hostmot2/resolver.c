@@ -146,7 +146,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                        hm2->llio->name);
         ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                  &(hm2->resolver.hal->param.excitation_khz), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
         if (ret < 0) {
             HM2_ERR("error adding param '%s', aborting\n", name);
             goto fail1;
@@ -159,7 +159,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.position),
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -169,7 +169,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.angle), 
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -179,7 +179,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.velocity), 
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -189,7 +189,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                    &(hm2->resolver.instance[i].hal.pin.velocity_rpm),
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -199,7 +199,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.count), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -209,7 +209,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.rawcounts), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -219,7 +219,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, 
                                  &(hm2->resolver.instance[i].hal.pin.reset), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -229,7 +229,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                  &(hm2->resolver.instance[i].hal.pin.index_enable), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -239,7 +239,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.error), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -249,7 +249,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN,
                                  &(hm2->resolver.instance[i].hal.pin.joint_pos_fb),
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -260,7 +260,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.scale), 
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -270,7 +270,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.vel_scale), 
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -280,7 +280,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.index_div),
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -290,7 +290,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.use_abs),
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
