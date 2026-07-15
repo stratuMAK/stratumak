@@ -333,6 +333,16 @@ gomc-lint-full:
 gomc-fmt-check:
 	$(Q)cd gomc && $(GOMC_TESTENV) $(GOLANGCI_LINT) fmt --diff
 
+# RT function-effects check: verify the RT path (core RTAPI/HAL TUs,
+# halscope sampler, every generated .comp) with clang's -Wfunction-effects
+# analysis.  Uses a pinned clang >= 20 downloaded once by
+# scripts/rt-clang.sh (Debian 13's clang 19 analysis is broken); gcc
+# remains the production compiler — this target is diagnostic only.
+# Needs a completed build (bin/modcompile + generated GMI headers).
+.PHONY: rt-effects-check
+rt-effects-check:
+	$(Q)$(TOP)/scripts/rt-effects-check.sh
+
 # Aggregate check used by CI.
 .PHONY: gomc-check
 gomc-check: gomc-test gomc-lint gomc-fmt-check

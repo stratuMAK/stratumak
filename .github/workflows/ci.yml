@@ -63,6 +63,13 @@ jobs:
         submodules: true
         fetch-depth: 0
     - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
+    # The RT function-effects check downloads a pinned clang (see
+    # scripts/rt-clang.sh) — cache it so post-merge runs don't re-download.
+    - name: Cache pinned RT-check clang
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/linuxcnc-rt-clang
+        key: rt-clang-22.1.8-${{ runner.arch }}
     - name: Clang build RIP & test
       run: |
         set -x
@@ -73,6 +80,9 @@ jobs:
         eatmydata ./autogen.sh
         CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
         eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
+        # RT path verification: clang function-effects analysis over the
+        # RTAPI/HAL core and every generated component (warnings = errors).
+        eatmydata make rt-effects-check
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
 
