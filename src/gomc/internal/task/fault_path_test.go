@@ -171,7 +171,9 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	seqDone := task.seqDone
 	task.mu.Unlock()
 
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+	if err := task.EnqueueCmd(&LinearMoveCmd{ID: 1}); err != nil {
+		t.Fatalf("EnqueueCmd: %v", err)
+	}
 
 	select {
 	case <-seqDone:
@@ -372,7 +374,9 @@ func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
 
 	// No producer goroutine exists: the command is enqueued directly, like an
 	// MDI whose interpreter work already finished.
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+	if err := task.EnqueueCmd(&LinearMoveCmd{ID: 1}); err != nil {
+		t.Fatalf("EnqueueCmd: %v", err)
+	}
 
 	if !waitForCond(2*time.Second, func() bool { return ri.abortCalls.Load() > 0 }) {
 		t.Fatal("sequencer fault must run interp on_abort even with no live producer")
@@ -430,7 +434,9 @@ func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
 
 	// Latch a real fault: a rejected motion command drives seqFaultExit, and
 	// recoverSeqFault restarts the sequencer with ExecError latched.
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+	if err := task.EnqueueCmd(&LinearMoveCmd{ID: 1}); err != nil {
+		t.Fatalf("EnqueueCmd: %v", err)
+	}
 	if !waitForCond(2*time.Second, func() bool {
 		task.mu.Lock()
 		defer task.mu.Unlock()
