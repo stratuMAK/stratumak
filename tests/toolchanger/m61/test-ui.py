@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # --- gomc compatibility shim (prepended) --------------------------------------
 # Makes the original NML-based driver body run against the gomc REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
@@ -89,22 +90,29 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    c.mdi("(debug, #%d)" % param_number)
-    c.wait_complete()
+    # gomc: the emcerror WS watch destructively flushes queued messages and the
+    # push loop suppresses byte-identical consecutive payloads, so a DEBUG
+    # display that repeats the previous one within a watch tick is LOST (see
+    # PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
+    # the 200 ms watch tick and retry on a lost reply.
+    for attempt in range(3):
+        time.sleep(0.3)
+        c.mdi("(debug, #%d)" % param_number)
+        c.wait_complete()
 
-    # wait up to 2 seconds for a reply
-    start = time.time()
-    while (time.time() - start) < 2:
-        error = e.poll()
-        if error == None:
-            time.sleep(0.010)
-            continue
+        # wait up to 2 seconds for a reply
+        start = time.time()
+        while (time.time() - start) < 2:
+            error = e.poll()
+            if error == None:
+                time.sleep(0.010)
+                continue
 
-        kind, text = error
-        if kind == linuxcnc.OPERATOR_DISPLAY:
-            return float(text)
+            kind, text = error
+            if kind == linuxcnc.OPERATOR_DISPLAY:
+                return float(text)
 
-        print(text)
+            print(text)
 
     print("error getting parameter %d" % param_number)
     return None

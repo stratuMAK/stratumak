@@ -19,12 +19,13 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-13): **0 skipped** (the 37 skips were resolved — re-expressed, reclassified,
-or deleted as genuine removals, §2) and **43 xfail files** in the tree (§3). Since the first run this
-pass added `threads.0`/`threads.1`, `mdi-queue/{simple,oword}-queue-buster`, `mqtt`, and
-`trajectory-planner/circular-arcs`, and re-expressed `mdi-while-queuebuster-waitflag` (xfail→pass) and
-`remap/remap-io` (Python variant removed, NGC variant xfail on the sync-I/O bug). Re-run the full suite
-for exact pass/run totals; `lathe` XPASSes intermittently.
+Current composition (2026-07-15, full run): **242 run / 220 pass / 0 fail / 22 xfail / 0 skipped**.
+The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
+(G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
+statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
+on_abort/stop-button crazy-move pair. `scripts/runtests` now wipes each test's `db/` persistence
+before running (interp params / tool table state leaked between runs). `lathe` and
+`remap/remap-io` XPASS intermittently (WS-lag / sync-I/O races — xfail kept).
 
 ---
 
@@ -180,28 +181,34 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 
 ---
 
-## 3. Xfails (43)
+## 3. Xfails (22)
 
 ### 3a. Legit — runnable, fail on a documented gomc bug (`../PRODUCTION_READINESS.md`)
 
 | bug | tests |
 |---|---|
-| G43 Hn tool-length offset | rs274ngc-startup, tlo |
-| RANDOM_TOOLCHANGER startup tool detection | io-startup/random/{no-tool-in-P0,tool-in-P0}, t0/{random-without-t0,random-with-t0}, tool-info/{random-no-startup-tool,random-with-startup-tool} |
-| tool-tracking (M6 #5400, M61 Q) | t0/nonrandom, tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/{non-random,random}, toolchanger/toolno-pocket-differ/{nonrandom,random}, mdi-queue/oword-queue-buster |
-| abort doesn't restore modal state | abort/g64 |
-| g5x active CS inconsistent on abort | statbuffer-g5x-abort |
-| M67/M62 sync-I/O + (blended) motion | single-step, remap/remap-io (M62/M63/M67 synchronised output + move; M64/M65/M66/M68 pass) |
-| RS274NGC_STARTUP_CODE never executed | motion-logger/startup-gcode-abort |
-| ON_ABORT_COMMAND not wired + gmi.Stat queue depth | abort/{on_abort_command,stop-button}-crazy-move |
+| G64 blending extents (canon lacks the 2.9 naive-CAM merge; corner rounding diverges) — the original modal-restore reason is FIXED | abort/g64 |
+| M67/M62 sync-I/O + (blended) motion | single-step, remap/remap-io (racy — XPASSes intermittently) |
 | jog/teleop + joint-mode + limit status | hard-limits, halui/jogging |
 | gmi.Stat client field gaps | startup-state, mdi-queue-length |
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem |
 | stepgen array module-param instance count | modparam.0 |
-| streaming one-row-per-cycle multiplicity | *(mux, multiclick — flipped green via filestream; xfail files removed, see §2c)* |
-| jog overshoot from WS-lagged gmi.Stat | lathe (intermittent; XPASS this run) |
-| (other) | interp/oword-mdi-sub-update |
+| mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
+| jog overshoot from WS-lagged gmi.Stat | lathe (intermittent XPASS) |
+| operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
 | module-loading array-count (9/17 names, num_chan=9/17) | module-loading/{encoder,sim_encoder}/{9-names,num_chan=9}, module-loading/{pid,siggen}/{17-names,num_chan=17}, module-loading/encoder_ratio/{9-names,num_chan=9} |
+
+### 3a-history. Fixed by the 2026-07-15 lifecycle sweep (xfail files removed, tests green)
+
+G43 Hn (rs274ngc-startup, tlo) · RANDOM_TOOLCHANGER startup (io-startup/random/*,
+t0/random-*, tool-info/random-*) · tool tracking M6 #5400 / M61 Q (t0/nonrandom,
+tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/*,
+toolchanger/toolno-pocket-differ/*, mdi-queue/oword-queue-buster) · abort modal-state
+restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
+`../MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
+(motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
+(abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
+(mux, multiclick via filestream, §2c).
 
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 

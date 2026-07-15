@@ -29,8 +29,12 @@ if s.g5x_index != 1:
     print("Expected g5x_index=1 (startup in G54), got %d instead" % s.g5x_index)
     retval = 1
 
-if math.fabs(s.tool_offset[2] - 0.1234) > 0.000001:
-    print("Expected tool offset of 0.1234 via startup gcode not detected")
+# The tool table Z offset is 0.1234 inch; the gmi stat API reports tool
+# offsets in gomc's internal millimetres (mm-everywhere convention, see
+# src/gomc/UNITS_MM_CONSISTENCY_FIX.md).
+expected = 0.1234 * 25.4
+if math.fabs(s.tool_offset[2] - expected) > 0.000001:
+    print("Expected tool offset of %f (0.1234 in) via startup gcode not detected" % expected)
     print("Got %f instead." % s.tool_offset[2])
     retval = 1
 

@@ -51,15 +51,26 @@ time.sleep(1)
 c.abort()
 
 c.wait_complete()
-s.poll()
 
-# The program was aborted in g55; check
+# The program was aborted in g55; check.
+# gomc: the WS stat watch delivers with up to a few hundred ms lag — poll
+# until the post-abort state arrives instead of judging the first snapshot.
+deadline = time.time() + 2.0
+while time.time() < deadline:
+    s.poll()
+    if 550 in s.gcodes:
+        break
+    time.sleep(0.05)
 if not 550 in s.gcodes:
     print("Current coordinate system is G%d, not G55" % \
         ([i/10 for i in s.gcodes if i >= 540 and i < 600] + [None])[0])
     retval = 1
 else:
     print("Current coordinate system is G55")
+
+# gomc reports positions and offsets in millimetres (mm-everywhere
+# convention); the program/expectations here are inch.
+MM = 25.4
 
 # MDI G0 takes us to the programmed location in G54
 c.mode(linuxcnc.MODE_MDI)
@@ -75,8 +86,8 @@ if math.fabs(s.position[1]) > 0.000001:
     print("'G0 X0 Y0 Z0' took us to Y=%.6f, should be 0" % s.position[1])
     retval = 1
 
-if math.fabs(s.position[2] + 5) > 0.000001:
-    print("'G0 X0 Y0 Z0' took us to Z=%.6f, should be -5" % s.position[2])
+if math.fabs(s.position[2] + 5*MM) > 0.000001:
+    print("'G0 X0 Y0 Z0' took us to Z=%.6f, should be %.1f (-5 in)" % (s.position[2], -5*MM))
     retval = 1
 
 c.mdi('(debug,G53+#5220 ?= G55; Z#5422 ?= Z0.0)')
@@ -99,8 +110,8 @@ if math.fabs(s.g5x_offset[1]) > 0.000001:
     print("g5x_offset.y is %.6f, should be 0" % s.g5x_offset[1])
     retval = 1
 
-if math.fabs(s.g5x_offset[2] + 5) > 0.000001:
-    print("g5x_offset.z is %.6f, should be -5" % s.g5x_offset[2])
+if math.fabs(s.g5x_offset[2] + 5*MM) > 0.000001:
+    print("g5x_offset.z is %.6f, should be %.1f (-5 in)" % (s.g5x_offset[2], -5*MM))
     retval = 1
 
 if retval == 0:

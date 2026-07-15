@@ -12,6 +12,9 @@ SETTLE = 0.4
 
 
 def process_samples(z_lev, expected_max_x):
+    # gomc: the sampled joint positions are millimetres (mm-everywhere
+    # convention); the program/expectations are inch — convert on read.
+    MM = 25.4
     res = 0
     f = open('motion-samples.log', 'r')
     max_x = 0.0
@@ -23,9 +26,13 @@ def process_samples(z_lev, expected_max_x):
                 float(n) for n in line.split(' ')[:10]]
         except ValueError:
             break
-        if z < z_lev:
+        x /= MM
+        y /= MM
+        z /= MM
+        # tolerance band: the mm->inch division is not bit-exact
+        if z < z_lev - 1e-6:
             continue
-        if z > z_lev:
+        if z > z_lev + 1e-6:
             break
         if x > max_x:
             max_x = x
