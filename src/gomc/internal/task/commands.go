@@ -1300,13 +1300,17 @@ func (t *Task) recoverSeqFaultLocked() {
 // Mirrors C++ mdi_execute_abort. Called from executeMDI and the finishMDI
 // o-word continuation — both off the sequencer goroutine.
 func (t *Task) faultMDI(msg string) {
-	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
-	// An MDI interpreter error additionally aborts the IO controller (reset any
-	// in-progress tool-change handshake left by a failed remapped M6) and stops
-	// the spindles, then flushes the queued MDIs + echo. Mirrors 2.9's MDI
-	// INTERP_ERROR path (emcIoAbort(10) + emcSpindleAbort(all) + mdi_execute_abort).
-	// The AUTO readahead path (faultProgram alone) deliberately does neither, to
-	// match 2.9 which only clears the interp list and runs on_abort there.
+	// Stop the hardware FIRST, in 2.9's order — emcTaskAbort (motion) →
+	// emcIoAbort(10) → emcSpindleAbort(all) — and only then run
+	// mdi_execute_abort + emcAbortCleanup(10) (the faultProgram call below:
+	// on_abort + sequencer join). on_abort may synchronously execute an
+	// unbounded ON_ABORT_COMMAND and the join can stall behind a wedged comm
+	// call, so a running spindle must already be commanded off before either.
+	// The IoAbort also resets any in-progress tool-change handshake left by a
+	// failed remapped M6. The AUTO readahead path (faultProgram alone)
+	// deliberately does no IoAbort/spindle stop, to match 2.9 which only
+	// clears the interp list and runs on_abort there.
+	_ = t.motion.Abort()
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.mu.Lock()
 	numSpindles := t.numSpindles
@@ -1316,6 +1320,7 @@ func (t *Task) faultMDI(msg string) {
 	for i := 0; i < numSpindles; i++ {
 		_ = t.motion.SpindleOff(int32(i))
 	}
+	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
 }
 
 // runStartupCode executes [RS274NGC]RS274NGC_STARTUP_CODE once at task startup,

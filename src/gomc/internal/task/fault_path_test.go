@@ -20,11 +20,15 @@ type recordingInterp struct {
 	fakeInterp
 	abortReason atomic.Int64
 	abortCalls  atomic.Int64
+	onAbort     func() // optional hook, called inside Abort (ordering asserts)
 }
 
 func (r *recordingInterp) Abort(reason int, _ string) error {
 	r.abortReason.Store(int64(reason))
 	r.abortCalls.Add(1)
+	if r.onAbort != nil {
+		r.onAbort()
+	}
 	return nil
 }
 
@@ -89,6 +93,13 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 	ri.onExecuteString = func(string) (int, error) {
 		return InterpError, fmt.Errorf("bad word")
 	}
+	// 2.9 orders emcIoAbort + emcSpindleAbort BEFORE emcAbortCleanup: the
+	// spindle must already be commanded off when on_abort runs (on_abort may
+	// execute an unbounded ON_ABORT_COMMAND).
+	var spindleOffBeforeOnAbort atomic.Bool
+	ri.onAbort = func() {
+		spindleOffBeforeOnAbort.Store(mot.hasCall("SpindleOff") && io.ioAbortCalls.Load() > 0)
+	}
 	task.SetInterpreter(ri)
 
 	bringUp(task)
@@ -116,6 +127,9 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 	}
 	if !mot.hasCall("SpindleOff") {
 		t.Fatal("faultMDI must stop the spindle(s) (parity with 2.9 emcSpindleAbort)")
+	}
+	if !spindleOffBeforeOnAbort.Load() {
+		t.Fatal("faultMDI must IoAbort + stop spindles BEFORE running on_abort (2.9 order)")
 	}
 
 	task.mu.Lock()
