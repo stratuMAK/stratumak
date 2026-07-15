@@ -144,6 +144,44 @@ func toolPocketFor(ref int32) int32 {
 	return entry.Pocketno
 }
 
+// pocketPreppedFor is toolPocketFor with a memo for the status path: the
+// lookup is re-run per stat snapshot while a tool is prepped, but the result
+// only changes on prep/change/table-edit (the tool-mutating commands call
+// invalidatePrepPocket).
+func (t *Task) pocketPreppedFor(toolno int32) int32 {
+	t.mu.Lock()
+	if t.prepPocketValid && t.prepPocketToolno == toolno {
+		p := t.prepPocket
+		t.mu.Unlock()
+		return p
+	}
+	t.mu.Unlock()
+	p := toolPocketFor(toolno) // service round-trip — outside t.mu
+	t.mu.Lock()
+	t.prepPocketToolno, t.prepPocket, t.prepPocketValid = toolno, p, true
+	t.mu.Unlock()
+	return p
+}
+
+// invalidatePrepPocket drops the memoized prepped-tool pocket. Called by the
+// commands that can move a tool between pockets or rewrite the table.
+func (t *Task) invalidatePrepPocket() {
+	t.mu.Lock()
+	t.prepPocketValid = false
+	t.mu.Unlock()
+}
+
+// toolOffsets extracts a tool entry's offset tuple in the canonical
+// X,Y,Z,A,B,C,U,V,W order — the single source for every getter that hands
+// offsets to the interp.
+func toolOffsets(e *tooltable.ToolEntry) [9]float64 {
+	return [9]float64{
+		e.XOffset, e.YOffset, e.ZOffset,
+		e.AOffset, e.BOffset, e.COffset,
+		e.UOffset, e.VOffset, e.WOffset,
+	}
+}
+
 // getToolByPocket returns tool data for a given pocket index.
 // Used by the canon getter GetExternalToolTable.
 // pocket=0 returns the spindle tool (stored as toolno=0 in tooltable by iocontrol).
@@ -159,12 +197,7 @@ func getToolByPocket(pocket int32) (retval int32, toolno int32, offset [9]float6
 		if err != nil {
 			return -1, 0, [9]float64{}, 0, 0, 0, 0
 		}
-		offset = [9]float64{
-			entry.XOffset, entry.YOffset, entry.ZOffset,
-			entry.AOffset, entry.BOffset, entry.COffset,
-			entry.UOffset, entry.VOffset, entry.WOffset,
-		}
-		return 0, entry.Toolno, offset, entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation
+		return 0, entry.Toolno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation
 	}
 
 	// For pocket>0: scan all tools for matching pocketno.
@@ -174,12 +207,7 @@ func getToolByPocket(pocket int32) (retval int32, toolno int32, offset [9]float6
 	}
 	for i := range entries {
 		if entries[i].Pocketno == pocket {
-			offset = [9]float64{
-				entries[i].XOffset, entries[i].YOffset, entries[i].ZOffset,
-				entries[i].AOffset, entries[i].BOffset, entries[i].COffset,
-				entries[i].UOffset, entries[i].VOffset, entries[i].WOffset,
-			}
-			return 0, entries[i].Toolno, offset, entries[i].Diameter, entries[i].Frontangle, entries[i].Backangle, entries[i].Orientation
+			return 0, entries[i].Toolno, toolOffsets(&entries[i]), entries[i].Diameter, entries[i].Frontangle, entries[i].Backangle, entries[i].Orientation
 		}
 	}
 	return -1, 0, [9]float64{}, 0, 0, 0, 0

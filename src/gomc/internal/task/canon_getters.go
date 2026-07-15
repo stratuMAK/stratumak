@@ -301,12 +301,7 @@ func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, fl
 		if err != nil || entry.Toolno != tis {
 			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
 		}
-		offset := [9]float64{
-			entry.XOffset, entry.YOffset, entry.ZOffset,
-			entry.AOffset, entry.BOffset, entry.COffset,
-			entry.UOffset, entry.VOffset, entry.WOffset,
-		}
-		return 0, tis, offset, entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+		return 0, tis, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
 	}
 	retval, toolno, offset, diameter, frontangle, backangle, orientation := getToolByPocket(pocket)
 	return retval, toolno, offset, diameter, frontangle, backangle, orientation, nil
@@ -326,12 +321,7 @@ func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64
 			for i := range entries {
 				if entries[i].Toolno == 0 {
 					e := &entries[i]
-					offset := [9]float64{
-						e.XOffset, e.YOffset, e.ZOffset,
-						e.AOffset, e.BOffset, e.COffset,
-						e.UOffset, e.VOffset, e.WOffset,
-					}
-					return 0, e.Pocketno, offset, e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+					return 0, e.Pocketno, toolOffsets(e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
 				}
 			}
 		}
@@ -345,12 +335,7 @@ func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64
 		// apply a zero offset).
 		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
-	offset := [9]float64{
-		entry.XOffset, entry.YOffset, entry.ZOffset,
-		entry.AOffset, entry.BOffset, entry.COffset,
-		entry.UOffset, entry.VOffset, entry.WOffset,
-	}
-	return 0, entry.Pocketno, offset, entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+	return 0, entry.Pocketno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
 }
 
 func (c *Canon) GetExternalTcFault() (int32, error)  { return 0, nil }

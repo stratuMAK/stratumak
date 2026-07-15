@@ -585,19 +585,24 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 	s.endPoint = pos
 	s.lineNo = lineno
 
-	// Traverse runs at the per-axis-blended maximum — each participating axis at
-	// its own limit, coordinated — not the traj-global cap. Matches C++
-	// STRAIGHT_TRAVERSE (getStraightVelocity/Acceleration).
+	c.emitTraverse(from, pos, lineno, 1, s.rotaryUnlockForTraverse) // EMC_MOTION_TYPE_TRAVERSE
+}
+
+// emitTraverse emits a rapid from → pos with the traverse semantics shared by
+// StraightTraverse and ChangeTool: per-axis-blended limits (each participating
+// axis at its own limit, coordinated — not the traj-global cap, matching C++
+// getStraightVelocity/Acceleration), the zero-distance drop (2.9's
+// `if(vel && acc)`), and the G95 sync bracket — a traverse must not run
+// spindle-synched, and 2.9 stops/restarts the sync even around a dropped
+// zero-length move. Reports whether the move was emitted.
+func (c *Canon) emitTraverse(from, pos Pose, lineno, motionType, indexerJ int32) bool {
+	s := c.state
 	velMax, accMax, _, _ := c.task.straightLimits(from, pos)
-	// Under G95 a traverse must not run spindle-synched: bracket it with a
-	// sync stop/restart (2.9 STRAIGHT_TRAVERSE) — even around a dropped
-	// zero-length move, matching 2.9's command ordering exactly.
 	if s.feedMode != 0 {
 		c.StopSpeedFeedSynch()
 	}
-	// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
-	// drops it via `if(vel && acc)` rather than emit a degenerate segment.
-	if accMax != 0 {
+	emitted := accMax != 0
+	if emitted {
 		if velMax <= 0 {
 			velMax = s.linearFeedRate
 		}
@@ -606,15 +611,16 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 			Vel:          velMax,
 			IniMaxVel:    velMax,
 			Acc:          accMax,
-			MotionType:   1, // EMC_MOTION_TYPE_TRAVERSE
+			MotionType:   motionType,
 			ID:           c.allocSerial(lineno),
 			FeedMmPerMin: 0, // traverse: no programmed feed
-			IndexerJ:     s.rotaryUnlockForTraverse,
+			IndexerJ:     indexerJ,
 		})
 	}
 	if s.feedMode != 0 {
 		c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
 	}
+	return emitted
 }
 
 func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
@@ -927,31 +933,8 @@ func (c *Canon) ChangeTool(slot int32) {
 		if n > 6 {
 			pos.U, pos.V, pos.W = p[6], p[7], p[8]
 		}
-		velMax, accMax, _, _ := c.task.straightLimits(from, pos)
-		// Under G95 the toolchange traverse must not run spindle-synched:
-		// sync stop/restart bracket, like 2.9 CHANGE_TOOL.
-		if s.feedMode != 0 {
-			c.StopSpeedFeedSynch()
-		}
-		// Zero-distance move: drop like 2.9's `if(vel && acc)`.
-		if accMax != 0 {
-			if velMax <= 0 {
-				velMax = s.linearFeedRate
-			}
+		if c.emitTraverse(from, pos, s.lineNo, 4, -1) { // EMC_MOTION_TYPE_TOOLCHANGE
 			s.endPoint = pos
-			c.enqueue(&LinearMoveCmd{
-				Pos:          pos,
-				Vel:          velMax,
-				IniMaxVel:    velMax,
-				Acc:          accMax,
-				MotionType:   4, // EMC_MOTION_TYPE_TOOLCHANGE
-				ID:           c.allocSerial(s.lineNo),
-				FeedMmPerMin: 0,
-				IndexerJ:     -1,
-			})
-		}
-		if s.feedMode != 0 {
-			c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
 		}
 	}
 	c.enqueue(&ToolChangeCmd{})

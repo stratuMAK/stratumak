@@ -922,6 +922,7 @@ func (c *ToolChangeCmd) PostWait(t *Task) {
 			t.logger.Warn("tool change: interpreter synch failed", "err", err)
 		}
 	}
+	t.invalidatePrepPocket()
 	t.logger.Info("tool change complete")
 }
 
@@ -934,6 +935,7 @@ type SetToolTableEntryCmd struct {
 }
 
 func (c *SetToolTableEntryCmd) Execute(t *Task) error {
+	t.invalidatePrepPocket()
 	return t.io.ToolSetOffset(c.Pocket, c.Toolno, c.X, c.Y, c.Z, c.A, c.B, c.C, c.U, c.V, c.W, c.Diameter, c.Frontangle, c.Backangle, c.Orientation)
 }
 func (c *SetToolTableEntryCmd) Wait() WaitType { return WaitIO }
@@ -947,6 +949,7 @@ type ChangeToolNumberCmd struct {
 }
 
 func (c *ChangeToolNumberCmd) Execute(t *Task) error {
+	t.invalidatePrepPocket()
 	return t.io.ToolSetNumber(c.Number)
 }
 func (c *ChangeToolNumberCmd) Wait() WaitType { return WaitIO }
@@ -958,6 +961,7 @@ func (c *ChangeToolNumberCmd) String() string {
 type ReloadTooldataCmd struct{}
 
 func (c *ReloadTooldataCmd) Execute(t *Task) error {
+	t.invalidatePrepPocket()
 	return t.io.ToolLoadTable("")
 }
 func (c *ReloadTooldataCmd) Wait() WaitType { return WaitIO }

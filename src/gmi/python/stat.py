@@ -16,9 +16,10 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import threading
-import urllib.request
+import urllib.parse
 from typing import Any, Optional
 
 try:
@@ -145,6 +146,8 @@ class Stat:
         self._loop = None
         self._thread = None
         self._ws = None
+        self._poll_conn = None
+        self._poll_lock = threading.Lock()
         self._start_watch()
 
     def _start_watch(self):
@@ -223,15 +226,42 @@ class Stat:
         drivers poll in loops and the watch channel still converges.
         """
         try:
-            url = f"{rest_url()}/api/v1/{self._instance}/stat"
-            with urllib.request.urlopen(url, timeout=10) as resp:
-                data = json.loads(resp.read())
+            data = self._poll_fetch()
         except Exception as e:
             import sys
             print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
             return
         with self._lock:
             self._data.update(data)
+
+    def _poll_fetch(self):
+        """GET the stat snapshot over a persistent keep-alive connection.
+
+        Drivers call poll() in tight loops; a new TCP connection per call
+        would be pure connect/teardown churn (and TIME_WAIT buildup). Reuse
+        only spares the socket setup — every call is still a fresh GET, so
+        the post-command freshness contract of poll() is unchanged. A broken
+        or server-closed connection is re-opened once per call.
+        """
+        path = f"/api/v1/{self._instance}/stat"
+        with self._poll_lock:
+            for attempt in (0, 1):
+                if self._poll_conn is None:
+                    u = urllib.parse.urlsplit(rest_url())
+                    self._poll_conn = http.client.HTTPConnection(
+                        u.hostname, u.port, timeout=10)
+                try:
+                    self._poll_conn.request("GET", path)
+                    resp = self._poll_conn.getresponse()
+                    body = resp.read()
+                    if resp.status != 200:
+                        raise OSError(f"HTTP {resp.status}")
+                    return json.loads(body)
+                except Exception:
+                    self._poll_conn.close()
+                    self._poll_conn = None
+                    if attempt:
+                        raise
 
     # All known stat attribute names, for dir() support.
     _ALL_ATTRS = {

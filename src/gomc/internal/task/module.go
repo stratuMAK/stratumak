@@ -503,6 +503,15 @@ func (a *ioAdapter) GetToolFromPocket() (int32, error) {
 	return st.Tool.ToolFromPocket, nil
 }
 
+// GetToolStatus returns all three tool fields from a single status read.
+func (a *ioAdapter) GetToolStatus() (int32, int32, int32, error) {
+	st, err := a.EmcioClient.GetStatus()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return st.Tool.ToolInSpindle, st.Tool.PocketPrepped, st.Tool.ToolFromPocket, nil
+}
+
 // drainErrorPublisher implements ErrorPublisher by writing to the emcerror drain.
 // The message list append is handled by the caller (operatorError, etc.).
 type drainErrorPublisher struct {

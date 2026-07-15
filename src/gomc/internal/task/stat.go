@@ -203,19 +203,15 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 		U: cs.toolOffset.U, V: cs.toolOffset.V, W: cs.toolOffset.W,
 	}
 
-	// Tool info from IO controller.
+	// Tool info from IO controller — one status read for all three fields.
 	if t.io != nil {
-		if v, err := t.io.GetToolInSpindle(); err == nil {
-			stat.ToolInSpindle = v
-		}
-		if v, err := t.io.GetPocketPrepped(); err == nil {
+		if tis, pp, tfp, err := t.io.GetToolStatus(); err == nil {
+			stat.ToolInSpindle = tis
 			// io tracks the prepped tool by toolno; report its pocket
 			// (classic stat reported a tooldata array index, which has no
 			// gomc equivalent — the pocket number is the stable analog).
-			stat.PocketPrepped = toolPocketFor(v)
-		}
-		if v, err := t.io.GetToolFromPocket(); err == nil {
-			stat.ToolFromPocket = v
+			stat.PocketPrepped = t.pocketPreppedFor(pp)
+			stat.ToolFromPocket = tfp
 		}
 	}
 
