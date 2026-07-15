@@ -292,13 +292,12 @@ const (
 // IO abort reason codes (EMC_IO_ABORT_REASON_ENUM, emc.hh / iocontrol_stat.h).
 // The reason is passed to io.IoAbort AND, via interp.Abort, to Interp::on_abort
 // where it is the numeric argument to a configured [RS274NGC]ON_ABORT_COMMAND.
-// Value 5 (TASK_STATE_ESTOP_RESET) exists in the C enum but has no gomc call
-// site, so it is intentionally omitted (unused-lint).
 const (
 	emcAbortTaskExecError       int32 = 1  // EMC_ABORT_TASK_EXEC_ERROR
 	emcAbortAuxEstop            int32 = 2  // EMC_ABORT_AUX_ESTOP
 	emcAbortMotionOrIoRcsError  int32 = 3  // EMC_ABORT_MOTION_OR_IO_RCS_ERROR
 	emcAbortTaskStateOff        int32 = 4  // EMC_ABORT_TASK_STATE_OFF
+	emcAbortTaskStateEstopReset int32 = 5  // EMC_ABORT_TASK_STATE_ESTOP_RESET
 	emcAbortTaskStateEstop      int32 = 6  // EMC_ABORT_TASK_STATE_ESTOP
 	emcAbortTaskStateNotOn      int32 = 7  // EMC_ABORT_TASK_STATE_NOT_ON
 	emcAbortTaskAbort           int32 = 8  // EMC_ABORT_TASK_ABORT
@@ -526,7 +525,31 @@ func (t *Task) setState(state int32) error {
 		_ = t.io.LubeOff() // C++ emcTaskSetState(ESTOP_RESET) turns lube off
 		t.mu.Lock()
 		t.lubeOn = false
+		numSpindles := t.numSpindles
 		t.mu.Unlock()
+
+		// 2.9 emcTaskSetState(ESTOP_RESET) also runs emcTaskAbort +
+		// emcIoAbort(5) + emcSpindleAbort(all) + emcAbortCleanup(5) +
+		// emcTaskPlanSynch (emctask.cc): estop-reset is the recovery point
+		// where the IO tool-change handshake and the interpreter's abort state
+		// are cleared — including when estop was entered from a non-ON state,
+		// whose light teardown did no IoAbort at all. The reason (5) is the
+		// argument a configured ON_ABORT_COMMAND sees.
+		_ = t.motion.Abort()
+		_ = t.io.IoAbort(emcAbortTaskStateEstopReset)
+		for i := 0; i < numSpindles; i++ {
+			_ = t.motion.SpindleOff(int32(i))
+		}
+		if t.interp != nil {
+			// No producer can be alive in estop (every estop entry joined or
+			// precluded it), and setState holds cmdMu — the interp is ours.
+			t.waitRunProgramDone()
+			t.canon.setDiscard(true)
+			_ = t.interp.Abort(int(emcAbortTaskStateEstopReset), "estop reset")
+			t.canon.setDiscard(false)
+			t.canon.syncEndPointFromMachine()
+			_ = t.interp.Synch()
+		}
 
 		// Check if IO confirms estop cleared (immediate HAL loopback case).
 		// If IO status is not available, trust that the monitor will handle it.

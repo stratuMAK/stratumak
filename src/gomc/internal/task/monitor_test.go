@@ -476,6 +476,10 @@ func TestMonitor_MachineOff_EstopSilent(t *testing.T) {
 	}
 	task.mu.Unlock()
 
+	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
+	// this test asserts the MONITOR stays silent, so zero the counter here.
+	mot.abortCount.Store(0)
+
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
 	defer mon.stop()
@@ -696,6 +700,10 @@ func TestMonitor_IOSoftFault_NoAbort(t *testing.T) {
 	task.SetState(int32(StateEstopReset))
 	task.SetState(int32(StateOn))
 	task.StartSequencer()
+
+	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
+	// this test asserts the MONITOR stays silent, so zero the counter here.
+	mot.abortCount.Store(0)
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()

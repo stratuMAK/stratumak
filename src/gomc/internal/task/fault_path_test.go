@@ -195,6 +195,44 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	}
 }
 
+// TestEstopReset_RunsAbortSequence pins the ESTOP→ESTOP_RESET parity with 2.9
+// emcTaskSetState(ESTOP_RESET) (emctask.cc): beyond estop-off + lube-off, the
+// transition must abort motion, IoAbort with reason 5 (resetting the IO
+// tool-change handshake — the only reset when estop was entered from a non-ON
+// state, whose light teardown does no IoAbort), stop the spindles, and run
+// interp on_abort(5) + synch.
+func TestEstopReset_RunsAbortSequence(t *testing.T) {
+	task, mot, io := newRecordingTask()
+	ri := &recordingInterp{}
+	task.SetInterpreter(ri)
+
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+
+	if io.ioAbortCalls.Load() == 0 {
+		t.Fatal("estop-reset must IoAbort (2.9 emcIoAbort(EMC_ABORT_TASK_STATE_ESTOP_RESET))")
+	}
+	if got := io.ioAbortReason.Load(); got != int64(emcAbortTaskStateEstopReset) {
+		t.Fatalf("io.IoAbort reason = %d, want %d (EMC_ABORT_TASK_STATE_ESTOP_RESET)", got, emcAbortTaskStateEstopReset)
+	}
+	if ri.abortCalls.Load() == 0 {
+		t.Fatal("estop-reset must run interp on_abort (2.9 emcAbortCleanup(5))")
+	}
+	if got := ri.abortReason.Load(); got != int64(emcAbortTaskStateEstopReset) {
+		t.Fatalf("interp.Abort reason = %d, want %d (EMC_ABORT_TASK_STATE_ESTOP_RESET)", got, emcAbortTaskStateEstopReset)
+	}
+	if !mot.hasCall("Abort") {
+		t.Fatal("estop-reset must abort motion (2.9 emcTaskAbort)")
+	}
+	if !mot.hasCall("SpindleOff") {
+		t.Fatal("estop-reset must stop the spindles (2.9 emcSpindleAbort)")
+	}
+}
+
 // TestMDI_AbortedEnqueueIsNotAnMDIError pins the executeMDI enqueue-failure
 // split: when the sequencer was closed by a concurrent teardown (user abort,
 // estop, sequencer fault) between synch and enqueue, the teardown owns the
@@ -335,6 +373,10 @@ func TestFaultProgram_RunsOnAbortNoIOAbort(t *testing.T) {
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
+	// bringUp's estop-reset legitimately IoAborts (reason 5, 2.9 parity);
+	// assert the fault path below adds none on top of that baseline.
+	baseIO := io.ioAbortCalls.Load()
+
 	task.faultProgram(emcAbortInterpreterError, "interpreter error")
 
 	if ri.abortCalls.Load() == 0 {
@@ -343,8 +385,8 @@ func TestFaultProgram_RunsOnAbortNoIOAbort(t *testing.T) {
 	if got := ri.abortReason.Load(); got != int64(emcAbortInterpreterError) {
 		t.Fatalf("interp.Abort reason = %d, want %d (EMC_ABORT_INTERPRETER_ERROR)", got, emcAbortInterpreterError)
 	}
-	if io.ioAbortCalls.Load() != 0 {
-		t.Fatalf("faultProgram (AUTO readahead) must not IoAbort; got %d calls", io.ioAbortCalls.Load())
+	if got := io.ioAbortCalls.Load() - baseIO; got != 0 {
+		t.Fatalf("faultProgram (AUTO readahead) must not IoAbort; got %d calls", got)
 	}
 
 	task.mu.Lock()
