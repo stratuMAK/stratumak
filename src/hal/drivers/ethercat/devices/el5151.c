@@ -172,8 +172,8 @@ static ec_sync_info_t lcec_el5151_syncs[] = {
     {0xff}
 };
 
-void lcec_el5151_read(struct lcec_slave *slave, long period);
-void lcec_el5151_write(struct lcec_slave *slave, long period);
+void lcec_el5151_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el5151_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EL5151 EtherCAT slave driver.

@@ -114,6 +114,6 @@ int class_enc_init(struct lcec_slave *slave, lcec_class_enc_data_t *hal_data, in
  * @param ext_latch_raw   Raw encoder count captured at the external latch event.
  * @param ext_latch_ena   Non-zero if a valid external latch event occurred this cycle.
  */
-void class_enc_update(lcec_class_enc_data_t *hal_data, uint64_t pprev, double scale, uint32_t raw, uint32_t ext_latch_raw, int ext_latch_ena);
+void class_enc_update(lcec_class_enc_data_t *hal_data, uint64_t pprev, double scale, uint32_t raw, uint32_t ext_latch_raw, int ext_latch_ena) GOMC_NONBLOCKING;
 
 #endif

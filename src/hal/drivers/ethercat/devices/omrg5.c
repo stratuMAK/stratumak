@@ -187,9 +187,9 @@ static ec_sync_info_t lcec_omrg5_syncs[] = {
 void lcec_omrg5_check_scales(lcec_omrg5_data_t *hal_data);
 
 /** @brief HAL read function — receives PDO data and updates HAL output pins. */
-void lcec_omrg5_read(struct lcec_slave *slave, long period);
+void lcec_omrg5_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief HAL write function — maps HAL input pins to PDO output data. */
-void lcec_omrg5_write(struct lcec_slave *slave, long period);
+void lcec_omrg5_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the Omron G5 slave: configure PDO mappings and export HAL pins.

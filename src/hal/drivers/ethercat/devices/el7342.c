@@ -389,8 +389,8 @@ static ec_sync_info_t lcec_el7342_syncs[] = {
     {0xff}
 };
 
-void lcec_el7342_read(struct lcec_slave *slave, long period);
-void lcec_el7342_write(struct lcec_slave *slave, long period);
+void lcec_el7342_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el7342_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Write a synchronous information selector value to the drive.

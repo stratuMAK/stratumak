@@ -50,7 +50,7 @@ static const lcec_pindesc_t slave_pins[] = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1xxx_read(struct lcec_slave *slave, long period);
+void lcec_el1xxx_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize an EL1xxx digital input slave.

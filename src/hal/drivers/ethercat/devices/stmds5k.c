@@ -258,14 +258,14 @@ void lcec_stmds5k_check_scales(lcec_stmds5k_data_t *hal_data);
  * @param slave   EtherCAT slave descriptor.
  * @param period  Cycle period in nanoseconds.
  */
-void lcec_stmds5k_read(struct lcec_slave *slave, long period);
+void lcec_stmds5k_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Cyclic write callback: writes device control byte, torque limit and speed setpoint.
  * @param slave   EtherCAT slave descriptor.
  * @param period  Cycle period in nanoseconds.
  */
-void lcec_stmds5k_write(struct lcec_slave *slave, long period);
+void lcec_stmds5k_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 int lcec_stmds5k_preinit(struct lcec_slave *slave) {
   lcec_master_t *master = slave->master;

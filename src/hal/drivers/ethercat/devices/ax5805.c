@@ -93,7 +93,7 @@ static const lcec_pindesc_t slave_pins_2ch[] = {
 };
 
 void lcec_ax5805_chancount(struct lcec_slave *slave);
-void lcec_ax5805_read(struct lcec_slave *slave, long period);
+void lcec_ax5805_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 int lcec_ax5805_preinit(struct lcec_slave *slave) {
   lcec_master_t *master = slave->master;

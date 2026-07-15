@@ -40,7 +40,7 @@ typedef struct {
 /**
  * @brief Forward declaration of the periodic write callback.
  */
-void lcec_el2xxx_write(struct lcec_slave *slave, long period);
+void lcec_el2xxx_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize an EL2xxx digital output slave: allocate HAL memory,
