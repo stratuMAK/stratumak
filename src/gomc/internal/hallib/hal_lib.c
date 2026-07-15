@@ -4097,21 +4097,44 @@ static int hal_stream_advance(hal_stream_t *stream, int n) {
     return n;
 }
 
+/* 'in'/'out' are published with release stores; every cross-thread read
+   must be an acquire load, otherwise a weakly-ordered CPU (ARM) may see
+   the index advance before the sample data written ahead of it. */
+static int hal_stream_atomic_load_in(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->in, memory_order_acquire);
+}
+
+static int hal_stream_atomic_load_out(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->out, memory_order_acquire);
+}
+
+static void hal_stream_atomic_store_in(hal_stream_t *stream, int newin)
+{
+    atomic_store_explicit(&stream->fifo->in, newin, memory_order_release);
+}
+
+static void hal_stream_atomic_store_out(hal_stream_t *stream, int newout)
+{
+    atomic_store_explicit(&stream->fifo->out, newout, memory_order_release);
+}
+
 static int hal_stream_newin(hal_stream_t *stream) {
-    return hal_stream_advance(stream, stream->fifo->in);
+    return hal_stream_advance(stream, hal_stream_atomic_load_in(stream));
 }
 
 bool hal_stream_writable(hal_stream_t *stream) {
-    return hal_stream_newin(stream) != stream->fifo->out;
+    return hal_stream_newin(stream) != hal_stream_atomic_load_out(stream);
 }
 
 bool hal_stream_readable(hal_stream_t *stream) {
-    return stream->fifo->in != stream->fifo->out;
+    return hal_stream_atomic_load_in(stream) != hal_stream_atomic_load_out(stream);
 }
 
 int hal_stream_depth(hal_stream_t *stream) {
-    int out = stream->fifo->out;
-    int in = stream->fifo->in;
+    int out = hal_stream_atomic_load_out(stream);
+    int in = hal_stream_atomic_load_in(stream);
     int result = in - out;
     if(result < 0) result += stream->fifo->depth - 1;
     return result;
@@ -4133,27 +4156,6 @@ void hal_stream_wait_readable(hal_stream_t *stream, sig_atomic_t *stop) {
         /* fifo full, sleep for 10ms */
         rtapi_delay(10000000);
     }
-}
-
-static int hal_stream_atomic_load_in(hal_stream_t *stream)
-{
-    return atomic_load_explicit(&stream->fifo->in, memory_order_acquire);
-}
-
-static int hal_stream_atomic_load_out(hal_stream_t *stream)
-{
-    return atomic_load_explicit(&stream->fifo->out, memory_order_acquire);
-}
-
-
-static void hal_stream_atomic_store_in(hal_stream_t *stream, int newin)
-{
-    atomic_store_explicit(&stream->fifo->in, newin, memory_order_release);
-}
-
-static void hal_stream_atomic_store_out(hal_stream_t *stream, int newout)
-{
-    atomic_store_explicit(&stream->fifo->out, newout, memory_order_release);
 }
 
 int hal_stream_write(hal_stream_t *stream, union hal_stream_data *buf) {
