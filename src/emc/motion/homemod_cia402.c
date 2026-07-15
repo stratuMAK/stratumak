@@ -116,7 +116,7 @@ static void track_drive_position(linmot_inst_t *inst)
     inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, pos);
 }
 
-static int drive_home_tick(linmot_inst_t *inst)
+static int drive_home_tick(linmot_inst_t *inst) GOMC_NONBLOCKING
 {
     int jno = inst->jno;
     linmot_pins_t *p = &inst->pins;
@@ -293,7 +293,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 static int32_t gmi_home_set_params(void *ctx, double offset, double home,
     double home_final_vel, double home_search_vel,
     double home_latch_vel, int32_t home_flags,
-    int32_t home_sequence, int32_t volatile_home)
+    int32_t home_sequence, int32_t volatile_home) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     (void)home_search_vel; /* unused — drive does search internally */
@@ -308,7 +308,7 @@ static int32_t gmi_home_set_params(void *ctx, double offset, double home,
 }
 
 static int32_t gmi_home_update_params(void *ctx, double home_offset,
-    double home_home, int32_t home_sequence)
+    double home_home, int32_t home_sequence) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     inst->home_offset   = home_offset;
@@ -317,19 +317,19 @@ static int32_t gmi_home_update_params(void *ctx, double home_offset,
     return 0;
 }
 
-static int32_t gmi_home_read_in_pins(void *ctx)
+static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
 {
     (void)ctx; /* pins are read directly in state machine */
     return 0;
 }
 
-static int32_t gmi_home_do_homing(void *ctx)
+static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)drive_home_tick(inst);
 }
 
-static int32_t gmi_home_write_out_pins(void *ctx)
+static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     *(inst->pins.homing_pin) = inst->homing;
@@ -338,7 +338,7 @@ static int32_t gmi_home_write_out_pins(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_do_home(void *ctx)
+static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if ((inst->home_flags & HOME_NO_REHOME) && inst->homed)
@@ -350,7 +350,7 @@ static int32_t gmi_home_do_home(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_do_cancel(void *ctx)
+static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if (inst->homing || inst->drv_state != DRV_HOME_IDLE) {
@@ -359,7 +359,7 @@ static int32_t gmi_home_do_cancel(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate)
+static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     (void)motstate;
@@ -368,37 +368,37 @@ static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate)
     return 0;
 }
 
-static int32_t gmi_home_get_homing(void *ctx)
+static int32_t gmi_home_get_homing(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)inst->homing;
 }
 
-static int32_t gmi_home_get_homed(void *ctx)
+static int32_t gmi_home_get_homed(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)inst->homed;
 }
 
-static int32_t gmi_home_get_index_enable(void *ctx)
+static int32_t gmi_home_get_index_enable(void *ctx) GOMC_NONBLOCKING
 {
     (void)ctx;
     return 0; /* LinMot doesn't use index pulse */
 }
 
-static int32_t gmi_home_get_needs_unlock_first(void *ctx)
+static int32_t gmi_home_get_needs_unlock_first(void *ctx) GOMC_NONBLOCKING
 {
     (void)ctx;
     return 0; /* Drive handles its own unlocking */
 }
 
-static int32_t gmi_home_get_is_idle(void *ctx)
+static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return inst->drv_state == DRV_HOME_IDLE ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_index_search_wait(void *ctx)
+static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
 {
     (void)ctx;
     /* CIA402 drives don't use index pulses — position tracking is handled
@@ -406,7 +406,7 @@ static int32_t gmi_home_get_at_index_search_wait(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_get_at_final_move_wait(void *ctx)
+static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     /* Returns 1 when the state machine is paused at DRV_HOME_FINAL_MOVE
@@ -416,7 +416,7 @@ static int32_t gmi_home_get_at_final_move_wait(void *ctx)
             !inst->sync_final_move_released) ? 1 : 0;
 }
 
-static int32_t gmi_home_do_final_move(void *ctx)
+static int32_t gmi_home_do_final_move(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     /* Release the sync pause so the final move can start. */
