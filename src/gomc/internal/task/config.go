@@ -57,22 +57,25 @@ func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 			return fmt.Errorf("joint %d config: %w", j, err)
 		}
 		// Store joint max velocity for jog clamping (matches C JointConfig[].MaxVel).
+		// Converted machine->mm for linear joints (jointLinear set in loadJoint above).
 		section := fmt.Sprintf("JOINT_%d", j)
-		t.jointMaxVel[j] = getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0)
+		t.jointMaxVel[j] = t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0), t.jointLinear[j])
 	}
 	numAxes := axisCount(t.axisMask)
 	for a := int32(0); a < int32(numAxes); a++ {
 		if t.axisMask&(1<<a) == 0 {
 			continue
 		}
-		if err := loadAxis(ini, a, mc); err != nil {
+		if err := loadAxis(ini, t, a, mc); err != nil {
 			return fmt.Errorf("axis %d config: %w", a, err)
 		}
 		// Store per-axis max velocity/acceleration for jog clamping and for the
 		// canon's per-move vel/acc blending (matches C AxisConfig[].MaxVel/MaxAcc).
+		// Converted machine->mm for linear axes; angular (A/B/C) left in degrees.
 		axSection := axisSection(a)
-		t.axisMaxVel[a] = getFloatOrSection(ini, axSection, "MAX_VELOCITY", 1.0)
-		t.axisMaxAcc[a] = getFloatOrSection(ini, axSection, "MAX_ACCELERATION", 1.0)
+		axLinear := axisIsLinear(a)
+		t.axisMaxVel[a] = t.machineToMMLinear(getFloatOrSection(ini, axSection, "MAX_VELOCITY", 1.0), axLinear)
+		t.axisMaxAcc[a] = t.machineToMMLinear(getFloatOrSection(ini, axSection, "MAX_ACCELERATION", 1.0), axLinear)
 	}
 	for s := int32(0); s < int32(t.numSpindles); s++ {
 		if err := loadSpindle(ini, s, mc); err != nil {
@@ -114,7 +117,19 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	t.linearUnits = parseLinearUnits(ini.Get("TRAJ", "LINEAR_UNITS"))
 	t.angularUnits = parseAngularUnits(ini.Get("TRAJ", "ANGULAR_UNITS"))
 
-	// Velocities
+	// The canon (created in NewTask, before the INI is read) starts in the
+	// machine's native modal units: G20 on an inch machine, G21 on mm. The
+	// interpreter picks this up via GetExternalLengthUnitType at init. Without
+	// it an inch machine would run unit-less G-code as millimetres (25.4x
+	// small). Mirrors the C canon's INIT_CANON units derivation.
+	if t.canon != nil {
+		t.canon.state.lengthUnits = machineCanonUnits(t.linearUnits)
+		t.canonSnap = *t.canon.state
+	}
+
+	// Velocities. TRAJ velocity limits are linear (the "..._LINEAR_..." keys),
+	// so convert machine-units->mm to match the mm-internal motion controller.
+	// The minAxisVel fallback also returns machine units, so scale after it.
 	defaultVel := getFloatOr(ini, "TRAJ", "DEFAULT_LINEAR_VELOCITY",
 		getFloatOr(ini, "TRAJ", "DEFAULT_VELOCITY", 1.0))
 	t.maxVelocity = getFloatOr(ini, "TRAJ", "MAX_LINEAR_VELOCITY",
@@ -122,6 +137,8 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	if t.maxVelocity <= 0 {
 		t.maxVelocity = minAxisVel(ini, t.axisMask)
 	}
+	defaultVel = t.machineToMM(defaultVel)
+	t.maxVelocity = t.machineToMM(t.maxVelocity)
 	if err := mc.SetVelLimit(t.maxVelocity); err != nil {
 		return err
 	}
@@ -144,6 +161,9 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	if defaultAcc <= 0 {
 		defaultAcc = t.maxAcceleration
 	}
+	// TRAJ acceleration limits are linear too: convert machine-units->mm.
+	defaultAcc = t.machineToMM(defaultAcc)
+	t.maxAcceleration = t.machineToMM(t.maxAcceleration)
 	if err := mc.SetAcc(clamp(defaultAcc, 0, t.maxAcceleration)); err != nil {
 		return err
 	}
@@ -161,10 +181,11 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 		return err
 	}
 
-	// World home
+	// World home (a position handed to motion): linear components machine->mm,
+	// angular (A/B/C) left in degrees — same conversion the position limits get.
 	homeStr := ini.Get("TRAJ", "HOME")
 	if homeStr != "" {
-		home := parsePoseString(homeStr)
+		home := t.poseLinearToMM(parsePoseString(homeStr))
 		if err := mc.SetWorldHome(home); err != nil {
 			return err
 		}
@@ -187,38 +208,106 @@ type jointHomingParams struct {
 	flags, volatileHome           int32
 }
 
+// machineToMM converts a length expressed in the machine's configured linear
+// units to the internal millimeters the motion controller works in. gomc's
+// canon emits move targets in mm (fromProg/toAbsolute), so every length handed
+// to motion must be mm too. Soft-limit positions were the exception: they were
+// passed straight from the INI in machine units, so on an inch machine motion
+// enforced them 25.4x too tight and rejected legal moves. linearUnits is
+// machine-units-per-mm (1.0 for mm, 1/25.4 for inch), so mm = value/linearUnits.
+func (t *Task) machineToMM(v float64) float64 {
+	if t.linearUnits <= 0 {
+		return v
+	}
+	return v / t.linearUnits
+}
+
+// axisIsLinear reports whether the axis at the given index is a linear
+// (length-dimensioned) axis. X,Y,Z,U,V,W (indices 0,1,2,6,7,8) are linear;
+// A,B,C (3,4,5) are angular (degrees). Only linear config values are converted
+// machine-units->mm: the canon never unit-scales angular coordinates
+// (canon.go: fromProg runs on X/Y/Z/U/V/W only), so angular limits/vels/accels
+// are already in the internal degree units and must be left untouched.
+func axisIsLinear(index int32) bool {
+	switch index {
+	case 0, 1, 2, 6, 7, 8: // X Y Z U V W
+		return true
+	default: // 3,4,5 = A B C (angular); anything else defensively non-linear
+		return false
+	}
+}
+
+// jointTypeIsLinear parses a [JOINT_n]TYPE value. LINEAR (the default when
+// unset) means length-dimensioned; ANGULAR means degrees. Matches the C config
+// (emcmotcfg). A joint's linearity ultimately follows the axis it drives, but
+// reading TYPE matches the C config and is simplest.
+func jointTypeIsLinear(s string) bool {
+	return !strings.EqualFold(strings.TrimSpace(s), "ANGULAR")
+}
+
+// machineToMMLinear converts v machine-units->mm iff linear; otherwise returns
+// v unchanged. Used to scale only length-dimensioned (linear) config values.
+func (t *Task) machineToMMLinear(v float64, linear bool) float64 {
+	if !linear {
+		return v
+	}
+	return t.machineToMM(v)
+}
+
+// poseLinearToMM converts the linear coordinates (X,Y,Z,U,V,W) of a pose from
+// machine units to mm, leaving the angular coordinates (A,B,C) untouched.
+func (t *Task) poseLinearToMM(p Pose) Pose {
+	p.X = t.machineToMM(p.X)
+	p.Y = t.machineToMM(p.Y)
+	p.Z = t.machineToMM(p.Z)
+	p.U = t.machineToMM(p.U)
+	p.V = t.machineToMM(p.V)
+	p.W = t.machineToMM(p.W)
+	return p
+}
+
 func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) error {
 	section := fmt.Sprintf("JOINT_%d", joint)
 
-	// Position limits
-	minLimit := getFloatOrSection(ini, section, "MIN_LIMIT", -1e99)
-	maxLimit := getFloatOrSection(ini, section, "MAX_LIMIT", 1e99)
+	// Linearity: LINEAR joints have length-dimensioned config that must be
+	// converted machine-units->mm to match the mm-internal motion controller.
+	// ANGULAR (rotary) joints are in degrees and are left unscaled.
+	linear := jointTypeIsLinear(ini.Get(section, "TYPE"))
+	if joint >= 0 && int(joint) < len(t.jointLinear) {
+		t.jointLinear[joint] = linear
+	}
+
+	// Position limits (INI machine units -> internal mm, matching move targets).
+	minLimit := t.machineToMMLinear(getFloatOrSection(ini, section, "MIN_LIMIT", -1e99), linear)
+	maxLimit := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_LIMIT", 1e99), linear)
 	if err := mc.SetJointPositionLimits(joint, minLimit, maxLimit); err != nil {
 		return err
 	}
 
-	// Backlash
-	backlash := getFloatOrSection(ini, section, "BACKLASH", 0)
+	// Backlash (length)
+	backlash := t.machineToMMLinear(getFloatOrSection(ini, section, "BACKLASH", 0), linear)
 	if err := mc.SetJointBacklash(joint, backlash); err != nil {
 		return err
 	}
 
-	// Following error
-	ferror := getFloatOrSection(ini, section, "FERROR", 1)
+	// Following error (length)
+	ferror := t.machineToMMLinear(getFloatOrSection(ini, section, "FERROR", 1), linear)
 	if err := mc.SetJointMaxFerror(joint, ferror); err != nil {
 		return err
 	}
-	minFerror := getFloatOrSection(ini, section, "MIN_FERROR", ferror)
+	minFerror := t.machineToMMLinear(getFloatOrSection(ini, section, "MIN_FERROR", ferror), linear)
 	if err := mc.SetJointMinFerror(joint, minFerror); err != nil {
 		return err
 	}
 
-	// Homing
-	home := getFloatOrSection(ini, section, "HOME", 0)
-	offset := getFloatOrSection(ini, section, "HOME_OFFSET", 0)
-	searchVel := getFloatOrSection(ini, section, "HOME_SEARCH_VEL", 0)
-	latchVel := getFloatOrSection(ini, section, "HOME_LATCH_VEL", 0)
-	finalVel := getFloatOrSection(ini, section, "HOME_FINAL_VEL", -1)
+	// Homing. HOME/HOME_OFFSET are positions (length); the *_VEL are velocities.
+	// finalVel default -1 is a "use joint max vel" sentinel; scaling preserves
+	// its sign so the sentinel semantics are unchanged.
+	home := t.machineToMMLinear(getFloatOrSection(ini, section, "HOME", 0), linear)
+	offset := t.machineToMMLinear(getFloatOrSection(ini, section, "HOME_OFFSET", 0), linear)
+	searchVel := t.machineToMMLinear(getFloatOrSection(ini, section, "HOME_SEARCH_VEL", 0), linear)
+	latchVel := t.machineToMMLinear(getFloatOrSection(ini, section, "HOME_LATCH_VEL", 0), linear)
+	finalVel := t.machineToMMLinear(getFloatOrSection(ini, section, "HOME_FINAL_VEL", -1), linear)
 	useIndex := getIntOrSection(ini, section, "HOME_USE_INDEX", 0)
 	noEncoderReset := getIntOrSection(ini, section, "HOME_INDEX_NO_ENCODER_RESET", 0)
 	ignoreLimits := getBoolOrSection(ini, section, "HOME_IGNORE_LIMITS", false)
@@ -264,16 +353,16 @@ func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) erro
 		}
 	}
 
-	// Velocity and acceleration
-	maxVel := getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0)
+	// Velocity, acceleration and jerk (all length-dimensioned for linear joints)
+	maxVel := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0), linear)
 	if err := mc.SetJointVelLimit(joint, maxVel); err != nil {
 		return err
 	}
-	maxAcc := getFloatOrSection(ini, section, "MAX_ACCELERATION", 1.0)
+	maxAcc := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_ACCELERATION", 1.0), linear)
 	if err := mc.SetJointAccLimit(joint, maxAcc); err != nil {
 		return err
 	}
-	maxJerk := getFloatOrSection(ini, section, "MAX_JERK", 0.0)
+	maxJerk := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_JERK", 0.0), linear)
 	if maxJerk > 0.0 {
 		if err := mc.SetJointJerkLimit(joint, maxJerk); err != nil {
 			return err
@@ -338,12 +427,16 @@ func loadJointComp(joint int32, file string, compType int, setComp func(joint in
 	return nil
 }
 
-func loadAxis(ini *inifile.IniFile, axis int32, mc MotionConfig) error {
+func loadAxis(ini *inifile.IniFile, t *Task, axis int32, mc MotionConfig) error {
 	section := axisSection(axis)
 
-	// Position limits
-	minLimit := getFloatOrSection(ini, section, "MIN_LIMIT", -1e99)
-	maxLimit := getFloatOrSection(ini, section, "MAX_LIMIT", 1e99)
+	// Linearity by axis letter/index: X,Y,Z,U,V,W are linear (length, scaled to
+	// mm); A,B,C are angular (degrees, unscaled).
+	linear := axisIsLinear(axis)
+
+	// Position limits (INI machine units -> internal mm, matching move targets).
+	minLimit := t.machineToMMLinear(getFloatOrSection(ini, section, "MIN_LIMIT", -1e99), linear)
+	maxLimit := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_LIMIT", 1e99), linear)
 	if err := mc.SetAxisPositionLimits(axis, minLimit, maxLimit); err != nil {
 		return err
 	}
@@ -354,14 +447,14 @@ func loadAxis(ini *inifile.IniFile, axis int32, mc MotionConfig) error {
 		avRatio = 0.1
 	}
 
-	// Velocity
-	maxVel := getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0)
+	// Velocity (length/s for linear axes)
+	maxVel := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_VELOCITY", 1.0), linear)
 	if err := mc.SetAxisVelLimit(axis, (1-avRatio)*maxVel, avRatio*maxVel); err != nil {
 		return err
 	}
 
-	// Acceleration
-	maxAcc := getFloatOrSection(ini, section, "MAX_ACCELERATION", 1.0)
+	// Acceleration (length/s^2 for linear axes)
+	maxAcc := t.machineToMMLinear(getFloatOrSection(ini, section, "MAX_ACCELERATION", 1.0), linear)
 	if err := mc.SetAxisAccLimit(axis, (1-avRatio)*maxAcc, avRatio*maxAcc); err != nil {
 		return err
 	}

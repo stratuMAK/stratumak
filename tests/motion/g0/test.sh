@@ -56,11 +56,15 @@ sleep 0.5   # let the sampler subscribe before motion starts
     wait_for_pin motion.is-all-homed TRUE
 
     echo set mode mdi
+    # The interpreter starts in the machine's units (G20 here — inch config,
+    # matching 2.9), so `g0x1` moves 1 inch. The HAL joint pins are gomc-mm:
+    # wait for 25.4.
     dist=1
+    dist_mm=25.4
     echo set mdi g0x$dist
 
     # Wait for movement to complete
-    wait_for_pin joint.0.pos-fb $dist
+    wait_for_pin joint.0.pos-fb $dist_mm
     wait_for_pin joint.0.in-position TRUE
     wait_for_pin joint.1.in-position TRUE
 

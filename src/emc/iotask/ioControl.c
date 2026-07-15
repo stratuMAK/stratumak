@@ -454,7 +454,7 @@ static int32_t gmi_estop_on(void *ctx)
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_estop_on");
+    gomc_log_infof(m->env->log, m->name, "gmi_estop_on (user-enable-out -> 0)");
     *(d->user_enable_out) = 0;
     hal_init_pins(m);
     return 0;
@@ -465,7 +465,7 @@ static int32_t gmi_estop_off(void *ctx)
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_estop_off");
+    gomc_log_infof(m->env->log, m->name, "gmi_estop_off (user-enable-out -> 1)");
     *(d->user_enable_out) = 1;
     *(d->user_request_enable) = 1;
     return 0;

@@ -154,6 +154,17 @@ func (t *Task) AbortSequencer() {
 	}
 }
 
+// sequencerUp reports whether an interpreter command queue exists (the
+// sequencer has been started at least once). Enqueueing into a merely-aborted
+// queue is safe (dropped silently); this guard only avoids the loud
+// errSeqNotRunning operator-error path for canon emissions that fire during
+// the boot-time interpreter init, before the first StartSequencer.
+func (t *Task) sequencerUp() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.interpQueue != nil
+}
+
 // EnqueueCmd pushes a command to the interpreter queue.
 // Blocks if the queue is full (backpressure from paused sequencer).
 // Unblocks on abort only.

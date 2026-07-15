@@ -384,10 +384,41 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 // ends by restarting the sequencer uses this. Must be called with t.mu NOT held.
 func (t *Task) restartSequencer(terminalInterp InterpState, terminalExec ExecState) {
 	t.StartSequencer()
+	// Every teardown that lands here reset the interpreter while the sequencer
+	// was down, so InitCanon's default-term-cond re-emission was dropped — and
+	// the TP's term cond survives tpClear. Re-push the default unconditionally
+	// (the TP state is unknown here), mirroring 2.9 where the post-abort
+	// Interp::init's SET_TERM_COND reaches motion. AutoRun/AutoStep's plain
+	// StartSequencer deliberately does NOT do this: a run boundary emits only
+	// on change (via InitCanon), keeping program captures free of redundant
+	// SET_TERM_COND like the certified 2.9 parity golds.
+	t.pushDefaultTermCond()
 	t.mu.Lock()
 	t.interpState = terminalInterp
 	t.execState = terminalExec
 	t.mu.Unlock()
+}
+
+// pushDefaultTermCond unconditionally re-asserts the default blending mode
+// (G64 continuous, 0.0254 mm) to the TP and primes the canon's on-change
+// cache with it. For moments when the TP term cond is unknown or known-stale:
+// boot (module Start) and sequencer restarts after teardowns. Sent DIRECTLY
+// (not via the sequencer queue) so it is strictly ordered against the direct
+// motion commands the caller issues next (e.g. SetMode's SetCoord) — a queued
+// emission would land at an arbitrary point relative to them, making
+// motion-logger captures nondeterministic.
+func (t *Task) pushDefaultTermCond() {
+	if t.canon == nil {
+		return
+	}
+	if err := t.motion.SetTermCond(tpTermCondParabolic, defaultBlendTolMM); err != nil {
+		t.logger.Error("default term-cond push failed", "err", err)
+		t.canon.lastTermSet = false // TP state unknown; force re-emit on next G61/G64
+		return
+	}
+	t.canon.lastTermCond = tpTermCondParabolic
+	t.canon.lastTermTol = defaultBlendTolMM
+	t.canon.lastTermSet = true
 }
 
 // fullShutdownOpts returns the options for a full machine off/estop teardown.
@@ -1183,6 +1214,29 @@ func (t *Task) faultMDI(msg string) {
 	t.mdiQueue = t.mdiQueue[:0]
 	t.taskCommand = ""
 	t.mu.Unlock()
+}
+
+// runStartupCode executes [RS274NGC]RS274NGC_STARTUP_CODE once at task startup,
+// mirroring C emctask.cc emcTaskPlanInit: execute the string on the interp and
+// drain any INTERP_EXECUTE_FINISH continuations. Its canon output flows to the
+// sequencer like any block. Runs regardless of machine state (classic runs it
+// at init, before estop-reset); a G-code error is reported but non-fatal.
+// Called once from module Start(), after StartSequencer, before any program.
+func (t *Task) runStartupCode() {
+	if t.startupCode == "" || t.interp == nil {
+		return
+	}
+	interp := t.interp
+	setActiveCanon(t.canon)
+	t.logger.Info("running startup code", "code", t.startupCode)
+	rc, err := interp.ExecuteString(t.startupCode)
+	for err == nil && rc == InterpExecuteFinish {
+		rc, err = interp.Execute()
+	}
+	t.updateActiveCodes(interp)
+	if err != nil {
+		t.operatorError(fmt.Sprintf("startup code %q: %v", t.startupCode, err))
+	}
 }
 
 // runProgram runs the interpreter read/execute loop for the open program.
@@ -1999,7 +2053,15 @@ func (t *Task) ToolUnload() error {
 	return err
 }
 
-// WaitComplete waits for motion to complete (with timeout).
+// WaitComplete waits for the task to settle: exec state done AND the
+// interpreter idle AND no queued MDIs. Checking execState alone raced
+// no-motion MDIs (e.g. the AXIS touch-off "G10 L20 ..."): those never leave
+// ExecDone — only interpState goes busy (set synchronously by the /mdi POST,
+// cleared by the async finishMDI) — so a wait_complete right after c.mdi()
+// returned instantly and the client's next command (AXIS: program_open to
+// reload the preview) hit the "Can't open a program while one is running"
+// reject. Classic NML closed this with the echo_serial_number handshake;
+// this is the equivalent for the queue-registered-before-POST-returns model.
 func (t *Task) WaitComplete(timeout float64) error {
 	deadline := time.Now().Add(time.Duration(timeout * float64(time.Second)))
 	ticker := time.NewTicker(pollInterval)
@@ -2008,8 +2070,9 @@ func (t *Task) WaitComplete(timeout float64) error {
 	for {
 		t.mu.Lock()
 		exec := t.execState
+		settled := !t.programBusy() && len(t.mdiQueue) == 0
 		t.mu.Unlock()
-		if exec == ExecDone || exec == ExecError {
+		if (exec == ExecDone || exec == ExecError) && settled {
 			return nil
 		}
 		if timeout > 0 && time.Now().After(deadline) {

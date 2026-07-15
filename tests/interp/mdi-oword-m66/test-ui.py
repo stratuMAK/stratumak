@@ -32,7 +32,9 @@ if s.position[0] != 0:
     print("ended at wrong location (did O-call terminate with error?)"); sys.exit(1)
 
 c.mdi("O<obug> call [1]"); c.wait_complete(); settle()
-if abs(s.position[0] - 1) > 1e-5:
+# The unit-less sub runs in the machine's units (G20 on this inch config,
+# matching 2.9): G0 G53 X1 = 1 inch; s.position is gomc-mm.
+if abs(s.position[0] - 1 * 25.4) > 1e-5:
     print("ended at wrong location (did O-call terminate with error?)", s.position); sys.exit(1)
 print("done! it all worked")
 sys.exit(0)

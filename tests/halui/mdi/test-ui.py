@@ -30,7 +30,11 @@ class H:
 h = H()
 
 def wait_for_joint_to_stop_at(joint, target):
-    timeout, tol = 10.0, 0.0001
+    # The INI's unit-less MDI_COMMANDs run in the machine's units (G20 on this
+    # inch config, matching 2.9); the sampled joint positions are gomc-mm.
+    # Scale the tolerance too — it was an inch tolerance.
+    target *= 25.4
+    timeout, tol = 10.0, 0.0001 * 25.4
     start = time.time(); curr_pos = 0
     while (time.time() - start) < timeout:
         prev_pos = curr_pos; curr_pos = h['joint-%d-position' % joint]

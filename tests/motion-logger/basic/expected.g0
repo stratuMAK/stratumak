@@ -1,4 +1,4 @@
 COORD
-SET_LINE x=1, y=2, z=3, a=4, b=5, c=6, u=7, v=8, w=9, id=2, motion_type=1, vel=1.66296, ini_maxvel=1.66296, acc=415.74, turn=-1
-SET_LINE x=0.1, y=0.2, z=0.3, a=0.4, b=0.5, c=0.6, u=0.7, v=0.8, w=0.9, id=3, motion_type=1, vel=1.66296, ini_maxvel=1.66296, acc=415.74, turn=-1
+SET_LINE x=25.4, y=50.8, z=76.2, a=4, b=5, c=6, u=177.8, v=203.2, w=228.6, id=1, motion_type=1, vel=42.2392, ini_maxvel=42.2392, acc=10559.8, turn=-1
+SET_LINE x=2.54, y=5.08, z=7.62, a=0.4, b=0.5, c=0.6, u=17.78, v=20.32, w=22.86, id=2, motion_type=1, vel=42.2392, ini_maxvel=42.2392, acc=10559.8, turn=-1
 SPINDLE_OFF

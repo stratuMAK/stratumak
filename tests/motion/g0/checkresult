@@ -25,8 +25,41 @@ servo_period_ns = float(Popen(
 
 cycles_per_second = 1000000000.0 / servo_period_ns
 
-# max acceleration in inches per second^2
-max_acceleration_ips2 = float(Popen(
+# The samples file stores positions to 6 decimal places, so acceleration — a
+# second difference of positions — is quantized to a few * 1e-6 per cycle. Under
+# gomc's mm-everywhere the accel is ~25x larger than the old inch-scaled motion,
+# so at mm scale this quantization dither (e.g. -0.001271 vs -0.001270) is
+# significant. The accel comparisons below use this quantization-scaled epsilon
+# instead of a fixed 1e-7 (which assumed the slower, exactly-representable inch
+# motion). Velocity checks keep 1e-7: peak vel stays well under the limit here.
+accel_epsilon = 4.0e-6 * cycles_per_second
+
+# gomc runs the motion controller in millimeters internally, so the sampled
+# joint.0.motor-pos-cmd (below) is in mm — NOT the INI's machine units. The
+# [AXIS_X] velocity/accel limits are in machine units ([TRAJ]LINEAR_UNITS), so
+# convert them to mm before comparing, otherwise an inch machine (limits in
+# inch/s, positions in mm) shows a spurious 25.4x accel "violation".
+linear_units = Popen(
+    [
+        "inivar",
+        "-var",
+        "LINEAR_UNITS",
+        "-sec",
+        "TRAJ",
+        "-ini",
+        "%s/motion-test.ini" % os.getenv("TEST_DIR")
+    ],
+    stdout=PIPE
+).communicate()[0].decode().strip().lower()
+
+# mm per machine linear unit (matches gomc parseLinearUnits)
+mm_per_unit = {
+    "in": 25.4, "inch": 25.4, "imperial": 25.4,
+    "mm": 1.0, "metric": 1.0, "": 1.0,
+}.get(linear_units, 1.0)
+
+# max acceleration in mm per second^2 (INI machine units -> mm)
+max_acceleration_ips2 = mm_per_unit * float(Popen(
     [
         "inivar",
         "-var",
@@ -43,8 +76,8 @@ max_acceleration_ips2 = float(Popen(
 # the factor of half at the end is because emc2 reserves half the acceleration for blending
 max_acceleration_ipspc = (max_acceleration_ips2 / cycles_per_second) * 0.5
 
-# max velocity in inches per second
-max_velocity_ips = float(Popen(
+# max velocity in mm per second (INI machine units -> mm)
+max_velocity_ips = mm_per_unit * float(Popen(
     [
         "inivar",
         "-var",
@@ -114,7 +147,7 @@ for i in range(i, len(samples) - 1):
     #print("line %d: X=%.6f, v=%.6f i/c (%.6f i/s), a=%.6f i/c^2 (%.6f i/s^2)" % (i, samples[i][1], new_v_ipc, (new_v_ipc * cycles_per_second), accel_ipc2, (accel_ipc2 * cycles_per_second * cycles_per_second)))
 
     # i hate floating point
-    if ((accel_ipc2 * cycles_per_second) - max_acceleration_ipspc) > 0.0000001: 
+    if ((accel_ipc2 * cycles_per_second) - max_acceleration_ipspc) > accel_epsilon:
         print("error: line %d: detected accel constraint violation!" % i)
         print("error: detected accel %.6f i/c^2 (%.6f i/s^2)" % (accel_ipc2, (accel_ipc2 * cycles_per_second * cycles_per_second)))
         print("error: max accel %.6f i/s^2)" % max_acceleration_ips2)
@@ -126,14 +159,18 @@ for i in range(i, len(samples) - 1):
         print("error: max vel %.6f i/c (%.6f i/s)" % (max_velocity_ipc, max_velocity_ips))
         sys.exit(1)
 
-    if accel_ipc2 == 0:
+    # accel phase ends when the joint stops speeding up: at cruise (accel==0,
+    # a trapezoidal move) OR at the apex (accel goes negative, a triangular
+    # move that never reaches max velocity). Under gomc's mm-everywhere the
+    # short 1 mm move is triangular, so break on <= 0, not just == 0.
+    if accel_ipc2 <= 0:
         print("line %d: accel phase over" % i)
         break
 
     old_v_ipc = new_v_ipc
 
 # verify highest seen accel is very close to max accel
-if abs(max_acceleration_ipspc - (highest_seen_accel_ipc2 * cycles_per_second)) > 0.0000001:
+if abs(max_acceleration_ipspc - (highest_seen_accel_ipc2 * cycles_per_second)) > accel_epsilon:
     print("error: accel only reached %.6f i/c^2 (%.6f i/s^2)" % (highest_seen_accel_ipc2, (highest_seen_accel_ipc2 * cycles_per_second * cycles_per_second)))
     print("error: max accel is %.6f i/s^2" % max_acceleration_ips2)
     sys.exit(1)
@@ -172,7 +209,7 @@ for i in range(i, len(samples) - 1):
     #print("line %d: X=%.6f, v=%.6f i/c (%.6f i/s), a=%.6f i/c^2 (%.6f i/s^2)" % (i, samples[i][1], new_v_ipc, (new_v_ipc * cycles_per_second), accel_ipc2, (accel_ipc2 * cycles_per_second * cycles_per_second)))
 
     # i hate floating point
-    if ((accel_ipc2 * cycles_per_second) - max_acceleration_ipspc) > 0.0000001: 
+    if ((accel_ipc2 * cycles_per_second) - max_acceleration_ipspc) > accel_epsilon:
         print("error: line %d: detected accel constraint violation!" % i)
         print("error: detected accel %.6f i/c^2 (%.6f i/s^2)" % (accel_ipc2, accel_ipc2 * cycles_per_second * cycles_per_second))
         print("error: max accel %.6f i/s^2)" % max_acceleration_ips2)
@@ -196,7 +233,7 @@ for i in range(i, len(samples) - 1):
     old_v_ipc = new_v_ipc
 
 # verify highest seen accel is very close to max accel
-if abs(max_acceleration_ipspc + (highest_seen_accel_ipc2 * cycles_per_second)) > 0.0000001:
+if abs(max_acceleration_ipspc + (highest_seen_accel_ipc2 * cycles_per_second)) > accel_epsilon:
     print("error: accel only reached %.6f i/c^2 (%.6f i/s^2)" % (highest_seen_accel_ipc2, (highest_seen_accel_ipc2 * cycles_per_second * cycles_per_second)))
     print("error: max accel is %.6f i/s^2" % max_acceleration_ips2)
     sys.exit(1)
@@ -204,9 +241,12 @@ if abs(max_acceleration_ipspc + (highest_seen_accel_ipc2 * cycles_per_second)) >
 #print("    decel reached but did not exceed 1/2 of max accel of %.6f i/s^2" % max_acceleration_ips2)
 
 
-# verify X stopped at 1.000000
-if samples[i][1] != 1.000000:
-    print("error: line %d: X stopped at %.6f, not at 1.000000!" % (i, samples[i][1]))
+# verify X stopped at the target: MDI g0x1 = 1 MACHINE unit (the interp starts
+# in the machine's units, G20 on this inch config, matching 2.9), and the
+# sampled HAL pin is gomc-mm — so 25.4 mm here.
+target_mm = 1.0 * mm_per_unit
+if samples[i][1] != target_mm:
+    print("error: line %d: X stopped at %.6f, not at %.6f!" % (i, samples[i][1], target_mm))
     sys.exit(1)
 
 #print("    X reached target of 1.0000")

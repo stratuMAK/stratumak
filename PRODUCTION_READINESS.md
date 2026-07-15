@@ -274,6 +274,24 @@ Not per-module; each needs an owner and a done-definition.
 - [ ] **RT/latency validation** — latency-histogram soak test on target hardware; verify Go GC
   cannot stall any cyclic path.
 - [ ] **Fuzzing** — `go fuzz` targets for halparse, inifile, gmicompile parser.
+- [ ] **Surface RCS command errors to clients** — command endpoints return the RCS code
+  in-body with HTTP 200 (the cgo bridge flattens the Go error to `-1`), and the gmi python
+  `Command` methods discard even that: a rejected MDI/state command is invisible to the
+  caller. This matches classic `linuxcnc.command()` semantics (errors via the error channel
+  + `wait_complete()==RCS_ERROR`), which is why it wasn't changed during the flaky-test fix
+  (2026-07-14) — but for gomc-native clients/GUIs an explicit rc return (or opt-in raise)
+  would remove a whole class of silently-doing-nothing bugs. Test-side mitigation exists
+  (`tests/rsh2gmi.py` fails loudly when the machine leaves STATE_ON during MDI). Decide the
+  API contract once, apply to gmi python + any future client bindings.
+- [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
+  at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
+  file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)
+  gets its move rejected at estop and the machine boots showing EXEC_ERROR, where 2.9 parks
+  the move in the interp_list. Documented + enshrined in that test's gold and
+  `tests/motion-logger/parity-vs-2.9/PARITY_FINDINGS.md` ("Not cleanly certifiable").
+  Follow-up options: defer startup canon output until the machine is on, or clear the exec
+  error after startup-code processing. Only affects configs whose startup code moves — modal
+  startup codes (G20/G64/...) are unaffected.
 
 ## Test environment
 

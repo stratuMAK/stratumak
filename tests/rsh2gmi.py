@@ -19,10 +19,31 @@ def drain_mdi(timeout=30.0):
     for the queue to empty and the interpreter to return to idle — which, since
     the sequencer blocks on any M-code handler, also means the handler finished."""
     start = time.time()
+    not_on_since = None
     while time.time() - start < timeout:
         s.poll()
-        if s.queued_mdi_commands == 0 and s.interp_state == INTERP_IDLE:
-            return
+        if s.task_state != STATE_ON:
+            # Command endpoints report failure as an RCS code in the body (HTTP
+            # 200), which c.mdi() discards — so a machine that dropped out (e.g.
+            # a task fault) would otherwise read as a clean no-op run and the
+            # test would "pass" having executed nothing. Fail loudly — but only
+            # if the drop PERSISTS: gmi.Stat is a 50ms WS-push cache and a
+            # single snapshot can be stale (observed: a boot-era STATE_ESTOP
+            # surfacing mid-run while the server never left STATE_ON).
+            if not_on_since is None:
+                not_on_since = time.time()
+            elif time.time() - not_on_since > 0.5:
+                raise SystemExit(
+                    "rsh2gmi: machine dropped out of STATE_ON during MDI "
+                    "(task_state=%d for >0.5s) — command was silently rejected"
+                    % s.task_state)
+        else:
+            not_on_since = None
+            # Success requires an ON snapshot too: after a real drop the queue
+            # is flushed and the interp forced idle, which would otherwise
+            # read as a clean drain.
+            if s.queued_mdi_commands == 0 and s.interp_state == INTERP_IDLE:
+                return
         time.sleep(0.005)
     s.poll()  # fresh read so the diagnostic reflects the state AT failure time
     raise SystemExit(

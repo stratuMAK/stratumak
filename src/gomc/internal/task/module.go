@@ -267,6 +267,19 @@ func (m *milltaskModule) Start() error {
 	// Start the sequencer goroutine (executes queued motion commands).
 	t.StartSequencer()
 
+	// Push the default blending mode to the TP, mirroring the C canon's
+	// INIT_CANON tail at task init (SET_TERM_COND(BLEND, 0.0254mm)). The
+	// boot-time interpreter init ran before the sequencer existed, so its
+	// InitCanon could not emit this itself.
+	t.pushDefaultTermCond()
+
+	// Run [RS274NGC]RS274NGC_STARTUP_CODE once, now that the interpreter's canon
+	// callbacks have a running sequencer to feed. Mirrors C emcTaskPlanInit
+	// (emctask.cc): execute the string on the interp, draining any
+	// EXECUTE_FINISH continuations. Runs independent of machine state, exactly
+	// as classic task does at init.
+	t.runStartupCode()
+
 	// Start the monitor: a safety loop (estop, errors, soft limits, jog
 	// watchdog, inihal) plus a separate halui pin-dispatch loop, so a
 	// blocking halui command can never stall the safety checks.
@@ -336,10 +349,6 @@ func (m *milltaskModule) Destroy() {
 
 // initInterpreter creates and configures the G-code interpreter.
 func (m *milltaskModule) initInterpreter() error {
-	// Determine interpreter library (default: built-in rs274ngc).
-	interpLib := m.ini.Get("TASK", "RS274NGC_STARTUP_CODE")
-	_ = interpLib // not used for library selection
-
 	interp, err := NewCInterp()
 	if err != nil {
 		return fmt.Errorf("creating interpreter: %w", err)

@@ -183,7 +183,12 @@ class Stat:
             "rate_ms": 50,
         }
         await self._ws.send(json.dumps(msg))
-        asyncio.get_event_loop().create_task(self._recv_loop())
+        # Keep a strong reference: asyncio holds tasks only weakly, so an
+        # unreferenced recv task can be garbage-collected mid-flight — the
+        # socket stays open but nothing reads it and the cache silently
+        # freezes at the last-delivered snapshot (observed as a boot-era
+        # STATE_ESTOP surfacing mid-run in gmi.Stat).
+        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
 
     async def _recv_loop(self):
         try:
@@ -218,7 +223,7 @@ class Stat:
         # Motion
         "motion_mode", "enabled", "inpos", "paused", "feedrate",
         "rapidrate", "max_velocity", "velocity", "distance_to_go",
-        "current_vel", "motion_id",
+        "current_vel", "motion_id", "motion_type", "queue", "queue_full",
         # Positions
         "position", "actual_position", "probed_position",
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
@@ -299,6 +304,9 @@ class Stat:
             "distance_to_go": ("distance_to_go", 0.0),
             "current_vel": ("current_vel", 0.0),
             "motion_id": ("motion_id", 0),
+            "motion_type": ("motion_type", 0),
+            "queue": ("queue", 0),
+            "queue_full": ("queue_full", False),
         }
         if name in _MOTION_MAP:
             key, default = _MOTION_MAP[name]

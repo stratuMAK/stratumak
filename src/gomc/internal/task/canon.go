@@ -41,6 +41,11 @@ const (
 	tpTermCondStop      = 0 // TC_TERM_COND_STOP
 	tpTermCondExact     = 1 // TC_TERM_COND_EXACT
 	tpTermCondParabolic = 2 // TC_TERM_COND_PARABOLIC (blend)
+
+	// defaultBlendTolMM is the default blending tolerance the C canon's
+	// INIT_CANON asserts at every Interp::init: 0.001 inch on an inch machine,
+	// 0.001*25.4 mm on a mm machine — 0.0254 mm either way (emccanon.cc).
+	defaultBlendTolMM = 0.0254
 )
 
 // canonModeToTPTermCond maps interpreter canon motion modes to TP term conditions.
@@ -283,14 +288,36 @@ type Canon struct {
 	// continuation Execute to tell whether anything needs draining (E5). Plain
 	// int — interp execution is never concurrent (cmdMu / producer-owned).
 	enqueueCount int64
+	// lastTerm* caches the last SET_TERM_COND emitted by SetMotionControlMode so
+	// it re-emits only when the blending mode/tolerance changes — matching the C
+	// canon (SET_MOTION_CONTROL_MODE), emitted at the G61/G64 parse rather than
+	// before every feed move. On the Canon (not CanonState) so it persists across
+	// program boundaries like the C canon's cached value.
+	lastTermCond int32
+	lastTermTol  float64
+	lastTermSet  bool
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
 var _ canon.CanonCallbacks = (*Canon)(nil)
 
+// machineCanonUnits maps the machine's [TRAJ]LINEAR_UNITS (machine-units-per-mm)
+// to the canonical G20/G21 startup mode, mirroring the C canon's INIT_CANON: an
+// inch machine starts the interpreter in G20, a mm machine in G21 (the interp
+// reads GetExternalLengthUnitType at init/synch). Unknown/unset units default to
+// mm, like INIT_CANON's "non-standard length units" fallback (and like the
+// pre-config state — loadTraj refreshes this once LINEAR_UNITS is parsed).
+func machineCanonUnits(linearUnits float64) int32 {
+	if math.Abs(linearUnits-1.0/25.4) < 1e-3 {
+		return CanonUnitsInches
+	}
+	return CanonUnitsMM
+}
+
 // NewCanon creates a Canon instance tied to a Task.
 func NewCanon(t *Task) *Canon {
 	cs := NewCanonState()
+	cs.lengthUnits = machineCanonUnits(t.linearUnits)
 	return &Canon{
 		state: cs,
 		task:  t,
@@ -349,11 +376,36 @@ func (c *Canon) InitCanon() {
 		toolOffset: c.state.toolOffset,
 	}
 	*c.state = *NewCanonState()
+	// Modal length units restart in the machine's native units (G20 on an inch
+	// machine, G21 on mm), like the C canon's INIT_CANON.
+	c.state.lengthUnits = machineCanonUnits(c.task.linearUnits)
 	c.state.g5xOffset = saved.g5xOffset
 	c.state.g5xIndex = saved.g5xIndex
 	c.state.g92Offset = saved.g92Offset
 	c.state.xyRotation = saved.xyRotation
 	c.state.toolOffset = saved.toolOffset
+
+	// Mirror the C canon INIT_CANON tail: re-assert the default blending mode
+	// to the TP on every interpreter init. The TP's term cond survives program
+	// end AND abort (tpClear preserves it; only tpInit resets it), so without
+	// this a G61 / G64 P<tol> would leak from one program into the next, where
+	// 2.9 guarantees a fresh SET_TERM_COND(BLEND, 0.0254mm). Routed through
+	// SetMotionControlMode so it coalesces when the TP already has the default
+	// (2.9 re-emits redundantly; motion-identical). The two init contexts this
+	// emission cannot reach the TP from are covered by pushDefaultTermCond:
+	// boot (no queue yet — skipped here via sequencerUp, module Start pushes)
+	// and teardown resets (enqueue into the aborted queue is silently dropped;
+	// restartSequencer pushes right after).
+	if c.task.sequencerUp() {
+		c.resetTermCondDefault()
+	}
+}
+
+// resetTermCondDefault re-asserts the default blending mode (G64 continuous,
+// 0.0254 mm tolerance) like the C canon's INIT_CANON tail. The tolerance is
+// passed in program units because SetMotionControlMode converts via fromProg.
+func (c *Canon) resetTermCondDefault() {
+	c.SetMotionControlMode(CanonContinuous, c.state.toProg(defaultBlendTolMM))
 }
 
 func (c *Canon) SetG5xOffset(origin int32, x, y, z, a, b, _c, u, v, w float64) {
@@ -417,6 +469,18 @@ func (c *Canon) SetMotionControlMode(mode int32, tolerance float64) {
 	s := c.state
 	s.motionMode = mode
 	s.motionTolerance = s.fromProg(tolerance)
+	// Emit SET_TERM_COND here, where the blending mode/tolerance is set (G61/
+	// G64), only on change — matching the C canon (SET_MOTION_CONTROL_MODE),
+	// rather than re-emitting it before every feed move. Cached on the Canon so
+	// it persists across programs (a later program that re-asserts the same G64
+	// does not re-emit). SetMotionParamsCmd with Acc=0 sets only the term cond.
+	term := canonModeToTPTermCond(mode)
+	if !c.lastTermSet || term != c.lastTermCond || s.motionTolerance != c.lastTermTol {
+		c.lastTermCond = term
+		c.lastTermTol = s.motionTolerance
+		c.lastTermSet = true
+		c.enqueue(&SetMotionParamsCmd{TermCond: term, Tolerance: s.motionTolerance})
+	}
 }
 
 func (c *Canon) SetNaivecamTolerance(tolerance float64) {
@@ -447,10 +511,15 @@ func (c *Canon) UpdateTag(_ uint64) {}
 
 func (c *Canon) UseToolLengthOffset(x, y, z, a, b, _c, u, v, w float64) {
 	s := c.state
+	// The interpreter passes tool offsets in program units (G20/G21-dependent:
+	// interp_convert.cc applies USER_TO_PROGRAM_LEN before the canon call).
+	// toolOffset lives in the internal mm domain (toAbsolute adds it to mm
+	// coordinates), so convert like the C canon's FROM_PROG_LEN; angular
+	// components are degrees in both domains.
 	s.toolOffset = Pose{
-		X: x, Y: y, Z: z,
+		X: s.fromProg(x), Y: s.fromProg(y), Z: s.fromProg(z),
 		A: a, B: b, C: _c,
-		U: u, V: v, W: w,
+		U: s.fromProg(u), V: s.fromProg(v), W: s.fromProg(w),
 	}
 }
 
@@ -467,6 +536,12 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 	// its own limit, coordinated — not the traj-global cap. Matches C++
 	// STRAIGHT_TRAVERSE (getStraightVelocity/Acceleration).
 	velMax, accMax, _, _ := c.task.straightLimits(from, pos)
+	if accMax == 0 {
+		// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
+		// drops it via `if(vel && acc)`. Skip it too rather than emit a
+		// degenerate zero-length segment.
+		return
+	}
 	if velMax <= 0 {
 		velMax = s.linearFeedRate
 	}
@@ -490,10 +565,12 @@ func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
 	s.endPoint = pos
 	s.lineNo = lineno
 
-	// Set motion parameters before the move (tp uses termCond at add time)
-	c.enqueueMotionParams()
-
 	vel, iniMaxVel, acc, feed := c.feedLimits(from, pos)
+	if acc == 0 {
+		// Zero-distance move: the C canon's STRAIGHT_FEED drops it via
+		// `if(vel && acc)` (and emits no params for it). Skip it too.
+		return
+	}
 	cmd := &LinearMoveCmd{
 		Pos:          pos,
 		Vel:          vel,
@@ -589,7 +666,6 @@ func (c *Canon) ArcFeed(lineno int32, firstEnd, secondEnd, firstAxis, secondAxis
 		FeedMmPerMin: s.linearFeedRate * 60,
 	}
 	c.enqueue(cmd)
-	c.enqueueMotionParams()
 }
 
 func (c *Canon) RigidTap(lineno int32, x, y, z, scale float64) {
@@ -1200,17 +1276,6 @@ func (c *Canon) enqueue(cmd QueuedCmd) {
 	}
 }
 
-// enqueueMotionParams sets vel/acc/term-cond before a feed move.
-func (c *Canon) enqueueMotionParams() {
-	s := c.state
-	c.enqueue(&SetMotionParamsCmd{
-		Vel:       s.linearFeedRate,
-		Acc:       c.task.maxAcceleration,
-		TermCond:  canonModeToTPTermCond(s.motionMode),
-		Tolerance: s.motionTolerance,
-	})
-}
-
 // --- Additional QueuedCmd types for canon ---
 
 // RigidTapCmd queues a rigid tap.
@@ -1300,18 +1365,21 @@ func (c *MistOffCmd) Wait() WaitType         { return WaitNone }
 func (c *MistOffCmd) Precondition() WaitType { return WaitMotion }
 func (c *MistOffCmd) String() string         { return "MistOff" }
 
-// SetMotionParamsCmd sets velocity/acceleration/termination before a move.
+// SetMotionParamsCmd sets acceleration (when Acc>0) and the blending term
+// condition. Traj velocity is not set here — the per-move feed rides in each
+// LinearMove's vel, and the traj velocity is set at startup / on feed-override
+// (matching the C canon, which never emits SET_VELOCITY per feed move).
 type SetMotionParamsCmd struct {
-	Vel       float64
 	Acc       float64
 	TermCond  int32
 	Tolerance float64
 }
 
 func (c *SetMotionParamsCmd) Execute(t *Task) error {
-	if err := t.motion.SetVel(c.Vel); err != nil {
-		return err
-	}
+	// Traj velocity is set at startup / on feed-override, not per move — the
+	// per-move feed rides in each LinearMove's vel field (matching the C canon,
+	// which emits SET_VELOCITY only on change, never per feed move). So this
+	// pushes only acceleration and the blending term condition.
 	if c.Acc > 0 {
 		if err := t.motion.SetAcc(c.Acc); err != nil {
 			return err

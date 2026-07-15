@@ -474,9 +474,16 @@ static void input_Stop(cmod_t *self)
 {
     input_inst_t *inst = (input_inst_t *)self->priv;
     inst->running = false;
-    /* Signal exit_fd to wake poll */
+    /* Signal exit_fd to wake poll.  Retry on EINTR; other failures need no
+     * handling: an eventfd write only fails once the counter is saturated,
+     * and a saturated counter already reads as POLLIN, so the thread's poll
+     * wakes either way. */
     uint64_t val = 1;
-    (void)write(inst->exit_fd, &val, sizeof(val));
+    ssize_t rc;
+    do {
+        rc = write(inst->exit_fd, &val, sizeof(val));
+    } while (rc < 0 && errno == EINTR);
+    (void)rc;
     pthread_join(inst->thread, NULL);
 }
 

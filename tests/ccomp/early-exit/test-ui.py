@@ -31,7 +31,10 @@ c.wait_complete()
 time.sleep(0.4)
 s.poll()
 print("position: {}".format(s.position))
-assert(math.fabs(s.position[0] - 0.9) < 0.0000001)
-assert(math.fabs(s.position[1] - 0.2) < 0.0000001)
-assert(math.fabs(s.position[2] - 0.3) < 0.0000001)
+# The unit-less MDI runs in the machine's units (G20 on this inch config,
+# matching 2.9); s.position is gomc-mm, so expect 25.4x the MDI numbers.
+inch = 25.4
+assert(math.fabs(s.position[0] - 0.9 * inch) < 0.0000001)
+assert(math.fabs(s.position[1] - 0.2 * inch) < 0.0000001)
+assert(math.fabs(s.position[2] - 0.3 * inch) < 0.0000001)
 sys.exit(0)

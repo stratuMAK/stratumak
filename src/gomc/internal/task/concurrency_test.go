@@ -23,6 +23,7 @@ type fakeInterp struct {
 	onRead          func(call int) (int, error)
 	onExecute       func(call int) (int, error)
 	onCallLevel     func() int
+	onSynch         func()
 	reads, execs    int
 }
 
@@ -67,7 +68,12 @@ func (f *fakeInterp) ExecuteString(cmd string) (int, error) {
 	return InterpOK, nil
 }
 
-func (f *fakeInterp) Synch() error { return nil }
+func (f *fakeInterp) Synch() error {
+	if fn := f.onSynch; fn != nil {
+		fn()
+	}
+	return nil
+}
 func (f *fakeInterp) Close() error { return nil }
 func (f *fakeInterp) Reset() error {
 	f.mu.Lock()
