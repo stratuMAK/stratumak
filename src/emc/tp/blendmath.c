@@ -110,7 +110,7 @@ int clip_max(double * const x, double max) {
 /**
  * Saturate a value x to be within +/- max.
  */
-double saturate(double x, double max) {
+double saturate(double x, double max) GOMC_NONBLOCKING {
     if ( x > max ) {
         return max;
     }
@@ -125,7 +125,7 @@ double saturate(double x, double max) {
 /**
  * Saturate a value x to be within max and min.
  */
-double bisaturate(double x, double max, double min) {
+double bisaturate(double x, double max, double min) GOMC_NONBLOCKING {
     if ( x > max ) {
         return max;
     }
@@ -155,7 +155,7 @@ inline double bound(double x, double max, double min) {
 
 
 /** In-place saturation function */
-int sat_inplace(double * const x, double max) {
+int sat_inplace(double * const x, double max) GOMC_NONBLOCKING {
     if ( *x > max ) {
         *x = max;
         return 1;
@@ -202,7 +202,7 @@ static inline int findSpiralApproximation(PmCircle const * const circ,
         PmCartesian const * const base_pt,
         PmCartesian const * const u_tan,
         PmCartesian * const center_out,
-        double * const radius_out)
+        double * const radius_out) GOMC_NONBLOCKING
 {
     double dr = circ->spiral / circ->angle;
 
@@ -266,7 +266,7 @@ static inline double findTrimAngle(PmCartesian const * const P,
 /**
  * Verify that a blend arc is tangent to a circular arc.
  */
-int checkTangentAngle(PmCircle const * const circ, SphericalArc const * const arc, BlendGeom3 const * const geom, BlendParameters const * const param, double cycle_time, int at_end)
+int checkTangentAngle(PmCircle const * const circ, SphericalArc const * const arc, BlendGeom3 const * const geom, BlendParameters const * const param, double cycle_time, int at_end) GOMC_NONBLOCKING
 {
     (void)geom;
     // Debug Information to diagnose tangent issues
@@ -326,7 +326,7 @@ int checkTangentAngle(PmCircle const * const circ, SphericalArc const * const ar
  */
 int pmCartCartParallel(PmCartesian const * const u1,
                        PmCartesian const * const u2,
-                       double tol)
+                       double tol) GOMC_NONBLOCKING
 {
     double d_diff;
     {
@@ -350,7 +350,7 @@ int pmCartCartParallel(PmCartesian const * const u1,
  */
 int pmCartCartAntiParallel(PmCartesian const * const u1,
                            PmCartesian const * const u2,
-                           double tol)
+                           double tol) GOMC_NONBLOCKING
 {
     double d_sum;
     {
@@ -378,7 +378,7 @@ int pmCartCartAntiParallel(PmCartesian const * const u1,
  * @pre BOTH u1 and u2 must be unit vectors or calculation may be skewed.
  */
 int pmUnitCartsColinear(PmCartesian const * const u1,
-        PmCartesian const * const u2)
+        PmCartesian const * const u2) GOMC_NONBLOCKING
 {
     return pmCartCartParallel(u1, u2, TP_ANGLE_EPSILON_SQ) || pmCartCartAntiParallel(u1, u2, TP_ANGLE_EPSILON_SQ);
 }
@@ -392,7 +392,7 @@ int pmUnitCartsColinear(PmCartesian const * const u1,
  * simple_tp formulation for tolerances.
  */
 int findIntersectionAngle(PmCartesian const * const u1,
-        PmCartesian const * const u2, double * const theta)
+        PmCartesian const * const u2, double * const theta) GOMC_NONBLOCKING
 {
     double dot;
     pmCartCartDot(u1, u2, &dot);
@@ -431,7 +431,7 @@ double pmCartMin(PmCartesian const * const in)
  *
  */
 int calculateInscribedDiameter(PmCartesian const * const normal,
-        PmCartesian const * const bounds, double * const diameter)
+        PmCartesian const * const bounds, double * const diameter) GOMC_NONBLOCKING
 {
     if (!normal ) {
         return TP_ERR_MISSING_INPUT;
@@ -513,7 +513,7 @@ int calculateInscribedDiameter(PmCartesian const * const normal,
 
 int findAccelScale(PmCartesian const * const acc,
         PmCartesian const * const bounds,
-        PmCartesian * const scale)
+        PmCartesian * const scale) GOMC_NONBLOCKING
 {
     if (!acc || !bounds ) {
         return TP_ERR_MISSING_INPUT;
@@ -583,7 +583,7 @@ int quadraticFormula(double A, double B, double C, double * const root0,
 int blendGeom3Init(BlendGeom3 * const geom,
         TC_STRUCT const * const prev_tc,
         TC_STRUCT const * const tc,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     geom->v_max1 = prev_tc->maxvel;
     geom->v_max2 = tc->maxvel;
@@ -643,7 +643,7 @@ int blendParamKinematics(BlendGeom3 * const geom,
         TC_STRUCT const * const tc,
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
-        double maxFeedScale)
+        double maxFeedScale) GOMC_NONBLOCKING
 {
 
     // KLUDGE: common operations, but not exactly kinematics
@@ -737,7 +737,7 @@ int blendInit3FromLineArc(BlendGeom3 * const geom, BlendParameters * const param
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
 
     if (tc->motion_type != TC_CIRCULAR || prev_tc->motion_type != TC_LINEAR) {
@@ -825,7 +825,7 @@ int blendInit3FromArcLine(BlendGeom3 * const geom, BlendParameters * const param
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
 
     if (tc->motion_type != TC_LINEAR || prev_tc->motion_type != TC_CIRCULAR) {
@@ -926,7 +926,7 @@ int blendInit3FromArcArc(BlendGeom3 * const geom, BlendParameters * const param,
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     if (tc->motion_type != TC_CIRCULAR || prev_tc->motion_type != TC_CIRCULAR) {
         return TP_ERR_FAIL;
@@ -1066,7 +1066,7 @@ int blendInit3FromLineLine(BlendGeom3 * const geom, BlendParameters * const para
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
 
     if (tc->motion_type != TC_LINEAR || prev_tc->motion_type != TC_LINEAR) {
@@ -1136,7 +1136,7 @@ int blendCalculateNormals3(BlendGeom3 * const geom)
  * parameters are later used to create the actual arc geometry in other
  * functions.
  */
-int blendComputeParameters(BlendParameters * const param)
+int blendComputeParameters(BlendParameters * const param) GOMC_NONBLOCKING
 {
 
     // Find maximum distance h from arc center to intersection point
@@ -1210,7 +1210,7 @@ int blendComputeParameters(BlendParameters * const param)
 /** Check if the previous line segment will be consumed based on the blend arc parameters. */
 int blendCheckConsume(BlendParameters * const param,
         BlendPoints3 const * const points,
-        TC_STRUCT const * const prev_tc, int gap_cycles)
+        TC_STRUCT const * const prev_tc, int gap_cycles) GOMC_NONBLOCKING
 {
     //Initialize values
     param->consume = 0;
@@ -1244,7 +1244,7 @@ int blendCheckConsume(BlendParameters * const param,
  * here.
  */
 int blendFindPoints3(BlendPoints3 * const points, BlendGeom3 const * const geom,
-        BlendParameters const * const param)
+        BlendParameters const * const param) GOMC_NONBLOCKING
 {
     // Find center of blend arc along normal vector
     double center_dist = param->R_plan / sin(param->theta);
@@ -1288,7 +1288,7 @@ int blendFindPoints3(BlendPoints3 * const points, BlendGeom3 const * const geom,
  */
 int blendLineArcPostProcess(BlendPoints3 * const points, BlendPoints3 const * const points_in,
         BlendParameters * const param, BlendGeom3 const * const geom,
-        PmCartLine const * const line1, PmCircle const * const circ2)
+        PmCartLine const * const line1, PmCircle const * const circ2) GOMC_NONBLOCKING
 {
     (void)points_in; (void)line1; (void)circ2;
 
@@ -1381,7 +1381,7 @@ int blendArcLinePostProcess(BlendPoints3 * const points,
         BlendParameters * const param,
         BlendGeom3 const * const geom,
         PmCircle const * const circ1,
-        PmCartLine const * const line2)
+        PmCartLine const * const line2) GOMC_NONBLOCKING
 {
     (void)points_in; (void)circ1; (void)line2;
 
@@ -1469,7 +1469,7 @@ int blendArcLinePostProcess(BlendPoints3 * const points,
  */
 int blendArcArcPostProcess(BlendPoints3 * const points, BlendPoints3 const * const points_in,
         BlendParameters * const param, BlendGeom3 const * const geom,
-        PmCircle const * const circ1, PmCircle const * const circ2)
+        PmCircle const * const circ1, PmCircle const * const circ2) GOMC_NONBLOCKING
 {
     (void)points_in; (void)circ1; (void)circ2;
 
@@ -1594,7 +1594,7 @@ int blendArcArcPostProcess(BlendPoints3 * const points, BlendPoints3 const * con
  * Setup the spherical arc struct based on the blend arc data.
  */
 int arcFromBlendPoints3(SphericalArc * const arc, BlendPoints3 const * const points,
-        BlendGeom3 const * const geom, BlendParameters const * const param)
+        BlendGeom3 const * const geom, BlendParameters const * const param) GOMC_NONBLOCKING
 {
     // If we consume the previous line, the remaining line length gets added here
     arc->uTan = geom->u_tan1;
@@ -1624,7 +1624,7 @@ int blendGeom3Print(BlendGeom3 const * const geom)
     return 0;
 }
 
-int blendPoints3Print(BlendPoints3 const * const points)
+int blendPoints3Print(BlendPoints3 const * const points) GOMC_NONBLOCKING
 {
 #if defined(TP_DEBUG) || defined(UNIT_TEST)
     tp_debug_print("arc_start = %f %f %f\n",
@@ -1648,7 +1648,7 @@ int blendPoints3Print(BlendPoints3 const * const points)
     return 0;
 }
 
-double pmCartAbsMax(PmCartesian const * const v)
+double pmCartAbsMax(PmCartesian const * const v) GOMC_NONBLOCKING
 {
     return fmax(fmax(fabs(v->x),fabs(v->y)),fabs(v->z));
 }
@@ -1656,7 +1656,7 @@ double pmCartAbsMax(PmCartesian const * const v)
 
 PmCircleLimits pmCircleActualMaxVel(PmCircle const * circle,
         double v_max,
-        double a_max)
+        double a_max) GOMC_NONBLOCKING
 {
     double a_n_max_cutoff = BLEND_ACC_RATIO_NORMAL * a_max;
 
@@ -1703,7 +1703,7 @@ static int pmCircleAngleFromParam(PmCircle const * const circle,
         SpiralArcLengthFit const * const fit,
         double t,
         double * const angle,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     if (fit->spiral_in) {
         t = 1.0 - t;
@@ -1784,7 +1784,7 @@ static void printSpiralArcLengthFit(SpiralArcLengthFit const * const fit)
  */
 int findSpiralArcLengthFit(PmCircle const * const circle,
         SpiralArcLengthFit * const fit,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     // Additional data for arc length approximation
     double spiral_coef = circle->spiral / circle->angle;
@@ -1846,7 +1846,7 @@ int pmCircleAngleFromProgress(PmCircle const * const circle,
         SpiralArcLengthFit const * const fit,
         double progress,
         double * const angle,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     double h2;
     pmCartMagSq(&circle->rHelix, &h2);
@@ -1862,7 +1862,7 @@ int pmCircleAngleFromProgress(PmCircle const * const circle,
  * The radius of curvature of a spiral is larger than the circle of the same
  * radius.
  */
-double pmCircleEffectiveMinRadius(PmCircle const * circle)
+double pmCircleEffectiveMinRadius(PmCircle const * circle) GOMC_NONBLOCKING
 {
     double dr = circle->spiral / circle->angle;
     double h2;

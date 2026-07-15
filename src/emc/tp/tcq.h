@@ -22,6 +22,7 @@
 #define TCQ_H
 
 #include "tc_types.h"
+#include "rtapi_rt_check.h"
 
 typedef struct {
     TC_STRUCT *queue;	/* ptr to the tcs */
@@ -43,33 +44,33 @@ extern int tcqCreate(TC_QUEUE_STRUCT * const tcq, int _size,
 extern int tcqDelete(TC_QUEUE_STRUCT * const tcq);
 
 /* reset queue to empty */
-extern int tcqInit(TC_QUEUE_STRUCT * const tcq);
+extern int tcqInit(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING;
 
 /* put tc on end */
-extern int tcqPut(TC_QUEUE_STRUCT * const tcq, TC_STRUCT const * const tc);
+extern int tcqPut(TC_QUEUE_STRUCT * const tcq, TC_STRUCT const * const tc) RTAPI_NONBLOCKING;
 
 /* remove a single tc from the back of the queue */
-extern int tcqPopBack(TC_QUEUE_STRUCT * const tcq);
+extern int tcqPopBack(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING;
 
-extern int tcqPop(TC_QUEUE_STRUCT * const tcq);
+extern int tcqPop(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING;
 
 /* remove n tcs from front */
 extern int tcqRemove(TC_QUEUE_STRUCT * const tcq, int n);
 
-extern int tcqBackStep(TC_QUEUE_STRUCT * const tcq);
+extern int tcqBackStep(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING;
 
 /* how many tcs on queue */
-extern int tcqLen(TC_QUEUE_STRUCT const * const tcq);
+extern int tcqLen(TC_QUEUE_STRUCT const * const tcq) RTAPI_NONBLOCKING;
 
 /* look at nth item, first is 0 */
-extern TC_STRUCT * tcqItem(TC_QUEUE_STRUCT const * const tcq, int n);
+extern TC_STRUCT * tcqItem(TC_QUEUE_STRUCT const * const tcq, int n) RTAPI_NONBLOCKING;
 
 /**
  * Get the "end" of the queue, the most recently added item.
  */
-extern TC_STRUCT * tcqLast(TC_QUEUE_STRUCT const * const tcq);
+extern TC_STRUCT * tcqLast(TC_QUEUE_STRUCT const * const tcq) RTAPI_NONBLOCKING;
 
 /* get full status */
-extern int tcqFull(TC_QUEUE_STRUCT const * const tcq);
+extern int tcqFull(TC_QUEUE_STRUCT const * const tcq) RTAPI_NONBLOCKING;
 
 #endif

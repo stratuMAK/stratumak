@@ -14,6 +14,7 @@
 #define EMCPOSE_H
 
 #include "emcpos.h"
+#include "rtapi_rt_check.h"
 #include "posemath.h"
 
 typedef enum {
@@ -24,29 +25,29 @@ typedef enum {
     EMCPOSE_ERR_ALL
 } EmcPoseErr;
 
-void emcPoseZero(EmcPose * const pos);
+void emcPoseZero(EmcPose * const pos) RTAPI_NONBLOCKING;
 
 int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out);
-int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out);
+int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out) RTAPI_NONBLOCKING;
 
 int emcPoseToPmCartesian(EmcPose const * const pose,
-        PmCartesian * const xyz, PmCartesian * const abc, PmCartesian * const uvw);
+        PmCartesian * const xyz, PmCartesian * const abc, PmCartesian * const uvw) RTAPI_NONBLOCKING;
 int pmCartesianToEmcPose(PmCartesian const * const xyz,
-        PmCartesian const * const abc, PmCartesian const * const uvw, EmcPose * const pose);
+        PmCartesian const * const abc, PmCartesian const * const uvw, EmcPose * const pose) RTAPI_NONBLOCKING;
 
-int emcPoseSelfAdd(EmcPose * const self, EmcPose const * const p2);
-int emcPoseSelfSub(EmcPose * const self, EmcPose const * const p2);
+int emcPoseSelfAdd(EmcPose * const self, EmcPose const * const p2) RTAPI_NONBLOCKING;
+int emcPoseSelfSub(EmcPose * const self, EmcPose const * const p2) RTAPI_NONBLOCKING;
 
 int emcPoseSetXYZ(PmCartesian const * const xyz, EmcPose * const pose);
 int emcPoseSetABC(PmCartesian const * const abc, EmcPose * const pose);
 int emcPoseSetUVW(PmCartesian const * const uvw, EmcPose * const pose);
 
-int emcPoseGetXYZ(EmcPose const * const pose, PmCartesian * const xyz);
+int emcPoseGetXYZ(EmcPose const * const pose, PmCartesian * const xyz) RTAPI_NONBLOCKING;
 int emcPoseGetABC(EmcPose const * const pose, PmCartesian * const abc);
 int emcPoseGetUVW(EmcPose const * const pose, PmCartesian * const uvw);
 
 int emcPoseMagnitude(EmcPose const * const pose, double * const out);
 
-int emcPoseValid(EmcPose const * const pose);
+int emcPoseValid(EmcPose const * const pose) RTAPI_NONBLOCKING;
 
 #endif

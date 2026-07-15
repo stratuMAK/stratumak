@@ -90,7 +90,7 @@ int tcqDelete(TC_QUEUE_STRUCT * const tcq)
  *
  * @return	 int	   returns success or failure (if no tcq found)
  */
-int tcqInit(TC_QUEUE_STRUCT * const tcq)
+int tcqInit(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING
 {
     if (tcqCheck(tcq)) return -1;
 
@@ -115,7 +115,7 @@ int tcqInit(TC_QUEUE_STRUCT * const tcq)
  *
  * @return	 int	   returns success or failure
  */
-int tcqPut(TC_QUEUE_STRUCT * const tcq, TC_STRUCT const * const tc)
+int tcqPut(TC_QUEUE_STRUCT * const tcq, TC_STRUCT const * const tc) RTAPI_NONBLOCKING
 {
     /* check for initialized */
     if (tcqCheck(tcq)) return -1;
@@ -149,7 +149,7 @@ int tcqPut(TC_QUEUE_STRUCT * const tcq, TC_STRUCT const * const tc)
  *
  * @return	 int	   returns success or failure
  */
-int tcqPopBack(TC_QUEUE_STRUCT * const tcq)
+int tcqPopBack(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING
 {
     /* check for initialized */
     if (tcqCheck(tcq)) return -1;
@@ -168,7 +168,7 @@ int tcqPopBack(TC_QUEUE_STRUCT * const tcq)
 
 #define TCQ_REVERSE_MARGIN 200
 
-int tcqPop(TC_QUEUE_STRUCT * const tcq)
+int tcqPop(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING
 {
 
     if (tcqCheck(tcq)) {
@@ -234,7 +234,7 @@ int tcqRemove(TC_QUEUE_STRUCT * const tcq, int n)
 /**
  * Step backward into the reverse history.
  */
-int tcqBackStep(TC_QUEUE_STRUCT * const tcq)
+int tcqBackStep(TC_QUEUE_STRUCT * const tcq) RTAPI_NONBLOCKING
 {
 
     if (tcqCheck(tcq)) {
@@ -264,7 +264,7 @@ int tcqBackStep(TC_QUEUE_STRUCT * const tcq)
  *
  * @return	 int	   returns number of elements
  */
-int tcqLen(TC_QUEUE_STRUCT const * const tcq)
+int tcqLen(TC_QUEUE_STRUCT const * const tcq) RTAPI_NONBLOCKING
 {
     if (tcqCheck(tcq)) return -1;
 
@@ -281,7 +281,7 @@ int tcqLen(TC_QUEUE_STRUCT const * const tcq)
  *
  * @return	 TC_STRUCT returns the TC elements
  */
-TC_STRUCT * tcqItem(TC_QUEUE_STRUCT const * const tcq, int n)
+TC_STRUCT * tcqItem(TC_QUEUE_STRUCT const * const tcq, int n) RTAPI_NONBLOCKING
 {
     if (tcqCheck(tcq) || (n < 0) || (n >= tcq->_len)) return NULL;
 
@@ -338,7 +338,7 @@ int tcqFull(TC_QUEUE_STRUCT const * const tcq)
  *
  * @return	 TC_STRUCT returns the TC element
  */
-TC_STRUCT *tcqLast(TC_QUEUE_STRUCT const * const tcq)
+TC_STRUCT *tcqLast(TC_QUEUE_STRUCT const * const tcq) RTAPI_NONBLOCKING
 {
     if (tcqCheck(tcq)) {
         return NULL;

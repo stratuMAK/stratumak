@@ -12,6 +12,7 @@
  ********************************************************************/
 
 #include "posemath.h"
+#include "rtapi_rt_check.h"
 #include "spherical_arc.h"
 #include "tp_types.h"
 #include <math.h>
@@ -21,7 +22,7 @@
 
 int arcInitFromPoints(SphericalArc * const arc, PmCartesian const * const start,
         PmCartesian const * const end,
-        PmCartesian const * const center)
+        PmCartesian const * const center) RTAPI_NONBLOCKING
 {
 #ifdef ARC_PEDANTIC
     if (!P0 || !P1 || !center)
@@ -84,7 +85,7 @@ int arcInitFromPoints(SphericalArc * const arc, PmCartesian const * const start,
     return TP_ERR_OK;
 }
 
-int arcPoint(SphericalArc const * const arc, double progress, PmCartesian * const out)
+int arcPoint(SphericalArc const * const arc, double progress, PmCartesian * const out) RTAPI_NONBLOCKING
 {
     //TODO pedantic
 
@@ -111,7 +112,7 @@ int arcPoint(SphericalArc const * const arc, double progress, PmCartesian * cons
     return TP_ERR_OK;
 }
 
-int arcLength(SphericalArc const * const arc, double * const length)
+int arcLength(SphericalArc const * const arc, double * const length) RTAPI_NONBLOCKING
 {
     *length = arc->radius * arc->angle + arc->line_length;
     tp_debug_print("arc length = %g\n", *length);
@@ -163,7 +164,7 @@ int arcFromLines(SphericalArc * const arc, PmCartLine const * const line1,
 }
 
 int arcConvexTest(PmCartesian const * const center,
-        PmCartesian const * const P, PmCartesian const * const uVec, int reverse_dir)
+        PmCartesian const * const P, PmCartesian const * const uVec, int reverse_dir) RTAPI_NONBLOCKING
 {
     //Check if an arc-line intersection is concave or convex
     double dot;
@@ -176,7 +177,7 @@ int arcConvexTest(PmCartesian const * const center,
     return convex;
 }
 
-int arcTangent(SphericalArc const * const arc, PmCartesian * const tan, int at_end)
+int arcTangent(SphericalArc const * const arc, PmCartesian * const tan, int at_end) RTAPI_NONBLOCKING
 {
     PmCartesian r_perp;
     PmCartesian r_tan;
