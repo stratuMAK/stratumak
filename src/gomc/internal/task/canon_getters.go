@@ -8,6 +8,12 @@ import "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 // These read from the Task's MotionStatus interface or from canon state.
 
 func (c *Canon) GetExternalFeedRate() (float64, error) {
+	if c.state.feedMode != 0 {
+		// G95 units-per-rev: the F word is a per-revolution rate — hand back
+		// the stored prog-units value unchanged (2.9 GET_EXTERNAL_FEED_RATE's
+		// feed_mode branch), NOT the per-minute conversion below.
+		return c.state.feedPerRev, nil
+	}
 	return c.state.toProg(c.state.linearFeedRate * 60.0), nil // mm/sec → units/min
 }
 
