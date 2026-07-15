@@ -752,18 +752,13 @@ func (t *Task) setInterpState(s InterpState) {
 // faultProgram: canon swallows EnqueueCmd errors, so the fault cascade this
 // comment used to promise never fires — recovery cannot be left to it.)
 func (t *Task) seqFaultExit() {
-	t.mu.Lock()
-	numSpindles := t.numSpindles
-	t.mu.Unlock()
-
-	_ = t.motion.Abort()
-	_ = t.io.IoAbort(emcAbortTaskExecError)
-	for i := 0; i < numSpindles; i++ {
-		_ = t.motion.SpindleOff(int32(i))
-	}
-
 	// Commit the terminal state atomically with the mdiQueue flush + mdiGen bump
-	// (D3: one committer) and unblock any producer stuck in EnqueueCmd.
+	// (D3: one committer) and close seqAbort FIRST: the close is what unblocks a
+	// producer stuck in EnqueueCmd and every seqDone joiner, while each hardware
+	// call below can burn a full comm timeout (~1 s, serialized by the send
+	// mutex) when the fault cause IS a dead motion controller — exactly the case
+	// where teardown must not stall. The calls are idempotent and independent of
+	// this commit, so the order is free.
 	t.mu.Lock()
 	t.execState = ExecError
 	t.interpState = InterpIdle
@@ -771,13 +766,21 @@ func (t *Task) seqFaultExit() {
 	t.taskCommand = ""
 	t.mdiGen++
 	t.seqFaulted = true
+	numSpindles := t.numSpindles
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
 
 	// Interp on_abort + sequencer restart, off this goroutine (see doc comment;
 	// taking cmdMu here would deadlock against an MDI producer that holds cmdMu
-	// until the seqAbort close above unblocks its EnqueueCmd).
+	// until the seqAbort close above unblocks its EnqueueCmd). Spawned before
+	// the hardware stop so it queues on cmdMu as early as possible.
 	go t.recoverSeqFault()
+
+	_ = t.motion.Abort()
+	_ = t.io.IoAbort(emcAbortTaskExecError)
+	for i := 0; i < numSpindles; i++ {
+		_ = t.motion.SpindleOff(int32(i))
+	}
 }
 
 // --- Concrete QueuedCmd types ---
