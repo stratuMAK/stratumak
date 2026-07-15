@@ -410,25 +410,33 @@ func (t *Task) restartSequencer(terminalInterp InterpState, terminalExec ExecSta
 	t.mu.Unlock()
 }
 
-// pushDefaultTermCond unconditionally re-asserts the default blending mode
-// (G64 continuous, 0.0254 mm) to the TP and primes the canon's on-change
-// cache with it. For moments when the TP term cond is unknown or known-stale:
-// boot (module Start) and sequencer restarts after teardowns. Sent DIRECTLY
-// (not via the sequencer queue) so it is strictly ordered against the direct
-// motion commands the caller issues next (e.g. SetMode's SetCoord) — a queued
-// emission would land at an arbitrary point relative to them, making
-// motion-logger captures nondeterministic.
+// pushDefaultTermCond re-asserts the canon's CURRENT modal blending mode to
+// the TP and primes the canon's on-change cache with it. For moments when the
+// TP term cond is unknown or known-stale: boot (module Start, where the canon
+// state holds the G64/0.0254mm default — matching 2.9 INIT_CANON) and
+// sequencer restarts after teardowns. It must push the canon's modal state,
+// NOT the hard default: the interp's G61/G64 P modal survives aborts and mode
+// switches (2.9 preserves the TP term cond across both — tpClear keeps it),
+// so pushing the default here silently wiped an operator's MDI `G64 P<tol>`
+// on the mode switch before every AUTO run, leaving the TP blending at
+// 0.0254mm — near-exact-stop corners — regardless of the programmed
+// tolerance. Sent DIRECTLY (not via the sequencer queue) so it is strictly
+// ordered against the direct motion commands the caller issues next (e.g.
+// SetMode's SetCoord) — a queued emission would land at an arbitrary point
+// relative to them, making motion-logger captures nondeterministic.
 func (t *Task) pushDefaultTermCond() {
 	if t.canon == nil {
 		return
 	}
-	if err := t.motion.SetTermCond(tpTermCondParabolic, defaultBlendTolMM); err != nil {
-		t.logger.Error("default term-cond push failed", "err", err)
+	cond := canonModeToTPTermCond(t.canon.state.motionMode)
+	tol := t.canon.state.motionTolerance
+	if err := t.motion.SetTermCond(cond, tol); err != nil {
+		t.logger.Error("term-cond push failed", "err", err)
 		t.canon.lastTermSet = false // TP state unknown; force re-emit on next G61/G64
 		return
 	}
-	t.canon.lastTermCond = tpTermCondParabolic
-	t.canon.lastTermTol = defaultBlendTolMM
+	t.canon.lastTermCond = cond
+	t.canon.lastTermTol = tol
 	t.canon.lastTermSet = true
 }
 
