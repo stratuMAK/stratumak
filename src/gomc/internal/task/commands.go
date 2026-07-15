@@ -2072,7 +2072,23 @@ func (t *Task) abortLocked() {
 	t.currentLine = 0
 
 	interp := t.interp
+	wasAuto := t.mode == ModeAuto
 	t.mu.Unlock()
+
+	// Capture the executing segment's packed state tag BEFORE stopping motion
+	// (2.9 emcTaskStateRestore reads motion.traj.tag; AUTO only). Used below
+	// to roll the interp's modal state back from readahead to what was
+	// actually executing when the abort hit.
+	var restoreTag []byte
+	if wasAuto && t.status != nil {
+		if ms, err := t.status.GetStatus(); err == nil {
+			t.mu.Lock()
+			if info, ok := t.motionMap[ms.Id]; ok {
+				restoreTag = info.Tag
+			}
+			t.mu.Unlock()
+		}
+	}
 
 	// External calls (no mutex held — won't block stat reads).
 	t.AbortSequencer()
@@ -2109,6 +2125,18 @@ func (t *Task) abortLocked() {
 	// (both after the join, no other writer remains). abortLocked returns with
 	// t.mu held (its contract), so re-lock and do not unlock.
 	t.restartSequencer(InterpIdle, ExecDone)
+
+	// 2.9 parity (emcTaskStateRestore → Interp::restore_from_tag): re-execute
+	// the executing segment's modal state so readahead-only changes (G64 P/Q,
+	// a G5x switch, tool offset) are rolled back. Runs after restartSequencer
+	// because the restore's canon emissions (SET_TERM_COND, SET_G5X_OFFSET)
+	// need the fresh sequencer.
+	if interp != nil && restoreTag != nil {
+		if err := interp.RestoreFromTag(restoreTag); err != nil {
+			t.logger.Warn("abort: modal state restore failed", "err", err)
+		}
+		t.updateActiveCodes(interp)
+	}
 
 	t.mu.Lock()
 	t.floodOn = false

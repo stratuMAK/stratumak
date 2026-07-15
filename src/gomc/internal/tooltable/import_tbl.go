@@ -82,6 +82,7 @@ type tblEntry struct {
 // T<n> P<n> X<f> Y<f> Z<f> A<f> B<f> C<f> U<f> V<f> W<f> D<f> I<f> J<f> Q<n> ;<comment>
 func parseTblLine(line string) (tblEntry, error) {
 	var t tblEntry
+	seenToolno := false
 
 	// Extract comment (everything after ;)
 	if idx := strings.Index(line, ";"); idx >= 0 {
@@ -107,6 +108,7 @@ func parseTblLine(line string) (tblEntry, error) {
 				return t, err
 			}
 			t.toolno = int32(n)
+			seenToolno = true
 		case 'P':
 			n, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
@@ -143,7 +145,9 @@ func parseTblLine(line string) (tblEntry, error) {
 		}
 	}
 
-	if t.toolno == 0 {
+	if !seenToolno {
+		// "T0 Pn" is a legitimate entry (the random-toolchanger empty-pocket
+		// marker) — only reject lines with no T field at all.
 		return t, fmt.Errorf("no tool number")
 	}
 	return t, nil

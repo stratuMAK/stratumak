@@ -197,6 +197,7 @@ type IOController interface {
 	GetCmdStatus() (int32, error) // 1=DONE, 2=EXEC, 3=ERROR
 	GetToolInSpindle() (int32, error)
 	GetPocketPrepped() (int32, error)
+	GetToolFromPocket() (int32, error)
 }
 
 // IO CmdStatus values.
@@ -308,6 +309,15 @@ type Task struct {
 	axisMaxAcc      [9]float64            // per-axis max acceleration for canon vel/acc blend
 	startupCode     string
 	debug           int32 // EMC_SET_DEBUG level, echoed to stat.debug
+	// [EMCIO]RANDOM_TOOLCHANGER: flips the pocket semantics of the tool
+	// canon getters (spindle tool lives at pocket 0 vs the non-random
+	// "empty spindle = idx -1" convention).
+	randomToolchanger bool
+	// [EMCIO]TOOL_CHANGE_POSITION: absolute machine coordinates to move to
+	// before a tool change (2.9 CHANGE_TOOL canon). Internal mm/degrees;
+	// toolChangePosLen is 0 (unset), 3, 6 or 9 coords given.
+	toolChangePos    [9]float64
+	toolChangePosLen int
 
 	// Flags
 	optionalStop  bool
@@ -444,6 +454,7 @@ type motionInfo struct {
 	Gcodes   []int32   // active G-codes when the segment was queued (nil = untagged)
 	Mcodes   []int32   // active M-codes
 	Settings []float64 // active settings (feed, speed, …)
+	Tag      []byte    // packed interp state_tag_t for abort-time restore_from_tag
 }
 
 // NewTask creates a new Task with dependencies injected.
@@ -513,10 +524,14 @@ func (t *Task) tagMotionRange(startID, endID int32, gcodes, mcodes []int32, sett
 	if endID <= startID {
 		return
 	}
+	// The packed interp state tag emitted while this line executed (canon
+	// state is producer-owned; tagMotionRange runs on the same goroutine).
+	tag := t.canon.state.currentTag
 	t.mu.Lock()
 	for id := startID; id < endID; id++ {
 		if info, ok := t.motionMap[id]; ok {
 			info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			info.Tag = tag
 			t.motionMap[id] = info
 		}
 	}

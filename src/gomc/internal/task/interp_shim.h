@@ -63,6 +63,12 @@ int interp_line(void *handle);
 int interp_sequence_number(void *handle);
 int interp_call_level(void *handle);
 int interp_on_abort(void *handle, int reason, const char *message);
+int interp_state_tag_size(void);
+int interp_restore_from_tag(void *handle, const void *tag_bytes);
+/* Copies the packed state_tag_t an update_tag callback points at (the GMI
+ * boundary delivers the pointer as an integer) into dst — done in C so Go
+ * never converts a bare integer to a pointer (vet unsafeptr). */
+void interp_copy_state_tag(unsigned long long src, void *dst);
 
 // String queries
 const char *interp_error_text(void *handle, int errcode, char *buf, size_t buflen);

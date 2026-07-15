@@ -30,6 +30,9 @@ type Interpreter interface {
 	Reset() error
 	// Abort notifies the interpreter of an abort condition.
 	Abort(reason int, message string) error
+	// RestoreFromTag rolls the interpreter's modal state back to a captured
+	// packed state tag (2.9 restore_from_tag). Empty tag is a no-op.
+	RestoreFromTag(tag []byte) error
 	// Line returns the current line number.
 	Line() int
 	// SequenceNumber returns the current N-word sequence number.

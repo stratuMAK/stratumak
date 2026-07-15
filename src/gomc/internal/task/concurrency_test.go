@@ -81,9 +81,10 @@ func (f *fakeInterp) Reset() error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeInterp) Abort(int, string) error { return nil }
-func (f *fakeInterp) Line() int               { f.mu.Lock(); defer f.mu.Unlock(); return f.line }
-func (f *fakeInterp) SequenceNumber() int     { return 0 }
+func (f *fakeInterp) Abort(int, string) error     { return nil }
+func (f *fakeInterp) RestoreFromTag([]byte) error { return nil }
+func (f *fakeInterp) Line() int                   { f.mu.Lock(); defer f.mu.Unlock(); return f.line }
+func (f *fakeInterp) SequenceNumber() int         { return 0 }
 func (f *fakeInterp) CallLevel() int {
 	f.mu.Lock()
 	fn := f.onCallLevel

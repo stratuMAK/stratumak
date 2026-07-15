@@ -530,18 +530,26 @@ static void load_tool(iocontrol_module *m, int toolno) {
     const tooltable_callbacks_t *tt = m->tt;
 
     if(m->random_toolchanger) {
-        // For random toolchanger: swap tool in spindle with requested tool.
-        tooltable_tool_entry_t spindle = tt->get_tool(tt->ctx, 0);
+        // For random toolchanger: swap the tool in the spindle with the
+        // requested tool. The spindle tool is the entry at pocket 0, tracked
+        // by toolInSpindle (its entry keeps its own toolno; -1 = unknown,
+        // nothing to put back).
         tooltable_tool_entry_t target = tt->get_tool(tt->ctx, toolno);
 
         if (target.toolno == 0 && toolno != 0) {
             UNEXPECTED_MSG; return;
         }
 
-        // Move spindle tool to target's pocket
         int target_pocket = target.pocketno;
-        spindle.pocketno = target_pocket;
-        tt->put_tool(tt->ctx, spindle.toolno, &spindle);
+        int tis = m->emcioStatus.tool.toolInSpindle;
+        if (tis >= 0) {
+            // Move the spindle tool (or the T0 empty marker) to the
+            // target's pocket.
+            tooltable_tool_entry_t spindle = tt->get_tool(tt->ctx, tis);
+            spindle.toolno = tis; // T0 marker may not exist yet
+            spindle.pocketno = target_pocket;
+            tt->put_tool(tt->ctx, spindle.toolno, &spindle);
+        }
 
         // Move target to spindle (pocket 0)
         target.pocketno = 0;
@@ -706,17 +714,31 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
 
     gomc_log_debugf(m->env->log, m->name, "gmi_tool_prepare tool=%d pocket=%d", toolno, tdata.pocketno);
 
-    if (toolno == 0) {
-        m->emcioStatus.tool.pocketPrepped = 0;
+    if (m->random_toolchanger) {
+        // Random: T0 is the ordinary empty-pocket marker, prepped like any
+        // tool. A tool already sitting in pocket 0 IS the spindle tool —
+        // 2.9: "it doesn't make sense to prep the spindle pocket" —
+        // complete without raising tool-prepare.
+        *(d->tool_prep_index) = tdata.pocketno;
+        *(d->tool_prep_number) = tdata.toolno;
+        *(d->tool_prep_pocket) = tdata.pocketno;
+        if (tdata.pocketno == 0) {
+            m->emcioStatus.tool.pocketPrepped = toolno;
+            return 0;
+        }
+    } else if (toolno == 0) {
         *(d->tool_prep_number) = 0;
         *(d->tool_prep_pocket) = 0;
         *(d->tool_prep_index) = 0;
-        return 0;
+        // 2.9 ioControl publishes pocketPrepped=0 for the spindle pocket
+        // BEFORE the handshake (idx==0 branch), but still runs the external
+        // prepare handshake for the non-random T0 ("unload").
+        m->emcioStatus.tool.pocketPrepped = 0;
+    } else {
+        *(d->tool_prep_index) = tdata.pocketno;
+        *(d->tool_prep_number) = tdata.toolno;
+        *(d->tool_prep_pocket) = tdata.pocketno;
     }
-
-    *(d->tool_prep_index) = tdata.pocketno;
-    *(d->tool_prep_number) = tdata.toolno;
-    *(d->tool_prep_pocket) = tdata.pocketno;
 
     // v2: warn if toolchanger is faulted — next M6 will abort
     if ((m->proto > V1) && *(d->toolchanger_faulted)) {
@@ -787,16 +809,15 @@ static int32_t gmi_tool_load(void *ctx)
                     m->emcioStatus.tool.toolInSpindle,
                     m->emcioStatus.tool.pocketPrepped);
 
-    if (m->random_toolchanger && m->emcioStatus.tool.pocketPrepped == 0)
-        return 0;
-
     int prepped_toolno = m->emcioStatus.tool.pocketPrepped;
 
     if (prepped_toolno == -1)
         return 0;
 
-    if (!m->random_toolchanger && prepped_toolno > 0 &&
-        m->emcioStatus.tool.toolInSpindle == prepped_toolno)
+    // Prepped tool already in the spindle — nothing to change (2.9: the
+    // random pocketPrepped==0 skip; non-random re-load of the same tool).
+    if (m->emcioStatus.tool.toolInSpindle == prepped_toolno &&
+        (m->random_toolchanger || prepped_toolno > 0))
         return 0;
 
     // v2: check for toolchanger fault before starting change
@@ -842,9 +863,7 @@ static int32_t gmi_tool_load(void *ctx)
             if (!m->random_toolchanger && prepped_toolno == 0) {
                 m->emcioStatus.tool.toolInSpindle = 0;
             } else {
-                const tooltable_callbacks_t *tt = m->tt;
-                tooltable_tool_entry_t td2 = tt->get_tool(tt->ctx, prepped_toolno);
-                m->emcioStatus.tool.toolInSpindle = td2.toolno;
+                m->emcioStatus.tool.toolInSpindle = prepped_toolno;
             }
             *(d->tool_number) = m->emcioStatus.tool.toolInSpindle;
             m->emcioStatus.tool.pocketPrepped = -1;
@@ -999,6 +1018,24 @@ static int iocontrol_start(cmod_t *self)
             "ensure 'load tooltable' appears before 'load iov2' in HAL",
             m->tooltable_instance);
         return -1;
+    }
+
+    // RANDOM_TOOLCHANGER: restore the tool physically loaded in the spindle
+    // (the entry at pocket 0) at startup — 2.9 ioControl inits toolInSpindle
+    // from tooldata idx 0; -1 = unknown when no pocket-0 entry exists.
+    if (m->random_toolchanger) {
+        int32_t startup_tool = -1;
+        tooltable_list_tools_result_t res = m->tt->list_tools(m->tt->ctx);
+        for (size_t i = 0; i < res.len; i++) {
+            if (res.data[i].pocketno == 0) {
+                startup_tool = res.data[i].toolno;
+                break;
+            }
+        }
+        if (res.data)
+            free(res.data);
+        m->emcioStatus.tool.toolInSpindle = startup_tool;
+        *(m->hal_data->tool_number) = startup_tool;
     }
 
     m->done = 0;

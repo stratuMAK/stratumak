@@ -219,7 +219,9 @@ static int settool_epilog(interp_ctx_callbacks_t *ctx, const char *name)
         int pocket = (int)ctx->get_param(ctx->ctx, "pocket");
         ctx->set_current_tool(ctx->ctx, tool);
         ctx->set_current_pocket(ctx->ctx, pocket);
-        ctx->canon_change_tool_number(ctx->ctx, pocket);
+        // gomc iocontrol keys the spindle tool by TOOL NUMBER, not pocket
+        // (matches the builtin M61 in interp_convert.cc).
+        ctx->canon_change_tool_number(ctx->ctx, tool);
         ctx->set_toolchange_flag(ctx->ctx, 1);
         ctx->call_set_tool_parameters(ctx->ctx);
         return INTERP_EXT_OK;

@@ -139,6 +139,40 @@ func (i *CInterp) Reset() error {
 	return nil
 }
 
+// stateTagSize returns sizeof the packed C state_tag_t the canon's
+// update_tag callback points at.
+func stateTagSize() int {
+	return int(C.interp_state_tag_size())
+}
+
+// copyPackedStateTag copies the packed state_tag_t an update_tag callback
+// points at. The GMI boundary delivers the pointer as a uint64, valid only
+// for the duration of the synchronous callback; the copy happens in C so Go
+// never converts a bare integer to a pointer.
+func copyPackedStateTag(ptr uint64) []byte {
+	sz := stateTagSize()
+	if ptr == 0 || sz <= 0 {
+		return nil
+	}
+	buf := make([]byte, sz)
+	C.interp_copy_state_tag(C.ulonglong(ptr), unsafe.Pointer(&buf[0]))
+	return buf
+}
+
+// RestoreFromTag rolls the interpreter's modal state back to a captured
+// packed state tag (2.9 emcTaskStateRestore → Interp::restore_from_tag).
+// A nil/empty tag is a no-op.
+func (i *CInterp) RestoreFromTag(tag []byte) error {
+	if len(tag) == 0 {
+		return nil
+	}
+	rc := int(C.interp_restore_from_tag(i.handle, unsafe.Pointer(&tag[0])))
+	if rc != InterpOK {
+		return fmt.Errorf("interp_restore_from_tag: rc=%d", rc)
+	}
+	return nil
+}
+
 func (i *CInterp) Abort(reason int, message string) error {
 	cs := C.CString(message)
 	defer C.free(unsafe.Pointer(cs))

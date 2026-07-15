@@ -119,6 +119,11 @@ type CanonState struct {
 
 	// Motion line ID counter
 	lineNo int32
+
+	// Latest packed interp state tag (UPDATE_TAG canon call, one per
+	// executed block). Attached to queued motion segments so an abort can
+	// restore the executing segment's modal state (restore_from_tag).
+	currentTag []byte
 }
 
 // NewCanonState returns a CanonState with sensible defaults.
@@ -511,9 +516,17 @@ func (c *Canon) UpdateEndPoint(x, y, z, a, b, _c, u, v, w float64) {
 	}
 }
 
-// UpdateTag is called by the interpreter to pass interpreter state alongside
-// motion segments. StateTag has been removed from the GMI API; this is a no-op.
-func (c *Canon) UpdateTag(_ uint64) {}
+// UpdateTag is called by the interpreter after every executed block with a
+// pointer to a PACKED state_tag_t (canon_interface.hh packs it), valid only
+// for the duration of this synchronous callback — copy it. It becomes the
+// state tag attached to subsequently queued motion segments, gomc's
+// equivalent of 2.9 emccanon's static _tag + tag_and_send.
+func (c *Canon) UpdateTag(ptr uint64) {
+	tag := copyPackedStateTag(ptr)
+	if tag != nil {
+		c.state.currentTag = tag
+	}
+}
 
 func (c *Canon) UseToolLengthOffset(x, y, z, a, b, _c, u, v, w float64) {
 	s := c.state
@@ -827,6 +840,41 @@ func (c *Canon) StartChange() {
 }
 
 func (c *Canon) ChangeTool(slot int32) {
+	// 2.9 CHANGE_TOOL (emccanon.cc): optional traverse to
+	// [EMCIO]TOOL_CHANGE_POSITION — absolute machine coordinates, no offset
+	// transform — before the tool change itself. Unspecified components keep
+	// the current end point.
+	if n := c.task.toolChangePosLen; n > 0 {
+		s := c.state
+		from := s.endPoint
+		pos := from
+		p := c.task.toolChangePos
+		pos.X, pos.Y, pos.Z = p[0], p[1], p[2]
+		if n > 3 {
+			pos.A, pos.B, pos.C = p[3], p[4], p[5]
+		}
+		if n > 6 {
+			pos.U, pos.V, pos.W = p[6], p[7], p[8]
+		}
+		velMax, accMax, _, _ := c.task.straightLimits(from, pos)
+		// Zero-distance move: drop like 2.9's `if(vel && acc)`.
+		if accMax != 0 {
+			if velMax <= 0 {
+				velMax = s.linearFeedRate
+			}
+			s.endPoint = pos
+			c.enqueue(&LinearMoveCmd{
+				Pos:          pos,
+				Vel:          velMax,
+				IniMaxVel:    velMax,
+				Acc:          accMax,
+				MotionType:   4, // EMC_MOTION_TYPE_TOOLCHANGE
+				ID:           c.allocSerial(s.lineNo),
+				FeedMmPerMin: 0,
+				IndexerJ:     -1,
+			})
+		}
+	}
 	c.enqueue(&ToolChangeCmd{})
 }
 

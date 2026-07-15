@@ -179,6 +179,13 @@ func (m *milltaskModule) Start() error {
 		return fmt.Errorf("milltask: tooltable API lookup (%s): %w", ttInstance, err)
 	}
 	m.ttClient = tooltable.NewTooltableClient(unsafe.Pointer(ttCbs))
+	// Publish the client for the canon tool getters NOW: the interpreter init
+	// and RS274NGC_STARTUP_CODE below already resolve tools through it (2.9
+	// loads the tool table before interp init and startup code, emctaskmain.cc
+	// initMain: emcIoInit -> emcTaskPlanInit). Leaving this until
+	// registerTools() made startup-code tool lookups (e.g. "G43 H1") fail with
+	// "tool not found".
+	pkgTTClient = m.ttClient
 
 	// Wrap C callback pointers in typed Go clients.
 	mc := motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
@@ -485,6 +492,15 @@ func (a *ioAdapter) GetPocketPrepped() (int32, error) {
 		return 0, err
 	}
 	return st.Tool.PocketPrepped, nil
+}
+
+// GetToolFromPocket returns the pocket the current spindle tool was loaded from.
+func (a *ioAdapter) GetToolFromPocket() (int32, error) {
+	st, err := a.EmcioClient.GetStatus()
+	if err != nil {
+		return 0, err
+	}
+	return st.Tool.ToolFromPocket, nil
 }
 
 // drainErrorPublisher implements ErrorPublisher by writing to the emcerror drain.

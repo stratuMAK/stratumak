@@ -209,7 +209,13 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			stat.ToolInSpindle = v
 		}
 		if v, err := t.io.GetPocketPrepped(); err == nil {
-			stat.PocketPrepped = v
+			// io tracks the prepped tool by toolno; report its pocket
+			// (classic stat reported a tooldata array index, which has no
+			// gomc equivalent — the pocket number is the stable analog).
+			stat.PocketPrepped = toolPocketFor(v)
+		}
+		if v, err := t.io.GetToolFromPocket(); err == nil {
+			stat.ToolFromPocket = v
 		}
 	}
 

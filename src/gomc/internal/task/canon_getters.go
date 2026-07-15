@@ -228,29 +228,81 @@ func (c *Canon) GetExternalToolLengthWoffset() (float64, error) {
 	return c.state.toProg(c.state.toolOffset.W), nil
 }
 
+// GetExternalToolSlot mirrors 2.9's GET_EXTERNAL_TOOL_SLOT: the home pocket
+// index of the tool in the spindle (feeds _setup.current_pocket /
+// #<_current_pocket>). Classic resolves it via tooldata_find_index_for_tool,
+// which yields -1 for the empty non-random spindle (idx0 carries toolno=-1)
+// and 0 for the random spindle pocket. gomc's io tracks the spindle by TOOL
+// NUMBER, so resolve the pocket through the tool's live table entry.
 func (c *Canon) GetExternalToolSlot() (int32, error) {
 	if c.task.io == nil {
-		return 0, nil
+		return -1, nil
 	}
-	v, err := c.task.io.GetToolInSpindle()
+	tis, err := c.task.io.GetToolInSpindle()
 	if err != nil {
-		return 0, nil
+		return -1, nil
 	}
-	return v, nil
+	if tis <= 0 {
+		if c.task.randomToolchanger {
+			// Random: 0 = T0 empty-marker in the spindle pocket,
+			// -1 = unknown (no pocket-0 entry at startup).
+			return tis, nil
+		}
+		return -1, nil // non-random: no tool loaded
+	}
+	return toolPocketFor(tis), nil
 }
 
+// GetExternalSelectedToolSlot mirrors 2.9's GET_EXTERNAL_SELECTED_TOOL_SLOT
+// (feeds _setup.selected_pocket / #<_selected_pocket>): the prepped tool's
+// pocket index, -1 when nothing is prepped. gomc's io stores the prepped TOOL
+// NUMBER, so resolve the pocket through the tool's live table entry.
 func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 	if c.task.io == nil {
-		return 0, nil
+		return -1, nil
 	}
-	v, err := c.task.io.GetPocketPrepped()
+	pp, err := c.task.io.GetPocketPrepped()
 	if err != nil {
-		return 0, nil
+		return -1, nil
 	}
-	return v, nil
+	return toolPocketFor(pp), nil // -1 = idle, 0 = T0 (unload) prepped
 }
 
 func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
+	if pocket == 0 {
+		// Spindle entry (2.9 tooldata idx 0). Resolve the loaded tool via
+		// io's tool-in-spindle and hand back its live table data: the key-0
+		// snapshot iocontrol writes cannot serve as the spindle record
+		// because the tooltable service keys entries by toolno and clobbers
+		// entry.Toolno with the key — the snapshot always reads as tool 0,
+		// which sent Interp::set_tool_parameters into its empty-spindle
+		// branch (#5400/#<_current_tool> stuck at 0 after M6/M61).
+		var tis int32
+		if c.task.io != nil {
+			if v, err := c.task.io.GetToolInSpindle(); err == nil {
+				tis = v
+			}
+		}
+		if tis <= 0 || pkgTTClient == nil {
+			if c.task.randomToolchanger {
+				// Random: idx0's toolno IS the spindle state — -1
+				// unknown / 0 empty marker (set_tool_parameters writes
+				// it to #5400 unguarded, matching 2.9).
+				return 0, tis, [9]float64{}, 0, 0, 0, 0, nil
+			}
+			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+		}
+		entry, err := pkgTTClient.GetTool(tis)
+		if err != nil || entry.Toolno != tis {
+			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+		}
+		offset := [9]float64{
+			entry.XOffset, entry.YOffset, entry.ZOffset,
+			entry.AOffset, entry.BOffset, entry.COffset,
+			entry.UOffset, entry.VOffset, entry.WOffset,
+		}
+		return 0, tis, offset, entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+	}
 	retval, toolno, offset, diameter, frontangle, backangle, orientation := getToolByPocket(pocket)
 	return retval, toolno, offset, diameter, frontangle, backangle, orientation, nil
 }
@@ -259,8 +311,33 @@ func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64
 	if pkgTTClient == nil {
 		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
+	if toolno == 0 {
+		// T0 lookup (random toolchanger — the interp shortcuts T0 for
+		// non-random): the store returns a zero entry for missing keys,
+		// which is indistinguishable from a real T0, so decide presence
+		// via the entry list.
+		entries, err := pkgTTClient.ListTools()
+		if err == nil {
+			for i := range entries {
+				if entries[i].Toolno == 0 {
+					e := &entries[i]
+					offset := [9]float64{
+						e.XOffset, e.YOffset, e.ZOffset,
+						e.AOffset, e.BOffset, e.COffset,
+						e.UOffset, e.VOffset, e.WOffset,
+					}
+					return 0, e.Pocketno, offset, e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+				}
+			}
+		}
+		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
+	}
 	entry, err := pkgTTClient.GetTool(toolno)
-	if err != nil {
+	if err != nil || entry.Toolno != toolno {
+		// Missing tools come back as a zero entry, not an error — report
+		// "not found" so the interp raises its tool-not-in-table error
+		// (classic G43 Hn on an unknown tool errors; it must not silently
+		// apply a zero offset).
 		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
 	offset := [9]float64{

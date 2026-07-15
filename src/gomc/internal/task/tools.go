@@ -115,6 +115,35 @@ func (t *toolsImpl) ReloadTools() (*tools.CmdResult, error) {
 	return &tools.CmdResult{Ok: "true"}, nil
 }
 
+// toolPocketFor resolves an io tool reference (toolno-keyed; -1 idle, 0 =
+// empty/unload) to the tool's live table pocket number. Serves the classic
+// pocket-index semantics of GET_EXTERNAL_(SELECTED_)TOOL_SLOT and
+// stat.pocket_prepped — gomc has no tooldata array index, the pocket number
+// is the stable equivalent.
+func toolPocketFor(ref int32) int32 {
+	if ref < 0 {
+		return ref // -1 = idle/unknown
+	}
+	if pkgTTClient == nil {
+		if ref == 0 {
+			return 0
+		}
+		return -1
+	}
+	entry, err := pkgTTClient.GetTool(ref)
+	if err != nil || entry.Toolno != ref {
+		if ref == 0 {
+			// T0 with no table entry: the non-random spindle slot.
+			return 0
+		}
+		return -1
+	}
+	// ref==0 resolves through the entry too: on a random toolchanger the T0
+	// empty-pocket marker lives at a real pocket; the non-random key-0
+	// spindle snapshot always carries pocketno 0.
+	return entry.Pocketno
+}
+
 // getToolByPocket returns tool data for a given pocket index.
 // Used by the canon getter GetExternalToolTable.
 // pocket=0 returns the spindle tool (stored as toolno=0 in tooltable by iocontrol).

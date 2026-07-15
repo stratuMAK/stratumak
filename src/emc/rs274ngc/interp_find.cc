@@ -714,7 +714,10 @@ double Interp::find_turn(double x1,      //!< X-coordinate of start point
 
 int Interp::find_tool_index(setup_pointer settings, int toolno, int *index)
 {
-    if (toolno == 0) {
+    if (toolno == 0 && !settings->random_toolchanger) {
+        // Non-random: T0/H0 refer to the spindle entry (idx 0). On a random
+        // toolchanger T0 is an ordinary table entry — look it up like any
+        // tool (and error if the table has no T0).
         *index = 0;
         return INTERP_OK;
     }
@@ -736,7 +739,9 @@ int Interp::find_tool_index(setup_pointer settings, int toolno, int *index)
 
 int Interp::find_tool_pocket(setup_pointer settings, int toolno, int *pocket)
 {
-    if (toolno == 0) {
+    if (toolno == 0 && !settings->random_toolchanger) {
+        // Non-random: T0 is the spindle pocket. On a random toolchanger T0
+        // is an ordinary table entry — look it up like any tool.
         *pocket = 0;
         return INTERP_OK;
     }

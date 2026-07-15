@@ -7,8 +7,10 @@
 // License: GPL Version 2
 
 #include "config.h"
+#include <cstring>
 #include "emc/rs274ngc/interp_base.hh"
 #include "emc/rs274ngc/rs274ngc_interp.hh"  // Interp class, USER_DEFINED_FUNCTION_NUM
+#include "emc/rs274ngc/modal_state.hh"      // StateTag (restore_from_tag)
 
 // Include the generated canon callback table header
 #define CANON_API_CGO
@@ -97,6 +99,29 @@ int interp_exit(void *handle) {
 // interp_on_abort notifies the interpreter of an abort condition.
 int interp_on_abort(void *handle, int reason, const char *message) {
     return static_cast<InterpBase*>(handle)->on_abort(reason, message);
+}
+
+// interp_state_tag_size returns sizeof the packed POD state tag the canon's
+// update_tag callback points at (state_tag_t).
+int interp_state_tag_size(void) {
+    return (int)sizeof(state_tag_t);
+}
+
+// interp_restore_from_tag rolls the interpreter's modal state back to a
+// previously captured packed state_tag_t (2.9 emcTaskStateRestore →
+// Interp::restore_from_tag). tag_bytes must point at interp_state_tag_size()
+// bytes captured from an update_tag callback.
+int interp_restore_from_tag(void *handle, const void *tag_bytes) {
+    state_tag_t base;
+    memcpy(&base, tag_bytes, sizeof(base));
+    StateTag tag(base);
+    return static_cast<InterpBase*>(handle)->restore_from_tag(tag);
+}
+
+// interp_copy_state_tag copies the packed state_tag_t an update_tag callback
+// points at (delivered across the GMI boundary as an integer) into dst.
+void interp_copy_state_tag(unsigned long long src, void *dst) {
+    memcpy(dst, (const void *)(uintptr_t)src, sizeof(state_tag_t));
 }
 
 // interp_set_canon_callbacks sets the canon callback table.

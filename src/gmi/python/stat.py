@@ -235,6 +235,7 @@ class Stat:
         # Scalars
         "kinematics_type", "num_extrajoints", "axis_mask",
         "flood", "mist", "tool_in_spindle", "pocket_prepped",
+        "tool_from_pocket",
         "linear_units", "angular_units", "state", "debug",
         "tool_table",
         # Methods
@@ -376,6 +377,7 @@ class Stat:
             "mist": ("mist", 0),
             "tool_in_spindle": ("tool_in_spindle", 0),
             "pocket_prepped": ("pocket_prepped", -1),
+            "tool_from_pocket": ("tool_from_pocket", 0),
             "linear_units": ("linear_units", 1.0),
             "angular_units": ("angular_units", 1.0),
             "state": ("state", 0),

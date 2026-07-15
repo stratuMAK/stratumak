@@ -197,6 +197,47 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 		t.startupCode = ini.Get("EMC", "RS274NGC_STARTUP_CODE")
 	}
 
+	// Random toolchanger changes the pocket semantics of the tool canon
+	// getters (spindle = pocket 0 vs the non-random idx0 toolno=-1
+	// empty-spindle convention).
+	if v := ini.Get("EMCIO", "RANDOM_TOOLCHANGER"); v != "" && v != "0" {
+		t.randomToolchanger = true
+	}
+
+	// Optional move-before-tool-change position (2.9 taskclass readToolChange
+	// + emccanon CHANGE_TOOL). INI values are machine units, absolute machine
+	// coordinates; 3, 6 or 9 coords accepted. Linear components scale to mm,
+	// angular (a,b,c) stay degrees.
+	if v := ini.Get("EMCIO", "TOOL_CHANGE_POSITION"); v != "" {
+		fields := strings.Fields(v)
+		n := 0
+		switch {
+		case len(fields) >= 9:
+			n = 9
+		case len(fields) >= 6:
+			n = 6
+		case len(fields) >= 3:
+			n = 3
+		}
+		var vals [9]float64
+		for i := 0; i < n; i++ {
+			f, err := strconv.ParseFloat(fields[i], 64)
+			if err != nil {
+				n = 0
+				break
+			}
+			vals[i] = f
+		}
+		if n == 0 {
+			return fmt.Errorf("bad format for [EMCIO]TOOL_CHANGE_POSITION: %q", v)
+		}
+		for _, i := range []int{0, 1, 2, 6, 7, 8} { // x,y,z,u,v,w are linear
+			vals[i] = t.machineToMM(vals[i])
+		}
+		t.toolChangePos = vals
+		t.toolChangePosLen = n
+	}
+
 	return nil
 }
 
