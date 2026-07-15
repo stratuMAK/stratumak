@@ -201,11 +201,11 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 | streaming one-row-per-cycle multiplicity | *(mux, multiclick — flipped green via filestream; xfail files removed, see §2c)* |
 | jog overshoot from WS-lagged gmi.Stat | lathe (intermittent; XPASS this run) |
 | (other) | interp/oword-mdi-sub-update |
-| module-loading array-count (9/17 names, num_chan=9/17) | module-loading/{encoder,sim_encoder}/{9-names,num_chan=9}, module-loading/{pid,siggen}/{17-names,num_chan=17}, module-loading/encoder_ratio/{9-names,num_chan=9} |
 
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 
 module-loading/*/num_chan=0 → **removed** (default-channel-count concept gone, covered by `count=1`);
+module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (user ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the gomc ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
 mdi-while-queuebuster-waitflag → **re-expressed non-Python, now PASS** (§2d).
 
 ---
