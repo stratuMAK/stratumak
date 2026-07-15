@@ -4,7 +4,7 @@
 
 ---
 
-## 0. Verification status — 2026-07-15 (branch `fix-milltask-review-issues`)
+## 0. Verification status — audited 2026-07-15; quick wins applied on `rt-validate`
 
 Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited), **[~]** partial / implicit / deployment-dependent, **[ ]** not implemented.
 
@@ -15,13 +15,17 @@ Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited)
 - halscope RT↔Go ring: C-allocated, C11 explicit acquire/release atomics used identically from both sides (Go calls inline C atomic helpers).
 - Isolated-CPU pool auto-assignment from `/sys/devices/system/cpu/isolated` (`halcmd/cpupool.go`).
 
+**Quick wins fixed on branch `rt-validate` (2026-07-15):**
+- RT threads now block `SIGURG` + `SIGPROF` at the top of `task_wrapper()` (`uspace_rtapi_lib.c`).
+- `hal_stream_readable()/writable()/depth()` now use acquire loads on `in`/`out` (ARM memory-ordering hole closed, `hal_lib.c`).
+- `halscope_alloc()` now uses `rtapi_calloc`/`rtapi_free` — capture buffers prefaulted + mlocked.
+- Stale "SysV shmem / SHM_LOCK" strategy comment corrected (`uspace_rtapi_lib.c`).
+
 **Biggest open gaps (priority order):**
 1. **No forbidden-call enforcement at all** (§2): no `[[clang::nonblocking]]`, no `-Wfunction-effects`, no RTSan anywhere in the tree. A Clang build+test CI job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`) that could host both.
 2. **No deadline-miss detector → E-stop** (§1.5): `unexpected_realtime_delay()` logs once per session and takes no action.
-3. **RT thread signal mask never set** (§1.2): no `pthread_sigmask` anywhere in gomc; RT threads run with the inherited (unblocked) mask.
-4. **No RT priority headroom**: HAL threads are created at `sched_get_priority_max()-1` (= 98) descending (`hal_lib.c` reserves only the single top slot).
-5. **hal_stream reader-side memory ordering hole on weak-memory targets** (§1.3): `hal_stream_readable()`/`writable()` use plain `volatile` loads of `in`/`out`; only the index re-load inside `read`/`write` is acquire. On ARM the consumer can observe `in` without acquiring the producer's data writes. x86 unaffected.
-6. **No torture CI / jitter histogram** (§3); the nightly Go race-detector suite (`nightly-gomc.yml`) exists but is a different concern, and the strict cgo pointer checker is not wired into any test target.
+3. **No RT priority headroom**: HAL threads are created at `sched_get_priority_max()-1` (= 98) descending (`hal_lib.c` reserves only the single top slot).
+4. **No torture CI / jitter histogram** (§3); the nightly Go race-detector suite (`nightly-gomc.yml`) exists but is a different concern, and the strict cgo pointer checker is not wired into any test target.
 
 Item-by-item detail in §4 below.
 
@@ -117,8 +121,8 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
   — `uspace_rtapi_lib.c:458-467`; fd is intentionally never closed (held for process lifetime, `O_CLOEXEC`).
 
 ### Signals & Go isolation
-- [ ] RT thread blocks `SIGURG` + `SIGPROF` (and other Go runtime signals) via `pthread_sigmask`
-  — Not implemented: no `pthread_sigmask`/`sigprocmask` call anywhere in `src/gomc/`. RT threads run with the inherited (unblocked) mask. Mitigation in practice: Go's async preemption sends *thread-directed* `SIGURG` only at threads executing Go code, so raw C threads are not preemption targets — but process-directed signals (e.g. `SIGPROF` if profiling is ever enabled, `SIGURG` fallbacks) can still be delivered to the servo thread. Add the mask at the top of `task_wrapper()`.
+- [x] RT thread blocks `SIGURG` + `SIGPROF` (and other Go runtime signals) via `pthread_sigmask`
+  — Fixed on `rt-validate`: `task_wrapper()` blocks `SIGURG` + `SIGPROF` via `pthread_sigmask(SIG_BLOCK, ...)` before any RT work (`uspace_rtapi_lib.c`). Synchronous fault signals (SIGSEGV etc.) remain deliverable. (Background: Go's async preemption sends *thread-directed* `SIGURG` only at threads executing Go code, so raw C threads were never preemption targets — the mask closes the *process-directed* delivery path.)
 - [x] RT thread is raw `pthread_create`, not `LockOSThread`
   — `task_start()` → `pthread_create` (`uspace_rtapi_lib.c:620`). The only `LockOSThread` in the tree pins the *main* goroutine for Boost.Python thread-state (`cmd/gomc-server/main.go:50`) — non-RT, unrelated.
 - [x] RT cycle is 100% cgo-free and Go-pointer-free (no callback into Go)
@@ -126,9 +130,9 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 
 ### Memory
 - [x] Shared ring buffers are C-allocated, never on the Go heap
-  — `rtapi_shmem_new()` allocates via `rtapi_calloc` (C heap, prefaulted + mlocked) (`src/rtapi/uspace_common.h:52-89`); halscope instance + triple buffers via plain C `calloc` (`halscope/halscope_rt.c:266,285`). Note: the strategy comment at `uspace_rtapi_lib.c:371` still says "SysV shmem segments: SHM_LOCK" — stale, the implementation is `rtapi_calloc`.
-- [~] RT regions (stacks + buffers) locked and **write-touched once** at init (prefaulted)
-  — Core path done: `rtapi_lock_mem()` write-prefaults every page then `mlock`s (`uspace_rtapi_lib.c:196-225`); used by `rtapi_malloc/calloc/realloc`, thread stacks, and dlopen'd cmod PT_LOAD segments (RELRO-aware, `dl_mlock_callback`). `mlockall(MCL_CURRENT)` one-shot + `mallopt(M_TRIM_THRESHOLD=-1, M_MMAP_MAX=0)` in `configure_memory()`. Gap: `halscope_alloc()` uses plain `calloc` — pages are write-touched by calloc's zeroing but **not mlocked**, so they can be paged out and fault inside the RT sample funct under memory pressure. Should use `rtapi_calloc`.
+  — `rtapi_shmem_new()` allocates via `rtapi_calloc` (C heap, prefaulted + mlocked) (`src/rtapi/uspace_common.h:52-89`); halscope instance + triple buffers likewise via `rtapi_calloc` (`halscope/halscope_rt.c`, fixed on `rt-validate`).
+- [x] RT regions (stacks + buffers) locked and **write-touched once** at init (prefaulted)
+  — `rtapi_lock_mem()` write-prefaults every page then `mlock`s (`uspace_rtapi_lib.c:196-225`); used by `rtapi_malloc/calloc/realloc`, thread stacks, dlopen'd cmod PT_LOAD segments (RELRO-aware, `dl_mlock_callback`), and — since `rt-validate` — the halscope instance + capture buffers. `mlockall(MCL_CURRENT)` one-shot + `mallopt(M_TRIM_THRESHOLD=-1, M_MMAP_MAX=0)` in `configure_memory()`.
 - [x] RT `pthread` stacks pre-grown to worst-case depth
   — Minimum 1 MB enforced (`task_new`, `uspace_rtapi_lib.c:720`), and the whole stack (minus guard page) is write-prefaulted + mlocked at thread start (`task_wrapper`, `uspace_rtapi_lib.c:637-656`).
 - [ ] `minflt`/`majflt` frozen after warmup (asserted)
@@ -137,9 +141,9 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 ### cgo / ring-buffer boundary
 - [x] Pointer direction respects cgo rules (C owns the shared memory)
   — All shared state is C-allocated; Go reaches into it via `unsafe.Pointer` (e.g. `halscope/module.go:291+`). No C code retains Go pointers.
-- [~] Matching acquire/release semantics on both sides (Go `sync/atomic` ↔ C11 atomics)
-  — **halscope:** clean — both sides use C11 explicit atomics (Go through inline helpers `halscope_atomic_*`, `halscope_rt.h:159-179`; acquire loads / release stores on `state`, `done_buf`, `done_gen`, `readers`).
-  — **hal_stream (sampler/streamer/filestream fifo):** `in`/`out` are stored with `memory_order_release` and re-loaded with acquire inside `hal_stream_read/write` (`hal_lib.c:4138-4157`), but the emptiness/fullness predicates `hal_stream_readable()/writable()/depth()` use plain `volatile` loads (`hal_lib.c:4104-4118`). On weakly-ordered targets (ARM) the consumer can observe the producer's `in` update without acquiring the preceding data writes → stale sample data possible. x86 is unaffected. Fix: make the predicate loads acquire.
+- [x] Matching acquire/release semantics on both sides (Go `sync/atomic` ↔ C11 atomics)
+  — **halscope:** both sides use C11 explicit atomics (Go through inline helpers `halscope_atomic_*`, `halscope_rt.h:159-179`; acquire loads / release stores on `state`, `done_buf`, `done_gen`, `readers`).
+  — **hal_stream (sampler/streamer/filestream fifo):** `in`/`out` are release-stored and acquire-loaded everywhere; the emptiness/fullness predicates `hal_stream_readable()/writable()/depth()` were converted from plain `volatile` loads to acquire loads on `rt-validate` (previously a stale-data window on weakly-ordered targets like ARM; x86 was unaffected).
 - [x] 64-bit indices safe against torn reads on target arch
   — N/A by design: all fifo indices are 32-bit (`volatile unsigned int in/out`, `hal_priv.h:454-455`; `atomic_int`/`atomic_uint` in halscope).
 - [ ] head/tail cache-line padded (no false sharing)
