@@ -172,6 +172,8 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 - [x] Every `__rtsan_disable` / `NONBLOCKING_UNSAFE` exemption is reviewed & justified
   — Exemption mechanism is `RTAPI_NONBLOCKING_TRUSTED_BEGIN/END` (+ GOMC variant); each of the current uses carries a justification: task-self/PLL (TLS lookup), `rtapi_get_time`/`gomc_log_now_ns` (`clock_gettime` vDSO), `rtapi_delay` (clamped ≤ 10 µs), `gomc_log_emit` (lock-free ring, fixed-buffer `vsnprintf`, drop-on-full). Audit with `grep -rn NONBLOCKING_TRUSTED src/`.
 
+Design note — `nonallocating`: deliberately **not** used. Verified on LLVM 22.1.8: `nonblocking` verification already diagnoses allocation (strict superset), and a `nonblocking` function may not call a merely-`nonallocating` one — so mixing the weaker attribute into the RT call graph would break chains without adding coverage. Reserve `nonallocating` for a future "may block briefly, never allocate" tier (setup paths at RT-quiescence) if one gets defined; it's a 3-line macro addition then.
+
 ### Failure semantics
 - [ ] Deadline-miss detector in the RT cycle → E-stop on overrun
   — Not implemented. `unexpected_realtime_delay()` logs **once per session** and takes no action (`uspace_rtapi_lib.c:563-575`). HAL tracks per-funct/per-thread `runtime`/`maxtime` but nothing acts on them. The Go-side comm watchdog (motion-status reads failing for 1 s → machine off, `src/gomc/internal/task/monitor.go:15-22`) catches a fully hung RT thread from the non-RT side, but it is not in-cycle, not overrun-based, and lives in the same process.
