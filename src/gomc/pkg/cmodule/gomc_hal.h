@@ -34,6 +34,13 @@
 extern "C" {
 #endif
 
+#include "gomc_rt_check.h"
+
+// Signature of a HAL realtime (cyclic) function.  The nonblocking type
+// annotation makes registering an unannotated function via export_funct
+// a -Wfunction-effects diagnostic under "make rt-effects-check".
+typedef void (*gomc_hal_funct_t)(void *arg, long period) GOMC_NONBLOCKING;
+
 // ---------------------------------------------------------------------------
 // HAL type / direction / component-type constants.
 //
@@ -104,7 +111,7 @@ typedef struct {
 
     // RT function export.
     int   (*export_funct)(void *ctx, const char *name,
-                          void (*funct)(void *, long),
+                          gomc_hal_funct_t funct,
                           void *arg, int uses_fp, int reentrant, int comp_id);
 } gomc_hal_t;
 

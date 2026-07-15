@@ -118,7 +118,7 @@ static int gomc_hal_param_alias_cb(void *ctx, const char *param_name, const char
 }
 
 static int gomc_hal_export_funct_cb(void *ctx, const char *name,
-                                    void (*funct)(void *, long),
+                                    gomc_hal_funct_t funct,
                                     void *arg, int uses_fp, int reentrant,
                                     int comp_id) {
     return hal_export_funct(name, funct, arg, uses_fp, reentrant, comp_id);
@@ -138,27 +138,27 @@ static void gomc_rtapi_free_cb(void *ctx, void *ptr) {
     rtapi_free(ptr);
 }
 
-static int64_t gomc_rtapi_get_time_cb(void *ctx) {
+static int64_t gomc_rtapi_get_time_cb(void *ctx) GOMC_NONBLOCKING {
     return (int64_t)rtapi_get_time();
 }
 
-static void gomc_rtapi_delay_cb(void *ctx, long nsec) {
+static void gomc_rtapi_delay_cb(void *ctx, long nsec) GOMC_NONBLOCKING {
     rtapi_delay(nsec);
 }
 
-static long gomc_rtapi_delay_max_cb(void *ctx) {
+static long gomc_rtapi_delay_max_cb(void *ctx) GOMC_NONBLOCKING {
     return rtapi_delay_max();
 }
 
-static int64_t gomc_rtapi_pll_get_reference_cb(void *ctx) {
+static int64_t gomc_rtapi_pll_get_reference_cb(void *ctx) GOMC_NONBLOCKING {
     return (int64_t)rtapi_task_pll_get_reference();
 }
 
-static int gomc_rtapi_pll_set_correction_cb(void *ctx, long value) {
+static int gomc_rtapi_pll_set_correction_cb(void *ctx, long value) GOMC_NONBLOCKING {
     return rtapi_task_pll_set_correction(value);
 }
 
-static int gomc_rtapi_task_self_cb(void *ctx) {
+static int gomc_rtapi_task_self_cb(void *ctx) GOMC_NONBLOCKING {
     return rtapi_task_self();
 }
 

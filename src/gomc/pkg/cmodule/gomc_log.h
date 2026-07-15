@@ -28,6 +28,7 @@
 #include <time.h>
 
 #include "gomc_rtapi.h"  // GOMC_RTAPI_NAME_LEN
+#include "gomc_rt_check.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -118,14 +119,27 @@ typedef struct {
 // ---------------------------------------------------------------------------
 
 // Get current wall clock time in nanoseconds (used for log timestamps).
+// TRUSTED: clock_gettime is a vDSO read on Linux — no syscall, no lock.
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static inline int64_t gomc_log_now_ns(void) GOMC_NONBLOCKING;
 static inline int64_t gomc_log_now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
 }
+GOMC_NONBLOCKING_TRUSTED_END
 
 // Low-level enqueue: claim a slot, format the message, publish.
 // Returns 0 on success, -1 if the ring is full (message dropped).
+// TRUSTED: the slot claim/publish is lock-free (atomics on fixed slots,
+// drop-on-full instead of blocking); vsnprintf formats into a fixed
+// GOMC_LOG_MSG_LEN buffer — no allocation for the plain conversions used
+// in RT log messages.
+static inline int
+gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
+              const char *component, const char *fmt, va_list ap)
+    GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
 static inline int
 gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
               const char *component, const char *fmt, va_list ap) {
@@ -160,6 +174,7 @@ gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
 
     return 0;
 }
+GOMC_NONBLOCKING_TRUSTED_END
 
 // ---------------------------------------------------------------------------
 // Convenience functions with printf format checking.
@@ -167,7 +182,7 @@ gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
 
 static inline __attribute__((format(printf, 3, 4))) void
 gomc_log_debugf(const gomc_log_t *log, const char *component,
-                const char *fmt, ...) {
+                const char *fmt, ...) GOMC_NONBLOCKING {
     va_list ap;
     va_start(ap, fmt);
     gomc_log_emit(log, GOMC_LOG_DEBUG, component, fmt, ap);
@@ -176,7 +191,7 @@ gomc_log_debugf(const gomc_log_t *log, const char *component,
 
 static inline __attribute__((format(printf, 3, 4))) void
 gomc_log_infof(const gomc_log_t *log, const char *component,
-               const char *fmt, ...) {
+               const char *fmt, ...) GOMC_NONBLOCKING {
     va_list ap;
     va_start(ap, fmt);
     gomc_log_emit(log, GOMC_LOG_INFO, component, fmt, ap);
@@ -185,7 +200,7 @@ gomc_log_infof(const gomc_log_t *log, const char *component,
 
 static inline __attribute__((format(printf, 3, 4))) void
 gomc_log_warnf(const gomc_log_t *log, const char *component,
-               const char *fmt, ...) {
+               const char *fmt, ...) GOMC_NONBLOCKING {
     va_list ap;
     va_start(ap, fmt);
     gomc_log_emit(log, GOMC_LOG_WARN, component, fmt, ap);
@@ -194,7 +209,7 @@ gomc_log_warnf(const gomc_log_t *log, const char *component,
 
 static inline __attribute__((format(printf, 3, 4))) void
 gomc_log_errorf(const gomc_log_t *log, const char *component,
-                const char *fmt, ...) {
+                const char *fmt, ...) GOMC_NONBLOCKING {
     va_list ap;
     va_start(ap, fmt);
     gomc_log_emit(log, GOMC_LOG_ERROR, component, fmt, ap);
