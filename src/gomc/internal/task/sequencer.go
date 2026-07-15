@@ -102,6 +102,9 @@ func (t *Task) StartSequencer() {
 	t.seqAbort = make(chan struct{})
 	t.seqPauseCh = make(chan struct{})
 	t.seqResumeCh = make(chan struct{})
+	// Every restart path resets/aborts the interpreter before or with the new
+	// generation, so a pending recoverSeqFault has nothing left to clean up.
+	t.seqFaulted = false
 	t.mu.Unlock()
 
 	go t.sequencerLoop()
@@ -117,6 +120,9 @@ func (t *Task) StopSequencer() {
 	done := t.seqDone
 	// Close under t.mu (atomic check-then-close vs sequencerLoop / other closers).
 	t.closeOnceLocked(abort)
+	// A deliberate stop owns the shutdown: disarm any pending recoverSeqFault so
+	// it cannot restart the sequencer behind the stopping caller's back.
+	t.seqFaulted = false
 	t.mu.Unlock()
 
 	if abort == nil {
@@ -331,7 +337,7 @@ func (t *Task) sequencerLoop() {
 					}
 					t.logger.Error("sequencer command failed", "cmd", cmd.String(), "err", err)
 					t.operatorError(fmt.Sprintf("Command failed: %s: %s", cmd.String(), err))
-					_ = t.motion.Abort() // stop in-flight motion on a command fault (e.g. failed M1xx)
+					// seqFaultExit aborts motion (and IO + spindles) itself.
 					t.seqFaultExit()
 					return
 				}
@@ -729,15 +735,55 @@ func (t *Task) setInterpState(s InterpState) {
 // and bump mdiGen so a stranded MDI cannot be replayed out of order by a later
 // operator MDI's finishMDI (R2). Closing seqAbort unblocks a producer blocked in
 // EnqueueCmd/waitSequencerDrain. Called only from sequencerLoop.
+//
+// It also stops the machine like 2.9's EMC_TASK_EXEC_ERROR executor path
+// (emcTaskAbort motion-abort + emcIoAbort(1) + emcSpindleAbort(all)): a rejected
+// motion command, a wait-helper comm failure, or an orient fault must halt the
+// hardware even when no producer is alive to cascade into faultProgram and the
+// monitor's error check does not independently fire. These are external comm
+// calls (serialized by the motion/IO send mutex) and idempotent, so overlapping
+// with a concurrent monitor teardown is harmless. The interpreter is deliberately
+// NOT touched here — it is owned by the producer/MDI goroutine, and touching it
+// from the sequencer goroutine would race that owner. Instead seqFaultExit sets
+// seqFaulted and spawns recoverSeqFault, which serializes through cmdMu +
+// waitRunProgramDone and runs interp on_abort with EMC_ABORT_TASK_EXEC_ERROR —
+// 2.9's unconditional emcAbortCleanup(1) in the EMC_TASK_EXEC_ERROR case. (The
+// producer, when one is alive, exits via its abort select without running
+// faultProgram: canon swallows EnqueueCmd errors, so the fault cascade this
+// comment used to promise never fires — recovery cannot be left to it.)
 func (t *Task) seqFaultExit() {
+	// Commit the terminal state atomically with the mdiQueue flush + mdiGen bump
+	// (D3: one committer) and close seqAbort FIRST: the close is what unblocks a
+	// producer stuck in EnqueueCmd and every seqDone joiner, while each hardware
+	// call below can burn a full comm timeout (~1 s, serialized by the send
+	// mutex) when the fault cause IS a dead motion controller — exactly the case
+	// where teardown must not stall. The calls are idempotent and independent of
+	// this commit, so the order is free.
 	t.mu.Lock()
 	t.execState = ExecError
 	t.interpState = InterpIdle
 	t.mdiQueue = t.mdiQueue[:0]
 	t.taskCommand = ""
 	t.mdiGen++
+	t.seqFaulted = true
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
+
+	// Interp on_abort + sequencer restart, off this goroutine (see doc comment;
+	// taking cmdMu here would deadlock against an MDI producer that holds cmdMu
+	// until the seqAbort close above unblocks its EnqueueCmd). Spawned before
+	// the hardware stop so it queues on cmdMu as early as possible.
+	go t.recoverSeqFault()
+
+	if err := t.motion.Abort(); err != nil {
+		t.logger.Error("seqFaultExit: motion abort failed", "err", err)
+	}
+	if err := t.io.IoAbort(emcAbortTaskExecError); err != nil {
+		t.logger.Error("seqFaultExit: io abort failed", "err", err)
+	}
+	if err := t.motion.SpindleOff(-1); err != nil { // all-spindles broadcast
+		t.logger.Error("seqFaultExit: spindle stop failed", "err", err)
+	}
 }
 
 // --- Concrete QueuedCmd types ---
@@ -1028,8 +1074,11 @@ var pollInterval = 10 * time.Millisecond
 // responding), NOT slow execution. Motion moves and tool changes can take
 // arbitrarily long; what we guard against is a dead controller.
 var (
-	// If status reads fail for this many consecutive polls, declare comm failure.
-	commFailureThreshold = 100 // 100ms at 1ms poll = 100ms of no valid response
+	// If status reads fail for this many consecutive polls, declare comm
+	// failure (~1 s at the 10 ms pollInterval; tests that shrink pollInterval
+	// via SetPollInterval shrink this timeout with it). The monitor's comm
+	// watchdog has its own independent constant (commWatchdogTicks).
+	commFailureThreshold = 100
 )
 
 // SetPollInterval allows tests to speed up polling. Not thread-safe — call before StartSequencer.

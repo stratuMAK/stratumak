@@ -4,11 +4,23 @@ package task
 
 import (
 	"time"
+
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
 )
 
 // monitorInterval is the polling rate for the monitoring goroutine.
 // 10ms = 100Hz, matching the C milltask cycle time.
 const monitorInterval = 10 * time.Millisecond
+
+// commWatchdogTimeout is how long motion-status reads must fail consecutively
+// before checkCommWatchdog faults the machine off; commWatchdogTicks is that
+// timeout expressed in monitor ticks. Owned by the monitor — deliberately NOT
+// the sequencer's commFailureThreshold, so retuning the wait-helper comm
+// timeout cannot silently rescale this safety trip time (and vice versa).
+const (
+	commWatchdogTimeout = 1 * time.Second
+	commWatchdogTicks   = int(commWatchdogTimeout / monitorInterval)
+)
 
 // IOFullStatus holds the fields needed by the monitor from the IO controller.
 type IOFullStatus struct {
@@ -56,6 +68,11 @@ type monitor struct {
 	// motion disabled while the task state was ON. See there for why one
 	// sample is not trustworthy right after a machine-on.
 	motionDisabledTicks int
+
+	// Consecutive motion-status read failures for the comm watchdog. A single
+	// failure is an expected split-read; a sustained run means the motion
+	// controller stopped updating shared memory (RT died / detached).
+	commErrors int
 }
 
 func newMonitor(t *Task, mc MotionConfig, ih *iniHal, ioStat IOStatusReader) *monitor {
@@ -104,8 +121,16 @@ func (m *monitor) loop() {
 			return
 		case <-ticker.C:
 			m.checkEstop()
-			m.checkMotionEnabled()
-			m.checkMotionErrors(&softLimitReported)
+			// One motion-status read per tick, shared by the three checks: a
+			// GetStatus is a full shared-memory copy + cgo conversion of the
+			// entire motion status, and per-check reads tripled that cost while
+			// letting the checks disagree about liveness within one tick.
+			if m.task.status != nil {
+				ms, err := m.task.status.GetStatus()
+				m.checkCommWatchdog(err)
+				m.checkMotionEnabled(ms, err)
+				m.checkMotionErrors(ms, err, &softLimitReported)
+			}
 			m.checkJogWatchdog()
 			if m.inihal != nil {
 				m.inihal.check(m.mc)
@@ -177,7 +202,6 @@ func (m *monitor) checkEstop() {
 		return // already in estop, nothing to do
 	}
 	wasEnabled := m.task.state == StateOn
-	numSpindles := m.task.numSpindles
 	// Commit the ENTIRE observable transition in this one hold, like the
 	// sibling setState(ESTOP) path — a reader must never see state=Estop
 	// with interpState still Reading and a populated MDI queue. (The values
@@ -218,7 +242,7 @@ func (m *monitor) checkEstop() {
 	// command stuck in EnqueueCmd backpressure); the interp-reset cleanup runs
 	// WITH cmdMu so it cannot race a command that owns the interpreter.
 	o := fullShutdownOpts(emcAbortAuxEstop, "external estop")
-	m.task.stopSignals(numSpindles, o)
+	m.task.stopSignals(o)
 
 	m.task.cmdMu.Lock()
 	m.task.finishShutdown(o)
@@ -227,18 +251,57 @@ func (m *monitor) checkEstop() {
 	m.task.operatorError("External E-Stop asserted")
 }
 
+// errorStop is the shared trip body of the monitor error checks
+// (checkMotionEnabled, checkMotionErrors, checkCommWatchdog): abort motion+IO,
+// stop spindles, and latch ExecError — but leave coolant/lube/homing untouched
+// (an error stop is not a full off; a following error must not lose the home
+// reference). It is a no-op (returns false) unless the machine is ON; the
+// check is atomic with the provisional commit, so a racing SetState cannot
+// slip between them. setEstopReset selects whether the task also drops to
+// StateEstopReset (motion self-disable, comm loss) or stays ON (motion/IO
+// error). report emits the check-specific log/operator messages — after the
+// ON gate, so it fires only when the stop really happens.
+//
+// The commit under mu is provisional (a still-draining sequencer may
+// overwrite it); the signal phase runs WITHOUT cmdMu (the seqAbort close is
+// what unblocks a command stuck holding cmdMu in EnqueueCmd backpressure —
+// see checkEstop / stopSignals), and finishShutdown re-commits the
+// authoritative terminal state under cmdMu after the StartSequencer join.
+// ExecError stays latched until the next estop-reset / off→on clears it.
+func (m *monitor) errorStop(o shutdownOpts, setEstopReset bool, report func()) bool {
+	m.task.mu.Lock()
+	if m.task.state != StateOn {
+		m.task.mu.Unlock()
+		return false
+	}
+	if setEstopReset {
+		m.task.state = StateEstopReset
+	}
+	m.task.interpState = InterpIdle
+	m.task.mdiQueue = m.task.mdiQueue[:0]
+	m.task.taskCommand = ""
+	m.task.mdiGen++ // invalidate any pending finishMDI (R2)
+	m.task.stepping = false
+	m.task.mu.Unlock()
+
+	report()
+
+	m.task.stopSignals(o)
+
+	m.task.cmdMu.Lock()
+	defer m.task.cmdMu.Unlock()
+	m.task.finishShutdown(o)
+	return true
+}
+
 // checkMotionEnabled detects when motion has disabled itself (e.g. due to
 // following error, amp fault, limit switch). This mirrors the old milltask's
 // determineState() which checked traj.enabled every cycle and transitioned
 // the task from ON to ESTOP_RESET when motion was no longer enabled.
-func (m *monitor) checkMotionEnabled() {
-	if m.task.status == nil {
-		return
-	}
-
-	ms, err := m.task.status.GetStatus()
+// ms/err are the tick's shared status read (see loop).
+func (m *monitor) checkMotionEnabled(ms motstat.MotionStatus, err error) {
 	if err != nil {
-		return
+		return // split-read, skip this cycle (sustained failure: comm watchdog)
 	}
 
 	if ms.Enabled != 0 {
@@ -247,8 +310,9 @@ func (m *monitor) checkMotionEnabled() {
 	}
 
 	m.task.mu.Lock()
-	if m.task.state != StateOn {
-		m.task.mu.Unlock()
+	on := m.task.state == StateOn
+	m.task.mu.Unlock()
+	if !on {
 		m.motionDisabledTicks = 0
 		return
 	}
@@ -265,52 +329,30 @@ func (m *monitor) checkMotionEnabled() {
 	// comparable to the classic 2.9 task-cycle granularity.
 	m.motionDisabledTicks++
 	if m.motionDisabledTicks < 3 {
-		m.task.mu.Unlock()
 		return
 	}
 	m.motionDisabledTicks = 0
+
 	// Motion disabled itself while the task believed the machine was on — an
 	// unexpected disable (hard limit, following error, amp fault, watchdog, or
-	// an external enable drop). Latch ExecError so the interruption is visible
-	// rather than a plain ExecDone that reads like a clean stop. (A deliberate
-	// off goes through SetState, which sets state != StateOn first, so this path
-	// is never reached for a normal stop.) The specific cause is reported
-	// separately via the motion module's operator-error message. ExecError is
-	// cleared on the next estop-reset / off→on, so it does not wedge recovery.
-	m.task.state = StateEstopReset
-	m.task.interpState = InterpIdle
-	m.task.mdiQueue = m.task.mdiQueue[:0]
-	m.task.taskCommand = ""
-	m.task.mdiGen++ // invalidate any pending finishMDI (R2)
-	m.task.stepping = false
-	numSpindles := m.task.numSpindles
-	m.task.mu.Unlock()
-
-	m.task.logger.Warn("motion disabled — switching machine off")
-
-	// Error stop (motion disabled itself): abort motion+IO, stop spindles, and
-	// latch ExecError — but leave coolant/lube/homing untouched (this is not a
-	// full off; motion already disabled itself). Signal phase without cmdMu,
-	// cleanup with it (see checkEstop / stopSignals). finishShutdown commits the
-	// terminal ExecError after the join; it stays latched until the next
-	// estop-reset / off→on recovery clears it.
-	o := shutdownOpts{ioReason: emcAbortTaskStateNotOn, terminalExec: ExecError, reason: "motion disabled"}
-	m.task.stopSignals(numSpindles, o)
-
-	m.task.cmdMu.Lock()
-	defer m.task.cmdMu.Unlock()
-	m.task.finishShutdown(o)
+	// an external enable drop). Drop to EstopReset and latch ExecError so the
+	// interruption is visible rather than a plain ExecDone that reads like a
+	// clean stop. (A deliberate off goes through SetState, which sets state !=
+	// StateOn first, so this path is never reached for a normal stop; a
+	// SetState racing the trip is excluded by errorStop's atomic re-check.)
+	// The specific cause is reported separately via the motion module's
+	// operator-error message.
+	o := shutdownOpts{abortReason: emcAbortTaskStateNotOn, terminalExec: ExecError, reason: "motion disabled"}
+	m.errorStop(o, true, func() {
+		m.task.logger.Warn("motion disabled — switching machine off")
+	})
 }
 
 // checkMotionErrors polls motion status for errors and soft limits.
-func (m *monitor) checkMotionErrors(softLimitReported *bool) {
-	if m.task.status == nil {
-		return
-	}
-
-	ms, err := m.task.status.GetStatus()
+// ms/err are the tick's shared status read (see loop).
+func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimitReported *bool) {
 	if err != nil {
-		return // split-read, skip this cycle
+		return // split-read, skip this cycle (sustained failure: comm watchdog)
 	}
 
 	// Check soft limit.
@@ -349,44 +391,54 @@ func (m *monitor) checkMotionErrors(softLimitReported *bool) {
 		return
 	}
 
-	// Only react if machine is on.
-	m.task.mu.Lock()
-	if m.task.state != StateOn {
-		m.task.mu.Unlock()
+	// Error stop, staying ON (matches C++ EMC_TASK_EXEC_ERROR); latch only
+	// when it actually tripped so a not-ON observation doesn't eat the latch.
+	o := shutdownOpts{abortReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion/IO error"}
+	if m.errorStop(o, false, func() {
+		if motionError && ms.OnSoftLimit == 0 {
+			m.task.logger.Error("motion error detected — aborting")
+			// The specific error message (e.g. "joint N following error") is
+			// reported by the motion module via gomc_log_errorf and forwarded
+			// to the operator message list through the log error hook.
+		}
+		if ioError {
+			m.task.logger.Error("IO error detected — aborting")
+		}
+	}) {
+		m.errorLatched = true
+	}
+}
+
+// checkCommWatchdog faults the machine when the motion controller stops
+// responding. The other status checks (checkMotionEnabled, checkMotionErrors)
+// silently skip a cycle when GetStatus returns an error, treating it as a
+// transient split-read — correct for one sample, but a *sustained* run of read
+// failures means motmod is no longer updating shared memory (RT crashed or
+// detached) and the machine would otherwise keep "running" blind against stale
+// status. This is gomc's analogue of 2.9's loss of the motion NML heartbeat.
+//
+// A good read resets the counter, so the commWatchdogTicks consecutive
+// failures required (commWatchdogTimeout ≈ 1 s) can only be reached by a
+// real outage, never by the occasional split-read. On trip it forces the same
+// error-stop as an unexpected motion-disable (abort motion+IO, stop spindles,
+// latch ExecError, leave coolant/lube/homing), and reports the cause.
+// err is the tick's shared status read result (see loop).
+func (m *monitor) checkCommWatchdog(err error) {
+	if err == nil {
+		m.commErrors = 0
 		return
 	}
-	m.errorLatched = true
-	numSpindles := m.task.numSpindles
-	// Provisional commit (see checkEstop); the authoritative terminal state
-	// is re-committed after the StartSequencer join below.
-	m.task.interpState = InterpIdle
-	m.task.mdiQueue = m.task.mdiQueue[:0]
-	m.task.taskCommand = ""
-	m.task.mdiGen++ // invalidate any pending finishMDI (R2)
-	m.task.stepping = false
-	m.task.mu.Unlock()
-
-	if motionError && ms.OnSoftLimit == 0 {
-		m.task.logger.Error("motion error detected — aborting")
-		// The specific error message (e.g. "joint N following error") is
-		// reported by the motion module via gomc_log_errorf and forwarded
-		// to the operator message list through the log error hook.
+	m.commErrors++
+	if m.commErrors < commWatchdogTicks {
+		return
 	}
-	if ioError {
-		m.task.logger.Error("IO error detected — aborting")
-	}
+	m.commErrors = 0
 
-	// Error stop: abort motion+IO, stop spindles, and latch ExecError, leaving
-	// coolant/lube/homing alone. Signal phase without cmdMu, cleanup with it
-	// (see checkEstop / stopSignals). finishShutdown commits the terminal
-	// ExecError after the join, so the stop is visible to the UI as an
-	// error-stop. Matches C++ EMC_TASK_EXEC_ERROR.
-	o := shutdownOpts{ioReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion/IO error"}
-	m.task.stopSignals(numSpindles, o)
-
-	m.task.cmdMu.Lock()
-	defer m.task.cmdMu.Unlock()
-	m.task.finishShutdown(o)
+	o := shutdownOpts{abortReason: emcAbortMotionOrIoRcsError, terminalExec: ExecError, reason: "motion comm lost"}
+	m.errorStop(o, true, func() {
+		m.task.logger.Error("motion controller not responding — forcing machine off")
+		m.task.operatorError("Motion controller not responding")
+	})
 }
 
 // checkJogWatchdog stops continuous jogs that haven't been refreshed

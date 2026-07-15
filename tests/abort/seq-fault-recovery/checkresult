@@ -1,0 +1,12 @@
+#!/bin/bash
+# test-ui.py asserts the behavior (nonzero exit fails the test before we get
+# here); this re-checks its success markers in the result and confirms from the
+# server log that the fault really took the sequencer hard-fault path.
+D=$(dirname "$1"); LOG="$D/server.log"
+set -e
+grep -q "test_mcode_handler: M102 failing handler registered" "$LOG"
+grep -q "test_mcode_handler: M102 called — failing deliberately" "$LOG"
+grep -q "sequencer command failed" "$LOG"
+grep -q "fault latched: EXEC_ERROR, machine ON, spindle off" "$1"
+grep -q "recovery ok: MDI ran cleanly after the sequencer hard fault" "$1"
+echo "seq-fault-recovery: fault latched, hardware stopped, readahead flushed, task recovered"

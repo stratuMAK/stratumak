@@ -36,14 +36,20 @@ func (m *mockMotion) last() string {
 
 // hasCall reports whether the named motion call was ever made.
 func (m *mockMotion) hasCall(s string) bool {
+	return m.countCall(s) > 0
+}
+
+// countCall returns how many times the named motion call was made.
+func (m *mockMotion) countCall(s string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	n := 0
 	for _, c := range m.calls {
 		if c == s {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func (m *mockMotion) SetLine(Pose, float64, float64, float64, int32, int32, float64, int32) error {

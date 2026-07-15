@@ -1,0 +1,7 @@
+(spindle on, then a long slow move for the estop to interrupt)
+m3 s500
+f10
+g1 x5
+g1 x0
+m5
+m2

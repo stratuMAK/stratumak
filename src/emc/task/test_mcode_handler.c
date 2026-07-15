@@ -1,8 +1,10 @@
 /*
  * test_mcode_handler.c — Test cmod for M-code handler API.
  *
- * Registers a handler for M101 that logs to stderr and returns success.
- * Used to verify the mcode_handler_api works end-to-end.
+ * Registers a handler for M101 that logs to stderr and returns success
+ * (verifies the mcode_handler_api works end-to-end), and a handler for
+ * M102 that deliberately fails (drives the milltask EMC_TASK_EXEC_ERROR
+ * fault path — tests/abort/seq-fault-recovery).
  *
  * Load via INI: [GOMC] CMOD=test_mcode_handler
  *
@@ -41,6 +43,15 @@ static int my_m101_handler(const mcode_handler_mcode_call_t *call, void *user_da
     return 0;
 }
 
+static int my_m102_handler(const mcode_handler_mcode_call_t *call, void *user_data)
+{
+    /* Result convention: 0 = success, 32-63 = user result, -2 = aborted,
+     * anything else = error. Return 1 so the sequencer treats this as a hard
+     * command fault (2.9 EMC_TASK_EXEC_ERROR). */
+    fprintf(stderr, "test_mcode_handler: M%d called — failing deliberately\n", call->mcode);
+    return 1;
+}
+
 static int test_mcode_start(cmod_t *self)
 {
     test_mcode_module *m = (test_mcode_module *)self->priv;
@@ -63,6 +74,13 @@ static int test_mcode_start(cmod_t *self)
     }
 
     fprintf(stderr, "test_mcode_handler: M101 handler registered\n");
+
+    if (mapi->register_handler(mapi->ctx, 102, my_m102_handler, NULL) != 0) {
+        fprintf(stderr, "test_mcode_handler: failed to register M102 handler\n");
+        return -1;
+    }
+
+    fprintf(stderr, "test_mcode_handler: M102 failing handler registered\n");
     return 0;
 }
 

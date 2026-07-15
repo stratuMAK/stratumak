@@ -1,0 +1,8 @@
+#!/bin/bash
+# test-ui.py asserts the behavior (nonzero exit fails the test before we get
+# here); this re-checks its success markers in the result.
+D=$(dirname "$1")
+set -e
+grep -q "estop stopped the machine: spindle off, motion halted" "$1"
+grep -q "recovery ok: MDI ran cleanly after estop + estop-reset" "$1"
+echo "estop-while-running: hardware stopped on estop, task recovered via estop-reset"

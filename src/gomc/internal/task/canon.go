@@ -476,10 +476,16 @@ func (c *Canon) SetMotionControlMode(mode int32, tolerance float64) {
 	// does not re-emit). SetMotionParamsCmd with Acc=0 sets only the term cond.
 	term := canonModeToTPTermCond(mode)
 	if !c.lastTermSet || term != c.lastTermCond || s.motionTolerance != c.lastTermTol {
-		c.lastTermCond = term
-		c.lastTermTol = s.motionTolerance
-		c.lastTermSet = true
-		c.enqueue(&SetMotionParamsCmd{TermCond: term, Tolerance: s.motionTolerance})
+		// Cache only what the sequencer actually accepted: a discarded or
+		// dropped emission (run-from-line seek, an ON_ABORT_COMMAND running
+		// under abortInterp, a teardown-closed queue) must not mark the term
+		// cond as delivered — that would coalesce away the next real G61/G64
+		// and leave the TP on a stale blending mode.
+		if c.enqueue(&SetMotionParamsCmd{TermCond: term, Tolerance: s.motionTolerance}) {
+			c.lastTermCond = term
+			c.lastTermTol = s.motionTolerance
+			c.lastTermSet = true
+		}
 	}
 }
 
@@ -1257,9 +1263,14 @@ func (c *Canon) nurbsArc(lineno int32, x0, y0, x1, y1, dx, dy float64) {
 // used to detect whether an interp Execute queued anything (E5).
 func (c *Canon) enqueued() int64 { return c.enqueueCount }
 
-func (c *Canon) enqueue(cmd QueuedCmd) {
+// enqueue queues cmd to the sequencer. It reports whether the command was
+// actually accepted — false when discarding (run-from-line seek, abortInterp's
+// ON_ABORT_COMMAND) or when the queue rejected it (teardown in progress) — so
+// on-change emission caches (SetMotionControlMode's lastTerm*) only record
+// state the sequencer really received. Most callers ignore the result.
+func (c *Canon) enqueue(cmd QueuedCmd) bool {
 	if c.discard {
-		return
+		return false
 	}
 	c.enqueueCount++
 	if err := c.task.EnqueueCmd(cmd); err != nil {
@@ -1273,7 +1284,9 @@ func (c *Canon) enqueue(cmd QueuedCmd) {
 		if !errors.Is(err, errSeqAborted) {
 			c.task.operatorError(fmt.Sprintf("Motion command dropped (sequencer stopped): %s", cmd.String()))
 		}
+		return false
 	}
+	return true
 }
 
 // --- Additional QueuedCmd types for canon ---

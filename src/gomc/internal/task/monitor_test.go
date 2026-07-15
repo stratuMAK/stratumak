@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
@@ -58,12 +59,16 @@ type mockStatusWithError struct {
 	enabled       int32 // motion self-enabled flag; 0 => checkMotionEnabled fires
 	commandStatus int32 // cmd_status_t (motion.h): >=2 = rejected motion command
 	onSoftLimit   int32
+	commErr       bool // when true, GetStatus returns an error (comm loss)
 	joints        [16]motstat.JointStatus
 }
 
 func (m *mockStatusWithError) GetStatus() (motstat.MotionStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.commErr {
+		return motstat.MotionStatus{}, errors.New("motion status unreadable")
+	}
 	ms := motstat.MotionStatus{
 		Enabled:       m.enabled,
 		CommandStatus: m.commandStatus,
@@ -94,6 +99,12 @@ func (m *mockStatusWithError) GetAnalogInput(int32) (float64, error) { return 0,
 func (m *mockStatusWithError) setMotionError() {
 	m.mu.Lock()
 	m.commandStatus = 3 // INVALID_PARAMS: a rejected motion command (cmd_status_t >= 2)
+	m.mu.Unlock()
+}
+
+func (m *mockStatusWithError) setCommError(v bool) {
+	m.mu.Lock()
+	m.commErr = v
 	m.mu.Unlock()
 }
 
@@ -144,11 +155,12 @@ func (p *mockErrorPublisher) getErrors() []string {
 // trackingMotion wraps mockMotion to count specific calls.
 type trackingMotion struct {
 	mockMotion
-	abortCount   atomic.Int32
-	disableCount atomic.Int32
-	unhomeCount  atomic.Int32
-	unhomeJoint  atomic.Int32
-	spindleOffs  atomic.Int32
+	abortCount    atomic.Int32
+	disableCount  atomic.Int32
+	unhomeCount   atomic.Int32
+	unhomeJoint   atomic.Int32
+	spindleOffs   atomic.Int32
+	spindleOffArg atomic.Int32 // last SpindleOff argument
 }
 
 func (m *trackingMotion) Abort() error {
@@ -164,9 +176,21 @@ func (m *trackingMotion) JointUnhome(joint int32) error {
 	m.unhomeJoint.Store(joint)
 	return nil
 }
-func (m *trackingMotion) SpindleOff(int32) error {
+func (m *trackingMotion) SpindleOff(s int32) error {
 	m.spindleOffs.Add(1)
+	m.spindleOffArg.Store(s)
 	return nil
+}
+
+// assertSpindleBroadcast checks that the all-spindles SpindleOff(-1) broadcast
+// was issued (teardowns stop every spindle with one call).
+func assertSpindleBroadcast(t *testing.T, mot *trackingMotion) {
+	t.Helper()
+	if mot.spindleOffs.Load() == 0 {
+		t.Error("expected SpindleOff broadcast, got none")
+	} else if got := mot.spindleOffArg.Load(); got != -1 {
+		t.Errorf("SpindleOff arg = %d, want -1 (all-spindles broadcast)", got)
+	}
 }
 
 func newMonitorTestTask() (*Task, *trackingMotion, *mockIOWithStatus, *mockStatusWithError, *mockErrorPublisher) {
@@ -209,6 +233,72 @@ func waitExecState(task *Task, want ExecState, d time.Duration) bool {
 		defer task.mu.Unlock()
 		return task.execState == want
 	})
+}
+
+// TestMonitor_CommWatchdog_FaultsOnSustainedLoss is the regression test for the
+// comm watchdog: a sustained inability to read motion status faults the machine
+// off instead of being silently skipped cycle after cycle. It drives
+// checkCommWatchdog directly so the threshold is crossed deterministically
+// (rather than waiting ~1 s of real ticks).
+func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
+	task, mot, io, stat, ep := newMonitorTestTask()
+	bringUp(task) // estop-reset -> on
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	mon := newMonitor(task, nil, nil, io)
+
+	// Drive the watchdog with the shared per-tick status read, like loop().
+	drive := func() {
+		_, err := stat.GetStatus()
+		mon.checkCommWatchdog(err)
+	}
+
+	stat.setCommError(true)
+
+	// One below the threshold: still no fault — the machine stays ON.
+	for i := 0; i < commWatchdogTicks-1; i++ {
+		drive()
+	}
+	task.mu.Lock()
+	st := task.state
+	task.mu.Unlock()
+	if st != StateOn {
+		t.Fatalf("watchdog fired early after %d read errors: state=%v, want StateOn", commWatchdogTicks-1, st)
+	}
+
+	// The threshold-crossing read triggers the fault.
+	drive()
+
+	task.mu.Lock()
+	st = task.state
+	es := task.execState
+	task.mu.Unlock()
+	if st != StateEstopReset {
+		t.Fatalf("state = %v after comm watchdog trip, want StateEstopReset", st)
+	}
+	if es != ExecError {
+		t.Fatalf("execState = %v after comm watchdog trip, want ExecError", es)
+	}
+	if mot.abortCount.Load() == 0 {
+		t.Error("expected motion Abort on comm watchdog trip")
+	}
+	found := false
+	for _, e := range ep.getErrors() {
+		if e == "Motion controller not responding" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Motion controller not responding' operator error, got %v", ep.getErrors())
+	}
+
+	// A subsequent good read must reset the counter (no latched fault state).
+	stat.setCommError(false)
+	drive()
+	if mon.commErrors != 0 {
+		t.Errorf("commErrors = %d after a good read, want 0", mon.commErrors)
+	}
 }
 
 func TestMonitor_ExternalEstop(t *testing.T) {
@@ -291,9 +381,7 @@ func TestMonitor_ExternalEstop(t *testing.T) {
 	}
 
 	// Verify spindles stopped.
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 
 	// Verify operator error was sent.
 	errs := ep.getErrors()
@@ -405,6 +493,10 @@ func TestMonitor_MachineOff_EstopSilent(t *testing.T) {
 	}
 	task.mu.Unlock()
 
+	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
+	// this test asserts the MONITOR stays silent, so zero the counter here.
+	mot.abortCount.Store(0)
+
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
 	defer mon.stop()
@@ -474,9 +566,7 @@ func TestMonitor_MotionError(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected motion Abort on motion error")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// checkMotionErrors keeps the machine ON; the self-disable path
 	// (checkMotionEnabled) would instead drop to EstopReset. Still-ON proves the
 	// abort came from error detection, not the Enabled==0 fallback the previous
@@ -514,9 +604,7 @@ func TestMonitor_MotionDisabled(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected Abort when motion disables itself")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// Unexpected self-disable drops the machine out of ON to EstopReset.
 	task.mu.Lock()
 	gotState := task.state
@@ -601,9 +689,7 @@ func TestMonitor_IOError(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected motion Abort on IO hard fault")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// Same discriminator as MotionError: still ON proves the abort came from
 	// IO-fault detection, not the Enabled==0 self-disable path.
 	task.mu.Lock()
@@ -625,6 +711,10 @@ func TestMonitor_IOSoftFault_NoAbort(t *testing.T) {
 	task.SetState(int32(StateEstopReset))
 	task.SetState(int32(StateOn))
 	task.StartSequencer()
+
+	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
+	// this test asserts the MONITOR stays silent, so zero the counter here.
+	mot.abortCount.Store(0)
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
@@ -701,31 +791,36 @@ func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
-	// Drive checkMotionEnabled directly (no loop) to control tick count.
+	// Drive checkMotionEnabled directly (no loop) to control tick count,
+	// feeding it the shared per-tick status read like loop() does.
+	drive := func() {
+		ms, err := stat.GetStatus()
+		mon.checkMotionEnabled(ms, err)
+	}
 	stateIsOn := func() bool {
 		task.mu.Lock()
 		defer task.mu.Unlock()
 		return task.state == StateOn
 	}
 
-	mon.checkMotionEnabled()
-	mon.checkMotionEnabled()
+	drive()
+	drive()
 	if !stateIsOn() {
 		t.Fatal("machine switched off after only 2 disabled samples (stale-mirror race not debounced)")
 	}
 
 	// A fresh enabled sample resets the debounce.
 	stat.setEnabled(1)
-	mon.checkMotionEnabled()
+	drive()
 	stat.setEnabled(0)
-	mon.checkMotionEnabled()
-	mon.checkMotionEnabled()
+	drive()
+	drive()
 	if !stateIsOn() {
 		t.Fatal("debounce counter not reset by an enabled sample")
 	}
 
 	// Persistent disable trips on the 3rd consecutive sample.
-	mon.checkMotionEnabled()
+	drive()
 	if stateIsOn() {
 		t.Fatal("persistent motion self-disable not detected after 3 consecutive samples")
 	}

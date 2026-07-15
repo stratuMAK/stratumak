@@ -35,9 +35,27 @@ func (m *testMotion) SpindleOn(spindle int32, speed, css_factor, css_max float64
 }
 
 func (m *testMotion) SpindleOff(spindle int32) error {
-	m.calls = append(m.calls, "SpindleOff")
+	if spindle < 0 {
+		// Teardown all-spindles broadcast, not queue-dispatched work.
+		m.calls = append(m.calls, "SpindleOff(-1)")
+	} else {
+		m.calls = append(m.calls, "SpindleOff")
+	}
 	m.callCount++
 	return nil
+}
+
+// dispatchedCalls returns the recorded calls minus the teardown SpindleOff(-1)
+// broadcasts — i.e. only work dispatched from the interpreter queue, which is
+// what the abort/fault tests assert on.
+func (m *testMotion) dispatchedCalls() []string {
+	var out []string
+	for _, c := range m.calls {
+		if c != "SpindleOff(-1)" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // testStatus allows controlling InPosition from tests.
@@ -120,8 +138,9 @@ func TestSequencer_AbortClearsQueue(t *testing.T) {
 	}
 
 	// The motion commands after the wait should NOT have been executed
-	if len(mot.calls) > 0 {
-		t.Fatalf("expected no motion calls after abort, got %v", mot.calls)
+	// (the teardown's SpindleOff(-1) broadcast is not queue-dispatched work).
+	if calls := mot.dispatchedCalls(); len(calls) > 0 {
+		t.Fatalf("expected no motion calls after abort, got %v", calls)
 	}
 
 	// State should be reset
@@ -146,20 +165,28 @@ func TestSequencer_ErrorStopsExecution(t *testing.T) {
 	mot.failAt = 1 // fail on 2nd call
 
 	task.StartSequencer()
+	defer task.StopSequencer() // recoverSeqFault restarts the sequencer after the fault
+
+	// Capture this generation's done channel under the lock — recoverSeqFault's
+	// restart reassigns the field concurrently after the fault.
+	task.mu.Lock()
+	seqDone := task.seqDone
+	task.mu.Unlock()
 
 	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 	task.EnqueueCmd(&LinearMoveCmd{ID: 2})
 	task.EnqueueCmd(&LinearMoveCmd{ID: 3})
 
 	// Wait for sequencer to stop on error
-	<-task.seqDone
+	<-seqDone
 
 	// Fail-fast: the mock reports an empty TP queue (depth 0 < high-water), so
 	// the 2nd command's failure is a hard fault, not backpressure — the sequencer
 	// surfaces it immediately WITHOUT the old ~10s / 1000x retry spin. So exactly
-	// 2 motion calls run (ID 1 ok, ID 2 fails) and ID 3 is never dispatched.
-	if len(mot.calls) != 2 {
-		t.Fatalf("expected exactly 2 calls (fail-fast, no retry), got %d: %v", len(mot.calls), mot.calls)
+	// 2 motion calls run (ID 1 ok, ID 2 fails) and ID 3 is never dispatched
+	// (seqFaultExit's SpindleOff(-1) broadcast is not queue-dispatched work).
+	if calls := mot.dispatchedCalls(); len(calls) != 2 {
+		t.Fatalf("expected exactly 2 calls (fail-fast, no retry), got %d: %v", len(calls), calls)
 	}
 
 	task.mu.Lock()
