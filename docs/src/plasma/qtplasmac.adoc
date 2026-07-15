@@ -1289,7 +1289,6 @@ Some standard LinuxCNC utilities are provided as an aid in the diagnosis of issu
 
 - link:../hal/halshow.html#cha:halshow[Halshow]
 - link:../hal/tutorial.html#sec:tutorial-halscope[Halscope]
-- link:../hal/tutorial.html#sec:tutorial-halmeter[Halmeter]
 - link:../man/man1/emccalib.1.html[Calibration]
 - link:../man/man1/linuxcnctop.1.html[Status]
 
