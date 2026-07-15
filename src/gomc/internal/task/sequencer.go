@@ -766,7 +766,6 @@ func (t *Task) seqFaultExit() {
 	t.taskCommand = ""
 	t.mdiGen++
 	t.seqFaulted = true
-	numSpindles := t.numSpindles
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
 
@@ -778,9 +777,7 @@ func (t *Task) seqFaultExit() {
 
 	_ = t.motion.Abort()
 	_ = t.io.IoAbort(emcAbortTaskExecError)
-	for i := 0; i < numSpindles; i++ {
-		_ = t.motion.SpindleOff(int32(i))
-	}
+	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 }
 
 // --- Concrete QueuedCmd types ---

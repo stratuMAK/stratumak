@@ -155,11 +155,12 @@ func (p *mockErrorPublisher) getErrors() []string {
 // trackingMotion wraps mockMotion to count specific calls.
 type trackingMotion struct {
 	mockMotion
-	abortCount   atomic.Int32
-	disableCount atomic.Int32
-	unhomeCount  atomic.Int32
-	unhomeJoint  atomic.Int32
-	spindleOffs  atomic.Int32
+	abortCount    atomic.Int32
+	disableCount  atomic.Int32
+	unhomeCount   atomic.Int32
+	unhomeJoint   atomic.Int32
+	spindleOffs   atomic.Int32
+	spindleOffArg atomic.Int32 // last SpindleOff argument
 }
 
 func (m *trackingMotion) Abort() error {
@@ -175,9 +176,21 @@ func (m *trackingMotion) JointUnhome(joint int32) error {
 	m.unhomeJoint.Store(joint)
 	return nil
 }
-func (m *trackingMotion) SpindleOff(int32) error {
+func (m *trackingMotion) SpindleOff(s int32) error {
 	m.spindleOffs.Add(1)
+	m.spindleOffArg.Store(s)
 	return nil
+}
+
+// assertSpindleBroadcast checks that the all-spindles SpindleOff(-1) broadcast
+// was issued (teardowns stop every spindle with one call).
+func assertSpindleBroadcast(t *testing.T, mot *trackingMotion) {
+	t.Helper()
+	if mot.spindleOffs.Load() == 0 {
+		t.Error("expected SpindleOff broadcast, got none")
+	} else if got := mot.spindleOffArg.Load(); got != -1 {
+		t.Errorf("SpindleOff arg = %d, want -1 (all-spindles broadcast)", got)
+	}
 }
 
 func newMonitorTestTask() (*Task, *trackingMotion, *mockIOWithStatus, *mockStatusWithError, *mockErrorPublisher) {
@@ -368,9 +381,7 @@ func TestMonitor_ExternalEstop(t *testing.T) {
 	}
 
 	// Verify spindles stopped.
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 
 	// Verify operator error was sent.
 	errs := ep.getErrors()
@@ -555,9 +566,7 @@ func TestMonitor_MotionError(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected motion Abort on motion error")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// checkMotionErrors keeps the machine ON; the self-disable path
 	// (checkMotionEnabled) would instead drop to EstopReset. Still-ON proves the
 	// abort came from error detection, not the Enabled==0 fallback the previous
@@ -595,9 +604,7 @@ func TestMonitor_MotionDisabled(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected Abort when motion disables itself")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// Unexpected self-disable drops the machine out of ON to EstopReset.
 	task.mu.Lock()
 	gotState := task.state
@@ -682,9 +689,7 @@ func TestMonitor_IOError(t *testing.T) {
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected motion Abort on IO hard fault")
 	}
-	if mot.spindleOffs.Load() < 2 {
-		t.Errorf("expected 2 SpindleOff calls, got %d", mot.spindleOffs.Load())
-	}
+	assertSpindleBroadcast(t, mot)
 	// Same discriminator as MotionError: still ON proves the abort came from
 	// IO-fault detection, not the Enabled==0 self-disable path.
 	task.mu.Lock()

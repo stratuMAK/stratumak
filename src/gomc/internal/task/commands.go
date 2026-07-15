@@ -328,16 +328,14 @@ type shutdownOpts struct {
 // WITHOUT cmdMu (the abort is what unblocks a command stuck holding cmdMu in
 // EnqueueCmd backpressure) and without t.mu. Clears the coolant/lube status
 // flags it acts on so all callers agree.
-func (t *Task) stopSignals(numSpindles int, o shutdownOpts) {
+func (t *Task) stopSignals(o shutdownOpts) {
 	t.AbortSequencer()
 	t.mcodeAbort()
 	_ = t.motion.Abort()
 	if o.disable {
 		_ = t.motion.Disable()
 	}
-	for i := 0; i < numSpindles; i++ {
-		_ = t.motion.SpindleOff(int32(i))
-	}
+	_ = t.motion.SpindleOff(-1) // all-spindles broadcast (motmod EMCMOT_SPINDLE_OFF, spindle==-1)
 	if o.coolantOff {
 		_ = t.io.CoolantFloodOff()
 		_ = t.io.CoolantMistOff()
@@ -443,9 +441,9 @@ func fullShutdownOpts(ioReason int32, reason string) shutdownOpts {
 // the interpreter. Mirrors C++ emcTaskSetState(OFF/ESTOP). Must be called
 // WITHOUT t.mu held (setState callers already hold cmdMu). ioReason is the
 // EMC_ABORT_* code passed to io.IoAbort.
-func (t *Task) machineShutdown(numSpindles int, ioReason int32) {
+func (t *Task) machineShutdown(ioReason int32) {
 	o := fullShutdownOpts(ioReason, "machine off")
-	t.stopSignals(numSpindles, o)
+	t.stopSignals(o)
 	t.finishShutdown(o)
 }
 
@@ -472,7 +470,6 @@ func (t *Task) setState(state int32) error {
 	switch target {
 	case StateEstop:
 		wasOn := t.state == StateOn
-		numSpindles := t.numSpindles
 		t.state = StateEstop
 		t.interpState = InterpIdle
 		t.execState = ExecDone
@@ -487,7 +484,7 @@ func (t *Task) setState(state int32) error {
 			// Commanded ESTOP reports TASK_STATE_ESTOP; the external/aux estop
 			// input detected by the monitor reports AUX_ESTOP (2.9 emctask.cc
 			// EMC_TASK_STATE_ESTOP vs the main-loop aux-estop handler).
-			t.machineShutdown(numSpindles, emcAbortTaskStateEstop)
+			t.machineShutdown(emcAbortTaskStateEstop)
 		} else {
 			// Machine already down: light teardown, but still restart the
 			// sequencer (signalAbort closed seqAbort, so the goroutine is
@@ -525,7 +522,6 @@ func (t *Task) setState(state int32) error {
 		_ = t.io.LubeOff() // C++ emcTaskSetState(ESTOP_RESET) turns lube off
 		t.mu.Lock()
 		t.lubeOn = false
-		numSpindles := t.numSpindles
 		t.mu.Unlock()
 
 		// 2.9 emcTaskSetState(ESTOP_RESET) also runs emcTaskAbort +
@@ -537,9 +533,7 @@ func (t *Task) setState(state int32) error {
 		// argument a configured ON_ABORT_COMMAND sees.
 		_ = t.motion.Abort()
 		_ = t.io.IoAbort(emcAbortTaskStateEstopReset)
-		for i := 0; i < numSpindles; i++ {
-			_ = t.motion.SpindleOff(int32(i))
-		}
+		_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 		if t.interp != nil {
 			// No producer can be alive in estop (every estop entry joined or
 			// precluded it), and setState holds cmdMu — the interp is ours.
@@ -566,7 +560,6 @@ func (t *Task) setState(state int32) error {
 			return err
 		}
 		wasOn := t.state == StateOn
-		numSpindles := t.numSpindles
 		// Report ESTOP_RESET: the C milltask has no distinct OFF state —
 		// determineState()/the monitor return ESTOP_RESET when traj is
 		// disabled and not in estop, and Axis toggles ESTOP_RESET ↔ ON.
@@ -582,7 +575,7 @@ func (t *Task) setState(state int32) error {
 		// this only did motion.Disable(), leaving spindles/coolant/lube on and
 		// volatile-home joints homed.
 		if wasOn {
-			t.machineShutdown(numSpindles, emcAbortTaskStateOff)
+			t.machineShutdown(emcAbortTaskStateOff)
 		} else {
 			_ = t.motion.Disable()
 			_ = t.io.LubeOff()
@@ -1372,12 +1365,7 @@ func (t *Task) faultMDI(msg string) {
 	_ = t.motion.Abort()
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
 	t.flushMDIQueue()
-	t.mu.Lock()
-	numSpindles := t.numSpindles
-	t.mu.Unlock()
-	for i := 0; i < numSpindles; i++ {
-		_ = t.motion.SpindleOff(int32(i))
-	}
+	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 	t.faultProgram(emcAbortInterpreterErrorMDI, msg)
 }
 
@@ -2068,7 +2056,6 @@ func (t *Task) abortLocked() {
 	t.readLine = 0
 	t.currentLine = 0
 
-	numSpindles := t.numSpindles
 	interp := t.interp
 	t.mu.Unlock()
 
@@ -2077,9 +2064,7 @@ func (t *Task) abortLocked() {
 	t.mcodeAbort()
 	_ = t.motion.Abort()
 	_ = t.io.IoAbort(emcAbortTaskAbort)
-	for i := 0; i < numSpindles; i++ {
-		_ = t.motion.SpindleOff(int32(i))
-	}
+	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 	_ = t.io.CoolantFloodOff()
 	_ = t.io.CoolantMistOff()
 

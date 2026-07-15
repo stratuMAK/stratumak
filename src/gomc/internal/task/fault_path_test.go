@@ -50,9 +50,10 @@ func (r *recordingIO) IoAbort(reason int32) error {
 // counts the Abort + SpindleOff calls seqFaultExit is expected to make.
 type faultSeqMotion struct {
 	mockMotion
-	failSetLine bool
-	aborts      atomic.Int64
-	spindleOffs atomic.Int64
+	failSetLine   bool
+	aborts        atomic.Int64
+	spindleOffs   atomic.Int64
+	spindleOffArg atomic.Int64 // last SpindleOff argument
 }
 
 func (m *faultSeqMotion) SetLine(_ Pose, _, _, _ float64, _ int32, _ int32, _ float64, _ int32) error {
@@ -61,8 +62,12 @@ func (m *faultSeqMotion) SetLine(_ Pose, _, _, _ float64, _ int32, _ int32, _ fl
 	}
 	return nil
 }
-func (m *faultSeqMotion) Abort() error           { m.aborts.Add(1); return nil }
-func (m *faultSeqMotion) SpindleOff(int32) error { m.spindleOffs.Add(1); return nil }
+func (m *faultSeqMotion) Abort() error { m.aborts.Add(1); return nil }
+func (m *faultSeqMotion) SpindleOff(s int32) error {
+	m.spindleOffs.Add(1)
+	m.spindleOffArg.Store(int64(s))
+	return nil
+}
 
 func newRecordingTask() (*Task, *mockMotion, *recordingIO) {
 	mot := &mockMotion{}
@@ -183,8 +188,11 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	if got := io.ioAbortReason.Load(); got != int64(emcAbortTaskExecError) {
 		t.Fatalf("io.IoAbort reason = %d, want %d (EMC_ABORT_TASK_EXEC_ERROR)", got, emcAbortTaskExecError)
 	}
-	if got := mot.spindleOffs.Load(); got != 2 {
-		t.Fatalf("SpindleOff called %d times, want 2 (one per spindle)", got)
+	if got := mot.spindleOffs.Load(); got == 0 {
+		t.Fatal("seqFaultExit must stop the spindles")
+	}
+	if got := mot.spindleOffArg.Load(); got != -1 {
+		t.Fatalf("SpindleOff arg = %d, want -1 (all-spindles broadcast)", got)
 	}
 
 	task.mu.Lock()

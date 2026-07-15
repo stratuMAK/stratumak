@@ -202,7 +202,6 @@ func (m *monitor) checkEstop() {
 		return // already in estop, nothing to do
 	}
 	wasEnabled := m.task.state == StateOn
-	numSpindles := m.task.numSpindles
 	// Commit the ENTIRE observable transition in this one hold, like the
 	// sibling setState(ESTOP) path — a reader must never see state=Estop
 	// with interpState still Reading and a populated MDI queue. (The values
@@ -243,7 +242,7 @@ func (m *monitor) checkEstop() {
 	// command stuck in EnqueueCmd backpressure); the interp-reset cleanup runs
 	// WITH cmdMu so it cannot race a command that owns the interpreter.
 	o := fullShutdownOpts(emcAbortAuxEstop, "external estop")
-	m.task.stopSignals(numSpindles, o)
+	m.task.stopSignals(o)
 
 	m.task.cmdMu.Lock()
 	m.task.finishShutdown(o)
@@ -283,12 +282,11 @@ func (m *monitor) errorStop(o shutdownOpts, setEstopReset bool, report func()) b
 	m.task.taskCommand = ""
 	m.task.mdiGen++ // invalidate any pending finishMDI (R2)
 	m.task.stepping = false
-	numSpindles := m.task.numSpindles
 	m.task.mu.Unlock()
 
 	report()
 
-	m.task.stopSignals(numSpindles, o)
+	m.task.stopSignals(o)
 
 	m.task.cmdMu.Lock()
 	defer m.task.cmdMu.Unlock()
