@@ -1141,7 +1141,14 @@ func (t *Task) finishMDI(gen uint64) {
 		// A fault teardown latched ExecError after this MDI's motion drained.
 		// Never downgrade it to ExecDone here — the machine faulted and the UI
 		// must keep showing the error; the teardown already flushed the queue,
-		// and recovery clears ExecError on estop-reset / off→on.
+		// commits InterpIdle itself (directly or via its restartSequencer), and
+		// recovery clears ExecError on estop-reset / off→on. This guard fires
+		// ONLY for that concurrent-teardown race: an MDI *accepted* while a
+		// previous fault's error was still latched never reaches it, because
+		// executeMDI's setExecState(WaitingForMotion) already replaced the
+		// latch — a post-fault MDI thus completes normally and ends ExecDone,
+		// matching 2.9 where the exec state tracks the current command
+		// (TestMDI_UnderLatchedErrorClearsIt pins this).
 		t.mu.Unlock()
 		return
 	}

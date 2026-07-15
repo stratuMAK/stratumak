@@ -397,6 +397,81 @@ func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
 	}
 }
 
+// TestMDI_UnderLatchedErrorClearsIt pins the post-fault MDI semantics: an MDI
+// is ACCEPTED while a previous fault's EXEC_ERROR is still latched (nothing
+// gates MDI on the latch), runs fine on the recovered sequencer, and completes
+// its chain normally — interp back to Idle, exec state moved on to ExecDone.
+// The error latch is replaced by the new command's own state progression
+// (executeMDI's setExecState), matching 2.9 where the exec state tracks the
+// current command; finishMDI's ExecError guard is only for a teardown that
+// races an in-flight MDI, and that teardown commits InterpIdle itself — so no
+// path leaves the task wedged at InterpReading.
+func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+
+	mot := &faultSeqMotion{failSetLine: true}
+	io := &recordingIO{}
+	stat := &mockStatus{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, stat, logger)
+	task.SetIOStatusReader(io) // estop-reset confirms via the IO status read
+	task.numSpindles = 1
+	task.noForceHoming = true
+	ri := &recordingInterp{}
+	task.SetInterpreter(ri)
+
+	bringUp(task)
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	// Latch a real fault: a rejected motion command drives seqFaultExit, and
+	// recoverSeqFault restarts the sequencer with ExecError latched.
+	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+	if !waitForCond(2*time.Second, func() bool {
+		task.mu.Lock()
+		defer task.mu.Unlock()
+		return task.execState == ExecError && !task.seqFaulted
+	}) {
+		t.Fatal("fault + recovery did not complete")
+	}
+	if !waitForCond(2*time.Second, task.SeqRunning) {
+		t.Fatal("sequencer not restarted after fault")
+	}
+
+	// An MDI while the error is still latched (no power cycle) must complete
+	// its chain: interp back to Idle, exec state moved on — task not wedged.
+	mot.failSetLine = false
+	if err := task.MDI("g0 x1"); err != nil {
+		t.Fatalf("MDI under latched error rejected: %v", err)
+	}
+	if !waitForCond(2*time.Second, func() bool {
+		task.mu.Lock()
+		defer task.mu.Unlock()
+		return task.interpState == InterpIdle && task.execState == ExecDone
+	}) {
+		task.mu.Lock()
+		is, es := task.interpState, task.execState
+		task.mu.Unlock()
+		t.Fatalf("interpState=%v execState=%v after MDI under latched error, want Idle/Done", is, es)
+	}
+
+	// The task must accept further commands (programBusy not wedged).
+	if err := task.MDI("g0 x0"); err != nil {
+		t.Fatalf("second MDI rejected — task wedged: %v", err)
+	}
+	if !waitForCond(2*time.Second, func() bool {
+		task.mu.Lock()
+		defer task.mu.Unlock()
+		return task.interpState == InterpIdle
+	}) {
+		t.Fatal("second MDI did not return to InterpIdle")
+	}
+}
+
 // TestFaultProgram_RunsOnAbortNoIOAbort is the regression test for the AUTO
 // (readahead) leg. 2.9's readahead-execute error does interp_list.clear() +
 // emcAbortCleanup(EMC_ABORT_INTERPRETER_ERROR=9) -> Interp::on_abort(9) and,
