@@ -331,7 +331,7 @@ func (t *Task) sequencerLoop() {
 					}
 					t.logger.Error("sequencer command failed", "cmd", cmd.String(), "err", err)
 					t.operatorError(fmt.Sprintf("Command failed: %s: %s", cmd.String(), err))
-					_ = t.motion.Abort() // stop in-flight motion on a command fault (e.g. failed M1xx)
+					// seqFaultExit aborts motion (and IO + spindles) itself.
 					t.seqFaultExit()
 					return
 				}
@@ -729,7 +729,30 @@ func (t *Task) setInterpState(s InterpState) {
 // and bump mdiGen so a stranded MDI cannot be replayed out of order by a later
 // operator MDI's finishMDI (R2). Closing seqAbort unblocks a producer blocked in
 // EnqueueCmd/waitSequencerDrain. Called only from sequencerLoop.
+//
+// It also stops the machine like 2.9's EMC_TASK_EXEC_ERROR executor path
+// (emcTaskAbort motion-abort + emcIoAbort(1) + emcSpindleAbort(all)): a rejected
+// motion command, a wait-helper comm failure, or an orient fault must halt the
+// hardware even when no producer is alive to cascade into faultProgram and the
+// monitor's error check does not independently fire. These are external comm
+// calls (serialized by the motion/IO send mutex) and idempotent, so overlapping
+// with a concurrent monitor teardown is harmless. The interpreter is deliberately
+// NOT touched here — it is owned by the producer/MDI goroutine, whose next
+// enqueue fails once seqAbort is closed and routes to faultProgram/faultMDI for
+// on_abort; touching it from the sequencer goroutine would race that owner.
 func (t *Task) seqFaultExit() {
+	t.mu.Lock()
+	numSpindles := t.numSpindles
+	t.mu.Unlock()
+
+	_ = t.motion.Abort()
+	_ = t.io.IoAbort(emcAbortTaskExecError)
+	for i := 0; i < numSpindles; i++ {
+		_ = t.motion.SpindleOff(int32(i))
+	}
+
+	// Commit the terminal state atomically with the mdiQueue flush + mdiGen bump
+	// (D3: one committer) and unblock any producer stuck in EnqueueCmd.
 	t.mu.Lock()
 	t.execState = ExecError
 	t.interpState = InterpIdle

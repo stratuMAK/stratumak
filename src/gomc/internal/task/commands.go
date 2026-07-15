@@ -291,9 +291,10 @@ const (
 // IO abort reason codes (EMC_IO_ABORT_REASON_ENUM, emc.hh / iocontrol_stat.h).
 // The reason is passed to io.IoAbort AND, via interp.Abort, to Interp::on_abort
 // where it is the numeric argument to a configured [RS274NGC]ON_ABORT_COMMAND.
-// Values 1 (TASK_EXEC_ERROR) and 5 (TASK_STATE_ESTOP_RESET) exist in the C enum
-// but have no gomc call site, so they are intentionally omitted (unused-lint).
+// Value 5 (TASK_STATE_ESTOP_RESET) exists in the C enum but has no gomc call
+// site, so it is intentionally omitted (unused-lint).
 const (
+	emcAbortTaskExecError       int32 = 1  // EMC_ABORT_TASK_EXEC_ERROR
 	emcAbortAuxEstop            int32 = 2  // EMC_ABORT_AUX_ESTOP
 	emcAbortMotionOrIoRcsError  int32 = 3  // EMC_ABORT_MOTION_OR_IO_RCS_ERROR
 	emcAbortTaskStateOff        int32 = 4  // EMC_ABORT_TASK_STATE_OFF

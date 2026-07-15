@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
@@ -58,12 +59,16 @@ type mockStatusWithError struct {
 	enabled       int32 // motion self-enabled flag; 0 => checkMotionEnabled fires
 	commandStatus int32 // cmd_status_t (motion.h): >=2 = rejected motion command
 	onSoftLimit   int32
+	commErr       bool // when true, GetStatus returns an error (comm loss)
 	joints        [16]motstat.JointStatus
 }
 
 func (m *mockStatusWithError) GetStatus() (motstat.MotionStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.commErr {
+		return motstat.MotionStatus{}, errors.New("motion status unreadable")
+	}
 	ms := motstat.MotionStatus{
 		Enabled:       m.enabled,
 		CommandStatus: m.commandStatus,
@@ -94,6 +99,12 @@ func (m *mockStatusWithError) GetAnalogInput(int32) (float64, error) { return 0,
 func (m *mockStatusWithError) setMotionError() {
 	m.mu.Lock()
 	m.commandStatus = 3 // INVALID_PARAMS: a rejected motion command (cmd_status_t >= 2)
+	m.mu.Unlock()
+}
+
+func (m *mockStatusWithError) setCommError(v bool) {
+	m.mu.Lock()
+	m.commErr = v
 	m.mu.Unlock()
 }
 
@@ -209,6 +220,66 @@ func waitExecState(task *Task, want ExecState, d time.Duration) bool {
 		defer task.mu.Unlock()
 		return task.execState == want
 	})
+}
+
+// TestMonitor_CommWatchdog_FaultsOnSustainedLoss is the regression test for the
+// comm watchdog: a sustained inability to read motion status faults the machine
+// off instead of being silently skipped cycle after cycle. It drives
+// checkCommWatchdog directly so the threshold is crossed deterministically
+// (rather than waiting ~1 s of real ticks).
+func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
+	task, mot, io, stat, ep := newMonitorTestTask()
+	bringUp(task) // estop-reset -> on
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	mon := newMonitor(task, nil, nil, io)
+
+	stat.setCommError(true)
+
+	// One below the threshold: still no fault — the machine stays ON.
+	for i := 0; i < commFailureThreshold-1; i++ {
+		mon.checkCommWatchdog()
+	}
+	task.mu.Lock()
+	st := task.state
+	task.mu.Unlock()
+	if st != StateOn {
+		t.Fatalf("watchdog fired early after %d read errors: state=%v, want StateOn", commFailureThreshold-1, st)
+	}
+
+	// The threshold-crossing read triggers the fault.
+	mon.checkCommWatchdog()
+
+	task.mu.Lock()
+	st = task.state
+	es := task.execState
+	task.mu.Unlock()
+	if st != StateEstopReset {
+		t.Fatalf("state = %v after comm watchdog trip, want StateEstopReset", st)
+	}
+	if es != ExecError {
+		t.Fatalf("execState = %v after comm watchdog trip, want ExecError", es)
+	}
+	if mot.abortCount.Load() == 0 {
+		t.Error("expected motion Abort on comm watchdog trip")
+	}
+	found := false
+	for _, e := range ep.getErrors() {
+		if e == "Motion controller not responding" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Motion controller not responding' operator error, got %v", ep.getErrors())
+	}
+
+	// A subsequent good read must reset the counter (no latched fault state).
+	stat.setCommError(false)
+	mon.checkCommWatchdog()
+	if mon.commErrors != 0 {
+		t.Errorf("commErrors = %d after a good read, want 0", mon.commErrors)
+	}
 }
 
 func TestMonitor_ExternalEstop(t *testing.T) {

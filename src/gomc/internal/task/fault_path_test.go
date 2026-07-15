@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -40,6 +41,24 @@ func (r *recordingIO) IoAbort(reason int32) error {
 	r.ioAbortCalls.Add(1)
 	return nil
 }
+
+// faultSeqMotion fails the first SetLine (to trigger a sequencer hard fault) and
+// counts the Abort + SpindleOff calls seqFaultExit is expected to make.
+type faultSeqMotion struct {
+	mockMotion
+	failSetLine bool
+	aborts      atomic.Int64
+	spindleOffs atomic.Int64
+}
+
+func (m *faultSeqMotion) SetLine(_ Pose, _, _, _ float64, _ int32, _ int32, _ float64, _ int32) error {
+	if m.failSetLine {
+		return errors.New("injected motion fault")
+	}
+	return nil
+}
+func (m *faultSeqMotion) Abort() error           { m.aborts.Add(1); return nil }
+func (m *faultSeqMotion) SpindleOff(int32) error { m.spindleOffs.Add(1); return nil }
 
 func newRecordingTask() (*Task, *mockMotion, *recordingIO) {
 	mot := &mockMotion{}
@@ -97,6 +116,54 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 	}
 	if !mot.hasCall("SpindleOff") {
 		t.Fatal("faultMDI must stop the spindle(s) (parity with 2.9 emcSpindleAbort)")
+	}
+
+	task.mu.Lock()
+	es := task.execState
+	task.mu.Unlock()
+	if es != ExecError {
+		t.Fatalf("execState = %v, want ExecError", es)
+	}
+}
+
+// TestSeqFaultExit_StopsMachineWithExecErrorReason is the regression test for
+// the sequencer-side EXEC_ERROR parity fix. A rejected motion command drives the
+// sequencer into seqFaultExit, which must now stop the hardware like 2.9's
+// EMC_TASK_EXEC_ERROR path — abort motion, IoAbort with reason TASK_EXEC_ERROR(1),
+// and stop every spindle — not just latch ExecError and rely on the monitor.
+func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+
+	mot := &faultSeqMotion{failSetLine: true}
+	io := &recordingIO{}
+	stat := &mockStatus{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, stat, logger)
+	task.numSpindles = 2
+
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+
+	select {
+	case <-task.seqDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sequencer did not exit on the injected motion fault")
+	}
+
+	if mot.aborts.Load() == 0 {
+		t.Error("seqFaultExit must abort motion (2.9 emcTaskAbort)")
+	}
+	if io.ioAbortCalls.Load() == 0 {
+		t.Fatal("seqFaultExit must IoAbort the IO controller (2.9 emcIoAbort)")
+	}
+	if got := io.ioAbortReason.Load(); got != int64(emcAbortTaskExecError) {
+		t.Fatalf("io.IoAbort reason = %d, want %d (EMC_ABORT_TASK_EXEC_ERROR)", got, emcAbortTaskExecError)
+	}
+	if got := mot.spindleOffs.Load(); got != 2 {
+		t.Fatalf("SpindleOff called %d times, want 2 (one per spindle)", got)
 	}
 
 	task.mu.Lock()
