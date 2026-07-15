@@ -20,7 +20,8 @@ Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited)
 - `hal_stream_readable()/writable()/depth()` now use acquire loads on `in`/`out` (ARM memory-ordering hole closed, `hal_lib.c`).
 - `halscope_alloc()` now uses `rtapi_calloc`/`rtapi_free` — capture buffers prefaulted + mlocked.
 - Stale "SysV shmem / SHM_LOCK" strategy comment corrected (`uspace_rtapi_lib.c`).
-- cgo + modcompile now honor the configured C/C++ compiler (`GOMC_CGOENV`, baked `config.CCompiler/CxxCompiler`): a `CC=clang` configure now clang-compiles the cgo RT translation units too — previously they silently stayed gcc even in the `rip-and-test-clang` CI job. Verified: clang-built `gomc-server`, whole tree compiles under clang (warnings only).
+- cgo + modcompile now honor the configured C/C++ compiler (`GOMC_CGOENV`, baked `config.CCompiler/CxxCompiler`): a `CC=clang` configure now clang-compiles the cgo RT translation units too — previously they silently stayed gcc even in the `rip-and-test-clang` CI job. Verified: clang-built `gomc-server`, whole tree compiles under clang.
+- The full tree is now **warning-free under clang 19** (was 264 unique sites: 218 format-security in the hostmot2 gomc HAL port, missing `override` in `rs274ngc_interp.hh`/`interp_g7x.cc`, missing virtual dtors in g7x [real UB], unused hm2_modbus helpers, C++ VLAs in `interp_convert.cc`, duplicate-const in gmicompile codegen). gcc stays at zero warnings. This clears the way for a `-Werror` clang gate. Caveat: Go's build cache replays stale cgo compile warnings on cache hits (it does not hash externally-included C headers) — force a recompile before trusting warning output.
 
 **Biggest open gaps (priority order):**
 1. **No forbidden-call enforcement at all** (§2): no `[[clang::nonblocking]]`, no `-Wfunction-effects`, no RTSan anywhere in the tree. A Clang build+test CI job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`) that could host both.
