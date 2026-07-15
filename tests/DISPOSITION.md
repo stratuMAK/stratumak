@@ -19,7 +19,7 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-15, full run): **242 run / 223 pass / 0 fail / 19 xfail / 0 skipped**.
+Current composition (2026-07-15, full run): **242 run / 224 pass / 0 fail / 18 xfail / 0 skipped**.
 The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
 (G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
 statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
@@ -182,13 +182,12 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 
 ---
 
-## 3. Xfails (22)
+## 3. Xfails (18)
 
 ### 3a. Legit — runnable, fail on a documented gomc bug (`../PRODUCTION_READINESS.md`)
 
 | bug | tests |
 |---|---|
-| G64 blending extents (canon lacks the 2.9 naive-CAM merge; corner rounding diverges) — the original modal-restore reason is FIXED | abort/g64 |
 | jog/teleop + joint-mode + limit status | hard-limits, halui/jogging |
 | gmi.Stat client field gaps | startup-state, mdi-queue-length |
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem |
@@ -208,6 +207,17 @@ restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
 (motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
 (abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
 (mux, multiclick via filestream, §2c).
+
+**2026-07-15, G64 blending parity (abort/g64):** all extent checks now match 2.9
+exactly (G61 5.000 / G64P0.5 4.500 / G64 3.725 / G64Q6 0.000). Three stacked fixes
+(see `../PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
+(`canon_naivecam.go`, merged segments pin their own line/tag/status codes via
+`Interp::active_modes`); arc blending had been silently OFF machine-wide (no
+`EMCMOT_SETUP_ARC_BLENDS` sender existed — new IDL `setup_arc_blends`, pushed from
+loadTraj with 2.9 defaults); and `pushDefaultTermCond` wiped the operator's modal
+G64 P from the TP on every teardown/mode-switch (now re-asserts the canon's current
+modal term cond). The mid-run P/Q readback checks pass because merged segments
+report tag-decoded settings, not the readahead's never-executed `G64 P1 Q2`.
 
 **2026-07-15, M67/M62 sync-I/O + stale-status cluster (single-step, remap/remap-io,
 lathe):** the sync-I/O loss itself was the motctl single-slot send race, fixed
