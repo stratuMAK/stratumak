@@ -23,6 +23,7 @@ type MotionConfig interface {
 	SetMaxFeedOverride(max float64) error
 	SetWorldHome(pos Pose) error
 	SetProbeErrInhibit(jogInhibit, homeInhibit int32) error
+	SetupArcBlends(enable, fallbackEnable, optDepth, gapCycles int32, rampFreq, tangentKinkRatio float64) error
 
 	// Joints
 	JointActivate(joint int32) error
@@ -178,6 +179,22 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 	jogInhibit := int32(getIntOr(ini, "TRAJ", "NO_PROBE_JOG_ERROR", 0))
 	homeInhibit := int32(getIntOr(ini, "TRAJ", "NO_PROBE_HOME_ERROR", 0))
 	if err := mc.SetProbeErrInhibit(jogInhibit, homeInhibit); err != nil {
+		return err
+	}
+
+	// TP arc-blend optimizer (2.9 initraj.cc emcSetupArcBlends, same keys and
+	// defaults — notably ARC_BLEND_ENABLE defaults ON). Without this push the
+	// motion config stays zeroed and the TP silently falls back to parabolic
+	// blending: G64/G64 P<tol> corners stay near-exact-stop instead of being
+	// cut to tolerance.
+	if err := mc.SetupArcBlends(
+		int32(getIntOr(ini, "TRAJ", "ARC_BLEND_ENABLE", 1)),
+		int32(getIntOr(ini, "TRAJ", "ARC_BLEND_FALLBACK_ENABLE", 0)),
+		int32(getIntOr(ini, "TRAJ", "ARC_BLEND_OPTIMIZATION_DEPTH", 50)),
+		int32(getIntOr(ini, "TRAJ", "ARC_BLEND_GAP_CYCLES", 4)),
+		getFloatOr(ini, "TRAJ", "ARC_BLEND_RAMP_FREQ", 100.0),
+		getFloatOr(ini, "TRAJ", "ARC_BLEND_KINK_RATIO", 0.1),
+	); err != nil {
 		return err
 	}
 

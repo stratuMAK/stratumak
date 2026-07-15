@@ -20,8 +20,6 @@
 #   num_aio         — analog I/O count (1..64)
 #   servo_period    — servo cycle time in seconds
 #   traj_period     — trajectory cycle time in seconds
-#   arc_blend_enable, arc_blend_fallback_enable, arc_blend_opt_depth,
-#   arc_blend_gap_cycles, arc_blend_ramp_freq, arc_blend_tangent_kink_ratio
 #   max_feed_override — maximum feed override factor
 #   probe_jog_err_inhibit, probe_home_err_inhibit
 
@@ -211,6 +209,9 @@ func adaptive_feed_enable(enable: i32) -> i32
 
 @doc "Set maximum feed override factor"
 func set_max_feed_override(max: f64) -> i32
+
+@doc "Configure the TP arc-blend optimizer (2.9 [TRAJ]ARC_BLEND_*, EMCMOT_SETUP_ARC_BLENDS)"
+func setup_arc_blends(enable: i32, fallback_enable: i32, opt_depth: i32, gap_cycles: i32, ramp_freq: f64, tangent_kink_ratio: f64) -> i32
 
 # ─── Enable/Disable ───
 
