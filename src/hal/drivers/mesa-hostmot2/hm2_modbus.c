@@ -102,7 +102,7 @@ static const char *error_codes[] = {
 #define MBT_X_MASK		0x0f
 #define MBT_T_MASK		0xf0
 
-static inline bool mtypeiscompound(unsigned mtype) { return mtype >= MBT_ABCD && mtype <= MBT_HGFEDCBA; }
+__attribute__((unused)) static inline bool mtypeiscompound(unsigned mtype) { return mtype >= MBT_ABCD && mtype <= MBT_HGFEDCBA; }
 static inline unsigned mtypeformat(unsigned mtype) { return mtype & MBT_X_MASK; }
 static inline unsigned mtypetype(unsigned mtype)   { return mtype & MBT_T_MASK; }
 static inline bool mtypeisvalid(unsigned mtype) {
@@ -1688,14 +1688,14 @@ static inline int32_t unmap32_sf(const hm2_modbus_cmd_t *cc, double v, unsigned 
 	return (int32_t)v;
 }
 
-static inline uint64_t unmap64_us(const hm2_modbus_cmd_t *cc, int64_t v, unsigned tidx)
+__attribute__((unused)) static inline uint64_t unmap64_us(const hm2_modbus_cmd_t *cc, int64_t v, unsigned tidx)
 {
 	if(haspinclamp(&cc->typeptr[tidx]) && v < 0)
 		return 0;
 	return (uint64_t)v;
 }
 
-static inline uint64_t unmap64_uf(const hm2_modbus_cmd_t *cc, double v, unsigned tidx)
+__attribute__((unused)) static inline uint64_t unmap64_uf(const hm2_modbus_cmd_t *cc, double v, unsigned tidx)
 {
 	if(haspinclamp(&cc->typeptr[tidx])) {
 		if(v > (double)INT64_MAX) return INT64_MAX;
@@ -1704,14 +1704,14 @@ static inline uint64_t unmap64_uf(const hm2_modbus_cmd_t *cc, double v, unsigned
 	return (uint64_t)v;
 }
 
-static inline int64_t unmap64_su(const hm2_modbus_cmd_t *cc, uint64_t v, unsigned tidx)
+__attribute__((unused)) static inline int64_t unmap64_su(const hm2_modbus_cmd_t *cc, uint64_t v, unsigned tidx)
 {
 	if(haspinclamp(&cc->typeptr[tidx]) && v > INT64_MAX)
 		return INT64_MAX;
 	return (int64_t)v;
 }
 
-static inline int64_t unmap64_sf(const hm2_modbus_cmd_t *cc, double v, unsigned tidx)
+__attribute__((unused)) static inline int64_t unmap64_sf(const hm2_modbus_cmd_t *cc, double v, unsigned tidx)
 {
 	if(haspinclamp(&cc->typeptr[tidx])) {
 		if(v > (double)INT64_MAX) return INT64_MAX;
