@@ -159,10 +159,17 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
+	// Capture this generation's done channel under the lock: recoverSeqFault
+	// restarts the sequencer after the fault, so reading task.seqDone directly
+	// would race the restart's field reassignment.
+	task.mu.Lock()
+	seqDone := task.seqDone
+	task.mu.Unlock()
+
 	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 
 	select {
-	case <-task.seqDone:
+	case <-seqDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("sequencer did not exit on the injected motion fault")
 	}
@@ -185,6 +192,75 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	task.mu.Unlock()
 	if es != ExecError {
 		t.Fatalf("execState = %v, want ExecError", es)
+	}
+}
+
+// TestMDI_AbortedEnqueueIsNotAnMDIError pins the executeMDI enqueue-failure
+// split: when the sequencer was closed by a concurrent teardown (user abort,
+// estop, sequencer fault) between synch and enqueue, the teardown owns the
+// cleanup — executeMDI must NOT run the MDI-interpreter-error stop (on_abort/
+// IoAbort with reason 10, spindle stop, operator error), which 2.9 cannot even
+// reach for a plain abort (single-threaded loop, reasons 8/1 there).
+func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+
+	task, mot, io := newRecordingTask()
+	task.noForceHoming = true
+
+	ri := &recordingInterp{}
+	ri.onExecuteString = func(string) (int, error) {
+		// Simulate a user abort's signal phase landing mid-MDI: close the
+		// sequencer, then fill the orphaned queue so the mdiDoneCmd enqueue
+		// deterministically takes the errSeqAborted select arm.
+		task.AbortSequencer()
+		task.mu.Lock()
+		q := task.interpQueue
+		task.mu.Unlock()
+	filling:
+		for {
+			select {
+			case q <- waitForMotionSingleton:
+			default:
+				break filling
+			}
+		}
+		return InterpOK, nil
+	}
+	task.SetInterpreter(ri)
+
+	bringUp(task)
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	// SetMode's abortLocked legitimately ran one on_abort/IoAbort/SpindleOff
+	// round — assert against deltas from here, not absolute counts.
+	baseAbort := ri.abortCalls.Load()
+	baseIO := io.ioAbortCalls.Load()
+	baseSpindleOff := mot.countCall("SpindleOff")
+
+	if err := task.MDI("g0 x1"); err == nil {
+		t.Fatal("expected MDI to surface the aborted enqueue")
+	}
+
+	if got := ri.abortCalls.Load() - baseAbort; got != 0 {
+		t.Fatalf("aborted enqueue must not run on_abort (the teardown owns it); got %d calls", got)
+	}
+	if got := io.ioAbortCalls.Load() - baseIO; got != 0 {
+		t.Fatalf("aborted enqueue must not IoAbort; got %d calls", got)
+	}
+	if got := mot.countCall("SpindleOff") - baseSpindleOff; got != 0 {
+		t.Fatalf("aborted enqueue must not stop spindles; got %d calls", got)
+	}
+	task.mu.Lock()
+	echo := task.taskCommand
+	qLen := len(task.mdiQueue)
+	task.mu.Unlock()
+	if echo != "" || qLen != 0 {
+		t.Fatalf("aborted enqueue must flush the MDI queue + echo; got echo=%q queued=%d", echo, qLen)
 	}
 }
 

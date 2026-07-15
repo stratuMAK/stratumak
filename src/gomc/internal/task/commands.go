@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -1091,6 +1092,11 @@ func (t *Task) finishMDI(gen uint64) {
 				// finishMDI to continue (call_level > 0) or complete (0) the sub.
 				t.setExecState(ExecWaitingForMotion)
 				if err := t.EnqueueCmd(&mdiDoneCmd{gen: gen}); err != nil {
+					if errors.Is(err, errSeqAborted) {
+						// Concurrent teardown owns the cleanup — see executeMDI.
+						t.flushMDIQueue()
+						return
+					}
 					t.faultMDI(fmt.Sprintf("MDI continuation enqueue failed: %v", err))
 				}
 				return
@@ -1191,7 +1197,22 @@ func (t *Task) executeMDI(command string) error {
 		t.setExecState(ExecWaitingForMotion)
 		// Wait for queued motion to finish before going idle.
 		if err := t.EnqueueCmd(&mdiDoneCmd{gen: gen}); err != nil {
-			// Sequencer gone (aborted between synch and enqueue): without the
+			if errors.Is(err, errSeqAborted) {
+				// Not an MDI error: a concurrent teardown (user abort, estop/
+				// off, sequencer hard fault) closed the sequencer between synch
+				// and enqueue — a designed-for interleaving (Abort's signal
+				// phase deliberately runs before it queues on cmdMu). The
+				// teardown owns the interp cleanup and terminal state
+				// (abortLocked / finishShutdown pending on cmdMu, or
+				// recoverSeqFault via seqFaulted). Running faultMDI here
+				// reported a spurious operator error and ran on_abort/IoAbort
+				// with the MDI-interp-error reason 10 for what 2.9 reports as
+				// a plain abort (8) or exec error (1). Just flush the queued
+				// MDIs + echo, like mdi_execute_abort.
+				t.flushMDIQueue()
+				return fmt.Errorf("MDI enqueue: %w", err)
+			}
+			// Sequencer gone unexpectedly (e.g. never started): without the
 			// mdiDoneCmd nothing transitions interpState, wedging it at Reading.
 			// Fault it so the state is consistent and the failure is visible.
 			t.faultMDI(fmt.Sprintf("MDI enqueue failed: %v", err))
@@ -1293,6 +1314,17 @@ func (t *Task) recoverSeqFaultLocked() {
 	t.restartSequencer(InterpIdle, ExecError)
 }
 
+// flushMDIQueue drops the queued MDI commands and clears the MDI echo
+// (stat.task.command) — the tail of 2.9's mdi_execute_abort. Shared by faultMDI
+// and the aborted-enqueue paths, which must not run the rest of the fault
+// machinery.
+func (t *Task) flushMDIQueue() {
+	t.mu.Lock()
+	t.mdiQueue = t.mdiQueue[:0]
+	t.taskCommand = ""
+	t.mu.Unlock()
+}
+
 // faultMDI aborts an MDI command that failed to execute. Beyond faultProgram's
 // motion-stop + readahead-discard, it flushes the pending MDI queue and clears
 // the MDI echo (stat.task.command), so the failure does not later run the
@@ -1312,10 +1344,9 @@ func (t *Task) faultMDI(msg string) {
 	// clears the interp list and runs on_abort there.
 	_ = t.motion.Abort()
 	_ = t.io.IoAbort(emcAbortInterpreterErrorMDI)
+	t.flushMDIQueue()
 	t.mu.Lock()
 	numSpindles := t.numSpindles
-	t.mdiQueue = t.mdiQueue[:0]
-	t.taskCommand = ""
 	t.mu.Unlock()
 	for i := 0; i < numSpindles; i++ {
 		_ = t.motion.SpindleOff(int32(i))

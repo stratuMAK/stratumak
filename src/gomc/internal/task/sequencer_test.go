@@ -146,13 +146,20 @@ func TestSequencer_ErrorStopsExecution(t *testing.T) {
 	mot.failAt = 1 // fail on 2nd call
 
 	task.StartSequencer()
+	defer task.StopSequencer() // recoverSeqFault restarts the sequencer after the fault
+
+	// Capture this generation's done channel under the lock — recoverSeqFault's
+	// restart reassigns the field concurrently after the fault.
+	task.mu.Lock()
+	seqDone := task.seqDone
+	task.mu.Unlock()
 
 	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 	task.EnqueueCmd(&LinearMoveCmd{ID: 2})
 	task.EnqueueCmd(&LinearMoveCmd{ID: 3})
 
 	// Wait for sequencer to stop on error
-	<-task.seqDone
+	<-seqDone
 
 	// Fail-fast: the mock reports an empty TP queue (depth 0 < high-water), so
 	// the 2nd command's failure is a hard fault, not backpressure — the sequencer
