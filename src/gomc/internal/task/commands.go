@@ -445,9 +445,10 @@ func fullShutdownOpts(abortReason int32, reason string) shutdownOpts {
 // spindles, coolant and lube, abort IO, unhome volatile-home joints, and reset
 // the interpreter. Mirrors C++ emcTaskSetState(OFF/ESTOP). Must be called
 // WITHOUT t.mu held (setState callers already hold cmdMu). abortReason is the
-// EMC_ABORT_* code passed to io.IoAbort and interp on_abort.
-func (t *Task) machineShutdown(abortReason int32) {
-	o := fullShutdownOpts(abortReason, "machine off")
+// EMC_ABORT_* code passed to io.IoAbort and interp on_abort; reason is the
+// matching human-readable cause (the interp.Abort message).
+func (t *Task) machineShutdown(abortReason int32, reason string) {
+	o := fullShutdownOpts(abortReason, reason)
 	t.stopSignals(o)
 	t.finishShutdown(o)
 }
@@ -489,7 +490,7 @@ func (t *Task) setState(state int32) error {
 			// Commanded ESTOP reports TASK_STATE_ESTOP; the external/aux estop
 			// input detected by the monitor reports AUX_ESTOP (2.9 emctask.cc
 			// EMC_TASK_STATE_ESTOP vs the main-loop aux-estop handler).
-			t.machineShutdown(emcAbortTaskStateEstop)
+			t.machineShutdown(emcAbortTaskStateEstop, "estop")
 		} else {
 			// Machine already down: light teardown, but still restart the
 			// sequencer (signalAbort closed seqAbort, so the goroutine is
@@ -580,7 +581,7 @@ func (t *Task) setState(state int32) error {
 		// this only did motion.Disable(), leaving spindles/coolant/lube on and
 		// volatile-home joints homed.
 		if wasOn {
-			t.machineShutdown(emcAbortTaskStateOff)
+			t.machineShutdown(emcAbortTaskStateOff, "machine off")
 		} else {
 			_ = t.motion.Disable()
 			_ = t.io.LubeOff()
