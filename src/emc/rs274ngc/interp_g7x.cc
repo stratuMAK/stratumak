@@ -38,6 +38,7 @@ std::string to_string(T &d)
 ////////////////////////////////////////////////////////////////////////////////
 class motion_base {
 public:
+    virtual ~motion_base() = default;
     virtual void straight_move(std::complex<double> end)=0;
     virtual void straight_rapid(std::complex<double> end)=0;
     virtual void circular_move(int ccw,std::complex<double> center,
@@ -67,6 +68,7 @@ public:
 	finish{0} {}
     segment(std::complex<double> s, std::complex<double> e):start(s),end(e),
 	finish{0} {}
+    virtual ~segment() = default;
     typedef std::deque<double> intersections_t;
     virtual void intersection_z(double x, intersections_t &is)=0;
     virtual bool climb(std::complex<double>&, motion_base*)=0;
