@@ -118,6 +118,21 @@ int interp_restore_from_tag(void *handle, const void *tag_bytes) {
     return static_cast<InterpBase*>(handle)->restore_from_tag(tag);
 }
 
+// interp_active_modes_from_tag decodes a packed state_tag_t into the
+// TASK_STAT-style active-code arrays (Interp::active_modes), the mechanism
+// 2.9 task uses to report the EXECUTING segment's modal state. Returns
+// nonzero when the tag is invalid (never written).
+int interp_active_modes_from_tag(void *handle, const void *tag_bytes,
+                                 int *g_codes, int *m_codes, double *settings) {
+    Interp *ip = dynamic_cast<Interp*>(static_cast<InterpBase*>(handle));
+    if (!ip)
+        return -1;
+    state_tag_t base;
+    memcpy(&base, tag_bytes, sizeof(base));
+    StateTag tag(base);
+    return ip->active_modes(g_codes, m_codes, settings, tag);
+}
+
 // interp_copy_state_tag copies the packed state_tag_t an update_tag callback
 // points at (delivered across the GMI boundary as an integer) into dst.
 void interp_copy_state_tag(unsigned long long src, void *dst) {

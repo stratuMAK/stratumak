@@ -291,5 +291,44 @@ func (i *CInterp) ActiveSettings() []float64 {
 	return out
 }
 
+// ActiveModesFromTag decodes a packed state tag into TASK_STAT-style active
+// G-/M-code and settings arrays (Interp::active_modes) — how 2.9 task derives
+// the status codes of the EXECUTING motion segment from its tag. Returns
+// ok=false when the tag is invalid or the decode fails. Entries active_modes
+// leaves untouched are pre-filled with -1 (codes) / 0 (settings), matching
+// the unset convention of the ActiveGCodes/ActiveMCodes arrays.
+func (i *CInterp) ActiveModesFromTag(tag []byte) (gc, mc []int32, st []float64, ok bool) {
+	if len(tag) < int(C.interp_state_tag_size()) {
+		return nil, nil, nil, false
+	}
+	var gbuf [activeGCodesLen]C.int
+	var mbuf [activeMCodesLen]C.int
+	var sbuf [activeSettingsLen]C.double
+	for j := range gbuf {
+		gbuf[j] = -1
+	}
+	for j := range mbuf {
+		mbuf[j] = -1
+	}
+	rc := C.interp_active_modes_from_tag(i.handle, unsafe.Pointer(&tag[0]),
+		&gbuf[0], &mbuf[0], &sbuf[0])
+	if rc != 0 {
+		return nil, nil, nil, false
+	}
+	gc = make([]int32, activeGCodesLen)
+	mc = make([]int32, activeMCodesLen)
+	st = make([]float64, activeSettingsLen)
+	for j := range gbuf {
+		gc[j] = int32(gbuf[j])
+	}
+	for j := range mbuf {
+		mc[j] = int32(mbuf[j])
+	}
+	for j := range sbuf {
+		st[j] = float64(sbuf[j])
+	}
+	return gc, mc, st, true
+}
+
 // Verify CInterp implements Interpreter.
 var _ Interpreter = (*CInterp)(nil)

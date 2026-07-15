@@ -65,6 +65,10 @@ func (c *Canon) GetExternalMist() (int32, error) {
 // This matches the C canon's unoffset_and_unrotate_pos + to_prog.
 
 func (c *Canon) syncEndPointFromMachine() {
+	// Resyncing to machine position invalidates buffered readahead motion:
+	// drop, don't flush (2.9 GET_EXTERNAL_POSITION calls drop_segments) —
+	// this runs on abort/synch paths where the chain is stale.
+	c.dropSegments()
 	if c.task == nil || c.task.status == nil {
 		return
 	}
@@ -125,6 +129,7 @@ func (c *Canon) GetExternalPositionW() (float64, error) {
 // Probe position getters — return probe trip position in program units.
 
 func (c *Canon) getProbePos() Pose {
+	c.flushSegments() // 2.9 GET_EXTERNAL_PROBE_POSITION flushes
 	if c.task.status == nil {
 		return Pose{}
 	}
@@ -354,6 +359,7 @@ func (c *Canon) GetExternalTcReason() (int32, error) { return 0, nil }
 // Queue/status getters.
 
 func (c *Canon) GetExternalQueueEmpty() (int32, error) {
+	c.flushSegments() // 2.9 GET_EXTERNAL_QUEUE_EMPTY flushes
 	if c.task.status != nil {
 		v, err := c.task.status.GetInpos()
 		if err == nil && v != 0 {

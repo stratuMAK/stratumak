@@ -47,8 +47,11 @@ func goMcodeCallback(num C.int, arg1, arg2 C.double) {
 		return
 	}
 
-	// First enqueue a WaitForMotion (canon Finish) to drain motion queue
-	// before the M-code handler starts.
+	// First flush any chained readahead motion, then enqueue a WaitForMotion
+	// (canon Finish) to drain the motion queue before the M-code handler
+	// starts — 2.9 emcSystemCmdHelper: "we call FINISH() to flush any linked
+	// motions before the M1xx call, otherwise they would mix badly".
+	canon.flushSegments()
 	canon.enqueue(waitForMotionSingleton)
 
 	// Enqueue the M-code command for the sequencer.

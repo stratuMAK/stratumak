@@ -455,6 +455,10 @@ type motionInfo struct {
 	Mcodes   []int32   // active M-codes
 	Settings []float64 // active settings (feed, speed, …)
 	Tag      []byte    // packed interp state_tag_t for abort-time restore_from_tag
+	// TagPinned marks a Tag set explicitly at emission time (naive-CAM merged
+	// segments flush during a LATER line's execute, so tagMotionRange must not
+	// overwrite their tag with that line's state — see allocSerialPinned).
+	TagPinned bool
 }
 
 // NewTask creates a new Task with dependencies injected.
@@ -530,10 +534,51 @@ func (t *Task) tagMotionRange(startID, endID int32, gcodes, mcodes []int32, sett
 	t.mu.Lock()
 	for id := startID; id < endID; id++ {
 		if info, ok := t.motionMap[id]; ok {
-			info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
-			info.Tag = tag
+			if !info.TagPinned {
+				info.Tag = tag
+				info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			} else if info.Gcodes == nil {
+				// Pinned tag but no decoded codes (no decoding interp):
+				// bracket codes are better than none.
+				info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			}
 			t.motionMap[id] = info
 		}
+	}
+	t.mu.Unlock()
+}
+
+// pinMotionState stamps a motion segment's state tag — and the active
+// G-/M-codes and settings decoded FROM that tag — at emission time, marking
+// the entry pinned so tagMotionRange won't overwrite it. A naive-CAM merged
+// segment flushes while a LATER source line is executing (its id falls inside
+// that later line's bracket), but must report and restore the modal state of
+// the line that produced its LAST chained point: 2.9 stores the tag per
+// chained point and derives status codes from the executing segment's tag
+// (Interp::active_modes). The g64 abort test's readahead `G64 P1 Q2` line is
+// exactly the case this guards: its SetMotionControlMode flushes the chain,
+// and without pinning the merged move would report the never-executed P1/Q2.
+func (t *Task) pinMotionState(id int32, tag []byte) {
+	if tag == nil {
+		return
+	}
+	var gc, mc []int32
+	var st []float64
+	if t.interp != nil {
+		if d, ok := t.interp.(interface {
+			ActiveModesFromTag([]byte) ([]int32, []int32, []float64, bool)
+		}); ok {
+			gc, mc, st, _ = d.ActiveModesFromTag(tag)
+		}
+	}
+	t.mu.Lock()
+	if info, ok := t.motionMap[id]; ok {
+		info.Tag = tag
+		info.TagPinned = true
+		if gc != nil {
+			info.Gcodes, info.Mcodes, info.Settings = gc, mc, st
+		}
+		t.motionMap[id] = info
 	}
 	t.mu.Unlock()
 }
