@@ -19,7 +19,8 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-15, full run): **242 run / 224 pass / 0 fail / 18 xfail / 0 skipped**.
+Current composition (2026-07-15, full run): **232 run / 224 pass / 0 fail / 8 xfail / 0 skipped**
+(10 obsolete module-loading over-limit xfails removed by the gomc-side merge, see §3b).
 The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
 (G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
 statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
@@ -182,7 +183,7 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 
 ---
 
-## 3. Xfails (18)
+## 3. Xfails (8)
 
 ### 3a. Legit — runnable, fail on a documented gomc bug (`../PRODUCTION_READINESS.md`)
 
@@ -194,7 +195,6 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 | stepgen array module-param instance count | modparam.0 |
 | mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
 | operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
-| module-loading array-count (9/17 names, num_chan=9/17) | module-loading/{encoder,sim_encoder}/{9-names,num_chan=9}, module-loading/{pid,siggen}/{17-names,num_chan=17}, module-loading/encoder_ratio/{9-names,num_chan=9} |
 
 ### 3a-history. Fixed by the 2026-07-15 lifecycle sweep (xfail files removed, tests green)
 
@@ -244,6 +244,7 @@ recurs in CI), single-step 4/4, full suite green.
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 
 module-loading/*/num_chan=0 → **removed** (default-channel-count concept gone, covered by `count=1`);
+module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (user ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the gomc ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
 mdi-while-queuebuster-waitflag → **re-expressed non-Python, now PASS** (§2d).
 
 ---

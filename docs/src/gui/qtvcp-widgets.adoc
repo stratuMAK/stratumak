@@ -1864,7 +1864,7 @@ Enter any of these _case sensitive_ commands to load the respective program or a
 
 *`HALMETER`*::
   Starts LinuxCNC
-  link:../hal/tools.html#sec:halmeter[`halmeter`] utility.
+  `halmeter` utility.
 *`HALSHOW`*::
   Starts LinuxCNC
   link:../hal/halshow.html#cha:halshow[`halshow`] utility.

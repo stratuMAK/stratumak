@@ -95,14 +95,12 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/mb2hal.1.html[mb2hal] | MB2HAL is a generic non-realtime HAL component to communicate with one or more Modbus devices. Modbus RTU and Modbus TCP are supported. ||
 | link:../man/man1/mitsub_vfd.1.html[mitsub_vfd] |HAL non-realtime component for Mitsubishi A500 F500 E500 A500 D700 E700 F700-series VFDs (others may work)                       ||
 | link:../man/man1/monitor-xhc-hb04.1.html[monitor-xhc-hb04] |Monitors the XHC-HB04 pendant and warns of disconnection                                                             ||
-| link:../man/man1/pi500_vfd.1.html[pi500_vfd] |Powtran PI500 modbus driver                                                                                                        ||
 | link:../man/man1/pmx485.1.html[pmx485] |Modbus communications with a Powermax Plasma Cutter                                                                                      ||
 | link:../man/man1/pmx485-test.1.html[pmx485-test] |Modbus communications testing with a Powermax Plasma Cutter                                                                    ||
 | link:../man/man1/shuttle.1.html[shuttle] |control HAL pins with the ShuttleXpress, ShuttlePRO, and ShuttlePRO2 device made by Contour Design                                     ||
 | link:../man/man1/svd-ps_vfd.1.html[svd-ps_vfd] |HAL non-realtime component for SVD-P(S) VFDs                                                                                     ||
 | link:../man/man1/vfdb_vfd.1.html[vfdb_vfd] |HAL non-realtime component for Delta VFD-B Variable Frequency Drives                                                                 ||
 | link:../man/man1/vfs11_vfd.1.html[vfs11_vfd] |HAL non-realtime component for Toshiba-Schneider VF-S11 Variable Frequency Drives                                                  ||
-| link:../man/man1/wj200_vfd.1.html[wj200_vfd] |Hitachi wj200 modbus driver                                                                                                        ||
 | link:../man/man1/xhc-hb04.1.html[xhc-hb04] |Non-realtime HAL component for the xhc-hb04 pendant                                                                                  ||
 | link:../man/man1/xhc-hb04-accels.1.html[xhc-hb04-accels] |Obsolete script for jogging wheel                                                                                      ||
 | link:../man/man1/xhc-whb04b-6.1.html[xhc-whb04b-6] |Non-realtime jog dial HAL component for the wireless XHC WHB04B-6 USB device                                                 ||
@@ -127,7 +125,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man9/opto_ac5.9.html[opto_ac5] |Realtime driver for opto22 PCI-AC5 cards ||
 | pluto_servo |Pluto-P <<cha:pluto-p-driver,driver>> and firmware for the parallel port FPGA, for servos ||
 | pluto_step |Pluto-P <<cha:pluto-p-driver,driver>> for the parallel port FPGA, for steppers ||
-| link:../man/man9/serport.9.html[serport] |Hardware driver for the digital I/O bits of the 8250 and 16550 serial port ||
 | link:../man/man9/sserial.9.html[sserial] |hostmot2 - Smart Serial LinuxCNC HAL driver for the Mesa Electronics HostMot2 Smart-Serial remote cards ||
 | link:../man/man9/thc.9.html[thc] |Torch Height Control using a Mesa THC card or any analog to velocity input ||
 |===
@@ -137,7 +134,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 |===
 | link:../man/man1/hal-histogram.1.html[hal-histogram] |Plots the value of a HAL pin as a histogram ||
 | link:../man/man1/halcompile.1.html[halcompile] |Build, compile and install LinuxCNC HAL components ||
-| link:../man/man1/halmeter.1.html[halmeter] |Observe HAL pins, signals, and parameters ||
 | link:../man/man1/halcmd.1.html[halcmd] |Manipulate the LinuxCNC HAL from the command line ||
 | link:../man/man1/halreport.1.html[halreport] |Creates a report on the status of the HAL ||
 | link:../man/man1/halsampler.1.html[halsampler] |Sample data from HAL in realtime ||

@@ -16,7 +16,8 @@ AI review vs. LinuxCNC 2.9 → findings doc → fix PRs → tests → sign-off
 
 1. **Runtests against gomc** — DONE (2026-07-13; updated 2026-07-15 after the lifecycle sweep,
    the sync-I/O/stale-status un-xfail sweep, and the G64 blending-parity work): full suite green,
-   242 run / 224 pass / 0 fail / 18 xfail / 0 skipped;
+   232 run / 224 pass / 0 fail / 8 xfail / 0 skipped
+   (10 obsolete module-loading over-limit xfails removed, user ruling — see the ledger §3b);
    `tests/DISPOSITION.md` is the authoritative ledger.
 2. **CI gates** — DONE (2026-07-13): `ci.yml` `gomc` job = build + C-warning gate (owned paths,
    `scripts/check-gomc-cwarnings`) + `make gomc-check` (vet, tests, pinned golangci-lint v2.12.2
