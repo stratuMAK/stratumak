@@ -35,6 +35,7 @@ func init(comp_id: i32, servo_period: f64) -> i32
 # --- Parameters ---
 
 @doc "Set one-time homing parameters"
+@rt_safe "true"
 func set_params(offset: f64, home: f64,
                 home_final_vel: f64,
                 home_search_vel: f64,
@@ -44,6 +45,7 @@ func set_params(offset: f64, home: f64,
                 volatile_home: i32) -> i32
 
 @doc "Update changeable homing parameters (e.g. from inihal pins)"
+@rt_safe "true"
 func update_params(home_offset: f64,
                    home_home: f64,
                    home_sequence: i32) -> i32
@@ -65,36 +67,47 @@ func write_out_pins() -> i32
 # --- Control commands ---
 
 @doc "Start homing this joint"
+@rt_safe "true"
 func do_home() -> i32
 
 @doc "Cancel homing"
+@rt_safe "true"
 func do_cancel() -> i32
 
 @doc "Mark joint as unhomed"
+@rt_safe "true"
 func set_unhomed(motstate: MotionState) -> i32
 
 # --- Queries ---
 
 @doc "Returns 1 if this joint is currently homing"
+@rt_safe "true"
 func get_homing() -> i32
 
 @doc "Returns 1 if this joint is homed"
+@rt_safe "true"
 func get_homed() -> i32
 
 @doc "Returns the joint's index-enable state"
+@rt_safe "true"
 func get_index_enable() -> i32
 
 @doc "Returns 1 if joint requires unlock before homing"
+@rt_safe "true"
 func get_needs_unlock_first() -> i32
 
 @doc "Returns 1 if the homing state machine is idle"
+@rt_safe "true"
 func get_is_idle() -> i32
 
 @doc "Returns 1 if homing is waiting at index search (ferror suppression)"
+@rt_safe "true"
 func get_at_index_search_wait() -> i32
 
 @doc "Returns 1 if homing is paused at final-move-start waiting for sync signal"
+@rt_safe "true"
 func get_at_final_move_wait() -> i32
 
 @doc "Release from sync wait and start the final move"
+@rt_safe "true"
 func do_final_move() -> i32

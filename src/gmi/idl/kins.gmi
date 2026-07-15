@@ -47,7 +47,9 @@ func inverse(world: Pose, joints: [MAX_JOINTS]f64 byref, iflags: u64, fflags: u6
 func type() -> KinematicsType
 
 @doc "Returns 1 if kinematics are switchable, 0 otherwise"
+@rt_safe "true"
 func switchable() -> i32
 
 @doc "Switch to a different kinematics mode"
+@rt_safe "true"
 func switch(switchkins_type: i32) -> i32
