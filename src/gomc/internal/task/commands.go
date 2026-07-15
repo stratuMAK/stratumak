@@ -372,7 +372,7 @@ func (t *Task) finishShutdown(o shutdownOpts) {
 	// already stopped by stopSignals).
 	t.waitRunProgramDone()
 	if t.interp != nil {
-		_ = t.interp.Abort(int(o.ioReason), o.reason)
+		t.abortInterp(o.ioReason, o.reason)
 		_ = t.interp.Close()
 		_ = t.interp.Reset()
 		if o.synch {
@@ -544,9 +544,7 @@ func (t *Task) setState(state int32) error {
 			// No producer can be alive in estop (every estop entry joined or
 			// precluded it), and setState holds cmdMu — the interp is ours.
 			t.waitRunProgramDone()
-			t.canon.setDiscard(true)
-			_ = t.interp.Abort(int(emcAbortTaskStateEstopReset), "estop reset")
-			t.canon.setDiscard(false)
+			t.abortInterp(emcAbortTaskStateEstopReset, "estop reset")
 			t.canon.syncEndPointFromMachine()
 			_ = t.interp.Synch()
 		}
@@ -1268,19 +1266,31 @@ func (t *Task) faultProgram(reason int32, msg string) {
 	// The reason is also the argument passed to a configured ON_ABORT_COMMAND.
 	// Called on the interpreter-owning goroutine (the runProgram producer, or the
 	// executeMDI/finishMDI caller), so this interp access stays single-threaded.
-	// Canon output from any ON_ABORT_COMMAND is discarded — like abortLocked,
-	// gomc does not replay abort-handler motion, and discarding also avoids an
-	// EnqueueCmd deadlock against the sequencer we abort next.
-	if t.interp != nil {
-		t.canon.setDiscard(true)
-		_ = t.interp.Abort(int(reason), msg)
-		t.canon.setDiscard(false)
-	}
+	t.abortInterp(reason, msg)
 	// restartSequencer aborts+joins the old sequencer and commits the terminal
 	// ExecError after the join (a concurrent monitor teardown is safe:
 	// StartSequencer generations are serialized by seqLifeMu and both writers
 	// commit the same ExecError).
 	t.restartSequencer(InterpIdle, ExecError)
+}
+
+// abortInterp runs the interpreter's on_abort: Interp::Abort reset()s the
+// interp, clears the toolchange/probe/input/mdi_interrupt flags an interrupted
+// remapped procedure may have left set, and synchronously executes a configured
+// [RS274NGC]ON_ABORT_COMMAND with reason as its numeric argument. Canon output
+// from that handler is discarded on EVERY abort path: gomc never replays
+// abort-handler motion, and discarding keeps the handler's emissions from
+// hitting whatever sequencer state the teardown left behind (error-log spam
+// against an aborted queue, or an EnqueueCmd deadlock against a live one).
+// The caller must own the interpreter: be the producer goroutine, or hold
+// cmdMu with no producer alive (waitRunProgramDone).
+func (t *Task) abortInterp(reason int32, msg string) {
+	if t.interp == nil {
+		return
+	}
+	t.canon.setDiscard(true)
+	defer t.canon.setDiscard(false)
+	_ = t.interp.Abort(int(reason), msg)
 }
 
 // recoverSeqFault runs the interpreter's on_abort after a sequencer hard fault
@@ -1325,13 +1335,7 @@ func (t *Task) recoverSeqFaultLocked() {
 	if !faulted {
 		return // another teardown restarted the sequencer and reset the interp
 	}
-	if t.interp != nil {
-		// Discard ON_ABORT_COMMAND canon output, like faultProgram: gomc does
-		// not replay abort-handler motion.
-		t.canon.setDiscard(true)
-		_ = t.interp.Abort(int(emcAbortTaskExecError), "sequencer exec error")
-		t.canon.setDiscard(false)
-	}
+	t.abortInterp(emcAbortTaskExecError, "sequencer exec error")
 	// StartSequencer (inside) clears seqFaulted; the terminal ExecError is
 	// re-committed after the join.
 	t.restartSequencer(InterpIdle, ExecError)
@@ -2086,7 +2090,7 @@ func (t *Task) abortLocked() {
 	t.waitRunProgramDone()
 
 	if interp != nil {
-		_ = interp.Abort(int(emcAbortTaskAbort), "user abort")
+		t.abortInterp(emcAbortTaskAbort, "user abort")
 		_ = interp.Close()
 		_ = interp.Reset()
 		// Sync the canon endpoint from the machine BEFORE Synch (R6/C11), so the

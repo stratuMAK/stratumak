@@ -204,6 +204,11 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 func TestEstopReset_RunsAbortSequence(t *testing.T) {
 	task, mot, io := newRecordingTask()
 	ri := &recordingInterp{}
+	// abortInterp must discard ON_ABORT_COMMAND canon output on every abort
+	// path (gomc never replays abort-handler motion). The hook runs on the
+	// goroutine that set the flag, so the unguarded read is safe.
+	var discardDuringAbort atomic.Bool
+	ri.onAbort = func() { discardDuringAbort.Store(task.canon.discard) }
 	task.SetInterpreter(ri)
 
 	task.StartSequencer()
@@ -230,6 +235,9 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 	}
 	if !mot.hasCall("SpindleOff") {
 		t.Fatal("estop-reset must stop the spindles (2.9 emcSpindleAbort)")
+	}
+	if !discardDuringAbort.Load() {
+		t.Fatal("on_abort must run with canon discard set (abortInterp)")
 	}
 }
 
