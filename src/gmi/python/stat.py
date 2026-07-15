@@ -2,11 +2,14 @@
 
 Subscribes to the emcstat WebSocket watch channel and maintains a local
 cache of all stat fields. Attribute access (stat.task_mode) reads from
-the cache. poll() is a no-op (data is pushed automatically at 50ms).
+the cache. poll() fetches a fresh snapshot synchronously over REST —
+classic linuxcnc.stat.poll() was a synchronous NML peek, and drivers
+rely on poll() observing the effect of a command they just sent; the
+WS cache alone can be up to rate_ms stale.
 
 Usage:
     s = gmi.Stat()
-    s.poll()  # no-op, data is already current
+    s.poll()
     print(s.task_mode, s.task_state)
 """
 
@@ -15,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import urllib.request
 from typing import Any, Optional
 
 try:
@@ -22,7 +26,7 @@ try:
 except ImportError:
     websockets = None
 
-from gmi import ws_url
+from gmi import rest_url, ws_url
 
 
 class _ToolEntry:
@@ -210,8 +214,24 @@ class Stat:
             print(f"gmi.Stat: recv error: {e}", file=sys.stderr)
 
     def poll(self):
-        """No-op. Data is pushed by the watch channel automatically."""
-        pass
+        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll()).
+
+        The WS watch keeps the cache warm between polls, but a driver that
+        polls right after issuing a command must see that command's effect —
+        the push cache alone can serve a snapshot up to rate_ms stale. On
+        fetch failure the (possibly stale) cache is kept rather than raising:
+        drivers poll in loops and the watch channel still converges.
+        """
+        try:
+            url = f"{rest_url()}/api/v1/{self._instance}/stat"
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            import sys
+            print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
+            return
+        with self._lock:
+            self._data.update(data)
 
     # All known stat attribute names, for dir() support.
     _ALL_ATTRS = {
