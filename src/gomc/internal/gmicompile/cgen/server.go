@@ -67,6 +67,20 @@ func (g *serverGen) emitIncludes() {
 		g.printf("#include \"%s_api.h\"\n", imp.Name)
 	}
 
+	// Self-contained clang function-effects annotation for @rt_safe
+	// callback types (mirrors GOMC_NONBLOCKING in gomc_rt_check.h; the
+	// generated header must not depend on the cmodule header set).
+	g.printf("\n#ifndef GOMC_API_NONBLOCKING\n")
+	g.printf("#if defined(__clang__) && (__clang_major__ >= 20) && defined(__has_attribute)\n")
+	g.printf("#if __has_attribute(nonblocking)\n")
+	g.printf("#define GOMC_API_NONBLOCKING __attribute__((nonblocking))\n")
+	g.printf("#endif\n")
+	g.printf("#endif\n")
+	g.printf("#ifndef GOMC_API_NONBLOCKING\n")
+	g.printf("#define GOMC_API_NONBLOCKING\n")
+	g.printf("#endif\n")
+	g.printf("#endif\n")
+
 	g.printf("\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
 }
 
@@ -308,7 +322,14 @@ func (g *serverGen) emitCallbackTypedefs() {
 			}
 			g.printf("    %s%s\n", p, comma)
 		}
-		g.printf(");\n\n")
+		// @rt_safe callbacks are invoked from the RT cycle — type them
+		// nonblocking so clang's function-effects analysis both checks
+		// their implementations and allows RT callers to use them.
+		if fn.RTSafe {
+			g.printf(") GOMC_API_NONBLOCKING;\n\n")
+		} else {
+			g.printf(");\n\n")
+		}
 	}
 }
 
