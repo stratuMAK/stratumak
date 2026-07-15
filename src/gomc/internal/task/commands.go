@@ -832,6 +832,11 @@ func (t *Task) doStepActiveLocked() error {
 
 // autoCommand is the cmdMu-serialized body of AutoCommand.
 func (t *Task) autoCommand(cmd int32, line int32) error {
+	// Same front-door recovery as MDI: never start a program against an
+	// interpreter left dirty by a sequencer hard fault (AutoRun's Close/Open
+	// resets the file position but not the interp's abort-relevant flags).
+	t.recoverSeqFaultLocked()
+
 	t.mu.Lock()
 
 	if err := t.requireOn(); err != nil {
@@ -956,6 +961,11 @@ func (t *Task) MDI(command string) error {
 	}
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
+
+	// If the sequencer died on a hard fault, clean the interpreter (on_abort)
+	// and restart the sequencer before executing anything against it — this MDI
+	// may have won the cmdMu race against the spawned recoverSeqFault.
+	t.recoverSeqFaultLocked()
 
 	t.mu.Lock()
 
@@ -1226,6 +1236,60 @@ func (t *Task) faultProgram(reason int32, msg string) {
 	// ExecError after the join (a concurrent monitor teardown is safe:
 	// StartSequencer generations are serialized by seqLifeMu and both writers
 	// commit the same ExecError).
+	t.restartSequencer(InterpIdle, ExecError)
+}
+
+// recoverSeqFault runs the interpreter's on_abort after a sequencer hard fault
+// (seqFaultExit) and restarts the sequencer. The sequencer goroutine can do
+// neither itself: the interpreter is owned by the producer/MDI goroutine, and
+// restartSequencer joins the sequencer — so seqFaultExit spawns this on its own
+// goroutine. It serializes through cmdMu like any command and waits for a live
+// producer to exit before touching the interpreter.
+//
+// Without it, a fault with no producer routing into faultProgram/faultMDI (the
+// normal case: canon swallows EnqueueCmd errors and runProgram exits via its
+// abort select; an already-enqueued mdiDoneCmd simply never executes) left the
+// interp's toolchange/probe/input flags stale, and the next MDI ran against
+// them ("Queue is not empty after tool change"). Mirrors 2.9's unconditional
+// mdi_execute_abort() + emcAbortCleanup(EMC_ABORT_TASK_EXEC_ERROR) in the
+// EMC_TASK_EXEC_ERROR case (emctaskmain.cc).
+func (t *Task) recoverSeqFault() {
+	t.cmdMu.Lock()
+	defer t.cmdMu.Unlock()
+	t.recoverSeqFaultLocked()
+}
+
+// recoverSeqFaultLocked is recoverSeqFault's cmdMu-held body. The MDI/AUTO
+// front doors also call it, so a command that wins the cmdMu race against the
+// spawned recoverSeqFault still finds a clean interpreter — the recovery then
+// finds seqFaulted already cleared and no-ops. Caller must hold cmdMu (and not
+// be a producer goroutine — this waits on runDone).
+func (t *Task) recoverSeqFaultLocked() {
+	t.mu.Lock()
+	faulted := t.seqFaulted
+	t.mu.Unlock()
+	if !faulted {
+		return
+	}
+	// A producer that was mid-run when the sequencer died exits promptly (its
+	// waits/enqueues select on the closed seqAbort); its faultProgram — if any —
+	// runs before runDone closes, so after this wait the interpreter is ours.
+	t.waitRunProgramDone()
+	t.mu.Lock()
+	faulted = t.seqFaulted
+	t.mu.Unlock()
+	if !faulted {
+		return // another teardown restarted the sequencer and reset the interp
+	}
+	if t.interp != nil {
+		// Discard ON_ABORT_COMMAND canon output, like faultProgram: gomc does
+		// not replay abort-handler motion.
+		t.canon.setDiscard(true)
+		_ = t.interp.Abort(int(emcAbortTaskExecError), "sequencer exec error")
+		t.canon.setDiscard(false)
+	}
+	// StartSequencer (inside) clears seqFaulted; the terminal ExecError is
+	// re-committed after the join.
 	t.restartSequencer(InterpIdle, ExecError)
 }
 

@@ -402,6 +402,14 @@ type Task struct {
 	// command's state. Guarded by t.mu; only mutated under cmdMu (executeMDI).
 	mdiGen uint64
 
+	// seqFaulted is set by seqFaultExit when the sequencer dies on a hard fault
+	// and cleared by StartSequencer/StopSequencer. While set, the interpreter
+	// still carries the aborted run's state (stale toolchange/probe/input
+	// flags): recoverSeqFault (spawned by seqFaultExit) and the MDI/AUTO front
+	// doors run interp on_abort + a sequencer restart before anything else may
+	// use the interpreter. Guarded by t.mu.
+	seqFaulted bool
+
 	// Sequencer-level pause/step control
 	seqPauseCh  chan struct{} // closed to request sequencer pause
 	seqResumeCh chan struct{} // closed to wake sequencer from pause

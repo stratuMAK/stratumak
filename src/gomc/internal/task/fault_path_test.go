@@ -174,6 +174,59 @@ func TestSeqFaultExit_StopsMachineWithExecErrorReason(t *testing.T) {
 	}
 }
 
+// TestSeqFault_RecoversInterpWithoutProducer is the regression test for the
+// producer-less leg of the sequencer fault path. A queued command rejected by
+// the sequencer after the producer is gone (MDI whose mdiDoneCmd never runs,
+// or a program past its last enqueue) used to leave the interpreter's
+// toolchange/probe flags stale forever: canon swallows enqueue errors, so the
+// faultProgram/faultMDI cascade the old seqFaultExit comment promised never
+// fired, and the next MDI ran against the dirty interp. seqFaultExit must now
+// hand off to recoverSeqFault, which runs on_abort with
+// EMC_ABORT_TASK_EXEC_ERROR (2.9 emcAbortCleanup(1)) and restarts the
+// sequencer so the task accepts new work.
+func TestSeqFault_RecoversInterpWithoutProducer(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+
+	mot := &faultSeqMotion{failSetLine: true}
+	io := &recordingIO{}
+	stat := &mockStatus{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	task := NewTask(mot, io, stat, logger)
+	task.numSpindles = 1
+	ri := &recordingInterp{}
+	task.SetInterpreter(ri)
+
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	// No producer goroutine exists: the command is enqueued directly, like an
+	// MDI whose interpreter work already finished.
+	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+
+	if !waitForCond(2*time.Second, func() bool { return ri.abortCalls.Load() > 0 }) {
+		t.Fatal("sequencer fault must run interp on_abort even with no live producer")
+	}
+	if got := ri.abortReason.Load(); got != int64(emcAbortTaskExecError) {
+		t.Fatalf("interp.Abort reason = %d, want %d (EMC_ABORT_TASK_EXEC_ERROR)", got, emcAbortTaskExecError)
+	}
+	// Recovery restarts the sequencer (with the terminal ExecError latched), so
+	// the next command does not fail on a dead queue.
+	if !waitForCond(2*time.Second, func() bool { return task.SeqRunning() }) {
+		t.Fatal("recoverSeqFault must restart the sequencer")
+	}
+	task.mu.Lock()
+	es := task.execState
+	faulted := task.seqFaulted
+	task.mu.Unlock()
+	if es != ExecError {
+		t.Fatalf("execState = %v, want ExecError", es)
+	}
+	if faulted {
+		t.Fatal("seqFaulted must be cleared once recovery has run")
+	}
+}
+
 // TestFaultProgram_RunsOnAbortNoIOAbort is the regression test for the AUTO
 // (readahead) leg. 2.9's readahead-execute error does interp_list.clear() +
 // emcAbortCleanup(EMC_ABORT_INTERPRETER_ERROR=9) -> Interp::on_abort(9) and,

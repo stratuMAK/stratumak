@@ -102,6 +102,9 @@ func (t *Task) StartSequencer() {
 	t.seqAbort = make(chan struct{})
 	t.seqPauseCh = make(chan struct{})
 	t.seqResumeCh = make(chan struct{})
+	// Every restart path resets/aborts the interpreter before or with the new
+	// generation, so a pending recoverSeqFault has nothing left to clean up.
+	t.seqFaulted = false
 	t.mu.Unlock()
 
 	go t.sequencerLoop()
@@ -117,6 +120,9 @@ func (t *Task) StopSequencer() {
 	done := t.seqDone
 	// Close under t.mu (atomic check-then-close vs sequencerLoop / other closers).
 	t.closeOnceLocked(abort)
+	// A deliberate stop owns the shutdown: disarm any pending recoverSeqFault so
+	// it cannot restart the sequencer behind the stopping caller's back.
+	t.seqFaulted = false
 	t.mu.Unlock()
 
 	if abort == nil {
@@ -737,9 +743,14 @@ func (t *Task) setInterpState(s InterpState) {
 // monitor's error check does not independently fire. These are external comm
 // calls (serialized by the motion/IO send mutex) and idempotent, so overlapping
 // with a concurrent monitor teardown is harmless. The interpreter is deliberately
-// NOT touched here — it is owned by the producer/MDI goroutine, whose next
-// enqueue fails once seqAbort is closed and routes to faultProgram/faultMDI for
-// on_abort; touching it from the sequencer goroutine would race that owner.
+// NOT touched here — it is owned by the producer/MDI goroutine, and touching it
+// from the sequencer goroutine would race that owner. Instead seqFaultExit sets
+// seqFaulted and spawns recoverSeqFault, which serializes through cmdMu +
+// waitRunProgramDone and runs interp on_abort with EMC_ABORT_TASK_EXEC_ERROR —
+// 2.9's unconditional emcAbortCleanup(1) in the EMC_TASK_EXEC_ERROR case. (The
+// producer, when one is alive, exits via its abort select without running
+// faultProgram: canon swallows EnqueueCmd errors, so the fault cascade this
+// comment used to promise never fires — recovery cannot be left to it.)
 func (t *Task) seqFaultExit() {
 	t.mu.Lock()
 	numSpindles := t.numSpindles
@@ -759,8 +770,14 @@ func (t *Task) seqFaultExit() {
 	t.mdiQueue = t.mdiQueue[:0]
 	t.taskCommand = ""
 	t.mdiGen++
+	t.seqFaulted = true
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
+
+	// Interp on_abort + sequencer restart, off this goroutine (see doc comment;
+	// taking cmdMu here would deadlock against an MDI producer that holds cmdMu
+	// until the seqAbort close above unblocks its EnqueueCmd).
+	go t.recoverSeqFault()
 }
 
 // --- Concrete QueuedCmd types ---
