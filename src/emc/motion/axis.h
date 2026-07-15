@@ -44,8 +44,8 @@ void axis_set_locking_joint(axis_inst_t *ai, int axis_num, int joint) GOMC_NONBL
 
 double axis_get_min_pos_limit(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;
 double axis_get_max_pos_limit(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;
-double axis_get_vel_limit(axis_inst_t *ai, int axis_num);
-double axis_get_acc_limit(axis_inst_t *ai, int axis_num);
+double axis_get_vel_limit(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;
+double axis_get_acc_limit(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;
 int axis_get_locking_joint(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;
 double axis_get_compound_velocity(axis_inst_t *ai) GOMC_NONBLOCKING;
 double axis_get_ext_offset_curr_pos(axis_inst_t *ai, int axis_num) GOMC_NONBLOCKING;

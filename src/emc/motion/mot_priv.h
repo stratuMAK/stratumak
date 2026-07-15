@@ -164,11 +164,11 @@ extern int motmod_kinematicsSwitchable(motmod_inst_t *inst) GOMC_NONBLOCKING;
 extern int motmod_kinematicsSwitch(motmod_inst_t *inst, int switchkins_type) GOMC_NONBLOCKING;
 
 /* synchronized I/O */
-extern void emcmotDioWrite(motmod_inst_t *inst, int index, char value);
-extern void emcmotAioWrite(motmod_inst_t *inst, int index, double value);
+extern void emcmotDioWrite(motmod_inst_t *inst, int index, char value) GOMC_NONBLOCKING;
+extern void emcmotAioWrite(motmod_inst_t *inst, int index, double value) GOMC_NONBLOCKING;
 
-extern void emcmotSetRotaryUnlock(motmod_inst_t *inst, int axis, int unlock);
-extern int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int axis);
+extern void emcmotSetRotaryUnlock(motmod_inst_t *inst, int axis, int unlock) GOMC_NONBLOCKING;
+extern int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int axis) GOMC_NONBLOCKING;
 
 void switch_to_teleop_mode(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
