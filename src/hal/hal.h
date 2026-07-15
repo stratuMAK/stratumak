@@ -693,6 +693,15 @@ extern int hal_get_param_value_by_name(
 *                   EXECUTION RELATED FUNCTIONS                        *
 ************************************************************************/
 
+/** Signature of a HAL realtime (cyclic) function.  The RTAPI_NONBLOCKING
+    type annotation makes assigning a function that is not itself
+    annotated nonblocking to a funct pointer a -Wfunction-effects
+    diagnostic (see "make rt-effects-check") — this closes the
+    function-pointer indirection between the HAL thread dispatcher and
+    component code.  On gcc the annotation expands to nothing and the
+    type is identical to the traditional void (*)(void *, long). */
+typedef void (*hal_funct_ptr_t)(void *arg, long period) RTAPI_NONBLOCKING;
+
 /** hal_export_funct() makes a realtime function provided by a
     component available to the system.  A subsequent call to
     hal_add_funct_to_thread() can be used to schedule the
@@ -724,7 +733,7 @@ extern int hal_get_param_value_by_name(
     Call only from realtime init code, not from user space or
     realtime code.
 */
-extern int hal_export_funct(const char *name, void (*funct) (void *, long),
+extern int hal_export_funct(const char *name, hal_funct_ptr_t funct,
     void *arg, int uses_fp, int reentrant, int comp_id);
 
 /** hal_create_thread() establishes a realtime thread that will

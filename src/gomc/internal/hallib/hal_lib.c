@@ -1795,7 +1795,7 @@ int hal_get_param_value_by_name(
 *                   EXECUTION RELATED FUNCTIONS                        *
 ************************************************************************/
 
-int hal_export_funct(const char *name, void (*funct) (void *, long),
+int hal_export_funct(const char *name, hal_funct_ptr_t funct,
     void *arg, int uses_fp, int reentrant, int comp_id)
 {
     void **prev; void *next;

@@ -927,6 +927,10 @@ int rtapi_task_resume(int task_id)
     return task_resume(task_id);
 }
 
+/* TRUSTED: task_self and the pll accessors resolve per-thread state via
+ * pthread_getspecific(), which is a plain TLS lookup — no lock, no
+ * syscall, no allocation. */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 int rtapi_task_self(void)
 {
     return task_self();
@@ -947,6 +951,7 @@ int rtapi_task_pll_set_correction(long value)
 {
     return task_pll_set_correction(value);
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 void rtapi_wait(void)
 {
@@ -967,16 +972,25 @@ long int simple_strtol(const char *nptr, char **endptr, int base) {
     return strtol(nptr, endptr, base);
 }
 
+/* TRUSTED: rtapi_get_time reads CLOCK_MONOTONIC via clock_gettime(),
+ * which is a vDSO read on Linux — no syscall, no lock, no allocation. */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 long long rtapi_get_time(void) {
     return do_get_time();
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 long int rtapi_delay_max(void) { return 10000; }
 
+/* TRUSTED: rtapi_delay sleeps via clock_nanosleep, but the delay is
+ * clamped to rtapi_delay_max() (10 us) — a bounded, deliberate busy
+ * delay that drivers use inside the cycle (e.g. bit-bang timing). */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 void rtapi_delay(long ns) {
     if(ns > rtapi_delay_max()) ns = rtapi_delay_max();
     do_delay(ns);
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 const unsigned long ONE_SEC_IN_NS = 1000000000;
 void rtapi_timespec_advance(struct timespec *result, const struct timespec *src, unsigned long nsec)
