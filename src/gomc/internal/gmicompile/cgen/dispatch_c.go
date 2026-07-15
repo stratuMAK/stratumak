@@ -178,7 +178,7 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemCType, name, name)
 		}
-		return fmt.Sprintf("const %s *%s, size_t %s_len", elemCType, name, name)
+		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemCType), name, name)
 
 	case ast.TypeArray:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
@@ -186,7 +186,7 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s %s[%s]", elemCType, name, sizeStr)
 		}
-		return fmt.Sprintf("const %s %s[%s]", elemCType, name, sizeStr)
+		return fmt.Sprintf("%s %s[%s]", constType(elemCType), name, sizeStr)
 	}
 
 	return fmt.Sprintf("void *%s", name)

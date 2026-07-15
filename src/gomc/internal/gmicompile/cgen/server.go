@@ -207,6 +207,15 @@ func primitiveToCType(name string) string {
 	return "int"
 }
 
+// constType const-qualifies a C type unless it already is (string maps to
+// "const char *" — prepending another const would emit "const const").
+func constType(cType string) string {
+	if strings.HasPrefix(cType, "const ") {
+		return cType
+	}
+	return "const " + cType
+}
+
 // isCallback returns true if name matches a declared callback type.
 func (g *serverGen) isCallback(name string) bool {
 	for _, cb := range g.api.Callbacks {
@@ -365,7 +374,7 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemType, name, name)
 		}
-		return fmt.Sprintf("const %s *%s, size_t %s_len", elemType, name, name)
+		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemType), name, name)
 
 	case ast.TypeArray:
 		elemType := g.toCType(*p.Type.Elem)
@@ -373,7 +382,7 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s %s[%s]", elemType, name, sizeStr)
 		}
-		return fmt.Sprintf("const %s %s[%s]", elemType, name, sizeStr)
+		return fmt.Sprintf("%s %s[%s]", constType(elemType), name, sizeStr)
 	}
 
 	return fmt.Sprintf("void *%s", name)
