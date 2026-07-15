@@ -1071,8 +1071,11 @@ var pollInterval = 10 * time.Millisecond
 // responding), NOT slow execution. Motion moves and tool changes can take
 // arbitrarily long; what we guard against is a dead controller.
 var (
-	// If status reads fail for this many consecutive polls, declare comm failure.
-	commFailureThreshold = 100 // 100ms at 1ms poll = 100ms of no valid response
+	// If status reads fail for this many consecutive polls, declare comm
+	// failure (~1 s at the 10 ms pollInterval; tests that shrink pollInterval
+	// via SetPollInterval shrink this timeout with it). The monitor's comm
+	// watchdog has its own independent constant (commWatchdogTicks).
+	commFailureThreshold = 100
 )
 
 // SetPollInterval allows tests to speed up polling. Not thread-safe — call before StartSequencer.

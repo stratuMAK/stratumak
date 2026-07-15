@@ -12,6 +12,16 @@ import (
 // 10ms = 100Hz, matching the C milltask cycle time.
 const monitorInterval = 10 * time.Millisecond
 
+// commWatchdogTimeout is how long motion-status reads must fail consecutively
+// before checkCommWatchdog faults the machine off; commWatchdogTicks is that
+// timeout expressed in monitor ticks. Owned by the monitor — deliberately NOT
+// the sequencer's commFailureThreshold, so retuning the wait-helper comm
+// timeout cannot silently rescale this safety trip time (and vice versa).
+const (
+	commWatchdogTimeout = 1 * time.Second
+	commWatchdogTicks   = int(commWatchdogTimeout / monitorInterval)
+)
+
 // IOFullStatus holds the fields needed by the monitor from the IO controller.
 type IOFullStatus struct {
 	Estop  bool
@@ -409,8 +419,8 @@ func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimi
 // detached) and the machine would otherwise keep "running" blind against stale
 // status. This is gomc's analogue of 2.9's loss of the motion NML heartbeat.
 //
-// A good read resets the counter, so the ~commFailureThreshold consecutive
-// failures required (≈1 s at the 10 ms monitor tick) can only be reached by a
+// A good read resets the counter, so the commWatchdogTicks consecutive
+// failures required (commWatchdogTimeout ≈ 1 s) can only be reached by a
 // real outage, never by the occasional split-read. On trip it forces the same
 // error-stop as an unexpected motion-disable (abort motion+IO, stop spindles,
 // latch ExecError, leave coolant/lube/homing), and reports the cause.
@@ -421,7 +431,7 @@ func (m *monitor) checkCommWatchdog(err error) {
 		return
 	}
 	m.commErrors++
-	if m.commErrors < commFailureThreshold {
+	if m.commErrors < commWatchdogTicks {
 		return
 	}
 	m.commErrors = 0

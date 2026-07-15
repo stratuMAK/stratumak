@@ -244,14 +244,14 @@ func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 	stat.setCommError(true)
 
 	// One below the threshold: still no fault — the machine stays ON.
-	for i := 0; i < commFailureThreshold-1; i++ {
+	for i := 0; i < commWatchdogTicks-1; i++ {
 		drive()
 	}
 	task.mu.Lock()
 	st := task.state
 	task.mu.Unlock()
 	if st != StateOn {
-		t.Fatalf("watchdog fired early after %d read errors: state=%v, want StateOn", commFailureThreshold-1, st)
+		t.Fatalf("watchdog fired early after %d read errors: state=%v, want StateOn", commWatchdogTicks-1, st)
 	}
 
 	// The threshold-crossing read triggers the fault.
