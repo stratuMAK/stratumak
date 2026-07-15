@@ -632,6 +632,23 @@ static void *task_wrapper(void *arg)
     void *stack_lockaddr = NULL;
     size_t stack_locksize = 0;
 
+    /* Block Go runtime signals on this RT thread.  Go uses SIGURG for
+     * async goroutine preemption and SIGPROF for profiling; a
+     * process-directed instance of either may be delivered to any thread
+     * that has not blocked it — including this one, mid-cycle.  Synchronous
+     * fault signals (SIGSEGV etc.) are unaffected by the thread mask. */
+    {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGURG);
+        sigaddset(&set, SIGPROF);
+        int res = pthread_sigmask(SIG_BLOCK, &set, NULL);
+        if (res != 0) {
+            rtapi_print_msg(RTAPI_MSG_WARN,
+                "task_wrapper: pthread_sigmask failed: %s\n", strerror(res));
+        }
+    }
+
     /* Lock our own stack into RAM — must happen before any RT work.
      * Uses pthread_self() so there is no race with the parent thread. */
 #ifdef __linux__
