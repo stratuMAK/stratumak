@@ -20,6 +20,7 @@ Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited)
 - `hal_stream_readable()/writable()/depth()` now use acquire loads on `in`/`out` (ARM memory-ordering hole closed, `hal_lib.c`).
 - `halscope_alloc()` now uses `rtapi_calloc`/`rtapi_free` — capture buffers prefaulted + mlocked.
 - Stale "SysV shmem / SHM_LOCK" strategy comment corrected (`uspace_rtapi_lib.c`).
+- cgo + modcompile now honor the configured C/C++ compiler (`GOMC_CGOENV`, baked `config.CCompiler/CxxCompiler`): a `CC=clang` configure now clang-compiles the cgo RT translation units too — previously they silently stayed gcc even in the `rip-and-test-clang` CI job. Verified: clang-built `gomc-server`, whole tree compiles under clang (warnings only).
 
 **Biggest open gaps (priority order):**
 1. **No forbidden-call enforcement at all** (§2): no `[[clang::nonblocking]]`, no `-Wfunction-effects`, no RTSan anywhere in the tree. A Clang build+test CI job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`) that could host both.
@@ -154,7 +155,7 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 ### Forbidden-call enforcement
 - [ ] RT entry points annotated `[[clang::nonblocking]]` — no occurrence in the tree.
 - [ ] HAL cyclic dispatch function-pointer *type* is `nonblocking` — `hal_funct_t`/funct pointers are plain types (`hal_lib.c:2984` dispatch).
-- [ ] Clang CI job: `-Wfunction-effects -Werror` on all RT translation units — not present; note a Clang build+test job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`, post-merge on `gomc`) that could carry the flag.
+- [ ] Clang CI job: `-Wfunction-effects -Werror` on all RT translation units — not present; note a Clang build+test job already exists (`.github/workflows/ci.yml` `rip-and-test-clang`, post-merge on `gomc`) that could carry the flag. Since `rt-validate` the job's `CC=clang` also reaches the cgo-compiled RT units (hallib, halscope, shims) — before, cgo silently fell back to gcc there. The job is gated to post-merge pushes on `gomc`, so PR branches never trigger it.
 - [ ] Clang CI job: `-fsanitize=realtime` against the sim — not present.
 - [ ] Every `__rtsan_disable` / `NONBLOCKING_UNSAFE` exemption is reviewed & justified — N/A until RTSan is introduced (no occurrences).
 
