@@ -302,8 +302,8 @@ static ec_sync_info_t lcec_el7041_1000_syncs[] = {
     {0xff}
 };
 
-void lcec_el7041_1000_read(struct lcec_slave *s, long period);
-void lcec_el7041_1000_write(struct lcec_slave *s, long period);
+void lcec_el7041_1000_read(struct lcec_slave *s, long period) GOMC_NONBLOCKING;
+void lcec_el7041_1000_write(struct lcec_slave *s, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EL7041-1000 HAL component and map PDOs.

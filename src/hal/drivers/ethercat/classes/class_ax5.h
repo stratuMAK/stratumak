@@ -137,7 +137,7 @@ int lcec_class_ax5_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry
  * @param slave  Pointer to the EtherCAT slave descriptor.
  * @param chan   Per-channel data structure for this axis.
  */
-void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan);
+void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) GOMC_NONBLOCKING;
 
 /**
  * @brief Write HAL input pin values to the drive process data.
@@ -150,6 +150,6 @@ void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan);
  * @param slave  Pointer to the EtherCAT slave descriptor.
  * @param chan   Per-channel data structure for this axis.
  */
-void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan);
+void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) GOMC_NONBLOCKING;
 
 #endif

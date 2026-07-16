@@ -129,6 +129,14 @@ static const uint32_t iocookie[3] = {
 /*
  * Buffer management for queued transfers.
  */
+/* TRUSTED: the queue buffers grow with rtapi->calloc/realloc from the
+ * servo thread.  These are warm-up allocations: capacity only ever grows
+ * and reaches a steady state within the first cycles once the tram queue
+ * size is established, after which this function never allocates again.
+ * A setup-time preallocation to remove the warm-up allocations is tracked
+ * in RT_HARDENING_CHECKLIST.md. */
+static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
 static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize)
 {
 	if(!b->ptr || !b->na) {
@@ -149,6 +157,7 @@ static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, s
 	}
 	return 0;
 }
+GOMC_NONBLOCKING_TRUSTED_END
 
 static void buffer_free(const gomc_rtapi_t *rtapi, buffer_t *b)
 {
@@ -164,7 +173,7 @@ static void buffer_free(const gomc_rtapi_t *rtapi, buffer_t *b)
  * HM2 interface: Write buffer to SPI
  * Writes the buffer to SPI, prepended with a command word.
  */
-static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size)
+static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int txlen = size / sizeof(uint32_t);	// uint32_t words to transmit
@@ -185,7 +194,7 @@ static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *bu
  * Reads from SPI after sending the appropriate command. Sends one word with
  * the command followed by writing zeros while reading.
  */
-static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size)
+static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rxlen = size / sizeof(uint32_t);	// uint32_t words to receive
@@ -208,7 +217,7 @@ static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, i
  * HM2 interface: Queue read
  * Collects the read address and buffer for bulk-read later on.
  */
-static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size)
+static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rxlen = size / sizeof(uint32_t);
@@ -249,7 +258,7 @@ static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buf
  * Performs a SPI transfer of all collected read requests in one burst and
  * copies back the data received in the individual buffers.
  */
-static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio)
+static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
 {
 	uint32_t cookie[3] = {0, 0, 0};
 	spix_board_t *brd = (spix_board_t *)llio;
@@ -284,7 +293,7 @@ static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio)
  * performed in hm2_spix_send_queued_reads() above. The data was copied to
  * the requester(s) immediately after the transfer.
  */
-static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio)
+static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
 {
 	(void)llio;
 	return 1;
@@ -294,7 +303,7 @@ static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio)
  * HM2 interface: Queue write
  * Collects the write address and data for bulk-write later on.
  */
-static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size)
+static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int txlen = size / sizeof(uint32_t);
@@ -320,7 +329,7 @@ static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const vo
  * HM2 interface: Send queued writes
  * Performs a SPI transfer of all collected write requests in one burst.
  */
-static int hm2_spix_send_queued_writes(hm2_lowlevel_io_t *llio)
+static int hm2_spix_send_queued_writes(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rv = brd->port->transfer(brd->port, brd->wbuf.ptr, brd->wbuf.n, 0);

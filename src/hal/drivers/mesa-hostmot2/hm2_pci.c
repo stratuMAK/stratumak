@@ -219,7 +219,7 @@ static struct rtapi_pci_device_id hm2_pci_tbl[] = {
 // these are the "low-level I/O" functions exported up
 //
 
-static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) {
+static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
     hm2_pci_t *board = this->private;
     void *src = board->base + addr;
 
@@ -233,7 +233,7 @@ static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, in
     return 1;  // success
 }
 
-static int hm2_pci_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) {
+static int hm2_pci_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
     hm2_pci_t *board = this->private;
     void *dest = board->base + addr;
 

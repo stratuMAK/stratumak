@@ -132,7 +132,7 @@ static ec_sync_info_t lcec_el3314_syncs[] = {
     {0xff}
 };
 
-void lcec_el3314_read(struct lcec_slave *slave, long period);
+void lcec_el3314_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an EL3314 slave: allocate HAL memory, register PDOs, and create HAL pins.

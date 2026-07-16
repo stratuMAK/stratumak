@@ -146,7 +146,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                        hm2->llio->name);
         ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                  &(hm2->resolver.hal->param.excitation_khz), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
         if (ret < 0) {
             HM2_ERR("error adding param '%s', aborting\n", name);
             goto fail1;
@@ -159,7 +159,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.position),
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -169,7 +169,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.angle), 
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -179,7 +179,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.velocity), 
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -189,7 +189,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                    &(hm2->resolver.instance[i].hal.pin.velocity_rpm),
-                                   hm2->llio->comp_id, name);
+                                   hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -199,7 +199,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.count), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -209,7 +209,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.rawcounts), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -219,7 +219,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, 
                                  &(hm2->resolver.instance[i].hal.pin.reset), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -229,7 +229,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                  &(hm2->resolver.instance[i].hal.pin.index_enable), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -239,7 +239,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.error), 
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -249,7 +249,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN,
                                  &(hm2->resolver.instance[i].hal.pin.joint_pos_fb),
-                                 hm2->llio->comp_id, name);
+                                 hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -260,7 +260,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.scale), 
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -270,7 +270,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.vel_scale), 
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -280,7 +280,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.index_div),
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -290,7 +290,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
                            hm2->llio->name, i);
             ret= gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.use_abs),
-                                     hm2->llio->comp_id, name);
+                                     hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -322,13 +322,12 @@ fail0:
     return r;
 }
 
-void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) {
+void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
     (void)period;
     int i;
     hm2_resolver_instance_t *res;
     double scale;
-    static int cycle_count = 0;
-    static double old_pos;
+    double old_pos;
     
     if (hm2->resolver.num_instances <= 0) return;
     
@@ -354,7 +353,7 @@ void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) {
             int turns;
 
             old_pos = *res->hal.pin.joint_pos_fb;
-            if (old_pos == 0 && cycle_count++ < 5000 ) { // position.txt not updated yet. Or (small probability) position.txt = 0
+            if (old_pos == 0 && hm2->resolver.abs_init_cycle_count++ < 5000 ) { // position.txt not updated yet. Or (small probability) position.txt = 0
                 continue; // stop and process next resolver
             }
 
@@ -414,16 +413,15 @@ void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) {
 }
 
 // This function needs to be modified so that it does not call llio->read, which hurts performance on hm2-eth
-void hm2_resolver_write(hostmot2_t *hm2, long period){
-    //This function needs to handle comms handshaking, so is written as a state machine
-    static int state = 0;
-    static uint32_t cmd_val, data_val;
-    static uint32_t timer;
+void hm2_resolver_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
+    //This function needs to handle comms handshaking, so is written as a state
+    //machine.  Its state lives per-board in hm2->resolver.wr_* (formerly
+    //function-local statics, shared across boards).
     uint32_t buff;
     
     if (hm2->resolver.num_instances <= 0) return;
     
-    switch (state){
+    switch (hm2->resolver.wr_state){
         case 0: // Idle/waiting
             if (hm2->resolver.hal->param.excitation_khz < 0){
                 return;
@@ -433,20 +431,20 @@ void hm2_resolver_write(hostmot2_t *hm2, long period){
                     hm2->resolver.hal->param.excitation_khz = 10;
                     hm2->resolver.written_khz = 10;
                     hm2->resolver.kHz = (hm2->resolver.clock_frequency / 5000);
-                    cmd_val = 0x803;
+                    hm2->resolver.wr_cmd_val = 0x803;
                 } else if (hm2->resolver.hal->param.excitation_khz > 4){
                     hm2->resolver.hal->param.excitation_khz = 5;
                     hm2->resolver.written_khz = 5;
                     hm2->resolver.kHz = (hm2->resolver.clock_frequency / 10000);
-                    cmd_val = 0x802;
+                    hm2->resolver.wr_cmd_val = 0x802;
                 }else{
                     hm2->resolver.hal->param.excitation_khz = 2.5;
                     hm2->resolver.written_khz = 2.5;
                     hm2->resolver.kHz= (hm2->resolver.clock_frequency / 20000);
-                    cmd_val = 0x801;
+                    hm2->resolver.wr_cmd_val = 0x801;
                 }
-                state = 10;
-                timer = 0;
+                hm2->resolver.wr_state = 10;
+                hm2->resolver.wr_timer = 0;
                 return;
             }
             break;
@@ -454,32 +452,32 @@ void hm2_resolver_write(hostmot2_t *hm2, long period){
             hm2->llio->read(hm2->llio,hm2->resolver.command_addr, 
                             &buff, sizeof(uint32_t));
             if (buff){
-                timer += period;
-                if (timer > 1e9){
+                hm2->resolver.wr_timer += period;
+                if (hm2->resolver.wr_timer > 1e9){
                     HM2_ERR("Command not cleared in hm2_resolver, setting aborted");
-                    state = 0;
+                    hm2->resolver.wr_state = 0;
                 }
                 return;
             }
             hm2->llio->write(hm2->llio, hm2->resolver.data_addr,
-                             &data_val,sizeof(uint32_t));
+                             &hm2->resolver.wr_data_val,sizeof(uint32_t));
             hm2->llio->write(hm2->llio, hm2->resolver.command_addr,
-                             &cmd_val,sizeof(uint32_t));
-            state = 20;
-            timer = 0;
+                             &hm2->resolver.wr_cmd_val,sizeof(uint32_t));
+            hm2->resolver.wr_state = 20;
+            hm2->resolver.wr_timer = 0;
             return;
         case 20: // wait for command to clear before processing any more params
             hm2->llio->read(hm2->llio,hm2->resolver.command_addr, 
                             &buff, sizeof(uint32_t));
             if (buff){
-                timer += period;
-                if (timer > 1e9){
+                hm2->resolver.wr_timer += period;
+                if (hm2->resolver.wr_timer > 1e9){
                     HM2_ERR("Command not cleared after setting in hm2_resolver");
-                    state = 0;
+                    hm2->resolver.wr_state = 0;
                 }
                 return;
             }          
-            state = 0;
+            hm2->resolver.wr_state = 0;
             return;
             break;
         default: // That's odd
@@ -494,7 +492,7 @@ void hm2_resolver_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_resolver_print_module(hostmot2_t *hm2) {
+void hm2_resolver_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->resolver.num_instances <= 0) return;
     HM2_PRINT("resolvers: %d\n", hm2->resolver.num_instances);

@@ -49,46 +49,58 @@ func init() -> i32
 func create(queue_size: i32, comp_id: i32) -> i32
 
 @doc "Clear the trajectory planner queue"
+@rt_safe "true"
 func clear() -> i32
 
 # --- Configuration ---
 
 @doc "Set the cycle time (servo period)"
+@rt_safe "true"
 func set_cycle_time(secs: f64) -> i32
 
 @doc "Set maximum velocity"
+@rt_safe "true"
 func set_vmax(vmax: f64, ini_maxvel: f64) -> i32
 
 @doc "Set velocity limit"
+@rt_safe "true"
 func set_vlimit(limit: f64) -> i32
 
 @doc "Set maximum acceleration"
+@rt_safe "true"
 func set_amax(amax: f64) -> i32
 
 @doc "Set current segment ID"
+@rt_safe "true"
 func set_id(id: i32) -> i32
 
 @doc "Set the current position"
+@rt_safe "true"
 func set_pos(pos: Pose byref) -> i32
 
 @doc "Set termination condition and tolerance"
+@rt_safe "true"
 func set_term_cond(cond: i32, tolerance: f64) -> i32
 
 @doc "Set spindle synchronization"
+@rt_safe "true"
 func set_spindle_sync(spindle: i32, sync: f64, wait: i32) -> i32
 
 @doc "Set run direction (forward/reverse)"
+@rt_safe "true"
 func set_run_dir(dir: Direction) -> i32
 
 # --- Motion segment addition ---
 
 @doc "Add a linear motion segment"
+@rt_safe "true"
 func add_line(end: Pose,
               canon_motion_type: i32, vel: f64, ini_maxvel: f64,
               acc: f64, enables: u8, atspeed: i8,
               indexrotary: i32, feed_mm_per_min: f64) -> i32
 
 @doc "Add a circular arc motion segment"
+@rt_safe "true"
 func add_circle(end: Pose,
                 center: Cartesian, normal: Cartesian,
                 turn: i32, canon_motion_type: i32,
@@ -96,14 +108,17 @@ func add_circle(end: Pose,
                 enables: u8, atspeed: i8, feed_mm_per_min: f64) -> i32
 
 @doc "Add a rigid tapping motion segment"
+@rt_safe "true"
 func add_rigid_tap(end: Pose,
                    vel: f64, ini_maxvel: f64, acc: f64,
                    enables: u8, scale: f64, feed_mm_per_min: f64) -> i32
 
 @doc "Set synchronized analog output on current segment"
+@rt_safe "true"
 func set_aout(index: u8, start_val: f64, end_val: f64) -> i32
 
 @doc "Set synchronized digital output on current segment"
+@rt_safe "true"
 func set_dout(index: i32, start_val: u8, end_val: u8) -> i32
 
 # --- Execution control ---
@@ -113,39 +128,51 @@ func set_dout(index: i32, start_val: u8, end_val: u8) -> i32
 func run_cycle(period: i64) -> i32
 
 @doc "Pause trajectory execution"
+@rt_safe "true"
 func pause() -> i32
 
 @doc "Resume trajectory execution"
+@rt_safe "true"
 func resume() -> i32
 
 @doc "Abort trajectory execution"
+@rt_safe "true"
 func abort() -> i32
 
 # --- Queries ---
 
 @doc "Get the executing segment ID"
+@rt_safe "true"
 func get_exec_id() -> i32
 
 @doc "Get the executing segment feed rate in mm per minute"
+@rt_safe "true"
 func get_feed_mm_per_min() -> f64
 
 @doc "Get the current position"
+@rt_safe "true"
 func get_pos(pos: Pose byref) -> i32
 
 @doc "Returns 1 if the trajectory planner is done"
+@rt_safe "true"
 func is_done() -> i32
 
 @doc "Get the number of segments in the queue"
+@rt_safe "true"
 func queue_depth() -> i32
 
 @doc "Get the number of active (executing) segments"
+@rt_safe "true"
 func active_depth() -> i32
 
 @doc "Get the current motion type"
+@rt_safe "true"
 func get_motion_type() -> i32
 
 @doc "Returns 1 if the trajectory queue is full"
+@rt_safe "true"
 func queue_full() -> i32
 
 @doc "Get the current run direction (0=forward, 1=reverse)"
+@rt_safe "true"
 func get_run_dir() -> i32

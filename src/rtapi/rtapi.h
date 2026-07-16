@@ -72,6 +72,10 @@
 #define RTAPI_END_DECLS
 #endif
 
+/** Realtime function-effect annotations (RTAPI_NONBLOCKING and the
+    TRUSTED exemption pragmas) — see rtapi_rt_check.h. */
+#include "rtapi_rt_check.h"
+
 RTAPI_BEGIN_DECLS
 
 /***********************************************************************
@@ -175,8 +179,8 @@ RTAPI_BEGIN_DECLS
     as one nano-second, or as bad as a several microseconds.  May be
     called from init/cleanup code, and from within realtime tasks.
 */
-    extern void rtapi_delay(long int nsec);
-    extern long int rtapi_delay_max(void);
+    extern void rtapi_delay(long int nsec) RTAPI_NONBLOCKING;
+    extern long int rtapi_delay_max(void) RTAPI_NONBLOCKING;
 
 
 /** rtapi_get_time returns the current time in nanoseconds.  Depending
@@ -203,7 +207,7 @@ RTAPI_BEGIN_DECLS
     rtapi_get_time, and deltat is an ordinary long int (32 bits).
     This will work for times up to about 2 seconds.
 */
-    extern long long int rtapi_get_time(void);
+    extern long long int rtapi_get_time(void) RTAPI_NONBLOCKING;
 
 /** rtapi_get_clocks returns the current time in CPU clocks.  It is 
     fast, since it just reads the TSC in the CPU instead of calling a
@@ -230,7 +234,7 @@ RTAPI_BEGIN_DECLS
     CPU clock frequency.  It is best used for millisecond and 
     microsecond scale measurements though.
 */
-    extern long long int rtapi_get_clocks(void);
+    extern long long int rtapi_get_clocks(void) RTAPI_NONBLOCKING;
 
 
 /***********************************************************************
@@ -364,7 +368,7 @@ RTAPI_BEGIN_DECLS
 /** 'rtapi_task_self()' returns the task ID of the current task or -EINVAL.
     May be called from init/cleanup code, and from within realtime tasks.
 */
-    extern int rtapi_task_self(void);
+    extern int rtapi_task_self(void) RTAPI_NONBLOCKING;
 
 /** 'rtapi_task_self_ptr()' returns a pointer to the current task's
     rtapi_task struct, or NULL if not called from a task context.
@@ -380,7 +384,7 @@ RTAPI_BEGIN_DECLS
     Returns 0 if not called from within task context or on
     platforms that do not support this.
 */
-    extern long long rtapi_task_pll_get_reference(void);
+    extern long long rtapi_task_pll_get_reference(void) RTAPI_NONBLOCKING;
 
 /** 'rtapi_task_pll_set_correction()' sets the correction value for
     the next scheduling cycle of the current task. This could be
@@ -388,7 +392,7 @@ RTAPI_BEGIN_DECLS
     Returns -EINVAL if not called from within task context or on
     platforms that do not support this.
 */
-    extern int rtapi_task_pll_set_correction(long value);
+    extern int rtapi_task_pll_set_correction(long value) RTAPI_NONBLOCKING;
 
 /***********************************************************************
 *                  SHARED MEMORY RELATED FUNCTIONS                     *
@@ -486,14 +490,14 @@ RTAPI_BEGIN_DECLS
     Note: This function does nothing on the simulated RTOS.
     Note: Many platforms provide an inline outb() that is faster.
 */
-    extern void rtapi_outb(unsigned char byte, unsigned int port);
+    extern void rtapi_outb(unsigned char byte, unsigned int port) RTAPI_NONBLOCKING;
 
 /** 'rtapi_inb() gets a byte from 'port'.  Returns the byte.  May
     be called from init/cleanup code, and from within realtime tasks.
     Note: This function always returns zero on the simulated RTOS.
     Note: Many platforms provide an inline inb() that is faster.
 */
-    extern unsigned char rtapi_inb(unsigned int port);
+    extern unsigned char rtapi_inb(unsigned int port) RTAPI_NONBLOCKING;
 
 #define rtapi_request_region(base, size, name) ((void*)-1)
 #define rtapi_release_region(base, size) ((void)0)

@@ -141,14 +141,14 @@ func (g *clientGoInternalGen) cParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemCType, name, name)
 		}
-		return fmt.Sprintf("const %s *%s, size_t %s_len", elemCType, name, name)
+		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemCType), name, name)
 
 	case ast.TypeArray:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
 		if p.ByRef {
 			return fmt.Sprintf("%s %s[%d]", elemCType, name, p.Type.ArrayLen)
 		}
-		return fmt.Sprintf("const %s %s[%d]", elemCType, name, p.Type.ArrayLen)
+		return fmt.Sprintf("%s %s[%d]", constType(elemCType), name, p.Type.ArrayLen)
 	}
 
 	return fmt.Sprintf("void *%s", name)

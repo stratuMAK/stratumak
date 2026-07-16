@@ -176,7 +176,7 @@ static void hm2_7i43_nanosleep(const gomc_rtapi_t *rtapi, unsigned long int nano
 // these are the low-level i/o functions exported to the hostmot2 driver
 //
 
-int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) {
+int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
     int bytes_remaining = size;
     hm2_7i43_t *board = this->private;
 
@@ -206,7 +206,7 @@ int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size
 
 
 
-int hm2_7i43_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) {
+int hm2_7i43_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
     int bytes_remaining = size;
     hm2_7i43_t *board = this->private;
 

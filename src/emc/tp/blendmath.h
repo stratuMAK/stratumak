@@ -14,6 +14,7 @@
 #define BLENDMATH_H
 
 #include "posemath.h"
+#include "rtapi_rt_check.h"
 #include "tc_types.h"
 
 #define BLEND_ACC_RATIO_TANGENTIAL 0.5
@@ -130,16 +131,16 @@ int clip_min(double * const x, double min);
 
 int clip_max(double * const x, double max);
 
-double saturate(double x, double max);
+double saturate(double x, double max) RTAPI_NONBLOCKING;
 
-double bisaturate(double x, double max, double min);
+double bisaturate(double x, double max, double min) RTAPI_NONBLOCKING;
 
-int sat_inplace(double * const x, double max);
+int sat_inplace(double * const x, double max) RTAPI_NONBLOCKING;
 
-int checkTangentAngle(PmCircle const * const circ, SphericalArc const * const arc, BlendGeom3 const * const geom, BlendParameters const * const param, double cycle_time, int at_end);
+int checkTangentAngle(PmCircle const * const circ, SphericalArc const * const arc, BlendGeom3 const * const geom, BlendParameters const * const param, double cycle_time, int at_end) RTAPI_NONBLOCKING;
 
 int findIntersectionAngle(PmCartesian const * const u1,
-        PmCartesian const * const u2, double * const theta);
+        PmCartesian const * const u2, double * const theta) RTAPI_NONBLOCKING;
 
 double pmCartMin(PmCartesian const * const in);
 
@@ -148,10 +149,10 @@ int calculateInscribedDiameter(PmCartesian const * const normal,
 
 int findAccelScale(PmCartesian const * const acc,
         PmCartesian const * const bounds,
-        PmCartesian * const scale);
+        PmCartesian * const scale) RTAPI_NONBLOCKING;
 
 int pmUnitCartsColinear(PmCartesian const * const u1,
-        PmCartesian const * const u2);
+        PmCartesian const * const u2) RTAPI_NONBLOCKING;
 
 int pmCartCartParallel(PmCartesian const * const u1,
         PmCartesian const * const u2,
@@ -159,7 +160,7 @@ int pmCartCartParallel(PmCartesian const * const u1,
 
 int pmCartCartAntiParallel(PmCartesian const * const u1,
         PmCartesian const * const u2,
-        double tol);
+        double tol) RTAPI_NONBLOCKING;
 
 int pmCircLineCoplanar(PmCircle const * const circ,
         PmCartLine const * const line, double tol);
@@ -171,14 +172,14 @@ int blendCoplanarCheck(PmCartesian const * const normal,
 
 int blendCalculateNormals3(BlendGeom3 * const geom);
 
-int blendComputeParameters(BlendParameters * const param);
+int blendComputeParameters(BlendParameters * const param) RTAPI_NONBLOCKING;
 
 int blendCheckConsume(BlendParameters * const param,
         BlendPoints3 const * const points,
-        TC_STRUCT const * const prev_tc, int gap_cycles);
+        TC_STRUCT const * const prev_tc, int gap_cycles) RTAPI_NONBLOCKING;
 
 int blendFindPoints3(BlendPoints3 * const points, BlendGeom3 const * const geom,
-        BlendParameters const * const param);
+        BlendParameters const * const param) RTAPI_NONBLOCKING;
 
 int blendGeom3Init(BlendGeom3 * const geom,
         TC_STRUCT const * const prev_tc,
@@ -199,7 +200,7 @@ int blendInit3FromLineLine(BlendGeom3 * const geom, BlendParameters * const para
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 
 int blendInit3FromLineArc(BlendGeom3 * const geom, BlendParameters * const param,
         TC_STRUCT const * const prev_tc,
@@ -207,7 +208,7 @@ int blendInit3FromLineArc(BlendGeom3 * const geom, BlendParameters * const param
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 
 int blendInit3FromArcLine(BlendGeom3 * const geom, BlendParameters * const param,
         TC_STRUCT const * const prev_tc,
@@ -215,7 +216,7 @@ int blendInit3FromArcLine(BlendGeom3 * const geom, BlendParameters * const param
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 
 int blendInit3FromArcArc(BlendGeom3 * const geom, BlendParameters * const param,
         TC_STRUCT const * const prev_tc,
@@ -223,29 +224,29 @@ int blendInit3FromArcArc(BlendGeom3 * const geom, BlendParameters * const param,
         PmCartesian const * const acc_bound,
         PmCartesian const * const vel_bound,
         double maxFeedScale,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 
 int blendArcArcPostProcess(BlendPoints3 * const points, BlendPoints3 const * const points_in,
         BlendParameters * const param, BlendGeom3 const * const geom,
-        PmCircle const * const circ1, PmCircle const * const circ2);
+        PmCircle const * const circ1, PmCircle const * const circ2) RTAPI_NONBLOCKING;
 
 int blendLineArcPostProcess(BlendPoints3 * const points, BlendPoints3 const * const points_in,
         BlendParameters * const param, BlendGeom3 const * const geom,
-        PmCartLine const * const line1, PmCircle const * const circ2);
+        PmCartLine const * const line1, PmCircle const * const circ2) RTAPI_NONBLOCKING;
 
 int blendArcLinePostProcess(BlendPoints3 * const points, BlendPoints3 const * const points_in,
         BlendParameters * const param, BlendGeom3 const * const geom,
-        PmCircle const * const circ1, PmCartLine const * const line2);
+        PmCircle const * const circ1, PmCartLine const * const line2) RTAPI_NONBLOCKING;
 
 int arcFromBlendPoints3(SphericalArc * const arc, BlendPoints3 const * const points,
-        BlendGeom3 const * const geom, BlendParameters const * const param);
+        BlendGeom3 const * const geom, BlendParameters const * const param) RTAPI_NONBLOCKING;
 
 //Not implemented yet
 int blendGeom3Print(BlendGeom3 const * const geom);
 int blendParamPrint(BlendParameters const * const param);
-int blendPoints3Print(BlendPoints3 const * const points);
+int blendPoints3Print(BlendPoints3 const * const points) RTAPI_NONBLOCKING;
 
-double pmCartAbsMax(PmCartesian const * const v);
+double pmCartAbsMax(PmCartesian const * const v) RTAPI_NONBLOCKING;
 
 typedef struct {
     double v_max;
@@ -254,19 +255,19 @@ typedef struct {
 
 PmCircleLimits pmCircleActualMaxVel(const PmCircle *circle,
         double v_max_nominal,
-        double a_max_nominal);
+        double a_max_nominal) RTAPI_NONBLOCKING;
 
 int findSpiralArcLengthFit(PmCircle const * const circle,
         SpiralArcLengthFit * const fit,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 int pmCircleAngleFromProgress(PmCircle const * const circle,
         SpiralArcLengthFit const * const fit,
         double progress,
         double * const angle,
-        const void *log, const char *log_comp);
+        const void *log, const char *log_comp) RTAPI_NONBLOCKING;
 double pmCircleEffectiveMinRadius(const PmCircle *circle);
 
-static inline double findVPeak(double a_t_max, double distance)
+static inline double findVPeak(double a_t_max, double distance) RTAPI_NONBLOCKING
 {
     return pmSqrt(a_t_max * distance);
 }

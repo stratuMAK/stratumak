@@ -114,7 +114,7 @@ int tcRemoveKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc)
 }
 
 
-int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out)
+int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING
 {
     PmCartesian startpoint;
     PmCartesian radius;
@@ -137,7 +137,7 @@ int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const
     return 0;
 }
 
-int tcCircleEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out)
+int tcCircleEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING
 {
     PmCartesian endpoint;
     PmCartesian radius;

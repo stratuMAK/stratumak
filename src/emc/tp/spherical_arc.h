@@ -44,24 +44,24 @@ typedef struct {
 
 
 int arcInitFromPoints(SphericalArc * const arc, PmCartesian const * const start,
-        PmCartesian const * const end, PmCartesian const * const center);
+        PmCartesian const * const end, PmCartesian const * const center) RTAPI_NONBLOCKING;
 
 int arcInitFromVectors(SphericalArc * const arc, PmCartesian const * const vec0,
         PmCartesian const * const vec1,
         PmCartesian const * const center);
 
-int arcPoint(SphericalArc const * const arc, double angle_in, PmCartesian * const out);
+int arcPoint(SphericalArc const * const arc, double angle_in, PmCartesian * const out) RTAPI_NONBLOCKING;
 
 int arcNormalizedSlerp(SphericalArc const * const arc, double t, PmCartesian * const out);
 
-int arcLength(SphericalArc const * const arc, double * const length);
+int arcLength(SphericalArc const * const arc, double * const length) RTAPI_NONBLOCKING;
 
 int arcFromLines(SphericalArc * const arc, PmCartLine const * const line1,
         PmCartLine const * const line2, double radius,
         double blend_dist, double center_dist, PmCartesian * const start, PmCartesian * const end, int consume);
 
 int arcConvexTest(PmCartesian const * const center,
-        PmCartesian const * const P, PmCartesian const * const uVec, int reverse_dir);
+        PmCartesian const * const P, PmCartesian const * const uVec, int reverse_dir) RTAPI_NONBLOCKING;
 
-int arcTangent(SphericalArc const * const arc, PmCartesian * const tan, int at_end);
+int arcTangent(SphericalArc const * const arc, PmCartesian * const tan, int at_end) RTAPI_NONBLOCKING;
 #endif

@@ -54,14 +54,14 @@ static const lcec_pindesc_t slave_params[] = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1859_read(struct lcec_slave *slave, long period);
+void lcec_el1859_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief EtherCAT cyclic write callback — writes digital output values to process data.
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1859_write(struct lcec_slave *slave, long period);
+void lcec_el1859_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize the EL1859 digital I/O combo slave.

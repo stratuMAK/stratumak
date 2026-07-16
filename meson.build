@@ -114,16 +114,20 @@ libposemath = shared_library('posemath',
     dependencies : [ m_dep ]
     )
 
-libposemath_dep = declare_dependency(include_directories : posemath_inc,
+# posemath.h includes rtapi_rt_check.h, so consumers need the rtapi
+# include path as well.
+libposemath_dep = declare_dependency(
+    include_directories : [posemath_inc, posemath_external_inc],
     link_with : libposemath)
 
 libposemath_cpp = shared_library('posemath_cpp',
     posemath_cpp_srcs,
-    include_directories : posemath_inc,
+    include_directories : [posemath_inc, posemath_external_inc],
     dependencies : [ dl_dep, m_dep, libposemath_dep]
     )
 
-libposemath_cpp_dep = declare_dependency(include_directories : posemath_inc,
+libposemath_cpp_dep = declare_dependency(
+    include_directories : [posemath_inc, posemath_external_inc],
     link_with : libposemath_cpp)
 
 

@@ -58,6 +58,18 @@ pin out float current_mag "current vector magnitude";
 pin out float current_vel "current vector speed";
 
 function _;
+
+// Per-instance state (formerly function-local statics — statics in a
+// FUNCTION body are shared across instances and are rejected by the RT
+// effects check).
+variable bool once = 1;
+variable bool wait_for_count_change = 0;
+variable int  tot_counts;
+variable int  old_enable_in;
+variable int  old_counts_in;
+variable int  ifactor = 0;
+variable bool gave_msg = 0;
+
 license "GPL";
 author  "Dewey Garrett";
 ;;
@@ -69,12 +81,6 @@ author  "Dewey Garrett";
 #define MAX_ISCALE_FACTOR 100000
 
 FUNCTION(_) {
-static bool once = 1;
-static bool wait_for_count_change = 0;
-static int  tot_counts;
-static int  old_enable_in;
-static int  old_counts_in;
-static int  ifactor = 0;
     double  max_dv, tiny_dp, mag_err, vel_req;
     double  mag_cmd;
     int     delta_counts = 0;
@@ -139,7 +145,6 @@ static int  ifactor = 0;
         mag_cmd = current_mag;
         //NOTE: changes allowed only when disabled:
         if (!enable_in) {
-            static bool gave_msg = 0;
             bool new_ifactor = 0;
             if (ifactor != iscale_factor) {
                 if (   iscale_factor >= MIN_ISCALE_FACTOR

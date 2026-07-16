@@ -11,7 +11,7 @@ static const void *hm2_log;
 
 static bool funct_flag = false;
 
-static void hm2_absenc_trigger(void *void_hm2, long period){
+static void hm2_absenc_trigger(void *void_hm2, long period) GOMC_NONBLOCKING {
     (void)period;
     hostmot2_t *hm2 = void_hm2;
     uint32_t buff = 0xFFFFFFFF;
@@ -482,11 +482,9 @@ int hm2_absenc_parse_md(hostmot2_t *hm2, int md_index) {
     return -EINVAL;
 }
 
-void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) {
+void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
     (void)period;
     int i;
-    static int err_count[MAX_ABSENCS];
-    static int err_tag[MAX_ABSENCS];
     if (hm2->absenc.num_chans <= 0) return;
 
     // process each absenc instance independently
@@ -503,10 +501,10 @@ void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) {
 
             err_flag = 1;
             
-            if(err_count[i] > 5000 && err_tag[i] == 0){
+            if(hm2->absenc.err_count[i] > 5000 && hm2->absenc.err_tag[i] == 0){
                 HM2_ERR("Fanuc encoder channel %s cable fault\n"
                         "this warning will not repeat\n", chan->name);
-                err_tag[i] = 1;
+                hm2->absenc.err_tag[i] = 1;
             }    
         } 
         if (((chan->myinst == HM2_GTAG_SSI)
@@ -518,28 +516,28 @@ void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) {
             
             err_flag = 1;
             
-            if (err_count[i] > 5000 && err_tag[i] == 0){
+            if (hm2->absenc.err_count[i] > 5000 && hm2->absenc.err_tag[i] == 0){
                 HM2_ERR("Data transmission not complete on channel %s read."
                         " You  may need to change the timing of %s. This "
                         "warning  will not repeat\n",  chan->name,
                         (chan->params->timer_num == 0) ? 
                                 "the trigger function" : "the hm2dpll timer");
-                err_tag[i] = 1;
+                hm2->absenc.err_tag[i] = 1;
             }
         } 
         
         // a bit of hysteresis (50 cycles) on the error bit and a long wait
         // before reporting a fault (5000 cycles)
         if (err_flag){
-            if (err_count[i] < 5001) {
-                ++err_count[i];
+            if (hm2->absenc.err_count[i] < 5001) {
+                ++hm2->absenc.err_count[i];
             } else {
                 *chan->params->error = 1;
             }
                 
         } else {
-            if (err_count[i] > 4950){
-                --err_count[i];
+            if (hm2->absenc.err_count[i] > 4950){
+                --hm2->absenc.err_count[i];
             } else {
                 *chan->params->error = 0;
             }
@@ -548,7 +546,7 @@ void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) {
 }
 
 
-void hm2_absenc_write(hostmot2_t *hm2){
+void hm2_absenc_write(hostmot2_t *hm2) GOMC_NONBLOCKING{
 
     int i;
     uint32_t buff, buff2, buff3, dds, filt;
@@ -660,7 +658,7 @@ void hm2_absenc_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_absenc_print_module(hostmot2_t *hm2) {
+void hm2_absenc_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->absenc.num_chans <= 0) return;
     HM2_PRINT("Absolute Encoder (Generic): %d\n", hm2->absenc.num_chans);

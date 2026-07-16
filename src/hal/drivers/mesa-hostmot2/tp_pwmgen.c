@@ -109,7 +109,7 @@ void hm2_tp_pwmgen_handle_pwm_frequency(hostmot2_t *hm2) {
 }
 
 
-void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances == 0) return;
@@ -147,7 +147,7 @@ void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) {
 // Update the Registers of all Three Phase pwmgen instances that need it
 //
 
-void hm2_tp_pwmgen_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances == 0) return;
@@ -182,11 +182,11 @@ force_write:
 //
 // Read the fault bit for each instance
 //
-void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     hm2->llio->queue_read(hm2->llio, hm2->tp_pwmgen.enable_addr, hm2->tp_pwmgen.enable_reg, (hm2->tp_pwmgen.num_instances * sizeof(uint32_t)));
 }
 
-void hm2_tp_pwmgen_process_read(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_process_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0 ; i < hm2->tp_pwmgen.num_instances ; i++) {
         *hm2->tp_pwmgen.instance[i].hal.pin.fault
@@ -315,35 +315,35 @@ int hm2_tp_pwmgen_parse_md(hostmot2_t *hm2, int md_index) {
         for (i = 0; i < hm2->tp_pwmgen.num_instances; i ++) {
             // pins
             snprintf(name, sizeof(name), "%s.3pwmgen.%02d.A-value", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Avalue), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Avalue), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.B-value", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Bvalue), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Bvalue), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.C-value", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Cvalue), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.Cvalue), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail2;
             }
 
             snprintf(name, sizeof(name), "%s.3pwmgen.%02d.enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.enable), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->tp_pwmgen.instance[i].hal.pin.enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.fault", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->tp_pwmgen.instance[i].hal.pin.fault), hm2->llio->comp_id, name);
+            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->tp_pwmgen.instance[i].hal.pin.fault), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail2;
@@ -352,28 +352,28 @@ int hm2_tp_pwmgen_parse_md(hostmot2_t *hm2, int md_index) {
             // parameters
 
             snprintf(name, sizeof(name), "%s.3pwmgen.%02d.scale", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.scale), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.deadtime", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.deadzone), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.deadzone), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.fault-invert", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.faultpolarity), hm2->llio->comp_id, name);
+            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.faultpolarity), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail2;
             }
 
 	    snprintf(name, sizeof(name), "%s.3pwmgen.%02d.sample-time", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.sampletime), hm2->llio->comp_id, name);
+            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->tp_pwmgen.instance[i].hal.param.sampletime), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail2;
@@ -408,7 +408,7 @@ fail0:
     return r;
 }
 
-void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->tp_pwmgen.num_instances <= 0) return;
     HM2_PRINT("3-phase PWMGen: %d\n", hm2->tp_pwmgen.num_instances);
@@ -428,7 +428,7 @@ void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) {
 }
 
 
-void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances <= 0) return;

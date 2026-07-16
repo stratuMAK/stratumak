@@ -68,14 +68,14 @@ static void set32(hm2_test_t *me, uint16_t addr, uint32_t val) {
 //
 
 
-static int hm2_test_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) {
+static int hm2_test_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
     hm2_test_t *me = this->private;
     memcpy(buffer, &me->test_pattern.tp8[addr], size);
     return 1;  // success
 }
 
 
-static int hm2_test_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) {
+static int hm2_test_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
     (void)this; (void)addr; (void)buffer; (void)size;
     return 1;  // success
 }

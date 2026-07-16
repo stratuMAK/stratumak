@@ -121,9 +121,9 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
 };
 
 /** @brief Forward declaration of the periodic read callback. */
-void lcec_el2904_read(struct lcec_slave *slave, long period);
+void lcec_el2904_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief Forward declaration of the periodic write callback. */
-void lcec_el2904_write(struct lcec_slave *slave, long period);
+void lcec_el2904_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Pre-initialization hook — attach the FsoE configuration to the slave.

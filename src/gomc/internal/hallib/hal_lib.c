@@ -1795,7 +1795,7 @@ int hal_get_param_value_by_name(
 *                   EXECUTION RELATED FUNCTIONS                        *
 ************************************************************************/
 
-int hal_export_funct(const char *name, void (*funct) (void *, long),
+int hal_export_funct(const char *name, hal_funct_ptr_t funct,
     void *arg, int uses_fp, int reentrant, int comp_id)
 {
     void **prev; void *next;
@@ -4097,21 +4097,58 @@ static int hal_stream_advance(hal_stream_t *stream, int n) {
     return n;
 }
 
+/* 'in'/'out' are published with release stores; every cross-thread read
+   must be an acquire load, otherwise a weakly-ordered CPU (ARM) may see
+   the index advance before the sample data written ahead of it. */
+static int hal_stream_atomic_load_in(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->in, memory_order_acquire);
+}
+
+static int hal_stream_atomic_load_out(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->out, memory_order_acquire);
+}
+
+static void hal_stream_atomic_store_in(hal_stream_t *stream, int newin)
+{
+    atomic_store_explicit(&stream->fifo->in, newin, memory_order_release);
+}
+
+static void hal_stream_atomic_store_out(hal_stream_t *stream, int newout)
+{
+    atomic_store_explicit(&stream->fifo->out, newout, memory_order_release);
+}
+
+/* Relaxed loads for the side's OWN index: each side is the sole mutator
+   of its own index, so no ordering is needed to observe its own last
+   store — only the peer's index needs an acquire load.  Use these only
+   from the owning side (writer: 'in', reader: 'out'). */
+static int hal_stream_atomic_load_in_relaxed(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->in, memory_order_relaxed);
+}
+
+static int hal_stream_atomic_load_out_relaxed(hal_stream_t *stream)
+{
+    return atomic_load_explicit(&stream->fifo->out, memory_order_relaxed);
+}
+
 static int hal_stream_newin(hal_stream_t *stream) {
-    return hal_stream_advance(stream, stream->fifo->in);
+    return hal_stream_advance(stream, hal_stream_atomic_load_in(stream));
 }
 
 bool hal_stream_writable(hal_stream_t *stream) {
-    return hal_stream_newin(stream) != stream->fifo->out;
+    return hal_stream_newin(stream) != hal_stream_atomic_load_out(stream);
 }
 
 bool hal_stream_readable(hal_stream_t *stream) {
-    return stream->fifo->in != stream->fifo->out;
+    return hal_stream_atomic_load_in(stream) != hal_stream_atomic_load_out(stream);
 }
 
 int hal_stream_depth(hal_stream_t *stream) {
-    int out = stream->fifo->out;
-    int in = stream->fifo->in;
+    int out = hal_stream_atomic_load_out(stream);
+    int in = hal_stream_atomic_load_in(stream);
     int result = in - out;
     if(result < 0) result += stream->fifo->depth - 1;
     return result;
@@ -4135,34 +4172,16 @@ void hal_stream_wait_readable(hal_stream_t *stream, sig_atomic_t *stop) {
     }
 }
 
-static int hal_stream_atomic_load_in(hal_stream_t *stream)
-{
-    return atomic_load_explicit(&stream->fifo->in, memory_order_acquire);
-}
-
-static int hal_stream_atomic_load_out(hal_stream_t *stream)
-{
-    return atomic_load_explicit(&stream->fifo->out, memory_order_acquire);
-}
-
-
-static void hal_stream_atomic_store_in(hal_stream_t *stream, int newin)
-{
-    atomic_store_explicit(&stream->fifo->in, newin, memory_order_release);
-}
-
-static void hal_stream_atomic_store_out(hal_stream_t *stream, int newout)
-{
-    atomic_store_explicit(&stream->fifo->out, newout, memory_order_release);
-}
-
 int hal_stream_write(hal_stream_t *stream, union hal_stream_data *buf) {
-    if(!hal_stream_writable(stream)) {
+    /* writer side: 'in' is our own index (relaxed load, once); only the
+       reader's 'out' needs acquire.  Runs every servo cycle — avoid the
+       redundant ordered loads the generic predicates would do. */
+    int in = hal_stream_atomic_load_in_relaxed(stream);
+    int newin = hal_stream_advance(stream, in);
+    if(newin == hal_stream_atomic_load_out(stream)) {
         stream->fifo->num_overruns++;
         return -ENOSPC;
     }
-    int in = hal_stream_atomic_load_in(stream),
-        newin = hal_stream_advance(stream, in);
     int num_pins = stream->fifo->num_pins;
     int stride = num_pins + 1;
     union hal_stream_data *dptr = &stream->fifo->data[in * stride];
@@ -4173,12 +4192,15 @@ int hal_stream_write(hal_stream_t *stream, union hal_stream_data *buf) {
 }
 
 int hal_stream_read(hal_stream_t *stream, union hal_stream_data *buf, unsigned *this_sample) {
-    if(!hal_stream_readable(stream)) {
+    /* reader side: 'out' is our own index (relaxed load, once); only the
+       writer's 'in' needs acquire (orders the sample data before the
+       index advance). */
+    int out = hal_stream_atomic_load_out_relaxed(stream);
+    if(hal_stream_atomic_load_in(stream) == out) {
         stream->fifo->num_underruns ++;
         return -ENOSPC;
     }
-    int out = hal_stream_atomic_load_out(stream),
-        newout = hal_stream_advance(stream, out);
+    int newout = hal_stream_advance(stream, out);
     int num_pins = stream->fifo->num_pins;
     int stride = num_pins + 1;
     union hal_stream_data *dptr = &stream->fifo->data[out * stride];

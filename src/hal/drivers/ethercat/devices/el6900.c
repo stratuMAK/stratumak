@@ -131,8 +131,8 @@ static const lcec_pindesc_t fsoe_crc_pins[] = {
   { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
-void lcec_el6900_read(struct lcec_slave *slave, long period);
-void lcec_el6900_write(struct lcec_slave *slave, long period);
+void lcec_el6900_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el6900_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Map PDO entries and export HAL pins for standard safety I/O bits.

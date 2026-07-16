@@ -125,7 +125,7 @@ static inline int32_t clamp32(int64_t val) {
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->app_time_ns.
  */
-static void cycle_start(struct lcec_master *master) {
+static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
   const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   if (master->app_time_ns == 0) {
     master->app_time_ns = master->rt_ctx->dc_time_offset + rtapi->pll_get_reference(rtapi->ctx);
@@ -170,7 +170,7 @@ static void cycle_start(struct lcec_master *master) {
  *       @c master->dc_diff_ns, @c master->app_time_ns, and the @c pll_err and
  *       @c pll_reset_cnt HAL pins.
  */
-static void pre_send(struct lcec_master *master) {
+static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
   const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   lcec_master_data_t *hal_data = master->hal_data;
   uint32_t ref_time_ns;
@@ -249,7 +249,7 @@ static void pre_send(struct lcec_master *master) {
  * @note Side effects: modifies @c master->dc_integrator, calls
  *       @c rtapi_task_pll_set_correction(), and updates the @c pll_out HAL pin.
  */
-static void post_send(struct lcec_master *master) {
+static void post_send(struct lcec_master *master) GOMC_NONBLOCKING {
   const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   lcec_master_data_t *hal_data = master->hal_data;
 

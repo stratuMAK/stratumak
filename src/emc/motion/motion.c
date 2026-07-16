@@ -115,21 +115,21 @@ int motmod_kinematicsSwitch(motmod_inst_t *inst, int switchkins_type)
 
 /* --- I/O callbacks --- */
 
-static void gmi_mot_dio_write(void *ctx, int32_t index, int8_t value)
+static void gmi_mot_dio_write(void *ctx, int32_t index, int8_t value) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotDioWrite(inst, index, value);
 }
 
-static void gmi_mot_aio_write(void *ctx, int32_t index, double value)
+static void gmi_mot_aio_write(void *ctx, int32_t index, double value) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotAioWrite(inst, index, value);
 }
 
 /* --- Rotary unlock --- */
 
-static void gmi_mot_set_rotary_unlock(void *ctx, int32_t jnum, int32_t unlock)
+static void gmi_mot_set_rotary_unlock(void *ctx, int32_t jnum, int32_t unlock) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotSetRotaryUnlock(inst, jnum, unlock);
 }
 
-static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum)
+static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return emcmotGetRotaryIsUnlocked(inst, jnum);
@@ -137,13 +137,13 @@ static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum)
 
 /* --- Axis limits --- */
 
-static double gmi_mot_axis_get_vel_limit(void *ctx, int32_t axis)
+static double gmi_mot_axis_get_vel_limit(void *ctx, int32_t axis) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return axis_get_vel_limit((axis_inst_t *)inst->axis_inst, axis);
 }
 
-static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis)
+static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return axis_get_acc_limit((axis_inst_t *)inst->axis_inst, axis);
@@ -151,55 +151,55 @@ static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis)
 
 /* --- Config getters (inst->config fields, read-only) --- */
 
-static int32_t gmi_mot_cfg_get_arc_blend_enable(void *ctx)
+static int32_t gmi_mot_cfg_get_arc_blend_enable(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendEnable;
 }
 
-static int32_t gmi_mot_cfg_get_arc_blend_gap_cycles(void *ctx)
+static int32_t gmi_mot_cfg_get_arc_blend_gap_cycles(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendGapCycles;
 }
 
-static int32_t gmi_mot_cfg_get_arc_blend_opt_depth(void *ctx)
+static int32_t gmi_mot_cfg_get_arc_blend_opt_depth(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendOptDepth;
 }
 
-static double gmi_mot_cfg_get_arc_blend_ramp_freq(void *ctx)
+static double gmi_mot_cfg_get_arc_blend_ramp_freq(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendRampFreq;
 }
 
-static double gmi_mot_cfg_get_arc_blend_tangent_kink_ratio(void *ctx)
+static double gmi_mot_cfg_get_arc_blend_tangent_kink_ratio(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendTangentKinkRatio;
 }
 
-static double gmi_mot_cfg_get_max_feed_scale(void *ctx)
+static double gmi_mot_cfg_get_max_feed_scale(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->maxFeedScale;
 }
 
-static int32_t gmi_mot_cfg_get_num_aio(void *ctx)
+static int32_t gmi_mot_cfg_get_num_aio(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numAIO;
 }
 
-static int32_t gmi_mot_cfg_get_num_dio(void *ctx)
+static int32_t gmi_mot_cfg_get_num_dio(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numDIO;
 }
 
-static int32_t gmi_mot_cfg_get_num_spindles(void *ctx)
+static int32_t gmi_mot_cfg_get_num_spindles(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numSpindles;
@@ -207,67 +207,67 @@ static int32_t gmi_mot_cfg_get_num_spindles(void *ctx)
 
 /* --- Status getters --- */
 
-static double gmi_mot_status_get_net_feed_scale(void *ctx)
+static double gmi_mot_status_get_net_feed_scale(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->net_feed_scale;
 }
 
-static int32_t gmi_mot_status_get_stepping(void *ctx)
+static int32_t gmi_mot_status_get_stepping(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->stepping;
 }
 
-static double gmi_mot_status_get_current_vel(void *ctx)
+static double gmi_mot_status_get_current_vel(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->current_vel;
 }
 
-static int32_t gmi_mot_status_get_spindle_sync(void *ctx)
+static int32_t gmi_mot_status_get_spindle_sync(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindleSync;
 }
 
-static double gmi_mot_status_get_spindle_revs(void *ctx, int32_t spindle)
+static double gmi_mot_status_get_spindle_revs(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindleRevs;
 }
 
-static int32_t gmi_mot_status_get_spindle_direction(void *ctx, int32_t spindle)
+static int32_t gmi_mot_status_get_spindle_direction(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].direction;
 }
 
-static int32_t gmi_mot_status_get_spindle_at_speed(void *ctx, int32_t spindle)
+static int32_t gmi_mot_status_get_spindle_at_speed(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].at_speed;
 }
 
-static double gmi_mot_status_get_spindle_speed_in(void *ctx, int32_t spindle)
+static double gmi_mot_status_get_spindle_speed_in(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindleSpeedIn;
 }
 
-static int32_t gmi_mot_status_get_spindle_index_enable(void *ctx, int32_t spindle)
+static int32_t gmi_mot_status_get_spindle_index_enable(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindle_index_enable;
 }
 
-static uint8_t gmi_mot_status_get_enables_new(void *ctx)
+static uint8_t gmi_mot_status_get_enables_new(void *ctx) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->enables_new;
 }
 
-static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle)
+static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].speed;
@@ -275,43 +275,43 @@ static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle)
 
 /* --- Status setters --- */
 
-static void gmi_mot_status_set_current_vel(void *ctx, double vel)
+static void gmi_mot_status_set_current_vel(void *ctx, double vel) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->current_vel = vel;
 }
 
-static void gmi_mot_status_set_requested_vel(void *ctx, double vel)
+static void gmi_mot_status_set_requested_vel(void *ctx, double vel) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->requested_vel = vel;
 }
 
-static void gmi_mot_status_set_distance_to_go(void *ctx, double dist)
+static void gmi_mot_status_set_distance_to_go(void *ctx, double dist) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->distance_to_go = dist;
 }
 
-static void gmi_mot_status_set_dtg(void *ctx, mot_pose_t *dtg)
+static void gmi_mot_status_set_dtg(void *ctx, mot_pose_t *dtg) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; memcpy(&inst->status->dtg, dtg, sizeof(EmcPose));
 }
 
-static void gmi_mot_status_or_motion_flag(void *ctx, uint32_t bits)
+static void gmi_mot_status_or_motion_flag(void *ctx, uint32_t bits) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->motionFlag |= bits;
 }
 
-static void gmi_mot_status_set_enables_queued(void *ctx, uint8_t val)
+static void gmi_mot_status_set_enables_queued(void *ctx, uint8_t val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->enables_queued = val;
 }
 
-static void gmi_mot_status_set_spindle_sync(void *ctx, int32_t val)
+static void gmi_mot_status_set_spindle_sync(void *ctx, int32_t val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindleSync = val;
 }
 
-static void gmi_mot_status_set_tcqlen(void *ctx, uint32_t len)
+static void gmi_mot_status_set_tcqlen(void *ctx, uint32_t len) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->tcqlen = len;
 }
 
-static void gmi_mot_status_set_spindle_speed(void *ctx, int32_t spindle, double speed)
+static void gmi_mot_status_set_spindle_speed(void *ctx, int32_t spindle, double speed) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindle_status[spindle].speed = speed;
 }
 
-static void gmi_mot_status_set_spindle_index_enable(void *ctx, int32_t spindle, int32_t enable)
+static void gmi_mot_status_set_spindle_index_enable(void *ctx, int32_t spindle, int32_t enable) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindle_status[spindle].spindle_index_enable = enable;
 }
 
@@ -323,28 +323,28 @@ static int32_t gmi_mot_get_num_joints(void *ctx)
     return inst->num_joints;
 }
 
-static int32_t gmi_mot_joint_get_active_flag(void *ctx, int32_t jno)
+static int32_t gmi_mot_joint_get_active_flag(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return GET_JOINT_ACTIVE_FLAG(&inst->joints[jno]);
 }
 
-static int32_t gmi_mot_joint_get_inpos_flag(void *ctx, int32_t jno)
+static int32_t gmi_mot_joint_get_inpos_flag(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return GET_JOINT_INPOS_FLAG(&inst->joints[jno]);
 }
 
-static int32_t gmi_mot_joint_get_free_tp_active(void *ctx, int32_t jno)
+static int32_t gmi_mot_joint_get_free_tp_active(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.active;
 }
 
-static void gmi_mot_joint_set_free_tp_enable(void *ctx, int32_t jno, int32_t enable)
+static void gmi_mot_joint_set_free_tp_enable(void *ctx, int32_t jno, int32_t enable) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.enable = enable;
 }
 
@@ -355,108 +355,108 @@ static double gmi_mot_joint_get_free_tp_pos_cmd(void *ctx, int32_t jno)
     return inst->joints[jno].free_tp.pos_cmd;
 }
 
-static void gmi_mot_joint_set_free_tp_pos_cmd(void *ctx, int32_t jno, double val)
+static void gmi_mot_joint_set_free_tp_pos_cmd(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.pos_cmd = val;
 }
 
-static double gmi_mot_joint_get_free_tp_curr_pos(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_free_tp_curr_pos(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.curr_pos;
 }
 
-static void gmi_mot_joint_set_free_tp_curr_pos(void *ctx, int32_t jno, double val)
+static void gmi_mot_joint_set_free_tp_curr_pos(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.curr_pos = val;
 }
 
-static void gmi_mot_joint_set_free_tp_max_vel(void *ctx, int32_t jno, double vel)
+static void gmi_mot_joint_set_free_tp_max_vel(void *ctx, int32_t jno, double vel) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.max_vel = vel;
 }
 
-static double gmi_mot_joint_get_free_tp_max_vel(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_free_tp_max_vel(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.max_vel;
 }
 
-static double gmi_mot_joint_get_pos_cmd(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_pos_cmd(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].pos_cmd;
 }
 
-static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val)
+static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].pos_cmd = val;
 }
 
-static double gmi_mot_joint_get_pos_fb(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_pos_fb(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].pos_fb;
 }
 
-static void gmi_mot_joint_set_pos_fb(void *ctx, int32_t jno, double val)
+static void gmi_mot_joint_set_pos_fb(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].pos_fb = val;
 }
 
-static double gmi_mot_joint_get_motor_pos_fb(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_motor_pos_fb(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].motor_pos_fb;
 }
 
-static double gmi_mot_joint_get_motor_offset(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_motor_offset(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].motor_offset;
 }
 
-static void gmi_mot_joint_set_motor_offset(void *ctx, int32_t jno, double val)
+static void gmi_mot_joint_set_motor_offset(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].motor_offset = val;
 }
 
-static double gmi_mot_joint_get_backlash_filt(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_backlash_filt(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].backlash_filt;
 }
 
-static double gmi_mot_joint_get_vel_limit(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_vel_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].vel_limit;
 }
 
-static double gmi_mot_joint_get_max_pos_limit(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_max_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].max_pos_limit;
 }
 
-static double gmi_mot_joint_get_min_pos_limit(void *ctx, int32_t jno)
+static double gmi_mot_joint_get_min_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].min_pos_limit;
 }
 
-static int32_t gmi_mot_joint_get_on_pos_limit(void *ctx, int32_t jno)
+static int32_t gmi_mot_joint_get_on_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].on_pos_limit;
 }
 
-static int32_t gmi_mot_joint_get_on_neg_limit(void *ctx, int32_t jno)
+static int32_t gmi_mot_joint_get_on_neg_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
@@ -959,6 +959,15 @@ static int motmod_init(cmod_t *self)
     retval = init_comm_buffers(inst);
     if (retval != 0) {
 	gomc_log_errorf(log, inst->name, "MOTION: init_comm_buffers() failed\n");
+	return -1;
+    }
+
+    /* Worst-case jerk filter buffers — allocated here once so the servo
+       thread never allocates (jerk_filter_recompute_window only
+       re-strides within this capacity). */
+    retval = jerk_filter_alloc(inst);
+    if (retval != 0) {
+	gomc_log_errorf(log, inst->name, "MOTION: jerk_filter_alloc() failed\n");
 	return -1;
     }
 

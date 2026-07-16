@@ -47,7 +47,19 @@ static int spidev_setup(int probemask);
 static int spidev_cleanup(void);
 static const spix_port_t *spidev_open(int port, const spix_args_t *args);
 static int spidev_close(const spix_port_t *sp);
-static int spi_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw);
+static int spi_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) GOMC_NONBLOCKING;
+
+/* TRUSTED: the SPI_IOC_MESSAGE exchange with the board IS this backend's
+ * realtime path — spix transfers the LBP register exchange through spidev
+ * from the servo thread.  Latency is a property of the SPI controller and
+ * driver setup and is audited by the latency tests, not by this static
+ * check. */
+static int spidev_ioc_message(int fd, struct spi_ioc_transfer *sit) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static int spidev_ioc_message(int fd, struct spi_ioc_transfer *sit) {
+	return ioctl(fd, SPI_IOC_MESSAGE(1), sit);
+}
+GOMC_NONBLOCKING_TRUSTED_END
 
 #define PORT_MAX	5
 static spidev_port_t spi_ports[PORT_MAX] = {
@@ -104,8 +116,8 @@ static int spi_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int
 	sit.speed_hz = rw ? sdp->clkr : sdp->clkw;
 	sit.bits_per_word = 8;
 	sit.delay_usecs = 10;	// Magic
-	if(ioctl(sdp->fd, SPI_IOC_MESSAGE(1), &sit) < 0) {
-		LL_ERR("%s: SPI transfer failed: %s", sdp->spix.name, strerror(errno));
+	if(spidev_ioc_message(sdp->fd, &sit) < 0) {
+		LL_ERR("%s: SPI transfer failed: %s", sdp->spix.name, hm2_rt_strerror());
 		return 0;
 	}
 

@@ -67,6 +67,20 @@ func (g *serverGen) emitIncludes() {
 		g.printf("#include \"%s_api.h\"\n", imp.Name)
 	}
 
+	// Self-contained clang function-effects annotation for @rt_safe
+	// callback types (mirrors GOMC_NONBLOCKING in gomc_rt_check.h; the
+	// generated header must not depend on the cmodule header set).
+	g.printf("\n#ifndef GOMC_API_NONBLOCKING\n")
+	g.printf("#if defined(__clang__) && (__clang_major__ >= 20) && defined(__has_attribute)\n")
+	g.printf("#if __has_attribute(nonblocking)\n")
+	g.printf("#define GOMC_API_NONBLOCKING __attribute__((nonblocking))\n")
+	g.printf("#endif\n")
+	g.printf("#endif\n")
+	g.printf("#ifndef GOMC_API_NONBLOCKING\n")
+	g.printf("#define GOMC_API_NONBLOCKING\n")
+	g.printf("#endif\n")
+	g.printf("#endif\n")
+
 	g.printf("\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
 }
 
@@ -207,6 +221,15 @@ func primitiveToCType(name string) string {
 	return "int"
 }
 
+// constType const-qualifies a C type unless it already is (string maps to
+// "const char *" — prepending another const would emit "const const").
+func constType(cType string) string {
+	if strings.HasPrefix(cType, "const ") {
+		return cType
+	}
+	return "const " + cType
+}
+
 // isCallback returns true if name matches a declared callback type.
 func (g *serverGen) isCallback(name string) bool {
 	for _, cb := range g.api.Callbacks {
@@ -299,7 +322,14 @@ func (g *serverGen) emitCallbackTypedefs() {
 			}
 			g.printf("    %s%s\n", p, comma)
 		}
-		g.printf(");\n\n")
+		// @rt_safe callbacks are invoked from the RT cycle — type them
+		// nonblocking so clang's function-effects analysis both checks
+		// their implementations and allows RT callers to use them.
+		if fn.RTSafe {
+			g.printf(") GOMC_API_NONBLOCKING;\n\n")
+		} else {
+			g.printf(");\n\n")
+		}
 	}
 }
 
@@ -365,7 +395,7 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemType, name, name)
 		}
-		return fmt.Sprintf("const %s *%s, size_t %s_len", elemType, name, name)
+		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemType), name, name)
 
 	case ast.TypeArray:
 		elemType := g.toCType(*p.Type.Elem)
@@ -373,7 +403,7 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s %s[%s]", elemType, name, sizeStr)
 		}
-		return fmt.Sprintf("const %s %s[%s]", elemType, name, sizeStr)
+		return fmt.Sprintf("%s %s[%s]", constType(elemType), name, sizeStr)
 	}
 
 	return fmt.Sprintf("void *%s", name)

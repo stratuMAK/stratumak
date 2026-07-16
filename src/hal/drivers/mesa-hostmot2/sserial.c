@@ -22,6 +22,10 @@ static const void *hm2_log;
 
 #include "rtapi_math64.h"
 
+/* one-shot warning guard (process-wide by design — it explains a global
+   misconfiguration, not a per-board state) */
+static int sserial_noread_warned;
+
 
 #include "hostmot2.h"
 #include "bitfile.h"
@@ -966,6 +970,7 @@ int hm2_sserial_setup_remotes(hostmot2_t *hm2,
             chan->myinst = inst->index;
             chan->data_reg_addr= inst->data_reg_addr;
             chan->index = c;
+            chan->fanuc_bitshift = 1;  /* matches the former static's initializer */
             HM2_DBG("Instance %i, channel %i / %i\n", inst->index, c, r);
             chan->reg_cs_addr = md->base_address + 2 * md->register_stride
             + inst->index * md->instance_stride + c * sizeof(uint32_t);
@@ -1164,7 +1169,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    j);
                     r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                         &(chan->pins[i].bit_pins[j]),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1176,7 +1181,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                        j);
                         r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                             &(chan->pins[i].bit_pins_not[j]),
-                                            hm2->llio->comp_id, name);
+                                            hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             return r;
@@ -1189,7 +1194,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                        j);
                         r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                               &(chan->pins[i].invert[j]),
-                                              hm2->llio->comp_id, name);
+                                              hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             return r;
@@ -1204,7 +1209,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, data_dir,
                                       &(chan->pins[i].float_pin),
-                                      hm2->llio->comp_id, name);
+                                      hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1214,7 +1219,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].fullscale),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1226,7 +1231,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].maxlim),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1237,7 +1242,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                         &(chan->pins[i].minlim),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1255,7 +1260,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_u32_newf(hm2->llio->hal, data_dir,
                                     &(chan->pins[i].u32_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1267,7 +1272,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                     &(chan->pins[i].boolean),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1278,7 +1283,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    chan->confs[i].NameString);
                     r = gomc_hal_pin_bit_newf(hm2->llio->hal, data_dir,
                                         &(chan->pins[i].boolean2),
-                                        hm2->llio->comp_id, name);
+                                        hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1291,7 +1296,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                    chan->confs[i].NameString);
                     r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
                                           chan->pins[i].invert,
-                                          hm2->llio->comp_id, name);
+                                          hm2->llio->comp_id, "%s", name);
                     if (r < 0) {
                         HM2_ERR("error adding pin '%s', aborting\n", name);
                         return r;
@@ -1306,7 +1311,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].s32_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1316,7 +1321,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].s32_pin2),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1326,7 +1331,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT,
                                     &(chan->pins[i].float_pin),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1336,7 +1341,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                     &(chan->pins[i].boolean),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1347,7 +1352,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
                                     &(chan->pins[i].boolean2),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1357,7 +1362,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW,
                                     &(chan->pins[i].fullscale),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1368,7 +1373,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW,
                                     &(chan->pins[i].u32_param),
-                                    hm2->llio->comp_id, name);
+                                    hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return -EINVAL;
@@ -1385,7 +1390,7 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                                chan->confs[i].NameString);
                 r = gomc_hal_pin_float_newf(hm2->llio->hal, data_dir,
                                       &(chan->pins[i].float_pin),
-                                      hm2->llio->comp_id, name);
+                                      hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     return r;
@@ -1682,7 +1687,7 @@ fail1:
     return *inst->state2;
 }
 
-void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
+void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst) GOMC_NONBLOCKING{
     int b, p, r, i;
     int bitcount;
     uint64_t buff;
@@ -1703,13 +1708,12 @@ void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
                 inst->fault_inc,
                 inst->fault_lim);
         HM2_ERR("***Smart Serial Port %i will be stopped***\n",inst->index);
-        static bool printed;
-        if(!inst->ever_read && !printed) {
+        if(!inst->ever_read && !sserial_noread_warned) {
             HM2_ERR("Smart Serial Error: "
                 "You may see this error if the FPGA card "
                 """read"" function is not running. "
                 "This error message will not repeat.\n");
-            printed = true;
+            sserial_noread_warned = true;
         }
         *inst->state = 10;
         *inst->command_reg_write = 0x800; // stop command
@@ -1821,7 +1825,7 @@ void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
     *inst->command_reg_write = 0x1000 | inst->tag;
 }
 
-void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
+void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
     // This function contains a state machine to handle starting and stopping
     // The ports as well as setting up the pin data
 
@@ -1883,10 +1887,9 @@ void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period){
     }
 }
 
-int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
-    static int h_flag = 0, l_flag = 0;//these are the "memory" for 2-part
-    static int bitshift = 1;               //Fanuc encoders where the full turns
-    static uint64_t buff_store;             //and part turns are not contiguous
+int hm2_sserial_read_pins(hm2_sserial_remote_t *chan) GOMC_NONBLOCKING{
+    /* Fanuc 2-part encoder reassembly state lives in the channel struct
+       (chan->fanuc_*) — see sserial.h; formerly function-local statics. */
     int b, p, r;
     int bitcount = 0;
     uint64_t buff;
@@ -1939,17 +1942,17 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
             case LBP_ENCODER_H:
             case LBP_ENCODER_L:
                 if (conf->DataType == LBP_ENCODER_H){
-                    h_flag = conf->DataLength;
-                    buff_store |= (buff << bitshift);
+                    chan->fanuc_h_flag = conf->DataLength;
+                    chan->fanuc_buff_store |= (buff << chan->fanuc_bitshift);
                 } else {
-                    l_flag = conf->DataLength;
-                    bitshift = conf->DataLength;
-                    buff_store |= buff;
+                    chan->fanuc_l_flag = conf->DataLength;
+                    chan->fanuc_bitshift = conf->DataLength;
+                    chan->fanuc_buff_store |= buff;
                 }
-                if ( ! (h_flag && l_flag)){
+                if ( ! (chan->fanuc_h_flag && chan->fanuc_l_flag)){
                     break;
                 }
-                buff = buff_store;
+                buff = chan->fanuc_buff_store;
                 __attribute__((fallthrough));
             case LBP_ENCODER:
             {
@@ -1961,9 +1964,9 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
                 if (conf->DataType == LBP_ENCODER){
                     bitlength = conf->DataLength;
                 } else {
-                    bitlength = h_flag + l_flag;
-                    h_flag = 0; l_flag = 0;
-                    buff_store = 0;
+                    bitlength = chan->fanuc_h_flag + chan->fanuc_l_flag;
+                    chan->fanuc_h_flag = 0; chan->fanuc_l_flag = 0;
+                    chan->fanuc_buff_store = 0;
                 }
 
 
@@ -2051,7 +2054,7 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
     return 0;
 }
 
-void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period){
+void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
     (void)period;
     int i, c;
     for (i = 0 ; i < hm2->sserial.num_instances ; i++){
@@ -2065,7 +2068,7 @@ void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period){
     }
 }
 
-void hm2_sserial_print_module(hostmot2_t *hm2) {
+void hm2_sserial_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i,r,c,g,m;
     if (hm2->sserial.num_instances <= 0) return;
     HM2_PRINT("SSerial: %d\n", hm2->sserial.num_instances);
@@ -2219,7 +2222,7 @@ int hm2_sserial_check_remote_errors(hostmot2_t *hm2, hm2_sserial_instance_t *ins
     return err_flag;
 }
 
-void hm2_sserial_force_write(hostmot2_t *hm2){
+void hm2_sserial_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING{
     (void)hm2;
     // there's nothing to do here, because hm2_sserial_prepare_tram_write takes
     // charge of recovering after communication error.

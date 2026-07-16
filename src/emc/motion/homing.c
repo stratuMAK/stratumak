@@ -120,7 +120,7 @@ typedef struct {
 *                      LOCAL FUNCTIONS                                 *
 ************************************************************************/
 
-static void home_start_move(homemod_inst_t *inst, double vel)
+static void home_start_move(homemod_inst_t *inst, double vel) GOMC_NONBLOCKING
 {
     int jno = inst->jno;
     double joint_range;
@@ -172,7 +172,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     } \
 } while(0);
 
-static int do_homing_state_machine(homemod_inst_t *inst)
+static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
 {
     int jno = inst->jno;
     double offset, tmp;
@@ -679,7 +679,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 static int32_t gmi_home_set_params(void *ctx, double offset, double home,
     double home_final_vel, double home_search_vel,
     double home_latch_vel, int32_t home_flags,
-    int32_t home_sequence, int32_t volatile_home)
+    int32_t home_sequence, int32_t volatile_home) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_offset     = offset;
@@ -694,7 +694,7 @@ static int32_t gmi_home_set_params(void *ctx, double offset, double home,
 }
 
 static int32_t gmi_home_update_params(void *ctx, double home_offset,
-    double home_home, int32_t home_sequence)
+    double home_home, int32_t home_sequence) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_offset   = home_offset;
@@ -703,7 +703,7 @@ static int32_t gmi_home_update_params(void *ctx, double home_offset,
     return 0;
 }
 
-static int32_t gmi_home_read_in_pins(void *ctx)
+static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_sw      = *(inst->pins.home_sw);
@@ -711,7 +711,7 @@ static int32_t gmi_home_read_in_pins(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_do_homing(void *ctx)
+static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     if (!inst->mot->joint_get_active_flag(inst->mot->ctx, inst->jno))
@@ -719,7 +719,7 @@ static int32_t gmi_home_do_homing(void *ctx)
     return (int32_t)do_homing_state_machine(inst);
 }
 
-static int32_t gmi_home_write_out_pins(void *ctx)
+static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     *(inst->pins.homing)       = inst->H.homing;
@@ -729,7 +729,7 @@ static int32_t gmi_home_write_out_pins(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_do_home(void *ctx)
+static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_state = HOME_START;
@@ -737,7 +737,7 @@ static int32_t gmi_home_do_home(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_do_cancel(void *ctx)
+static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     if (inst->H.homing || inst->H.home_state != HOME_IDLE) {
@@ -746,7 +746,7 @@ static int32_t gmi_home_do_cancel(void *ctx)
     return 0;
 }
 
-static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate)
+static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     (void)motstate;
@@ -770,43 +770,43 @@ static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate)
     return 0;
 }
 
-static int32_t gmi_home_get_homing(void *ctx)
+static int32_t gmi_home_get_homing(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.homing;
 }
 
-static int32_t gmi_home_get_homed(void *ctx)
+static int32_t gmi_home_get_homed(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.homed;
 }
 
-static int32_t gmi_home_get_index_enable(void *ctx)
+static int32_t gmi_home_get_index_enable(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.index_enable;
 }
 
-static int32_t gmi_home_get_needs_unlock_first(void *ctx)
+static int32_t gmi_home_get_needs_unlock_first(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (inst->H.home_flags & HOME_UNLOCK_FIRST) ? 1 : 0;
 }
 
-static int32_t gmi_home_get_is_idle(void *ctx)
+static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return inst->H.home_state == HOME_IDLE ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_index_search_wait(void *ctx)
+static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return inst->H.home_state == HOME_INDEX_SEARCH_WAIT ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_final_move_wait(void *ctx)
+static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     /* Returns 1 when the state machine is paused at HOME_FINAL_MOVE_START
@@ -816,7 +816,7 @@ static int32_t gmi_home_get_at_final_move_wait(void *ctx)
             !inst->H.sync_final_move_released) ? 1 : 0;
 }
 
-static int32_t gmi_home_do_final_move(void *ctx)
+static int32_t gmi_home_do_final_move(void *ctx) GOMC_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     /* Release the sync pause so the final move can start. */

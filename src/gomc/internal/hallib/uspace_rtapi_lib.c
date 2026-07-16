@@ -361,14 +361,14 @@ void rtapi_unlock_dl_handle(void *handle) {
 
 static void configure_memory(void)
 {
-    /* Raise memlock rlimit — needed for mlockall(), per-region mlock() and SHM_LOCK */
+    /* Raise memlock rlimit — needed for mlockall() and per-region mlock() */
     int res = setrlimit(RLIMIT_MEMLOCK, &unlimited);
     if(res < 0) perror("setrlimit");
 
     /* Memory locking strategy (Go-safe — no MCL_FUTURE):
      *   - Pre-loaded libs (libc, librtapi, vdso): mlockall(MCL_CURRENT) in rtapi_initialize_app()
      *   - HAL component .so files: rtapi_dlopen() locks PT_LOAD segments
-     *   - SysV shmem segments: SHM_LOCK in rtapi_shmem_new()
+     *   - Shared memory segments: rtapi_calloc() in rtapi_shmem_new()
      *   - Task structs: mlock() in rtapi_malloc()
      *   - Thread stacks: mlock() in task_wrapper()
      */
@@ -631,6 +631,23 @@ static void *task_wrapper(void *arg)
     struct rtapi_task *task = &ptask->task;
     void *stack_lockaddr = NULL;
     size_t stack_locksize = 0;
+
+    /* Block Go runtime signals on this RT thread.  Go uses SIGURG for
+     * async goroutine preemption and SIGPROF for profiling; a
+     * process-directed instance of either may be delivered to any thread
+     * that has not blocked it — including this one, mid-cycle.  Synchronous
+     * fault signals (SIGSEGV etc.) are unaffected by the thread mask. */
+    {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGURG);
+        sigaddset(&set, SIGPROF);
+        int res = pthread_sigmask(SIG_BLOCK, &set, NULL);
+        if (res != 0) {
+            rtapi_print_msg(RTAPI_MSG_WARN,
+                "task_wrapper: pthread_sigmask failed: %s\n", strerror(res));
+        }
+    }
 
     /* Lock our own stack into RAM — must happen before any RT work.
      * Uses pthread_self() so there is no race with the parent thread. */
@@ -910,6 +927,10 @@ int rtapi_task_resume(int task_id)
     return task_resume(task_id);
 }
 
+/* TRUSTED: task_self and the pll accessors resolve per-thread state via
+ * pthread_getspecific(), which is a plain TLS lookup — no lock, no
+ * syscall, no allocation. */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 int rtapi_task_self(void)
 {
     return task_self();
@@ -930,6 +951,7 @@ int rtapi_task_pll_set_correction(long value)
 {
     return task_pll_set_correction(value);
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 void rtapi_wait(void)
 {
@@ -950,16 +972,25 @@ long int simple_strtol(const char *nptr, char **endptr, int base) {
     return strtol(nptr, endptr, base);
 }
 
+/* TRUSTED: rtapi_get_time reads CLOCK_MONOTONIC via clock_gettime(),
+ * which is a vDSO read on Linux — no syscall, no lock, no allocation. */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 long long rtapi_get_time(void) {
     return do_get_time();
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 long int rtapi_delay_max(void) { return 10000; }
 
+/* TRUSTED: rtapi_delay sleeps via clock_nanosleep, but the delay is
+ * clamped to rtapi_delay_max() (10 us) — a bounded, deliberate busy
+ * delay that drivers use inside the cycle (e.g. bit-bang timing). */
+RTAPI_NONBLOCKING_TRUSTED_BEGIN
 void rtapi_delay(long ns) {
     if(ns > rtapi_delay_max()) ns = rtapi_delay_max();
     do_delay(ns);
 }
+RTAPI_NONBLOCKING_TRUSTED_END
 
 const unsigned long ONE_SEC_IN_NS = 1000000000;
 void rtapi_timespec_advance(struct timespec *result, const struct timespec *src, unsigned long nsec)

@@ -78,10 +78,8 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
 static int lcec_parse_config(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf);
 static void lcec_clear_config(lcec_rt_context_t *ctx);
 
-static void lcec_read_all(void *arg, long period);
-static void lcec_write_all(void *arg, long period);
-void lcec_read_master(void *arg, long period);
-void lcec_write_master(void *arg, long period);
+static void lcec_read_all(void *arg, long period) GOMC_NONBLOCKING;
+static void lcec_write_all(void *arg, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EtherCAT RT component.

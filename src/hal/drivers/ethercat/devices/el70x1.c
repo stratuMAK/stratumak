@@ -239,8 +239,8 @@ static const lcec_pindesc_t slave_params[] = {
 };
 
 int lcec_el70x1_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs);
-void lcec_el70x1_read(struct lcec_slave *slave, long period);
-void lcec_el70x1_write(struct lcec_slave *slave, long period);
+void lcec_el70x1_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el70x1_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an EL7031 using the full encoder+stepper sync config.

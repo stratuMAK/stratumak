@@ -13,6 +13,7 @@
 ********************************************************************/
 
 #include "emcpose.h"
+#include "rtapi_rt_check.h"
 #include "posemath.h"
 #include <math.h>
 #include <float.h>

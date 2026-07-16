@@ -410,6 +410,7 @@ SRCHEADERS := \
     rtapi/rtapi_mutex.h \
     rtapi/rtapi_parport.h \
     rtapi/rtapi_pci.h \
+    rtapi/rtapi_rt_check.h \
     rtapi/rtapi_stdint.h \
     rtapi/rtapi_ctype.h \
     rtapi/rtapi_errno.h \

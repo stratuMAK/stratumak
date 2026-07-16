@@ -112,6 +112,10 @@ typedef struct {
     double reversal_target;
     double reversal_scale;
     double spindlerevs_at_reversal;
+    double old_spindlepos;      // previous-cycle spindle position (state
+                                // for tpUpdateRigidTapState; formerly a
+                                // function-local static — shared across
+                                // instances and rejected by the RT check)
     RIGIDTAP_STATE state;
 } PmRigidTap;
 

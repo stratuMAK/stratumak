@@ -313,7 +313,7 @@ struct hal_funct_t {
     int reentrant;		/* non-zero if function is re-entrant */
     int users;			/* number of threads using function */
     void *arg;			/* argument for function */
-    void (*funct) (void *, long);	/* ptr to function code */
+    hal_funct_ptr_t funct;	/* ptr to function code */
     hal_s32_t* runtime;	/* (pin) duration of last run, in CPU cycles */
     hal_s32_t maxtime;	/* (param) duration of longest run, in CPU cycles */
     hal_bit_t maxtime_increased;	/* on last call, maxtime increased */
@@ -323,7 +323,7 @@ struct hal_funct_t {
 struct hal_funct_entry_t {
     hal_list_t links;		/* linked list data */
     void *arg;			/* argument for function */
-    void (*funct) (void *, long);	/* ptr to function code */
+    hal_funct_ptr_t funct;	/* ptr to function code */
     hal_funct_t *funct_ptr;		/* pointer to function */
 };
 

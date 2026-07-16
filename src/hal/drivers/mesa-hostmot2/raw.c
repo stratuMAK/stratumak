@@ -43,42 +43,42 @@ int hm2_raw_setup(hostmot2_t *hm2) {
     }
 
     snprintf(name, sizeof(name), "%s.raw.read_address", hm2->llio->name);
-    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.read_address), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.read_address), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
     }
 
     snprintf(name, sizeof(name), "%s.raw.read_data", hm2->llio->name);
-    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->raw->hal.pin.read_data), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->raw->hal.pin.read_data), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
     }
 
     snprintf(name, sizeof(name), "%s.raw.write_address", hm2->llio->name);
-    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_address), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_address), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
     }
 
     snprintf(name, sizeof(name), "%s.raw.write_data", hm2->llio->name);
-    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_data), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_data), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
     }
 
     snprintf(name, sizeof(name), "%s.raw.write_strobe", hm2->llio->name);
-    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_strobe), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->raw->hal.pin.write_strobe), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
     }
 
     snprintf(name, sizeof(name), "%s.raw.dump_state", hm2->llio->name);
-    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->raw->hal.pin.dump_state), hm2->llio->comp_id, name);
+    r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->raw->hal.pin.dump_state), hm2->llio->comp_id, "%s", name);
     if (r < 0) {
         HM2_ERR("error adding pin '%s', aborting\n", name);
         return -EINVAL;
@@ -100,7 +100,7 @@ int hm2_raw_setup(hostmot2_t *hm2) {
 
 
 
-void hm2_raw_queue_read(hostmot2_t *hm2) {
+void hm2_raw_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->config.enable_raw == 0) return;
 
     hm2->llio->queue_read(
@@ -119,7 +119,7 @@ void hm2_raw_queue_read(hostmot2_t *hm2) {
 
 
 
-void hm2_raw_write(hostmot2_t *hm2) {
+void hm2_raw_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->config.enable_raw == 0) return;
     if (*hm2->raw->hal.pin.write_strobe == 0) return;
 

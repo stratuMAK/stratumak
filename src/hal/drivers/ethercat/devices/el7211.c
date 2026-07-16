@@ -240,9 +240,9 @@ static ec_sync_info_t lcec_el7201_9014_syncs[] = {
 lcec_el7211_data_t *lcec_el7211_alloc_hal(lcec_master_t *master, struct lcec_slave *slave);
 int lcec_el7211_export_pins(lcec_master_t *master, struct lcec_slave *slave, lcec_el7211_data_t *hal_data);
 void lcec_el7211_check_scales(lcec_el7211_data_t *hal_data);
-void lcec_el7211_read(struct lcec_slave *slave, long period);
-void lcec_el7201_9014_read(struct lcec_slave *slave, long period);
-void lcec_el7211_write(struct lcec_slave *slave, long period);
+void lcec_el7211_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el7201_9014_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el7211_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Allocate and zero HAL memory for the EL7211 data structure.

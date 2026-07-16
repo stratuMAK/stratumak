@@ -146,37 +146,40 @@ typedef struct motmod_inst {
 *                    FUNCTION PROTOTYPES                               *
 ************************************************************************/
 
-extern void emcmotCommandHandler(void *arg, long period);
-extern void emcmotController(void *arg, long period);
-extern void emcmotSetCycleTime(motmod_inst_t *inst, unsigned long nsec);
+extern void emcmotCommandHandler(void *arg, long period) GOMC_NONBLOCKING;
+extern void emcmotController(void *arg, long period) GOMC_NONBLOCKING;
+extern void emcmotSetCycleTime(motmod_inst_t *inst, unsigned long nsec) GOMC_NONBLOCKING;
 
 /* kinematics wrappers — take inst explicitly (no globals) */
 extern int motmod_kinematicsForward(motmod_inst_t *inst, const double *joint,
                              struct EmcPose *world,
                              const KINEMATICS_FORWARD_FLAGS *fflags,
-                             KINEMATICS_INVERSE_FLAGS *iflags);
+                             KINEMATICS_INVERSE_FLAGS *iflags) GOMC_NONBLOCKING;
 extern int motmod_kinematicsInverse(motmod_inst_t *inst, const struct EmcPose *world,
                              double *joint,
                              const KINEMATICS_INVERSE_FLAGS *iflags,
-                             KINEMATICS_FORWARD_FLAGS *fflags);
+                             KINEMATICS_FORWARD_FLAGS *fflags) GOMC_NONBLOCKING;
 extern KINEMATICS_TYPE motmod_kinematicsType(motmod_inst_t *inst);
-extern int motmod_kinematicsSwitchable(motmod_inst_t *inst);
-extern int motmod_kinematicsSwitch(motmod_inst_t *inst, int switchkins_type);
+extern int motmod_kinematicsSwitchable(motmod_inst_t *inst) GOMC_NONBLOCKING;
+extern int motmod_kinematicsSwitch(motmod_inst_t *inst, int switchkins_type) GOMC_NONBLOCKING;
 
 /* synchronized I/O */
-extern void emcmotDioWrite(motmod_inst_t *inst, int index, char value);
-extern void emcmotAioWrite(motmod_inst_t *inst, int index, double value);
+extern void emcmotDioWrite(motmod_inst_t *inst, int index, char value) GOMC_NONBLOCKING;
+extern void emcmotAioWrite(motmod_inst_t *inst, int index, double value) GOMC_NONBLOCKING;
 
-extern void emcmotSetRotaryUnlock(motmod_inst_t *inst, int axis, int unlock);
-extern int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int axis);
+extern void emcmotSetRotaryUnlock(motmod_inst_t *inst, int axis, int unlock) GOMC_NONBLOCKING;
+extern int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int axis) GOMC_NONBLOCKING;
 
-void switch_to_teleop_mode(motmod_inst_t *inst);
+void switch_to_teleop_mode(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
-extern void refresh_jog_limits(motmod_inst_t *inst, emcmot_joint_t *joint, int joint_num);
-extern void jerk_filter_recompute_window(motmod_inst_t *inst);
-extern void clearHomes(motmod_inst_t *inst, int joint_num);
-extern void emcmot_config_change(motmod_inst_t *inst);
-int joint_is_lockable(motmod_inst_t *inst, int joint_num);
+extern void refresh_jog_limits(motmod_inst_t *inst, emcmot_joint_t *joint, int joint_num) GOMC_NONBLOCKING;
+/* init-time worst-case allocation of the jerk filter buffers (NOT RT-safe;
+   recompute_window below runs in the servo thread and only re-strides). */
+extern int jerk_filter_alloc(motmod_inst_t *inst);
+extern void jerk_filter_recompute_window(motmod_inst_t *inst) GOMC_NONBLOCKING;
+extern void clearHomes(motmod_inst_t *inst, int joint_num) GOMC_NONBLOCKING;
+extern void emcmot_config_change(motmod_inst_t *inst) GOMC_NONBLOCKING;
+int joint_is_lockable(motmod_inst_t *inst, int joint_num) GOMC_NONBLOCKING;
 
 /***********************************************************************
 *                    CONVENIENCE MACROS                                *

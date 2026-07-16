@@ -202,7 +202,7 @@ static inline int findSpiralApproximation(PmCircle const * const circ,
         PmCartesian const * const base_pt,
         PmCartesian const * const u_tan,
         PmCartesian * const center_out,
-        double * const radius_out)
+        double * const radius_out) GOMC_NONBLOCKING
 {
     double dr = circ->spiral / circ->angle;
 
@@ -1703,7 +1703,7 @@ static int pmCircleAngleFromParam(PmCircle const * const circle,
         SpiralArcLengthFit const * const fit,
         double t,
         double * const angle,
-        const void *log, const char *log_comp)
+        const void *log, const char *log_comp) GOMC_NONBLOCKING
 {
     if (fit->spiral_in) {
         t = 1.0 - t;
