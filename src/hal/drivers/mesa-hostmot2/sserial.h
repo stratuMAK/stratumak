@@ -179,6 +179,14 @@ typedef struct {
     int myinst;
     char name[256];
     char raw_name[5];
+
+    /* Fanuc encoder reassembly state — full/part turns arrive in
+       separate frames (formerly function-local statics in
+       hm2_sserial_read_pins: shared across ALL channels and boards). */
+    int fanuc_h_flag;
+    int fanuc_l_flag;
+    int fanuc_bitshift;
+    uint64_t fanuc_buff_store;
 }hm2_sserial_remote_t;
 
 typedef struct {

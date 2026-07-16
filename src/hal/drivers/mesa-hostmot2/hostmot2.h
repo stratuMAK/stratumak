@@ -143,6 +143,13 @@
 //
 
 
+/* BSPI transfer callback registered by client modules via
+ * hm2_bspi_set_{read,write}_function.  Runs in the servo cycle — the
+ * nonblocking annotation makes that contract checkable.  (The GMI API
+ * transports it as an opaque ptr; the trust cast lives in
+ * hm2_serial_provider.c.) */
+typedef int (*hm2_bspi_xfer_fn_t)(void *subdata) GOMC_NONBLOCKING;
+
 typedef struct {
     uint32_t idrom_type;
     uint32_t offset_to_modules;
@@ -418,6 +425,11 @@ typedef struct {
     uint32_t *biss_busy_flags;
     uint32_t *ssi_busy_flags;
     uint32_t *fabs_busy_flags;
+
+    /* per-channel error throttling (formerly function-local statics in
+       hm2_absenc_process_tram_read — shared across boards) */
+    int err_count[MAX_ABSENCS];
+    int err_tag[MAX_ABSENCS];
 } hm2_absenc_t;
 
 //
@@ -490,7 +502,18 @@ typedef struct {
     
     gomc_hal_float_t written_khz;
     gomc_hal_float_t kHz;
-    
+
+    /* pseudo-absolute init window counter (formerly a function-local
+       static in hm2_resolver_process_tram_read — shared across boards) */
+    int abs_init_cycle_count;
+
+    /* hm2_resolver_write() comms-handshake state machine (formerly
+       function-local statics — shared across boards) */
+    int wr_state;
+    uint32_t wr_cmd_val;
+    uint32_t wr_data_val;
+    uint32_t wr_timer;
+
 } hm2_resolver_t;
 
 
@@ -1269,8 +1292,8 @@ typedef struct {
     uint32_t register_stride;
     uint32_t instance_stride;
     char name[GOMC_HAL_NAME_LEN+1];
-    int (*read_function)(void*);
-    int (*write_function)(void*);
+    hm2_bspi_xfer_fn_t read_function;
+    hm2_bspi_xfer_fn_t write_function;
     void *subdata;
 } hm2_bspi_instance_t;
 
@@ -1385,6 +1408,10 @@ typedef struct {
     uint32_t hm2_dpll_sync_addr;
     uint32_t *hm2_dpll_sync_reg;
     uint32_t clock_frequency;
+
+    /* settle-down counter for hm2_dpll_write (formerly a function-local
+       static — shared across boards) */
+    int init_counter;
 
 } hm2_dpll_t ;
 
@@ -1667,15 +1694,15 @@ int hm2_md_is_consistent_or_complain(
 
 const char *hm2_get_general_function_name(int gtag);
 
-const char *hm2_hz_to_mhz(uint32_t freq_hz);
+const char *hm2_hz_to_mhz(uint32_t freq_hz) RTAPI_NONBLOCKING;
 
-void hm2_print_modules(hostmot2_t *hm2);
+void hm2_print_modules(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 // functions to get handles to components by name
 hm2_sserial_remote_t *hm2_get_sserial(hostmot2_t **hm2, const char *name);
-int hm2_get_bspi(hostmot2_t **hm2, const char *name);
-int hm2_get_uart(hostmot2_t **hm2, const char *name);
-int hm2_get_pktuart(hostmot2_t **hm2, const char *name);
+int hm2_get_bspi(hostmot2_t **hm2, const char *name) RTAPI_NONBLOCKING;
+int hm2_get_uart(hostmot2_t **hm2, const char *name) RTAPI_NONBLOCKING;
+int hm2_get_pktuart(hostmot2_t **hm2, const char *name) RTAPI_NONBLOCKING;
 
 
 //
@@ -1685,11 +1712,11 @@ int hm2_get_pktuart(hostmot2_t **hm2, const char *name);
 int hm2_register_tram_read_region(hostmot2_t *hm2, uint16_t addr, uint16_t size, uint32_t **buffer);
 int hm2_register_tram_write_region(hostmot2_t *hm2, uint16_t addr, uint16_t size, uint32_t **buffer);
 int hm2_allocate_tram_regions(hostmot2_t *hm2);
-int hm2_tram_read(hostmot2_t *hm2);
-int hm2_finish_read(hostmot2_t *hm2);
-int hm2_queue_read(hostmot2_t *hm2);
-int hm2_tram_write(hostmot2_t *hm2);
-int hm2_finish_write(hostmot2_t *hm2);
+int hm2_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+int hm2_finish_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+int hm2_queue_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+int hm2_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+int hm2_finish_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_tram_cleanup(hostmot2_t *hm2);
 
 
@@ -1716,18 +1743,18 @@ void hm2_set_pin_source(hostmot2_t *hm2, int pin_number, int source);
 
 int hm2_ioport_parse_md(hostmot2_t *hm2, int md_index);
 void hm2_ioport_cleanup(hostmot2_t *hm2);
-void hm2_ioport_force_write(hostmot2_t *hm2);
-void hm2_ioport_write(hostmot2_t *hm2);
-void hm2_ioport_print_module(hostmot2_t *hm2);
+void hm2_ioport_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ioport_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ioport_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_ioport_gpio_tram_write_init(hostmot2_t *hm2);
-void hm2_ioport_initialize_ddr(hostmot2_t *hm2);
+void hm2_ioport_initialize_ddr(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 int hm2_ioport_gpio_export_hal(hostmot2_t *hm2);
-void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2);
-void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2);
+void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
-void hm2_ioport_gpio_read(hostmot2_t *hm2);
-void hm2_ioport_gpio_write(hostmot2_t *hm2);
+void hm2_ioport_gpio_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ioport_gpio_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 
@@ -1738,11 +1765,11 @@ void hm2_ioport_gpio_write(hostmot2_t *hm2);
 
 int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index);
 void hm2_encoder_tram_init(hostmot2_t *hm2);
-void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns);
-void hm2_encoder_write(hostmot2_t *hm2);
+void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns) RTAPI_NONBLOCKING;
+void hm2_encoder_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_encoder_cleanup(hostmot2_t *hm2);
-void hm2_encoder_print_module(hostmot2_t *hm2);
-void hm2_encoder_force_write(hostmot2_t *hm2);
+void hm2_encoder_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_encoder_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 //
@@ -1752,10 +1779,10 @@ void hm2_encoder_force_write(hostmot2_t *hm2);
 
 int hm2_absenc_parse_md(hostmot2_t *hm2, int md_index);
 int hm2_absenc_register_tram(hostmot2_t *hm2);
-void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period);
+void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 void hm2_absenc_cleanup(hostmot2_t *hm2);
-void hm2_absenc_print_module(hostmot2_t *hm2);
-void hm2_absenc_write(hostmot2_t *hm2);
+void hm2_absenc_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_absenc_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // resolver functions
@@ -1763,44 +1790,44 @@ void hm2_absenc_write(hostmot2_t *hm2);
 
 
 int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period);
+void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 void hm2_resolver_cleanup(hostmot2_t *hm2);
-void hm2_resolver_print_module(hostmot2_t *hm2);
-void hm2_resolver_write(hostmot2_t *hm2, long period);
+void hm2_resolver_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_resolver_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 
 //
 // pwmgen functions
 //
 
 int hm2_pwmgen_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_pwmgen_print_module(hostmot2_t *hm2);
+void hm2_pwmgen_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_pwmgen_cleanup(hostmot2_t *hm2);
-void hm2_pwmgen_write(hostmot2_t *hm2);
-void hm2_pwmgen_force_write(hostmot2_t *hm2);
-void hm2_pwmgen_prepare_tram_write(hostmot2_t *hm2);
+void hm2_pwmgen_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_pwmgen_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_pwmgen_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // oneshot functions
 //
 
 int hm2_oneshot_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_oneshot_print_module(hostmot2_t *hm2);
+void hm2_oneshot_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_oneshot_cleanup(hostmot2_t *hm2);
-void hm2_oneshot_write(hostmot2_t *hm2);
-void hm2_oneshot_force_write(hostmot2_t *hm2);
-void hm2_oneshot_prepare_tram_write(hostmot2_t *hm2);
-void hm2_oneshot_process_tram_read(hostmot2_t *hm2);
+void hm2_oneshot_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_oneshot_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_oneshot_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_oneshot_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // rcpwmgen functions
 //
 
 int hm2_rcpwmgen_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_rcpwmgen_print_module(hostmot2_t *hm2);
+void hm2_rcpwmgen_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_rcpwmgen_cleanup(hostmot2_t *hm2);
-void hm2_rcpwmgen_write(hostmot2_t *hm2);
-void hm2_rcpwmgen_force_write(hostmot2_t *hm2);
-void hm2_rcpwmgen_prepare_tram_write(hostmot2_t *hm2);
+void hm2_rcpwmgen_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_rcpwmgen_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_rcpwmgen_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 //
@@ -1808,13 +1835,13 @@ void hm2_rcpwmgen_prepare_tram_write(hostmot2_t *hm2);
 //
 
 int  hm2_tp_pwmgen_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_tp_pwmgen_print_module(hostmot2_t *hm2);
+void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_tp_pwmgen_cleanup(hostmot2_t *hm2);
-void hm2_tp_pwmgen_write(hostmot2_t *hm2);
-void hm2_tp_pwmgen_force_write(hostmot2_t *hm2);
-void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2);
-void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2);
-void hm2_tp_pwmgen_process_read(hostmot2_t *hm2);
+void hm2_tp_pwmgen_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_tp_pwmgen_process_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 //
@@ -1822,12 +1849,12 @@ void hm2_tp_pwmgen_process_read(hostmot2_t *hm2);
 //
 
 int hm2_stepgen_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_stepgen_print_module(hostmot2_t *hm2);
-void hm2_stepgen_force_write(hostmot2_t *hm2);
-void hm2_stepgen_write(hostmot2_t *hm2);
+void hm2_stepgen_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_stepgen_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_stepgen_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_stepgen_tram_init(hostmot2_t *hm2);
-void hm2_stepgen_prepare_tram_write(hostmot2_t *hm2, long period);
-void hm2_stepgen_process_tram_read(hostmot2_t *hm2, long period);
+void hm2_stepgen_prepare_tram_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
+void hm2_stepgen_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 void hm2_stepgen_allocate_pins(hostmot2_t *hm2);
 
 //
@@ -1835,11 +1862,11 @@ void hm2_stepgen_allocate_pins(hostmot2_t *hm2);
 //
 
 int  hm2_sserial_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_sserial_print_module(hostmot2_t *hm2);
-void hm2_sserial_force_write(hostmot2_t *hm2);
-void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period);
-int hm2_sserial_read_pins(hm2_sserial_remote_t *chan);
-void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period);
+void hm2_sserial_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_sserial_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_sserial_prepare_tram_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
+int hm2_sserial_read_pins(hm2_sserial_remote_t *chan) RTAPI_NONBLOCKING;
+void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 void hm2_sserial_cleanup(hostmot2_t *hm2);
 int hm2_sserial_waitfor(hostmot2_t *hm2, uint32_t addr, uint32_t mask, int ms);
 int hm2_sserial_check_local_errors(hostmot2_t *hm2, hm2_sserial_instance_t *inst);
@@ -1856,22 +1883,22 @@ int hm2_sserial_read_configs(hostmot2_t *hm2, hm2_sserial_remote_t *chan);
 //
 
 int  hm2_bspi_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_bspi_print_module(hostmot2_t *hm2);
+void hm2_bspi_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_bspi_cleanup(hostmot2_t *hm2);
 int hm2_bspi_clear_fifo(char * name);
 void hm2_bspi_write(hostmot2_t *hm2);
-void hm2_bspi_force_write(hostmot2_t *hm2);
-void hm2_bspi_prepare_tram_write(hostmot2_t *hm2, long period);
-void hm2_bspi_process_tram_read(hostmot2_t *hm2, long period);
+void hm2_bspi_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_bspi_prepare_tram_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
+void hm2_bspi_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 int hm2_allocate_bspi_tram(char* name);
-int hm2_bspi_write_chan(char* name, int chan, uint32_t val);
+int hm2_bspi_write_chan(char* name, int chan, uint32_t val) RTAPI_NONBLOCKING;
 int hm2_allocate_bspi_tram(char* name);
 int hm2_tram_add_bspi_frame(char *name, int chan, uint32_t **wbuff, uint32_t **rbuff);
 int hm2_bspi_setup_chan(char *name, int chan, int cs, int bits, double mhz,
                         int delay, int cpol, int cpha, int noclear, int noecho,
                         int samplelate);
-int hm2_bspi_set_read_function(char *name, int (*func)(void *subdata), void *subdata);
-int hm2_bspi_set_write_function(char *name, int (*func)(void *subdata), void *subdata);
+int hm2_bspi_set_read_function(char *name, hm2_bspi_xfer_fn_t func, void *subdata);
+int hm2_bspi_set_write_function(char *name, hm2_bspi_xfer_fn_t func, void *subdata);
 
 //
 // UART functions
@@ -1885,16 +1912,16 @@ void hm2_uart_force_write(hostmot2_t *hm2);
 void hm2_uart_prepare_tram_write(hostmot2_t *hm2, long period);
 void hm2_uart_process_tram_read(hostmot2_t *hm2, long period);
 int hm2_uart_setup(char *name, int bitrate, int32_t tx_mode, int32_t rx_mode);
-int hm2_uart_send(char *name, unsigned char data[], int count);
-int hm2_uart_read(char *name, unsigned char data[]);
+int hm2_uart_send(char *name, unsigned char data[], int count) RTAPI_NONBLOCKING;
+int hm2_uart_read(char *name, unsigned char data[]) RTAPI_NONBLOCKING;
 //
 // PktUART functions
 //
 
 int  hm2_pktuart_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_pktuart_print_module(hostmot2_t *hm2);
+void hm2_pktuart_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_pktuart_cleanup(hostmot2_t *hm2);
-void hm2_pktuart_write(hostmot2_t *hm2);
+void hm2_pktuart_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_pktuart_force_write(hostmot2_t *hm2); // ?? 
 void hm2_pktuart_prepare_tram_write(hostmot2_t *hm2, long period); //??
 void hm2_pktuart_process_tram_read(hostmot2_t *hm2, long period);  //  ??
@@ -1905,8 +1932,8 @@ void hm2_pktuart_process_tram_read(hostmot2_t *hm2, long period);  //  ??
 
 void hm2_dpl_cleanup(hostmot2_t *hm2);
 int hm2_dpll_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period);
-void hm2_dpll_write(hostmot2_t *hm2, long period);
+void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
+void hm2_dpll_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
 
 
 //
@@ -1914,38 +1941,38 @@ void hm2_dpll_write(hostmot2_t *hm2, long period);
 //
 
 int  hm2_inmux_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_inmux_print_module(hostmot2_t *hm2);
+void hm2_inmux_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_inmux_cleanup(hostmot2_t *hm2);
-void hm2_inmux_write(hostmot2_t *hm2);
-void hm2_inmux_force_write(hostmot2_t *hm2);
-void hm2_inmux_prepare_tram_write(hostmot2_t *hm2);
+void hm2_inmux_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_inmux_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_inmux_queue_read(hostmot2_t *hm2);
-void hm2_inmux_process_tram_read(hostmot2_t *hm2);
+void hm2_inmux_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // InM functions
 //
 
 int  hm2_inm_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_inm_print_module(hostmot2_t *hm2);
+void hm2_inm_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_inm_cleanup(hostmot2_t *hm2);
-void hm2_inm_write(hostmot2_t *hm2);
-void hm2_inm_force_write(hostmot2_t *hm2);
-void hm2_inm_prepare_tram_write(hostmot2_t *hm2);
+void hm2_inm_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_inm_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_inm_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_inm_queue_read(hostmot2_t *hm2);
-void hm2_inm_process_tram_read(hostmot2_t *hm2);
+void hm2_inm_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // xy2mod functions
 //
 
 int  hm2_xy2mod_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_xy2mod_print_module(hostmot2_t *hm2);
+void hm2_xy2mod_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_xy2mod_cleanup(hostmot2_t *hm2);
-void hm2_xy2mod_write(hostmot2_t *hm2);
-void hm2_xy2mod_force_write(hostmot2_t *hm2);
+void hm2_xy2mod_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_xy2mod_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_xy2mod_queue_read(hostmot2_t *hm2);
-void hm2_xy2mod_process_tram_read(hostmot2_t *hm2);
+void hm2_xy2mod_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 // 
@@ -1953,12 +1980,12 @@ void hm2_xy2mod_process_tram_read(hostmot2_t *hm2);
 // 
 
 int hm2_watchdog_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_watchdog_print_module(hostmot2_t *hm2);
+void hm2_watchdog_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_watchdog_cleanup(hostmot2_t *hm2);
-void hm2_watchdog_prepare_tram_write(hostmot2_t *hm2);
-void hm2_watchdog_write(hostmot2_t *hm2, long period);
-void hm2_watchdog_force_write(hostmot2_t *hm2);
-void hm2_watchdog_process_tram_read(hostmot2_t *hm2);
+void hm2_watchdog_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_watchdog_write(hostmot2_t *hm2, long period) RTAPI_NONBLOCKING;
+void hm2_watchdog_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_watchdog_process_tram_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 
@@ -1968,7 +1995,7 @@ void hm2_watchdog_process_tram_read(hostmot2_t *hm2);
 //
 
 int hm2_led_parse_md(hostmot2_t *hm2, int md_index);
-void hm2_led_write(hostmot2_t *hm2);
+void hm2_led_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 void hm2_led_cleanup(hostmot2_t *hm2);
 
 
@@ -1978,10 +2005,10 @@ void hm2_led_cleanup(hostmot2_t *hm2);
 
 int hm2_ssr_parse_md(hostmot2_t *hm2, int md_index);
 void hm2_ssr_cleanup(hostmot2_t *hm2);
-void hm2_ssr_write(hostmot2_t *hm2);
-void hm2_ssr_force_write(hostmot2_t *hm2);
-void hm2_ssr_prepare_tram_write(hostmot2_t *hm2);
-void hm2_ssr_print_module(hostmot2_t *hm2);
+void hm2_ssr_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ssr_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ssr_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_ssr_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 //
@@ -1990,9 +2017,9 @@ void hm2_ssr_print_module(hostmot2_t *hm2);
 
 int hm2_outm_parse_md(hostmot2_t *hm2, int md_index);
 void hm2_outm_cleanup(hostmot2_t *hm2);
-void hm2_outm_force_write(hostmot2_t *hm2);
-void hm2_outm_prepare_tram_write(hostmot2_t *hm2);
-void hm2_outm_print_module(hostmot2_t *hm2);
+void hm2_outm_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_outm_prepare_tram_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_outm_print_module(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 //
 // ONESHOT functions
@@ -2010,15 +2037,15 @@ void hm2_oneshot_print_module(hostmot2_t *hm2);
 //
 
 int hm2_raw_setup(hostmot2_t *hm2);
-void hm2_raw_queue_read(hostmot2_t *hm2);
-void hm2_raw_write(hostmot2_t *hm2);
+void hm2_raw_queue_read(hostmot2_t *hm2) RTAPI_NONBLOCKING;
+void hm2_raw_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 
 
 // write all settings out to the FPGA
 // used by hm2_register() to initialize and by hm2_pet_watchdog() to recover from io errors and watchdog errors
-void hm2_force_write(hostmot2_t *hm2);
+void hm2_force_write(hostmot2_t *hm2) RTAPI_NONBLOCKING;
 
 
 // items related to pin naming
