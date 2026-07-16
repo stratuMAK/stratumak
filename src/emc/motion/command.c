@@ -188,8 +188,7 @@ void apply_spindle_limits(spindle_status_t *s){
 /* inRange() returns non-zero if the position lies within the joint
    limits, or 0 if not.  It also reports an error for each joint limit
    violation.  It's possible to get more than one violation per move. */
-static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GOMC_NONBLOCKING;
-static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type)
+static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GOMC_NONBLOCKING
 {
     double joint_pos[EMCMOT_MAX_JOINTS];
     int joint_num, axis_num;

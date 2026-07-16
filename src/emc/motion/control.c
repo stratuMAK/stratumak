@@ -130,8 +130,7 @@ static void handle_jjogwheels(motmod_inst_t *inst) GOMC_NONBLOCKING;
    Manages sequence_state to advance through groups in order.
    Returns 1 when all joints have completed homing (transition to teleop).
 */
-static int do_homing_sequence(motmod_inst_t *inst) GOMC_NONBLOCKING;
-static int do_homing_sequence(motmod_inst_t *inst)
+static int do_homing_sequence(motmod_inst_t *inst) GOMC_NONBLOCKING
 {
     int i, seen;
     int sequence_is_set = 0;

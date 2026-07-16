@@ -30,7 +30,7 @@
 
 
 double tcGetMaxTargetVel(TC_STRUCT const * const tc,
-        double max_scale) GOMC_NONBLOCKING
+        double max_scale)
 {
     double v_max_target;
 
@@ -72,7 +72,7 @@ double tcGetOverallMaxAccel(const TC_STRUCT *tc)
 /**
  * Get acceleration for a tc based on the trajectory planner state.
  */
-double tcGetTangentialMaxAccel(TC_STRUCT const * const tc) GOMC_NONBLOCKING
+double tcGetTangentialMaxAccel(TC_STRUCT const * const tc)
 {
     double a_scale = tcGetOverallMaxAccel(tc);
 
@@ -87,7 +87,7 @@ double tcGetTangentialMaxAccel(TC_STRUCT const * const tc) GOMC_NONBLOCKING
 }
 
 
-int tcSetKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc, double kink_vel, double accel_reduction) GOMC_NONBLOCKING
+int tcSetKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc, double kink_vel, double accel_reduction)
 {
   prev_tc->kink_vel = kink_vel;
   //
@@ -105,7 +105,7 @@ int tcInitKinkProperties(TC_STRUCT *tc)
     return 0;
 }
 
-int tcRemoveKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc) GOMC_NONBLOCKING
+int tcRemoveKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc)
 {
     prev_tc->kink_vel = -1.0;
     prev_tc->kink_accel_reduce = 0.0;
@@ -153,7 +153,7 @@ int tcCircleEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const o
  * Get the acceleration direction unit vector for blend velocity calculations.
  * This calculates the direction of acceleration at the start of a segment.
  */
-int tcGetStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING {
+int tcGetStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) {
 
     switch (tc->motion_type) {
         case TC_LINEAR:
@@ -175,7 +175,7 @@ int tcGetStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const ou
  * Get the acceleration direction unit vector for blend velocity calculations.
  * This calculates the direction of acceleration at the end of a segment.
  */
-int tcGetEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING {
+int tcGetEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) {
 
     switch (tc->motion_type) {
         case TC_LINEAR:
@@ -196,7 +196,7 @@ int tcGetEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out)
 }
 
 int tcGetIntersectionPoint(TC_STRUCT const * const prev_tc,
-        TC_STRUCT const * const tc, PmCartesian * const point) GOMC_NONBLOCKING
+        TC_STRUCT const * const tc, PmCartesian * const point)
 {
     // TODO NULL pointer check?
     // Get intersection point from geometry
@@ -216,7 +216,7 @@ int tcGetIntersectionPoint(TC_STRUCT const * const prev_tc,
 /**
  * Check if a segment can be consumed without disrupting motion or synced IO.
  */
-int tcCanConsume(TC_STRUCT const * const tc) GOMC_NONBLOCKING
+int tcCanConsume(TC_STRUCT const * const tc)
 {
     if (!tc) {
         return false;
@@ -237,7 +237,7 @@ int tcCanConsume(TC_STRUCT const * const tc) GOMC_NONBLOCKING
  * tangent to the helical arc. This is called by wrapper functions for the case of a circular or helical arc.
  */
 int pmCircleTangentVector(PmCircle const * const circle,
-        double angle_in, PmCartesian * const out) GOMC_NONBLOCKING
+        double angle_in, PmCartesian * const out)
 {
 
     PmCartesian startpoint;
@@ -278,7 +278,7 @@ int pmCircleTangentVector(PmCircle const * const circle,
  * Calculate the unit tangent vector at the start of a move for any segment.
  */
 int tcGetStartTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const out,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING {
+        const void *log, const char *log_comp) {
 
     switch (tc->motion_type) {
         case TC_LINEAR:
@@ -301,7 +301,7 @@ int tcGetStartTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const 
  * Calculate the unit tangent vector at the end of a move for any segment.
  */
 int tcGetEndTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const out,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING {
+        const void *log, const char *log_comp) {
 
     switch (tc->motion_type) {
         case TC_LINEAR:
@@ -327,7 +327,7 @@ int tcGetEndTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const ou
  * Calculate the distance left in the trajectory segment in the indicated
  * direction.
  */
-double tcGetDistanceToGo(TC_STRUCT const * const tc, int direction) GOMC_NONBLOCKING
+double tcGetDistanceToGo(TC_STRUCT const * const tc, int direction)
 {
     double distance = tcGetTarget(tc, direction) - tc->progress;
     if (direction == TC_DIR_REVERSE) {
@@ -336,7 +336,7 @@ double tcGetDistanceToGo(TC_STRUCT const * const tc, int direction) GOMC_NONBLOC
     return distance;
 }
 
-double tcGetTarget(TC_STRUCT const * const tc, int direction) GOMC_NONBLOCKING
+double tcGetTarget(TC_STRUCT const * const tc, int direction)
 {
     return (direction == TC_DIR_REVERSE) ? 0.0 : tc->target;
 }
@@ -357,7 +357,7 @@ double tcGetTarget(TC_STRUCT const * const tc, int direction) GOMC_NONBLOCKING
  * @return	 EmcPose   returns a position (\ref EmcPose = datatype carrying XYZABC information
  */
 
-int tcGetPos(TC_STRUCT const * const tc, EmcPose * const out) GOMC_NONBLOCKING {
+int tcGetPos(TC_STRUCT const * const tc, EmcPose * const out) {
     tcGetPosReal(tc, TC_GET_PROGRESS, out);
     return 0;
 }
@@ -367,12 +367,12 @@ int tcGetStartpoint(TC_STRUCT const * const tc, EmcPose * const out) {
     return 0;
 }
 
-int tcGetEndpoint(TC_STRUCT const * const tc, EmcPose * const out) GOMC_NONBLOCKING {
+int tcGetEndpoint(TC_STRUCT const * const tc, EmcPose * const out) {
     tcGetPosReal(tc, TC_GET_ENDPOINT, out);
     return 0;
 }
 
-int tcGetPosReal(TC_STRUCT const * const tc, int of_point, EmcPose * const pos) GOMC_NONBLOCKING
+int tcGetPosReal(TC_STRUCT const * const tc, int of_point, EmcPose * const pos)
 {
     PmCartesian xyz;
     PmCartesian abc;
@@ -453,7 +453,7 @@ int tcGetPosReal(TC_STRUCT const * const tc, int of_point, EmcPose * const pos) 
  * Set the terminal condition of a segment.
  * This function will eventually handle state changes associated with altering a terminal condition.
  */
-int tcSetTermCond(TC_STRUCT *prev_tc, TC_STRUCT *tc, int term_cond) GOMC_NONBLOCKING {
+int tcSetTermCond(TC_STRUCT *prev_tc, TC_STRUCT *tc, int term_cond) {
     switch (term_cond) {
     case TC_TERM_COND_STOP:
     case TC_TERM_COND_EXACT:
@@ -485,7 +485,7 @@ int tcSetTermCond(TC_STRUCT *prev_tc, TC_STRUCT *tc, int term_cond) GOMC_NONBLOC
  */
 int tcConnectBlendArc(TC_STRUCT * const prev_tc, TC_STRUCT * const tc,
         PmCartesian const * const circ_start,
-        PmCartesian const * const circ_end) GOMC_NONBLOCKING {
+        PmCartesian const * const circ_end) {
 
     /* Only shift XYZ for now*/
     if (prev_tc) {
@@ -530,7 +530,7 @@ int tcConnectBlendArc(TC_STRUCT * const prev_tc, TC_STRUCT * const tc,
  * Also saves this status so that the blend continues until the segment is
  * done.
  */
-int tcIsBlending(TC_STRUCT * const tc) GOMC_NONBLOCKING {
+int tcIsBlending(TC_STRUCT * const tc) {
     //FIXME Disabling blends for rigid tap cycle until changes can be verified.
     int is_blending_next = (tc->term_cond == TC_TERM_COND_PARABOLIC ) &&
         tc->on_final_decel && (tc->currentvel < tc->blend_vel) &&
@@ -545,7 +545,7 @@ int tcIsBlending(TC_STRUCT * const tc) GOMC_NONBLOCKING {
 }
 
 int tcFindBlendTolerance(TC_STRUCT const * const prev_tc,
-        TC_STRUCT const * const tc, double * const T_blend, double * const nominal_tolerance) GOMC_NONBLOCKING
+        TC_STRUCT const * const tc, double * const T_blend, double * const nominal_tolerance)
 {
     const double tolerance_ratio = 0.25;
     double T1 = prev_tc->tolerance;
@@ -576,7 +576,7 @@ int tcFindBlendTolerance(TC_STRUCT const * const prev_tc,
  * time.
  */
 int tcFlagEarlyStop(TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc) GOMC_NONBLOCKING
+        TC_STRUCT * const nexttc)
 {
 
     if (!tc || !nexttc) {
@@ -601,7 +601,7 @@ int tcFlagEarlyStop(TC_STRUCT * const tc,
     return TP_ERR_OK;
 }
 
-double pmLine9Target(PmLine9 * const line9) GOMC_NONBLOCKING
+double pmLine9Target(PmLine9 * const line9)
 {
     if (!line9->xyz.tmag_zero) {
         return line9->xyz.tmag;
@@ -626,7 +626,7 @@ int tcInit(TC_STRUCT * const tc,
         int canon_motion_type,
         double cycle_time,
         unsigned char enables,
-        char atspeed) GOMC_NONBLOCKING
+        char atspeed)
 {
 
     /** Motion type setup */
@@ -657,7 +657,7 @@ int tcInit(TC_STRUCT * const tc,
 int tcSetupMotion(TC_STRUCT * const tc,
         double vel,
         double ini_maxvel,
-        double acc) GOMC_NONBLOCKING
+        double acc)
 {
     //FIXME assumes that state is already set up in TC_STRUCT, which depends on external order of function calls.
 
@@ -675,7 +675,7 @@ int tcSetupMotion(TC_STRUCT * const tc,
 }
 
 
-int tcSetupState(TC_STRUCT * const tc, TP_STRUCT const * const tp) GOMC_NONBLOCKING
+int tcSetupState(TC_STRUCT * const tc, TP_STRUCT const * const tp)
 {
     tcSetTermCond(tc, NULL, tp->termCond);
     tc->tolerance = tp->tolerance;
@@ -687,7 +687,7 @@ int tcSetupState(TC_STRUCT * const tc, TP_STRUCT const * const tp) GOMC_NONBLOCK
 int pmLine9Init(PmLine9 * const line9,
         EmcPose const * const start,
         EmcPose const * const end,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING
+        const void *log, const char *log_comp)
 {
     // Scratch variables
     PmCartesian start_xyz, end_xyz;
@@ -717,7 +717,7 @@ int pmCircle9Init(PmCircle9 * const circ9,
         PmCartesian const * const center,
         PmCartesian const * const normal,
         int turn,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING
+        const void *log, const char *log_comp)
 {
     PmCartesian start_xyz, end_xyz;
     PmCartesian start_uvw, end_uvw;
@@ -741,7 +741,7 @@ int pmCircle9Init(PmCircle9 * const circ9,
     return TP_ERR_OK;
 }
 
-double pmCircle9Target(PmCircle9 const * const circ9) GOMC_NONBLOCKING
+double pmCircle9Target(PmCircle9 const * const circ9)
 {
 
     double h2;
@@ -751,7 +751,7 @@ double pmCircle9Target(PmCircle9 const * const circ9) GOMC_NONBLOCKING
     return helical_length;
 }
 
-int tcUpdateCircleAccRatio(TC_STRUCT * tc) GOMC_NONBLOCKING
+int tcUpdateCircleAccRatio(TC_STRUCT * tc)
 {
     if (tc->motion_type == TC_CIRCULAR) {
         PmCircleLimits limits = pmCircleActualMaxVel(&tc->coords.circle.xyz,
@@ -772,7 +772,7 @@ int tcUpdateCircleAccRatio(TC_STRUCT * tc) GOMC_NONBLOCKING
  * trust that the length will be the same, and so can use the length in the
  * velocity optimization.
  */
-int tcFinalizeLength(TC_STRUCT * const tc) GOMC_NONBLOCKING
+int tcFinalizeLength(TC_STRUCT * const tc)
 {
     //Apply velocity corrections
     if (!tc) {
@@ -795,7 +795,7 @@ int tcFinalizeLength(TC_STRUCT * const tc) GOMC_NONBLOCKING
 }
 
 
-int tcClampVelocityByLength(TC_STRUCT * const tc) GOMC_NONBLOCKING
+int tcClampVelocityByLength(TC_STRUCT * const tc)
 {
     //Apply velocity corrections
     if (!tc) {
@@ -832,7 +832,7 @@ int tcUpdateTargetFromCircle(TC_STRUCT * const tc)
 int pmRigidTapInit(PmRigidTap * const tap,
         EmcPose const * const start,
         EmcPose const * const end,
-        double reversal_scale) GOMC_NONBLOCKING
+        double reversal_scale)
 {
     PmCartesian start_xyz, end_xyz;
     PmCartesian abc, uvw;
@@ -856,7 +856,7 @@ int pmRigidTapInit(PmRigidTap * const tap,
 
 }
 
-double pmRigidTapTarget(PmRigidTap * const tap, double uu_per_rev) GOMC_NONBLOCKING
+double pmRigidTapTarget(PmRigidTap * const tap, double uu_per_rev)
 {
     // allow 10 turns of the spindle to stop - we don't want to just go on forever
     double overrun = 10. * uu_per_rev;
@@ -867,7 +867,7 @@ double pmRigidTapTarget(PmRigidTap * const tap, double uu_per_rev) GOMC_NONBLOCK
 }
 
 /** Returns true if segment has ONLY rotary motion, false otherwise. */
-int tcPureRotaryCheck(TC_STRUCT const * const tc) GOMC_NONBLOCKING
+int tcPureRotaryCheck(TC_STRUCT const * const tc)
 {
     return (tc->motion_type == TC_LINEAR) &&
         (tc->coords.line.xyz.tmag_zero) &&
@@ -880,7 +880,7 @@ int tcPureRotaryCheck(TC_STRUCT const * const tc) GOMC_NONBLOCKING
  * NOTE: does not yet support ABC or UVW motion!
  */
 int tcSetCircleXYZ(TC_STRUCT * const tc, PmCircle const * const circ,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING
+        const void *log, const char *log_comp)
 {
 
     //Update targets with new arc length
@@ -910,7 +910,7 @@ int tcSetCircleXYZ(TC_STRUCT * const tc, PmCircle const * const circ,
     return TP_ERR_OK;
 }
 
-int tcClearFlags(TC_STRUCT * const tc) GOMC_NONBLOCKING
+int tcClearFlags(TC_STRUCT * const tc)
 {
     if (!tc) {
         return TP_ERR_MISSING_INPUT;

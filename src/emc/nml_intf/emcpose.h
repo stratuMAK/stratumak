@@ -27,7 +27,7 @@ typedef enum {
 
 void emcPoseZero(EmcPose * const pos) RTAPI_NONBLOCKING;
 
-int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out);
+int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out) RTAPI_NONBLOCKING;
 int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out) RTAPI_NONBLOCKING;
 
 int emcPoseToPmCartesian(EmcPose const * const pose,

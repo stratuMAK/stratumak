@@ -20,7 +20,7 @@
 
 //#define EMCPOSE_PEDANTIC
 
-void emcPoseZero(EmcPose * const pos) RTAPI_NONBLOCKING {
+void emcPoseZero(EmcPose * const pos) {
 #ifdef EMCPOSE_PEDANTIC
     if(!pos) {
         return EMCPOSE_ERR_INPUT_MISSING;
@@ -39,7 +39,7 @@ void emcPoseZero(EmcPose * const pos) RTAPI_NONBLOCKING {
 }
 
 
-int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out) RTAPI_NONBLOCKING
+int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out)
 {
 #ifdef EMCPOSE_PEDANTIC
     if (!p1 || !p2) {
@@ -57,7 +57,7 @@ int emcPoseAdd(EmcPose const * const p1, EmcPose const * const p2, EmcPose * con
     return EMCPOSE_ERR_OK;
 }
 
-int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out) RTAPI_NONBLOCKING
+int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * const out)
 {
 #ifdef EMCPOSE_PEDANTIC
     if (!p1 || !p2) {
@@ -76,18 +76,18 @@ int emcPoseSub(EmcPose const * const p1, EmcPose const * const p2, EmcPose * con
 
 }
 
-int emcPoseSelfAdd(EmcPose * const self, EmcPose const * const p2) RTAPI_NONBLOCKING
+int emcPoseSelfAdd(EmcPose * const self, EmcPose const * const p2)
 {
     return emcPoseAdd(self, p2, self);
 }
 
-int emcPoseSelfSub(EmcPose * const self, EmcPose const * const p2) RTAPI_NONBLOCKING
+int emcPoseSelfSub(EmcPose * const self, EmcPose const * const p2)
 {
     return emcPoseSub(self, p2, self);
 }
 
 int emcPoseToPmCartesian(EmcPose const * const pose,
-        PmCartesian * const xyz, PmCartesian * const abc, PmCartesian * const uvw) RTAPI_NONBLOCKING
+        PmCartesian * const xyz, PmCartesian * const abc, PmCartesian * const uvw)
 {
 
 #ifdef EMCPOSE_PEDANTIC
@@ -118,7 +118,7 @@ int emcPoseToPmCartesian(EmcPose const * const pose,
  * Collect PmCartesian elements into 9D EmcPose structure.
  */
 int pmCartesianToEmcPose(PmCartesian const * const xyz,
-        PmCartesian const * const abc, PmCartesian const * const uvw, EmcPose * const pose) RTAPI_NONBLOCKING
+        PmCartesian const * const abc, PmCartesian const * const uvw, EmcPose * const pose)
 {
 #ifdef EMCPOSE_PEDANTIC
     if (!pose) {
@@ -197,7 +197,7 @@ int emcPoseSetUVW(PmCartesian const * const uvw, EmcPose * const pose)
 }
 
 
-int emcPoseGetXYZ(EmcPose const * const pose, PmCartesian * const xyz) RTAPI_NONBLOCKING
+int emcPoseGetXYZ(EmcPose const * const pose, PmCartesian * const xyz)
 {
 #ifdef EMCPOSE_PEDANTIC
     if (!pose) {
@@ -286,7 +286,7 @@ int emcPoseMagnitude(EmcPose const * const pose, double * const out) {
 /**
  * Return true for a numerically valid pose, or false for an invalid pose (or null pointer).
  */
-int emcPoseValid(EmcPose const * const pose) RTAPI_NONBLOCKING
+int emcPoseValid(EmcPose const * const pose)
 {
 
     if (!pose || 
