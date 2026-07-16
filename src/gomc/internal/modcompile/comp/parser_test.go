@@ -391,3 +391,63 @@ license "GPL";
 		t.Errorf("GMIConsume[0].From = %q, want \"motmod\"", c.GMIConsume[0].From)
 	}
 }
+
+func TestParseArch(t *testing.T) {
+	src := `component pcl720 "Port I/O card";
+pin out bit x;
+function _ nofp;
+arch x86_64 i386;
+license "GPL";
+;;
+`
+	pkg, err := Parse("pcl720.comp", src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if got, want := pkg.Component.Archs, []string{"x86_64", "i386"}; !equalStrings(got, want) {
+		t.Errorf("Archs = %v, want %v", got, want)
+	}
+}
+
+func TestParseArchUnknownRejected(t *testing.T) {
+	src := `component test "test";
+pin out bit x;
+function _ nofp;
+arch sparc64;
+license "GPL";
+;;
+`
+	_, err := Parse("test.comp", src)
+	if err == nil {
+		t.Fatal("expected error for unknown arch")
+	}
+	if !strings.Contains(err.Error(), "sparc64") {
+		t.Errorf("error should mention the offending arch: %v", err)
+	}
+}
+
+func TestParseArchEmptyRejected(t *testing.T) {
+	src := `component test "test";
+pin out bit x;
+function _ nofp;
+arch;
+license "GPL";
+;;
+`
+	_, err := Parse("test.comp", src)
+	if err == nil {
+		t.Fatal("expected error for empty arch list")
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
