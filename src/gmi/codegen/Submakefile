@@ -600,6 +600,17 @@ $(GMI_TOOLS_TS): $(GMI_TOOLS_IDL) $(GMICOMPILE_BIN)
 
 TARGETS += $(GMI_TOOLS_TS)
 
+# --- latency TypeScript client ---
+
+GMI_LATENCY_TS := webapp/latency/src/generated/latency_client.ts
+
+$(GMI_LATENCY_TS): $(GMI_LATENCY_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI latency TypeScript REST client"
+	@mkdir -p $(dir $(GMI_LATENCY_TS))
+	$(Q)$(GMICOMPILE) --client-ts $(GMI_LATENCY_IDL) -o $(GMI_LATENCY_TS)
+
+TARGETS += $(GMI_LATENCY_TS)
+
 # --- ini Python client ---
 
 GMI_INI_PY := ../lib/python/gmi/ini_client.py
