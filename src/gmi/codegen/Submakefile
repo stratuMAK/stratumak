@@ -136,6 +136,21 @@ $(GMI_MTC_GEN)/manualtoolchange_api.h $(GMI_MTC_GEN)/manualtoolchange_cgo.go &: 
 TARGETS += $(GMI_MTC_GEN)/manualtoolchange_api.h
 GMI_ALL_GEN_GO += $(GMI_MTC_GEN)/manualtoolchange_cgo.go
 
+# --- latency API ---
+
+GMI_LATENCY_IDL := gmi/idl/latency.gmi
+GMI_LATENCY_GEN := gomc/generated/gmi/latency
+
+$(GMI_LATENCY_GEN)/latency_api.h $(GMI_LATENCY_GEN)/latency_cgo.go &: $(GMI_LATENCY_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI latency from $(GMI_LATENCY_IDL)"
+	@mkdir -p $(GMI_LATENCY_GEN)
+	$(Q)$(GMICOMPILE) --server-c $(GMI_LATENCY_IDL) -o $(GMI_LATENCY_GEN)/latency_api.h
+	$(Q)$(GMICOMPILE) --server-meta $(GMI_LATENCY_IDL) -o $(GMI_LATENCY_GEN)/latency_cgo.go
+	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/latency
+
+TARGETS += $(GMI_LATENCY_GEN)/latency_api.h
+GMI_ALL_GEN_GO += $(GMI_LATENCY_GEN)/latency_cgo.go
+
 # --- mcode_handler API ---
 
 GMI_MCODE_HANDLER_IDL := gmi/idl/mcode_handler.gmi
