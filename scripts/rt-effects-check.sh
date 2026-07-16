@@ -44,11 +44,22 @@ fail=0
 checked=0
 skipped=0
 
+# Scratch root for generated comps and per-TU depfiles (merged at the end).
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH"' EXIT
+DEPDIR="$SCRATCH/deps"
+mkdir -p "$DEPDIR"
+
 check_tu() {
     # check_tu <file> <extra include flags...>
     local tu="$1"; shift
     checked=$((checked+1))
-    if ! "$CLANG" $CFLAGS_COMMON "$@" "$tu"; then
+    # -MMD records exactly which headers this TU includes (works under
+    # -fsyntax-only).  The staleness guard at the end reads these to check the
+    # generated GMI headers against their IDLs — the set is discovered by the
+    # compiler, never a hand-kept list.
+    if ! "$CLANG" $CFLAGS_COMMON -MMD -MF "$DEPDIR/dep-$checked.d" \
+            -MT rt-effects-check "$@" "$tu"; then
         echo "rt-effects-check: FAILED: $tu" >&2
         fail=1
     fi
@@ -157,8 +168,8 @@ COMP_INC="-Isrc/gomc/pkg/cmodule \
     -Isrc/gomc/generated/gmi/manualtoolchange \
     -Isrc/gomc/generated/gmi/hm2_serial"
 
-GEN_DIR="$(mktemp -d)"
-trap 'rm -rf "$GEN_DIR"' EXIT
+GEN_DIR="$SCRATCH/gen"
+mkdir -p "$GEN_DIR"
 
 for comp in src/hal/components/*.comp src/hal/drivers/*.comp; do
     name="$(basename "$comp" .comp)"
@@ -172,6 +183,30 @@ for comp in src/hal/components/*.comp src/hal/drivers/*.comp; do
     fi
     check_tu "$gen" $COMP_INC
 done
+
+# Read-only staleness guard.  The per-TU depfiles name exactly the generated GMI
+# headers the RT TUs #include (discovered by the compiler, not a hand list).  If
+# any is older than its IDL, a full build has not regenerated it — a pull or
+# branch switch left it stale — and the check above just compiled against a
+# stale header, so its verdict is unreliable.  Report that instead of a silent
+# pass.  This only READS mtimes: it never writes to or regenerates the tree, so
+# it cannot perturb a subsequent make.  Header gomc/generated/gmi/<api>/... maps
+# to IDL gmi/idl/<api>.gmi by directory name.
+stale=""
+for h in $(cat "$DEPDIR"/*.d 2>/dev/null \
+        | grep -oE 'src/gomc/generated/gmi/[A-Za-z0-9_]+/[A-Za-z0-9_]+_api\.h' \
+        | sort -u); do
+    api="$(basename "$(dirname "$h")")"
+    idl="src/gmi/idl/$api.gmi"
+    if [ -f "$idl" ] && [ "$idl" -nt "$h" ]; then
+        case " $stale " in *" $api "*) ;; *) stale="$stale $api" ;; esac
+    fi
+done
+if [ -n "$stale" ]; then
+    echo "rt-effects-check: ERROR: stale generated GMI header(s):$stale" >&2
+    echo "rt-effects-check: their IDL is newer — run 'make' first, then re-run" >&2
+    fail=1
+fi
 
 if [ "$fail" -ne 0 ]; then
     echo "rt-effects-check: FAILED ($checked TUs checked)" >&2

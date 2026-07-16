@@ -31,7 +31,12 @@ type generator struct {
 }
 
 func (g *generator) generate() error {
-	g.emitHeader()
+	if err := g.validateArchs(); err != nil {
+		return err
+	}
+	g.emitHeader()         // portable framework prologue (both branches)
+	g.emitArchGuardOpen()  // "#if <arch cond>" — opens the real-module branch
+	g.emitModuleIncludes() // user + GMI headers (arch-specific, may be x86-only)
 	g.emitInstanceStruct()
 	g.emitFunctionForwards()
 	g.emitUserIncludes() // Extract and emit #include lines first
@@ -40,6 +45,7 @@ func (g *generator) generate() error {
 	g.emitUndefConvenience()
 	g.emitInitStartStopDestroy()
 	g.emitNew()
+	g.emitArchGuardClose() // "#else" <stub New> "#endif"
 	return g.err
 }
 
@@ -300,7 +306,14 @@ func (g *generator) emitHeader() {
 	g.printf("#include <stdbool.h>\n")
 	g.printf("\n#ifndef TRUE\n#define TRUE 1\n#endif\n")
 	g.printf("#ifndef FALSE\n#define FALSE 0\n#endif\n")
+	g.printf("\n")
+}
 
+// emitModuleIncludes emits the module's own headers (user includes and GMI
+// API headers).  These are emitted after emitArchGuardOpen so an arch-
+// restricted module's arch-specific headers (e.g. <sys/io.h>) sit inside the
+// "#if <arch>" branch and never reach the compiler on other targets.
+func (g *generator) emitModuleIncludes() {
 	for _, inc := range g.comp.Includes {
 		g.printf("#include %s\n", inc)
 	}
@@ -312,7 +325,69 @@ func (g *generator) emitHeader() {
 	for _, entry := range g.comp.GMIConsume {
 		g.printf("#include \"%s_api.h\"\n", entry.API)
 	}
-	g.printf("\n")
+	if len(g.comp.Includes) > 0 || len(g.comp.GMIProvide) > 0 || len(g.comp.GMIConsume) > 0 {
+		g.printf("\n")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Architecture guard
+//
+// A module with an "arch" declaration compiles to the real module only where
+// the target compiler matches one of the listed architectures.  On any other
+// target the whole module body is #if'd out and replaced by a stub New() that
+// logs an error and refuses to load.  This keeps arch-specific drivers (e.g.
+// pcl720, which uses x86-only port I/O) buildable in an "Architecture: any"
+// package without leaking any per-arch logic into the build system.
+// ---------------------------------------------------------------------------
+
+// validateArchs checks every declared arch name against ast.ArchMacros.
+func (g *generator) validateArchs() error {
+	for _, a := range g.comp.Archs {
+		if _, ok := ast.ArchMacros[a]; !ok {
+			return fmt.Errorf("component %q: unknown arch %q", g.comp.Name, a)
+		}
+	}
+	return nil
+}
+
+// archCondition returns the C preprocessor condition (an OR of the per-arch
+// macro tests) that is true on the module's supported architectures.
+func (g *generator) archCondition() string {
+	conds := make([]string, len(g.comp.Archs))
+	for i, a := range g.comp.Archs {
+		conds[i] = ast.ArchMacros[a]
+	}
+	return strings.Join(conds, " || ")
+}
+
+func (g *generator) emitArchGuardOpen() {
+	if len(g.comp.Archs) == 0 {
+		return
+	}
+	g.printf("/* Architecture guard — supported: %s */\n", strings.Join(g.comp.Archs, " "))
+	g.printf("#if %s\n\n", g.archCondition())
+}
+
+func (g *generator) emitArchGuardClose() {
+	if len(g.comp.Archs) == 0 {
+		return
+	}
+	archs := strings.Join(g.comp.Archs, " ")
+	g.printf("\n#else /* unsupported architecture — stub that refuses to load */\n\n")
+	g.printf("/* ---------------------------------------------------------------------------\n")
+	g.printf(" * Architecture stub.  This module is restricted to: %s\n", archs)
+	g.printf(" * The current target is none of these, so New() refuses to load with a\n")
+	g.printf(" * clear message.  The module still builds and packages on every arch.\n")
+	g.printf(" * ------------------------------------------------------------------------- */\n\n")
+	g.printf("int New(const cmod_env_t *env, const char *name,\n")
+	g.printf("        int argc, const char **argv, cmod_t **out) {\n")
+	g.printf("    (void)argc; (void)argv; (void)out;\n")
+	g.printf("    gomc_log_errorf(env->log, name,\n")
+	g.printf("        \"component not supported on this architecture (requires: %s)\");\n", archs)
+	g.printf("    return -1;\n")
+	g.printf("}\n")
+	g.printf("\n#endif /* %s */\n", g.archCondition())
 }
 
 func (g *generator) needsHALStruct() bool {

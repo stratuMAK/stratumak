@@ -10,6 +10,15 @@
 # All Go output goes to gomc/generated/gmi/<api>/ (one package per API).
 # No more separate *api packages.
 #
+# Each codegen rule is a grouped target (&:, needs GNU make >= 4.3): all
+# unconditionally generated files form one group, so a single recipe run is
+# known to produce them all and a missing or outdated member regenerates the
+# whole group.  Conditional by-products (_push.go, _pub.h/_pub.go,
+# _drain_hook.go — emitted by --server-meta only when the IDL uses
+# @watch/@publish) must NOT be group members: a recipe run may legitimately
+# not recreate them.  They keep empty-recipe alias rules anchored on a Go
+# group member instead.
+#
 # This Submakefile must appear in SUBDIRS after 'gomc' (which builds
 # modcompile) and before any Submakefile that uses the generated headers.
 # ---------------------------------------------------------------------------
@@ -17,6 +26,15 @@
 
 GMICOMPILE := ../bin/modcompile gmi
 GMICOMPILE_BIN := ../bin/modcompile
+
+# One generated Go file per codegen rule, accumulated next to each rule
+# below (for grouped targets one member stands for the whole group).  The
+# gomc module rules (imports_generated.go, ../bin/gomc-server — defined in
+# gomc/Submakefile, which is included before this file) get this list
+# injected as extra prerequisites at the bottom of this file, so codegen
+# completes before regenerate-imports and the Go build.  Single source —
+# no hand-mirrored list in gomc/Submakefile.
+GMI_ALL_GEN_GO :=
 
 # GMI packages are auto-discovered by modcompile regenerate-imports from the
 # generated/gmi/ directory.  The add-gmi calls below are no-ops retained for
@@ -32,71 +50,67 @@ GMICOMPILE_BIN := ../bin/modcompile
 GMI_KINS_IDL := gmi/idl/kins.gmi
 GMI_KINS_GEN := gomc/generated/gmi/kins
 
-$(GMI_KINS_GEN)/kins_api.h: $(GMI_KINS_IDL) $(GMICOMPILE_BIN)
+$(GMI_KINS_GEN)/kins_api.h $(GMI_KINS_GEN)/kins_cgo.go &: $(GMI_KINS_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI kins from $(GMI_KINS_IDL)"
 	@mkdir -p $(GMI_KINS_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_KINS_IDL) -o $(GMI_KINS_GEN)/kins_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_KINS_IDL) -o $(GMI_KINS_GEN)/kins_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/kins
 
-$(GMI_KINS_GEN)/kins_cgo.go: $(GMI_KINS_GEN)/kins_api.h ;
-
 TARGETS += $(GMI_KINS_GEN)/kins_api.h
+GMI_ALL_GEN_GO += $(GMI_KINS_GEN)/kins_cgo.go
 
 # --- tp API ---
 
 GMI_TP_IDL := gmi/idl/tp.gmi
 GMI_TP_GEN := gomc/generated/gmi/tp
 
-$(GMI_TP_GEN)/tp_api.h: $(GMI_TP_IDL) $(GMICOMPILE_BIN)
+$(GMI_TP_GEN)/tp_api.h $(GMI_TP_GEN)/tp_cgo.go &: $(GMI_TP_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI tp from $(GMI_TP_IDL)"
 	@mkdir -p $(GMI_TP_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_TP_IDL) -o $(GMI_TP_GEN)/tp_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_TP_IDL) -o $(GMI_TP_GEN)/tp_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/tp
 
-$(GMI_TP_GEN)/tp_cgo.go: $(GMI_TP_GEN)/tp_api.h ;
-
 TARGETS += $(GMI_TP_GEN)/tp_api.h
+GMI_ALL_GEN_GO += $(GMI_TP_GEN)/tp_cgo.go
 
 # --- home API ---
 
 GMI_HOME_IDL := gmi/idl/home.gmi
 GMI_HOME_GEN := gomc/generated/gmi/home
 
-$(GMI_HOME_GEN)/home_api.h: $(GMI_HOME_IDL) $(GMICOMPILE_BIN)
+$(GMI_HOME_GEN)/home_api.h $(GMI_HOME_GEN)/home_cgo.go &: $(GMI_HOME_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI home from $(GMI_HOME_IDL)"
 	@mkdir -p $(GMI_HOME_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_HOME_IDL) -o $(GMI_HOME_GEN)/home_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_HOME_IDL) -o $(GMI_HOME_GEN)/home_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/home
 
-$(GMI_HOME_GEN)/home_cgo.go: $(GMI_HOME_GEN)/home_api.h ;
-
 TARGETS += $(GMI_HOME_GEN)/home_api.h
+GMI_ALL_GEN_GO += $(GMI_HOME_GEN)/home_cgo.go
 
 # --- mot API (reverse callbacks: motmod → tpmod/homemod) ---
 
 GMI_MOT_IDL := gmi/idl/mot.gmi
 GMI_MOT_GEN := gomc/generated/gmi/mot
 
-$(GMI_MOT_GEN)/mot_api.h: $(GMI_MOT_IDL) $(GMICOMPILE_BIN)
+$(GMI_MOT_GEN)/mot_api.h $(GMI_MOT_GEN)/mot_cgo.go &: $(GMI_MOT_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI mot from $(GMI_MOT_IDL)"
 	@mkdir -p $(GMI_MOT_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MOT_IDL) -o $(GMI_MOT_GEN)/mot_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MOT_IDL) -o $(GMI_MOT_GEN)/mot_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/mot
 
-$(GMI_MOT_GEN)/mot_cgo.go: $(GMI_MOT_GEN)/mot_api.h ;
-
 TARGETS += $(GMI_MOT_GEN)/mot_api.h
+GMI_ALL_GEN_GO += $(GMI_MOT_GEN)/mot_cgo.go
 
 # --- canon API ---
 
 GMI_CANON_IDL := gmi/idl/canon.gmi
 GMI_CANON_GEN := gomc/generated/gmi/canon
 
-$(GMI_CANON_GEN)/canon_api.h: $(GMI_CANON_IDL) $(GMICOMPILE_BIN)
+$(GMI_CANON_GEN)/canon_api.h $(GMI_CANON_GEN)/canon_cgo.go $(GMI_CANON_GEN)/canon_bridge.go &: $(GMI_CANON_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI canon from $(GMI_CANON_IDL)"
 	@mkdir -p $(GMI_CANON_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_CANON_IDL) -o $(GMI_CANON_GEN)/canon_api.h
@@ -104,74 +118,68 @@ $(GMI_CANON_GEN)/canon_api.h: $(GMI_CANON_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_CANON_IDL) -o $(GMI_CANON_GEN)/canon_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/canon
 
-$(GMI_CANON_GEN)/canon_cgo.go: $(GMI_CANON_GEN)/canon_api.h ;
-$(GMI_CANON_GEN)/canon_bridge.go: $(GMI_CANON_GEN)/canon_api.h ;
-
 TARGETS += $(GMI_CANON_GEN)/canon_api.h
+GMI_ALL_GEN_GO += $(GMI_CANON_GEN)/canon_cgo.go
 
 # --- manualtoolchange API ---
 
 GMI_MTC_IDL := gmi/idl/manualtoolchange.gmi
 GMI_MTC_GEN := gomc/generated/gmi/manualtoolchange
 
-$(GMI_MTC_GEN)/manualtoolchange_api.h: $(GMI_MTC_IDL) $(GMICOMPILE_BIN)
+$(GMI_MTC_GEN)/manualtoolchange_api.h $(GMI_MTC_GEN)/manualtoolchange_cgo.go &: $(GMI_MTC_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI manualtoolchange from $(GMI_MTC_IDL)"
 	@mkdir -p $(GMI_MTC_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MTC_IDL) -o $(GMI_MTC_GEN)/manualtoolchange_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MTC_IDL) -o $(GMI_MTC_GEN)/manualtoolchange_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/manualtoolchange
 
-$(GMI_MTC_GEN)/manualtoolchange_cgo.go: $(GMI_MTC_GEN)/manualtoolchange_api.h ;
-
 TARGETS += $(GMI_MTC_GEN)/manualtoolchange_api.h
+GMI_ALL_GEN_GO += $(GMI_MTC_GEN)/manualtoolchange_cgo.go
 
 # --- mcode_handler API ---
 
 GMI_MCODE_HANDLER_IDL := gmi/idl/mcode_handler.gmi
 GMI_MCODE_HANDLER_GEN := gomc/generated/gmi/mcode_handler
 
-$(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h: $(GMI_MCODE_HANDLER_IDL) $(GMICOMPILE_BIN)
+$(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go &: $(GMI_MCODE_HANDLER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI mcode_handler from $(GMI_MCODE_HANDLER_IDL)"
 	@mkdir -p $(GMI_MCODE_HANDLER_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MCODE_HANDLER_IDL) -o $(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MCODE_HANDLER_IDL) -o $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/mcode_handler
 
-$(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go: $(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h ;
-
 TARGETS += $(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h
+GMI_ALL_GEN_GO += $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go
 
 # --- interp_ctx API ---
 
 GMI_INTERP_CTX_IDL := gmi/idl/interp_ctx.gmi
 GMI_INTERP_CTX_GEN := gomc/generated/gmi/interp_ctx
 
-$(GMI_INTERP_CTX_GEN)/interp_ctx_api.h: $(GMI_INTERP_CTX_IDL) $(GMICOMPILE_BIN)
+$(GMI_INTERP_CTX_GEN)/interp_ctx_api.h $(GMI_INTERP_CTX_GEN)/interp_ctx_cgo.go &: $(GMI_INTERP_CTX_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI interp_ctx from $(GMI_INTERP_CTX_IDL)"
 	@mkdir -p $(GMI_INTERP_CTX_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_INTERP_CTX_IDL) -o $(GMI_INTERP_CTX_GEN)/interp_ctx_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_INTERP_CTX_IDL) -o $(GMI_INTERP_CTX_GEN)/interp_ctx_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/interp_ctx
 
-$(GMI_INTERP_CTX_GEN)/interp_ctx_cgo.go: $(GMI_INTERP_CTX_GEN)/interp_ctx_api.h ;
-
 TARGETS += $(GMI_INTERP_CTX_GEN)/interp_ctx_api.h
+GMI_ALL_GEN_GO += $(GMI_INTERP_CTX_GEN)/interp_ctx_cgo.go
 
 # --- interp_ext API ---
 
 GMI_INTERP_EXT_IDL := gmi/idl/interp_ext.gmi
 GMI_INTERP_EXT_GEN := gomc/generated/gmi/interp_ext
 
-$(GMI_INTERP_EXT_GEN)/interp_ext_api.h: $(GMI_INTERP_EXT_IDL) $(GMI_INTERP_CTX_GEN)/interp_ctx_api.h $(GMICOMPILE_BIN)
+$(GMI_INTERP_EXT_GEN)/interp_ext_api.h $(GMI_INTERP_EXT_GEN)/interp_ext_cgo.go &: $(GMI_INTERP_EXT_IDL) $(GMI_INTERP_CTX_GEN)/interp_ctx_api.h $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI interp_ext from $(GMI_INTERP_EXT_IDL)"
 	@mkdir -p $(GMI_INTERP_EXT_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_INTERP_EXT_IDL) -o $(GMI_INTERP_EXT_GEN)/interp_ext_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_INTERP_EXT_IDL) -o $(GMI_INTERP_EXT_GEN)/interp_ext_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/interp_ext
 
-$(GMI_INTERP_EXT_GEN)/interp_ext_cgo.go: $(GMI_INTERP_EXT_GEN)/interp_ext_api.h ;
-
 TARGETS += $(GMI_INTERP_EXT_GEN)/interp_ext_api.h
+GMI_ALL_GEN_GO += $(GMI_INTERP_EXT_GEN)/interp_ext_cgo.go
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # C-provided + Go consumer APIs (cmod provides, gomod consumes via --client-cgo)
@@ -183,60 +191,57 @@ TARGETS += $(GMI_INTERP_EXT_GEN)/interp_ext_api.h
 GMI_MOTCTL_IDL := gmi/idl/motctl.gmi
 GMI_MOTCTL_GEN := gomc/generated/gmi/motctl
 
-$(GMI_MOTCTL_GEN)/motctl_api.h: $(GMI_MOTCTL_IDL) $(GMICOMPILE_BIN)
+$(GMI_MOTCTL_GEN)/motctl_api.h $(GMI_MOTCTL_GEN)/motctl_cgo.go &: $(GMI_MOTCTL_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI motctl from $(GMI_MOTCTL_IDL)"
 	@mkdir -p $(GMI_MOTCTL_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MOTCTL_IDL) -o $(GMI_MOTCTL_GEN)/motctl_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MOTCTL_IDL) -o $(GMI_MOTCTL_GEN)/motctl_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/motctl
 
-$(GMI_MOTCTL_GEN)/motctl_cgo.go: $(GMI_MOTCTL_GEN)/motctl_api.h ;
-
 $(GMI_MOTCTL_GEN)/motctl_client_cgo.go: $(GMI_MOTCTL_IDL) $(GMI_MOTCTL_GEN)/motctl_cgo.go $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI motctl cgo client"
 	$(Q)$(GMICOMPILE) --client-cgo $(GMI_MOTCTL_IDL) -o $(GMI_MOTCTL_GEN)/motctl_client_cgo.go
 
 TARGETS += $(GMI_MOTCTL_GEN)/motctl_api.h $(GMI_MOTCTL_GEN)/motctl_client_cgo.go
+GMI_ALL_GEN_GO += $(GMI_MOTCTL_GEN)/motctl_cgo.go $(GMI_MOTCTL_GEN)/motctl_client_cgo.go
 
 # --- motstat API ---
 
 GMI_MOTSTAT_IDL := gmi/idl/motstat.gmi
 GMI_MOTSTAT_GEN := gomc/generated/gmi/motstat
 
-$(GMI_MOTSTAT_GEN)/motstat_api.h: $(GMI_MOTSTAT_IDL) $(GMICOMPILE_BIN)
+$(GMI_MOTSTAT_GEN)/motstat_api.h $(GMI_MOTSTAT_GEN)/motstat_cgo.go &: $(GMI_MOTSTAT_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI motstat from $(GMI_MOTSTAT_IDL)"
 	@mkdir -p $(GMI_MOTSTAT_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MOTSTAT_IDL) -o $(GMI_MOTSTAT_GEN)/motstat_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MOTSTAT_IDL) -o $(GMI_MOTSTAT_GEN)/motstat_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/motstat
 
-$(GMI_MOTSTAT_GEN)/motstat_cgo.go: $(GMI_MOTSTAT_GEN)/motstat_api.h ;
-
 $(GMI_MOTSTAT_GEN)/motstat_client_cgo.go: $(GMI_MOTSTAT_IDL) $(GMI_MOTSTAT_GEN)/motstat_cgo.go $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI motstat cgo client"
 	$(Q)$(GMICOMPILE) --client-cgo $(GMI_MOTSTAT_IDL) -o $(GMI_MOTSTAT_GEN)/motstat_client_cgo.go
 
 TARGETS += $(GMI_MOTSTAT_GEN)/motstat_api.h $(GMI_MOTSTAT_GEN)/motstat_client_cgo.go
+GMI_ALL_GEN_GO += $(GMI_MOTSTAT_GEN)/motstat_cgo.go $(GMI_MOTSTAT_GEN)/motstat_client_cgo.go
 
 # --- emcio API ---
 
 GMI_EMCIO_IDL := gmi/idl/emcio.gmi
 GMI_EMCIO_GEN := gomc/generated/gmi/emcio
 
-$(GMI_EMCIO_GEN)/emcio_api.h: $(GMI_EMCIO_IDL) $(GMICOMPILE_BIN)
+$(GMI_EMCIO_GEN)/emcio_api.h $(GMI_EMCIO_GEN)/emcio_cgo.go &: $(GMI_EMCIO_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emcio from $(GMI_EMCIO_IDL)"
 	@mkdir -p $(GMI_EMCIO_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_EMCIO_IDL) -o $(GMI_EMCIO_GEN)/emcio_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_EMCIO_IDL) -o $(GMI_EMCIO_GEN)/emcio_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/emcio
 
-$(GMI_EMCIO_GEN)/emcio_cgo.go: $(GMI_EMCIO_GEN)/emcio_api.h ;
-
 $(GMI_EMCIO_GEN)/emcio_client_cgo.go: $(GMI_EMCIO_IDL) $(GMI_EMCIO_GEN)/emcio_cgo.go $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emcio cgo client"
 	$(Q)$(GMICOMPILE) --client-cgo $(GMI_EMCIO_IDL) -o $(GMI_EMCIO_GEN)/emcio_client_cgo.go
 
 TARGETS += $(GMI_EMCIO_GEN)/emcio_api.h $(GMI_EMCIO_GEN)/emcio_client_cgo.go
+GMI_ALL_GEN_GO += $(GMI_EMCIO_GEN)/emcio_cgo.go $(GMI_EMCIO_GEN)/emcio_client_cgo.go
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Go-provided APIs with C consumers (gomod provides, cmod consumes)
@@ -249,7 +254,7 @@ TARGETS += $(GMI_EMCIO_GEN)/emcio_api.h $(GMI_EMCIO_GEN)/emcio_client_cgo.go
 GMI_EMCSTAT_IDL := gmi/idl/emcstat.gmi
 GMI_EMCSTAT_GEN := gomc/generated/gmi/emcstat
 
-$(GMI_EMCSTAT_GEN)/emcstat_api.h: $(GMI_EMCSTAT_IDL) $(GMICOMPILE_BIN)
+$(GMI_EMCSTAT_GEN)/emcstat_api.h $(GMI_EMCSTAT_GEN)/emcstat_cgo.go $(GMI_EMCSTAT_GEN)/emcstat_bridge.go &: $(GMI_EMCSTAT_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emcstat from $(GMI_EMCSTAT_IDL)"
 	@mkdir -p $(GMI_EMCSTAT_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_EMCSTAT_IDL) -o $(GMI_EMCSTAT_GEN)/emcstat_api.h
@@ -257,18 +262,19 @@ $(GMI_EMCSTAT_GEN)/emcstat_api.h: $(GMI_EMCSTAT_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_EMCSTAT_IDL) -o $(GMI_EMCSTAT_GEN)/emcstat_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/emcstat
 
-$(GMI_EMCSTAT_GEN)/emcstat_cgo.go: $(GMI_EMCSTAT_GEN)/emcstat_api.h ;
-$(GMI_EMCSTAT_GEN)/emcstat_bridge.go: $(GMI_EMCSTAT_GEN)/emcstat_api.h ;
-$(GMI_EMCSTAT_GEN)/emcstat_push.go: $(GMI_EMCSTAT_GEN)/emcstat_api.h ;
+# emcstat_push.go is a conditional by-product of --server-meta (@watch
+# methods returning structs); it is rewritten together with emcstat_cgo.go.
+$(GMI_EMCSTAT_GEN)/emcstat_push.go: $(GMI_EMCSTAT_GEN)/emcstat_cgo.go ;
 
 TARGETS += $(GMI_EMCSTAT_GEN)/emcstat_api.h
+GMI_ALL_GEN_GO += $(GMI_EMCSTAT_GEN)/emcstat_cgo.go
 
 # --- emccmd API ---
 
 GMI_EMCCMD_IDL := gmi/idl/emccmd.gmi
 GMI_EMCCMD_GEN := gomc/generated/gmi/emccmd
 
-$(GMI_EMCCMD_GEN)/emccmd_api.h: $(GMI_EMCCMD_IDL) $(GMICOMPILE_BIN)
+$(GMI_EMCCMD_GEN)/emccmd_api.h $(GMI_EMCCMD_GEN)/emccmd_cgo.go $(GMI_EMCCMD_GEN)/emccmd_bridge.go &: $(GMI_EMCCMD_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emccmd from $(GMI_EMCCMD_IDL)"
 	@mkdir -p $(GMI_EMCCMD_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_EMCCMD_IDL) -o $(GMI_EMCCMD_GEN)/emccmd_api.h
@@ -276,17 +282,15 @@ $(GMI_EMCCMD_GEN)/emccmd_api.h: $(GMI_EMCCMD_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_EMCCMD_IDL) -o $(GMI_EMCCMD_GEN)/emccmd_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/emccmd
 
-$(GMI_EMCCMD_GEN)/emccmd_cgo.go: $(GMI_EMCCMD_GEN)/emccmd_api.h ;
-$(GMI_EMCCMD_GEN)/emccmd_bridge.go: $(GMI_EMCCMD_GEN)/emccmd_api.h ;
-
 TARGETS += $(GMI_EMCCMD_GEN)/emccmd_api.h
+GMI_ALL_GEN_GO += $(GMI_EMCCMD_GEN)/emccmd_cgo.go
 
 # --- emcerror API ---
 
 GMI_EMCERROR_IDL := gmi/idl/emcerror.gmi
 GMI_EMCERROR_GEN := gomc/generated/gmi/emcerror
 
-$(GMI_EMCERROR_GEN)/emcerror_api.h: $(GMI_EMCERROR_IDL) $(GMICOMPILE_BIN)
+$(GMI_EMCERROR_GEN)/emcerror_api.h $(GMI_EMCERROR_GEN)/emcerror_cgo.go $(GMI_EMCERROR_GEN)/emcerror_bridge.go &: $(GMI_EMCERROR_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emcerror from $(GMI_EMCERROR_IDL)"
 	@mkdir -p $(GMI_EMCERROR_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_EMCERROR_IDL) -o $(GMI_EMCERROR_GEN)/emcerror_api.h
@@ -294,12 +298,14 @@ $(GMI_EMCERROR_GEN)/emcerror_api.h: $(GMI_EMCERROR_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_EMCERROR_IDL) -o $(GMI_EMCERROR_GEN)/emcerror_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/emcerror
 
-$(GMI_EMCERROR_GEN)/emcerror_cgo.go: $(GMI_EMCERROR_GEN)/emcerror_api.h ;
-$(GMI_EMCERROR_GEN)/emcerror_bridge.go: $(GMI_EMCERROR_GEN)/emcerror_api.h ;
-$(GMI_EMCERROR_GEN)/emcerror_pub.h: $(GMI_EMCERROR_GEN)/emcerror_api.h ;
-$(GMI_EMCERROR_GEN)/emcerror_pub.go: $(GMI_EMCERROR_GEN)/emcerror_api.h ;
+# _pub.h/_pub.go/_drain_hook.go are conditional by-products of --server-meta
+# (@publish functions); they are rewritten together with emcerror_cgo.go.
+$(GMI_EMCERROR_GEN)/emcerror_pub.h: $(GMI_EMCERROR_GEN)/emcerror_cgo.go ;
+$(GMI_EMCERROR_GEN)/emcerror_pub.go: $(GMI_EMCERROR_GEN)/emcerror_cgo.go ;
+$(GMI_EMCERROR_GEN)/emcerror_drain_hook.go: $(GMI_EMCERROR_GEN)/emcerror_cgo.go ;
 
 TARGETS += $(GMI_EMCERROR_GEN)/emcerror_api.h
+GMI_ALL_GEN_GO += $(GMI_EMCERROR_GEN)/emcerror_cgo.go
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Go-only APIs (gomod provides, consumers are REST/WS only)
@@ -312,7 +318,7 @@ TARGETS += $(GMI_EMCERROR_GEN)/emcerror_api.h
 GMI_HALCMD_IDL := gmi/idl/halcmd.gmi
 GMI_HALCMD_GEN := gomc/generated/gmi/halcmd
 
-$(GMI_HALCMD_GEN)/halcmd_api.h: $(GMI_HALCMD_IDL) $(GMICOMPILE_BIN)
+$(GMI_HALCMD_GEN)/halcmd_api.h $(GMI_HALCMD_GEN)/halcmd_cgo.go $(GMI_HALCMD_GEN)/halcmd_bridge.go &: $(GMI_HALCMD_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI halcmd from $(GMI_HALCMD_IDL)"
 	@mkdir -p $(GMI_HALCMD_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_HALCMD_IDL) -o $(GMI_HALCMD_GEN)/halcmd_api.h
@@ -320,17 +326,15 @@ $(GMI_HALCMD_GEN)/halcmd_api.h: $(GMI_HALCMD_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_HALCMD_IDL) -o $(GMI_HALCMD_GEN)/halcmd_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/halcmd
 
-$(GMI_HALCMD_GEN)/halcmd_cgo.go: $(GMI_HALCMD_GEN)/halcmd_api.h ;
-$(GMI_HALCMD_GEN)/halcmd_bridge.go: $(GMI_HALCMD_GEN)/halcmd_api.h ;
-
 TARGETS += $(GMI_HALCMD_GEN)/halcmd_api.h
+GMI_ALL_GEN_GO += $(GMI_HALCMD_GEN)/halcmd_cgo.go
 
 # --- pyvcp API ---
 
 GMI_PYVCP_IDL := gmi/idl/pyvcp.gmi
 GMI_PYVCP_GEN := gomc/generated/gmi/pyvcp
 
-$(GMI_PYVCP_GEN)/pyvcp_api.h: $(GMI_PYVCP_IDL) $(GMICOMPILE_BIN)
+$(GMI_PYVCP_GEN)/pyvcp_api.h $(GMI_PYVCP_GEN)/pyvcp_cgo.go $(GMI_PYVCP_GEN)/pyvcp_bridge.go &: $(GMI_PYVCP_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI pyvcp from $(GMI_PYVCP_IDL)"
 	@mkdir -p $(GMI_PYVCP_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_PYVCP_IDL) -o $(GMI_PYVCP_GEN)/pyvcp_api.h
@@ -338,17 +342,15 @@ $(GMI_PYVCP_GEN)/pyvcp_api.h: $(GMI_PYVCP_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_PYVCP_IDL) -o $(GMI_PYVCP_GEN)/pyvcp_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/pyvcp
 
-$(GMI_PYVCP_GEN)/pyvcp_cgo.go: $(GMI_PYVCP_GEN)/pyvcp_api.h ;
-$(GMI_PYVCP_GEN)/pyvcp_bridge.go: $(GMI_PYVCP_GEN)/pyvcp_api.h ;
-
 TARGETS += $(GMI_PYVCP_GEN)/pyvcp_api.h
+GMI_ALL_GEN_GO += $(GMI_PYVCP_GEN)/pyvcp_cgo.go
 
 # --- halscope API ---
 
 GMI_HALSCOPE_IDL := gmi/idl/halscope.gmi
 GMI_HALSCOPE_GEN := gomc/generated/gmi/halscope
 
-$(GMI_HALSCOPE_GEN)/halscope_api.h: $(GMI_HALSCOPE_IDL) $(GMICOMPILE_BIN)
+$(GMI_HALSCOPE_GEN)/halscope_api.h $(GMI_HALSCOPE_GEN)/halscope_cgo.go $(GMI_HALSCOPE_GEN)/halscope_bridge.go &: $(GMI_HALSCOPE_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI halscope from $(GMI_HALSCOPE_IDL)"
 	@mkdir -p $(GMI_HALSCOPE_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_HALSCOPE_IDL) -o $(GMI_HALSCOPE_GEN)/halscope_api.h
@@ -356,17 +358,19 @@ $(GMI_HALSCOPE_GEN)/halscope_api.h: $(GMI_HALSCOPE_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_HALSCOPE_IDL) -o $(GMI_HALSCOPE_GEN)/halscope_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/halscope
 
-$(GMI_HALSCOPE_GEN)/halscope_cgo.go: $(GMI_HALSCOPE_GEN)/halscope_api.h ;
-$(GMI_HALSCOPE_GEN)/halscope_bridge.go: $(GMI_HALSCOPE_GEN)/halscope_api.h ;
+# halscope_push.go is a conditional by-product of --server-meta; it is
+# rewritten together with halscope_cgo.go.
+$(GMI_HALSCOPE_GEN)/halscope_push.go: $(GMI_HALSCOPE_GEN)/halscope_cgo.go ;
 
 TARGETS += $(GMI_HALSCOPE_GEN)/halscope_api.h
+GMI_ALL_GEN_GO += $(GMI_HALSCOPE_GEN)/halscope_cgo.go
 
 # --- classicladder API ---
 
 GMI_CLASSICLADDER_IDL := gmi/idl/classicladder.gmi
 GMI_CLASSICLADDER_GEN := gomc/generated/gmi/classicladder
 
-$(GMI_CLASSICLADDER_GEN)/classicladder_api.h: $(GMI_CLASSICLADDER_IDL) $(GMICOMPILE_BIN)
+$(GMI_CLASSICLADDER_GEN)/classicladder_api.h $(GMI_CLASSICLADDER_GEN)/classicladder_cgo.go $(GMI_CLASSICLADDER_GEN)/classicladder_bridge.go &: $(GMI_CLASSICLADDER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI classicladder from $(GMI_CLASSICLADDER_IDL)"
 	@mkdir -p $(GMI_CLASSICLADDER_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_CLASSICLADDER_IDL) -o $(GMI_CLASSICLADDER_GEN)/classicladder_api.h
@@ -374,49 +378,49 @@ $(GMI_CLASSICLADDER_GEN)/classicladder_api.h: $(GMI_CLASSICLADDER_IDL) $(GMICOMP
 	$(Q)$(GMICOMPILE) --server-go $(GMI_CLASSICLADDER_IDL) -o $(GMI_CLASSICLADDER_GEN)/classicladder_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/classicladder
 
-$(GMI_CLASSICLADDER_GEN)/classicladder_cgo.go: $(GMI_CLASSICLADDER_GEN)/classicladder_api.h ;
-$(GMI_CLASSICLADDER_GEN)/classicladder_bridge.go: $(GMI_CLASSICLADDER_GEN)/classicladder_api.h ;
+# classicladder_push.go is a conditional by-product of --server-meta; it is
+# rewritten together with classicladder_cgo.go.
+$(GMI_CLASSICLADDER_GEN)/classicladder_push.go: $(GMI_CLASSICLADDER_GEN)/classicladder_cgo.go ;
 
 TARGETS += $(GMI_CLASSICLADDER_GEN)/classicladder_api.h
+GMI_ALL_GEN_GO += $(GMI_CLASSICLADDER_GEN)/classicladder_cgo.go
 
 # --- hm2_llio API (transport → hostmot2 core) ---
 
 GMI_HM2_LLIO_IDL := gmi/idl/hm2_llio.gmi
 GMI_HM2_LLIO_GEN := gomc/generated/gmi/hm2_llio
 
-$(GMI_HM2_LLIO_GEN)/hm2_llio_api.h: $(GMI_HM2_LLIO_IDL) $(GMICOMPILE_BIN)
+$(GMI_HM2_LLIO_GEN)/hm2_llio_api.h $(GMI_HM2_LLIO_GEN)/hm2_llio_cgo.go &: $(GMI_HM2_LLIO_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI hm2_llio from $(GMI_HM2_LLIO_IDL)"
 	@mkdir -p $(GMI_HM2_LLIO_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_HM2_LLIO_IDL) -o $(GMI_HM2_LLIO_GEN)/hm2_llio_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_HM2_LLIO_IDL) -o $(GMI_HM2_LLIO_GEN)/hm2_llio_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/hm2_llio
 
-$(GMI_HM2_LLIO_GEN)/hm2_llio_cgo.go: $(GMI_HM2_LLIO_GEN)/hm2_llio_api.h ;
-
 TARGETS += $(GMI_HM2_LLIO_GEN)/hm2_llio_api.h
+GMI_ALL_GEN_GO += $(GMI_HM2_LLIO_GEN)/hm2_llio_cgo.go
 
 # --- hm2_serial API (hostmot2 core → mesa_uart/mesa_7i65/hm2_modbus) ---
 
 GMI_HM2_SERIAL_IDL := gmi/idl/hm2_serial.gmi
 GMI_HM2_SERIAL_GEN := gomc/generated/gmi/hm2_serial
 
-$(GMI_HM2_SERIAL_GEN)/hm2_serial_api.h: $(GMI_HM2_SERIAL_IDL) $(GMICOMPILE_BIN)
+$(GMI_HM2_SERIAL_GEN)/hm2_serial_api.h $(GMI_HM2_SERIAL_GEN)/hm2_serial_cgo.go &: $(GMI_HM2_SERIAL_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI hm2_serial from $(GMI_HM2_SERIAL_IDL)"
 	@mkdir -p $(GMI_HM2_SERIAL_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_HM2_SERIAL_IDL) -o $(GMI_HM2_SERIAL_GEN)/hm2_serial_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_HM2_SERIAL_IDL) -o $(GMI_HM2_SERIAL_GEN)/hm2_serial_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/hm2_serial
 
-$(GMI_HM2_SERIAL_GEN)/hm2_serial_cgo.go: $(GMI_HM2_SERIAL_GEN)/hm2_serial_api.h ;
-
 TARGETS += $(GMI_HM2_SERIAL_GEN)/hm2_serial_api.h
+GMI_ALL_GEN_GO += $(GMI_HM2_SERIAL_GEN)/hm2_serial_cgo.go
 
 # --- ini API ---
 
 GMI_INI_IDL := gmi/idl/ini.gmi
 GMI_INI_GEN := gomc/generated/gmi/ini
 
-$(GMI_INI_GEN)/ini_api.h: $(GMI_INI_IDL) $(GMICOMPILE_BIN)
+$(GMI_INI_GEN)/ini_api.h $(GMI_INI_GEN)/ini_cgo.go $(GMI_INI_GEN)/ini_bridge.go &: $(GMI_INI_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI ini from $(GMI_INI_IDL)"
 	@mkdir -p $(GMI_INI_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_INI_IDL) -o $(GMI_INI_GEN)/ini_api.h
@@ -424,17 +428,15 @@ $(GMI_INI_GEN)/ini_api.h: $(GMI_INI_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_INI_IDL) -o $(GMI_INI_GEN)/ini_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/ini
 
-$(GMI_INI_GEN)/ini_cgo.go: $(GMI_INI_GEN)/ini_api.h ;
-$(GMI_INI_GEN)/ini_bridge.go: $(GMI_INI_GEN)/ini_api.h ;
-
 TARGETS += $(GMI_INI_GEN)/ini_api.h
+GMI_ALL_GEN_GO += $(GMI_INI_GEN)/ini_cgo.go
 
 # --- emccalib API ---
 
 GMI_EMCCALIB_IDL := gmi/idl/emccalib.gmi
 GMI_EMCCALIB_GEN := gomc/generated/gmi/emccalib
 
-$(GMI_EMCCALIB_GEN)/emccalib_api.h: $(GMI_EMCCALIB_IDL) $(GMICOMPILE_BIN)
+$(GMI_EMCCALIB_GEN)/emccalib_api.h $(GMI_EMCCALIB_GEN)/emccalib_cgo.go $(GMI_EMCCALIB_GEN)/emccalib_bridge.go &: $(GMI_EMCCALIB_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI emccalib from $(GMI_EMCCALIB_IDL)"
 	@mkdir -p $(GMI_EMCCALIB_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_EMCCALIB_IDL) -o $(GMI_EMCCALIB_GEN)/emccalib_api.h
@@ -442,17 +444,15 @@ $(GMI_EMCCALIB_GEN)/emccalib_api.h: $(GMI_EMCCALIB_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_EMCCALIB_IDL) -o $(GMI_EMCCALIB_GEN)/emccalib_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/emccalib
 
-$(GMI_EMCCALIB_GEN)/emccalib_cgo.go: $(GMI_EMCCALIB_GEN)/emccalib_api.h ;
-$(GMI_EMCCALIB_GEN)/emccalib_bridge.go: $(GMI_EMCCALIB_GEN)/emccalib_api.h ;
-
 TARGETS += $(GMI_EMCCALIB_GEN)/emccalib_api.h
+GMI_ALL_GEN_GO += $(GMI_EMCCALIB_GEN)/emccalib_cgo.go
 
 # --- tools API ---
 
 GMI_TOOLS_IDL := gmi/idl/tools.gmi
 GMI_TOOLS_GEN := gomc/generated/gmi/tools
 
-$(GMI_TOOLS_GEN)/tools_api.h: $(GMI_TOOLS_IDL) $(GMICOMPILE_BIN)
+$(GMI_TOOLS_GEN)/tools_api.h $(GMI_TOOLS_GEN)/tools_cgo.go $(GMI_TOOLS_GEN)/tools_bridge.go &: $(GMI_TOOLS_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI tools from $(GMI_TOOLS_IDL)"
 	@mkdir -p $(GMI_TOOLS_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_TOOLS_IDL) -o $(GMI_TOOLS_GEN)/tools_api.h
@@ -460,17 +460,15 @@ $(GMI_TOOLS_GEN)/tools_api.h: $(GMI_TOOLS_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_TOOLS_IDL) -o $(GMI_TOOLS_GEN)/tools_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/tools
 
-$(GMI_TOOLS_GEN)/tools_cgo.go: $(GMI_TOOLS_GEN)/tools_api.h ;
-$(GMI_TOOLS_GEN)/tools_bridge.go: $(GMI_TOOLS_GEN)/tools_api.h ;
-
 TARGETS += $(GMI_TOOLS_GEN)/tools_api.h
+GMI_ALL_GEN_GO += $(GMI_TOOLS_GEN)/tools_cgo.go
 
 # --- ngcpreview API ---
 
 GMI_NGCPREVIEW_IDL := gmi/idl/ngcpreview.gmi
 GMI_NGCPREVIEW_GEN := gomc/generated/gmi/ngcpreview
 
-$(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h: $(GMI_NGCPREVIEW_IDL) $(GMICOMPILE_BIN)
+$(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h $(GMI_NGCPREVIEW_GEN)/ngcpreview_cgo.go $(GMI_NGCPREVIEW_GEN)/ngcpreview_bridge.go &: $(GMI_NGCPREVIEW_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI ngcpreview from $(GMI_NGCPREVIEW_IDL)"
 	@mkdir -p $(GMI_NGCPREVIEW_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_NGCPREVIEW_IDL) -o $(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h
@@ -478,10 +476,8 @@ $(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h: $(GMI_NGCPREVIEW_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --server-go $(GMI_NGCPREVIEW_IDL) -o $(GMI_NGCPREVIEW_GEN)/ngcpreview_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/ngcpreview
 
-$(GMI_NGCPREVIEW_GEN)/ngcpreview_cgo.go: $(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h ;
-$(GMI_NGCPREVIEW_GEN)/ngcpreview_bridge.go: $(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h ;
-
 TARGETS += $(GMI_NGCPREVIEW_GEN)/ngcpreview_api.h
+GMI_ALL_GEN_GO += $(GMI_NGCPREVIEW_GEN)/ngcpreview_cgo.go
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Client-only generation (TypeScript, Python — unchanged)
@@ -615,7 +611,7 @@ TARGETS += $(GMI_NGCPREVIEW_PY)
 GMI_TOOLTABLE_IDL := gmi/idl/tooltable.gmi
 GMI_TOOLTABLE_GEN := gomc/generated/gmi/tooltable
 
-$(GMI_TOOLTABLE_GEN)/tooltable_api.h: $(GMI_TOOLTABLE_IDL) $(GMICOMPILE_BIN)
+$(GMI_TOOLTABLE_GEN)/tooltable_api.h $(GMI_TOOLTABLE_GEN)/tooltable_cgo.go $(GMI_TOOLTABLE_GEN)/tooltable_bridge.go $(GMI_TOOLTABLE_GEN)/tooltable_client_cgo.go &: $(GMI_TOOLTABLE_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI tooltable from $(GMI_TOOLTABLE_IDL)"
 	@mkdir -p $(GMI_TOOLTABLE_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_TOOLTABLE_IDL) -o $(GMI_TOOLTABLE_GEN)/tooltable_api.h
@@ -624,9 +620,8 @@ $(GMI_TOOLTABLE_GEN)/tooltable_api.h: $(GMI_TOOLTABLE_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --client-cgo $(GMI_TOOLTABLE_IDL) -o $(GMI_TOOLTABLE_GEN)/tooltable_client_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/tooltable
 
-$(GMI_TOOLTABLE_GEN)/tooltable_cgo.go: $(GMI_TOOLTABLE_GEN)/tooltable_api.h ;
-
 TARGETS += $(GMI_TOOLTABLE_GEN)/tooltable_api.h
+GMI_ALL_GEN_GO += $(GMI_TOOLTABLE_GEN)/tooltable_cgo.go
 
 # --- tooltable TypeScript client ---
 
@@ -649,76 +644,73 @@ $(GMI_HALCMD_CLIENT_GO): $(GMI_HALCMD_IDL) $(GMI_HALCMD_GEN)/halcmd_api.h $(GMIC
 	$(Q)$(GMICOMPILE) --client-go $(GMI_HALCMD_IDL) -o $(GMI_HALCMD_CLIENT_GO)
 
 TARGETS += $(GMI_HALCMD_CLIENT_GO)
+GMI_ALL_GEN_GO += $(GMI_HALCMD_CLIENT_GO)
 # --- hal_sampler stream server ---
 
 GMI_HAL_SAMPLER_IDL := gmi/idl/hal_sampler.gmi
 GMI_HAL_SAMPLER_GEN := gomc/generated/gmi/hal_sampler
 
-$(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream_api.h: $(GMI_HAL_SAMPLER_IDL) $(GMICOMPILE_BIN)
+$(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream_api.h $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream.go &: $(GMI_HAL_SAMPLER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI hal_sampler stream from $(GMI_HAL_SAMPLER_IDL)"
 	@mkdir -p $(GMI_HAL_SAMPLER_GEN)
 	$(Q)$(GMICOMPILE) --stream-server-c $(GMI_HAL_SAMPLER_IDL) -o $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream_api.h
 	$(Q)$(GMICOMPILE) --stream-server-go $(GMI_HAL_SAMPLER_IDL) -o $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/hal_sampler
 
-$(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream.go: $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream_api.h ;
-
 TARGETS += $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream_api.h
+GMI_ALL_GEN_GO += $(GMI_HAL_SAMPLER_GEN)/hal_sampler_stream.go
 
 # --- hal_streamer stream server ---
 
 GMI_HAL_STREAMER_IDL := gmi/idl/hal_streamer.gmi
 GMI_HAL_STREAMER_GEN := gomc/generated/gmi/hal_streamer
 
-$(GMI_HAL_STREAMER_GEN)/hal_streamer_stream_api.h: $(GMI_HAL_STREAMER_IDL) $(GMICOMPILE_BIN)
+$(GMI_HAL_STREAMER_GEN)/hal_streamer_stream_api.h $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream.go &: $(GMI_HAL_STREAMER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI hal_streamer stream from $(GMI_HAL_STREAMER_IDL)"
 	@mkdir -p $(GMI_HAL_STREAMER_GEN)
 	$(Q)$(GMICOMPILE) --stream-server-c $(GMI_HAL_STREAMER_IDL) -o $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream_api.h
 	$(Q)$(GMICOMPILE) --stream-server-go $(GMI_HAL_STREAMER_IDL) -o $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/hal_streamer
 
-$(GMI_HAL_STREAMER_GEN)/hal_streamer_stream.go: $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream_api.h ;
-
 TARGETS += $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream_api.h
+GMI_ALL_GEN_GO += $(GMI_HAL_STREAMER_GEN)/hal_streamer_stream.go
 
 # --- z_level_compensation API ---
 
 GMI_ZLC_IDL := gmi/idl/z_level_compensation.gmi
 GMI_ZLC_GEN := gomc/generated/gmi/z_level_compensation
 
-$(GMI_ZLC_GEN)/z_level_compensation_api.h: $(GMI_ZLC_IDL) $(GMICOMPILE_BIN)
+$(GMI_ZLC_GEN)/z_level_compensation_api.h $(GMI_ZLC_GEN)/zlc_cgo.go &: $(GMI_ZLC_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI z_level_compensation from $(GMI_ZLC_IDL)"
 	@mkdir -p $(GMI_ZLC_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_ZLC_IDL) -o $(GMI_ZLC_GEN)/z_level_compensation_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_ZLC_IDL) -o $(GMI_ZLC_GEN)/zlc_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/z_level_compensation
 
-$(GMI_ZLC_GEN)/zlc_cgo.go: $(GMI_ZLC_GEN)/z_level_compensation_api.h ;
-
 TARGETS += $(GMI_ZLC_GEN)/z_level_compensation_api.h
+GMI_ALL_GEN_GO += $(GMI_ZLC_GEN)/zlc_cgo.go
 
 # --- ethercat tool API ---
 
 GMI_ETHERCAT_IDL := gmi/idl/ethercat.gmi
 GMI_ETHERCAT_GEN := gomc/generated/gmi/ethercat
 
-$(GMI_ETHERCAT_GEN)/ethercat_api.h: $(GMI_ETHERCAT_IDL) $(GMICOMPILE_BIN)
+$(GMI_ETHERCAT_GEN)/ethercat_api.h $(GMI_ETHERCAT_GEN)/ethercat_cgo.go &: $(GMI_ETHERCAT_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI ethercat from $(GMI_ETHERCAT_IDL)"
 	@mkdir -p $(GMI_ETHERCAT_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_ETHERCAT_IDL) -o $(GMI_ETHERCAT_GEN)/ethercat_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_ETHERCAT_IDL) -o $(GMI_ETHERCAT_GEN)/ethercat_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/ethercat
 
-$(GMI_ETHERCAT_GEN)/ethercat_cgo.go: $(GMI_ETHERCAT_GEN)/ethercat_api.h ;
-
 TARGETS += $(GMI_ETHERCAT_GEN)/ethercat_api.h
+GMI_ALL_GEN_GO += $(GMI_ETHERCAT_GEN)/ethercat_cgo.go
 
 # --- persist API (Go-provided, generic key-value persistence) ---
 
 GMI_PERSIST_IDL := gmi/idl/persist.gmi
 GMI_PERSIST_GEN := gomc/generated/gmi/persist
 
-$(GMI_PERSIST_GEN)/persist_api.h: $(GMI_PERSIST_IDL) $(GMICOMPILE_BIN)
+$(GMI_PERSIST_GEN)/persist_api.h $(GMI_PERSIST_GEN)/persist_cgo.go $(GMI_PERSIST_GEN)/persist_bridge.go $(GMI_PERSIST_GEN)/persist_client_cgo.go &: $(GMI_PERSIST_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI persist from $(GMI_PERSIST_IDL)"
 	@mkdir -p $(GMI_PERSIST_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_PERSIST_IDL) -o $(GMI_PERSIST_GEN)/persist_api.h
@@ -727,13 +719,17 @@ $(GMI_PERSIST_GEN)/persist_api.h: $(GMI_PERSIST_IDL) $(GMICOMPILE_BIN)
 	$(Q)$(GMICOMPILE) --client-cgo $(GMI_PERSIST_IDL) -o $(GMI_PERSIST_GEN)/persist_client_cgo.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/persist
 
-$(GMI_PERSIST_GEN)/persist_cgo.go: $(GMI_PERSIST_GEN)/persist_api.h ;
-$(GMI_PERSIST_GEN)/persist_bridge.go: $(GMI_PERSIST_GEN)/persist_api.h ;
-$(GMI_PERSIST_GEN)/persist_client_cgo.go: $(GMI_PERSIST_GEN)/persist_api.h ;
-
 TARGETS += $(GMI_PERSIST_GEN)/persist_api.h
+GMI_ALL_GEN_GO += $(GMI_PERSIST_GEN)/persist_cgo.go
 
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# Feed the accumulated list back into the gomc module rules (defined in
+# gomc/Submakefile, included before this file): regenerate-imports must run
+# after all GMI codegen, and gomc-server must rebuild when any generated Go
+# file changes.
+$(IMPORTS_GENERATED): $(GMI_ALL_GEN_GO)
+../bin/gomc-server: $(GMI_ALL_GEN_GO)
 
 clean: gmi-codegen-clean
 .PHONY: gmi-codegen-clean

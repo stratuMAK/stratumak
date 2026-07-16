@@ -3009,35 +3009,53 @@ has proper GMI dependencies.
 gomc/packages.conf: gomc/packages.conf.in
     $(Q)test -f $@ || cp $< $@
 
-gomc/go.mod: gomc/go.mod.in
-    $(Q)test -f $@ || cp $< $@
+gomc/go.mod: gomc/go.mod.in $(wildcard gomc/external/*/go.deps)
+    ...
+    $(Q)cd gomc && $(GO) mod download
 
 # imports_generated.go uses regenerate-imports (NOT rebuild) to avoid
 # race conditions with parallel builds — GMI codegen may still be running.
+# The generated GMI Go prerequisites ($(GMI_ALL_GEN_GO)) are injected from
+# gmi/codegen/Submakefile so codegen completes before regenerate-imports.
 $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
-    $(Q)test -f $@ || cd gomc && $(TOP)/bin/modcompile regenerate-imports
 
-# GOMC_SRC_BASE includes gomc/go.mod (generated) — forces copy from .in.
-# filter-out excludes imports_generated.go to break circular dependency
-# (modcompile depends on GOMC_SRC_BASE, imports_generated depends on modcompile).
-GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),...) gomc/go.mod.in gomc/go.mod
+# Hand-written Go sources only — no generated files (a parse-time wildcard over
+# gomc/generated/ would be empty on a fresh build).  filter-out excludes
+# imports_generated.go to break the circular dependency (modcompile →
+# GOMC_SRC_BASE → imports_generated → modcompile).  gomc/go.mod is deliberately
+# NOT listed here — it is order-only on each binary rule (see '| gomc/go.mod').
+GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) ...) \
+    gomc/go.mod.in
 
-# gomc-server: depends on generated GMI files + imports + source
-../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(IMPORTS_GENERATED) \
-                    gomc/packages.conf ../lib/liblinuxcnchal.so
-    cd gomc && CGO_LDFLAGS="..." $(GO) build -ldflags "$(GOMC_LDFLAGS)" \
+# gomc-server: hand-written sources + imports + libs.  Generated GMI Go files
+# reach it via $(GMI_ALL_GEN_GO), injected from gmi/codegen/Submakefile.
+# go.mod is order-only ('| gomc/go.mod') so a -mod=mod rewrite of it never
+# forces a rebuild.
+../bin/gomc-server: $(GOMC_SRC_BASE) $(IMPORTS_GENERATED) \
+                    ../lib/libposemath.so ../lib/librs274.so Makefile.inc \
+                    | gomc/go.mod
+    cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" \
         -o $(TOP)/bin/gomc-server ./cmd/gomc-server
+
+# Injected at the end of gmi/codegen/Submakefile (single source for the list):
+$(IMPORTS_GENERATED): $(GMI_ALL_GEN_GO)
+../bin/gomc-server:   $(GMI_ALL_GEN_GO)
 ```
 
 Key Makefile design decisions:
-- **`gomc/go.mod` in `GOMC_SRC_BASE`**: All Go targets automatically depend on
-  it, triggering the copy-from-`.in` rule on fresh checkouts
+- **`gomc/go.mod` order-only (`| gomc/go.mod`)**: `GOFLAGS=-mod=mod` may rewrite
+  go.mod on the fly; making it order-only means a bumped mtime never rebuilds a
+  binary (which would cascade a modcompile rebuild through every module and GMI
+  header). `gomc/go.mod.in` (the tracked spec) stays a normal prerequisite.
 - **`filter-out` for `IMPORTS_GENERATED`**: Breaks circular dependency where
   modcompile → GOMC_SRC_BASE → imports_generated → modcompile
+- **`GMI_ALL_GEN_GO` injected from `gmi/codegen/Submakefile`**: The generated
+  GMI Go files are accumulated next to each codegen rule and injected as extra
+  prerequisites of `imports_generated.go` and `gomc-server` — single source, no
+  hand-mirrored list in `gomc/Submakefile`
 - **`regenerate-imports` not `rebuild`**: The Makefile rule only generates the
   imports file, not the binary. The `../bin/gomc-server` target handles the
   actual build with proper prerequisite ordering
-- **`test -f` guards**: Idempotent — don't overwrite existing files
 
 #### Environment Variables
 
@@ -3055,8 +3073,8 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 | `GOMC_LDFLAGS_PKG` | Go package path for `-ldflags -X` injection |
 | `EMC2_GOMC_DIR` | Install destination for gomc source tree |
 | `GOMC_LDFLAGS` | All `-X` flags for compile-time config |
-| `GOMC_SRC_BASE` | Hand-written Go sources + go.mod (no generated files) |
-| `GOMC_SRC` | Full source list including generated files |
+| `GOMC_SRC_BASE` | Hand-written Go sources + `go.mod.in` (no generated files) |
+| `GMI_ALL_GEN_GO` | All generated GMI Go files; injected as prerequisites of `imports_generated.go` and `gomc-server` (defined in `gmi/codegen/Submakefile`) |
 | `GOMC_PKG_FILES` | Public package files copied to `share/` for RIP |
 
 Set by `scripts/rip-environment` (RIP) or read from installed paths:
