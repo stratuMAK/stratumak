@@ -15,7 +15,10 @@
     path and must carry a justification comment.
 
     The cmodule header set carries an equivalent GOMC_NONBLOCKING in
-    gomc_rt_check.h (self-contained for external modules) — keep in sync.
+    gomc_rt_check.h (self-contained for external modules), and gmicompile
+    emits a third copy of the version gate (GOMC_API_NONBLOCKING, see
+    gmicompile/cgen/server.go) into generated GMI headers — keep all
+    three in sync.
 
     Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
     License: LGPL Version 2.1

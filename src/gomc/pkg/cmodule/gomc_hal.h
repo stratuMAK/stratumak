@@ -39,6 +39,9 @@ extern "C" {
 // Signature of a HAL realtime (cyclic) function.  The nonblocking type
 // annotation makes registering an unannotated function via export_funct
 // a -Wfunction-effects diagnostic under "make rt-effects-check".
+// Duplicated deliberately from hal_funct_ptr_t in src/hal/hal.h (this
+// header set is self-contained for external modules) — the two meet at
+// the export_funct seam in launcher/cmodules.go, keep them in sync.
 typedef void (*gomc_hal_funct_t)(void *arg, long period) GOMC_NONBLOCKING;
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,10 @@
 // GOMC_NONBLOCKING marks a function (or function-pointer type) as safe for
 // the hard-RT path: no allocation, no locking, no blocking calls.  It mirrors
 // RTAPI_NONBLOCKING in rtapi.h (this header set is self-contained for
-// external modules, so the definition is duplicated — keep in sync).
+// external modules, so the definition is duplicated — keep in sync).  A
+// third copy of the clang version gate (GOMC_API_NONBLOCKING) is emitted
+// into generated GMI headers by gmicompile (cgen/server.go) — update it
+// alongside this one.
 //
 // Verification is done by clang's function-effects analysis: the opt-in
 // "make rt-effects-check" target compiles the RT translation units with
