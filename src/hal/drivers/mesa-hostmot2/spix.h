@@ -18,6 +18,8 @@
 #ifndef HAL_HM2_SPIX_H
 #define HAL_HM2_SPIX_H
 
+#include "gomc_rt_check.h"
+
 /*
  * Select which SPI channel(s) to probe. There are many SPI interfaces exposed
  * on the 40-pin I/O header. We only use the traditional ones, SPI0 and SPI1.
@@ -71,8 +73,11 @@ typedef struct __spix_port_t {
 	 * pointed to by 'buffer'. The argument 'rw' indicates write when 0 (zero)
 	 * or read when non-zero.
 	 * On success it should return 1 (one). On error it should return 0 (zero).
+	 *
+	 * Called from the servo thread — implementations must be nonblocking
+	 * (the register exchange itself is each backend's trusted RT path).
 	 */
-	int (*transfer)(const struct __spix_port_t *port, uint32_t *buffer, size_t nelem, int rw);
+	int (*transfer)(const struct __spix_port_t *port, uint32_t *buffer, size_t nelem, int rw) GOMC_NONBLOCKING;
 } spix_port_t;
 
 #define SPIX_MAX_BOARDS	5			// One on each (traditional) CE for SPI ports 0 and 1

@@ -22,6 +22,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
+#include <string.h>
 #include "rtapi_pci.h"
 #include "rtapi_firmware.h"
 #include "gomc_env.h"
@@ -51,6 +53,21 @@
 
 
 #define ANYIO_MAX_IOPORT_CONNECTORS (8)
+
+
+//
+// Shared trust shims for the transports' RT error paths (eth, spi, spix).
+// TRUSTED: errno is a thread-local read; strerror() is a static-table
+// lookup for the socket/ioctl errno values seen here.  Error paths only.
+//
+static inline void hm2_rt_clear_errno(void) GOMC_NONBLOCKING;
+static inline int hm2_rt_errno(void) GOMC_NONBLOCKING;
+static inline const char *hm2_rt_strerror(void) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static inline void hm2_rt_clear_errno(void) { errno = 0; }
+static inline int hm2_rt_errno(void) { return errno; }
+static inline const char *hm2_rt_strerror(void) { return strerror(errno); }
+GOMC_NONBLOCKING_TRUSTED_END
 
 
 

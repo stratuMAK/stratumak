@@ -767,8 +767,6 @@ static int close_board(hm2_eth_t *board) {
  * The receive side polls with MSG_DONTWAIT + bounded rtapi delays (see
  * eth_socket_recv_loop); latency is a property of the NIC/IRQ setup and
  * is audited by the latency tests, not by this static check. */
-static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) GOMC_NONBLOCKING;
-static int eth_socket_recv(int sockfd, void *buffer, int len, int flags) GOMC_NONBLOCKING;
 GOMC_NONBLOCKING_TRUSTED_BEGIN
 static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) {
     return send(sockfd, buffer, len, flags);
@@ -777,13 +775,6 @@ static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) {
 static int eth_socket_recv(int sockfd, void *buffer, int len, int flags) {
     return recv(sockfd, buffer, len, flags);
 }
-
-/* TRUSTED: errno is a thread-local read; strerror() is a static-table
- * lookup for the socket errnos seen here.  Error paths only. */
-static void eth_clear_errno(void) GOMC_NONBLOCKING;
-static void eth_clear_errno(void) { errno = 0; }
-static const char *eth_strerror(void) GOMC_NONBLOCKING;
-static const char *eth_strerror(void) { return strerror(errno); }
 GOMC_NONBLOCKING_TRUSTED_END
 
 static int eth_socket_recv_loop(const gomc_rtapi_t *rtapi, int sockfd, void *buffer, int len, int flags, long timeout) {
@@ -822,12 +813,12 @@ static int hm2_eth_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, in
 
     send = eth_socket_send(board->sockfd, (void*) &read_packet, sizeof(read_packet), 0);
     if(send < 0)
-        LL_PRINT("ERROR: sending packet: %s\n", eth_strerror());
+        LL_PRINT("ERROR: sending packet: %s\n", hm2_rt_strerror());
     LL_PRINT_IF(inst->debug, "read(%d) : PACKET SENT [CMD:%02X%02X | ADDR: %02X%02X | SIZE: %d]\n", board->read_cnt, read_packet.cmd_hi, read_packet.cmd_lo,
       read_packet.addr_lo, read_packet.addr_hi, size);
     t1 = inst->env->rtapi->get_time(inst->env->rtapi->ctx);
     do {
-        eth_clear_errno();
+        hm2_rt_clear_errno();
         recv = eth_socket_recv(board->sockfd, (void*) &tmp_buffer, size, 0);
         if(recv < 0) inst->env->rtapi->delay(inst->env->rtapi->ctx, READ_PCK_DELAY_NS);
         t2 = inst->env->rtapi->get_time(inst->env->rtapi->ctx);
@@ -875,7 +866,7 @@ static int hm2_eth_send_queued_reads(hm2_lowlevel_io_t *this) GOMC_NONBLOCKING {
 
     send = eth_socket_send(board->sockfd, (void*) &board->read_packet, board->read_packet_ptr - board->read_packet, 0);
     if(send < 0) {
-        LL_PRINT("ERROR: sending packet: %s\n", eth_strerror());
+        LL_PRINT("ERROR: sending packet: %s\n", hm2_rt_strerror());
         return 0;
     }
     return 1;
@@ -937,7 +928,7 @@ static int hm2_eth_receive_queued_reads(hm2_lowlevel_io_t *this) GOMC_NONBLOCKIN
     long long read_deadline = this->read_time + read_timeout;
     do {
 do_recv_packet:
-        eth_clear_errno();
+        hm2_rt_clear_errno();
         recv = eth_socket_recv(board->sockfd, (void*) &tmp_buffer, board->queue_buff_size, MSG_DONTWAIT);
         if(recv < 0) inst->env->rtapi->delay(inst->env->rtapi->ctx, READ_PCK_DELAY_NS);
         t2 = inst->env->rtapi->get_time(inst->env->rtapi->ctx);
@@ -1026,7 +1017,7 @@ static int hm2_eth_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buf
 
     send = eth_socket_send(board->sockfd, (void*) &board->write_scratch, sizeof(lbp16_cmd_addr) + size, 0);
     if(send < 0)
-        LL_PRINT("ERROR: sending packet: %s\n", eth_strerror());
+        LL_PRINT("ERROR: sending packet: %s\n", hm2_rt_strerror());
     LL_PRINT_IF(inst->debug, "write(%d): PACKET SENT [CMD:%02X%02X | ADDR: %02X%02X | SIZE: %d]\n", board->write_cnt, board->write_scratch.wr_packet.cmd_hi, board->write_scratch.wr_packet.cmd_lo,
       board->write_scratch.wr_packet.addr_lo, board->write_scratch.wr_packet.addr_hi, size);
 
@@ -1051,7 +1042,7 @@ static int hm2_eth_send_queued_writes(hm2_lowlevel_io_t *this) GOMC_NONBLOCKING 
     t0 = inst->env->rtapi->get_time(inst->env->rtapi->ctx);
     send = eth_socket_send(board->sockfd, (void*) &board->write_packet, board->write_packet_size, 0);
     if(send < 0) {
-        LL_PRINT("ERROR: sending packet: %s\n", eth_strerror());
+        LL_PRINT("ERROR: sending packet: %s\n", hm2_rt_strerror());
         return 0;
     }
     t1 = inst->env->rtapi->get_time(inst->env->rtapi->ctx);
@@ -1103,7 +1094,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
     LBP16_INIT_PACKET4(read_packet, CMD_READ_BOARD_INFO_ADDR16_INCR(16/2), 0);
     send = eth_socket_send(board->sockfd, (void*) &read_packet, sizeof(read_packet), 0);
     if(send < 0) {
-        LL_PRINT("ERROR: sending packet: %s\n", eth_strerror());
+        LL_PRINT("ERROR: sending packet: %s\n", hm2_rt_strerror());
         return -errno;
     }
     recv = eth_socket_recv_loop(inst->env->rtapi, board->sockfd, (void*) &board_name, 16, 0,

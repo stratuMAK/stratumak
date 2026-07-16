@@ -203,7 +203,19 @@ static uint32_t write_command(uint16_t addr, unsigned nelem) {
     return (addr << 16) | 0xB000 | (increment ? 0x800 : 0) | (nelem << 4);
 }
 
-static int do_pending(hm2_spi_t *this) {
+/* TRUSTED: the SPI_IOC_MESSAGE exchange with the board IS this transport's
+ * realtime path — hm2_spi's documented architecture performs the LBP
+ * register exchange through spidev from the servo thread.  Latency is a
+ * property of the SPI controller/driver setup and is audited by the
+ * latency tests, not by this static check. */
+static int spi_ioc_message(int fd, struct spi_ioc_transfer *t) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static int spi_ioc_message(int fd, struct spi_ioc_transfer *t) {
+    return ioctl(fd, SPI_IOC_MESSAGE(1), t);
+}
+GOMC_NONBLOCKING_TRUSTED_END
+
+static int do_pending(hm2_spi_t *this) GOMC_NONBLOCKING {
     if(this->nbuf == 0) return 0;
 
     struct spi_ioc_transfer t;
@@ -217,11 +229,11 @@ static int do_pending(hm2_spi_t *this) {
 	for(i=0; i<this->nbuf; i++)
 	   this->trxbuf[i] = htobe32(this->trxbuf[i]);
     }
-    int r = ioctl(this->fd, SPI_IOC_MESSAGE(1), &t);
+    int r = spi_ioc_message(this->fd, &t);
     if(r < 0) {
-        gomc_log_errorf(hm2_log, HM2_LLIO_NAME,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", strerror(errno));
+        gomc_log_errorf(hm2_log, HM2_LLIO_NAME,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", hm2_rt_strerror());
         this->nbuf = 0;
-        return -errno;
+        return -hm2_rt_errno();
     }
 
     if(this->settings.bits_per_word == 8) {
@@ -255,12 +267,12 @@ static int do_pending(hm2_spi_t *this) {
     this->scatter[this->nbuf++] = recv_addr; \
 } while(0)
 
-static int send_queued_writes(hm2_lowlevel_io_t *llio) {
+static int send_queued_writes(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     return do_pending(this) >= 0;
 }
 
-static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) {
+static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     if(size == 0) return 0;
     if(size % 4) return -EINVAL;
@@ -281,12 +293,12 @@ static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffe
     return 1;
 }
 
-static int send_queued_reads(hm2_lowlevel_io_t *llio) {
+static int send_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     return do_pending(this) >= 0;
 }
 
-static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) {
+static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     if(size == 0) return 0;
     if(size % 4) return -EINVAL;
@@ -306,14 +318,14 @@ static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int 
     return 1;
 }
 
-static int do_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) {
+static int do_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     int r = queue_write(llio, addr, buffer, size);
     if(r < 0) return r;
     return do_pending(this) >= 0;
 }
 
-static int do_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) {
+static int do_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     int r = queue_read(llio, addr, buffer, size);
     if(r < 0) return r;
