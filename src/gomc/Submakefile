@@ -80,8 +80,10 @@ GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) \
     $(wildcard gomc/internal/*/*.go) \
     $(wildcard gomc/internal/*/*/*.go) \
     $(wildcard gomc/internal/*/*/*/*.go)) \
-    gomc/go.mod.in \
-    gomc/go.mod
+    gomc/go.mod.in
+# NB: gomc/go.mod is deliberately NOT here — it is order-only on each Go binary
+# rule (see '| gomc/go.mod'), so a -mod=mod build rewriting it never forces a
+# rebuild.  go.mod.in (the tracked spec) stays a normal prerequisite.
 
 # Full source list including generated files (for the gomc binary).
 GOMC_SRC := $(GOMC_SRC_BASE) \
@@ -163,12 +165,20 @@ $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile $(GMI_ALL_GEN_GO)
 # LIB_DIR is $(EMC2_HOME)/lib, defined in Makefile.inc.
 # CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
 # gets the same diagnostics as Ubuntu CI runners (builtin fortify).
-# GOFLAGS=-mod=mod allows Go to update go.sum automatically when new local
-# packages appear (e.g. generated GMI code).
+# GOFLAGS=-mod=mod lets a build complete go.mod/go.sum on the fly.  It is
+# required here: a complete go.mod depends on imports_generated.go, which
+# depends on modcompile, which depends on go.mod — a cycle, so go.mod cannot be
+# fully settled ahead of the build.  The price is that a build may rewrite
+# go.mod (bumping its mtime).  To stop that from cascading, go.mod is an
+# ORDER-ONLY prerequisite of the Go binaries below (the '| gomc/go.mod' on each
+# rule): make ensures it exists but never rebuilds a binary because go.mod's
+# mtime advanced.  This matters most for modcompile, which every generated cmod
+# .c and every GMI header depend on — a spurious modcompile rebuild used to
+# cascade a rebuild through all modules and GMI headers.
 GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
 
 # Build the gomc-server binary.
-../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(GMI_TOOLS_GEN_GO) $(GMI_EMCSTAT_PUSH_GO) $(GMI_MOTCTL_CLIENT_GO) $(GMI_MOTSTAT_CLIENT_GO) $(GMI_EMCIO_CLIENT_GO) $(GMI_CLASSICLADDER_SERVER_GO) $(GMI_HAL_SAMPLER_STREAM_GO) $(GMI_HAL_STREAMER_STREAM_GO) $(IMPORTS_GENERATED) gomc/go.mod ../lib/libposemath.so ../lib/librs274.so Makefile.inc
+../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(GMI_TOOLS_GEN_GO) $(GMI_EMCSTAT_PUSH_GO) $(GMI_MOTCTL_CLIENT_GO) $(GMI_MOTSTAT_CLIENT_GO) $(GMI_EMCIO_CLIENT_GO) $(GMI_CLASSICLADDER_SERVER_GO) $(GMI_HAL_SAMPLER_STREAM_GO) $(GMI_HAL_STREAMER_STREAM_GO) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
 	$(ECHO) Building gomc-server
 	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
@@ -176,7 +186,7 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 # ADS XML generator tool — built from cmd/ads-xml-gen within the gomc module
 # ---------------------------------------------------------------------------
 
-../bin/ads-xml-gen: $(GOMC_SRC_BASE)
+../bin/ads-xml-gen: $(GOMC_SRC_BASE) | gomc/go.mod
 	$(ECHO) Building ads-xml-gen
 	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build -o $(TOP)/bin/ads-xml-gen ./cmd/ads-xml-gen
 
@@ -184,11 +194,11 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 # halsampler / halstreamer — WebSocket stream clients
 # ---------------------------------------------------------------------------
 
-../bin/halsampler: $(GOMC_SRC_BASE) gomc/cmd/halsampler/main.go
+../bin/halsampler: $(GOMC_SRC_BASE) gomc/cmd/halsampler/main.go | gomc/go.mod
 	$(ECHO) Building halsampler
 	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build -o $(TOP)/bin/halsampler ./cmd/halsampler
 
-../bin/halstreamer: $(GOMC_SRC_BASE) gomc/cmd/halstreamer/main.go
+../bin/halstreamer: $(GOMC_SRC_BASE) gomc/cmd/halstreamer/main.go | gomc/go.mod
 	$(ECHO) Building halstreamer
 	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build -o $(TOP)/bin/halstreamer ./cmd/halstreamer
 
@@ -245,10 +255,13 @@ MODCOMPILE_SRC := $(wildcard gomc/cmd/modcompile/*.go) \
     $(wildcard gomc/internal/config/*.go) \
     $(wildcard gomc/internal/modcompile/*/*.go) \
     $(wildcard gomc/internal/gmicompile/*/*.go) \
-    $(wildcard gomc/internal/pkgreg/*.go) \
-    gomc/go.mod
+    $(wildcard gomc/internal/pkgreg/*.go)
 
-../bin/modcompile: $(MODCOMPILE_SRC) Makefile.inc
+# go.mod is ORDER-ONLY (after '|'): a -mod=mod build may rewrite it, and a
+# bumped mtime must not rebuild modcompile — every cmod .c and GMI header
+# depends on modcompile, so that would cascade to the whole tree.  go.mod.in
+# (a real, tracked spec) stays a normal prerequisite via the go.mod rule.
+../bin/modcompile: $(MODCOMPILE_SRC) Makefile.inc | gomc/go.mod
 	$(ECHO) Building modcompile
 	@rm -f $@
 	$(Q)cd gomc && GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/modcompile ./cmd/modcompile
@@ -261,7 +274,7 @@ TARGETS += ../bin/modcompile
 
 GMI_HALCMD_GEN_GO := gomc/generated/gmi/halcmdclient/halcmd_client.go
 
-../bin/halcmd: $(GOMC_SRC_BASE) $(GMI_HALCMD_GEN_GO) Makefile.inc
+../bin/halcmd: $(GOMC_SRC_BASE) $(GMI_HALCMD_GEN_GO) Makefile.inc | gomc/go.mod
 	$(ECHO) Building halcmd - Go REST client
 	@rm -f $@
 	$(Q)cd gomc && $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/halcmd ./cmd/halcmd
@@ -272,7 +285,7 @@ TARGETS += ../bin/halcmd
 # ethercat — EtherCAT command-line tool (REST client, replaces IgH master tool)
 # ---------------------------------------------------------------------------
 
-../bin/ethercat: $(GOMC_SRC_BASE) $(wildcard gomc/cmd/ethercat/*.go) Makefile.inc
+../bin/ethercat: $(GOMC_SRC_BASE) $(wildcard gomc/cmd/ethercat/*.go) Makefile.inc | gomc/go.mod
 	$(ECHO) Building ethercat - Go REST client
 	@rm -f $@
 	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/ethercat ./cmd/ethercat
