@@ -147,8 +147,12 @@
  * hm2_bspi_set_{read,write}_function.  Runs in the servo cycle — the
  * nonblocking annotation makes that contract checkable.  (The GMI API
  * transports it as an opaque ptr; the trust cast lives in
- * hm2_serial_provider.c.) */
+ * hm2_serial_provider.c.)  Guarded so this header and the public
+ * hostmot2-serial.h can both carry the definition — keep the two in sync. */
+#ifndef HM2_BSPI_XFER_FN_T_DEFINED
+#define HM2_BSPI_XFER_FN_T_DEFINED
 typedef int (*hm2_bspi_xfer_fn_t)(void *subdata) GOMC_NONBLOCKING;
+#endif
 
 typedef struct {
     uint32_t idrom_type;

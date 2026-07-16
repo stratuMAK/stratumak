@@ -139,12 +139,19 @@ static int32_t shim_bspi_setup_chan(void *ctx, const char *name,
                                delay, cpol, cpha, noclear, noecho, samplelate);
 }
 
+/* TRUSTED: the GMI API transports the BSPI transfer callback as an opaque
+ * ptr, so the nonblocking type of hm2_bspi_xfer_fn_t cannot be carried
+ * across this seam — the cast below adds the attribute by conversion.
+ * Callbacks registered here run in the servo cycle; module authors must
+ * keep them nonblocking (typing the callback in the hm2_serial GMI IDL is
+ * tracked in RT_HARDENING_CHECKLIST.md). */
+GOMC_NONBLOCKING_TRUSTED_BEGIN
 static int32_t shim_bspi_set_read_function(void *ctx, const char *name,
     void *func_ptr, void *subdata)
 {
     (void)ctx;
     return hm2_bspi_set_read_function((char *)name,
-                                      (int (*)(void *))func_ptr, subdata);
+                                      (hm2_bspi_xfer_fn_t)func_ptr, subdata);
 }
 
 static int32_t shim_bspi_set_write_function(void *ctx, const char *name,
@@ -152,8 +159,9 @@ static int32_t shim_bspi_set_write_function(void *ctx, const char *name,
 {
     (void)ctx;
     return hm2_bspi_set_write_function((char *)name,
-                                       (int (*)(void *))func_ptr, subdata);
+                                       (hm2_bspi_xfer_fn_t)func_ptr, subdata);
 }
+GOMC_NONBLOCKING_TRUSTED_END
 
 static int32_t shim_bspi_write_chan(void *ctx, const char *name,
     int32_t chan, uint32_t val) GOMC_NONBLOCKING

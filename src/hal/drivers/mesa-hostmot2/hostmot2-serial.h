@@ -227,11 +227,18 @@ RTAPI_END_DECLS
 
 /* Exported Buffered SPI functions */
 RTAPI_BEGIN_DECLS
+/* BSPI transfer callback: runs in the servo cycle, so it must be
+ * nonblocking.  Guarded so this public header and hostmot2.h can both
+ * carry the definition — keep the two in sync. */
+#ifndef HM2_BSPI_XFER_FN_T_DEFINED
+#define HM2_BSPI_XFER_FN_T_DEFINED
+typedef int (*hm2_bspi_xfer_fn_t)(void *subdata) RTAPI_NONBLOCKING;
+#endif
 int hm2_bspi_setup_chan(char *name, int chan, int cs, int bits, double mhz,
                         int delay, int cpol, int cpha, int noclear, int noecho,
                         int samplelate);
-int hm2_bspi_set_read_function(char *name, int (*func)(void *subdata), void *subdata);
-int hm2_bspi_set_write_function(char *name, int (*func)(void *subdata), void *subdata);
+int hm2_bspi_set_read_function(char *name, hm2_bspi_xfer_fn_t func, void *subdata);
+int hm2_bspi_set_write_function(char *name, hm2_bspi_xfer_fn_t func, void *subdata);
 int hm2_bspi_write_chan(char* name, int chan, uint32_t val) RTAPI_NONBLOCKING;
 int hm2_allocate_bspi_tram(char* name);
 int hm2_tram_add_bspi_frame(char *name, int chan, uint32_t **wbuff, uint32_t **rbuff);
