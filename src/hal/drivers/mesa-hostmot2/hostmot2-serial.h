@@ -188,7 +188,7 @@ typedef struct {
 
 // hm2_pktuart_config() replaces previous pktuart serial setup functions
 // Changes can now be done without changing the prototype
-int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue);
+int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue) RTAPI_NONBLOCKING;
 
 // DEPRECATED: hm2_pktuart_setup()
 // DEPRECATED: hm2_pktuart_setup_tx()
@@ -201,27 +201,27 @@ int hm2_pktuart_setup_tx(const char *name, unsigned int bitrate, unsigned int pa
 // Immediate out-of-band reset
 void hm2_pktuart_reset(const char *name);
 // Reset but with normal queue processing
-void hm2_pktuart_queue_reset(const char *name);
+void hm2_pktuart_queue_reset(const char *name) RTAPI_NONBLOCKING;
 
-int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[]);
+int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[]) RTAPI_NONBLOCKING;
 // The hm2_pkuart_read() function should be declared deprecated because it
 // reads directly bypassing the queue_read function.
 // Unfortunately, it is still used in hal/components/mesa_pktgyro_test.comp
-int hm2_pktuart_read(const char *name, unsigned char data[],  uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[]);
-int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]);
-int hm2_pktuart_queue_read_data(const char *name, uint32_t *data, int bytes);
+int hm2_pktuart_read(const char *name, unsigned char data[],  uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[]) RTAPI_NONBLOCKING;
+int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]) RTAPI_NONBLOCKING;
+int hm2_pktuart_queue_read_data(const char *name, uint32_t *data, int bytes) RTAPI_NONBLOCKING;
 int hm2_pktuart_get_clock(const char *name);
 int hm2_pktuart_get_version(const char *name);
-uint32_t hm2_pktuart_get_rx_status(const char *name);
-uint32_t hm2_pktuart_get_tx_status(const char *name);
+uint32_t hm2_pktuart_get_rx_status(const char *name) RTAPI_NONBLOCKING;
+uint32_t hm2_pktuart_get_tx_status(const char *name) RTAPI_NONBLOCKING;
 RTAPI_END_DECLS
 
 
 /* Exported UART functions */
 RTAPI_BEGIN_DECLS
 int hm2_uart_setup(char *name, int bitrate, int32_t tx_mode, int32_t rx_mode);
-int hm2_uart_send(char *name, unsigned char data[], int count);
-int hm2_uart_read(char *name, unsigned char data[]);
+int hm2_uart_send(char *name, unsigned char data[], int count) RTAPI_NONBLOCKING;
+int hm2_uart_read(char *name, unsigned char data[]) RTAPI_NONBLOCKING;
 RTAPI_END_DECLS
 
 
@@ -232,7 +232,7 @@ int hm2_bspi_setup_chan(char *name, int chan, int cs, int bits, double mhz,
                         int samplelate);
 int hm2_bspi_set_read_function(char *name, int (*func)(void *subdata), void *subdata);
 int hm2_bspi_set_write_function(char *name, int (*func)(void *subdata), void *subdata);
-int hm2_bspi_write_chan(char* name, int chan, uint32_t val);
+int hm2_bspi_write_chan(char* name, int chan, uint32_t val) RTAPI_NONBLOCKING;
 int hm2_allocate_bspi_tram(char* name);
 int hm2_tram_add_bspi_frame(char *name, int chan, uint32_t **wbuff, uint32_t **rbuff);
 int hm2_bspi_clear_fifo(char * name);
