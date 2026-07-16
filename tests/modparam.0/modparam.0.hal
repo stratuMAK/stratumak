@@ -1,1 +1,1 @@
-load stepgen <stepgen.0> step_type="2,2,2"
+load stepgen <stepgen.0,stepgen.1,stepgen.2> step_type=2

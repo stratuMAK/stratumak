@@ -17,6 +17,8 @@
 
 const MAX_JOINTS = 16
 const MAX_AXIS = 9
+const MAX_AIO = 64
+const MAX_DIO = 64
 
 # ─── Enums ───
 
@@ -90,15 +92,25 @@ type JointInfo {
     homing: bool
     enabled: bool
     fault: bool
-    min_soft_limit: f64
-    max_soft_limit: f64
+    inpos: bool            # joint is in position (within ferror band, stopped)
+    min_soft_limit: bool   # currently at/beyond the min soft limit
+    max_soft_limit: bool   # currently at/beyond the max soft limit
     min_hard_limit: bool
     max_hard_limit: bool
     override_limits: bool
+    joint_type: i32        # 1=LINEAR, 2=ANGULAR (Python attr jointType)
+    units: f64             # joint units scale (machine units per mm/deg)
+    backlash: f64          # configured backlash compensation
+    min_position_limit: f64 # configured min soft-limit position
+    max_position_limit: f64 # configured max soft-limit position
+    min_ferror: f64        # min following-error limit
+    max_ferror: f64        # max following-error limit
+    ferror_current: f64    # current following error
+    ferror_highmark: f64   # peak following error since reset
     velocity: f64
-    input: f64              # actual position (joint_actual_position)
-    output: f64             # commanded position (joint_position)
-    limit: i32              # bitmask: 1=minHard, 2=maxHard, 4=minSoft, 8=maxSoft
+    input: f64             # actual position (joint_actual_position)
+    output: f64            # commanded position (joint_position)
+    limit: i32             # bitmask: 1=minHard, 2=maxHard, 4=minSoft, 8=maxSoft
 }
 
 type SpindleInfo {
@@ -169,6 +181,7 @@ type StatFull {
     position: Position
     actual_position: Position
     joint_actual_position: [MAX_JOINTS]f64
+    joint_position: [MAX_JOINTS]f64   # commanded joint positions
     probed_position: Position
     g5x_offset: Position
     g92_offset: Position
@@ -202,6 +215,21 @@ type StatFull {
     ajog_speed: f64         # angular jog speed (deg/sec)
     preview_seq: i32        # increments on any change that invalidates preview
     heartbeat: i32          # monotonic liveness counter (increments each status build)
+    angular_units: f64      # angular units scale (machine deg per user angular unit)
+    cycle_time: f64         # trajectory planner cycle time (seconds)
+    acceleration: f64       # current commanded acceleration
+    max_acceleration: f64   # configured max acceleration (traj)
+    active_queue: i32       # number of motions currently executing in the TP
+    estop: i32              # 1 when in estop, else 0
+    interpreter_errcode: i32 # last interpreter error code (0 = none)
+    lube_level: i32         # lube level sensor (0/1)
+    probe_tripped: bool     # probe input tripped since last clear
+    probe_val: i32          # current probe input value
+    probing: bool           # a probe move is in progress
+    ain: [MAX_AIO]f64       # motion analog inputs
+    aout: [MAX_AIO]f64      # motion analog outputs
+    din: [MAX_DIO]i32       # motion digital inputs
+    dout: [MAX_DIO]i32      # motion digital outputs
 }
 
 # ─── Functions ───

@@ -43,7 +43,6 @@ def print_status(status):
     print("distance_to_go: {}".format(status.distance_to_go))
     print("dout: {}".format(status.dout))
     print("dtg: {}".format(status.dtg))
-    print("echo_serial_number: {}".format(status.echo_serial_number))
     print("enabled: {}".format(status.enabled))
     print("estop: {}".format(status.estop))
     print("exec_state: {}".format(status.exec_state))
@@ -174,11 +173,18 @@ def assert_axis_initialized(axis):
 
 
 c = gmi.Command()
-s = gmi.Stat()
+# This test mirrors classic linuxcnc.stat(), which reports linear values in the
+# machine's configured units (inch here). gomc is mm-everywhere, so read through
+# the machine-units view, which converts the internal mm to the config units.
+s = gmi.Stat().machine_units()
 e = gmi.ErrorChannel()
 
 l = linuxcnc_util.LinuxCNC(command=c, status=s, error=e)
 # Wait for LinuxCNC to initialize itself so the Status buffer stabilizes.
+# The G54/G92 coordinate offsets this test checks are restored from the .var
+# PARAMETER_FILE at interpreter Init (the config selects the classic var-file
+# parameter backend via [RS274NGC]PARAMETER_FILE_MODE=file), so they are already
+# present at this pristine, no-command boot state.
 l.wait_for_linuxcnc_startup()
 
 print("status at boot up")
@@ -219,7 +225,8 @@ assert(s.distance_to_go == 0.0)
 assert(s.dout == (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 assert(s.dtg == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
-assert(s.echo_serial_number == 0)
+# echo_serial_number intentionally omitted: it is the classic NML command-serial
+# handshake, which gomc (REST/WebSocket, synchronous wait_complete) does not have.
 assert(s.enabled == False)
 assert(s.estop == 1)
 assert(s.exec_state == linuxcnc.EXEC_DONE)

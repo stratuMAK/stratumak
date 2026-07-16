@@ -1,3 +1,6 @@
 stepgen.0.maxaccel
 stepgen.1.maxaccel
 stepgen.2.maxaccel
+stepgen.0.phase-A
+stepgen.1.phase-A
+stepgen.2.phase-A

@@ -23,7 +23,9 @@ def print_status(status):
     print("status.joint[0]: {}".format(status.joint[0]))
     print("status.joint[1]: {}".format(status.joint[1]))
     print("status.current_vel: {}".format(status.current_vel))
-    print("status.echo_serial_number: {}".format(status.echo_serial_number))
+    # echo_serial_number intentionally omitted: it is the classic NML command-
+    # serial handshake, which gomc (REST/WebSocket, synchronous wait_complete)
+    # does not have.
     print("status.enabled: {}".format(status.enabled))
     print("status.estop: {}".format(status.estop))
     print("status.exec_state: {}".format(status.exec_state))
@@ -180,7 +182,8 @@ c.override_limits()
 time.sleep(1)
 s.poll()
 print_status(s)
-print("command.serial: {}".format(c.serial))
+# command.serial intentionally omitted: the classic NML command-serial
+# handshake has no gomc equivalent (synchronous wait_complete instead).
 # this fails in 2.6.12 due to the stat RCS message having a status of
 # RCS_EXEC...  as if though the override_limits command didn't set status
 # back to RCS_DONE when it finished.
