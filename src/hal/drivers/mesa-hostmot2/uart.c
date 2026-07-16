@@ -190,15 +190,19 @@ int hm2_uart_send(char *name,  unsigned char data[], int count) GOMC_NONBLOCKING
     int r, c;
     int inst;
     inst = hm2_get_uart(&hm2, name);
-    if (inst < 0 && !uart_send_err_flag){
-        HM2_ERR_NO_LL("Can not find UART instance %s.\n", name);
-        uart_send_err_flag = 1;
+    if (inst < 0){
+        if (!uart_send_err_flag){
+            HM2_ERR_NO_LL("Can not find UART instance %s.\n", name);
+            uart_send_err_flag = 1;
+        }
         return -1;
     }
-    if (hm2->uart.instance[inst].bitrate == 0 && !uart_send_err_flag){
-        HM2_ERR("The selected UART instance %s.\n" 
-                "Has not been configured.\n", name);
-        uart_send_err_flag = 1; // don't fill dmesg with junk. 
+    if (hm2->uart.instance[inst].bitrate == 0){
+        if (!uart_send_err_flag){
+            HM2_ERR("The selected UART instance %s.\n"
+                    "Has not been configured.\n", name);
+            uart_send_err_flag = 1; // don't fill dmesg with junk.
+        }
         return -1;
     }
     
@@ -273,10 +277,12 @@ int hm2_uart_read(char *name, unsigned char data[]) GOMC_NONBLOCKING
         HM2_ERR_NO_LL("Can not find UART instance %s.\n", name);
         return -1;
     }
-    if (hm2->uart.instance[inst].bitrate == 0 && !uart_read_err_flag){
-        HM2_ERR("The selected UART instance %s.\n" 
-                "Has not been configured.\n", name);
-        uart_read_err_flag = 1;
+    if (hm2->uart.instance[inst].bitrate == 0){
+        if (!uart_read_err_flag){
+            HM2_ERR("The selected UART instance %s.\n"
+                    "Has not been configured.\n", name);
+            uart_read_err_flag = 1;
+        }
         return -1;
     }
     
