@@ -10,7 +10,7 @@ function ns(v: number | undefined): string {
   const a = Math.abs(v);
   if (a >= 1_000_000) return (v / 1_000_000).toFixed(3) + ' ms';
   if (a >= 1_000) return (v / 1_000).toFixed(2) + ' µs';
-  return v + ' ns';
+  return Math.round(v) + ' ns';
 }
 function count(v: number | undefined): string {
   return v === undefined || v === null ? '—' : v.toLocaleString();

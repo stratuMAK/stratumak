@@ -6,6 +6,7 @@ import { latencyStore } from '../stores/latency';
 
 const props = defineProps<{ active: boolean }>();
 const el = ref<HTMLDivElement>();
+const LEGEND_H = 44; // room below the canvas for uPlot's legend row
 let plot: uPlot | null = null;
 let ro: ResizeObserver | null = null;
 let mq: MediaQueryList | null = null;
@@ -57,7 +58,7 @@ function createPlot() {
   const h = el.value.clientHeight;
   if (w === 0 || h === 0) return; // hidden; wait for activation
   plot?.destroy();
-  plot = new uPlot(buildOpts(w, h), buildData(), el.value);
+  plot = new uPlot(buildOpts(w, Math.max(120, h - LEGEND_H)), buildData(), el.value);
 }
 
 function render() {
@@ -68,7 +69,7 @@ function render() {
 
 onMounted(() => {
   ro = new ResizeObserver(() => {
-    if (plot && el.value) plot.setSize({ width: el.value.clientWidth, height: el.value.clientHeight });
+    if (plot && el.value) plot.setSize({ width: el.value.clientWidth, height: Math.max(120, el.value.clientHeight - LEGEND_H) });
     else if (props.active) createPlot();
   });
   if (el.value) ro.observe(el.value);

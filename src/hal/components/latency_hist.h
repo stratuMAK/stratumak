@@ -2,12 +2,15 @@
 //
 // Accumulated entirely on the non-RT drainer thread (never in RT), so the
 // autoscaling is free to re-bin.  Bins are symmetric around zero latency:
-// bin i covers [(i - nbins/2)*width, (i - nbins/2 + 1)*width).  When a
-// sample falls outside the covered range the bin width is doubled and the
-// existing counts are merged pairwise into the central half (a coarsen),
-// repeatedly, until the sample fits or the width hits its cap.  Coarsening
-// only ever reduces resolution, so it is safe without keeping raw samples,
-// and the served histogram always contains the data seen so far.
+// bin i covers [(i - nbins/2)*width, (i - nbins/2 + 1)*width).
+//
+// Autoscaling tracks the BULK of the distribution, not the extremes: the bin
+// width is doubled (and existing counts merged pairwise into the central
+// half) only when a meaningful fraction of recent samples fall outside the
+// covered range.  Rare outliers stay counted in under/overflow rather than
+// forcing the whole histogram coarse, so the near-zero detail (where almost
+// all samples live) keeps fine resolution.  Coarsening only ever reduces
+// resolution, so it needs no raw-sample retention.
 //
 // nbins is fixed and must be a multiple of 4 (so nbins/2 and nbins/4 are
 // integers and the pairwise merge is exact); the caller supplies the bin
@@ -23,6 +26,9 @@
 #include <stdint.h>
 
 #define HIST_MAX_BINS 512
+#define HIST_MIN_SAMPLES 128    // don't autoscale until there is a baseline
+#define HIST_WINDOW 20000       // bounds the miss-rate denominator so the
+                                // histogram can re-widen if jitter later grows
 
 typedef struct {
     uint32_t *bins;        // nbins counts (caller-allocated)
@@ -77,14 +83,8 @@ static inline void hist_coarsen(hist_t *h) {
     h->width *= 2;
 }
 
-// Add one latency sample, growing the bin width as needed to contain it.
+// Add one latency sample.
 static inline void hist_add(hist_t *h, int32_t lat) {
-    // Grow until the sample fits the covered range, or the width is capped.
-    while (h->width < h->max_width) {
-        int64_t half = (int64_t)(h->nbins / 2) * h->width;
-        if (lat >= -half && lat < half) break;
-        hist_coarsen(h);
-    }
     // Floor-divide into a bin (integer / truncates toward zero, so bias
     // negatives down by one when there is a remainder).
     int32_t q = lat / h->width;
@@ -97,6 +97,19 @@ static inline void hist_add(hist_t *h, int32_t lat) {
     h->sum += lat;
     h->sumsq += (double)lat * (double)lat;
     h->n++;
+
+    // Autoscale to the bulk: widen one step when more than ~10% of samples
+    // (over a bounded window) miss the current range.  Reset the out-of-range
+    // counters on a widen so the trigger reflects the new range and converges;
+    // rare outliers below the threshold stay counted in under/overflow.
+    if (h->width < h->max_width && h->n >= HIST_MIN_SAMPLES) {
+        uint64_t denom = h->n < HIST_WINDOW ? (uint64_t)h->n : (uint64_t)HIST_WINDOW;
+        if ((uint64_t)(h->underflow + h->overflow) * 10u > denom) {
+            hist_coarsen(h);
+            h->underflow = 0;
+            h->overflow = 0;
+        }
+    }
 }
 
 // Left edge (ns) of bins[0] for the current width.

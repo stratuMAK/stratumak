@@ -58,6 +58,7 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
         points: { show: false },
       },
     ],
+    legend: { show: false }, // single series - the axis labels name it
     cursor: { points: { show: false } },
   };
 }

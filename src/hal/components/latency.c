@@ -40,7 +40,7 @@
 #define DEFAULT_DEPTH    65536
 #define MAX_DEPTH        (1u << 24)   // 16M samples (64 MiB) cap
 #define DEFAULT_BINS     256
-#define DEFAULT_BINSIZE  256          // initial histogram bin width (ns)
+#define DEFAULT_BINSIZE  1000         // initial histogram bin width (ns) = 1 us
 #define DRAIN_BATCH      4096         // samples copied per drain iteration
 #define DRAIN_POLL_US    20000        // sleep when the ring is empty (20 ms)
 

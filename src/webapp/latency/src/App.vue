@@ -50,42 +50,18 @@ function onSelect(e: Event) {
 </template>
 
 <style>
+/* Fixed dark theme, matching halscope. */
 :root {
-  --surface: #fcfcfb;
-  --surface-2: #f2f2f0;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --border: #d8d8d4;
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --grid: #e4e4e0;
-  --accent: #2a78d6;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --surface: #1a1a19;
-    --surface-2: #262624;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --border: #3a3a37;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --grid: #333330;
-    --accent: #3987e5;
-    color-scheme: dark;
-  }
-}
-:root[data-theme='dark'] {
-  --surface: #1a1a19;
-  --surface-2: #262624;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --border: #3a3a37;
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --grid: #333330;
-  --accent: #3987e5;
+  --surface: #111;
+  --surface-2: #1a1a1a;
+  --text-primary: #e6e6e6;
+  --text-secondary: #888;
+  --border: #333;
+  --ticks: #444;
+  --grid: #333;
+  --series-1: #44aaff;
+  --series-2: #ffaa44;
+  --accent: #44aaff;
   color-scheme: dark;
 }
 
@@ -112,15 +88,15 @@ select {
   border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px;
 }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
-.status.ok { color: #0a7a3f; background: color-mix(in srgb, #0a7a3f 14%, transparent); }
-.status.bad { color: #b23; background: color-mix(in srgb, #b23 14%, transparent); }
-.err { color: #b23; font-size: 12px; }
+.status.ok { color: #3fb950; background: color-mix(in srgb, #3fb950 16%, transparent); }
+.status.bad { color: #f85149; background: color-mix(in srgb, #f85149 16%, transparent); }
+.err { color: #f85149; font-size: 12px; }
 .spacer { flex: 1; }
 .reset {
-  background: var(--accent); color: #fff; border: none;
-  border-radius: 5px; padding: 5px 14px; cursor: pointer; font-weight: 600;
+  background: transparent; color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 4px; padding: 5px 14px; cursor: pointer; font-weight: 600;
 }
-.reset:hover { filter: brightness(1.08); }
+.reset:hover { background: var(--accent); color: #111; }
 .tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border); }
 .tabs button {
   background: none; border: none; color: var(--text-secondary);
