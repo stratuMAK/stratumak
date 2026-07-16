@@ -19,8 +19,7 @@ CMOD_COMP_NAMES := $(patsubst hal/components/%.comp,%,$(CMOD_COMPS))
 CMOD_TARGETS := $(addprefix ../cmod/, $(addsuffix .so, $(CMOD_COMP_NAMES)))
 
 # Man pages via modcompile
-# Exclude legacy driver .comps that use unsupported features (option singleton, RTAPI_MP_ARRAY_INT)
-COMP_DRIVERS := $(filter-out hal/drivers/pcl720.comp, $(wildcard hal/drivers/*.comp))
+COMP_DRIVERS := $(wildcard hal/drivers/*.comp)
 COMP_MANPAGES := $(patsubst hal/components/%.comp, ../docs/man/man9/%.9, $(CMOD_COMPS))
 COMP_DRIVER_MANPAGES := $(patsubst hal/drivers/%.comp, ../docs/man/man9/%.9, $(COMP_DRIVERS))
 TARGETS += manpages
