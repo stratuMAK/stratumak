@@ -307,7 +307,7 @@ class Stat:
         "tool_table",
         # NML-parity scalars/arrays
         "cycle_time", "acceleration", "max_acceleration", "active_queue",
-        "estop", "echo_serial_number", "interpreter_errcode", "lube_level",
+        "estop", "interpreter_errcode", "lube_level",
         "probe_tripped", "probe_val", "probing",
         "joint_position", "ain", "aout", "din", "dout",
         # Methods
@@ -329,6 +329,14 @@ class Stat:
         "homed", "limit",
         "ain", "aout", "din", "dout",
     }
+
+    def machine_units(self):
+        """Return an opt-in read-through view whose linear position/offset/limit/
+        velocity/accel fields are converted from the server's internal mm to the
+        machine's configured units (e.g. inch), matching what classic
+        linuxcnc.stat() reports. All other fields pass through unchanged, and the
+        base Stat keeps reporting mm. See MachineUnitsStat."""
+        return MachineUnitsStat(self)
 
     def __getattr__(self, name):
         if name.startswith("_"):
@@ -398,8 +406,7 @@ class Stat:
             "g5x_offset", "g92_offset", "tool_offset",
         }
         if name in _POS_FIELDS:
-            pos = data.get(name, {})
-            return _pos_to_tuple(pos)
+            return _pos_to_tuple(data.get(name, {}))
 
         # dtg — position inside motion struct
         if name == "dtg":
@@ -437,7 +444,7 @@ class Stat:
         if name == "spindle":
             return tuple(data.get("spindle") or [])
 
-        # axis (array of dicts) — data["axis"]
+        # axis (array of dicts) — data["axis"], indexed by axis number (0=X..8=W)
         if name == "axis":
             return tuple(data.get("axis") or [])
 
@@ -538,3 +545,117 @@ def _pos_to_tuple(pos):
             pos.get("u", 0.0), pos.get("v", 0.0), pos.get("w", 0.0),
         )
     return (0.0,) * 9
+
+
+class MachineUnitsStat:
+    """Opt-in read-through view over a Stat presenting linear quantities in the
+    machine's configured units (e.g. inch) instead of the server's internal mm.
+
+    gomc is mm-everywhere: the base Stat (like the rest of the gmi API) reports
+    positions, offsets, limits, velocities and accelerations in millimetres.
+    This view converts those on read to the machine's configured units — the
+    units classic linuxcnc.stat() reports — for consumers (UIs, parity tests)
+    that want them. Non-linear fields (counts, flags, codes, times, override
+    ratios, and the per-joint `units` scale itself) pass through unchanged.
+
+    On a millimetre machine (linear_units == 1.0) every conversion is a no-op.
+
+    Usage:
+        s = gmi.Stat().machine_units()     # or gmi.MachineUnitsStat(gmi.Stat())
+        s.poll()
+        s.actual_position                  # inch on an inch machine
+    """
+
+    # Position 9-tuple: X/Y/Z (0-2) and U/V/W (6-8) are linear; A/B/C (3-5) angular.
+    _POS_LINEAR_IDX = (0, 1, 2, 6, 7, 8)
+    _POS_ANGULAR_IDX = (3, 4, 5)
+    _POS_FIELDS = frozenset((
+        "position", "actual_position", "probed_position",
+        "g5x_offset", "g92_offset", "tool_offset", "dtg",
+    ))
+    _JOINT_ARRAYS = frozenset(("joint_actual_position", "joint_position"))
+    # Flat linear scalars (length or length/time).
+    _LINEAR_SCALARS = frozenset((
+        "velocity", "current_vel", "max_velocity", "distance_to_go",
+        "acceleration", "max_acceleration",
+    ))
+    # Per-joint dict keys carrying a length/velocity in the joint's units.
+    # 'units' is the scale factor itself and must NOT be converted.
+    _JOINT_SCALED_KEYS = (
+        "min_position_limit", "max_position_limit", "min_ferror", "max_ferror",
+        "ferror_current", "ferror_highmark", "input", "output", "velocity",
+        "backlash",
+    )
+    _AXIS_SCALED_KEYS = ("min_position_limit", "max_position_limit", "velocity")
+    _AXIS_ANGULAR_IDX = frozenset((3, 4, 5))
+
+    def __init__(self, stat):
+        self._stat = stat
+
+    def poll(self):
+        return self._stat.poll()
+
+    def stop(self):
+        return self._stat.stop()
+
+    def _lin(self):
+        v = self._stat.linear_units
+        return v if v else 1.0
+
+    def _ang(self):
+        v = self._stat.angular_units
+        return v if v else 1.0
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        value = getattr(self._stat, name)
+        lin = self._lin()
+        ang = self._ang()
+        if lin == 1.0 and ang == 1.0:
+            return value  # mm machine — nothing to convert
+
+        if name in self._POS_FIELDS:
+            out = list(value)
+            for i in self._POS_LINEAR_IDX:
+                out[i] *= lin
+            for i in self._POS_ANGULAR_IDX:
+                out[i] *= ang
+            return tuple(out)
+
+        if name in self._LINEAR_SCALARS:
+            return value * lin
+
+        if name in self._JOINT_ARRAYS:
+            joints = self._stat.joint
+            out = []
+            for i, v in enumerate(value):
+                f = (joints[i].get("units", 1.0) or 1.0) if i < len(joints) else 1.0
+                out.append(v * f)
+            return tuple(out)
+
+        if name == "joint":
+            # Each joint's own units field is its mm->user scale (1.0 when
+            # unconfigured, so defaults pass through).
+            out = []
+            for j in value:
+                jc = dict(j)
+                f = jc.get("units", 1.0) or 1.0
+                for k in self._JOINT_SCALED_KEYS:
+                    if k in jc:
+                        jc[k] = jc[k] * f
+                out.append(jc)
+            return tuple(out)
+
+        if name == "axis":
+            out = []
+            for i, a in enumerate(value):
+                ac = dict(a)
+                f = ang if i in self._AXIS_ANGULAR_IDX else lin
+                for k in self._AXIS_SCALED_KEYS:
+                    if k in ac:
+                        ac[k] = ac[k] * f
+                out.append(ac)
+            return tuple(out)
+
+        return value

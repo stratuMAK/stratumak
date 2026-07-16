@@ -334,3 +334,20 @@ broke — the fix is correct; the tests assumed machine-unit pins. Made them
 Not caused by the fix (flaky under batch load, pass alone): `linuxcncrsh`,
 `remap/introspect`, `remap/fail/prolog`. Watch for other inch tests that read HAL
 joint pins as machine units — apply the same mm-aware treatment.
+
+---
+
+## Update (2026-07-16): opt-in machine-units view on the client
+
+The mm-everywhere decision stands: the server API and the base `gmi.Stat`
+continue to report all linear quantities in millimetres. For consumers that
+need the machine's *configured* units instead (a `linuxcnc.stat()` drop-in for a
+UI, or a parity test that mirrors classic inch values), `gmi.Stat` now offers an
+opt-in read-through view:
+
+    s = gmi.Stat().machine_units()   # or gmi.MachineUnitsStat(gmi.Stat())
+
+It converts linear position/offset/limit/velocity/accel fields from mm to the
+config units (per-joint via each joint's `units` scale; positions per-component
+linear-vs-angular; a no-op on a mm machine). The base Stat is unchanged, so the
+mm-adapted tests keep working. First user: `tests/startup-state` (inch config).

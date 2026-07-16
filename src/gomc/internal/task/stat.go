@@ -175,7 +175,6 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	stat.CycleTime = ms.TrajCycleTime
 	stat.Acceleration = ms.Acc
 	stat.ActiveQueue = ms.ActiveDepth
-	stat.EchoSerialNumber = ms.CommandNumEcho
 	stat.ProbeVal = ms.Probe.Val
 	stat.ProbeTripped = ms.Probe.Tripped != 0
 	stat.Probing = ms.Probe.Probing != 0
@@ -241,6 +240,9 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 		// joint with unit scale (matches classic emcmot joint defaults).
 		jt := int32(1) // EMC_JOINT_LINEAR
 		units := 1.0
+		minPos, maxPos := j.MinPosLimit, j.MaxPosLimit
+		minFe, maxFe := j.MinFerror, j.MaxFerror
+		inpos := j.Inpos != 0
 		if i < numJoints {
 			if jointLinear[i] {
 				units = linearUnits
@@ -248,13 +250,21 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 				jt = 2 // EMC_JOINT_ANGULAR
 				units = angularUnits
 			}
+		} else {
+			// gomc motion leaves joints beyond numJoints zeroed; report the
+			// classic emcmot unconfigured-joint defaults so parity clients see
+			// the same (position limits +/-1, following-error limits 1, and
+			// in-position true since an unconfigured joint never moves).
+			minPos, maxPos = -1.0, 1.0
+			minFe, maxFe = 1.0, 1.0
+			inpos = true
 		}
 		stat.Joints[i] = emcstat.JointInfo{
 			Homed:  j.Homed != 0,
 			Homing: j.Homing != 0,
 			Enabled: j.Enabled != 0,
 			Fault:  j.Fault != 0,
-			Inpos:  j.Inpos != 0,
+			Inpos:  inpos,
 			// gomc motion exposes no per-joint soft-limit-tripped flag; report
 			// the hard-limit switches and leave the soft-limit flags cleared.
 			MinSoftLimit: false,
@@ -268,10 +278,10 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			JointType:        jt,
 			Units:            units,
 			Backlash:         0.0, // gomc has no backlash compensation
-			MinPositionLimit: j.MinPosLimit,
-			MaxPositionLimit: j.MaxPosLimit,
-			MinFerror:        j.MinFerror,
-			MaxFerror:        j.MaxFerror,
+			MinPositionLimit: minPos,
+			MaxPositionLimit: maxPos,
+			MinFerror:        minFe,
+			MaxFerror:        maxFe,
 			FerrorCurrent:    j.Ferror,
 			FerrorHighmark:   j.FerrorHighMark,
 			Velocity:         j.VelCmd,

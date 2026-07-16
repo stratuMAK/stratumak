@@ -221,7 +221,6 @@ type StatFull {
     max_acceleration: f64   # configured max acceleration (traj)
     active_queue: i32       # number of motions currently executing in the TP
     estop: i32              # 1 when in estop, else 0
-    echo_serial_number: i32 # serial number of the last command motion echoed
     interpreter_errcode: i32 # last interpreter error code (0 = none)
     lube_level: i32         # lube level sensor (0/1)
     probe_tripped: bool     # probe input tripped since last clear

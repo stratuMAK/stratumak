@@ -134,7 +134,8 @@ type milltaskModule struct {
 	persistInstance   string                     // persist instance name (default "persistence")
 	iniAccessorHandle cgo.Handle                 // CGo handle for the INI accessor (must be freed)
 	ttClient          *tooltable.TooltableClient // tooltable GMI client
-	paramIO           *interpParamIOPersist      // persist-backed parameter I/O (nil = file-based)
+	paramIO           *interpParamIOPersist      // persist-backed parameter I/O (default)
+	fileParamIO       *interpParamIOFile         // classic .var-file parameter I/O (opt-in)
 }
 
 func (m *milltaskModule) Start() error {
@@ -334,6 +335,10 @@ func (m *milltaskModule) Destroy() {
 		m.paramIO.destroy()
 		m.paramIO = nil
 	}
+	if m.fileParamIO != nil {
+		m.fileParamIO.destroy()
+		m.fileParamIO = nil
+	}
 	if m.iniAccessorHandle != 0 {
 		FreeIniAccessor(m.iniAccessorHandle)
 		m.iniAccessorHandle = 0
@@ -393,27 +398,51 @@ func (m *milltaskModule) initInterpreter() error {
 	// interpreter run. Classic task does this in emctask.cc (set_loop_on_main_m99).
 	interp.SetLoopOnMainM99(true)
 
-	// Set up persist-backed parameter I/O (required).
-	persistInstance := m.persistInstance
-	if persistInstance == "" {
-		persistInstance = "persistence"
+	// Set up parameter I/O. Default is the persistence backend. A config may
+	// opt into the classic .var-file backend with
+	// [RS274NGC]PARAMETER_FILE_MODE=file, which reads the PARAMETER_FILE at
+	// Init() (and writes it on save) exactly like classic linuxcnc — so G5x/G92
+	// offsets and other parameters are restored at startup with no commands.
+	destroyParamIO := func() {
+		if m.paramIO != nil {
+			m.paramIO.destroy()
+			m.paramIO = nil
+		}
+		if m.fileParamIO != nil {
+			m.fileParamIO.destroy()
+			m.fileParamIO = nil
+		}
 	}
-	reg := apiserver.DefaultRegistry()
-	persistCbs, err := reg.GetAPIFor(m.name, "persist", persistInstance, 2)
-	if err != nil {
-		interp.Destroy()
-		ct.release()
-		return fmt.Errorf("interpreter: persist API lookup (%s): %w", persistInstance, err)
+	if strings.EqualFold(strings.TrimSpace(m.ini.Get("RS274NGC", "PARAMETER_FILE_MODE")), "file") {
+		pf := m.ini.Get("RS274NGC", "PARAMETER_FILE")
+		if pf == "" {
+			interp.Destroy()
+			ct.release()
+			return fmt.Errorf("PARAMETER_FILE_MODE=file requires [RS274NGC]PARAMETER_FILE")
+		}
+		m.fileParamIO = newInterpParamIOFile(pf)
+		m.fileParamIO.install(interp)
+	} else {
+		persistInstance := m.persistInstance
+		if persistInstance == "" {
+			persistInstance = "persistence"
+		}
+		reg := apiserver.DefaultRegistry()
+		persistCbs, err := reg.GetAPIFor(m.name, "persist", persistInstance, 2)
+		if err != nil {
+			interp.Destroy()
+			ct.release()
+			return fmt.Errorf("interpreter: persist API lookup (%s): %w", persistInstance, err)
+		}
+		m.paramIO = newInterpParamIOPersist(persistCbs)
+		m.paramIO.install(interp)
 	}
-	m.paramIO = newInterpParamIOPersist(persistCbs)
-	m.paramIO.install(interp)
 
 	// Initialize interpreter state.
 	if err := interp.Init(); err != nil {
 		interp.Destroy()
 		ct.release()
-		m.paramIO.destroy()
-		m.paramIO = nil
+		destroyParamIO()
 		return fmt.Errorf("interpreter init: %w", err)
 	}
 

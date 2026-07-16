@@ -500,6 +500,11 @@ func NewTask(motion MotionController, io IOController, status MotionStatusReader
 		activeGcodes:   make([]int32, 17),  // ACTIVE_G_CODES
 		activeMcodes:   make([]int32, 10),  // ACTIVE_M_CODES
 		maxMDIQueued:   10,
+		// Optional stop and block delete default ON at startup, matching classic
+		// linuxcnc (axis.py defaults both prefs to True; the NML task stat reports
+		// them True before any UI toggle).
+		optionalStop: true,
+		blockDelete:  true,
 		mcode:          newMcodeHandler(),
 		motionMap:      make(map[int32]motionInfo),
 	}

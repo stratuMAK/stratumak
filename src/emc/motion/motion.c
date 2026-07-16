@@ -1505,6 +1505,9 @@ static int init_comm_buffers(motmod_inst_t *inst)
     for (spindle_num = 0; spindle_num < EMCMOT_MAX_SPINDLES; spindle_num++){
         inst->status->spindle_status[spindle_num].scale = 1.0;
         inst->status->spindle_status[spindle_num].speed = 0.0;
+        // Brake is engaged while the spindle is stopped; report it engaged at
+        // startup, matching classic linuxcnc (M3/M4 release it, M5 re-engages).
+        inst->status->spindle_status[spindle_num].brake = 1;
     }
 
     axis_init_all((axis_inst_t *)inst->axis_inst);
