@@ -65,15 +65,16 @@ GOMC_LDFLAGS := \
     -X '$(GOMC_LDFLAGS_PKG).KernelVers=$(kernelvers)' \
     -X '$(GOMC_LDFLAGS_PKG).BuildFlags=$(GOMC_BUILD_FLAGS)'
 
-# All Go source files in the gomc module (recursive wildcard for
-# sub-packages).  Make will rebuild when any .go file or go.mod changes.
-# Hand-written Go sources (no generated files — those are added in GOMC_SRC).
 # Generated imports file for compiled-in Go modules.
 IMPORTS_GENERATED := gomc/cmd/gomc-server/imports_generated.go
 
-# All Go source files in the gomc module (recursive wildcard for
-# sub-packages).  Make will rebuild when any .go file or go.mod changes.
-# Hand-written Go sources (no generated files — those are added in GOMC_SRC).
+# All hand-written Go source files in the gomc module (recursive wildcard
+# for sub-packages).  Make will rebuild when any .go file changes.  No
+# generated files here — deliberately: a parse-time wildcard over
+# gomc/generated/ would be empty on a fresh build, so the dependency graph
+# would differ between the first and second run.  Generated GMI Go files
+# reach ../bin/gomc-server as injected prerequisites from
+# gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)) instead.
 GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) \
     $(wildcard gomc/cmd/*/*.go) \
     $(wildcard gomc/pkg/*/*.go) \
@@ -84,10 +85,6 @@ GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) \
 # NB: gomc/go.mod is deliberately NOT here — it is order-only on each Go binary
 # rule (see '| gomc/go.mod'), so a -mod=mod build rewriting it never forces a
 # rebuild.  go.mod.in (the tracked spec) stays a normal prerequisite.
-
-# Full source list including generated files (for the gomc binary).
-GOMC_SRC := $(GOMC_SRC_BASE) \
-    $(wildcard gomc/generated/*/*/*)
 
 # Generated GMI Go files are prerequisites of imports_generated.go and
 # ../bin/gomc-server so that codegen completes before the Go build starts.
@@ -140,7 +137,7 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 
 # Build the gomc-server binary.  Generated GMI Go prerequisites are injected
 # by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
-../bin/gomc-server: $(GOMC_SRC) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
+../bin/gomc-server: $(GOMC_SRC_BASE) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
 	$(ECHO) Building gomc-server
 	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
