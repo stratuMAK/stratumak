@@ -134,6 +134,8 @@ static int do_homing_sequence(motmod_inst_t *inst) GOMC_NONBLOCKING
 {
     int i, seen;
     int sequence_is_set = 0;
+    /* all-homed state as of the previous cycle, before we re-aggregate below */
+    int beginning_allhomed = inst->all_homed;
 
     /* Always tick all joints' state machines and aggregate status */
     {
@@ -305,8 +307,24 @@ static int do_homing_sequence(motmod_inst_t *inst) GOMC_NONBLOCKING
         break;
     }
 
-    /* Return 1 (all done) only when all joints are homed and none active */
-    return (inst->all_homed && !inst->homing_active);
+    /* Return 1 only on the servo cycle where the machine transitions to
+       fully homed (rising edge of all-homed), matching the original
+       homing.c base_do_homing() contract ("return 1 if homing completed
+       this period"). The caller uses this to switch identity kinematics
+       into teleop mode exactly once. A level-triggered return here would
+       re-request switch_to_teleop_mode() on every cycle while homed,
+       instantly overriding an operator EMCMOT_FREE (teleop_enable(0)) and
+       trapping a homed machine in teleop so joint jogging is impossible.
+       Force homing_active clear on the completion edge (as the original did):
+       a joint can report homed and still-active on the same cycle, and once
+       the caller switches to teleop this function is no longer invoked
+       (short-circuited by motion_state==FREE), so a stale homing_active would
+       freeze and keep axis_handle_jogwheels() inhibited. */
+    if (!beginning_allhomed && inst->all_homed) {
+        inst->homing_active = 0;
+        return 1;
+    }
+    return 0;
 }
 
 /* 'get_pos_cmds()' generates the position setpoints.  This includes

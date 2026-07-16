@@ -260,11 +260,11 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			inpos = true
 		}
 		stat.Joints[i] = emcstat.JointInfo{
-			Homed:  j.Homed != 0,
-			Homing: j.Homing != 0,
+			Homed:   j.Homed != 0,
+			Homing:  j.Homing != 0,
 			Enabled: j.Enabled != 0,
-			Fault:  j.Fault != 0,
-			Inpos:  inpos,
+			Fault:   j.Fault != 0,
+			Inpos:   inpos,
 			// gomc motion exposes no per-joint soft-limit-tripped flag; report
 			// the hard-limit switches and leave the soft-limit flags cleared.
 			MinSoftLimit: false,
@@ -292,11 +292,19 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			stat.Homed[i] = j.Homed != 0
 			stat.JointActualPosition[i] = j.PosFb
 			stat.JointPosition[i] = j.PosCmd
-			if j.OnPosLimit != 0 {
-				stat.Limit[i] = 1
-			} else if j.OnNegLimit != 0 {
-				stat.Limit[i] = -1
+			// Classic linuxcnc.stat().limit[j] is a bitmask, not a direction:
+			// minHardLimit=1, maxHardLimit=2, minSoftLimit=4, maxSoftLimit=8.
+			// gomc motion exposes only the hard-limit switches (OnNegLimit is
+			// the min/negative switch, OnPosLimit the max/positive switch); the
+			// soft-limit bits stay clear, matching MinSoftLimit/MaxSoftLimit above.
+			var mask int32
+			if j.OnNegLimit != 0 {
+				mask |= 1 // min hard limit
 			}
+			if j.OnPosLimit != 0 {
+				mask |= 2 // max hard limit
+			}
+			stat.Limit[i] = mask
 		}
 	}
 

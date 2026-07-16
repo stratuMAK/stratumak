@@ -1582,15 +1582,45 @@ func (h *halUI) checkAxisJog(t *Task) {
 	}
 }
 
+// joggingJoint reports whether joint j is being jogged via its own per-joint
+// pins, independent of the "selected" slot. Mirrors classic halui.cc
+// jogging_joint(): a selection change may stop a joint only when it is not
+// already jogging under its own private pins.
+func (h *halUI) joggingJoint(j int) bool {
+	if pinGet(h.jjogPlus[j]) || pinGet(h.jjogMinus[j]) {
+		return true
+	}
+	return math.Abs(pinGet(h.jjogAnalog[j])) > h.jjogDeadband.Get()
+}
+
 func (h *halUI) checkJointSelection(t *Task) {
 	for i := 0; i < h.numJoints; i++ {
 		v := h.jointNrSelect[i].Get()
 		if risingEdge(v, h.old.jointNrSelect[i]) {
 			h.jointSelected.Set(uint32(i))
-			// Update is-selected outputs
+			// A selection change while a "selected" jog pin
+			// (halui.joint.selected.plus/minus, index numJoints) is held must
+			// re-target the jog: stop the joint it was driving and start the
+			// newly-selected one. Without this the deselected joint keeps
+			// running because the held pin produces no edge in checkJointJog.
+			// Mirrors the classic halui.cc jselect_changed block.
+			selPlus := pinGet(h.jjogPlus[h.numJoints])
+			selMinus := pinGet(h.jjogMinus[h.numJoints])
+			selJogging := selPlus || selMinus
+			jjogSpeed := h.jjogSpeed.Get()
+			// Update is-selected outputs and apply the jog re-target.
 			for j := 0; j < h.numJoints; j++ {
 				if h.jointIsSelected[j] != nil {
 					h.jointIsSelected[j].Set(j == i)
+				}
+				if j == i {
+					if selPlus {
+						_ = t.JogFromHAL(JogContinuous, true, int32(j), jjogSpeed, 0)
+					} else if selMinus {
+						_ = t.JogFromHAL(JogContinuous, true, int32(j), -jjogSpeed, 0)
+					}
+				} else if selJogging && !h.joggingJoint(j) {
+					_ = t.JogFromHAL(JogStop, true, int32(j), 0, 0)
 				}
 			}
 		}

@@ -189,12 +189,25 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 
 | bug | tests |
 |---|---|
-| jog/teleop + joint-mode + limit status | hard-limits, halui/jogging |
 | gmi.Stat client field gaps | startup-state, mdi-queue-length |
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem |
 | stepgen array module-param instance count | modparam.0 |
 | mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
 | operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
+
+### 3a-history-2 (2026-07-16). jog/teleop + joint-mode + limit status (hard-limits, halui/jogging — xfail files removed, tests green)
+
+Three stacked bugs (see `../PRODUCTION_READINESS.md`): (1) a homed machine was
+trapped in TELEOP — the homing-FSM refactor made `do_homing_sequence` (motmod
+control.c) return the teleop-auto-switch signal level-triggered instead of on the
+all-homed rising edge, re-overriding every operator `teleop_enable(0)`; restored the
+original edge contract incl. clearing `homing_active` on the edge (the latter fix
+also cured a jogwheel-axis regression). (2) `status.limit[]` reported a `+1/-1`
+direction instead of the classic bitmask (minHard=1/maxHard=2/minSoft=4/maxSoft=8).
+(3) halui "jog selected" didn't re-target when the selected joint changed under a
+held pin (ported the classic `jselect_changed` block). The ported tests also dropped
+the NML `echo_serial_number`/`command.serial` diagnostic prints (tests/startup-state
+precedent). Regression-checked against 30 homing/jog/teleop tests.
 
 ### 3a-history. Fixed by the 2026-07-15 lifecycle sweep (xfail files removed, tests green)
 
