@@ -212,6 +212,17 @@ objects/cmod/mesa_uart.c: hal/drivers/mesa_uart.comp ../bin/modcompile
 TARGETS += ../cmod/mesa_uart.so
 modules: ../cmod/mesa_uart.so
 
+# pcl720 (hal/drivers/) — needs its own preprocessing step because the generic
+# objects/cmod/%.c rule only matches hal/components/.  No GMI includes needed,
+# so the generic ../cmod/%.so rule builds it.
+objects/cmod/pcl720.c: hal/drivers/pcl720.comp ../bin/modcompile
+	$(ECHO) "Preprocessing cmod $(notdir $<)"
+	@mkdir -p $(dir $@)
+	$(Q)../bin/modcompile --preprocess $< > $@
+
+TARGETS += ../cmod/pcl720.so
+modules: ../cmod/pcl720.so
+
 TARGETS += $(CMOD_TARGETS)
 modules: $(CMOD_TARGETS)
 
