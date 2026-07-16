@@ -1,6 +1,6 @@
 mb2hal parse_common_section DEBUG: [MB2HAL_INIT] [INIT_DEBUG] [3]
 mb2hal parse_common_section DEBUG: [MB2HAL_INIT] [VERSION] [1001]
-mb2hal parse_common_section DEBUG: [MB2HAL_INIT] [HAL_MODULE_NAME] [mb2hal]
+mb2hal parse_common_section DEBUG: using component name [mb2hal] from constructor
 mb2hal parse_common_section DEBUG: [MB2HAL_INIT] [SLOWDOWN] [0.000]
 mb2hal parse_common_section DEBUG: [MB2HAL_INIT] [TOTAL_TRANSACTIONS] [7]
 mb2hal parse_transaction_section DEBUG: [TRANSACTION_00] [LINK_TYPE] [serial] [0]
@@ -122,9 +122,9 @@ mb2hal parse_transaction_section DEBUG: [TRANSACTION_06] [DEBUG] [0]
 mb2hal parse_transaction_section DEBUG: [TRANSACTION_06] [MB_TX_CODE] [fnct_05_write_single_coil] [8]
 mb2hal parse_transaction_section DEBUG: [TRANSACTION_06] [HAL_TX_NAME] [Modbus_fnct_05]
 mb2hal parse_ini_file OK: parse_transaction_section 6 OK
-mb2hal main OK: parse_ini_file done OK
+mb2hal New OK: parse_ini_file done OK
 mb2hal init_mb_links DEBUG: LINK 0 (RTU) link_type[0] device[/dev/ttyUSB0] baud[19200] data[8] parity[N] stop[1] fd[-1]
-mb2hal main OK: init_gbl.mb_link done OK
+mb2hal New OK: init_mb_links done OK
 mb2hal init_mb_tx DEBUG: MB_TX 0 lk_n[0] tx_n[0] cfg_dbg[0] lk_dbg[0] t_inc[0.050] nxt_t[0.000]
 mb2hal init_mb_tx DEBUG: MB_TX 1 lk_n[0] tx_n[1] cfg_dbg[0] lk_dbg[0] t_inc[0.010] nxt_t[0.000]
 mb2hal init_mb_tx DEBUG: MB_TX 2 lk_n[0] tx_n[2] cfg_dbg[0] lk_dbg[0] t_inc[0.010] nxt_t[0.000]
@@ -132,7 +132,7 @@ mb2hal init_mb_tx DEBUG: MB_TX 3 lk_n[0] tx_n[3] cfg_dbg[0] lk_dbg[0] t_inc[0.01
 mb2hal init_mb_tx DEBUG: MB_TX 4 lk_n[0] tx_n[4] cfg_dbg[0] lk_dbg[0] t_inc[0.010] nxt_t[0.000]
 mb2hal init_mb_tx DEBUG: MB_TX 5 lk_n[0] tx_n[5] cfg_dbg[0] lk_dbg[0] t_inc[0.010] nxt_t[0.000]
 mb2hal init_mb_tx DEBUG: MB_TX 6 lk_n[0] tx_n[6] cfg_dbg[0] lk_dbg[0] t_inc[0.010] nxt_t[0.000]
-mb2hal main OK: init_gbl.mb_tx done OK
+mb2hal New OK: init_mb_tx done OK
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [0] pin_name [mb2hal.Modbus_fnct_02.num_errors]
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [0] pin_name [mb2hal.Modbus_fnct_02.00]
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [0] pin_name [mb2hal.Modbus_fnct_02.01]
@@ -168,10 +168,6 @@ mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [6] pin_name [mb2hal.Modbus_f
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [6] pin_name [mb2hal.Modbus_fnct_05.01]
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [6] pin_name [mb2hal.Modbus_fnct_05.02]
 mb2hal create_each_mb_tx_hal_pins DEBUG: mb_tx_num [6] pin_name [mb2hal.Modbus_fnct_05.03]
-mb2hal main OK: HAL components created OK
-mb2hal main OK: Link thread loop and logic 0 created OK
-mb2hal main OK: mb2hal is running
-mb2hal quit_cleanup DEBUG: started
-mb2hal quit_cleanup DEBUG: unloading HAL module [(ignored comp id)] ret[0]
-mb2hal quit_cleanup DEBUG: done OK
-mb2hal main OK: going to exit!
+mb2hal New OK: HAL component [mb2hal] created OK
+mb2hal mb2hal_start OK: Link thread loop and logic 0 created OK
+mb2hal mb2hal_start OK: mb2hal is running
