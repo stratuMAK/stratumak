@@ -89,50 +89,11 @@ GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) \
 GOMC_SRC := $(GOMC_SRC_BASE) \
     $(wildcard gomc/generated/*/*/*)
 
-# Generated GMI files that the gomc imports.  The wildcard above may be
-# empty on a fresh build (files don't exist yet at parse time), so we list
-# concrete prerequisites here to ensure codegen runs first.
-GMI_KINS_GEN_GO := gomc/generated/gmi/kins/kins_cgo.go
-GMI_TOOLS_GEN_GO := gomc/generated/gmi/tools/tools_cgo.go
-GMI_EMCSTAT_PUSH_GO := gomc/generated/gmi/emcstat/emcstat_push.go
-GMI_MOTCTL_CLIENT_GO := gomc/generated/gmi/motctl/motctl_client_cgo.go
-GMI_MOTSTAT_CLIENT_GO := gomc/generated/gmi/motstat/motstat_client_cgo.go
-GMI_EMCIO_CLIENT_GO := gomc/generated/gmi/emcio/emcio_client_cgo.go
-GMI_CLASSICLADDER_SERVER_GO := gomc/generated/gmi/classicladder/classicladder_cgo.go
-GMI_HAL_SAMPLER_STREAM_GO := gomc/generated/gmi/hal_sampler/hal_sampler_stream.go
-GMI_HAL_STREAMER_STREAM_GO := gomc/generated/gmi/hal_streamer/hal_streamer_stream.go
-
-# Explicit list of ALL generated GMI Go files (one per package with init()).
-# This must be kept in sync with gmi/codegen/Submakefile.
-# Used as prerequisite for imports_generated.go and gomc-server so that
-# codegen completes before the Go build starts.
-GMI_ALL_GEN_GO := \
-    gomc/generated/gmi/canon/canon_cgo.go \
-    gomc/generated/gmi/classicladder/classicladder_cgo.go \
-    gomc/generated/gmi/emccalib/emccalib_cgo.go \
-    gomc/generated/gmi/emccmd/emccmd_cgo.go \
-    gomc/generated/gmi/emcerror/emcerror_cgo.go \
-    gomc/generated/gmi/emcio/emcio_cgo.go \
-    gomc/generated/gmi/emcstat/emcstat_cgo.go \
-    gomc/generated/gmi/halcmd/halcmd_cgo.go \
-    gomc/generated/gmi/halscope/halscope_cgo.go \
-    gomc/generated/gmi/home/home_cgo.go \
-    gomc/generated/gmi/ini/ini_cgo.go \
-    gomc/generated/gmi/interp_ctx/interp_ctx_cgo.go \
-    gomc/generated/gmi/interp_ext/interp_ext_cgo.go \
-    gomc/generated/gmi/kins/kins_cgo.go \
-    gomc/generated/gmi/manualtoolchange/manualtoolchange_cgo.go \
-    gomc/generated/gmi/mcode_handler/mcode_handler_cgo.go \
-    gomc/generated/gmi/mot/mot_cgo.go \
-    gomc/generated/gmi/motctl/motctl_cgo.go \
-    gomc/generated/gmi/motstat/motstat_cgo.go \
-    gomc/generated/gmi/ngcpreview/ngcpreview_cgo.go \
-    gomc/generated/gmi/pyvcp/pyvcp_cgo.go \
-    gomc/generated/gmi/tools/tools_cgo.go \
-    gomc/generated/gmi/tooltable/tooltable_cgo.go \
-    gomc/generated/gmi/tp/tp_cgo.go \
-    gomc/generated/gmi/hal_sampler/hal_sampler_stream.go \
-    gomc/generated/gmi/hal_streamer/hal_streamer_stream.go
+# Generated GMI Go files are prerequisites of imports_generated.go and
+# ../bin/gomc-server so that codegen completes before the Go build starts.
+# The list (GMI_ALL_GEN_GO) is accumulated next to each codegen rule in
+# gmi/codegen/Submakefile (included after this file) and injected there as
+# extra prerequisites — single source, nothing to keep in sync here.
 
 # Runtime files generated from .in bases on fresh checkouts.
 # imports_generated.go is produced by modcompile directly from packages.conf
@@ -148,7 +109,7 @@ gomc/go.mod: gomc/go.mod.in $(wildcard gomc/external/*/go.deps)
 	fi
 	$(Q)cd gomc && $(GO) mod download
 
-$(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile $(GMI_ALL_GEN_GO)
+$(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
 	$(Q)cd gomc && $(TOP)/bin/modcompile regenerate-imports
 
 # Environment shared by all cgo-enabled Go build/test/lint invocations.
@@ -177,8 +138,9 @@ $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile $(GMI_ALL_GEN_GO)
 # cascade a rebuild through all modules and GMI headers.
 GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
 
-# Build the gomc-server binary.
-../bin/gomc-server: $(GOMC_SRC) $(GMI_KINS_GEN_GO) $(GMI_TOOLS_GEN_GO) $(GMI_EMCSTAT_PUSH_GO) $(GMI_MOTCTL_CLIENT_GO) $(GMI_MOTSTAT_CLIENT_GO) $(GMI_EMCIO_CLIENT_GO) $(GMI_CLASSICLADDER_SERVER_GO) $(GMI_HAL_SAMPLER_STREAM_GO) $(GMI_HAL_STREAMER_STREAM_GO) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
+# Build the gomc-server binary.  Generated GMI Go prerequisites are injected
+# by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
+../bin/gomc-server: $(GOMC_SRC) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
 	$(ECHO) Building gomc-server
 	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
