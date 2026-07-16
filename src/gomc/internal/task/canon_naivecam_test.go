@@ -321,8 +321,8 @@ func TestNaivecam_ZeroLengthKeptWhenG95Synched(t *testing.T) {
 	c := task.canon
 	enableNaivecam(c, 0.1)
 
-	c.SetFeedMode(0, 1) // G95 units-per-rev
-	c.SetFeedRate(3.0)  // per-rev F word → StartSpeedFeedSynch(…, 1)
+	c.SetFeedMode(0, 1)                          // G95 units-per-rev
+	c.SetFeedRate(3.0)                           // per-rev F word → StartSpeedFeedSynch(…, 1)
 	c.StraightFeed(1, 0, 0, 0, 0, 0, 0, 0, 0, 0) // zero-distance, synched
 	c.Finish()
 
