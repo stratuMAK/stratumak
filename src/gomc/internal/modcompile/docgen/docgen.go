@@ -219,6 +219,17 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 		fmt.Fprintln(w, c.Notes)
 	}
 
+	// ARCHITECTURE section — only for arch-restricted modules.  On other
+	// targets the module builds but refuses to load, so document the limit.
+	if len(c.Archs) > 0 {
+		if _, err := fmt.Fprintf(w, ".SH ARCHITECTURE\n\n"+
+			"Supported only on: %s.\n"+
+			"On other architectures the module loads to an error and does not run.\n",
+			strings.Join(c.Archs, ", ")); err != nil {
+			return err
+		}
+	}
+
 	// AUTHOR section
 	if c.Author != "" {
 		fmt.Fprintln(w, ".SH AUTHOR")

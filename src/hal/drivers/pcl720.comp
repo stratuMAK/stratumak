@@ -36,6 +36,11 @@ variable int64_t write_time;
 
 option extra_setup yes;
 
+// ISA/PCI port-I/O card: uses x86-only <sys/io.h> inb/outb.  Restrict the
+// build to x86 so an "Architecture: any" package build on arm64 etc. gets a
+// stub that refuses to load instead of a compile error.
+arch x86_64 i386;
+
 modparam string ioaddr """Base address of this card, in C numeric notation
 (\\fB0xNNN\\fR for hex, e.g. \\fBioaddr=0x200\\fR).  Each card is a separate
 instance: load one instance per card, giving each its own name and address, e.g.

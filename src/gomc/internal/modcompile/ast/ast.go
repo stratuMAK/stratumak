@@ -78,6 +78,13 @@ type Component struct {
 	GMIProvide []string
 	GMIConsume []GMIConsumeEntry
 
+	// Archs restricts the module to the listed target architectures (from
+	// an "arch" declaration).  Empty means the module builds on every
+	// architecture.  Names are validated against ArchMacros.  On a
+	// non-matching target the backend emits a stub that refuses to load
+	// instead of the real module, so packaging still builds everywhere.
+	Archs []string
+
 	// VerbatimC holds the raw C code from after the ";;" separator
 	// in .comp files.  Empty for ST modules.
 	VerbatimC string
@@ -87,6 +94,26 @@ type Component struct {
 type GMIConsumeEntry struct {
 	API  string // API name (e.g. "mot")
 	From string // Default provider instance name (e.g. "motmod"); empty means use API name
+}
+
+// ArchMacros maps an "arch" declaration name to the C preprocessor condition
+// that is true exactly when the compiler targets that architecture.  A module
+// restricted to one or more archs compiles to the real module only where one
+// of these conditions holds; on any other target modcompile emits a stub whose
+// New() refuses to load.  The condition follows the *target* compiler, so a
+// cross build guards itself correctly with no host-side architecture logic.
+//
+// Aliases map to the same condition as their canonical name.
+var ArchMacros = map[string]string{
+	"x86_64":  "defined(__x86_64__)",
+	"amd64":   "defined(__x86_64__)",
+	"i386":    "defined(__i386__)",
+	"x86":     "defined(__i386__)",
+	"arm":     "defined(__arm__)",
+	"aarch64": "defined(__aarch64__)",
+	"arm64":   "defined(__aarch64__)",
+	"riscv64": "(defined(__riscv) && __riscv_xlen == 64)",
+	"ppc64":   "(defined(__powerpc64__) || defined(__ppc64__))",
 }
 
 // ---------------------------------------------------------------------------

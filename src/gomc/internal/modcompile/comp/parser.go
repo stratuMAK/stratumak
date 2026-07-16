@@ -4,6 +4,7 @@ package comp
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -170,6 +171,8 @@ func (p *parser) parseDeclaration() error {
 		return p.parseGMIProvide()
 	case "gmi_consume":
 		return p.parseGMIConsume()
+	case "arch":
+		return p.parseArch()
 	default:
 		return p.errorf("unknown declaration keyword %q", p.cur.Val)
 	}
@@ -516,6 +519,53 @@ func (p *parser) parseGMIConsume() error {
 		From: from,
 	})
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Arch: "arch" NAME (NAME)* ";"
+//
+// Restricts the module to the listed target architectures.  On any other
+// target the backend emits a stub instead of the real module, so a build
+// (e.g. an arm64 package) still succeeds for a driver that only compiles on
+// x86.  At least one name is required and each must be known to ast.ArchMacros.
+// ---------------------------------------------------------------------------
+
+func (p *parser) parseArch() error {
+	pos := p.cur.Pos
+	p.next() // skip "arch"
+
+	var archs []string
+	for p.cur.Kind == TokIdent {
+		name, err := p.expectName()
+		if err != nil {
+			return err
+		}
+		if _, ok := ast.ArchMacros[name]; !ok {
+			return fmt.Errorf("%s: unknown arch %q; known: %s",
+				pos, name, knownArchList())
+		}
+		archs = append(archs, name)
+	}
+	if len(archs) == 0 {
+		return p.errorf("expected at least one architecture name after 'arch'")
+	}
+
+	if err := p.expectSemi(); err != nil {
+		return err
+	}
+
+	p.pkg.Component.Archs = append(p.pkg.Component.Archs, archs...)
+	return nil
+}
+
+// knownArchList returns the sorted set of accepted arch names for error messages.
+func knownArchList() string {
+	names := make([]string, 0, len(ast.ArchMacros))
+	for name := range ast.ArchMacros {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // ---------------------------------------------------------------------------
