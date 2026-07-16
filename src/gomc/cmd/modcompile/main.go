@@ -134,13 +134,14 @@ const (
 
 // resolveCC returns the C compiler command: $CC from the environment wins,
 // then the configure-time compiler baked into the binary, then plain gcc.
-// The result may contain arguments (e.g. "gcc -m32").
+// The result may contain arguments (e.g. "gcc -m32") and is never
+// empty/whitespace-only (callers split it with strings.Fields).
 func resolveCC() string {
-	if cc := os.Getenv("CC"); cc != "" {
+	if cc := strings.TrimSpace(os.Getenv("CC")); cc != "" {
 		return cc
 	}
-	if config.CCompiler != "" {
-		return config.CCompiler
+	if cc := strings.TrimSpace(config.CCompiler); cc != "" {
+		return cc
 	}
 	return defaultCC
 }
@@ -148,11 +149,11 @@ func resolveCC() string {
 // resolveCXX is resolveCC for the C++ compiler (cgo CXX when rebuilding
 // gomc-server).
 func resolveCXX() string {
-	if cxx := os.Getenv("CXX"); cxx != "" {
+	if cxx := strings.TrimSpace(os.Getenv("CXX")); cxx != "" {
 		return cxx
 	}
-	if config.CxxCompiler != "" {
-		return config.CxxCompiler
+	if cxx := strings.TrimSpace(config.CxxCompiler); cxx != "" {
+		return cxx
 	}
 	return defaultCXX
 }
