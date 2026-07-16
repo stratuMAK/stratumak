@@ -229,8 +229,11 @@ GOMC_PKG_FILES := \
 	@mkdir -p $(dir $@)
 	$(Q)cp -f $< $@
 
-# The installed go.mod must not carry the local replace directive.
-../share/linuxcnc/gomc/go.mod: gomc/go.mod
+# The installed go.mod must not carry the local replace directive.  The
+# content is a fixed literal (the recipe never reads gomc/go.mod), so
+# gomc/go.mod is order-only — its -mod=mod mtime churn must not regenerate
+# this file on every make.
+../share/linuxcnc/gomc/go.mod: | gomc/go.mod
 	$(ECHO) Generating gomc share go.mod
 	@mkdir -p $(dir $@)
 	$(Q)printf 'module github.com/sittner/linuxcnc/src/gomc\n\ngo 1.22\n' > $@
@@ -261,10 +264,14 @@ MODCOMPILE_SRC := $(wildcard gomc/cmd/modcompile/*.go) \
 # bumped mtime must not rebuild modcompile — every cmod .c and GMI header
 # depends on modcompile, so that would cascade to the whole tree.  go.mod.in
 # (a real, tracked spec) stays a normal prerequisite via the go.mod rule.
+# Build to a tmp file and move-if-change: 'go build -o' rewrites the output
+# even when nothing changed, and a bumped modcompile mtime rebuilds every
+# generated cmod .c and GMI header.  Go builds are deterministic, so cmp is
+# reliable.
 ../bin/modcompile: $(MODCOMPILE_SRC) Makefile.inc | gomc/go.mod
 	$(ECHO) Building modcompile
-	@rm -f $@
-	$(Q)cd gomc && GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/modcompile ./cmd/modcompile
+	$(Q)cd gomc && GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/modcompile.tmp ./cmd/modcompile
+	$(Q)sh move-if-change $@.tmp $@
 
 TARGETS += ../bin/modcompile
 
@@ -372,7 +379,7 @@ clean: gomc-clean
 .PHONY: gomc-clean
 gomc-clean:
 	rm -f ../bin/gomc-server ../bin/ads-xml-gen
-	rm -f ../bin/modcompile ../bin/halcmd ../bin/ethercat
+	rm -f ../bin/modcompile ../bin/modcompile.tmp ../bin/halcmd ../bin/ethercat
 	rm -f $(HAL_GO_EXAMPLES)
 	rm -f $(GOMC_PKG_FILES)
 	rm -f gomc/go.mod gomc/go.sum
