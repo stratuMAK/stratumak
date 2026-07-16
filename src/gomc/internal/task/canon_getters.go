@@ -261,7 +261,8 @@ func (c *Canon) GetExternalToolSlot() (int32, error) {
 		}
 		return -1, nil // non-random: no tool loaded
 	}
-	return toolPocketFor(tis), nil
+	p, _ := toolPocketFor(tis)
+	return p, nil
 }
 
 // GetExternalSelectedToolSlot mirrors 2.9's GET_EXTERNAL_SELECTED_TOOL_SLOT
@@ -276,7 +277,8 @@ func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 	if err != nil {
 		return -1, nil
 	}
-	return toolPocketFor(pp), nil // -1 = idle, 0 = T0 (unload) prepped
+	p, _ := toolPocketFor(pp)
+	return p, nil // -1 = idle, 0 = T0 (unload) prepped
 }
 
 func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
@@ -294,7 +296,8 @@ func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, fl
 				tis = v
 			}
 		}
-		if tis <= 0 || pkgTTClient == nil {
+		if tis <= 0 {
+			c.spindleEntryValid = false // spindle empty — drop the snapshot
 			if c.task.randomToolchanger {
 				// Random: idx0's toolno IS the spindle state — -1
 				// unknown / 0 empty marker (set_tool_parameters writes
@@ -303,42 +306,36 @@ func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, fl
 			}
 			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
 		}
-		entry, err := pkgTTClient.GetTool(tis)
-		if err != nil || entry.Toolno != tis {
-			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+		entry, found, err := lookupTool(tis)
+		if err == nil && found {
+			c.spindleToolno, c.spindleEntry, c.spindleEntryValid = tis, entry, true
+			return 0, tis, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
 		}
-		return 0, tis, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+		// The lookup was degraded (service error) or the loaded tool's
+		// entry vanished from the table (edited/deleted while in the
+		// spindle). 2.9's persistent tooldata idx-0 record kept serving the
+		// loaded tool in both cases — fall back to the last-known-good
+		// snapshot rather than fabricating an empty spindle, which would
+		// silently zero #5400 and the active tool-length-offset params
+		// while io still reports the tool loaded.
+		if c.spindleEntryValid && c.spindleToolno == tis {
+			e := c.spindleEntry
+			return 0, tis, toolOffsets(&e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+		}
+		// No snapshot to fall back on (the lookup never succeeded since
+		// this tool was loaded): report the empty spindle as before.
+		return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
 	retval, toolno, offset, diameter, frontangle, backangle, orientation := getToolByPocket(pocket)
 	return retval, toolno, offset, diameter, frontangle, backangle, orientation, nil
 }
 
 func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
-	if pkgTTClient == nil {
-		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
-	}
-	if toolno == 0 {
-		// T0 lookup (random toolchanger — the interp shortcuts T0 for
-		// non-random): the store returns a zero entry for missing keys,
-		// which is indistinguishable from a real T0, so decide presence
-		// via the entry list.
-		entries, err := pkgTTClient.ListTools()
-		if err == nil {
-			for i := range entries {
-				if entries[i].Toolno == 0 {
-					e := &entries[i]
-					return 0, e.Pocketno, toolOffsets(e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
-				}
-			}
-		}
-		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
-	}
-	entry, err := pkgTTClient.GetTool(toolno)
-	if err != nil || entry.Toolno != toolno {
-		// Missing tools come back as a zero entry, not an error — report
-		// "not found" so the interp raises its tool-not-in-table error
-		// (classic G43 Hn on an unknown tool errors; it must not silently
-		// apply a zero offset).
+	entry, found, err := lookupTool(toolno)
+	if err != nil || !found {
+		// Missing or unresolvable tools report "not found" so the interp
+		// raises its tool-not-in-table error (classic G43 Hn on an unknown
+		// tool errors; it must not silently apply a zero offset).
 		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
 	return 0, entry.Pocketno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil

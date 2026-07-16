@@ -202,11 +202,9 @@ class Stat:
             async for raw in self._ws:
                 msg = json.loads(raw)
                 if msg.get("type") == "update" and msg.get("func") == "get_stat":
-                    data = msg.get("data", {})
-                    with self._lock:
-                        # Delta merge: server sends only changed keys after
-                        # the initial full snapshot.
-                        self._data.update(data)
+                    # Delta merge: server sends only changed keys after
+                    # the initial full snapshot.
+                    self._merge_update(msg.get("data", {}))
                 elif msg.get("type") == "error":
                     import sys
                     print(f"gmi.Stat: watch error: {msg}", file=sys.stderr)
@@ -215,6 +213,26 @@ class Stat:
         except Exception as e:
             import sys
             print(f"gmi.Stat: recv error: {e}", file=sys.stderr)
+
+    def _merge_update(self, data):
+        """Merge a snapshot/delta into the cache, dropping out-of-order data.
+
+        Both the WS watch thread and poll() write into the same cache. The
+        server bumps stat.heartbeat once per status build, so it is present
+        in every WS delta and every poll snapshot — use it to order them: a
+        WS delta sampled BEFORE a poll's fresh GET must not overwrite the
+        newer data when it arrives a moment after poll() returns (that
+        re-introduces exactly the stale-read window poll() exists to close).
+        The wrap guard keeps a server restart (heartbeat resets to 0) or an
+        i32 rollover from freezing the cache.
+        """
+        hb = data.get("heartbeat")
+        with self._lock:
+            if hb is not None:
+                last = self._data.get("heartbeat")
+                if last is not None and hb < last and (last - hb) < 2**30:
+                    return  # stale out-of-order update — drop it
+            self._data.update(data)
 
     def poll(self):
         """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll()).
@@ -231,8 +249,7 @@ class Stat:
             import sys
             print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
             return
-        with self._lock:
-            self._data.update(data)
+        self._merge_update(data)
 
     def _poll_fetch(self):
         """GET the stat snapshot over a persistent keep-alive connection.

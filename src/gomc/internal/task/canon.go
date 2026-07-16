@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/canon"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 )
 
 // Canon unit systems.
@@ -306,6 +307,14 @@ type Canon struct {
 	// chained is the naive-CAM straight-feed buffer (2.9 chained_points);
 	// see canon_naivecam.go. Producer-goroutine-owned like all canon state.
 	chained []chainedPt
+	// Last-known-good spindle tool record served by GetExternalToolTable(0).
+	// 2.9 kept a persistent tooldata idx-0 entry, so a transient tooltable
+	// lookup failure — or a table edit that removes the loaded tool — never
+	// zeroed the interp's active tool params; this cache restores that
+	// property. Producer-goroutine-owned like all canon state.
+	spindleToolno     int32
+	spindleEntry      tooltable.ToolEntry
+	spindleEntryValid bool
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.

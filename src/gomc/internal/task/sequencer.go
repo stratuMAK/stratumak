@@ -935,10 +935,15 @@ type SetToolTableEntryCmd struct {
 }
 
 func (c *SetToolTableEntryCmd) Execute(t *Task) error {
-	t.invalidatePrepPocket()
 	return t.io.ToolSetOffset(c.Pocket, c.Toolno, c.X, c.Y, c.Z, c.A, c.B, c.C, c.U, c.V, c.W, c.Diameter, c.Frontangle, c.Backangle, c.Orientation)
 }
-func (c *SetToolTableEntryCmd) Wait() WaitType { return WaitIO }
+
+// PostWait invalidates the prep-pocket memo AFTER the io mutation has landed
+// (like ToolChangeCmd). Invalidating in Execute is too early: a concurrent
+// BuildStat in the window before the io write completes would recompute the
+// pocket from the pre-mutation table and re-cache it as valid.
+func (c *SetToolTableEntryCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
+func (c *SetToolTableEntryCmd) Wait() WaitType   { return WaitIO }
 func (c *SetToolTableEntryCmd) String() string {
 	return fmt.Sprintf("SetToolTableEntry(P%d T%d)", c.Pocket, c.Toolno)
 }
@@ -949,10 +954,12 @@ type ChangeToolNumberCmd struct {
 }
 
 func (c *ChangeToolNumberCmd) Execute(t *Task) error {
-	t.invalidatePrepPocket()
 	return t.io.ToolSetNumber(c.Number)
 }
-func (c *ChangeToolNumberCmd) Wait() WaitType { return WaitIO }
+
+// PostWait: see SetToolTableEntryCmd — invalidate after the mutation lands.
+func (c *ChangeToolNumberCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
+func (c *ChangeToolNumberCmd) Wait() WaitType   { return WaitIO }
 func (c *ChangeToolNumberCmd) String() string {
 	return fmt.Sprintf("ChangeToolNumber(%d)", c.Number)
 }
@@ -961,11 +968,13 @@ func (c *ChangeToolNumberCmd) String() string {
 type ReloadTooldataCmd struct{}
 
 func (c *ReloadTooldataCmd) Execute(t *Task) error {
-	t.invalidatePrepPocket()
 	return t.io.ToolLoadTable("")
 }
-func (c *ReloadTooldataCmd) Wait() WaitType { return WaitIO }
-func (c *ReloadTooldataCmd) String() string { return "ReloadTooldata" }
+
+// PostWait: see SetToolTableEntryCmd — invalidate after the mutation lands.
+func (c *ReloadTooldataCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
+func (c *ReloadTooldataCmd) Wait() WaitType   { return WaitIO }
+func (c *ReloadTooldataCmd) String() string   { return "ReloadTooldata" }
 
 // FloodOnCmd turns flood coolant on (M8).
 type FloodOnCmd struct{}

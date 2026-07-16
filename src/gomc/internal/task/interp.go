@@ -140,9 +140,13 @@ func (i *CInterp) Reset() error {
 }
 
 // stateTagSize returns sizeof the packed C state_tag_t the canon's
-// update_tag callback points at.
+// update_tag callback points at. It is a compile-time constant, so cache it:
+// copyPackedStateTag runs once per executed G-code block and should not pay
+// a cgo transition just to re-fetch it.
+var cachedStateTagSize = int(C.interp_state_tag_size())
+
 func stateTagSize() int {
-	return int(C.interp_state_tag_size())
+	return cachedStateTagSize
 }
 
 // copyPackedStateTag copies the packed state_tag_t an update_tag callback
@@ -298,7 +302,7 @@ func (i *CInterp) ActiveSettings() []float64 {
 // leaves untouched are pre-filled with -1 (codes) / 0 (settings), matching
 // the unset convention of the ActiveGCodes/ActiveMCodes arrays.
 func (i *CInterp) ActiveModesFromTag(tag []byte) (gc, mc []int32, st []float64, ok bool) {
-	if len(tag) < int(C.interp_state_tag_size()) {
+	if len(tag) < stateTagSize() {
 		return nil, nil, nil, false
 	}
 	var gbuf [activeGCodesLen]C.int

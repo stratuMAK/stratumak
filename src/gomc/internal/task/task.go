@@ -8,6 +8,7 @@
 package task
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -197,11 +198,11 @@ type IOController interface {
 	GetCmdStatus() (int32, error) // 1=DONE, 2=EXEC, 3=ERROR
 	GetToolInSpindle() (int32, error)
 	GetPocketPrepped() (int32, error)
-	GetToolFromPocket() (int32, error)
 	// GetToolStatus returns tool-in-spindle, pocket-prepped and
 	// tool-from-pocket from ONE io status read — BuildStat runs at the
-	// status publish rate, and the three per-field getters each cost a
-	// full io GetStatus round-trip.
+	// status publish rate, and the per-field getters each cost a full io
+	// GetStatus round-trip. (tool_from_pocket has no per-field getter for
+	// that reason: this is its only reader.)
 	GetToolStatus() (toolInSpindle, pocketPrepped, toolFromPocket int32, err error)
 }
 
@@ -456,6 +457,15 @@ type Task struct {
 	taskCommand  string // last/executing MDI command string ("" when idle)
 	inputTimeout int32  // M66 wait: 0=none/cleared, 1=timed out, 2=waiting
 	heartbeat    int32  // monotonic liveness counter, bumped each BuildStat
+
+	// One-entry decode memo for pinMotionState: consecutive naive-CAM flushed
+	// segments usually share the same modal tag, so cache the last decode and
+	// skip the cgo ActiveModesFromTag round-trip (once per G1 line otherwise).
+	// Producer-goroutine-owned like the canon state — no lock.
+	pinDecodeTag []byte
+	pinDecodeGc  []int32
+	pinDecodeMc  []int32
+	pinDecodeSt  []float64
 }
 
 // motionInfo is the state tag milltask keeps for each motion segment, keyed by
@@ -579,7 +589,17 @@ func (t *Task) pinMotionState(id int32, tag []byte) {
 	var gc, mc []int32
 	var st []float64
 	if t.interp != nil {
-		gc, mc, st, _ = t.interp.ActiveModesFromTag(tag)
+		// Chained segments flush in bursts under one modal state — decode a
+		// given tag once and reuse it (failed decodes are memoized too: the
+		// result is a pure function of the tag bytes). pinMotionState only
+		// runs on the producer goroutine, so the memo needs no lock.
+		if t.pinDecodeTag != nil && bytes.Equal(tag, t.pinDecodeTag) {
+			gc, mc, st = t.pinDecodeGc, t.pinDecodeMc, t.pinDecodeSt
+		} else {
+			gc, mc, st, _ = t.interp.ActiveModesFromTag(tag)
+			t.pinDecodeTag = append([]byte(nil), tag...)
+			t.pinDecodeGc, t.pinDecodeMc, t.pinDecodeSt = gc, mc, st
+		}
 	}
 	t.mu.Lock()
 	if info, ok := t.motionMap[id]; ok {

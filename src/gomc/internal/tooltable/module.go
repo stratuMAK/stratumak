@@ -148,7 +148,16 @@ func (m *module) GetTool(toolno int32) (*tooltable.ToolEntry, error) {
 	key := strconv.FormatInt(int64(toolno), 10)
 	entry, err := m.db.GetEntry(m.dbHandle, key)
 	if err != nil {
-		return &tooltable.ToolEntry{}, nil
+		// Only a genuinely missing key maps to the documented zero-entry
+		// return (persist reports it as "not found: <ns>/<key>"). A real
+		// db error must propagate: swallowing it made a transient failure
+		// (e.g. sqlite busy) indistinguishable from a deleted tool, which
+		// callers then acted on — zeroed tool params, cached "nothing
+		// prepped".
+		if strings.Contains(err.Error(), "not found:") {
+			return &tooltable.ToolEntry{}, nil
+		}
+		return nil, err
 	}
 
 	var t tooltable.ToolEntry

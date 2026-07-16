@@ -539,16 +539,37 @@ static void load_tool(iocontrol_module *m, int toolno) {
         if (target.toolno == 0 && toolno != 0) {
             UNEXPECTED_MSG; return;
         }
+        if (toolno == 0 && target.pocketno <= 0) {
+            // Unload (T0) with no T0 marker row in the table: there is no
+            // pocket to park the spindle tool in. The interp rejects this
+            // upstream (find_tool_pocket); guard the direct io path too —
+            // proceeding would "return" the spindle tool to pocket 0 and
+            // write a duplicate pocket-0 T0 row.
+            UNEXPECTED_MSG; return;
+        }
 
         int target_pocket = target.pocketno;
         int tis = m->emcioStatus.tool.toolInSpindle;
-        if (tis >= 0) {
-            // Move the spindle tool (or the T0 empty marker) to the
-            // target's pocket.
+        if (tis > 0) {
+            // Move the spindle tool to the target's pocket.
             tooltable_tool_entry_t spindle = tt->get_tool(tt->ctx, tis);
-            spindle.toolno = tis; // T0 marker may not exist yet
+            if (spindle.toolno != tis) {
+                // The loaded tool's entry vanished from the table (deleted
+                // or renumbered while in the spindle). Writing it back would
+                // resurrect it as a zero-offset ghost at the target's pocket
+                // — refuse the swap. 2.9 could not hit this: the spindle
+                // record was tooldata slot 0 and always existed.
+                UNEXPECTED_MSG; return;
+            }
             spindle.pocketno = target_pocket;
             tt->put_tool(tt->ctx, spindle.toolno, &spindle);
+        } else if (tis == 0) {
+            // T0 empty marker in the spindle — its row may not exist yet:
+            // create/update it at the target's pocket.
+            tooltable_tool_entry_t spindle = tt->get_tool(tt->ctx, 0);
+            spindle.toolno = 0;
+            spindle.pocketno = target_pocket;
+            tt->put_tool(tt->ctx, 0, &spindle);
         }
 
         // Move target to spindle (pocket 0)

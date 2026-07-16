@@ -494,15 +494,6 @@ func (a *ioAdapter) GetPocketPrepped() (int32, error) {
 	return st.Tool.PocketPrepped, nil
 }
 
-// GetToolFromPocket returns the pocket the current spindle tool was loaded from.
-func (a *ioAdapter) GetToolFromPocket() (int32, error) {
-	st, err := a.EmcioClient.GetStatus()
-	if err != nil {
-		return 0, err
-	}
-	return st.Tool.ToolFromPocket, nil
-}
-
 // GetToolStatus returns all three tool fields from a single status read.
 func (a *ioAdapter) GetToolStatus() (int32, int32, int32, error) {
 	st, err := a.EmcioClient.GetStatus()

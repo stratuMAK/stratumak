@@ -576,6 +576,12 @@ int Interp::lookup_named_param(const char *nameBuf,
 	break;
 
     case NP_SELECTED_POCKET:
+    if (_setup.selected_pocket < 0) {
+        // Nothing prepped (io reports -1) — indexing tool_table with it
+        // would read out of bounds (mirrors the NP_CURRENT_POCKET guard).
+        *value = -1;
+        break;
+    }
     if(_setup.random_toolchanger){//random changers already report the real pocket number
         *value = _setup.selected_pocket;
     }
