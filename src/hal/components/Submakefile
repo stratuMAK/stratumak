@@ -521,6 +521,15 @@ modules: ../cmod/streamer.so
 TARGETS += ../cmod/filestream.so
 modules: ../cmod/filestream.so
 
+# latency — RT scheduling-latency / jitter measurement (histogram + history
+# via a non-RT drainer, added in a later phase)
+../cmod/latency.so: hal/components/latency.c hal/components/latency_ring.h
+	$(ECHO) "Compiling cmod $(notdir $@)"
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -o $@ $< $(CMOD_LDFLAGS) -lpthread
+TARGETS += ../cmod/latency.so
+modules: ../cmod/latency.so
+
 clean: cmod-comp-clean
 .PHONY: cmod-comp-clean
 cmod-comp-clean:
