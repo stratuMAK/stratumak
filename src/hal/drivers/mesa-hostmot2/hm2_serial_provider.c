@@ -12,6 +12,7 @@
 
 #include "rtapi_stdint.h"
 #include "hm2_serial_api.h"
+#include "gomc_rt_check.h"
 #include "hostmot2-serial.h"
 #include <string.h>
 
@@ -21,7 +22,7 @@
 
 static int32_t shim_pktuart_config(void *ctx, const char *name,
     const hm2_serial_pkt_uart_config_t *rxcfg,
-    const hm2_serial_pkt_uart_config_t *txcfg, int32_t queue)
+    const hm2_serial_pkt_uart_config_t *txcfg, int32_t queue) GOMC_NONBLOCKING
 {
     (void)ctx;
     // Convert GMI types to internal types (layout-compatible for first 5 fields)
@@ -33,7 +34,7 @@ static int32_t shim_pktuart_config(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_send(void *ctx, const char *name,
-    void *data, uint8_t num_frames, void *frame_sizes)
+    void *data, uint8_t num_frames, void *frame_sizes) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_send(name, (unsigned char *)data,
@@ -41,7 +42,7 @@ static int32_t shim_pktuart_send(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_read(void *ctx, const char *name,
-    void *data, uint8_t *num_frames, void *max_frame_length, void *frame_sizes)
+    void *data, uint8_t *num_frames, void *max_frame_length, void *frame_sizes) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_read(name, (unsigned char *)data,
@@ -51,14 +52,14 @@ static int32_t shim_pktuart_read(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_queue_get_frame_sizes(void *ctx, const char *name,
-    void *fsizes)
+    void *fsizes) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_queue_get_frame_sizes(name, (uint32_t *)fsizes);
 }
 
 static int32_t shim_pktuart_queue_read_data(void *ctx, const char *name,
-    void *data, int32_t bytes)
+    void *data, int32_t bytes) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_queue_read_data(name, (uint32_t *)data, bytes);
@@ -70,7 +71,7 @@ static void shim_pktuart_reset(void *ctx, const char *name)
     hm2_pktuart_reset(name);
 }
 
-static void shim_pktuart_queue_reset(void *ctx, const char *name)
+static void shim_pktuart_queue_reset(void *ctx, const char *name) GOMC_NONBLOCKING
 {
     (void)ctx;
     hm2_pktuart_queue_reset(name);
@@ -88,13 +89,13 @@ static int32_t shim_pktuart_get_version(void *ctx, const char *name)
     return hm2_pktuart_get_version(name);
 }
 
-static uint32_t shim_pktuart_get_rx_status(void *ctx, const char *name)
+static uint32_t shim_pktuart_get_rx_status(void *ctx, const char *name) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_get_rx_status(name);
 }
 
-static uint32_t shim_pktuart_get_tx_status(void *ctx, const char *name)
+static uint32_t shim_pktuart_get_tx_status(void *ctx, const char *name) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_get_tx_status(name);
@@ -112,13 +113,13 @@ static int32_t shim_uart_setup(void *ctx, const char *name,
 }
 
 static int32_t shim_uart_send(void *ctx, const char *name,
-    void *data, int32_t count)
+    void *data, int32_t count) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_uart_send((char *)name, (unsigned char *)data, count);
 }
 
-static int32_t shim_uart_read(void *ctx, const char *name, void *data)
+static int32_t shim_uart_read(void *ctx, const char *name, void *data) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_uart_read((char *)name, (unsigned char *)data);
@@ -155,7 +156,7 @@ static int32_t shim_bspi_set_write_function(void *ctx, const char *name,
 }
 
 static int32_t shim_bspi_write_chan(void *ctx, const char *name,
-    int32_t chan, uint32_t val)
+    int32_t chan, uint32_t val) GOMC_NONBLOCKING
 {
     (void)ctx;
     return hm2_bspi_write_chan((char *)name, chan, val);

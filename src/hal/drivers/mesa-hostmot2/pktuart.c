@@ -20,6 +20,9 @@ static const void *hm2_log;
 #include "hostmot2.h"
 #include "hostmot2-serial.h"
 
+/* one-shot warning guard (process-wide by design) */
+static int pktuart_noqueue_warned;
+
 
 #define MAX_TX_FRAMES     (16) // Send counts are written to 16 deep FIFO, burst mode
 
@@ -158,7 +161,7 @@ fail0:
 //
 // Human readable info
 //
-void hm2_pktuart_print_module(hostmot2_t *hm2)
+void hm2_pktuart_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING
 {
 	int i;
 	HM2_PRINT("PktUART: %d\n", hm2->pktuart.num_instances);
@@ -182,7 +185,7 @@ void hm2_pktuart_cleanup(hostmot2_t *hm2)
 	(void)hm2;
 }
 
-void hm2_pktuart_write(hostmot2_t *hm2)
+void hm2_pktuart_write(hostmot2_t *hm2) GOMC_NONBLOCKING
 {
 	(void)hm2;
 }
@@ -194,16 +197,15 @@ void hm2_pktuart_write(hostmot2_t *hm2)
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 // Warn when we know we're gonna crash...
-static void llio_noqueue_warn(const hostmot2_t *hm2)
+static void llio_noqueue_warn(const hostmot2_t *hm2) GOMC_NONBLOCKING
 {
-	static int warned = 0;
-	if(warned)
+	if(pktuart_noqueue_warned)
 		return;
 	if(!hm2->llio->queue_write)
 		HM2_ERR("Hostmot2 low-level driver is missing the queue_write() function. PktUART will crash.\n");
 	if(!hm2->llio->queue_read)
 		HM2_ERR("Hostmot2 low-level driver is missing the queue_read() function. PktUART will crash.\n");
-	warned = 1;
+	pktuart_noqueue_warned = 1;
 }
 
 //
@@ -249,7 +251,7 @@ int hm2_pktuart_setup_rx(const char *name, unsigned int bitrate, unsigned int fi
 //
 // PktUART configuration implementation for TX
 //
-static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue)
+static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) GOMC_NONBLOCKING
 {
 	uint32_t bitrate;
 	uint32_t mode = 0;
@@ -286,7 +288,7 @@ static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instan
 	if(cfg->flags & HM2_PKTUART_CONFIG_STOPBITS2 && hm2->pktuart.tx_version >= 3)
 	mode |= HM2_PKTUART_TXMODE_STOPBITS2;
 
-	int (*writefn)(hm2_lowlevel_io_t *, uint32_t, const void *, int);
+	hm2_llio_write_fn_t writefn;
 	const char *writenm;
 	if(queue && hm2->llio->queue_write) {
 		writefn = hm2->llio->queue_write;
@@ -323,7 +325,7 @@ static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instan
 //
 // PktUART configuration implementation for RX
 //
-static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue)
+static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) GOMC_NONBLOCKING
 {
 	uint32_t bitrate;
 	uint32_t mode = 0;
@@ -366,7 +368,7 @@ static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instan
 	if(cfg->flags & HM2_PKTUART_CONFIG_STOPBITS2 && hm2->pktuart.rx_version >= 3)
 	mode |= HM2_PKTUART_RXMODE_STOPBITS2;
 
-	int (*writefn)(hm2_lowlevel_io_t *, uint32_t, const void *, int);
+	hm2_llio_write_fn_t writefn;
 	const char *writenm;
 	if(queue && hm2->llio->queue_write) {
 		writefn = hm2->llio->queue_write;
@@ -405,7 +407,7 @@ static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instan
 // Separate configurations are possible for RX and TX. The configuration will
 // be queued if the queue parameter is set to non-zero.
 //
-int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue)
+int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r;
@@ -430,7 +432,7 @@ int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, cons
 	return 0;
 }
 
-static void perform_reset(const char *name, int queue)
+static void perform_reset(const char *name, int queue) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	hm2_pktuart_instance_t *inst = 0;
@@ -441,7 +443,7 @@ static void perform_reset(const char *name, int queue)
 		return;
 	}
 	inst = &hm2->pktuart.instance[i];
-	int (*wr)(hm2_lowlevel_io_t*, uint32_t, const void *, int);
+	hm2_llio_write_fn_t wr;
 	const char *msg = "write";
 	// Also check case the low level driver does not support queueing
 	if(queue && hm2->llio->queue_write) {
@@ -472,7 +474,7 @@ void hm2_pktuart_reset(const char *name)
 // Perform a TX and RX interface reset clearing the FIFOs next time the write
 // queue is sent.
 //
-void hm2_pktuart_queue_reset(const char *name)
+void hm2_pktuart_queue_reset(const char *name) GOMC_NONBLOCKING
 {
 	perform_reset(name, 1);
 }
@@ -569,7 +571,7 @@ int hm2_pktuart_setup(const char *name, unsigned bitrate, int32_t tx_mode, int32
 // frame_sizes array.
 // Returns the total number of bytes sent.
 //
-int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[])
+int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[]) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int c = 0;
@@ -662,7 +664,7 @@ int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_
 //
 // This function is DEPRECATED
 //
-int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[])
+int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[]) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r, c;
@@ -834,7 +836,7 @@ int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames
 // next read cycle. Parameter fsizes should be u32 x 16.
 // FIXME: decide how to work out that the data has all been transferred
 //
-int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[])
+int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]) GOMC_NONBLOCKING
 {
 	// queue as many reads of the FIFO as there are frames
 	hostmot2_t *hm2;
@@ -877,7 +879,7 @@ int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[])
 // which must have been previously read by hm2_pktuart_queue_get_frame_sizes().
 // Returns the number of frame reads queued.
 //
-int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes)
+int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r;
@@ -911,7 +913,7 @@ int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes)
 //
 // Return the current RX status from last tram read
 //
-uint32_t hm2_pktuart_get_rx_status(const char *name)
+uint32_t hm2_pktuart_get_rx_status(const char *name) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int i = hm2_get_pktuart(&hm2, name);
@@ -925,7 +927,7 @@ uint32_t hm2_pktuart_get_rx_status(const char *name)
 //
 // Return the current TX status from last tram read
 //
-uint32_t hm2_pktuart_get_tx_status(const char *name)
+uint32_t hm2_pktuart_get_tx_status(const char *name) GOMC_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int i = hm2_get_pktuart(&hm2, name);

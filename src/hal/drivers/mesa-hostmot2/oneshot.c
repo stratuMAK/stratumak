@@ -116,7 +116,7 @@ void hm2_oneshot_update_regs(hostmot2_t *hm2) {
 }
 
 
-void hm2_oneshot_force_write(hostmot2_t *hm2) {
+void hm2_oneshot_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     hm2_oneshot_update_regs(hm2);
     
     hm2->llio->write(hm2->llio, hm2->oneshot.width1_addr, hm2->oneshot.width1_reg, (hm2->oneshot.num_instances * sizeof(uint32_t)));
@@ -138,7 +138,7 @@ void hm2_oneshot_force_write(hostmot2_t *hm2) {
 // Since these are all pins, write is the same as force write 
 //
 
-void hm2_oneshot_write(hostmot2_t *hm2) {
+void hm2_oneshot_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
     if (hm2->oneshot.num_instances == 0) return;
     hm2_oneshot_force_write(hm2);
@@ -486,7 +486,7 @@ void hm2_oneshot_cleanup(hostmot2_t *hm2) {
 
 
 
-void hm2_oneshot_print_module(hostmot2_t *hm2) {
+void hm2_oneshot_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->oneshot.num_instances <= 0) return;
     HM2_PRINT("OneShots: %d\n", hm2->oneshot.num_instances);
@@ -512,7 +512,7 @@ void hm2_oneshot_print_module(hostmot2_t *hm2) {
 
 
 
-void hm2_oneshot_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_oneshot_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
     if (hm2->oneshot.num_instances <= 0) return;
     hm2_oneshot_update_regs(hm2);
@@ -520,7 +520,7 @@ void hm2_oneshot_prepare_tram_write(hostmot2_t *hm2) {
 
 }
 
-void hm2_oneshot_process_tram_read(hostmot2_t *hm2) {
+void hm2_oneshot_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     uint32_t control = 0;
     for (i = 0; i < hm2->oneshot.num_instances; i ++) {

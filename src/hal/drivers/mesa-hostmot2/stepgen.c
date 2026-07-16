@@ -33,7 +33,7 @@
 // read accumulator to figure out where the stepper has gotten to
 // 
 
-void hm2_stepgen_process_tram_read(hostmot2_t *hm2, long l_period_ns) {
+void hm2_stepgen_process_tram_read(hostmot2_t *hm2, long l_period_ns) GOMC_NONBLOCKING {
     (void)l_period_ns;
     int i;
     uint32_t mode = 0;
@@ -325,7 +325,7 @@ static void hm2_stepgen_instance_prepare_tram_write(hostmot2_t *hm2, long l_peri
 }
 
 
-void hm2_stepgen_prepare_tram_write(hostmot2_t *hm2, long l_period_ns) {
+void hm2_stepgen_prepare_tram_write(hostmot2_t *hm2, long l_period_ns) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->stepgen.num_instances; i ++) {
         if (*(hm2->stepgen.instance[i].hal.pin.enable) == 0) {
@@ -385,7 +385,7 @@ static void hm2_stepgen_update_pulse_width(hostmot2_t *hm2, int i) {
 }
 
 
-static void hm2_stepgen_update_mode(hostmot2_t *hm2, int i) {
+static void hm2_stepgen_update_mode(hostmot2_t *hm2, int i) GOMC_NONBLOCKING {
     uint32_t buff;
     uint32_t modebuff;
     int j;
@@ -465,7 +465,7 @@ static void hm2_stepgen_update_mode(hostmot2_t *hm2, int i) {
 }
 
 
-static void hm2_stepgen_set_dpll_timer(hostmot2_t *hm2) {
+static void hm2_stepgen_set_dpll_timer(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t data = 0;
 
     if ((*hm2->stepgen.hal->pin.dpll_timer_num < -1) || (*hm2->stepgen.hal->pin.dpll_timer_num > 4)) {
@@ -479,7 +479,7 @@ static void hm2_stepgen_set_dpll_timer(hostmot2_t *hm2) {
 }
 
 
-void hm2_stepgen_write(hostmot2_t *hm2) {
+void hm2_stepgen_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     int need_mode_update;
 
@@ -561,7 +561,7 @@ void hm2_stepgen_write(hostmot2_t *hm2) {
 //}
 
 
-static void hm2_stepgen_force_write_dir_setup_time(hostmot2_t *hm2) {
+static void hm2_stepgen_force_write_dir_setup_time(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->stepgen.num_instances; i ++) {
         hm2_stepgen_update_dir_setup_time(hm2, i);
@@ -576,7 +576,7 @@ static void hm2_stepgen_force_write_dir_setup_time(hostmot2_t *hm2) {
 }
 
 
-static void hm2_stepgen_force_write_dir_hold_time(hostmot2_t *hm2) {
+static void hm2_stepgen_force_write_dir_hold_time(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->stepgen.num_instances; i ++) {
         hm2_stepgen_update_dir_hold_time(hm2, i);
@@ -590,7 +590,7 @@ static void hm2_stepgen_force_write_dir_hold_time(hostmot2_t *hm2) {
 }
 
 
-static void hm2_stepgen_force_write_pulse_idle_width(hostmot2_t *hm2) {
+static void hm2_stepgen_force_write_pulse_idle_width(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->stepgen.num_instances; i ++) {
         hm2_stepgen_update_pulse_idle_width(hm2, i);
@@ -604,7 +604,7 @@ static void hm2_stepgen_force_write_pulse_idle_width(hostmot2_t *hm2) {
 }
 
 
-static void hm2_stepgen_force_write_pulse_width_time(hostmot2_t *hm2) {
+static void hm2_stepgen_force_write_pulse_width_time(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->stepgen.num_instances; i ++) {
         hm2_stepgen_update_pulse_width(hm2, i);
@@ -618,7 +618,7 @@ static void hm2_stepgen_force_write_pulse_width_time(hostmot2_t *hm2) {
 }
 
 
-static void hm2_stepgen_force_write_master_dds(hostmot2_t *hm2) {
+static void hm2_stepgen_force_write_master_dds(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t val = 0xffffffff;
     hm2->llio->write(
         hm2->llio,
@@ -635,7 +635,7 @@ static void hm2_stepgen_force_write_dpll_timer(hostmot2_t *hm2) {
 }
 
 
-void hm2_stepgen_force_write(hostmot2_t *hm2) {
+void hm2_stepgen_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->stepgen.num_instances == 0) return;
 //    hm2_stepgen_force_write_mode(hm2);
     hm2_stepgen_force_write_dir_setup_time(hm2);
@@ -1215,7 +1215,7 @@ fail0:
 
 
 
-void hm2_stepgen_print_module(hostmot2_t *hm2) {
+void hm2_stepgen_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->stepgen.num_instances <= 0) return;
     HM2_PRINT("StepGen: %d\n", hm2->stepgen.num_instances);

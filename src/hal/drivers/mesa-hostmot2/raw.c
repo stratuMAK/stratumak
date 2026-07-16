@@ -100,7 +100,7 @@ int hm2_raw_setup(hostmot2_t *hm2) {
 
 
 
-void hm2_raw_queue_read(hostmot2_t *hm2) {
+void hm2_raw_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->config.enable_raw == 0) return;
 
     hm2->llio->queue_read(
@@ -119,7 +119,7 @@ void hm2_raw_queue_read(hostmot2_t *hm2) {
 
 
 
-void hm2_raw_write(hostmot2_t *hm2) {
+void hm2_raw_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->config.enable_raw == 0) return;
     if (*hm2->raw->hal.pin.write_strobe == 0) return;
 

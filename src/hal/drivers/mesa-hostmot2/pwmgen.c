@@ -174,7 +174,7 @@ void hm2_pwmgen_handle_pdm_frequency(hostmot2_t *hm2) {
 }
 
 
-void hm2_pwmgen_force_write(hostmot2_t *hm2) {
+void hm2_pwmgen_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     uint32_t pwm_width;
 
@@ -303,7 +303,7 @@ void hm2_pwmgen_force_write(hostmot2_t *hm2) {
 // Update the PWM Mode Registers of all pwmgen instances that need it
 //
 
-void hm2_pwmgen_write(hostmot2_t *hm2) {
+void hm2_pwmgen_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->pwmgen.num_instances == 0) return;
@@ -569,7 +569,7 @@ void hm2_pwmgen_cleanup(hostmot2_t *hm2) {
 
 
 
-void hm2_pwmgen_print_module(hostmot2_t *hm2) {
+void hm2_pwmgen_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->pwmgen.num_instances <= 0) return;
     HM2_PRINT("PWMGen: %d\n", hm2->pwmgen.num_instances);
@@ -599,7 +599,7 @@ void hm2_pwmgen_print_module(hostmot2_t *hm2) {
 
 
 
-void hm2_pwmgen_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_pwmgen_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     double topdrop;
     if (hm2->pwmgen.num_instances <= 0) return;

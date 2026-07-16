@@ -122,7 +122,7 @@ static void hm2_encoder_update_control_register(hostmot2_t *hm2) {
 }
 
 
-static void hm2_encoder_read_control_register(hostmot2_t *hm2) {
+static void hm2_encoder_read_control_register(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     for (i = 0; i < hm2->encoder.num_instances; i ++) {
@@ -152,7 +152,7 @@ static void hm2_encoder_read_control_register(hostmot2_t *hm2) {
 }
 
 
-static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) {
+static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t filter_rate = hm2->encoder.clock_frequency/(*hm2->encoder.hal->pin.sample_frequency);
     
     if (filter_rate == 1) {
@@ -179,7 +179,7 @@ static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) {
     hm2->encoder.written_sample_frequency = *hm2->encoder.hal->pin.sample_frequency;
 }
 
-static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) {
+static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if(!hm2->encoder.dpll_timer_num_addr) return;
 
     uint32_t data = hm2->encoder.desired_dpll_timer_reg;
@@ -188,11 +188,11 @@ static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) {
     hm2->encoder.written_dpll_timer_reg = data;
 }
 
-static void hm2_encoder_force_write_dpll_timer(hostmot2_t *hm2) {
+static void hm2_encoder_force_write_dpll_timer(hostmot2_t *hm2) GOMC_NONBLOCKING {
     hm2_encoder_set_dpll_timer_if_present(hm2);
 }
 
-void hm2_encoder_write(hostmot2_t *hm2) {
+void hm2_encoder_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->encoder.num_instances == 0) return;
@@ -283,7 +283,7 @@ force_write:
 }
 
 
-void hm2_encoder_force_write(hostmot2_t *hm2) {
+void hm2_encoder_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->encoder.num_instances == 0) return;
@@ -1090,7 +1090,7 @@ static void hm2_encoder_instance_process_tram_read(hostmot2_t *hm2, int instance
 
 
 
-void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns) {
+void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns) GOMC_NONBLOCKING {
     (void)l_period_ns;
     int i;
 
@@ -1111,7 +1111,7 @@ void hm2_encoder_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_encoder_print_module(hostmot2_t *hm2) {
+void hm2_encoder_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
      if (hm2->encoder.num_instances <= 0) return;
     HM2_PRINT("Encoders: %d\n", hm2->encoder.num_instances);

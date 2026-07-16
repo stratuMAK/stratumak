@@ -109,7 +109,7 @@ void hm2_tp_pwmgen_handle_pwm_frequency(hostmot2_t *hm2) {
 }
 
 
-void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances == 0) return;
@@ -147,7 +147,7 @@ void hm2_tp_pwmgen_force_write(hostmot2_t *hm2) {
 // Update the Registers of all Three Phase pwmgen instances that need it
 //
 
-void hm2_tp_pwmgen_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances == 0) return;
@@ -182,11 +182,11 @@ force_write:
 //
 // Read the fault bit for each instance
 //
-void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     hm2->llio->queue_read(hm2->llio, hm2->tp_pwmgen.enable_addr, hm2->tp_pwmgen.enable_reg, (hm2->tp_pwmgen.num_instances * sizeof(uint32_t)));
 }
 
-void hm2_tp_pwmgen_process_read(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_process_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0 ; i < hm2->tp_pwmgen.num_instances ; i++) {
         *hm2->tp_pwmgen.instance[i].hal.pin.fault
@@ -408,7 +408,7 @@ fail0:
     return r;
 }
 
-void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->tp_pwmgen.num_instances <= 0) return;
     HM2_PRINT("3-phase PWMGen: %d\n", hm2->tp_pwmgen.num_instances);
@@ -428,7 +428,7 @@ void hm2_tp_pwmgen_print_module(hostmot2_t *hm2) {
 }
 
 
-void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_tp_pwmgen_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     if (hm2->tp_pwmgen.num_instances <= 0) return;

@@ -359,7 +359,7 @@ fail0:
 
 
 
-void hm2_inmux_force_write(hostmot2_t *hm2) {
+void hm2_inmux_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int divisor;
     int i;
     int size;
@@ -405,7 +405,7 @@ void hm2_inmux_force_write(hostmot2_t *hm2) {
     }
 }
 
-void hm2_inmux_write(hostmot2_t *hm2) {
+void hm2_inmux_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int divisor;
     int i;
     int j;
@@ -482,7 +482,7 @@ void hm2_inmux_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     int j;
 
@@ -495,7 +495,7 @@ void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) {
     }
 }
 
-void hm2_inmux_process_tram_read(hostmot2_t *hm2) {
+void hm2_inmux_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     int j;
     int count_diff;
@@ -555,7 +555,7 @@ void hm2_inmux_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_inmux_print_module(hostmot2_t *hm2) {
+void hm2_inmux_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->inmux.num_instances <= 0) return;
     HM2_PRINT("inmuxs: %d\n", hm2->inmux.num_instances);

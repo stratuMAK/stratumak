@@ -31,7 +31,7 @@
 // read position and velocity to figure out where the galvo has gotten and how fast its swinging
 // 
 
-void hm2_xy2mod_process_tram_read(hostmot2_t *hm2) {
+void hm2_xy2mod_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->xy2mod.num_instances; i ++) {
     	hm2_xy2mod_instance_t *s = &hm2->xy2mod.instance[i];
@@ -91,7 +91,7 @@ void hm2_xy2mod_process_tram_read(hostmot2_t *hm2) {
 
 
 
-static void hm2_xy2mod_instance_write(hostmot2_t *hm2, int i) {
+static void hm2_xy2mod_instance_write(hostmot2_t *hm2, int i) GOMC_NONBLOCKING {
     double stepsx_cmd;
     double stepsy_cmd;
     double steps_per_secx_cmd;
@@ -252,7 +252,7 @@ static void hm2_xy2mod_instance_write(hostmot2_t *hm2, int i) {
     
 }
 
-static void hm2_xy2mod_set_dpll_rtimer(hostmot2_t *hm2) {
+static void hm2_xy2mod_set_dpll_rtimer(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t data = 0;
 
     if ((*hm2->xy2mod.hal->pin.dpll_rtimer_num < -1) || (*hm2->xy2mod.hal->pin.dpll_rtimer_num > 4)) {
@@ -265,7 +265,7 @@ static void hm2_xy2mod_set_dpll_rtimer(hostmot2_t *hm2) {
     hm2->xy2mod.written_dpll_rtimer_num = *hm2->xy2mod.hal->pin.dpll_rtimer_num;
 }
 
-static void hm2_xy2mod_set_dpll_wtimer(hostmot2_t *hm2) {
+static void hm2_xy2mod_set_dpll_wtimer(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t data = 0;
 
     if ((*hm2->xy2mod.hal->pin.dpll_wtimer_num < -1) || (*hm2->xy2mod.hal->pin.dpll_wtimer_num > 4)) {
@@ -279,7 +279,7 @@ static void hm2_xy2mod_set_dpll_wtimer(hostmot2_t *hm2) {
 }
 
 
-void hm2_xy2mod_write(hostmot2_t *hm2) {
+void hm2_xy2mod_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     for (i = 0; i < hm2->xy2mod.num_instances; i ++) {
          hm2_xy2mod_instance_write(hm2, i);
@@ -309,7 +309,7 @@ static void hm2_xy2mod_force_write_dpll_timer(hostmot2_t *hm2) {
 
 
 
-void hm2_xy2mod_force_write(hostmot2_t *hm2) {
+void hm2_xy2mod_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     if (hm2->xy2mod.num_instances == 0) return;
     hm2_xy2mod_force_write_dpll_timer(hm2);
 }
@@ -789,7 +789,7 @@ void hm2_xy2mod_cleanup(hostmot2_t *hm2) {
     }
 }
 
-void hm2_xy2mod_print_module(hostmot2_t *hm2) {
+void hm2_xy2mod_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->xy2mod.num_instances <= 0) return;
     HM2_PRINT("xy2mod: %d\n", hm2->xy2mod.num_instances);

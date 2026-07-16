@@ -266,7 +266,7 @@ static void hm2_ssr_compute_rate_regs(hostmot2_t *hm2) {
 }
 
 
-void hm2_ssr_force_write(hostmot2_t *hm2) {
+void hm2_ssr_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size;
     int i;
 
@@ -303,7 +303,7 @@ void hm2_ssr_force_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_ssr_write(hostmot2_t *hm2) {
+void hm2_ssr_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     hm2_ssr_compute_rate_regs(hm2);
@@ -317,7 +317,7 @@ void hm2_ssr_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_ssr_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_ssr_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     // Set register values from HAL pin values.
@@ -338,7 +338,7 @@ void hm2_ssr_prepare_tram_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_ssr_print_module(hostmot2_t *hm2) {
+void hm2_ssr_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->ssr.num_instances <= 0) return;
     HM2_PRINT("SSRs: %d\n", hm2->ssr.num_instances);

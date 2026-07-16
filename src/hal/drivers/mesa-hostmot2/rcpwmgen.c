@@ -252,7 +252,7 @@ void hm2_rcpwmgen_update_regs(hostmot2_t *hm2) {
 // Update the RCPWM rate Register if needed
 //
 
-void hm2_rcpwmgen_write(hostmot2_t *hm2) {
+void hm2_rcpwmgen_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
     if (hm2->rcpwmgen.num_instances == 0) return;
 
@@ -271,7 +271,7 @@ void hm2_rcpwmgen_write(hostmot2_t *hm2) {
 
 // force write is just for initialization and parameters after a change
 
-void hm2_rcpwmgen_force_write(hostmot2_t *hm2) {
+void hm2_rcpwmgen_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
     hm2_rcpwmgen_update_regs(hm2);
     // Write register values to board.
@@ -281,14 +281,14 @@ void hm2_rcpwmgen_force_write(hostmot2_t *hm2) {
 
 
 
-void hm2_rcpwmgen_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_rcpwmgen_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
     hm2_rcpwmgen_update_regs(hm2);	
 
 }
 
 
-void hm2_rcpwmgen_print_module(hostmot2_t *hm2) {
+void hm2_rcpwmgen_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->rcpwmgen.num_instances <= 0) return;
     HM2_PRINT("rcpwmgens: %d\n", hm2->rcpwmgen.num_instances);

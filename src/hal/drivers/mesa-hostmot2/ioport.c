@@ -407,7 +407,7 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
 
 
 
-void hm2_ioport_print_module(hostmot2_t *hm2) {
+void hm2_ioport_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     HM2_PRINT("IO Ports: %d\n", hm2->ioport.num_instances);
     if (hm2->ioport.num_instances <= 0) return;
@@ -432,27 +432,27 @@ void hm2_ioport_print_module(hostmot2_t *hm2) {
 
 
 
-static void hm2_ioport_force_write_ddr(hostmot2_t *hm2) {
+static void hm2_ioport_force_write_ddr(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.ddr_addr, hm2->ioport.ddr_reg, size);
     memcpy(hm2->ioport.written_ddr, hm2->ioport.ddr_reg, size);
 }
 
 
-static void hm2_ioport_force_write_output_invert(hostmot2_t *hm2) {
+static void hm2_ioport_force_write_output_invert(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.output_invert_addr, hm2->ioport.output_invert_reg, size);
     memcpy(hm2->ioport.written_output_invert, hm2->ioport.output_invert_reg, size);
 }
 
 
-static void hm2_ioport_force_write_open_drain(hostmot2_t *hm2) {
+static void hm2_ioport_force_write_open_drain(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.open_drain_addr, hm2->ioport.open_drain_reg, size);
     memcpy(hm2->ioport.written_open_drain, hm2->ioport.open_drain_reg, size);
 }
 
-void hm2_ioport_initialize_ddr(hostmot2_t *hm2) {
+void hm2_ioport_initialize_ddr(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -507,7 +507,7 @@ void hm2_ioport_update(hostmot2_t *hm2) {
 }
 
 
-void hm2_ioport_force_write(hostmot2_t *hm2) {
+void hm2_ioport_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
 
     hm2_ioport_update(hm2);
@@ -521,7 +521,7 @@ void hm2_ioport_force_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_ioport_write(hostmot2_t *hm2) {
+void hm2_ioport_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
 
     hm2_ioport_update(hm2);
@@ -570,7 +570,7 @@ void hm2_ioport_gpio_tram_write_init(hostmot2_t *hm2) {
 // this function sets the HAL pins based on the values in the data_read register buffer
 //
 
-void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) {
+void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -598,7 +598,7 @@ void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) {
 // the data_write buffer will get written to the TRAM and thus to the ioport data register by the caller
 // 
 
-void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -620,7 +620,7 @@ void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_ioport_gpio_read(hostmot2_t *hm2) {
+void hm2_ioport_gpio_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -651,7 +651,7 @@ void hm2_ioport_gpio_read(hostmot2_t *hm2) {
 }
 
 
-void hm2_ioport_gpio_write(hostmot2_t *hm2) {
+void hm2_ioport_gpio_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int port;
     int port_pin;
 

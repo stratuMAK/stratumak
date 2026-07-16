@@ -98,7 +98,7 @@ int hm2_led_parse_md(hostmot2_t *hm2, int md_index) {
     }
 }
 
-void hm2_led_write(hostmot2_t *hm2) {
+void hm2_led_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     uint32_t regval = 0;
     int i;
 

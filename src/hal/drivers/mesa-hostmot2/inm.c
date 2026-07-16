@@ -359,7 +359,7 @@ fail0:
 
 
 
-void hm2_inm_force_write(hostmot2_t *hm2) {
+void hm2_inm_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int divisor;
     int i;
     int size;
@@ -405,7 +405,7 @@ void hm2_inm_force_write(hostmot2_t *hm2) {
     }
 }
 
-void hm2_inm_write(hostmot2_t *hm2) {
+void hm2_inm_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int divisor;
     int i;
     int j;
@@ -482,7 +482,7 @@ void hm2_inm_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_inm_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_inm_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     int j;
 
@@ -495,7 +495,7 @@ void hm2_inm_prepare_tram_write(hostmot2_t *hm2) {
     }
 }
 
-void hm2_inm_process_tram_read(hostmot2_t *hm2) {
+void hm2_inm_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     int j;
     int count_diff;
@@ -556,7 +556,7 @@ void hm2_inm_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_inm_print_module(hostmot2_t *hm2) {
+void hm2_inm_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->inm.num_instances <= 0) return;
     HM2_PRINT("inms: %d\n", hm2->inm.num_instances);

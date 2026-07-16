@@ -189,7 +189,7 @@ void hm2_outm_cleanup(hostmot2_t *hm2) {
 
 
 
-void hm2_outm_force_write(hostmot2_t *hm2) {
+void hm2_outm_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int size;
     int i;
 
@@ -225,7 +225,7 @@ void hm2_outm_force_write(hostmot2_t *hm2) {
 
 
 
-void hm2_outm_prepare_tram_write(hostmot2_t *hm2) {
+void hm2_outm_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
 
     // Set register values from HAL pin values.
@@ -246,7 +246,7 @@ void hm2_outm_prepare_tram_write(hostmot2_t *hm2) {
 }
 
 
-void hm2_outm_print_module(hostmot2_t *hm2) {
+void hm2_outm_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
     int i;
     if (hm2->outm.num_instances <= 0) return;
     HM2_PRINT("outms: %d\n", hm2->outm.num_instances);

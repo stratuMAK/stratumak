@@ -19,6 +19,11 @@ static const void *hm2_log;
 
 #include "hostmot2.h"
 
+/* one-shot log-throttle guards (process-wide by design: they throttle
+   repeated misconfiguration messages, not per-instance state) */
+static int uart_send_err_flag;
+static int uart_read_err_flag;
+
 int hm2_uart_parse_md(hostmot2_t *hm2, int md_index) 
 {
     // All this function actually does is allocate memory
@@ -178,29 +183,27 @@ int hm2_uart_setup(char *name, int bitrate, int32_t tx_mode, int32_t rx_mode){
 }
 
 
-int hm2_uart_send(char *name,  unsigned char data[], int count)
+int hm2_uart_send(char *name,  unsigned char data[], int count) GOMC_NONBLOCKING
 {
     hostmot2_t *hm2;
     uint32_t buff;
     int r, c;
     int inst;
-    static int err_flag = 0;
-    
     inst = hm2_get_uart(&hm2, name);
-    if (inst < 0 && !err_flag){
+    if (inst < 0 && !uart_send_err_flag){
         HM2_ERR_NO_LL("Can not find UART instance %s.\n", name);
-        err_flag = 1;
+        uart_send_err_flag = 1;
         return -1;
     }
-    if (hm2->uart.instance[inst].bitrate == 0 && !err_flag){
+    if (hm2->uart.instance[inst].bitrate == 0 && !uart_send_err_flag){
         HM2_ERR("The selected UART instance %s.\n" 
                 "Has not been configured.\n", name);
-        err_flag = 1; // don't fill dmesg with junk. 
+        uart_send_err_flag = 1; // don't fill dmesg with junk. 
         return -1;
     }
     
     c = 0;
-    err_flag = 0;
+    uart_send_err_flag = 0;
     while (c < count - 3){
         buff = (data[c] + 
                 (data[c+1] << 8) +
@@ -257,29 +260,27 @@ int hm2_uart_send(char *name,  unsigned char data[], int count)
 }
 
 // This function needs to be modified so that it does not call llio->read, which hurts performance on hm2-eth
-int hm2_uart_read(char *name, unsigned char data[])
+int hm2_uart_read(char *name, unsigned char data[]) GOMC_NONBLOCKING
 {
     hostmot2_t *hm2;
     int r, c;
     int count;
     int inst;
     uint32_t buff;
-    static int err_flag = 0;
-    
     inst = hm2_get_uart(&hm2, name);
     
     if (inst < 0){
         HM2_ERR_NO_LL("Can not find UART instance %s.\n", name);
         return -1;
     }
-    if (hm2->uart.instance[inst].bitrate == 0 && !err_flag){
+    if (hm2->uart.instance[inst].bitrate == 0 && !uart_read_err_flag){
         HM2_ERR("The selected UART instance %s.\n" 
                 "Has not been configured.\n", name);
-        err_flag = 1;
+        uart_read_err_flag = 1;
         return -1;
     }
     
-    err_flag = 0;
+    uart_read_err_flag = 0;
     
     r = hm2->llio->read(hm2->llio, hm2->uart.instance[inst].rx_fifo_count_addr,
                         &buff, sizeof(uint32_t));
