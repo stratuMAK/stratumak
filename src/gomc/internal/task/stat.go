@@ -96,20 +96,21 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 		RotationXy: cs.xyRotation,
 		PreviewSeq: t.previewSeq,
 		Heartbeat:  heartbeat,
+		// Config-derived scalars (task-side; not a motion echo).
+		AngularUnits:    t.angularUnits,
+		MaxAcceleration: t.maxAcceleration,
+		Estop:           boolToI32(t.state == StateEstop),
 	}
 	numJoints := t.numJoints
 	numSpindles := t.numSpindles
-	axisMask := t.axisMask
+	linearUnits := t.linearUnits
+	angularUnits := t.angularUnits
+	jointLinear := t.jointLinear
 	t.mu.Unlock()
 
-	// Always allocate axes/joints/spindle slices so consumers never see nil.
-	nAxes := countAxes(axisMask)
-	if nAxes > 0 {
-		stat.Axis = make([]emcstat.AxisInfo, nAxes)
-	}
-	if numJoints > 0 {
-		stat.Joints = make([]emcstat.JointInfo, numJoints)
-	}
+	// Spindle slice is allocated here; joints/axes are allocated in their loops
+	// below (they're emitted as full fixed-length arrays indexed by
+	// joint/axis number, once the motion status is available).
 	if numSpindles > 0 {
 		stat.Spindle = make([]emcstat.SpindleInfo, numSpindles)
 	}
@@ -169,6 +170,19 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	stat.Motion.Queue = ms.QueueDepth
 	stat.Motion.QueueFull = ms.QueueFull != 0
 	stat.Task.MotionLine = motionLine
+
+	// Traj-level scalars and motion I/O (serialized from the motion status).
+	stat.CycleTime = ms.TrajCycleTime
+	stat.Acceleration = ms.Acc
+	stat.ActiveQueue = ms.ActiveDepth
+	stat.EchoSerialNumber = ms.CommandNumEcho
+	stat.ProbeVal = ms.Probe.Val
+	stat.ProbeTripped = ms.Probe.Tripped != 0
+	stat.Probing = ms.Probe.Probing != 0
+	stat.Ain = ms.AnalogInput
+	stat.Aout = ms.AnalogOutput
+	stat.Din = ms.SynchDi
+	stat.Dout = ms.SynchDo
 	// Resolve the active G/M codes and current line from the state tag of the
 	// segment actually executing (motion echoes only the id back). This makes
 	// status reflect what the machine is running now rather than the
@@ -215,41 +229,71 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 		}
 	}
 
-	// Joint actual positions (feedback).
-	for i := 0; i < numJoints && i < 16; i++ {
-		stat.JointActualPosition[i] = ms.Joints[i].PosFb
-	}
-
-	// Joints array.
-	for i := 0; i < numJoints; i++ {
+	// Joints array — emitted at full motion length (EMCMOT_MAX_JOINTS), indexed
+	// by joint number. Configured joints (i < numJoints) carry live motion state
+	// plus task-side config (units/type); joints beyond that report motion's
+	// unconfigured defaults so any joint number is addressable. joints_count
+	// bounds the configured set.
+	stat.Joints = make([]emcstat.JointInfo, len(ms.Joints))
+	for i := range ms.Joints {
 		j := &ms.Joints[i]
+		// Per-joint config (task side). Unconfigured joints default to a linear
+		// joint with unit scale (matches classic emcmot joint defaults).
+		jt := int32(1) // EMC_JOINT_LINEAR
+		units := 1.0
+		if i < numJoints {
+			if jointLinear[i] {
+				units = linearUnits
+			} else {
+				jt = 2 // EMC_JOINT_ANGULAR
+				units = angularUnits
+			}
+		}
 		stat.Joints[i] = emcstat.JointInfo{
-			Homed:        j.Homed != 0,
-			Homing:       j.Homing != 0,
-			Enabled:      j.Enabled != 0,
-			Fault:        j.Fault != 0,
-			MinSoftLimit: j.MinPosLimit,
-			MaxSoftLimit: j.MaxPosLimit,
+			Homed:  j.Homed != 0,
+			Homing: j.Homing != 0,
+			Enabled: j.Enabled != 0,
+			Fault:  j.Fault != 0,
+			Inpos:  j.Inpos != 0,
+			// gomc motion exposes no per-joint soft-limit-tripped flag; report
+			// the hard-limit switches and leave the soft-limit flags cleared.
+			MinSoftLimit: false,
+			MaxSoftLimit: false,
 			MinHardLimit: j.OnNegLimit != 0,
 			MaxHardLimit: j.OnPosLimit != 0,
 			// A non-zero override mask means limit checking is currently
 			// overridden; report it on every joint (matches 2.9 taskintf.cc,
 			// which UIs read via joint[0] as a global indicator).
-			OverrideLimits: ms.OverrideLimitMask != 0,
-			Velocity:       j.VelCmd,
-			Input:          j.PosFb,
-			Output:         j.PosCmd,
+			OverrideLimits:   ms.OverrideLimitMask != 0,
+			JointType:        jt,
+			Units:            units,
+			Backlash:         0.0, // gomc has no backlash compensation
+			MinPositionLimit: j.MinPosLimit,
+			MaxPositionLimit: j.MaxPosLimit,
+			MinFerror:        j.MinFerror,
+			MaxFerror:        j.MaxFerror,
+			FerrorCurrent:    j.Ferror,
+			FerrorHighmark:   j.FerrorHighMark,
+			Velocity:         j.VelCmd,
+			Input:            j.PosFb,
+			Output:           j.PosCmd,
 		}
-		stat.Homed[i] = j.Homed != 0
-		if j.OnPosLimit != 0 {
-			stat.Limit[i] = 1
-		} else if j.OnNegLimit != 0 {
-			stat.Limit[i] = -1
+		if i < len(stat.JointActualPosition) {
+			stat.Homed[i] = j.Homed != 0
+			stat.JointActualPosition[i] = j.PosFb
+			stat.JointPosition[i] = j.PosCmd
+			if j.OnPosLimit != 0 {
+				stat.Limit[i] = 1
+			} else if j.OnNegLimit != 0 {
+				stat.Limit[i] = -1
+			}
 		}
 	}
 
-	// Axes array (from axis_mask).
-	for i := 0; i < nAxes && i < 9; i++ {
+	// Axes array — emitted at full motion length (EMC_AXIS_MAX), indexed by axis
+	// number (0=X..8=W). Unconfigured axes carry motion's zeroed defaults.
+	stat.Axis = make([]emcstat.AxisInfo, len(ms.Axes))
+	for i := range ms.Axes {
 		ax := &ms.Axes[i]
 		stat.Axis[i] = emcstat.AxisInfo{
 			MinPositionLimit: ax.MinPosLimit,
@@ -288,11 +332,11 @@ func poseToPosition(p motstat.Pose) emcstat.Position {
 	}
 }
 
-// countAxes returns the number of set bits in axis_mask.
-func countAxes(mask int32) int {
-	n := 0
-	for m := uint32(mask); m != 0; m >>= 1 {
-		n += int(m & 1)
+// boolToI32 maps a bool to the 0/1 int form used by several NML-parity status
+// fields (e.g. estop) that classic linuxcnc.stat() exposes as ints.
+func boolToI32(b bool) int32 {
+	if b {
+		return 1
 	}
-	return n
+	return 0
 }

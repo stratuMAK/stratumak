@@ -186,8 +186,10 @@ func TestGetStat_Joints(t *testing.T) {
 	if stat.JointsCount != 3 {
 		t.Fatalf("JointsCount = %d, want 3", stat.JointsCount)
 	}
-	if len(stat.Joints) != 3 {
-		t.Fatalf("len(Joints) = %d, want 3", len(stat.Joints))
+	// Joints are emitted at full motion length (EMCMOT_MAX_JOINTS = 16), indexed
+	// by joint number; JointsCount bounds the configured set.
+	if len(stat.Joints) != 16 {
+		t.Fatalf("len(Joints) = %d, want 16", len(stat.Joints))
 	}
 
 	j0 := stat.Joints[0]
@@ -197,16 +199,17 @@ func TestGetStat_Joints(t *testing.T) {
 	if !j0.Enabled {
 		t.Error("Joint[0].Enabled should be true")
 	}
-	// DIVERGENCE (intentional): gomc reports the joint's real min/max position
-	// limits in the *soft-limit* fields. C++ (taskintf.cc:935-958) puts them in
-	// separate minPositionLimit/maxPositionLimit and hard-zeroes minSoftLimit/
-	// maxSoftLimit — but emcstat.JointInfo has no position-limit fields, so gomc
-	// surfaces the real limits here rather than the C++ zeros.
-	if j0.MinSoftLimit != -100 {
-		t.Errorf("Joint[0].MinSoftLimit = %f, want -100 (real pos limit)", j0.MinSoftLimit)
+	// Real min/max position limits go in the dedicated position-limit fields
+	// (matching C++ taskintf.cc:935-958); the soft-limit fields are boolean
+	// "currently tripped" flags, cleared here (joint is within limits).
+	if j0.MinPositionLimit != -100 {
+		t.Errorf("Joint[0].MinPositionLimit = %f, want -100", j0.MinPositionLimit)
 	}
-	if j0.MaxSoftLimit != 100 {
-		t.Errorf("Joint[0].MaxSoftLimit = %f, want 100 (real pos limit)", j0.MaxSoftLimit)
+	if j0.MaxPositionLimit != 100 {
+		t.Errorf("Joint[0].MaxPositionLimit = %f, want 100", j0.MaxPositionLimit)
+	}
+	if j0.MinSoftLimit || j0.MaxSoftLimit {
+		t.Errorf("Joint[0].Min/MaxSoftLimit = %v/%v, want false/false", j0.MinSoftLimit, j0.MaxSoftLimit)
 	}
 	if j0.Velocity != 5.0 {
 		t.Errorf("Joint[0].Velocity = %f, want 5.0", j0.Velocity)
@@ -239,8 +242,10 @@ func TestGetStat_Axes(t *testing.T) {
 	if stat.AxisMask != 7 {
 		t.Errorf("AxisMask = %d, want 7", stat.AxisMask)
 	}
-	if len(stat.Axis) != 3 {
-		t.Fatalf("len(Axis) = %d, want 3", len(stat.Axis))
+	// Axes are emitted at full motion length (EMC_AXIS_MAX = 9), indexed by axis
+	// number; axis_mask bounds the configured set.
+	if len(stat.Axis) != 9 {
+		t.Fatalf("len(Axis) = %d, want 9", len(stat.Axis))
 	}
 
 	ax0 := stat.Axis[0]

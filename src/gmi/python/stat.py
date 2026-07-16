@@ -305,6 +305,11 @@ class Stat:
         "tool_from_pocket",
         "linear_units", "angular_units", "state", "debug",
         "tool_table",
+        # NML-parity scalars/arrays
+        "cycle_time", "acceleration", "max_acceleration", "active_queue",
+        "estop", "echo_serial_number", "interpreter_errcode", "lube_level",
+        "probe_tripped", "probe_val", "probing",
+        "joint_position", "ain", "aout", "din", "dout",
         # Methods
         "poll", "stop",
     }
@@ -319,8 +324,10 @@ class Stat:
         "joints", "joint", "spindle", "axis", "dtg",
         "position", "actual_position", "probed_position",
         "g5x_offset", "g92_offset", "tool_offset",
-        "joint_actual_position", "gcodes", "mcodes", "settings",
+        "joint_actual_position", "joint_position",
+        "gcodes", "mcodes", "settings",
         "homed", "limit",
+        "ain", "aout", "din", "dout",
     }
 
     def __getattr__(self, name):
@@ -353,6 +360,8 @@ class Stat:
             "g5x_index": ("g5x_index", 0),
             "call_level": ("call_level", 0),
             "input_timeout": ("input_timeout", 0),
+            "program_units": ("program_units", 0),
+            "delay_left": ("delay_left", 0.0),
         }
         if name in _TASK_MAP:
             key, default = _TASK_MAP[name]
@@ -375,6 +384,9 @@ class Stat:
             "motion_type": ("motion_type", 0),
             "queue": ("queue", 0),
             "queue_full": ("queue_full", False),
+            "feed_override_enabled": ("feed_override_enabled", False),
+            "adaptive_feed_enabled": ("adaptive_feed_enabled", False),
+            "feed_hold_enabled": ("feed_hold_enabled", False),
         }
         if name in _MOTION_MAP:
             key, default = _MOTION_MAP[name]
@@ -394,17 +406,32 @@ class Stat:
             motion = data.get("motion", {})
             return _pos_to_tuple(motion.get("dtg", {}))
 
-        # joint_actual_position — array of 16 floats
+        # joint_actual_position / joint_position — arrays of 16 floats
         if name == "joint_actual_position":
             return tuple(data.get("joint_actual_position", [0.0] * 16))
+        if name == "joint_position":
+            return tuple(data.get("joint_position", [0.0] * 16))
+
+        # Motion analog/digital I/O — 64-wide tuples (floats / ints)
+        if name in ("ain", "aout"):
+            return tuple(data.get(name) or [0.0] * 64)
+        if name in ("din", "dout"):
+            return tuple(data.get(name) or [0] * 64)
 
         # joints (count) → data["joints_count"]
         if name == "joints":
             return data.get("joints_count", 0)
 
-        # joint (array of dicts) — data["joints"]
+        # joint (array of dicts) — data["joints"]. Expose the classic
+        # linuxcnc.stat() joint-dict keys: the only mismatch is the wire's
+        # snake_case joint_type vs the classic camelCase jointType, so alias it.
         if name == "joint":
-            return tuple(data.get("joints") or [])
+            out = []
+            for j in (data.get("joints") or []):
+                jc = dict(j)
+                jc["jointType"] = jc.get("joint_type", 1)
+                out.append(jc)
+            return tuple(out)
 
         # spindle (array of dicts) — data["spindle"]
         if name == "spindle":
@@ -451,6 +478,8 @@ class Stat:
             "rotation_xy": ("rotation_xy", 0.0),
             "debug": ("debug", 0),
             "heartbeat": ("heartbeat", 0),
+            # classic linuxcnc.stat().lube is the on/off flag (wire: lube_on)
+            "lube": ("lube_on", 0),
         }
         if name in _SCALAR_MAP:
             key, default = _SCALAR_MAP[name]
