@@ -169,6 +169,11 @@ func (m *mockIO) SetDebug(int32) error             { return nil }
 func (m *mockIO) GetCmdStatus() (int32, error)     { return IOStatusDone, nil }
 func (m *mockIO) GetToolInSpindle() (int32, error) { return 0, nil }
 func (m *mockIO) GetPocketPrepped() (int32, error) { return 0, nil }
+func (m *mockIO) GetToolStatus() (int32, int32, int32, error) {
+	tis, _ := m.GetToolInSpindle()
+	pp, _ := m.GetPocketPrepped()
+	return tis, pp, 0, nil
+}
 func (m *mockIO) GetIOFullStatus() (IOFullStatus, error) {
 	return IOFullStatus{Estop: false}, nil
 }

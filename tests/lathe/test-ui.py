@@ -32,7 +32,26 @@ c = gmi.Command()
 e = gmi.ErrorChannel()
 s = gmi.Stat()
 
-l = linuxcnc_util.LinuxCNC(command=c, status=s, error=e)
+
+class MachineUnitsStat:
+    """linuxcnc_util compares status.position against machine-unit targets;
+    gmi.Stat reports gomc-mm. Convert positions back to this inch config's
+    machine units, pass everything else through."""
+
+    def __init__(self, stat):
+        self._stat = stat
+
+    def poll(self):
+        self._stat.poll()
+
+    def __getattr__(self, name):
+        value = getattr(self._stat, name)
+        if name == 'position':
+            return tuple(v / 25.4 for v in value)
+        return value
+
+
+l = linuxcnc_util.LinuxCNC(command=c, status=MachineUnitsStat(s), error=e)
 
 c.state(linuxcnc.STATE_ESTOP_RESET)
 c.state(linuxcnc.STATE_ON)

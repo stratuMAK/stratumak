@@ -8,6 +8,12 @@ import "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 // These read from the Task's MotionStatus interface or from canon state.
 
 func (c *Canon) GetExternalFeedRate() (float64, error) {
+	if c.state.feedMode != 0 {
+		// G95 units-per-rev: the F word is a per-revolution rate — hand back
+		// the stored prog-units value unchanged (2.9 GET_EXTERNAL_FEED_RATE's
+		// feed_mode branch), NOT the per-minute conversion below.
+		return c.state.feedPerRev, nil
+	}
 	return c.state.toProg(c.state.linearFeedRate * 60.0), nil // mm/sec → units/min
 }
 
@@ -65,6 +71,10 @@ func (c *Canon) GetExternalMist() (int32, error) {
 // This matches the C canon's unoffset_and_unrotate_pos + to_prog.
 
 func (c *Canon) syncEndPointFromMachine() {
+	// Resyncing to machine position invalidates buffered readahead motion:
+	// drop, don't flush (2.9 GET_EXTERNAL_POSITION calls drop_segments) —
+	// this runs on abort/synch paths where the chain is stale.
+	c.dropSegments()
 	if c.task == nil || c.task.status == nil {
 		return
 	}
@@ -125,6 +135,7 @@ func (c *Canon) GetExternalPositionW() (float64, error) {
 // Probe position getters — return probe trip position in program units.
 
 func (c *Canon) getProbePos() Pose {
+	c.flushSegments() // 2.9 GET_EXTERNAL_PROBE_POSITION flushes
 	if c.task.status == nil {
 		return Pose{}
 	}
@@ -228,47 +239,106 @@ func (c *Canon) GetExternalToolLengthWoffset() (float64, error) {
 	return c.state.toProg(c.state.toolOffset.W), nil
 }
 
+// GetExternalToolSlot mirrors 2.9's GET_EXTERNAL_TOOL_SLOT: the home pocket
+// index of the tool in the spindle (feeds _setup.current_pocket /
+// #<_current_pocket>). Classic resolves it via tooldata_find_index_for_tool,
+// which yields -1 for the empty non-random spindle (idx0 carries toolno=-1)
+// and 0 for the random spindle pocket. gomc's io tracks the spindle by TOOL
+// NUMBER, so resolve the pocket through the tool's live table entry.
 func (c *Canon) GetExternalToolSlot() (int32, error) {
 	if c.task.io == nil {
-		return 0, nil
+		return -1, nil
 	}
-	v, err := c.task.io.GetToolInSpindle()
+	tis, err := c.task.io.GetToolInSpindle()
 	if err != nil {
-		return 0, nil
+		return -1, nil
 	}
-	return v, nil
+	if tis <= 0 {
+		if c.task.randomToolchanger {
+			// Random: 0 = T0 empty-marker in the spindle pocket,
+			// -1 = unknown (no pocket-0 entry at startup).
+			return tis, nil
+		}
+		return -1, nil // non-random: no tool loaded
+	}
+	p, _ := toolPocketFor(tis)
+	return p, nil
 }
 
+// GetExternalSelectedToolSlot mirrors 2.9's GET_EXTERNAL_SELECTED_TOOL_SLOT
+// (feeds _setup.selected_pocket / #<_selected_pocket>): the prepped tool's
+// pocket index, -1 when nothing is prepped. gomc's io stores the prepped TOOL
+// NUMBER, so resolve the pocket through the tool's live table entry.
 func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 	if c.task.io == nil {
-		return 0, nil
+		return -1, nil
 	}
-	v, err := c.task.io.GetPocketPrepped()
+	pp, err := c.task.io.GetPocketPrepped()
 	if err != nil {
-		return 0, nil
+		return -1, nil
 	}
-	return v, nil
+	p, _ := toolPocketFor(pp)
+	return p, nil // -1 = idle, 0 = T0 (unload) prepped
 }
 
 func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
+	if pocket == 0 {
+		// Spindle entry (2.9 tooldata idx 0). Resolve the loaded tool via
+		// io's tool-in-spindle and hand back its live table data: the key-0
+		// snapshot iocontrol writes cannot serve as the spindle record
+		// because the tooltable service keys entries by toolno and clobbers
+		// entry.Toolno with the key — the snapshot always reads as tool 0,
+		// which sent Interp::set_tool_parameters into its empty-spindle
+		// branch (#5400/#<_current_tool> stuck at 0 after M6/M61).
+		var tis int32
+		if c.task.io != nil {
+			if v, err := c.task.io.GetToolInSpindle(); err == nil {
+				tis = v
+			}
+		}
+		if tis <= 0 {
+			c.spindleEntryValid = false // spindle empty — drop the snapshot
+			if c.task.randomToolchanger {
+				// Random: idx0's toolno IS the spindle state — -1
+				// unknown / 0 empty marker (set_tool_parameters writes
+				// it to #5400 unguarded, matching 2.9).
+				return 0, tis, [9]float64{}, 0, 0, 0, 0, nil
+			}
+			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+		}
+		entry, found, err := lookupTool(tis)
+		if err == nil && found {
+			c.spindleToolno, c.spindleEntry, c.spindleEntryValid = tis, entry, true
+			return 0, tis, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+		}
+		// The lookup was degraded (service error) or the loaded tool's
+		// entry vanished from the table (edited/deleted while in the
+		// spindle). 2.9's persistent tooldata idx-0 record kept serving the
+		// loaded tool in both cases — fall back to the last-known-good
+		// snapshot rather than fabricating an empty spindle, which would
+		// silently zero #5400 and the active tool-length-offset params
+		// while io still reports the tool loaded.
+		if c.spindleEntryValid && c.spindleToolno == tis {
+			e := c.spindleEntry
+			return 0, tis, toolOffsets(&e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+		}
+		// No snapshot to fall back on (the lookup never succeeded since
+		// this tool was loaded): report the empty spindle as before.
+		return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+	}
 	retval, toolno, offset, diameter, frontangle, backangle, orientation := getToolByPocket(pocket)
 	return retval, toolno, offset, diameter, frontangle, backangle, orientation, nil
 }
 
 func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
-	if pkgTTClient == nil {
+	entry, found, err := lookupTool(toolno)
+	if err != nil || !found {
+		// Missing or unresolvable tools report "not found" so the interp
+		// raises its tool-not-in-table error (classic G43 Hn on an unknown
+		// tool errors; it must not silently apply a zero offset).
 		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
-	entry, err := pkgTTClient.GetTool(toolno)
-	if err != nil {
-		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
-	}
-	offset := [9]float64{
-		entry.XOffset, entry.YOffset, entry.ZOffset,
-		entry.AOffset, entry.BOffset, entry.COffset,
-		entry.UOffset, entry.VOffset, entry.WOffset,
-	}
-	return 0, entry.Pocketno, offset, entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+	return 0, entry.Pocketno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
 }
 
 func (c *Canon) GetExternalTcFault() (int32, error)  { return 0, nil }
@@ -277,6 +347,7 @@ func (c *Canon) GetExternalTcReason() (int32, error) { return 0, nil }
 // Queue/status getters.
 
 func (c *Canon) GetExternalQueueEmpty() (int32, error) {
+	c.flushSegments() // 2.9 GET_EXTERNAL_QUEUE_EMPTY flushes
 	if c.task.status != nil {
 		v, err := c.task.status.GetInpos()
 		if err == nil && v != 0 {

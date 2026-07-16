@@ -174,6 +174,10 @@ class LinuxCNC:
         start = time.time()
         while not done(self.status.position[axis_index]) and ((time.time() - start) < timeout):
             time.sleep(0.1)
+            # gomc dead-mans continuous jogs not refreshed within its jog
+            # watchdog interval (runaway protection for disconnected
+            # clients) — keep the jog alive while we wait.
+            self.command.jog(linuxcnc.JOG_CONTINUOUS, 0, axis_index, vel)
             self.status.poll()
 
         # the 0 here means "jog axis, not joint"

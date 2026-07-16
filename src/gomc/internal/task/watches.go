@@ -82,10 +82,9 @@ func (m *milltaskModule) registerWatches(name string) {
 }
 
 // registerTools registers the tools API (called from Start when INI is loaded).
+// pkgTTClient is published earlier in Start(), right after the tooltable API
+// lookup — the interp init and startup code need it before this runs.
 func (m *milltaskModule) registerTools() {
-	// Store client for package-level getToolByPocket.
-	pkgTTClient = m.ttClient
-
 	reg := apiserver.DefaultRegistry()
 	if reg != nil {
 		tools.RegisterToolsAPI(reg, m.name, &toolsImpl{

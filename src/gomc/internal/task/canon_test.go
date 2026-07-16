@@ -91,6 +91,9 @@ func TestCanon_StraightFeed_UnitsAndOffsets(t *testing.T) {
 	//   Z: 0 + tool 2 = 2  => (10, 56.8, 2)
 	s.xyRotation = 90
 	c.StraightFeed(2, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+	// Straight feeds pass through the naive-CAM chain and emit on the next
+	// flush point; a real program always ends in one (FINISH/M2).
+	c.flushSegments()
 
 	m := collect(t, task, mot)
 	if len(m) != 2 {

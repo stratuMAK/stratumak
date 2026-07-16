@@ -139,6 +139,44 @@ func (i *CInterp) Reset() error {
 	return nil
 }
 
+// stateTagSize returns sizeof the packed C state_tag_t the canon's
+// update_tag callback points at. It is a compile-time constant, so cache it:
+// copyPackedStateTag runs once per executed G-code block and should not pay
+// a cgo transition just to re-fetch it.
+var cachedStateTagSize = int(C.interp_state_tag_size())
+
+func stateTagSize() int {
+	return cachedStateTagSize
+}
+
+// copyPackedStateTag copies the packed state_tag_t an update_tag callback
+// points at. The GMI boundary delivers the pointer as a uint64, valid only
+// for the duration of the synchronous callback; the copy happens in C so Go
+// never converts a bare integer to a pointer.
+func copyPackedStateTag(ptr uint64) []byte {
+	sz := stateTagSize()
+	if ptr == 0 || sz <= 0 {
+		return nil
+	}
+	buf := make([]byte, sz)
+	C.interp_copy_state_tag(C.ulonglong(ptr), unsafe.Pointer(&buf[0]))
+	return buf
+}
+
+// RestoreFromTag rolls the interpreter's modal state back to a captured
+// packed state tag (2.9 emcTaskStateRestore → Interp::restore_from_tag).
+// A nil/empty tag is a no-op.
+func (i *CInterp) RestoreFromTag(tag []byte) error {
+	if len(tag) == 0 {
+		return nil
+	}
+	rc := int(C.interp_restore_from_tag(i.handle, unsafe.Pointer(&tag[0])))
+	if rc != InterpOK {
+		return fmt.Errorf("interp_restore_from_tag: rc=%d", rc)
+	}
+	return nil
+}
+
 func (i *CInterp) Abort(reason int, message string) error {
 	cs := C.CString(message)
 	defer C.free(unsafe.Pointer(cs))
@@ -255,6 +293,45 @@ func (i *CInterp) ActiveSettings() []float64 {
 		out[j] = float64(buf[j])
 	}
 	return out
+}
+
+// ActiveModesFromTag decodes a packed state tag into TASK_STAT-style active
+// G-/M-code and settings arrays (Interp::active_modes) — how 2.9 task derives
+// the status codes of the EXECUTING motion segment from its tag. Returns
+// ok=false when the tag is invalid or the decode fails. Entries active_modes
+// leaves untouched are pre-filled with -1 (codes) / 0 (settings), matching
+// the unset convention of the ActiveGCodes/ActiveMCodes arrays.
+func (i *CInterp) ActiveModesFromTag(tag []byte) (gc, mc []int32, st []float64, ok bool) {
+	if len(tag) < stateTagSize() {
+		return nil, nil, nil, false
+	}
+	var gbuf [activeGCodesLen]C.int
+	var mbuf [activeMCodesLen]C.int
+	var sbuf [activeSettingsLen]C.double
+	for j := range gbuf {
+		gbuf[j] = -1
+	}
+	for j := range mbuf {
+		mbuf[j] = -1
+	}
+	rc := C.interp_active_modes_from_tag(i.handle, unsafe.Pointer(&tag[0]),
+		&gbuf[0], &mbuf[0], &sbuf[0])
+	if rc != 0 {
+		return nil, nil, nil, false
+	}
+	gc = make([]int32, activeGCodesLen)
+	mc = make([]int32, activeMCodesLen)
+	st = make([]float64, activeSettingsLen)
+	for j := range gbuf {
+		gc[j] = int32(gbuf[j])
+	}
+	for j := range mbuf {
+		mc[j] = int32(mbuf[j])
+	}
+	for j := range sbuf {
+		st[j] = float64(sbuf[j])
+	}
+	return gc, mc, st, true
 }
 
 // Verify CInterp implements Interpreter.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/canon"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 )
 
 // Canon unit systems.
@@ -90,7 +91,9 @@ type CanonState struct {
 	motionMode      int32   // CanonExact/Continuous/ExactPath
 	motionTolerance float64 // blending tolerance (mm)
 	naivecamTol     float64 // naive CAM tolerance (mm)
-	feedMode        int32   // 0=normal, 1=inverse-time, 2=units-per-rev
+	feedMode        int32   // 0 = units/min (G93/G94), 1 = units/rev (G95) — as delivered by SET_FEED_MODE
+	synched         bool    // spindle sync active (2.9 canon.spindle[n].synched); set/cleared by Start/StopSpeedFeedSynch
+	feedPerRev      float64 // last G95 F word (prog units/rev) — re-issued by the traverse sync brackets
 
 	// Feed rates (internal, mm/sec or deg/sec)
 	linearFeedRate  float64
@@ -119,6 +122,11 @@ type CanonState struct {
 
 	// Motion line ID counter
 	lineNo int32
+
+	// Latest packed interp state tag (UPDATE_TAG canon call, one per
+	// executed block). Attached to queued motion segments so an abort can
+	// restore the executing segment's modal state (restore_from_tag).
+	currentTag []byte
 }
 
 // NewCanonState returns a CanonState with sensible defaults.
@@ -296,6 +304,17 @@ type Canon struct {
 	lastTermCond int32
 	lastTermTol  float64
 	lastTermSet  bool
+	// chained is the naive-CAM straight-feed buffer (2.9 chained_points);
+	// see canon_naivecam.go. Producer-goroutine-owned like all canon state.
+	chained []chainedPt
+	// Last-known-good spindle tool record served by GetExternalToolTable(0).
+	// 2.9 kept a persistent tooldata idx-0 entry, so a transient tooltable
+	// lookup failure — or a table edit that removes the loaded tool — never
+	// zeroed the interp's active tool params; this cache restores that
+	// property. Producer-goroutine-owned like all canon state.
+	spindleToolno     int32
+	spindleEntry      tooltable.ToolEntry
+	spindleEntryValid bool
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
@@ -409,6 +428,7 @@ func (c *Canon) resetTermCondDefault() {
 }
 
 func (c *Canon) SetG5xOffset(origin int32, x, y, z, a, b, _c, u, v, w float64) {
+	c.flushSegments()
 	s := c.state
 	s.g5xIndex = origin
 	s.g5xOffset = Pose{
@@ -420,6 +440,7 @@ func (c *Canon) SetG5xOffset(origin int32, x, y, z, a, b, _c, u, v, w float64) {
 }
 
 func (c *Canon) SetG92Offset(x, y, z, a, b, _c, u, v, w float64) {
+	c.flushSegments()
 	s := c.state
 	s.g92Offset = Pose{
 		X: s.fromProg(x), Y: s.fromProg(y), Z: s.fromProg(z),
@@ -448,12 +469,29 @@ func (c *Canon) SetTraverseRate(rate float64) {
 
 func (c *Canon) SetFeedRate(rate float64) {
 	s := c.state
+	if s.feedMode != 0 {
+		// G95 units-per-rev: every F word (re)starts velocity-mode spindle
+		// sync (2.9 SET_FEED_RATE) — the rate is per revolution, no /60. The
+		// stored linear rate is only the vel cap for synched feeds (2.9 keeps
+		// the raw prog value; here it is unit-scaled to mm like all rates).
+		c.StartSpeedFeedSynch(s.spindleNum, rate, 1)
+		s.feedPerRev = rate
+		s.linearFeedRate = s.fromProg(rate)
+		return
+	}
 	// units/min → units/sec. Linear feed is in program length units (scaled to
 	// mm); angular feed is in degrees (never unit-scaled), matching C++
 	// FROM_PROG_LEN / FROM_PROG_ANG. Both are set so the per-move blend can
 	// pick the right one for pure-angular vs cartesian moves.
-	s.linearFeedRate = s.fromProg(rate) / 60.0
-	s.angularFeedRate = rate / 60.0
+	newLinear := s.fromProg(rate) / 60.0
+	newAngular := rate / 60.0
+	// A feed change breaks the naive-CAM chain (2.9 SET_FEED_RATE flushes only
+	// when the rate actually changes, so repeated F words don't split chains).
+	if newLinear != s.linearFeedRate || newAngular != s.angularFeedRate {
+		c.flushSegments()
+	}
+	s.linearFeedRate = newLinear
+	s.angularFeedRate = newAngular
 }
 
 func (c *Canon) SetFeedReference(reference int32) {
@@ -461,11 +499,19 @@ func (c *Canon) SetFeedReference(reference int32) {
 }
 
 func (c *Canon) SetFeedMode(spindle, mode int32) {
+	c.flushSegments()
 	c.state.feedMode = mode
 	c.state.spindleNum = spindle
+	// Leaving per-rev mode stops the spindle sync (2.9 SET_FEED_MODE) — this
+	// is also the source of the trailing SET_SPINDLESYNC at M2/M30, which
+	// resets the feed mode.
+	if mode == 0 {
+		c.StopSpeedFeedSynch()
+	}
 }
 
 func (c *Canon) SetMotionControlMode(mode int32, tolerance float64) {
+	c.flushSegments()
 	s := c.state
 	s.motionMode = mode
 	s.motionTolerance = s.fromProg(tolerance)
@@ -511,11 +557,20 @@ func (c *Canon) UpdateEndPoint(x, y, z, a, b, _c, u, v, w float64) {
 	}
 }
 
-// UpdateTag is called by the interpreter to pass interpreter state alongside
-// motion segments. StateTag has been removed from the GMI API; this is a no-op.
-func (c *Canon) UpdateTag(_ uint64) {}
+// UpdateTag is called by the interpreter after every executed block with a
+// pointer to a PACKED state_tag_t (canon_interface.hh packs it), valid only
+// for the duration of this synchronous callback — copy it. It becomes the
+// state tag attached to subsequently queued motion segments, gomc's
+// equivalent of 2.9 emccanon's static _tag + tag_and_send.
+func (c *Canon) UpdateTag(ptr uint64) {
+	tag := copyPackedStateTag(ptr)
+	if tag != nil {
+		c.state.currentTag = tag
+	}
+}
 
 func (c *Canon) UseToolLengthOffset(x, y, z, a, b, _c, u, v, w float64) {
+	c.flushSegments()
 	s := c.state
 	// The interpreter passes tool offsets in program units (G20/G21-dependent:
 	// interp_convert.cc applies USER_TO_PROGRAM_LEN before the canon call).
@@ -532,62 +587,60 @@ func (c *Canon) UseToolLengthOffset(x, y, z, a, b, _c, u, v, w float64) {
 // --- Action callbacks (push QueuedCmd to sequencer) ---
 
 func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
+	c.flushSegments()
 	s := c.state
 	from := s.endPoint
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
 	s.endPoint = pos
 	s.lineNo = lineno
 
-	// Traverse runs at the per-axis-blended maximum — each participating axis at
-	// its own limit, coordinated — not the traj-global cap. Matches C++
-	// STRAIGHT_TRAVERSE (getStraightVelocity/Acceleration).
+	c.emitTraverse(from, pos, lineno, 1, s.rotaryUnlockForTraverse) // EMC_MOTION_TYPE_TRAVERSE
+}
+
+// emitTraverse emits a rapid from → pos with the traverse semantics shared by
+// StraightTraverse and ChangeTool: per-axis-blended limits (each participating
+// axis at its own limit, coordinated — not the traj-global cap, matching C++
+// getStraightVelocity/Acceleration), the zero-distance drop (2.9's
+// `if(vel && acc)`), and the G95 sync bracket — a traverse must not run
+// spindle-synched, and 2.9 stops/restarts the sync even around a dropped
+// zero-length move. Reports whether the move was emitted.
+func (c *Canon) emitTraverse(from, pos Pose, lineno, motionType, indexerJ int32) bool {
+	s := c.state
 	velMax, accMax, _, _ := c.task.straightLimits(from, pos)
-	if accMax == 0 {
-		// Zero-distance move (no axis moves): the C canon's STRAIGHT_TRAVERSE
-		// drops it via `if(vel && acc)`. Skip it too rather than emit a
-		// degenerate zero-length segment.
-		return
+	if s.feedMode != 0 {
+		c.StopSpeedFeedSynch()
 	}
-	if velMax <= 0 {
-		velMax = s.linearFeedRate
+	emitted := accMax != 0
+	if emitted {
+		if velMax <= 0 {
+			velMax = s.linearFeedRate
+		}
+		c.enqueue(&LinearMoveCmd{
+			Pos:          pos,
+			Vel:          velMax,
+			IniMaxVel:    velMax,
+			Acc:          accMax,
+			MotionType:   motionType,
+			ID:           c.allocSerial(lineno),
+			FeedMmPerMin: 0, // traverse: no programmed feed
+			IndexerJ:     indexerJ,
+		})
 	}
-	cmd := &LinearMoveCmd{
-		Pos:          pos,
-		Vel:          velMax,
-		IniMaxVel:    velMax,
-		Acc:          accMax,
-		MotionType:   1, // EMC_MOTION_TYPE_TRAVERSE
-		ID:           c.allocSerial(lineno),
-		FeedMmPerMin: 0, // traverse: no programmed feed
-		IndexerJ:     s.rotaryUnlockForTraverse,
+	if s.feedMode != 0 {
+		c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
 	}
-	c.enqueue(cmd)
+	return emitted
 }
 
 func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
 	s := c.state
-	from := s.endPoint
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
-	s.endPoint = pos
 	s.lineNo = lineno
-
-	vel, iniMaxVel, acc, feed := c.feedLimits(from, pos)
-	if acc == 0 {
-		// Zero-distance move: the C canon's STRAIGHT_FEED drops it via
-		// `if(vel && acc)` (and emits no params for it). Skip it too.
-		return
-	}
-	cmd := &LinearMoveCmd{
-		Pos:          pos,
-		Vel:          vel,
-		IniMaxVel:    iniMaxVel,
-		Acc:          acc,
-		MotionType:   2, // EMC_MOTION_TYPE_FEED
-		ID:           c.allocSerial(lineno),
-		FeedMmPerMin: feed * 60,
-		IndexerJ:     -1,
-	}
-	c.enqueue(cmd)
+	// Buffered through the naive-CAM chain (2.9 STRAIGHT_FEED → see_segment):
+	// emission — vel/acc blend, the zero-distance drop, endPoint advance —
+	// happens in flushSegments, possibly merged with adjacent colinear feeds
+	// when G64 Q is active.
+	c.seeSegment(lineno, pos)
 }
 
 // feedLimits computes the commanded velocity, per-axis-blended max velocity
@@ -618,8 +671,41 @@ func (c *Canon) ArcFeed(lineno int32, firstEnd, secondEnd, firstAxis, secondAxis
 	rotation int32, axisEndPoint, a, b, _c, u, v, w float64) {
 
 	s := c.state
-	from := s.endPoint
 	s.lineNo = lineno
+
+	// Naive-CAM arc flattening (2.9 ARC_FEED head): in the XY plane under
+	// G64-continuous, an arc whose chord deviation is below the Q tolerance is
+	// replaced by two chained straight segments (arc midpoint + endpoint) so it
+	// merges with surrounding micro-segments instead of breaking the chain.
+	// With Q unset (tol 0) the deviation test is never satisfied. The start
+	// point is the last CHAINED point when a chain is open (2.9 get_last_pos).
+	if s.activePlane == CanonPlaneXY && s.motionMode == CanonContinuous {
+		lp := c.lastChainedPos()
+		fpos := s.toAbsolute(firstEnd, secondEnd, axisEndPoint, a, b, _c, u, v, w)
+		fcenter := s.toAbsoluteXYZ(firstAxis, secondAxis, axisEndPoint)
+		if dev, mx, my := chordDeviation(lp.X, lp.Y, fpos.X, fpos.Y, fcenter.X, fcenter.Y, rotation); dev < s.naivecamTol {
+			// Midpoint averages against the chain-start endpoint, exactly like
+			// 2.9 (which averages ABCUVW/Z with canon.endPoint, not the last
+			// chained point).
+			mid := Pose{
+				X: mx, Y: my, Z: (lp.Z + fpos.Z) / 2,
+				A: (s.endPoint.A + fpos.A) / 2,
+				B: (s.endPoint.B + fpos.B) / 2,
+				C: (s.endPoint.C + fpos.C) / 2,
+				U: (s.endPoint.U + fpos.U) / 2,
+				V: (s.endPoint.V + fpos.V) / 2,
+				W: (s.endPoint.W + fpos.W) / 2,
+			}
+			c.seeSegment(lineno, mid)
+			c.seeSegment(lineno, fpos)
+			return
+		}
+	}
+
+	// Real arc: flush any open chain first (2.9 flushes before emitting), so
+	// `from` below is the true current position.
+	c.flushSegments()
+	from := s.endPoint
 
 	// Convert arc endpoints and center based on active plane.
 	// The interpreter passes first_axis/second_axis as ABSOLUTE center
@@ -675,6 +761,7 @@ func (c *Canon) ArcFeed(lineno int32, firstEnd, secondEnd, firstAxis, secondAxis
 }
 
 func (c *Canon) RigidTap(lineno int32, x, y, z, scale float64) {
+	c.flushSegments()
 	s := c.state
 	from := s.endPoint
 	pos := s.toAbsolute(x, y, z, 0, 0, 0, 0, 0, 0)
@@ -702,6 +789,7 @@ func (c *Canon) RigidTap(lineno int32, x, y, z, scale float64) {
 }
 
 func (c *Canon) StraightProbe(lineno int32, x, y, z, a, b, _c, u, v, w float64, probeType uint8) {
+	c.flushSegments()
 	s := c.state
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
 	s.lineNo = lineno
@@ -730,14 +818,17 @@ func (c *Canon) StraightProbe(lineno int32, x, y, z, a, b, _c, u, v, w float64, 
 // they are applied canon-side to subsequent move endpoints, not sent to motion.)
 
 func (c *Canon) Dwell(seconds float64) {
+	c.flushSegments()
 	c.enqueue(&DwellCmd{Seconds: seconds}) // G4: DwellCmd.Precondition drains first
 }
 
 func (c *Canon) Stop() {
+	c.flushSegments()
 	c.enqueue(waitForMotionSingleton)
 }
 
 func (c *Canon) Finish() {
+	c.flushSegments()
 	c.enqueue(waitForMotionSingleton)
 }
 
@@ -770,18 +861,21 @@ func (c *Canon) spindleCommand(spindle, dir, waitForAtspeed int32) *SpindleOnCmd
 }
 
 func (c *Canon) StartSpindleClockwise(spindle, waitForAtspeed int32) {
+	c.flushSegments()
 	c.state.spindleDir[spindle] = 1
 	c.state.spindleWait[spindle] = waitForAtspeed
 	c.enqueue(c.spindleCommand(spindle, 1, waitForAtspeed)) // M3: SpindleOnCmd.Precondition drains first
 }
 
 func (c *Canon) StartSpindleCounterclockwise(spindle, waitForAtspeed int32) {
+	c.flushSegments()
 	c.state.spindleDir[spindle] = -1
 	c.state.spindleWait[spindle] = waitForAtspeed
 	c.enqueue(c.spindleCommand(spindle, -1, waitForAtspeed)) // M4
 }
 
 func (c *Canon) SetSpindleSpeed(spindle int32, rpm float64) {
+	c.flushSegments()
 	s := c.state
 	s.spindleSpeed[spindle] = math.Abs(rpm)
 	// Only retune a spindle that is actually turning. A bare S word with the
@@ -802,17 +896,20 @@ func (c *Canon) SetSpindleSpeed(spindle int32, rpm float64) {
 }
 
 func (c *Canon) StopSpindleTurning(spindle int32) {
+	c.flushSegments()
 	c.state.spindleDir[spindle] = 0
 	// M5: SpindleOffCmd.Precondition drains preceding motion first.
 	c.enqueue(&SpindleOffCmd{Spindle: spindle})
 }
 
 func (c *Canon) OrientSpindle(spindle int32, orientation float64, mode int32) {
+	c.flushSegments()
 	// M19: SpindleOrientCmd.Precondition drains preceding motion first.
 	c.enqueue(&SpindleOrientCmd{Spindle: spindle, Orientation: orientation, Mode: mode})
 }
 
 func (c *Canon) WaitSpindleOrientComplete(spindle int32, timeout float64) {
+	c.flushSegments()
 	c.enqueue(&WaitSpindleOrientedCmd{Spindle: spindle, Timeout: timeout})
 }
 
@@ -822,88 +919,126 @@ func (c *Canon) SelectTool(tool int32) {
 }
 
 func (c *Canon) StartChange() {
+	c.flushSegments()
 	// M6 start — wait for motion to complete first
 	c.enqueue(waitForMotionSingleton)
 }
 
 func (c *Canon) ChangeTool(slot int32) {
+	c.flushSegments()
+	// 2.9 CHANGE_TOOL (emccanon.cc): optional traverse to
+	// [EMCIO]TOOL_CHANGE_POSITION — absolute machine coordinates, no offset
+	// transform — before the tool change itself. Unspecified components keep
+	// the current end point.
+	if n := c.task.toolChangePosLen; n > 0 {
+		s := c.state
+		from := s.endPoint
+		pos := from
+		p := c.task.toolChangePos
+		pos.X, pos.Y, pos.Z = p[0], p[1], p[2]
+		if n > 3 {
+			pos.A, pos.B, pos.C = p[3], p[4], p[5]
+		}
+		if n > 6 {
+			pos.U, pos.V, pos.W = p[6], p[7], p[8]
+		}
+		if c.emitTraverse(from, pos, s.lineNo, 4, -1) { // EMC_MOTION_TYPE_TOOLCHANGE
+			s.endPoint = pos
+		}
+	}
 	c.enqueue(&ToolChangeCmd{})
 }
 
 // Flood/Mist: the *OnCmd/*OffCmd declare Precondition()==WaitMotion, so the
 // sequencer drains preceding motion before switching coolant (M7/M8/M9).
-func (c *Canon) FloodOn()  { c.state.floodOn = true; c.enqueue(&FloodOnCmd{}) }
-func (c *Canon) FloodOff() { c.state.floodOn = false; c.enqueue(&FloodOffCmd{}) }
-func (c *Canon) MistOn()   { c.state.mistOn = true; c.enqueue(&MistOnCmd{}) }
-func (c *Canon) MistOff()  { c.state.mistOn = false; c.enqueue(&MistOffCmd{}) }
+func (c *Canon) FloodOn()  { c.flushSegments(); c.state.floodOn = true; c.enqueue(&FloodOnCmd{}) }
+func (c *Canon) FloodOff() { c.flushSegments(); c.state.floodOn = false; c.enqueue(&FloodOffCmd{}) }
+func (c *Canon) MistOn()   { c.flushSegments(); c.state.mistOn = true; c.enqueue(&MistOnCmd{}) }
+func (c *Canon) MistOff()  { c.flushSegments(); c.state.mistOn = false; c.enqueue(&MistOffCmd{}) }
 
 func (c *Canon) EnableFeedOverride() {
+	c.flushSegments()
 	c.state.feedOverrideEnabled = true
 	c.enqueue(&FeedOverrideEnableCmd{Enable: true})
 }
 
 func (c *Canon) DisableFeedOverride() {
+	c.flushSegments()
 	c.state.feedOverrideEnabled = false
 	c.enqueue(&FeedOverrideEnableCmd{Enable: false})
 }
 
 func (c *Canon) EnableSpeedOverride(spindle int32) {
+	c.flushSegments()
 	c.state.speedOverrideEnabled[spindle] = true
 }
 
 func (c *Canon) DisableSpeedOverride(spindle int32) {
+	c.flushSegments()
 	c.state.speedOverrideEnabled[spindle] = false
 }
 
 func (c *Canon) EnableFeedHold() {
+	c.flushSegments()
 	c.state.feedHoldEnabled = true
 	c.enqueue(&FeedHoldEnableCmd{Enable: true})
 }
 
 func (c *Canon) DisableFeedHold() {
+	c.flushSegments()
 	c.state.feedHoldEnabled = false
 	c.enqueue(&FeedHoldEnableCmd{Enable: false})
 }
 
 func (c *Canon) EnableAdaptiveFeed() {
+	c.flushSegments()
 	c.state.adaptiveFeedEnabled = true
 	c.enqueue(&AdaptiveFeedEnableCmd{Enable: true})
 }
 
 func (c *Canon) DisableAdaptiveFeed() {
+	c.flushSegments()
 	c.state.adaptiveFeedEnabled = false
 	c.enqueue(&AdaptiveFeedEnableCmd{Enable: false})
 }
 
 func (c *Canon) SetMotionOutputBit(index int32) {
+	c.flushSegments()
 	c.enqueue(&SetDoutSyncCmd{Index: index, StartValue: 1, EndValue: 1})
 }
 
 func (c *Canon) ClearMotionOutputBit(index int32) {
+	c.flushSegments()
 	c.enqueue(&SetDoutSyncCmd{Index: index, StartValue: 0, EndValue: 0})
 }
 
 func (c *Canon) SetAuxOutputBit(index int32) {
+	c.flushSegments()
 	c.enqueue(&SetDoutCmd{Index: index, Value: 1})
 }
 
 func (c *Canon) ClearAuxOutputBit(index int32) {
+	c.flushSegments()
 	c.enqueue(&SetDoutCmd{Index: index, Value: 0})
 }
 
 func (c *Canon) SetMotionOutputValue(index int32, value float64) {
+	c.flushSegments()
 	c.enqueue(&SetAoutSyncCmd{Index: index, StartValue: value, EndValue: value})
 }
 
 func (c *Canon) SetAuxOutputValue(index int32, value float64) {
+	c.flushSegments()
 	c.enqueue(&SetAoutCmd{Index: index, Value: value})
 }
 
 func (c *Canon) ProgramStop() {
+	c.flushSegments()
 	c.enqueue(&ProgramStopCmd{})
 }
 
 func (c *Canon) OptionalProgramStop() {
+	c.flushSegments()
 	// Always enqueue: OptionalProgramStopCmd evaluates the operator's optional-
 	// stop toggle (t.optionalStop, set by the UI/halui) at execution time,
 	// matching 2.9 GET_OPTIONAL_PROGRAM_STOP. The interpreter-owned canon field
@@ -913,11 +1048,13 @@ func (c *Canon) OptionalProgramStop() {
 }
 
 func (c *Canon) ProgramEnd() {
+	c.flushSegments()
 	c.enqueue(waitForMotionSingleton)
 }
 
 func (c *Canon) Comment(s string) {}
 func (c *Canon) Message(s string) {
+	c.flushSegments()
 	// (MSG,...)/(DEBUG,...): publish to the operator-display channel. Enqueued
 	// (not fired inline during read-ahead) so the message appears in program
 	// order relative to motion, matching C++ MESSAGE() which emits
@@ -933,6 +1070,7 @@ func (c *Canon) Logappend(s string) {}
 func (c *Canon) Logclose()          {}
 
 func (c *Canon) CanonError(msg string) {
+	c.flushSegments()
 	c.task.logger.Error("canon error", "msg", msg)
 }
 
@@ -982,6 +1120,7 @@ func (c *Canon) OnReset() {
 	// persist across interpreter resets (which happen on every mode switch
 	// to Manual) so that MDI state is preserved between commands.
 	// InitCanon() must only be called during true initialization.
+	c.dropSegments()
 }
 
 func (c *Canon) TurnProbeOn() {
@@ -993,7 +1132,11 @@ func (c *Canon) TurnProbeOn() {
 func (c *Canon) TurnProbeOff() {}
 
 func (c *Canon) StartSpeedFeedSynch(spindle int32, feedPerRev float64, velocityMode int32) {
-	c.state.feedMode = 2 // units per rev
+	c.flushSegments()
+	// Sync state is separate from the feed mode (2.9 canon.spindle[n].synched
+	// vs canon.feed_mode): G33/G76/rigid-tap sync (velocityMode 0) does not
+	// imply G95, and stopping sync must not clear a modal G95.
+	c.state.synched = true
 	c.state.spindleNum = spindle
 	c.enqueue(&SpindleSyncCmd{
 		Sync:       c.state.fromProg(feedPerRev),
@@ -1002,7 +1145,8 @@ func (c *Canon) StartSpeedFeedSynch(spindle int32, feedPerRev float64, velocityM
 }
 
 func (c *Canon) StopSpeedFeedSynch() {
-	c.state.feedMode = 0
+	c.flushSegments()
+	c.state.synched = false
 	c.enqueue(&SpindleSyncCmd{Sync: 0, MotionType: 0})
 }
 
@@ -1013,6 +1157,7 @@ func (c *Canon) UnclampAxis(axis int32) {}
 func (c *Canon) PalletShuttle()         {}
 
 func (c *Canon) WaitInput(index, inputType, waitType int32, timeout float64) (int32, error) {
+	c.flushSegments()
 	// M66: wait for a digital/analog input condition.
 	// inputType: 1=digital, 2=analog; waitType: 0=immediate, 1=rise, 2=fall,
 	// 3=high, 4=low; timeout in seconds (0 = immediate read).
@@ -1039,6 +1184,10 @@ func (c *Canon) UnlockRotary(lineno, joint int32) (int32, error) {
 	// Enqueue a zero-length traverse to interrupt blending and reach final
 	// position before unlocking (matches C canon UNLOCK_ROTARY behavior).
 	s := c.state
+	// 2.9 UNLOCK_ROTARY sync-brackets this traverse under G95 too.
+	if s.feedMode != 0 {
+		c.StopSpeedFeedSynch()
+	}
 	cmd := &LinearMoveCmd{
 		Pos:          s.endPoint,
 		Vel:          1,
@@ -1050,6 +1199,9 @@ func (c *Canon) UnlockRotary(lineno, joint int32) (int32, error) {
 		IndexerJ:     -1,
 	}
 	c.enqueue(cmd)
+	if s.feedMode != 0 {
+		c.StartSpeedFeedSynch(s.spindleNum, s.feedPerRev, 1)
+	}
 	// The next traverse will carry this joint number for unlock/lock.
 	c.state.rotaryUnlockForTraverse = joint
 	return 0, nil
@@ -1065,6 +1217,7 @@ func (c *Canon) SetSpindleMode(spindle int32, cssMax float64) {
 }
 
 func (c *Canon) SetToolTableEntry(pocket, toolno int32, ox, oy, oz, oa, ob, oc, ou, ov, ow, diameter, frontangle, backangle float64, orientation int32) {
+	c.flushSegments()
 	c.enqueue(&SetToolTableEntryCmd{
 		Pocket: pocket, Toolno: toolno,
 		X: ox, Y: oy, Z: oz, A: oa, B: ob, C: oc, U: ou, V: ov, W: ow,
@@ -1074,14 +1227,17 @@ func (c *Canon) SetToolTableEntry(pocket, toolno int32, ox, oy, oz, oa, ob, oc, 
 }
 
 func (c *Canon) ReloadTooldata() {
+	c.flushSegments()
 	c.enqueue(&ReloadTooldataCmd{})
 }
 
 func (c *Canon) ChangeToolNumber(number int32) {
+	c.flushSegments()
 	c.enqueue(&ChangeToolNumberCmd{Number: number})
 }
 
 func (c *Canon) NurbsFeed(lineno int32, controlPoints []ControlPoint, k uint32) {
+	c.flushSegments()
 	n := uint32(len(controlPoints)) - 1
 	umax := float64(n - k + 2)
 	div := uint32(len(controlPoints)) * 4

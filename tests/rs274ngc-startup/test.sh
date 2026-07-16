@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# gomc persists interp params and the tool table in db/ (sqlite) — wipe it so
+# each run imports the checked-in .tbl fresh and starts with clean params.
+rm -rf db
 # gomc-server does not launch the [DISPLAY] program; drive it ourselves.
 gomc-server -r test.ini &
 SRV=$!

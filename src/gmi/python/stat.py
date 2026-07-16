@@ -2,19 +2,24 @@
 
 Subscribes to the emcstat WebSocket watch channel and maintains a local
 cache of all stat fields. Attribute access (stat.task_mode) reads from
-the cache. poll() is a no-op (data is pushed automatically at 50ms).
+the cache. poll() fetches a fresh snapshot synchronously over REST —
+classic linuxcnc.stat.poll() was a synchronous NML peek, and drivers
+rely on poll() observing the effect of a command they just sent; the
+WS cache alone can be up to rate_ms stale.
 
 Usage:
     s = gmi.Stat()
-    s.poll()  # no-op, data is already current
+    s.poll()
     print(s.task_mode, s.task_state)
 """
 
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import threading
+import urllib.parse
 from typing import Any, Optional
 
 try:
@@ -22,7 +27,7 @@ try:
 except ImportError:
     websockets = None
 
-from gmi import ws_url
+from gmi import rest_url, ws_url
 
 
 class _ToolEntry:
@@ -141,6 +146,8 @@ class Stat:
         self._loop = None
         self._thread = None
         self._ws = None
+        self._poll_conn = None
+        self._poll_lock = threading.Lock()
         self._start_watch()
 
     def _start_watch(self):
@@ -195,11 +202,9 @@ class Stat:
             async for raw in self._ws:
                 msg = json.loads(raw)
                 if msg.get("type") == "update" and msg.get("func") == "get_stat":
-                    data = msg.get("data", {})
-                    with self._lock:
-                        # Delta merge: server sends only changed keys after
-                        # the initial full snapshot.
-                        self._data.update(data)
+                    # Delta merge: server sends only changed keys after
+                    # the initial full snapshot.
+                    self._merge_update(msg.get("data", {}))
                 elif msg.get("type") == "error":
                     import sys
                     print(f"gmi.Stat: watch error: {msg}", file=sys.stderr)
@@ -209,9 +214,71 @@ class Stat:
             import sys
             print(f"gmi.Stat: recv error: {e}", file=sys.stderr)
 
+    def _merge_update(self, data):
+        """Merge a snapshot/delta into the cache, dropping out-of-order data.
+
+        Both the WS watch thread and poll() write into the same cache. The
+        server bumps stat.heartbeat once per status build, so it is present
+        in every WS delta and every poll snapshot — use it to order them: a
+        WS delta sampled BEFORE a poll's fresh GET must not overwrite the
+        newer data when it arrives a moment after poll() returns (that
+        re-introduces exactly the stale-read window poll() exists to close).
+        The wrap guard keeps a server restart (heartbeat resets to 0) or an
+        i32 rollover from freezing the cache.
+        """
+        hb = data.get("heartbeat")
+        with self._lock:
+            if hb is not None:
+                last = self._data.get("heartbeat")
+                if last is not None and hb < last and (last - hb) < 2**30:
+                    return  # stale out-of-order update — drop it
+            self._data.update(data)
+
     def poll(self):
-        """No-op. Data is pushed by the watch channel automatically."""
-        pass
+        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll()).
+
+        The WS watch keeps the cache warm between polls, but a driver that
+        polls right after issuing a command must see that command's effect —
+        the push cache alone can serve a snapshot up to rate_ms stale. On
+        fetch failure the (possibly stale) cache is kept rather than raising:
+        drivers poll in loops and the watch channel still converges.
+        """
+        try:
+            data = self._poll_fetch()
+        except Exception as e:
+            import sys
+            print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
+            return
+        self._merge_update(data)
+
+    def _poll_fetch(self):
+        """GET the stat snapshot over a persistent keep-alive connection.
+
+        Drivers call poll() in tight loops; a new TCP connection per call
+        would be pure connect/teardown churn (and TIME_WAIT buildup). Reuse
+        only spares the socket setup — every call is still a fresh GET, so
+        the post-command freshness contract of poll() is unchanged. A broken
+        or server-closed connection is re-opened once per call.
+        """
+        path = f"/api/v1/{self._instance}/stat"
+        with self._poll_lock:
+            for attempt in (0, 1):
+                if self._poll_conn is None:
+                    u = urllib.parse.urlsplit(rest_url())
+                    self._poll_conn = http.client.HTTPConnection(
+                        u.hostname, u.port, timeout=10)
+                try:
+                    self._poll_conn.request("GET", path)
+                    resp = self._poll_conn.getresponse()
+                    body = resp.read()
+                    if resp.status != 200:
+                        raise OSError(f"HTTP {resp.status}")
+                    return json.loads(body)
+                except Exception:
+                    self._poll_conn.close()
+                    self._poll_conn = None
+                    if attempt:
+                        raise
 
     # All known stat attribute names, for dir() support.
     _ALL_ATTRS = {
@@ -235,6 +302,7 @@ class Stat:
         # Scalars
         "kinematics_type", "num_extrajoints", "axis_mask",
         "flood", "mist", "tool_in_spindle", "pocket_prepped",
+        "tool_from_pocket",
         "linear_units", "angular_units", "state", "debug",
         "tool_table",
         # Methods
@@ -376,6 +444,7 @@ class Stat:
             "mist": ("mist", 0),
             "tool_in_spindle": ("tool_in_spindle", 0),
             "pocket_prepped": ("pocket_prepped", -1),
+            "tool_from_pocket": ("tool_from_pocket", 0),
             "linear_units": ("linear_units", 1.0),
             "angular_units": ("angular_units", 1.0),
             "state": ("state", 0),

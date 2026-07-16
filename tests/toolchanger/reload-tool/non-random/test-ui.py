@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # --- gomc compatibility shim (prepended) --------------------------------------
 # Makes the original NML-based driver body run against the gomc REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
@@ -121,7 +122,7 @@ h.newpin("tool-from-pocket", hal.HAL_S32, hal.HAL_IN)
 
 h.ready()
 
-os.system("halcmd source ./postgui.hal")
+# gomc: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
 
 
 l = linuxcnc_util.LinuxCNC()
@@ -189,7 +190,7 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 0)
 assert(s.tool_from_pocket == 0);
-assert(s.pocket_prepped == 6)  # ugh, non-random tc gives you tool-table-array index, not pocket
+assert(s.pocket_prepped == 46)  # gomc reports the prepped tool's POCKET (classic reported a tooldata array index, which has no gomc equivalent)
 
 
 #
@@ -210,7 +211,7 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 0)
 assert(s.tool_from_pocket == 0);
-assert(s.pocket_prepped == 6)
+assert(s.pocket_prepped == 46)
 
 h['tool-changed'] = True
 wait_for_hal_pin('tool-change', False)
@@ -265,7 +266,7 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 2)
 assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 4)
+assert(s.pocket_prepped == 9)
 
 
 #
@@ -287,7 +288,7 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 2)
 assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 4)
+assert(s.pocket_prepped == 9)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -304,7 +305,7 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 2)
 assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 6)
+assert(s.pocket_prepped == 46)
 
 
 #
@@ -330,11 +331,17 @@ time.sleep(stat_poll_wait)
 s.poll()
 assert(s.tool_in_spindle == 2)
 assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 6)
+assert(s.pocket_prepped == 46)
 
-assert(abs(s.joint_position[0] -xtool) < EPSILON)
-assert(abs(s.joint_position[1] -ytool) < EPSILON)
-assert(abs(s.joint_position[2] -ztool) < EPSILON)
+# gomc: gmi joint positions are reported in millimetres (mm-everywhere
+# convention) and the field is joint_actual_position; TOOL_CHANGE_POSITION is
+# in machine units (inch here). Position settle tolerance widened to the mm
+# scale (classic 1e-10 inch is below the mm-domain arrival deadband).
+MM = 25.4
+POS_EPSILON = 1e-4
+assert(abs(s.joint_actual_position[0] - xtool*MM) < POS_EPSILON)
+assert(abs(s.joint_actual_position[1] - ytool*MM) < POS_EPSILON)
+assert(abs(s.joint_actual_position[2] - ztool*MM) < POS_EPSILON)
 
 #
 # Prepare T0

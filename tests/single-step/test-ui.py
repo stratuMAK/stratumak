@@ -30,8 +30,10 @@ def counter():
 
 
 def positions():
+    # s.actual_position is gomc-mm; the program runs G20 on this inch config,
+    # so convert back to inches for the mod-5 goal checks.
     p = s.actual_position
-    return p[0], p[1], p[2]
+    return p[0] / 25.4, p[1] / 25.4, p[2] / 25.4
 
 
 def print_state():

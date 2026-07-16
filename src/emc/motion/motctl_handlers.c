@@ -221,6 +221,21 @@ static int32_t h_set_term_cond(void *ctx, int32_t cond, double tolerance)
     return send_command(mc, &cmd);
 }
 
+static int32_t h_setup_arc_blends(void *ctx, int32_t enable, int32_t fallback_enable,
+                                  int32_t opt_depth, int32_t gap_cycles,
+                                  double ramp_freq, double tangent_kink_ratio)
+{
+    CTX; emcmot_command_t cmd;
+    cmd_init(&cmd, EMCMOT_SETUP_ARC_BLENDS);
+    cmd.arcBlendEnable = enable;
+    cmd.arcBlendFallbackEnable = fallback_enable;
+    cmd.arcBlendOptDepth = opt_depth;
+    cmd.arcBlendGapCycles = gap_cycles;
+    cmd.arcBlendRampFreq = ramp_freq;
+    cmd.arcBlendTangentKinkRatio = tangent_kink_ratio;
+    return send_command(mc, &cmd);
+}
+
 static int32_t h_set_spindlesync(void *ctx, double sync, int32_t motion_type)
 {
     CTX; emcmot_command_t cmd;
@@ -872,6 +887,7 @@ motctl_callbacks_t motctl_get_callbacks(motctl_ctx_t **ctx_out)
         .set_vel_limit             = h_set_vel_limit,
         .set_acc                   = h_set_acc,
         .set_term_cond             = h_set_term_cond,
+        .setup_arc_blends          = h_setup_arc_blends,
         .set_spindlesync           = h_set_spindlesync,
         .set_offset                = h_set_offset,
         .abort                     = h_abort,

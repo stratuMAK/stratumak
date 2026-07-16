@@ -214,9 +214,13 @@ public:
 
     // ---- Methods with complex type conversions ----
 
-    // StateTag → uint64_t opaque pointer
+    // StateTag → pointer to a PACKED state_tag_t (POD), valid only for the
+    // duration of the synchronous callback — the consumer must copy it. The
+    // pack via get_state_tag() also syncs the bitset flags into packed_flags,
+    // which a raw &tag pointer would leave stale.
     void update_tag(StateTag tag) {
-        cb->update_tag(cb->ctx, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&tag)));
+        state_tag_t packed = tag.get_state_tag();
+        cb->update_tag(cb->ctx, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&packed)));
     }
 
     // std::vector<CONTROL_POINT> → ptr + len
