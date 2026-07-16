@@ -120,8 +120,8 @@ typedef struct {
 
 // Get current wall clock time in nanoseconds (used for log timestamps).
 // TRUSTED: clock_gettime is a vDSO read on Linux — no syscall, no lock.
-GOMC_NONBLOCKING_TRUSTED_BEGIN
 static inline int64_t gomc_log_now_ns(void) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
 static inline int64_t gomc_log_now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -129,17 +129,28 @@ static inline int64_t gomc_log_now_ns(void) {
 }
 GOMC_NONBLOCKING_TRUSTED_END
 
+// Format a log message into a fixed-size slot buffer.
+// TRUSTED: vsnprintf into a fixed GOMC_LOG_MSG_LEN buffer — no allocation
+// for the plain conversions used in RT log messages.  Kept as a minimal
+// wrapper so the ring logic in gomc_log_emit stays compiler-verified.
+static inline void gomc_log_vformat(char *dst, size_t len, const char *fmt,
+                                    va_list ap) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static inline void gomc_log_vformat(char *dst, size_t len, const char *fmt,
+                                    va_list ap) {
+    vsnprintf(dst, len, fmt, ap);
+}
+GOMC_NONBLOCKING_TRUSTED_END
+
 // Low-level enqueue: claim a slot, format the message, publish.
 // Returns 0 on success, -1 if the ring is full (message dropped).
-// TRUSTED: the slot claim/publish is lock-free (atomics on fixed slots,
-// drop-on-full instead of blocking); vsnprintf formats into a fixed
-// GOMC_LOG_MSG_LEN buffer — no allocation for the plain conversions used
-// in RT log messages.
+// The slot claim/publish is lock-free (atomics on fixed slots,
+// drop-on-full instead of blocking) and compiler-verified; the only
+// trusted piece is the gomc_log_vformat wrapper above.
 static inline int
 gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
               const char *component, const char *fmt, va_list ap)
     GOMC_NONBLOCKING;
-GOMC_NONBLOCKING_TRUSTED_BEGIN
 static inline int
 gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
               const char *component, const char *fmt, va_list ap) {
@@ -166,7 +177,7 @@ gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
     slot->timestamp_ns = gomc_log_now_ns();
     strncpy(slot->component, component, GOMC_RTAPI_NAME_LEN);
     slot->component[GOMC_RTAPI_NAME_LEN] = '\0';
-    vsnprintf(slot->msg, GOMC_LOG_MSG_LEN, fmt, ap);
+    gomc_log_vformat(slot->msg, GOMC_LOG_MSG_LEN, fmt, ap);
 
     // Publish: set seq to pos+1 so the consumer knows this slot is ready.
     // The consumer reads slots in order and waits for seq == expected_seq.
@@ -174,7 +185,6 @@ gomc_log_emit(const gomc_log_t *log, gomc_log_level_t level,
 
     return 0;
 }
-GOMC_NONBLOCKING_TRUSTED_END
 
 // ---------------------------------------------------------------------------
 // Convenience functions with printf format checking.
