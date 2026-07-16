@@ -189,6 +189,7 @@ type StatFull {
     lube_on: bool
     tool_in_spindle: i32
     pocket_prepped: i32
+    tool_from_pocket: i32
     linear_units: f64
     homed: [MAX_JOINTS]bool
     limit: [MAX_JOINTS]i32

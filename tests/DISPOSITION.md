@@ -19,12 +19,15 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-13): **0 skipped** (the 37 skips were resolved — re-expressed, reclassified,
-or deleted as genuine removals, §2) and **43 xfail files** in the tree (§3). Since the first run this
-pass added `threads.0`/`threads.1`, `mdi-queue/{simple,oword}-queue-buster`, `mqtt`, and
-`trajectory-planner/circular-arcs`, and re-expressed `mdi-while-queuebuster-waitflag` (xfail→pass) and
-`remap/remap-io` (Python variant removed, NGC variant xfail on the sync-I/O bug). Re-run the full suite
-for exact pass/run totals; `lathe` XPASSes intermittently.
+Current composition (2026-07-15, full run): **232 run / 224 pass / 0 fail / 8 xfail / 0 skipped**
+(10 obsolete module-loading over-limit xfails removed by the gomc-side merge, see §3b).
+The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
+(G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
+statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
+on_abort/stop-button crazy-move pair. `scripts/runtests` now wipes each test's `db/` persistence
+before running (interp params / tool table state leaked between runs). The stale-status /
+sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) was un-xfailed 2026-07-15
+(see §3a-history).
 
 ---
 
@@ -180,27 +183,63 @@ remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, int
 
 ---
 
-## 3. Xfails (43)
+## 3. Xfails (8)
 
 ### 3a. Legit — runnable, fail on a documented gomc bug (`../PRODUCTION_READINESS.md`)
 
 | bug | tests |
 |---|---|
-| G43 Hn tool-length offset | rs274ngc-startup, tlo |
-| RANDOM_TOOLCHANGER startup tool detection | io-startup/random/{no-tool-in-P0,tool-in-P0}, t0/{random-without-t0,random-with-t0}, tool-info/{random-no-startup-tool,random-with-startup-tool} |
-| tool-tracking (M6 #5400, M61 Q) | t0/nonrandom, tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/{non-random,random}, toolchanger/toolno-pocket-differ/{nonrandom,random}, mdi-queue/oword-queue-buster |
-| abort doesn't restore modal state | abort/g64 |
-| g5x active CS inconsistent on abort | statbuffer-g5x-abort |
-| M67/M62 sync-I/O + (blended) motion | single-step, remap/remap-io (M62/M63/M67 synchronised output + move; M64/M65/M66/M68 pass) |
-| RS274NGC_STARTUP_CODE never executed | motion-logger/startup-gcode-abort |
-| ON_ABORT_COMMAND not wired + gmi.Stat queue depth | abort/{on_abort_command,stop-button}-crazy-move |
 | jog/teleop + joint-mode + limit status | hard-limits, halui/jogging |
 | gmi.Stat client field gaps | startup-state, mdi-queue-length |
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem |
 | stepgen array module-param instance count | modparam.0 |
-| streaming one-row-per-cycle multiplicity | *(mux, multiclick — flipped green via filestream; xfail files removed, see §2c)* |
-| jog overshoot from WS-lagged gmi.Stat | lathe (intermittent; XPASS this run) |
-| (other) | interp/oword-mdi-sub-update |
+| mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
+| operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
+
+### 3a-history. Fixed by the 2026-07-15 lifecycle sweep (xfail files removed, tests green)
+
+G43 Hn (rs274ngc-startup, tlo) · RANDOM_TOOLCHANGER startup (io-startup/random/*,
+t0/random-*, tool-info/random-*) · tool tracking M6 #5400 / M61 Q (t0/nonrandom,
+tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/*,
+toolchanger/toolno-pocket-differ/*, mdi-queue/oword-queue-buster) · abort modal-state
+restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
+`../MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
+(motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
+(abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
+(mux, multiclick via filestream, §2c).
+
+**2026-07-15, G64 blending parity (abort/g64):** all extent checks now match 2.9
+exactly (G61 5.000 / G64P0.5 4.500 / G64 3.725 / G64Q6 0.000). Three stacked fixes
+(see `../PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
+(`canon_naivecam.go`, merged segments pin their own line/tag/status codes via
+`Interp::active_modes`); arc blending had been silently OFF machine-wide (no
+`EMCMOT_SETUP_ARC_BLENDS` sender existed — new IDL `setup_arc_blends`, pushed from
+loadTraj with 2.9 defaults); and `pushDefaultTermCond` wiped the operator's modal
+G64 P from the TP on every teardown/mode-switch (now re-asserts the canon's current
+modal term cond). The mid-run P/Q readback checks pass because merged segments
+report tag-decoded settings, not the readahead's never-executed `G64 P1 Q2`.
+
+**2026-07-15, M67/M62 sync-I/O + stale-status cluster (single-step, remap/remap-io,
+lathe):** the sync-I/O loss itself was the motctl single-slot send race, fixed
+2026-07-14 (`104f633164`, concurrent senders could overwrite the shared command slot
+before the RT side consumed it — the sequencer's SET_AOUT was silently dropped during
+read-ahead). Verified with position-correlated pin sampling: synced outputs apply at
+the correct segment activation in plain AUTO and in single-step. The remaining
+failures were client-side: (1) `gmi.Stat.poll()` was a no-op over the 50 ms WS push
+cache, so a driver polling right after a command could observe pre-command state
+(single-step saw `interp_state==IDLE` right after AUTO_STEP and declared the program
+finished; lathe's jog-overshoot flake was the same lag) — poll() now does a
+synchronous fresh REST GET (classic `linuxcnc.stat.poll()` semantics, benefits every
+ported driver); (2) drivers compared gomc-mm positions against inch goals
+(single-step, lathe — fixed in the drivers); (3) lathe's continuous jog was killed
+mid-travel by gomc's INTENDED 2 s jog dead-man watchdog (`task.go jogTimeout`,
+runaway protection for disconnected clients — classic NML jogs had no such contract):
+`linuxcnc_util.jog_axis` now refreshes the jog inside its wait loop. Note the old
+lathe xfail's "jog overshoot" diagnosis was doubly stale: after mm-everywhere landed,
+the test actually failed deterministically on units, and at the mm client boundary
+`vel=5` is 5 mm/s (slow) so the watchdog, not overshoot, was the stopper. Validation:
+remap-io 5/5, lathe 19/20 (single early flake never reproduced — investigate if it
+recurs in CI), single-step 4/4, full suite green.
 
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 

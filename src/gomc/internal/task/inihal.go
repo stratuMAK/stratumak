@@ -276,7 +276,8 @@ func (h *iniHal) check(mc MotionConfig) {
 	}
 
 	// Arc blend — check any change, then push all at once.
-	// Note: emcSetupArcBlends is a no-op in gomc (arc blend is set at module load time)
+	// Note: the initial arc-blend push happens in loadTraj (SetupArcBlends,
+	// 2.9 initraj.cc parity); runtime changes via these pins are not pushed yet.
 	// but we still track changes for completeness.
 
 	// Joint parameters

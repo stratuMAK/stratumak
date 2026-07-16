@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # --- gomc compatibility shim (prepended) --------------------------------------
 # Makes the original NML-based driver body run against the gomc REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
@@ -109,23 +110,30 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    c.mdi("(debug, #%d)" % param_number)
-    while c.wait_complete() == -1:
-        pass
+    # gomc: the emcerror WS watch destructively flushes queued messages and the
+    # push loop suppresses byte-identical consecutive payloads, so a DEBUG
+    # display that repeats the previous one within a watch tick is LOST (see
+    # PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
+    # the 200 ms watch tick and retry on a lost reply.
+    for attempt in range(3):
+        time.sleep(0.3)
+        c.mdi("(debug, #%d)" % param_number)
+        while c.wait_complete() == -1:
+            pass
 
-    # wait up to 2 seconds for a reply
-    start = time.time()
-    while (time.time() - start) < 2:
-        error = e.poll()
-        if error == None:
-            time.sleep(0.010)
-            continue
+        # wait up to 2 seconds for a reply
+        start = time.time()
+        while (time.time() - start) < 2:
+            error = e.poll()
+            if error == None:
+                time.sleep(0.010)
+                continue
 
-        kind, text = error
-        if kind == linuxcnc.OPERATOR_DISPLAY:
-            return float(text)
+            kind, text = error
+            if kind == linuxcnc.OPERATOR_DISPLAY:
+                return float(text)
 
-        print(text)
+            print(text)
 
     print("error getting parameter %d" % param_number)
     return None
@@ -186,7 +194,8 @@ h.newpin("tool-number", hal.HAL_S32, hal.HAL_IN)
 
 h.ready() # mark the component as 'ready'
 
-os.system("halcmd source ./postgui.hal")
+# gomc: no postgui.hal — the shim's h[...] reads the HAL signals directly
+# (the classic python-ui pins don't exist), so there is nothing to net.
 
 
 #
@@ -281,10 +290,19 @@ while (time.time() - start) < 2:
 
 c.mdi('g43.2')
 c.wait_complete()
-error = e.poll()
-if error[1] != "G43.2: No axes specified and H word missing":
+# gomc: the error arrives via the WS error channel within a watch tick — poll
+# for it (classic NML delivered synchronously), and match as substring (gomc
+# wraps interp errors with the execute context).
+error = None
+start = time.time()
+while (time.time() - start) < 2:
+    error = e.poll()
+    if error is not None:
+        break
+    time.sleep(0.010)
+if error is None or "G43.2: No axes specified and H word missing" not in error[1]:
     print("G43.2 with missing H-word did not produce expected error")
-    print("got [%s]" % error[1])
+    print("got [%s]" % (error[1] if error else "no error message"))
     sys.exit(1)
 
 

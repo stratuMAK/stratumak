@@ -410,25 +410,33 @@ func (t *Task) restartSequencer(terminalInterp InterpState, terminalExec ExecSta
 	t.mu.Unlock()
 }
 
-// pushDefaultTermCond unconditionally re-asserts the default blending mode
-// (G64 continuous, 0.0254 mm) to the TP and primes the canon's on-change
-// cache with it. For moments when the TP term cond is unknown or known-stale:
-// boot (module Start) and sequencer restarts after teardowns. Sent DIRECTLY
-// (not via the sequencer queue) so it is strictly ordered against the direct
-// motion commands the caller issues next (e.g. SetMode's SetCoord) — a queued
-// emission would land at an arbitrary point relative to them, making
-// motion-logger captures nondeterministic.
+// pushDefaultTermCond re-asserts the canon's CURRENT modal blending mode to
+// the TP and primes the canon's on-change cache with it. For moments when the
+// TP term cond is unknown or known-stale: boot (module Start, where the canon
+// state holds the G64/0.0254mm default — matching 2.9 INIT_CANON) and
+// sequencer restarts after teardowns. It must push the canon's modal state,
+// NOT the hard default: the interp's G61/G64 P modal survives aborts and mode
+// switches (2.9 preserves the TP term cond across both — tpClear keeps it),
+// so pushing the default here silently wiped an operator's MDI `G64 P<tol>`
+// on the mode switch before every AUTO run, leaving the TP blending at
+// 0.0254mm — near-exact-stop corners — regardless of the programmed
+// tolerance. Sent DIRECTLY (not via the sequencer queue) so it is strictly
+// ordered against the direct motion commands the caller issues next (e.g.
+// SetMode's SetCoord) — a queued emission would land at an arbitrary point
+// relative to them, making motion-logger captures nondeterministic.
 func (t *Task) pushDefaultTermCond() {
 	if t.canon == nil {
 		return
 	}
-	if err := t.motion.SetTermCond(tpTermCondParabolic, defaultBlendTolMM); err != nil {
-		t.logger.Error("default term-cond push failed", "err", err)
+	cond := canonModeToTPTermCond(t.canon.state.motionMode)
+	tol := t.canon.state.motionTolerance
+	if err := t.motion.SetTermCond(cond, tol); err != nil {
+		t.logger.Error("term-cond push failed", "err", err)
 		t.canon.lastTermSet = false // TP state unknown; force re-emit on next G61/G64
 		return
 	}
-	t.canon.lastTermCond = tpTermCondParabolic
-	t.canon.lastTermTol = defaultBlendTolMM
+	t.canon.lastTermCond = cond
+	t.canon.lastTermTol = tol
 	t.canon.lastTermSet = true
 }
 
@@ -2072,7 +2080,28 @@ func (t *Task) abortLocked() {
 	t.currentLine = 0
 
 	interp := t.interp
+	wasAuto := t.mode == ModeAuto
 	t.mu.Unlock()
+
+	// Capture the executing segment's packed state tag BEFORE stopping motion
+	// (2.9 emcTaskStateRestore reads motion.traj.tag; AUTO only). Used below
+	// to roll the interp's modal state back from readahead to what was
+	// actually executing when the abort hit.
+	// t.mu spans the GetStatus + map read: BuildStat's motionInfoAndPrune
+	// deletes entries below ITS status id under t.mu, so an unlocked gap here
+	// lets a fresher status cycle prune this entry first and the restore would
+	// silently no-op. GetStatus is a shared-memory copy (no t.mu paths), cheap
+	// enough to hold the lock across on this once-per-abort path.
+	var restoreTag []byte
+	if wasAuto && t.status != nil {
+		t.mu.Lock()
+		if ms, err := t.status.GetStatus(); err == nil {
+			if info, ok := t.motionMap[ms.Id]; ok {
+				restoreTag = info.Tag
+			}
+		}
+		t.mu.Unlock()
+	}
 
 	// External calls (no mutex held — won't block stat reads).
 	t.AbortSequencer()
@@ -2082,6 +2111,11 @@ func (t *Task) abortLocked() {
 	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
 	_ = t.io.CoolantFloodOff()
 	_ = t.io.CoolantMistOff()
+
+	// An aborted tool command's io mutation may still land after this abort
+	// (its PostWait invalidation is skipped on abort-during-wait) — drop the
+	// prep-pocket memo so the next stat build recomputes from the live table.
+	t.invalidatePrepPocket()
 
 	// Motion/IO are stopped; now wait for the runProgram producer to stop
 	// touching the interpreter before we Close/Reset it (avoids a data race on
@@ -2109,6 +2143,18 @@ func (t *Task) abortLocked() {
 	// (both after the join, no other writer remains). abortLocked returns with
 	// t.mu held (its contract), so re-lock and do not unlock.
 	t.restartSequencer(InterpIdle, ExecDone)
+
+	// 2.9 parity (emcTaskStateRestore → Interp::restore_from_tag): re-execute
+	// the executing segment's modal state so readahead-only changes (G64 P/Q,
+	// a G5x switch, tool offset) are rolled back. Runs after restartSequencer
+	// because the restore's canon emissions (SET_TERM_COND, SET_G5X_OFFSET)
+	// need the fresh sequencer.
+	if interp != nil && restoreTag != nil {
+		if err := interp.RestoreFromTag(restoreTag); err != nil {
+			t.logger.Warn("abort: modal state restore failed", "err", err)
+		}
+		t.updateActiveCodes(interp)
+	}
 
 	t.mu.Lock()
 	t.floodOn = false
@@ -2186,6 +2232,9 @@ func (t *Task) LoadToolTable(file string) error {
 
 	err := t.io.ToolLoadTable(file)
 	if err == nil {
+		// The reload may have moved the prepped tool to another pocket —
+		// recompute stat.pocket_prepped from the new table.
+		t.invalidatePrepPocket()
 		// Synch interpreter so it re-reads tool_table[] from the
 		// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
 		if t.interp != nil {

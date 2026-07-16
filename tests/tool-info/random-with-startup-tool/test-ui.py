@@ -131,6 +131,43 @@ c.wait_complete()
 
 c.mode(MODE_MDI)
 
+# (restored from the classic driver — the port had dropped the init/T1/M6
+# sections, so 'after T1 M6' was verified without ever running T1 M6)
+h['tool-prepared'] = False
+h['tool-changed'] = False
+
+verify_status_buffer(state='init', tool_in_spindle=99999)
+verify_io_pins(state='init', tool_number=99999, tool_prep_number=0, tool_prep_pocket=0)
+verify_interp_vars(state='init', current_tool=99999, current_pocket=0, selected_tool=0, selected_pocket=-1)
+
+
+#
+# After "T1" prepares the tool.
+#
+
+c.mdi('T1')
+wait_for_hal_pin('tool-prepare', True)
+h['tool-prepared'] = True
+wait_for_hal_pin('tool-prepare', False)
+h['tool-prepared'] = False
+
+verify_status_buffer(state='after T1', tool_in_spindle=99999)
+verify_io_pins(state='after T1', tool_number=99999, tool_prep_number=1, tool_prep_pocket=3)
+verify_interp_vars(state='after T1', current_tool=99999, current_pocket=0, selected_tool=1, selected_pocket=3)
+
+
+#
+# After "M6" changes to the prepared tool.
+#
+
+c.mdi('M6')
+wait_for_hal_pin('tool-change', True)
+h['tool-changed'] = True
+wait_for_hal_pin('tool-change', False)
+h['tool-changed'] = False
+
+verify_status_buffer(state='after T1 M6', tool_in_spindle=1)
+verify_io_pins(state='after T1 M6', tool_number=1, tool_prep_number=0, tool_prep_pocket=0)
 verify_interp_vars(state='after T1 M6', current_tool=1, current_pocket=0, selected_tool=1, selected_pocket=-1)
 
 

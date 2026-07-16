@@ -8,6 +8,7 @@
 package task
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -197,6 +198,12 @@ type IOController interface {
 	GetCmdStatus() (int32, error) // 1=DONE, 2=EXEC, 3=ERROR
 	GetToolInSpindle() (int32, error)
 	GetPocketPrepped() (int32, error)
+	// GetToolStatus returns tool-in-spindle, pocket-prepped and
+	// tool-from-pocket from ONE io status read — BuildStat runs at the
+	// status publish rate, and the per-field getters each cost a full io
+	// GetStatus round-trip. (tool_from_pocket has no per-field getter for
+	// that reason: this is its only reader.)
+	GetToolStatus() (toolInSpindle, pocketPrepped, toolFromPocket int32, err error)
 }
 
 // IO CmdStatus values.
@@ -308,6 +315,15 @@ type Task struct {
 	axisMaxAcc      [9]float64            // per-axis max acceleration for canon vel/acc blend
 	startupCode     string
 	debug           int32 // EMC_SET_DEBUG level, echoed to stat.debug
+	// [EMCIO]RANDOM_TOOLCHANGER: flips the pocket semantics of the tool
+	// canon getters (spindle tool lives at pocket 0 vs the non-random
+	// "empty spindle = idx -1" convention).
+	randomToolchanger bool
+	// [EMCIO]TOOL_CHANGE_POSITION: absolute machine coordinates to move to
+	// before a tool change (2.9 CHANGE_TOOL canon). Internal mm/degrees;
+	// toolChangePosLen is 0 (unset), 3, 6 or 9 coords given.
+	toolChangePos    [9]float64
+	toolChangePosLen int
 
 	// Flags
 	optionalStop  bool
@@ -339,6 +355,15 @@ type Task struct {
 	// Motion segment side table: maps serial segment id → {file, lineno}
 	// Written by canon at enqueue time; read by BuildStat for halui.program-line.
 	motionMap map[int32]motionInfo
+
+	// Memoized prepped-tool pocket for BuildStat (guarded by t.mu): the
+	// toolPocketFor lookup behind stat.pocket_prepped is a tooltable-service
+	// round-trip (SQLite read), too costly to repeat at the status publish
+	// rate for a value that only changes on prep/change/table-edit. The
+	// tool-mutating commands invalidate it.
+	prepPocketToolno int32
+	prepPocket       int32
+	prepPocketValid  bool
 
 	// Interpreter active codes (updated after each execute). These are the
 	// ONLY view of interpreter state stat consumers may use — BuildStat must
@@ -432,6 +457,15 @@ type Task struct {
 	taskCommand  string // last/executing MDI command string ("" when idle)
 	inputTimeout int32  // M66 wait: 0=none/cleared, 1=timed out, 2=waiting
 	heartbeat    int32  // monotonic liveness counter, bumped each BuildStat
+
+	// One-entry decode memo for pinMotionState: consecutive naive-CAM flushed
+	// segments usually share the same modal tag, so cache the last decode and
+	// skip the cgo ActiveModesFromTag round-trip (once per G1 line otherwise).
+	// Producer-goroutine-owned like the canon state — no lock.
+	pinDecodeTag []byte
+	pinDecodeGc  []int32
+	pinDecodeMc  []int32
+	pinDecodeSt  []float64
 }
 
 // motionInfo is the state tag milltask keeps for each motion segment, keyed by
@@ -444,6 +478,11 @@ type motionInfo struct {
 	Gcodes   []int32   // active G-codes when the segment was queued (nil = untagged)
 	Mcodes   []int32   // active M-codes
 	Settings []float64 // active settings (feed, speed, …)
+	Tag      []byte    // packed interp state_tag_t for abort-time restore_from_tag
+	// TagPinned marks a Tag set explicitly at emission time (naive-CAM merged
+	// segments flush during a LATER line's execute, so tagMotionRange must not
+	// overwrite their tag with that line's state — see allocSerialPinned).
+	TagPinned bool
 }
 
 // NewTask creates a new Task with dependencies injected.
@@ -513,12 +552,63 @@ func (t *Task) tagMotionRange(startID, endID int32, gcodes, mcodes []int32, sett
 	if endID <= startID {
 		return
 	}
+	// The packed interp state tag emitted while this line executed (canon
+	// state is producer-owned; tagMotionRange runs on the same goroutine).
+	tag := t.canon.state.currentTag
 	t.mu.Lock()
 	for id := startID; id < endID; id++ {
 		if info, ok := t.motionMap[id]; ok {
-			info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			if !info.TagPinned {
+				info.Tag = tag
+				info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			} else if info.Gcodes == nil {
+				// Pinned tag but no decoded codes (no decoding interp):
+				// bracket codes are better than none.
+				info.Gcodes, info.Mcodes, info.Settings = gcodes, mcodes, settings
+			}
 			t.motionMap[id] = info
 		}
+	}
+	t.mu.Unlock()
+}
+
+// pinMotionState stamps a motion segment's state tag — and the active
+// G-/M-codes and settings decoded FROM that tag — at emission time, marking
+// the entry pinned so tagMotionRange won't overwrite it. A naive-CAM merged
+// segment flushes while a LATER source line is executing (its id falls inside
+// that later line's bracket), but must report and restore the modal state of
+// the line that produced its LAST chained point: 2.9 stores the tag per
+// chained point and derives status codes from the executing segment's tag
+// (Interp::active_modes). The g64 abort test's readahead `G64 P1 Q2` line is
+// exactly the case this guards: its SetMotionControlMode flushes the chain,
+// and without pinning the merged move would report the never-executed P1/Q2.
+func (t *Task) pinMotionState(id int32, tag []byte) {
+	if tag == nil {
+		return
+	}
+	var gc, mc []int32
+	var st []float64
+	if t.interp != nil {
+		// Chained segments flush in bursts under one modal state — decode a
+		// given tag once and reuse it (failed decodes are memoized too: the
+		// result is a pure function of the tag bytes). pinMotionState only
+		// runs on the producer goroutine, so the memo needs no lock.
+		if t.pinDecodeTag != nil && bytes.Equal(tag, t.pinDecodeTag) {
+			gc, mc, st = t.pinDecodeGc, t.pinDecodeMc, t.pinDecodeSt
+		} else {
+			gc, mc, st, _ = t.interp.ActiveModesFromTag(tag)
+			t.pinDecodeTag = append([]byte(nil), tag...)
+			t.pinDecodeGc, t.pinDecodeMc, t.pinDecodeSt = gc, mc, st
+		}
+	}
+	t.mu.Lock()
+	if info, ok := t.motionMap[id]; ok {
+		info.Tag = tag
+		info.TagPinned = true
+		if gc != nil {
+			info.Gcodes, info.Mcodes, info.Settings = gc, mc, st
+		}
+		t.motionMap[id] = info
 	}
 	t.mu.Unlock()
 }

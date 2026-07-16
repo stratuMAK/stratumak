@@ -1,5 +1,10 @@
 #!/bin/bash
 rm -f sim.var*
+# gomc persists interp params and the tool table in db/ (sqlite), not in
+# sim.var / the .tbl file — wipe it so each run starts fresh (the driver sets
+# a G54 rotation that would otherwise leak into the next run) and the copied
+# .tbl below is re-imported.
+rm -rf db
 cp -f simpockets.tbl.original simpockets.tbl 2>/dev/null
 gomc-server -r g43-test.ini >server.log 2>&1 &
 SRV=$!

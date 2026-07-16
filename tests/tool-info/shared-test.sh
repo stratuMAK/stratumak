@@ -8,7 +8,16 @@
 # segfaulted the shell (exit 139). The xfail masked that.)
 
 rm -f sim.var*
-[ -f simpockets.tbl.original ] && cp simpockets.tbl.original simpockets.tbl
+# Provision the pristine tool table (2.9 shared-test.sh parity) — the working
+# copy is gitignored scratch the test mutates, so recreate it from the tracked
+# source every run: the subtest's simpockets.tbl.original when present
+# (random-with-startup-tool), else the shared ../simpockets.tbl template.
+rm -f simpockets.tbl
+if [ -f simpockets.tbl.original ]; then
+    cp simpockets.tbl.original simpockets.tbl
+else
+    cp ../simpockets.tbl .
+fi
 
 gomc-server -r test.ini &
 SRV=$!

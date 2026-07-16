@@ -1436,7 +1436,6 @@ STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pr
     if (res_blend != TP_ERR_OK) {
         return res_blend;
     }
-
     blendFindPoints3(&points, &geom, &param);
 
     int32_t __gap;
@@ -1849,8 +1848,6 @@ STATIC int tpSetupTangent(TP_STRUCT const * const tp,
     __depth = mot->cfg_get_arc_blend_opt_depth(mot->ctx);
     if (__depth < 2) {
         tp_debug_print("Optimization depth %d too low for tangent optimization\n",
-                int32_t __depth;
-                __depth = mot->cfg_get_arc_blend_opt_depth(mot->ctx);
                 __depth);
         return TP_ERR_FAIL;
     }
