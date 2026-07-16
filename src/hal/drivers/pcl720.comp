@@ -32,24 +32,34 @@ variable unsigned out; // write data
 variable unsigned inv; // Invert masks
 variable unsigned res; // Reset mask
 
-variable u64 write_time;
+variable int64_t write_time;
 
-option count_function yes;
 option extra_setup yes;
 
-modparam dummy ioaddr """Base address of card. Separate each card base address
-with a comma but no space to load more than one card. eg
-loadrt pcl720 ioaddr=0x200,0x200. use 0xNNN to define addresses in Hex""";
+modparam string ioaddr """Base address of this card, in C numeric notation
+(\\fB0xNNN\\fR for hex, e.g. \\fBioaddr=0x200\\fR).  Each card is a separate
+instance: load one instance per card, giving each its own name and address, e.g.
+.RS
+.PP
+loadrt pcl720 names=pcl720.0 ioaddr=0x200
+.br
+loadrt pcl720 names=pcl720.1 ioaddr=0x210
+.RE""";
 
 license "GPL";
 author "Andy Pugh";
 ;;
 
-#include <asm/io.h>
-#define MAX_CHAN 8
+#include <sys/io.h> /* inb / outb — uspace port I/O */
+#include <stdint.h> /* int64_t */
+#include <stdlib.h> /* strtoul */
+#include <errno.h>  /* EINVAL */
 
-static int ioaddr[MAX_CHAN] = {-1, -1, -1, -1, -1, -1, -1, -1};
-RTAPI_MP_ARRAY_INT(ioaddr, MAX_CHAN, "Base addresses")
+/* rtapi_delay has no generator-provided compat macro (unlike rtapi_get_time);
+ * map it to the RT-safe rtapi callback for this instance.  The callback is
+ * typed GOMC_NONBLOCKING, so it is legal from the RT functions below. */
+#define rtapi_delay(nsec) \
+    (__comp_inst->env->rtapi->delay(__comp_inst->env->rtapi->ctx, (nsec)))
 
 FUNCTION(read){
     unsigned R;
@@ -123,18 +133,21 @@ FUNCTION(reset){
 
 
 EXTRA_SETUP(){
+    char *endp;
+    unsigned long addr;
 
-    if (ioaddr[extra_arg] > 0) {
-        base_addr = ioaddr[extra_arg];
-        rtapi_print("Loading Advantech pcl720 driver at base addr %X\n", base_addr);
-        return 0;
+    if (ioaddr == NULL || ioaddr[0] == '\0') {
+        GOMC_LOG_ERR("%s: no ioaddr= given\n", name);
+        return -EINVAL;
     }
-    return -EINVAL;
-}
-    
-    
-int get_count(void){
-    int i;
-    for (i=0; ioaddr[i] > 0 && i < MAX_CHAN; i++){}
-    return i;
+
+    addr = strtoul(ioaddr, &endp, 0);
+    if (*endp != '\0' || addr == 0) {
+        GOMC_LOG_ERR("%s: invalid ioaddr=%s\n", name, ioaddr);
+        return -EINVAL;
+    }
+
+    base_addr = addr;
+    GOMC_LOG_INFO("Loading Advantech pcl720 driver at base addr %X\n", base_addr);
+    return 0;
 }
