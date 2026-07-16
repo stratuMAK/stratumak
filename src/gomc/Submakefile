@@ -338,9 +338,16 @@ gomc-fmt-check:
 # analysis.  Uses a pinned clang >= 20 downloaded once by
 # scripts/rt-clang.sh (Debian 13's clang 19 analysis is broken); gcc
 # remains the production compiler — this target is diagnostic only.
-# Needs a completed build (bin/modcompile + generated GMI headers).
+# Deliberately depends only on bin/modcompile (which the script needs to
+# generate the .comp TUs) — nothing else.  The check is a pure diagnostic: it
+# must never write to, regenerate, or otherwise perturb the build tree, so that
+# switching between 'make' and 'make rt-effects-check' rebuilds nothing.  It
+# does NOT try to refresh GMI headers; instead the script reads their mtimes and
+# fails loudly if any is older than its IDL (a pull/branch switch left it stale
+# with no full build), turning a silent stale-header pass into an actionable
+# "run make first" error.
 .PHONY: rt-effects-check
-rt-effects-check:
+rt-effects-check: ../bin/modcompile
 	$(Q)$(TOP)/scripts/rt-effects-check.sh
 
 # Aggregate check used by CI.
