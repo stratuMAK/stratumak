@@ -505,8 +505,8 @@ func NewTask(motion MotionController, io IOController, status MotionStatusReader
 		// them True before any UI toggle).
 		optionalStop: true,
 		blockDelete:  true,
-		mcode:          newMcodeHandler(),
-		motionMap:      make(map[int32]motionInfo),
+		mcode:        newMcodeHandler(),
+		motionMap:    make(map[int32]motionInfo),
 	}
 	t.canon = NewCanon(t)
 	t.canonSnap = *t.canon.state
