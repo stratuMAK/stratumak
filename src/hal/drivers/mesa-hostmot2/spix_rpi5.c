@@ -77,7 +77,7 @@ static int rpi5_setup(int probemask);
 static int rpi5_cleanup(void);
 static const spix_port_t *rpi5_open(int port, const spix_args_t *args);
 static int rpi5_close(const spix_port_t *sp);
-static int spi_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw);
+static int spi_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) GOMC_NONBLOCKING;
 
 #define PORT_MAX	5
 #define PORT_SPI0	0	// port index for hardware SPI0

@@ -71,6 +71,8 @@
 #ifndef POSEMATH_H
 #define POSEMATH_H
 
+#include "rtapi_rt_check.h"
+
 #ifdef __cplusplus
 
 #define USE_CONST
@@ -777,7 +779,7 @@ extern "C" {
 
 /* Scalar functions */
 
-    extern double pmSqrt(double x);
+    extern double pmSqrt(double x) RTAPI_NONBLOCKING;
 
 /* Translation rep conversion functions */
 
@@ -848,28 +850,28 @@ extern "C" {
 /* NOTE:  only Cartesian type supported in C now */
 
     extern int pmCartCartCompare(PmCartesian const * const, PmCartesian const * const);
-    extern int pmCartCartDot(PmCartesian const * const, PmCartesian const * const, double * const);
-    extern int pmCartCartCross(PmCartesian const * const, PmCartesian const * const, PmCartesian * const);
+    extern int pmCartCartDot(PmCartesian const * const, PmCartesian const * const, double * const) RTAPI_NONBLOCKING;
+    extern int pmCartCartCross(PmCartesian const * const, PmCartesian const * const, PmCartesian * const) RTAPI_NONBLOCKING;
     extern int pmCartCartMult(PmCartesian const * const, PmCartesian const * const, PmCartesian * const);
     extern int pmCartCartDiv(PmCartesian const * const, PmCartesian const * const, PmCartesian * const);
     extern int pmCartInfNorm(PmCartesian const * v, double * out);
-    extern int pmCartMag(PmCartesian const * const, double * const);
-    extern int pmCartMagSq(PmCartesian const * const, double * const);
+    extern int pmCartMag(PmCartesian const * const, double * const) RTAPI_NONBLOCKING;
+    extern int pmCartMagSq(PmCartesian const * const, double * const) RTAPI_NONBLOCKING;
     extern int pmCartCartDisp(PmCartesian const * const v1, PmCartesian const * const v2, double *d);
-    extern int pmCartCartAdd(PmCartesian const * const, PmCartesian const * const, PmCartesian * const);
-    extern int pmCartCartSub(PmCartesian const * const, PmCartesian const * const, PmCartesian * const);
-    extern int pmCartScalMult(PmCartesian const * const, double, PmCartesian * const);
+    extern int pmCartCartAdd(PmCartesian const * const, PmCartesian const * const, PmCartesian * const) RTAPI_NONBLOCKING;
+    extern int pmCartCartSub(PmCartesian const * const, PmCartesian const * const, PmCartesian * const) RTAPI_NONBLOCKING;
+    extern int pmCartScalMult(PmCartesian const * const, double, PmCartesian * const) RTAPI_NONBLOCKING;
     extern int pmCartScalDiv(PmCartesian const * const, double, PmCartesian * const);
     extern int pmCartNeg(PmCartesian const * const, PmCartesian * const);
-    extern int pmCartUnit(PmCartesian const * const, PmCartesian * const);
-    extern int pmCartAbs(PmCartesian const * const, PmCartesian * const);
+    extern int pmCartUnit(PmCartesian const * const, PmCartesian * const) RTAPI_NONBLOCKING;
+    extern int pmCartAbs(PmCartesian const * const, PmCartesian * const) RTAPI_NONBLOCKING;
     // Equivalent of compound operators like +=, -=, etc. Basically, these functions work directly on the first PmCartesian
-    extern int pmCartCartAddEq(PmCartesian * const, PmCartesian const * const);
-    extern int pmCartCartSubEq(PmCartesian * const, PmCartesian const * const);
-    extern int pmCartScalMultEq(PmCartesian * const, double);
+    extern int pmCartCartAddEq(PmCartesian * const, PmCartesian const * const) RTAPI_NONBLOCKING;
+    extern int pmCartCartSubEq(PmCartesian * const, PmCartesian const * const) RTAPI_NONBLOCKING;
+    extern int pmCartScalMultEq(PmCartesian * const, double) RTAPI_NONBLOCKING;
     extern int pmCartScalDivEq(PmCartesian * const, double);
-    extern int pmCartUnitEq(PmCartesian * const);
-    extern int pmCartNegEq(PmCartesian * const);
+    extern int pmCartUnitEq(PmCartesian * const) RTAPI_NONBLOCKING;
+    extern int pmCartNegEq(PmCartesian * const) RTAPI_NONBLOCKING;
 /*! \todo Another #if 0 */
 #if 0
     extern int pmCartNorm(PmCartesian const * const v, PmCartesian * const vout);
@@ -938,18 +940,18 @@ extern "C" {
     extern int pmLinePoint(PmLine const * const line, double len, PmPose * const point);
 
 /* pure cartesian line functions */
-    extern int pmCartLineInit(PmCartLine * const line, PmCartesian const * const start, PmCartesian const * const end);
-    extern int pmCartLinePoint(PmCartLine const * const line, double len, PmCartesian * const point);
-    extern int pmCartLineStretch(PmCartLine * const line, double new_len, int from_end);
+    extern int pmCartLineInit(PmCartLine * const line, PmCartesian const * const start, PmCartesian const * const end) RTAPI_NONBLOCKING;
+    extern int pmCartLinePoint(PmCartLine const * const line, double len, PmCartesian * const point) RTAPI_NONBLOCKING;
+    extern int pmCartLineStretch(PmCartLine * const line, double new_len, int from_end) RTAPI_NONBLOCKING;
 
 /* circle functions */
 
     extern int pmCircleInit(PmCircle * const circle,
             PmCartesian const * const start, PmCartesian const * const end,
-            PmCartesian const * const center, PmCartesian const * const normal, int turn);
+            PmCartesian const * const center, PmCartesian const * const normal, int turn) RTAPI_NONBLOCKING;
 
-    extern int pmCirclePoint(PmCircle const * const circle, double angle, PmCartesian * const point);
-    extern int pmCircleStretch(PmCircle * const circ, double new_angle, int from_end);
+    extern int pmCirclePoint(PmCircle const * const circle, double angle, PmCartesian * const point) RTAPI_NONBLOCKING;
+    extern int pmCircleStretch(PmCircle * const circ, double new_angle, int from_end) RTAPI_NONBLOCKING;
 
 /* slicky macros for item-by-item copying between C and C++ structs */
 

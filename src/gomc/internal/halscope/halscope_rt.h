@@ -140,7 +140,7 @@ typedef struct {
 /* --- RT function prototype --- */
 
 /* Called by HAL thread scheduler.  arg is halscope_t*. */
-void halscope_sample(void *arg, long period);
+void halscope_sample(void *arg, long period) RTAPI_NONBLOCKING;
 
 /* --- Init/cleanup called from Go --- */
 

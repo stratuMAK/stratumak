@@ -149,12 +149,12 @@ int lcec_ph3lm2rm_lm_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_ent
 int lcec_ph3lm2rm_rm_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs, int idx, lcec_ph3lm2rm_rm_data_t *hal_data, const char *pfx);
 
 /** @brief HAL read function — update all LM/RM channels from PDO data. */
-void lcec_ph3lm2rm_read(struct lcec_slave *slave, long period);
+void lcec_ph3lm2rm_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief HAL write function — write latch/error-reset bits to PDO data. */
-void lcec_ph3lm2rm_write(struct lcec_slave *slave, long period);
+void lcec_ph3lm2rm_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /** @brief Update one encoder channel from process-data image. */
-void lcec_ph3lm2rm_enc_read(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch);
+void lcec_ph3lm2rm_enc_read(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch) GOMC_NONBLOCKING;
 /** @brief Write one encoder channel's latch-enable bits to process-data image. */
 void lcec_ph3lm2rm_enc_write(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch);
 

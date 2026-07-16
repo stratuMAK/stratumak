@@ -126,7 +126,7 @@ int hm2_dpll_parse_md(hostmot2_t *hm2, int md_index) {
 
 }
 
-void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period){
+void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
     hm2_dpll_pins_t *pins;
     
     if (hm2->dpll.num_instances == 0) return;
@@ -138,16 +138,15 @@ void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period){
     *pins->ddssize = *hm2->dpll.control_reg1_read & 0xFF;
 }
 
-void hm2_dpll_write(hostmot2_t *hm2, long period) {
+void hm2_dpll_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
     hm2_dpll_pins_t *pins;
     double period_us = period / 1000.;
     uint32_t buff;
-    static int init_counter = 0;
     
     if (hm2->dpll.num_instances == 0) return;
     
-    if (init_counter < 100){
-        init_counter++;
+    if (hm2->dpll.init_counter < 100){
+        hm2->dpll.init_counter++;
         buff = 0; // Force phase error to zero at startup
         hm2->llio->write(hm2->llio,
                 hm2->dpll.phase_err_addr,

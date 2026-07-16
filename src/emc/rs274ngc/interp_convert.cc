@@ -3100,9 +3100,8 @@ int Interp::restore_settings(setup_pointer settings,
     if (!cmd.empty()) {
 	// the sequence can be multiline, separated by nl
 	// so split and execute each line
-        char buf[cmd.size() + 1];
-        strncpy(buf, cmd.c_str(), sizeof(buf));
-	char *last = buf;
+        std::string buf(cmd);
+	char *last = buf.data();
 	char *s;
 	while ((s = strtok_r(last, "\n", &last)) != NULL) {
 	    int status = execute(s);
@@ -3169,9 +3168,8 @@ int Interp::restore_from_tag(StateTag const &tag)
     if (!cmd.empty()) {
         // the sequence can be multiline, separated by nl
         // so split and execute each line
-        char buf[cmd.size() + 1];
-        strncpy(buf, cmd.c_str(), sizeof(buf));
-        char *last = buf;
+        std::string buf(cmd);
+        char *last = buf.data();
         char *s;
         while ((s = strtok_r(last, "\n", &last)) != NULL) {
             int status = execute(s);

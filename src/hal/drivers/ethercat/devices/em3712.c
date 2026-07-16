@@ -100,7 +100,7 @@ static ec_sync_info_t lcec_em3712_syncs[] = {
 /**
  * @brief Cyclic read: forward declaration.
  */
-void lcec_em3712_read(struct lcec_slave *slave, long period);
+void lcec_em3712_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EM3712 analog input module.

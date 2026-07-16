@@ -88,7 +88,7 @@ static ec_sync_info_t lcec_el31x2_syncs[] = {
     {0xff}
 };
 
-void lcec_el31x2_read(struct lcec_slave *slave, long period);
+void lcec_el31x2_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an EL31x2 slave: allocate HAL memory, register PDOs, and create HAL pins.

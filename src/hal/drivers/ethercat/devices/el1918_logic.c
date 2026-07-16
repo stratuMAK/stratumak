@@ -103,8 +103,8 @@ static const lcec_pindesc_t fsoe_crc_pins[] = {
   { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
-void lcec_el1918_logic_read(struct lcec_slave *slave, long period);
-void lcec_el1918_logic_write(struct lcec_slave *slave, long period);
+void lcec_el1918_logic_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1918_logic_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 static int export_std_pins(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs, int pid, gomc_hal_bit_t **pin, int dir) {
   lcec_master_t *master = slave->master;

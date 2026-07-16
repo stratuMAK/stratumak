@@ -74,7 +74,7 @@ typedef struct {
   lcec_el31x4_chan_t chans[LCEC_EL31x4_CHANS]; /**< Per-channel data for all four analog inputs. */
 } lcec_el31x4_data_t;
 
-void lcec_el31x4_read(struct lcec_slave *slave, long period);
+void lcec_el31x4_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an EL31x4 slave: allocate HAL memory, register PDOs, and create HAL pins.

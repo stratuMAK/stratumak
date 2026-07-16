@@ -12,6 +12,7 @@
  ********************************************************************/
 
 #include "posemath.h"
+#include "rtapi_rt_check.h"
 #include "spherical_arc.h"
 #include "tp_types.h"
 #include <math.h>

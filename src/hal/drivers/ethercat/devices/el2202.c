@@ -101,7 +101,7 @@ static const lcec_pindesc_t slave_pins[] = {
  * @param slave  Pointer to the EtherCAT slave structure.
  * @param period Servo period in nanoseconds (unused, present for callback ABI).
  */
-void lcec_el2202_write(struct lcec_slave *slave, long period);
+void lcec_el2202_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize the EL2202 slave: allocate HAL memory, register PDOs, and

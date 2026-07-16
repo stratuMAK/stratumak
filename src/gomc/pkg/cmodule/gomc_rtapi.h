@@ -29,6 +29,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "gomc_rt_check.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -53,19 +55,19 @@ typedef struct {
     void *(*realloc)(void *ctx, void *ptr, size_t size);
     void  (*free)   (void *ctx, void *ptr);
 
-    // Monotonic time in nanoseconds.
-    int64_t (*get_time)(void *ctx);
+    // Monotonic time in nanoseconds.  RT-safe (nonblocking).
+    int64_t (*get_time)(void *ctx) GOMC_NONBLOCKING;
 
-    // Busy-wait delay (nanoseconds).
-    void    (*delay)(void *ctx, long nsec);
-    long    (*delay_max)(void *ctx);
+    // Busy-wait delay (nanoseconds), clamped to delay_max().  RT-safe.
+    void    (*delay)(void *ctx, long nsec) GOMC_NONBLOCKING;
+    long    (*delay_max)(void *ctx) GOMC_NONBLOCKING;
 
-    // Task PLL functions for RT thread synchronisation.
-    int64_t (*pll_get_reference)(void *ctx);
-    int     (*pll_set_correction)(void *ctx, long value);
+    // Task PLL functions for RT thread synchronisation.  RT-safe.
+    int64_t (*pll_get_reference)(void *ctx) GOMC_NONBLOCKING;
+    int     (*pll_set_correction)(void *ctx, long value) GOMC_NONBLOCKING;
 
-    // Returns >= 0 if called from a RT task, < 0 otherwise.
-    int     (*task_self)(void *ctx);
+    // Returns >= 0 if called from a RT task, < 0 otherwise.  RT-safe.
+    int     (*task_self)(void *ctx) GOMC_NONBLOCKING;
 } gomc_rtapi_t;
 
 // ---------------------------------------------------------------------------

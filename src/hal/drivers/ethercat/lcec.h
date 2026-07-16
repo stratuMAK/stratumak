@@ -46,6 +46,7 @@
 #include <math.h>
 
 #include "ecrt.h"
+#include "ecrt_rt_api.h"
 #include "conf.h"
 
 /**
@@ -259,11 +260,13 @@ typedef void (*lcec_slave_cleanup_t) (struct lcec_slave *slave);
  * @brief Real-time read or write callback executed every servo period.
  *
  * Implementations must not block, sleep, or allocate/free memory.
+ * The GOMC_NONBLOCKING type annotation makes clang's function-effects
+ * analysis enforce exactly that (see "make rt-effects-check").
  *
  * @param slave   Pointer to the slave.
  * @param period  Servo period in nanoseconds.
  */
-typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period);
+typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Distributed Clock synchronisation callback invoked at a specific
@@ -271,7 +274,7 @@ typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period);
  *
  * @param master  Pointer to the master that owns the DC clock.
  */
-typedef void (*lcec_dcsync_callback_t) (struct lcec_master *master);
+typedef void (*lcec_dcsync_callback_t) (struct lcec_master *master) GOMC_NONBLOCKING;
 
 /**
  * @brief FsoE (Functional Safety over EtherCAT) PDO dimension parameters.
@@ -673,7 +676,7 @@ lcec_slave_t *lcec_slave_by_index(struct lcec_master *master, int index);
  * @param slave_offset   Byte offset of the slave-to-master FsoE PDO in the domain image.
  * @param master_offset  Byte offset of the master-to-slave FsoE PDO in the domain image.
  */
-void copy_fsoe_data(struct lcec_slave *slave, unsigned int slave_offset, unsigned int master_offset);
+void copy_fsoe_data(struct lcec_slave *slave, unsigned int slave_offset, unsigned int master_offset) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an lcec_syncs_t builder to an empty state.

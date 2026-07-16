@@ -172,8 +172,8 @@ static ec_sync_info_t lcec_dems300_syncs[] = {
 
 void lcec_dems300_check_scales(lcec_dems300_data_t *hal_data);
 
-void lcec_dems300_read(struct lcec_slave *slave, long period);
-void lcec_dems300_write(struct lcec_slave *slave, long period);
+void lcec_dems300_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_dems300_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize the Delta MS300 EtherCAT slave driver.

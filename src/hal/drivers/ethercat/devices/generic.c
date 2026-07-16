@@ -39,9 +39,9 @@
 #include "generic.h"
 
 /** @brief Forward declaration — HAL read callback. */
-void lcec_generic_read(struct lcec_slave *slave, long period);
+void lcec_generic_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief Forward declaration — HAL write callback. */
-void lcec_generic_write(struct lcec_slave *slave, long period);
+void lcec_generic_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /** @brief Read a signed 32-bit value from the process-data image. */
 gomc_hal_s32_t lcec_generic_read_s32(uint8_t *pd, lcec_generic_pin_t *hal_data);

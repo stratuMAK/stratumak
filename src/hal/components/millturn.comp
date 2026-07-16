@@ -60,13 +60,13 @@ static kins_kinematics_type_t gmi_kins_type(void *ctx)
     return KINS_BOTH;
 }
 
-static int32_t gmi_kins_switchable(void *ctx)
+static int32_t gmi_kins_switchable(void *ctx) GOMC_NONBLOCKING
 {
     (void)ctx;
     return 1;
 }
 
-static int32_t gmi_kins_switch(void *ctx, int32_t new_switchkins_type)
+static int32_t gmi_kins_switch(void *ctx, int32_t new_switchkins_type) GOMC_NONBLOCKING
 {
     inst_t *__comp_inst = (inst_t *)ctx;
     switchkins_type = new_switchkins_type;
@@ -94,7 +94,7 @@ static int32_t gmi_kins_forward(
     const double joints[KINS_MAX_JOINTS],
     kins_pose_t *pos,
     uint64_t fflags,
-    uint64_t *iflags)
+    uint64_t *iflags) GOMC_NONBLOCKING
 {
     (void)ctx;
     (void)fflags;
@@ -131,7 +131,7 @@ static int32_t gmi_kins_inverse(
     const kins_pose_t *pos,
     double joints[KINS_MAX_JOINTS],
     uint64_t iflags,
-    uint64_t *fflags)
+    uint64_t *fflags) GOMC_NONBLOCKING
 {
     (void)ctx;
     (void)iflags;

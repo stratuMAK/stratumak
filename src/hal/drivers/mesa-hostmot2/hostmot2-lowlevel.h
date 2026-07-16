@@ -22,6 +22,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
+#include <string.h>
 #include "rtapi_pci.h"
 #include "rtapi_firmware.h"
 #include "gomc_env.h"
@@ -53,6 +55,21 @@
 #define ANYIO_MAX_IOPORT_CONNECTORS (8)
 
 
+//
+// Shared trust shims for the transports' RT error paths (eth, spi, spix).
+// TRUSTED: errno is a thread-local read; strerror() is a static-table
+// lookup for the socket/ioctl errno values seen here.  Error paths only.
+//
+static inline void hm2_rt_clear_errno(void) GOMC_NONBLOCKING;
+static inline int hm2_rt_errno(void) GOMC_NONBLOCKING;
+static inline const char *hm2_rt_strerror(void) GOMC_NONBLOCKING;
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+static inline void hm2_rt_clear_errno(void) { errno = 0; }
+static inline int hm2_rt_errno(void) { return errno; }
+static inline const char *hm2_rt_strerror(void) { return strerror(errno); }
+GOMC_NONBLOCKING_TRUSTED_END
+
+
 
 
 // 
@@ -60,6 +77,14 @@
 //
 
 typedef struct hm2_lowlevel_io_struct hm2_lowlevel_io_t;
+
+/* Pointer types for the RT register-access entry points (same signatures
+ * as the read/write members below).  Use these for local variables that
+ * hold ->write / ->queue_write etc. so the nonblocking type is kept. */
+typedef int (*hm2_llio_read_fn_t)(hm2_lowlevel_io_t *self, uint32_t addr,
+    void *buffer, int size) GOMC_NONBLOCKING;
+typedef int (*hm2_llio_write_fn_t)(hm2_lowlevel_io_t *self, uint32_t addr,
+    const void *buffer, int size) GOMC_NONBLOCKING;
 
 // FIXME: this is really a lowlevel io *instance*, or maybe a "board"
 struct hm2_lowlevel_io_struct {
@@ -72,8 +97,8 @@ struct hm2_lowlevel_io_struct {
     // these two are required
     // on success these two return TRUE (not zero)
     // on failure they return FALSE (0) and set *self->io_error (below) to TRUE
-    int (*read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size);
-    int (*write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size);
+    int (*read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING;
+    int (*write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING;
 
     // these two are optional
     int (*program_fpga)(hm2_lowlevel_io_t *self, const bitfile_t *bitfile);
@@ -97,21 +122,21 @@ struct hm2_lowlevel_io_struct {
     //   * queue_read and send_queued_reads, in which case send_queued_reads must also
     //     receive and process the reads
     //   * all three
-    int (*queue_read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size);
-    int (*send_queued_reads)(hm2_lowlevel_io_t *self);
-    int (*receive_queued_reads)(hm2_lowlevel_io_t *self);
+    int (*queue_read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING;
+    int (*send_queued_reads)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
+    int (*receive_queued_reads)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
 
     // similarly, it is useful to divide the work of bulk writes into two groups
     //   * queueing the writes
     //   * actually performing the writes
     // these routines are optional; the llio may either provide both of them, or neither
     // (in which case a dummy implementation of ->queue_write delegates to ->write)
-    int (*queue_write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size);
-    int (*send_queued_writes)(hm2_lowlevel_io_t *self);
+    int (*queue_write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING;
+    int (*send_queued_writes)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
 
     // setting this to one will enqueue all following writes into a single packet. When set
     // set back to 0, the packet is set.
-    int (*set_force_enqueue)(hm2_lowlevel_io_t *self, int do_enqueue);
+    int (*set_force_enqueue)(hm2_lowlevel_io_t *self, int do_enqueue) GOMC_NONBLOCKING;
 
     // 
     // This is a HAL parameter allocated and added to HAL by hostmot2.

@@ -125,7 +125,7 @@ static ec_sync_info_t lcec_el5002_syncs[] = {
     {0xff}
 };
 
-void lcec_el5002_read(struct lcec_slave *slave, long period);
+void lcec_el5002_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EL5002 EtherCAT slave driver.

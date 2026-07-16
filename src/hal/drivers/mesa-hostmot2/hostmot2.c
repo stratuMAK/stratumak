@@ -77,7 +77,7 @@ static int comp_id;
 // functions exported to LinuxCNC
 //
 
-static void hm2_read_request(void *void_hm2, long period) {
+static void hm2_read_request(void *void_hm2, long period) GOMC_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
     hm2->llio->period = period;
 
@@ -91,11 +91,11 @@ static void hm2_read_request(void *void_hm2, long period) {
     if ((*hm2->llio->io_error) != 0) return;
     hm2_queue_read(hm2);
     hm2->llio->read_requested = true;
-    struct timespec _ts; clock_gettime(CLOCK_MONOTONIC, &_ts);
-    hm2->llio->read_time = (unsigned long long)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
+    hm2->llio->read_time =
+        (unsigned long long)hm2->llio->rtapi->get_time(hm2->llio->rtapi->ctx);
 }
 
-static void hm2_read(void *void_hm2, long period) {
+static void hm2_read(void *void_hm2, long period) GOMC_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     if(!hm2->llio->read_requested) hm2_read_request(void_hm2, period);
@@ -126,7 +126,7 @@ static void hm2_read(void *void_hm2, long period) {
 }
 
 
-static void hm2_write(void *void_hm2, long period) {
+static void hm2_write(void *void_hm2, long period) GOMC_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     // if there are comm problems, wait for the user to fix it
@@ -178,7 +178,7 @@ static void hm2_write(void *void_hm2, long period) {
 }
 
 
-static void hm2_read_gpio(void *void_hm2, long period) {
+static void hm2_read_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
     (void)period;
     hostmot2_t *hm2 = void_hm2;
 
@@ -189,7 +189,7 @@ static void hm2_read_gpio(void *void_hm2, long period) {
 }
 
 
-static void hm2_write_gpio(void *void_hm2, long period) {
+static void hm2_write_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     // if there are comm problems, wait for the user to fix it
@@ -208,7 +208,10 @@ static void hm2_write_gpio(void *void_hm2, long period) {
 
 
 // FIXME: the static automatic string makes this function non-reentrant
-const char *hm2_hz_to_mhz(uint32_t freq_hz) {
+// TRUSTED: bounded snprintf("%d.%03d") into a fixed static buffer; used
+// only to format frequencies for log messages (races are display-only).
+GOMC_NONBLOCKING_TRUSTED_BEGIN
+const char *hm2_hz_to_mhz(uint32_t freq_hz) GOMC_NONBLOCKING {
     static char mhz_str[20];
     int r;
     int freq_mhz, freq_mhz_fractional;
@@ -223,9 +226,10 @@ const char *hm2_hz_to_mhz(uint32_t freq_hz) {
 
     return mhz_str;
 }
+GOMC_NONBLOCKING_TRUSTED_END
 
 // FIXME: It would be nice if this was more generic
-int hm2_get_bspi(hostmot2_t** hm2, const char *name){
+int hm2_get_bspi(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -239,7 +243,7 @@ int hm2_get_bspi(hostmot2_t** hm2, const char *name){
     return -1;
 }
 
-int hm2_get_uart(hostmot2_t** hm2, const char *name){
+int hm2_get_uart(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -252,7 +256,7 @@ int hm2_get_uart(hostmot2_t** hm2, const char *name){
     }
     return -1;
 }
-int hm2_get_pktuart(hostmot2_t** hm2, const char *name){
+int hm2_get_pktuart(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -1152,7 +1156,7 @@ static void hm2_cleanup(hostmot2_t *hm2) {
 
 
 
-void hm2_print_modules(hostmot2_t *hm2) {
+void hm2_print_modules(hostmot2_t *hm2) GOMC_NONBLOCKING {
     hm2_encoder_print_module(hm2);
     hm2_absenc_print_module(hm2);
     hm2_resolver_print_module(hm2);
@@ -1191,13 +1195,13 @@ static hm2_inst_t *hm2_inst;  // singleton instance
 
 
 static int dummy_queue_write(hm2_lowlevel_io_t *this, uint32_t addr,
-        const void *buffer, int size) {
+        const void *buffer, int size) GOMC_NONBLOCKING {
     if(size >= 0) return this->write(this, addr, buffer, size);
     return 1; // success
 }
 
 static int dummy_queue_read(hm2_lowlevel_io_t *this, uint32_t addr,
-        void *buffer, int size) {
+        void *buffer, int size) GOMC_NONBLOCKING {
     if(size >= 0) return this->read(this, addr, buffer, size);
     return 1; // success
 }
@@ -1285,12 +1289,12 @@ int hm2_register(hm2_lowlevel_io_t *llio, char *config_string) {
     // verify llio functions
     //
 
-    if (llio->read == NULL) {
+    if (!llio->read) {
         HM2_ERR_NO_LL("NULL llio->read passed in\n");
         return -EINVAL;
     }
 
-    if (llio->write == NULL) {
+    if (!llio->write) {
         HM2_ERR_NO_LL("NULL llio->write passed in\n");
         return -EINVAL;
     }
@@ -1920,8 +1924,8 @@ static void hm2_destroy(cmod_t *self) {
 
 
 // this pushes our idea of what things are like into the FPGA's poor little mind
-void hm2_force_write(hostmot2_t *hm2) {
-    if (hm2->llio->set_force_enqueue != NULL)
+void hm2_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+    if (hm2->llio->set_force_enqueue)
         hm2->llio->set_force_enqueue(hm2->llio, 1);
     hm2_watchdog_force_write(hm2);
     hm2_ioport_force_write(hm2);
@@ -1942,7 +1946,7 @@ void hm2_force_write(hostmot2_t *hm2) {
     // the IO Port pin directions is set appropriately.
     hm2_ssr_force_write(hm2);
     hm2_outm_force_write(hm2);
-    if (hm2->llio->set_force_enqueue != NULL)
+    if (hm2->llio->set_force_enqueue)
         hm2->llio->set_force_enqueue(hm2->llio, 0);
 }
 

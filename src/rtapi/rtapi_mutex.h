@@ -23,6 +23,7 @@
 ************************************************************************/
 #include <sched.h>		/* for blocking when needed */
 #include "rtapi_bitops.h"	/* atomic bit ops for lightweight mutex */
+#include "rtapi_rt_check.h"	/* RTAPI_NONBLOCKING */
 
 typedef unsigned long rtapi_mutex_t;
 
@@ -40,6 +41,8 @@ typedef unsigned long rtapi_mutex_t;
     The release is unconditional, even if the caller doesn't have
     the mutex, it will be released.
 */
+    /* RT-safe: a single atomic bit op, never waits. */
+    static __inline__ void rtapi_mutex_give(unsigned long *mutex) RTAPI_NONBLOCKING;
     static __inline__ void rtapi_mutex_give(unsigned long *mutex) {
 	test_and_clear_bit(0, mutex);
     }
@@ -52,7 +55,10 @@ typedef unsigned long rtapi_mutex_t;
     it returns non-zero.  "Doing the right thing" almost certainly
     means doing something that will yield the CPU, so that whatever
     other process has the mutex gets a chance to release it.
-*/ static __inline__ int rtapi_mutex_try(unsigned long *mutex) {
+*/  /* RT-safe: a single atomic test-and-set, never waits (the caller
+       handles the contended case). */
+    static __inline__ int rtapi_mutex_try(unsigned long *mutex) RTAPI_NONBLOCKING;
+    static __inline__ int rtapi_mutex_try(unsigned long *mutex) {
 	return test_and_set_bit(0, mutex);
     }
 

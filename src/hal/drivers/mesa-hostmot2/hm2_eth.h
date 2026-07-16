@@ -73,6 +73,13 @@ typedef struct {
         gomc_hal_s32_t *packet_error_level;
         gomc_hal_bit_t *packet_error_exceeded;
     } *hal;
+
+    /* per-board scratch for hm2_eth_write (was a static local in
+       hm2_eth.c — shared across boards) */
+    struct {
+        lbp16_cmd_addr wr_packet;
+        uint8_t tmp_buffer[127*8];
+    } write_scratch;
 } hm2_eth_t;
 
 #endif

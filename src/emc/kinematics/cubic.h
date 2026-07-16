@@ -13,6 +13,8 @@
 #ifndef CUBIC_H
 #define CUBIC_H
 
+#include "rtapi_rt_check.h"
+
 /*
    Coefficients of a cubic polynomial,
 
@@ -41,11 +43,11 @@ typedef struct {
 } CUBIC_STRUCT;
 
 extern int cubicInit(CUBIC_STRUCT * ci);
-extern int cubicSetSegmentTime(CUBIC_STRUCT * ci, double time);
+extern int cubicSetSegmentTime(CUBIC_STRUCT * ci, double time) RTAPI_NONBLOCKING;
 extern double cubicGetSegmentTime(CUBIC_STRUCT * ci);
-extern int cubicSetInterpolationRate(CUBIC_STRUCT * ci, int rate);
+extern int cubicSetInterpolationRate(CUBIC_STRUCT * ci, int rate) RTAPI_NONBLOCKING;
 extern int cubicGetInterpolationRate(CUBIC_STRUCT * ci);
-extern int cubicAddPoint(CUBIC_STRUCT * ci, double point);
+extern int cubicAddPoint(CUBIC_STRUCT * ci, double point) RTAPI_NONBLOCKING;
 extern int cubicOffset(CUBIC_STRUCT * ci, double offset);
 extern double cubicGetInterpolationIncrement(CUBIC_STRUCT * ci);
 extern CUBIC_COEFF cubicGetCubicCoeff(CUBIC_STRUCT * ci);
@@ -55,8 +57,8 @@ extern double cubicInterpolate(CUBIC_STRUCT * ci, double *x,	/* same as
 								 */
 			       double *v,	/* velocity */
 			       double *a,	/* accel */
-			       double *j);	/* jerk */
-extern int cubicNeedNextPoint(CUBIC_STRUCT * ci);
-extern int cubicDrain(CUBIC_STRUCT * ci);
+			       double *j) RTAPI_NONBLOCKING;	/* jerk */
+extern int cubicNeedNextPoint(CUBIC_STRUCT * ci) RTAPI_NONBLOCKING;
+extern int cubicDrain(CUBIC_STRUCT * ci) RTAPI_NONBLOCKING;
 
 #endif				/* CUBIC_H */

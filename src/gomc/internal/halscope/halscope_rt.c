@@ -263,7 +263,9 @@ void halscope_sample(void *arg, long period)
 
 halscope_t *halscope_alloc(int num_samples)
 {
-    halscope_t *s = calloc(1, sizeof(halscope_t));
+    /* rtapi_calloc: prefaulted + mlocked — this struct and the capture
+     * buffers below are written from the RT sample funct. */
+    halscope_t *s = rtapi_calloc(sizeof(halscope_t));
     if (!s)
         return NULL;
 
@@ -282,11 +284,11 @@ halscope_t *halscope_alloc(int num_samples)
     int buf_cap = sizeof(halscope_sample_header_t) +
                   num_samples * HALSCOPE_MAX_CHANNELS * sizeof(double);
     for (int i = 0; i < HALSCOPE_NUM_BUFFERS; i++) {
-        s->bufs[i].data = calloc(1, buf_cap);
+        s->bufs[i].data = rtapi_calloc(buf_cap);
         if (!s->bufs[i].data) {
             for (int j = 0; j < i; j++)
-                free(s->bufs[j].data);
-            free(s);
+                rtapi_free(s->bufs[j].data);
+            rtapi_free(s);
             return NULL;
         }
         s->bufs[i].capacity = buf_cap;
@@ -301,6 +303,6 @@ void halscope_free(halscope_t *s)
     if (!s)
         return;
     for (int i = 0; i < HALSCOPE_NUM_BUFFERS; i++)
-        free(s->bufs[i].data);
-    free(s);
+        rtapi_free(s->bufs[i].data);
+    rtapi_free(s);
 }

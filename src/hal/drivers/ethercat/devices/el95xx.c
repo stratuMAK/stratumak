@@ -47,7 +47,7 @@ static const lcec_pindesc_t slave_pins[] = {
 /**
  * @brief Cyclic read: forward declaration.
  */
-void lcec_el95xx_read(struct lcec_slave *slave, long period);
+void lcec_el95xx_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise an EL95xx power supply terminal.

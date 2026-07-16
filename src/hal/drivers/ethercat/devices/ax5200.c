@@ -42,9 +42,9 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
 };
 
 /** @brief Cyclic read callback — iterates over both axes calling lcec_class_ax5_read(). */
-void lcec_ax5200_read(struct lcec_slave *slave, long period);
+void lcec_ax5200_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief Cyclic write callback — iterates over both axes calling lcec_class_ax5_write(). */
-void lcec_ax5200_write(struct lcec_slave *slave, long period);
+void lcec_ax5200_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 int lcec_ax5200_preinit(struct lcec_slave *slave) {
   // check if already initialized

@@ -38,6 +38,7 @@ std::string to_string(T &d)
 ////////////////////////////////////////////////////////////////////////////////
 class motion_base {
 public:
+    virtual ~motion_base() = default;
     virtual void straight_move(std::complex<double> end)=0;
     virtual void straight_rapid(std::complex<double> end)=0;
     virtual void circular_move(int ccw,std::complex<double> center,
@@ -67,6 +68,7 @@ public:
 	finish{0} {}
     segment(std::complex<double> s, std::complex<double> e):start(s),end(e),
 	finish{0} {}
+    virtual ~segment() = default;
     typedef std::deque<double> intersections_t;
     virtual void intersection_z(double x, intersections_t &is)=0;
     virtual bool climb(std::complex<double>&, motion_base*)=0;
@@ -138,10 +140,10 @@ public:
     void intersect(segment *p) override;
     void intersect_end(round_segment *p) override;
     void intersect_end(straight_segment *p) override;
-    std::unique_ptr<segment> dup(void) {
+    std::unique_ptr<segment> dup(void) override {
 	return std::make_unique<straight_segment>(*this);
     }
-    double radius(void) { return abs(start-end); }
+    double radius(void) override { return abs(start-end); }
 };
 
 void straight_segment::intersection_z(double x, intersections_t &is)
@@ -244,20 +246,20 @@ public:
     void intersect_end(round_segment *p) override;
     void intersect_end(straight_segment *p) override;
     std::complex<double> cp(void) { return center; }
-    std::unique_ptr<segment> dup(void) {
+    std::unique_ptr<segment> dup(void) override {
 	return std::make_unique<round_segment>(*this);
     }
-    double radius(void) { return std::min(abs(start-end),abs(start-center)); }
+    double radius(void) override { return std::min(abs(start-end),abs(start-center)); }
     void flip_imag(void) override { ccw=!ccw; start=conj(start); end=conj(end);
 	center=conj(center); }
     void flip_real(void) override { ccw=!ccw; start=-conj(start);
 	end=-conj(end); center=-conj(center); }
-    virtual void rotate(void) {
+    void rotate(void) override {
 	start=-start*I;
 	end=-end*I;
 	center=-center*I;
     }
-    virtual bool monotonic(void) {
+    bool monotonic(void) override {
 	if(finish!=0)
 	    return true;
 	double entry=imag(start-center);
@@ -268,7 +270,7 @@ public:
 	else
 	    return entry<=1e-3 && exit<=1e-3 && dz<=-1e-3;
     }
-    virtual void move(std::complex<double> d) { start+=d; center+=d; end+=d; }
+    void move(std::complex<double> d) override { start+=d; center+=d; end+=d; }
 private:
     bool on_segment(std::complex<double> p);
     friend class straight_segment;

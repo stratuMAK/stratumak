@@ -154,9 +154,9 @@ static ec_sync_info_t lcec_el2521_syncs[] = {
 void lcec_el2521_check_scale(lcec_el2521_data_t *hal_data);
 
 /** @brief Forward declaration of the periodic read callback. */
-void lcec_el2521_read(struct lcec_slave *slave, long period);
+void lcec_el2521_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 /** @brief Forward declaration of the periodic write callback. */
-void lcec_el2521_write(struct lcec_slave *slave, long period);
+void lcec_el2521_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize the EL2521 slave: read SDOs, register PDOs, and export

@@ -97,7 +97,12 @@ void lcec_shutdown_master(lcec_master_t *master);
 /** @brief Allocate and export HAL pins for a master. @see master.c */
 lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, const char *pfx, int global);
 /** @brief Update master HAL output pins from the current EtherCAT master state. @see master.c */
-void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms);
+void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms) GOMC_NONBLOCKING;
+
+/* RT master cycle functions (exported as HAL functs by main.c, defined in
+ * master.c) — run every servo period. */
+void lcec_read_master(void *arg, long period) GOMC_NONBLOCKING;
+void lcec_write_master(void *arg, long period) GOMC_NONBLOCKING;
 
 /** @brief Create and initialise an @c lcec_slave_t from its configuration. @see slave.c */
 lcec_slave_t *lcec_create_slave(lcec_master_t *master, LCEC_CONF_SLAVE_T *slave_conf, lcec_slave_conf_state_t *conf_state);
@@ -116,7 +121,7 @@ void lcec_slave_conf_modparam(lcec_slave_conf_state_t *state, LCEC_CONF_MODPARAM
 /** @brief Allocate and export HAL state pins for a slave. @see slave.c */
 lcec_slave_state_t *lcec_init_slave_state_hal(const cmod_env_t *env, int comp_id, const char *instance_name, char *master_name, char *slave_name);
 /** @brief Update slave HAL state pins from the current EtherCAT slave config state. @see slave.c */
-void lcec_update_slave_state_hal(lcec_slave_state_t *hal_data, ec_slave_config_state_t *ss);
+void lcec_update_slave_state_hal(lcec_slave_state_t *hal_data, ec_slave_config_state_t *ss) GOMC_NONBLOCKING;
 
 /**
  * @brief Create a single HAL pin using a printf-style format string and @c va_list.

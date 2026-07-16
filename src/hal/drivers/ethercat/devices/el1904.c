@@ -88,7 +88,7 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1904_read(struct lcec_slave *slave, long period);
+void lcec_el1904_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Pre-initialise the EL1904 slave (sets FSoE configuration).

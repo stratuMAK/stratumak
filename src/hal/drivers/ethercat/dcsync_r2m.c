@@ -55,7 +55,7 @@
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->app_time_ns.
  */
-static void cycle_start(struct lcec_master *master) {
+static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
   const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   master->app_time_ns = master->rt_ctx->dc_time_offset + rtapi->pll_get_reference(rtapi->ctx);
   ecrt_master_application_time(master->master, master->app_time_ns);
@@ -84,7 +84,7 @@ static void cycle_start(struct lcec_master *master) {
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->ref_clock_sync_counter.
  */
-static void pre_send(struct lcec_master *master) {
+static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
   const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
 
   if (master->ref_clock_sync_cycles <= 0) {
@@ -113,7 +113,7 @@ static void pre_send(struct lcec_master *master) {
  *
  * @param master  EtherCAT master (unused).
  */
-static void post_send(struct lcec_master *master) {
+static void post_send(struct lcec_master *master) GOMC_NONBLOCKING {
   // NOP
 }
 

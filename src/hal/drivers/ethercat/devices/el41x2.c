@@ -99,7 +99,7 @@ static ec_sync_info_t lcec_el41x2_syncs[] = {
     {0xff}
 };
 
-void lcec_el41x2_write(struct lcec_slave *slave, long period);
+void lcec_el41x2_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize an EL41x2 slave device.

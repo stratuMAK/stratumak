@@ -177,8 +177,8 @@ static const lcec_pindesc_t slave_enc_pins[] = {
 /**
  * @brief Cyclic read and write: forward declarations.
  */
-void lcec_em7004_read(struct lcec_slave *slave, long period);
-void lcec_em7004_write(struct lcec_slave *slave, long period);
+void lcec_em7004_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_em7004_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialise the EM7004 stepper module and map all PDOs.

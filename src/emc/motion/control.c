@@ -74,7 +74,7 @@
    switches, it means debouncing them and setting flags in the
    inst->status structure.
 */
-static void process_inputs(motmod_inst_t *inst);
+static void process_inputs(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'joint_jog_abort_all()' if either jog-stop or jog-stop-immediate
    become True while jogging then the jog will abort.
@@ -91,13 +91,13 @@ static void joint_jog_abort_all(motmod_inst_t *inst, bool immediate);
    don't have forward kins, and other special cases, such as when
    the joints have not been homed.
 */
-static void do_forward_kins(motmod_inst_t *inst);
+static void do_forward_kins(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* probe inputs need to be handled after forward kins are run, since
    cartesian feedback position is latched when the probe fires, and it
    should be based on the feedback read in on this servo cycle.
 */
-static void process_probe_inputs(motmod_inst_t *inst);
+static void process_probe_inputs(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'check_for_faults()' is responsible for detecting fault conditions
    such as limit switches, amp faults, following error, etc.  It only
@@ -107,7 +107,7 @@ static void process_probe_inputs(motmod_inst_t *inst);
    up the architecture toward the GUI - printing error messages
    directly seems a little messy)
 */
-static void check_for_faults(motmod_inst_t *inst);
+static void check_for_faults(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'set_operating_mode()' handles transitions between the operating
    modes, which are free, coordinated, and teleop.  This stuff needs
@@ -116,13 +116,13 @@ static void check_for_faults(motmod_inst_t *inst);
    state can change.  It should be rewritten as such, but for now
    it consists of code copied exactly from emc1.
 */
-static void set_operating_mode(motmod_inst_t *inst);
+static void set_operating_mode(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'handle_jjogwheels()' reads jogwheels, decides if they should be
    enabled, and if so, changes the free mode planner's target position
    when the jogwheel(s) turn.
 */
-static void handle_jjogwheels(motmod_inst_t *inst);
+static void handle_jjogwheels(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'do_homing_sequence()' — faithful replication of original homing.c FSM.
    Coordinates multi-joint homing by sequence group.
@@ -130,7 +130,7 @@ static void handle_jjogwheels(motmod_inst_t *inst);
    Manages sequence_state to advance through groups in order.
    Returns 1 when all joints have completed homing (transition to teleop).
 */
-static int do_homing_sequence(motmod_inst_t *inst)
+static int do_homing_sequence(motmod_inst_t *inst) GOMC_NONBLOCKING
 {
     int i, seen;
     int sequence_is_set = 0;
@@ -312,7 +312,7 @@ static int do_homing_sequence(motmod_inst_t *inst)
 /* 'get_pos_cmds()' generates the position setpoints.  This includes
    calling the trajectory planner and interpolating its outputs.
 */
-static void get_pos_cmds(motmod_inst_t *inst, long period);
+static void get_pos_cmds(motmod_inst_t *inst, long period) GOMC_NONBLOCKING;
 
 /* 'compute_screw_comp()' is responsible for calculating backlash and
    lead screw error compensation.  (Leadscrew error compensation is
@@ -337,15 +337,15 @@ static void compute_screw_comp(motmod_inst_t *inst);
    number of internal variables to HAL parameters so they can
    be observed with halscope and halmeter.
 */
-static void output_to_hal(motmod_inst_t *inst);
+static void output_to_hal(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'update_status()' copies assorted status information to shared
    memory (the inst->status structure) so that it is available to
    higher level code.
 */
-static void update_status(motmod_inst_t *inst);
+static void update_status(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
-static void handle_kinematicsSwitch(motmod_inst_t *inst);
+static void handle_kinematicsSwitch(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /***********************************************************************
 *                        PUBLIC FUNCTION CODE                          *
@@ -1364,6 +1364,27 @@ static void handle_jjogwheels(motmod_inst_t *inst)
 *              JERK FILTER (boxcar moving-average)                      *
 ************************************************************************/
 
+/* Allocate the jerk filter buffers for the worst case (window cap ×
+   joint count) once at instance init.  jerk_filter_recompute_window()
+   runs in the servo thread on parameter changes and must not allocate,
+   so it only re-strides within this capacity.  ~4 KB per joint. */
+int jerk_filter_alloc(motmod_inst_t *inst)
+{
+    int nj = inst->num_joints;
+    if (nj <= 0)
+        return 0;
+    inst->jerk_filter.buf =
+        rtapi_calloc((size_t)nj * JERK_FILTER_MAX_WINDOW * sizeof(double));
+    inst->jerk_filter.sum = rtapi_calloc((size_t)nj * sizeof(double));
+    if (!inst->jerk_filter.buf || !inst->jerk_filter.sum) {
+        if (inst->jerk_filter.buf) { rtapi_free(inst->jerk_filter.buf); inst->jerk_filter.buf = NULL; }
+        if (inst->jerk_filter.sum) { rtapi_free(inst->jerk_filter.sum); inst->jerk_filter.sum = NULL; }
+        return -1;
+    }
+    inst->jerk_filter.num_joints = nj;
+    return 0;
+}
+
 void jerk_filter_recompute_window(motmod_inst_t *inst)
 {
     int max_window = 0;
@@ -1400,31 +1421,20 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
             JERK_FILTER_MAX_WINDOW);
     }
 
-    /* Free old buffers */
-    if (inst->jerk_filter.buf) {
-        rtapi_free(inst->jerk_filter.buf);
-        inst->jerk_filter.buf = NULL;
-    }
-    if (inst->jerk_filter.sum) {
-        rtapi_free(inst->jerk_filter.sum);
-        inst->jerk_filter.sum = NULL;
-    }
-
+    /* Buffers are preallocated for the worst case by jerk_filter_alloc()
+       at instance init — this function runs in the servo thread and must
+       not allocate.  Re-striding is safe because the buffer contents are
+       rewritten below. */
     inst->jerk_filter.window_size = max_window;
-    inst->jerk_filter.num_joints = nj;
     inst->jerk_filter.idx = 0;
     inst->jerk_filter.filled = 0;
 
     if (max_window > 0 && nj > 0) {
-        /* Allocate exactly what's needed (pre-faulted, mlock'd) */
-        inst->jerk_filter.buf = rtapi_calloc((size_t)nj * max_window * sizeof(double));
-        inst->jerk_filter.sum = rtapi_calloc((size_t)nj * sizeof(double));
-        if (!inst->jerk_filter.buf || !inst->jerk_filter.sum) {
-            gomc_log_errorf(inst->log, inst->name, 
-                "MOTION: jerk filter alloc failed (joints=%d window=%d)\n", nj, max_window);
-            /* Fall back to disabled */
-            if (inst->jerk_filter.buf) { rtapi_free(inst->jerk_filter.buf); inst->jerk_filter.buf = NULL; }
-            if (inst->jerk_filter.sum) { rtapi_free(inst->jerk_filter.sum); inst->jerk_filter.sum = NULL; }
+        if (!inst->jerk_filter.buf || !inst->jerk_filter.sum ||
+            nj != inst->jerk_filter.num_joints) {
+            gomc_log_errorf(inst->log, inst->name,
+                "MOTION: jerk filter buffers not preallocated "
+                "(joints=%d window=%d) - filter disabled\n", nj, max_window);
             inst->jerk_filter.window_size = 0;
         } else {
             /* Pre-fill buffers with current positions to avoid startup

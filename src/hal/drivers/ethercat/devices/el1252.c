@@ -128,7 +128,7 @@ typedef struct {
 } lcec_el1252_data_t;
 
 /** \brief callback for periodic IO data access*/
-void lcec_el1252_read(struct lcec_slave *slave, long period);
+void lcec_el1252_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
 
 /**
  * @brief Initialize the EL1252 fast digital input slave.
