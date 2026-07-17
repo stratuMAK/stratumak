@@ -404,10 +404,17 @@ Not per-module; each needs an owner and a done-definition.
   allocations (strings, slice buffers, nested) after converting to Go, and the generated
   headers document the ownership rule (returned string/slice data must be malloc'd, never
   static). Safe by audit: the only string-bearing client returns are persist and
-  tooltable, both Go-provided. **Remaining known leak (small, follow-up):** the REST
-  dispatch path (`<api>DispatchXxx`) still frees arrays but not strings — extending it
-  needs an ownership audit of the C-module providers it can serve (halcmd etc.) before
-  their strings can be freed.
+  tooltable, both Go-provided. The REST dispatch path is closed too (2026-07-17,
+  second commit): dispatch funcs now free returned strings and slice-element
+  allocations — this covered the polled watch functions (halcmd `watch_items`,
+  halscope `watch_state`, pyvcp `watch_pins`), so that leak was hot, not admin-only.
+  The provider audit (gmicompile-parser sweep over every IDL) found exactly one C
+  provider with string-bearing returns: the ethercat cmod, which deliberately
+  returned borrowed pointers into thread-local buffers under a
+  "dispatch-copies-before-next-call" contract. That contract is gone; it now
+  strdups all returned strings (`ret_str`) and `format_mac` mallocs. Verified live:
+  repeated REST hits on halcmd /pins (739 pins × 7 strings), /signals, /threads,
+  tooltable list/get, persist namespaces — all healthy.
   Repro/instrumentation notes kept for posterity: the evidence lives in the test's
   `stderr` file, NOT the runtests output, and a later green run overwrites it — copy it
   out on first capture. `grep -cE '^\*\*\* '` is NOT a failure count (it matches XFAIL
