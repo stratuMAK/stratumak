@@ -309,30 +309,82 @@ Not per-module; each needs an owner and a done-definition.
   timeout while `/wait-complete` blocks server-side for its full `timeout`, so any
   `wait_complete(t>10)` raised a socket error instead of ever returning -1 — the -1 contract
   was unreachable for long waits.
-- [ ] **M-code completion is intermittently lost — sequencer wedges in `McodeCmd.Execute`.**
-  Reproduces on `tests/mdi-queue/simple-queue-buster` (~1 run in 5 standalone; ~1100 MDIs,
-  each an `m100 p<i>` plus periodic `t1/t2 m6` queue-busters). Caught live via
-  `/debug/pprof/goroutine?debug=2` while stalled:
-    - the **sequencer** (`Task.sequencerLoop` → `McodeCmd.Execute` → `Task.pollUntil`) is
-      blocked waiting for `mcode.CheckDone()`;
-    - the **mcode worker** (`mcodeHandler.worker`) is idle in `chan receive` on `jobCh`.
-  i.e. `done == false` while nothing is running: the sequencer waits for a worker that
-  believes it has no work. Status at the stall: `interp_state=READING(2)`,
-  `exec_state=WaitingForMotion(2)`, `queued_mdi_commands=0`, `task_state=ON(4)`.
-  NOT slowness and NOT motion: `m100` moves nothing, and `pollInterval` is 10ms (~11s
-  across all 1100 M-codes, not 30s on one). The stall is transient — runs that recover
-  inside the driver's 30s drain deadline still pass, which is why this reads as a flake.
-  This is **pre-existing** (the 2026-07-16 runtests log shows the sibling
-  `oword-queue-buster` failing identically, and the pre-gomc_test `rsh2gmi.drain_mdi` had
-  the same 30s deadline and raised the same way); the test-sync pass only made it
-  legible. Suspect the `Submit` / `CheckDone` handshake in `internal/task/mcode_handler.go`
-  (`done` is reset in `Submit` and destructively consumed in `CheckDone`, with `jobCh`
-  buffered 1) — but there is exactly one caller of each, so the obvious double-consumer
-  explanation does not hold and the interleaving is not yet proven. Note
+- **FIXED (2026-07-17): M-code completions were credited to the wrong job — the
+  `Submit`/`CheckDone` handshake had no job identity.** The suspect recorded here on
+  2026-07-16 was right, and the interleaving is now proven by a unit test rather than
+  inferred. `mcodeHandler` signalled completion through a single bare `done bool`: it
+  recorded that *a* job had finished, never *which* one. `McodeCmd.Execute` has one exit
+  that does not consume `done` — `pollUntil` returning on abort while the handler is still
+  running. From then on the worker's stale `done=true` is collected by the *next* M-code's
+  waiter, and the sequencer runs permanently one job ahead of the worker: it reports
+  M-codes complete that never ran, and `Submit` starts rejecting jobs outright with
+  "worker busy" (`jobCh` is buffered 1) once the skew makes it collide with the
+  still-queued predecessor. The "exactly one caller of each" argument in the old note is
+  what made this look impossible — it is true, and irrelevant: the two callers that
+  cross-talk are *successive* calls by the same caller, separated by an abort.
+  **The race detector cannot see this** — every access to `done` correctly takes
+  `resultMu`. It is a lost/misattributed update, not a data race, so the 2026-07-16 lead
+  ("run the queue-buster under `-race`; a write-write on `done` would surface directly")
+  was a dead end.
+  Fixed by giving each submission its own buffered `resultCh` (`mcodeSub`): a completion
+  can only ever be delivered to the job that produced it, and an abandoned job's result
+  is garbage collected instead of being handed to the next caller. `Submit` now blocks
+  until the worker accepts (unblocking on `seqAbort`) rather than failing a job whose only
+  crime is that a previously abandoned handler is still draining. `done`/`result`/
+  `resultMu`/`CheckDone` are gone — the class of bug is removed, not patched.
+  Evidence, `TestMcodeHandlerNoResultCrosstalk` (2000 M-codes, aborts racing completion):
+  before **1088/2000 jobs rejected "worker busy"** and only 910 handlers ran for 709
+  reported successes; after **0 rejected, 1999 ran**, every success backed by a real
+  invocation. Live: `tests/mdi-queue/simple-queue-buster` 45 runs (the same loop that
+  caught the wedge on run 10 on 2026-07-16) — no wedge.
+  Also fixed in the same seam: **`Abort()` could panic the process** ("close of closed
+  channel"). Its check-and-close ran *outside* `h.mu`, so two of the four abort paths
+  (three `mcodeAbort` call sites + `Stop`) racing would both observe an open channel and
+  both close it; the same unlocked read could also close a channel `Submit` had already
+  swapped out, aborting nothing. Now checked and closed under `h.mu`.
   `MILLTASK_GOROUTINE_PROBLEM.md` §5 identifies user M-codes as the ONE job that
   genuinely must block, so this handshake is the load-bearing seam of the current
-  pipeline design. Repro: loop the test and poll `/api/v1/milltask/stat` for
-  `interp_state != 1 && queued_mdi_commands == 0` persisting >10s, then capture pprof.
+  pipeline design — worth re-reading before changing it again.
+  **The queue-buster's remaining flake is a DIFFERENT bug — see the persist GC crash
+  below.** It is not the wedge: the `interp_state != 1 && queued_mdi_commands == 0`
+  detector stays silent through it, because the sequencer is not stalled — the server is
+  dead.
+- [ ] **gomc-server dies with a Go runtime GC fault in the generated `persist` GMI client —
+  PRODUCTION-RELEVANT (uncontrolled controller death), found 2026-07-17.** Not a hang and
+  not an M-code bug: the process is *killed by the Go runtime*, after which every client
+  poll gets `Connection refused` and the test driver blames its own 30s drain deadline —
+  which is what made this look like the M-code wedge. Verbatim:
+
+      runtime: bad pointer in frame
+        github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist.(*PersistClient).GetEntry
+        at 0xc0004e10a0: 0x8
+      fatal error: invalid pointer found on stack
+      runtime.adjustpointers -> adjustframe -> copystack -> shrinkstack -> scanstack
+
+  A stack slot the GC believes is a pointer holds `0x8` (below `minLegalPointer`), so the
+  stack scan throws. `persist_entry_t` is `{const char *key; const char *value; int64_t
+  updated;}` — cgo types those `char*` fields as Go pointers **and the GC scans them**, so
+  any garbage the C side leaves in the by-value return struct is a fatal error, not a
+  benign bad read. Hit during the tool-change path (`tooltable`/`ngc_vars` persist lookups
+  — the last log line before the fault is `tool change complete`), so it is reachable from
+  any config that changes tools, independent of user M-codes.
+  Reproduces on `tests/mdi-queue/simple-queue-buster` roughly **1 run in 25** (2 in ~47).
+  The M100 log just stops mid-run (e.g. at `P is 374` of 1001) with nothing unexpected
+  after it — a clean decapitation, no partial line. **The evidence is in the test's
+  `stderr` file, NOT in the runtests output**, which is why previous passes over this test
+  never saw it.
+  Ruled out as a consequence of the 2026-07-17 M-code fix: that diff touches only
+  `internal/task/{mcode_handler,sequencer}.go` and adds no C pointer handling; this fault
+  is a GC stack scan of a *generated persist client* frame on the tool-change path.
+  Not yet root-caused. `entryGoToC`/`entryCToGo` and the zero-struct error path all look
+  correct on inspection (`C.CString` memory is valid malloc'd C memory), so the next step
+  is to find who actually provides `persist` at runtime and whether the by-value struct
+  return is what corrupts the frame. Note en route: `persist_bridge_get_entry` builds
+  `_retAllocs` ("caller owns returned data") and then **discards it** — the returned
+  `CString`s are never freed by bridge or client, so every `GetEntry` leaks key+value.
+  Repro: loop the test; on the first failure read `tests/mdi-queue/simple-queue-buster/
+  stderr` and grep for `fatal error`. `GODEBUG=cgocheck=2` / `-race` on gomc-server are
+  the obvious next instruments.
 - [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
   at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
   file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)

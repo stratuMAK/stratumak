@@ -1171,15 +1171,16 @@ func (c *McodeCmd) Execute(t *Task) error {
 	if t.mcode == nil {
 		return fmt.Errorf("mcode_handler: not initialized")
 	}
-	if err := t.mcode.Submit(int(c.Mcode), c.P, c.Q); err != nil {
+	sub, err := t.mcode.Submit(int(c.Mcode), c.P, c.Q, t.seqAbort)
+	if err != nil {
 		return err
 	}
-	// Poll for completion (worker runs async). CheckDone consumes the result
-	// (it clears the done flag), so capture it in the poll callback rather than
-	// re-reading afterwards.
+	// Poll for completion (worker runs async). sub is scoped to THIS submission,
+	// so an abort that returns below cannot leak this job's completion into the
+	// next M-code's wait.
 	var result int
 	if err := t.pollUntil(func() bool {
-		r, done := t.mcode.CheckDone()
+		r, done := sub.check()
 		if done {
 			result = r
 		}
