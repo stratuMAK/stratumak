@@ -19,7 +19,16 @@ rm -f out.txt server.log
 gomc-server -r -f halmodule1.hal --serve >server.log 2>&1 &
 SRV=$!
 trap '[ -n "$SRV" ] && kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q filestream && break; sleep 0.1; done
+# Readiness must fail loudly: falling through clocked a dead server and reported
+# "FAIL sampleno= underruns= ..." instead of "the server never started".
+# stdout is compared against `expected` (a single "pass"), so this goes to stderr.
+ready=""
+for i in $(seq 100); do
+    if halcmd show comp 2>/dev/null | grep -q filestream; then ready=1; break; fi
+    kill -0 $SRV 2>/dev/null || break
+    sleep 0.1
+done
+[ -n "$ready" ] || { echo "*** filestream never loaded within 10s; see $PWD/server.log" >&2; exit 1; }
 halcmd start
 for i in $(seq 300); do [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ] && break; sleep 0.02; done
 sn=$(halcmd getp filestream.sample-num | awk '{print $NF}')

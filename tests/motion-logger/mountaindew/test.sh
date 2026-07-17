@@ -5,16 +5,19 @@
 set -e
 
 # gomc full-instance test: milltask -> motion-logger interceptor -> real motmod.
+. "$(dirname "$0")/../../gomc-driver.sh"
+
 rm -f out.motion-logger*
 
 gomc-server -r mountaindew.ini &
 SRV=$!
+GOMC_SRV=$SRV
+export GOMC_SRV
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
-for i in $(seq 100); do
-    halcmd show comp 2>/dev/null | grep -q milltask && break
-    sleep 0.1
-done
-sleep 0.5
+# test-ui.py goes straight to c.state(STATE_ESTOP_RESET), so readiness must be
+# established here. Replaces a `grep milltask` loop with no failure branch plus a
+# trailing `sleep 0.5` that guessed at task init.
+gomc_wait_ready
 
 ./test-ui.py

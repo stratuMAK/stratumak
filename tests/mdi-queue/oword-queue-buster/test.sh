@@ -11,6 +11,7 @@
 # So "m100 p-#5400" logs "P is 0" instead of the tool number, and the run
 # diverges from expected.  Remove xfail once M6/#5400 tool-tracking is fixed.
 set -x
+. ../../gomc-driver.sh
 rm -f gcode-output sim.var sim.var.bak
 
 # Build the command stream + expected M100 log, calling the queue-buster sub
@@ -37,11 +38,8 @@ for i in $(seq 0 1000); do
 done
 printf 'P is -200.000000\n' >> expected-gcode-output
 
-gomc-server -r sim.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+gomc_start_server --inherit sim.ini
+gomc_wait_ready
 
 (
     echo hello EMC mt 1.0

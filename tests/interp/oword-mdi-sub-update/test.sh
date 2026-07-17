@@ -5,10 +5,8 @@
 # gomc-server, so that stdout lands in the server log -- cat it into our own
 # stdout at the end so checkresult can grep `result` for 'test RAN' (and for
 # the absence of the 'duplicate O-word label' bug).
-gomc-server -r interp.ini >server.log 2>&1 &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+. ../../gomc-driver.sh
+gomc_start_server interp.ini
+gomc_wait_ready
 ./test-ui.py
 cat server.log

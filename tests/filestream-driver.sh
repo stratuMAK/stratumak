@@ -32,18 +32,41 @@ fs_run() {
     _FS_SRVPID=$!
     trap fs_cleanup EXIT
 
-    local i
+    # Wait for the server to load filestream. The loop must fail loudly on
+    # expiry: falling through would run the rest of the sequence against a dead
+    # server and report an empty-output diff rather than "the server never
+    # started".
+    local i ready=""
     for i in $(seq 100); do
-        halcmd show comp 2>/dev/null | grep -q filestream && break
+        if halcmd show comp 2>/dev/null | grep -q filestream; then
+            ready=1
+            break
+        fi
+        kill -0 "$_FS_SRVPID" 2>/dev/null || break
         sleep 0.1
     done
+    if [ -z "$ready" ]; then
+        echo "filestream-driver: server did not load filestream within 10s;" \
+             "see $PWD/server.log" >&2
+        exit 1
+    fi
 
     halcmd start
     # Wait for the run to complete (replay drained / N samples captured).
+    local done_=""
     for i in $(seq 500); do
-        [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ] && break
+        if [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ]; then
+            done_=1
+            break
+        fi
         sleep 0.02
     done
+    if [ -z "$done_" ]; then
+        echo "filestream-driver: filestream.done never went TRUE within 10s —" \
+             "the replay stalled; $outfile would be truncated" >&2
+        halcmd stop
+        exit 1
+    fi
     halcmd stop
 
     # Kill the server so filestream's Destroy flushes the final captures and

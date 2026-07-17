@@ -1,6 +1,8 @@
 #!/bin/bash
 set -x
 
+. ../../gomc-driver.sh
+
 rm -f sim.var
 
 # reset the tool table to a known starting configuration
@@ -12,11 +14,8 @@ rm -f gcode-output
 # gomc-server does not launch [DISPLAY]; start it and drive the rsh command
 # stream through rsh2gmi.py (linuxcncrsh -> gmi translator). M100 introspection is
 # handled by the mcode_coord_log cmod loaded via mcode.hal.
-gomc-server -r sim.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+gomc_start_server --inherit sim.ini
+gomc_wait_ready
 
 
 (

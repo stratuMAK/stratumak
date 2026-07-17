@@ -8,12 +8,10 @@
 # command stream is translated to gmi by rsh2gmi.py, and M100 is captured by the
 # mcode_coord_log cmod (format=raw, matching the classic subs/M100 "P is/Q is").
 set -x
+. ../gomc-driver.sh
 rm -f gcode-output sim.var sim.var.bak
-gomc-server -r sim.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+gomc_start_server --inherit sim.ini
+gomc_wait_ready
 
 (
     echo hello EMC mt 1.0
