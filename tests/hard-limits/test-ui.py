@@ -263,15 +263,27 @@ assert(s.enabled == True)
 # stop the jog
 c.jog(JOG_STOP, 1, 0)
 
-# verify that we're stopping
-s.poll()
-old_x = s.position[0]
+# Wait for the joint to actually come to rest, and for status to reflect the
+# cleared limit, BEFORE checking status. The old loop compared old_x against a
+# value read in the SAME poll, so its condition was false immediately and it
+# never waited (it even printed "stopped moving" while joint velocity was still
+# 1.0). Under load the assertions below then ran against a still-moving joint /
+# unsettled status and flaked. Wait until two consecutive position samples match
+# (stopped) and the min-hard-limit status has cleared.
 start_time = time.time()
-while (old_x != s.position[0]) and (time.time() - start_time < TIMEOUT):
-    time.sleep(0.1)
+prev_x = None
+stopped = False
+while (time.time() - start_time < TIMEOUT):
     s.poll()
+    x = s.position[0]
+    if prev_x is not None and x == prev_x:
+        stopped = True
+        if (s.joint[0]['min_hard_limit'] == False) and (s.limit[0] == 0):
+            break
+    prev_x = x
+    time.sleep(0.1)
 
-if old_x != s.position[0]:
+if not stopped:
     print("JOG_STOP didn't stop movement")
     sys.exit(1)
 
