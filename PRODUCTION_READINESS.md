@@ -349,11 +349,12 @@ Not per-module; each needs an owner and a done-definition.
   below.** It is not the wedge: the `interp_state != 1 && queued_mdi_commands == 0`
   detector stays silent through it, because the sequencer is not stalled — the server is
   dead.
-- [ ] **gomc-server dies with a Go runtime GC fault in the generated `persist` GMI client —
-  PRODUCTION-RELEVANT (uncontrolled controller death), found 2026-07-17.** Not a hang and
-  not an M-code bug: the process is *killed by the Go runtime*, after which every client
-  poll gets `Connection refused` and the test driver blames its own 30s drain deadline —
-  which is what made this look like the M-code wedge. Verbatim:
+- [x] **gomc-server dies with a Go runtime GC fault in the generated `persist` GMI client —
+  PRODUCTION-RELEVANT (uncontrolled controller death), found 2026-07-17, ROOT-CAUSED AND
+  FIXED 2026-07-17 (`gmi: never let a cgo.Handle transit a Go pointer-typed slot`).**
+  Not a hang and not an M-code bug: the process is *killed by the Go runtime*, after which
+  every client poll gets `Connection refused` and the test driver blames its own 30s drain
+  deadline — which is what made this look like the M-code wedge. Verbatim:
 
       runtime: bad pointer in frame
         github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist.(*PersistClient).GetEntry
@@ -361,54 +362,56 @@ Not per-module; each needs an owner and a done-definition.
       fatal error: invalid pointer found on stack
       runtime.adjustpointers -> adjustframe -> copystack -> shrinkstack -> scanstack
 
-  A stack slot the GC believes is a pointer holds `0x8` (below `minLegalPointer`), so the
-  stack scan throws. `persist_entry_t` is `{const char *key; const char *value; int64_t
-  updated;}` — cgo types those `char*` fields as Go pointers **and the GC scans them**, so
-  any garbage the C side leaves in the by-value return struct is a fatal error, not a
-  benign bad read. Hit during the tool-change path (`tooltable`/`ngc_vars` persist lookups
-  — the last log line before the fault is `tool change complete`), so it is reachable from
-  any config that changes tools, independent of user M-codes.
-  Reproduces on `tests/mdi-queue/simple-queue-buster` roughly **1 run in 25** (2 in ~47).
-  The M100 log just stops mid-run (e.g. at `P is 374` of 1001) with nothing unexpected
-  after it — a clean decapitation, no partial line. **The evidence is in the test's
-  `stderr` file, NOT in the runtests output**, which is why previous passes over this test
-  never saw it.
-  Ruled out as a consequence of the 2026-07-17 M-code fix: that diff touches only
-  `internal/task/{mcode_handler,sequencer}.go` and adds no C pointer handling; this fault
-  is a GC stack scan of a *generated persist client* frame on the tool-change path.
-  Not yet root-caused. `entryGoToC`/`entryCToGo` and the zero-struct error path all look
-  correct on inspection (`C.CString` memory is valid malloc'd C memory), and both ends are
-  Go — provider `internal/persist_sqlite` (`module.go` `GetEntry`, registered via
-  `persist.RegisterPersistAPI`), consumers `internal/tooltable` and `internal/halscope`
-  via `persist.NewPersistClient` — so a struct-layout mismatch is ruled out.
+  **Root cause (proven by the full traceback, preserved in the 2026-07-15 capture):** the
+  crashing goroutine's innermost frame was `runtime.cgoCheckPointer({0xcead60, 0x8}, ...)`
+  called from `GetEntry`'s cgo argument-check closure — the "bad pointer" `0x8` is the
+  **cgo.Handle of the persist provider**, not corruption. The generated provider bridges
+  store `cgo.NewHandle(impl)` — a small integer — in the C callbacks struct's `void *ctx`,
+  and the generated client then passed `cl.cb.ctx` from Go as an `unsafe.Pointer` argument,
+  putting a non-address value in a GC-scanned pointer-typed stack slot. Any stack move
+  (`morestack → shrinkstack → copystack`) that scans such a slot while live trips the
+  runtime's invalid-pointer check (nonzero value < `minLegalPointer`) and aborts the
+  process. Intermittency (~1 in 25 runs of `tests/mdi-queue/simple-queue-buster`, 2 in
+  ~47): the slot must be live at the exact moment a GC stack move scans it. Tool-change
+  bias: that path is the deepest nested Go→C→Go stack (`interp_synch → canon_bridge_
+  get_external_tool_table → tooltable_bridge_get_tool → persist GetEntry`), maximizing
+  morestack probability with several handle-bearing frames live — the same traceback shows
+  `canon_bridge_get_external_tool_table(0x8, ...)` receiving a handle as its
+  `ctx unsafe.Pointer` trampoline parameter, the same bug in the receive direction.
 
-  **Leading hypothesis (UNPROVEN — verify before acting on it): the by-value struct return
-  hands C an sret pointer into the Go stack, and the callback into Go then moves that
-  stack.** `persist_entry_t` is 24 bytes (two pointers + int64); on x86-64 SysV a >16-byte
-  struct is returned through a hidden caller-allocated pointer, so cgo passes C the address
-  of the Go-stack local `out` in `PersistClient.GetEntry`. That C function immediately
-  calls back into Go (`persist_bridge_get_entry`), which can grow/move the goroutine stack
-  — leaving the sret pointer dangling at the old location. Fits the evidence: the fault is
-  thrown from `copystack`/`shrinkstack` with `GetEntry`'s frame live, it is intermittent
-  (only when the stack actually moves during the callback), and the corrupted slot holds a
-  small non-pointer value. If it holds, this is a **generator** bug affecting EVERY gmi API
-  whose Go→C→Go call returns a >16-byte struct by value, not just persist — check the other
-  generated clients before fixing this one by hand. Only 5 APIs have generated clients, but
-  they hold 12 by-value struct returns; the ones big enough to go through sret (and so at
-  risk) are `persist_entry_t` (24B — the one that crashes), `tooltable_tool_entry_t` and
-  `emcio_io_status_t`. Small results (`persist_set_result_t` = `{bool}`, etc.) come back in
-  registers and are safe — which predicts the fault concentrates on tool-table/status reads,
-  matching where it was seen. Cheap first probe: make the client pass
-  an out-param instead of returning by value, or force the callback path to not re-enter Go
-  on the same goroutine, and see if the fault stops.
+  **The earlier sret hypothesis is REFUTED** — verified against the actual cgo-generated
+  code before acting: cgo's shims are already stack-move-safe. The by-value struct return
+  lands in `_cgo_r`, a local on the g0 (system) stack, the write-back pointer is adjusted
+  by the `_cgo_topofstack()` delta after the call, and the wrapper zeroes the result slot
+  before `runtime.cgocall` (verified in the disassembly). Return-struct size is irrelevant.
 
-  Note en route: `persist_bridge_get_entry` builds `_retAllocs` ("caller owns returned
-  data") and then **discards it** — the returned `CString`s are never freed by bridge or
-  client, so every `GetEntry` leaks key+value. Separate bug, fix alongside.
-  Repro: loop the test; on the first failure read `tests/mdi-queue/simple-queue-buster/
-  stderr` and grep for `fatal error` — and copy it out immediately, a later green run
-  overwrites it. `GODEBUG=cgocheck=2` / `-race` on gomc-server are the obvious next
-  instruments.
+  **Fix (generator-level, all GMI packages):** `call_*` client wrappers now take the
+  callbacks-struct pointer and dereference the function pointer and ctx inside C (Go never
+  touches ctx); `//export` trampolines take ctx as `C.uintptr_t` (cgo.Handle's intended
+  transit type per its docs) with matching `uintptr_t` extern decls; `Free*Callbacks`
+  reads ctx back via a C accessor. Hand-written bridges with the same receive-direction
+  bug fixed identically: `internal/task/ini_accessor.go`, `internal/task/mcode_provider.go`,
+  launcher log/ini env callbacks (`gomc_env.go`/`cmodules.go`). The launcher api and
+  kinstest callbacks keep `void *ctx` — theirs is NULL, which is a legal pointer value.
+  Verified: 50 consecutive runs of `simple-queue-buster` under `GOGC=10` (≈10× the GC
+  cycles, so far more shrink-scan opportunities than the stock 1-in-25 detection rate) —
+  0 failures.
+
+  Also fixed alongside (2026-07-17): the returned-string leak. Providers hand out data
+  under "caller owns returned data" (the Go bridges `C.CString`/calloc it), but the
+  generated clients freed only returned slice *arrays*, never strings — every
+  `GetEntry`/`GetTool` leaked its strings. The generated clients now free all C
+  allocations (strings, slice buffers, nested) after converting to Go, and the generated
+  headers document the ownership rule (returned string/slice data must be malloc'd, never
+  static). Safe by audit: the only string-bearing client returns are persist and
+  tooltable, both Go-provided. **Remaining known leak (small, follow-up):** the REST
+  dispatch path (`<api>DispatchXxx`) still frees arrays but not strings — extending it
+  needs an ownership audit of the C-module providers it can serve (halcmd etc.) before
+  their strings can be freed.
+  Repro/instrumentation notes kept for posterity: the evidence lives in the test's
+  `stderr` file, NOT the runtests output, and a later green run overwrites it — copy it
+  out on first capture. `grep -cE '^\*\*\* '` is NOT a failure count (it matches XFAIL
+  prefixes); read the `N failed + M expected` line.
 - [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
   at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
   file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)
