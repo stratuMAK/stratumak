@@ -377,14 +377,38 @@ Not per-module; each needs an owner and a done-definition.
   `internal/task/{mcode_handler,sequencer}.go` and adds no C pointer handling; this fault
   is a GC stack scan of a *generated persist client* frame on the tool-change path.
   Not yet root-caused. `entryGoToC`/`entryCToGo` and the zero-struct error path all look
-  correct on inspection (`C.CString` memory is valid malloc'd C memory), so the next step
-  is to find who actually provides `persist` at runtime and whether the by-value struct
-  return is what corrupts the frame. Note en route: `persist_bridge_get_entry` builds
-  `_retAllocs` ("caller owns returned data") and then **discards it** — the returned
-  `CString`s are never freed by bridge or client, so every `GetEntry` leaks key+value.
+  correct on inspection (`C.CString` memory is valid malloc'd C memory), and both ends are
+  Go — provider `internal/persist_sqlite` (`module.go` `GetEntry`, registered via
+  `persist.RegisterPersistAPI`), consumers `internal/tooltable` and `internal/halscope`
+  via `persist.NewPersistClient` — so a struct-layout mismatch is ruled out.
+
+  **Leading hypothesis (UNPROVEN — verify before acting on it): the by-value struct return
+  hands C an sret pointer into the Go stack, and the callback into Go then moves that
+  stack.** `persist_entry_t` is 24 bytes (two pointers + int64); on x86-64 SysV a >16-byte
+  struct is returned through a hidden caller-allocated pointer, so cgo passes C the address
+  of the Go-stack local `out` in `PersistClient.GetEntry`. That C function immediately
+  calls back into Go (`persist_bridge_get_entry`), which can grow/move the goroutine stack
+  — leaving the sret pointer dangling at the old location. Fits the evidence: the fault is
+  thrown from `copystack`/`shrinkstack` with `GetEntry`'s frame live, it is intermittent
+  (only when the stack actually moves during the callback), and the corrupted slot holds a
+  small non-pointer value. If it holds, this is a **generator** bug affecting EVERY gmi API
+  whose Go→C→Go call returns a >16-byte struct by value, not just persist — check the other
+  generated clients before fixing this one by hand. Only 5 APIs have generated clients, but
+  they hold 12 by-value struct returns; the ones big enough to go through sret (and so at
+  risk) are `persist_entry_t` (24B — the one that crashes), `tooltable_tool_entry_t` and
+  `emcio_io_status_t`. Small results (`persist_set_result_t` = `{bool}`, etc.) come back in
+  registers and are safe — which predicts the fault concentrates on tool-table/status reads,
+  matching where it was seen. Cheap first probe: make the client pass
+  an out-param instead of returning by value, or force the callback path to not re-enter Go
+  on the same goroutine, and see if the fault stops.
+
+  Note en route: `persist_bridge_get_entry` builds `_retAllocs` ("caller owns returned
+  data") and then **discards it** — the returned `CString`s are never freed by bridge or
+  client, so every `GetEntry` leaks key+value. Separate bug, fix alongside.
   Repro: loop the test; on the first failure read `tests/mdi-queue/simple-queue-buster/
-  stderr` and grep for `fatal error`. `GODEBUG=cgocheck=2` / `-race` on gomc-server are
-  the obvious next instruments.
+  stderr` and grep for `fatal error` — and copy it out immediately, a later green run
+  overwrites it. `GODEBUG=cgocheck=2` / `-race` on gomc-server are the obvious next
+  instruments.
 - [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
   at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
   file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)
