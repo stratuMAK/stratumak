@@ -18,8 +18,12 @@
 // "duplicate component name".  Each instance registers its own GMI API under
 // its name, so the UI can enumerate the threads from the registry.
 //
-//   loadrt latency <NAME> [depth=N] [bins=M] [binsize=W]
+//   loadrt latency <NAME> [thread=T] [depth=N] [bins=M] [binsize=W]
 //   addf   NAME THREAD
+//
+//   thread  display name reported in status (what the UI's selector shows).
+//           Set it to the thread the instance is addf'd to, since the instance
+//           itself cannot be named after the thread (HAL .time pin collision).
 //
 // e.g. one instance per thread, with their own settings:
 //
@@ -89,9 +93,8 @@ typedef struct {
     int32_t  jit_v;                 // running worst-case |latency|
     uint32_t count;                 // running sample count
 
-    uint32_t reset_gen;             // bumped by API reset() / reset-pin edge; watched by RT + drainer
+    uint32_t reset_gen;             // one-shot GMI reset() pulse; watched by RT + drainer
     uint32_t rt_gen_seen;           // RT's last-observed reset_gen
-    unsigned reset_prev;            // previous reset-pin level (for edge detect)
 
     lat_ring_t ring;                // raw per-cycle latency samples (SPSC)
 } latency_inst_t;
@@ -150,17 +153,14 @@ static void latency_funct(void *arg, long period) {
 
     *(inst->period_ns) = (uint32_t)period;
 
-    // A rising edge on the HAL `reset` pin is routed through reset_gen, the
-    // same generation counter the GMI reset() action bumps.  Both reset paths
-    // therefore clear the RT scalars here AND the drainer's histogram (which
-    // watches reset_gen), keeping the two views consistent.
-    unsigned rpin = *(inst->reset);
-    if (rpin && !inst->reset_prev)
-        __atomic_fetch_add(&inst->reset_gen, 1, __ATOMIC_RELAXED);
-    inst->reset_prev = rpin;
-
+    // The HAL `reset` pin is level-sensitive: while it is held high the stats
+    // stay cleared and no samples are recorded, so releasing it begins a fresh
+    // measurement.  The GMI reset() action is instead a one-shot pulse via
+    // reset_gen.  Either clears the RT scalars here and re-baselines the clock;
+    // the drainer clears the histogram and history the same way (it watches
+    // both the pin and reset_gen).
     uint32_t gen = __atomic_load_n(&inst->reset_gen, __ATOMIC_RELAXED);
-    if (gen != inst->rt_gen_seen) {
+    if (*(inst->reset) || gen != inst->rt_gen_seen) {
         inst->rt_gen_seen = gen;
         inst->min_v = 0;
         inst->max_v = 0;
@@ -220,12 +220,13 @@ static void *drain_thread(void *arg) {
         // history bucket.
         int64_t now = inst->rtapi->get_time(inst->rtapi->ctx);
 
-        // React to a reset: drop any backlog still in the ring and clear the
+        // React to a reset - a GMI reset() pulse (reset_gen) or the level-held
+        // HAL reset pin: drop any backlog still in the ring and clear the
         // aggregates, so pre-reset samples don't leak into the fresh histogram.
         // The history epoch re-bases to now, so the plot's time axis restarts
         // at 0 for every client.
         uint32_t gen = __atomic_load_n(&inst->reset_gen, __ATOMIC_RELAXED);
-        if (gen != priv->drain_gen_seen) {
+        if (gen != priv->drain_gen_seen || *(inst->reset)) {
             priv->drain_gen_seen = gen;
             inst->ring.read_pos = inst->ring.write_pos;  // discard backlog
             inst->ring.dropped = 0;
@@ -422,6 +423,7 @@ int New(const cmod_env_t *env, const char *name,
     int depth = DEFAULT_DEPTH;
     int nbins = DEFAULT_BINS;
     int binsize = DEFAULT_BINSIZE;
+    const char *label = NULL;   // display name (thread=), defaults to instance
 
     for (int i = 0; i < argc; i++) {
         if (strncmp(argv[i], "depth=", 6) == 0) {
@@ -433,6 +435,8 @@ int New(const cmod_env_t *env, const char *name,
         } else if (strncmp(argv[i], "binsize=", 8) == 0) {
             int w = atoi(argv[i] + 8);
             if (w > 0) binsize = w;
+        } else if (strncmp(argv[i], "thread=", 7) == 0) {
+            if (argv[i][7]) label = argv[i] + 7;
         }
     }
     if (depth > (int)MAX_DEPTH) depth = MAX_DEPTH;
@@ -462,7 +466,11 @@ int New(const cmod_env_t *env, const char *name,
     latency_priv_t *priv = env->rtapi->calloc(env->rtapi->ctx, sizeof(*priv));
     if (!priv) return -ENOMEM;
     priv->env = *env;
-    snprintf(priv->name, sizeof(priv->name), "%s", name);
+    // Display name reported in status/`name`.  The GMI instance and HAL
+    // component are still the load name; this is only what the UI shows (the
+    // instance can't be named after its thread - HAL .time pin collision - so
+    // `thread=` lets the UI label it by the thread it measures).
+    snprintf(priv->name, sizeof(priv->name), "%s", label ? label : name);
 
     latency_inst_t *inst = &priv->inst;
     inst->rtapi = env->rtapi;   // valid for the module lifetime (env contract)

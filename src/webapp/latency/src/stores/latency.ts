@@ -18,8 +18,15 @@ export const RANGES: { label: string; seconds: number }[] = [
   { label: 'all', seconds: 0 },
 ];
 
+// A selectable instance: `value` is the GMI instance name used for API calls,
+// `label` is what the selector shows (the cmod's `thread=` display name).
+export interface InstanceOption {
+  value: string;
+  label: string;
+}
+
 interface State {
-  instances: string[];
+  instances: InstanceOption[];
   selected: string;
   status: LatencyStatus | null;
   histogram: LatencyHistogram | null;
@@ -47,13 +54,26 @@ function queryInstance(): string {
   return new URLSearchParams(window.location.search).get('instance') || '';
 }
 
-// Enumerate all registered `latency` API instances from the server registry.
-async function enumerateInstances(): Promise<string[]> {
+// Enumerate all registered `latency` API instances from the server registry,
+// resolving each one's display label (the cmod's `thread=` name, from status).
+async function enumerateInstances(): Promise<InstanceOption[]> {
   try {
     const resp = await fetch(window.location.origin + '/api/v1/_registry');
     if (!resp.ok) return [];
     const all = (await resp.json()) as Array<{ api_name: string; instance: string }>;
-    return all.filter((e) => e.api_name === 'latency').map((e) => e.instance);
+    const names = all.filter((e) => e.api_name === 'latency').map((e) => e.instance);
+    return await Promise.all(
+      names.map(async (value): Promise<InstanceOption> => {
+        let label = value;
+        try {
+          const st = await new LatencyClient(window.location.origin, value).getStatus();
+          if (st.name) label = st.name;
+        } catch {
+          /* fall back to the instance name */
+        }
+        return { value, label };
+      })
+    );
   } catch {
     return [];
   }
@@ -87,6 +107,7 @@ async function pollHistogram() {
   try {
     const hist = await c.getHistogram();
     if (client !== c || state.selected !== inst) return;
+    if (!hist.bins) hist.bins = []; // server marshals an empty array as null
     state.histogram = hist;
   } catch (e) {
     if (client !== c || state.selected !== inst) return;
@@ -104,6 +125,10 @@ async function pollHistory() {
   try {
     const h = await c.getHistory(state.rangeSec);
     if (client !== c || state.selected !== inst) return;
+    // An empty history comes back as points:null (a Go nil slice marshals to
+    // null, not []); normalise so consumers never hit `null.length`.  This is
+    // the reset-blank-history TypeError.
+    if (!h.points) h.points = [];
     state.history = h;
   } catch (e) {
     if (client !== c || state.selected !== inst) return;
@@ -123,7 +148,8 @@ function pollAll() {
 async function start() {
   state.instances = await enumerateInstances();
   const q = queryInstance();
-  state.selected = q && state.instances.includes(q) ? q : state.instances[0] ?? '';
+  const has = (v: string) => state.instances.some((i) => i.value === v);
+  state.selected = q && has(q) ? q : state.instances[0]?.value ?? '';
   if (!state.selected) {
     state.error = 'no latency instances found';
     return;

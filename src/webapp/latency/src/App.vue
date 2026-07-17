@@ -24,7 +24,7 @@ function onSelect(e: Event) {
         thread
         <select :value="store.state.selected" @change="onSelect"
                 :disabled="store.state.instances.length === 0">
-          <option v-for="i in store.state.instances" :key="i" :value="i">{{ i }}</option>
+          <option v-for="i in store.state.instances" :key="i.value" :value="i.value">{{ i.label }}</option>
         </select>
       </label>
       <span class="status" :class="{ ok: store.state.connected, bad: !store.state.connected }">
