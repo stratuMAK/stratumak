@@ -208,10 +208,10 @@ start_external_stress () {
     [ "$BASE" -ne 0 ] && echo "newthread base-thread $BASE nofp"
     echo "newthread servo-thread $SERVO"
     if [ "$BASE" -ne 0 ]; then
-        echo "loadrt latency <lat.base> thread=base-thread"
+        echo "loadrt latency <lat.base>"
         echo "addf lat.base base-thread"
     fi
-    echo "loadrt latency <lat.servo> thread=servo-thread"
+    echo "loadrt latency <lat.servo>"
     echo "addf lat.servo servo-thread"
     # --stress: load the GC-pressure generator so the run is measured under
     # Go garbage-collector load (default workers/live set by the module).

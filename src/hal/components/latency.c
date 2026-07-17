@@ -18,12 +18,8 @@
 // "duplicate component name".  Each instance registers its own GMI API under
 // its name, so the UI can enumerate the threads from the registry.
 //
-//   loadrt latency <NAME> [thread=T] [depth=N] [bins=M] [binsize=W]
+//   loadrt latency <NAME> [depth=N] [bins=M] [binsize=W]
 //   addf   NAME THREAD
-//
-//   thread  display name reported in status (what the UI's selector shows).
-//           Set it to the thread the instance is addf'd to, since the instance
-//           itself cannot be named after the thread (HAL .time pin collision).
 //
 // e.g. one instance per thread, with their own settings:
 //
@@ -423,7 +419,6 @@ int New(const cmod_env_t *env, const char *name,
     int depth = DEFAULT_DEPTH;
     int nbins = DEFAULT_BINS;
     int binsize = DEFAULT_BINSIZE;
-    const char *label = NULL;   // display name (thread=), defaults to instance
 
     for (int i = 0; i < argc; i++) {
         if (strncmp(argv[i], "depth=", 6) == 0) {
@@ -435,8 +430,6 @@ int New(const cmod_env_t *env, const char *name,
         } else if (strncmp(argv[i], "binsize=", 8) == 0) {
             int w = atoi(argv[i] + 8);
             if (w > 0) binsize = w;
-        } else if (strncmp(argv[i], "thread=", 7) == 0) {
-            if (argv[i][7]) label = argv[i] + 7;
         }
     }
     if (depth > (int)MAX_DEPTH) depth = MAX_DEPTH;
@@ -466,11 +459,7 @@ int New(const cmod_env_t *env, const char *name,
     latency_priv_t *priv = env->rtapi->calloc(env->rtapi->ctx, sizeof(*priv));
     if (!priv) return -ENOMEM;
     priv->env = *env;
-    // Display name reported in status/`name`.  The GMI instance and HAL
-    // component are still the load name; this is only what the UI shows (the
-    // instance can't be named after its thread - HAL .time pin collision - so
-    // `thread=` lets the UI label it by the thread it measures).
-    snprintf(priv->name, sizeof(priv->name), "%s", label ? label : name);
+    snprintf(priv->name, sizeof(priv->name), "%s", name);
 
     latency_inst_t *inst = &priv->inst;
     inst->rtapi = env->rtapi;   // valid for the module lifetime (env contract)
