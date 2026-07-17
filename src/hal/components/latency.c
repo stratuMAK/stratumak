@@ -12,10 +12,24 @@
 // and accumulate continuously, they survive client disconnects, are identical
 // for every client, and are complete for late-connecting clients.
 //
-// Threads are dynamic: load one instance per thread you want to watch.
+// Threads are dynamic: load one instance per thread you want to watch.  The
+// instance name comes from the loader's angle-bracket name list; without it
+// every load defaults to the module basename and a second load collides with
+// "duplicate component name".  Each instance registers its own GMI API under
+// its name, so the UI can enumerate the threads from the registry.
 //
-//   loadrt latency [depth=N] [bins=M] [binsize=W]
-//   addf   latency <thread>
+//   loadrt latency <NAME> [depth=N] [bins=M] [binsize=W]
+//   addf   NAME THREAD
+//
+// e.g. one instance per thread, with their own settings:
+//
+//   loadrt latency <lat.base>  binsize=200
+//   loadrt latency <lat.servo> binsize=1000
+//   addf   lat.base  base
+//   addf   lat.servo servo
+//
+// (A single load may also name several instances at once: <a,b,c> - they then
+// share the same arguments.)
 //
 //   depth   ring capacity in samples (default 65536)
 //   bins    histogram bin count (default 256, rounded to a multiple of 4)
