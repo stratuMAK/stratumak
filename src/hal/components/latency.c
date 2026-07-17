@@ -198,8 +198,15 @@ static void *drain_thread(void *arg) {
     int32_t batch[DRAIN_BATCH];
 
     while (!priv->io_stop) {
+        // One timestamp per iteration: samples are drained within a drain
+        // interval (20 ms) of being produced, which is well inside the 100 ms
+        // history bucket.
+        int64_t now = inst->rtapi->get_time(inst->rtapi->ctx);
+
         // React to a reset: drop any backlog still in the ring and clear the
-        // aggregate, so pre-reset samples don't leak into the fresh histogram.
+        // aggregates, so pre-reset samples don't leak into the fresh histogram.
+        // The history epoch re-bases to now, so the plot's time axis restarts
+        // at 0 for every client.
         uint32_t gen = __atomic_load_n(&inst->reset_gen, __ATOMIC_RELAXED);
         if (gen != priv->drain_gen_seen) {
             priv->drain_gen_seen = gen;
@@ -207,15 +214,11 @@ static void *drain_thread(void *arg) {
             inst->ring.dropped = 0;
             pthread_mutex_lock(&priv->lock);
             hist_reset(&priv->hist);
-            history_reset(&priv->history);
+            history_reset(&priv->history, now);
             pthread_mutex_unlock(&priv->lock);
         }
 
         uint32_t n = lat_ring_read(&inst->ring, batch, DRAIN_BATCH);
-        // One timestamp for the whole batch: samples are drained within a
-        // drain interval (20 ms) of being produced, which is well inside the
-        // 100 ms history bucket.
-        int64_t now = inst->rtapi->get_time(inst->rtapi->ctx);
 
         pthread_mutex_lock(&priv->lock);
         for (uint32_t i = 0; i < n; i++) {

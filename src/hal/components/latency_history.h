@@ -57,15 +57,17 @@ static inline void history_init(history_t *h, hbucket_t *buf, int capacity,
     h->cur_start_ns = 0;
 }
 
-// Clear the retained buckets and the open accumulator (epoch is preserved so
-// the time axis stays consistent across a reset and across clients).
-static inline void history_reset(history_t *h) {
+// Clear the retained buckets and the open accumulator, and re-base the epoch
+// to now so the time axis restarts at 0 after a reset.  The epoch lives on the
+// server, so every client still sees the same timeline.
+static inline void history_reset(history_t *h, int64_t now_ns) {
     h->count = 0;
     h->head = 0;
     h->cur_open = 0;
     h->cur_min = h->cur_max = 0;
     h->cur_sum = 0;
     h->cur_count = 0;
+    h->epoch_ns = now_ns;
 }
 
 // Push the open bucket into the ring (dropping the oldest if full).

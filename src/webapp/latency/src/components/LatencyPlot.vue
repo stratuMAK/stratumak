@@ -8,6 +8,7 @@ const props = defineProps<{ active: boolean }>();
 const el = ref<HTMLDivElement>();
 const LEGEND_H = 44; // room below the canvas for uPlot's legend row
 let plot: uPlot | null = null;
+let building = false; // true while uPlot is constructing (see createPlot)
 let ro: ResizeObserver | null = null;
 let mq: MediaQueryList | null = null;
 function onThemeChange() { plot?.destroy(); plot = null; render(); }
@@ -39,15 +40,23 @@ function buildData(): uPlot.AlignedData {
   ];
 }
 
-// Format elapsed seconds as m:ss.  The raw number renders with a locale
-// thousands separator ("1.109" for 1109 s), which reads like a decimal.  Fall
-// back to decimals if uPlot picks sub-second ticks, so labels stay distinct.
+// Always render elapsed time as m:ss, so the axis format never changes as time
+// passes or the window is zoomed.  (The raw number would render with a locale
+// thousands separator - "1.109" for 1109 s - which reads like a decimal.)
+// Sub-second ticks get one decimal, still as m:ss.s, so labels stay distinct.
 function fmtElapsed(v: number, incr: number): string {
-  if (incr < 1) return v.toFixed(1);
-  const s = Math.round(v);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${r}s`;
+  const sign = v < 0 ? '-' : '';
+  const a = Math.abs(v);
+  if (incr < 1) {
+    // Round to the displayed precision BEFORE splitting, so 59.98 s renders
+    // as 1:00.0 rather than 0:60.0.
+    const total = Math.round(a * 10) / 10;
+    const m = Math.floor(total / 60);
+    return `${sign}${m}:${(total - m * 60).toFixed(1).padStart(4, '0')}`;
+  }
+  const total = Math.round(a);
+  const m = Math.floor(total / 60);
+  return `${sign}${m}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function buildOpts(w: number, hgt: number): uPlot.Options {
@@ -76,27 +85,55 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
   };
 }
 
+function havePlottableData(): boolean {
+  // A uPlot built from empty/1-point data never recovers via setData(), and a
+  // single point has no x extent (it auto-ranges to an absurd span).  This is
+  // exactly the state right after a reset, so refuse to build until there is a
+  // real series - createPlot() is reached from onMounted and the
+  // ResizeObserver too, not just render().
+  return (hist.value?.points.length ?? 0) >= 2;
+}
+
+function destroyPlot() {
+  try { plot?.destroy(); } catch { /* already gone */ }
+  plot = null;
+  if (el.value) el.value.innerHTML = ''; // drop any DOM left by a failed build
+}
+
 function createPlot() {
-  if (!el.value) return;
+  // Reentrancy guard: uPlot inserts DOM while constructing, which fires our
+  // ResizeObserver.  `plot` is not assigned yet at that moment, so the RO
+  // would take its create branch and destroyPlot() would wipe the innerHTML of
+  // the plot being built - leaving a non-null plot with no DOM, blank forever.
+  if (building) return;
+  if (!el.value || !havePlottableData()) return;
   const w = el.value.clientWidth;
-  const h = el.value.clientHeight;
-  if (w === 0 || h === 0) return; // hidden; wait for activation
-  plot?.destroy();
-  plot = new uPlot(buildOpts(w, Math.max(120, h - LEGEND_H)), buildData(), el.value);
+  const hgt = el.value.clientHeight;
+  if (w === 0 || hgt === 0) return; // hidden; wait for activation
+  building = true;
+  try {
+    destroyPlot();
+    plot = new uPlot(buildOpts(w, Math.max(120, hgt - LEGEND_H)), buildData(), el.value);
+  } catch (err) {
+    // Never wedge: leave plot null so the next data update retries, instead of
+    // throwing out of the watcher forever and staying blank until a reload.
+    console.error('latency plot: uPlot init failed', err);
+    destroyPlot();
+  } finally {
+    building = false;
+  }
 }
 
 function render() {
   if (!props.active) return;
-  // A single point has no x extent, so uPlot auto-ranges it to an absurd span.
-  // Show the placeholder until there is a real series (e.g. just after a
-  // reset, when the server history is refilling).
-  if ((hist.value?.points.length ?? 0) < 2) {
-    plot?.destroy();
-    plot = null;
-    return;
-  }
+  if (!havePlottableData()) { destroyPlot(); return; }
   if (!plot) { createPlot(); return; }
-  plot.setData(buildData());
+  try {
+    plot.setData(buildData());
+  } catch (err) {
+    console.error('latency plot: setData failed, rebuilding', err);
+    destroyPlot();
+  }
 }
 
 onMounted(() => {
