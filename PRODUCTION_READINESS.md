@@ -84,7 +84,7 @@ Python NML→`src/gmi/python` REST port).
 - **FIXED: `RS274NGC_STARTUP_CODE` now executed.** `runStartupCode` (`internal/task/commands.go`) runs `[RS274NGC]RS274NGC_STARTUP_CODE` through the interpreter once at task startup, after the tool-table provider is live, matching 2.9. Remaining known divergence: startup code containing *motion* faults exec_state at estop (2.9 parks the move in the interp_list) — tracked as the "Startup-code motion at estop" cross-cutting item below.
 - **`gmi.Stat` field gaps** (client, not controller): missing `cycle_time`, `max_acceleration`, `max_velocity`, `program_units`, `queued_mdi_commands`, `tool_from_pocket`; joint position is `joint_actual_position` (not `joint_position`). Some full-instance drivers simplified their status-waits around these. (tests/startup-state, tests/mdi-queue-length)
 - **CORRECTION (was wrongly reported):** `(DEBUG,msg)` / OPERATOR_DISPLAY messages DO reach the `gmi` ErrorChannel as `(13, msg)` — they work with a poll-loop + settle. (tests/interp/oword-mdi-sub-update xfails for other reasons.)
-- **FIXED (2026-07-15): milltask synchronized-I/O (M67/M62 + blended motion).** The actual sync-I/O loss was the motctl single-slot send race, fixed 2026-07-14 in `104f633164` ("motctl: serialize command send/ack — concurrent senders lost commands"): a concurrent sender could overwrite the shared command slot before the RT side (one command per servo cycle) consumed it, so the sequencer's `SET_AOUT` was silently dropped during full-speed AUTO read-ahead. Re-verified with position-correlated pin sampling: outputs now apply at exactly the right segment boundaries in plain AUTO **and** single-step mode (aout toggles as each iteration's first non-zero-length move activates, matching 2.9's `tpToggleDIOs` semantics). What still failed afterwards was the *test driver contract*, two client-side bugs fixed 2026-07-15: (1) `gmi.Stat.poll()` was a no-op over a 50 ms WS push cache — a driver polling right after a command could see a pre-command snapshot (tests/single-step saw `interp_state==IDLE` right after its first STEP commands and declared the program finished in 50 ms); poll() now does a synchronous fresh REST `GET /stat`, restoring classic `linuxcnc.stat.poll()` semantics for every ported driver. (2) tests/single-step's driver compared gomc-mm positions against inch goals. tests/single-step and tests/remap/remap-io un-xfailed; remap-io passed 5/5 consecutive runs (was intermittent). The same sweep un-xfailed **tests/lathe**: its "jog overshoot from WS-lagged gmi.Stat" diagnosis was doubly stale — after mm-everywhere it failed deterministically on mm-vs-inch positions, and its continuous jog was then killed mid-travel by the jog dead-man watchdog (below); fixed in the driver + `linuxcnc_util.jog_axis` (jog refresh in the wait loop), 19/20 green.
+- **FIXED (2026-07-15): milltask synchronized-I/O (M67/M62 + blended motion).** The actual sync-I/O loss was the motctl single-slot send race, fixed 2026-07-14 in `104f633164` ("motctl: serialize command send/ack — concurrent senders lost commands"): a concurrent sender could overwrite the shared command slot before the RT side (one command per servo cycle) consumed it, so the sequencer's `SET_AOUT` was silently dropped during full-speed AUTO read-ahead. Re-verified with position-correlated pin sampling: outputs now apply at exactly the right segment boundaries in plain AUTO **and** single-step mode (aout toggles as each iteration's first non-zero-length move activates, matching 2.9's `tpToggleDIOs` semantics). What still failed afterwards was the *test driver contract*, two client-side bugs fixed 2026-07-15: (1) `gmi.Stat.poll()` was a no-op over a 50 ms WS push cache — a driver polling right after a command could see a pre-command snapshot (tests/single-step saw `interp_state==IDLE` right after its first STEP commands and declared the program finished in 50 ms); poll() now does a synchronous fresh REST `GET /stat`, restoring classic `linuxcnc.stat.poll()` semantics for every ported driver. (2) tests/single-step's driver compared gomc-mm positions against inch goals. tests/single-step and tests/remap/remap-io un-xfailed; remap-io passed 5/5 consecutive runs (was intermittent). The same sweep un-xfailed **tests/lathe**: its "jog overshoot from WS-lagged gmi.Stat" diagnosis was doubly stale — after mm-everywhere it failed deterministically on mm-vs-inch positions, and its continuous jog was then killed mid-travel by the jog dead-man watchdog (below); fixed in the driver + `linuxcnc_util.jog_axis` (jog refresh in the wait loop), 19/20 green. **The residual 1/20 is closed (2026-07-17):** `jog_axis` asserted the non-jogged axes had not moved with float `==` on a live status feed (and gomc scales mm -> machine units on the way out, so a 1-ULP wobble yields a different float). It fired on axes that had not moved — the failure printed "axis z moved from 0.000 to 0.000". Now compares against `IDLE_AXIS_EPSILON`; 6/6 green.
 - **Client API contract: continuous jogs are dead-man'd (INTENDED model change — document for every GUI port).** gomc's task kills a REST/GMI continuous jog not refreshed within 2 s (`internal/task/task.go` `jogTimeout`, monitor `checkJogWatchdog`) as runaway protection for disconnected clients; HAL-pin-driven jogs (`JogFromHAL`) are exempt. Classic NML jogs ran until JOG_STOP with no such contract, so any ported client that starts a continuous jog and waits (GUIs, halui-like drivers, linuxcnc_util) MUST re-issue the jog within the interval. Also remember the client boundary is mm: jog velocity is mm/s (a classic inch-config driver passing machine-units/s jogs 25.4× too slow).
 - **FIXED: `haljson` nil-INI segfault under `gomc-server -f`.** `newHaljsonModule` dereferenced `ini.SourceFile()` to resolve a relative `config=` path even when loaded without an INI (one-shot/resident `-f` HAL file), panicking with a nil-pointer SIGSEGV — the same class of bug as the earlier pyvcp nil-INI fix. Now resolves relative paths against the cwd when `ini == nil` (`internal/haljson/module.go`). Surfaced by porting tests/halmodule.0. (Worth a sweep: any module resolving `config=` via `ini.SourceFile()` without a nil-guard has this bug.)
 - **FIXED: public-header hygiene (2 installed headers referenced uninstalled headers).** `include/axis.h` pulled in `gomc_hal.h`/`gomc_log.h` (cmodule ABI, internal) and `include/inifile.h` pulled in `<iniparse.h>` (not installed) — neither compiled standalone. Root causes: `emc/motion/axis.h` was wrongly listed in the public `SRCHEADERS` (it is an internal motion-module header, consumed only by in-tree `src/emc/motion/*.c` / `tp.c`), and `iniparse.h` (a real public dep of the widely-used `inifile.h`) was missing from `SRCHEADERS`. Removed `axis.h` from the public set and added `iniparse.h` (`src/Makefile`). tests/build/header-sanity now passes; all 61 installed headers compile standalone.
@@ -297,9 +297,128 @@ Not per-module; each needs an owner and a done-definition.
   caller. This matches classic `linuxcnc.command()` semantics (errors via the error channel
   + `wait_complete()==RCS_ERROR`), which is why it wasn't changed during the flaky-test fix
   (2026-07-14) — but for gomc-native clients/GUIs an explicit rc return (or opt-in raise)
-  would remove a whole class of silently-doing-nothing bugs. Test-side mitigation exists
-  (`tests/rsh2gmi.py` fails loudly when the machine leaves STATE_ON during MDI). Decide the
-  API contract once, apply to gmi python + any future client bindings.
+  would remove a whole class of silently-doing-nothing bugs. Decide the API contract once,
+  apply to gmi python + any future client bindings.
+  **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
+  `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
+  rather than returning it, and the suite constructs through it. `gmi.Command` itself was
+  left drop-in-compatible on purpose: `bin/axis`, `linuxcnctop` and `manualtoolchange_ui`
+  import gmi directly, so changing the contract underneath them is a product decision, not a
+  test fix. What remains open is exactly that: whether gomc-native clients should get a
+  raising/rc-returning variant. Also fixed in that pass: `_post` hard-coded a 10s socket
+  timeout while `/wait-complete` blocks server-side for its full `timeout`, so any
+  `wait_complete(t>10)` raised a socket error instead of ever returning -1 — the -1 contract
+  was unreachable for long waits.
+- **FIXED (2026-07-17): M-code completions were credited to the wrong job — the
+  `Submit`/`CheckDone` handshake had no job identity.** The suspect recorded here on
+  2026-07-16 was right, and the interleaving is now proven by a unit test rather than
+  inferred. `mcodeHandler` signalled completion through a single bare `done bool`: it
+  recorded that *a* job had finished, never *which* one. `McodeCmd.Execute` has one exit
+  that does not consume `done` — `pollUntil` returning on abort while the handler is still
+  running. From then on the worker's stale `done=true` is collected by the *next* M-code's
+  waiter, and the sequencer runs permanently one job ahead of the worker: it reports
+  M-codes complete that never ran, and `Submit` starts rejecting jobs outright with
+  "worker busy" (`jobCh` is buffered 1) once the skew makes it collide with the
+  still-queued predecessor. The "exactly one caller of each" argument in the old note is
+  what made this look impossible — it is true, and irrelevant: the two callers that
+  cross-talk are *successive* calls by the same caller, separated by an abort.
+  **The race detector cannot see this** — every access to `done` correctly takes
+  `resultMu`. It is a lost/misattributed update, not a data race, so the 2026-07-16 lead
+  ("run the queue-buster under `-race`; a write-write on `done` would surface directly")
+  was a dead end.
+  Fixed by giving each submission its own buffered `resultCh` (`mcodeSub`): a completion
+  can only ever be delivered to the job that produced it, and an abandoned job's result
+  is garbage collected instead of being handed to the next caller. `Submit` now blocks
+  until the worker accepts (unblocking on `seqAbort`) rather than failing a job whose only
+  crime is that a previously abandoned handler is still draining. `done`/`result`/
+  `resultMu`/`CheckDone` are gone — the class of bug is removed, not patched.
+  Evidence, `TestMcodeHandlerNoResultCrosstalk` (2000 M-codes, aborts racing completion):
+  before **1088/2000 jobs rejected "worker busy"** and only 910 handlers ran for 709
+  reported successes; after **0 rejected, 1999 ran**, every success backed by a real
+  invocation. Live: `tests/mdi-queue/simple-queue-buster` 45 runs (the same loop that
+  caught the wedge on run 10 on 2026-07-16) — no wedge.
+  Also fixed in the same seam: **`Abort()` could panic the process** ("close of closed
+  channel"). Its check-and-close ran *outside* `h.mu`, so two of the four abort paths
+  (three `mcodeAbort` call sites + `Stop`) racing would both observe an open channel and
+  both close it; the same unlocked read could also close a channel `Submit` had already
+  swapped out, aborting nothing. Now checked and closed under `h.mu`.
+  `MILLTASK_GOROUTINE_PROBLEM.md` §5 identifies user M-codes as the ONE job that
+  genuinely must block, so this handshake is the load-bearing seam of the current
+  pipeline design — worth re-reading before changing it again.
+  **The queue-buster's remaining flake is a DIFFERENT bug — see the persist GC crash
+  below.** It is not the wedge: the `interp_state != 1 && queued_mdi_commands == 0`
+  detector stays silent through it, because the sequencer is not stalled — the server is
+  dead.
+- [x] **gomc-server dies with a Go runtime GC fault in the generated `persist` GMI client —
+  PRODUCTION-RELEVANT (uncontrolled controller death), found 2026-07-17, ROOT-CAUSED AND
+  FIXED 2026-07-17 (`gmi: never let a cgo.Handle transit a Go pointer-typed slot`).**
+  Not a hang and not an M-code bug: the process is *killed by the Go runtime*, after which
+  every client poll gets `Connection refused` and the test driver blames its own 30s drain
+  deadline — which is what made this look like the M-code wedge. Verbatim:
+
+      runtime: bad pointer in frame
+        github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist.(*PersistClient).GetEntry
+        at 0xc0004e10a0: 0x8
+      fatal error: invalid pointer found on stack
+      runtime.adjustpointers -> adjustframe -> copystack -> shrinkstack -> scanstack
+
+  **Root cause (proven by the full traceback, preserved in the 2026-07-15 capture):** the
+  crashing goroutine's innermost frame was `runtime.cgoCheckPointer({0xcead60, 0x8}, ...)`
+  called from `GetEntry`'s cgo argument-check closure — the "bad pointer" `0x8` is the
+  **cgo.Handle of the persist provider**, not corruption. The generated provider bridges
+  store `cgo.NewHandle(impl)` — a small integer — in the C callbacks struct's `void *ctx`,
+  and the generated client then passed `cl.cb.ctx` from Go as an `unsafe.Pointer` argument,
+  putting a non-address value in a GC-scanned pointer-typed stack slot. Any stack move
+  (`morestack → shrinkstack → copystack`) that scans such a slot while live trips the
+  runtime's invalid-pointer check (nonzero value < `minLegalPointer`) and aborts the
+  process. Intermittency (~1 in 25 runs of `tests/mdi-queue/simple-queue-buster`, 2 in
+  ~47): the slot must be live at the exact moment a GC stack move scans it. Tool-change
+  bias: that path is the deepest nested Go→C→Go stack (`interp_synch → canon_bridge_
+  get_external_tool_table → tooltable_bridge_get_tool → persist GetEntry`), maximizing
+  morestack probability with several handle-bearing frames live — the same traceback shows
+  `canon_bridge_get_external_tool_table(0x8, ...)` receiving a handle as its
+  `ctx unsafe.Pointer` trampoline parameter, the same bug in the receive direction.
+
+  **The earlier sret hypothesis is REFUTED** — verified against the actual cgo-generated
+  code before acting: cgo's shims are already stack-move-safe. The by-value struct return
+  lands in `_cgo_r`, a local on the g0 (system) stack, the write-back pointer is adjusted
+  by the `_cgo_topofstack()` delta after the call, and the wrapper zeroes the result slot
+  before `runtime.cgocall` (verified in the disassembly). Return-struct size is irrelevant.
+
+  **Fix (generator-level, all GMI packages):** `call_*` client wrappers now take the
+  callbacks-struct pointer and dereference the function pointer and ctx inside C (Go never
+  touches ctx); `//export` trampolines take ctx as `C.uintptr_t` (cgo.Handle's intended
+  transit type per its docs) with matching `uintptr_t` extern decls; `Free*Callbacks`
+  reads ctx back via a C accessor. Hand-written bridges with the same receive-direction
+  bug fixed identically: `internal/task/ini_accessor.go`, `internal/task/mcode_provider.go`,
+  launcher log/ini env callbacks (`gomc_env.go`/`cmodules.go`). The launcher api and
+  kinstest callbacks keep `void *ctx` — theirs is NULL, which is a legal pointer value.
+  Verified: 50 consecutive runs of `simple-queue-buster` under `GOGC=10` (≈10× the GC
+  cycles, so far more shrink-scan opportunities than the stock 1-in-25 detection rate) —
+  0 failures.
+
+  Also fixed alongside (2026-07-17): the returned-string leak. Providers hand out data
+  under "caller owns returned data" (the Go bridges `C.CString`/calloc it), but the
+  generated clients freed only returned slice *arrays*, never strings — every
+  `GetEntry`/`GetTool` leaked its strings. The generated clients now free all C
+  allocations (strings, slice buffers, nested) after converting to Go, and the generated
+  headers document the ownership rule (returned string/slice data must be malloc'd, never
+  static). Safe by audit: the only string-bearing client returns are persist and
+  tooltable, both Go-provided. The REST dispatch path is closed too (2026-07-17,
+  second commit): dispatch funcs now free returned strings and slice-element
+  allocations — this covered the polled watch functions (halcmd `watch_items`,
+  halscope `watch_state`, pyvcp `watch_pins`), so that leak was hot, not admin-only.
+  The provider audit (gmicompile-parser sweep over every IDL) found exactly one C
+  provider with string-bearing returns: the ethercat cmod, which deliberately
+  returned borrowed pointers into thread-local buffers under a
+  "dispatch-copies-before-next-call" contract. That contract is gone; it now
+  strdups all returned strings (`ret_str`) and `format_mac` mallocs. Verified live:
+  repeated REST hits on halcmd /pins (739 pins × 7 strings), /signals, /threads,
+  tooltable list/get, persist namespaces — all healthy.
+  Repro/instrumentation notes kept for posterity: the evidence lives in the test's
+  `stderr` file, NOT the runtests output, and a later green run overwrites it — copy it
+  out on first capture. `grep -cE '^\*\*\* '` is NOT a failure count (it matches XFAIL
+  prefixes); read the `N failed + M expected` line.
 - [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
   at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
   file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)

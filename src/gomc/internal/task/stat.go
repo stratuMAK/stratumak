@@ -185,8 +185,10 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	// Resolve the active G/M codes and current line from the state tag of the
 	// segment actually executing (motion echoes only the id back). This makes
 	// status reflect what the machine is running now rather than the
-	// interpreter's readahead. Falls back to the readahead codes set above when
-	// the moving segment has no tag (idle, MDI, or before the first tagged move).
+	// interpreter's readahead. Both the AUTO read loop and executeMDI tag the
+	// segments they queue, so this covers program and MDI moves alike; it falls
+	// back to the readahead codes set above only when nothing tagged is executing
+	// (idle, or the brief window before a just-queued move's tag lands).
 	// Tag slices are isolated at tag time (fresh interp slices), so alias them.
 	if tagged && info.Gcodes != nil {
 		stat.ActiveGcodes = info.Gcodes

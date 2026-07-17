@@ -9,6 +9,7 @@
 # captured by the mcode_coord_log cmod (format=p -> just "P is", matching the
 # classic mdi-queue subs/M100 which echoed only $1).  gomc's mdi() is synchronous.
 set -x
+. ../../gomc-driver.sh
 rm -f gcode-output sim.var sim.var.bak
 
 # Build the command stream + the expected M100 log, switching tools every few
@@ -32,11 +33,8 @@ for i in $(seq 0 1000); do
 done
 printf 'P is -2.000000\n' >> expected-gcode-output
 
-gomc-server -r sim.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+gomc_start_server --inherit sim.ini
+gomc_wait_ready
 
 (
     echo hello EMC mt 1.0

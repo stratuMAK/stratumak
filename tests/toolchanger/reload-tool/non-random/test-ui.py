@@ -8,9 +8,13 @@ import gmi as _gmi
 from gmi.constants import *
 import subprocess as _subprocess
 
+# Shared sync helpers: deadline-based waiters, and a Command whose
+# wait_complete() raises on timeout instead of returning -1.
+import gomc_test
+
 
 class _LinuxcncCompat:
-    command = staticmethod(_gmi.Command)
+    command = staticmethod(gomc_test.Command)
     stat = staticmethod(_gmi.Stat)
     error_channel = staticmethod(_gmi.ErrorChannel)
     ini = staticmethod(_gmi.IniFile)
@@ -52,23 +56,6 @@ hal = _HalCompat()
 # --- end shim -----------------------------------------------------------------
 
 
-class _LinuxcncUtil:
-    class LinuxCNC:
-        def __init__(self, command=None, status=None, error=None):
-            self._s = status if status is not None else _gmi.Stat()
-
-        def wait_for_linuxcnc_startup(self, timeout=10.0):
-            import time as _t
-            start = _t.time()
-            while _t.time() - start < timeout:
-                self._s.poll()
-                if (self._s.task_state == STATE_ESTOP) and (self._s.exec_state == EXEC_DONE) and (self._s.interp_state == INTERP_IDLE):
-                    return
-                _t.sleep(0.1)
-            raise RuntimeError("timeout waiting for linuxcnc startup")
-
-
-linuxcnc_util = _LinuxcncUtil()
 #!/usr/bin/env python3
 
 
@@ -95,10 +82,37 @@ def wait_for_hal_pin(name, value, timeout=10):
     raise RuntimeError("hal pin %s didn't get to %s after %.3f seconds" % (name, value, timeout))
 
 
-# After doing something that should change the stat buffer, wait this
-# long before polling to let the change propagate through.
-# FIXME: this is bogus
-stat_poll_wait = 0.100
+def verify_stat(tool_in_spindle, tool_from_pocket, pocket_prepped=None):
+    """Wait for the status buffer to reflect what the io pins already show.
+
+    Waiting rather than sleeping-then-asserting: the assert is unchanged for a
+    value that is already correct, and tolerant of a server that is merely slow.
+    pocket_prepped is legitimately -1, so None is the "not checked" sentinel.
+    """
+    want = {'tool_in_spindle': tool_in_spindle, 'tool_from_pocket': tool_from_pocket}
+    if pocket_prepped is not None:
+        want['pocket_prepped'] = pocket_prepped
+    gomc_test.wait_stat(
+        s, lambda st: all(getattr(st, k) == v for k, v in want.items()),
+        "status buffer to reach %s" % want,
+        detail=lambda st: "got %s" % {k: getattr(st, k) for k in want})
+
+
+def wait_for_position(x, y, z):
+    """Wait for the joints to arrive at a position given in machine units.
+
+    Arrival is a motion, not a status publication, so it gets its own wait: the
+    tool-number fields reach their final values while the axes are still moving.
+    """
+    want = (x * MM, y * MM, z * MM)
+
+    def arrived(st):
+        return all(abs(st.joint_actual_position[i] - want[i]) < POS_EPSILON
+                   for i in range(3))
+
+    gomc_test.wait_stat(
+        s, arrived, "joints to arrive at %r (mm)" % (want,),
+        detail=lambda st: "at %r" % (tuple(st.joint_actual_position[:3]),))
 
 
 c = linuxcnc.command()
@@ -125,9 +139,8 @@ h.ready()
 # gomc: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
 
 
-l = linuxcnc_util.LinuxCNC()
 # Wait for LinuxCNC to initialize itself so the Status buffer stabilizes.
-l.wait_for_linuxcnc_startup()
+gomc_test.wait_for_startup(s)
 
 c.state(linuxcnc.STATE_ESTOP_RESET)
 c.state(linuxcnc.STATE_ON)
@@ -169,11 +182,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 0)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 0)
-assert(s.tool_from_pocket == 0);
-assert(s.pocket_prepped == -1)
+verify_stat(0, 0, -1)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -186,11 +195,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 0)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 0)
-assert(s.tool_from_pocket == 0);
-assert(s.pocket_prepped == 46)  # gomc reports the prepped tool's POCKET (classic reported a tooldata array index, which has no gomc equivalent)
+verify_stat(0, 0, 46)  # gomc reports the prepped tool's POCKET (classic reported a tooldata array index, which has no gomc equivalent)
 
 
 #
@@ -207,11 +212,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 0)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 0)
-assert(s.tool_from_pocket == 0);
-assert(s.pocket_prepped == 46)
+verify_stat(0, 0, 46)
 
 h['tool-changed'] = True
 wait_for_hal_pin('tool-change', False)
@@ -224,11 +225,7 @@ assert(h['tool-prep-number'] == 0)
 assert(h['tool-prep-pocket'] == 0)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == -1)
+verify_stat(2, 46, -1)
 
 
 #
@@ -245,11 +242,7 @@ assert(h['tool-prep-number'] == 12)
 assert(h['tool-prep-pocket'] == 9)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == -1)
+verify_stat(2, 46, -1)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -262,11 +255,7 @@ assert(h['tool-prep-number'] == 12)
 assert(h['tool-prep-pocket'] == 9)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 9)
+verify_stat(2, 46, 9)
 
 
 #
@@ -284,11 +273,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 9)
+verify_stat(2, 46, 9)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -301,11 +286,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 46)
+verify_stat(2, 46, 46)
 
 
 #
@@ -327,21 +308,20 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 46)
+verify_stat(2, 46, 46)
 
 # gomc: gmi joint positions are reported in millimetres (mm-everywhere
 # convention) and the field is joint_actual_position; TOOL_CHANGE_POSITION is
 # in machine units (inch here). Position settle tolerance widened to the mm
 # scale (classic 1e-10 inch is below the mm-domain arrival deadband).
+#
+# Arriving at TOOL_CHANGE_POSITION is a *motion*, so it needs its own wait: the
+# tool-number fields above go correct while the axes are still flying, and this
+# used to pass only because it borrowed the settle from a sleep that preceded a
+# shared poll. Wait for the real thing — arrival — instead of a sample.
 MM = 25.4
 POS_EPSILON = 1e-4
-assert(abs(s.joint_actual_position[0] - xtool*MM) < POS_EPSILON)
-assert(abs(s.joint_actual_position[1] - ytool*MM) < POS_EPSILON)
-assert(abs(s.joint_actual_position[2] - ztool*MM) < POS_EPSILON)
+wait_for_position(xtool, ytool, ztool)
 
 #
 # Prepare T0
@@ -357,11 +337,7 @@ assert(h['tool-prep-number'] == 0)
 assert(h['tool-prep-pocket'] == 0)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 0)
+verify_stat(2, 46, 0)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -374,11 +350,7 @@ assert(h['tool-prep-number'] == 0)
 assert(h['tool-prep-pocket'] == 0)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 0)
+verify_stat(2, 46, 0)
 
 #
 # Change to T0
@@ -394,11 +366,7 @@ assert(h['tool-prep-number'] == 0)
 assert(h['tool-prep-pocket'] == 0)
 assert(h['tool-from-pocket'] == 46)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 2)
-assert(s.tool_from_pocket == 46);
-assert(s.pocket_prepped == 0)
+verify_stat(2, 46, 0)
 
 h['tool-changed'] = True
 wait_for_hal_pin('tool-change', False)
@@ -411,9 +379,6 @@ assert(h['tool-prep-number'] == 0)
 assert(h['tool-prep-pocket'] == 0)
 assert(h['tool-from-pocket'] == 0)
 
-time.sleep(stat_poll_wait)
-s.poll()
-assert(s.tool_in_spindle == 0)
-assert(s.tool_from_pocket == 0);
+verify_stat(0, 0)
 
 sys.exit(0)

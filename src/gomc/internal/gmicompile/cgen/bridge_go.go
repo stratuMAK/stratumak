@@ -90,10 +90,13 @@ func (g *bridgeGoGen) emitPreamble() {
 
 	// Emit a static C helper that builds the callbacks struct.
 	// This avoids cgo type-system issues with function pointer assignments.
-	// ctx is a cgo.Handle (an opaque integer), passed as uintptr_t rather than
-	// void* so the Go side never converts a uintptr to unsafe.Pointer (which
-	// -race/-d=checkptr flags as bad pointer arithmetic). We cast it into the
-	// void* ctx field here; the trampolines/Free recover it via cgo.Handle().
+	// ctx is a cgo.Handle (an opaque integer, NOT a real address). It must
+	// only ever exist on the Go side as a uintptr_t scalar: a handle value
+	// sitting in a Go pointer-typed slot (unsafe.Pointer) is fatal when a GC
+	// stack scan hits it ("invalid pointer found on stack"), and uintptr →
+	// unsafe.Pointer is also flagged by -race/-d=checkptr. We cast it into
+	// the void* ctx field here in C; the trampolines receive it back as
+	// uintptr_t and Free reads it out via _bridge_*_get_ctx.
 	g.printf("\nstatic %s_callbacks_t *_bridge_build_%s_callbacks(uintptr_t ctx) {\n", apiName, apiName)
 	g.printf("\t%s_callbacks_t *cbs = calloc(1, sizeof(%s_callbacks_t));\n", apiName, apiName)
 	g.printf("\tcbs->ctx = (void *)ctx;\n")
@@ -109,6 +112,10 @@ func (g *bridgeGoGen) emitPreamble() {
 		g.printf("\tcbs->%s = (%s_%s_fn)%s_bridge_%s;\n", fnSnake, apiName, fnSnake, apiName, fnSnake)
 	}
 	g.printf("\treturn cbs;\n")
+	g.printf("}\n")
+
+	g.printf("\nstatic uintptr_t _bridge_%s_get_ctx(const %s_callbacks_t *cbs) {\n", apiName, apiName)
+	g.printf("\treturn (uintptr_t)cbs->ctx;\n")
 	g.printf("}\n")
 
 	g.printf("\n*/\n")
@@ -187,7 +194,7 @@ func (g *bridgeGoGen) emitBuildCallbacks() {
 	g.printf("// %s releases the cgo.Handle and frees the C struct.\n", freeName)
 	g.printf("func %s(ptr unsafe.Pointer) {\n", freeName)
 	g.printf("\tcbs := (*%s)(ptr)\n", cbsType)
-	g.printf("\tcgo.Handle(cbs.ctx).Delete()\n")
+	g.printf("\tcgo.Handle(C._bridge_%s_get_ctx(cbs)).Delete()\n", apiName)
 	g.printf("\tC.free(unsafe.Pointer(cbs))\n")
 	g.printf("}\n\n")
 
@@ -225,9 +232,11 @@ func (g *bridgeGoGen) emitOneTrampoline(apiName, ifaceName string, fn ast.Func) 
 	exportName := fmt.Sprintf("%s_bridge_%s", apiName, fnSnake)
 	methodName := toPascalCase(fn.Name)
 
-	// Build C parameter list: void *ctx + C-typed params
+	// Build C parameter list: ctx + C-typed params. ctx carries a cgo.Handle
+	// integer, so it is typed uintptr_t — never unsafe.Pointer, which would
+	// put a non-address value in a GC-scanned pointer slot.
 	var cParams []string
-	cParams = append(cParams, "ctx unsafe.Pointer")
+	cParams = append(cParams, "ctx C.uintptr_t")
 
 	for _, p := range fn.Params {
 		cParams = append(cParams, g.trampolineParam(apiName, p))
@@ -777,8 +786,8 @@ func (g *bridgeGoGen) emitExternDecl(apiName string, fn ast.Func) {
 		}
 	}
 
-	// Parameters: always starts with void *ctx
-	params := []string{"void *ctx"}
+	// Parameters: always starts with the ctx handle (uintptr_t, see preamble)
+	params := []string{"uintptr_t ctx"}
 	for _, p := range fn.Params {
 		params = append(params, g.cParamDecl(apiName, p))
 		if p.Type.Kind == ast.TypeSlice {

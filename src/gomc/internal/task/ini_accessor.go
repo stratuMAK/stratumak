@@ -14,9 +14,12 @@ package task
 
 // Forward declarations for the Go-exported callbacks.
 // cgo does not emit const qualifiers, so we declare without const here
-// and cast when assigning to the accessor struct.
-extern char* goIniAccessorGet(void *ctx, char *section, char *key);
-extern char* goIniAccessorGetNth(void *ctx, char *section, char *key, int n);
+// and cast when assigning to the accessor struct. ctx is uintptr_t, not
+// void*: it carries a cgo.Handle integer, and receiving that in a Go
+// unsafe.Pointer parameter puts a non-address value in a GC-scanned
+// pointer slot ("invalid pointer found on stack" when a stack scan hits).
+extern char* goIniAccessorGet(uintptr_t ctx, char *section, char *key);
+extern char* goIniAccessorGetNth(uintptr_t ctx, char *section, char *key, int n);
 
 // Build the accessor struct with Go-implemented callbacks. ctx is a cgo.Handle
 // (an opaque integer) passed as uintptr_t, not void*, so the Go side never
@@ -86,8 +89,8 @@ func newIniAccessor(ini *inifile.IniFile) (C.interp_ini_accessor_t, cgo.Handle) 
 }
 
 //export goIniAccessorGet
-func goIniAccessorGet(ctx unsafe.Pointer, section *C.char, key *C.char) *C.char {
-	h := cgo.Handle(uintptr(ctx)).Value().(*iniAccessorHandle)
+func goIniAccessorGet(ctx C.uintptr_t, section *C.char, key *C.char) *C.char {
+	h := cgo.Handle(ctx).Value().(*iniAccessorHandle)
 	goSec := C.GoString(section)
 	goKey := C.GoString(key)
 	val := h.ini.Get(goSec, goKey)
@@ -98,8 +101,8 @@ func goIniAccessorGet(ctx unsafe.Pointer, section *C.char, key *C.char) *C.char 
 }
 
 //export goIniAccessorGetNth
-func goIniAccessorGetNth(ctx unsafe.Pointer, section *C.char, key *C.char, n C.int) *C.char {
-	h := cgo.Handle(uintptr(ctx)).Value().(*iniAccessorHandle)
+func goIniAccessorGetNth(ctx C.uintptr_t, section *C.char, key *C.char, n C.int) *C.char {
+	h := cgo.Handle(ctx).Value().(*iniAccessorHandle)
 	goSec := C.GoString(section)
 	goKey := C.GoString(key)
 	val := h.ini.GetN(goSec, goKey, int(n))

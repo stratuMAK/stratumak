@@ -7,6 +7,8 @@
 # resolves relative to the CWD, the subtest dir — re-sourced THIS file forever and
 # segfaulted the shell (exit 139). The xfail masked that.)
 
+. ../../gomc-driver.sh
+
 rm -f sim.var*
 # Provision the pristine tool table (2.9 shared-test.sh parity) — the working
 # copy is gitignored scratch the test mutates, so recreate it from the tracked
@@ -19,14 +21,8 @@ else
     cp ../simpockets.tbl .
 fi
 
-gomc-server -r test.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
+gomc_start_server --inherit test.ini
 
-for i in $(seq 100); do
-    halcmd show comp 2>/dev/null | grep -q milltask && break
-    sleep 0.1
-done
-sleep 0.5
+gomc_wait_ready
 
 ./test-ui.py

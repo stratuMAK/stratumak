@@ -71,15 +71,52 @@ for i in $(seq 1 20); do [ "$(pin halui.machine.is-on)" = "TRUE" ] && break; sle
 hc setp halui.mode.auto 1 >/dev/null 2>&1
 for i in $(seq 1 20); do [ "$(pin halui.mode.is-auto)" = "TRUE" ] && break; sleep 0.2; done
 
+# Baseline the oracle log size right before the run: any pre-run motctl traffic
+# (estop reset / machine-on / mode change) is already in $OUT, so phase 1 must
+# count GROWTH past this point as "the program produced motion", not mere
+# non-emptiness.
+base_out=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+
 pulse halui.program.run
 
-# Wait for the program to finish: allow it to start, then wait for idle.
-sleep 0.6
-for i in $(seq 1 200); do            # up to ~60s
-  [ "$(pin halui.program.is-idle)" = "TRUE" ] && break
+# Wait for the program to finish. Two phases, because is-idle is TRUE both before
+# the program starts and after it ends: the old `sleep 0.6` bet that the run had
+# begun, and when it lost the idle-poll below matched on the very first sample and
+# "succeeded" against an empty motion log — a silent false pass, and precisely the
+# failure the parity oracle exists to detect.
+#   phase 1: is-idle -> FALSE  (the program actually started)
+#   phase 2: is-idle -> TRUE   (it finished)
+started=""
+for i in $(seq 1 100); do            # up to ~30s to leave idle
+  [ "$(pin halui.program.is-idle)" = "FALSE" ] && { started=1; break; }
+  # A program short enough to finish inside one poll interval never shows an
+  # is-idle==FALSE sample. Growth of the oracle log past its pre-run baseline is
+  # unambiguous proof it ran (phase 2 then confirms it is back to idle), so treat
+  # it as "started" too — otherwise a fast run false-fails as "never started".
+  cur_out=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+  [ "$cur_out" -gt "$base_out" ] && { started=1; break; }
+  kill -0 "$SRV" 2>/dev/null || { echo "drive.sh: server exited before the program started; see $OUT.srvout" >&2; exit 4; }
+  sleep 0.3
+done
+[ -n "$started" ] || { echo "drive.sh: program never started (halui.program.is-idle stayed TRUE and no motion was captured); see $OUT.srvout" >&2; exit 4; }
+
+finished=""
+for i in $(seq 1 200); do            # up to ~60s to finish
+  [ "$(pin halui.program.is-idle)" = "TRUE" ] && { finished=1; break; }
   kill -0 "$SRV" 2>/dev/null || break
   sleep 0.3
 done
-sleep 0.3    # flush trailing commands
+[ -n "$finished" ] || { echo "drive.sh: program did not finish within ~60s; see $OUT.srvout" >&2; exit 5; }
+
+# Wait for the trailing motctl commands to be flushed: poll $OUT until it stops
+# growing, rather than sleeping 0.3s and hoping the writer kept up (a short read
+# silently truncates the oracle log the parity diff is about to compare).
+prev=-1
+for i in $(seq 1 100); do            # up to ~10s
+  cur=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+  [ "$cur" = "$prev" ] && break
+  prev="$cur"
+  sleep 0.1
+done
 
 echo "drive.sh: captured $(wc -l < "$OUT" 2>/dev/null) motion commands -> $OUT" >&2

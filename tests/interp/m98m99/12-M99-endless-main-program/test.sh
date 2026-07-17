@@ -9,21 +9,16 @@ set -e
 # diffs out.motion-logger vs expected.motion-logger (on stderr). Then the same
 # program is run in the standalone rs274 interpreter, whose stdout is compared
 # against `expected` by the runtests harness.
+. ../../../gomc-driver.sh
 rm -f out.motion-logger*
 
-gomc-server -r motion-logger.ini &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
+gomc_start_server --inherit motion-logger.ini
 
-for i in $(seq 100); do
-    halcmd show comp 2>/dev/null | grep -q milltask && break
-    sleep 0.1
-done
-sleep 0.5
+gomc_wait_ready
 
 ./test-ui.py
 
-kill $SRV 2>/dev/null; wait 2>/dev/null; trap - EXIT
+kill $GOMC_SRV 2>/dev/null; wait 2>/dev/null; trap - EXIT
 
 # Standalone interpreter: should run the program once (M99 in main exits).
 rs274 -g test.ngc | awk '{$1=""; print}'

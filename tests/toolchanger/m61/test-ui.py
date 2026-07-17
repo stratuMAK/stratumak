@@ -5,12 +5,17 @@
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
 import gmi as _gmi
+import gomc_test as _gomc_test
 from gmi.constants import *
 import subprocess as _subprocess
 
 
 class _LinuxcncCompat:
-    command = staticmethod(_gmi.Command)
+    # gomc_test.Command, not _gmi.Command: gmi's wait_complete() reports a
+    # timed-out wait as -1 in a normal 200 body, so the bare c.wait_complete()
+    # calls below would silently proceed against an unsettled machine. The
+    # strict subclass raises instead, failing at the point it went wrong.
+    command = staticmethod(_gomc_test.Command)
     stat = staticmethod(_gmi.Stat)
     error_channel = staticmethod(_gmi.ErrorChannel)
     ini = staticmethod(_gmi.IniFile)
@@ -58,15 +63,18 @@ import sys
 import os
 
 
-# this is how long we wait for linuxcnc to do our bidding
-timeout = 1.0
+# this is how long we wait for linuxcnc to do our bidding.  Sized for a loaded
+# CI runner, not an idle workstation: every wait below polls its predicate and
+# returns as soon as it holds, so a generous ceiling costs nothing on the happy
+# path -- it only bounds how long a genuine failure takes to report.
+timeout = 10.0
 
 
 def introspect():
     os.system("halcmd show pin python-ui")
 
 
-def wait_for_pin_value(pin_name, value, timeout=1):
+def wait_for_pin_value(pin_name, value, timeout=timeout):
     print("waiting for %s to go to %f (timeout=%f)" % (pin_name, value, timeout))
 
     start = time.time()
@@ -114,8 +122,12 @@ def get_interp_param(param_number):
 
             print(text)
 
-    print("error getting parameter %d" % param_number)
-    return None
+    # Every retry lost its reply.  Fail here, naming the param: returning None
+    # only defers the failure to the caller's "%f" % None, which raises a
+    # TypeError that says nothing about which parameter went missing.
+    print("ERROR: no OPERATOR_DISPLAY reply for interp param #%d after 3 attempts"
+          % param_number)
+    sys.exit(1)
 
 
 def verify_interp_param(param_number, expected_value):
@@ -159,8 +171,15 @@ def do_tool_change_handshake(tool_number, pocket_number):
     wait_for_pin_value('tool-prepare', 0)
     h['tool-prepared'] = 0
 
-    time.sleep(0.1)
-    s.poll()
+    # io drops tool-prepare before task has necessarily published the new
+    # pocket_prepped, so poll for it rather than sleeping and hoping.
+    deadline = time.time() + timeout
+    while True:
+        s.poll()
+        if s.pocket_prepped == pocket_number or time.time() >= deadline:
+            break
+        time.sleep(0.01)
+
     print("tool prepare done, s.pocket_prepped = ", s.pocket_prepped)
     if s.pocket_prepped != pocket_number:
         print("ERROR: wrong pocket prepped in stat buffer (got %d, expected %d)" % (s.pocket_prepped, pocket_number))
@@ -225,8 +244,12 @@ verify_tool_number(0)
 print("*** starting 'T1 M6' tool change")
 
 c.mdi('t1 m6')
-c.wait_complete()
-
+# No wait_complete() before the handshake: M6 blocks in the interpreter until
+# the io handshake completes, and we ARE the io — do_tool_change_handshake
+# below is what unblocks it, so waiting here waits for something only the next
+# line can cause. This only ever "worked" because gmi's wait_complete gave up
+# after 5s and returned -1 unchecked. The handshake opens with its own
+# wait_for_pin_value('tool-prepare', 1), which is the real precondition.
 do_tool_change_handshake(tool_number=1, pocket_number=1)
 
 print("*** tool change complete")
@@ -340,7 +363,8 @@ verify_interp_param(5428, 0)      # current w
 
 print("*** using 'T0 M6' to unload the spindle")
 c.mdi("t0 m6")
-c.wait_complete()
+# See the T1 M6 handshake above: we are the io that completes this M6, so a
+# wait_complete() here can only ever time out.
 do_tool_change_handshake(tool_number=0, pocket_number=0)
 verify_tool_number(0)
 

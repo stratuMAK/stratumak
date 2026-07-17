@@ -15,6 +15,9 @@
 # The .hal must `load filestream ... samples=N` (so `done` fires after N captured
 # samples) and NOT call `start` (the driver owns thread lifecycle).
 
+# Deadlines below honour GOMC_TEST_TIMEOUT_SCALE via gomc_scale.
+. "$(dirname "${BASH_SOURCE[0]}")/gomc-scale.sh"
+
 _FS_SRVPID=""
 
 fs_cleanup() {
@@ -30,20 +33,43 @@ fs_run() {
     rm -f "$outfile" server.log
     gomc-server -r -f "$halfile" --serve >server.log 2>&1 &
     _FS_SRVPID=$!
-    trap fs_cleanup EXIT
+    gomc_add_exit_trap fs_cleanup
 
-    local i
-    for i in $(seq 100); do
-        halcmd show comp 2>/dev/null | grep -q filestream && break
+    # Wait for the server to load filestream. The loop must fail loudly on
+    # expiry: falling through would run the rest of the sequence against a dead
+    # server and report an empty-output diff rather than "the server never
+    # started".
+    local i ready=""
+    for i in $(seq "$(gomc_scale 100)"); do
+        if halcmd show comp 2>/dev/null | grep -q filestream; then
+            ready=1
+            break
+        fi
+        kill -0 "$_FS_SRVPID" 2>/dev/null || break
         sleep 0.1
     done
+    if [ -z "$ready" ]; then
+        echo "filestream-driver: server did not load filestream within 10s;" \
+             "see $PWD/server.log" >&2
+        exit 1
+    fi
 
     halcmd start
     # Wait for the run to complete (replay drained / N samples captured).
-    for i in $(seq 500); do
-        [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ] && break
+    local done_=""
+    for i in $(seq "$(gomc_scale 500)"); do
+        if [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ]; then
+            done_=1
+            break
+        fi
         sleep 0.02
     done
+    if [ -z "$done_" ]; then
+        echo "filestream-driver: filestream.done never went TRUE within 10s —" \
+             "the replay stalled; $outfile would be truncated" >&2
+        halcmd stop
+        exit 1
+    fi
     halcmd stop
 
     # Kill the server so filestream's Destroy flushes the final captures and

@@ -5,12 +5,9 @@
 # halcmd and read the axis position from gmi.Stat.  linuxcnc_util is reused by
 # copying gmi's constants onto the (command/stat-less) linuxcnc module.
 
-import linuxcnc
 import gmi
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
+import gomc_test
 import linuxcnc_util
 
 import subprocess
@@ -84,6 +81,14 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
 
     h['axis-%c-jog-enable' % axis_letter] = 0
 
+    # Let the axis come to rest BEFORE sampling its final position. The wait loop
+    # above exits on the first status sample within tolerance (or its timeout),
+    # but under suite load a status read taken mid-settle lags the true position:
+    # the axis climbs into tolerance a few ms after we look. Checking then would
+    # spuriously fail ("didn't get to target") on a value that IS within epsilon.
+    # A stopped axis reports a stable, true position. (Same fix as jogwheel-joint.)
+    l.wait_for_axis_to_stop(axis_letter)
+
     print("axis %c jogged from %.6f to %.6f (%d counts at scale %.6f)" % (axis_letter, start_pos[axis_letter], h['axis-%c-position' % axis_letter], counts, scale))
 
     success = True
@@ -98,8 +103,6 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
                 print("axis %c moved from %.6f to %.6f but should not have!" % (a, start_pos[a], h[pin_name]))
                 success = False
 
-    l.wait_for_axis_to_stop(axis_letter)
-
     if not success:
         sys.exit(1)
 
@@ -108,14 +111,14 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
 # connect to LinuxCNC
 #
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
 l = linuxcnc_util.LinuxCNC(command=c, status=s, error=e)
 
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
 
 
 # must home to use Teleop mode
@@ -125,8 +128,14 @@ c.wait_complete()
 
 l.wait_for_home([1, 1, 1, 0, 0, 0, 0, 0, 0])
 
-c.mode(linuxcnc.MODE_MANUAL)
-time.sleep(0.5)
+c.mode(MODE_MANUAL)
+# Jogging is only accepted in manual mode: wait for the mode switch to actually
+# land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
+# were silently refused and the test failed as "axis didn't get to target".
+gomc_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
+                    "task_mode to become MODE_MANUAL",
+                    detail=lambda st: "task_mode=%d task_state=%d"
+                                      % (st.task_mode, st.task_state))
 
 
 #

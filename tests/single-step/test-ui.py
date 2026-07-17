@@ -8,11 +8,13 @@
 import gmi
 from gmi.constants import *
 
+import gomc_test
+
 import subprocess
 import time
 import sys
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -21,6 +23,9 @@ _WAITING = (
     EXEC_WAITING_FOR_MOTION_AND_IO,
     EXEC_WAITING_FOR_MOTION_QUEUE,
 )
+
+# Per-phase deadline for wait_complete_step(), below.
+_STEP_TIMEOUT = 15.0
 
 
 def counter():
@@ -53,14 +58,11 @@ c.home(0)
 c.home(1)
 c.home(2)
 
-start = time.time()
-while time.time() - start < 5.0:
-    s.poll()
-    if all(s.homed[0:3]):
-        break
-    time.sleep(0.1)
-else:
-    raise SystemExit("timeout waiting for home")
+# 5s was thin for a three-joint home on a loaded runner; a generous ceiling
+# costs nothing on the happy path -- the wait ends as soon as homing does.
+gomc_test.wait_stat(s, lambda st: all(st.homed[0:3]),
+                    "joints 0-2 to finish homing", timeout=30.0,
+                    detail=lambda st: "homed=%s" % (list(st.homed[0:3]),))
 
 c.mode(MODE_AUTO)
 c.program_open('test.ngc')
@@ -75,26 +77,29 @@ def mod_5_is_0(x):
 def wait_complete_step():
     '''Single-stepping keeps task in RCS_EXEC (not RCS_DONE), so we cannot use
     wait_complete().  Instead, wait for exec_state to enter a wait-for-motion
-    state (the step was accepted) and then leave it (the step finished).'''
-    timeout = 5.0
-    start = time.time()
+    state (the step was accepted) and then leave it (the step finished).
+
+    Each phase gets its own independent deadline. They used to share one 5.0s
+    budget measured from a single `start`, so a slow accept left the wait that
+    follows almost no time -- and the failure named the second phase for the
+    first phase's slowness.'''
+
+    def _exec(st):
+        return "exec_state=%d interp_state=%d" % (st.exec_state, st.interp_state)
 
     # Wait for the step to be accepted (exec_state enters a waiting state),
     # or for the interpreter to go idle (program finished).
-    while time.time() - start < timeout:
-        s.poll()
-        if s.exec_state in _WAITING or s.interp_state == INTERP_IDLE:
-            break
-        time.sleep(0.02)
+    gomc_test.wait_stat(
+        s,
+        lambda st: st.exec_state in _WAITING or st.interp_state == INTERP_IDLE,
+        "the step to be accepted (task to start waiting for motion)",
+        timeout=_STEP_TIMEOUT, detail=_exec)
 
     # Wait for Task to be done waiting for Motion.
-    while time.time() - start < timeout:
-        s.poll()
-        if s.exec_state not in _WAITING:
-            return
-        time.sleep(0.1)
-
-    raise SystemExit('timeout in wait_complete_step()')
+    gomc_test.wait_stat(
+        s, lambda st: st.exec_state not in _WAITING,
+        "the step to finish (task to stop waiting for motion)",
+        timeout=_STEP_TIMEOUT, detail=_exec)
 
 
 # Take first three steps (these cause no motion).

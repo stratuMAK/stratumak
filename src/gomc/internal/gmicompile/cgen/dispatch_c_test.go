@@ -80,9 +80,9 @@ func TestGenerateDispatchC(t *testing.T) {
 	assertContains(t, out, `import "C"`)
 
 	// -- Static call wrappers (with ctx) --
-	assertContains(t, out, "static testapi_list_items_result_t call_testapi_list_items(testapi_list_items_fn _fn_ptr, void *ctx,")
-	assertContains(t, out, "static testapi_item_t call_testapi_get_item(testapi_get_item_fn _fn_ptr, void *ctx,")
-	assertContains(t, out, "static void call_testapi_delete_item(testapi_delete_item_fn _fn_ptr, void *ctx,")
+	assertContains(t, out, "static testapi_list_items_result_t call_testapi_list_items(const testapi_callbacks_t *cbs,")
+	assertContains(t, out, "static testapi_item_t call_testapi_get_item(const testapi_callbacks_t *cbs,")
+	assertContains(t, out, "static void call_testapi_delete_item(const testapi_callbacks_t *cbs,")
 
 	// -- Go imports --
 	assertContains(t, out, `"encoding/json"`)
@@ -232,11 +232,59 @@ func TestGenerateDispatchCVoidReturn(t *testing.T) {
 	out := buf.String()
 
 	// No out param in call wrapper — void return (with ctx)
-	assertContains(t, out, "static void call_voidapi_do_action(voidapi_do_action_fn _fn_ptr, void *ctx, int32_t value)")
-	assertContains(t, out, "_fn_ptr(ctx, value);")
+	assertContains(t, out, "static void call_voidapi_do_action(const voidapi_callbacks_t *cbs, int32_t value)")
+	assertContains(t, out, "cbs->do_action(cbs->ctx, value);")
 
 	// Dispatch function returns nil, nil
 	assertContains(t, out, "return nil, nil")
+}
+
+// TestGenerateDispatchCArrayElemFree guards the free path for a fixed array of
+// structs whose element type owns a string. The array is inline (no buffer of
+// its own), but each element's string must still be freed under "caller owns
+// returned data" — a case emitFreeCAllocs/typeHasCAllocs originally skipped.
+func TestGenerateDispatchCArrayElemFree(t *testing.T) {
+	api := &ast.API{
+		Name:    "arrapi",
+		Version: 1,
+		Prefix:  "arrapi",
+		Types: []ast.Type{
+			{
+				Name: "Item",
+				Fields: []ast.Field{
+					{Name: "name", Type: ast.TypeRef{Kind: ast.TypePrimitive, Name: "string"}},
+				},
+			},
+			{
+				Name: "Bundle",
+				Fields: []ast.Field{
+					{Name: "items", Type: ast.TypeRef{
+						Kind:     ast.TypeArray,
+						Elem:     &ast.TypeRef{Kind: ast.TypeNamed, Name: "Item"},
+						ArrayLen: 3,
+					}},
+				},
+			},
+		},
+		Funcs: []ast.Func{
+			{
+				Name:   "get_bundle",
+				Method: "GET",
+				Path:   "/bundle",
+				Return: &ast.TypeRef{Kind: ast.TypeNamed, Name: "Bundle"},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := GenerateDispatchC(&buf, api, "arrpkg", "arrapi_api.h"); err != nil {
+		t.Fatalf("GenerateDispatchC: %v", err)
+	}
+	out := buf.String()
+
+	// The bundle's array elements must be walked and their strings freed.
+	assertContains(t, out, "for _i0 := 0; _i0 < 3; _i0++ {")
+	assertContains(t, out, "C.free(unsafe.Pointer(out.items[_i0].name))")
 }
 
 func TestGenerateDispatchCPrimitiveReturn(t *testing.T) {
@@ -263,7 +311,7 @@ func TestGenerateDispatchCPrimitiveReturn(t *testing.T) {
 	out := buf.String()
 
 	// Primitive return: direct return (with ctx)
-	assertContains(t, out, "static int32_t call_primapi_get_count(primapi_get_count_fn _fn_ptr, void *ctx)")
+	assertContains(t, out, "static int32_t call_primapi_get_count(const primapi_callbacks_t *cbs)")
 	assertContains(t, out, "int32(out)")
 	assertContains(t, out, "Version:    2")
 }

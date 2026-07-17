@@ -14,11 +14,23 @@ from __future__ import annotations
 
 import json
 import queue
+import sys
 import threading
 import urllib.request
 from typing import Optional
 
 from gmi import rest_url
+
+# Socket timeout for a plain command POST. Every endpoint but /wait-complete
+# returns as soon as the command is registered, so this only has to cover
+# transport, not machine work.
+_SOCKET_TIMEOUT = 10.0
+
+# Extra socket headroom on top of a server-side wait. /wait-complete blocks in
+# the server for up to its `timeout` and sends nothing until it resolves, so
+# the socket must outlive the wait itself — otherwise the read times out first
+# and raises instead of delivering the -1 the caller is waiting to see.
+_SOCKET_MARGIN = 10.0
 
 
 class Command:
@@ -39,12 +51,17 @@ class Command:
         while True:
             req = self._async_queue.get()
             try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=_SOCKET_TIMEOUT) as resp:
                     resp.read()
-            except Exception:
-                pass
+            except Exception as e:
+                # Fire-and-forget delivery still has to be *observable*: a
+                # dropped jog that fails silently here surfaces far away as an
+                # unexplained "machine never moved" timeout.
+                print(f"gmi.Command: async POST {req.full_url} failed: {e}",
+                      file=sys.stderr)
 
-    def _post(self, path: str, data: dict = None) -> dict:
+    def _post(self, path: str, data: dict = None,
+              timeout: float = _SOCKET_TIMEOUT) -> dict:
         """Send POST request to the emccmd REST endpoint."""
         url = self._base + path
         body = json.dumps(data or {}).encode("utf-8")
@@ -54,10 +71,9 @@ class Command:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            import sys
             err_body = e.read().decode("utf-8", errors="replace")
             print(f"gmi.Command: {e.code} {url}: {err_body}", file=sys.stderr)
             raise
@@ -186,12 +202,30 @@ class Command:
         self._post("/program-open", {"file": filename})
 
     def wait_complete(self, timeout: float = 5.0) -> int:
-        """Wait for command completion.
+        """Wait for the task to settle. Returns an RCS code; never raises on
+        a machine-side timeout.
 
         Returns:
-            1 (RCS_DONE), 3 (RCS_ERROR), or -1 (timeout)
+            RCS_DONE (1)   — settled
+            RCS_ERROR (3)  — the command failed
+            -1             — the wait did not complete: the task is NOT settled
+                             and any state read afterwards is unsynchronised.
+                             This covers a machine-side timeout AND the task not
+                             being ready — the cgo bridge flattens any
+                             server-side error to -1, so it is not strictly a
+                             "timed out" signal, just "the wait did not happen".
+
+        The -1 is delivered as a normal HTTP 200 body, so a caller that discards
+        the return cannot tell it from success. Callers that need the wait to
+        have actually happened must check for it — see lib/python/gomc_test.py,
+        which wraps this and raises.
+
+        A negative timeout is meaningless (the IDL constrains it to >= 0); the
+        socket deadline is floored so it never goes negative and raises a local
+        urllib ValueError instead of reaching the server.
         """
-        return self._post("/wait-complete", {"timeout": timeout})
+        return self._post("/wait-complete", {"timeout": timeout},
+                          timeout=max(0.0, timeout) + _SOCKET_MARGIN)
 
     def debug(self, level: int):
         """Set debug level (bitmask of DEBUG_* flags)."""

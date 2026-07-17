@@ -4,12 +4,10 @@
 # issue M400 via MDI (expected to error), then a normal G0 move to prove the
 # interpreter unwound back to top level and is still usable.
 set -x
-rm -f server.log sim.var sim.var.bak
-gomc-server -r test.ini >server.log 2>&1 &
-SRV=$!
-trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
-for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done
-sleep 0.5
+. ../../../gomc-driver.sh
+rm -f sim.var sim.var.bak
+gomc_start_server test.ini
+gomc_wait_ready
 
 (
     echo hello EMC mt 1.0

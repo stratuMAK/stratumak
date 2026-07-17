@@ -7,6 +7,7 @@
 # still read via a (debug,...) -> OPERATOR_DISPLAY message on the error channel.
 
 import gmi
+import gomc_test
 from gmi.constants import *
 
 import time
@@ -31,7 +32,11 @@ class HalShim:
 
 h = HalShim()
 
-c = gmi.Command()
+# gomc_test.Command, not gmi.Command: gmi's wait_complete() reports a timed-out
+# wait as -1 in a normal 200 body, so the bare c.wait_complete() calls below
+# would silently proceed against an unsettled machine.  The strict subclass
+# raises at the point the sync was actually lost.
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -99,7 +104,10 @@ def verify_io_pins(state, tool_number, tool_prep_number, tool_prep_pocket):
 
 
 def verify_status_buffer(state, tool_in_spindle):
-    deadline = time.time() + 1
+    # Poll for the expected value rather than betting on how fast task
+    # republishes it.  The loop exits as soon as it lands, so the ceiling is
+    # sized for a loaded CI runner and costs nothing on the happy path.
+    deadline = time.time() + 10
     while time.time() < deadline:
         s.poll()
         if s.tool_in_spindle == tool_in_spindle:

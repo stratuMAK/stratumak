@@ -3,6 +3,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -42,17 +43,34 @@ type mcodeHandler struct {
 	jobCh   chan mcodeJob
 	abortCh chan struct{} // closed to signal abort to running handler
 	doneCh  chan struct{} // closed when worker exits
-
-	// Result from last completed handler
-	resultMu sync.Mutex
-	result   int
-	done     bool
 }
 
 type mcodeJob struct {
 	mcode   int
 	p, q    float64
 	abortCh <-chan struct{}
+	// resultCh carries this job's result and nothing else. It is buffered so
+	// the worker can never block on a caller that has stopped listening.
+	resultCh chan int
+}
+
+// mcodeSub is the caller's handle on ONE submitted job. Completion is scoped to
+// the job that produced it, so a caller that gives up (abort) cannot have its
+// result handed to the next caller: the abandoned job delivers into its own
+// resultCh, which is then simply garbage collected.
+type mcodeSub struct {
+	resultCh <-chan int
+}
+
+// check reports (result, true) once THIS submission's handler has finished.
+// It is non-blocking, so it drops straight into the sequencer's poll loop.
+func (s *mcodeSub) check() (int, bool) {
+	select {
+	case r := <-s.resultCh:
+		return r, true
+	default:
+		return 0, false
+	}
 }
 
 // newMcodeHandler creates and starts the handler worker.
@@ -91,16 +109,28 @@ func (h *mcodeHandler) HasHandler(mcode int) bool {
 	return h.handlers[mcode-100] != nil
 }
 
-// Submit submits an M-code for execution. Returns error if worker is busy.
-func (h *mcodeHandler) Submit(mcode int, p, q float64) error {
+// Submit submits an M-code for execution and returns a handle on THAT job's
+// completion. It blocks until the job is queued on jobCh; because jobCh is
+// buffered (size 1), that can happen while the worker is still draining a
+// previously abandoned job, which is exactly why a post-abort successor is
+// never rejected. If abort fires before the job is queued it returns
+// context.Canceled.
+//
+// Completion is per-job by construction. A bare "done" flag cannot work here:
+// it records that A job finished, not WHICH one, so the moment one caller stops
+// waiting (McodeCmd.Execute returns on abort while its handler is still
+// running) the stale completion is credited to the next caller's job and the
+// sequencer runs permanently one job ahead of the worker — silently reporting
+// M-codes as complete that never ran.
+func (h *mcodeHandler) Submit(mcode int, p, q float64, abort <-chan struct{}) (*mcodeSub, error) {
 	if mcode < 100 || mcode > 199 {
-		return fmt.Errorf("mcode_handler: invalid mcode %d", mcode)
+		return nil, fmt.Errorf("mcode_handler: invalid mcode %d", mcode)
 	}
 	h.mu.Lock()
 	fn := h.handlers[mcode-100]
 	h.mu.Unlock()
 	if fn == nil {
-		return fmt.Errorf("mcode_handler: no handler for M%d", mcode)
+		return nil, fmt.Errorf("mcode_handler: no handler for M%d", mcode)
 	}
 
 	// Reset abort channel for new job
@@ -108,41 +138,31 @@ func (h *mcodeHandler) Submit(mcode int, p, q float64) error {
 	h.abortCh = make(chan struct{})
 	abortCh := h.abortCh
 	h.mu.Unlock()
-	// done is guarded by resultMu (the worker writes it under resultMu) —
-	// resetting it under h.mu would be an unsynchronized write.
-	h.resultMu.Lock()
-	h.done = false
-	h.resultMu.Unlock()
 
+	resultCh := make(chan int, 1)
+	job := mcodeJob{mcode: mcode, p: p, q: q, abortCh: abortCh, resultCh: resultCh}
 	select {
-	case h.jobCh <- mcodeJob{mcode: mcode, p: p, q: q, abortCh: abortCh}:
-		return nil
-	default:
-		return fmt.Errorf("mcode_handler: worker busy")
+	case h.jobCh <- job:
+		return &mcodeSub{resultCh: resultCh}, nil
+	case <-abort:
+		return nil, context.Canceled
 	}
-}
-
-// CheckDone returns (result, true) if the last submitted job is complete.
-func (h *mcodeHandler) CheckDone() (int, bool) {
-	h.resultMu.Lock()
-	defer h.resultMu.Unlock()
-	if h.done {
-		h.done = false
-		return h.result, true
-	}
-	return 0, false
 }
 
 // Abort signals the running handler to stop.
+//
+// The check-and-close is done under h.mu, not around it: two aborts racing (any
+// of the three abort paths vs. Stop) would otherwise both observe "not closed"
+// and double-close, which panics — and a lone reader could close a channel that
+// Submit had already swapped out from under it, aborting nothing.
 func (h *mcodeHandler) Abort() {
 	h.mu.Lock()
-	ch := h.abortCh
-	h.mu.Unlock()
+	defer h.mu.Unlock()
 	select {
-	case <-ch:
+	case <-h.abortCh:
 		// already closed
 	default:
-		close(ch)
+		close(h.abortCh)
 	}
 }
 
@@ -163,10 +183,7 @@ func (h *mcodeHandler) worker() {
 		h.mu.Unlock()
 
 		if fn == nil {
-			h.resultMu.Lock()
-			h.result = -1
-			h.done = true
-			h.resultMu.Unlock()
+			job.resultCh <- -1
 			continue
 		}
 
@@ -177,11 +194,8 @@ func (h *mcodeHandler) worker() {
 			abortCh: job.abortCh,
 		}
 
-		result := fn(call)
-
-		h.resultMu.Lock()
-		h.result = result
-		h.done = true
-		h.resultMu.Unlock()
+		// resultCh is buffered and belongs to this job alone, so this never
+		// blocks even when the submitter has already given up on it.
+		job.resultCh <- fn(call)
 	}
 }

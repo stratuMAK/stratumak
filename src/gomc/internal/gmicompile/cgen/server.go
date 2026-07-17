@@ -413,7 +413,11 @@ func (g *serverGen) emitCallbacksStruct() {
 	if len(g.api.Funcs) == 0 {
 		return
 	}
-	g.printf("// --- Callbacks Struct ---\n\n")
+	g.printf("// --- Callbacks Struct ---\n//\n")
+	g.printf("// Ownership: string and slice data RETURNED by these callbacks must be\n")
+	g.printf("// malloc'd — the caller owns it and frees it (the generated Go client\n")
+	g.printf("// does so automatically). Never return pointers to static or reused\n")
+	g.printf("// buffers. String/slice PARAMETERS remain owned by the caller.\n\n")
 	g.printf("typedef struct %s_callbacks {\n", g.api.Name)
 	g.printf("    void *ctx;\n")
 	for _, fn := range g.api.Funcs {

@@ -20,6 +20,7 @@
 
 import gmi
 from gmi.constants import *
+import gomc_test
 
 import sys
 import time
@@ -60,7 +61,10 @@ def capture(name, compare=True):
     diff it against expected.<name>; otherwise just advance the offset (used for
     the reset program, whose stream is position-dependent under real motion).'''
     global log_offset, retval
-    time.sleep(0.2)  # settle any trailing flushed lines onto disk
+    # The interceptor cmod is a *different* writer: wait for its log to stop
+    # growing rather than sleeping and hoping it flushed. The program is already
+    # idle here, so the delta is complete once the size holds steady.
+    gomc_test.wait_file_stable(LOG)
     with open(LOG, "rb") as f:
         f.seek(log_offset)
         chunk = f.read().decode()

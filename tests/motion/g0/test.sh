@@ -4,6 +4,8 @@
 # halsampler, and drive the machine with the rsh->gmi translator instead of
 # piping linuxcncrsh commands into `nc localhost 5007`.
 
+. "$(dirname "$0")/../../gomc-driver.sh"
+
 wait_for_pin() {
     pin="$1"
     value="$2"
@@ -28,16 +30,21 @@ gomcpid=$!
 samplerpid=""
 trap 'kill $samplerpid 2>/dev/null; kill $gomcpid 2>/dev/null; wait 2>/dev/null' EXIT
 
-for i in $(seq 100); do
-    halcmd show comp 2>/dev/null | grep -q milltask && break
-    sleep 0.1
-done
+# Replaces a `grep milltask` loop with no failure branch: ask the status buffer
+# and fail loudly if the machine never finished starting up.
+GOMC_SRV=$gomcpid
+export GOMC_SRV
+gomc_wait_ready
 
 wait_for_pin motion.in-position TRUE
 
 echo starting to capture data
 halsampler -t >| result.halsamples &
 samplerpid=$!
+# Bet, not a wait — deliberately kept: nothing observable marks the halsampler
+# WebSocket subscription as established, so there is no predicate to poll. See
+# the long rationale in tests/hal-stream-driver.sh (hal_sample); closing this
+# needs an upstream readiness signal, not a fabricated client-side one.
 sleep 0.5   # let the sampler subscribe before motion starts
 
 (

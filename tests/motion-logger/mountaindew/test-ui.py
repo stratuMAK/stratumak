@@ -9,6 +9,7 @@
 
 import gmi
 from gmi.constants import *
+import gomc_test
 
 import sys
 import time
@@ -44,7 +45,11 @@ c.wait_complete()
 c.program_open('mountaindew.ngc')
 c.auto(AUTO_RUN, 4)
 wait_idle()
-time.sleep(0.2)
+
+# The interceptor cmod appends to out.motion-logger from another process; wait
+# for it to stop growing instead of sleeping and hoping the tail was flushed. A
+# short read here truncates the diff and fails the test for the wrong reason.
+gomc_test.wait_file_stable("out.motion-logger")
 
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"])

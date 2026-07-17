@@ -2,54 +2,17 @@
 # Minimal linuxcncrsh -> gmi translator. Reads the subset of linuxcncrsh 'set'
 # commands used by the tool tests on stdin and drives the machine via the gmi
 # REST client. Replaces piping the command stream into `nc localhost 5007`.
+#
+# Synchronisation lives in gomc_test (see lib/python/gomc_test.py): the Command
+# here raises rather than silently returning -1 from a timed-out wait_complete,
+# and drain_mdi polls a predicate against a deadline instead of sleeping.
 import sys
-import time
-import gmi
+
+import gomc_test
 from gmi.constants import *
 
-c = gmi.Command()
-s = gmi.Stat()
-
-
-def drain_mdi(timeout=30.0):
-    """Wait for an MDI command to fully drain before the next is sent. gmi
-    wait_complete lacks serial-number tracking, so back-to-back MDIs would
-    otherwise overrun the MDI queue ("MDI queue full"). c.mdi() is a synchronous
-    POST (the command is registered before it returns), so we only need to wait
-    for the queue to empty and the interpreter to return to idle — which, since
-    the sequencer blocks on any M-code handler, also means the handler finished."""
-    start = time.time()
-    not_on_since = None
-    while time.time() - start < timeout:
-        s.poll()
-        if s.task_state != STATE_ON:
-            # Command endpoints report failure as an RCS code in the body (HTTP
-            # 200), which c.mdi() discards — so a machine that dropped out (e.g.
-            # a task fault) would otherwise read as a clean no-op run and the
-            # test would "pass" having executed nothing. Fail loudly — but only
-            # if the drop PERSISTS: gmi.Stat is a 50ms WS-push cache and a
-            # single snapshot can be stale (observed: a boot-era STATE_ESTOP
-            # surfacing mid-run while the server never left STATE_ON).
-            if not_on_since is None:
-                not_on_since = time.time()
-            elif time.time() - not_on_since > 0.5:
-                raise SystemExit(
-                    "rsh2gmi: machine dropped out of STATE_ON during MDI "
-                    "(task_state=%d for >0.5s) — command was silently rejected"
-                    % s.task_state)
-        else:
-            not_on_since = None
-            # Success requires an ON snapshot too: after a real drop the queue
-            # is flushed and the interp forced idle, which would otherwise
-            # read as a clean drain.
-            if s.queued_mdi_commands == 0 and s.interp_state == INTERP_IDLE:
-                return
-        time.sleep(0.005)
-    s.poll()  # fresh read so the diagnostic reflects the state AT failure time
-    raise SystemExit(
-        "rsh2gmi: MDI did not drain within %gs (queued=%d interp_state=%d) — "
-        "treating a hung interpreter as failure, not success"
-        % (timeout, s.queued_mdi_commands, s.interp_state))
+c = gomc_test.Command()
+s = gomc_test.Stat()
 
 
 for raw in sys.stdin:
@@ -74,17 +37,18 @@ for raw in sys.stdin:
     elif low == 'set mode auto':
         c.mode(MODE_AUTO)
     elif low == 'set wait done':
-        # wait_complete returns 1 (RCS_DONE), 3 (RCS_ERROR), or -1 (timeout).
-        # A timeout means the interpreter hung — fail loudly rather than silently
-        # continue (which would read a hung run as success). RCS_ERROR is NOT fatal:
-        # these tool tests deliberately issue commands that error (e.g. G10 L1 P0)
-        # and introspect the resulting state afterwards.
-        if c.wait_complete(30) == -1:
-            raise SystemExit("rsh2gmi: wait_complete timed out (interpreter hung)")
+        # RCS_ERROR is NOT fatal: these tool tests deliberately issue commands
+        # that error (e.g. G10 L1 P0) and introspect the resulting state
+        # afterwards. A timeout IS fatal, and gomc_test.Command raises on it —
+        # a hung interpreter must not read as a clean run.
+        c.wait_complete()
     elif low.startswith('set mdi '):
         c.mdi(cmd[len('set mdi '):])
-        time.sleep(0.02)  # let the command register before polling for drain
-        drain_mdi(30)
+        # No settle needed before polling: the /mdi POST registers the command
+        # before it returns (Task.executeMDI sets interpState synchronously, or
+        # the command lands on mdiQueue), so the drain predicate cannot read
+        # "already idle" for an MDI that has not started yet.
+        gomc_test.drain_mdi(s)
     elif low.startswith('set home '):
         c.home(int(cmd.split()[-1]))
     elif low.startswith('set teleop_enable '):

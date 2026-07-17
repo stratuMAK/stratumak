@@ -39,9 +39,20 @@ fi
 
 getcount() { halcmd getp mqtt-bridge.publish-count 2>/dev/null | awk '{print $NF}'; }
 
+# Poll the real predicate — publish-count advancing past $before — against a
+# deadline, instead of sleeping ~12 publish ticks and hoping. The checks below are
+# unchanged; this only stops a slow runner reading `after` before the bridge has
+# ticked and failing with "did not advance" when it merely had not yet.
 before=$(getcount)
-sleep 1.2                    # ~12 ticks at the 100 ms publish rate
-after=$(getcount)
+after=$before
+deadline=$(( SECONDS + 30 ))
+while [ "$SECONDS" -lt "$deadline" ]; do
+    after=$(getcount)
+    if [ -n "$before" ] && [ -n "$after" ] && [ "$after" -gt "$before" ]; then
+        break
+    fi
+    sleep 0.05
+done
 echo "mqtt: publish-count before=$before after=$after"
 
 if [ -z "$after" ] || [ "$after" -le 0 ]; then

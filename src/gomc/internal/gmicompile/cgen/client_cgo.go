@@ -30,6 +30,32 @@ type clientCgoGen struct {
 	dispatchCGen // embed for reuse of preamble, types, converters
 }
 
+// outParam is an @out method parameter: not in the Go signature, returned as an
+// extra value. The provider fills its zeroed C struct in place.
+type outParam struct {
+	param ast.Param
+	cVar  string
+}
+
+// emitOutParamConverts converts each out-param C struct to a Go value and frees
+// the C allocations the provider wrote into it. Out-params follow the same
+// "caller owns returned data" convention as return values — the Go bridge
+// writeback allocates them and drops its freeList — so the client owns and
+// frees them. Returns the Go variable names holding the converted values.
+func (g *clientCgoGen) emitOutParamConverts(outParams []outParam) []string {
+	var outVars []string
+	for _, op := range outParams {
+		converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
+		outVar := toLowerCamel(op.param.Name) + "Out"
+		g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
+		if t := g.findType(op.param.Type.Name); t != nil && g.typeHasCAllocs(op.param.Type.Name, map[string]bool{}) {
+			g.emitFreeCAllocs(op.cVar, t, 0, "\t")
+		}
+		outVars = append(outVars, outVar)
+	}
+	return outVars
+}
+
 func (g *clientCgoGen) generate() error {
 	// The cgo preamble, types, constants, and converters are already generated
 	// by --server-go into the same package (*_cgo.go). We only need:
@@ -126,10 +152,6 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 	// - Regular params → in signature
 	// - byref params → *Type in signature (in/out, caller provides & receives)
 	// - out params → NOT in signature, returned as additional value
-	type outParam struct {
-		param ast.Param
-		cVar  string
-	}
 	var inputParams []string
 	var outParams []outParam
 
@@ -195,10 +217,11 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 		g.printf("\tvar %s %s\n", op.cVar, cType)
 	}
 
-	// Convert Go params → C
+	// Convert Go params → C. The wrapper reads the function pointer and ctx
+	// from the struct in C — ctx may be a cgo.Handle integer that must never
+	// occupy a Go pointer-typed slot.
 	var callArgs []string
-	callArgs = append(callArgs, "cl.cb."+cgoFieldAccess(fnSnake))
-	callArgs = append(callArgs, "cl.cb.ctx")
+	callArgs = append(callArgs, "cl.cb")
 
 	// Track byref params that need C→Go writeback after the call
 	type byrefWriteback struct {
@@ -245,13 +268,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
 		// Convert out params
-		var outVars []string
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-			outVars = append(outVars, outVar)
-		}
+		outVars := g.emitOutParamConverts(outParams)
 
 		if i32Value {
 			// @returns_value: rc is a meaningful value, only error on negative
@@ -278,11 +295,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			converter := toLowerCamelRaw(wb.param.Type.Name) + "CToGo"
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-		}
+		g.emitOutParamConverts(outParams)
 		g.emitClientReturnConvert(fn)
 	} else {
 		g.printf("\t%s\n", callExpr)
@@ -290,13 +303,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			converter := toLowerCamelRaw(wb.param.Type.Name) + "CToGo"
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
-		var outVars []string
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-			outVars = append(outVars, outVar)
-		}
+		outVars := g.emitOutParamConverts(outParams)
 		if len(outVars) > 0 {
 			g.printf("\treturn %s, nil\n", strings.Join(outVars, ", "))
 		} else {
@@ -332,7 +339,12 @@ func (g *clientCgoGen) emitClientReturnConvert(fn ast.Func) {
 	case ast.TypePrimitive:
 		switch ret.Name {
 		case ast.PrimString:
-			g.printf("\treturn C.GoString(out), nil\n")
+			// Caller owns returned data: free the C string after copying.
+			g.printf("\tresult := C.GoString(out)\n")
+			g.printf("\tif out != nil {\n")
+			g.printf("\t\tC.free(unsafe.Pointer(out))\n")
+			g.printf("\t}\n")
+			g.printf("\treturn result, nil\n")
 		case ast.PrimBool:
 			g.printf("\treturn bool(out), nil\n")
 		default:
@@ -346,10 +358,15 @@ func (g *clientCgoGen) emitClientReturnConvert(fn ast.Func) {
 			g.printf("\treturn %s(out), nil\n", goType)
 		} else {
 			converter := toLowerCamelRaw(ret.Name) + "CToGo"
-			if g.typeHasSlices(ret.Name) {
-				converter += "Free"
+			if t := g.findType(ret.Name); t != nil && g.typeHasCAllocs(ret.Name, map[string]bool{}) {
+				// Caller owns returned data: free the C allocations
+				// (strings, slice buffers) after converting to Go.
+				g.printf("\tresult := %s(&out)\n", converter)
+				g.emitFreeCAllocs("out", t, 0, "\t")
+				g.printf("\treturn result, nil\n")
+			} else {
+				g.printf("\treturn %s(&out), nil\n", converter)
 			}
-			g.printf("\treturn %s(&out), nil\n", converter)
 		}
 
 	case ast.TypeSlice:
@@ -362,6 +379,9 @@ func (g *clientCgoGen) emitClientReturnConvert(fn ast.Func) {
 			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			g.printf("\t\t\tresult[i] = %s(&cSlice[i])\n", converter)
+			if t := g.findType(ret.Elem.Name); t != nil && g.typeHasCAllocs(ret.Elem.Name, map[string]bool{}) {
+				g.emitFreeCAllocs("cSlice[i]", t, 1, "\t\t\t")
+			}
 			g.printf("\t\t}\n")
 			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
 			g.printf("\t}\n")
@@ -373,6 +393,9 @@ func (g *clientCgoGen) emitClientReturnConvert(fn ast.Func) {
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == ast.PrimString {
 				g.printf("\t\t\tresult[i] = C.GoString(cSlice[i])\n")
+				g.printf("\t\t\tif cSlice[i] != nil {\n")
+				g.printf("\t\t\t\tC.free(unsafe.Pointer(cSlice[i]))\n")
+				g.printf("\t\t\t}\n")
 			} else {
 				g.printf("\t\t\tresult[i] = %s(cSlice[i])\n", goElemType)
 			}
