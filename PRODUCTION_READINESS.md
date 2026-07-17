@@ -297,9 +297,18 @@ Not per-module; each needs an owner and a done-definition.
   caller. This matches classic `linuxcnc.command()` semantics (errors via the error channel
   + `wait_complete()==RCS_ERROR`), which is why it wasn't changed during the flaky-test fix
   (2026-07-14) — but for gomc-native clients/GUIs an explicit rc return (or opt-in raise)
-  would remove a whole class of silently-doing-nothing bugs. Test-side mitigation exists
-  (`tests/rsh2gmi.py` fails loudly when the machine leaves STATE_ON during MDI). Decide the
-  API contract once, apply to gmi python + any future client bindings.
+  would remove a whole class of silently-doing-nothing bugs. Decide the API contract once,
+  apply to gmi python + any future client bindings.
+  **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
+  `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
+  rather than returning it, and the suite constructs through it. `gmi.Command` itself was
+  left drop-in-compatible on purpose: `bin/axis`, `linuxcnctop` and `manualtoolchange_ui`
+  import gmi directly, so changing the contract underneath them is a product decision, not a
+  test fix. What remains open is exactly that: whether gomc-native clients should get a
+  raising/rc-returning variant. Also fixed in that pass: `_post` hard-coded a 10s socket
+  timeout while `/wait-complete` blocks server-side for its full `timeout`, so any
+  `wait_complete(t>10)` raised a socket error instead of ever returning -1 — the -1 contract
+  was unreachable for long waits.
 - [ ] **Startup-code motion at estop faults exec_state** — `RS274NGC_STARTUP_CODE` executes
   at task init exactly like 2.9, but gomc's canon dispatches straight to motion, so a startup
   file containing motion (e.g. `tests/motion-logger/startup-gcode-abort`'s `o<init> call`)

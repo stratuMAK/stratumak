@@ -49,9 +49,16 @@ jobs:
         CGO_LDFLAGS="-Wl,-rpath,$(cd ../../lib && pwd) -Wl,--disable-new-dtags" \
           GOFLAGS=-mod=mod go build -race -o ../../bin/gomc-server ./cmd/gomc-server
     - name: runtests against race-built gomc-server
-      # Race-instrumented binaries are slower; timing-sensitive tests may
-      # xfail/fail — what we are after is any "WARNING: DATA RACE" in the
-      # server logs, which the next step turns into a failure.
+      # Race-instrumented binaries are several times slower, so stretch every
+      # deadline in the suite rather than re-tune each test (see
+      # lib/python/gomc_test.py). Deadlines only bound failure — the waiters
+      # return as soon as their predicate holds, so a generous ceiling costs
+      # nothing on the happy path.
+      env:
+        GOMC_TEST_TIMEOUT_SCALE: "4"
+      # What we are after is any "WARNING: DATA RACE" in the server logs, which
+      # the next step turns into a failure — a timing casualty must not fail the
+      # job before we get to look.
       continue-on-error: true
       run: |
         cd src
