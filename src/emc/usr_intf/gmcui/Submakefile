@@ -40,4 +40,11 @@ TARGETS += ../bin/tooledit
 	$(Q)ln -sf gmcui $@
 TARGETS += ../bin/emccalib
 
+# Symlink: latency -> gmcui  (the viewer; scripts/latency-test starts the
+# server and then opens this)
+../bin/latency: ../bin/gmcui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf gmcui $@
+TARGETS += ../bin/latency
+
 endif

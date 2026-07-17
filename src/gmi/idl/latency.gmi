@@ -1,0 +1,93 @@
+# latency - RT scheduling-latency / jitter measurement API
+#
+# Each `latency` cmod instance (one per HAL thread) registers this API under
+# its HAL component name.  A non-RT drainer thread inside the cmod maintains
+# the histogram and running statistics server-side, so the data accumulates
+# from load time and survives client disconnects / late connects.
+#
+# The RT capture function is exported via the HAL and is NOT part of this
+# API - it runs in the HAL thread context.
+
+@api latency
+@author "Sascha Ittner <sascha.ittner@modusoft.de>"
+@license "GPL Version 2"
+@version 1
+@prefix latency
+@rest_export true
+
+# Live scalar status.  minNs/maxNs/maxJitterNs/samples come from the RT
+# function directly (exact, never lost); mean/stddev/dropped come from the
+# non-RT drainer's aggregate.
+type LatencyStatus {
+    name: string          # HAL component / instance name
+    periodNs: i64         # nominal thread period
+    samples: i64          # total samples measured (RT)
+    lastNs: i32           # most recent latency
+    minNs: i32            # minimum latency seen (RT)
+    maxNs: i32            # maximum latency seen (RT)
+    maxJitterNs: i32      # worst-case |latency| seen (RT, headline)
+    meanNs: f64           # mean latency (drainer)
+    stddevNs: f64         # latency standard deviation (drainer)
+    dropped: u32          # ring samples the drainer lost to overrun
+    binWidthNs: i32       # current histogram resolution
+}
+
+# Server-side histogram snapshot.  Bins are symmetric around zero latency:
+# bins[i] covers [baseNs + i*binWidthNs, baseNs + (i+1)*binWidthNs).
+type LatencyHistogram {
+    binWidthNs: i32       # current bin width
+    binCount: i32         # number of bins
+    baseNs: i32           # left edge of bins[0]
+    bins: []u32           # per-bin counts
+    underflow: u32        # samples below baseNs
+    overflow: u32         # samples at/above the last bin's right edge
+    samples: i64          # total binned samples
+    autoscale: bool       # true = bin width tracks the bulk automatically
+}
+
+# One downsampled time bucket of the server-side plot history.  The drainer
+# folds every sample into a fixed-width wall-clock bucket, so all clients see
+# the same series and late-connecting clients get the retained history.
+type LatencyHistPoint {
+    tMs: i64              # bucket time, ms since the instance started
+    minNs: i32           # min latency in the bucket
+    maxNs: i32           # max latency in the bucket
+    meanNs: f64          # mean latency in the bucket
+    count: i32           # samples in the bucket
+}
+
+type LatencyHistory {
+    bucketMs: i32              # bucket width (ms)
+    points: []LatencyHistPoint # oldest -> newest
+}
+
+# Live views are polled over REST at display rate by the UI (like the old
+# latency-plot).  A push-based @watch for C-provided cmods is not wired
+# end-to-end in the framework yet, so it is deliberately omitted here.
+@method "GET"
+@path "/status"
+func get_status() -> LatencyStatus
+
+@method "GET"
+@path "/histogram"
+func get_histogram() -> LatencyHistogram
+
+# Server-side plot history.  `seconds` limits the returned window (0 = all
+# retained); the server keeps a bounded ring so the range is selectable and
+# consistent across clients.
+@method "GET"
+@path "/history"
+func get_history(seconds: i32) -> LatencyHistory
+
+# Pin the histogram bin width (ns), disabling autoscale; 0 restores autoscale
+# at the configured default.  The histogram is cleared either way, since past
+# counts cannot be re-binned to a finer width.
+@method "POST"
+@path "/configure"
+func configure(binWidthNs: i32 @min(0)) -> bool
+
+# Reset all statistics, the histogram, and the plot history (RT scalars +
+# drainer aggregate).
+@method "POST"
+@path "/reset"
+func reset() -> bool

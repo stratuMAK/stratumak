@@ -1,19 +1,24 @@
 #!/bin/bash
-SCRIPT_LOCATION=$(dirname $(readlink -f $0));
-if [ -f $SCRIPT_LOCATION/rip-environment ] && [ -z "$EMC2_HOME" ]; then
-    . $SCRIPT_LOCATION/rip-environment
+# latency-test - measure RT scheduling latency (gomc).
+#
+# Boots a minimal, standalone gomc-server (RT threads plus one `latency` cmod
+# instance per thread; no INI, task or motion) and opens the web UI on it.  The
+# cmod measures each thread's scheduling latency in its RT function, and a
+# non-RT drainer inside it keeps the histogram, statistics and plot history
+# server-side.
+#
+# Replaces the old halrun + timedelta + PyVCP implementation.  The command line
+# (periods, suffixes, ~/.latency) is kept compatible.
+#
+# Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+# License: GPL Version 2
+
+SCRIPT_LOCATION=$(dirname "$(readlink -f "$0")")
+if [ -f "$SCRIPT_LOCATION/rip-environment" ] && [ -z "$EMC2_HOME" ]; then
+    . "$SCRIPT_LOCATION/rip-environment"
 fi
 
-T=`mktemp -d`
-trap 'cd /; [ -d $T ] && rm -rf $T' SIGINT SIGTERM EXIT
-cd $T
-node=$(uname -n)
-machine=$(uname  -m)
-date=$(date +%d%b%Y)
-krelease=$(uname -r)
-kversion=$(uname -v)
-
-calc() { awk "BEGIN { print ($1); }" < /dev/null; }
+calc()  { awk "BEGIN { print ($1); }" < /dev/null; }
 icalc() { awk "BEGIN { printf \"%.0f\n\", ($1); }" < /dev/null; }
 
 parse_time () {
@@ -23,26 +28,33 @@ parse_time () {
     *us|*µs) icalc "1000*${1%us}" ;;
     *ms) icalc "1000*1000*${1%ms}" ;;
     *s)  icalc "1000*1000*1000*${1%s}" ;;
-    *)   if [ $1 -lt 1000 ]; then icalc "1000*$1"; else icalc "$1"; fi ;;
+    *)   if [ "$1" -lt 1000 ]; then icalc "1000*$1"; else icalc "$1"; fi ;;
     esac
 }
 
 human_time () {
     if [ "$1" -eq 0 ]; then echo "-"
-    elif [ "$1" -ge 1000000000 ]; then echo "$(calc $1/1000/1000/1000)s"
-    elif [ "$1" -ge 1000000 ]; then echo "$(calc $1/1000/1000)ms"
-    elif [ "$1" -ge 1000 ]; then echo "$(calc $1/1000)µs"
+    elif [ "$1" -ge 1000000000 ]; then echo "$(calc "$1/1000/1000/1000")s"
+    elif [ "$1" -ge 1000000 ]; then echo "$(calc "$1/1000/1000")ms"
+    elif [ "$1" -ge 1000 ]; then echo "$(calc "$1/1000")µs"
     else echo "$1ns"
     fi
 }
 
+BASE=$(parse_time 25us); SERVO=$(parse_time 1ms)
+
 usage () {
     echo "Usage:"
-    echo "       latency-test [base-period [servo-period]]"
+    echo "       latency-test [--stress] [base-period [servo-period]]"
     echo "   or:"
-    echo "       latency-test [servo-period]  # for single thread"
+    echo "       latency-test [--stress] [servo-period]  # for single thread"
     echo "   or:"
     echo "       latency-test -h | --help     # (this text)"
+    echo ""
+    echo "  --stress   load the machine while measuring, to see the effect on"
+    echo "             latency: a Go garbage-collector load generator plus host"
+    echo "             stress (glxgears, gzip of / to /dev/null, ping the"
+    echo "             gateway).  Missing tools are skipped with an install hint."
     echo ""
     echo "Example:"
     echo "       latency-test 50000 1000000"
@@ -62,113 +74,187 @@ usage () {
     exit 1
 }
 
-BASE=$(parse_time 25us); SERVO=$(parse_time 1ms)
-
-case $1 in
-  -h|--help) usage;;
-esac
+# Pull the --stress flag out of the argument list; the rest are periods.
+STRESS=0
+POS=()
+for a in "$@"; do
+    case $a in
+    --stress)  STRESS=1 ;;
+    -h|--help) usage ;;
+    -*)        echo "latency-test: unknown option $a" >&2; usage ;;
+    *)         POS+=("$a") ;;
+    esac
+done
+set -- "${POS[@]}"
 
 case $# in
 0) ;;
-1) BASE=0; SERVO=$(parse_time $1) ;;
-2) BASE=$(parse_time $1); SERVO=$(parse_time $2) ;;
+1) BASE=0; SERVO=$(parse_time "$1") ;;
+2) BASE=$(parse_time "$1"); SERVO=$(parse_time "$2") ;;
 *) usage;;
 esac
 
 if [ "$BASE" -gt "$SERVO" ]; then TEMP=$BASE; BASE=$SERVO; SERVO=$TEMP; fi
 if [ "$BASE" -eq "$SERVO" ]; then BASE=0; fi
 
-BASE_HUMAN=$(human_time $BASE)
-SERVO_HUMAN=$(human_time $SERVO)
-
-if [ $BASE -eq 0 ]; then
-cat > lat.hal <<EOF
-newthread slow $SERVO
-loadrt timedelta count=1
-addf timedelta.0 slow
-start
-loadusr -Wn lat pyvcp lat.xml
-net sl timedelta.0.max => lat.sl
-net sj timedelta.0.jitter => lat.sj
-net st timedelta.0.out => lat.st
-net reset lat.reset => timedelta.0.reset
-waitusr lat
-loadusr -w bash latexit.sh
-EOF
+# This server is standalone and short-lived, so bind an ephemeral port instead
+# of the well-known one - a running LinuxCNC already owns 5080.  An explicit
+# GMC_REST_ADDR from the caller wins.
+if [ -n "$GMC_REST_ADDR" ]; then
+    ADDR="$GMC_REST_ADDR"
 else
-cat > lat.hal <<EOF
-newthread fast $BASE nofp
-newthread slow $SERVO
-loadrt timedelta count=2
-addf timedelta.0 fast
-addf timedelta.1 slow
-start
-loadusr -Wn lat pyvcp lat.xml
-net sl timedelta.1.max => lat.sl
-net sj timedelta.1.jitter => lat.sj
-net st timedelta.1.out => lat.st
-net bl timedelta.0.max => lat.bl
-net bj timedelta.0.jitter => lat.bj
-net bt timedelta.0.out => lat.bt
-net reset lat.reset => timedelta.0.reset timedelta.1.reset
-waitusr lat
-loadusr -w bash latexit.sh
-EOF
+    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
+    [ -n "$PORT" ] || PORT=5081
+    ADDR="127.0.0.1:$PORT"
+fi
+BASE_URL="http://$ADDR"
+
+T=$(mktemp -d)
+SRV_PID=""
+STRESS_PIDS=()   # process-group leaders of the external stressors
+cleanup () {
+    # Stop the external stressors first.  Each was started with setsid, so the
+    # PID is a process-group leader and a negative-PID kill reaps the whole
+    # pipeline (find/xargs/gzip children), not just the launcher.
+    for p in "${STRESS_PIDS[@]}"; do
+        kill -TERM -- -"$p" 2>/dev/null
+    done
+    if [ -n "$SRV_PID" ]; then
+        kill -INT "$SRV_PID" 2>/dev/null
+        wait "$SRV_PID" 2>/dev/null
+    fi
+    cd /; [ -d "$T" ] && rm -rf "$T"
+}
+trap cleanup SIGINT SIGTERM EXIT
+
+# ---- external host stress (--stress) --------------------------------------
+# Reproduces the old "abuse the computer while testing" advice automatically.
+# Each stressor runs in its own session so cleanup() can kill its whole group;
+# missing tools are reported with an install hint and skipped, never fatal.
+
+have_tool () {  # have_tool <cmd> <apt-package>
+    command -v "$1" >/dev/null 2>&1 && return 0
+    echo "latency-test: '$1' not found - skipping its stress (install: sudo apt install $2)" >&2
+    return 1
+}
+
+start_stressor () {  # start_stressor <shell-command>
+    # Run in a new session so the whole pipeline can be killed as one group.
+    # The child writes its OWN pid to a file: that pid IS the process-group id
+    # (a session leader leads its group).  We must not use $! here - setsid
+    # forks when it is already a group leader, so $! can be a short-lived parent
+    # while the real group runs elsewhere, and killing $! would leak the tree.
+    local pf; pf="$T/pgid.${#STRESS_PIDS[@]}"
+    setsid bash -c 'echo $$ >"'"$pf"'"; '"$1" >/dev/null 2>&1 &
+    local i
+    for i in $(seq 1 25); do [ -s "$pf" ] && break; sleep 0.02; done
+    local pg; pg=$(cat "$pf" 2>/dev/null); rm -f "$pf"
+    [ -n "$pg" ] && STRESS_PIDS+=("$pg")
+}
+
+start_external_stress () {
+    echo "latency-test: starting host stress (glxgears, gzip, ping)" >&2
+
+    # GPU / compositor: a few spinning gears.  Needs an X display (present in
+    # the graphical session this is launched from).
+    if [ -z "$DISPLAY" ]; then
+        echo "latency-test: no DISPLAY - skipping glxgears" >&2
+    elif have_tool glxgears mesa-utils; then
+        for _ in 1 2 3 4; do start_stressor 'exec glxgears'; done
+    fi
+
+    # Disk I/O + CPU + process churn: compress every regular readable file to
+    # /dev/null, in a loop.  -exec ... {} \; restarts gzip once PER FILE (a
+    # fresh fork+exec each time), which loads the scheduler harder than piping
+    # batches through one gzip; run one loop per core for parallel load.  Prune
+    # the pseudo-filesystems: reading e.g. /proc/kcore is all of RAM and some
+    # /proc,/sys files block forever.
+    if have_tool gzip gzip && have_tool find findutils; then
+        P=$(nproc 2>/dev/null || echo 4); [ "$P" -gt 4 ] && P=4
+        i=0
+        while [ "$i" -lt "$P" ]; do
+            start_stressor 'while :; do
+                find / -path /proc -prune -o -path /sys -prune -o -path /dev -prune \
+                       -o -path /run -prune -o -type f -readable \
+                       -exec gzip -c {} \; >/dev/null 2>&1
+            done'
+            i=$((i + 1))
+        done
+    fi
+
+    # Network + softirq: rapid ping to the default gateway.  -i 0.01 needs
+    # cap_net_raw; we never use sudo, so if the kernel rejects the interval the
+    # ping just exits and we say so.
+    if have_tool ping iputils-ping && have_tool ip iproute2; then
+        gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+        if [ -z "$gw" ]; then
+            echo "latency-test: no default gateway - skipping ping" >&2
+        else
+            start_stressor "exec ping -i 0.01 -q '$gw'"
+            sleep 0.4
+            kill -0 "${STRESS_PIDS[-1]}" 2>/dev/null || \
+                echo "latency-test: 'ping -i 0.01 $gw' exited (needs cap_net_raw; no sudo used) - ping skipped" >&2
+        fi
+    fi
+}
+
+# Threads use the usual LinuxCNC names, so the periods here mean the same
+# thing they do in a real config.  One latency instance per thread: the
+# instance name comes from the loader's angle-bracket name list, and each
+# instance registers its own API under that name - which is what the UI's
+# thread selector enumerates.  The instance cannot be named after its thread
+# (HAL gives both a `.time` pin, so the names would collide).
+{
+    [ "$BASE" -ne 0 ] && echo "newthread base-thread $BASE nofp"
+    echo "newthread servo-thread $SERVO"
+    if [ "$BASE" -ne 0 ]; then
+        echo "loadrt latency <lat.base>"
+        echo "addf lat.base base-thread"
+    fi
+    echo "loadrt latency <lat.servo>"
+    echo "addf lat.servo servo-thread"
+    # --stress: load the GC-pressure generator so the run is measured under
+    # Go garbage-collector load (default workers/live set by the module).
+    [ "$STRESS" -eq 1 ] && echo "loadrt stress_gc"
+    echo "start"
+} > "$T/latency.hal"
+
+GMC_REST_ADDR="$ADDR" gomc-server -f "$T/latency.hal" -serve > "$T/server.log" 2>&1 &
+SRV_PID=$!
+
+# Wait for the REST API before opening the viewer.
+started=0
+for _ in $(seq 1 100); do
+    if curl -sf -o /dev/null "$BASE_URL/api/v1/_registry" 2>/dev/null; then
+        started=1; break
+    fi
+    if ! kill -0 "$SRV_PID" 2>/dev/null; then break; fi
+    sleep 0.1
+done
+if [ "$started" -ne 1 ]; then
+    echo "latency-test: gomc-server failed to start" >&2
+    cat "$T/server.log" >&2
+    exit 1
 fi
 
-cat > lat.xml <<EOF
-<pyvcp>
-<title title="LinuxCNC / HAL Latency Test"/>
-<axisoptions/>
-<table>
+# --stress also loads the whole machine, not just the Go runtime.
+[ "$STRESS" -eq 1 ] && start_external_stress
 
-<tablerow/><tablespan columns="5"/><label wraplength="5i" justify="left">
-<text>
-"""
-$machine on host $node $date
-Kernel-release=$krelease
-Kernel-version=$kversion
+# The viewer blocks until its window is closed.  Closing it (or Ctrl+C /
+# SIGTERM) fires cleanup(), which stops the stressors and the server.
+GMC_REST_URL="$BASE_URL" latency
 
-Let this test run for a few minutes, then note the maximum Jitter. You will use it while configuring LinuxCNC.
-
-While the test is running, you should "abuse" the computer. Move windows around on the screen. Surf the web. Copy some large files around on the disk. Play some music. Run an OpenGL program such as glxgears. The idea is to put the PC through its paces while the latency test checks to see what the worst case numbers are."""
-</text>
-</label>
-
-<tablerow/>
-<label/>
-  <label text="Max Interval (ns)" font="Helvetica 12"/>
-  <label text="Max Jitter (ns)" font="Helvetica 12 bold"/>
-  <label text="Last interval (ns)" font="Helvetica 12"/>
-
-<tablerow/><label text="Servo thread ($SERVO_HUMAN):"/><s32 halpin="sl"/><s32 halpin="sj" font="Helvetica 12 bold"/><s32 halpin="st"/>
-EOF
-
-if [ $BASE -ne 0 ]; then
-cat >> lat.xml <<EOF
-<tablerow/><label text="Base thread ($BASE_HUMAN):"/><s32 halpin="bl"/><s32 halpin="bj" font="Helvetica 12 bold"/><s32 halpin="bt"/>
-EOF
+# Record this run's worst-case jitter, keeping the worst ever seen: ~/.latency
+# is what the docs and other tools read.
+worst=0
+for inst in lat.base lat.servo; do
+    j=$(curl -sf "$BASE_URL/api/v1/$inst/status" 2>/dev/null |
+        sed -n 's/.*"maxJitterNs":\([0-9]*\).*/\1/p')
+    if [ -n "$j" ] && [ "$j" -gt "$worst" ] 2>/dev/null; then worst=$j; fi
+done
+if [ "$worst" -gt 0 ] 2>/dev/null; then
+    prev=$(cat "$HOME/.latency" 2>/dev/null)
+    case "$prev" in ''|*[!0-9]*) prev=0 ;; esac
+    if [ "$worst" -gt "$prev" ]; then echo "$worst" > "$HOME/.latency"; fi
+    echo "Worst-case jitter this run: ${worst}ns (worst ever: $(cat "$HOME/.latency"))"
 fi
-
-cat >> lat.xml <<EOF
-<tablerow/>
-  <button text="Reset Statistics" halpin="reset" />
-
-</table>
-</pyvcp>
-EOF
-
-if [ $BASE -eq 0 ]; then
-    SIGNALS="halcmd gets sj"
-else
-    SIGNALS="halcmd gets sj; halcmd gets bj"
-fi
-
-cat > latexit.sh <<EOF
-L=\$(($SIGNALS
-    if [ -f $HOME/.latency ]; then cat $HOME/.latency; fi
-    ) | sort -n | tail -1)
-echo \$L > $HOME/.latency
-EOF
-
-halrun lat.hal

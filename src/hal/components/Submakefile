@@ -521,6 +521,17 @@ modules: ../cmod/streamer.so
 TARGETS += ../cmod/filestream.so
 modules: ../cmod/filestream.so
 
+# latency — RT scheduling-latency / jitter measurement.  RT capture + non-RT
+# drainer thread building a server-side histogram, exposed via the latency
+# GMI REST/WS API.
+CMOD_GMI_LATENCY_API := gomc/generated/gmi/latency
+../cmod/latency.so: hal/components/latency.c hal/components/latency_ring.h hal/components/latency_hist.h hal/components/latency_history.h $(CMOD_GMI_LATENCY_API)/latency_api.h
+	$(ECHO) "Compiling cmod $(notdir $@)"
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_LATENCY_API) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread
+TARGETS += ../cmod/latency.so
+modules: ../cmod/latency.so
+
 clean: cmod-comp-clean
 .PHONY: cmod-comp-clean
 cmod-comp-clean:

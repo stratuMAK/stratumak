@@ -165,6 +165,36 @@ $(CLASSICLADDER_WEBAPP_STAMP): $(CLASSICLADDER_WEBAPP_SRCS) $(CLASSICLADDER_NPM_
 
 TARGETS += $(CLASSICLADDER_WEBAPP_STAMP)
 
+# --- latency ---
+
+LATENCY_WEBAPP_SRC := $(WEBAPP_DIR)/latency
+LATENCY_WEBAPP_DEST := $(WEBAPP_DEST)/latency
+
+LATENCY_WEBAPP_STAMP := $(LATENCY_WEBAPP_DEST)/.build-stamp
+
+LATENCY_WEBAPP_SRCS := $(shell find $(LATENCY_WEBAPP_SRC)/src -type f 2>/dev/null) \
+	$(LATENCY_WEBAPP_SRC)/index.html \
+	$(LATENCY_WEBAPP_SRC)/package.json \
+	$(LATENCY_WEBAPP_SRC)/vite.config.ts \
+	$(LATENCY_WEBAPP_SRC)/tsconfig.json
+
+LATENCY_NPM_STAMP := $(LATENCY_WEBAPP_SRC)/node_modules/.install-stamp
+
+$(LATENCY_NPM_STAMP): $(LATENCY_WEBAPP_SRC)/package.json
+	$(ECHO) "Installing latency webapp dependencies"
+	$(Q)cd $(LATENCY_WEBAPP_SRC) && npm install --no-audit --no-fund
+	$(Q)touch $@
+
+LATENCY_GEN_TS := $(WEBAPP_DIR)/latency/src/generated/latency_client.ts
+
+$(LATENCY_WEBAPP_STAMP): $(LATENCY_WEBAPP_SRCS) $(LATENCY_NPM_STAMP) $(LATENCY_GEN_TS)
+	$(ECHO) "Building latency webapp"
+	$(Q)rm -rf $(LATENCY_WEBAPP_DEST)
+	$(Q)cd $(LATENCY_WEBAPP_SRC) && npx vite build --outDir $(abspath $(LATENCY_WEBAPP_DEST)) --emptyOutDir
+	$(Q)touch $@
+
+TARGETS += $(LATENCY_WEBAPP_STAMP)
+
 clean: webapp-clean
 .PHONY: webapp-clean
 webapp-clean:
@@ -174,4 +204,5 @@ webapp-clean:
 	rm -rf $(EMCCALIB_WEBAPP_SRC)/node_modules
 	rm -rf $(TOOLEDIT_WEBAPP_SRC)/node_modules
 	rm -rf $(CLASSICLADDER_WEBAPP_SRC)/node_modules
+	rm -rf $(LATENCY_WEBAPP_SRC)/node_modules
 

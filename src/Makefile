@@ -335,7 +335,6 @@ INFILES = \
 	../share/menus/CNC.menu \
 	../share/applications/linuxcnc.desktop \
 	../share/applications/linuxcnc-latency.desktop \
-	../share/applications/linuxcnc-latency-histogram.desktop \
 	../share/applications/linuxcnc-pncconf.desktop \
 	../share/applications/linuxcnc-stepconf.desktop \
 	../scripts/linuxcnc_var \
@@ -602,7 +601,6 @@ GLOB=$(wildcard $(1))
 XDGDESKTOP = \
     ../share/applications/linuxcnc.desktop \
     ../share/applications/linuxcnc-latency.desktop \
-    ../share/applications/linuxcnc-latency-histogram.desktop \
     ../share/applications/linuxcnc-pncconf.desktop \
     ../share/applications/linuxcnc-stepconf.desktop \
 
@@ -690,8 +688,6 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/linuxcnc_var $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/monitor-xhc-hb04 $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/latency-test $(DESTDIR)$(bindir)
-	$(EXE) ../scripts/latency-plot $(DESTDIR)$(bindir)
-	$(EXE) ../scripts/latency-histogram $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/moveoff_gui $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/hal-histogram $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/xhc-hb04-accels $(DESTDIR)$(bindir)

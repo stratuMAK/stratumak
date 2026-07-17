@@ -1,0 +1,7 @@
+node_modules/
+dist/
+package-lock.json
+src/generated/*.ts
+# type-checker emit artifacts (source is TS/Vue only; vite bundles from source)
+*.tsbuildinfo
+src/**/*.js

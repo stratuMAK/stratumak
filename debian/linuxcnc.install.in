@@ -9,6 +9,7 @@ usr/bin/elbpcom
 usr/bin/genserkins
 usr/bin/gladevcp
 usr/bin/gladevcp_demo
+usr/bin/gmcui
 usr/bin/gmoccapy
 usr/bin/gremlin_view
 usr/bin/gs2_vfd
@@ -32,8 +33,7 @@ usr/bin/image-to-gcode
 usr/bin/inivar
 usr/bin/io
 usr/bin/iov2
-usr/bin/latency-histogram
-usr/bin/latency-plot
+usr/bin/latency
 usr/bin/latency-test
 usr/bin/lineardelta
 usr/bin/linuxcnc
@@ -113,7 +113,6 @@ usr/share/gtksourceview-4
 
 usr/share/applications/linuxcnc.desktop
 usr/share/applications/linuxcnc-latency.desktop
-usr/share/applications/linuxcnc-latency-histogram.desktop
 usr/share/applications/linuxcnc-pncconf.desktop
 usr/share/applications/linuxcnc-stepconf.desktop
 
