@@ -200,7 +200,9 @@ func tool_unload() -> i32
 @path "/program-open"
 func program_open(file: string) -> i32
 
-# Wait for command completion (returns RCS_DONE=2, RCS_ERROR=1, or -1 on timeout)
+# Wait for the task to settle (returns RCS_DONE=1, RCS_ERROR=3, or -1 on timeout).
+# The -1 comes back as a normal 200 body: the cgo bridge flattens the Go error
+# from a timed-out wait to -1. A caller that ignores it reads unsynchronised state.
 @method "POST"
 @path "/wait-complete"
 func wait_complete(timeout: f64 @min(0)) -> i32
