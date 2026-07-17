@@ -40,25 +40,29 @@ static ec_master_t *resolve_master(lcec_rt_context_t *ctx, uint32_t master_index
     return NULL;
 }
 
-/* Format a MAC address as "XX:XX:XX:XX:XX:XX". Returns thread-local rotating buffer. */
+/* Format a MAC address as "XX:XX:XX:XX:XX:XX". Returns a malloc'd string
+ * (caller-owned, see string ownership note below). */
 static const char *format_mac(const uint8_t *addr)
 {
-    static __thread char buf[EC_TOOL_MAX_NUM_DEVICES][18];
-    static __thread int idx = 0;
-    char *out = buf[idx % EC_TOOL_MAX_NUM_DEVICES];
-    idx++;
+    char *out = malloc(18);
+    if (!out)
+        return NULL;
     snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
              addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
     return out;
 }
 
 /*
- * String lifetime: The Go cgo dispatch layer copies all returned const char *
- * fields immediately via C.GoString() before the next callback can be invoked.
- * We use thread-local storage for tool structs whose char[] fields we expose
- * as const char * pointers. This is safe because all REST dispatch happens on
- * a single goroutine per request (serialized by cgo).
+ * String ownership: every const char * field in a returned struct must be
+ * malloc'd — the caller owns and frees it (the ethercat_api.h callbacks
+ * struct documents this, and the Go dispatch layer frees after copying).
+ * ret_str() duplicates the char[] fields of the thread-local tool structs
+ * into caller-owned heap strings.
  */
+static const char *ret_str(const void *s)
+{
+    return s ? strdup((const char *)s) : NULL;
+}
 
 /* ─── Callback implementations ────────────────────────────────────────────── */
 
@@ -191,10 +195,10 @@ static ethercat_slave_info_t gmi_ethercat_get_slave(void *ctx,
     out.sync_count = slv.sync_count;
     out.sdo_count = slv.sdo_count;
     out.sii_nwords = slv.sii_nwords;
-    out.group = slv.group;
-    out.image = slv.image;
-    out.order = slv.order;
-    out.name = slv.name;
+    out.group = ret_str(slv.group);
+    out.image = ret_str(slv.image);
+    out.order = ret_str(slv.order);
+    out.name = ret_str(slv.name);
 
     return out;
 }
@@ -250,7 +254,7 @@ static ethercat_pdo_info_t gmi_ethercat_get_slave_sync_pdo(void *ctx,
     out.pdo_pos = pdo_pos;
     out.index = pdo.index;
     out.entry_count = pdo.entry_count;
-    out.name = (const char *)pdo.name;
+    out.name = ret_str(pdo.name);
     return out;
 }
 
@@ -281,7 +285,7 @@ static ethercat_pdo_entry_info_t gmi_ethercat_get_slave_sync_pdo_entry(void *ctx
     out.index = entry.index;
     out.subindex = entry.subindex;
     out.bit_length = entry.bit_length;
-    out.name = (const char *)entry.name;
+    out.name = ret_str(entry.name);
     return out;
 }
 
@@ -407,7 +411,7 @@ static ethercat_slave_sdo_info_t gmi_ethercat_get_slave_sdo(void *ctx,
     out.sdo_position = sdo_position;
     out.sdo_index = sdo.sdo_index;
     out.max_subindex = sdo.max_subindex;
-    out.name = (const char *)sdo.name;
+    out.name = ret_str(sdo.name);
     return out;
 }
 
@@ -437,7 +441,7 @@ static ethercat_sdo_entry_info_t gmi_ethercat_get_slave_sdo_entry(void *ctx,
         out.read_access[i] = entry.read_access[i];
         out.write_access[i] = entry.write_access[i];
     }
-    out.description = (const char *)entry.description;
+    out.description = ret_str(entry.description);
     return out;
 }
 
@@ -787,7 +791,7 @@ static ethercat_config_pdo_info_t gmi_ethercat_get_config_pdo(void *ctx,
     out.pdo_pos = pdo_pos;
     out.index = pdo.index;
     out.entry_count = pdo.entry_count;
-    out.name = (const char *)pdo.name;
+    out.name = ret_str(pdo.name);
     return out;
 }
 
@@ -816,7 +820,7 @@ static ethercat_config_pdo_entry_info_t gmi_ethercat_get_config_pdo_entry(void *
     out.index = entry.index;
     out.subindex = entry.subindex;
     out.bit_length = entry.bit_length;
-    out.name = (const char *)entry.name;
+    out.name = ret_str(entry.name);
     return out;
 }
 
@@ -897,7 +901,7 @@ static ethercat_config_flag_info_t gmi_ethercat_get_config_flag(void *ctx,
 
     out.config_index = config_index;
     out.flag_pos = flag_pos;
-    out.key = flag.key;
+    out.key = ret_str(flag.key);
     out.value = flag.value;
     return out;
 }
@@ -918,7 +922,7 @@ static ethercat_eoe_handler_info_t gmi_ethercat_get_eoe_handler(void *ctx,
         return out;
 
     out.eoe_index = eoe_index;
-    out.name = eoe.name;
+    out.name = ret_str(eoe.name);
     out.slave_position = eoe.slave_position;
     out.open = eoe.open;
     out.rx_bytes = eoe.rx_bytes;

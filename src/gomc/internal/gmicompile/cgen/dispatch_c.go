@@ -298,48 +298,94 @@ func (g *dispatchCGen) emitConverters() {
 		g.printf("}\n\n")
 	}
 
-	// Generate xxxCToGoFree wrappers for types that contain slice fields.
-	// These call the no-free base converter, then free the C-allocated slices.
-	for _, t := range g.api.Types {
-		sliceFields := g.sliceFields(t)
-		if len(sliceFields) == 0 {
-			continue
-		}
-		goName := toPascalCase(t.Name)
-		cType := fmt.Sprintf("C.%s_%s_t", g.api.Name, toSnakeCase(t.Name))
-		baseName := toLowerCamelRaw(t.Name) + "CToGo"
-		freeName := baseName + "Free"
-
-		g.printf("func %s(src *%s) %s {\n", freeName, cType, goName)
-		g.printf("\tresult := %s(src)\n", baseName)
-		for _, f := range sliceFields {
-			cField := "src." + cgoFieldAccess(f.Name)
-			g.printf("\tif %s != nil { C.free(unsafe.Pointer(%s)) }\n", cField, cField)
-		}
-		g.printf("\treturn result\n")
-		g.printf("}\n\n")
-	}
 }
 
-// sliceFields returns all fields of a type that have TypeSlice kind.
-func (g *dispatchCGen) sliceFields(t ast.Type) []ast.Field {
-	var result []ast.Field
+// findType returns the API type definition for a named type, or nil.
+func (g *dispatchCGen) findType(name string) *ast.Type {
+	for i := range g.api.Types {
+		if g.api.Types[i].Name == name {
+			return &g.api.Types[i]
+		}
+	}
+	return nil
+}
+
+// typeHasCAllocs reports whether a C value of the named type owns heap
+// allocations (strings or slice buffers, possibly nested) that the caller
+// must free under the "caller owns returned data" convention.
+func (g *dispatchCGen) typeHasCAllocs(name string, seen map[string]bool) bool {
+	if seen[name] {
+		return false
+	}
+	seen[name] = true
+	t := g.findType(name)
+	if t == nil {
+		return false
+	}
 	for _, f := range t.Fields {
-		if f.Type.Kind == ast.TypeSlice {
-			result = append(result, f)
-		}
-	}
-	return result
-}
-
-// typeHasSlices checks if a named type has any slice fields.
-func (g *dispatchCGen) typeHasSlices(name string) bool {
-	for _, t := range g.api.Types {
-		if t.Name == name {
-			return len(g.sliceFields(t)) > 0
+		switch f.Type.Kind {
+		case ast.TypeSlice:
+			return true
+		case ast.TypePrimitive:
+			if f.Type.Name == ast.PrimString {
+				return true
+			}
+		case ast.TypeNamed:
+			if !g.isEnum(f.Type.Name) && g.typeHasCAllocs(f.Type.Name, seen) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// emitFreeCAllocs emits C.free calls for every C allocation reachable from
+// expr, a C struct value of type t: string fields, slice buffers, and both
+// nested in named fields or slice elements. Element allocations are freed
+// before their containing buffer. Providers hand these out under the
+// "caller owns returned data" convention (the Go bridges C.CString/calloc
+// them), so the client must free them after converting to Go values.
+func (g *dispatchCGen) emitFreeCAllocs(expr string, t *ast.Type, depth int, indent string) {
+	for _, f := range t.Fields {
+		fexpr := expr + "." + cgoFieldAccess(f.Name)
+		switch f.Type.Kind {
+		case ast.TypePrimitive:
+			if f.Type.Name == ast.PrimString {
+				g.printf("%sif %s != nil {\n", indent, fexpr)
+				g.printf("%s\tC.free(unsafe.Pointer(%s))\n", indent, fexpr)
+				g.printf("%s}\n", indent)
+			}
+		case ast.TypeNamed:
+			if !g.isEnum(f.Type.Name) {
+				if ft := g.findType(f.Type.Name); ft != nil {
+					g.emitFreeCAllocs(fexpr, ft, depth, indent)
+				}
+			}
+		case ast.TypeSlice:
+			lenExpr := expr + "." + cgoFieldAccess(f.Name+"_len")
+			inner := indent + "\t"
+			g.printf("%sif %s != nil {\n", indent, fexpr)
+			if f.Type.Elem.Kind == ast.TypePrimitive && f.Type.Elem.Name == ast.PrimString {
+				sv := fmt.Sprintf("_fs%d", depth)
+				g.printf("%s%s := unsafe.Slice(%s, int(%s))\n", inner, sv, fexpr, lenExpr)
+				g.printf("%sfor _i%d := range %s {\n", inner, depth, sv)
+				g.printf("%s\tif %s[_i%d] != nil {\n", inner, sv, depth)
+				g.printf("%s\t\tC.free(unsafe.Pointer(%s[_i%d]))\n", inner, sv, depth)
+				g.printf("%s\t}\n", inner)
+				g.printf("%s}\n", inner)
+			} else if f.Type.Elem.Kind == ast.TypeNamed && !g.isEnum(f.Type.Elem.Name) {
+				if et := g.findType(f.Type.Elem.Name); et != nil && g.typeHasCAllocs(f.Type.Elem.Name, map[string]bool{}) {
+					sv := fmt.Sprintf("_fs%d", depth)
+					g.printf("%s%s := unsafe.Slice(%s, int(%s))\n", inner, sv, fexpr, lenExpr)
+					g.printf("%sfor _i%d := range %s {\n", inner, depth, sv)
+					g.emitFreeCAllocs(fmt.Sprintf("%s[_i%d]", sv, depth), et, depth+1, inner+"\t")
+					g.printf("%s}\n", inner)
+				}
+			}
+			g.printf("%sC.free(unsafe.Pointer(%s))\n", inner, fexpr)
+			g.printf("%s}\n", indent)
+		}
+	}
 }
 
 func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
@@ -971,7 +1017,11 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 	case ast.TypePrimitive:
 		switch ret.Name {
 		case ast.PrimString:
+			// Caller owns returned data: free the C string after copying.
 			g.printf("\tresult := C.GoString(out)\n")
+			g.printf("\tif out != nil {\n")
+			g.printf("\t\tC.free(unsafe.Pointer(out))\n")
+			g.printf("\t}\n")
 		case ast.PrimBool:
 			g.printf("\tresult := bool(out)\n")
 		default:
@@ -986,10 +1036,12 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 			g.printf("\tresult := %s(out)\n", goType)
 		} else {
 			converter := toLowerCamelRaw(ret.Name) + "CToGo"
-			if g.typeHasSlices(ret.Name) {
-				converter += "Free"
-			}
 			g.printf("\tresult := %s(&out)\n", converter)
+			// Caller owns returned data: free the C allocations
+			// (strings, slice buffers) after converting to Go.
+			if t := g.findType(ret.Name); t != nil && g.typeHasCAllocs(ret.Name, map[string]bool{}) {
+				g.emitFreeCAllocs("out", t, 0, "\t")
+			}
 		}
 		g.printf("\treturn json.Marshal(result)\n")
 
@@ -1004,6 +1056,9 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			g.printf("\t\t\tresult[i] = %s(&cSlice[i])\n", converter)
+			if t := g.findType(ret.Elem.Name); t != nil && g.typeHasCAllocs(ret.Elem.Name, map[string]bool{}) {
+				g.emitFreeCAllocs("cSlice[i]", t, 1, "\t\t\t")
+			}
 			g.printf("\t\t}\n")
 			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
 			g.printf("\t}\n")
@@ -1015,6 +1070,9 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == ast.PrimString {
 				g.printf("\t\t\tresult[i] = C.GoString(cSlice[i])\n")
+				g.printf("\t\t\tif cSlice[i] != nil {\n")
+				g.printf("\t\t\t\tC.free(unsafe.Pointer(cSlice[i]))\n")
+				g.printf("\t\t\t}\n")
 			} else {
 				g.printf("\t\t\tresult[i] = %s(cSlice[i])\n", goElemType)
 			}
