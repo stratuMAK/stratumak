@@ -45,11 +45,14 @@ BASE=$(parse_time 25us); SERVO=$(parse_time 1ms)
 
 usage () {
     echo "Usage:"
-    echo "       latency-test [base-period [servo-period]]"
+    echo "       latency-test [--stress] [base-period [servo-period]]"
     echo "   or:"
-    echo "       latency-test [servo-period]  # for single thread"
+    echo "       latency-test [--stress] [servo-period]  # for single thread"
     echo "   or:"
     echo "       latency-test -h | --help     # (this text)"
+    echo ""
+    echo "  --stress   also run a Go garbage-collector load generator, to see"
+    echo "             the effect of GC pressure on the measured latency"
     echo ""
     echo "Example:"
     echo "       latency-test 50000 1000000"
@@ -69,9 +72,18 @@ usage () {
     exit 1
 }
 
-case $1 in
-  -h|--help) usage;;
-esac
+# Pull the --stress flag out of the argument list; the rest are periods.
+STRESS=0
+POS=()
+for a in "$@"; do
+    case $a in
+    --stress)  STRESS=1 ;;
+    -h|--help) usage ;;
+    -*)        echo "latency-test: unknown option $a" >&2; usage ;;
+    *)         POS+=("$a") ;;
+    esac
+done
+set -- "${POS[@]}"
 
 case $# in
 0) ;;
@@ -121,6 +133,9 @@ trap cleanup SIGINT SIGTERM EXIT
     fi
     echo "loadrt latency <lat.servo>"
     echo "addf lat.servo servo-thread"
+    # --stress: load the GC-pressure generator so the run is measured under
+    # Go garbage-collector load (default workers/live set by the module).
+    [ "$STRESS" -eq 1 ] && echo "loadrt stress_gc"
     echo "start"
 } > "$T/latency.hal"
 
