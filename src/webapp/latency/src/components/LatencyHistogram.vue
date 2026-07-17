@@ -23,6 +23,7 @@ function binActive(ns: number): boolean {
   return ns === 0 ? hh.autoscale : !hh.autoscale && hh.binWidthNs === ns;
 }
 let plot: uPlot | null = null;
+let building = false; // true while uPlot is constructing (see createPlot)
 let ro: ResizeObserver | null = null;
 let mq: MediaQueryList | null = null;
 
@@ -78,19 +79,45 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
   };
 }
 
+// Same defence as the plot: if Vue hands us a different container, uPlot keeps
+// drawing into the old, detached one - healthy object, no error, nothing on
+// screen - so detect it and rebuild into the current div.
+function plotOrphaned(): boolean {
+  const root = (plot as unknown as { root?: HTMLElement } | null)?.root;
+  return !!plot && (!root || !el.value || !el.value.contains(root));
+}
+
 function createPlot() {
+  if (building) return; // uPlot's DOM inserts fire our ResizeObserver mid-build
   if (!el.value) return;
   const w = el.value.clientWidth;
   const hgt = el.value.clientHeight;
   if (w === 0 || hgt === 0) return;
-  plot?.destroy();
-  plot = new uPlot(buildOpts(w, hgt), buildData(), el.value);
+  building = true;
+  try {
+    try { plot?.destroy(); } catch { /* already gone */ }
+    plot = null;
+    el.value.innerHTML = '';
+    plot = new uPlot(buildOpts(w, hgt), buildData(), el.value);
+  } catch (err) {
+    console.error('latency histogram: uPlot init failed', err);
+    plot = null;
+  } finally {
+    building = false;
+  }
 }
 
 function render() {
   if (!props.active) return;
+  if (plotOrphaned()) { createPlot(); return; }
   if (!plot) { createPlot(); return; }
-  plot.setData(buildData());
+  try {
+    plot.setData(buildData());
+  } catch (err) {
+    console.error('latency histogram: setData failed, rebuilding', err);
+    try { plot?.destroy(); } catch { /* ignore */ }
+    plot = null;
+  }
 }
 
 function rebuild() { plot?.destroy(); plot = null; render(); }

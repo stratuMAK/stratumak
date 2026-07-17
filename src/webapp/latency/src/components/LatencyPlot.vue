@@ -16,6 +16,16 @@ function onThemeChange() { plot?.destroy(); plot = null; render(); }
 const store = latencyStore;
 const hist = computed(() => store.state.history);
 
+
+// Is the live plot's DOM still inside our current container?  If Vue hands us
+// a different div, uPlot keeps drawing into the old, detached one: the plot
+// object looks healthy (correct size, setData succeeds, no error) but nothing
+// is on screen, and only a reload clears it.
+function plotOrphaned(): boolean {
+  const root = (plot as unknown as { root?: HTMLElement } | null)?.root;
+  return !!plot && (!root || !el.value || !el.value.contains(root));
+}
+
 function themeColors() {
   const cs = getComputedStyle(document.documentElement);
   const get = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
@@ -127,6 +137,7 @@ function createPlot() {
 function render() {
   if (!props.active) return;
   if (!havePlottableData()) { destroyPlot(); return; }
+  if (plotOrphaned()) { destroyPlot(); createPlot(); return; }
   if (!plot) { createPlot(); return; }
   try {
     plot.setData(buildData());
@@ -172,8 +183,12 @@ watch(hist, render);
     <div class="plotarea">
       <div ref="el" class="chart"></div>
       <!-- After a reset the server history is empty until the first buckets
-           close; say so rather than showing a blank (or degenerate) chart. -->
-      <div v-if="(hist?.points.length ?? 0) < 2" class="empty">
+           close; say so rather than showing a blank (or degenerate) chart.
+           v-show rather than v-if so this does not restructure .plotarea on
+           every transition.  (Note: that alone does NOT stop Vue from handing
+           us a fresh .chart div - plotOrphaned() in render() is what actually
+           recovers from that.) -->
+      <div v-show="(hist?.points.length ?? 0) < 2" class="empty">
         waiting for data…
       </div>
     </div>

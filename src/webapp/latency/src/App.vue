@@ -30,7 +30,7 @@ function onSelect(e: Event) {
       <span class="status" :class="{ ok: store.state.connected, bad: !store.state.connected }">
         {{ store.state.connected ? 'live' : 'no data' }}
       </span>
-      <span v-if="store.state.error" class="err" :title="store.state.error">error</span>
+      <span v-if="store.state.error" class="err" :title="store.state.error">{{ store.state.error }}</span>
       <span class="spacer"></span>
       <button class="reset" @click="store.reset()">Reset</button>
     </header>
@@ -90,7 +90,10 @@ select {
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
 .status.ok { color: #3fb950; background: color-mix(in srgb, #3fb950 16%, transparent); }
 .status.bad { color: #f85149; background: color-mix(in srgb, #f85149 16%, transparent); }
-.err { color: #f85149; font-size: 12px; }
+.err {
+  color: #f85149; font-size: 12px;
+  max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .spacer { flex: 1; }
 .reset {
   background: transparent; color: var(--accent); border: 1px solid var(--accent);
