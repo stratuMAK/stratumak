@@ -2,7 +2,18 @@
 LinuxCNC User Interface helper functions
 """
 
-import linuxcnc
+# Under gomc, linuxcnc.so is a deprecation stub: linuxcnc.command/stat/
+# error_channel raise and point callers at gmi. This module used to `import
+# linuxcnc` and read its constants off that stub, which only worked because
+# every caller first monkey-patched gmi's constants onto the shared module
+# object. That made the scaffolding load-bearing: a test that dropped the patch
+# broke this file at a distance. Take the constants from gmi directly and stand
+# on our own feet.
+import gmi
+from gmi.constants import (
+    EXEC_DONE, INTERP_IDLE, INTERP_PAUSED, INTERP_READING, INTERP_WAITING,
+    JOG_CONTINUOUS, JOG_STOP, RCS_DONE, STATE_ESTOP,
+)
 
 import sys
 import time
@@ -11,6 +22,12 @@ import math
 
 class LinuxCNC_Exception(Exception):
     pass
+
+
+# How far an axis may drift and still count as "did not move". Sized to swallow
+# float noise from sampling a live machine (and gomc's mm -> machine-unit
+# scaling) while being far below any real commanded motion.
+IDLE_AXIS_EPSILON = 1e-6
 
 
 class LinuxCNC:
@@ -25,13 +42,13 @@ class LinuxCNC:
         self.error = error
 
         if not self.command:
-            self.command = linuxcnc.command()
+            self.command = gmi.Command()
 
         if not self.status:
-            self.status = linuxcnc.stat()
+            self.status = gmi.Stat()
 
         if not self.error:
-            self.error = linuxcnc.error_channel()
+            self.error = gmi.ErrorChannel()
 
 
     def wait_for_linuxcnc_startup(self, timeout=10.0):
@@ -46,16 +63,16 @@ class LinuxCNC:
             if (self.status.angular_units == 0.0) \
                 or (self.status.axis_mask == 0) \
                 or (self.status.cycle_time == 0.0) \
-                or (self.status.exec_state != linuxcnc.EXEC_DONE) \
-                or (self.status.interp_state != linuxcnc.INTERP_IDLE) \
+                or (self.status.exec_state != EXEC_DONE) \
+                or (self.status.interp_state != INTERP_IDLE) \
                 or (self.status.inpos == False) \
                 or (self.status.linear_units == 0.0) \
                 or (self.status.max_acceleration == 0.0) \
                 or (self.status.max_velocity == 0.0) \
                 or (self.status.program_units == 0.0) \
                 or (self.status.rapidrate == 0.0) \
-                or (self.status.state != linuxcnc.RCS_DONE) \
-                or (self.status.task_state != linuxcnc.STATE_ESTOP):
+                or (self.status.state != RCS_DONE) \
+                or (self.status.task_state != STATE_ESTOP):
                 time.sleep(0.1)
             else:
                 # looks good
@@ -169,7 +186,7 @@ class LinuxCNC:
             done = lambda pos: pos < target
 
         # the 0 here means "jog axis, not joint"
-        self.command.jog(linuxcnc.JOG_CONTINUOUS, 0, axis_index, vel)
+        self.command.jog(JOG_CONTINUOUS, 0, axis_index, vel)
 
         start = time.time()
         while not done(self.status.position[axis_index]) and ((time.time() - start) < timeout):
@@ -177,11 +194,11 @@ class LinuxCNC:
             # gomc dead-mans continuous jogs not refreshed within its jog
             # watchdog interval (runaway protection for disconnected
             # clients) — keep the jog alive while we wait.
-            self.command.jog(linuxcnc.JOG_CONTINUOUS, 0, axis_index, vel)
+            self.command.jog(JOG_CONTINUOUS, 0, axis_index, vel)
             self.status.poll()
 
         # the 0 here means "jog axis, not joint"
-        self.command.jog(linuxcnc.JOG_STOP, 0, axis_index)
+        self.command.jog(JOG_STOP, 0, axis_index)
 
         if not done(self.status.position[axis_index]):
             raise LinuxCNC_Exception("failed to jog axis %s to %.3f\n" % (axis_letter, target) + "timed out at %.3f after %.3f seconds" % (self.status.position[axis_index], timeout))
@@ -194,8 +211,16 @@ class LinuxCNC:
         for i in range(0, 9):
             if i == axis_index:
                 continue;
-            if start_pos[i] != self.status.position[i]:
-                raise LinuxCNC_Exception("axis %s moved from %.3f to %.3f but should not have!" % ('xyzabcuvw'[i], start_pos[i], self.status.position[i]))
+            # Tolerance, not exact equality. "This axis did not move" cannot be
+            # an == on a live status feed: the values are floats sampled from a
+            # running machine, and under gomc they are also scaled (mm -> machine
+            # units) on the way out, so a 1-ULP wobble in the underlying mm value
+            # produces a different float here. That made the check fire on axes
+            # that had not moved at all -- the failure printed "moved from 0.000
+            # to 0.000", which is the tell. A real unwanted move is orders of
+            # magnitude larger than this bound.
+            if abs(start_pos[i] - self.status.position[i]) > IDLE_AXIS_EPSILON:
+                raise LinuxCNC_Exception("axis %s moved from %.6f to %.6f but should not have!" % ('xyzabcuvw'[i], start_pos[i], self.status.position[i]))
 
 
     def wait_for_axis_to_stop_at(self, axis_letter, target, timeout=10.0, tolerance = 0.0001):
@@ -241,8 +266,8 @@ class LinuxCNC:
         """
         Arguments:
             'target_state' is the Interpreter state to wait for,
-            one of linuxcnc.INTERP_IDLE, linuxcnc.INTERP_PAUSED,
-            linuxcnc.INTERP_READING, or linuxcnc.INTERP_WAITING.
+            one of INTERP_IDLE, INTERP_PAUSED,
+            INTERP_READING, or INTERP_WAITING.
 
             'timeout' is a float, the number of seconds to wait for the
             Interpreter to reach the target state.
