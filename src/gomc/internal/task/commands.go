@@ -1212,8 +1212,17 @@ func (t *Task) executeMDI(command string) error {
 
 	// Execute the MDI string — this triggers canon callbacks that enqueue
 	// motion commands to the sequencer.
+	startSerial := t.canon.serial()
 	rc, err := interp.ExecuteString(command)
-	t.updateActiveCodes(interp)
+	gc, mc, st := t.updateActiveCodes(interp)
+	// Tag the segments this MDI just queued with its active codes, exactly as the
+	// AUTO read loop does. Without this an MDI move's segment carries no state
+	// tag, so BuildStat can't resolve its modal codes and falls back to the
+	// interpreter's readahead codes — which right after an aborted AUTO program
+	// still hold that program's never-executed tail mode (the g64 test's
+	// leftover G64 P1 Q2). Tagging makes an executing MDI move report its own
+	// mode.
+	t.tagMotionRange(startSerial, t.canon.serial(), gc, mc, st)
 	if err != nil {
 		// A runtime error at block N of a multi-block MDI (o-word sub) must stop
 		// the motion already queued by blocks 1..N-1 — faultMDI aborts motion,
