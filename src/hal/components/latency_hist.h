@@ -49,9 +49,13 @@ static inline void hist_init(hist_t *h, uint32_t *bins, int nbins,
                              int32_t init_width) {
     h->bins = bins;
     h->nbins = nbins;
+    h->max_width = INT32_MAX / (nbins / 2);
+    // Keep width within the cap so hist_base() = -(nbins/2)*width can't
+    // overflow int32, even if the caller passes an over-wide initial width.
+    if (init_width > h->max_width) init_width = h->max_width;
+    if (init_width < 1) init_width = 1;
     h->init_width = init_width;
     h->width = init_width;
-    h->max_width = INT32_MAX / (nbins / 2);
     h->autoscale = 1;
     h->underflow = 0;
     h->overflow = 0;
@@ -104,7 +108,9 @@ static inline void hist_add(hist_t *h, int32_t lat) {
     // (over a bounded window) miss the current range.  Reset the out-of-range
     // counters on a widen so the trigger reflects the new range and converges;
     // rare outliers below the threshold stay counted in under/overflow.
-    if (h->autoscale && h->width < h->max_width && h->n >= HIST_MIN_SAMPLES) {
+    // Guard on width <= max_width/2 (not < max_width): a final doubling from
+    // just under max_width would otherwise overshoot to ~2x and blow the cap.
+    if (h->autoscale && h->width <= h->max_width / 2 && h->n >= HIST_MIN_SAMPLES) {
         uint64_t denom = h->n < HIST_WINDOW ? (uint64_t)h->n : (uint64_t)HIST_WINDOW;
         if ((uint64_t)(h->underflow + h->overflow) * 10u > denom) {
             hist_coarsen(h);

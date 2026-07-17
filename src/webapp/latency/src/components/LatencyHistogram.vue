@@ -92,13 +92,21 @@ function attachHost() {
   if (c && host.parentElement !== c) c.appendChild(host);
 }
 
+// A uPlot built from empty data never recovers via setData() (same failure the
+// plot guards against), and buildData() returns [[],[]] until the first
+// histogram arrives - exactly the state at mount before the first poll, or
+// right after a reset.  Wait for a real histogram before constructing.
+function havePlottableData(): boolean {
+  return (h.value?.bins.length ?? 0) >= 1;
+}
+
 function destroyPlot() {
   try { plot?.destroy(); } catch { /* already gone */ }
   plot = null;
 }
 
 function createPlot() {
-  if (building) return; // uPlot's DOM inserts fire our ResizeObserver mid-build
+  if (building || !havePlottableData()) return; // wait for the first histogram
   attachHost();
   const w = host.clientWidth;
   const hgt = host.clientHeight;
@@ -118,6 +126,7 @@ function createPlot() {
 function render() {
   if (!props.active) return;
   attachHost();
+  if (!havePlottableData()) { destroyPlot(); return; }
   if (!plot) { createPlot(); return; }
   try {
     plot.setData(buildData());

@@ -142,8 +142,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/halstreamer.1.html[halstreamer] |Stream file data into HAL in real time ||
 | link:../man/man1/haltcl.1.html[haltcl] |Manipulates the LinuxCNC HAL from the command line using Tcl ||
 | link:../man/man1/image-to-gcode.1.html[image-to-gcode] |Converts bitmap images to G-code ||
-| link:../man/man1/latency-histogram.1.html[latency-histogram] |Plots histogram of machine latency ||
-| link:../man/man1/latency-plot.1.html[latency-plot] |Another way to view latency numbers ||
 | link:../man/man1/latency-test.1.html[latency-test] |Tests the realtime system latency ||
 | link:../man/man1/pncconf.1.html[pncconf] |Configuration wizard for Mesa cards ||
 | link:../man/man9/setsserial.9.html[setsserial] |Utility for setting Smart Serial NVRAM parameters.

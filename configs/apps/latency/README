@@ -1,15 +1,10 @@
 Latency evaluation programs
 
-latency-histogram-1 -- Histogram jitter for a single servo thread
+latency-test -- Standard test for linuxcnc.  It runs the realtime threads and
+opens a web-based viewer with a live summary, latency plot and jitter histogram
+for each thread.
 
-latency-histogram -- Histogram jitter for default base and servo threads
+Note: latency-test can be run from a terminal command line with more options
+(including a --stress mode), for help use:
 
-latency-plot -- Plot latencies for default base and servo threads
-
-latency-test -- Standard test for linuxcnc
-
-Note: The latency-plot and latency-histogram  programs can be run from a terminal command line with more options, for help use:
-
-latency-plot --help
-latency-histogram --help
-
+latency-test --help

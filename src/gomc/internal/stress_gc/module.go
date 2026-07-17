@@ -43,7 +43,10 @@ const (
 	defaultWork = 2
 	defaultLive = 64 // MiB
 	maxWorkers  = 256
-	maxLiveMiB  = 4096 // 4 GiB cap, so a typo cannot OOM the box
+	// Cap the live-set *data* at 4 GiB so a typo cannot OOM the box.  The
+	// retained footprint is ~1.15x this once per-object overhead (the next
+	// pointer, slice header) and the []*obj index are counted.
+	maxLiveMiB = 4096
 )
 
 // obj is intentionally pointer-heavy: the `next` pointer gives the GC real
@@ -57,15 +60,17 @@ type obj struct {
 func newObj() *obj { return &obj{data: make([]byte, objSize)} }
 
 type stressGC struct {
-	logger  *slog.Logger
-	workers int
-	liveMiB int
-	live    []*obj // retained for the module lifetime -> marked every GC
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
-	iters   atomic.Uint64
-	startGC uint32
-	started time.Time
+	logger    *slog.Logger
+	workers   int
+	liveMiB   int
+	live      []*obj // retained for the module lifetime -> marked every GC
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
+	iters     atomic.Uint64
+	startGC   uint32
+	started   time.Time
+	startedOK bool      // Start() actually ran (workers launched)
+	stopOnce  sync.Once // Stop() is safe to call more than once
 }
 
 func newStressGC(_ *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
@@ -134,6 +139,7 @@ func (m *stressGC) Start() error {
 		m.wg.Add(1)
 		go m.churn()
 	}
+	m.startedOK = true
 	return nil
 }
 
@@ -164,16 +170,25 @@ func (m *stressGC) churn() {
 }
 
 func (m *stressGC) Stop() {
-	close(m.stopCh)
-	m.wg.Wait()
-	m.live = nil
+	m.stopOnce.Do(func() {
+		// The launcher stops every loaded module even if a peer's Start()
+		// failed first, so Stop() can run without a matching Start().  Skip
+		// the teardown (and its bogus 2000-year "elapsed" / whole-process GC
+		// count) when nothing was started.
+		if !m.startedOK {
+			return
+		}
+		close(m.stopCh)
+		m.wg.Wait()
+		m.live = nil
 
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
-	m.logger.Info("stress_gc stopped",
-		"gcCycles", ms.NumGC-m.startGC,
-		"batches", m.iters.Load(),
-		"elapsed", time.Since(m.started).Round(time.Millisecond).String())
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		m.logger.Info("stress_gc stopped",
+			"gcCycles", ms.NumGC-m.startGC,
+			"batches", m.iters.Load(),
+			"elapsed", time.Since(m.started).Round(time.Millisecond).String())
+	})
 }
 
 func (m *stressGC) Destroy() {} // no HAL component to tear down

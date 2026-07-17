@@ -437,6 +437,16 @@ int New(const cmod_env_t *env, const char *name,
     if (nbins > HIST_MAX_BINS) nbins = HIST_MAX_BINS;
     nbins &= ~3;   // multiple of 4 (required by the histogram merge)
 
+    // Clamp the initial bin width to the histogram's safe maximum (as
+    // configure() does for client-pinned widths).  This bounds both the value
+    // handed to hist_init and default_binsize, which configure() restores when
+    // autoscale is re-enabled, so hist_base() can never overflow int32.
+    {
+        int32_t hist_max_width = INT32_MAX / (nbins / 2);
+        if (binsize > hist_max_width) binsize = hist_max_width;
+        if (binsize < 1) binsize = 1;
+    }
+
     if (!env->hal) {
         gomc_log_errorf(env->log, name, "HAL API not available");
         return -EINVAL;

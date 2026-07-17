@@ -688,8 +688,6 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/linuxcnc_var $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/monitor-xhc-hb04 $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/latency-test $(DESTDIR)$(bindir)
-	$(EXE) ../scripts/latency-plot $(DESTDIR)$(bindir)
-	$(EXE) ../scripts/latency-histogram $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/moveoff_gui $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/hal-histogram $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/xhc-hb04-accels $(DESTDIR)$(bindir)

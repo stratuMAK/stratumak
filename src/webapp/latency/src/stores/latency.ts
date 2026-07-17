@@ -50,6 +50,17 @@ const state = reactive<State>({
 let client: LatencyClient | null = null;
 let timers: ReturnType<typeof setInterval>[] = [];
 
+// Bumped by reset() to fence polls that were already in flight at reset time: a
+// stale poll resolving after reset()'s pollAll() would otherwise overwrite the
+// freshly-cleared state with the old distribution/timeline for one interval.
+let resetGen = 0;
+
+// A poll's result is stale (must be discarded) if the client or selected
+// instance changed, or a reset happened, while it was in flight.
+function stale(c: LatencyClient | null, inst: string, gen: number): boolean {
+  return client !== c || state.selected !== inst || resetGen !== gen;
+}
+
 function queryInstance(): string {
   return new URLSearchParams(window.location.search).get('instance') || '';
 }
@@ -91,15 +102,16 @@ function makeClient(inst: string) {
 async function pollStatus() {
   const c = client;
   const inst = state.selected;
+  const gen = resetGen;
   if (!c) return;
   try {
     const st = await c.getStatus();
-    if (client !== c || state.selected !== inst) return; // instance switched mid-flight
+    if (stale(c, inst, gen)) return;
     state.status = st;
     state.connected = true;
     state.error = '';
   } catch (e) {
-    if (client !== c || state.selected !== inst) return;
+    if (stale(c, inst, gen)) return;
     state.connected = false;
     state.error = String(e);
   }
@@ -108,14 +120,18 @@ async function pollStatus() {
 async function pollHistogram() {
   const c = client;
   const inst = state.selected;
+  const gen = resetGen;
   if (!c) return;
   try {
     const hist = await c.getHistogram();
-    if (client !== c || state.selected !== inst) return;
+    if (stale(c, inst, gen)) return;
     if (!hist.bins) hist.bins = []; // server marshals an empty array as null
     state.histogram = hist;
+    state.connected = true;
+    state.error = '';
   } catch (e) {
-    if (client !== c || state.selected !== inst) return;
+    if (stale(c, inst, gen)) return;
+    state.connected = false;
     state.error = String(e);
   }
 }
@@ -126,17 +142,21 @@ async function pollHistogram() {
 async function pollHistory() {
   const c = client;
   const inst = state.selected;
+  const gen = resetGen;
   if (!c) return;
   try {
     const h = await c.getHistory(state.rangeSec);
-    if (client !== c || state.selected !== inst) return;
+    if (stale(c, inst, gen)) return;
     // An empty history comes back as points:null (a Go nil slice marshals to
     // null, not []); normalise so consumers never hit `null.length`.  This is
     // the reset-blank-history TypeError.
     if (!h.points) h.points = [];
     state.history = h;
+    state.connected = true;
+    state.error = '';
   } catch (e) {
-    if (client !== c || state.selected !== inst) return;
+    if (stale(c, inst, gen)) return;
+    state.connected = false;
     state.error = String(e);
   }
 }
@@ -187,23 +207,32 @@ function setRange(seconds: number) {
 // Pin the histogram bin width server-side (0 = autoscale).  The server clears
 // the histogram, since past counts cannot be re-binned to a different width.
 async function setBinWidth(ns: number) {
-  if (!client) return;
+  const c = client;
+  if (!c) return;
   try {
-    await client.configure(ns);
+    await c.configure(ns);
+    if (client !== c) return; // instance switched mid-request
     await pollHistogram();
     state.error = '';
   } catch (e) {
+    if (client !== c) return;
     state.error = String(e);
   }
 }
 
 async function reset() {
-  if (!client) return;
+  const c = client;
+  if (!c) return;
+  // Fence polls already in flight (they captured the old resetGen) so their
+  // stale pre-reset data can't land after the clear.
+  resetGen++;
   try {
-    await client.reset();
+    await c.reset();
+    if (client !== c) return; // instance switched mid-request
     await pollAll();
     state.error = '';
   } catch (e) {
+    if (client !== c) return;
     state.error = String(e);
   }
 }
