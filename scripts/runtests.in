@@ -56,6 +56,15 @@ clean () {
 	-print0 | xargs -0 rm -f
 }
 
+# This function's whole predicate is "lsof exited nonzero" == "file is closed".
+# A missing lsof also exits nonzero, which would make every wait below succeed
+# instantly and silently reduce the race guard to a no-op. Check once, up front,
+# rather than let the suite run with the protection quietly disabled.
+if ! command -v lsof > /dev/null 2>&1; then
+    echo "$0: lsof is required (results/stderr close detection) but was not found" 1>&2
+    exit 2
+fi
+
 wait_for_result_close() {
     # Test for the 'result' and 'stderr' files in the current testdir to be
     # closed. The 'checkresult' script cannot be run if these files are still
@@ -67,7 +76,11 @@ wait_for_result_close() {
         echo "Internal error: Missing 'result' or 'stderr' in wait_for_result_close()"
         exit 2
     fi
-    timeoutcnt=0
+    # Deadline, not an iteration count: each pass also pays for two lsof
+    # invocations, so counting iterations understates the real wall clock.
+    # Poll finely — the common case is "already closed", and the old 1s
+    # granularity charged a full second for any straggler.
+    waitend=$((SECONDS + 30))
     while true; do
         lsof -- "$presult" > /dev/null 2>&1; resresult=$?
         lsof -- "$pstderr" > /dev/null 2>&1; resstderr=$?
@@ -75,7 +88,7 @@ wait_for_result_close() {
             # Neither 'result' nor 'stderr' are open anymore
             break
         fi
-        if [ $timeoutcnt -ge 30 ]; then
+        if [ $SECONDS -ge $waitend ]; then
             if [ $resresult -eq 0 ]; then
                 echo "*** Timeout waiting for 'result' file to close"
             fi
@@ -85,8 +98,7 @@ wait_for_result_close() {
             echo "*** Test results may be invalid when checked."
             return 1
         fi
-        sleep 1
-        timeoutcnt=$((timeoutcnt + 1))
+        sleep 0.1
     done
     return 0
 }
@@ -102,7 +114,10 @@ run_shell_script () {
         bash -x $testname > result 2> stderr
     fi
     exitcode=$?
-    wait_for_result_close
+    # A test that "passed" but whose output files never closed has not been
+    # fully observed — checkresult would read a partial 'result'. Treat that as
+    # a failure rather than reporting a pass on incomplete output.
+    wait_for_result_close || exitcode=1
     popd > /dev/null || exit 2
     return "$exitcode"
 }
@@ -118,7 +133,10 @@ run_executable () {
         ./$testname > result 2> stderr
     fi
     exitcode=$?
-    wait_for_result_close
+    # A test that "passed" but whose output files never closed has not been
+    # fully observed — checkresult would read a partial 'result'. Treat that as
+    # a failure rather than reporting a pass on incomplete output.
+    wait_for_result_close || exitcode=1
     popd > /dev/null || exit 2
     return "$exitcode"
 }
@@ -133,7 +151,10 @@ run_hal_file () {
         halrun -f $testname > result 2> stderr
     fi
     exitcode=$?
-    wait_for_result_close
+    # A test that "passed" but whose output files never closed has not been
+    # fully observed — checkresult would read a partial 'result'. Treat that as
+    # a failure rather than reporting a pass on incomplete output.
+    wait_for_result_close || exitcode=1
     popd > /dev/null || exit 2
     return "$exitcode"
 }
