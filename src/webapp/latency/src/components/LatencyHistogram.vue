@@ -5,7 +5,15 @@ import 'uplot/dist/uPlot.min.css';
 import { latencyStore } from '../stores/latency';
 
 const props = defineProps<{ active: boolean }>();
+
+// `el` is Vue's container.  Vue may unmount, re-bind or replace it (the
+// template ref transiently goes undefined), so uPlot lives in `host` - an
+// element we create and own, which Vue never reconciles.  If Vue hands us a
+// different container we just re-parent host into it, plot state and all.
 const el = ref<HTMLDivElement>();
+const host = document.createElement('div');
+host.style.width = '100%';
+host.style.height = '100%';
 const logScale = ref(false);
 const store = latencyStore;
 
@@ -79,29 +87,29 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
   };
 }
 
-// Same defence as the plot: if Vue hands us a different container, uPlot keeps
-// drawing into the old, detached one - healthy object, no error, nothing on
-// screen - so detect it and rebuild into the current div.
-function plotOrphaned(): boolean {
-  const root = (plot as unknown as { root?: HTMLElement } | null)?.root;
-  return !!plot && (!root || !el.value || !el.value.contains(root));
+function attachHost() {
+  const c = el.value;
+  if (c && host.parentElement !== c) c.appendChild(host);
+}
+
+function destroyPlot() {
+  try { plot?.destroy(); } catch { /* already gone */ }
+  plot = null;
 }
 
 function createPlot() {
   if (building) return; // uPlot's DOM inserts fire our ResizeObserver mid-build
-  if (!el.value) return;
-  const w = el.value.clientWidth;
-  const hgt = el.value.clientHeight;
+  attachHost();
+  const w = host.clientWidth;
+  const hgt = host.clientHeight;
   if (w === 0 || hgt === 0) return;
   building = true;
   try {
-    try { plot?.destroy(); } catch { /* already gone */ }
-    plot = null;
-    el.value.innerHTML = '';
-    plot = new uPlot(buildOpts(w, hgt), buildData(), el.value);
+    destroyPlot();
+    plot = new uPlot(buildOpts(w, hgt), buildData(), host);
   } catch (err) {
     console.error('latency histogram: uPlot init failed', err);
-    plot = null;
+    destroyPlot();
   } finally {
     building = false;
   }
@@ -109,25 +117,27 @@ function createPlot() {
 
 function render() {
   if (!props.active) return;
-  if (plotOrphaned()) { createPlot(); return; }
+  attachHost();
   if (!plot) { createPlot(); return; }
   try {
     plot.setData(buildData());
   } catch (err) {
     console.error('latency histogram: setData failed, rebuilding', err);
-    try { plot?.destroy(); } catch { /* ignore */ }
-    plot = null;
+    destroyPlot();
   }
 }
 
-function rebuild() { plot?.destroy(); plot = null; render(); }
+function rebuild() { destroyPlot(); render(); }
 
 onMounted(() => {
+  attachHost();
+  // Observe `host`, not the container: host is stable, so the observer never
+  // needs re-attaching when Vue re-binds the container.
   ro = new ResizeObserver(() => {
-    if (plot && el.value) plot.setSize({ width: el.value.clientWidth, height: el.value.clientHeight });
+    if (plot) plot.setSize({ width: host.clientWidth, height: host.clientHeight });
     else if (props.active) createPlot();
   });
-  if (el.value) ro.observe(el.value);
+  ro.observe(host);
   mq = window.matchMedia('(prefers-color-scheme: dark)');
   mq.addEventListener('change', rebuild);
   if (props.active) nextTick(createPlot);
@@ -136,10 +146,11 @@ onMounted(() => {
 onBeforeUnmount(() => {
   ro?.disconnect();
   mq?.removeEventListener('change', rebuild);
-  plot?.destroy();
-  plot = null;
+  destroyPlot();
+  host.remove();
 });
 
+watch(el, attachHost);   // Vue re-bound the container: move host into the new one
 watch(() => props.active, (a) => { if (a) nextTick(render); });
 watch(logScale, rebuild);
 watch(h, render, { deep: true });

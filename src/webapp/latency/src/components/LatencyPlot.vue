@@ -5,25 +5,29 @@ import 'uplot/dist/uPlot.min.css';
 import { latencyStore, RANGES } from '../stores/latency';
 
 const props = defineProps<{ active: boolean }>();
-const el = ref<HTMLDivElement>();
-const LEGEND_H = 44; // room below the canvas for uPlot's legend row
-let plot: uPlot | null = null;
-let building = false; // true while uPlot is constructing (see createPlot)
-let ro: ResizeObserver | null = null;
-let mq: MediaQueryList | null = null;
-function onThemeChange() { plot?.destroy(); plot = null; render(); }
-
 const store = latencyStore;
 const hist = computed(() => store.state.history);
 
+const LEGEND_H = 44; // room below the canvas for uPlot's legend row
 
-// Is the live plot's DOM still inside our current container?  If Vue hands us
-// a different div, uPlot keeps drawing into the old, detached one: the plot
-// object looks healthy (correct size, setData succeeds, no error) but nothing
-// is on screen, and only a reload clears it.
-function plotOrphaned(): boolean {
-  const root = (plot as unknown as { root?: HTMLElement } | null)?.root;
-  return !!plot && (!root || !el.value || !el.value.contains(root));
+// `el` is Vue's container.  Vue may unmount, re-bind or replace it, and the
+// template ref transiently becomes undefined when it does - so uPlot must not
+// live in it.  uPlot lives in `host`: an element we create and own, which Vue
+// never reconciles.  If Vue hands us a different container we just re-parent
+// host into it, and uPlot's DOM (with all its state) comes along untouched.
+const el = ref<HTMLDivElement>();
+const host = document.createElement('div');
+host.style.width = '100%';
+host.style.height = '100%';
+
+let plot: uPlot | null = null;
+let building = false; // true while uPlot constructs (its DOM inserts fire our RO)
+let ro: ResizeObserver | null = null;
+let mq: MediaQueryList | null = null;
+
+function attachHost() {
+  const c = el.value;
+  if (c && host.parentElement !== c) c.appendChild(host);
 }
 
 function themeColors() {
@@ -95,38 +99,29 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
   };
 }
 
+// A uPlot built from empty data never recovers via setData(), and a single
+// point has no x extent (it auto-ranges to an absurd span).  That is exactly
+// the state right after a reset, so wait for a real series.
 function havePlottableData(): boolean {
-  // A uPlot built from empty/1-point data never recovers via setData(), and a
-  // single point has no x extent (it auto-ranges to an absurd span).  This is
-  // exactly the state right after a reset, so refuse to build until there is a
-  // real series - createPlot() is reached from onMounted and the
-  // ResizeObserver too, not just render().
   return (hist.value?.points.length ?? 0) >= 2;
 }
 
 function destroyPlot() {
   try { plot?.destroy(); } catch { /* already gone */ }
   plot = null;
-  if (el.value) el.value.innerHTML = ''; // drop any DOM left by a failed build
 }
 
 function createPlot() {
-  // Reentrancy guard: uPlot inserts DOM while constructing, which fires our
-  // ResizeObserver.  `plot` is not assigned yet at that moment, so the RO
-  // would take its create branch and destroyPlot() would wipe the innerHTML of
-  // the plot being built - leaving a non-null plot with no DOM, blank forever.
-  if (building) return;
-  if (!el.value || !havePlottableData()) return;
-  const w = el.value.clientWidth;
-  const hgt = el.value.clientHeight;
+  if (building || !havePlottableData()) return;
+  attachHost();
+  const w = host.clientWidth;
+  const hgt = host.clientHeight;
   if (w === 0 || hgt === 0) return; // hidden; wait for activation
   building = true;
   try {
     destroyPlot();
-    plot = new uPlot(buildOpts(w, Math.max(120, hgt - LEGEND_H)), buildData(), el.value);
+    plot = new uPlot(buildOpts(w, Math.max(120, hgt - LEGEND_H)), buildData(), host);
   } catch (err) {
-    // Never wedge: leave plot null so the next data update retries, instead of
-    // throwing out of the watcher forever and staying blank until a reload.
     console.error('latency plot: uPlot init failed', err);
     destroyPlot();
   } finally {
@@ -136,8 +131,8 @@ function createPlot() {
 
 function render() {
   if (!props.active) return;
+  attachHost();
   if (!havePlottableData()) { destroyPlot(); return; }
-  if (plotOrphaned()) { destroyPlot(); createPlot(); return; }
   if (!plot) { createPlot(); return; }
   try {
     plot.setData(buildData());
@@ -147,24 +142,30 @@ function render() {
   }
 }
 
+function onThemeChange() { destroyPlot(); render(); }
+
 onMounted(() => {
+  attachHost();
+  // Observe `host`, not the container: host is stable, so the observer never
+  // needs re-attaching when Vue re-binds the container.
   ro = new ResizeObserver(() => {
-    if (plot && el.value) plot.setSize({ width: el.value.clientWidth, height: Math.max(120, el.value.clientHeight - LEGEND_H) });
+    if (plot) plot.setSize({ width: host.clientWidth, height: Math.max(120, host.clientHeight - LEGEND_H) });
     else if (props.active) createPlot();
   });
-  if (el.value) ro.observe(el.value);
+  ro.observe(host);
   mq = window.matchMedia('(prefers-color-scheme: dark)');
   mq.addEventListener('change', onThemeChange);
-  if (props.active) nextTick(createPlot);
+  if (props.active) nextTick(render);
 });
 
 onBeforeUnmount(() => {
   ro?.disconnect();
   mq?.removeEventListener('change', onThemeChange);
-  plot?.destroy();
-  plot = null;
+  destroyPlot();
+  host.remove();
 });
 
+watch(el, attachHost);   // Vue re-bound the container: move host into the new one
 watch(() => props.active, (a) => { if (a) nextTick(render); });
 watch(hist, render);
 </script>
@@ -181,13 +182,11 @@ watch(hist, render);
       </span>
     </div>
     <div class="plotarea">
+      <!-- The chart is not rendered here: uPlot lives in `host`, appended by
+           the component.  Vue only manages this (always empty) container. -->
       <div ref="el" class="chart"></div>
       <!-- After a reset the server history is empty until the first buckets
-           close; say so rather than showing a blank (or degenerate) chart.
-           v-show rather than v-if so this does not restructure .plotarea on
-           every transition.  (Note: that alone does NOT stop Vue from handing
-           us a fresh .chart div - plotOrphaned() in render() is what actually
-           recovers from that.) -->
+           close; say so rather than showing a blank chart. -->
       <div v-show="(hist?.points.length ?? 0) < 2" class="empty">
         waiting for data…
       </div>
