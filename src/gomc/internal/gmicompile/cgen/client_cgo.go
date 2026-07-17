@@ -195,10 +195,11 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 		g.printf("\tvar %s %s\n", op.cVar, cType)
 	}
 
-	// Convert Go params → C
+	// Convert Go params → C. The wrapper reads the function pointer and ctx
+	// from the struct in C — ctx may be a cgo.Handle integer that must never
+	// occupy a Go pointer-typed slot.
 	var callArgs []string
-	callArgs = append(callArgs, "cl.cb."+cgoFieldAccess(fnSnake))
-	callArgs = append(callArgs, "cl.cb.ctx")
+	callArgs = append(callArgs, "cl.cb")
 
 	// Track byref params that need C→Go writeback after the call
 	type byrefWriteback struct {

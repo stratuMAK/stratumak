@@ -163,15 +163,18 @@ static int gomc_rtapi_task_self_cb(void *ctx) GOMC_NONBLOCKING {
 }
 
 // --- INI callbacks (forward-declared, implemented in Go via //export) ---
+// ctx is uintptr_t, not void*: it carries a cgo.Handle integer, and receiving
+// that in a Go unsafe.Pointer parameter puts a non-address value in a
+// GC-scanned pointer slot ("invalid pointer found on stack" on a stack scan).
 
-extern char* gomc_ini_get(void *ctx, char *section, char *key);
-extern char** gomc_ini_get_all(void *ctx, char *section, char *key, int *out_count);
-extern char* gomc_ini_source_file(void *ctx);
+extern char* gomc_ini_get(uintptr_t ctx, char *section, char *key);
+extern char** gomc_ini_get_all(uintptr_t ctx, char *section, char *key, int *out_count);
+extern char* gomc_ini_source_file(uintptr_t ctx);
 
 // --- Log subscribe/unsubscribe (forward-declared, implemented in Go) ---
 
-extern gomc_log_sub_t* gomc_log_subscribe_cb(void *ctx, gomc_log_level_t min_level);
-extern void gomc_log_unsubscribe_cb(void *ctx, gomc_log_sub_t *sub);
+extern gomc_log_sub_t* gomc_log_subscribe_cb(uintptr_t ctx, gomc_log_level_t min_level);
+extern void gomc_log_unsubscribe_cb(uintptr_t ctx, gomc_log_sub_t *sub);
 
 // --- Env initialisation helpers ---
 

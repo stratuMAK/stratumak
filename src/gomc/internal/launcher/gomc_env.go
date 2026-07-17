@@ -231,14 +231,14 @@ func (r *gomcLogRing) unsubscribe(sub *C.gomc_log_sub_t) {
 // --- Log subscribe/unsubscribe callbacks (exported to C) ---
 
 //export gomc_log_subscribe_cb
-func gomc_log_subscribe_cb(ctx unsafe.Pointer, minLevel C.gomc_log_level_t) *C.gomc_log_sub_t {
-	l := cgo.Handle(uintptr(ctx)).Value().(*Launcher)
+func gomc_log_subscribe_cb(ctx C.uintptr_t, minLevel C.gomc_log_level_t) *C.gomc_log_sub_t {
+	l := cgo.Handle(ctx).Value().(*Launcher)
 	return l.logRing.subscribe(minLevel)
 }
 
 //export gomc_log_unsubscribe_cb
-func gomc_log_unsubscribe_cb(ctx unsafe.Pointer, sub *C.gomc_log_sub_t) {
-	l := cgo.Handle(uintptr(ctx)).Value().(*Launcher)
+func gomc_log_unsubscribe_cb(ctx C.uintptr_t, sub *C.gomc_log_sub_t) {
+	l := cgo.Handle(ctx).Value().(*Launcher)
 	l.logRing.unsubscribe(sub)
 }
 
@@ -255,8 +255,8 @@ func cStringFromBytes(b []byte) string {
 // --- INI callback implementations (exported to C) ---
 
 //export gomc_ini_get
-func gomc_ini_get(ctx unsafe.Pointer, section, key *C.char) *C.char {
-	l := cgo.Handle(uintptr(ctx)).Value().(*Launcher)
+func gomc_ini_get(ctx C.uintptr_t, section, key *C.char) *C.char {
+	l := cgo.Handle(ctx).Value().(*Launcher)
 	val := l.ini.Get(C.GoString(section), C.GoString(key))
 	if val == "" {
 		return nil
@@ -267,16 +267,16 @@ func gomc_ini_get(ctx unsafe.Pointer, section, key *C.char) *C.char {
 }
 
 //export gomc_ini_source_file
-func gomc_ini_source_file(ctx unsafe.Pointer) *C.char {
-	l := cgo.Handle(uintptr(ctx)).Value().(*Launcher)
+func gomc_ini_source_file(ctx C.uintptr_t) *C.char {
+	l := cgo.Handle(ctx).Value().(*Launcher)
 	cs := C.CString(l.ini.SourceFile())
 	l.cModArena = append(l.cModArena, unsafe.Pointer(cs))
 	return cs
 }
 
 //export gomc_ini_get_all
-func gomc_ini_get_all(ctx unsafe.Pointer, section, key *C.char, outCount *C.int) **C.char {
-	l := cgo.Handle(uintptr(ctx)).Value().(*Launcher)
+func gomc_ini_get_all(ctx C.uintptr_t, section, key *C.char, outCount *C.int) **C.char {
+	l := cgo.Handle(ctx).Value().(*Launcher)
 	vals := l.ini.GetAll(C.GoString(section), C.GoString(key))
 	n := len(vals)
 	*outCount = C.int(n)

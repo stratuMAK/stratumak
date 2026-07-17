@@ -22,7 +22,10 @@ package task
 #include <stdlib.h>
 
 // C -> Go trampoline for register_handler (defined in Go via //export).
-extern int32_t goMcodeRegisterHandler(void *ctx, int32_t mcode,
+// ctx is uintptr_t, not void*: it carries a cgo.Handle integer, and receiving
+// that in a Go unsafe.Pointer parameter puts a non-address value in a
+// GC-scanned pointer slot ("invalid pointer found on stack" on a stack scan).
+extern int32_t goMcodeRegisterHandler(uintptr_t ctx, int32_t mcode,
                                       mcode_handler_handler_cb fn, void *user_data);
 
 static mcode_handler_callbacks_t *build_mcode_provider(uintptr_t ctx) {
@@ -30,7 +33,7 @@ static mcode_handler_callbacks_t *build_mcode_provider(uintptr_t ctx) {
     if (!cbs)
         return NULL;
     cbs->ctx = (void *)ctx;
-    cbs->register_handler = goMcodeRegisterHandler;
+    cbs->register_handler = (mcode_handler_register_handler_fn)goMcodeRegisterHandler;
     return cbs;
 }
 
@@ -80,9 +83,9 @@ func registerMcodeHandlerProvider(reg *apiserver.Registry, instance string, h *m
 }
 
 //export goMcodeRegisterHandler
-func goMcodeRegisterHandler(ctx unsafe.Pointer, mcode C.int32_t,
+func goMcodeRegisterHandler(ctx C.uintptr_t, mcode C.int32_t,
 	fn C.mcode_handler_handler_cb, userData unsafe.Pointer) C.int32_t {
-	h := cgo.Handle(uintptr(ctx)).Value().(*mcodeHandler)
+	h := cgo.Handle(ctx).Value().(*mcodeHandler)
 
 	cFn := fn
 	cUser := userData

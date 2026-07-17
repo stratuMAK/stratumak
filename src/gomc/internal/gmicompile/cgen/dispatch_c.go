@@ -105,7 +105,6 @@ func (g *dispatchCGen) emitCallWrapper(fn ast.Func) {
 	apiName := g.api.Name
 	fnSnake := toSnakeCase(fn.Name)
 	wrapperName := fmt.Sprintf("call_%s_%s", apiName, fnSnake)
-	fnType := fmt.Sprintf("%s_%s_fn", apiName, fnSnake)
 
 	// Determine return type: direct return or void
 	retCType := "void"
@@ -117,9 +116,13 @@ func (g *dispatchCGen) emitCallWrapper(fn ast.Func) {
 		}
 	}
 
-	// Build parameter list: fn pointer + ctx + same params as callback typedef
-	params := []string{fmt.Sprintf("%s _fn_ptr", fnType), "void *ctx"}
-	args := []string{"ctx"}
+	// Build parameter list: callbacks struct + same params as callback typedef.
+	// The function pointer and ctx are dereferenced INSIDE C, never passed from
+	// Go: for Go providers ctx holds a cgo.Handle (a small integer, not a real
+	// address), and carrying it through a Go unsafe.Pointer slot is fatal when
+	// a GC stack scan hits that slot (runtime: invalid pointer found on stack).
+	params := []string{fmt.Sprintf("const %s_callbacks_t *cbs", apiName)}
+	args := []string{"cbs->ctx"}
 
 	for _, p := range fn.Params {
 		name := p.Name
@@ -133,9 +136,9 @@ func (g *dispatchCGen) emitCallWrapper(fn ast.Func) {
 
 	g.printf("static %s %s(%s) {\n", retCType, wrapperName, strings.Join(params, ", "))
 	if fn.Return != nil {
-		g.printf("    return _fn_ptr(%s);\n", strings.Join(args, ", "))
+		g.printf("    return cbs->%s(%s);\n", cSafeName(fnSnake), strings.Join(args, ", "))
 	} else {
-		g.printf("    _fn_ptr(%s);\n", strings.Join(args, ", "))
+		g.printf("    cbs->%s(%s);\n", cSafeName(fnSnake), strings.Join(args, ", "))
 	}
 	g.printf("}\n\n")
 }
@@ -753,10 +756,11 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 		}
 	}
 
-	// Convert Go params → C and build call args
+	// Convert Go params → C and build call args. The wrapper reads the
+	// function pointer and ctx from the struct in C — ctx may be a cgo.Handle
+	// integer that must never occupy a Go pointer-typed slot.
 	var callArgs []string
-	callArgs = append(callArgs, "cb."+cgoFieldAccess(fnSnake))
-	callArgs = append(callArgs, "cb.ctx")
+	callArgs = append(callArgs, "cb")
 
 	for _, p := range fn.Params {
 		cVar := "c" + toPascalCase(p.Name)
