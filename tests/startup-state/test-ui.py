@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 
-import linuxcnc
 import gmi
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
 import linuxcnc_util
 import gomc_test
 
@@ -232,7 +228,7 @@ assert(s.dtg == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 # handshake, which gomc (REST/WebSocket, synchronous wait_complete) does not have.
 assert(s.enabled == False)
 assert(s.estop == 1)
-assert(s.exec_state == linuxcnc.EXEC_DONE)
+assert(s.exec_state == EXEC_DONE)
 
 assert(s.feed_hold_enabled == True)
 assert(s.feed_override_enabled == True)
@@ -259,7 +255,7 @@ assert(not (1 in s.homed))
 assert(s.motion_id == 0)
 assert(s.inpos == True)
 assert(s.input_timeout == False)
-assert(s.interp_state == linuxcnc.INTERP_IDLE)
+assert(s.interp_state == INTERP_IDLE)
 assert(s.interpreter_errcode == 0)
 
 assert_joint_initialized(s.joint[0])
@@ -292,7 +288,7 @@ assert(math.fabs(s.max_velocity - 45.67) < 0.0000001)
 assert(s.mcodes == (0, -1, 5, -1, 9, -1, 48, -1, 53, 0))
 assert(s.mist == 0)
 assert(s.motion_line == 0)
-assert(s.motion_mode == linuxcnc.TRAJ_MODE_FREE)
+assert(s.motion_mode == TRAJ_MODE_FREE)
 assert(s.motion_type == 0)
 
 assert(s.optional_stop == True)
@@ -322,11 +318,11 @@ assert(s.spindle[0]['override_enabled'] == True)
 assert(s.spindle[0]['speed'] == 0.0)
 assert(s.spindle[0]['override'] == 1.0)
 
-assert(s.state == linuxcnc.STATE_ESTOP)
+assert(s.state == STATE_ESTOP)
 
-assert(s.task_mode == linuxcnc.MODE_MANUAL)
+assert(s.task_mode == MODE_MANUAL)
 assert(s.task_paused == 0)
-assert(s.task_state == linuxcnc.STATE_ESTOP)
+assert(s.task_state == STATE_ESTOP)
 assert(s.tool_in_spindle == 0)
 assert(s.tool_offset == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 

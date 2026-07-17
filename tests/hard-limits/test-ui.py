@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-import linuxcnc
 import gmi
 import gomc_test
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
 
 import time
 import sys
@@ -54,7 +50,7 @@ def print_status(status):
 def assert_wait_complete(command):
     r = command.wait_complete()
     print("wait_complete() returns {}".format(r))
-    assert((r == linuxcnc.RCS_DONE) or (r == linuxcnc.RCS_ERROR))
+    assert((r == RCS_DONE) or (r == RCS_ERROR))
 
 
 #
@@ -78,9 +74,9 @@ e = gmi.ErrorChannel()
 # Come out of E-stop, turn the machine on, switch to Manual mode, and home.
 #
 
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
-c.mode(linuxcnc.MODE_MANUAL)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
+c.mode(MODE_MANUAL)
 c.home(0)
 c.home(1)
 c.home(2)
@@ -108,7 +104,7 @@ c.teleop_enable(0)
 #
 
 # jog arguments are: (jog_type, joint_flag, axis, velocity)
-c.jog(linuxcnc.JOG_CONTINUOUS, 1, 0, -0.1)
+c.jog(JOG_CONTINUOUS, 1, 0, -0.1)
 
 # verify that we're starting to move
 s.poll()
@@ -207,7 +203,7 @@ print_status(s)
 # back to RCS_DONE when it finished.
 # assert_wait_complete(c)
 
-c.state(linuxcnc.STATE_ON)
+c.state(STATE_ON)
 assert_wait_complete(c)
 
 # verify that Status reflects the new situation
@@ -224,7 +220,7 @@ assert(s.inpos == True)
 assert(s.enabled == True)
 
 # jog X in the positive direction, off the negative limit switch
-c.jog(linuxcnc.JOG_CONTINUOUS, 1, 0, 1)
+c.jog(JOG_CONTINUOUS, 1, 0, 1)
 
 # verify that we're starting to move
 s.poll()
@@ -265,7 +261,7 @@ assert(s.inpos == False)
 assert(s.enabled == True)
 
 # stop the jog
-c.jog(linuxcnc.JOG_STOP, 1, 0)
+c.jog(JOG_STOP, 1, 0)
 
 # verify that we're stopping
 s.poll()

@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 
-import linuxcnc
 import gmi
-# Reuse constants via the gmi client (classic linuxcnc module is command/stat-less).
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
 import gomc_test
 
 import math
@@ -28,13 +23,13 @@ c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
 
-c.mode(linuxcnc.MODE_AUTO)
+c.mode(MODE_AUTO)
 c.program_open('test.ngc')
 
-c.mode(linuxcnc.MODE_MDI)
+c.mode(MODE_MDI)
 c.mdi('G10 L2 P1 X0 Y0 Z-4 (Set G54)')
 c.mdi('G10 L2 P2 X0 Y0 Z-5 (Set G55)')
 c.mdi('G10 L2 P3 X0 Y0 Z-6 (Set G56)')
@@ -45,8 +40,8 @@ c.wait_complete()
 # FIXME: this is lame
 time.sleep(1)
 
-c.mode(linuxcnc.MODE_AUTO)
-c.auto(linuxcnc.AUTO_RUN, 0)
+c.mode(MODE_AUTO)
+c.auto(AUTO_RUN, 0)
 
 # FIXME: this is lame
 time.sleep(1)
@@ -76,7 +71,7 @@ else:
 MM = 25.4
 
 # MDI G0 takes us to the programmed location in G54
-c.mode(linuxcnc.MODE_MDI)
+c.mode(MODE_MDI)
 c.mdi('G0 X0 Y0 Z0 (Move to 0,0,0)')
 c.wait_complete()
 s.poll()

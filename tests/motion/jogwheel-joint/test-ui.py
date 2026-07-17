@@ -4,13 +4,9 @@
 # via halcmd (the userspace jogwheel-encoder hal.component is gone) and read the
 # joint position from gmi.Stat.joint_actual_position.
 
-import linuxcnc
 import gmi
 import gomc_test
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
 
 import subprocess
 import time
@@ -124,13 +120,13 @@ c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
-c.mode(linuxcnc.MODE_MANUAL)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
+c.mode(MODE_MANUAL)
 # Jogging is only accepted in manual mode: wait for the mode switch to actually
 # land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
 # were silently refused and the test failed as "joint didn't get to target".
-gomc_test.wait_stat(s, lambda st: st.task_mode == linuxcnc.MODE_MANUAL,
+gomc_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
                     "task_mode to become MODE_MANUAL",
                     detail=lambda st: "task_mode=%d task_state=%d"
                                       % (st.task_mode, st.task_state))

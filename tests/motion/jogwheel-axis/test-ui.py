@@ -5,13 +5,9 @@
 # halcmd and read the axis position from gmi.Stat.  linuxcnc_util is reused by
 # copying gmi's constants onto the (command/stat-less) linuxcnc module.
 
-import linuxcnc
 import gmi
+from gmi.constants import *
 import gomc_test
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
 import linuxcnc_util
 
 import subprocess
@@ -115,8 +111,8 @@ e = gmi.ErrorChannel()
 
 l = linuxcnc_util.LinuxCNC(command=c, status=s, error=e)
 
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
 
 
 # must home to use Teleop mode
@@ -126,11 +122,11 @@ c.wait_complete()
 
 l.wait_for_home([1, 1, 1, 0, 0, 0, 0, 0, 0])
 
-c.mode(linuxcnc.MODE_MANUAL)
+c.mode(MODE_MANUAL)
 # Jogging is only accepted in manual mode: wait for the mode switch to actually
 # land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
 # were silently refused and the test failed as "axis didn't get to target".
-gomc_test.wait_stat(s, lambda st: st.task_mode == linuxcnc.MODE_MANUAL,
+gomc_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
                     "task_mode to become MODE_MANUAL",
                     detail=lambda st: "task_mode=%d task_state=%d"
                                       % (st.task_mode, st.task_state))

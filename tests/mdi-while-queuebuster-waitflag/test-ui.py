@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 
-import linuxcnc
 import gmi
-import gmi.constants as _gk
-for _n in dir(_gk):
-    if not _n.startswith('_'):
-        setattr(linuxcnc, _n, getattr(_gk, _n))
+from gmi.constants import *
 import gomc_test
 import sys
 
@@ -14,9 +10,9 @@ import sys
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
 c = gomc_test.Command()
 s = gmi.Stat()
-c.state(linuxcnc.STATE_ESTOP_RESET)
-c.state(linuxcnc.STATE_ON)
-c.mode(linuxcnc.MODE_MDI)
+c.state(STATE_ESTOP_RESET)
+c.state(STATE_ON)
+c.mode(MODE_MDI)
 
 c.mdi('(print,pre 1)')
 c.mdi('(print,pre 2)')
