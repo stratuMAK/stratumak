@@ -51,8 +51,10 @@ usage () {
     echo "   or:"
     echo "       latency-test -h | --help     # (this text)"
     echo ""
-    echo "  --stress   also run a Go garbage-collector load generator, to see"
-    echo "             the effect of GC pressure on the measured latency"
+    echo "  --stress   load the machine while measuring, to see the effect on"
+    echo "             latency: a Go garbage-collector load generator plus host"
+    echo "             stress (glxgears, gzip of / to /dev/null, ping the"
+    echo "             gateway).  Missing tools are skipped with an install hint."
     echo ""
     echo "Example:"
     echo "       latency-test 50000 1000000"
@@ -109,7 +111,14 @@ BASE_URL="http://$ADDR"
 
 T=$(mktemp -d)
 SRV_PID=""
+STRESS_PIDS=()   # process-group leaders of the external stressors
 cleanup () {
+    # Stop the external stressors first.  Each was started with setsid, so the
+    # PID is a process-group leader and a negative-PID kill reaps the whole
+    # pipeline (find/xargs/gzip children), not just the launcher.
+    for p in "${STRESS_PIDS[@]}"; do
+        kill -TERM -- -"$p" 2>/dev/null
+    done
     if [ -n "$SRV_PID" ]; then
         kill -INT "$SRV_PID" 2>/dev/null
         wait "$SRV_PID" 2>/dev/null
@@ -117,6 +126,77 @@ cleanup () {
     cd /; [ -d "$T" ] && rm -rf "$T"
 }
 trap cleanup SIGINT SIGTERM EXIT
+
+# ---- external host stress (--stress) --------------------------------------
+# Reproduces the old "abuse the computer while testing" advice automatically.
+# Each stressor runs in its own session so cleanup() can kill its whole group;
+# missing tools are reported with an install hint and skipped, never fatal.
+
+have_tool () {  # have_tool <cmd> <apt-package>
+    command -v "$1" >/dev/null 2>&1 && return 0
+    echo "latency-test: '$1' not found - skipping its stress (install: sudo apt install $2)" >&2
+    return 1
+}
+
+start_stressor () {  # start_stressor <shell-command>
+    # Run in a new session so the whole pipeline can be killed as one group.
+    # The child writes its OWN pid to a file: that pid IS the process-group id
+    # (a session leader leads its group).  We must not use $! here - setsid
+    # forks when it is already a group leader, so $! can be a short-lived parent
+    # while the real group runs elsewhere, and killing $! would leak the tree.
+    local pf; pf="$T/pgid.${#STRESS_PIDS[@]}"
+    setsid bash -c 'echo $$ >"'"$pf"'"; '"$1" >/dev/null 2>&1 &
+    local i
+    for i in $(seq 1 25); do [ -s "$pf" ] && break; sleep 0.02; done
+    local pg; pg=$(cat "$pf" 2>/dev/null); rm -f "$pf"
+    [ -n "$pg" ] && STRESS_PIDS+=("$pg")
+}
+
+start_external_stress () {
+    echo "latency-test: starting host stress (glxgears, gzip, ping)" >&2
+
+    # GPU / compositor: a few spinning gears.  Needs an X display (present in
+    # the graphical session this is launched from).
+    if [ -z "$DISPLAY" ]; then
+        echo "latency-test: no DISPLAY - skipping glxgears" >&2
+    elif have_tool glxgears mesa-utils; then
+        for _ in 1 2 3 4; do start_stressor 'exec glxgears'; done
+    fi
+
+    # Disk I/O + CPU + process churn: compress every regular readable file to
+    # /dev/null, in a loop.  -exec ... {} \; restarts gzip once PER FILE (a
+    # fresh fork+exec each time), which loads the scheduler harder than piping
+    # batches through one gzip; run one loop per core for parallel load.  Prune
+    # the pseudo-filesystems: reading e.g. /proc/kcore is all of RAM and some
+    # /proc,/sys files block forever.
+    if have_tool gzip gzip && have_tool find findutils; then
+        P=$(nproc 2>/dev/null || echo 4); [ "$P" -gt 4 ] && P=4
+        i=0
+        while [ "$i" -lt "$P" ]; do
+            start_stressor 'while :; do
+                find / -path /proc -prune -o -path /sys -prune -o -path /dev -prune \
+                       -o -path /run -prune -o -type f -readable \
+                       -exec gzip -c {} \; >/dev/null 2>&1
+            done'
+            i=$((i + 1))
+        done
+    fi
+
+    # Network + softirq: rapid ping to the default gateway.  -i 0.01 needs
+    # cap_net_raw; we never use sudo, so if the kernel rejects the interval the
+    # ping just exits and we say so.
+    if have_tool ping iputils-ping && have_tool ip iproute2; then
+        gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+        if [ -z "$gw" ]; then
+            echo "latency-test: no default gateway - skipping ping" >&2
+        else
+            start_stressor "exec ping -i 0.01 -q '$gw'"
+            sleep 0.4
+            kill -0 "${STRESS_PIDS[-1]}" 2>/dev/null || \
+                echo "latency-test: 'ping -i 0.01 $gw' exited (needs cap_net_raw; no sudo used) - ping skipped" >&2
+        fi
+    fi
+}
 
 # Threads use the usual LinuxCNC names, so the periods here mean the same
 # thing they do in a real config.  One latency instance per thread: the
@@ -157,7 +237,11 @@ if [ "$started" -ne 1 ]; then
     exit 1
 fi
 
-# The viewer blocks until its window is closed.
+# --stress also loads the whole machine, not just the Go runtime.
+[ "$STRESS" -eq 1 ] && start_external_stress
+
+# The viewer blocks until its window is closed.  Closing it (or Ctrl+C /
+# SIGTERM) fires cleanup(), which stops the stressors and the server.
 GMC_REST_URL="$BASE_URL" latency
 
 # Record this run's worst-case jitter, keeping the worst ever seen: ~/.latency
