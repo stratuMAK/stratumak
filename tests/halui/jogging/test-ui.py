@@ -188,6 +188,10 @@ def jog_joint(joint_number, target):
     else:
         jog_plus(name, target)
 
+    # Settle before sampling, so every joint position below is read at rest
+    # rather than mid-transition (same ordering fix as jogwheel-joint/-axis).
+    wait_for_joint_to_stop(joint_number)
+
     for j in range(0,3):
         pin_name = 'joint-%d-position' % j
         if j == joint_number:
@@ -198,8 +202,6 @@ def jog_joint(joint_number, target):
             if joint[j] != h[pin_name]:
                 log("joint %d moved from %.3f to %.3f but should not have!" % (j, joint[j], h[pin_name]))
                 success = False
-
-    wait_for_joint_to_stop(joint_number)
 
     if not success:
         sys.exit(1)

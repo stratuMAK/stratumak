@@ -81,6 +81,14 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
 
     h['axis-%c-jog-enable' % axis_letter] = 0
 
+    # Let the axis come to rest BEFORE sampling its final position. The wait loop
+    # above exits on the first status sample within tolerance (or its timeout),
+    # but under suite load a status read taken mid-settle lags the true position:
+    # the axis climbs into tolerance a few ms after we look. Checking then would
+    # spuriously fail ("didn't get to target") on a value that IS within epsilon.
+    # A stopped axis reports a stable, true position. (Same fix as jogwheel-joint.)
+    l.wait_for_axis_to_stop(axis_letter)
+
     print("axis %c jogged from %.6f to %.6f (%d counts at scale %.6f)" % (axis_letter, start_pos[axis_letter], h['axis-%c-position' % axis_letter], counts, scale))
 
     success = True
@@ -94,8 +102,6 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
             if not close_enough(h[pin_name], start_pos[a]):
                 print("axis %c moved from %.6f to %.6f but should not have!" % (a, start_pos[a], h[pin_name]))
                 success = False
-
-    l.wait_for_axis_to_stop(axis_letter)
 
     if not success:
         sys.exit(1)
