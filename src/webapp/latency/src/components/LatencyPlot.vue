@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { latencyStore } from '../stores/latency';
+import { latencyStore, RANGES } from '../stores/latency';
 
 const props = defineProps<{ active: boolean }>();
 const el = ref<HTMLDivElement>();
@@ -12,42 +12,49 @@ let ro: ResizeObserver | null = null;
 let mq: MediaQueryList | null = null;
 function onThemeChange() { plot?.destroy(); plot = null; render(); }
 
+const store = latencyStore;
+const hist = computed(() => store.state.history);
+
 function themeColors() {
   const cs = getComputedStyle(document.documentElement);
   const get = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
   return {
-    s1: get('--series-1', '#2a78d6'),
-    s2: get('--series-2', '#eb6834'),
+    s1: get('--series-1', '#44aaff'),
+    s2: get('--series-2', '#ffaa44'),
     text: get('--text-secondary', '#888'),
-    grid: get('--grid', '#ccc'),
+    grid: get('--grid', '#333'),
   };
 }
 
-// [xs, lastUs, maxJitterUs] — latency in microseconds, x in seconds.
+// Server-side buckets -> [secondsAgo, maxUs, meanUs].  x is relative to the
+// newest bucket so the window reads as "seconds ago" and is identical for
+// every client viewing the same data.
 function buildData(): uPlot.AlignedData {
-  const p = latencyStore.state.plot;
+  const h = hist.value;
+  if (!h || h.points.length === 0) return [[], [], []];
+  const newest = h.points[h.points.length - 1].tMs;
   return [
-    p.map((d) => d.t),
-    p.map((d) => d.lastNs / 1000),
-    p.map((d) => d.maxJitterNs / 1000),
+    h.points.map((p) => (p.tMs - newest) / 1000),
+    h.points.map((p) => p.maxNs / 1000),
+    h.points.map((p) => p.meanNs / 1000),
   ];
 }
 
-function buildOpts(w: number, h: number): uPlot.Options {
+function buildOpts(w: number, hgt: number): uPlot.Options {
   const c = themeColors();
   const axis = { stroke: c.text, grid: { stroke: c.grid, width: 1 }, ticks: { stroke: c.grid } };
   return {
     width: w,
-    height: h,
+    height: hgt,
     scales: { x: { time: false } },
     axes: [
       { ...axis, values: (_u, vals) => vals.map((v) => v.toFixed(0) + 's') },
       { ...axis, label: 'latency (µs)', labelSize: 30 },
     ],
     series: [
-      { label: 'elapsed' },
-      { label: 'last', stroke: c.s1, width: 2 },
-      { label: 'max jitter', stroke: c.s2, width: 2 },
+      { label: 'ago' },
+      { label: 'max', stroke: c.s2, width: 2 },
+      { label: 'mean', stroke: c.s1, width: 2 },
     ],
   };
 }
@@ -86,16 +93,34 @@ onBeforeUnmount(() => {
 });
 
 watch(() => props.active, (a) => { if (a) nextTick(render); });
-watch(() => latencyStore.state.tick, render);
+watch(hist, render);
 </script>
 
 <template>
   <div class="wrap">
+    <div class="toolbar">
+      <span class="lbl">range</span>
+      <button v-for="r in RANGES" :key="r.seconds"
+              :class="{ active: store.state.rangeSec === r.seconds }"
+              @click="store.setRange(r.seconds)">{{ r.label }}</button>
+      <span class="meta" v-if="hist">
+        {{ hist.bucketMs }} ms buckets · {{ hist.points.length }} points · server-side history
+      </span>
+    </div>
     <div ref="el" class="chart"></div>
   </div>
 </template>
 
 <style scoped>
-.wrap { height: 100%; display: flex; }
+.wrap { height: 100%; display: flex; flex-direction: column; }
+.toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--text-secondary); font-size: 12px; }
+.lbl { margin-right: 2px; }
+.toolbar button {
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.toolbar button.active { color: var(--accent); border-color: var(--accent); }
+.meta { margin-left: 10px; }
 .chart { flex: 1; min-height: 320px; }
 </style>

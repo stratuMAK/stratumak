@@ -7,6 +7,21 @@ import { latencyStore } from '../stores/latency';
 const props = defineProps<{ active: boolean }>();
 const el = ref<HTMLDivElement>();
 const logScale = ref(false);
+const store = latencyStore;
+
+// Server-side bin width choices (0 = autoscale to the bulk).
+const BINS: { label: string; ns: number }[] = [
+  { label: 'auto', ns: 0 },
+  { label: '1µs', ns: 1000 },
+  { label: '5µs', ns: 5000 },
+  { label: '20µs', ns: 20000 },
+  { label: '100µs', ns: 100000 },
+];
+function binActive(ns: number): boolean {
+  const hh = h.value;
+  if (!hh) return false;
+  return ns === 0 ? hh.autoscale : !hh.autoscale && hh.binWidthNs === ns;
+}
 let plot: uPlot | null = null;
 let ro: ResizeObserver | null = null;
 let mq: MediaQueryList | null = null;
@@ -106,6 +121,10 @@ watch(h, render, { deep: true });
 <template>
   <div class="wrap">
     <div class="toolbar">
+      <span class="lbl">bin</span>
+      <button v-for="b in BINS" :key="b.ns"
+              :class="{ active: binActive(b.ns) }"
+              @click="store.setBinWidth(b.ns)">{{ b.label }}</button>
       <label class="chk"><input type="checkbox" v-model="logScale" /> log scale</label>
       <span class="meta" v-if="h">
         bin {{ (h.binWidthNs / 1000).toFixed(2) }} µs ·
@@ -119,7 +138,15 @@ watch(h, render, { deep: true });
 
 <style scoped>
 .wrap { height: 100%; display: flex; flex-direction: column; }
-.toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; color: var(--text-secondary); font-size: 12px; }
-.chk { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-primary); }
+.toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--text-secondary); font-size: 12px; }
+.lbl { margin-right: 2px; }
+.toolbar button {
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.toolbar button.active { color: var(--accent); border-color: var(--accent); }
+.chk { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-primary); margin-left: 10px; }
+.meta { margin-left: 10px; }
 .chart { flex: 1; min-height: 320px; }
 </style>

@@ -42,6 +42,23 @@ type LatencyHistogram {
     underflow: u32        # samples below baseNs
     overflow: u32         # samples at/above the last bin's right edge
     samples: i64          # total binned samples
+    autoscale: bool       # true = bin width tracks the bulk automatically
+}
+
+# One downsampled time bucket of the server-side plot history.  The drainer
+# folds every sample into a fixed-width wall-clock bucket, so all clients see
+# the same series and late-connecting clients get the retained history.
+type LatencyHistPoint {
+    tMs: i64              # bucket time, ms since the instance started
+    minNs: i32           # min latency in the bucket
+    maxNs: i32           # max latency in the bucket
+    meanNs: f64          # mean latency in the bucket
+    count: i32           # samples in the bucket
+}
+
+type LatencyHistory {
+    bucketMs: i32              # bucket width (ms)
+    points: []LatencyHistPoint # oldest -> newest
 }
 
 # Live views are polled over REST at display rate by the UI (like the old
@@ -55,7 +72,22 @@ func get_status() -> LatencyStatus
 @path "/histogram"
 func get_histogram() -> LatencyHistogram
 
-# Reset all statistics and the histogram (RT scalars + drainer aggregate).
+# Server-side plot history.  `seconds` limits the returned window (0 = all
+# retained); the server keeps a bounded ring so the range is selectable and
+# consistent across clients.
+@method "GET"
+@path "/history"
+func get_history(seconds: i32) -> LatencyHistory
+
+# Pin the histogram bin width (ns), disabling autoscale; 0 restores autoscale
+# at the configured default.  The histogram is cleared either way, since past
+# counts cannot be re-binned to a finer width.
+@method "POST"
+@path "/configure"
+func configure(binWidthNs: i32 @min(0)) -> bool
+
+# Reset all statistics, the histogram, and the plot history (RT scalars +
+# drainer aggregate).
 @method "POST"
 @path "/reset"
 func reset() -> bool

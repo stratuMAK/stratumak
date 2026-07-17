@@ -36,6 +36,7 @@ typedef struct {
     int32_t   width;       // current bin width (ns), grows via coarsening
     int32_t   init_width;  // starting bin width, restored on reset
     int32_t   max_width;   // width cap: (nbins/2)*max_width stays < INT32_MAX
+    int       autoscale;   // 0 = bin width pinned by the client, no coarsening
     uint32_t  underflow;   // samples below the covered range
     uint32_t  overflow;    // samples above the covered range
     int64_t   sum;         // running sum of latencies (for mean)
@@ -51,6 +52,7 @@ static inline void hist_init(hist_t *h, uint32_t *bins, int nbins,
     h->init_width = init_width;
     h->width = init_width;
     h->max_width = INT32_MAX / (nbins / 2);
+    h->autoscale = 1;
     h->underflow = 0;
     h->overflow = 0;
     h->sum = 0;
@@ -102,7 +104,7 @@ static inline void hist_add(hist_t *h, int32_t lat) {
     // (over a bounded window) miss the current range.  Reset the out-of-range
     // counters on a widen so the trigger reflects the new range and converges;
     // rare outliers below the threshold stay counted in under/overflow.
-    if (h->width < h->max_width && h->n >= HIST_MIN_SAMPLES) {
+    if (h->autoscale && h->width < h->max_width && h->n >= HIST_MIN_SAMPLES) {
         uint64_t denom = h->n < HIST_WINDOW ? (uint64_t)h->n : (uint64_t)HIST_WINDOW;
         if ((uint64_t)(h->underflow + h->overflow) * 10u > denom) {
             hist_coarsen(h);

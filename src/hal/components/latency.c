@@ -5,11 +5,12 @@
 // monotonic clock every invocation, computes the scheduling latency
 // (actual interval - nominal period), maintains running min/max/worst-case
 // scalars on HAL pins, and pushes the raw per-cycle latency into a
-// lock-free ring.  A non-RT drainer thread empties the ring into a
-// server-side histogram + running statistics, which are exposed over a
-// generated GMI REST/WS API (get_status, get_histogram, reset).  Because the
-// aggregate lives in the cmod and accumulates continuously, it survives
-// client disconnects and is complete for late-connecting clients.
+// lock-free ring.  A non-RT drainer thread empties the ring into server-side
+// aggregates - a histogram, running statistics, and a downsampled time-series
+// ring for the plot - exposed over a generated GMI REST API (get_status,
+// get_histogram, get_history, reset).  Because the aggregates live in the cmod
+// and accumulate continuously, they survive client disconnects, are identical
+// for every client, and are complete for late-connecting clients.
 //
 // Threads are dynamic: load one instance per thread you want to watch.
 //
@@ -18,7 +19,7 @@
 //
 //   depth   ring capacity in samples (default 65536)
 //   bins    histogram bin count (default 256, rounded to a multiple of 4)
-//   binsize initial histogram bin width in ns (default 256; grows on demand)
+//   binsize initial histogram bin width in ns (default 1000; autoscales)
 //
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
@@ -36,6 +37,7 @@
 #include "latency_api.h"
 #include "latency_ring.h"
 #include "latency_hist.h"
+#include "latency_history.h"
 
 #define DEFAULT_DEPTH    65536
 #define MAX_DEPTH        (1u << 24)   // 16M samples (64 MiB) cap
@@ -43,6 +45,8 @@
 #define DEFAULT_BINSIZE  1000         // initial histogram bin width (ns) = 1 us
 #define DRAIN_BATCH      4096         // samples copied per drain iteration
 #define DRAIN_POLL_US    20000        // sleep when the ring is empty (20 ms)
+#define HISTORY_BUCKET_MS 100         // plot-history bucket width
+#define HISTORY_BUCKETS   6000        // retained buckets (100 ms x 6000 = 10 min)
 
 // ---------------------------------------------------------------------------
 // Per-instance state
@@ -83,8 +87,11 @@ typedef struct {
     latency_inst_t inst;
 
     // Non-RT server side (drainer thread + API callbacks).
-    hist_t          hist;           // aggregate, guarded by `lock`
+    hist_t          hist;           // histogram aggregate, guarded by `lock`
     uint32_t       *hist_bins;      // bin storage for `hist`
+    int32_t         default_binsize; // bin width restored when autoscale is re-enabled
+    history_t       history;        // plot time-series ring, guarded by `lock`
+    hbucket_t      *hist_ring;      // bucket storage for `history`
     pthread_mutex_t lock;           // serialises drainer writes vs API reads
     pthread_t       io_tid;         // drainer thread
     volatile int    io_stop;        // exit request for the drainer
@@ -104,6 +111,8 @@ static void latency_destroy(cmod_t *self);
 
 static latency_latency_status_t    gmi_latency_get_status(void *ctx);
 static latency_latency_histogram_t gmi_latency_get_histogram(void *ctx);
+static latency_latency_history_t   gmi_latency_get_history(void *ctx, int32_t seconds);
+static bool                        gmi_latency_configure(void *ctx, int32_t binWidthNs);
 static bool                        gmi_latency_reset(void *ctx);
 
 // Saturate a 64-bit nanosecond value into the int32 range used by the pins,
@@ -198,16 +207,24 @@ static void *drain_thread(void *arg) {
             inst->ring.dropped = 0;
             pthread_mutex_lock(&priv->lock);
             hist_reset(&priv->hist);
+            history_reset(&priv->history);
             pthread_mutex_unlock(&priv->lock);
         }
 
         uint32_t n = lat_ring_read(&inst->ring, batch, DRAIN_BATCH);
-        if (n > 0) {
-            pthread_mutex_lock(&priv->lock);
-            for (uint32_t i = 0; i < n; i++)
-                hist_add(&priv->hist, batch[i]);
-            pthread_mutex_unlock(&priv->lock);
+        // One timestamp for the whole batch: samples are drained within a
+        // drain interval (20 ms) of being produced, which is well inside the
+        // 100 ms history bucket.
+        int64_t now = inst->rtapi->get_time(inst->rtapi->ctx);
+
+        pthread_mutex_lock(&priv->lock);
+        for (uint32_t i = 0; i < n; i++) {
+            hist_add(&priv->hist, batch[i]);
+            history_add(&priv->history, batch[i], now);
         }
+        history_tick(&priv->history, now);   // also when idle, so buckets close
+        pthread_mutex_unlock(&priv->lock);
+
         if (n < DRAIN_BATCH)
             usleep(DRAIN_POLL_US);   // ring drained; back off
     }
@@ -269,6 +286,7 @@ static latency_latency_histogram_t gmi_latency_get_histogram(void *ctx) {
     h.underflow  = priv->hist.underflow;
     h.overflow   = priv->hist.overflow;
     h.samples    = priv->hist.n;
+    h.autoscale  = priv->hist.autoscale != 0;
     pthread_mutex_unlock(&priv->lock);
 
     uint32_t *bins = (uint32_t *)malloc((size_t)nb * sizeof(uint32_t));
@@ -279,6 +297,68 @@ static latency_latency_histogram_t gmi_latency_get_histogram(void *ctx) {
         h.binCount = nb;
     }
     return h;
+}
+
+// Returns the retained plot history, newest-last.  `seconds` > 0 limits the
+// window to that many seconds back from the newest bucket; 0 returns all that
+// is retained.  The point array is malloc'd here; the cgo bridge copies it
+// into a Go slice and frees it with C.free.
+static latency_latency_history_t gmi_latency_get_history(void *ctx, int32_t seconds) {
+    latency_priv_t *priv = (latency_priv_t *)ctx;
+    latency_latency_history_t out;
+    memset(&out, 0, sizeof(out));
+
+    pthread_mutex_lock(&priv->lock);
+    history_t *H = &priv->history;
+    out.bucketMs = H->bucket_ms;
+
+    int64_t cutoff = -1;
+    if (seconds > 0) {
+        int64_t newest = history_newest_ms(H);
+        if (newest >= 0) cutoff = newest - (int64_t)seconds * 1000;
+    }
+
+    if (H->count > 0) {
+        latency_latency_hist_point_t *pts =
+            (latency_latency_hist_point_t *)malloc((size_t)H->count * sizeof(*pts));
+        if (pts) {
+            size_t m = 0;
+            for (int i = 0; i < H->count; i++) {
+                const hbucket_t *b = &H->buf[(H->head + i) % H->capacity];
+                if (cutoff >= 0 && b->t_ms < cutoff) continue;
+                pts[m].tMs = b->t_ms;
+                pts[m].minNs = b->min;
+                pts[m].maxNs = b->max;
+                pts[m].meanNs = b->count ? b->sum / (double)b->count : 0.0;
+                pts[m].count = (int32_t)b->count;
+                m++;
+            }
+            out.points = pts;
+            out.points_len = m;
+        }
+    }
+    pthread_mutex_unlock(&priv->lock);
+    return out;
+}
+
+// Pin the histogram bin width, disabling autoscale; binWidthNs <= 0 restores
+// autoscale at the instance's configured default.  The histogram is cleared
+// either way: past counts cannot be re-binned to a different width.
+static bool gmi_latency_configure(void *ctx, int32_t binWidthNs) {
+    latency_priv_t *priv = (latency_priv_t *)ctx;
+
+    pthread_mutex_lock(&priv->lock);
+    if (binWidthNs > 0) {
+        if (binWidthNs > priv->hist.max_width) binWidthNs = priv->hist.max_width;
+        priv->hist.init_width = binWidthNs;
+        priv->hist.autoscale = 0;
+    } else {
+        priv->hist.init_width = priv->default_binsize;
+        priv->hist.autoscale = 1;
+    }
+    hist_reset(&priv->hist);   // restores width = init_width and clears counts
+    pthread_mutex_unlock(&priv->lock);
+    return true;
 }
 
 // Reset both the RT scalars and the server-side aggregate.  Bumping reset_gen
@@ -306,6 +386,7 @@ static void latency_destroy(cmod_t *self) {
         priv->env.hal->exit(priv->env.hal->ctx, priv->comp_id);
     pthread_mutex_destroy(&priv->lock);
     free(priv->hist_bins);
+    free(priv->hist_ring);
     rtapi->free(rtapi->ctx, priv->inst.ring.buf);
     rtapi->free(rtapi->ctx, priv);
 }
@@ -387,6 +468,19 @@ int New(const cmod_env_t *env, const char *name,
         return -ENOMEM;
     }
     hist_init(&priv->hist, priv->hist_bins, nbins, binsize);
+    priv->default_binsize = binsize;   // restored when autoscale is re-enabled
+
+    // Plot history ring (also drainer/API-only).
+    priv->hist_ring = calloc(HISTORY_BUCKETS, sizeof(hbucket_t));
+    if (!priv->hist_ring) {
+        free(priv->hist_bins);
+        env->rtapi->free(env->rtapi->ctx, ringbuf);
+        env->rtapi->free(env->rtapi->ctx, priv);
+        return -ENOMEM;
+    }
+    history_init(&priv->history, priv->hist_ring, HISTORY_BUCKETS,
+                 HISTORY_BUCKET_MS, env->rtapi->get_time(env->rtapi->ctx));
+
     pthread_mutex_init(&priv->lock, NULL);
 
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
@@ -462,6 +556,7 @@ fail:
         env->hal->exit(env->hal->ctx, priv->comp_id);
     pthread_mutex_destroy(&priv->lock);
     free(priv->hist_bins);
+    free(priv->hist_ring);
     env->rtapi->free(env->rtapi->ctx, ringbuf);
     env->rtapi->free(env->rtapi->ctx, priv);
     return retval;

@@ -3,28 +3,28 @@ import {
   LatencyClient,
   type LatencyStatus,
   type LatencyHistogram,
+  type LatencyHistory,
 } from '../generated/latency_client';
 
-// Rolling window for the live plot: ~60 s at the 200 ms status poll.
-const PLOT_POINTS = 300;
 const STATUS_MS = 200;
 const HISTOGRAM_MS = 500;
+const HISTORY_MS = 500;
 
-// One point of live plot history (all times in seconds since page load,
-// all latencies in nanoseconds).
-export interface PlotPoint {
-  t: number;
-  lastNs: number;
-  maxJitterNs: number;
-}
+// Selectable plot window (seconds; 0 = everything the server retains).
+export const RANGES: { label: string; seconds: number }[] = [
+  { label: '30s', seconds: 30 },
+  { label: '1m', seconds: 60 },
+  { label: '5m', seconds: 300 },
+  { label: 'all', seconds: 0 },
+];
 
 interface State {
   instances: string[];
   selected: string;
   status: LatencyStatus | null;
   histogram: LatencyHistogram | null;
-  plot: PlotPoint[];
-  tick: number; // bumped on every status poll (drives the plot redraw)
+  history: LatencyHistory | null;
+  rangeSec: number;
   error: string;
   connected: boolean;
 }
@@ -34,16 +34,14 @@ const state = reactive<State>({
   selected: '',
   status: null,
   histogram: null,
-  plot: [],
-  tick: 0,
+  history: null,
+  rangeSec: 60,
   error: '',
   connected: false,
 });
 
 let client: LatencyClient | null = null;
-let statusTimer: ReturnType<typeof setInterval> | null = null;
-let histTimer: ReturnType<typeof setInterval> | null = null;
-const t0 = performance.now();
+let timers: ReturnType<typeof setInterval>[] = [];
 
 function queryInstance(): string {
   return new URLSearchParams(window.location.search).get('instance') || '';
@@ -75,9 +73,6 @@ async function pollStatus() {
     state.status = st;
     state.connected = true;
     state.error = '';
-    state.plot.push({ t: (performance.now() - t0) / 1000, lastNs: st.lastNs, maxJitterNs: st.maxJitterNs });
-    if (state.plot.length > PLOT_POINTS) state.plot.splice(0, state.plot.length - PLOT_POINTS);
-    state.tick++;
   } catch (e) {
     if (client !== c || state.selected !== inst) return;
     state.connected = false;
@@ -91,7 +86,7 @@ async function pollHistogram() {
   if (!c) return;
   try {
     const hist = await c.getHistogram();
-    if (client !== c || state.selected !== inst) return; // instance switched mid-flight
+    if (client !== c || state.selected !== inst) return;
     state.histogram = hist;
   } catch (e) {
     if (client !== c || state.selected !== inst) return;
@@ -99,9 +94,30 @@ async function pollHistogram() {
   }
 }
 
+// The plot series lives on the server (the drainer buckets every sample), so
+// every client renders the same data and a late connect gets the retained
+// history.  We just fetch the selected window.
+async function pollHistory() {
+  const c = client;
+  const inst = state.selected;
+  if (!c) return;
+  try {
+    const h = await c.getHistory(state.rangeSec);
+    if (client !== c || state.selected !== inst) return;
+    state.history = h;
+  } catch (e) {
+    if (client !== c || state.selected !== inst) return;
+    state.error = String(e);
+  }
+}
+
 function clearTimers() {
-  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-  if (histTimer) { clearInterval(histTimer); histTimer = null; }
+  timers.forEach(clearInterval);
+  timers = [];
+}
+
+function pollAll() {
+  return Promise.all([pollStatus(), pollHistogram(), pollHistory()]);
 }
 
 async function start() {
@@ -113,33 +129,52 @@ async function start() {
     return;
   }
   makeClient(state.selected);
-  state.plot = [];
-  await Promise.all([pollStatus(), pollHistogram()]);
+  await pollAll();
   clearTimers();
-  statusTimer = setInterval(pollStatus, STATUS_MS);
-  histTimer = setInterval(pollHistogram, HISTOGRAM_MS);
+  timers = [
+    setInterval(pollStatus, STATUS_MS),
+    setInterval(pollHistogram, HISTOGRAM_MS),
+    setInterval(pollHistory, HISTORY_MS),
+  ];
 }
 
 function selectInstance(inst: string) {
   if (inst === state.selected) return;
   state.selected = inst;
-  state.plot = [];
   state.status = null;
   state.histogram = null;
+  state.history = null;
   makeClient(inst);
-  Promise.all([pollStatus(), pollHistogram()]);
+  pollAll();
 }
 
-async function reset() {
+function setRange(seconds: number) {
+  state.rangeSec = seconds;
+  pollHistory();
+}
+
+// Pin the histogram bin width server-side (0 = autoscale).  The server clears
+// the histogram, since past counts cannot be re-binned to a different width.
+async function setBinWidth(ns: number) {
   if (!client) return;
   try {
-    await client.reset();
-    state.plot = [];
-    await Promise.all([pollStatus(), pollHistogram()]);
+    await client.configure(ns);
+    await pollHistogram();
     state.error = '';
   } catch (e) {
     state.error = String(e);
   }
 }
 
-export const latencyStore = { state, start, selectInstance, reset };
+async function reset() {
+  if (!client) return;
+  try {
+    await client.reset();
+    await pollAll();
+    state.error = '';
+  } catch (e) {
+    state.error = String(e);
+  }
+}
+
+export const latencyStore = { state, start, selectInstance, setRange, setBinWidth, reset };
