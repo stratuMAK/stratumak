@@ -26,18 +26,28 @@ function themeColors() {
   };
 }
 
-// Server-side buckets -> [secondsAgo, maxUs, meanUs].  x is relative to the
-// newest bucket so the window reads as "seconds ago" and is identical for
-// every client viewing the same data.
+// Server-side buckets -> [elapsedSeconds, maxUs, meanUs].  x is the server's
+// own timeline (seconds since the instance started), so it is absolute,
+// monotonic, and identical for every client viewing the same data.
 function buildData(): uPlot.AlignedData {
   const h = hist.value;
   if (!h || h.points.length === 0) return [[], [], []];
-  const newest = h.points[h.points.length - 1].tMs;
   return [
-    h.points.map((p) => (p.tMs - newest) / 1000),
+    h.points.map((p) => p.tMs / 1000),
     h.points.map((p) => p.maxNs / 1000),
     h.points.map((p) => p.meanNs / 1000),
   ];
+}
+
+// Format elapsed seconds as m:ss.  The raw number renders with a locale
+// thousands separator ("1.109" for 1109 s), which reads like a decimal.  Fall
+// back to decimals if uPlot picks sub-second ticks, so labels stay distinct.
+function fmtElapsed(v: number, incr: number): string {
+  if (incr < 1) return v.toFixed(1);
+  const s = Math.round(v);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${r}s`;
 }
 
 function buildOpts(w: number, hgt: number): uPlot.Options {
@@ -48,11 +58,18 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
     height: hgt,
     scales: { x: { time: false } },
     axes: [
-      { ...axis, values: (_u, vals) => vals.map((v) => v.toFixed(0) + 's') },
+      // uPlot picks the tick values; fmtElapsed renders them (and adapts to the
+      // chosen increment, so short windows don't collapse into duplicates).
+      {
+        ...axis,
+        label: 'elapsed (m:ss)',
+        labelSize: 26,
+        values: (_u, vals, _ai, _fs, incr) => vals.map((v) => fmtElapsed(v, incr ?? 1)),
+      },
       { ...axis, label: 'latency (µs)', labelSize: 30 },
     ],
     series: [
-      { label: 'ago' },
+      { label: 'elapsed' },
       { label: 'max', stroke: c.s2, width: 2 },
       { label: 'mean', stroke: c.s1, width: 2 },
     ],
@@ -70,6 +87,14 @@ function createPlot() {
 
 function render() {
   if (!props.active) return;
+  // A single point has no x extent, so uPlot auto-ranges it to an absurd span.
+  // Show the placeholder until there is a real series (e.g. just after a
+  // reset, when the server history is refilling).
+  if ((hist.value?.points.length ?? 0) < 2) {
+    plot?.destroy();
+    plot = null;
+    return;
+  }
   if (!plot) { createPlot(); return; }
   plot.setData(buildData());
 }
@@ -107,7 +132,14 @@ watch(hist, render);
         {{ hist.bucketMs }} ms buckets · {{ hist.points.length }} points · server-side history
       </span>
     </div>
-    <div ref="el" class="chart"></div>
+    <div class="plotarea">
+      <div ref="el" class="chart"></div>
+      <!-- After a reset the server history is empty until the first buckets
+           close; say so rather than showing a blank (or degenerate) chart. -->
+      <div v-if="(hist?.points.length ?? 0) < 2" class="empty">
+        waiting for data…
+      </div>
+    </div>
   </div>
 </template>
 
@@ -122,5 +154,11 @@ watch(hist, render);
 }
 .toolbar button.active { color: var(--accent); border-color: var(--accent); }
 .meta { margin-left: 10px; }
-.chart { flex: 1; min-height: 320px; }
+.plotarea { position: relative; flex: 1; min-height: 320px; display: flex; }
+.chart { flex: 1; }
+.empty {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  color: var(--text-secondary); font-size: 13px; pointer-events: none;
+}
 </style>
