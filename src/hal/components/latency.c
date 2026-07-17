@@ -25,8 +25,11 @@
 //
 //   loadrt latency <lat.base>  binsize=200
 //   loadrt latency <lat.servo> binsize=1000
-//   addf   lat.base  base
-//   addf   lat.servo servo
+//   addf   lat.base  base-thread
+//   addf   lat.servo servo-thread
+//
+// Note an instance cannot be named after the thread it watches: HAL gives both
+// a `.time` pin, so the names would collide ("duplicate variable").
 //
 // (A single load may also name several instances at once: <a,b,c> - they then
 // share the same arguments.)
