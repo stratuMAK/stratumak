@@ -6,6 +6,7 @@
 
 import linuxcnc
 import gmi
+import gomc_test
 import gmi.constants as _gk
 for _n in dir(_gk):
     if not _n.startswith('_'):
@@ -50,7 +51,9 @@ h = HalShim()
 def wait_for_joint_to_stop(joint_number):
     pos_pin = 'joint-%d-position' % joint_number
     start_time = time.time()
-    timeout = 2.0
+    # A 2 s ceiling was a bet on an idle machine; the loop returns as soon as two
+    # consecutive samples match, so a generous deadline only bounds the failure.
+    timeout = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
     prev_pos = h[pos_pin]
     while (time.time() - start_time) < timeout:
         time.sleep(0.1)
@@ -117,14 +120,20 @@ def jog_joint(joint_number, counts=1, scale=0.001):
 # connect to LinuxCNC
 #
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
 c.state(linuxcnc.STATE_ESTOP_RESET)
 c.state(linuxcnc.STATE_ON)
 c.mode(linuxcnc.MODE_MANUAL)
-time.sleep(0.5)
+# Jogging is only accepted in manual mode: wait for the mode switch to actually
+# land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
+# were silently refused and the test failed as "joint didn't get to target".
+gomc_test.wait_stat(s, lambda st: st.task_mode == linuxcnc.MODE_MANUAL,
+                    "task_mode to become MODE_MANUAL",
+                    detail=lambda st: "task_mode=%d task_state=%d"
+                                      % (st.task_mode, st.task_state))
 
 
 #

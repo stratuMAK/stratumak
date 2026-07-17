@@ -5,12 +5,18 @@
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
 import gmi as _gmi
+import gomc_test as _gomc_test
 from gmi.constants import *
 import subprocess as _subprocess
 
 
 class _LinuxcncCompat:
-    command = staticmethod(_gmi.Command)
+    # gomc_test.Command, not _gmi.Command: gmi's wait_complete() reports a
+    # timed-out wait as -1 in a normal 200 body, so the bare c.wait_complete()
+    # calls below would silently proceed against an unsettled machine, and the
+    # resulting mismatch would surface as a bogus TLO value somewhere later.
+    # The strict subclass raises at the point the sync was actually lost.
+    command = staticmethod(_gomc_test.Command)
     stat = staticmethod(_gmi.Stat)
     error_channel = staticmethod(_gmi.ErrorChannel)
     ini = staticmethod(_gmi.IniFile)
@@ -78,15 +84,18 @@ import os
 import math
 
 
-# this is how long we wait for linuxcnc to do our bidding
-timeout = 1.0
+# this is how long we wait for linuxcnc to do our bidding.  Sized for a loaded
+# CI runner, not an idle workstation: the wait below polls and returns as soon
+# as the pin lands, so a generous ceiling costs nothing on the happy path -- it
+# only bounds how long a genuine failure takes to report.
+timeout = 10.0
 
 
 def introspect():
     os.system("halcmd show pin python-ui")
 
 
-def wait_for_pin_value(pin_name, value, timeout=1):
+def wait_for_pin_value(pin_name, value, timeout=timeout):
     print("waiting for %s to go to %f (timeout=%f)" % (pin_name, value, timeout))
 
     start = time.time()
@@ -118,8 +127,10 @@ def get_interp_param(param_number):
     for attempt in range(3):
         time.sleep(0.3)
         c.mdi("(debug, #%d)" % param_number)
-        while c.wait_complete() == -1:
-            pass
+        # Spinning on a -1 return used to be the only way to tell a timed-out
+        # wait from a completed one. gomc_test.Command raises instead, so what
+        # this loop expressed is now the exception path.
+        c.wait_complete()
 
         # wait up to 2 seconds for a reply
         start = time.time()
@@ -135,8 +146,12 @@ def get_interp_param(param_number):
 
             print(text)
 
-    print("error getting parameter %d" % param_number)
-    return None
+    # Every retry lost its reply.  Fail here, naming the param: returning None
+    # only defers the failure to the caller's math.fabs(None - expected), which
+    # raises a TypeError that says nothing about which parameter went missing.
+    print("ERROR: no OPERATOR_DISPLAY reply for interp param #%d after 3 attempts"
+          % param_number)
+    sys.exit(1)
 
 
 def verify_interp_param(param_number, expected_value):

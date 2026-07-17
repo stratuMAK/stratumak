@@ -7,6 +7,7 @@ for _n in dir(_gk):
     if not _n.startswith('_'):
         setattr(linuxcnc, _n, getattr(_gk, _n))
 import linuxcnc_util
+import gomc_test
 
 import math
 import time
@@ -172,7 +173,9 @@ def assert_axis_initialized(axis):
     assert(axis['max_position_limit'] == 40.0)
 
 
-c = gmi.Command()
+# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# wait instead of returning -1 in a 200 body, so it cannot fail silently.
+c = gomc_test.Command()
 # This test mirrors classic linuxcnc.stat(), which reports linear values in the
 # machine's configured units (inch here). gomc is mm-everywhere, so read through
 # the machine-units view, which converts the internal mm to the config units.

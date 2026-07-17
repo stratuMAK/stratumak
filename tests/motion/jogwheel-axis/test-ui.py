@@ -7,6 +7,7 @@
 
 import linuxcnc
 import gmi
+import gomc_test
 import gmi.constants as _gk
 for _n in dir(_gk):
     if not _n.startswith('_'):
@@ -108,7 +109,7 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
 # connect to LinuxCNC
 #
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -126,7 +127,13 @@ c.wait_complete()
 l.wait_for_home([1, 1, 1, 0, 0, 0, 0, 0, 0])
 
 c.mode(linuxcnc.MODE_MANUAL)
-time.sleep(0.5)
+# Jogging is only accepted in manual mode: wait for the mode switch to actually
+# land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
+# were silently refused and the test failed as "axis didn't get to target".
+gomc_test.wait_stat(s, lambda st: st.task_mode == linuxcnc.MODE_MANUAL,
+                    "task_mode to become MODE_MANUAL",
+                    detail=lambda st: "task_mode=%d task_state=%d"
+                                      % (st.task_mode, st.task_state))
 
 
 #

@@ -7,6 +7,7 @@
 # maps the old logical pin names to the real HAL pins/signals.
 
 import gmi
+import gomc_test
 from gmi.constants import *
 
 import subprocess
@@ -136,12 +137,19 @@ def jog_plus(name, target):
     return True
 
 
-def wait_for_pin_value(pin_name, target_value, timeout=2.0):
+def wait_for_pin_value(pin_name, target_value, timeout=None):
+    # h[] is a shim over halcmd/status rather than a plain HAL pin, so this keeps
+    # its own loop (and its diagnostics) rather than routing through
+    # gomc_test.wait_pin. The deadline was 2 s — a bet on an idle machine; it now
+    # defaults to the suite's, which costs nothing on the happy path because the
+    # loop exits as soon as the pin reads the target value.
+    if timeout is None:
+        timeout = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
     start_time = time.time()
     while h[pin_name] != target_value:
         if (time.time() - start_time) > timeout:
             log("Error: pin %s didn't reach target value %s!" % (pin_name, target_value))
-            log("pin value is %s at timeout after %.3f seconds" % (h[pin_value], timeout))
+            log("pin value is %s at timeout after %.3f seconds" % (h[pin_name], timeout))
             sys.exit(1)
         time.sleep(0.1)
 
@@ -199,7 +207,7 @@ def jog_joint(joint_number, target):
 
 
 # ---- task command/status via gmi ----
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
@@ -223,7 +231,7 @@ c.mode(MODE_MANUAL)
 c.wait_complete()
 
 h['motion-mode-joint'] = 1
-wait_for_pin_value('motion-mode-is-joint', 1, 2.0)
+wait_for_pin_value('motion-mode-is-joint', 1)
 h['motion-mode-joint'] = 0
 
 

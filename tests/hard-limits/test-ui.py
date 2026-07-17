@@ -2,6 +2,7 @@
 
 import linuxcnc
 import gmi
+import gomc_test
 import gmi.constants as _gk
 for _n in dir(_gk):
     if not _n.startswith('_'):
@@ -14,6 +15,13 @@ import os
 import signal
 import glob
 import re
+
+# Deadline for the poll loops below. These loops predate gomc_test and keep
+# their own bodies (custom diagnostics + sys.exit), but a 5 s ceiling is a bet
+# on an idle machine: waiting longer costs nothing on the happy path, since
+# every loop exits as soon as its condition holds. Honours
+# GOMC_TEST_TIMEOUT_SCALE like the rest of the suite.
+TIMEOUT = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
 
 
 def print_status(status):
@@ -61,7 +69,7 @@ def _set_lim(v):
 # connect to LinuxCNC
 #
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -82,7 +90,7 @@ c.wait_complete()
 start_time = time.time()
 s.poll()
 all_homed = s.homed[0]+s.homed[1]+s.homed[2]
-while (all_homed != 3) and (time.time() - start_time < 5):
+while (all_homed != 3) and (time.time() - start_time < TIMEOUT):
     time.sleep(0.100)
     s.poll()
     all_homed = s.homed[0]+s.homed[1]+s.homed[2]
@@ -106,7 +114,7 @@ c.jog(linuxcnc.JOG_CONTINUOUS, 1, 0, -0.1)
 s.poll()
 old_x = s.position[0]
 start_time = time.time()
-while (old_x == s.position[0]) and (time.time() - start_time < 5):
+while (old_x == s.position[0]) and (time.time() - start_time < TIMEOUT):
     time.sleep(0.1)
     s.poll()
 
@@ -135,7 +143,7 @@ _set_lim(True)
 # let linuxcnc react to the limit switch
 expected_error = 'joint 0 on limit switch error'
 start_time = time.time()
-while (time.time() - start_time < 5):
+while (time.time() - start_time < TIMEOUT):
     error = e.poll()
     if error != None:
         if error[1] == expected_error:
@@ -154,7 +162,7 @@ print_status(s)
 # verify that we're stopping
 s.poll()
 start_time = time.time()
-while (s.joint[0]['velocity'] != 0.0) and (time.time() - start_time < 5):
+while (s.joint[0]['velocity'] != 0.0) and (time.time() - start_time < TIMEOUT):
     time.sleep(0.1)
     s.poll()
 
@@ -179,8 +187,18 @@ assert(s.enabled == False)
 
 # turn the machine back on with Override Limits enabled
 c.override_limits()
-time.sleep(1)
-s.poll()
+# Wait for the real precondition of the STATE_ON below: motion has accepted the
+# override (the override mask is set), not "a second has elapsed". Until this
+# holds, turning the machine on would be refused by the still-tripped limit and
+# the enabled/min_hard_limit asserts below would report a confusing mismatch
+# rather than "the override never took".
+gomc_test.wait_stat(
+    s, lambda st: st.joint[0]['override_limits'],
+    "joint 0 hard limits to be overridden",
+    detail=lambda st: "override_limits=%s min_hard_limit=%s enabled=%s"
+                      % (st.joint[0]['override_limits'],
+                         st.joint[0]['min_hard_limit'],
+                         st.joint[0]['enabled']))
 print_status(s)
 # command.serial intentionally omitted: the classic NML command-serial
 # handshake has no gomc equivalent (synchronous wait_complete instead).
@@ -212,7 +230,7 @@ c.jog(linuxcnc.JOG_CONTINUOUS, 1, 0, 1)
 s.poll()
 old_x = s.position[0]
 start_time = time.time()
-while (old_x == s.position[0]) and (time.time() - start_time < 5):
+while (old_x == s.position[0]) and (time.time() - start_time < TIMEOUT):
     time.sleep(0.1)
     s.poll()
 
@@ -228,7 +246,7 @@ _set_lim(False)
 
 # let linuxcnc react to the limit switch untripping
 start_time = time.time()
-while (time.time() - start_time < 5):
+while (time.time() - start_time < TIMEOUT):
     s.poll()
     if (s.joint[0]['min_hard_limit'] == False) and (s.limit[0] == 0):
         break
@@ -253,7 +271,7 @@ c.jog(linuxcnc.JOG_STOP, 1, 0)
 s.poll()
 old_x = s.position[0]
 start_time = time.time()
-while (old_x != s.position[0]) and (time.time() - start_time < 5):
+while (old_x != s.position[0]) and (time.time() - start_time < TIMEOUT):
     time.sleep(0.1)
     s.poll()
 

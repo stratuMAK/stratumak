@@ -6,6 +6,7 @@
 
 import gmi
 from gmi.constants import *
+import gomc_test
 import subprocess, time, sys, os, math
 
 program_start = time.time()
@@ -60,7 +61,9 @@ def wait_for_halui_mode(pin_name):
         time.sleep(0.1)
     print("timeout waiting for halui mode {}".format(pin_name)); sys.exit(1)
 
-c = gmi.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
+# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# wait instead of returning -1 in a 200 body, so it cannot fail silently.
+c = gomc_test.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
 c.state(STATE_ESTOP_RESET); c.state(STATE_ON); c.wait_complete()
 
 log("setting mode to Manual"); c.mode(MODE_MANUAL); wait_for_halui_mode('is-manual')

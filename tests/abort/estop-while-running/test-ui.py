@@ -7,6 +7,7 @@
 #   2. After estop-reset (which runs 2.9's abort sequence: IoAbort(5) +
 #      interp on_abort + synch) and machine-on, an MDI must run cleanly.
 import gmi
+import gomc_test
 from gmi.constants import *
 import sys
 import time
@@ -38,7 +39,7 @@ def wait_for(s, cond, what, timeout=15.0):
                                                   s.actual_position[0]))
 
 
-c = gmi.Command()
+c = gomc_test.Command()
 s = gmi.Stat()
 wait_for_startup(s)
 
@@ -77,13 +78,19 @@ assert x2 < 127.0 - 1.0, "x=%.3f mm: G1 X5 ran to completion despite estop" % x2
 print("estop stopped the machine: spindle off, motion halted at x=%.3f mm" % x2)
 
 # Recovery: estop-reset (runs the 2.9 abort sequence incl. interp on_abort),
-# then machine on. Give the iocontrol estop-input publication (100 ms
-# CYCLE_TIME) time to settle before ON, or the monitor can see a stale
-# asserted sample and tear the machine down again.
+# then machine on. The monitor's safety loop (checkEstop) independently samples
+# the estop input and tears the machine back down if it reads it asserted, so ON
+# must not be commanded until that input has genuinely cleared. The estop input
+# is iocontrol.emc-enable-in, carried by core_sim.hal's `estop-loop` signal
+# (net estop-loop iocontrol.user-enable-out iocontrol.emc-enable-in), and
+# iocontrol reports estop by reading that pin live. So wait on the signal itself
+# instead of sleeping 0.5 s: it is the very input the monitor samples, and a
+# timeout here names a stuck estop rather than surfacing later as an
+# unexplained teardown.
 c.state(STATE_ESTOP_RESET)
 wait_for(s, lambda s: s.task_state == STATE_ESTOP_RESET, "estop-reset confirmed",
          timeout=5.0)
-time.sleep(0.5)
+gomc_test.wait_pin("estop-loop", True)
 c.state(STATE_ON)
 wait_for(s, lambda s: s.task_state == STATE_ON and s.exec_state == EXEC_DONE,
          "machine on after estop-reset", timeout=5.0)
