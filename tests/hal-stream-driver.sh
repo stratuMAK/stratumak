@@ -20,6 +20,9 @@
 # gomc's sampler stream delivers live samples from connect time (it is not a
 # replay of the sampler component's FIFO history).
 
+# Deadlines below honour GOMC_TEST_TIMEOUT_SCALE via gomc_scale.
+. "$(dirname "${BASH_SOURCE[0]}")/gomc-scale.sh"
+
 _HAL_SRVPID=""
 _HAL_SAMPLER_PID=""
 
@@ -44,15 +47,17 @@ hal_cleanup() {
 hal_start_server() {
     gomc-server -r -f "$1" --serve &
     _HAL_SRVPID=$!
-    trap hal_cleanup EXIT
+    gomc_add_exit_trap hal_cleanup
     # Deadline, not an iteration count: each pass also forks halcmd, so 100
     # iterations of `sleep 0.1` is well over 10s of real time on a loaded runner.
-    local waitend=$((SECONDS + 30))
+    local budget waitend
+    budget=$(gomc_scale 30)
+    waitend=$((SECONDS + budget))
     while [ $SECONDS -lt $waitend ]; do
         halcmd show comp >/dev/null 2>&1 && return 0
         sleep 0.1
     done
-    echo "hal-stream-driver: server did not become ready within 30s" >&2
+    echo "hal-stream-driver: server did not become ready within ${budget}s" >&2
     exit 1
 }
 
@@ -105,14 +110,15 @@ hal_run() {
         # normally within a fraction of a second.  If the WS subscription was
         # missed (or the stream stalls) it would otherwise block forever and
         # hang the whole suite, so cap it and fail loudly instead.
-        local i
-        for i in $(seq "${_HAL_SAMPLE_TIMEOUT:-100}"); do   # 100 * 0.1s = 10s
+        local i ticks
+        ticks=$(gomc_scale "${_HAL_SAMPLE_TIMEOUT:-100}")   # 100 * 0.1s = 10s (× scale)
+        for i in $(seq "$ticks"); do
             kill -0 "$_HAL_SAMPLER_PID" 2>/dev/null || break
             sleep 0.1
         done
         if kill -0 "$_HAL_SAMPLER_PID" 2>/dev/null; then
             echo "hal-stream-driver: halsampler did not finish within" \
-                 "$(( ${_HAL_SAMPLE_TIMEOUT:-100} / 10 ))s (missed subscription?)" >&2
+                 "$(( ticks / 10 ))s (missed subscription?)" >&2
             kill "$_HAL_SAMPLER_PID" 2>/dev/null
         fi
         wait "$_HAL_SAMPLER_PID" 2>/dev/null

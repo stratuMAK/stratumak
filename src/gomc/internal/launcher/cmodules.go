@@ -384,6 +384,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 	cCtx := C.uintptr_t(hCtx)
 	env := C.gomc_env_create(l.logRing.ring, cCtx, cCtx, handle)
 	if env == nil {
+		hCtx.Delete()
 		C.dlclose(handle)
 		return fmt.Errorf("load C plugin %q: failed to allocate cmod_env_t", path)
 	}
@@ -408,6 +409,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 	var mod *C.cmod_t
 	rc := C.cmod_call_new(factory, env, cName, argc, argv, &mod)
 	if rc != 0 {
+		hCtx.Delete()
 		C.gomc_env_destroy(env)
 		C.dlclose(handle)
 		return fmt.Errorf("load C plugin %q: factory returned error code %d", path, int(rc))

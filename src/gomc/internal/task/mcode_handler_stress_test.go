@@ -16,9 +16,11 @@ var errStressAbort = errors.New("aborted")
 // execOnce models McodeCmd.Execute: Submit, then poll for completion until it
 // reports done or the abort channel fires. Returns errStressAbort when the wait
 // was cut short by an abort (the real Execute returns context.Canceled) -- the
-// one path that leaves Execute WITHOUT having collected its job's result.
-func execOnce(h *mcodeHandler, mcode int, abort <-chan struct{}) (int, error) {
-	sub, err := h.Submit(mcode, 0, 0, abort)
+// one path that leaves Execute WITHOUT having collected its job's result. The
+// token is carried through as the job's Q so the handler can echo it back,
+// letting the caller prove the result it collected belongs to THIS job.
+func execOnce(h *mcodeHandler, mcode int, token float64, abort <-chan struct{}) (int, error) {
+	sub, err := h.Submit(mcode, 0, token, abort)
 	if errors.Is(err, context.Canceled) {
 		return 0, errStressAbort // abort landed before the worker took the job
 	}
@@ -97,13 +99,24 @@ func TestMcodeHandlerNoResultCrosstalk(t *testing.T) {
 		mu.Lock()
 		ran++
 		mu.Unlock()
-		return 0
+		// Echo this job's unique token straight back as the result code. If a
+		// completion is ever delivered to the wrong waiter, the token it reads
+		// back will not match the one it submitted -- caught directly, instead
+		// of hidden by the aggregate ran>=completed tally (a mis-credited
+		// completion still eventually runs SOME handler, so that tally
+		// re-balances and never fires; only per-job identity exposes routing).
+		return int(call.Q)
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	const iterations = 2000
-	completed, aborted, busy := 0, 0, 0
+	completed, aborted, busy, misrouted := 0, 0, 0, 0
+
+	type outcome struct {
+		result int
+		err    error
+	}
 
 	for i := 0; i < iterations; i++ {
 		abort := make(chan struct{})
@@ -115,18 +128,28 @@ func TestMcodeHandlerNoResultCrosstalk(t *testing.T) {
 			}()
 		}
 
-		done := make(chan error, 1)
+		// Unique, non-zero token for this job (0 is the abort/zero sentinel).
+		token := i + 1
+
+		done := make(chan outcome, 1)
 		go func() {
-			_, err := execOnce(h, 100, abort)
-			done <- err
+			r, err := execOnce(h, 100, float64(token), abort)
+			done <- outcome{r, err}
 		}()
 
 		select {
-		case err := <-done:
+		case res := <-done:
 			switch {
-			case err == nil:
+			case res.err == nil:
 				completed++
-			case errors.Is(err, errStressAbort):
+				// The collected result MUST be this job's own token.
+				if res.result != token {
+					misrouted++
+					t.Errorf("result crosstalk at iteration %d: collected result "+
+						"%d but this job's token was %d -- a completion was "+
+						"delivered to the wrong job", i, res.result, token)
+				}
+			case errors.Is(res.err, errStressAbort):
 				aborted++
 				// The sequencer aborted this job; tell the worker to stop, as
 				// the real abort path does via Task.mcodeAbort.
@@ -145,8 +168,12 @@ func TestMcodeHandlerNoResultCrosstalk(t *testing.T) {
 	actuallyRan := ran
 	mu.Unlock()
 
-	t.Logf("iterations=%d completed=%d aborted=%d worker-busy=%d handlers-ran=%d",
-		iterations, completed, aborted, busy, actuallyRan)
+	t.Logf("iterations=%d completed=%d aborted=%d worker-busy=%d handlers-ran=%d misrouted=%d",
+		iterations, completed, aborted, busy, actuallyRan, misrouted)
+
+	// Primary invariant: every success is delivered to the job that produced it
+	// (checked per-iteration above via the token). The two tallies below are
+	// secondary guards on the same handshake.
 
 	// Every success must be backed by a real handler invocation. Aborted jobs
 	// may or may not have run, so handlers-ran can legitimately EXCEED

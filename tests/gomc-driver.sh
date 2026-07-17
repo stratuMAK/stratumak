@@ -29,6 +29,10 @@
 #
 # Every deadline honours GOMC_TEST_TIMEOUT_SCALE (see lib/python/gomc_test.py).
 
+# gomc_add_exit_trap composes rather than clobbers the EXIT trap, so a test that
+# starts the server here and also sources a second driver keeps both cleanups.
+. "$(dirname "${BASH_SOURCE[0]}")/gomc-scale.sh"
+
 gomc_fail() {
     echo "*** gomc-driver: $*" >&2
     exit 1
@@ -66,8 +70,9 @@ gomc_start_server() {
     fi
     GOMC_SRV=$!
     export GOMC_SRV
-    # shellcheck disable=SC2064  # expand GOMC_SRV now: it is what we must kill
-    trap "kill $GOMC_SRV 2>/dev/null; wait 2>/dev/null" EXIT
+    # Expand GOMC_SRV now (it is what we must kill); compose with any existing
+    # EXIT trap rather than clobbering it.
+    gomc_add_exit_trap "kill $GOMC_SRV 2>/dev/null; wait 2>/dev/null"
 }
 
 # gomc_wait_ready [timeout_seconds]

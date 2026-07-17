@@ -239,6 +239,54 @@ func TestGenerateDispatchCVoidReturn(t *testing.T) {
 	assertContains(t, out, "return nil, nil")
 }
 
+// TestGenerateDispatchCArrayElemFree guards the free path for a fixed array of
+// structs whose element type owns a string. The array is inline (no buffer of
+// its own), but each element's string must still be freed under "caller owns
+// returned data" — a case emitFreeCAllocs/typeHasCAllocs originally skipped.
+func TestGenerateDispatchCArrayElemFree(t *testing.T) {
+	api := &ast.API{
+		Name:    "arrapi",
+		Version: 1,
+		Prefix:  "arrapi",
+		Types: []ast.Type{
+			{
+				Name: "Item",
+				Fields: []ast.Field{
+					{Name: "name", Type: ast.TypeRef{Kind: ast.TypePrimitive, Name: "string"}},
+				},
+			},
+			{
+				Name: "Bundle",
+				Fields: []ast.Field{
+					{Name: "items", Type: ast.TypeRef{
+						Kind:     ast.TypeArray,
+						Elem:     &ast.TypeRef{Kind: ast.TypeNamed, Name: "Item"},
+						ArrayLen: 3,
+					}},
+				},
+			},
+		},
+		Funcs: []ast.Func{
+			{
+				Name:   "get_bundle",
+				Method: "GET",
+				Path:   "/bundle",
+				Return: &ast.TypeRef{Kind: ast.TypeNamed, Name: "Bundle"},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := GenerateDispatchC(&buf, api, "arrpkg", "arrapi_api.h"); err != nil {
+		t.Fatalf("GenerateDispatchC: %v", err)
+	}
+	out := buf.String()
+
+	// The bundle's array elements must be walked and their strings freed.
+	assertContains(t, out, "for _i0 := 0; _i0 < 3; _i0++ {")
+	assertContains(t, out, "C.free(unsafe.Pointer(out.items[_i0].name))")
+}
+
 func TestGenerateDispatchCPrimitiveReturn(t *testing.T) {
 	api := &ast.API{
 		Name:    "primapi",

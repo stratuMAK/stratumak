@@ -110,9 +110,11 @@ func (h *mcodeHandler) HasHandler(mcode int) bool {
 }
 
 // Submit submits an M-code for execution and returns a handle on THAT job's
-// completion. Blocks until the worker accepts the job, so a caller that
-// abandoned a previous job (abort) cannot have its successor rejected while the
-// worker is still draining the abandoned one; aborted returns context.Canceled.
+// completion. It blocks until the job is queued on jobCh; because jobCh is
+// buffered (size 1), that can happen while the worker is still draining a
+// previously abandoned job, which is exactly why a post-abort successor is
+// never rejected. If abort fires before the job is queued it returns
+// context.Canceled.
 //
 // Completion is per-job by construction. A bare "done" flag cannot work here:
 // it records that A job finished, not WHICH one, so the moment one caller stops

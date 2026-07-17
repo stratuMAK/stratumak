@@ -19,18 +19,24 @@ rm -f out.txt server.log
 gomc-server -r -f halmodule1.hal --serve >server.log 2>&1 &
 SRV=$!
 trap '[ -n "$SRV" ] && kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
+# Deadlines below honour GOMC_TEST_TIMEOUT_SCALE via gomc_scale.
+. "$(dirname "$0")/../gomc-scale.sh"
 # Readiness must fail loudly: falling through clocked a dead server and reported
 # "FAIL sampleno= underruns= ..." instead of "the server never started".
 # stdout is compared against `expected` (a single "pass"), so this goes to stderr.
 ready=""
-for i in $(seq 100); do
+for i in $(seq "$(gomc_scale 100)"); do
     if halcmd show comp 2>/dev/null | grep -q filestream; then ready=1; break; fi
     kill -0 $SRV 2>/dev/null || break
     sleep 0.1
 done
 [ -n "$ready" ] || { echo "*** filestream never loaded within 10s; see $PWD/server.log" >&2; exit 1; }
 halcmd start
-for i in $(seq 300); do [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ] && break; sleep 0.02; done
+for i in $(seq "$(gomc_scale 300)"); do [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ] && break; sleep 0.02; done
+if [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" != TRUE ]; then
+    echo "*** filestream.done never went TRUE within 6s — the replay stalled;" \
+         "sample counts below will be short; see $PWD/server.log" >&2
+fi
 sn=$(halcmd getp filestream.sample-num | awk '{print $NF}')
 un=$(halcmd getp filestream.underruns  | awk '{print $NF}')
 ov=$(halcmd getp filestream.overruns   | awk '{print $NF}')

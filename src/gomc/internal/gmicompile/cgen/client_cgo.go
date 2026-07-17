@@ -30,6 +30,32 @@ type clientCgoGen struct {
 	dispatchCGen // embed for reuse of preamble, types, converters
 }
 
+// outParam is an @out method parameter: not in the Go signature, returned as an
+// extra value. The provider fills its zeroed C struct in place.
+type outParam struct {
+	param ast.Param
+	cVar  string
+}
+
+// emitOutParamConverts converts each out-param C struct to a Go value and frees
+// the C allocations the provider wrote into it. Out-params follow the same
+// "caller owns returned data" convention as return values — the Go bridge
+// writeback allocates them and drops its freeList — so the client owns and
+// frees them. Returns the Go variable names holding the converted values.
+func (g *clientCgoGen) emitOutParamConverts(outParams []outParam) []string {
+	var outVars []string
+	for _, op := range outParams {
+		converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
+		outVar := toLowerCamel(op.param.Name) + "Out"
+		g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
+		if t := g.findType(op.param.Type.Name); t != nil && g.typeHasCAllocs(op.param.Type.Name, map[string]bool{}) {
+			g.emitFreeCAllocs(op.cVar, t, 0, "\t")
+		}
+		outVars = append(outVars, outVar)
+	}
+	return outVars
+}
+
 func (g *clientCgoGen) generate() error {
 	// The cgo preamble, types, constants, and converters are already generated
 	// by --server-go into the same package (*_cgo.go). We only need:
@@ -126,10 +152,6 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 	// - Regular params → in signature
 	// - byref params → *Type in signature (in/out, caller provides & receives)
 	// - out params → NOT in signature, returned as additional value
-	type outParam struct {
-		param ast.Param
-		cVar  string
-	}
 	var inputParams []string
 	var outParams []outParam
 
@@ -246,13 +268,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
 		// Convert out params
-		var outVars []string
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-			outVars = append(outVars, outVar)
-		}
+		outVars := g.emitOutParamConverts(outParams)
 
 		if i32Value {
 			// @returns_value: rc is a meaningful value, only error on negative
@@ -279,11 +295,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			converter := toLowerCamelRaw(wb.param.Type.Name) + "CToGo"
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-		}
+		g.emitOutParamConverts(outParams)
 		g.emitClientReturnConvert(fn)
 	} else {
 		g.printf("\t%s\n", callExpr)
@@ -291,13 +303,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 			converter := toLowerCamelRaw(wb.param.Type.Name) + "CToGo"
 			g.printf("\t*%s = %s(&%s)\n", wb.goVar, converter, wb.cVar)
 		}
-		var outVars []string
-		for _, op := range outParams {
-			converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
-			outVar := toLowerCamel(op.param.Name) + "Out"
-			g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
-			outVars = append(outVars, outVar)
-		}
+		outVars := g.emitOutParamConverts(outParams)
 		if len(outVars) > 0 {
 			g.printf("\treturn %s, nil\n", strings.Join(outVars, ", "))
 		} else {

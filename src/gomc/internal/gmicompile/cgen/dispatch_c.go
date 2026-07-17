@@ -334,17 +334,26 @@ func (g *dispatchCGen) typeHasCAllocs(name string, seen map[string]bool) bool {
 			if !g.isEnum(f.Type.Name) && g.typeHasCAllocs(f.Type.Name, seen) {
 				return true
 			}
+		case ast.TypeArray:
+			// Fixed arrays are inline (no buffer of their own), but a
+			// named-struct element can still carry string/slice allocations.
+			// This mirrors what emitFieldGoToC allocates for array elements.
+			if f.Type.Elem != nil && f.Type.Elem.Kind == ast.TypeNamed &&
+				!g.isEnum(f.Type.Elem.Name) && g.typeHasCAllocs(f.Type.Elem.Name, seen) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 // emitFreeCAllocs emits C.free calls for every C allocation reachable from
-// expr, a C struct value of type t: string fields, slice buffers, and both
-// nested in named fields or slice elements. Element allocations are freed
-// before their containing buffer. Providers hand these out under the
-// "caller owns returned data" convention (the Go bridges C.CString/calloc
-// them), so the client must free them after converting to Go values.
+// expr, a C struct value of type t: string fields, slice buffers, and any of
+// those nested in named fields, slice elements, or fixed-array elements.
+// Element allocations are freed before their containing buffer. Providers hand
+// these out under the "caller owns returned data" convention (the Go bridges
+// C.CString/calloc them), so the client must free them after converting to Go
+// values.
 func (g *dispatchCGen) emitFreeCAllocs(expr string, t *ast.Type, depth int, indent string) {
 	for _, f := range t.Fields {
 		fexpr := expr + "." + cgoFieldAccess(f.Name)
@@ -384,6 +393,17 @@ func (g *dispatchCGen) emitFreeCAllocs(expr string, t *ast.Type, depth int, inde
 			}
 			g.printf("%sC.free(unsafe.Pointer(%s))\n", inner, fexpr)
 			g.printf("%s}\n", indent)
+		case ast.TypeArray:
+			// Inline fixed array: no buffer to free, but named-struct elements
+			// can own string/slice allocations. Free each element's; primitive
+			// and enum elements allocate nothing (see emitFieldGoToC).
+			if f.Type.Elem != nil && f.Type.Elem.Kind == ast.TypeNamed && !g.isEnum(f.Type.Elem.Name) {
+				if et := g.findType(f.Type.Elem.Name); et != nil && g.typeHasCAllocs(f.Type.Elem.Name, map[string]bool{}) {
+					g.printf("%sfor _i%d := 0; _i%d < %d; _i%d++ {\n", indent, depth, depth, f.Type.ArrayLen, depth)
+					g.emitFreeCAllocs(fmt.Sprintf("%s[_i%d]", fexpr, depth), et, depth+1, indent+"\t")
+					g.printf("%s}\n", indent)
+				}
+			}
 		}
 	}
 }

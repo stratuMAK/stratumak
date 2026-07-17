@@ -208,17 +208,24 @@ class Command:
         Returns:
             RCS_DONE (1)   — settled
             RCS_ERROR (3)  — the command failed
-            -1             — the wait timed out; the task is NOT settled and
-                             any state read afterwards is unsynchronised.
+            -1             — the wait did not complete: the task is NOT settled
+                             and any state read afterwards is unsynchronised.
+                             This covers a machine-side timeout AND the task not
+                             being ready — the cgo bridge flattens any
+                             server-side error to -1, so it is not strictly a
+                             "timed out" signal, just "the wait did not happen".
 
-        The -1 is delivered as a normal HTTP 200 body (the cgo bridge flattens
-        the server-side error to -1), so a caller that discards the return
-        cannot tell a timeout from success. Callers that need the wait to have
-        actually happened must check for it — see lib/python/gomc_test.py,
+        The -1 is delivered as a normal HTTP 200 body, so a caller that discards
+        the return cannot tell it from success. Callers that need the wait to
+        have actually happened must check for it — see lib/python/gomc_test.py,
         which wraps this and raises.
+
+        A negative timeout is meaningless (the IDL constrains it to >= 0); the
+        socket deadline is floored so it never goes negative and raises a local
+        urllib ValueError instead of reaching the server.
         """
         return self._post("/wait-complete", {"timeout": timeout},
-                          timeout=timeout + _SOCKET_MARGIN)
+                          timeout=max(0.0, timeout) + _SOCKET_MARGIN)
 
     def debug(self, level: int):
         """Set debug level (bitmask of DEBUG_* flags)."""

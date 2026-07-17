@@ -15,8 +15,9 @@ trap '[ -n "$SRV" ] && kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 # phase, which diffs against `expected` as a content mismatch rather than
 # reporting that mb2hal never came up. stdout is compared against `expected`, so
 # the diagnostic goes to stderr.
+. "$(dirname "$0")/../../gomc-scale.sh"   # readiness deadline honours GOMC_TEST_TIMEOUT_SCALE
 ready=""
-for i in $(seq 100); do
+for i in $(seq "$(gomc_scale 100)"); do
     if grep -q "mb2hal is running" server.log 2>/dev/null; then ready=1; break; fi
     kill -0 $SRV 2>/dev/null || break
     sleep 0.1

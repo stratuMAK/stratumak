@@ -212,10 +212,15 @@ def drain_mdi(stat, timeout=None):
 
     gmi's wait_complete has no serial-number tracking, so back-to-back MDIs can
     overrun the queue ("MDI queue full"). c.mdi() is a synchronous POST — the
-    command is registered before it returns (Task.executeMDI sets interpState,
-    or the command lands on mdiQueue) — so waiting for (queue empty AND interp
-    idle) cannot mistake "not started yet" for "finished". Since the sequencer
-    blocks on any M-code handler, it also means the handler finished.
+    command is registered before it returns — so waiting for (queue empty AND
+    interp idle) cannot mistake "not started yet" for "finished". Verified in the
+    server (internal/task/commands.go, Task.MDI → executeMDI): while the /mdi
+    dispatch runs synchronously under cmdMu, Task.MDI either appends to mdiQueue
+    (so queued_mdi_commands is already > 0) or calls executeMDI, whose first act
+    is setInterpState(InterpReading) BEFORE ExecuteString and before it returns.
+    There is no window in which the POST has returned yet the command is neither
+    queued nor reflected in interp_state. Since the sequencer blocks on any
+    M-code handler, an idle+empty reading also means the handler finished.
 
     Fails if the machine drops out of STATE_ON: command endpoints report failure
     as an RCS code in a 200 body, which c.mdi() discards, so a machine that
