@@ -113,10 +113,36 @@ class LinuxCNC:
         start_time = time.time()
         while (time.time() - start_time) < timeout:
             if self.all_joints_homed(joints):
+                # The `homed` flag flips a few servo cycles before the
+                # trajectory finishes converging on the home coordinate: a
+                # caller that samples position the instant homing "completes"
+                # can catch an axis still creeping to its home value (seen as
+                # a jog_axis start_pos that later drifts to 0, tripping its
+                # "no other axis moved" check). Let the machine settle first.
+                self.wait_for_all_axes_to_stop(timeout=timeout)
                 return
             time.sleep(0.1)
 
         raise LinuxCNC_Exception("timeout waiting for homing to complete:\nstatus.homed:" + str(self.status.homed) + "\nstatus.position:" + str(self.status.position))
+
+
+    def wait_for_all_axes_to_stop(self, timeout=10.0):
+        """Poll the Status buffer until every axis position is unchanged
+        across two consecutive polls, i.e. the machine has come to rest.
+        Returns on success, raises LinuxCNC_Exception if the timeout expires
+        while some axis is still moving."""
+
+        self.status.poll()
+        start_time = time.time()
+        prev_pos = self.status.position
+        while (time.time() - start_time) < timeout:
+            time.sleep(0.1)
+            self.status.poll()
+            new_pos = self.status.position
+            if all(a == b for a, b in zip(prev_pos, new_pos)):
+                return
+            prev_pos = new_pos
+        raise LinuxCNC_Exception("machine didn't settle within %.3f seconds; position still changing: %s" % (timeout, str(self.status.position)))
 
 
     def wait_for_axis_to_stop(self, axis_letter, timeout=10.0):
