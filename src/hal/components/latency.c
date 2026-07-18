@@ -260,7 +260,11 @@ static latency_latency_status_t gmi_latency_get_status(void *ctx) {
     latency_latency_status_t s;
     memset(&s, 0, sizeof(s));
 
-    s.name        = priv->name;
+    // strdup: the cgo bridge frees every returned pointer with C.free (same
+    // contract as the malloc'd bins/points buffers below).  Returning the
+    // instance's own name buffer here would make it free() an interior pointer
+    // and abort the process.
+    s.name        = strdup(priv->name);
     s.periodNs    = (int64_t)(uint32_t)*(inst->period_ns);
     s.samples     = (int64_t)(uint32_t)*(inst->samples);
     s.lastNs      = *(inst->latency);
