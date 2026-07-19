@@ -17,26 +17,10 @@ var (
 	ErrNotHomed  = fmt.Errorf("not homed")
 )
 
-// requireState checks that the machine is in the required state.
-func (t *Task) requireState(required TaskState) error {
-	if t.state != required {
-		return fmt.Errorf("%w: need %s, have %s", ErrNotOn, required, t.state)
-	}
-	return nil
-}
-
 // requireOn checks that the machine is powered on.
 func (t *Task) requireOn() error {
 	if t.state != StateOn {
 		return fmt.Errorf("%w: state is %s", ErrNotOn, t.state)
-	}
-	return nil
-}
-
-// requireMode checks that the machine is in the specified mode.
-func (t *Task) requireMode(required TaskMode) error {
-	if t.mode != required {
-		return fmt.Errorf("%w: need %s, have %s", ErrWrongMode, required, t.mode)
 	}
 	return nil
 }
