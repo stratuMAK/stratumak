@@ -35,10 +35,23 @@ cross-cutting item below points at its §3.
    `nightly-gomc.yml` = `gomc-test-race` + runtests against a race-built gomc-server.
    First `-race` sweep over the full module found+fixed a data race (ads notification test mock).
    **Branch protection on `gomc` — DONE** (required checks configured on GitHub: gomc + rip-and-test).
-   **Lint burn-down (legacy baseline, `make gomc-lint-full`, 69 findings):** 50 errcheck
-   (meaningful ones: unchecked `mc.Set*` motion-limit setup calls, `task.SetState/SetMode`,
-   `reg.Register`) + 19 unused (dead code — incl. `task/guards.go` requireState/requireMode,
-   which look like guards that SHOULD be called; review before deleting). Also: migrate
+   **Lint burn-down (legacy baseline, `make gomc-lint-full`).** ⚠ **Baseline corrected
+   2026-07-19: the true count is ~307, not 69** — golangci-lint's default
+   `max-issues-per-linter=50` was capping the display, so errcheck was under-reported as 50.
+   Real totals (caps off, `--max-issues-per-linter=0 --max-same-issues=0`): **errcheck 288,
+   unused 19**. Errcheck distribution is test-heavy: `internal/tasktest/tests.go` 78,
+   `internal/modcompile/docgen/docgen.go` 62 (a code generator), then `task/inihal.go` 18,
+   `classicladder/modbus_test.go` 15, `task/sequencer_test.go` 14, `task/monitor_test.go` 13,
+   the rest scattered. **Tranche 1 done (2026-07-19, ~50 fixed):** apiserver, ads, ethercat,
+   daemon, inifile, hal CLI — real handling where the error is meaningful, explicit `_ =` for
+   unactionable best-effort I/O (house idiom), tests fail on setup/decode errors. Many of the
+   remaining errcheck sites are cleanup-path calls (websocket `Close`/`CloseNow`,
+   `SetReadDeadline`, deferred closes) that may be better handled by extending the errcheck
+   `exclude-functions` allowlist in `.golangci.yml` (as the existing `(net.Conn).Close` etc.
+   exclusions already do) rather than editing each site — a policy call to make before grinding
+   the tail. The 19 unused (dead code — incl. `task/guards.go` requireState/requireMode, which
+   look like guards that SHOULD be called; review before deleting) is accurate (under the cap).
+   Also: migrate
    `nhooyr.io/websocket` → `github.com/coder/websocket` (drop-in re-home; touches the generated
    go.mod template), then drop the SA1019 exclusion in `src/gomc/.golangci.yml`.
    (Branch protection on `gomc` is now configured — done.)
