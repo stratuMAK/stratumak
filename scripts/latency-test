@@ -160,10 +160,14 @@ named=0
 for a in "$@"; do case $a in *:*) named=1 ;; esac; done
 
 if [ "$named" -eq 1 ]; then
+    declare -A seen_names
     for a in "$@"; do
         case $a in
         *:*) nm=${a%%:*}; pv=${a#*:}
              [ -n "$nm" ] && [ -n "$pv" ] || { echo "latency-test: bad NAME:PERIOD '$a'" >&2; usage; }
+             case $pv in *:*) echo "latency-test: bad NAME:PERIOD '$a' (name must not contain ':')" >&2; usage ;; esac
+             [ -z "${seen_names[$nm]}" ] || { echo "latency-test: duplicate thread name '$nm'" >&2; usage; }
+             seen_names[$nm]=1
              THREADS+=("$nm:$(parse_time "$pv")") ;;
         *)   echo "latency-test: don't mix NAME:PERIOD and bare periods ('$a')" >&2; usage ;;
         esac
@@ -182,7 +186,7 @@ fi
 
 # Create threads fastest-first (rate monotonic: shortest period gets the
 # highest priority), so sort the specs by period ascending.
-IFS=$'\n' THREADS=($(printf '%s\n' "${THREADS[@]}" | sort -t: -k2,2n)); unset IFS
+mapfile -t THREADS < <(printf '%s\n' "${THREADS[@]}" | sort -t: -k2,2n)
 
 # This server is standalone and short-lived, so bind an ephemeral port instead
 # of the well-known one - a running LinuxCNC already owns 5080.  An explicit
@@ -203,7 +207,11 @@ SRV_PID=""
 SLEEP_PID=""     # the --stress-only park sleep, if any
 IO_DIR=""        # real-disk scratch dir for the io (--hdd) vector, if used
 STRESS_PIDS=()   # process-group leaders of the external stressors
+_cleaned=0
 cleanup () {
+    # A Ctrl-C fires the SIGINT trap and then the EXIT trap; run the body once.
+    [ "$_cleaned" -eq 1 ] && return
+    _cleaned=1
     [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
     [ -n "$IO_DIR" ] && [ "$IO_DIR" != "$T" ] && rm -rf "$IO_DIR"
     # Stop the external stressors first.  Each was started with setsid, so the

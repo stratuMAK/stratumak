@@ -83,3 +83,23 @@ func TestAcquireCPU_Explicit(t *testing.T) {
 		t.Fatalf("explicit cpu=0 (not isolated): want error, got nil")
 	}
 }
+
+// An explicit request updates lastAssigned, so a later auto (-1) request that
+// finds the pool exhausted co-locates onto the explicitly-chosen core rather
+// than the one the free list would have handed out.
+func TestAcquireCPU_ExplicitThenAutoCoLocate(t *testing.T) {
+	setPool(t, []int{3, 2}, true)
+
+	// Explicitly take the lower core first; free list still holds 3.
+	if got := mustAcquire(t, "t1", 2); got != 2 {
+		t.Fatalf("explicit cpu=2: got %d, want 2", got)
+	}
+	// Auto pops the remaining free core (3), which becomes lastAssigned.
+	if got := mustAcquire(t, "t2", -1); got != 3 {
+		t.Fatalf("auto: got %d, want 3", got)
+	}
+	// Pool now exhausted: auto co-locates onto the last one assigned (3).
+	if got := mustAcquire(t, "t3", -1); got != 3 {
+		t.Fatalf("auto overflow: got %d, want 3 (co-located on last assigned)", got)
+	}
+}
