@@ -38,8 +38,16 @@ production-relevant live defect** — and it *root-causes a known open bug* to t
 **STATUS (2026-07-19): G-H1 + G-M1 FIXED** (commit `57c162d2ca`) — the publish drain now emits a
 retained, sequence-numbered, bounded buffer + a per-connection `WatchFactory` (drain hook emits
 `Factory:`), with a runtime multi-subscriber regression test in `internal/publishtest`. The
-`PRODUCTION_READINESS` "Operator messages lost" entry is re-pointed here. Everything else below
-remains open for adjudication (**G-H2** and the type-mapping/duplication + LOW/latent items).
+`PRODUCTION_READINESS` "Operator messages lost" entry is re-pointed here.
+
+**STATUS (2026-07-20): G-H2 + G-L6 (PrimPtr half) FIXED** (commit `04b1d14df9`) — `--server-go`
+now emits callback/`ptr` params as `unsafe.Pointer`/`void*`/`uint64` (via `isOpaquePtrParam`),
+`cTypeForAPICgo` maps `PrimPtr`→`unsafe.Pointer`, and `emitCommands` skips opaque-ptr functions.
+`mcode_handler` was migrated to the generated `--server-go` bridge and its hand-written provider
+retired (only the milltask-specific invocation kept); `tests/mcode-handler` passes end-to-end.
+
+Everything else below remains open for adjudication (type-mapping/duplication G-M2/M3/M4 +
+LOW/latent items; G-L6's `[N]string`/array-field half is still latent).
 
 ---
 
@@ -202,9 +210,10 @@ or at minimum a generator warning.
    live defect; one redesign fixes both (retained seq'd bounded buffer + `WatchFactory`, emit
    `Factory:`). No apiserver change. **Highest priority; needs a multi-subscriber test.** Closes
    and re-classifies the `PRODUCTION_READINESS` "Operator messages lost" item.
-2. **G-H2 + G-L6 — `--server-go` callback/ptr → `C.int`.** Precise 3-arm type-mapper fix;
-   prerequisite to retire the hand-written `mcode_provider.go`. Validate by generating+building
-   `mcode_handler --server-go`.
+2. **G-H2 + G-L6 (PrimPtr half) — `--server-go` callback/ptr → `C.int`. DONE** (commit
+   `04b1d14df9`): `isOpaquePtrParam` at the four bridge sites, `PrimPtr`→`unsafe.Pointer` in
+   `cTypeForAPICgo`, `emitCommands` skips opaque-ptr funcs; `mcode_handler` migrated to
+   `--server-go`, hand-written provider retired, `tests/mcode-handler` green.
 3. **G-M2 — unify type mapping** into one shared descriptor table; closes the G-M3 root and folds
    in G-L5/G-L6; de-risks all future drift. Then G-M3/G-M4 (py/ts widths) fall out.
 4. **Clean deletions/guards (low-risk once confirmed unused):** G-L3 (delete dead
