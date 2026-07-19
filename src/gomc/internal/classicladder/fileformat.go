@@ -32,7 +32,7 @@ func (m *classicladder) loadCLPFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Split the archive into sub-files
 	files, err := splitCLPArchive(f)
@@ -125,15 +125,22 @@ func (m *classicladder) loadCLPFile(path string) error {
 }
 
 // saveCLPFile writes the current RT state to a .clp file.
-func (m *classicladder) saveCLPFile(path string) error {
+func (m *classicladder) saveCLPFile(path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		// A failed Close on a file opened for writing means a lost final
+		// flush (truncated/corrupt program file); surface it if nothing
+		// earlier already failed.
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	w := bufio.NewWriter(f)
-	fmt.Fprintln(w, "_FILES_CLASSICLADDER")
+	_, _ = fmt.Fprintln(w, "_FILES_CLASSICLADDER")
 
 	// symbols.csv
 	m.writeFileSection(w, "symbols.csv", m.emitSymbols())
@@ -176,7 +183,8 @@ func (m *classicladder) saveCLPFile(path string) error {
 	// general.txt
 	m.writeFileSection(w, "general.txt", m.emitGeneral())
 
-	fmt.Fprintln(w, "_/FILES_CLASSICLADDER")
+	_, _ = fmt.Fprintln(w, "_/FILES_CLASSICLADDER")
+	// bufio.Writer errors are sticky; Flush surfaces any write failure above.
 	return w.Flush()
 }
 
@@ -578,14 +586,15 @@ func (m *classicladder) emitSymbols() string {
 // --- Helpers ---
 
 func (m *classicladder) writeFileSection(w *bufio.Writer, name, content string) {
-	fmt.Fprintf(w, "_FILE-%s\n", name)
+	// bufio.Writer errors are sticky and surfaced by the caller's Flush.
+	_, _ = fmt.Fprintf(w, "_FILE-%s\n", name)
 	if content != "" {
-		w.WriteString(content)
+		_, _ = w.WriteString(content)
 		if !strings.HasSuffix(content, "\n") {
-			w.WriteByte('\n')
+			_ = w.WriteByte('\n')
 		}
 	}
-	fmt.Fprintf(w, "_/FILE-%s\n", name)
+	_, _ = fmt.Fprintf(w, "_/FILE-%s\n", name)
 }
 
 func copyGoStringToC(dst *C.char, src string, maxLen int) {

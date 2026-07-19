@@ -164,11 +164,11 @@ func (m *modbusMaster) stop() {
 
 	// Close transports
 	if m.serialPort != nil {
-		m.serialPort.Close()
+		_ = m.serialPort.Close()
 		m.serialPort = nil
 	}
 	for addr, conn := range m.tcpConns {
-		conn.Close()
+		_ = conn.Close()
 		delete(m.tcpConns, addr)
 	}
 }
@@ -426,7 +426,8 @@ func (m *modbusMaster) serialTransaction(pdu []byte) ([]byte, error) {
 	}
 
 	// Read response
-	m.serialPort.SetReadTimeout(time.Duration(m.cfg.TimeOutReceipt) * time.Millisecond)
+	// Deadline for the read below; a failed set surfaces via the Read itself.
+	_ = m.serialPort.SetReadTimeout(time.Duration(m.cfg.TimeOutReceipt) * time.Millisecond)
 	buf := make([]byte, 256)
 	n, err := m.serialPort.Read(buf)
 	if err != nil {
@@ -475,13 +476,14 @@ func (m *modbusMaster) tcpTransaction(addr string, pdu []byte) ([]byte, error) {
 	mbap[6] = unitID
 	copy(mbap[7:], pdu)
 
-	conn.SetDeadline(time.Now().Add(time.Duration(m.cfg.TimeOutReceipt) * time.Millisecond))
+	// Deadline for the write/read below; a failed set surfaces via them.
+	_ = conn.SetDeadline(time.Now().Add(time.Duration(m.cfg.TimeOutReceipt) * time.Millisecond))
 	if _, err := conn.Write(mbap); err != nil {
 		// Connection lost, remove and retry next time
 		m.mu.Lock()
 		delete(m.tcpConns, addr)
 		m.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("tcp write: %w", err)
 	}
 
@@ -495,7 +497,7 @@ func (m *modbusMaster) tcpTransaction(addr string, pdu []byte) ([]byte, error) {
 		m.mu.Lock()
 		delete(m.tcpConns, addr)
 		m.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("tcp read header: %w", err)
 	}
 

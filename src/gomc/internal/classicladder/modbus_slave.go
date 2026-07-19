@@ -72,7 +72,7 @@ func (s *modbusSlave) stop() {
 		return
 	}
 	s.cancel()
-	s.listener.Close()
+	_ = s.listener.Close()
 	s.running = false
 }
 
@@ -93,7 +93,7 @@ func (s *modbusSlave) acceptLoop(ctx context.Context) {
 }
 
 func (s *modbusSlave) handleConn(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	buf := make([]byte, 512)
 	for {
@@ -134,7 +134,10 @@ func (s *modbusSlave) handleConn(ctx context.Context, conn net.Conn) {
 		out[6] = 1 // unit ID
 
 		copy(out[7:], resp)
-		conn.Write(out[:7+len(resp)])
+		if _, err := conn.Write(out[:7+len(resp)]); err != nil {
+			// Broken connection; matches the read-error handling above.
+			return
+		}
 	}
 }
 
