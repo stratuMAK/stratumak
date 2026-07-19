@@ -41,13 +41,15 @@ human_time () {
     fi
 }
 
-BASE=$(parse_time 25us); SERVO=$(parse_time 1ms)
+DEFAULT_SERVO=$(parse_time 1ms)
 
 usage () {
     echo "Usage:"
-    echo "       latency-test [--stress] [base-period [servo-period]]"
+    echo "       latency-test [--stress] [NAME:PERIOD ...]"
     echo "   or:"
-    echo "       latency-test [--stress] [servo-period]  # for single thread"
+    echo "       latency-test [--stress] [base-period [servo-period]]  # legacy"
+    echo "   or:"
+    echo "       latency-test [--stress] [servo-period]                # single thread"
     echo "   or:"
     echo "       latency-test -h | --help     # (this text)"
     echo ""
@@ -56,11 +58,16 @@ usage () {
     echo "             stress (glxgears, gzip of / to /dev/null, ping the"
     echo "             gateway).  Missing tools are skipped with an install hint."
     echo ""
-    echo "Example:"
-    echo "       latency-test 50000 1000000"
+    echo "Examples:"
+    echo "       latency-test                       # servo-thread only, 1ms"
+    echo "       latency-test servo:1ms base:25us   # named threads (shown in UI)"
+    echo "       latency-test 50000 1000000         # legacy base + servo"
     echo ""
-    echo "Defaults:     base-period=${BASE}nS servo-period=${SERVO}nS"
-    echo "Equivalently: base-period=$(human_time $BASE) servo-period=$(human_time $SERVO)"
+    echo "Default:      a single servo-thread with a 1ms period"
+    echo ""
+    echo "A NAME:PERIOD arg creates a thread NAME with that period, labelled NAME"
+    echo "in the UI selector.  Bare periods use the legacy base/servo names; with"
+    echo "two, the shorter is always the base-period."
     echo ""
     echo "Times may be specified with suffix \"s\", \"ms\", \"us\" \"µs\", or \"ns\""
     echo "Times without a suffix and less than 1000 are taken to be in us;"
@@ -87,15 +94,37 @@ for a in "$@"; do
 done
 set -- "${POS[@]}"
 
-case $# in
-0) ;;
-1) BASE=0; SERVO=$(parse_time "$1") ;;
-2) BASE=$(parse_time "$1"); SERVO=$(parse_time "$2") ;;
-*) usage;;
-esac
+# Build the thread list as "name:periodNs" specs.  Args are either NAME:PERIOD
+# tokens (explicit names, shown in the UI selector) or bare periods (legacy
+# base/servo names).  Default (no args) is a single 1ms servo-thread.
+THREADS=()
+named=0
+for a in "$@"; do case $a in *:*) named=1 ;; esac; done
 
-if [ "$BASE" -gt "$SERVO" ]; then TEMP=$BASE; BASE=$SERVO; SERVO=$TEMP; fi
-if [ "$BASE" -eq "$SERVO" ]; then BASE=0; fi
+if [ "$named" -eq 1 ]; then
+    for a in "$@"; do
+        case $a in
+        *:*) nm=${a%%:*}; pv=${a#*:}
+             [ -n "$nm" ] && [ -n "$pv" ] || { echo "latency-test: bad NAME:PERIOD '$a'" >&2; usage; }
+             THREADS+=("$nm:$(parse_time "$pv")") ;;
+        *)   echo "latency-test: don't mix NAME:PERIOD and bare periods ('$a')" >&2; usage ;;
+        esac
+    done
+else
+    case $# in
+    0) THREADS=("servo-thread:$DEFAULT_SERVO") ;;
+    1) THREADS=("servo-thread:$(parse_time "$1")") ;;
+    2) p1=$(parse_time "$1"); p2=$(parse_time "$2")
+       if [ "$p1" -gt "$p2" ]; then t=$p1; p1=$p2; p2=$t; fi
+       if [ "$p1" -eq "$p2" ]; then THREADS=("servo-thread:$p2")
+       else THREADS=("base-thread:$p1" "servo-thread:$p2"); fi ;;
+    *) usage ;;
+    esac
+fi
+
+# Create threads fastest-first (rate monotonic: shortest period gets the
+# highest priority), so sort the specs by period ascending.
+IFS=$'\n' THREADS=($(printf '%s\n' "${THREADS[@]}" | sort -t: -k2,2n)); unset IFS
 
 # This server is standalone and short-lived, so bind an ephemeral port instead
 # of the well-known one - a running LinuxCNC already owns 5080.  An explicit
@@ -198,22 +227,20 @@ start_external_stress () {
     fi
 }
 
-# Threads use the usual LinuxCNC names, so the periods here mean the same
-# thing they do in a real config.  One latency instance per thread: the
-# instance name comes from the loader's angle-bracket name list, and each
-# instance registers its own API under that name - which is what the UI's
-# thread selector enumerates.  The instance cannot be named after its thread
-# (HAL gives both a `.time` pin, so the names would collide), so each carries an
-# explicit label= for a readable name in the UI selector.
+# One latency instance per thread.  The instance is loaded as `lat.<name>`
+# (the loader's angle-bracket name), addf'd to its thread, and carries an
+# explicit label=<name> so the UI selector shows a readable name without
+# inferring it from HAL thread topology.  The instance is prefixed (lat.) so it
+# never collides with the thread's own `.time` param.
 {
-    [ "$BASE" -ne 0 ] && echo "newthread base-thread $BASE nofp"
-    echo "newthread servo-thread $SERVO"
-    if [ "$BASE" -ne 0 ]; then
-        echo "loadrt latency <lat.base> label=base-thread"
-        echo "addf lat.base base-thread"
-    fi
-    echo "loadrt latency <lat.servo> label=servo-thread"
-    echo "addf lat.servo servo-thread"
+    for spec in "${THREADS[@]}"; do
+        echo "newthread ${spec%%:*} ${spec#*:}"
+    done
+    for spec in "${THREADS[@]}"; do
+        nm=${spec%%:*}
+        echo "loadrt latency <lat.$nm> label=$nm"
+        echo "addf lat.$nm $nm"
+    done
     # --stress: load the GC-pressure generator so the run is measured under
     # Go garbage-collector load (default workers/live set by the module).
     [ "$STRESS" -eq 1 ] && echo "loadrt stress_gc"
@@ -251,7 +278,8 @@ GMC_REST_URL="$BASE_URL" latency
 # Record this run's worst-case jitter, keeping the worst ever seen: ~/.latency
 # is what the docs and other tools read.
 worst=0
-for inst in lat.base lat.servo; do
+for spec in "${THREADS[@]}"; do
+    inst="lat.${spec%%:*}"
     j=$(curl -sf "$BASE_URL/api/v1/$inst/status" 2>/dev/null |
         sed -n 's/.*"maxJitterNs":\([0-9]*\).*/\1/p')
     if [ -n "$j" ] && [ "$j" -gt "$worst" ] 2>/dev/null; then worst=$j; fi

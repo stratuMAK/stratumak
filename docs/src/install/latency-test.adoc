@@ -55,16 +55,23 @@ and run the following command:
 latency-test
 ----
 
-This will start the latency test with a base-thread period of 25uS and a
-servo-thread period of 1mS. The period times may be specified on the command
-line:
+This will start the latency test with a single servo-thread of 1mS period.
+The period times may be specified on the command line:
 
 ----
 latency-test 50000 1000000
 ----
 
 This will start the latency test with a base-thread period of 50uS and a
-servo-thread period of 1mS.
+servo-thread period of 1mS (with two bare periods, the shorter is always the
+base-thread).
+
+Threads may also be given explicit names, which appear in the UI thread
+selector, using `NAME:PERIOD` arguments:
+
+----
+latency-test servo:1ms base:25us
+----
 
 For available options, on the command line enter:
 
