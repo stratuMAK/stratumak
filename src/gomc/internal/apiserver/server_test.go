@@ -159,7 +159,9 @@ func setupTestServer(t *testing.T) (*httptest.Server, *Registry) {
 		},
 	}
 	RegisterMeta(meta)
-	reg.Register("hal", 1, "hal0", fakeCallbacks)
+	if err := reg.Register("hal", 1, "hal0", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	srv := NewServer(reg, "localhost:0")
 	ts := httptest.NewServer(srv.Handler())
@@ -181,7 +183,9 @@ func TestHTTPGetSimple(t *testing.T) {
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "list_pins" {
 		t.Errorf("func = %v, want list_pins", result["func"])
 	}
@@ -201,7 +205,9 @@ func TestHTTPGetWithPathParam(t *testing.T) {
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "pin_read" {
 		t.Errorf("func = %v, want pin_read", result["func"])
 	}
@@ -225,7 +231,9 @@ func TestHTTPGetWithQueryParam(t *testing.T) {
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	params, _ := result["params"].(map[string]interface{})
 	if params["pattern"] != "axis.*" {
 		t.Errorf("params.pattern = %v, want axis.*", params["pattern"])
@@ -247,7 +255,9 @@ func TestHTTPPost(t *testing.T) {
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "signal_create" {
 		t.Errorf("func = %v, want signal_create", result["func"])
 	}
@@ -314,7 +324,9 @@ func TestHTTPDispatchError(t *testing.T) {
 	}
 
 	var result apiError
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result.Code != 404 {
 		t.Errorf("error code = %d, want 404", result.Code)
 	}
@@ -331,7 +343,9 @@ func TestHTTPNonRESTExported(t *testing.T) {
 		},
 	}
 	RegisterMeta(meta)
-	reg.Register("internal", 1, "internal0", fakeCallbacks)
+	if err := reg.Register("internal", 1, "internal0", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	srv := NewServer(reg, "localhost:0")
 	ts := httptest.NewServer(srv.Handler())

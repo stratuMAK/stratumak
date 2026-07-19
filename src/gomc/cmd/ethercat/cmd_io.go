@@ -199,7 +199,9 @@ func cmdSiiRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 		if opts.OutputFile != "" {
 			return os.WriteFile(opts.OutputFile, data, 0644)
 		}
-		os.Stdout.Write(data)
+		if _, err := os.Stdout.Write(data); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -254,7 +256,9 @@ func cmdFoeRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 		if opts.OutputFile != "" {
 			return os.WriteFile(opts.OutputFile, data, 0644)
 		}
-		os.Stdout.Write(data)
+		if _, err := os.Stdout.Write(data); err != nil {
+			return err
+		}
 	}
 	return nil
 }

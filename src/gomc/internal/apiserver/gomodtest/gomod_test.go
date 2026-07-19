@@ -157,16 +157,24 @@ func TestGomodToGomodMultipleInstances(t *testing.T) {
 	store1 := newMemoryStore()
 	store2 := newMemoryStore()
 
-	registerItemAPI(reg, "store1", store1)
-	registerItemAPI(reg, "store2", store2)
+	if err := registerItemAPI(reg, "store1", store1); err != nil {
+		t.Fatalf("register store1: %v", err)
+	}
+	if err := registerItemAPI(reg, "store2", store2); err != nil {
+		t.Fatalf("register store2: %v", err)
+	}
 
 	// Get both APIs
 	api1, _ := getItemAPI(reg, "store1")
 	api2, _ := getItemAPI(reg, "store2")
 
 	// Create items in different stores
-	api1.CreateItem("a", 1.0)
-	api2.CreateItem("b", 2.0)
+	if _, err := api1.CreateItem("a", 1.0); err != nil {
+		t.Fatalf("create item a: %v", err)
+	}
+	if _, err := api2.CreateItem("b", 2.0); err != nil {
+		t.Fatalf("create item b: %v", err)
+	}
 
 	// Verify isolation
 	items1, _ := api1.ListItems("*")

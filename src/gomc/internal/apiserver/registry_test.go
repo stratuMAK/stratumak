@@ -69,7 +69,9 @@ func TestRegisterInvalidArgs(t *testing.T) {
 
 func TestGetAPIVersionMatch(t *testing.T) {
 	r := NewRegistry()
-	r.Register("hal", 2, "hal", fakeCallbacks)
+	if err := r.Register("hal", 2, "hal", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	cb, err := r.GetAPIUntracked("hal", "hal", 2)
 	if err != nil {
@@ -82,7 +84,9 @@ func TestGetAPIVersionMatch(t *testing.T) {
 
 func TestGetAPIVersionMismatch(t *testing.T) {
 	r := NewRegistry()
-	r.Register("hal", 2, "hal", fakeCallbacks)
+	if err := r.Register("hal", 2, "hal", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	_, err := r.GetAPIUntracked("hal", "hal", 1)
 	if err != syscall.EINVAL {
@@ -109,8 +113,12 @@ func TestGetNotFound(t *testing.T) {
 
 func TestInstances(t *testing.T) {
 	r := NewRegistry()
-	r.Register("hal", 1, "hal", fakeCallbacks)
-	r.Register("halcmd", 1, "halcmd", fakeCallbacks)
+	if err := r.Register("hal", 1, "hal", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := r.Register("halcmd", 1, "halcmd", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	names := r.Instances()
 	if len(names) != 2 {
@@ -128,8 +136,12 @@ func TestInstances(t *testing.T) {
 
 func TestMultipleAPIs(t *testing.T) {
 	r := NewRegistry()
-	r.Register("hal", 1, "hal", fakeCallbacks)
-	r.Register("halcmd", 1, "halcmd", fakeCallbacks)
+	if err := r.Register("hal", 1, "hal", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := r.Register("halcmd", 1, "halcmd", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	if r.Get("hal") == nil {
 		t.Error("hal not found")

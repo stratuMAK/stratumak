@@ -61,7 +61,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "halstreamer: connect failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Read header from server: "cfg:<types>"
 	_, headerMsg, err := conn.Read(ctx)
@@ -156,7 +156,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn.Close(websocket.StatusNormalClosure, "done")
+	_ = conn.Close(websocket.StatusNormalClosure, "done")
 }
 
 func httpToWS(httpURL string) string {

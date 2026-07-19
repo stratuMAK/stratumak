@@ -212,7 +212,7 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 	s.logger.Debug("api request", "method", r.Method, "path", r.URL.Path, "status", 200, "dur", time.Since(start))
 }
 
@@ -363,7 +363,7 @@ type apiError struct {
 func writeErrorJSON(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(apiError{Error: msg, Code: code})
+	_ = json.NewEncoder(w).Encode(apiError{Error: msg, Code: code})
 }
 
 func writeDispatchError(w http.ResponseWriter, err error) {
@@ -373,7 +373,7 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 	if errors.As(err, &ve) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(struct {
+		_ = json.NewEncoder(w).Encode(struct {
 			Error      string `json:"error"`
 			Code       int    `json:"code"`
 			Field      string `json:"field"`
@@ -527,5 +527,5 @@ func (s *Server) handleRegistryRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }

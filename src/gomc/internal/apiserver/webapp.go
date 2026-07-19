@@ -69,11 +69,11 @@ func (s *Server) AddWebApps(webappDir string) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte("<!doctype html><html><head><title>GOMC Web Apps</title></head><body>\n"))
-		w.Write([]byte("<h1>GOMC Web Applications</h1><ul>\n"))
+		_, _ = w.Write([]byte("<!doctype html><html><head><title>GOMC Web Apps</title></head><body>\n"))
+		_, _ = w.Write([]byte("<h1>GOMC Web Applications</h1><ul>\n"))
 		for _, name := range apps {
-			w.Write([]byte(`<li><a href="/app/` + name + `/">` + name + `</a></li>` + "\n"))
+			_, _ = w.Write([]byte(`<li><a href="/app/` + name + `/">` + name + `</a></li>` + "\n"))
 		}
-		w.Write([]byte("</ul></body></html>\n"))
+		_, _ = w.Write([]byte("</ul></body></html>\n"))
 	})
 }

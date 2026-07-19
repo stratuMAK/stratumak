@@ -87,7 +87,7 @@ func (s *Server) Start() error {
 func (s *Server) Stop() {
 	close(s.quit)
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 	s.connsMu.Lock()
 	for conn := range s.conns {
@@ -149,8 +149,9 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	for {
 		// Stage 1: short read deadline for the AMS/TCP header (idle-polling interval).
-		// This allows Stop() to interrupt blocked reads between packets.
-		conn.SetReadDeadline(time.Now().Add(readDeadlineInterval))
+		// This allows Stop() to interrupt blocked reads between packets. A failure
+		// here means the conn is already broken; the ReadFull below will surface it.
+		_ = conn.SetReadDeadline(time.Now().Add(readDeadlineInterval))
 
 		tcpHdr := make([]byte, AMSTCPHeaderSize)
 		_, err := io.ReadFull(conn, tcpHdr)

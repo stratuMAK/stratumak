@@ -61,7 +61,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "halsampler: connect failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// The first message from the server is a header with pin types
 	// Format: "cfg:<types>" e.g. "cfg:uffb"
@@ -121,14 +121,14 @@ func main() {
 			if numSamples > 0 {
 				numSamples--
 				if numSamples == 0 {
-					conn.Close(websocket.StatusNormalClosure, "done")
+					_ = conn.Close(websocket.StatusNormalClosure, "done")
 					return
 				}
 			}
 		}
 	}
 
-	conn.Close(websocket.StatusNormalClosure, "done")
+	_ = conn.Close(websocket.StatusNormalClosure, "done")
 }
 
 func httpToWS(httpURL string) string {

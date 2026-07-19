@@ -77,9 +77,12 @@ func RedirectStdio() error {
 	if err != nil {
 		return err
 	}
-	syscall.Dup2(int(devNull.Fd()), int(os.Stdin.Fd()))
-	syscall.Dup2(int(devNull.Fd()), int(os.Stdout.Fd()))
-	syscall.Dup2(int(devNull.Fd()), int(os.Stderr.Fd()))
+	for _, fd := range []int{int(os.Stdin.Fd()), int(os.Stdout.Fd()), int(os.Stderr.Fd())} {
+		if err := syscall.Dup2(int(devNull.Fd()), fd); err != nil {
+			devNull.Close()
+			return fmt.Errorf("daemon: redirecting fd %d to /dev/null: %w", fd, err)
+		}
+	}
 	devNull.Close()
 	return nil
 }

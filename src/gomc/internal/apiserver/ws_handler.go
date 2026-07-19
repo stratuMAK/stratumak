@@ -285,7 +285,7 @@ func (c *wsConn) writeUpdate(subCtx context.Context, v interface{}) error {
 }
 
 func (c *wsConn) sendError(msg string) {
-	c.writeJSON(wsError{Type: "error", Message: msg})
+	_ = c.writeJSON(wsError{Type: "error", Message: msg})
 }
 
 func (c *wsConn) readLoop() {
@@ -408,7 +408,7 @@ func (c *wsConn) handleUnsubscribe(unsub wsUnsubscribe) {
 func (c *wsConn) handleCall(call wsCall) {
 	api := c.handler.registry.Get(call.API, call.Instance)
 	if api == nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: fmt.Sprintf("unknown API: %s/%s", call.API, call.Instance),
@@ -424,7 +424,7 @@ func (c *wsConn) handleCall(call wsCall) {
 		}
 	}
 	if cmdMeta == nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: fmt.Sprintf("unknown command: %s", call.Func),

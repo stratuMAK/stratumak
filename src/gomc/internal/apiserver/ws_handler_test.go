@@ -230,7 +230,9 @@ func TestWatchUnsubscribe(t *testing.T) {
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: "fast", RateMS: 20}
 	subData, _ := json.Marshal(sub)
-	conn.Write(ctx, websocket.MessageText, subData)
+	if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
 
 	// Read one update
 	_, _, err = conn.Read(ctx)
@@ -241,7 +243,9 @@ func TestWatchUnsubscribe(t *testing.T) {
 	// Unsubscribe
 	unsub := wsUnsubscribe{Action: "unsubscribe", API: "test", Instance: "default", Func: "fast"}
 	unsubData, _ := json.Marshal(unsub)
-	conn.Write(ctx, websocket.MessageText, unsubData)
+	if err := conn.Write(ctx, websocket.MessageText, unsubData); err != nil {
+		t.Fatalf("write unsubscribe: %v", err)
+	}
 
 	// Wait a bit, then try to read — should timeout (no more updates)
 	readCtx, readCancel := context.WithTimeout(ctx, 200*time.Millisecond)
@@ -292,7 +296,9 @@ func TestWatchServerIntegration(t *testing.T) {
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "demo", Instance: "default", Func: "get_status", RateMS: 50}
 	subData, _ := json.Marshal(sub)
-	conn.Write(ctx, websocket.MessageText, subData)
+	if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
 
 	// Read one update
 	_, data, err := conn.Read(ctx)
@@ -301,7 +307,9 @@ func TestWatchServerIntegration(t *testing.T) {
 	}
 
 	var update wsUpdate
-	json.Unmarshal(data, &update)
+	if err := json.Unmarshal(data, &update); err != nil {
+		t.Fatalf("unmarshal update: %v", err)
+	}
 	if update.Type != "update" || update.Func != "get_status" {
 		t.Fatalf("unexpected update: %+v", update)
 	}
@@ -353,7 +361,9 @@ func TestWatchConcurrentSubscriptions(t *testing.T) {
 	for _, fn := range []string{"fast", "slow"} {
 		sub := wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: fn, RateMS: 30}
 		subData, _ := json.Marshal(sub)
-		conn.Write(ctx, websocket.MessageText, subData)
+		if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+			t.Fatalf("write subscribe %s: %v", fn, err)
+		}
 	}
 
 	// Collect updates for 800ms
@@ -369,7 +379,9 @@ func TestWatchConcurrentSubscriptions(t *testing.T) {
 			break
 		}
 		var update wsUpdate
-		json.Unmarshal(data, &update)
+		if err := json.Unmarshal(data, &update); err != nil {
+			t.Fatalf("unmarshal update: %v", err)
+		}
 		mu.Lock()
 		counts[update.Func]++
 		mu.Unlock()
