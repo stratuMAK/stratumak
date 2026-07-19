@@ -62,9 +62,10 @@ cross-cutting item below points at its §3.
      with server-side `ensureMode()` auto-switch — never-called scaffold, not a missing guard.
      The other 17 (test scaffolding, superseded cgen helpers) were each triaged as genuinely
      orphaned and deleted. **`make gomc-lint-full` is now 0 findings across all linters.**
-   Also: migrate
-   `nhooyr.io/websocket` → `github.com/coder/websocket` (drop-in re-home; touches the generated
-   go.mod template), then drop the SA1019 exclusion in `src/gomc/.golangci.yml`.
+   **Websocket migration — DONE (2026-07-19):** `nhooyr.io/websocket` →
+   `github.com/coder/websocket` v1.8.15 (drop-in re-home) across all 5 import sites + the
+   `go.mod.in` template; the SA1019 staticcheck exclusion is removed. Verified: build/vet/lint 0,
+   `make -C src gomc-test` green (apiserver ws tests exercise it live).
    (Branch protection on `gomc` is now configured — done.)
    Original plan for reference:
    - `go build ./...` + `go test -race ./...` in `src/gomc`
