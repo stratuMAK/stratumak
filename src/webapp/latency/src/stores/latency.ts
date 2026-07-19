@@ -19,7 +19,8 @@ export const RANGES: { label: string; seconds: number }[] = [
 ];
 
 // A selectable instance: `value` is the GMI instance name used for API calls,
-// `label` is what the selector shows (the cmod's `thread=` display name).
+// `label` is what the selector shows (the cmod's `label=` option, defaulting to
+// the instance name).
 export interface InstanceOption {
   value: string;
   label: string;
@@ -65,11 +66,12 @@ function queryInstance(): string {
   return new URLSearchParams(window.location.search).get('instance') || '';
 }
 
-// Enumerate the registered `latency` API instances, and label each with the
-// thread it actually measures.  A latency instance exports a HAL function named
-// after itself, addf'd to exactly one thread, so the thread->function map from
-// halcmd is the source of truth (no per-instance hint needed, correct for any
-// config).  Falls back to the instance name if the mapping isn't available.
+// Enumerate the registered `latency` API instances.  The instance name is the
+// stable API identity; the display label comes from each instance's own status
+// (the cmod's `label=` option, which defaults to the instance name).  This is
+// explicit and correct for any config - unlike inferring a thread name from the
+// HAL function map, which only held for the 1-instance-per-thread standalone
+// layout.  Falls back to the instance name if a status fetch fails.
 async function enumerateInstances(): Promise<InstanceOption[]> {
   try {
     const origin = window.location.origin;
@@ -78,18 +80,16 @@ async function enumerateInstances(): Promise<InstanceOption[]> {
     const all = (await resp.json()) as Array<{ api_name: string; instance: string }>;
     const names = all.filter((e) => e.api_name === 'latency').map((e) => e.instance);
 
-    let threads: Array<{ name: string; functions: string[] }> = [];
-    try {
-      const tr = await fetch(origin + '/api/v1/halcmd/threads');
-      if (tr.ok) threads = await tr.json();
-    } catch {
-      /* no halcmd API -> fall back to instance names */
-    }
-
-    return names.map((value): InstanceOption => {
-      const th = threads.find((t) => t.functions?.includes(value));
-      return { value, label: th?.name ?? value };
-    });
+    return Promise.all(
+      names.map(async (value): Promise<InstanceOption> => {
+        try {
+          const st = await new LatencyClient(origin, value).getStatus();
+          return { value, label: st.label || value };
+        } catch {
+          return { value, label: value };
+        }
+      }),
+    );
   } catch {
     return [];
   }

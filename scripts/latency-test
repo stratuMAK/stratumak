@@ -203,15 +203,16 @@ start_external_stress () {
 # instance name comes from the loader's angle-bracket name list, and each
 # instance registers its own API under that name - which is what the UI's
 # thread selector enumerates.  The instance cannot be named after its thread
-# (HAL gives both a `.time` pin, so the names would collide).
+# (HAL gives both a `.time` pin, so the names would collide), so each carries an
+# explicit label= for a readable name in the UI selector.
 {
     [ "$BASE" -ne 0 ] && echo "newthread base-thread $BASE nofp"
     echo "newthread servo-thread $SERVO"
     if [ "$BASE" -ne 0 ]; then
-        echo "loadrt latency <lat.base>"
+        echo "loadrt latency <lat.base> label=base-thread"
         echo "addf lat.base base-thread"
     fi
-    echo "loadrt latency <lat.servo>"
+    echo "loadrt latency <lat.servo> label=servo-thread"
     echo "addf lat.servo servo-thread"
     # --stress: load the GC-pressure generator so the run is measured under
     # Go garbage-collector load (default workers/live set by the module).
