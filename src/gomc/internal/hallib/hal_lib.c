@@ -1934,7 +1934,10 @@ int hal_create_thread_cpu(const char *name, unsigned long period_nsec,
     int retval, n;
     hal_thread_t *new, *tptr;
     long prev_period, curr_period;
-    char buf[HAL_NAME_LEN + 1];
+    /* +6 leaves room for the longest decoration applied below to a
+       full-length name: the "__" pseudo-comp prefix and the ".tmax"
+       param suffix (5 chars + NUL). Avoids -Wformat-truncation. */
+    char buf[HAL_NAME_LEN + 6];
 
     rtapi_print_msg(RTAPI_MSG_DBG,
 	"HAL: creating thread %s, %ld nsec\n", name, period_nsec);
