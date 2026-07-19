@@ -55,9 +55,13 @@ cross-cutting item below points at its §3.
      Verified: errcheck 0, `go build`/`go vet` clean, `make -C src gomc-test` green (28 pkg ok).
      Commits: tranche 1 (apiserver/ads/ethercat/daemon/inifile/hal-cli), tranche 2 (excludes
      removed + fan-out), classicladder.
-   - **unused — OPEN (19, next up).** Accurate (was under the cap). Dead code incl.
-     `task/guards.go` requireState/requireMode, which look like guards that SHOULD be called —
-     review before deleting.
+   - **unused — DONE (2026-07-19, 0).** All 19 removed. The two that "looked like guards that
+     should be called" (`task/guards.go` requireState/requireMode) were **investigated against
+     the 2.9 source before deleting** (per the reject→auto-switch model change): they mirror
+     2.9's reject-if-wrong-mode check (emctaskmain.cc:2213), which gomc deliberately replaced
+     with server-side `ensureMode()` auto-switch — never-called scaffold, not a missing guard.
+     The other 17 (test scaffolding, superseded cgen helpers) were each triaged as genuinely
+     orphaned and deleted. **`make gomc-lint-full` is now 0 findings across all linters.**
    Also: migrate
    `nhooyr.io/websocket` → `github.com/coder/websocket` (drop-in re-home; touches the generated
    go.mod template), then drop the SA1019 exclusion in `src/gomc/.golangci.yml`.
