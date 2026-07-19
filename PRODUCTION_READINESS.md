@@ -34,22 +34,31 @@ cross-cutting item below points at its §3.
    failure-log artifacts; both jobs are intended required checks.
    `nightly-gomc.yml` = `gomc-test-race` + runtests against a race-built gomc-server.
    First `-race` sweep over the full module found+fixed a data race (ads notification test mock).
+   **Branch protection on `gomc` — DONE** (required checks configured on GitHub: gomc + rip-and-test).
    **Lint burn-down (legacy baseline, `make gomc-lint-full`, 69 findings):** 50 errcheck
    (meaningful ones: unchecked `mc.Set*` motion-limit setup calls, `task.SetState/SetMode`,
    `reg.Register`) + 19 unused (dead code — incl. `task/guards.go` requireState/requireMode,
    which look like guards that SHOULD be called; review before deleting). Also: migrate
    `nhooyr.io/websocket` → `github.com/coder/websocket` (drop-in re-home; touches the generated
    go.mod template), then drop the SA1019 exclusion in `src/gomc/.golangci.yml`.
-   Still open: branch protection on `gomc` (required checks: gomc + rip-and-test).
+   (Branch protection on `gomc` is now configured — done.)
    Original plan for reference:
    - `go build ./...` + `go test -race ./...` in `src/gomc`
    - `go vet` + `golangci-lint` (incl. `staticcheck`, `unused`) — baseline first, then ratchet
    - gomc runtests subset from step 1
-3. **Parity check for failing/fault paths** — the capture corpus only yielded 3 trustworthy
-   oracles (lines, arcs, spindle — see `tests/milltask-parity/`). Aborts, estop, dwell-drain,
-   feed-per-rev, tool-change and the sync/m66/dio programs have **no usable C oracle**.
-   These need written-spec tests verified against the 2.9 C source
-   (reference tree: `~/source/linuxcnc-2.9` old code), not capture conversion.
+3. **Parity check for failing/fault paths** — DONE (fault-path-parity PR #259 + certification
+   #256/#260). The capture corpus only yielded 3 trustworthy oracles (lines, arcs, spindle —
+   `tests/milltask-parity/`), so the fault paths were done as **written-spec tests verified
+   against the 2.9 C source** (`~/source/linuxcnc-2.9`), not capture conversion:
+   - **Aborts / estop / interp-error / sequencer-hard-fault** — `on_abort` with the real reason
+     enum, `seqFaultExit` hardware-stop + motion comm watchdog, ESTOP_RESET running 2.9's abort
+     sequence; 10 review-round findings fixed. Coverage: `fault_path_test.go` (8 mutation-verified
+     unit tests) + `tests/abort/{seq-fault-recovery,estop-while-running,on_abort_command-crazy-move}`.
+   - **feed-per-rev (G95)** — 2.9 velocity-mode spindle sync ported, `GET_EXTERNAL_FEED_RATE`
+     made feed-mode aware; `tests/abort/feed-rate` green.
+   - **tool-change** — covered by the lifecycle sweep; **sync/m66/dio** — by the sync-I/O cluster
+     (`single-step`, `remap/remap-io`).
+   - Only **dwell-drain** has no dedicated fault-path test (lowest-risk of the set) — optional follow-up.
 
 **Bug FIXED this pass (production-relevant): shutdown deadlock with ≥2 HAL threads.** Any config with `BASE_PERIOD>0` (base + servo thread — most stepper configs) hung forever on shutdown: `task_wait()` re-acquired `thread_lock` on the cooperative-exit path, so the first HAL task to be deleted exited holding it and the next task's `pthread_join` blocked. Fixed in `src/gomc/internal/hallib/uspace_rtapi_lib.c` (leave `thread_lock` released on cooperative exit). This was also the root cause of the runtests full-instance flakiness (hung shutdown → leaked gomc-server → shared-REST-port collision → stalled suite). Verified: lathe/abort-g64 now shut down ~0s; 0 leaked servers.
 
@@ -178,10 +187,12 @@ LOC = non-test Go lines / test lines (2026-07-11 snapshot).
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/task (milltask) | 12445/4839 | 1 | ☐ | ✅ | ✅ | ✅ | ✅ | ◐ | ◐ |
+| internal/task (milltask) | 12445/4839 | 1 | ☐ | ✅ | ✅ | ✅ | ✅ | ✅ | ◐ |
 
-Milltask review closed and merged. Remaining: fault-path parity tests from
-[Immediate next steps](#immediate-next-steps) §3, then sign-off.
+Milltask review closed and merged; **fault-path parity done** (PR #259 + certification
+#256/#260 — written-spec tests vs the 2.9 source; see [Immediate next steps](#immediate-next-steps)
+§3). Remaining before full sign-off (`S`): lint-clean (`L`, part of the CI lint burn-down) and
+the final human sign — the functional/parity work itself is complete.
 
 ### Phase 1 — foundation (bugs here multiply into everything else)
 
