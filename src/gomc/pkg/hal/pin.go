@@ -83,26 +83,26 @@ func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], erro
 		return nil, newError("NewPin", ErrInvalidName.Message, ErrInvalidName.Code)
 	}
 
-	// Create the pin by calling the appropriate hal_pin_*_new() function
-	// based on the type parameter T
-	var ptr unsafe.Pointer
-	var err error
+	// Map the generic type parameter T to its HAL type, then create the pin via
+	// the single halPinNew wrapper (dispatched C-side by hal_type_t).
+	var typ PinType
 	var zeroValue T
 	switch any(zeroValue).(type) {
 	case bool:
-		ptr, err = halPinBitNew(fullName, dir, c.id)
+		typ = TypeBit
 	case float64:
-		ptr, err = halPinFloatNew(fullName, dir, c.id)
+		typ = TypeFloat
 	case int32:
-		ptr, err = halPinS32New(fullName, dir, c.id)
+		typ = TypeS32
 	case uint32:
-		ptr, err = halPinU32New(fullName, dir, c.id)
+		typ = TypeU32
 	case string:
-		ptr, err = halPinPortNew(fullName, dir, c.id)
+		typ = TypePort
 	default:
 		return nil, newError("NewPin", "unsupported pin type", -22)
 	}
 
+	ptr, err := halPinNew(fullName, dir, c.id, typ)
 	if err != nil {
 		return nil, err
 	}

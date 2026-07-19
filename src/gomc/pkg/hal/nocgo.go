@@ -64,3 +64,7 @@ func (p *Pin[T]) String() string { return p.name }
 func halInit(_ string) (int, error) { return 0, errNoCGO }
 func halReady(_ int) error          { return errNoCGO }
 func halExit(_ int) error           { return errNoCGO }
+
+// LookupValue stub for non-CGO builds (the cgo implementation is in lookup.go,
+// which is excluded without cgo). Always reports "not found" for build symmetry.
+func LookupValue(_ string) (float64, bool) { return 0, false }

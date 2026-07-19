@@ -33,13 +33,13 @@ type Component struct {
 // NewComponent creates and initializes a new HAL component.
 //
 // The name must be unique across all HAL components in the system and
-// must not exceed 47 characters (HAL_NAME_LEN).
+// must not exceed HAL_NAME_LEN (NameLen = 127) characters.
 //
 // This calls hal_init() via CGO to register the component with HAL.
 //
 // Returns the component on success, or an error if initialization fails.
 func NewComponent(name string) (*Component, error) {
-	if name == "" || len(name) > 47 {
+	if name == "" || len(name) > NameLen {
 		return nil, newError("NewComponent", ErrInvalidName.Message, ErrInvalidName.Code)
 	}
 
