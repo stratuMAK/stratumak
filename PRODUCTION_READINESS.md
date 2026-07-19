@@ -35,22 +35,29 @@ cross-cutting item below points at its §3.
    `nightly-gomc.yml` = `gomc-test-race` + runtests against a race-built gomc-server.
    First `-race` sweep over the full module found+fixed a data race (ads notification test mock).
    **Branch protection on `gomc` — DONE** (required checks configured on GitHub: gomc + rip-and-test).
-   **Lint burn-down (legacy baseline, `make gomc-lint-full`).** ⚠ **Baseline corrected
-   2026-07-19: the true count is ~307, not 69** — golangci-lint's default
-   `max-issues-per-linter=50` was capping the display, so errcheck was under-reported as 50.
-   Real totals (caps off, `--max-issues-per-linter=0 --max-same-issues=0`): **errcheck 288,
-   unused 19**. Errcheck distribution is test-heavy: `internal/tasktest/tests.go` 78,
-   `internal/modcompile/docgen/docgen.go` 62 (a code generator), then `task/inihal.go` 18,
-   `classicladder/modbus_test.go` 15, `task/sequencer_test.go` 14, `task/monitor_test.go` 13,
-   the rest scattered. **Tranche 1 done (2026-07-19, ~50 fixed):** apiserver, ads, ethercat,
-   daemon, inifile, hal CLI — real handling where the error is meaningful, explicit `_ =` for
-   unactionable best-effort I/O (house idiom), tests fail on setup/decode errors. Many of the
-   remaining errcheck sites are cleanup-path calls (websocket `Close`/`CloseNow`,
-   `SetReadDeadline`, deferred closes) that may be better handled by extending the errcheck
-   `exclude-functions` allowlist in `.golangci.yml` (as the existing `(net.Conn).Close` etc.
-   exclusions already do) rather than editing each site — a policy call to make before grinding
-   the tail. The 19 unused (dead code — incl. `task/guards.go` requireState/requireMode, which
-   look like guards that SHOULD be called; review before deleting) is accurate (under the cap).
+   **Lint burn-down (legacy baseline, `make gomc-lint-full`).** ⚠ **Baseline was wrong (69):**
+   golangci-lint's default `max-issues-per-linter=50` capped the display, so errcheck was
+   under-reported as 50. True totals (caps off): **errcheck 428, unused 19** (the 428 after a
+   policy change below; ~288 with the old excludes).
+   - **errcheck — DONE (2026-07-19, 0 module-wide).** **Policy decision (user): removed the
+     `exclude-functions` allowlist from `.golangci.yml` entirely** — no global suppression of a
+     method-set; every ignored error is now explicit at the call site (`_ =`) or a real check.
+     The correctness reason: a blanket `(*os.File).Close` exclude silently hides a failed flush
+     on a WRITE path (lost data, no error). Removing it took the count 288→428 and surfaced
+     exactly those. Fixed all 428 across ~55 files (5 parallel sub-agents + classicladder) with
+     a per-site policy: write-path Close/flush, DB ops, config/limit setters, real
+     Marshal/Unmarshal → checked/returned/logged; genuinely unactionable cleanup/output → `_ =`;
+     tests fail on setup/decode via `t.Fatalf`. Behavioral finds it exposed: **`task/inihal.go`
+     now surfaces silently-dropped `mc.Set*` motion-limit/velocity/homing setter failures**
+     (errors.Join → logged; the machine could have run with limits disagreeing with the HAL
+     pins); all GMI-generator/`copyFile`/`persist_sqlite`/`emccalib`/`halcmd`/`inifile`
+     write-file closes now checked; a latent double-close fixed in `gmiGenerateServerMeta`.
+     Verified: errcheck 0, `go build`/`go vet` clean, `make -C src gomc-test` green (28 pkg ok).
+     Commits: tranche 1 (apiserver/ads/ethercat/daemon/inifile/hal-cli), tranche 2 (excludes
+     removed + fan-out), classicladder.
+   - **unused — OPEN (19, next up).** Accurate (was under the cap). Dead code incl.
+     `task/guards.go` requireState/requireMode, which look like guards that SHOULD be called —
+     review before deleting.
    Also: migrate
    `nhooyr.io/websocket` → `github.com/coder/websocket` (drop-in re-home; touches the generated
    go.mod template), then drop the SA1019 exclusion in `src/gomc/.golangci.yml`.
