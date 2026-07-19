@@ -73,6 +73,10 @@ usage () {
     echo "    io        disk I/O               (stress-ng --hdd)"
     echo "    net       network softirq        (stress-ng --sock)"
     echo ""
+    echo "  io writes scratch under \$HOME (a real disk) so it exercises the"
+    echo "  block-I/O path rather than a tmpfs /tmp; set LATENCY_IO_DIR to"
+    echo "  choose another location (e.g. a specific disk to test)."
+    echo ""
     echo "Examples:"
     echo "       latency-test                       # servo-thread only, 1ms"
     echo "       latency-test servo:1ms base:25us   # named threads (shown in UI)"
@@ -197,9 +201,11 @@ fi
 T=$(mktemp -d)
 SRV_PID=""
 SLEEP_PID=""     # the --stress-only park sleep, if any
+IO_DIR=""        # real-disk scratch dir for the io (--hdd) vector, if used
 STRESS_PIDS=()   # process-group leaders of the external stressors
 cleanup () {
     [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+    [ -n "$IO_DIR" ] && [ "$IO_DIR" != "$T" ] && rm -rf "$IO_DIR"
     # Stop the external stressors first.  Each was started with setsid, so the
     # PID is a process-group leader and a negative-PID kill reaps the whole
     # process group (stress-ng workers, glxgears), not just the launcher.
@@ -255,15 +261,22 @@ start_external_stress () {
 
     # All remaining vectors are stress-ng stressors, each targeting a distinct
     # RT-perturbation mechanism.  Combine the selected ones into a single
-    # stress-ng invocation (one process group for cleanup).  --hdd writes its
-    # scratch files under our temp dir so they are bounded and auto-removed.
+    # stress-ng invocation (one process group for cleanup).
     local ng=()
     [ -n "${VEC[stream]}" ] && ng+=(--stream         "$NW")
     [ -n "${VEC[cache]}"  ] && ng+=(--cache          "$NW")
     [ -n "${VEC[tlb]}"    ] && ng+=(--tlb-shootdown   "$NW")
     [ -n "${VEC[fork]}"   ] && ng+=(--exec            "$NW")
     [ -n "${VEC[cpu]}"    ] && ng+=(--cpu             "$NW")
-    [ -n "${VEC[io]}"     ] && ng+=(--hdd "$NW" --hdd-bytes 256m --temp-path "$T")
+    if [ -n "${VEC[io]}" ]; then
+        # --hdd must write to a real disk to exercise the block-I/O path: /tmp
+        # is often tmpfs (RAM), which would make this just retest memory
+        # bandwidth (the stream vector).  Default the scratch under $HOME
+        # (typically local disk); override with LATENCY_IO_DIR.  Fall back to
+        # the temp dir if $HOME is unwritable.
+        IO_DIR=$(mktemp -d "${LATENCY_IO_DIR:-$HOME}/.latency-io.XXXXXX" 2>/dev/null) || IO_DIR="$T"
+        ng+=(--hdd "$NW" --hdd-bytes 256m --temp-path "$IO_DIR")
+    fi
     [ -n "${VEC[net]}"    ] && ng+=(--sock           "$NW")
 
     if [ "${#ng[@]}" -gt 0 ] && have_tool stress-ng stress-ng; then
