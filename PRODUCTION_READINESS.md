@@ -10,14 +10,22 @@ This document tracks the per-submodule verification pipeline. Pattern proven wit
 AI review vs. LinuxCNC 2.9 → findings doc → fix PRs → tests → sign-off
 (see `MILLTASK_REVIEW_FINDINGS.md`).
 
+**Companion doc — hard-RT correctness:** functional/parity review lives here; the real-time
+guarantee (Go-scheduler isolation, forbidden-call enforcement in the RT path, memory
+locking/prefault, deadline-miss → E-stop, the jitter-histogram soak) is tracked separately in
+**`RT_HARDENING_CHECKLIST.md`**. That doc owns the RT-correctness of the inherited `cmod/*` C
+(motion/tp/homing/lcec/hostmot2) that this matrix defers, and the "RT/latency validation"
+cross-cutting item below points at its §3.
+
 ---
 
 ## Immediate next steps
 
-1. **Runtests against gomc** — DONE (2026-07-13; updated 2026-07-15 after the lifecycle sweep,
-   the sync-I/O/stale-status un-xfail sweep, and the G64 blending-parity work): full suite green,
-   232 run / 224 pass / 0 fail / 8 xfail / 0 skipped
-   (10 obsolete module-loading over-limit xfails removed, user ruling — see the ledger §3b);
+1. **Runtests against gomc** — DONE, full migration complete (2026-07-13 first green; sweeps
+   2026-07-15 lifecycle / sync-I/O / G64-blending; **2026-07-19 the whole suite is now
+   un-xfailed and every category — incl. the Category D full-instance tests — is ported**):
+   **232 run / 232 successful / 0 failed / 0 xfail / 0 skipped** (`runtests.log`).
+   (10 obsolete module-loading over-limit xfails were removed, user ruling — see the ledger §3b.)
    `tests/DISPOSITION.md` is the authoritative ledger.
 2. **CI gates** — DONE (2026-07-13; runtests dedup 2026-07-15): `ci.yml` `gomc` job = build +
    C-warning gate (owned paths, `scripts/check-gomc-cwarnings`) + `make gomc-check` (vet, tests,
@@ -45,13 +53,13 @@ AI review vs. LinuxCNC 2.9 → findings doc → fix PRs → tests → sign-off
 
 **Bug FIXED this pass (production-relevant): shutdown deadlock with ≥2 HAL threads.** Any config with `BASE_PERIOD>0` (base + servo thread — most stepper configs) hung forever on shutdown: `task_wait()` re-acquired `thread_lock` on the cooperative-exit path, so the first HAL task to be deleted exited holding it and the next task's `pthread_join` blocked. Fixed in `src/gomc/internal/hallib/uspace_rtapi_lib.c` (leave `thread_lock` released on cooperative exit). This was also the root cause of the runtests full-instance flakiness (hung shutdown → leaked gomc-server → shared-REST-port collision → stalled suite). Verified: lathe/abort-g64 now shut down ~0s; 0 leaked servers.
 
-**Runtests progress (branch `reenable-runtests`):** Category C (standalone interp)
-and the HAL `test.hal` bucket are re-enabled and green — interp 71 pass / 9
-Python-skip / 1 xfail; HAL 30 pass / 0 fail / 10 skip. Infra added:
-`gomc-server -f` one-shot + `-f --serve` resident HAL modes, `scripts/halrun`
-shim, `tests/hal-stream-driver.sh`. Remaining: ~15 `halrun`-in-`test.sh`, the
-halcompile/build tests, and the ~46 full-instance (Category D) tests (need the
-Python NML→`src/gmi/python` REST port).
+**Runtests migration — COMPLETE (2026-07-19).** All categories are re-enabled and green,
+with nothing left xfailed or skipped: Category C (standalone interp), the HAL `test.hal`
+bucket, the `halrun`-in-`test.sh` and halcompile/build tests, and the full-instance
+(Category D) tests via the Python NML→`src/gmi/python` REST port. Infra added over the
+effort: `gomc-server -f` one-shot + `-f --serve` resident HAL modes, `scripts/halrun`
+shim, `tests/hal-stream-driver.sh`, `lib/python/gomc_test.py`. Final: 232/232 successful,
+0 xfail, 0 skipped (`runtests.log`).
 
 ### Component gaps surfaced by runtests re-enablement
 
@@ -72,7 +80,7 @@ Python NML→`src/gmi/python` REST port).
 
   **Ruled intended 2.9 parity (2026-07-15, verified against the 2.9 tree): a `G64 P<tol>` persists across programs.** Program A's tolerance stays in effect for program B when B issues no G64 of its own — this is exactly what real 2.9 does, not a gomc leak. 2.9's M2/M30 deliberately excludes motion control mode from its reset list (`interp_convert.cc:4533` — "set at machine start-up but not automatically reset by any of the stopping codes"); the only reset is a full interp re-init (`emcTaskPlanInit` → `Interp::init` → `INIT_CANON`), which 2.9 issues solely at task startup or an explicit `EMC_TASK_PLAN_INIT` — never on program open/run, and not on abort (abort's `Synch()` copies the TP's current — leftover — tolerance back INTO the interp). Do not "fix" this by re-defaulting the term cond between programs.
   Also fixed en route: a latent mechanical-port bug in `src/emc/tp/tp.c` (the `emcmotConfig`→getter conversion had corrupted a `tp_debug_print` argument list — compiled out normally, broke `-DTP_DEBUG` builds).
-- **Operator messages lost — PRODUCTION-RELEVANT.** The emcerror WS watch destructively flushes queued messages (`PublishErrorDrain.Flush` in the generated drain) and `pushLoop` (apiserver/ws_handler.go) suppresses byte-identical consecutive payloads — a DEBUG/error message that repeats the previous one within a watch tick is silently destroyed, and with multiple subscribers each message reaches only one of them. Queue semantics need per-connection cursors over a retained seq'd buffer (the `WatchFuncMeta.Factory` hook fits). Test drivers mitigate with 0.3 s pacing + retries (tlo, toolchanger/m61); likely the real cause of interp/oword-mdi-sub-update's "(other)" xfail.
+- **Operator messages lost — PRODUCTION-RELEVANT.** The emcerror WS watch destructively flushes queued messages (`PublishErrorDrain.Flush` in the generated drain) and `pushLoop` (apiserver/ws_handler.go) suppresses byte-identical consecutive payloads — a DEBUG/error message that repeats the previous one within a watch tick is silently destroyed, and with multiple subscribers each message reaches only one of them. Queue semantics need per-connection cursors over a retained seq'd buffer (the `WatchFuncMeta.Factory` hook fits). Test drivers mitigate with 0.3 s pacing + retries (tlo, toolchanger/m61). (Was suspected as the cause of interp/oword-mdi-sub-update's xfail; **disproven 2026-07-19** — that sub's `(print,…)` goes to interp stdout, not the error channel, and it was un-xfailed by capturing the server log (cc06432180). This bug itself remains open.)
 - **`motion-logger` interceptor — DONE (cmod built + 2 tests green).** Implemented as an **interceptor/proxy** cmod (`src/emc/motion-logger/motion_logger_cmod.c` → `cmod/motion-logger.so`): registers `motctl`/`motstat` under its own instance name (milltask's `[EMCMOT]EMCMOT=motion-logger`), looks up the real motmod by `mot_instance=`, logs + forwards every call (real motmod = real motion + real status; no faking). milltask picks it up via a new `[EMCMOT]MOTION_INSTANCE` INI fallback (module.go). Converted + passing via runtests: `tests/motion-logger/{basic,mountaindew}`. Remaining: `tests/interp/m98m99/12`, `tests/abort/*crazy-move` (timing-dependent), and `tests/motion-logger/startup-gcode-abort` (blocked on the STARTUP_CODE gap below). Still TODO (under human review, `GOMC_PORT_SPEC.md` steps 2-3): rewire `tests/milltask-parity` to the interceptor, then **delete the `#ifdef MILLTASK_PARITY_TRACE` `motcmd_trace()` hook from `src/emc/motion/command.c`** so production RT carries no test instrumentation. Known gomc-vs-classic stream diffs (for the parity review): gomc omits `JOG_ABORT` for non-existent joints and the trailing `SET_SPINDLESYNC`; decoded-motctl format differs from the classic raw dump.
 - **FIXED: main-program `M99` now loops in task.** gomc had the `interp_set_loop_on_main_m99` binding (`interp.go:203`) but milltask never called it, so `M99` at main level ended the program instead of looping (classic sets it in `emctask.cc:461`). Added `interp.SetLoopOnMainM99(true)` to milltask `initInterpreter`. (unblocks tests/interp/m98m99/12)
 - **Minor: gomc `rs274` standalone emits extra `ON_RESET()` canon calls** vs the classic dump (one after `SET_FEED_REFERENCE`, two at `PROGRAM_END`). Benign-looking (interp reset lifecycle) but breaks byte-exact `expected` comparison; re-baselined where it appears. Worth a look if canon-call parity matters. (tests/interp/m98m99/12)
@@ -101,9 +109,9 @@ reasons; these are component bugs, not test problems):
 
 - **`conv_float_u32` missing** — comp absent entirely (no cmod, not in registry). (limit3/constraints)
 - **`logic` ignores `personality=`** — only the `.time` pin is created, not the configured and/or/in-NN pins. (loadrt.1)
-- **`stepgen` module-param instance count** — `load stepgen <stepgen.0> step_type="2,2,2"` creates 1 instance, not 3; array module-param count doesn't drive instance count. (modparam.0)
+- **INTENDED gomc model change (not a gap): `stepgen` module-param instance count.** `load stepgen <stepgen.0> step_type="2,2,2"` creates 1 instance, not 3 — gomc has no array module params and derives instance count **solely from the explicit name list**, by design (the same call already used for `num_chan=`/`count=`, which were converted to name lists). A scalar module param is applied identically to every named instance. modparam.0 was rewritten to the gomc idiom (asserts scalar-param *application* via the `.phase-A` pin, `51abb8369b`); it never existed on 2.9. (modparam.0)
 - **`mux_generic` single-instance only** — rejects the classic multi-instance comma config (`mux-gen.NN`); errors `invalid character ',' in config string`. (mux, multiclick)
-- **mb2hal debug output routing** — mb2hal INI-DEBUG dump goes to the server log, not a capturable stdout stream. (mb2hal.1a/2a)
+- **RESOLVED (not a gap): mb2hal debug output routing.** The INI-DEBUG dump was thought unreachable, but the DBG calls DO fire — they route through `gomc_log_debugf` at slog *debug* level, filtered out at the default INFO level. Running the server at `-d 0` surfaces the full dump; the test normalizes the slog wrapper back to the classic `mb2hal <fnct>` form and passes (`c0b7fc6853`). No component change needed. (mb2hal.1a/2a)
 - **one-shot `list`/`show` render nothing to stdout** — the `-f` executor's halparse path doesn't emit list/show output (worked around via resident server + `halcmd`).
 - **INTENDED gomc model change (not a gap):** there is no `singleton` concept and no rt/userspace separation — a single cmod can provide both realtime and userspace behavior. So `option singleton`, `option rtapi_app no` (+ custom `rtapi_app_main`), and userspace `--install` (.c→`bin/`) have no direct modcompile equivalent BY DESIGN. Tests built on those concepts (rtapi-shmem, module-loading/rtapi-app-main-fails, halcompile/userspace-count-names) must be re-evaluated against the single-cmod model, not treated as blocked.
 - **`conv_*` comp family** — FIXED: was unbuilt (generator existed but `CMOD_COMPS` wildcard missed the ungenerated files); wired into the build, all 11 now in `cmod/`. Enables `limit3/constraints`.
@@ -245,7 +253,7 @@ Milltask review closed and merged. Remaining: fault-path parity tests from
 |---|---|
 | internal/classicladder | **Mid-migration/reimplementation** — review after it settles; only lint + `-race` in CI until then |
 | internal/tasktest | Test scaffolding (Tier 3) |
-| cmod/* (motion, tp, homing, components) | Inherited 2.9 C code — algorithm risk low; the **binding boundary** is covered in Phase 1 |
+| cmod/* (motion, tp, homing, components) | Inherited 2.9 C code — algorithm risk low; the **binding boundary** is covered in Phase 1; **RT-correctness** (effects-check, non-blocking) tracked in `RT_HARDENING_CHECKLIST.md` (motmod/tpmod/homemod already verified clean) |
 | panelui, tracking-test, linuxcnclcd, motion logger cmod host, classicladder UI, all UIs except axis, qtvcp/gladevcp | Not (fully) ported — tracked in `MISSING_FEATURES.md` |
 
 ---
@@ -289,7 +297,13 @@ Not per-module; each needs an owner and a done-definition.
 - [ ] **Deployment/rollback** — version stamp visible in UI/logs, defined update procedure,
   rollback path for field prototypes.
 - [ ] **RT/latency validation** — latency-histogram soak test on target hardware; verify Go GC
-  cannot stall any cyclic path.
+  cannot stall any cyclic path. **Instrument ported** (2026-07-19: gomc-native latency-test on
+  branch `latency-test` — C cmod + pthread drainer + `latency.gmi` + Vue/uPlot app; OK on first
+  run). Remaining is the measurement itself: the **24–72 h soak under realistic + adversarial
+  load on target hardware** with a published histogram — see `RT_HARDENING_CHECKLIST.md` §3.
+  The deeper RT-correctness gaps that soak would exercise (deadline-miss → E-stop, effects-check
+  scope, priority headroom) are tracked in `RT_HARDENING_CHECKLIST.md` §0 "Biggest open gaps",
+  not here.
 - [ ] **Fuzzing** — `go fuzz` targets for halparse, inifile, gmicompile parser.
 - [ ] **Surface RCS command errors to clients** — command endpoints return the RCS code
   in-body with HTTP 200 (the cgo bridge flattens the Go error to `-1`), and the gmi python
@@ -447,3 +461,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-09 | milltask review closed, merged (PR #248) |
 | 2026-07-11 | This document created |
 | 2026-07-15 | Tool-change/lifecycle porting sweep complete (`MILLTASK_LIFECYCLE_SWEEP.md`): 13 gaps fixed across milltask/canon/interp/iocontrol/tooltable, 17 tests un-xfailed (G43 Hn, tool tracking, M61, RANDOM_TOOLCHANGER, TOOL_CHANGE_POSITION, abort modal-state restore via restore_from_tag, g5x desync, tool_from_pocket in stat) |
+| 2026-07-19 | Runtests migration complete — 232/232 successful, 0 xfail, 0 skipped (all categories incl. Category D full-instance ported; `runtests.log`). gomc-native latency-test ported (branch `latency-test`), OK on first run — RT/latency soak instrument now in hand (`RT_HARDENING_CHECKLIST.md` §3) |

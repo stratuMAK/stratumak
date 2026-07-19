@@ -19,15 +19,21 @@ See `memory/runtests-only-two-removals`.
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
 
-Current composition (2026-07-15, full run): **232 run / 224 pass / 0 fail / 8 xfail / 0 skipped**
-(10 obsolete module-loading over-limit xfails removed by the gomc-side merge, see §3b).
-The tool-change/lifecycle porting sweep (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests
-(G43 Hn, the whole tool-tracking and RANDOM_TOOLCHANGER clusters, abort modal-state restore,
-statbuffer-g5x-abort); earlier passes had already flipped startup-gcode-abort and the
-on_abort/stop-button crazy-move pair. `scripts/runtests` now wipes each test's `db/` persistence
-before running (interp params / tool table state leaked between runs). The stale-status /
-sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) was un-xfailed 2026-07-15
-(see §3a-history).
+Prior composition (2026-07-15, full run): 232 run / 224 pass / 0 fail / 8 xfail / 0 skipped.
+*(historical — superseded)*
+
+**Final composition (2026-07-19, full run): 232 run / 232 successful / 0 failed / 0 xfail /
+0 skipped** (`../runtests.log`). The suite is fully migrated: every xfail from the 07-15
+snapshot is resolved (§3) and nothing is skipped (§2). Net count held at 232 — `rtapi-shmem`
+was deleted as obsolete-by-design (§2f) while two fault-path tests
+(`abort/estop-while-running`, `abort/seq-fault-recovery`) were added.
+Milestones on the way there: the 07-15 tool-change/lifecycle sweep
+(`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
+RANDOM_TOOLCHANGER clusters, abort modal-state restore, statbuffer-g5x-abort; earlier passes
+had flipped startup-gcode-abort and the on_abort/stop-button crazy-move pair); the
+stale-status / sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) and `abort/g64`
+were un-xfailed 07-15; and `scripts/runtests` wipes each test's `db/` persistence before
+running (interp params / tool table state leaked between runs).
 
 ---
 
@@ -181,19 +187,35 @@ equivalent): remap/predefined-named-params (Python-computed predefined named par
 `yield INTERP_EXECUTE_FINISH` generator body), interp/pymove (direct `emccanon` motion emission from a handler),
 remap/fail/{body-py,canon_error}, interp/{compile,python-self,python/error}, interp/plug/* (canterp).
 
+### 2f. DELETED — key-based `rtapi_shmem_*` API not exposed to cmods (obsolete-by-design)
+
+rtapi-shmem (c383769f80). Was xfailed on an `undefined symbol: rtapi_shmem_delete` dlopen
+failure. That symbol is internal plumbing for hal_lib's single HAL data segment and is
+**deliberately** not exported to components — the cmod environment hands modules RT-safe memory
+via `env->rtapi->calloc` (rtapi_malloc + memset). Exporting the symbol would be the wrong fix.
+Rewriting the cmod to the calloc API would only assert that memset ran (a tautology), so the
+actual contract — the RT-safe allocator returns zeroed memory, and a fresh allocation after a
+dirtied block is freed is again zeroed — is now covered by a Go unit test in
+`internal/hallib/rtapialloc`. Class-(3) removal, same family as the MAX_CHAN/singleton
+removals. **Correctly removed — do not restore.**
+
 ---
 
-## 3. Xfails (8)
+## 3. Xfails (0 — all resolved 2026-07-19)
 
-### 3a. Legit — runnable, fail on a documented gomc bug (`../PRODUCTION_READINESS.md`)
+### 3a. Resolved — the 8 xfails from the 07-15 snapshot (was: "runnable, fail on a documented gomc bug")
 
-| bug | tests |
-|---|---|
-| gmi.Stat client field gaps | startup-state, mdi-queue-length |
-| rtapi_shmem_delete not exported to cmods | rtapi-shmem |
-| stepgen array module-param instance count | modparam.0 |
-| mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} |
-| operator-message loss (emcerror watch: destructive flush + dedup), probable | interp/oword-mdi-sub-update |
+Every entry is now green or removed. Note two of the five originally-blamed "gomc bugs" turned
+out **not** to be real gaps — the xfail premises were wrong (mb2hal, oword-mdi-sub-update), so
+the tests were repaired, not the code.
+
+| former "bug" | test(s) | disposition |
+|---|---|---|
+| gmi.Stat client field gaps | startup-state, mdi-queue-length | ✅ **fixed.** startup-state: gomc now exposes the full boot status surface (optional_stop/block_delete default ON, spindle brake engaged at init) + an opt-in `Stat.machine_units()` inch view (645c941773, 2c0137aedc). mdi-queue-length: milltask now tracks MDI queue depth and gmi.Stat exposes `queued_mdi_commands` — it was XPASSing (cc06432180). |
+| rtapi_shmem_delete not exported to cmods | rtapi-shmem | 🗑 **deleted, obsolete-by-design** (c383769f80) — the symbol must **not** be exported; see §2f. Real contract now a Go unit test in `internal/hallib/rtapialloc`. |
+| stepgen array module-param instance count | modparam.0 | ✅ **not a bug — test rewritten** (51abb8369b). gomc has no array module params and derives instance count solely from the explicit name list, by design (the test never existed on 2.9). Rewritten to assert scalar module-param *application*: three named `step_type=2` instances each export the `.phase-A` pin. |
+| mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} | ✅ **not a gap — test repaired** (c0b7fc6853). The INI-DEBUG DBG calls DO fire; they route through `gomc_log_debugf` at slog *debug* level, filtered out at the default INFO level. Running the server at `-d 0` surfaces the full dump; the test normalizes the slog wrapper back to the classic form. |
+| operator-message loss (emcerror watch), *probable* | interp/oword-mdi-sub-update | ✅ **misattributed — test repaired** (cc06432180). The sub uses `(print, …)`, which the interp emits via `fprintf(stdout)` — it never touches the operator-message/error channel, even in classic. Under gomc that output lands in the server log; the test now cats server.log into stdout and greps `result`. **The operator-message-loss bug is real and still open** (`../PRODUCTION_READINESS.md`) — it just was not the cause of this xfail. |
 
 ### 3a-history-2 (2026-07-16). jog/teleop + joint-mode + limit status (hard-limits, halui/jogging — xfail files removed, tests green)
 
@@ -288,7 +310,7 @@ or handled differently in the single-cmod model. **Correctly removed — do not 
 | threads.0 · threads.1 | ✅ **PASS** — ported: `newthread` fast/slow + `threadtest` counter, captured by `filestream` (gomc has no userspace `halsampler`). threads.0 verifies the 10:1 period-ratio scheduling over 3500 samples; threads.1 verifies per-function `tmax` is nonzero (read via `show param` — gomc `getp` doesn't resolve RW params, noted in PRODUCTION_READINESS). |
 | module-loading/rtapi-app-main-fails | ✅ **PASS** — ported to the cmod/`load` model: a comp fails its init via a failing `EXTRA_SETUP` (`-ERANGE`), and `load` correctly fails (`factory returned error code`). Classic used `option rtapi_app no` + custom `rtapi_app_main`. Note: gomc flattens the errno to `-1` (documented gap). |
 | mdi-queue/simple-queue-buster | ✅ **PASS** — ported to REST/gmi (via `rsh2gmi.py`, M100 captured by `mcode_coord_log format=p`, a new P-only mode). Bulk MDI interleaving `t1 m6`/`t2 m6` tool-change queue-busters with `m100 p<i>`; all 1001 M100s logged in order. gomc's `mdi()` is synchronous so the queue-buster serialises rather than races, but the tool-change-vs-MDI sequencing is exercised. |
-| mdi-queue/oword-queue-buster | ⚠ **xfail** — same port, but the queue-buster is an O-word sub that logs the *current tool* via `m100 p-#5400`; hits the documented M6/#5400 tool-tracking bug (reads `-0` not the tool number). Every other line matches. Flips green with the tool-tracking fix (§3a). |
+| mdi-queue/oword-queue-buster | ✅ **PASS** — the queue-buster is an O-word sub that logs the *current tool* via `m100 p-#5400`; it hit the M6/#5400 tool-tracking bug (read `-0` not the tool number), fixed by the 2026-07-15 lifecycle sweep (§3a-history). Flipped green as predicted. |
 | mqtt | ✅ **PASS** — ported to the `mqtt-bridge` module (`internal/mqttbridge`). Added a `dryrun` load arg + `publish-count` liveness pin (mirroring the classic `mqtt-publisher --dryrun`/`lastpublish`); test drives motion and asserts publish-count advances. Fixed 3 bridge bugs found doing so (nil-INI segfault, double-prefixed pin names, no offline test path) — see PRODUCTION_READINESS. |
 
 ---
