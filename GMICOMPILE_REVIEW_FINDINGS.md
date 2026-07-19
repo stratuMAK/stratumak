@@ -35,6 +35,12 @@ synthesizer independently read the `bridge_go.go` handle-transit emission. Date:
 So the generator is in good shape on the catastrophic classes. The review surfaced **one
 production-relevant live defect** — and it *root-causes a known open bug* to this module.
 
+**STATUS (2026-07-19): G-H1 + G-M1 FIXED** (commit `57c162d2ca`) — the publish drain now emits a
+retained, sequence-numbered, bounded buffer + a per-connection `WatchFactory` (drain hook emits
+`Factory:`), with a runtime multi-subscriber regression test in `internal/publishtest`. The
+`PRODUCTION_READINESS` "Operator messages lost" entry is re-pointed here. Everything else below
+remains open for adjudication (**G-H2** and the type-mapping/duplication + LOW/latent items).
+
 ---
 
 ## HIGH
