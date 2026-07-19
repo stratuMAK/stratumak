@@ -309,7 +309,7 @@ func TestLayoutGalvHmiSelectedOffsets(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi.conf not found: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	aliases, roots, err := ParseTreeWithAliases(f)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestLayoutIdempotencyGalvHmiPadding(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi-padding.conf not found: %v", err)
 	}
-	defer fPad.Close()
+	defer func() { _ = fPad.Close() }()
 
 	roots, err := ParseTree(fPad)
 	if err != nil {

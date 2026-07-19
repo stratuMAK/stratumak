@@ -95,7 +95,7 @@ func goMcodeRegisterHandler(ctx C.uintptr_t, mcode C.int32_t,
 		if err != nil {
 			return -1
 		}
-		defer rfd.Close()
+		defer func() { _ = rfd.Close() }()
 		stop := make(chan struct{})
 		go func() {
 			select {

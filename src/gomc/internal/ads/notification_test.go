@@ -16,8 +16,8 @@ func TestNotifyManagerAddDel(t *testing.T) {
 	st.Register("test.var1", &mockPin{data: []byte{42}, size: 1})
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},
@@ -52,8 +52,8 @@ func TestNotifyManagerCyclicSend(t *testing.T) {
 	st.Register("test.var1", pin)
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},
@@ -125,8 +125,8 @@ func TestNotifyManagerOnChange(t *testing.T) {
 	st.Register("test.var1", pin)
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},

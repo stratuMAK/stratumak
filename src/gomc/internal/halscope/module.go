@@ -414,7 +414,7 @@ func (m *halscope) Configure(config halscopeapi.CaptureConfig) (int32, error) {
 	// Always center trigger at midpoint of buffer (matches original halscope)
 	s.pre_trig = s.rec_len / 2
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -458,7 +458,7 @@ func (m *halscope) SetChannel(ch halscopeapi.ChannelConfig) (int32, error) {
 		s.trig.channel = C.int(ch.Channel)
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -473,7 +473,7 @@ func (m *halscope) ClearChannel(channel int32) (int32, error) {
 	C.memset(unsafe.Pointer(&m.s.channels[channel]), 0,
 		C.size_t(unsafe.Sizeof(m.s.channels[0])))
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -513,7 +513,7 @@ func (m *halscope) SetTrigger(trig halscopeapi.TriggerConfig) (int32, error) {
 		s.trig.auto_trig = 0
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -559,7 +559,7 @@ func (m *halscope) SetContinuous(enabled bool) (int32, error) {
 		C.halscope_atomic_store_int((*C.int)(unsafe.Pointer(&m.s.continuous)), 0, C.memory_order_release)
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -785,6 +785,14 @@ const persistKey = "state"
 
 // saveState writes the current scope configuration to persist.
 // Caller must NOT hold m.mu.
+// saveStateBg persists the scope state in the background, logging any error.
+// Used from API handlers where state saving is best-effort and must not block.
+func (m *halscope) saveStateBg() {
+	if err := m.saveState(); err != nil {
+		m.logger.Warn("halscope: failed to save state", "err", err)
+	}
+}
+
 func (m *halscope) saveState() error {
 	m.mu.Lock()
 	s := m.s

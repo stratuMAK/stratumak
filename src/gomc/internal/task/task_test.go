@@ -206,9 +206,14 @@ func newTestTask() (*Task, *mockMotion, *mockIO) {
 }
 
 // bringUp transitions the task from estop to ON.
-func bringUp(t *Task) {
-	t.SetState(int32(StateEstopReset))
-	t.SetState(int32(StateOn))
+func bringUp(t *testing.T, task *Task) {
+	t.Helper()
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("bringUp SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("bringUp SetState(On): %v", err)
+	}
 }
 
 func TestSetState_PowerOn(t *testing.T) {
@@ -254,7 +259,7 @@ func TestSetMode_AllowedInEstop(t *testing.T) {
 
 func TestSetMode_AutoSetCoord(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("set_mode auto: %v", err)
@@ -289,8 +294,10 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 	t.Run("unhomed->SetFree", func(t *testing.T) {
 		task, mot, _ := newTestTask()
 		task.numJoints = 3 // mockStatus reports all joints unhomed
-		bringUp(task)
-		task.SetMode(int32(ModeAuto))
+		bringUp(t, task)
+		if err := task.SetMode(int32(ModeAuto)); err != nil {
+			t.Fatalf("SetMode(Auto): %v", err)
+		}
 
 		if err := task.SetMode(int32(ModeManual)); err != nil {
 			t.Fatalf("SetMode(Manual): %v", err)
@@ -304,8 +311,10 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 		task, mot, _ := newTestTask()
 		task.status = &homedStatus{homed: 3}
 		task.numJoints = 3
-		bringUp(task)
-		task.SetMode(int32(ModeAuto))
+		bringUp(t, task)
+		if err := task.SetMode(int32(ModeAuto)); err != nil {
+			t.Fatalf("SetMode(Auto): %v", err)
+		}
 
 		if err := task.SetMode(int32(ModeManual)); err != nil {
 			t.Fatalf("SetMode(Manual): %v", err)
@@ -327,7 +336,7 @@ func TestJog_RequiresOn(t *testing.T) {
 
 func TestJog_ManualMode(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Jog(JogContinuous, true, 0, 100, 0); err != nil {
 		t.Fatalf("jog: %v", err)
@@ -339,8 +348,10 @@ func TestJog_ManualMode(t *testing.T) {
 
 func TestJog_MDIBusyRejects(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeMDI))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
 	task.interpState = InterpReading
 
 	err := task.Jog(JogContinuous, true, 0, 100, 0)
@@ -358,7 +369,7 @@ func TestJog_MDIBusyRejects(t *testing.T) {
 // happened and the run path ran), NOT ErrWrongMode (rejected in manual).
 func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	err := task.AutoCommand(AutoRun, 0)
 	if !errors.Is(err, ErrNoProgram) {
@@ -368,8 +379,10 @@ func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
 
 func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	// Simulate interpreter busy.
 	task.mu.Lock()
@@ -385,8 +398,10 @@ func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
 
 func TestAutoCommand_RunRequiresProgram(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	err := task.AutoCommand(AutoRun, 0)
 	if !errors.Is(err, ErrNoProgram) {
@@ -396,8 +411,10 @@ func TestAutoCommand_RunRequiresProgram(t *testing.T) {
 
 func TestAutoCommand_PauseCallsMotion(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 	// Simulate an actively running program so pause is meaningful (C10 gates
 	// pause on the interpreter actually reading).
 	task.mu.Lock()
@@ -417,8 +434,10 @@ func TestAutoCommand_PauseCallsMotion(t *testing.T) {
 // wedging programBusy() until Abort/E-stop) and must not call motion.Pause.
 func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	if err := task.AutoCommand(AutoPause, 0); err != nil {
 		t.Fatalf("auto pause: %v", err)
@@ -441,7 +460,7 @@ func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
 
 func TestFlood_On(t *testing.T) {
 	task, _, io := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Flood(true); err != nil {
 		t.Fatalf("flood on: %v", err)
@@ -469,7 +488,7 @@ func TestAbort_AlwaysSucceeds(t *testing.T) {
 
 func TestSpindle_Forward(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, 0, 0); err != nil {
 		t.Fatalf("spindle fwd: %v", err)
@@ -484,7 +503,7 @@ func TestSpindle_Forward(t *testing.T) {
 // count is rejected by the authoritative task-layer check.
 func TestSpindle_BroadcastAndRange(t *testing.T) {
 	task, mot, _ := newTestTask() // numSpindles = 1
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, -1, 0); err != nil {
 		t.Fatalf("broadcast spindle (-1) rejected: %v", err)
@@ -506,7 +525,7 @@ func TestSpindle_BroadcastAndRange(t *testing.T) {
 
 func TestProgramOpen_AnyModeAnyState(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	// Works in MANUAL mode (no mode guard)
 	if err := task.ProgramOpen("test.ngc"); err != nil {
@@ -517,7 +536,9 @@ func TestProgramOpen_AnyModeAnyState(t *testing.T) {
 	}
 
 	// Also works in AUTO
-	task.SetMode(int32(ModeAuto))
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 	if err := task.ProgramOpen("test2.ngc"); err != nil {
 		t.Fatalf("program_open in AUTO: %v", err)
 	}
@@ -534,7 +555,7 @@ func TestHome_RequiresOn(t *testing.T) {
 
 func TestHome_CallsMotion(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Home(0); err != nil {
 		t.Fatalf("home: %v", err)

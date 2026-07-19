@@ -49,7 +49,7 @@ func TestWatchSubscribeReceivesUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{
@@ -130,7 +130,7 @@ func TestWatchCommandCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Call echo
 	call := wsCall{
@@ -225,7 +225,7 @@ func TestWatchUnsubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: "fast", RateMS: 20}
@@ -291,7 +291,7 @@ func TestWatchServerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "demo", Instance: "default", Func: "get_status", RateMS: 50}
@@ -355,7 +355,7 @@ func TestWatchConcurrentSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe to both
 	for _, fn := range []string{"fast", "slow"} {
@@ -453,7 +453,7 @@ func TestWatchResubscribeNoStaleSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Fire generations subscribes back-to-back, each with an increasing gen.
 	for gen := 1; gen <= generations; gen++ {

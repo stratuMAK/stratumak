@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -254,25 +255,36 @@ func (h *iniHal) initPins(t *Task) {
 }
 
 // check reads all pin values and pushes changes to the motion controller.
-// Called periodically from the task cycle.
-func (h *iniHal) check(mc MotionConfig) {
+// Called periodically from the task cycle. Any setter failures are joined and
+// returned so the caller can log them: a silently-dropped push would leave the
+// machine running with limits/velocities that disagree with the HAL pins.
+func (h *iniHal) check(mc MotionConfig) error {
+	var errs []error
 	// Traj velocity/acceleration
 	if v := h.trajDefaultVel.Get(); !floatClose(v, h.old.trajDefaultVel) {
 		h.old.trajDefaultVel = v
-		mc.SetVel(v)
+		if err := mc.SetVel(v); err != nil {
+			errs = append(errs, fmt.Errorf("set traj default vel: %w", err))
+		}
 	}
 	if v := h.trajMaxVel.Get(); !floatClose(v, h.old.trajMaxVel) {
 		h.old.trajMaxVel = v
-		mc.SetVelLimit(v)
+		if err := mc.SetVelLimit(v); err != nil {
+			errs = append(errs, fmt.Errorf("set traj max vel: %w", err))
+		}
 	}
 	if v := h.trajDefaultAcc.Get(); !floatClose(v, h.old.trajDefaultAcc) {
 		h.old.trajDefaultAcc = v
-		mc.SetAcc(v)
+		if err := mc.SetAcc(v); err != nil {
+			errs = append(errs, fmt.Errorf("set traj default acc: %w", err))
+		}
 	}
 	if v := h.trajMaxAcc.Get(); !floatClose(v, h.old.trajMaxAcc) {
 		h.old.trajMaxAcc = v
 		// SetAcc covers both default and max in motctl
-		mc.SetAcc(v)
+		if err := mc.SetAcc(v); err != nil {
+			errs = append(errs, fmt.Errorf("set traj max acc: %w", err))
+		}
 	}
 
 	// Arc blend — check any change, then push all at once.
@@ -285,35 +297,51 @@ func (h *iniHal) check(mc MotionConfig) {
 		joint := int32(i)
 		if v := h.jointBacklash[i].Get(); !floatClose(v, h.old.jointBacklash[i]) {
 			h.old.jointBacklash[i] = v
-			mc.SetJointBacklash(joint, v)
+			if err := mc.SetJointBacklash(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d backlash: %w", i, err))
+			}
 		}
 		if v := h.jointMinLimit[i].Get(); !floatClose(v, h.old.jointMinLimit[i]) {
 			h.old.jointMinLimit[i] = v
-			mc.SetJointPositionLimits(joint, v, h.old.jointMaxLimit[i])
+			if err := mc.SetJointPositionLimits(joint, v, h.old.jointMaxLimit[i]); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d position limits: %w", i, err))
+			}
 		}
 		if v := h.jointMaxLimit[i].Get(); !floatClose(v, h.old.jointMaxLimit[i]) {
 			h.old.jointMaxLimit[i] = v
-			mc.SetJointPositionLimits(joint, h.old.jointMinLimit[i], v)
+			if err := mc.SetJointPositionLimits(joint, h.old.jointMinLimit[i], v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d position limits: %w", i, err))
+			}
 		}
 		if v := h.jointMaxVel[i].Get(); !floatClose(v, h.old.jointMaxVel[i]) {
 			h.old.jointMaxVel[i] = v
-			mc.SetJointVelLimit(joint, v)
+			if err := mc.SetJointVelLimit(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d vel limit: %w", i, err))
+			}
 		}
 		if v := h.jointMaxAcc[i].Get(); !floatClose(v, h.old.jointMaxAcc[i]) {
 			h.old.jointMaxAcc[i] = v
-			mc.SetJointAccLimit(joint, v)
+			if err := mc.SetJointAccLimit(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d acc limit: %w", i, err))
+			}
 		}
 		if v := h.jointMaxJerk[i].Get(); !floatClose(v, h.old.jointMaxJerk[i]) {
 			h.old.jointMaxJerk[i] = v
-			mc.SetJointJerkLimit(joint, v)
+			if err := mc.SetJointJerkLimit(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d jerk limit: %w", i, err))
+			}
 		}
 		if v := h.jointFerror[i].Get(); !floatClose(v, h.old.jointFerror[i]) {
 			h.old.jointFerror[i] = v
-			mc.SetJointMaxFerror(joint, v)
+			if err := mc.SetJointMaxFerror(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d max ferror: %w", i, err))
+			}
 		}
 		if v := h.jointMinFerror[i].Get(); !floatClose(v, h.old.jointMinFerror[i]) {
 			h.old.jointMinFerror[i] = v
-			mc.SetJointMinFerror(joint, v)
+			if err := mc.SetJointMinFerror(joint, v); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d min ferror: %w", i, err))
+			}
 		}
 		// Home/offset/sequence — any change pushes all three
 		newHome := h.jointHome[i].Get()
@@ -329,8 +357,10 @@ func (h *iniHal) check(mc MotionConfig) {
 			// flags, volatile-home) instead of zeros — otherwise a runtime HAL
 			// home change would wipe them and break homing.
 			hp := h.jointHoming[i]
-			mc.SetJointHomingParams(joint, newOffset, newHome,
-				hp.finalVel, hp.searchVel, hp.latchVel, hp.flags, newSeq, hp.volatileHome)
+			if err := mc.SetJointHomingParams(joint, newOffset, newHome,
+				hp.finalVel, hp.searchVel, hp.latchVel, hp.flags, newSeq, hp.volatileHome); err != nil {
+				errs = append(errs, fmt.Errorf("set joint %d homing params: %w", i, err))
+			}
 		}
 	}
 
@@ -339,27 +369,37 @@ func (h *iniHal) check(mc MotionConfig) {
 		axis := int32(i)
 		if v := h.axisMinLimit[i].Get(); !floatClose(v, h.old.axisMinLimit[i]) {
 			h.old.axisMinLimit[i] = v
-			mc.SetAxisPositionLimits(axis, v, h.old.axisMaxLimit[i])
+			if err := mc.SetAxisPositionLimits(axis, v, h.old.axisMaxLimit[i]); err != nil {
+				errs = append(errs, fmt.Errorf("set axis %d position limits: %w", i, err))
+			}
 		}
 		if v := h.axisMaxLimit[i].Get(); !floatClose(v, h.old.axisMaxLimit[i]) {
 			h.old.axisMaxLimit[i] = v
-			mc.SetAxisPositionLimits(axis, h.old.axisMinLimit[i], v)
+			if err := mc.SetAxisPositionLimits(axis, h.old.axisMinLimit[i], v); err != nil {
+				errs = append(errs, fmt.Errorf("set axis %d position limits: %w", i, err))
+			}
 		}
 		if v := h.axisMaxVel[i].Get(); !floatClose(v, h.old.axisMaxVel[i]) {
 			h.old.axisMaxVel[i] = v
-			mc.SetAxisVelLimit(axis, v, 0)
+			if err := mc.SetAxisVelLimit(axis, v, 0); err != nil {
+				errs = append(errs, fmt.Errorf("set axis %d vel limit: %w", i, err))
+			}
 		}
 		if v := h.axisMaxAcc[i].Get(); !floatClose(v, h.old.axisMaxAcc[i]) {
 			h.old.axisMaxAcc[i] = v
-			mc.SetAxisAccLimit(axis, v, 0)
+			if err := mc.SetAxisAccLimit(axis, v, 0); err != nil {
+				errs = append(errs, fmt.Errorf("set axis %d acc limit: %w", i, err))
+			}
 		}
 	}
+	return errors.Join(errs...)
 }
 
-// exit shuts down the HAL component.
+// exit shuts down the HAL component. Exit is best-effort teardown; a failure
+// here cannot be recovered from and does not affect correctness of shutdown.
 func (h *iniHal) exit() {
 	if h.comp != nil {
-		h.comp.Exit()
+		_ = h.comp.Exit()
 	}
 }
 

@@ -191,7 +191,9 @@ func TestGomodToGomodMultipleInstances(t *testing.T) {
 func TestGomodToGomodErrorPropagation(t *testing.T) {
 	reg := apiserver.NewRegistry()
 	store := newMemoryStore()
-	registerItemAPI(reg, "store", store)
+	if err := registerItemAPI(reg, "store", store); err != nil {
+		t.Fatalf("registerItemAPI: %v", err)
+	}
 	api, _ := getItemAPI(reg, "store")
 
 	// GetItem on non-existent should return ENOENT
@@ -201,7 +203,9 @@ func TestGomodToGomodErrorPropagation(t *testing.T) {
 	}
 
 	// CreateItem duplicate should return EEXIST
-	api.CreateItem("foo", 1.0)
+	if _, err := api.CreateItem("foo", 1.0); err != nil {
+		t.Fatalf("CreateItem(foo): %v", err)
+	}
 	_, err = api.CreateItem("foo", 2.0)
 	if !errors.Is(err, syscall.EEXIST) {
 		t.Errorf("CreateItem(duplicate): got %v, want EEXIST", err)
@@ -226,7 +230,9 @@ func TestGomodToGomodLookupNotFound(t *testing.T) {
 func TestGomodToGomodVersionMismatch(t *testing.T) {
 	reg := apiserver.NewRegistry()
 	store := newMemoryStore()
-	registerItemAPI(reg, "store", store)
+	if err := registerItemAPI(reg, "store", store); err != nil {
+		t.Fatalf("registerItemAPI: %v", err)
+	}
 
 	// Try to get with wrong version
 	_, err := reg.GetAPIUntracked("items", "store", 2)

@@ -374,7 +374,9 @@ func newHalUI(compName string, numJoints, numSpindles int, axisMask int32, mdiCo
 		return nil, err
 	}
 
-	comp.Ready()
+	if err := comp.Ready(); err != nil {
+		return nil, fmt.Errorf("halui component ready: %w", err)
+	}
 	return h, nil
 }
 
@@ -1008,10 +1010,11 @@ func risingEdge(new, old bool) bool {
 	return new && !old
 }
 
-// exit releases the HAL component.
+// exit releases the HAL component. Exit is best-effort teardown; a failure here
+// cannot be recovered from and does not affect correctness of shutdown.
 func (h *halUI) exit() {
 	if h.comp != nil {
-		h.comp.Exit()
+		_ = h.comp.Exit()
 	}
 }
 

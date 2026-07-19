@@ -85,7 +85,9 @@ func (m *module) Destroy() {
 	defer m.mu.Unlock()
 	for i := range m.handles {
 		if m.handles[i].db != nil {
-			m.handles[i].db.Close()
+			if err := m.handles[i].db.Close(); err != nil {
+				m.logger.Warn("persist_sqlite: close db on destroy", "namespace", m.handles[i].namespace, "err", err)
+			}
 			m.handles[i].db = nil
 		}
 	}
@@ -140,11 +142,11 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		return nil, fmt.Errorf("open %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set WAL on %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set busy_timeout on %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS entries (
@@ -152,7 +154,7 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		value   TEXT NOT NULL DEFAULT '',
 		updated INTEGER NOT NULL DEFAULT 0
 	)`); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("create table in %s: %w", dbPath, err)
 	}
 
@@ -205,7 +207,7 @@ func (m *module) GetEntries(handle int32) ([]persist.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var entries []persist.Entry
 	for rows.Next() {
 		var e persist.Entry
@@ -281,7 +283,7 @@ func (m *module) SetEntries(handle int32, entries []persist.Entry) (*persist.Set
 	if err != nil {
 		return &persist.SetResult{Ok: false}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
 	now := time.Now().Unix()
 	stmt, err := tx.Prepare(
 		`INSERT INTO entries (key, value, updated) VALUES (?, ?, ?)
@@ -289,7 +291,7 @@ func (m *module) SetEntries(handle int32, entries []persist.Entry) (*persist.Set
 	if err != nil {
 		return &persist.SetResult{Ok: false}, err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	for _, e := range entries {
 		ts := e.Updated
 		if ts == 0 {
@@ -313,11 +315,16 @@ func (m *module) DeleteAll(handle int32) (*persist.DeleteResult, error) {
 		return &persist.DeleteResult{Ok: false}, err
 	}
 	// Close the DB, remove files.
-	h.db.Close()
-	dbPath := filepath.Join(m.dbDir, h.namespace+".db")
-	os.Remove(dbPath)
-	os.Remove(dbPath + "-wal")
-	os.Remove(dbPath + "-shm")
+	if err := h.db.Close(); err != nil {
+		return &persist.DeleteResult{Ok: false}, fmt.Errorf("close %s before delete: %w", h.namespace, err)
+	}
 	h.db = nil
+	dbPath := filepath.Join(m.dbDir, h.namespace+".db")
+	// The -wal/-shm sidecars may legitimately not exist; ignore their removal errors.
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
+	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		return &persist.DeleteResult{Ok: false}, fmt.Errorf("remove %s: %w", dbPath, err)
+	}
 	return &persist.DeleteResult{Ok: true, Count: 1}, nil
 }

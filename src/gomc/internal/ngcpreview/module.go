@@ -838,7 +838,9 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 	iniDir := filepath.Dir(ini.SourceFile())
 	allowedDirs := collectAllowedDirs(nsIni, iniDir)
 	m := &ngcPreview{logger: logger, name: name, linearUnits: linearUnits, ttInstanceName: ttInst, persistInstanceName: persistInst, allowedDirs: allowedDirs}
-	ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m)
+	if err := ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m); err != nil {
+		return nil, fmt.Errorf("ngcpreview: register API: %w", err)
+	}
 	logger.Info("ngcpreview module loaded and API registered", "instance", name)
 	return m, nil
 }

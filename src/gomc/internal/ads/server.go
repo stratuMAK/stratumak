@@ -91,7 +91,7 @@ func (s *Server) Stop() {
 	}
 	s.connsMu.Lock()
 	for conn := range s.conns {
-		conn.Close()
+		_ = conn.Close()
 	}
 	s.connsMu.Unlock()
 	done := make(chan struct{})
@@ -128,7 +128,7 @@ func (s *Server) acceptLoop() {
 // handleConn processes all AMS packets from a single TCP connection.
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	s.connsMu.Lock()
 	s.conns[conn] = struct{}{}
@@ -193,7 +193,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		// Stage 2: longer read deadline for the AMS payload. Once the TCP header
 		// has arrived, we know the client is actively sending; a longer timeout
 		// handles TCP fragmentation and slow networks.
-		conn.SetReadDeadline(time.Now().Add(amsDataReadTimeout))
+		// A SetReadDeadline failure implies a broken conn; the ReadFull below
+		// then surfaces the error, so it is safe to ignore here.
+		_ = conn.SetReadDeadline(time.Now().Add(amsDataReadTimeout))
 
 		amsData := make([]byte, amsLen)
 		if _, err := io.ReadFull(conn, amsData); err != nil {

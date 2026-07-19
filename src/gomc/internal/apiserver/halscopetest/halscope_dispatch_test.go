@@ -160,7 +160,7 @@ func get(t *testing.T, ts *httptest.Server, path string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -171,7 +171,7 @@ func post(t *testing.T, ts *httptest.Server, path, jsonBody string) (int, []byte
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -186,7 +186,7 @@ func delete_(t *testing.T, ts *httptest.Server, path string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("DELETE %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -301,7 +301,9 @@ func TestClearChannel(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.SampleLen != 0 {
 		t.Errorf("expected sample_len=0 after clear, got %d", st.SampleLen)
 	}
@@ -318,7 +320,9 @@ func TestArmAndReset(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 1 {
 		t.Errorf("expected state=1 (ARMED), got %d", st.State)
 	}
@@ -329,7 +333,9 @@ func TestArmAndReset(t *testing.T) {
 	}
 
 	_, body = get(t, ts, "/status")
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 0 {
 		t.Errorf("expected state=0 (IDLE) after reset, got %d", st.State)
 	}
@@ -347,7 +353,9 @@ func TestConfigure(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.RecLen != 8000 {
 		t.Errorf("expected rec_len=8000, got %d", st.RecLen)
 	}
@@ -368,7 +376,9 @@ func TestSetTrigger(t *testing.T) {
 	}
 
 	var result int32
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if result != 0 {
 		t.Errorf("expected result=0, got %d", result)
 	}
@@ -402,7 +412,9 @@ func TestFullCaptureWorkflow(t *testing.T) {
 
 	_, body := get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 1 {
 		t.Errorf("expected state=1 (ARMED), got %d", st.State)
 	}
@@ -427,7 +439,9 @@ func TestFullCaptureWorkflow(t *testing.T) {
 	}
 
 	_, body = get(t, ts, "/status")
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 0 {
 		t.Errorf("expected state=0, got %d", st.State)
 	}

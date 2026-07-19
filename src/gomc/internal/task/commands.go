@@ -1472,7 +1472,10 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 			return
 		}
 		if rc == InterpEndfile || rc == InterpExit {
-			t.EnqueueCmd(&interpDoneCmd{})
+			// Best-effort completion signal: if the sequencer was aborted
+			// concurrently the enqueue fails, but recoverSeqFault/the abort
+			// select already own teardown (see recoverSeqFault doc).
+			_ = t.EnqueueCmd(&interpDoneCmd{})
 			return
 		}
 
@@ -1497,7 +1500,9 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		case InterpExecuteFinish:
 			// Interpreter says "wait for motion/IO to complete before
 			// continuing" (tool change, probe, dwell, M-code, etc.)
-			t.EnqueueCmd(waitForMotionSingleton)
+			// Best-effort: an enqueue failure means the sequencer aborted, which
+			// waitSequencerDrain detects below and returns on.
+			_ = t.EnqueueCmd(waitForMotionSingleton)
 			// Wait for sequencer to drain before reading next line
 			if t.waitSequencerDrain() {
 				return // aborted
@@ -1507,7 +1512,8 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 				t.logger.Error("interp synch after execute_finish", "err", err)
 			}
 		case InterpExit:
-			t.EnqueueCmd(&interpDoneCmd{})
+			// Best-effort completion signal (see the InterpEndfile case above).
+			_ = t.EnqueueCmd(&interpDoneCmd{})
 			return
 		case InterpError:
 			t.logger.Error("interpreter error", "rc", rc)

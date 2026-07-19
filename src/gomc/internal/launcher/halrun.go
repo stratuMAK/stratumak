@@ -139,7 +139,7 @@ func (l *Launcher) halrunExecuteFile(halFile string) error {
 	if err != nil {
 		return fmt.Errorf("opening HAL file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

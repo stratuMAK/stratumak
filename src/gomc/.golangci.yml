@@ -24,21 +24,10 @@ linters:
         - -QF*
         # Redundant type on := in tests reads fine and is common here.
         - -ST1023
-    errcheck:
-      # Cleanup-path calls whose error we deliberately ignore. Everything else
-      # must be checked (or explicitly assigned to _ with a reason).
-      exclude-functions:
-        - (io.Closer).Close
-        - (*os.File).Close
-        - (net.Conn).Close
-        - (*database/sql.DB).Close
-        - (*database/sql.Stmt).Close
-        - (*database/sql.Rows).Close
-        - (*database/sql.Tx).Rollback
-        - os.Remove
-        - os.RemoveAll
-        - os.Setenv
-        - os.Unsetenv
+    # No errcheck exclude-functions: every ignored error is explicit at the
+    # call site (`_ = f()` or a real check), never suppressed globally. In
+    # particular this keeps write-path Close() errors visible (a blanket
+    # (*os.File).Close exclude would silently hide a failed flush).
   exclusions:
     generated: lax
     paths:

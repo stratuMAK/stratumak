@@ -133,7 +133,9 @@ func (m *monitor) loop() {
 			}
 			m.checkJogWatchdog()
 			if m.inihal != nil {
-				m.inihal.check(m.mc)
+				if err := m.inihal.check(m.mc); err != nil {
+					m.task.logger.Warn("inihal parameter push failed", "err", err)
+				}
 			}
 		}
 	}

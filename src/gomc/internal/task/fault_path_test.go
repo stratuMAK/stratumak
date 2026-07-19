@@ -107,7 +107,7 @@ func TestFaultMDI_RunsOnAbortAbortsIOAndSpindle(t *testing.T) {
 	}
 	task.SetInterpreter(ri)
 
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
@@ -311,7 +311,7 @@ func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
 	}
 	task.SetInterpreter(ri)
 
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
@@ -425,7 +425,7 @@ func TestMDI_UnderLatchedErrorClearsIt(t *testing.T) {
 	ri := &recordingInterp{}
 	task.SetInterpreter(ri)
 
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
@@ -492,7 +492,7 @@ func TestFaultProgram_RunsOnAbortNoIOAbort(t *testing.T) {
 	ri := &recordingInterp{}
 	task.SetInterpreter(ri)
 
-	bringUp(task)
+	bringUp(t, task)
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 

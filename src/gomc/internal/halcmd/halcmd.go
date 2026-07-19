@@ -645,11 +645,15 @@ func Save(halType string, filename string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("save: cannot open %q: %w", filename, err)
 		}
-		defer f.Close()
 		for _, line := range lines {
 			if _, err := fmt.Fprintln(f, line); err != nil {
+				_ = f.Close()
 				return nil, fmt.Errorf("save: write error: %w", err)
 			}
+		}
+		// Check the write-file Close so a deferred/flush error is not lost.
+		if err := f.Close(); err != nil {
+			return nil, fmt.Errorf("save: closing %q: %w", filename, err)
 		}
 		return nil, nil
 	}

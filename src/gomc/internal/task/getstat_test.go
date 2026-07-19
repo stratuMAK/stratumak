@@ -97,9 +97,15 @@ func newRichTestTask() (*Task, *richMockStatus) {
 
 func TestGetStat_TaskState(t *testing.T) {
 	task, _ := newRichTestTask()
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
-	task.SetMode(int32(ModeMDI))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
 
 	stat := task.BuildStat()
 
@@ -116,7 +122,7 @@ func TestGetStat_TaskState(t *testing.T) {
 
 func TestGetStat_MotionFields(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	stat := task.BuildStat()
 
@@ -148,7 +154,7 @@ func TestGetStat_MotionFields(t *testing.T) {
 
 func TestGetStat_Positions(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	// Tool offset is reported from the canon (task) side, not motion status —
 	// gomc folds it into coordinate math and never sends it to motion. Set it
@@ -179,7 +185,7 @@ func TestGetStat_Positions(t *testing.T) {
 
 func TestGetStat_Joints(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	stat := task.BuildStat()
 
@@ -235,7 +241,7 @@ func TestGetStat_Joints(t *testing.T) {
 
 func TestGetStat_Axes(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	stat := task.BuildStat()
 
@@ -268,7 +274,7 @@ func TestGetStat_Axes(t *testing.T) {
 
 func TestGetStat_Spindle(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	stat := task.BuildStat()
 
@@ -298,7 +304,7 @@ func TestGetStat_Spindle(t *testing.T) {
 
 func TestGetStat_ScalarFields(t *testing.T) {
 	task, _ := newRichTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	stat := task.BuildStat()
 

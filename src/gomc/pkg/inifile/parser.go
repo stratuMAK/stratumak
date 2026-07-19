@@ -42,7 +42,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("inifile: opening %q: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	dir := filepath.Dir(filename)
 	var currentSection *Section
@@ -344,11 +344,15 @@ func ParseString(content string) (*IniFile, error) {
 		return nil, fmt.Errorf("inifile: creating temp file: %w", err)
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if _, err := f.WriteString(content); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("inifile: writing temp file: %w", err)
 	}
-	f.Close()
+	// Close the write file before reading it back, so an unflushed-write error
+	// surfaces rather than being masked as a parse failure.
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("inifile: closing temp file: %w", err)
+	}
 	return Parse(name)
 }

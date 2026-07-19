@@ -43,7 +43,7 @@ func ReadFile(path string) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var reg Registry
 	scanner := bufio.NewScanner(f)
@@ -195,7 +195,7 @@ func ReadConfIn(path string, enabledFlags map[string]bool) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var reg Registry
 	scanner := bufio.NewScanner(f)

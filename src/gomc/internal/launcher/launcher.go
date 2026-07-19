@@ -134,7 +134,9 @@ func (l *Launcher) Run() (runErr error) {
 	// Export INI file path and config directory so that child processes
 	// (linuxcncsvr, iocontrol, task, etc.) can find the configuration.
 	// These must be set before realtime is started.
-	l.setConfigEnv()
+	if err := l.setConfigEnv(); err != nil {
+		return err
+	}
 
 	// M7: Single deferred cleanup replaces individual defers.
 	// cleanup() is idempotent (sync.Once) so it is also safe to call from
@@ -183,7 +185,9 @@ func (l *Launcher) Run() (runErr error) {
 	if effectiveIni != l.opts.IniFile {
 		l.logger.Info("INI file expanded", "original", l.opts.IniFile, "expanded", effectiveIni)
 		l.opts.IniFile = effectiveIni
-		l.setConfigEnv()
+		if err := l.setConfigEnv(); err != nil {
+			return err
+		}
 	}
 
 	// Change to the INI file's directory so that relative paths in the INI
@@ -357,11 +361,16 @@ func (l *Launcher) resolveRelativePath(path string) string {
 // so that child processes (linuxcncsvr, iocontrol, task, etc.) can find the
 // configuration.  It is called both at initial startup and again after INI
 // include expansion (which may change the effective path).
-func (l *Launcher) setConfigEnv() {
+func (l *Launcher) setConfigEnv() error {
 	if l.opts.IniFile != "" {
-		os.Setenv("INI_FILE_NAME", l.opts.IniFile)
-		os.Setenv("CONFIG_DIR", filepath.Dir(l.opts.IniFile))
+		if err := os.Setenv("INI_FILE_NAME", l.opts.IniFile); err != nil {
+			return fmt.Errorf("setting INI_FILE_NAME: %w", err)
+		}
+		if err := os.Setenv("CONFIG_DIR", filepath.Dir(l.opts.IniFile)); err != nil {
+			return fmt.Errorf("setting CONFIG_DIR: %w", err)
+		}
 	}
+	return nil
 }
 
 // initHalibPath computes the HAL library search path from the compile-time

@@ -87,13 +87,13 @@ func newMQTTBridge(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 	// Create bridge (pins + MQTT wiring).
 	b, err := newBridge(comp, name, cfg, logger, parseDryrunArg(args))
 	if err != nil {
-		comp.Exit()
+		_ = comp.Exit()
 		return nil, fmt.Errorf("mqtt-bridge %q: %w", name, err)
 	}
 
 	// Mark HAL component ready.
 	if err := comp.Ready(); err != nil {
-		comp.Exit()
+		_ = comp.Exit()
 		return nil, fmt.Errorf("mqtt-bridge %q: hal ready: %w", name, err)
 	}
 

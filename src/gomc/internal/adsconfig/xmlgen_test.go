@@ -87,7 +87,7 @@ func TestGenerateXMLGalvHmi(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi.conf not found: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	aliases, roots, err := ParseTreeWithAliases(f)
 	if err != nil {
@@ -126,7 +126,7 @@ func TestLayoutConsistencyGalvHmi(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi.conf not found: %v", err)
 	}
-	defer fConf.Close()
+	defer func() { _ = fConf.Close() }()
 
 	confAliases, confRoots, err := ParseTreeWithAliases(fConf)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestLayoutConsistencyGalvHmi(t *testing.T) {
 	if err != nil {
 		t.Skipf("DISPLAY_DATA.xml not found: %v", err)
 	}
-	defer fXML.Close()
+	defer func() { _ = fXML.Close() }()
 
 	xmlRoots, err := parseXMLToNodes(fXML)
 	if err != nil {
@@ -683,7 +683,7 @@ func TestGenerateXMLEnumGalvHmiEnums(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi.conf not found: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	aliases, roots, err := ParseTreeWithAliases(f)
 	if err != nil {
@@ -835,7 +835,7 @@ func TestGenerateXMLStructGalvHmi(t *testing.T) {
 	if err != nil {
 		t.Skipf("galv-hmi.conf not found: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	aliases, roots, err := ParseTreeWithAliases(f)
 	if err != nil {

@@ -240,7 +240,7 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var lines []string
 	scanner := bufio.NewScanner(f)
@@ -250,7 +250,7 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	f.Close()
+	_ = f.Close()
 
 	// Apply updates.
 	for lineNum, newVal := range lineUpdates {
@@ -272,18 +272,23 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
+	// bufio.Writer errors are sticky and surface at Flush; the write-file
+	// Close is checked explicitly so a failed final flush/close is not lost.
 	w := bufio.NewWriter(out)
 	for i, line := range lines {
-		w.WriteString(line)
+		_, _ = w.WriteString(line)
 		if i < len(lines)-1 {
-			w.WriteByte('\n')
+			_ = w.WriteByte('\n')
 		}
 	}
 	// Preserve trailing newline if original had one.
-	w.WriteByte('\n')
-	return w.Flush()
+	_ = w.WriteByte('\n')
+	if err := w.Flush(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // replaceINIValue replaces the value portion of a "KEY = VALUE" line,

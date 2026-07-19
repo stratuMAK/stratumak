@@ -452,7 +452,7 @@ func loadJointComp(joint int32, file string, compType int, setComp func(joint in
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	n := 0
 	sc := bufio.NewScanner(f)

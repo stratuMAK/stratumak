@@ -19,8 +19,10 @@ func TestAutoCommand_ReverseForwardCallMotion(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			task, mot, _ := newTestTask()
-			bringUp(task)
-			task.SetMode(int32(ModeAuto))
+			bringUp(t, task)
+			if err := task.SetMode(int32(ModeAuto)); err != nil {
+				t.Fatalf("SetMode(Auto): %v", err)
+			}
 
 			if err := task.AutoCommand(tc.cmd, 0); err != nil {
 				t.Fatalf("AutoCommand(%s): %v", tc.name, err)

@@ -91,7 +91,7 @@ func (m *testModule) Start() error {
 		results := h.runAll()
 		m.done <- results.report(m.logger)
 		// Signal the launcher to shut down after tests complete.
-		syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}()
 	return nil
 }

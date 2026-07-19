@@ -242,7 +242,7 @@ func waitExecState(task *Task, want ExecState, d time.Duration) bool {
 // (rather than waiting ~1 s of real ticks).
 func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 	task, mot, io, stat, ep := newMonitorTestTask()
-	bringUp(task) // estop-reset -> on
+	bringUp(t, task) // estop-reset -> on
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
@@ -306,8 +306,12 @@ func TestMonitor_ExternalEstop(t *testing.T) {
 	_ = stat
 
 	// Bring machine to ON state.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	// Start monitor.
@@ -485,7 +489,9 @@ func TestMonitor_MachineOff_EstopSilent(t *testing.T) {
 	task, mot, io, _, ep := newMonitorTestTask()
 
 	// Bring machine to EstopReset (machine off but not in estop).
-	task.SetState(int32(StateEstopReset))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
 
 	task.mu.Lock()
 	if task.state != StateEstopReset {
@@ -544,8 +550,12 @@ func TestMonitor_MotionError(t *testing.T) {
 	stat.setEnabled(1)
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
@@ -588,8 +598,12 @@ func TestMonitor_MotionDisabled(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
 	stat.setEnabled(0) // motion reports itself disabled (no command error injected)
 
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
@@ -618,8 +632,12 @@ func TestMonitor_SoftLimit(t *testing.T) {
 	task, _, io, stat, ep := newMonitorTestTask()
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
@@ -670,8 +688,12 @@ func TestMonitor_IOError(t *testing.T) {
 	stat.setEnabled(1) // keep checkMotionEnabled quiet — the abort must come from the IO fault
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
@@ -708,8 +730,12 @@ func TestMonitor_IOSoftFault_NoAbort(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
 	stat.setEnabled(1)
 
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
@@ -745,7 +771,7 @@ func TestMonitor_EstopDetectionWhileCmdMuHeld(t *testing.T) {
 	task, mot, io, _, _ := newMonitorTestTask()
 	task.StartSequencer()
 	defer task.StopSequencer()
-	bringUp(task)
+	bringUp(t, task)
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()

@@ -213,7 +213,7 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("websocket accept failed", "error", err)
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
@@ -434,7 +434,7 @@ func (c *wsConn) handleCall(call wsCall) {
 
 	result, err := cmdMeta.Handler(call.Args)
 	if err != nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: err.Error(),
@@ -442,7 +442,7 @@ func (c *wsConn) handleCall(call wsCall) {
 		return
 	}
 
-	c.writeJSON(wsResult{
+	_ = c.writeJSON(wsResult{
 		Type: "result",
 		ID:   call.ID,
 		Data: result,

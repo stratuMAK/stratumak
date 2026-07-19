@@ -187,7 +187,7 @@ func TestSetState_EstopWhileEstoppedKeepsSequencerAlive(t *testing.T) {
 	task.noForceHoming = true
 	task.numSpindles = 1
 
-	bringUp(task) // estop-reset → on
+	bringUp(t, task) // estop-reset → on
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
@@ -242,11 +242,11 @@ func TestMDI_InterpErrorAbortsMotionAndFaults(t *testing.T) {
 		// Block 1 of the MDI queues motion; a later block hits a runtime error.
 		// Enqueue to `task` directly (not the process-global activeCanon), which
 		// a leaked goroutine from a prior test could swap.
-		task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+		_ = task.EnqueueCmd(&LinearMoveCmd{ID: 1})
 		return InterpError, nil
 	}
 	task.SetInterpreter(fi)
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
@@ -352,7 +352,7 @@ func TestFinishMDI_FailedDequeuedMDIFlushesQueue(t *testing.T) {
 		return InterpOK, nil
 	}
 	task.SetInterpreter(fi)
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}

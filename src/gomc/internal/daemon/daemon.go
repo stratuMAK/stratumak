@@ -29,7 +29,7 @@ func IsChild() bool {
 func Daemonize(pidFile string) error {
 	if IsChild() {
 		// We are the child — remove the sentinel and continue.
-		os.Unsetenv(envSentinel)
+		_ = os.Unsetenv(envSentinel)
 		return writePidFile(pidFile)
 	}
 
@@ -68,7 +68,7 @@ func writePidFile(path string) error {
 
 // RemovePidFile removes the PID file on clean shutdown.
 func RemovePidFile(path string) {
-	os.Remove(path)
+	_ = os.Remove(path)
 }
 
 // RedirectStdio redirects stdin, stdout, stderr to /dev/null (for daemon mode).
@@ -79,10 +79,10 @@ func RedirectStdio() error {
 	}
 	for _, fd := range []int{int(os.Stdin.Fd()), int(os.Stdout.Fd()), int(os.Stderr.Fd())} {
 		if err := syscall.Dup2(int(devNull.Fd()), fd); err != nil {
-			devNull.Close()
+			_ = devNull.Close()
 			return fmt.Errorf("daemon: redirecting fd %d to /dev/null: %w", fd, err)
 		}
 	}
-	devNull.Close()
+	_ = devNull.Close()
 	return nil
 }

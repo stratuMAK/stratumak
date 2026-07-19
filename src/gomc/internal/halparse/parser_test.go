@@ -1012,8 +1012,8 @@ func TestSubstituteVars(t *testing.T) {
 	})
 
 	t.Run("env var $VARNAME", func(t *testing.T) {
-		os.Setenv("HAL_TEST_VAR", "testvalue")
-		defer os.Unsetenv("HAL_TEST_VAR")
+		_ = os.Setenv("HAL_TEST_VAR", "testvalue")
+		defer func() { _ = os.Unsetenv("HAL_TEST_VAR") }()
 		result := substituteVars("val=$HAL_TEST_VAR", ini)
 		if result != "val=testvalue" {
 			t.Errorf("got %q, want %q", result, "val=testvalue")
@@ -1021,8 +1021,8 @@ func TestSubstituteVars(t *testing.T) {
 	})
 
 	t.Run("env var ${VARNAME}", func(t *testing.T) {
-		os.Setenv("HAL_TEST_VAR2", "enclosed")
-		defer os.Unsetenv("HAL_TEST_VAR2")
+		_ = os.Setenv("HAL_TEST_VAR2", "enclosed")
+		defer func() { _ = os.Unsetenv("HAL_TEST_VAR2") }()
 		result := substituteVars("val=${HAL_TEST_VAR2}", ini)
 		if result != "val=enclosed" {
 			t.Errorf("got %q, want %q", result, "val=enclosed")
@@ -1030,7 +1030,7 @@ func TestSubstituteVars(t *testing.T) {
 	})
 
 	t.Run("missing env var replaced with empty string", func(t *testing.T) {
-		os.Unsetenv("HAL_DEFINITELY_NOT_SET_XYZ")
+		_ = os.Unsetenv("HAL_DEFINITELY_NOT_SET_XYZ")
 		result := substituteVars("val=$HAL_DEFINITELY_NOT_SET_XYZ", ini)
 		if result != "val=" {
 			t.Errorf("got %q, want %q", result, "val=")
@@ -1038,8 +1038,8 @@ func TestSubstituteVars(t *testing.T) {
 	})
 
 	t.Run("multiple substitutions on one line", func(t *testing.T) {
-		os.Setenv("HAL_MULTI_TEST", "42")
-		defer os.Unsetenv("HAL_MULTI_TEST")
+		_ = os.Setenv("HAL_MULTI_TEST", "42")
+		defer func() { _ = os.Unsetenv("HAL_MULTI_TEST") }()
 		result := substituteVars("[EMC]DEBUG $HAL_MULTI_TEST", ini)
 		if result != "0 42" {
 			t.Errorf("got %q, want %q", result, "0 42")
@@ -1512,7 +1512,7 @@ func TestMultiFileParser_TemplateRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	content := `{{- $n := atoi (ini "TEST" "COUNT") -}}
 {{- range $i := count $n}}
 setp axis.{{$i}}.scale 100
@@ -1521,7 +1521,9 @@ setp axis.{{$i}}.scale 100
 	if _, err := tmp.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := mp.Parse([]string{tmp.Name()})
 	if err != nil {

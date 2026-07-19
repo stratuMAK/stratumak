@@ -45,7 +45,7 @@ func (s *Server) handleStreamUpgrade(w http.ResponseWriter, r *http.Request, ser
 	delete(s.streamConns, sc)
 	s.streamMu.Unlock()
 
-	conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(websocket.StatusNormalClosure, "")
 	cancel()
 }
 

@@ -201,7 +201,7 @@ const waitTimeout = 500 * time.Millisecond
 
 // ensureEstop puts the machine in ESTOP state.
 func (h *testHarness) ensureEstop() {
-	h.setState(int32(emcstat.TaskState_ESTOP))
+	_, _ = h.setState(int32(emcstat.TaskState_ESTOP))
 	time.Sleep(settle)
 }
 
@@ -212,38 +212,38 @@ func (h *testHarness) ensureOn() {
 		return
 	}
 	if stat.Task.State == emcstat.TaskState_ESTOP {
-		h.setState(int32(emcstat.TaskState_ESTOP_RESET))
-		h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
+		_, _ = h.setState(int32(emcstat.TaskState_ESTOP_RESET))
+		_ = h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
 	}
 	if stat.Task.State == emcstat.TaskState_OFF {
-		h.setState(int32(emcstat.TaskState_ON))
-		h.waitForState(emcstat.TaskState_ON, waitTimeout)
-		h.waitForMotionEnabled(waitTimeout)
+		_, _ = h.setState(int32(emcstat.TaskState_ON))
+		_ = h.waitForState(emcstat.TaskState_ON, waitTimeout)
+		_ = h.waitForMotionEnabled(waitTimeout)
 		return
 	}
-	h.setState(int32(emcstat.TaskState_ON))
-	h.waitForState(emcstat.TaskState_ON, waitTimeout)
-	h.waitForMotionEnabled(waitTimeout)
+	_, _ = h.setState(int32(emcstat.TaskState_ON))
+	_ = h.waitForState(emcstat.TaskState_ON, waitTimeout)
+	_ = h.waitForMotionEnabled(waitTimeout)
 }
 
 // ensureManual brings machine ON in MANUAL mode.
 func (h *testHarness) ensureManual() {
 	h.ensureOn()
-	h.setMode(int32(emcstat.TaskMode_MANUAL))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MANUAL))
 	time.Sleep(settle)
 }
 
 // ensureAuto brings machine ON in AUTO mode.
 func (h *testHarness) ensureAuto() {
 	h.ensureOn()
-	h.setMode(int32(emcstat.TaskMode_AUTO))
+	_, _ = h.setMode(int32(emcstat.TaskMode_AUTO))
 	time.Sleep(settle)
 }
 
 // ensureMdi brings machine ON in MDI mode.
 func (h *testHarness) ensureMdi() {
 	h.ensureOn()
-	h.setMode(int32(emcstat.TaskMode_MDI))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MDI))
 	time.Sleep(settle)
 }
 
@@ -260,27 +260,27 @@ func (h *testHarness) ensureHomed() {
 	}
 	if !allHomed {
 		// ESTOP cycle ensures clean state for homing
-		h.setState(int32(emcstat.TaskState_ESTOP))
+		_, _ = h.setState(int32(emcstat.TaskState_ESTOP))
 		time.Sleep(settle)
-		h.setState(int32(emcstat.TaskState_ESTOP_RESET))
-		h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
-		h.setState(int32(emcstat.TaskState_ON))
-		h.waitForState(emcstat.TaskState_ON, waitTimeout)
-		h.setMode(int32(emcstat.TaskMode_MANUAL))
+		_, _ = h.setState(int32(emcstat.TaskState_ESTOP_RESET))
+		_ = h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
+		_, _ = h.setState(int32(emcstat.TaskState_ON))
+		_ = h.waitForState(emcstat.TaskState_ON, waitTimeout)
+		_, _ = h.setMode(int32(emcstat.TaskMode_MANUAL))
 		time.Sleep(settle)
-		h.teleopEnable(false) // free mode required for homing
+		_, _ = h.teleopEnable(false) // free mode required for homing
 		time.Sleep(settle)
 		for j := int32(0); j < 3; j++ {
-			h.home(j)
+			_, _ = h.home(j)
 		}
 		for j := 0; j < 3; j++ {
-			h.waitForHomed(j, 5*time.Second)
+			_ = h.waitForHomed(j, 5*time.Second)
 		}
 	}
 	// Always ensure MANUAL mode + teleop enabled
-	h.setMode(int32(emcstat.TaskMode_MANUAL))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MANUAL))
 	time.Sleep(settle)
-	h.teleopEnable(true)
+	_, _ = h.teleopEnable(true)
 	time.Sleep(settle)
 }
 
@@ -368,8 +368,8 @@ func (h *testHarness) testStateOffFromOn(r *testResults) {
 func (h *testHarness) testStateOnFromOff(r *testResults) {
 	const name = "state/on_from_off"
 	h.ensureOn()
-	h.setState(int32(emcstat.TaskState_OFF))
-	h.waitForState(emcstat.TaskState_OFF, waitTimeout)
+	_, _ = h.setState(int32(emcstat.TaskState_OFF))
+	_ = h.waitForState(emcstat.TaskState_OFF, waitTimeout)
 
 	rc, err := h.setState(int32(emcstat.TaskState_ON))
 	if err != nil || !isOK(rc) {
@@ -387,8 +387,8 @@ func (h *testHarness) testStateDoubleEstopReset(r *testResults) {
 	const name = "state/double_estop_reset"
 	h.ensureEstop()
 
-	h.setState(int32(emcstat.TaskState_ESTOP_RESET))
-	h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
+	_, _ = h.setState(int32(emcstat.TaskState_ESTOP_RESET))
+	_ = h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
 
 	// Second ESTOP_RESET should be harmless
 	rc, err := h.setState(int32(emcstat.TaskState_ESTOP_RESET))
@@ -430,7 +430,7 @@ func (h *testHarness) testModeSwitchManualAutoMdi(r *testResults) {
 	const name = "mode/manual_auto_mdi_cycle"
 	h.ensureOn()
 
-	h.setMode(int32(emcstat.TaskMode_AUTO))
+	_, _ = h.setMode(int32(emcstat.TaskMode_AUTO))
 	time.Sleep(settle)
 	stat, _ := h.getStat()
 	if stat.Task.Mode != emcstat.TaskMode_AUTO {
@@ -438,7 +438,7 @@ func (h *testHarness) testModeSwitchManualAutoMdi(r *testResults) {
 		return
 	}
 
-	h.setMode(int32(emcstat.TaskMode_MDI))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MDI))
 	time.Sleep(settle)
 	stat, _ = h.getStat()
 	if stat.Task.Mode != emcstat.TaskMode_MDI {
@@ -446,7 +446,7 @@ func (h *testHarness) testModeSwitchManualAutoMdi(r *testResults) {
 		return
 	}
 
-	h.setMode(int32(emcstat.TaskMode_MANUAL))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MANUAL))
 	time.Sleep(settle)
 	stat, _ = h.getStat()
 	if stat.Task.Mode != emcstat.TaskMode_MANUAL {
@@ -546,10 +546,10 @@ func (h *testHarness) testMotionEnabledAfterOn(r *testResults) {
 func (h *testHarness) testMotionDisabledAfterEstop(r *testResults) {
 	const name = "motion/disabled_after_estop"
 	h.ensureOn()
-	h.waitForMotionEnabled(waitTimeout)
+	_ = h.waitForMotionEnabled(waitTimeout)
 
-	h.setState(int32(emcstat.TaskState_ESTOP))
-	h.waitForState(emcstat.TaskState_ESTOP, waitTimeout)
+	_, _ = h.setState(int32(emcstat.TaskState_ESTOP))
+	_ = h.waitForState(emcstat.TaskState_ESTOP, waitTimeout)
 	time.Sleep(settle)
 
 	stat, _ := h.getStat()
@@ -563,7 +563,7 @@ func (h *testHarness) testMotionDisabledAfterEstop(r *testResults) {
 func (h *testHarness) testMotionCoordInAuto(r *testResults) {
 	const name = "motion/coord_in_auto"
 	h.ensureOn()
-	h.setMode(int32(emcstat.TaskMode_AUTO))
+	_, _ = h.setMode(int32(emcstat.TaskMode_AUTO))
 
 	if err := h.waitForMotionMode(emcstat.TrajMode_COORD, waitTimeout); err != nil {
 		stat, _ := h.getStat()
@@ -576,10 +576,10 @@ func (h *testHarness) testMotionCoordInAuto(r *testResults) {
 func (h *testHarness) testMotionFreeInManual(r *testResults) {
 	const name = "motion/free_in_manual"
 	h.ensureOn()
-	h.setMode(int32(emcstat.TaskMode_AUTO))
-	h.waitForMotionMode(emcstat.TrajMode_COORD, waitTimeout)
+	_, _ = h.setMode(int32(emcstat.TaskMode_AUTO))
+	_ = h.waitForMotionMode(emcstat.TrajMode_COORD, waitTimeout)
 
-	h.setMode(int32(emcstat.TaskMode_MANUAL))
+	_, _ = h.setMode(int32(emcstat.TaskMode_MANUAL))
 	time.Sleep(settle)
 
 	stat, _ := h.getStat()
@@ -612,7 +612,7 @@ func (h *testHarness) testMotionTeleopEnable(r *testResults) {
 func (h *testHarness) testMotionTeleopDisable(r *testResults) {
 	const name = "motion/teleop_disable"
 	h.ensureManual()
-	h.teleopEnable(true)
+	_, _ = h.teleopEnable(true)
 	time.Sleep(settle)
 
 	rc, err := h.teleopEnable(false)
@@ -637,7 +637,7 @@ func (h *testHarness) testJogContinuousInManual(r *testResults) {
 	const name = "jog/continuous_in_manual"
 	h.ensureHomed()
 	h.ensureManual()
-	h.teleopEnable(true)
+	_, _ = h.teleopEnable(true)
 	time.Sleep(200 * time.Millisecond)
 
 	// Record position before jog
@@ -653,7 +653,7 @@ func (h *testHarness) testJogContinuousInManual(r *testResults) {
 
 	// Position should have changed
 	stat, _ := h.getStat()
-	h.jogStop(0)
+	_, _ = h.jogStop(0)
 	time.Sleep(settle)
 
 	moved := stat.Position.X - statBefore.Position.X
@@ -669,7 +669,7 @@ func (h *testHarness) testJogIncrementalInManual(r *testResults) {
 	const name = "jog/incremental_in_manual"
 	h.ensureHomed()
 	h.ensureManual()
-	h.teleopEnable(true) // teleop needed for incremental jog
+	_, _ = h.teleopEnable(true) // teleop needed for incremental jog
 	time.Sleep(settle)
 
 	// Record position before
@@ -683,7 +683,7 @@ func (h *testHarness) testJogIncrementalInManual(r *testResults) {
 	}
 
 	// Wait for motion to complete
-	h.waitForInPosition(2 * time.Second)
+	_ = h.waitForInPosition(2 * time.Second)
 	stat, _ := h.getStat()
 
 	// Position should have moved ~1mm from starting point
@@ -699,11 +699,11 @@ func (h *testHarness) testJogStopInManual(r *testResults) {
 	const name = "jog/stop_in_manual"
 	h.ensureHomed()
 	h.ensureManual()
-	h.teleopEnable(true)
+	_, _ = h.teleopEnable(true)
 	time.Sleep(settle)
 
 	// Start jog
-	h.jog(int32(1), 0, 10.0, 0)
+	_, _ = h.jog(int32(1), 0, 10.0, 0)
 	time.Sleep(50 * time.Millisecond)
 
 	// Stop jog
@@ -714,7 +714,7 @@ func (h *testHarness) testJogStopInManual(r *testResults) {
 	}
 
 	// Wait for deceleration
-	h.waitForInPosition(waitTimeout)
+	_ = h.waitForInPosition(waitTimeout)
 	time.Sleep(200 * time.Millisecond)
 
 	// Get position, wait, check it's stable
@@ -766,8 +766,8 @@ func (h *testHarness) testJogRejectedInAuto(r *testResults) {
 func (h *testHarness) testJogRejectedWhenDisabled(r *testResults) {
 	const name = "jog/rejected_when_disabled"
 	h.ensureEstop()
-	h.setState(int32(emcstat.TaskState_ESTOP_RESET))
-	h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
+	_, _ = h.setState(int32(emcstat.TaskState_ESTOP_RESET))
+	_ = h.waitForState(emcstat.TaskState_ESTOP_RESET, waitTimeout)
 	// Machine is in ESTOP_RESET (not ON) — motion should be disabled
 
 	rc, _ := h.jog(int32(1), 0, 100.0, 0)
@@ -789,7 +789,7 @@ func (h *testHarness) testHomeJoint(r *testResults) {
 	h.ensureEstop()
 	h.ensureOn()
 	h.ensureManual()
-	h.teleopEnable(false)
+	_, _ = h.teleopEnable(false)
 	time.Sleep(settle)
 
 	rc, err := h.home(0)
@@ -813,7 +813,7 @@ func (h *testHarness) testHomeAllJoints(r *testResults) {
 	h.ensureEstop()
 	h.ensureOn()
 	h.ensureManual()
-	h.teleopEnable(false)
+	_, _ = h.teleopEnable(false)
 	time.Sleep(settle)
 
 	// Home all 3 joints (with settle between to avoid races)
@@ -860,7 +860,7 @@ func (h *testHarness) testRehomeAlreadyHomed(r *testResults) {
 	const name = "homing/rehome_already_homed"
 	h.ensureHomed()
 	h.ensureManual()
-	h.teleopEnable(false)
+	_, _ = h.teleopEnable(false)
 	time.Sleep(settle)
 
 	// Re-home joint 0 (already homed) — should either succeed or be a no-op
@@ -923,7 +923,7 @@ func (h *testHarness) testProgramRun(r *testResults) {
 	const name = "program/run"
 	h.ensureHomed()
 	h.ensureAuto()
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	rc, err := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
 	if err != nil || !isOK(rc) {
@@ -931,7 +931,7 @@ func (h *testHarness) testProgramRun(r *testResults) {
 		return
 	}
 	// Wait for interpreter to be ready after open
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	// Record position before run
 	statBefore, _ := h.getStat()
@@ -998,7 +998,7 @@ func (h *testHarness) testProgramPauseResume(r *testResults) {
 	time.Sleep(settle)
 
 	// Run
-	h.autoCmd(int32(0), 0) // AUTO_RUN
+	_, _ = h.autoCmd(int32(0), 0) // AUTO_RUN
 	time.Sleep(100 * time.Millisecond)
 
 	// Pause
@@ -1036,17 +1036,17 @@ func (h *testHarness) testProgramPauseResume(r *testResults) {
 	}
 
 	// Wait for completion
-	h.waitForInterpState(emcstat.InterpState_IDLE, 10*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 10*time.Second)
 	r.pass(name)
 }
 
 func (h *testHarness) testProgramStep(r *testResults) {
 	const name = "program/step"
-	h.abort()
+	_, _ = h.abort()
 	time.Sleep(settle)
 	h.ensureHomed()
 	h.ensureAuto()
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	rc, _ := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
 	if !isOK(rc) {
@@ -1123,12 +1123,12 @@ func (h *testHarness) testProgramRunRequiresFileOpen(r *testResults) {
 func (h *testHarness) testMdiExecute(r *testResults) {
 	const name = "mdi/execute_g0"
 	h.ensureHomed()
-	h.abort() // ensure clean state — cancel any in-progress motion from previous tests
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
-	h.waitForInPosition(5 * time.Second)
+	_, _ = h.abort() // ensure clean state — cancel any in-progress motion from previous tests
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInPosition(5 * time.Second)
 	h.ensureMdi()
 	// Wait for interpreter to be idle before sending MDI
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	rc, err := h.mdi("G0 X5")
 	if err != nil || !isOK(rc) {
@@ -1137,7 +1137,7 @@ func (h *testHarness) testMdiExecute(r *testResults) {
 	}
 
 	// Wait for MDI to complete: interp idle + motion done
-	h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
 	// Give motion enough time to execute and report final position
 	time.Sleep(2 * time.Second)
 
@@ -1195,7 +1195,7 @@ func (h *testHarness) testSpindleForward(r *testResults) {
 	const name = "spindle/forward"
 	h.ensureHomed()
 	h.ensureMdi()
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	// Use MDI to start spindle (emccmd spindle may not work in all modes)
 	rc, err := h.mdi("M3 S1000")
@@ -1203,7 +1203,7 @@ func (h *testHarness) testSpindleForward(r *testResults) {
 		r.fail(name, fmt.Sprintf("mdi(M3 S1000): rc=%d err=%v", rc, err))
 		return
 	}
-	h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
 	time.Sleep(200 * time.Millisecond)
 
 	stat, _ := h.getStat()
@@ -1232,7 +1232,7 @@ func (h *testHarness) testSpindleReverse(r *testResults) {
 	const name = "spindle/reverse"
 	h.ensureHomed()
 	h.ensureMdi()
-	h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
 	// Use MDI to start spindle reverse
 	rc, err := h.mdi("M4 S500")
@@ -1240,7 +1240,7 @@ func (h *testHarness) testSpindleReverse(r *testResults) {
 		r.fail(name, fmt.Sprintf("mdi(M4 S500): rc=%d err=%v", rc, err))
 		return
 	}
-	h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
+	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 5*time.Second)
 	time.Sleep(200 * time.Millisecond)
 
 	stat, _ := h.getStat()
@@ -1272,7 +1272,7 @@ func (h *testHarness) testSpindleReverse(r *testResults) {
 func (h *testHarness) testSpindleStop(r *testResults) {
 	const name = "spindle/stop"
 	h.ensureOn()
-	h.spindle(int32(1), 1000.0) // start
+	_, _ = h.spindle(int32(1), 1000.0) // start
 	time.Sleep(settle)
 
 	rc, err := h.spindle(int32(0), 0) // SPINDLE_OFF
@@ -1293,7 +1293,7 @@ func (h *testHarness) testSpindleStop(r *testResults) {
 func (h *testHarness) testSpindleSpeedChange(r *testResults) {
 	const name = "spindle/speed_change"
 	h.ensureOn()
-	h.spindle(int32(1), 1000.0)
+	_, _ = h.spindle(int32(1), 1000.0)
 	time.Sleep(settle)
 
 	// Change speed
@@ -1310,7 +1310,7 @@ func (h *testHarness) testSpindleSpeedChange(r *testResults) {
 		return
 	}
 
-	h.spindle(int32(0), 0) // cleanup
+	_, _ = h.spindle(int32(0), 0) // cleanup
 	r.pass(name)
 }
 
@@ -1356,7 +1356,7 @@ func (h *testHarness) testFloodOn(r *testResults) {
 func (h *testHarness) testFloodOff(r *testResults) {
 	const name = "coolant/flood_off"
 	h.ensureOn()
-	h.flood(true)
+	_, _ = h.flood(true)
 	time.Sleep(settle)
 
 	rc, err := h.flood(false)
@@ -1396,7 +1396,7 @@ func (h *testHarness) testMistOn(r *testResults) {
 func (h *testHarness) testMistOff(r *testResults) {
 	const name = "coolant/mist_off"
 	h.ensureOn()
-	h.mist(true)
+	_, _ = h.mist(true)
 	time.Sleep(settle)
 
 	rc, err := h.mist(false)
@@ -1467,7 +1467,7 @@ func (h *testHarness) testFeedOverride(r *testResults) {
 		return
 	}
 
-	h.setFeedOverride(1.0) // restore
+	_, _ = h.setFeedOverride(1.0) // restore
 	r.pass(name)
 }
 
@@ -1488,7 +1488,7 @@ func (h *testHarness) testFeedOverrideZero(r *testResults) {
 		return
 	}
 
-	h.setFeedOverride(1.0) // restore
+	_, _ = h.setFeedOverride(1.0) // restore
 	r.pass(name)
 }
 
@@ -1509,7 +1509,7 @@ func (h *testHarness) testFeedOverrideMax(r *testResults) {
 		return
 	}
 
-	h.setFeedOverride(1.0) // restore
+	_, _ = h.setFeedOverride(1.0) // restore
 	r.pass(name)
 }
 
@@ -1530,7 +1530,7 @@ func (h *testHarness) testRapidOverride(r *testResults) {
 		return
 	}
 
-	h.setRapidOverride(1.0) // restore
+	_, _ = h.setRapidOverride(1.0) // restore
 	r.pass(name)
 }
 
@@ -1555,7 +1555,7 @@ func (h *testHarness) testSpindleOverride(r *testResults) {
 		return
 	}
 
-	h.setSpindleOverride(1.0, 0) // restore
+	_, _ = h.setSpindleOverride(1.0, 0) // restore
 	r.pass(name)
 }
 
@@ -1604,7 +1604,7 @@ func (h *testHarness) testOptionalStopOn(r *testResults) {
 func (h *testHarness) testOptionalStopOff(r *testResults) {
 	const name = "option/optional_stop_off"
 	h.ensureOn()
-	h.setOptionalStop(true)
+	_, _ = h.setOptionalStop(true)
 	time.Sleep(settle)
 
 	rc, err := h.setOptionalStop(false)
@@ -1644,7 +1644,7 @@ func (h *testHarness) testBlockDeleteOn(r *testResults) {
 func (h *testHarness) testBlockDeleteOff(r *testResults) {
 	const name = "option/block_delete_off"
 	h.ensureOn()
-	h.setBlockDelete(true)
+	_, _ = h.setBlockDelete(true)
 	time.Sleep(settle)
 
 	rc, err := h.setBlockDelete(false)
@@ -1696,7 +1696,7 @@ func (h *testHarness) testAbortDuringMdi(r *testResults) {
 	h.ensureMdi()
 
 	// Start a long MDI move
-	h.mdi("G1 X100 F10") // slow move — will take a while
+	_, _ = h.mdi("G1 X100 F10") // slow move — will take a while
 	time.Sleep(100 * time.Millisecond)
 
 	// Abort mid-move

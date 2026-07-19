@@ -121,9 +121,11 @@ func TestSequencer_AbortClearsQueue(t *testing.T) {
 	task.StartSequencer()
 
 	// Enqueue a command that waits for motion + more commands behind it
-	task.EnqueueCmd(waitForMotionSingleton)
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
-	task.EnqueueCmd(&LinearMoveCmd{ID: 2})
+	for _, cmd := range []QueuedCmd{waitForMotionSingleton, &LinearMoveCmd{ID: 1}, &LinearMoveCmd{ID: 2}} {
+		if err := task.EnqueueCmd(cmd); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
 
 	// Give sequencer time to start waiting
 	time.Sleep(5 * time.Millisecond)
@@ -173,9 +175,11 @@ func TestSequencer_ErrorStopsExecution(t *testing.T) {
 	seqDone := task.seqDone
 	task.mu.Unlock()
 
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
-	task.EnqueueCmd(&LinearMoveCmd{ID: 2})
-	task.EnqueueCmd(&LinearMoveCmd{ID: 3})
+	for i := 1; i <= 3; i++ {
+		if err := task.EnqueueCmd(&LinearMoveCmd{ID: int32(i)}); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
 
 	// Wait for sequencer to stop on error
 	<-seqDone
@@ -208,8 +212,11 @@ func TestSequencer_WaitForMotion(t *testing.T) {
 	task.StartSequencer()
 
 	// Queue: WaitForMotion, then a linear move
-	task.EnqueueCmd(waitForMotionSingleton)
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
+	for _, cmd := range []QueuedCmd{waitForMotionSingleton, &LinearMoveCmd{ID: 1}} {
+		if err := task.EnqueueCmd(cmd); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
 
 	// Sequencer should be stuck waiting for motion
 	time.Sleep(5 * time.Millisecond)
@@ -250,7 +257,9 @@ func TestPreconditionDrainsBeforeCommand(t *testing.T) {
 	task.StartSequencer()
 
 	// A dwell queued behind the drain must not start until motion is in position.
-	task.EnqueueCmd(&DwellCmd{Seconds: 0}) // Precondition drains first
+	if err := task.EnqueueCmd(&DwellCmd{Seconds: 0}); err != nil { // Precondition drains first
+		t.Fatalf("enqueue dwell: %v", err)
+	}
 	time.Sleep(3 * time.Millisecond)
 	task.mu.Lock()
 	exec := task.execState
@@ -270,7 +279,9 @@ func TestSequencer_Dwell(t *testing.T) {
 	task.StartSequencer()
 
 	start := time.Now()
-	task.EnqueueCmd(&DwellCmd{Seconds: 0.01}) // 10ms dwell
+	if err := task.EnqueueCmd(&DwellCmd{Seconds: 0.01}); err != nil { // 10ms dwell
+		t.Fatalf("enqueue dwell: %v", err)
+	}
 	task.DrainQueue()
 	elapsed := time.Since(start)
 
@@ -286,10 +297,16 @@ func TestSequencer_MixedCommands(t *testing.T) {
 
 	task.StartSequencer()
 
-	task.EnqueueCmd(&SpindleOnCmd{Spindle: 0, Speed: 1000})
-	task.EnqueueCmd(&LinearMoveCmd{ID: 1})
-	task.EnqueueCmd(&LinearMoveCmd{ID: 2})
-	task.EnqueueCmd(&SpindleOffCmd{Spindle: 0})
+	for _, cmd := range []QueuedCmd{
+		&SpindleOnCmd{Spindle: 0, Speed: 1000},
+		&LinearMoveCmd{ID: 1},
+		&LinearMoveCmd{ID: 2},
+		&SpindleOffCmd{Spindle: 0},
+	} {
+		if err := task.EnqueueCmd(cmd); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
 
 	task.DrainQueue()
 

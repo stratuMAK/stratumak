@@ -120,8 +120,8 @@ MACHINE = Test
 
 	// Ensure DISPLAY is not set so we exercise the no-display error path.
 	origDisplay := os.Getenv("DISPLAY")
-	os.Unsetenv("DISPLAY")
-	defer func() { os.Setenv("DISPLAY", origDisplay) }()
+	_ = os.Unsetenv("DISPLAY")
+	defer func() { _ = os.Setenv("DISPLAY", origDisplay) }()
 
 	err := l.checkVersion()
 	if err == nil {

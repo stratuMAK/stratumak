@@ -37,7 +37,9 @@ func WriteExpanded(filename string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("inifile: creating expanded file %q: %w", outPath, err)
 	}
-	defer f.Close()
+	// Data integrity is covered by the checked w.Flush() below (which removes
+	// the file on error); this fd close after a successful flush is best-effort.
+	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
 	// Writes to a bufio.Writer record a sticky error surfaced by the checked
@@ -67,7 +69,7 @@ func fileHasIncludes(filename string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -91,7 +93,7 @@ func writeExpanded(w *bufio.Writer, filename string, visited map[string]bool) er
 	if err != nil {
 		return fmt.Errorf("inifile: opening %q: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	dir := filepath.Dir(filename)
 	scanner := bufio.NewScanner(f)
@@ -120,7 +122,7 @@ func writeExpanded(w *bufio.Writer, filename string, visited map[string]bool) er
 			return fmt.Errorf("inifile: resolving #INCLUDE path %q: %w", rest, err)
 		}
 
-		fmt.Fprintf(w, "\n#*** Begin #INCLUDE file: %s\n", incAbs)
+		_, _ = fmt.Fprintf(w, "\n#*** Begin #INCLUDE file: %s\n", incAbs)
 
 		// Use a copy of visited so sibling includes don't block each other.
 		visited2 := make(map[string]bool, len(visited))
@@ -131,7 +133,7 @@ func writeExpanded(w *bufio.Writer, filename string, visited map[string]bool) er
 			return err
 		}
 
-		fmt.Fprintf(w, "#*** End   #INCLUDE file: %s\n", incAbs)
+		_, _ = fmt.Fprintf(w, "#*** End   #INCLUDE file: %s\n", incAbs)
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("inifile: reading %q: %w", filename, err)
