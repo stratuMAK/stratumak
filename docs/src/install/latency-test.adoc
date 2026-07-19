@@ -55,16 +55,23 @@ and run the following command:
 latency-test
 ----
 
-This will start the latency test with a base-thread period of 25uS and a
-servo-thread period of 1mS. The period times may be specified on the command
-line:
+This will start the latency test with a single servo-thread of 1mS period.
+The period times may be specified on the command line:
 
 ----
 latency-test 50000 1000000
 ----
 
 This will start the latency test with a base-thread period of 50uS and a
-servo-thread period of 1mS.
+servo-thread period of 1mS (with two bare periods, the shorter is always the
+base-thread).
+
+Threads may also be given explicit names, which appear in the UI thread
+selector, using `NAME:PERIOD` arguments:
+
+----
+latency-test servo:1ms base:25us
+----
 
 For available options, on the command line enter:
 
@@ -123,7 +130,14 @@ The `latency-test` window includes an integrated web-based viewer with a live
 summary, a latency strip-chart and a jitter histogram for each realtime thread,
 so the standalone `latency-plot` and `latency-histogram` tools are no longer
 needed. Run `latency-test --help` for options, including a `--stress` mode that
-loads the system with additional work to expose worst-case latency.
+loads the system with additional work to expose worst-case latency.  The stress
+load is a menu of vectors, each targeting a different latency mechanism (memory
+bandwidth, cache, TLB shootdowns, fork/exec churn, CPU, disk, network, GPU, and
+Go garbage collection).  `--stress` runs them all; `--stress=stream,tlb`
+selects a subset, which is useful for isolating which mechanism a machine is
+sensitive to.  `--stress-only[=LIST]` runs just the load, without a
+server or UI, so an already-running LinuxCNC can be stressed while you watch its
+own latency display.  Most vectors need the `stress-ng` package installed.
 
 == Latency tuning
 

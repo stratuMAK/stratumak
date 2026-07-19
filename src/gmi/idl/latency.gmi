@@ -19,7 +19,8 @@
 # function directly (exact, never lost); mean/stddev/dropped come from the
 # non-RT drainer's aggregate.
 type LatencyStatus {
-    name: string          # HAL component / instance name
+    name: string          # HAL component / instance name (stable API identity)
+    label: string         # human-friendly UI name (label= load option; == name if unset)
     periodNs: i64         # nominal thread period
     samples: i64          # total samples measured (RT)
     lastNs: i32           # most recent latency

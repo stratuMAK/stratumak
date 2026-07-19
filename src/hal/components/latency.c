@@ -37,6 +37,9 @@
 //   depth   ring capacity in samples (default 65536)
 //   bins    histogram bin count (default 256, rounded to a multiple of 4)
 //   binsize initial histogram bin width in ns (default 1000; autoscales)
+//   label   human-friendly name shown in the UI thread selector (default: the
+//           instance name).  Lets a machine config give each latency instance a
+//           readable label without relying on HAL thread-name inference.
 //
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
@@ -99,7 +102,8 @@ typedef struct {
     cmod_env_t     env;
     cmod_t         mod;
     int            comp_id;
-    char           name[64];
+    char           name[64];      // HAL component / instance name (API identity)
+    char           label[64];     // human-friendly UI name (label=; defaults to name)
     latency_inst_t inst;
 
     // Non-RT server side (drainer thread + API callbacks).
@@ -260,7 +264,12 @@ static latency_latency_status_t gmi_latency_get_status(void *ctx) {
     latency_latency_status_t s;
     memset(&s, 0, sizeof(s));
 
-    s.name        = priv->name;
+    // strdup: the cgo bridge frees every returned pointer with C.free (same
+    // contract as the malloc'd bins/points buffers below).  Returning the
+    // instance's own name buffer here would make it free() an interior pointer
+    // and abort the process.
+    s.name        = strdup(priv->name);
+    s.label       = strdup(priv->label);
     s.periodNs    = (int64_t)(uint32_t)*(inst->period_ns);
     s.samples     = (int64_t)(uint32_t)*(inst->samples);
     s.lastNs      = *(inst->latency);
@@ -419,6 +428,7 @@ int New(const cmod_env_t *env, const char *name,
     int depth = DEFAULT_DEPTH;
     int nbins = DEFAULT_BINS;
     int binsize = DEFAULT_BINSIZE;
+    const char *label = NULL;   // UI display name; defaults to the instance name
 
     for (int i = 0; i < argc; i++) {
         if (strncmp(argv[i], "depth=", 6) == 0) {
@@ -430,6 +440,9 @@ int New(const cmod_env_t *env, const char *name,
         } else if (strncmp(argv[i], "binsize=", 8) == 0) {
             int w = atoi(argv[i] + 8);
             if (w > 0) binsize = w;
+        } else if (strncmp(argv[i], "label=", 6) == 0) {
+            const char *v = argv[i] + 6;
+            if (*v) label = v;
         }
     }
     if (depth > (int)MAX_DEPTH) depth = MAX_DEPTH;
@@ -470,6 +483,7 @@ int New(const cmod_env_t *env, const char *name,
     if (!priv) return -ENOMEM;
     priv->env = *env;
     snprintf(priv->name, sizeof(priv->name), "%s", name);
+    snprintf(priv->label, sizeof(priv->label), "%s", label ? label : name);
 
     latency_inst_t *inst = &priv->inst;
     inst->rtapi = env->rtapi;   // valid for the module lifetime (env contract)
