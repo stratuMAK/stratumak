@@ -53,10 +53,25 @@ usage () {
     echo "   or:"
     echo "       latency-test -h | --help     # (this text)"
     echo ""
-    echo "  --stress   load the machine while measuring, to see the effect on"
-    echo "             latency: a Go garbage-collector load generator plus host"
-    echo "             stress (glxgears, gzip of / to /dev/null, ping the"
-    echo "             gateway).  Missing tools are skipped with an install hint."
+    echo "  --stress[=LIST]  load the machine while measuring, to see the effect"
+    echo "             on latency.  Bare --stress runs all vectors; LIST is a"
+    echo "             comma-separated subset.  Missing tools are skipped with an"
+    echo "             install hint (stress-ng provides most vectors)."
+    echo "  --stress-only[=LIST]  run the stress vectors WITHOUT a server/UI, to"
+    echo "             load an already-running instance while you watch its own"
+    echo "             latency UI.  The 'gc' vector needs the built-in server and"
+    echo "             is unavailable here."
+    echo ""
+    echo "  stress vectors:"
+    echo "    gc        Go garbage-collector pressure (in-server; not stress-only)"
+    echo "    glxgears  GPU / display load (needs an X display)"
+    echo "    stream    memory bandwidth        (stress-ng --stream)"
+    echo "    cache     last-level cache thrash (stress-ng --cache)"
+    echo "    tlb       TLB-shootdown IPIs      (stress-ng --tlb-shootdown)"
+    echo "    fork      fork+exec churn         (stress-ng --exec)"
+    echo "    cpu       ALU load               (stress-ng --cpu)"
+    echo "    io        disk I/O               (stress-ng --hdd)"
+    echo "    net       network softirq        (stress-ng --sock)"
     echo ""
     echo "Examples:"
     echo "       latency-test                       # servo-thread only, 1ms"
@@ -81,18 +96,57 @@ usage () {
     exit 1
 }
 
-# Pull the --stress flag out of the argument list; the rest are periods.
+# All selectable stress vectors.  `all` (or bare --stress) enables every one.
+ALL_VECTORS="gc glxgears stream cache tlb fork cpu io net"
+NW=2                # workers per stress-ng stressor
+declare -A VEC      # VEC[<vector>]=1 for each enabled vector
+gc_explicit=0       # 1 if 'gc' was named explicitly (vs pulled in by 'all')
+
+# Resolve a --stress[=LIST] spec into the VEC set.  Empty / "all" = everything.
+resolve_vectors () {
+    local spec="$1" v
+    if [ -z "$spec" ] || [ "$spec" = "all" ]; then
+        for v in $ALL_VECTORS; do VEC[$v]=1; done
+        return
+    fi
+    local IFS=, parts; read -ra parts <<<"$spec"
+    for v in "${parts[@]}"; do
+        v="${v// /}"; [ -z "$v" ] && continue
+        case " $ALL_VECTORS " in
+        *" $v "*) VEC[$v]=1; [ "$v" = gc ] && gc_explicit=1 ;;
+        *) echo "latency-test: unknown stress vector '$v' (valid: $ALL_VECTORS all)" >&2; usage ;;
+        esac
+    done
+}
+
+# Pull the stress flags out of the argument list; the rest are periods.
 STRESS=0
+STRESS_ONLY=0
+STRESS_SPEC=""
 POS=()
 for a in "$@"; do
     case $a in
-    --stress)  STRESS=1 ;;
-    -h|--help) usage ;;
-    -*)        echo "latency-test: unknown option $a" >&2; usage ;;
-    *)         POS+=("$a") ;;
+    --stress)         STRESS=1 ;;
+    --stress=*)       STRESS=1; STRESS_SPEC="${a#--stress=}" ;;
+    --stress-only)    STRESS=1; STRESS_ONLY=1 ;;
+    --stress-only=*)  STRESS=1; STRESS_ONLY=1; STRESS_SPEC="${a#--stress-only=}" ;;
+    -h|--help)        usage ;;
+    -*)               echo "latency-test: unknown option $a" >&2; usage ;;
+    *)                POS+=("$a") ;;
     esac
 done
 set -- "${POS[@]}"
+
+if [ "$STRESS" -eq 1 ]; then
+    resolve_vectors "$STRESS_SPEC"
+    if [ "$STRESS_ONLY" -eq 1 ] && [ -n "${VEC[gc]}" ]; then
+        if [ "$gc_explicit" -eq 1 ]; then
+            echo "latency-test: the 'gc' vector needs the built-in server; not available with --stress-only" >&2
+            usage
+        fi
+        unset 'VEC[gc]'   # 'all' under --stress-only: silently drop the in-server vector
+    fi
+fi
 
 # Build the thread list as "name:periodNs" specs.  Args are either NAME:PERIOD
 # tokens (explicit names, shown in the UI selector) or bare periods (legacy
@@ -128,23 +182,27 @@ IFS=$'\n' THREADS=($(printf '%s\n' "${THREADS[@]}" | sort -t: -k2,2n)); unset IF
 
 # This server is standalone and short-lived, so bind an ephemeral port instead
 # of the well-known one - a running LinuxCNC already owns 5080.  An explicit
-# GMC_REST_ADDR from the caller wins.
-if [ -n "$GMC_REST_ADDR" ]; then
-    ADDR="$GMC_REST_ADDR"
-else
-    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
-    [ -n "$PORT" ] || PORT=5081
-    ADDR="127.0.0.1:$PORT"
+# GMC_REST_ADDR from the caller wins.  (Skipped in --stress-only: no server.)
+if [ "$STRESS_ONLY" -eq 0 ]; then
+    if [ -n "$GMC_REST_ADDR" ]; then
+        ADDR="$GMC_REST_ADDR"
+    else
+        PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
+        [ -n "$PORT" ] || PORT=5081
+        ADDR="127.0.0.1:$PORT"
+    fi
+    BASE_URL="http://$ADDR"
 fi
-BASE_URL="http://$ADDR"
 
 T=$(mktemp -d)
 SRV_PID=""
+SLEEP_PID=""     # the --stress-only park sleep, if any
 STRESS_PIDS=()   # process-group leaders of the external stressors
 cleanup () {
+    [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
     # Stop the external stressors first.  Each was started with setsid, so the
     # PID is a process-group leader and a negative-PID kill reaps the whole
-    # pipeline (find/xargs/gzip children), not just the launcher.
+    # process group (stress-ng workers, glxgears), not just the launcher.
     for p in "${STRESS_PIDS[@]}"; do
         kill -TERM -- -"$p" 2>/dev/null
     done
@@ -182,50 +240,48 @@ start_stressor () {  # start_stressor <shell-command>
 }
 
 start_external_stress () {
-    echo "latency-test: starting host stress (glxgears, gzip, ping)" >&2
+    echo "latency-test: starting stress vectors:$(for v in $ALL_VECTORS; do
+        [ -n "${VEC[$v]}" ] && printf ' %s' "$v"; done)" >&2
 
-    # GPU / compositor: a few spinning gears.  Needs an X display (present in
-    # the graphical session this is launched from).
-    if [ -z "$DISPLAY" ]; then
-        echo "latency-test: no DISPLAY - skipping glxgears" >&2
-    elif have_tool glxgears mesa-utils; then
-        for _ in 1 2 3 4; do start_stressor 'exec glxgears'; done
-    fi
-
-    # Disk I/O + CPU + process churn: compress every regular readable file to
-    # /dev/null, in a loop.  -exec ... {} \; restarts gzip once PER FILE (a
-    # fresh fork+exec each time), which loads the scheduler harder than piping
-    # batches through one gzip; run one loop per core for parallel load.  Prune
-    # the pseudo-filesystems: reading e.g. /proc/kcore is all of RAM and some
-    # /proc,/sys files block forever.
-    if have_tool gzip gzip && have_tool find findutils; then
-        P=$(nproc 2>/dev/null || echo 4); [ "$P" -gt 4 ] && P=4
-        i=0
-        while [ "$i" -lt "$P" ]; do
-            start_stressor 'while :; do
-                find / -path /proc -prune -o -path /sys -prune -o -path /dev -prune \
-                       -o -path /run -prune -o -type f -readable \
-                       -exec gzip -c {} \; >/dev/null 2>&1
-            done'
-            i=$((i + 1))
-        done
-    fi
-
-    # Network + softirq: rapid ping to the default gateway.  -i 0.01 needs
-    # cap_net_raw; we never use sudo, so if the kernel rejects the interval the
-    # ping just exits and we say so.
-    if have_tool ping iputils-ping && have_tool ip iproute2; then
-        gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
-        if [ -z "$gw" ]; then
-            echo "latency-test: no default gateway - skipping ping" >&2
-        else
-            start_stressor "exec ping -i 0.01 -q '$gw'"
-            sleep 0.4
-            kill -0 "${STRESS_PIDS[-1]}" 2>/dev/null || \
-                echo "latency-test: 'ping -i 0.01 $gw' exited (needs cap_net_raw; no sudo used) - ping skipped" >&2
+    # GPU / display: a few spinning gears (each is its own X client).  Needs an
+    # X display (present in the graphical session this is launched from).
+    if [ -n "${VEC[glxgears]}" ]; then
+        if [ -z "$DISPLAY" ]; then
+            echo "latency-test: no DISPLAY - skipping glxgears" >&2
+        elif have_tool glxgears mesa-utils; then
+            for _ in 1 2 3 4; do start_stressor 'exec glxgears'; done
         fi
     fi
+
+    # All remaining vectors are stress-ng stressors, each targeting a distinct
+    # RT-perturbation mechanism.  Combine the selected ones into a single
+    # stress-ng invocation (one process group for cleanup).  --hdd writes its
+    # scratch files under our temp dir so they are bounded and auto-removed.
+    local ng=()
+    [ -n "${VEC[stream]}" ] && ng+=(--stream         "$NW")
+    [ -n "${VEC[cache]}"  ] && ng+=(--cache          "$NW")
+    [ -n "${VEC[tlb]}"    ] && ng+=(--tlb-shootdown   "$NW")
+    [ -n "${VEC[fork]}"   ] && ng+=(--exec            "$NW")
+    [ -n "${VEC[cpu]}"    ] && ng+=(--cpu             "$NW")
+    [ -n "${VEC[io]}"     ] && ng+=(--hdd "$NW" --hdd-bytes 256m --temp-path "$T")
+    [ -n "${VEC[net]}"    ] && ng+=(--sock           "$NW")
+
+    if [ "${#ng[@]}" -gt 0 ] && have_tool stress-ng stress-ng; then
+        start_stressor "exec stress-ng ${ng[*]}"
+    fi
 }
+
+# --stress-only: no server, no UI - just load the box until interrupted, so an
+# already-running instance can be stressed while its own latency UI is watched.
+if [ "$STRESS_ONLY" -eq 1 ]; then
+    start_external_stress
+    echo "latency-test: stress running - Ctrl-C to stop" >&2
+    # Park in an interruptible `wait`: a bare `sleep` would defer the
+    # SIGINT/SIGTERM trap until it returned, so the script would not stop.
+    sleep infinity & SLEEP_PID=$!
+    wait "$SLEEP_PID" 2>/dev/null
+    exit 0
+fi
 
 # One latency instance per thread.  The instance is loaded as `lat.<name>`
 # (the loader's angle-bracket name), addf'd to its thread, and carries an
@@ -241,9 +297,9 @@ start_external_stress () {
         echo "loadrt latency <lat.$nm> label=$nm"
         echo "addf lat.$nm $nm"
     done
-    # --stress: load the GC-pressure generator so the run is measured under
+    # gc vector: load the GC-pressure generator so the run is measured under
     # Go garbage-collector load (default workers/live set by the module).
-    [ "$STRESS" -eq 1 ] && echo "loadrt stress_gc"
+    [ -n "${VEC[gc]}" ] && echo "loadrt stress_gc"
     echo "start"
 } > "$T/latency.hal"
 

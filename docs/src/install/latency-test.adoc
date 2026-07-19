@@ -130,7 +130,14 @@ The `latency-test` window includes an integrated web-based viewer with a live
 summary, a latency strip-chart and a jitter histogram for each realtime thread,
 so the standalone `latency-plot` and `latency-histogram` tools are no longer
 needed. Run `latency-test --help` for options, including a `--stress` mode that
-loads the system with additional work to expose worst-case latency.
+loads the system with additional work to expose worst-case latency.  The stress
+load is a menu of vectors, each targeting a different latency mechanism (memory
+bandwidth, cache, TLB shootdowns, fork/exec churn, CPU, disk, network, GPU, and
+Go garbage collection).  `--stress` runs them all; `--stress=stream,tlb`
+selects a subset, which is useful for isolating which mechanism a machine is
+sensitive to.  `--stress-only[=LIST]` runs just the load, without a
+server or UI, so an already-running LinuxCNC can be stressed while you watch its
+own latency display.  Most vectors need the `stress-ng` package installed.
 
 == Latency tuning
 
