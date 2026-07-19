@@ -17,12 +17,17 @@ import (
 // cpuPool manages a pool of isolated physical CPU cores for automatic
 // thread-to-CPU assignment.  The pool is initialized once at startup via
 // InitCPUPool(). Each call to CreateThreadCPU with cpu=-1 pops the next
-// available core from the pool. Explicit cpu=N validates against the pool.
+// available core from the pool; once the pool is exhausted, further threads
+// co-locate onto the last-assigned isolated core rather than floating onto the
+// non-isolated housekeeping cores (see acquireCPU). Explicit cpu=N validates
+// against the isolated set.
 type cpuPool struct {
-	mu        sync.Mutex
-	available []int // remaining isolated physical cores, sorted descending
-	logger    *slog.Logger
-	posixRT   bool // true if running with SCHED_FIFO (real RT)
+	mu           sync.Mutex
+	isolated     []int // all isolated physical cores, sorted descending
+	available    []int // remaining unassigned isolated cores, sorted descending
+	lastAssigned int   // most recently assigned isolated core, -1 if none yet
+	logger       *slog.Logger
+	posixRT      bool // true if running with SCHED_FIFO (real RT)
 }
 
 var pool cpuPool
@@ -51,7 +56,9 @@ func InitCPUPool(logger *slog.Logger) error {
 	posixRT := rtapiIsRealtime()
 
 	pool.mu.Lock()
+	pool.isolated = append([]int(nil), avail...)
 	pool.available = avail
+	pool.lastAssigned = -1
 	pool.logger = logger
 	pool.posixRT = posixRT
 	pool.mu.Unlock()
@@ -63,20 +70,39 @@ func InitCPUPool(logger *slog.Logger) error {
 }
 
 // acquireCPU obtains a CPU for a newthread command.
-//   - cpu=-1: auto-assign next from pool, or -1 if pool empty (warn in RT mode)
-//   - cpu>=0: validate it's in the pool, remove it, return it; error if not available
+//   - cpu=-1: auto-assign next free isolated core; once the pool is exhausted,
+//     co-locate onto the last-assigned isolated core; -1 (no affinity) only if
+//     there are no isolated cores at all (warn in RT mode).
+//   - cpu>=0: must name an isolated core; return it (removing it from the free
+//     list, or co-locating if already handed out); error if not isolated.
+//
+// Co-location mirrors the classic base+servo-on-one-CPU model: threads are
+// created fastest-first with descending priority, so a slower thread stacked
+// onto a faster thread's core is simply preempted by it (rate monotonic) while
+// still running on an isolated core, rather than floating onto the noisy
+// non-isolated housekeeping cores.
 func acquireCPU(threadName string, cpu int) (int, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	if cpu < 0 {
-		// Auto-assign from pool.
+		// Auto-assign the next free isolated core.
 		if len(pool.available) > 0 {
 			assigned := pool.available[0]
 			pool.available = pool.available[1:]
+			pool.lastAssigned = assigned
 			return assigned, nil
 		}
-		// Pool empty.
+		// Pool exhausted but at least one isolated core exists — co-locate
+		// onto the last one handed out instead of dropping affinity.
+		if pool.lastAssigned >= 0 {
+			if pool.logger != nil {
+				pool.logger.Info("isolated CPU pool exhausted, co-locating thread onto isolated core",
+					"thread", threadName, "cpu", pool.lastAssigned)
+			}
+			return pool.lastAssigned, nil
+		}
+		// No isolated cores at all — run without affinity.
 		if pool.posixRT && pool.logger != nil {
 			pool.logger.Warn("no isolated CPU available for thread, running without affinity",
 				"thread", threadName)
@@ -84,15 +110,24 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 		return -1, nil
 	}
 
-	// Explicit cpu=N requested — find and remove from pool.
+	// Explicit cpu=N requested — remove it from the free list if still there.
 	for i, c := range pool.available {
 		if c == cpu {
 			pool.available = append(pool.available[:i], pool.available[i+1:]...)
+			pool.lastAssigned = cpu
 			return cpu, nil
 		}
 	}
-	return 0, fmt.Errorf("newthread %s: cpu=%d is not in the isolated CPU pool (available: %v)",
-		threadName, cpu, pool.available)
+	// Already handed out but still an isolated core — co-locate onto it (an
+	// explicit request is the caller's deliberate choice).
+	for _, c := range pool.isolated {
+		if c == cpu {
+			pool.lastAssigned = cpu
+			return cpu, nil
+		}
+	}
+	return 0, fmt.Errorf("newthread %s: cpu=%d is not an isolated CPU (isolated: %v)",
+		threadName, cpu, pool.isolated)
 }
 
 // --- CPU topology detection (moved from threadcfg/cpu_linux.go) ---
