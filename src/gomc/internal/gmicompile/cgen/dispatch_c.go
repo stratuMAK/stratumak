@@ -1196,6 +1196,8 @@ func cTypeForAPICgo(apiName string, t ast.TypeRef) string {
 			return "C.double"
 		case ast.PrimString:
 			return "*C.char"
+		case ast.PrimPtr:
+			return "unsafe.Pointer"
 		}
 	case ast.TypeNamed:
 		return fmt.Sprintf("C.%s_%s_t", apiName, toSnakeCase(t.Name))

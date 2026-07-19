@@ -156,15 +156,17 @@ GMI_ALL_GEN_GO += $(GMI_LATENCY_GEN)/latency_cgo.go
 GMI_MCODE_HANDLER_IDL := gmi/idl/mcode_handler.gmi
 GMI_MCODE_HANDLER_GEN := gomc/generated/gmi/mcode_handler
 
-$(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go &: $(GMI_MCODE_HANDLER_IDL) $(GMICOMPILE_BIN)
+$(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go $(GMI_MCODE_HANDLER_GEN)/mcode_handler_bridge.go &: $(GMI_MCODE_HANDLER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI mcode_handler from $(GMI_MCODE_HANDLER_IDL)"
 	@mkdir -p $(GMI_MCODE_HANDLER_GEN)
 	$(Q)$(GMICOMPILE) --server-c $(GMI_MCODE_HANDLER_IDL) -o $(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h
 	$(Q)$(GMICOMPILE) --server-meta $(GMI_MCODE_HANDLER_IDL) -o $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go
+	$(Q)$(GMICOMPILE) --server-go $(GMI_MCODE_HANDLER_IDL) -o $(GMI_MCODE_HANDLER_GEN)/mcode_handler_bridge.go
 	$(Q)$(GMICOMPILE_BIN) add-gmi generated/gmi/mcode_handler
 
 TARGETS += $(GMI_MCODE_HANDLER_GEN)/mcode_handler_api.h
 GMI_ALL_GEN_GO += $(GMI_MCODE_HANDLER_GEN)/mcode_handler_cgo.go
+GMI_ALL_GEN_GO += $(GMI_MCODE_HANDLER_GEN)/mcode_handler_bridge.go
 
 # --- interp_ctx API ---
 

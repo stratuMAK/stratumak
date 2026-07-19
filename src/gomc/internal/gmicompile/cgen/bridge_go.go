@@ -492,10 +492,22 @@ func (g *bridgeGoGen) emitTrampolineStandardCall(apiName string, fn ast.Func, me
 }
 
 // trampolineParam returns the Go parameter declaration for a trampoline (C types).
+// isOpaquePtrParam reports whether a param crosses the cgo bridge boundary as an
+// opaque pointer: the `ptr` keyword modifier (IsPtr), a `ptr`-typed param, or a
+// callback-typed param. All three are emitted as unsafe.Pointer in the //export
+// trampoline and void* in the extern, and surfaced to the Go provider as uint64 —
+// never truncated to C.int, which would drop the high 32 bits of a 64-bit
+// pointer / function pointer on any 64-bit target.
+func isOpaquePtrParam(p ast.Param) bool {
+	return p.IsPtr ||
+		p.Type.Kind == ast.TypeCallback ||
+		(p.Type.Kind == ast.TypePrimitive && p.Type.Name == ast.PrimPtr)
+}
+
 func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 	name := escapeGoKeyword(p.Name)
 
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		// opaque pointer — pass through as unsafe.Pointer
 		return fmt.Sprintf("%s unsafe.Pointer", name)
 	}
@@ -540,7 +552,7 @@ func (g *bridgeGoGen) emitParamCToGo(apiName string, p ast.Param) string {
 		return ""
 	}
 
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		// opaque ptr: pass as uint64 (same as client_cgo convention)
 		g.printf("\t%s := uint64(uintptr(%s))\n", goVar, name)
 		return goVar
@@ -706,7 +718,7 @@ func (g *bridgeGoGen) goMethodParams(fn ast.Func) string {
 		}
 		paramName := toLowerCamel(p.Name)
 		var paramType string
-		if p.IsPtr {
+		if isOpaquePtrParam(p) {
 			paramType = "uint64"
 		} else if p.ByRef && p.Type.Kind == ast.TypeNamed && !g.isEnum(p.Type.Name) {
 			paramType = "*" + toPascalCase(p.Type.Name)
@@ -818,7 +830,7 @@ func (g *bridgeGoGen) cReturnType(apiName string, t ast.TypeRef) string {
 // cParamDecl returns a C parameter declaration string.
 func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 	name := p.Name
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		return "void *" + name
 	}
 

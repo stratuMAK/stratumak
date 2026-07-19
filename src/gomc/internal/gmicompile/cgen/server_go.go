@@ -449,12 +449,32 @@ func (g *serverGoGen) emitWatchCallbacksInterface() {
 
 // --- Commands Function ---
 
+// isCommandFunc reports whether a function should be exposed as a WS command:
+// not watch-only, not @publish, no out-params (complex multi-return), and no
+// opaque-pointer params. A raw or function pointer cannot be marshaled from a
+// remote JSON request, and exposing one would accept an arbitrary client-supplied
+// pointer — such functions (e.g. callback registration) are cgo-local only.
+func (g *serverGoGen) isCommandFunc(fn ast.Func) bool {
+	if fn.Watch && fn.Method == "" {
+		return false
+	}
+	if fn.Publish {
+		return false
+	}
+	for _, p := range fn.Params {
+		if p.IsOut || isOpaquePtrParam(p) {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *serverGoGen) emitCommands() {
 	// Generate XxxCommands() that wraps all dispatch functions as WS CommandMeta.
 	// This includes REST functions and WS-command-only functions.
 	hasFuncs := false
 	for _, fn := range g.api.Funcs {
-		if !(fn.Watch && fn.Method == "") && !fn.Publish {
+		if g.isCommandFunc(fn) {
 			hasFuncs = true
 			break
 		}
@@ -478,22 +498,7 @@ func (g *serverGoGen) emitCommands() {
 	g.printf("func %s(impl %s) []apiserver.CommandMeta {\n", funcName, ifaceName)
 	g.printf("\treturn []apiserver.CommandMeta{\n")
 	for _, fn := range g.api.Funcs {
-		if fn.Watch && fn.Method == "" {
-			continue // watch-only, not a command
-		}
-		if fn.Publish {
-			continue // @publish function — no dispatch command
-		}
-		// Skip functions with out-params — they have complex multi-return
-		// signatures that don't map cleanly to a single JSON result.
-		hasOutParams := false
-		for _, p := range fn.Params {
-			if p.IsOut {
-				hasOutParams = true
-				break
-			}
-		}
-		if hasOutParams {
+		if !g.isCommandFunc(fn) {
 			continue
 		}
 		methodName := toPascalCase(fn.Name)
