@@ -46,13 +46,6 @@ func (m *mockIOWithStatus) setError(reason int32) {
 	m.mu.Unlock()
 }
 
-func (m *mockIOWithStatus) clearError() {
-	m.mu.Lock()
-	m.status = IOStatusDone
-	m.reason = 0
-	m.mu.Unlock()
-}
-
 // mockStatusWithError extends mockStatus with configurable error state.
 type mockStatusWithError struct {
 	mu            sync.Mutex

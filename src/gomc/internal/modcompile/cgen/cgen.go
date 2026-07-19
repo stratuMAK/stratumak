@@ -169,23 +169,6 @@ func toHALFmt(halName string) string {
 // HAL type/direction helpers
 // ---------------------------------------------------------------------------
 
-func halTypeEnum(t ast.HALType) string {
-	switch t {
-	case ast.HALBit:
-		return "GOMC_HAL_BIT"
-	case ast.HALFloat:
-		return "GOMC_HAL_FLOAT"
-	case ast.HALS32:
-		return "GOMC_HAL_S32"
-	case ast.HALU32:
-		return "GOMC_HAL_U32"
-	case ast.HALPort:
-		return "GOMC_HAL_PORT"
-	default:
-		return "GOMC_HAL_BIT"
-	}
-}
-
 func pinDirEnum(d ast.PinDir) string {
 	switch d {
 	case ast.PinIn:
@@ -262,16 +245,6 @@ func (g *generator) hasPersonality() bool {
 
 func (g *generator) isUserspace() bool {
 	return g.comp.Options["userspace"] != ""
-}
-
-func (g *generator) stringModparams() []ast.Modparam {
-	var result []ast.Modparam
-	for _, mp := range g.comp.Modparams {
-		if mp.Type == "string" {
-			result = append(result, mp)
-		}
-	}
-	return result
 }
 
 func (g *generator) hasExtraSetup() bool {

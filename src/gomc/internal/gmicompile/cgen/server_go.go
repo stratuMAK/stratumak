@@ -410,15 +410,6 @@ func (g *serverGoGen) hasWatchOnlyFuncs() bool {
 	return false
 }
 
-func (g *serverGoGen) hasCommandFuncs() bool {
-	for _, fn := range g.api.Funcs {
-		if !fn.Watch && fn.Method == "" {
-			return true
-		}
-	}
-	return false
-}
-
 // isBinaryWatch returns true if a watch function returns []u8 (binary data).
 func (g *serverGoGen) isBinaryWatch(fn ast.Func) bool {
 	if fn.Return == nil {

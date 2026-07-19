@@ -1026,10 +1026,6 @@ func (g *dispatchCGen) paramCallArg(cVar string, p ast.Param) []string {
 	return []string{cVar}
 }
 
-// emitReturnSetup is unused — kept as placeholder for slice-return APIs.
-func (g *dispatchCGen) emitReturnSetup(fn ast.Func) {
-}
-
 func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 	ret := fn.Return
 

@@ -1069,10 +1069,6 @@ func (t *Task) DrainQueue() {
 	}
 }
 
-// Waiter allows tests to inject a mock for pollUntil.
-// Not exported — tests use the concrete mockStatus.InPosition approach.
-type waitFunc func() bool
-
 // Queue-depth throttling: do not send motion commands when the TP queue is
 // above this high-water mark. The TP has DEFAULT_TC_QUEUE_SIZE=2000 slots;
 // if we hit 2000, the C code treats it as fatal (tp_abort + error flag).

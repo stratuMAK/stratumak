@@ -11,15 +11,6 @@ import (
 // fakeCallbacks is a dummy value for tests — we just need a non-nil pointer.
 var fakeCallbacks = unsafe.Pointer(&struct{}{})
 
-func testMeta(name string, version int, rest bool) *APIMeta {
-	return &APIMeta{
-		Name:       name,
-		Version:    version,
-		RESTExport: rest,
-		Prefix:     name,
-	}
-}
-
 func TestRegisterAndGet(t *testing.T) {
 	r := NewRegistry()
 

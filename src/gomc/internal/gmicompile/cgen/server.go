@@ -230,16 +230,6 @@ func constType(cType string) string {
 	return "const " + cType
 }
 
-// isCallback returns true if name matches a declared callback type.
-func (g *serverGen) isCallback(name string) bool {
-	for _, cb := range g.api.Callbacks {
-		if cb.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 // callbackCType returns the C typedef name for a callback.
 func (g *serverGen) callbackCType(name string) string {
 	return fmt.Sprintf("%s_%s_cb", g.api.Name, toSnakeCase(name))

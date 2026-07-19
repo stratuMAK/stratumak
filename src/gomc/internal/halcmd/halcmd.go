@@ -19,9 +19,6 @@ import (
 // Levels follow gomc_log_level_t: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR.
 var LogLevel slog.LevelVar
 
-// lockAll is the HAL_LOCK_ALL bitmask value.
-const lockAll = 255
-
 // SetLock sets the HAL lock level, restricting which commands are permitted.
 // This is the low-level counterpart of Lock()/Unlock() and exists so that the
 // halparse executor can set lock levels directly via an integer bitmask.

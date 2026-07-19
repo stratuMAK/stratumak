@@ -206,10 +206,6 @@ func (e *constraintEmitter) emitFail(b *strings.Builder, cond string, path valPa
 
 // --- Type lookups and helpers ---
 
-func (e *constraintEmitter) enumFor(t ast.TypeRef) (*ast.Enum, bool) {
-	return e.api.EnumByName(t)
-}
-
 func (e *constraintEmitter) structFor(t ast.TypeRef) (*ast.Type, bool) {
 	return e.api.StructByName(t)
 }

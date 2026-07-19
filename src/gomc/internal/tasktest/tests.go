@@ -24,11 +24,6 @@ func isOK(rc int32) bool {
 	return rc == 0 || rc == rcsDone || rc == rcsExec
 }
 
-// isRejected returns true if the return code indicates rejection.
-func isRejected(rc int32) bool {
-	return rc == rcsError || rc < 0
-}
-
 // testResult holds the outcome of a single test case.
 type testResult struct {
 	name   string

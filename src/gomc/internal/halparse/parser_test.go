@@ -29,18 +29,6 @@ func (m *mockINI) GetAll() map[string]map[string]string {
 	return m.data
 }
 
-// mockResolver is a test implementation of PathResolver.
-type mockResolver struct {
-	base string
-}
-
-func (r *mockResolver) Resolve(path string) (string, error) {
-	if r.base == "" {
-		return path, nil
-	}
-	return r.base + "/" + path, nil
-}
-
 // --- TestTokenizeLine ---
 
 func TestTokenizeLine(t *testing.T) {
