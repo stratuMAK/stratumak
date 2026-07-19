@@ -15,6 +15,12 @@ synthesizer read `cgo.go`/`pin.go`/`component.go` directly and adjudicated. Date
 `PLAUSIBLE` = real but severity/impact hinges on a runtime fact or a design decision the
 human owns. **This is a candidate list — no code was changed.**
 
+**STATUS (2026-07-19):** the clean mechanical fixes **M4, M9, L1, L5 are APPLIED**
+(commit `4c023b0de5`; verified: both build tags, vet, lint 0, full suite green). **L4**
+deliberately left as-is (unreachable sentinel — churn for no benefit). Everything else
+below remains **open for adjudication**: the Tier-1 design calls **H1, H2, H3, M1, M2, M3**,
+and the efficiency item **M5** (belongs with the M1 Pin rework), plus L2/L3.
+
 **Headline:** the cgo pointer discipline is careful and largely correct (double-pointer
 re-deref, no Go pointer retained by C, paired `CString`/`free`, nil-checked `hal_malloc`,
 guarded empty slices — see *Cleared* below). The concentration of real issues is in the
@@ -257,8 +263,8 @@ repetition. (Cosmetic-ish, but this is exactly the duplication the review checkl
    idempotent. *Tier-1 human design call* (also verify the HAL-arena-lifetime fact for H1).
 3. **Direction & doc truth (H2, M7, M8):** decide enforce-vs-convention for `Set` on IN pins and
    `PORT&&IO`; fix `doc.go`/pin docs; align the nocgo stub. *Human design call + clear doc fixes.*
-4. **Clean mechanical fixes (M4, M9, L1, L4, L5):** `47`→`NameLen`, collapse the five `halPin*New`,
-   trim `halError`, stub symmetry. Low-risk, can proceed once approved.
+4. **Clean mechanical fixes (M4, M9, L1, L5):** `47`→`NameLen`, collapse the five `halPin*New`,
+   `syscall.E*` in `halError`, nocgo stub symmetry. **DONE** (commit `4c023b0de5`). L4 left as-is.
 5. **Efficiency (M5, L2):** type-resolve pins once at construction; single-shot string peek.
 
 **Every finding above needs a test that would have caught it** (milltask review risk class 4) —
