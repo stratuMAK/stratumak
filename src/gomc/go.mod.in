@@ -3,9 +3,9 @@ module github.com/sittner/linuxcnc/src/gomc
 go 1.22
 
 require (
+	github.com/coder/websocket v1.8.15
 	go.bug.st/serial v1.6.2
 	modernc.org/sqlite v1.39.1
-	nhooyr.io/websocket v1.8.17
 )
 
 require (

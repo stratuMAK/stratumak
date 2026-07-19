@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // TestWatchSubscribeReceivesUpdates verifies that subscribing to a watch function

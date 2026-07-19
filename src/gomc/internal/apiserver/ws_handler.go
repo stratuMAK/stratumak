@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // WatchFunc is called periodically by the watch server to produce a snapshot.
@@ -236,7 +236,7 @@ type wsConn struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	writeMu sync.Mutex // serializes writes (nhooyr supports concurrent writes, but we want ordered JSON)
+	writeMu sync.Mutex // serializes writes (coder/websocket supports concurrent writes, but we want ordered JSON)
 
 	mu   sync.Mutex
 	subs map[string]context.CancelFunc // key: "api/instance/func" → cancel the push goroutine

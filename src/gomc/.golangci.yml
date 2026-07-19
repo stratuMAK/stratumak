@@ -32,13 +32,6 @@ linters:
     generated: lax
     paths:
       - ^generated/
-    rules:
-      # nhooyr.io/websocket was re-homed to github.com/coder/websocket (drop-in
-      # rename). Migrating the import touches the generated go.mod template —
-      # tracked in PRODUCTION_READINESS.md; silence just this deprecation until
-      # then.
-      - linters: [staticcheck]
-        text: 'SA1019: .*coder now maintains this library'
 
 formatters:
   enable:

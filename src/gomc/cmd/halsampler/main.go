@@ -22,7 +22,7 @@ import (
 	"os/signal"
 	"strings"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (

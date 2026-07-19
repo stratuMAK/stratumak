@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // handleStreamUpgrade upgrades the HTTP connection to WebSocket and
@@ -49,7 +49,7 @@ func (s *Server) handleStreamUpgrade(w http.ResponseWriter, r *http.Request, ser
 	cancel()
 }
 
-// streamConn implements StreamConn backed by a nhooyr WebSocket.
+// streamConn implements StreamConn backed by a coder/websocket connection.
 type streamConn struct {
 	conn    *websocket.Conn
 	ctx     context.Context
