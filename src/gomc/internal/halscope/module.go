@@ -106,6 +106,17 @@ type halscope struct {
 	persist         *persist.PersistClient // nil = persistence disabled
 	persistInstance string
 	persistHandle   int32
+
+	// Single coalescing state-saver. Config setters signal saveReqCh instead
+	// of each spawning a detached goroutine: that let a stale snapshot race
+	// ahead of a newer one (last-writer-by-scheduling), and left saves reading
+	// m.s in flight when Destroy() freed it. One serialized saver fixes both —
+	// it always persists the latest state and is joined before halscope_free.
+	saveReqCh     chan struct{}
+	saverStopCh   chan struct{}
+	saverDone     chan struct{}
+	saverStopOnce sync.Once
+	saverStarted  bool
 }
 
 // parseHalscopeArgs parses the halscope load-line arguments. Recognised keys:
@@ -237,11 +248,49 @@ func (m *halscope) Start() error {
 		} else {
 			m.logger.Info("halscope: restored state from persist")
 		}
+
+		// Start the single coalescing saver.
+		m.saveReqCh = make(chan struct{}, 1)
+		m.saverStopCh = make(chan struct{})
+		m.saverDone = make(chan struct{})
+		m.saverStarted = true
+		go m.saverLoop()
 	}
 	return nil
 }
 
+// saverLoop serializes all state persistence. It coalesces bursts of config
+// edits (buffered saveReqCh) and always re-reads the current state, so the
+// latest configuration is what lands in persist.
+func (m *halscope) saverLoop() {
+	defer close(m.saverDone)
+	for {
+		select {
+		case <-m.saverStopCh:
+			return
+		case <-m.saveReqCh:
+			if err := m.saveState(); err != nil {
+				m.logger.Warn("halscope: failed to save state", "err", err)
+			}
+		}
+	}
+}
+
+// stopSaver signals the saver to exit and joins it. Idempotent. After it
+// returns no saveState() is in flight, so m.s may be freed. Must NOT hold m.mu.
+func (m *halscope) stopSaver() {
+	if !m.saverStarted {
+		return
+	}
+	m.saverStopOnce.Do(func() {
+		close(m.saverStopCh)
+		<-m.saverDone
+	})
+}
+
 func (m *halscope) Stop() {
+	// Join the saver first so the final save below cannot race an in-flight one.
+	m.stopSaver()
 	if m.persist != nil {
 		if err := m.saveState(); err != nil {
 			m.logger.Warn("halscope: failed to save state on stop", "err", err)
@@ -252,6 +301,9 @@ func (m *halscope) Stop() {
 }
 
 func (m *halscope) Destroy() {
+	// Ensure the saver is stopped and joined (idempotent — Stop() normally did
+	// it) BEFORE freeing m.s: saveState() reads it under m.mu.
+	m.stopSaver()
 	// hal_exit removes the component and all its functions/pins from HAL,
 	// including any thread linkages.  No need to call hal_del_funct_from_thread
 	// explicitly — it would access thread structures that may already be torn
@@ -785,11 +837,17 @@ const persistKey = "state"
 
 // saveState writes the current scope configuration to persist.
 // Caller must NOT hold m.mu.
-// saveStateBg persists the scope state in the background, logging any error.
+// saveStateBg requests a persist of the current state. Non-blocking and
+// coalescing: the single saverLoop() does the actual write and always re-reads
+// the latest state, so bursts of edits collapse to (at most) one queued save.
 // Used from API handlers where state saving is best-effort and must not block.
 func (m *halscope) saveStateBg() {
-	if err := m.saveState(); err != nil {
-		m.logger.Warn("halscope: failed to save state", "err", err)
+	if m.saveReqCh == nil {
+		return // persistence disabled
+	}
+	select {
+	case m.saveReqCh <- struct{}{}:
+	default: // a save is already queued; it will pick up the latest state
 	}
 }
 
