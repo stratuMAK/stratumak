@@ -1,11 +1,20 @@
 # Bus description for the sim transport with a PDO loopback slave: the slave
 # echoes its output process data (SM2) back into its input process data (SM3)
 # after each frame, so a HAL output pin round-trips to the matching input pin.
+#
+# The slave has a CoE mailbox (SM0/SM1), so the master configures the PDO
+# mapping the real way — via SDO to 0x1600/0x1A00 — instead of falling back with
+# "slave does not support CoE". The 0x1600:00 / 0x1A00:00 mapping objects are
+# preset (count 0) so the master's read-before-write does not abort.
 slave 0
   vendor   0x00000E17
   product  0x51340001
   revision 0x00010000
   serial   1
+  mbox_out 0x1000 128
+  mbox_in  0x1080 128
   sm2      0x1100 8
   sm3      0x1400 8
   loopback 1
+  od       0x1600 0 1 0
+  od       0x1a00 0 1 0

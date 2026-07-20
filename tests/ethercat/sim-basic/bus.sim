@@ -1,10 +1,17 @@
 # Bus description for the in-process EtherCAT sim transport (transportType=sim).
-# One generic slave with 8 bytes of output (SM2) and 8 bytes of input (SM3)
-# process data, no mailbox — mirrors the master's own test_sim_domain slave.
+# One generic slave with a CoE mailbox (SM0/SM1) and 8 bytes each of output
+# (SM2) and input (SM3) process data — so the master configures the PDO mapping
+# via SDO the real way (no "slave does not support CoE" fallback). The
+# 0x1600:00 / 0x1A00:00 mapping objects are preset (count 0) so the master's
+# read-before-write does not abort.
 slave 0
   vendor   0x00000E17
   product  0x51340001
   revision 0x00010000
   serial   1
+  mbox_out 0x1000 128
+  mbox_in  0x1080 128
   sm2      0x1100 8
   sm3      0x1400 8
+  od       0x1600 0 1 0
+  od       0x1a00 0 1 0
