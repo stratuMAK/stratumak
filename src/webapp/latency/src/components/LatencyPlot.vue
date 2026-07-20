@@ -41,7 +41,7 @@ function themeColors() {
   };
 }
 
-// Server-side buckets -> [elapsedSeconds, maxUs, meanUs].  x is the server's
+// Server-side buckets -> [elapsedSeconds, maxUs, meanAbsUs].  x is the server's
 // own timeline (seconds since the instance started), so it is absolute,
 // monotonic, and identical for every client viewing the same data.
 function buildData(): uPlot.AlignedData {
@@ -94,7 +94,7 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
     series: [
       { label: 'elapsed' },
       { label: 'max', stroke: c.s2, width: 2 },
-      { label: 'mean', stroke: c.s1, width: 2 },
+      { label: 'mean |lat|', stroke: c.s1, width: 2 },
     ],
   };
 }

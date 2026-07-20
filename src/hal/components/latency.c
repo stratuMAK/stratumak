@@ -279,16 +279,22 @@ static latency_latency_status_t gmi_latency_get_status(void *ctx) {
     s.dropped     = inst->ring.dropped;   // relaxed scalar read (like the pins above)
 
     pthread_mutex_lock(&priv->lock);
-    int64_t n   = priv->hist.n;
-    double  sum = (double)priv->hist.sum;
-    double  ssq = priv->hist.sumsq;
+    int64_t n    = priv->hist.n;
+    double  sum  = (double)priv->hist.sum;
+    double  sabs = (double)priv->hist.sum_abs;
+    double  ssq  = priv->hist.sumsq;
     s.binWidthNs = priv->hist.width;
     pthread_mutex_unlock(&priv->lock);
 
+    // meanNs is the mean of |latency| ("typical jitter magnitude").  The
+    // signed mean would be ~0 by construction - the thread's absolute timer
+    // self-corrects, so a late cycle is followed by a short interval and the
+    // signed deviations cancel.  The stddev still uses the signed moments
+    // (mean ~0 makes it ~the RMS of the jitter).
     double mean = n > 0 ? sum / (double)n : 0.0;
     double var  = n > 1 ? ssq / (double)n - mean * mean : 0.0;
     if (var < 0.0) var = 0.0;   // guard against fp round-off
-    s.meanNs   = mean;
+    s.meanNs   = n > 0 ? sabs / (double)n : 0.0;
     s.stddevNs = sqrt(var);
     return s;
 }
@@ -355,7 +361,7 @@ static latency_latency_history_t gmi_latency_get_history(void *ctx, int32_t seco
                 pts[m].tMs = b->t_ms;
                 pts[m].minNs = b->min;
                 pts[m].maxNs = b->max;
-                pts[m].meanNs = b->count ? b->sum / (double)b->count : 0.0;
+                pts[m].meanNs = b->count ? b->sum_abs / (double)b->count : 0.0;
                 pts[m].count = (int32_t)b->count;
                 m++;
             }
