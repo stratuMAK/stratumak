@@ -752,6 +752,13 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 			arrLen := t.ArrayLen
 			switch t.Elem.Kind {
 			case ast.TypePrimitive:
+				if t.Elem.Name == ast.PrimString {
+					// A fixed array of string would need per-element C.CString
+					// alloc + freeList tracking (mirrored on the free side); the
+					// scalar-conversion path below emits non-compiling code and
+					// leaks. Reject rather than emit broken code — no IDL uses it.
+					panic(fmt.Sprintf("gmicompile: emitFieldGoToC: fixed-array-of-string field %q in api %q is not supported — use []string, or implement array-of-string alloc/free", cField, g.api.Name))
+				}
 				elemCType := cTypeForAPICgo(g.api.Name, *t.Elem)
 				g.printf("\tfor _i := 0; _i < %d; _i++ { %s[_i] = %s(%s[_i]) }\n", arrLen, cField, elemCType, goExpr)
 			case ast.TypeNamed:
@@ -1204,7 +1211,10 @@ func cTypeForAPICgo(apiName string, t ast.TypeRef) string {
 	case ast.TypeSlice:
 		return cTypeForAPICgo(apiName, *t.Elem)
 	}
-	return "C.int"
+	// Fail loud rather than silently emitting C.int for an unsupported shape
+	// (a fixed array, or a future primitive with no case): a wrong cgo type
+	// truncates/mismaps at the FFI boundary. No current IDL reaches here.
+	panic(fmt.Sprintf("gmicompile: cTypeForAPICgo: unsupported type shape %v (name %q) in api %q — add a case or reject in the parser", t.Kind, t.Name, apiName))
 }
 
 // goTypeForDispatch returns Go type string for use in dispatch code.

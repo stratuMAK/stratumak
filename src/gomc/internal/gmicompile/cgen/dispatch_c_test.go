@@ -315,3 +315,37 @@ func TestGenerateDispatchCPrimitiveReturn(t *testing.T) {
 	assertContains(t, out, "int32(out)")
 	assertContains(t, out, "Version:    2")
 }
+
+// --- Fail-fast guards for unsupported type shapes (G-L4 / G-L6 residual) ---
+//
+// Both shapes are latent today (no committed IDL uses them) but previously
+// emitted silently-wrong code: cTypeForAPICgo fell through to C.int (truncating
+// a real pointer/array at the FFI boundary), and emitFieldGoToC ran a
+// fixed-array-of-string through the scalar path, emitting non-compiling C with
+// no CString alloc or free. The guards convert both into loud generator panics.
+
+func mustPanic(t *testing.T, contains string, fn func()) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic containing %q, got none", contains)
+		}
+		if msg, _ := r.(string); !bytes.Contains([]byte(msg), []byte(contains)) {
+			t.Fatalf("panic %q does not contain %q", r, contains)
+		}
+	}()
+	fn()
+}
+
+func TestCTypeForAPICgoRejectsUnsupportedShape(t *testing.T) {
+	// A fixed array reaches cTypeForAPICgo with no case → must panic, not C.int.
+	arr := ast.TypeRef{Kind: ast.TypeArray, ArrayLen: 4, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimString}}
+	mustPanic(t, "unsupported type shape", func() { cTypeForAPICgo("testapi", arr) })
+}
+
+func TestEmitFieldGoToCRejectsFixedArrayOfString(t *testing.T) {
+	g := &dispatchCGen{w: new(bytes.Buffer), api: &ast.API{Name: "testapi"}}
+	fixedStrArr := ast.TypeRef{Kind: ast.TypeArray, ArrayLen: 4, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimString}}
+	mustPanic(t, "fixed-array-of-string", func() { g.emitFieldGoToC("out.names", "in.Names", fixedStrArr) })
+}

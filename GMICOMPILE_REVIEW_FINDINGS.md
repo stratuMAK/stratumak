@@ -52,6 +52,25 @@ type mappers unified/deduplicated (py/ts drift closed), dead `client_go_internal
 G-M4, G-L1, G-L4, G-L5, G-L7 — all opt-in-client DX or latent-with-no-trigger, plus G-L6's
 `[N]string` half.
 
+**STATUS (2026-07-20, matrix reconciliation session): G-L4 + G-L6 (residual) FIXED via fail-fast
+guards** — the two silent-wrong emitter fallbacks now `panic` with a shape-naming message instead
+of emitting broken/mismapped cgo. `cTypeForAPICgo` no longer falls through to `C.int` for an
+unsupported shape (`dispatch_c.go`), and `emitFieldGoToC` rejects fixed-array-of-string rather
+than running it through the scalar path (non-compiling C, no `CString`/free). Both were
+**latent-no-trigger** (grep over all 33 generated packages: no fixed-array-of-string, no `ptr`
+struct field), so this is pure fail-fast hardening — a full `make` regen of every package is
+**byte-identical** (guards never fire) and the cgen suite is green with two new guard tests
+(`TestCTypeForAPICgoRejectsUnsupportedShape`, `TestEmitFieldGoToCRejectsFixedArrayOfString`).
+Reconciliation confirmed all prior fix commits landed and both dead files (`server_ws.go`,
+`client_go_internal.go`) are gone.
+
+**Remaining (all require manual review / a design decision — NOT auto-fixable):** G-M4 (TS 64-bit:
+`number`→`string`+bigint changes the client API surface — design call), G-L1 (`_cb` RT annotation:
+cross-cutting with the RT-hardening checklist item 1b — belongs to that session), G-L5 (array-size
+symbol drift: latent, but the fix touches emission across all ~39 packages), G-L7 (external
+`*_client.c` nested-struct parser: real feature work needing a consumer test). Each stays deferred
+with the rationale in §4/§5.
+
 ---
 
 ## HIGH
@@ -160,18 +179,24 @@ or at minimum a generator warning.
   `result` is `*C.char` (won't compile); struct-with-string leaks. **`GenerateClientGoInternal`
   is never invoked by the driver.** A loaded gun. Fix: delete (verify no test/other consumer
   first — `client_go_test.go` exists), or port the free logic in.
-- **G-L4 — `[N]string` / array-of-slice elements are neither allocated nor freed.**
-  `dispatch_c.go` `emitFreeCAllocs` TypeArray (L396-406) handles only named-struct elements; the
-  alloc side for `[N]string` wouldn't compile. No current IDL has `[N]string` (all fixed arrays
-  are primitive or string-less structs). CONFIRMED-latent. Fix: implement, or make the parser
-  reject the shape with a clear error.
+- **G-L4 — `[N]string` / array-of-slice elements are neither allocated nor freed. FIXED
+  (fail-fast).** `dispatch_c.go` `emitFreeCAllocs` TypeArray (L396-406) handles only named-struct
+  elements; the alloc side (`emitFieldGoToC` TypeArray→primitive) ran `[N]string` through the
+  scalar path, emitting non-compiling C with no `CString`/freeList. No current IDL has `[N]string`
+  (all fixed arrays are primitive or string-less structs). Rather than implement the (unused)
+  alloc/free, `emitFieldGoToC` now **panics with a shape-naming message** on fixed-array-of-string
+  — a build-time generator failing loud beats silently-broken cgo. Regen byte-identical; guard
+  test added. Revisit to *implement* only if an IDL introduces the shape.
 - **G-L5 — array-size symbol drift:** the header mapper emits the `#define` name
   (`MOTSTAT_MAX_JOINTS`) while the dispatch/client copies emit the raw number. Harmless today
   (parser resolves lengths), latent `[0]` if an `ArrayLenName` ever stays unresolved. Route all
   through the `#define`-aware helper. `server.go:156` vs `dispatch_c.go:1163`/`client.go`.
-- **G-L6 — cgo `ptr`/array → `C.int` silent fallback** (struct-field angle of G-H2;
-  `dispatch_c.go:1171`, `client_go_internal.go:517`). Unreached today (no `ptr` struct fields).
-  Make the default a generator error, not `C.int`.
+- **G-L6 — cgo `ptr`/array → `C.int` silent fallback. FIXED (fail-fast).** (struct-field angle of
+  G-H2; `dispatch_c.go` `cTypeForAPICgo`.) The PrimPtr half was fixed in `04b1d14df9`; the
+  residual `C.int` default for any other unsupported shape (a fixed array reaching the mapper, a
+  future unmatched primitive) now **panics** naming the shape+api instead of silently truncating a
+  pointer/array at the FFI boundary. Unreached today (dead `client_go_internal.go:517` copy already
+  deleted in G-L3). Regen byte-identical; guard test added.
 - **G-L7 — external C REST client parses only one level of struct nesting.**
   `client.go:582-620`. Deeper-nested / slice-of-struct-containing-slice fields are left zeroed in
   the `*_client.c` consumer path. Data-completeness gap (no leak/UAF in our code — external caller
@@ -224,12 +249,18 @@ or at minimum a generator warning.
    server mappers (`primitiveToCType`/`primitiveToGoType`/`cTypeForAPICgo`) were intentionally
    left as-is — a full shared-table rewrite risks the server build across ~39 packages for
    near-zero gain. **G-L2 — DONE** (commit `9f1ace9fa5`): dead `--server-ws` mode deleted.
-4. **Deferred as documented-known (low ROI / no current trigger):** G-M4 (TS 64-bit),
-   G-L1 (`_cb` RT annotation — tracked as RT-checklist 1b), G-L4 (`[N]string` parser guard —
-   no IDL triggers it), G-L5 (array-size symbol drift — latent), G-L7 (external `*_client.c`
-   nesting depth). These affect only opt-in py/ts/TS clients or are latent with no trigger; each
-   still needs its own test. Revisit if an IDL introduces the shape or a client needs it.
-5. **DX/robustness:** G-M4 TS 64-bit, G-L7 nesting depth, G-L1 `_cb` annotation.
+4. **Fail-fast guards for the latent silent-wrong shapes — DONE** (matrix-reconciliation session):
+   G-L4 (`[N]string` alloc) and G-L6 (cgo `C.int` default) now panic with a shape-naming message
+   rather than emit broken/mismapped cgo. Zero-risk (regen byte-identical over all 33 packages);
+   two guard tests added. This is the automatable subset — converting silent-latent-corruption into
+   a loud build error, exactly the doc's "make the default a generator error" recommendation.
+5. **Deferred — require manual review / a design decision, NOT auto-fixable:** G-M4 (TS 64-bit:
+   `number`→`string`+bigint is an API-surface design call for opt-in TS clients), G-L1 (`_cb` RT
+   annotation — cross-cutting, tracked as RT-checklist 1b, belongs to the RT-hardening session),
+   G-L5 (array-size symbol drift — latent, but the fix touches emission across all ~39 packages so
+   it needs a regen-diff review), G-L7 (external `*_client.c` nested-struct parser — real feature
+   work needing a consumer test). Each still needs its own test. Revisit if an IDL introduces the
+   shape or a client needs it.
 
 **Every fix needs a test that would have caught it** (risk class 4) — for G-H1 a multi-subscriber
 publish test; for G-H2 a generate+build check of a callback/ptr API under `--server-go`; for the
