@@ -188,15 +188,15 @@ type mockStatus struct{}
 func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
 	return motstat.MotionStatus{Enabled: 1}, nil
 }
-func (m *mockStatus) GetPosCmd() (motstat.Pose, error)         { return motstat.Pose{}, nil }
-func (m *mockStatus) GetPosFb() (motstat.Pose, error)          { return motstat.Pose{}, nil }
-func (m *mockStatus) GetInpos() (int32, error)                 { return 1, nil }
-func (m *mockStatus) GetExecId() (int32, error)                { return 0, nil }
-func (m *mockStatus) GetQueueDepth() (int32, error)            { return 0, nil }
-func (m *mockStatus) GetCommandNumEcho() (int32, error)        { return 0, nil }
-func (m *mockStatus) GetCommandStatus() (int32, error)         { return 0, nil }
-func (m *mockStatus) GetSynchDi(int32) (int32, error)          { return 0, nil }
-func (m *mockStatus) GetAnalogInput(int32) (float64, error)    { return 0, nil }
+func (m *mockStatus) GetPosCmd() (motstat.Pose, error)      { return motstat.Pose{}, nil }
+func (m *mockStatus) GetPosFb() (motstat.Pose, error)       { return motstat.Pose{}, nil }
+func (m *mockStatus) GetInpos() (int32, error)              { return 1, nil }
+func (m *mockStatus) GetExecId() (int32, error)             { return 0, nil }
+func (m *mockStatus) GetQueueDepth() (int32, error)         { return 0, nil }
+func (m *mockStatus) GetCommandNumEcho() (int32, error)     { return 0, nil }
+func (m *mockStatus) GetCommandStatus() (int32, error)      { return 0, nil }
+func (m *mockStatus) GetSynchDi(int32) (int32, error)       { return 0, nil }
+func (m *mockStatus) GetAnalogInput(int32) (float64, error) { return 0, nil }
 
 func newTestTask() (*Task, *mockMotion, *mockIO) {
 	mot := &mockMotion{}
