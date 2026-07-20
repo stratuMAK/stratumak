@@ -1,0 +1,10 @@
+# Bus description for the in-process EtherCAT sim transport (transportType=sim).
+# One generic slave with 8 bytes of output (SM2) and 8 bytes of input (SM3)
+# process data, no mailbox — mirrors the master's own test_sim_domain slave.
+slave 0
+  vendor   0x00000E17
+  product  0x51340001
+  revision 0x00010000
+  serial   1
+  sm2      0x1100 8
+  sm3      0x1400 8
