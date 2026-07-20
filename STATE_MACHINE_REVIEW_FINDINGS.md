@@ -61,10 +61,11 @@ publication protocol), NGC1 (ngcpreview interp concurrency guard — hinges on r
 state), ADS2 (adsmodule Stop/Destroy vs ADS 2 s bounded shutdown), ADS3 (accept busy-spin
 backoff), T6 (conflated return codes), E1 (estop poll latency — accepted; safety-boundary doc).
 
-**Test debt:** the abort-wedge fix wants a regression test — a config whose toolchanger never
-asserts `tool-changed`, run M6, then abort/estop, assert the sequencer recovers (no wedge) and
-`restartSequencer`/estop-reset return. This is a runtests-level scenario (needs HAL pins + a
-stuck-changer sim); designed but not yet placed.
+**Test debt — CLOSED:** `tests/abort/toolchange-wedge` (the first test to exercise iov2 —
+LIB:linuxcnc.hal hardcodes `load io`, so it substitutes a v2 stack). Stages a stuck change
+(tool-prepare looped, tool-changed undriven), aborts (Phase 1) and estops (Phase 2), and
+asserts recovery + a fresh MDI each time. Verified: wedges/fails on the pre-fix build, passes
+6/6 on the fixed build.
 
 ---
 
