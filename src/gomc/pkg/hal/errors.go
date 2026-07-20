@@ -68,6 +68,15 @@ var (
 		Code:    -12, // -ENOMEM
 		Message: "insufficient HAL shared memory",
 	}
+
+	// ErrPortWriteFailed indicates a write to a HAL_PORT (string) pin was
+	// dropped. The usual cause is that the pin has no backing buffer: a
+	// HAL_PORT pin is unbacked until it is linked (net) to a port signal that
+	// was allocated with a size.
+	ErrPortWriteFailed = &Error{
+		Code:    -28, // -ENOSPC
+		Message: "HAL_PORT write failed (pin not linked to a sized port signal?)",
+	}
 )
 
 // newError creates a new Error with the specified operation, message, and code.

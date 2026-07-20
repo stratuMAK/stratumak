@@ -255,8 +255,10 @@ func newStringAccessor(pin *hal.Pin[string], ti typeInfo) *halPinAccessor {
 			if idx := bytes.IndexByte(data[:n], 0); idx >= 0 {
 				s = s[:idx]
 			}
-			pin.Set(s)
-			return nil
+			// TrySet (not Set) so a dropped HAL_PORT write — e.g. the string pin
+			// is not linked to a sized port signal — surfaces as an ADS write
+			// error instead of a silent success.
+			return pin.TrySet(s)
 		},
 	}
 }

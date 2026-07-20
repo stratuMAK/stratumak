@@ -223,12 +223,47 @@ the final human sign — the functional/parity work itself is complete.
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| pkg/hal | 1174/54 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| pkg/hal | 1088/191 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ◐ |
 | internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | generated/gmi/* boundary | n/a | 3 (spot-check vs IDL) | ☐ | ☐ | ☐ | — | ☐ | — | ☐ |
 | internal/realtime | 47/28 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/gmi | 376/262 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | pkg/gomc, pkg/cmodule | 94/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+
+**`pkg/hal` — reviewed 2026-07-20 (Tier 1 hotspot #1; the binding layer every RT interaction
+crosses).** Architecture verified: two module kinds cross this boundary differently — **cmods**
+(C plugins) are pure C (RT funcs + non-RT **pthreads**, lifecycle in their own C `Stop`) and
+**never touch `pkg/hal`**; **gomods** (Go, `gomc.Module`) are the only users of `hal.Component`,
+and stop their goroutines via `gomc.Module.Stop()` + the module's own stop channel (e.g.
+`bridge.stopCh`), driven by the launcher's `stopGoModules`/`destroyGoModules`. Findings:
+- **H-1 (correctness, FIXED):** `Pin.String()` took `RLock` then called `Get()` (which
+  `RLock`s again) — a recursive read-lock that Go's `RWMutex` forbids and that deadlocks if a
+  `Set()` writer contends between the two. `String()` no longer locks (name/direction immutable,
+  `Type()`/`Get()` self-lock). Regression test added (`pin_test.go`).
+- **H-2 (dead code + false doc, FIXED):** `Component.Running()`/`Stop()`/`done`/`running` had
+  **zero** callers — leftovers from a standalone `for comp.Running()` userspace-component model
+  that `gomc.Module` replaced — and `doc.go` claimed automatic SIGTERM/SIGINT handling that
+  never existed (no `signal.Notify`, no goroutine; the launcher owns shutdown). Removed the
+  scaffolding; `doc.go` rewritten to the real `gomc.Module` lifecycle. (User-ruled removal.)
+- **H-3 (silent no-op, SURFACED + documented):** an unlinked `HAL_PORT` string pin has no
+  backing buffer, so `Pin[string].Set()` silently dropped the write (`halPortWrite`'s `false`
+  return was discarded) and `Get()` returned `""`. Added `Pin[T].TrySet() error` (scalars always
+  nil; string path returns `ErrPortWriteFailed` on a dropped write); `Set()` now delegates to it
+  fire-and-forget. `adsbridge`'s string `writeFn` now returns `TrySet` so an undeliverable ADS
+  string write surfaces as an ADS `ErrInternal` instead of a false ACK. Contract documented at
+  `NewPin`/`Get`/`Set`/`TrySet`.
+- **H-4 (documented, in `hal_lib.c` not pkg/hal):** the in-process HAL data segment is torn down
+  when the last component exits; a subsequent `hal_init` returns EINVAL (HAL not cleanly
+  re-initializable in one process). Production-safe (components created once, never cycled); the
+  test binary works around it with a keep-alive `TestMain`.
+- **H-5 (design note):** `Pin`'s `RWMutex` serializes only Go-side callers; the RT C thread
+  writes the same shared-memory cell bypassing it. Genuinely needed for the multi-step PORT
+  framing; for scalars it's Go-side-only serialization over an inherently lock-free HAL cell —
+  documented, not "fixed."
+Coverage raised from 54→191 test lines (round-trip for all scalar types, the `String()`-vs-`Set()`
+concurrency regression, `TrySet` failure). `U`/`FP` left ◐: `Component` lifecycle (Ready/Exit),
+`LookupValue`, and the linked-port round-trip still want tests. Verified: build ./... green, vet
+clean, `go test`/`-race` green, gofmt clean. Awaiting final human sign (`S`).
 
 **`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
 human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
@@ -515,3 +550,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-15 | Tool-change/lifecycle porting sweep complete (`MILLTASK_LIFECYCLE_SWEEP.md`): 13 gaps fixed across milltask/canon/interp/iocontrol/tooltable, 17 tests un-xfailed (G43 Hn, tool tracking, M61, RANDOM_TOOLCHANGER, TOOL_CHANGE_POSITION, abort modal-state restore via restore_from_tag, g5x desync, tool_from_pocket in stat) |
 | 2026-07-19 | Runtests migration complete — 232/232 successful, 0 xfail, 0 skipped (all categories incl. Category D full-instance ported; `runtests.log`). gomc-native latency-test ported (branch `latency-test`), OK on first run — RT/latency soak instrument now in hand (`RT_HARDENING_CHECKLIST.md` §3) |
 | 2026-07-20 | `internal/realtime` reviewed (Phase 1, Tier 1). Confirmed off the cyclic RT path (startup-only stub, no goroutines/shm). Removed two vestigial checks (`/dev/zero` sanity, dead `RTAPI_DEBUG` branch); `Start()` now an honest minimal validator. vet/test/build green. Row → L R F U RC ✅, FP —, S ◐ (awaiting final human sign) |
+| 2026-07-20 | `pkg/hal` reviewed (Phase 1, Tier 1 hotspot #1). Fixed `Pin.String()` recursive-RLock deadlock (H-1); removed dead `Running()`/`Stop()`/`done`/`running` scaffolding + rewrote false signal-handling doc (H-2, user-ruled); surfaced silent HAL_PORT string-write drops via new `Pin.TrySet()`, wired `adsbridge` to it, documented the sized-port contract (H-3); documented HAL re-init-after-teardown limit (H-4) + the Pin-mutex-vs-RT-writer design note (H-5). Coverage 54→191 test lines. build/vet/test/-race green. Row → L R F RC ✅, U FP ◐, S ◐ |

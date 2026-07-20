@@ -59,6 +59,11 @@ type Pin[T PinValue] struct {
 //   - uint32 -> hal_pin_u32_new()
 //   - string -> hal_pin_port_new()
 //
+// String pins (HAL_PORT) differ from scalar pins: hal_pin_port_new creates the
+// pin with an empty (unbacked) port. The pin gains a buffer only when it is
+// linked (via net) to a port signal that was allocated with a size. Until then
+// Get() returns "" and Set() drops the value (TrySet() reports the failure).
+//
 // Type inference example:
 //
 //	pin, err := NewPin[float64](comp, "speed", hal.In)
@@ -157,6 +162,8 @@ func (p *Pin[T]) Get() T {
 	case string:
 		// String pins use HAL_PORT with 4-byte big-endian length-prefix framing.
 		// Use peek (non-consuming) so repeated Get() calls return the same value.
+		// An unlinked HAL_PORT pin has no backing buffer, so readable == 0 and
+		// this returns "" (see NewPin/TrySet on the sized-port-signal contract).
 		// p.ptr is **hal_port_t; dereference at access time so HAL's updated
 		// pointer (set when pin is linked via net) is always followed.
 		ptrPtr := (**C.hal_port_t)(p.ptr)
@@ -190,14 +197,33 @@ func (p *Pin[T]) Get() T {
 	}
 }
 
-// Set writes a value to the pin.
+// Set writes a value to the pin (fire-and-forget).
 //
 // For output pins, this writes the value that will be read by connected
 // components. For input pins, calling Set() has no effect (the value is
 // overwritten by the connected signal).
 //
+// Set ignores any write failure. For scalar pins a write always succeeds, but
+// for string (HAL_PORT) pins the write can be dropped when the pin has no
+// backing buffer — use TrySet if you need to confirm the value was delivered.
+//
 // This writes to HAL shared memory.
 func (p *Pin[T]) Set(value T) {
+	_ = p.TrySet(value)
+}
+
+// TrySet writes a value to the pin and reports whether the write reached HAL.
+//
+// Scalar pins (bool/float64/int32/uint32) write directly into HAL shared memory
+// and always return nil.
+//
+// String pins (HAL_PORT) can fail: a HAL_PORT pin has no backing buffer until
+// it is linked (via net) to a port signal that was allocated with a size. On an
+// unlinked port — or one whose buffer is too small for the framed message — the
+// write is dropped and TrySet returns ErrPortWriteFailed. This is the one pin
+// type whose Set can silently no-op, so callers that must confirm delivery of a
+// string value should use TrySet.
+func (p *Pin[T]) TrySet(value T) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -237,8 +263,11 @@ func (p *Pin[T]) Set(value T) {
 		frame := make([]byte, portFrameHeaderSize+len(strBytes))
 		binary.BigEndian.PutUint32(frame[:portFrameHeaderSize], uint32(len(strBytes)))
 		copy(frame[portFrameHeaderSize:], strBytes)
-		halPortWrite(portPtr, frame)
+		if !halPortWrite(portPtr, frame) {
+			return newError("Pin.TrySet", ErrPortWriteFailed.Message, ErrPortWriteFailed.Code)
+		}
 	}
+	return nil
 }
 
 // Name returns the fully-qualified pin name.
@@ -272,9 +301,12 @@ func (p *Pin[T]) Type() PinType {
 }
 
 // String returns a string representation of the pin.
+//
+// It must not take p.mu: name/direction are immutable after construction and
+// Type()/Get() do their own locking. Taking an RLock here and then calling
+// Get() (which RLocks again) is a recursive read-lock — Go's RWMutex forbids
+// it and deadlocks if a Set() writer contends between the two RLocks.
 func (p *Pin[T]) String() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return fmt.Sprintf("Pin{name=%s, type=%s, dir=%s, value=%v}",
 		p.name, p.Type(), p.direction, p.Get())
 }

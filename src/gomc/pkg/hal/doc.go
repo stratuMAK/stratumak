@@ -21,61 +21,55 @@ The typical flow for a HAL component is:
  1. Create a component with NewComponent()
  2. Create pins with NewPin[T]()
  3. Mark the component ready with Ready()
- 4. Enter a main loop that checks Running()
- 5. Clean up with Exit() (typically via defer)
+ 4. Read and write pins as data flows through HAL
+ 5. Release the component with Exit() when it is torn down
 
-Example:
+In gomc a component is normally owned by a compiled-in module (see package
+gomc): the launcher calls the module's Start/Stop/Destroy, and pin data flows
+as HAL threads drive the connected components. The module does its per-cycle
+work (or runs its own worker goroutines) and releases the component from
+Destroy(). Components do not run their own main loop or install signal handlers.
 
-	package main
+Example (as used from a module):
 
 	import (
 		"log"
-		"time"
 
 		"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	)
 
-	func main() {
-		// Create component
-		comp, err := hal.NewComponent("go-example")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer comp.Exit()
-
-		// Create pins
-		input, err := hal.NewPin[float64](comp, "input", hal.In)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		output, err := hal.NewPin[float64](comp, "output", hal.Out)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		enable, err := hal.NewPin[bool](comp, "enable", hal.In)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Mark component ready
-		if err := comp.Ready(); err != nil {
-			log.Fatal(err)
-		}
-
-		log.Println("Component ready, entering main loop")
-
-		// Main loop
-		for comp.Running() {
-			if enable.Get() {
-				output.Set(input.Get() * 2.0)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		log.Println("Component shutting down")
+	// Create component and pins (typically in the module factory).
+	comp, err := hal.NewComponent("go-example")
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	input, err := hal.NewPin[float64](comp, "input", hal.In)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	output, err := hal.NewPin[float64](comp, "output", hal.Out)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	enable, err := hal.NewPin[bool](comp, "enable", hal.In)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := comp.Ready(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Per-cycle work (called from the module, or a worker goroutine it owns):
+	if enable.Get() {
+		output.Set(input.Get() * 2.0)
+	}
+
+	// On teardown (typically the module's Destroy()):
+	// _ = comp.Exit()
 
 # Pin Types
 
@@ -121,11 +115,14 @@ HAL components written in Go integrate seamlessly with the rest of LinuxCNC:
   - Use 'halcmd show pin' to see exported pins
   - Use 'halcmd net' to connect pins to signals
 
-# Signal Handling
+# Lifecycle and Shutdown
 
-HAL components automatically handle SIGTERM and SIGINT for graceful shutdown.
-The Running() method returns false when a shutdown signal is received, allowing
-the component to clean up and exit properly.
+pkg/hal itself runs no goroutines and installs no signal handlers. In gomc a
+component is owned by a compiled-in module (package gomc); the launcher drives
+each module's Start/Stop/Destroy. A module stops its own worker goroutines in
+Stop() and releases its HAL component (Exit()) from Destroy(). Process-level
+shutdown (SIGTERM/SIGINT) is handled by the launcher, not by individual
+components.
 
 # References
 
