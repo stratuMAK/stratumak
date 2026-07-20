@@ -16,7 +16,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"go.bug.st/serial"
 )
@@ -108,6 +110,7 @@ type modbusMaster struct {
 	mu              sync.Mutex
 	cancel          context.CancelFunc
 	running         bool
+	wg              sync.WaitGroup
 	currentReq      int
 	errorCount      int
 	frameCount      int
@@ -150,19 +153,24 @@ func (m *modbusMaster) start() {
 	m.running = true
 	m.currentReq = -1
 
-	go m.loop(ctx)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.loop(ctx)
+	}()
 }
 
 func (m *modbusMaster) stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if !m.running {
+		m.mu.Unlock()
 		return
 	}
 	m.cancel()
 	m.running = false
 
-	// Close transports
+	// Close transports — also unblocks any in-flight transaction so the join
+	// below cannot wait longer than one transaction timeout.
 	if m.serialPort != nil {
 		_ = m.serialPort.Close()
 		m.serialPort = nil
@@ -171,6 +179,12 @@ func (m *modbusMaster) stop() {
 		_ = conn.Close()
 		delete(m.tcpConns, addr)
 	}
+	m.mu.Unlock()
+
+	// Join the poll goroutine BEFORE the caller frees m.rt (module.Stop() ->
+	// classicladder_rt_free): the loop calls C.write_var_ext(m.rt, ...).
+	// Must not hold m.mu here — the loop takes it (findNextRequest/executeRequest).
+	m.wg.Wait()
 }
 
 func (m *modbusMaster) loop(ctx context.Context) {
@@ -195,8 +209,9 @@ func (m *modbusMaster) loop(ctx context.Context) {
 		default:
 		}
 
-		// Check ladder state
-		state := int(m.rt.state)
+		// Check ladder state (atomic — the RT thread and setState() both
+		// write m.rt.state concurrently; match the accessor pattern in module.go)
+		state := int(atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.state))))
 		if state != C.CL_STATE_RUN {
 			select {
 			case <-ctx.Done():

@@ -32,6 +32,8 @@ type modbusSlave struct {
 	cancel   context.CancelFunc
 	running  bool
 	port     int
+	wg       sync.WaitGroup
+	conns    map[net.Conn]struct{}
 }
 
 func newModbusSlave(rt *C.classicladder_rt_t, logger *slog.Logger) *modbusSlave {
@@ -39,6 +41,7 @@ func newModbusSlave(rt *C.classicladder_rt_t, logger *slog.Logger) *modbusSlave 
 		rt:     rt,
 		logger: logger,
 		port:   502,
+		conns:  make(map[net.Conn]struct{}),
 	}
 }
 
@@ -61,19 +64,35 @@ func (s *modbusSlave) start(port int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	go s.acceptLoop(ctx)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.acceptLoop(ctx)
+	}()
 	s.logger.Info("modbus slave started", "port", port)
 }
 
 func (s *modbusSlave) stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
+	s.running = false
 	s.cancel()
 	_ = s.listener.Close()
-	s.running = false
+	// Close every live connection so a handler parked in a blocked read
+	// (readFull between frames) returns at once instead of leaking.
+	for c := range s.conns {
+		_ = c.Close()
+	}
+	s.mu.Unlock()
+
+	// Join accept + handler goroutines BEFORE the caller frees s.rt
+	// (module.Stop() -> classicladder_rt_free): the handlers call
+	// C.read_var_ext/write_var_ext(s.rt, ...). Not under s.mu — the handler
+	// exit path takes it to deregister.
+	s.wg.Wait()
 }
 
 func (s *modbusSlave) acceptLoop(ctx context.Context) {
@@ -88,7 +107,23 @@ func (s *modbusSlave) acceptLoop(ctx context.Context) {
 				return
 			}
 		}
-		go s.handleConn(ctx, conn)
+		s.mu.Lock()
+		if !s.running {
+			// stop() ran between Accept and here — don't leak the conn.
+			s.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		s.conns[conn] = struct{}{}
+		s.wg.Add(1)
+		s.mu.Unlock()
+		go func(c net.Conn) {
+			defer s.wg.Done()
+			s.handleConn(ctx, c)
+			s.mu.Lock()
+			delete(s.conns, c)
+			s.mu.Unlock()
+		}(conn)
 	}
 }
 
