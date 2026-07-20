@@ -387,7 +387,7 @@ func primitiveToPyType(name string) string {
 	switch name {
 	case "bool":
 		return "bool"
-	case "i8", "u8", "i32", "u32", "i64", "u64":
+	case "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64":
 		return "int"
 	case "f32", "f64":
 		return "float"

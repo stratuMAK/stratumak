@@ -429,16 +429,9 @@ func (g *clientPyWSGen) methodReturnAnnotation(fn ast.Func) string {
 func (g *clientPyWSGen) toPyType(t ast.TypeRef) string {
 	switch t.Kind {
 	case ast.TypePrimitive:
-		switch t.Name {
-		case "bool":
-			return "bool"
-		case "i8", "u8", "i32", "u32", "i64", "u64":
-			return "int"
-		case "f32", "f64":
-			return "float"
-		case "string":
-			return "str"
-		}
+		// Delegate to the single Python primitive mapper (shared with client_py)
+		// so the two never drift — this is where i16/u16 previously fell to Any.
+		return primitiveToPyType(t.Name)
 	case ast.TypeNamed:
 		return toPascalCase(t.Name)
 	case ast.TypeArray, ast.TypeSlice:

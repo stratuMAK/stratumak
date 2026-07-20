@@ -337,7 +337,7 @@ func primitiveToTSType(name string) string {
 	switch name {
 	case "bool":
 		return "boolean"
-	case "i8", "u8", "i32", "u32", "f32", "f64":
+	case "i8", "u8", "i16", "u16", "i32", "u32", "f32", "f64":
 		return "number"
 	case "i64", "u64":
 		return "number" // JSON doesn't support bigint natively
