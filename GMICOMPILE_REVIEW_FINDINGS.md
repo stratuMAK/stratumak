@@ -46,8 +46,11 @@ now emits callback/`ptr` params as `unsafe.Pointer`/`void*`/`uint64` (via `isOpa
 `mcode_handler` was migrated to the generated `--server-go` bridge and its hand-written provider
 retired (only the milltask-specific invocation kept); `tests/mcode-handler` passes end-to-end.
 
-Everything else below remains open for adjudication (type-mapping/duplication G-M2/M3/M4 +
-LOW/latent items; G-L6's `[N]string`/array-field half is still latent).
+**STATUS (2026-07-20): G-M2 + G-M3 + G-L3 + G-L2 FIXED** (commits `6d08f75307`, `9f1ace9fa5`) —
+type mappers unified/deduplicated (py/ts drift closed), dead `client_go_internal.go` and dead
+`--server-ws` mode removed. Remaining are **deferred as documented-known** (see fix ordering §4):
+G-M4, G-L1, G-L4, G-L5, G-L7 — all opt-in-client DX or latent-with-no-trigger, plus G-L6's
+`[N]string` half.
 
 ---
 
@@ -214,11 +217,18 @@ or at minimum a generator warning.
    `04b1d14df9`): `isOpaquePtrParam` at the four bridge sites, `PrimPtr`→`unsafe.Pointer` in
    `cTypeForAPICgo`, `emitCommands` skips opaque-ptr funcs; `mcode_handler` migrated to
    `--server-go`, hand-written provider retired, `tests/mcode-handler` green.
-3. **G-M2 — unify type mapping** into one shared descriptor table; closes the G-M3 root and folds
-   in G-L5/G-L6; de-risks all future drift. Then G-M3/G-M4 (py/ts widths) fall out.
-4. **Clean deletions/guards (low-risk once confirmed unused):** G-L3 (delete dead
-   `client_go_internal.go`), G-L2 (delete dead `--server-ws` mode), G-L4 (parser guard for
-   `[N]string`).
+3. **G-M2 + G-M3 + G-L3 — DONE** (commit `6d08f75307`). Deleting dead `client_go_internal.go`
+   removed the duplicate `cgoType` (cgo mapping is now solely `cTypeForAPICgo`); the py/ts
+   mappers were completed (`i16`/`u16`) and deduplicated (`py_ws`→`primitiveToPyType`, as
+   `ts_ws`→`primitiveToTSType` already did) so they can't drift. The complete, non-drifting
+   server mappers (`primitiveToCType`/`primitiveToGoType`/`cTypeForAPICgo`) were intentionally
+   left as-is — a full shared-table rewrite risks the server build across ~39 packages for
+   near-zero gain. **G-L2 — DONE** (commit `9f1ace9fa5`): dead `--server-ws` mode deleted.
+4. **Deferred as documented-known (low ROI / no current trigger):** G-M4 (TS 64-bit),
+   G-L1 (`_cb` RT annotation — tracked as RT-checklist 1b), G-L4 (`[N]string` parser guard —
+   no IDL triggers it), G-L5 (array-size symbol drift — latent), G-L7 (external `*_client.c`
+   nesting depth). These affect only opt-in py/ts/TS clients or are latent with no trigger; each
+   still needs its own test. Revisit if an IDL introduces the shape or a client needs it.
 5. **DX/robustness:** G-M4 TS 64-bit, G-L7 nesting depth, G-L1 `_cb` annotation.
 
 **Every fix needs a test that would have caught it** (risk class 4) — for G-H1 a multi-subscriber
