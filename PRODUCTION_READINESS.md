@@ -114,7 +114,7 @@ shim, `tests/hal-stream-driver.sh`, `lib/python/gomc_test.py`. Final: 232/232 su
 
   **Ruled intended 2.9 parity (2026-07-15, verified against the 2.9 tree): a `G64 P<tol>` persists across programs.** Program A's tolerance stays in effect for program B when B issues no G64 of its own — this is exactly what real 2.9 does, not a gomc leak. 2.9's M2/M30 deliberately excludes motion control mode from its reset list (`interp_convert.cc:4533` — "set at machine start-up but not automatically reset by any of the stopping codes"); the only reset is a full interp re-init (`emcTaskPlanInit` → `Interp::init` → `INIT_CANON`), which 2.9 issues solely at task startup or an explicit `EMC_TASK_PLAN_INIT` — never on program open/run, and not on abort (abort's `Synch()` copies the TP's current — leftover — tolerance back INTO the interp). Do not "fix" this by re-defaulting the term cond between programs.
   Also fixed en route: a latent mechanical-port bug in `src/emc/tp/tp.c` (the `emcmotConfig`→getter conversion had corrupted a `tp_debug_print` argument list — compiled out normally, broke `-DTP_DEBUG` builds).
-- **Operator messages lost — PRODUCTION-RELEVANT. ROOT-CAUSED to gmicompile, not the apiserver (2026-07-19; `GMICOMPILE_REVIEW_FINDINGS.md` G-H1).** The generated publish drain (`internal/gmicompile/cgen/publish_go.go`) exposes a **single shared** `Watch` closure whose read is a **destructive flush** (`events = nil`), and `publish_drain_hook.go` registers it as `Watch:` (shared across connections) instead of `Factory:` (per-connection). So with N WS subscribers each operator message reaches exactly one of them; single-subscriber loss then compounds via `pushLoop`'s byte-identical dedup (apiserver/ws_handler.go). Twin defect **G-M1**: `d.events` grows unbounded when no subscriber is attached. **Fix (no apiserver change — the `WatchFuncMeta.Factory` seam is already wired at ws_handler.go:381):** emit a retained, sequence-numbered, bounded buffer + a `WatchFactory()` giving each connection its own cursor, and emit `Factory:` in the drain hook. Test drivers mitigate with 0.3 s pacing + retries (tlo, toolchanger/m61). (Earlier suspected as the cause of interp/oword-mdi-sub-update's xfail; disproven 2026-07-19 — that sub's `(print,…)` goes to interp stdout, not the error channel.)
+- **FIXED (2026-07-19, `57c162d2ca`): Operator messages lost — PRODUCTION-RELEVANT. ROOT-CAUSED to gmicompile, not the apiserver (`GMICOMPILE_REVIEW_FINDINGS.md` G-H1 + G-M1).** The generated publish drain (`internal/gmicompile/cgen/publish_go.go`) exposed a **single shared** `Watch` closure whose read was a **destructive flush** (`events = nil`), and `publish_drain_hook.go` registered it as `Watch:` (shared across connections) instead of `Factory:` (per-connection). So with N WS subscribers each operator message reached exactly one of them; single-subscriber loss then compounded via `pushLoop`'s byte-identical dedup (apiserver/ws_handler.go). Twin defect **G-M1**: `d.events` grew unbounded when no subscriber was attached. **Fixed (no apiserver change — the `WatchFuncMeta.Factory` seam was already wired at ws_handler.go:381):** the drain now emits a retained, sequence-numbered, bounded buffer + a `WatchFactory()` giving each connection its own cursor, and the drain hook emits `Factory:`. Multi-subscriber regression test added in `internal/publishtest`. (Earlier suspected as the cause of interp/oword-mdi-sub-update's xfail; disproven 2026-07-19 — that sub's `(print,…)` goes to interp stdout, not the error channel.)
 - **`motion-logger` interceptor — DONE (cmod built + 2 tests green).** Implemented as an **interceptor/proxy** cmod (`src/emc/motion-logger/motion_logger_cmod.c` → `cmod/motion-logger.so`): registers `motctl`/`motstat` under its own instance name (milltask's `[EMCMOT]EMCMOT=motion-logger`), looks up the real motmod by `mot_instance=`, logs + forwards every call (real motmod = real motion + real status; no faking). milltask picks it up via a new `[EMCMOT]MOTION_INSTANCE` INI fallback (module.go). Converted + passing via runtests: `tests/motion-logger/{basic,mountaindew}`. Remaining: `tests/interp/m98m99/12`, `tests/abort/*crazy-move` (timing-dependent), and `tests/motion-logger/startup-gcode-abort` (blocked on the STARTUP_CODE gap below). Still TODO (under human review, `GOMC_PORT_SPEC.md` steps 2-3): rewire `tests/milltask-parity` to the interceptor, then **delete the `#ifdef MILLTASK_PARITY_TRACE` `motcmd_trace()` hook from `src/emc/motion/command.c`** so production RT carries no test instrumentation. Known gomc-vs-classic stream diffs (for the parity review): gomc omits `JOG_ABORT` for non-existent joints and the trailing `SET_SPINDLESYNC`; decoded-motctl format differs from the classic raw dump.
 - **FIXED: main-program `M99` now loops in task.** gomc had the `interp_set_loop_on_main_m99` binding (`interp.go:203`) but milltask never called it, so `M99` at main level ended the program instead of looping (classic sets it in `emctask.cc:461`). Added `interp.SetLoopOnMainM99(true)` to milltask `initInterpreter`. (unblocks tests/interp/m98m99/12)
 - **Minor: gomc `rs274` standalone emits extra `ON_RESET()` canon calls** vs the classic dump (one after `SET_FEED_REFERENCE`, two at `PROGRAM_END`). Benign-looking (interp reset lifecycle) but breaks byte-exact `expected` comparison; re-baselined where it appears. Worth a look if canon-call parity matters. (tests/interp/m98m99/12)
@@ -224,7 +224,7 @@ the final human sign — the functional/parity work itself is complete.
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | pkg/hal | 1088/191 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ◐ |
-| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ✅ | ◐ | ◐ | ◐ | ✅ | — | ◐ |
 | generated/gmi/* boundary | n/a | 3 (spot-check vs IDL) | ☐ | ☐ | ☐ | — | ☐ | — | ☐ |
 | internal/realtime | 47/28 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/gmi | 376/262 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
@@ -264,6 +264,38 @@ Coverage raised from 54→191 test lines (round-trip for all scalar types, the `
 concurrency regression, `TrySet` failure). `U`/`FP` left ◐: `Component` lifecycle (Ready/Exit),
 `LookupValue`, and the linked-port round-trip still want tests. Verified: build ./... green, vet
 clean, `go test`/`-race` green, gofmt clean. Awaiting final human sign (`S`).
+
+**`internal/gmicompile` (cgen emission logic) — Tier-1 review DONE 2026-07-19/20 (hotspot #2;
+the risk-class-3 multiplier — one wrong emission replicates into ~39 generated packages).**
+Full findings + verdicts in `GMICOMPILE_REVIEW_FINDINGS.md`. Method: four independent AI passes,
+each ground-truthed against the actual generated output in `generated/gmi/*` (all 33 committed
+packages swept). The two catastrophic classes are verified **closed generator-wide**: cgo handle
+transit (the persist-`cgo.Handle` production crash — `ctx` is `C.uintptr_t` everywhere, no handle
+parks in a GC-scanned Go pointer slot, both directions) and returned-data ownership (no leak /
+double-free / UAF for any returning shape that occurs). Live/production findings all FIXED:
+- **G-H1 + G-M1** (`57c162d2ca`): operator-message loss root-caused *here*, not the apiserver —
+  the publish drain emitted a single shared destructive-flush `Watch` (N subscribers → each message
+  reaches exactly one) plus an unbounded accumulator with no subscriber. Now a retained,
+  sequence-numbered, bounded ring + per-connection `WatchFactory`, with a multi-subscriber
+  regression test in `internal/publishtest`.
+- **G-H2 + G-L6/PrimPtr** (`04b1d14df9`): `--server-go` truncated callback/`ptr` params to `C.int`
+  (64-bit pointer truncation); now routed as `unsafe.Pointer`/`void*`/`uint64`. `mcode_handler`
+  migrated to the generated bridge; hand-written provider retired.
+- **G-M2/M3/L2/L3** (`6d08f75307`, `9f1ace9fa5`): type mappers unified (py/ts drift closed), dead
+  `client_go_internal.go` and dead `--server-ws` mode removed.
+- **G-L4 + G-L6/residual** (`bb14a10d1e`): the two silent-wrong emitter fallbacks now **panic**
+  with a shape-naming message instead of emitting broken/mismapped cgo (`cTypeForAPICgo` no longer
+  defaults to `C.int`; `emitFieldGoToC` rejects `[N]string`). Both latent-no-trigger — a full `make`
+  regen of every package is byte-identical (guards never fire); two guard tests added.
+`R`/`F`/`U`/`S` left ◐ because (a) only the **Tier-1 emission logic** was in scope — the parser/AST
+side is Tier 2, not yet reviewed; and (b) the remaining findings are **deferred as NEEDING MANUAL
+REVIEW / a design decision, not auto-fixable**: G-M4 (TS 64-bit `number`→`string`+bigint = client
+API-surface call), G-L1 (`_cb` RT annotation — cross-cutting, belongs to `RT_HARDENING_CHECKLIST.md`
+item 1b), G-L5 (array-size symbol drift — latent, fix touches emission across ~39 packages), G-L7
+(external `*_client.c` nested-struct parser — feature work needing a consumer test). Each still
+needs its own test (risk class 4). `RC` ✅ (module-wide `-race` sweep green). `FP` — (a code
+generator, not a runtime fault-path module). Verified across the fix commits: full `make` regen
+git-clean, cgen suite green, build/vet green.
 
 **`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
 human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
@@ -341,6 +373,21 @@ Row → L R F ◐ (L-3 open); `U`/`FP`/`S` pending (L-3 design + L-4 contract ch
 | internal/adsconfig | 1473/2988 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/adsmodule | 163/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 
+**EtherCAT sim-transport integration harness — M1 done (2026-07-20).** The whole `cmd/ethercat`
++ lcec driver stack (Phase 2's highest-risk, untested-per-line area) is now testable **without
+hardware**. The EtherCAT master's in-process, datagram-level slave emulator (`transport_sim`, an
+`ec_transport_ops_t` impl that answers scan/AL-state/SII/CoE at the wire level) was promoted from
+the submodule's test-only `tests/` into a **first-class, config-selectable transport**
+(`EC_TRANSPORT_SIM`; `transportType="sim"`, `interface=<bus-description-file>`) — shipped, not
+flag-gated (a user can dry-run a config). It stays RT-honest: the mutex-holding cyclic
+`send`/`receive` are `ECRT_RT_TRUSTED`-annotated and `transport_sim.c` is in the master's
+`rt-effects-check` (green). Branch: submodule `transport-sim` off `production-readyness`.
+`tests/ethercat/sim-basic` (the first gomc EtherCAT runtests case) loads the driver on an emulated
+generic slave, reaches OP, and asserts the configured PDOs surface as HAL pins — passing via
+`scripts/runtests`, stable. Details + the M2/M3 plan in the auto-memory `ethercat-sim-transport`.
+This makes the Phase-2 EtherCAT rows (`cmd/ethercat` + the driver cmods) reviewable/testable now,
+and feeds the cross-cutting "Simulation configs" / "Real-machine test plan" items below.
+
 ### Phase 3 — supervision & startup (first thing a field tech touches)
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
@@ -404,15 +451,25 @@ Human review mandatory, in this order:
 2. **gmicompile emission logic** (`internal/gmicompile/cgen`) — one wrong emission pattern
    replicates into 39 generated packages. Review generator + diff a sample of generated
    output against the IDL by hand. The parser/AST side is Tier 2.
-3. **cmd/ethercat** — **BLOCKED ON TRANSPORT / reframed (2026-07-20).** This is a *diagnostic
-   CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI to the master at `GMC_REST_URL`) —
-   it holds **no** state machine, watchdog, or slave-loss logic; every PREOP/SAFEOP/OP/watchdog
-   reference is formatting of state read back from the master. The load-bearing state-machine
-   review (INIT/PREOP/SAFEOP/OP, watchdog, slave loss/rejoin) is therefore the **EtherCAT master
-   review running in parallel**, which established a sim/test transport — do not duplicate it here.
-   Disposition: when the sim transport exposes the ethercat GMI surface, do a light CLI read-review
-   (correct command marshaling, SDO/PDO parsing/formatting) + write end-to-end CLI tests on the
-   transport + fold in the master review's conclusions. Until then: skip; proceed to #4.
+   **DONE (2026-07-19/20) — see `GMICOMPILE_REVIEW_FINDINGS.md` + the Phase-1 note above.** Both
+   catastrophic classes (cgo handle transit, returned-data ownership) verified closed
+   generator-wide across all 33 packages; all live/production findings fixed (operator-message
+   loss root-caused here; `--server-go` ptr truncation; mapper drift; fail-fast guards). Deferred
+   as manual/design-decision (not auto-fixable): G-M4, G-L1, G-L5, G-L7. Tier-2 parser/AST still
+   to review.
+3. **cmd/ethercat** — **UNBLOCKED (2026-07-20): sim transport built; hardware-free EtherCAT
+   integration harness underway (M1 done).** This is a *diagnostic CLI* (drop-in for the IgH
+   `ethercat` tool, talks REST/GMI to the master at `GMC_REST_URL`) — it holds **no** state
+   machine, watchdog, or slave-loss logic; every PREOP/SAFEOP/OP/watchdog reference is formatting
+   of state read back from the master. Rather than only read-review the CLI, the sim transport was
+   promoted from the master's test-only `transport_sim` into a **first-class, config-selectable
+   transport** (`transportType=sim`, `interface=<bus-description-file>`) so the *whole lcec driver*
+   can be integration-tested with no hardware — see the Phase-2 note below. **M1 done + committed**
+   (submodule `670737d4`; superproject `b6c9c9a6a1`, `bb1ac3a0be`): the driver comes up on an
+   emulated slave and reaches OP with PDOs mapped to HAL pins (`tests/ethercat/sim-basic`, passes
+   `runtests`). **M2** broadens driver-aspect coverage (PDO value round-trip, SDO, DC, link-loss);
+   **M3** layers `bin/ethercat` REST-CLI output assertions on the same running config — which is
+   the light CLI read-review + end-to-end CLI tests this hotspot called for, closing it.
 4. **internal/launcher + internal/daemon** — process supervision, startup/shutdown ordering,
    restart-after-crash. Focus: goroutine ownership, orphan handling, partial-startup failure.
 5. **State machines & abort paths across modules** — wherever a Tier 2 AI review flags a
@@ -614,4 +671,6 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-20 | `internal/realtime` reviewed (Phase 1, Tier 1). Confirmed off the cyclic RT path (startup-only stub, no goroutines/shm). Removed two vestigial checks (`/dev/zero` sanity, dead `RTAPI_DEBUG` branch); `Start()` now an honest minimal validator. vet/test/build green. Row → L R F U RC ✅, FP —, S ◐ (awaiting final human sign) |
 | 2026-07-20 | `pkg/hal` reviewed (Phase 1, Tier 1 hotspot #1). Fixed `Pin.String()` recursive-RLock deadlock (H-1); removed dead `Running()`/`Stop()`/`done`/`running` scaffolding + rewrote false signal-handling doc (H-2, user-ruled); surfaced silent HAL_PORT string-write drops via new `Pin.TrySet()`, wired `adsbridge` to it, documented the sized-port contract (H-3); documented HAL re-init-after-teardown limit (H-4) + the Pin-mutex-vs-RT-writer design note (H-5). Coverage 54→191 test lines. build/vet/test/-race green. Row → L R F RC ✅, U FP ◐, S ◐ |
 | 2026-07-20 | **Tier 1 hotspot #5 — state machines & abort/estop paths reviewed** (`STATE_MACHINE_REVIEW_FINDINGS.md`). Root-caused + fixed a **CRITICAL** unrecoverable abort wedge in the v2 iocontrol cmod port: the 2.9 free-running iocontrol loop (tool-change/abort-ack/fault serviced as non-blocking per-cycle state) had been ported into a blocking cgo busy-wait on the sequencer goroutine, so an abort/estop during a hung M6 froze the sequencer in cgo → `restartSequencer`/estop-reset joined `<-seqDone` forever (process kill to recover). Faithful port restores 2.9 semantics on **both** `ioControl.c`/`ioControl_v2.c`: `gmi_get_status`→`poll_inputs()` reaps the emc-abort/ack + fault latch on the monitor poll, `gmi_io_abort` non-blocking, tool loops bail on cleared request line, `pthread_mutex io_mtx` serialises shared state (released across usleep; estop read lock-free). Also fixed: **C1** CiA402 estop-homing hazard (drive left commanded in HOMING opmode while disabled — `do_cancel` now forces opmode=CSP synchronously, matching classic homing's free_tp kill); **CL1** classicladder free-without-join UAF (WaitGroup-join master+slave before `rt_free`, close conns to unblock parked reads); **HS1** halscope detached-saver storm/UAF (one coalescing saver joined before `halscope_free`); **CL3** atomic `rt.state`; **MQ1** mqtt subscribe-error + racy `pubCount`; **ADS1** notify client-addr race; **API1** watch-push error logging; **DOC1** stale iotask headers. cmods + `go build ./...` + vet + gofmt green. OPEN (PLAUSIBLE, adjudication): CL2 (C refresh publication protocol), NGC1, ADS2/ADS3. Test debt: abort-racing-hung-toolchange regression (runtests-level). |
+| 2026-07-20 | **Tier 1 hotspot #2 — `internal/gmicompile` (cgen emission logic) review reconciled + matrix updated** (`GMICOMPILE_REVIEW_FINDINGS.md`). Four independent AI passes ground-truthed against all 33 generated packages; both catastrophic classes (cgo handle transit, returned-data ownership) verified closed generator-wide. Live findings fixed across `57c162d2ca` (G-H1/M1 operator-message loss root-caused here → retained bounded ring + per-connection `WatchFactory`), `04b1d14df9` (G-H2 `--server-go` ptr truncation), `6d08f75307`/`9f1ace9fa5` (G-M2/M3/L2/L3 mapper unify + dead-file removal), `bb14a10d1e` (G-L4/L6 fail-fast guards). Row → L RC ✅; R/F/U/S ◐ (Tier-2 parser/AST still unreviewed; G-M4/L1/L5/L7 deferred as manual/design, not auto-fixable); FP —. |
 | 2026-07-20 | `internal/launcher` + `internal/daemon` reviewed (Phase 1, Tier 1 hotspot #4). Fixed `shutdown()` double-close panic race — 3 goroutines, non-atomic check-then-close → `close of closed channel` crashing ordered shutdown; now `shutdownOnce sync.Once` + 64-goroutine `-race` regression test (L-1). Fixed `stopCModules` calling stop on never-started modules after partial-startup failure (guarded on `cm.started`, matching unload.go/startCModules) (L-2). OPEN for manual review: L-3 module-state data race on the runtime REST load/unload surface (`cModules`/`goModules`/`cModArena` unlocked vs shutdown iteration; needs a locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock). LOW documented: L-4 goModule Stop-without-started, L-5/L-6 apiServer field + orphan signal goroutine + retainSync 1s wait. vet/build/`-race` green. Row → L R F ◐, U FP S pending |
+| 2026-07-20 | **Tier 1 hotspot #3 — cmd/ethercat unblocked; EtherCAT sim-transport integration harness M1 done.** Promoted the master's test-only `transport_sim` slave emulator to a first-class, config-selectable transport (`EC_TRANSPORT_SIM`; `transportType=sim`, `interface=<bus-description-file>`; RT-`TRUSTED` cyclic ops, in `rt-effects-check`). Submodule `670737d4` (branch `transport-sim`): moved `transport_sim.{c,h}` to `transport/`, file-driven `sim_open` parser, registry entry, `interface[16]→[64]`, new `test_sim_transport_file` (14 PASS/2 SKIP/0 FAIL). Superproject `b6c9c9a6a1` (conf.c `transportType=sim` + submodule bump) and `bb1ac3a0be` (`tests/ethercat/sim-basic` — first gomc EtherCAT runtests case: driver on an emulated slave reaches OP, PDOs map to HAL pins; passes `runtests`). Rebuilt `libethercat`+`cmod/ethercat.so`. Next: M2 (PDO round-trip/SDO/DC/link-loss), M3 (`bin/ethercat` REST-CLI assertions → closes the CLI review). |
