@@ -72,6 +72,17 @@ usage () {
     echo "    cpu       ALU load               (stress-ng --cpu)"
     echo "    io        disk I/O               (stress-ng --hdd)"
     echo "    net       network softirq        (stress-ng --sock)"
+    echo "    invade    UNCONFINED cache+TLB stressors that deliberately pin"
+    echo "              themselves onto the isolated RT CPUs (isolation-"
+    echo "              violation torture; never part of 'all')"
+    echo ""
+    echo "  Stress vectors are confined to the housekeeping CPUs (cgroup cpuset"
+    echo "  when available, else taskset): isolcpus= does not stop explicit"
+    echo "  sched_setaffinity(), and some stressors pin themselves onto every"
+    echo "  CPU, which turns the measurement into an artifact.  A watchdog"
+    echo "  reports foreign tasks seen on the RT CPUs.  Set LATENCY_RT_CPUS"
+    echo "  (cpulist) if the RT CPUs are not listed in /sys/devices/system/"
+    echo "  cpu/{isolated,nohz_full} (e.g. cgroup-partition setups)."
     echo ""
     echo "  io writes scratch under \$HOME (a real disk) so it exercises the"
     echo "  block-I/O path rather than a tmpfs /tmp; set LATENCY_IO_DIR to"
@@ -100,8 +111,11 @@ usage () {
     exit 1
 }
 
-# All selectable stress vectors.  `all` (or bare --stress) enables every one.
+# All selectable stress vectors.  `all` (or bare --stress) enables every one
+# EXCEPT `invade`, which violates CPU isolation by design and must be named
+# explicitly.
 ALL_VECTORS="gc glxgears stream cache tlb fork cpu io net"
+EXTRA_VECTORS="invade"
 NW=2                # workers per stress-ng stressor
 declare -A VEC      # VEC[<vector>]=1 for each enabled vector
 gc_explicit=0       # 1 if 'gc' was named explicitly (vs pulled in by 'all')
@@ -116,9 +130,9 @@ resolve_vectors () {
     local IFS=, parts; read -ra parts <<<"$spec"
     for v in "${parts[@]}"; do
         v="${v// /}"; [ -z "$v" ] && continue
-        case " $ALL_VECTORS " in
+        case " $ALL_VECTORS $EXTRA_VECTORS " in
         *" $v "*) VEC[$v]=1; [ "$v" = gc ] && gc_explicit=1 ;;
-        *) echo "latency-test: unknown stress vector '$v' (valid: $ALL_VECTORS all)" >&2; usage ;;
+        *) echo "latency-test: unknown stress vector '$v' (valid: $ALL_VECTORS $EXTRA_VECTORS all)" >&2; usage ;;
         esac
     done
 }
@@ -202,6 +216,135 @@ if [ "$STRESS_ONLY" -eq 0 ]; then
     BASE_URL="http://$ADDR"
 fi
 
+# ---- RT-CPU isolation handling ---------------------------------------------
+# `isolcpus=`/`nohz_full=` remove CPUs from the scheduler domains but do NOT
+# stop explicit sched_setaffinity(): stress-ng's cache and tlb-shootdown
+# stressors deliberately pin themselves across ALL online CPUs (verified on
+# stress-ng 0.19), which parks a stress worker ON the RT core and produces
+# multi-ms artifacts that look like scheduling latency (seen: a 24ms rtla
+# timerlat hit attributed 99.8% to stress-ng-cache running on the isolated
+# CPU).  So the stress vectors are confined to the housekeeping CPUs in two
+# layers: stress-ng's own --taskset (its CPU-walking stressors pick targets
+# from that set, so they never even TRY the RT CPUs - an external mask does
+# not feed the walker, and a cgroup's cpuset can apply a beat after the
+# workers start pinning, both verified escapes), plus an outer cgroup cpuset
+# (systemd-run) where available - the kernel then *rejects* affinity escapes
+# - else a plain taskset.  The `invade` vector below is the deliberate,
+# labelled exception.
+
+expand_cpulist () {  # "0-2,5" -> "0 1 2 5"
+    # Split on commas WITHOUT touching IFS: a modified IFS would also change
+    # how "${out[*]}" is joined below.
+    local part a b out=()
+    for part in ${1//,/ }; do
+        case $part in
+        '') ;;
+        *-*) a=${part%-*}; b=${part#*-}
+             while [ "$a" -le "$b" ] 2>/dev/null; do out+=("$a"); a=$((a+1)); done ;;
+        *)   out+=("$part") ;;
+        esac
+    done
+    echo "${out[*]}"
+}
+
+RT_CPUS=""       # space-separated isolated (RT) CPUs
+HK_LIST=""       # comma-separated housekeeping CPUs (confinement target)
+CONFINE=""       # command prefix that confines a stressor to HK_LIST
+CONFINE_KIND=""  # cgroup | taskset | "" (no isolation configured / no tool)
+
+setup_confinement () {
+    local isolated nohz online c i keep hk=()
+    isolated=$(cat /sys/devices/system/cpu/isolated 2>/dev/null)
+    nohz=$(cat /sys/devices/system/cpu/nohz_full 2>/dev/null)
+    [ "$nohz" = "(null)" ] && nohz=""    # kernel's spelling of "not configured"
+    online=$(cat /sys/devices/system/cpu/online 2>/dev/null)
+    # LATENCY_RT_CPUS overrides for setups that isolate by other means (cgroup
+    # partitions, tuned profiles) where the sysfs files are empty.
+    RT_CPUS=$(expand_cpulist "${LATENCY_RT_CPUS:-$isolated,$nohz}" |
+              tr ' ' '\n' | sort -un | tr '\n' ' ')
+    RT_CPUS=${RT_CPUS% }
+    [ -z "$RT_CPUS" ] && return
+    for c in $(expand_cpulist "$online"); do
+        keep=1
+        for i in $RT_CPUS; do [ "$c" = "$i" ] && keep=0; done
+        [ "$keep" -eq 1 ] && hk+=("$c")
+    done
+    [ "${#hk[@]}" -eq 0 ] && return    # everything isolated: nothing to confine to
+    HK_LIST=$(IFS=,; echo "${hk[*]}")
+
+    # Prefer a cgroup cpuset: the kernel then rejects sched_setaffinity()
+    # outside the set, which no stressor can escape.  systemd-run --user
+    # exits 0 even when the cpuset controller is NOT delegated to the user
+    # manager (the property is silently dropped), so verify the effective
+    # mask instead of trusting the exit code.
+    if command -v systemd-run >/dev/null 2>&1; then
+        local got
+        got=$(systemd-run --user --scope --quiet -p AllowedCPUs="$HK_LIST" \
+              awk '/^Cpus_allowed_list/{print $2}' /proc/self/status 2>/dev/null)
+        if [ -n "$got" ] && [ "$(expand_cpulist "$got")" = "$(expand_cpulist "$HK_LIST")" ]; then
+            CONFINE="systemd-run --user --scope --quiet -p AllowedCPUs=$HK_LIST"
+            CONFINE_KIND="cgroup"
+        fi
+    fi
+    if [ -z "$CONFINE" ] && command -v taskset >/dev/null 2>&1; then
+        CONFINE="taskset -c $HK_LIST"
+        CONFINE_KIND="taskset"
+    fi
+}
+setup_confinement
+
+# ---- isolation watchdog ----------------------------------------------------
+# Samples which tasks run on the RT CPUs and warns about foreign non-RT tasks:
+# an isolation violation contaminates the measurement (the multi-ms artifact
+# class above) and would otherwise be invisible.  Kernel per-cpu threads and
+# RT-policy tasks (the gomc RT threads, rtla, ...) are expected there.  The
+# `processor` stat field is "CPU last ran on", so even transient visits by a
+# wandering task are eventually caught.  Each offender is reported once.
+WATCHDOG_PID=""
+isolation_watchdog () {
+    local -A reported
+    local tid cpu comm note n=0
+    while :; do
+        while read -r tid cpu comm; do
+            [ -n "${reported[$tid]}" ] && continue
+            reported[$tid]=1
+            n=$((n + 1))
+            # Cap the detail output: on a machine whose "isolation" is not
+            # actually in effect, every task on the box would be reported.
+            if [ "$n" -eq 11 ]; then
+                echo "latency-test: WARNING: >10 isolation violations - further reports suppressed (is CPU isolation actually in effect?)" >&2
+                continue
+            fi
+            [ "$n" -gt 11 ] && continue
+            note=""
+            [ -n "${VEC[invade]}" ] && note=" (expected: invade vector active)"
+            echo "latency-test: WARNING: '$comm' (tid $tid, non-RT policy) ran on isolated CPU $cpu - isolation violated$note" >&2
+        done < <(cat /proc/[0-9]*/task/[0-9]*/stat 2>/dev/null |
+            awk -v iso="$RT_CPUS" '
+            BEGIN { n = split(iso, a, " "); for (i = 1; i <= n; i++) rt[a[i]] = 1 }
+            {
+                # tid (comm) state ppid ...: comm may contain spaces/parens,
+                # so split around the LAST ")" (greedy match).
+                if (!match($0, /\(.*\)/)) next
+                tid  = substr($0, 1, RSTART - 2) + 0
+                comm = substr($0, RSTART + 1, RLENGTH - 2)
+                nf = split(substr($0, RSTART + RLENGTH + 1), f, " ")
+                if (nf < 39) next
+                # f[] holds stat fields 3..41: ppid=f[2] cpu=f[37] policy=f[39]
+                if (tid == 2 || f[2] == 2) next      # kernel thread
+                if (f[39] == 1 || f[39] == 2) next   # SCHED_FIFO/RR: legitimate
+                if (f[37] in rt) print tid, f[37], comm
+            }')
+        sleep 2
+    done
+}
+
+start_watchdog () {
+    [ -z "$RT_CPUS" ] && return
+    isolation_watchdog &
+    WATCHDOG_PID=$!
+}
+
 T=$(mktemp -d)
 SRV_PID=""
 SLEEP_PID=""     # the --stress-only park sleep, if any
@@ -213,6 +356,7 @@ cleanup () {
     [ "$_cleaned" -eq 1 ] && return
     _cleaned=1
     [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+    [ -n "$WATCHDOG_PID" ] && kill "$WATCHDOG_PID" 2>/dev/null
     [ -n "$IO_DIR" ] && [ "$IO_DIR" != "$T" ] && rm -rf "$IO_DIR"
     # Stop the external stressors first.  Each was started with setsid, so the
     # PID is a process-group leader and a negative-PID kill reaps the whole
@@ -254,8 +398,13 @@ start_stressor () {  # start_stressor <shell-command>
 }
 
 start_external_stress () {
-    echo "latency-test: starting stress vectors:$(for v in $ALL_VECTORS; do
+    echo "latency-test: starting stress vectors:$(for v in $ALL_VECTORS invade; do
         [ -n "${VEC[$v]}" ] && printf ' %s' "$v"; done)" >&2
+    if [ -n "$RT_CPUS" ] && [ -n "$CONFINE" ]; then
+        echo "latency-test: confining stress to CPUs $HK_LIST ($CONFINE_KIND; RT CPUs: $(echo "$RT_CPUS" | tr ' ' ','))" >&2
+    elif [ -n "$RT_CPUS" ]; then
+        echo "latency-test: WARNING: no systemd-run/taskset - stress runs unconfined and may invade the RT CPUs" >&2
+    fi
 
     # GPU / display: a few spinning gears (each is its own X client).  Needs an
     # X display (present in the graphical session this is launched from).
@@ -263,13 +412,21 @@ start_external_stress () {
         if [ -z "$DISPLAY" ]; then
             echo "latency-test: no DISPLAY - skipping glxgears" >&2
         elif have_tool glxgears mesa-utils; then
-            for _ in 1 2 3 4; do start_stressor 'exec glxgears'; done
+            for _ in 1 2 3 4; do start_stressor "exec $CONFINE glxgears"; done
         fi
     fi
 
     # All remaining vectors are stress-ng stressors, each targeting a distinct
     # RT-perturbation mechanism.  Combine the selected ones into a single
     # stress-ng invocation (one process group for cleanup).
+    #
+    # --taskset is the layer that actually stops the CPU-walking stressors
+    # (cache, tlb-shootdown): they pick their pin targets from stress-ng's OWN
+    # affinity option (stress_get_usable_cpus), not from the inherited mask,
+    # so under an external taskset they walk ALL configured CPUs, and under a
+    # cgroup the workers can start pinning a beat before the scope's cpuset
+    # applies (seen once on an isolcpus box).  With --taskset they never try
+    # the RT CPUs in the first place (verified on stress-ng 0.19).
     local ng=()
     [ -n "${VEC[stream]}" ] && ng+=(--stream         "$NW")
     [ -n "${VEC[cache]}"  ] && ng+=(--cache          "$NW")
@@ -288,7 +445,16 @@ start_external_stress () {
     [ -n "${VEC[net]}"    ] && ng+=(--sock           "$NW")
 
     if [ "${#ng[@]}" -gt 0 ] && have_tool stress-ng stress-ng; then
-        start_stressor "exec stress-ng ${ng[*]}"
+        [ -n "$HK_LIST" ] && ng=(--taskset "$HK_LIST" "${ng[@]}")
+        start_stressor "exec $CONFINE stress-ng ${ng[*]}"
+    fi
+
+    # invade: DELIBERATELY unconfined cache + tlb-shootdown stressors, the two
+    # that sched_setaffinity() themselves onto every CPU - measures what an
+    # isolation-violating workload does to the RT threads.  Never part of
+    # 'all'; the isolation watchdog will (correctly) report it.
+    if [ -n "${VEC[invade]}" ] && have_tool stress-ng stress-ng; then
+        start_stressor "exec stress-ng --cache $NW --tlb-shootdown $NW"
     fi
 }
 
@@ -296,6 +462,7 @@ start_external_stress () {
 # already-running instance can be stressed while its own latency UI is watched.
 if [ "$STRESS_ONLY" -eq 1 ]; then
     start_external_stress
+    start_watchdog
     echo "latency-test: stress running - Ctrl-C to stop" >&2
     # Park in an interruptible `wait`: a bare `sleep` would defer the
     # SIGINT/SIGTERM trap until it returned, so the script would not stop.
@@ -347,6 +514,9 @@ fi
 
 # --stress also loads the whole machine, not just the Go runtime.
 [ "$STRESS" -eq 1 ] && start_external_stress
+# Watch the RT CPUs for foreign tasks even without --stress: any violation
+# contaminates the measurement, whoever caused it.
+start_watchdog
 
 # The viewer blocks until its window is closed.  Closing it (or Ctrl+C /
 # SIGTERM) fires cleanup(), which stops the stressors and the server.

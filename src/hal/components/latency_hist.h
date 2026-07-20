@@ -39,7 +39,11 @@ typedef struct {
     int       autoscale;   // 0 = bin width pinned by the client, no coarsening
     uint32_t  underflow;   // samples below the covered range
     uint32_t  overflow;    // samples above the covered range
-    int64_t   sum;         // running sum of latencies (for mean)
+    int64_t   sum;         // running sum of signed latencies (for stddev)
+    int64_t   sum_abs;     // running sum of |latency| (for the mean tile: the
+                           // signed mean is ~0 by construction - absolute
+                           // timers self-correct, so a late cycle is followed
+                           // by a short interval and the deviations cancel)
     double    sumsq;       // running sum of squares (for stddev)
     int64_t   n;           // binned sample count
 } hist_t;
@@ -60,6 +64,7 @@ static inline void hist_init(hist_t *h, uint32_t *bins, int nbins,
     h->underflow = 0;
     h->overflow = 0;
     h->sum = 0;
+    h->sum_abs = 0;
     h->sumsq = 0;
     h->n = 0;
     for (int i = 0; i < nbins; i++) h->bins[i] = 0;
@@ -71,6 +76,7 @@ static inline void hist_reset(hist_t *h) {
     h->underflow = 0;
     h->overflow = 0;
     h->sum = 0;
+    h->sum_abs = 0;
     h->sumsq = 0;
     h->n = 0;
     for (int i = 0; i < h->nbins; i++) h->bins[i] = 0;
@@ -101,6 +107,7 @@ static inline void hist_add(hist_t *h, int32_t lat) {
     else h->bins[idx]++;
 
     h->sum += lat;
+    h->sum_abs += lat < 0 ? -(int64_t)lat : (int64_t)lat;
     h->sumsq += (double)lat * (double)lat;
     h->n++;
 

@@ -139,6 +139,23 @@ sensitive to.  `--stress-only[=LIST]` runs just the load, without a
 server or UI, so an already-running LinuxCNC can be stressed while you watch its
 own latency display.  Most vectors need the `stress-ng` package installed.
 
+On machines with isolated RT CPUs (`isolcpus=`/`nohz_full=`), the stress
+vectors are automatically confined to the housekeeping CPUs.  This matters
+because `isolcpus=` does not block explicit `sched_setaffinity()` calls, and
+some stress-ng stressors deliberately pin themselves onto every CPU: an
+unconfined stress worker parked on the RT CPU produces multi-millisecond
+"latency" that is an artifact of the test setup, not a property of the
+machine.  The confinement is layered: stress-ng's own `--taskset` option
+(so its CPU-walking stressors never even try the RT CPUs), plus a cgroup
+cpuset where available (which the kernel enforces), else `taskset`.  A watchdog
+additionally reports any foreign non-RT task observed on the RT CPUs during
+the run.  The special vector `invade` (never part of `all`) does the
+opposite on purpose: it runs unconfined cache and TLB stressors that pin
+themselves onto the isolated CPUs, to measure what an isolation-violating
+workload would do to the RT threads.  If the RT CPUs are isolated by other
+means (cgroup partitions), name them in the `LATENCY_RT_CPUS` environment
+variable.
+
 == Latency tuning
 
 LinuxCNC can run on many different hardware platforms and with many
@@ -193,7 +210,11 @@ Kernel command line::
     Details here: <https://www.kernel.org/doc/Documentation/admin-guide/kernel-parameters.txt>
 
     * `isolcpus`: Prevent most non-LinuxCNC processes from using these
-      CPUs, leaving more CPU time available for LinuxCNC.
+      CPUs, leaving more CPU time available for LinuxCNC.  Note that
+      `isolcpus` only removes the CPUs from the scheduler's normal
+      balancing: a process that calls `sched_setaffinity()` explicitly can
+      still place itself on an isolated CPU.  A cgroup cpuset partition is
+      required to make the reservation mandatory.
 
     * `irqaffinity`: Select which CPUs service interrupts, so that the
       CPUs reserved for LinuxCNC realtime don't have to perform this task.

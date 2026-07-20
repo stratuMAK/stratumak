@@ -1,7 +1,7 @@
 // latency_history.h - bounded server-side ring of downsampled latency buckets.
 //
 // The non-RT drainer folds every sample into a fixed-width wall-clock bucket
-// (min / max / sum / count); when a bucket's window elapses it is pushed into
+// (min / max / sum_abs / count); when a bucket's window elapses it is pushed into
 // a ring that keeps the most recent buckets.  This gives a single,
 // client-independent time series for the plot: every client sees the same
 // data, late-connecting clients get the retained history, and the visible
@@ -22,7 +22,8 @@ typedef struct {
     int64_t  t_ms;    // bucket start time, ms since the instance epoch
     int32_t  min;     // min latency in the bucket (ns)
     int32_t  max;     // max latency in the bucket (ns)
-    double   sum;     // sum of latencies (mean = sum / count)
+    double   sum_abs; // sum of |latency| (mean |lat| = sum_abs / count; the
+                      // signed mean is ~0 by construction, see latency_hist.h)
     uint32_t count;   // samples in the bucket
 } hbucket_t;
 
@@ -37,7 +38,7 @@ typedef struct {
     // The currently-accumulating (open) bucket.
     int64_t  cur_start_ns;
     int32_t  cur_min, cur_max;
-    double   cur_sum;
+    double   cur_sum_abs;
     uint32_t cur_count;
     int      cur_open;
 } history_t;
@@ -52,7 +53,7 @@ static inline void history_init(history_t *h, hbucket_t *buf, int capacity,
     h->bucket_ms = bucket_ms;
     h->cur_open = 0;
     h->cur_min = h->cur_max = 0;
-    h->cur_sum = 0;
+    h->cur_sum_abs = 0;
     h->cur_count = 0;
     h->cur_start_ns = 0;
 }
@@ -65,7 +66,7 @@ static inline void history_reset(history_t *h, int64_t now_ns) {
     h->head = 0;
     h->cur_open = 0;
     h->cur_min = h->cur_max = 0;
-    h->cur_sum = 0;
+    h->cur_sum_abs = 0;
     h->cur_count = 0;
     h->epoch_ns = now_ns;
 }
@@ -85,7 +86,7 @@ static inline void history_flush(history_t *h) {
     b->t_ms = (h->cur_start_ns - h->epoch_ns) / 1000000;
     b->min = h->cur_min;
     b->max = h->cur_max;
-    b->sum = h->cur_sum;
+    b->sum_abs = h->cur_sum_abs;
     b->count = h->cur_count;
     h->cur_open = 0;
 }
@@ -97,12 +98,12 @@ static inline void history_add(history_t *h, int32_t lat, int64_t now_ns) {
         h->cur_start_ns = now_ns;
         h->cur_min = lat;
         h->cur_max = lat;
-        h->cur_sum = 0;
+        h->cur_sum_abs = 0;
         h->cur_count = 0;
     }
     if (lat < h->cur_min) h->cur_min = lat;
     if (lat > h->cur_max) h->cur_max = lat;
-    h->cur_sum += lat;
+    h->cur_sum_abs += lat < 0 ? -(double)lat : (double)lat;
     h->cur_count++;
 }
 

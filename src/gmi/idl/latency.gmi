@@ -27,7 +27,9 @@ type LatencyStatus {
     minNs: i32            # minimum latency seen (RT)
     maxNs: i32            # maximum latency seen (RT)
     maxJitterNs: i32      # worst-case |latency| seen (RT, headline)
-    meanNs: f64           # mean latency (drainer)
+    meanNs: f64           # mean |latency| (drainer; the signed mean is ~0 by
+                          # construction - absolute timers self-correct, so
+                          # signed deviations cancel)
     stddevNs: f64         # latency standard deviation (drainer)
     dropped: u32          # ring samples the drainer lost to overrun
     binWidthNs: i32       # current histogram resolution
@@ -53,7 +55,7 @@ type LatencyHistPoint {
     tMs: i64              # bucket time, ms since the instance started
     minNs: i32           # min latency in the bucket
     maxNs: i32           # max latency in the bucket
-    meanNs: f64          # mean latency in the bucket
+    meanNs: f64          # mean |latency| in the bucket
     count: i32           # samples in the bucket
 }
 
