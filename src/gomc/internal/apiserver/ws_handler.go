@@ -480,6 +480,10 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 		}
 	}
 
+	// errLogged suppresses repeat logs while an error persists — this loop
+	// ticks every `rate`, so we log the first error of a streak and the
+	// recovery, not every tick. A watch error is transient (don't kill the sub).
+	errLogged := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -487,8 +491,17 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 		case <-ticker.C:
 			data, err := watch()
 			if err != nil {
-				// Log but don't kill the subscription — transient errors are normal
+				if !errLogged {
+					c.handler.logger.Warn("watch push error — retrying",
+						"api", apiName, "instance", instance, "func", funcName, "error", err)
+					errLogged = true
+				}
 				continue
+			}
+			if errLogged {
+				c.handler.logger.Info("watch push recovered",
+					"api", apiName, "instance", instance, "func", funcName)
+				errLogged = false
 			}
 			if data == nil {
 				// No data — skip this tick.

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -218,6 +219,11 @@ type bridge struct {
 	// publish tick that emits a payload — a liveness signal a supervisor (or a
 	// test) can watch to confirm the bridge is publishing.
 	pubCount *hal.Pin[uint32]
+	// pubCounter backs pubCount. Every DirOut topic runs its own publishLoop
+	// goroutine, so the old Get()+1/Set() read-modify-write on the pin lost
+	// increments (and raced). Atomic Add keeps it lossless; the pin Set is
+	// serialized by the Pin's own mutex.
+	pubCounter atomic.Uint32
 }
 
 func newBridge(comp *hal.Component, compName string, cfg *Config, logger *slog.Logger, dryrun bool) (*bridge, error) {
@@ -341,10 +347,17 @@ func (b *bridge) onConnect(_ mqtt.Client) {
 	for _, th := range b.handlers {
 		if th.cfg.Dir == DirIn {
 			handler := th // capture
-			b.client.Subscribe(th.cfg.Path, th.cfg.QoS, func(_ mqtt.Client, msg mqtt.Message) {
+			tok := b.client.Subscribe(th.cfg.Path, th.cfg.QoS, func(_ mqtt.Client, msg mqtt.Message) {
 				b.handleMessage(handler, msg)
 			})
-			b.logger.Debug("subscribed", "topic", th.cfg.Path)
+			// onConnect runs once per (re)connect, not in a hot path — wait so a
+			// failed subscription (input topic that would silently never deliver)
+			// is surfaced rather than dropped.
+			if tok.Wait() && tok.Error() != nil {
+				b.logger.Warn("MQTT subscribe failed", "topic", th.cfg.Path, "error", tok.Error())
+			} else {
+				b.logger.Debug("subscribed", "topic", th.cfg.Path)
+			}
 		}
 	}
 }
@@ -413,7 +426,7 @@ func (b *bridge) publishTick(th *topicHandler) {
 			b.client.Publish(th.cfg.Path, th.cfg.QoS, th.cfg.Retain, payload)
 		}
 		// Advance the liveness counter for both real and dryrun publishes.
-		b.pubCount.Set(b.pubCount.Get() + 1)
+		b.pubCount.Set(b.pubCounter.Add(1))
 	}
 }
 

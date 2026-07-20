@@ -247,12 +247,24 @@ func (nm *notifyManager) sendNotifications(now time.Time, items []notifySample) 
 }
 
 // clientNetID and clientPort store the client's AMS address from the first
-// AddNotification request. These are set by setClientAddr.
-func (nm *notifyManager) clientNetID() AMSNetID { return nm.cNetID }
-func (nm *notifyManager) clientPort() uint16    { return nm.cPort }
+// AddNotification request. These are set by setClientAddr (the connection
+// reader goroutine) and read by sendLoop/sendNotifications (the sender
+// goroutine), so all access is guarded by nm.mu.
+func (nm *notifyManager) clientNetID() AMSNetID {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	return nm.cNetID
+}
+func (nm *notifyManager) clientPort() uint16 {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	return nm.cPort
+}
 
 // setClientAddr records the client AMS address from the request header.
 func (nm *notifyManager) setClientAddr(hdr *AMSHeader) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
 	nm.cNetID = hdr.SourceNetID
 	nm.cPort = hdr.SourcePort
 }
