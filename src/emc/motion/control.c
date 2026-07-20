@@ -466,8 +466,9 @@ void emcmotController(void *arg, long period)
         emcmot_status_buf_t *buf = &inst->mot_struct->status_buf;
         int wi = buf->write_idx;
         buf->slots[wi] = *inst->status;
-        buf->write_idx = atomic_exchange_explicit(&buf->middle, wi,
-                                                  memory_order_acq_rel);
+        buf->write_idx = MOTSTAT_MIDDLE_IDX(
+            atomic_exchange_explicit(&buf->middle, wi | MOTSTAT_MIDDLE_DIRTY,
+                                     memory_order_acq_rel));
     }
 /* end of controller function */
 }

@@ -352,6 +352,19 @@ type Task struct {
 	readLine    int32 // line the interpreter has read up to
 	currentLine int32 // line currently being executed by sequencer
 
+	// lastMotionID is the serial id of the last motion command the sequencer
+	// dispatched to the motion controller. The abort-time modal restore
+	// (abortLocked) needs the tag of the segment "the machine was on", and
+	// motion's executing id is 0 whenever the TP queue has momentarily run
+	// dry (tpHandleEmptyQueue on feed starvation — exactly where a user abort
+	// tends to land, since exact-stop corners are where starved motion sits).
+	// With an empty queue everything dispatched has executed, so the last
+	// dispatched segment IS the last executed one; its motionMap entry
+	// survives pruning (BuildStat only prunes ids below the executing id).
+	// 2.9 had no such gap: the state tag traveled inside the motion status
+	// and persisted across an empty queue. Guarded by mu.
+	lastMotionID int32
+
 	// Motion segment side table: maps serial segment id → {file, lineno}
 	// Written by canon at enqueue time; read by BuildStat for halui.program-line.
 	motionMap map[int32]motionInfo

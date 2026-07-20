@@ -319,12 +319,11 @@ func (m *monitor) checkMotionEnabled(ms motstat.MotionStatus, err error) {
 		return
 	}
 
-	// Debounce: SetState(ON) acks motion.Enable() BEFORE setting state=ON, but
-	// the motstat mirror this loop reads is only updated by the servo cycle —
-	// so for a few ms after a machine-on, a fresh state=ON can pair with a
-	// stale Enabled=0 and a single sample would spuriously switch the machine
-	// back off (observed as flaky remap tests: the machine dropped out right
-	// after "set machine on"). A real self-disable (following error, amp
+	// Debounce: SetState(ON) now settles on a published Enabled=1 before
+	// committing state=ON (waitMotionEnabledStatus), so the historical
+	// machine-on window — fresh state=ON paired with a stale Enabled=0 sample,
+	// observed as flaky remap tests — is closed at the source. The debounce is
+	// retained as defense in depth: a real self-disable (following error, amp
 	// fault, limit, external enable drop) latches in motmod until task
 	// re-enables, so requiring consecutive samples one monitorInterval apart
 	// loses nothing — it only adds 2 ticks (20 ms) of detection latency,

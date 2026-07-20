@@ -229,13 +229,16 @@ func (t *Task) sequencerLoop() {
 			// the empty-queue/ExecDone gap between dequeue and execution.
 			t.setSeqInflight(true)
 
-			// Update currentLine from motion commands that carry a line ID.
+			// Update currentLine from motion commands that carry a line ID,
+			// and remember the id as the abort-restore fallback (see
+			// lastMotionID in task.go).
 			if lc, ok := cmd.(interface{ LineID() int32 }); ok {
 				if id := lc.LineID(); id > 0 {
 					t.mu.Lock()
 					if info, ok := t.motionMap[id]; ok {
 						t.currentLine = info.LineNo
 					}
+					t.lastMotionID = id
 					t.mu.Unlock()
 				}
 			}

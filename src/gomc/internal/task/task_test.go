@@ -178,10 +178,16 @@ func (m *mockIO) GetIOFullStatus() (IOFullStatus, error) {
 	return IOFullStatus{Estop: false}, nil
 }
 
-// mockStatus implements MotionStatusReader for testing.
+// mockStatus implements MotionStatusReader for testing. It reports motion as
+// enabled: SetState(ON) settles on a published Enabled=1 before committing, so
+// a healthy mock must reflect the enable or every power-on would time out.
+// Tests exercising a refused/lost enable use a mock with a settable flag
+// (mockStatusWithError) and flip it AFTER power-on.
 type mockStatus struct{}
 
-func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) { return motstat.MotionStatus{}, nil }
+func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
+	return motstat.MotionStatus{Enabled: 1}, nil
+}
 func (m *mockStatus) GetPosCmd() (motstat.Pose, error)         { return motstat.Pose{}, nil }
 func (m *mockStatus) GetPosFb() (motstat.Pose, error)          { return motstat.Pose{}, nil }
 func (m *mockStatus) GetInpos() (int32, error)                 { return 1, nil }
@@ -280,7 +286,7 @@ type homedStatus struct {
 }
 
 func (h *homedStatus) GetStatus() (motstat.MotionStatus, error) {
-	var ms motstat.MotionStatus
+	ms := motstat.MotionStatus{Enabled: 1} // healthy mock — see mockStatus
 	for j := 0; j < h.homed && j < len(ms.Joints); j++ {
 		ms.Joints[j].Homed = 1
 	}

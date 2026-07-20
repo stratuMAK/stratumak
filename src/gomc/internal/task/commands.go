@@ -615,6 +615,22 @@ func (t *Task) setState(state int32) error {
 		if err := t.motion.Enable(); err != nil {
 			return err
 		}
+		// Settle before committing state=ON: Enable()'s ack only means the RT
+		// command handler ran — the enabled flag lands in a *published* status
+		// at the end of that servo cycle. Committing ON earlier opens a window
+		// where a client poll right after this command completes still reads
+		// enabled=false (the hard-limits CI flake), and where the monitor's
+		// checkMotionEnabled pairs state=ON with a genuinely pre-enable
+		// snapshot. 2.9 had no such window by construction: task_state was
+		// DERIVED from motion.traj.enabled (determineState()). A timeout means
+		// motion refused or instantly revoked the enable (e.g. a tripped limit
+		// without override) — stay off and report, rather than flapping
+		// ON→EstopReset through the monitor.
+		if err := t.waitMotionEnabledStatus(); err != nil {
+			t.operatorError("Can't enable motion")
+			t.logger.Warn("machine-on: motion did not enable", "err", err)
+			return err
+		}
 		// Enable override scaling so feed/spindle override controls work.
 		_ = t.motion.FeedScaleEnable(1)
 		_ = t.motion.FeedHoldEnable(1)
@@ -636,6 +652,35 @@ func (t *Task) setState(state int32) error {
 	}
 	t.mu.Unlock()
 	return nil
+}
+
+// motionEnableSettleTimeout bounds how long SetState(ON) waits for the enable
+// to show up in a published motion status. Two servo cycles suffice on a
+// healthy machine, so a hit deadline means the enable was refused/revoked, not
+// that the machine is slow. A var, not a const, so tests exercising the
+// refusal path don't have to burn the full production deadline.
+var motionEnableSettleTimeout = 1 * time.Second
+
+const motionEnableSettleInterval = 2 * time.Millisecond
+
+// waitMotionEnabledStatus blocks until a published motion status reports
+// Enabled, or motionEnableSettleTimeout expires. See the SetState(ON) call
+// site for why committing state=ON before this holds is a race.
+func (t *Task) waitMotionEnabledStatus() error {
+	if t.status == nil {
+		return nil
+	}
+	deadline := time.Now().Add(motionEnableSettleTimeout)
+	for {
+		if ms, err := t.status.GetStatus(); err == nil && ms.Enabled != 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("motion status still disabled %v after enable ack",
+				motionEnableSettleTimeout)
+		}
+		time.Sleep(motionEnableSettleInterval)
+	}
 }
 
 // SetMode switches between MANUAL, MDI, and AUTO.
@@ -2086,6 +2131,12 @@ func (t *Task) Abort() error {
 // Caller MUST hold t.mu on entry; t.mu is held on return.
 // Internally unlocks t.mu for external I/O calls to avoid blocking stat reads.
 func (t *Task) abortLocked() {
+	// Captured before the clobber below: the last-dispatched fallback in the
+	// tag capture must only apply when this abort interrupts an ACTIVE
+	// program. After a normal completion the trailing modal-only lines (e.g.
+	// a final G64 P/Q) executed legitimately — rolling them back on the next
+	// mode switch (which also aborts) would be wrong.
+	wasRunning := t.interpState != InterpIdle
 	t.interpState = InterpIdle
 	t.execState = ExecDone
 	t.mdiQueue = t.mdiQueue[:0]
@@ -2108,14 +2159,44 @@ func (t *Task) abortLocked() {
 	// silently no-op. GetStatus is a shared-memory copy (no t.mu paths), cheap
 	// enough to hold the lock across on this once-per-abort path.
 	var restoreTag []byte
+	var restoreID, restoreLine int32
+	var usedFallback bool
 	if wasAuto && t.status != nil {
 		t.mu.Lock()
 		if ms, err := t.status.GetStatus(); err == nil {
+			restoreID = ms.Id
 			if info, ok := t.motionMap[ms.Id]; ok {
 				restoreTag = info.Tag
+				restoreLine = info.LineNo
+			}
+			// Fallback: motion reports no executing segment. That is NOT
+			// "nothing was running" — the TP zeroes its exec id whenever the
+			// queue momentarily runs dry (feed starvation at an exact-stop
+			// corner is the observed case: the g64 abort test under CI load).
+			// With an empty queue everything dispatched has executed, so the
+			// last dispatched segment is the one the machine stopped on —
+			// restore its modal state instead of silently skipping and
+			// leaking readahead-only state (G64 P/Q, a G5x switch) past the
+			// abort. Same fallback for a pruned/untagged entry.
+			if restoreTag == nil && wasRunning && t.lastMotionID != 0 {
+				if info, ok := t.motionMap[t.lastMotionID]; ok && info.Tag != nil {
+					restoreTag = info.Tag
+					restoreLine = info.LineNo
+					restoreID = t.lastMotionID
+					usedFallback = true
+				}
 			}
 		}
 		t.mu.Unlock()
+		// Neither the executing id nor the last dispatched motion yielded a
+		// tag while a program was mid-run: the modal rollback below cannot
+		// run. Say so instead of letting it surface as a modal-state
+		// heisenbug three commands later. (restoreID==0 with no dispatched
+		// motion is the legitimate nothing-ran case — stay quiet.)
+		if restoreTag == nil && restoreID != 0 {
+			t.logger.Warn("abort: no state tag for executing motion — modal restore skipped",
+				"motion_id", restoreID)
+		}
 	}
 
 	// External calls (no mutex held — won't block stat reads).
@@ -2168,7 +2249,10 @@ func (t *Task) abortLocked() {
 		if err := interp.RestoreFromTag(restoreTag); err != nil {
 			t.logger.Warn("abort: modal state restore failed", "err", err)
 		}
-		t.updateActiveCodes(interp)
+		gc, _, _ := t.updateActiveCodes(interp)
+		t.logger.Debug("abort: modal state restored from executing tag",
+			"motion_id", restoreID, "line", restoreLine,
+			"from_last_dispatched", usedFallback, "gcodes", gc)
 	}
 
 	t.mu.Lock()

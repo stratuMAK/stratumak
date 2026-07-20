@@ -69,10 +69,18 @@ static int send_command(motctl_ctx_t *mc, emcmot_command_t *cmd)
     /* Poll until RT echoes our command number or timeout. */
     long long end = rtapi_get_time() + (long long)(mc->comm_timeout * 1e9);
     while (rtapi_get_time() < end) {
-        /* Read from triple buffer with mutex serialization. */
+        /* Read from triple buffer with mutex serialization. Swap only on a
+           fresh publish (dirty flag) — see read_status in motstat_handlers.c;
+           this ~10µs poll otherwise outruns the servo publishes and would
+           ping-pong between the two latest snapshots. */
         rtapi_mutex_get(&m->status_buf.reader_mtx);
-        m->status_buf.read_idx = atomic_exchange_explicit(&m->status_buf.middle,
-                                    m->status_buf.read_idx, memory_order_acq_rel);
+        if (atomic_load_explicit(&m->status_buf.middle, memory_order_acquire)
+            & MOTSTAT_MIDDLE_DIRTY) {
+            m->status_buf.read_idx = MOTSTAT_MIDDLE_IDX(
+                atomic_exchange_explicit(&m->status_buf.middle,
+                                         m->status_buf.read_idx,
+                                         memory_order_acq_rel));
+        }
         int echo = m->status_buf.slots[m->status_buf.read_idx].commandNumEcho;
         int cstatus = m->status_buf.slots[m->status_buf.read_idx].commandStatus;
         rtapi_mutex_give(&m->status_buf.reader_mtx);
