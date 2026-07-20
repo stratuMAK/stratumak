@@ -281,6 +281,56 @@ uspace rtapi; msg level is the server `-d` flag). `Start()` is now an honest min
 that keeps its `error` return as the launcher's startup contract seam. Verified: vet + `go test`
 green, launcher builds, gofmt clean.
 
+**`internal/launcher` + `internal/daemon` — reviewed 2026-07-20 (Tier 1 hotspot #4; process
+supervision, startup/shutdown ordering, restart-after-crash, goroutine ownership).** The linear
+startup (`Run`) and ordered shutdown (`doCleanup`, idempotent via `cleanupOnce`) are careful and
+correct: RT barrier (`StopThreads`) before any resource free, retain stopped before the barrier,
+log ring torn down last with the handler cleared first, every cleanup step gated on `halComp != nil`
+and log-not-return so all steps run. `daemon.go` clean (one minor: parent+child both write the
+pidfile, unlocked — same PID, low severity). The concurrency exposure is concentrated in the
+**runtime REST load/unload surface**, not the single-threaded startup/shutdown. Findings:
+- **L-1 (concurrency, FIXED):** `shutdown()` closed `shutdownCh` via a non-atomic
+  `select/default` check-then-close. Three independent goroutines call it (SIGINT/SIGTERM handler
+  `launcher.go:161`, halrun handler `halrun.go:81`, REST-server death watcher via `fail()`
+  `rest_server.go:113`); two firing in the same instant → `panic: close of closed channel`,
+  crashing the process instead of running the ordered shutdown (leaving HAL/RT + shm loaded — the
+  exact failure the design avoids elsewhere). Replaced with `shutdownOnce sync.Once`, mirroring
+  `cleanupOnce`. Regression test `TestShutdown_ConcurrentSafe` (64-goroutine stress, green under
+  `-race`).
+- **L-2 (partial-startup crash, FIXED, C side):** `stopCModules` called `cmod_call_stop` on
+  **every** module unconditionally, while `startCModules` and `unload.go:97` both guard on
+  `cm.started`. After a partial-startup failure (`startCModules` returns mid-loop), later modules
+  are loaded-but-not-started; bulk-stop then violates their start-before-stop contract and can
+  crash. Guarded `stopCModules` with `cm.started`. (Not unit-tested: `cmod_call_stop` is a cgo
+  call on a real module pointer — mirrors the already-established `unload.go` contract.)
+- **L-3 (data race, OPEN — needs manual review / a locking design):** `l.cModules`, `l.goModules`,
+  and `l.cModArena` are mutated with **no lock** from HTTP-handler goroutines
+  (`runtimeLoadModule`/`UnloadModule`, wired via `halrest.SetLoad/UnloadModuleFunc`) while the
+  shutdown goroutine iterates/frees them (`stopCModules`/`destroyCModules`, cmodules.go:566 nils
+  the arena). The only mutexes in the package are `subsMu` and `fatalMu`. Two concurrent REST
+  load/unloads, or a runtime unload racing shutdown, is a genuine data race (slice realloc during
+  iteration; double-free of arena C strings). **Not a blind-mutex fix:** the `gomc_ini_get*`
+  `//export` callbacks (gomc_env.go:265/273/291/295) append to `cModArena` and are invoked *during*
+  cmod load/init from C-plugin threads — a single mutex over both the load path and the arena would
+  self-deadlock (non-reentrant). Recommended design: a dedicated `arenaMu` held only around the
+  append/free (never across a C call) + a `modMu` serializing the REST load/unload handlers with
+  snapshot-under-lock in the shutdown iterators. Mitigant narrowing the load-vs-shutdown window:
+  `doCleanup` stops the REST server first (`stopAPIServer`, 2s `http.Server.Shutdown` drains
+  in-flight handlers) before iterating modules — but concurrent REST-to-REST load/unload still
+  races. Decide whether runtime REST load/unload is a supported production path before sizing.
+- **L-4 (LOW, documented):** `stopGoModules`/`unloadGoModule` call `Module.Stop()` without a
+  started-guard (goModule has no `started` field). Internally consistent (both paths do it), so
+  only a bug if `gomc.Module.Stop()` is unsafe without a prior `Start()`; verify the interface
+  contract, then either document it or add symmetric `started` tracking.
+- **L-5 / L-6 (LOW):** `l.apiServer` field write/read is unsynchronised (safe only under the
+  current start-before-stop ordering; would race if runtime restart is added); the signal-handler
+  goroutine + `signal.Notify` are never `Stop()`d (orphaned goroutine + leaked registration —
+  harmless for a process that then exits, matters only if a `Launcher` is constructed twice in one
+  process, e.g. tests). `retainSync`'s 1s busy-wait can delay shutdown by up to 1s if the servo
+  thread stalls.
+Verified: vet clean, build ./launcher + ./daemon green, `go test -race ./launcher/...` green.
+Row → L R F ◐ (L-3 open); `U`/`FP`/`S` pending (L-3 design + L-4 contract check + human sign).
+
 ### Phase 2 — field I/O (drives real iron; highest risk per untested line)
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
@@ -557,3 +607,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-19 | Runtests migration complete — 232/232 successful, 0 xfail, 0 skipped (all categories incl. Category D full-instance ported; `runtests.log`). gomc-native latency-test ported (branch `latency-test`), OK on first run — RT/latency soak instrument now in hand (`RT_HARDENING_CHECKLIST.md` §3) |
 | 2026-07-20 | `internal/realtime` reviewed (Phase 1, Tier 1). Confirmed off the cyclic RT path (startup-only stub, no goroutines/shm). Removed two vestigial checks (`/dev/zero` sanity, dead `RTAPI_DEBUG` branch); `Start()` now an honest minimal validator. vet/test/build green. Row → L R F U RC ✅, FP —, S ◐ (awaiting final human sign) |
 | 2026-07-20 | `pkg/hal` reviewed (Phase 1, Tier 1 hotspot #1). Fixed `Pin.String()` recursive-RLock deadlock (H-1); removed dead `Running()`/`Stop()`/`done`/`running` scaffolding + rewrote false signal-handling doc (H-2, user-ruled); surfaced silent HAL_PORT string-write drops via new `Pin.TrySet()`, wired `adsbridge` to it, documented the sized-port contract (H-3); documented HAL re-init-after-teardown limit (H-4) + the Pin-mutex-vs-RT-writer design note (H-5). Coverage 54→191 test lines. build/vet/test/-race green. Row → L R F RC ✅, U FP ◐, S ◐ |
+| 2026-07-20 | `internal/launcher` + `internal/daemon` reviewed (Phase 1, Tier 1 hotspot #4). Fixed `shutdown()` double-close panic race — 3 goroutines, non-atomic check-then-close → `close of closed channel` crashing ordered shutdown; now `shutdownOnce sync.Once` + 64-goroutine `-race` regression test (L-1). Fixed `stopCModules` calling stop on never-started modules after partial-startup failure (guarded on `cm.started`, matching unload.go/startCModules) (L-2). OPEN for manual review: L-3 module-state data race on the runtime REST load/unload surface (`cModules`/`goModules`/`cModArena` unlocked vs shutdown iteration; needs a locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock). LOW documented: L-4 goModule Stop-without-started, L-5/L-6 apiServer field + orphan signal goroutine + retainSync 1s wait. vet/build/`-race` green. Row → L R F ◐, U FP S pending |

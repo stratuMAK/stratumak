@@ -536,7 +536,16 @@ func (l *Launcher) unlockRTModules() {
 // stopCModules calls Stop() on all loaded C plugin modules in reverse order.
 func (l *Launcher) stopCModules() {
 	for i := len(l.cModules) - 1; i >= 0; i-- {
-		C.cmod_call_stop(l.cModules[i].mod)
+		cm := l.cModules[i]
+		// Only stop modules that were actually started. On a partial-startup
+		// failure (startCModules returns mid-loop) later modules are loaded but
+		// never started; calling stop on them violates the plugin's
+		// start-before-stop contract and can crash. Mirrors unload.go's guard
+		// and startCModules's own started check.
+		if !cm.started {
+			continue
+		}
+		C.cmod_call_stop(cm.mod)
 	}
 }
 

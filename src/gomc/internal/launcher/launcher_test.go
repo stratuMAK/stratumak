@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -45,6 +46,40 @@ func TestCleanup_IdempotentViaSyncOnce(t *testing.T) {
 
 	if callCount != 1 {
 		t.Errorf("fn called %d times, want 1", callCount)
+	}
+}
+
+// TestShutdown_ConcurrentSafe verifies that concurrent shutdown() calls close
+// shutdownCh exactly once without panicking. Several independent goroutines race
+// to trigger shutdown (the signal handler, the REST-server death watcher via
+// fail(), the halrun signal handler); the previous select/default check-then-
+// close would panic with "close of closed channel" when two fired at once. Run
+// under -race to exercise the window.
+func TestShutdown_ConcurrentSafe(t *testing.T) {
+	l := &Launcher{
+		logger:     slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		shutdownCh: make(chan struct{}),
+	}
+
+	const n = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			<-start // release all goroutines at once to maximize the race window
+			l.shutdown()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	// Channel must be closed (drainable) exactly once, no panic reached here.
+	select {
+	case <-l.shutdownCh:
+	default:
+		t.Fatal("shutdownCh not closed after shutdown()")
 	}
 }
 

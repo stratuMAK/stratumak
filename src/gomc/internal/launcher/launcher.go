@@ -51,22 +51,23 @@ type Options struct {
 
 // Launcher orchestrates the LinuxCNC startup and shutdown sequence.
 type Launcher struct {
-	opts        Options
-	ini         *inifile.IniFile
-	logger      *slog.Logger
-	rtMgr       *realtime.Manager // realtime environment manager
-	halibPath   string            // colon-separated HAL library search path
-	cleanupOnce sync.Once         // ensures cleanup runs exactly once
-	halComp     *hal.Component    // launcher's HAL component (like halcmd's hal_init)
-	goModules   []*goModule       // Go modules loaded via "load" command (compiled-in)
-	cModules    []*cModule        // C plugin modules loaded via "load" command
-	cModArena   []unsafe.Pointer  // arena-tracked C strings freed in destroyCModules
-	logRing     *gomcLogRing      // shared log ring buffer for C module FIFO logging
-	retain      *retainInstance   // integrated retain subsystem (nil if unused)
-	apiServer   *apiserver.Server // REST API server for halcmd and external tools
-	shutdownCh  chan struct{}     // closed by signal handler to unblock wait
-	fatalMu     sync.Mutex        // guards fatalErr
-	fatalErr    error             // set by fail() before closing shutdownCh; Run returns it
+	opts         Options
+	ini          *inifile.IniFile
+	logger       *slog.Logger
+	rtMgr        *realtime.Manager // realtime environment manager
+	halibPath    string            // colon-separated HAL library search path
+	cleanupOnce  sync.Once         // ensures cleanup runs exactly once
+	halComp      *hal.Component    // launcher's HAL component (like halcmd's hal_init)
+	goModules    []*goModule       // Go modules loaded via "load" command (compiled-in)
+	cModules     []*cModule        // C plugin modules loaded via "load" command
+	cModArena    []unsafe.Pointer  // arena-tracked C strings freed in destroyCModules
+	logRing      *gomcLogRing      // shared log ring buffer for C module FIFO logging
+	retain       *retainInstance   // integrated retain subsystem (nil if unused)
+	apiServer    *apiserver.Server // REST API server for halcmd and external tools
+	shutdownCh   chan struct{}     // closed by signal handler to unblock wait
+	shutdownOnce sync.Once         // ensures shutdownCh is closed exactly once
+	fatalMu      sync.Mutex        // guards fatalErr
+	fatalErr     error             // set by fail() before closing shutdownCh; Run returns it
 }
 
 // New creates a new Launcher with the given options and logger.
@@ -422,11 +423,13 @@ func (l *Launcher) fail(err error) {
 
 // shutdown signals the main wait loop to unblock.  Called from the signal
 // handler goroutine to trigger an ordered shutdown through the normal defer path.
+//
+// Safe to call concurrently and repeatedly: several independent goroutines can
+// race to trigger shutdown (the SIGINT/SIGTERM handler, the REST-server death
+// watcher via fail(), the halrun signal handler).  sync.Once makes the channel
+// close atomic — a plain select/default check-then-close would panic with
+// "close of closed channel" when two of them fire in the same instant, crashing
+// the process instead of running the ordered shutdown.
 func (l *Launcher) shutdown() {
-	select {
-	case <-l.shutdownCh:
-		// already closed
-	default:
-		close(l.shutdownCh)
-	}
+	l.shutdownOnce.Do(func() { close(l.shutdownCh) })
 }
