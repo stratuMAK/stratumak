@@ -781,8 +781,12 @@ static void parseMasterAttrs(LCEC_CONF_XML_INST_T *inst, int next, const char **
         p->transportType = EC_TRANSPORT_XDP_SKB;
       } else if (strcmp(val, "xdp-native") == 0) {
         p->transportType = EC_TRANSPORT_XDP_NATIVE;
+      } else if (strcmp(val, "sim") == 0) {
+        // In-process simulated bus for testing / dry-run: "interface" names
+        // a bus-description file instead of a NIC (never a production path).
+        p->transportType = EC_TRANSPORT_SIM;
       } else {
-        xml_log_error_fmt(inst, "Unknown transportType '%s' (valid values: raw, xdp-skb, xdp-native)", val);
+        xml_log_error_fmt(inst, "Unknown transportType '%s' (valid values: raw, xdp-skb, xdp-native, sim)", val);
         XML_StopParser(inst->parser, 0);
         return;
       }
