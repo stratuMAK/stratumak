@@ -354,9 +354,15 @@ Human review mandatory, in this order:
 2. **gmicompile emission logic** (`internal/gmicompile/cgen`) — one wrong emission pattern
    replicates into 39 generated packages. Review generator + diff a sample of generated
    output against the IDL by hand. The parser/AST side is Tier 2.
-3. **cmd/ethercat** — commands real drives, zero tests. Focus: state machine
-   (INIT/PREOP/SAFEOP/OP transitions), error/timeout handling, watchdog behavior,
-   behavior on slave loss/rejoin.
+3. **cmd/ethercat** — **BLOCKED ON TRANSPORT / reframed (2026-07-20).** This is a *diagnostic
+   CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI to the master at `GMC_REST_URL`) —
+   it holds **no** state machine, watchdog, or slave-loss logic; every PREOP/SAFEOP/OP/watchdog
+   reference is formatting of state read back from the master. The load-bearing state-machine
+   review (INIT/PREOP/SAFEOP/OP, watchdog, slave loss/rejoin) is therefore the **EtherCAT master
+   review running in parallel**, which established a sim/test transport — do not duplicate it here.
+   Disposition: when the sim transport exposes the ethercat GMI surface, do a light CLI read-review
+   (correct command marshaling, SDO/PDO parsing/formatting) + write end-to-end CLI tests on the
+   transport + fold in the master review's conclusions. Until then: skip; proceed to #4.
 4. **internal/launcher + internal/daemon** — process supervision, startup/shutdown ordering,
    restart-after-crash. Focus: goroutine ownership, orphan handling, partial-startup failure.
 5. **State machines & abort paths across modules** — wherever a Tier 2 AI review flags a
