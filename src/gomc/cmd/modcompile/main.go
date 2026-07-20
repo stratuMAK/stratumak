@@ -1166,7 +1166,6 @@ const (
 	gmiModeServerGo
 	gmiModeClientGo
 	gmiModeClientPython
-	gmiModeServerWS
 	gmiModeClientPythonWS
 	gmiModeClientTS
 	gmiModeClientTSWS
@@ -1205,8 +1204,6 @@ func cmdGMI(args []string) {
 			m = gmiModeClientGo
 		case "--client-python":
 			m = gmiModeClientPython
-		case "--server-ws":
-			m = gmiModeServerWS
 		case "--client-python-ws":
 			m = gmiModeClientPythonWS
 		case "--client-ts":
@@ -1297,11 +1294,6 @@ func processGMIFile(file string, m gmiMode, outputPath string) error {
 			return fmt.Errorf("%s: --client-python requires @rest_export true", file)
 		}
 		return gmiGenerateClientPython(api, outputPath)
-	case gmiModeServerWS:
-		if !gmicgen.HasWatchFuncs(api) {
-			return fmt.Errorf("%s: --server-ws requires at least one @watch function", file)
-		}
-		return gmiGenerateServerWS(api, outputPath)
 	case gmiModeClientPythonWS:
 		if !gmicgen.HasWatchFuncs(api) {
 			return fmt.Errorf("%s: --client-python-ws requires at least one @watch function", file)
@@ -1561,33 +1553,6 @@ func gmiGenerateClientPython(api *gmiast.API, outputPath string) error {
 		return err
 	}
 	if err := gmicgen.GenerateClientPython(f, api); err != nil {
-		_ = f.Close()
-		return err
-	}
-
-	if err := f.Close(); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
-	return nil
-}
-
-func gmiGenerateServerWS(api *gmiast.API, outputPath string) error {
-	if outputPath == "" {
-		outputPath = api.Name + "_ws.go"
-	}
-
-	pkgName := api.Name
-	dir := filepath.Dir(outputPath)
-	if dir != "." && dir != "" {
-		pkgName = filepath.Base(dir)
-	}
-
-	f, err := os.Create(outputPath)
-	if err != nil {
-		return err
-	}
-	if err := gmicgen.GenerateServerWS(f, api, pkgName); err != nil {
 		_ = f.Close()
 		return err
 	}

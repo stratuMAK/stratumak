@@ -449,6 +449,17 @@ func (g *serverGoGen) emitWatchCallbacksInterface() {
 
 // --- Commands Function ---
 
+// HasWatchFuncs reports whether the API has any @watch function. Used by the
+// modcompile driver to gate the WS-client generation modes.
+func HasWatchFuncs(api *ast.API) bool {
+	for _, fn := range api.Funcs {
+		if fn.Watch {
+			return true
+		}
+	}
+	return false
+}
+
 // isCommandFunc reports whether a function should be exposed as a WS command:
 // not watch-only, not @publish, no out-params (complex multi-return), and no
 // opaque-pointer params. A raw or function pointer cannot be marshaled from a
