@@ -6,6 +6,10 @@ build-stamp
 *.so
 *.so.*
 *.a
+# EtherCAT master (submodule) install artifacts, staged into the RIP prefix
+# by "make ecmaster-install" (the .so/.a/.la are already covered above).
+/lib/pkgconfig/libethercat.pc
+/lib/cmake/ethercat/
 *.pdf
 *.tex
 *.mod.c
