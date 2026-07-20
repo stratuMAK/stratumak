@@ -1,0 +1,7 @@
+#!/bin/bash
+# test-ui.py asserts the behavior (a wedge fails it by timeout before we reach
+# here); this re-checks its success markers in the captured output.
+set -e
+grep -q "phase1 ok: stuck tool change aborted, sequencer recovered, MDI ran" "$1"
+grep -q "phase2 ok: stuck tool change estopped, machine recovered, MDI ran" "$1"
+echo "toolchange-wedge: abort and estop both recovered from a stuck tool change"

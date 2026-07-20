@@ -1,0 +1,27 @@
+iocontrol v2 abort-wedge regression test (Tier-1 hotspot #5)
+============================================================
+
+Guards the fix in `iotask: fix unrecoverable abort wedge` (STATE_MACHINE_REVIEW_FINDINGS.md,
+findings T1/T2).
+
+2.9's iocontrol is a free-running loop that services the tool-change handshake and the
+abort/fault handshakes as non-blocking per-cycle state. The gomc cmod port turned the
+tool-change wait into a BLOCKING cgo busy-wait on the sequencer goroutine, and the v2 port
+(iov2) lost every abort escape. So an abort/estop issued while a tool change was in progress —
+and the toolchanger had not (yet) asserted `tool-changed` — froze the sequencer inside cgo.
+The estop/abort teardown then joined `<-seqDone` forever (restartSequencer), so the whole
+controller wedged: only killing the process recovered.
+
+This test stages exactly that stuck change and asserts recovery from both an abort and an
+estop.
+
+How the changer is stuck
+------------------------
+core_sim.hal loops `iocontrol.tool-prepare -> iocontrol.tool-prepared` (prepare completes) but
+leaves `iocontrol.tool-changed` undriven (reads 0), so `gmi_tool_load` blocks in the change
+handshake until an abort clears `tool-change`. The v2 emc-abort/emc-abort-ack handshake is
+looped so a conforming changer acks at once (poll_inputs reaps it on the monitor status poll).
+
+Note: this is the first test to exercise iov2 — LIB:linuxcnc.hal hardcodes `load io` (v1), so
+this config substitutes stack-iov2.hal to load the v2 protocol module. On the buggy build the
+sequencer wedges and the test fails by timeout (abort/estop never completes).

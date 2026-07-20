@@ -1,0 +1,23 @@
+# CNC infrastructure stack — a copy of LIB:linuxcnc.hal, but loading the v2
+# iocontrol protocol module (iov2) instead of io. LIB:linuxcnc.hal hardcodes
+# `load io <iocontrol>`, so a config that wants the v2 abort/fault handshake
+# cannot use it; this file is the minimal substitute. Order matters: later
+# modules depend on APIs registered by earlier ones.
+load tpmod
+
+# Per-joint homing modules (default homemod), one instance per joint.
+load homemod <homemod.0>
+load homemod <homemod.1>
+load homemod <homemod.2>
+
+# v2 iocontrol. Instance name "iocontrol" => pins are iocontrol.*, and the
+# emcio GMI API is registered under "iocontrol" (what milltask looks up).
+load iov2 <iocontrol>
+
+load persist_sqlite <persistence>
+load tooltable
+load milltask halui=halui
+
+# UI helpers (match the stock stack).
+load ngcpreview
+load halscope
