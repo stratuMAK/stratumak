@@ -226,9 +226,25 @@ the final human sign — the functional/parity work itself is complete.
 | pkg/hal | 1174/54 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | generated/gmi/* boundary | n/a | 3 (spot-check vs IDL) | ☐ | ☐ | ☐ | — | ☐ | — | ☐ |
-| internal/realtime | 80/43 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/realtime | 47/28 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/gmi | 376/262 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | pkg/gomc, pkg/cmodule | 94/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+
+**`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
+human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
+exactly once (`launcher.go:230` full `Run()`; `halrun.go:85` subset), no goroutines, no
+shared-memory lifecycle, **no cyclic path** — so Tier-1 hotspot #6 ("no GC-managed allocation
+in cyclic paths") does not apply here; the cyclic RT paths live in `cmod/*` /
+`RT_HARDENING_CHECKLIST.md`. RT modules load in-process via `dlopen` (halcmd shims); HAL/RTAPI
+shm is in-process heap, so the 2.9 `realtime.in` SysV-shm `ipcrm` cleanup is obsolete
+(`ipc_cleanup.go` correctly empty). **Two cleanups applied (user ruling — remove vestigial
+checks):** (1) dropped the `/dev/zero` "sanity check" — the in-process heap rtapi never
+touches `/dev/zero` (confirmed: it appears nowhere else in gomc), so the check validated a
+resource the runtime doesn't use and gave false RT-readiness confidence; (2) removed the dead
+`RTAPI_DEBUG` branch — it only logged and propagated nowhere (no `getenv` consumer in the
+uspace rtapi; msg level is the server `-d` flag). `Start()` is now an honest minimal validator
+that keeps its `error` return as the launcher's startup contract seam. Verified: vet + `go test`
+green, launcher builds, gofmt clean.
 
 ### Phase 2 — field I/O (drives real iron; highest risk per untested line)
 
@@ -498,3 +514,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-11 | This document created |
 | 2026-07-15 | Tool-change/lifecycle porting sweep complete (`MILLTASK_LIFECYCLE_SWEEP.md`): 13 gaps fixed across milltask/canon/interp/iocontrol/tooltable, 17 tests un-xfailed (G43 Hn, tool tracking, M61, RANDOM_TOOLCHANGER, TOOL_CHANGE_POSITION, abort modal-state restore via restore_from_tag, g5x desync, tool_from_pocket in stat) |
 | 2026-07-19 | Runtests migration complete — 232/232 successful, 0 xfail, 0 skipped (all categories incl. Category D full-instance ported; `runtests.log`). gomc-native latency-test ported (branch `latency-test`), OK on first run — RT/latency soak instrument now in hand (`RT_HARDENING_CHECKLIST.md` §3) |
+| 2026-07-20 | `internal/realtime` reviewed (Phase 1, Tier 1). Confirmed off the cyclic RT path (startup-only stub, no goroutines/shm). Removed two vestigial checks (`/dev/zero` sanity, dead `RTAPI_DEBUG` branch); `Start()` now an honest minimal validator. vet/test/build green. Row → L R F U RC ✅, FP —, S ◐ (awaiting final human sign) |

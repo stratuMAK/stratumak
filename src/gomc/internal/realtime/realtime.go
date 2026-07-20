@@ -6,19 +6,18 @@
 // bash script.  Kernel-module paths (RTAI, Xenomai) are intentionally not
 // implemented here.
 //
-// RT module loading happens in-process via dlopen in the halcmd CGo shims.
-// This package only handles environment validation on startup.
+// In the gomc architecture there is nothing to bring up at this layer: RT
+// modules load in-process via dlopen in the halcmd CGo shims, and HAL/RTAPI
+// shared memory is in-process heap allocation (there is no SysV-shm or
+// /dev/zero mmap to wait for, nor any ipcrm cleanup — see ipc_cleanup.go).
+// Start() is retained as the startup seam and error-return contract for the
+// launcher; RT-correctness of the cyclic paths lives in cmod/* and is tracked
+// in RT_HARDENING_CHECKLIST.md, not here.
 package realtime
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
-)
-
-const (
-	// shmDev is the shared-memory device used by uspace rtapi.
-	shmDev = "/dev/zero"
 )
 
 // Manager manages the LinuxCNC uspace realtime environment.
@@ -37,38 +36,12 @@ func New(logger *slog.Logger) *Manager {
 	}
 }
 
-// Start performs the realtime startup validation sequence (uspace).
+// Start marks the uspace realtime environment ready.
 //
-// RT module loading now happens in-process via dlopen when halcmd.LoadRT()
-// is called.  Start() validates that the environment is sane.
+// There is no uspace precondition to validate here (RT modules load via dlopen,
+// HAL shm is in-process heap).  The error return is kept so the launcher's
+// startup contract does not change if a real precondition is added later.
 func (m *Manager) Start() error {
-	// Sanity-check: /dev/zero must be accessible (mirrors CheckLoaded in
-	// realtime.in which waits for $SHM_DEV to become writable).
-	if err := checkDevZero(); err != nil {
-		return fmt.Errorf("realtime: %w", err)
-	}
-
-	// Propagate debug level to rtapi if requested.
-	if debug := os.Getenv("RTAPI_DEBUG"); debug != "" {
-		m.logger.Debug("RTAPI_DEBUG set", "value", debug)
-	}
-
 	m.logger.Info("realtime environment ready (uspace)")
-	return nil
-}
-
-// checkDevZero verifies that /dev/zero is accessible.
-func checkDevZero() error {
-	return checkDevZeroAt(shmDev)
-}
-
-// checkDevZeroAt verifies that the given path is accessible.
-// It is a separate function to allow testing with arbitrary paths.
-func checkDevZeroAt(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("cannot open %s: %w", path, err)
-	}
-	_ = f.Close()
 	return nil
 }
