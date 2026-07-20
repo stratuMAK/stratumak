@@ -354,7 +354,26 @@ static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if (inst->homing || inst->drv_state != DRV_HOME_IDLE) {
-        inst->drv_state = DRV_HOME_ERROR;
+        linmot_pins_t *p = &inst->pins;
+        /* Force the drive out of its autonomous HOMING opmode SYNCHRONOUSLY.
+         *
+         * Classic homing moves the joint via motmod's free_tp, which the
+         * disable edge (control.c set_operating_mode) zeroes directly
+         * (free_tp.enable=0) — so a classic joint stops the instant the
+         * machine disables/estops, before any homing tick runs. A CiA402
+         * drive homes AUTONOMOUSLY (opmode HOMING, home-cmd asserted);
+         * disabling free_tp does nothing to it. do_cancel is invoked from
+         * that same disable edge, at which point motion_state is already
+         * DISABLED, so the FREE-gated homing tick (do_homing_sequence) will
+         * NOT run and the deferred DRV_HOME_ERROR opmode reset would never
+         * fire — leaving the drive commanded in HOMING (still moving) while
+         * motmod believes it is disabled. Reset the drive here, immediately,
+         * mirroring the free_tp kill classic homing gets from the disable edge. */
+        *(p->home_cmd) = 0;
+        *(p->opmode_cmd) = CIA402_OP_CSP;
+        inst->homing = 0;
+        inst->homed = 0;
+        inst->drv_state = DRV_HOME_IDLE;
     }
     return 0;
 }
