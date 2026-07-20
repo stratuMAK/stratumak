@@ -223,10 +223,14 @@ fi
 # stress-ng 0.19), which parks a stress worker ON the RT core and produces
 # multi-ms artifacts that look like scheduling latency (seen: a 24ms rtla
 # timerlat hit attributed 99.8% to stress-ng-cache running on the isolated
-# CPU).  So the stress vectors are confined to the housekeeping CPUs: by a
-# cgroup cpuset (systemd-run) where available - the kernel then *rejects*
-# affinity escapes - else by taskset plus per-stressor no-affinity options.
-# The `invade` vector below is the deliberate, labelled exception.
+# CPU).  So the stress vectors are confined to the housekeeping CPUs in two
+# layers: stress-ng's own --taskset (its CPU-walking stressors pick targets
+# from that set, so they never even TRY the RT CPUs - an external mask does
+# not feed the walker, and a cgroup's cpuset can apply a beat after the
+# workers start pinning, both verified escapes), plus an outer cgroup cpuset
+# (systemd-run) where available - the kernel then *rejects* affinity escapes
+# - else a plain taskset.  The `invade` vector below is the deliberate,
+# labelled exception.
 
 expand_cpulist () {  # "0-2,5" -> "0 1 2 5"
     # Split on commas WITHOUT touching IFS: a modified IFS would also change
@@ -415,28 +419,18 @@ start_external_stress () {
     # All remaining vectors are stress-ng stressors, each targeting a distinct
     # RT-perturbation mechanism.  Combine the selected ones into a single
     # stress-ng invocation (one process group for cleanup).
+    #
+    # --taskset is the layer that actually stops the CPU-walking stressors
+    # (cache, tlb-shootdown): they pick their pin targets from stress-ng's OWN
+    # affinity option (stress_get_usable_cpus), not from the inherited mask,
+    # so under an external taskset they walk ALL configured CPUs, and under a
+    # cgroup the workers can start pinning a beat before the scope's cpuset
+    # applies (seen once on an isolcpus box).  With --taskset they never try
+    # the RT CPUs in the first place (verified on stress-ng 0.19).
     local ng=()
     [ -n "${VEC[stream]}" ] && ng+=(--stream         "$NW")
-    if [ -n "${VEC[cache]}" ]; then
-        if [ -n "$RT_CPUS" ]; then
-            # The cache stressor's affinity walk escapes taskset (verified) and
-            # would just get EINVALs under a cgroup; the LLC thrash works fine
-            # from the housekeeping CPUs without it.  The walk itself is what
-            # the `invade` vector is for.
-            ng+=(--cache "$NW" --cache-no-affinity)
-        else
-            ng+=(--cache "$NW")
-        fi
-    fi
-    if [ -n "${VEC[tlb]}" ]; then
-        if [ -z "$RT_CPUS" ] || [ "$CONFINE_KIND" = "cgroup" ]; then
-            # Pins its workers across all *allowed* CPUs; only a cgroup cpuset
-            # actually limits that set (no --tlb-shootdown-no-affinity exists).
-            ng+=(--tlb-shootdown "$NW")
-        else
-            echo "latency-test: skipping 'tlb': stress-ng --tlb-shootdown pins itself onto ALL CPUs and only a cgroup cpuset can stop it (delegate the cpuset controller to user@.service, or use --stress=invade if invading the RT CPUs is intended)" >&2
-        fi
-    fi
+    [ -n "${VEC[cache]}"  ] && ng+=(--cache          "$NW")
+    [ -n "${VEC[tlb]}"    ] && ng+=(--tlb-shootdown   "$NW")
     [ -n "${VEC[fork]}"   ] && ng+=(--exec            "$NW")
     [ -n "${VEC[cpu]}"    ] && ng+=(--cpu             "$NW")
     if [ -n "${VEC[io]}" ]; then
@@ -451,6 +445,7 @@ start_external_stress () {
     [ -n "${VEC[net]}"    ] && ng+=(--sock           "$NW")
 
     if [ "${#ng[@]}" -gt 0 ] && have_tool stress-ng stress-ng; then
+        [ -n "$HK_LIST" ] && ng=(--taskset "$HK_LIST" "${ng[@]}")
         start_stressor "exec $CONFINE stress-ng ${ng[*]}"
     fi
 

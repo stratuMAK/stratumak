@@ -145,9 +145,9 @@ because `isolcpus=` does not block explicit `sched_setaffinity()` calls, and
 some stress-ng stressors deliberately pin themselves onto every CPU: an
 unconfined stress worker parked on the RT CPU produces multi-millisecond
 "latency" that is an artifact of the test setup, not a property of the
-machine.  The confinement uses a cgroup cpuset where available (which the
-kernel enforces) and falls back to `taskset`; the `tlb` vector is skipped
-under the fallback because it cannot be confined that way.  A watchdog
+machine.  The confinement is layered: stress-ng's own `--taskset` option
+(so its CPU-walking stressors never even try the RT CPUs), plus a cgroup
+cpuset where available (which the kernel enforces), else `taskset`.  A watchdog
 additionally reports any foreign non-RT task observed on the RT CPUs during
 the run.  The special vector `invade` (never part of `all`) does the
 opposite on purpose: it runs unconfined cache and TLB stressors that pin
