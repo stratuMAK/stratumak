@@ -1,0 +1,5 @@
+# Load the lcec driver on the sim transport (loopback slave) and cycle it.
+newthread servo-thread 1000000
+load ethercat config=ethercat-conf.xml
+addf ethercat.read-all servo-thread
+addf ethercat.write-all servo-thread

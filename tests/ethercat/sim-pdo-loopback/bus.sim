@@ -1,0 +1,11 @@
+# Bus description for the sim transport with a PDO loopback slave: the slave
+# echoes its output process data (SM2) back into its input process data (SM3)
+# after each frame, so a HAL output pin round-trips to the matching input pin.
+slave 0
+  vendor   0x00000E17
+  product  0x51340001
+  revision 0x00010000
+  serial   1
+  sm2      0x1100 8
+  sm3      0x1400 8
+  loopback 1
