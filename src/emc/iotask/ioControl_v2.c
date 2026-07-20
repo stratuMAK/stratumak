@@ -1,16 +1,19 @@
 /********************************************************************
- * Description: IoControl_v2.cc
- *           Simply accepts NML messages sent to the IO controller
- *           outputs those to a HAL pin,
- *           and sends back a "Done" message.
+ * Description: IoControl_v2.c
+ *           IO controller (v2 abort/fault-handshake protocol): drives the
+ *           HAL estop/tool/coolant/lube pins.
  *
  *   Built as a C plugin (.so) loaded by gomc-server via:
  *
  *       load iov2
  *
- *   The launcher calls New (constructor + HAL init), Start
- *   (NML + main loop thread), Stop (signal shutdown), and Destroy
- *   (release resources) in that order during its lifecycle.
+ *   The launcher calls New (constructor + HAL init), Start (resolve
+ *   tooltable), Stop (signal shutdown), and Destroy (release resources)
+ *   in that order during its lifecycle. There is NO NML transport and NO
+ *   main loop thread: milltask invokes the emcio GMI callbacks directly
+ *   through cgo function pointers, and all HAL reads/writes happen inside
+ *   those synchronous callbacks (the tool-change/prepare handshakes and
+ *   the emc-abort-ack handshake busy-wait on their HAL pins).
  *
  *   Derived from a work by Fred Proctor & Will Shackleford
  *
@@ -73,6 +76,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdatomic.h>
+#include <pthread.h>
 
 #include "iocontrol_stat.h"
 
@@ -175,6 +179,13 @@ typedef struct iocontrol_module {
 
     // Shutdown flag (checked by blocking GMI callbacks)
     atomic_int done;
+
+    // Serialises the iocontrol state machine across the goroutines that reach
+    // it concurrently: the sequencer (tool prepare/change loops), the command
+    // path (io_abort, estop, coolant) and the monitor's status poll
+    // (gmi_get_status -> poll_inputs). The busy-wait loops MUST release it
+    // across their usleep so the poll can reap handshakes and an abort can land.
+    pthread_mutex_t io_mtx;
 
     // GMI callback table (persists for lifetime of module)
     emcio_callbacks_t emcio_cb;
@@ -605,19 +616,39 @@ static void reload_tool_number(iocontrol_module *m, int toolno) {
 * These implement the v2 protocol with abort/fault handshake.
 ********************************************************************/
 
-// Helper: wait for emc-abort-ack from toolchanger, then deassert emc-abort.
-static void wait_for_abort_ack(iocontrol_module *m)
+// poll_inputs — the non-blocking, async half of 2.9's read_inputs().
+//
+// 2.9 iocontrol was a free-running loop that serviced these handshakes every
+// cycle; gomc has no such loop, so this runs on the monitor's periodic status
+// poll (see gmi_get_status). It latches the toolchanger-fault line, services
+// the fault-ack / clear-fault handshakes, and reaps the emc-abort ->
+// emc-abort-ack handshake — so no abort/estop/tool path ever has to block
+// waiting for the toolchanger to respond. Caller MUST hold m->io_mtx.
+static void poll_inputs(iocontrol_module *m)
 {
     iocontrol_str *d = m->hal_data;
-    *(d->state) = ST_WAIT_FOR_ABORT_ACK;
-    while (!m->done) {
-        if (*(d->emc_abort_ack)) {
-            *(d->emc_abort) = 0;
-            *(d->emc_reason) = 0;
-            *(d->state) = ST_IDLE;
-            return;
-        }
-        usleep((useconds_t)(m->io_cycle_time * 1e6));
+    if (m->proto <= V1)
+        return;
+
+    // Latch a toolchanger fault and raise the ack line (2.9 read_inputs).
+    if (*(d->toolchanger_fault)) {
+        m->toolchanger_reason = *(d->toolchanger_reason);
+        *(d->toolchanger_fault_ack) = 1;
+        *(d->toolchanger_faulted) = 1;
+    } else {
+        *(d->toolchanger_fault_ack) = 0;
+    }
+    // Honour a clear-fault request (2.9 clears unconditionally after latching).
+    if (*(d->toolchanger_clear_fault)) {
+        *(d->toolchanger_faulted) = 0;
+        m->toolchanger_reason = 0;
+    }
+    // Reap an in-progress emc-abort once the toolchanger acknowledges it
+    // (2.9 read_inputs: emc_abort && emc_abort_ack -> deassert, force IDLE).
+    if (*(d->emc_abort) && *(d->emc_abort_ack)) {
+        *(d->emc_abort) = 0;
+        *(d->emc_reason) = 0;
+        *(d->state) = ST_IDLE;
     }
 }
 
@@ -627,21 +658,26 @@ static int32_t gmi_io_abort(void *ctx, int32_t reason)
     iocontrol_str *d = m->hal_data;
 
     gomc_log_debugf(m->env->log, m->name, "gmi_io_abort reason=%d", reason);
+
+    pthread_mutex_lock(&m->io_mtx);
     m->emcioStatus.coolant.mist = 0;
     m->emcioStatus.coolant.flood = 0;
     *(d->coolant_mist) = 0;
     *(d->coolant_flood) = 0;
-    *(d->tool_change) = 0;
-    *(d->tool_prepare) = 0;
-    *(d->start_change) = 0;
 
     if (m->proto > V1) {
+        // Assert the abort to the toolchanger BEFORE clearing the request
+        // lines (2.9 EMC_TOOL_ABORT race fix). This is an abort/estop/teardown
+        // path: do NOT block on the ack here — poll_inputs() reaps the
+        // emc-abort -> emc-abort-ack handshake on the monitor status poll.
         *(d->emc_reason) = reason;
         *(d->emc_abort) = 1;
-        wait_for_abort_ack(m);
-    } else {
-        *(d->state) = ST_IDLE;
     }
+    *(d->tool_change) = 0;   // abort an in-progress tool change
+    *(d->tool_prepare) = 0;  // abort an in-progress tool prepare
+    *(d->start_change) = 0;
+    *(d->state) = (m->proto > V1) ? ST_WAIT_FOR_ABORT_ACK : ST_IDLE;
+    pthread_mutex_unlock(&m->io_mtx);
     return 0;
 }
 
@@ -769,30 +805,27 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
             m->toolchanger_reason > 0 ? "set fault code and reason" : "abort program");
     }
 
-    // Signal HAL and wait for tool-prepared
+    // Signal HAL and wait for tool-prepared. poll_inputs() (monitor status
+    // poll) owns the toolchanger-fault latch; this loop only completes on the
+    // prepared ack, or bails when an abort clears tool_prepare.
     *(d->tool_prepare) = 1;
     *(d->state) = ST_PREPARING;
     while (!m->done) {
-        // Monitor toolchanger fault during prepare
-        if ((m->proto > V1) && *(d->toolchanger_fault)) {
-            m->toolchanger_reason = *(d->toolchanger_reason);
-            *(d->toolchanger_fault_ack) = 1;
-            *(d->toolchanger_faulted) = 1;
-        } else if (m->proto > V1) {
-            if (*(d->toolchanger_fault_ack))
-                *(d->toolchanger_fault_ack) = 0;
-            if (*(d->toolchanger_clear_fault) && !*(d->toolchanger_fault)) {
-                *(d->toolchanger_faulted) = 0;
-                m->toolchanger_reason = 0;
-            }
+        pthread_mutex_lock(&m->io_mtx);
+        // Abort: gmi_io_abort cleared tool_prepare (2.9: abort clears the
+        // request line and the wait ends). Leave state as io_abort set it.
+        if (!*(d->tool_prepare)) {
+            pthread_mutex_unlock(&m->io_mtx);
+            return -1;
         }
-
         if (*(d->tool_prepared)) {
             m->emcioStatus.tool.pocketPrepped = toolno;
             *(d->tool_prepare) = 0;
             *(d->state) = ST_IDLE;
+            pthread_mutex_unlock(&m->io_mtx);
             return 0;
         }
+        pthread_mutex_unlock(&m->io_mtx);
         usleep((useconds_t)(m->io_cycle_time * 1e6));
     }
     return -1;  // shutdown
@@ -809,11 +842,19 @@ static int32_t gmi_tool_start_change(void *ctx)
         *(d->start_change) = 1;
         *(d->state) = ST_START_CHANGE;
         while (!m->done) {
+            pthread_mutex_lock(&m->io_mtx);
+            // Abort: gmi_io_abort cleared start_change — bail (leave state).
+            if (!*(d->start_change)) {
+                pthread_mutex_unlock(&m->io_mtx);
+                return -1;
+            }
             if (*(d->start_change_ack)) {
                 *(d->start_change) = 0;
                 *(d->state) = ST_IDLE;
+                pthread_mutex_unlock(&m->io_mtx);
                 return 0;
             }
+            pthread_mutex_unlock(&m->io_mtx);
             usleep((useconds_t)(m->io_cycle_time * 1e6));
         }
         return -1;  // shutdown
@@ -841,38 +882,53 @@ static int32_t gmi_tool_load(void *ctx)
         (m->random_toolchanger || prepped_toolno > 0))
         return 0;
 
-    // v2: check for toolchanger fault before starting change
+    // v2: toolchanger already faulted -> abort before starting the change.
+    // Non-blocking: poll_inputs() reaps the emc-abort -> emc-abort-ack.
+    pthread_mutex_lock(&m->io_mtx);
     if ((m->proto > V1) && *(d->toolchanger_faulted)) {
         m->toolchanger_reason = *(d->toolchanger_reason);
         *(d->emc_reason) = EMC_ABORT_BY_TOOLCHANGER_FAULT;
         *(d->emc_abort) = 1;
         *(d->state) = ST_WAIT_FOR_ABORT_ACK;
-        wait_for_abort_ack(m);
         m->emcioStatus.fault = 1;
         m->emcioStatus.reason = m->toolchanger_reason;
+        pthread_mutex_unlock(&m->io_mtx);
         return -1;
     }
 
-    // Signal HAL and wait for tool-changed
+    // Signal HAL and wait for tool-changed. poll_inputs() (monitor status
+    // poll) owns the toolchanger-fault latch; this loop reads the latched
+    // toolchanger_faulted, completes on tool_changed, or bails on abort.
     *(d->tool_change) = 1;
     *(d->state) = ST_CHANGING;
+    pthread_mutex_unlock(&m->io_mtx);
+
     while (!m->done) {
-        // Monitor toolchanger fault during change (v2)
-        if ((m->proto > V1) && *(d->toolchanger_fault)) {
+        pthread_mutex_lock(&m->io_mtx);
+
+        // A toolchanger fault (latched by poll_inputs) aborts the change.
+        if ((m->proto > V1) && *(d->toolchanger_faulted)) {
             m->toolchanger_reason = *(d->toolchanger_reason);
-            *(d->toolchanger_fault_ack) = 1;
-            *(d->toolchanger_faulted) = 1;
-            // Abort the change
             *(d->tool_change) = 0;
             *(d->emc_reason) = EMC_ABORT_BY_TOOLCHANGER_FAULT;
             *(d->emc_abort) = 1;
-            wait_for_abort_ack(m);
+            *(d->state) = ST_WAIT_FOR_ABORT_ACK;
             m->emcioStatus.fault = 1;
             m->emcioStatus.reason = m->toolchanger_reason;
+            pthread_mutex_unlock(&m->io_mtx);
             return -1;
-        } else if (m->proto > V1) {
-            if (*(d->toolchanger_fault_ack))
-                *(d->toolchanger_fault_ack) = 0;
+        }
+
+        // Abort: gmi_io_abort cleared tool_change (2.9: abort clears the
+        // request line and the wait ends). Leave state as io_abort set it.
+        if (!*(d->tool_change)) {
+            gomc_log_debugf(m->env->log, m->name, "gmi_tool_load aborted");
+            m->emcioStatus.tool.pocketPrepped = -1;
+            *(d->tool_prep_number) = 0;
+            *(d->tool_prep_pocket) = 0;
+            *(d->tool_prep_index) = 0;
+            pthread_mutex_unlock(&m->io_mtx);
+            return -1;
         }
 
         if (*(d->tool_changed)) {
@@ -894,8 +950,11 @@ static int32_t gmi_tool_load(void *ctx)
             *(d->tool_change) = 0;
             *(d->state) = ST_IDLE;
             m->emcioStatus.fault = 0;
+            pthread_mutex_unlock(&m->io_mtx);
             return 0;
         }
+
+        pthread_mutex_unlock(&m->io_mtx);
         usleep((useconds_t)(m->io_cycle_time * 1e6));
     }
     return -1;  // shutdown
@@ -981,11 +1040,16 @@ static emcio_io_status_t gmi_get_status(void *ctx)
     emcio_io_status_t s;
     memset(&s, 0, sizeof(s));
 
-    // Read live HAL inputs
+    // Estop is read lock-free (single HAL word) so a tool-change commit
+    // holding io_mtx can never delay external-estop detection.
     s.estop = (*(d->emc_enable_in) == 0);
-    s.lube_level = *(d->lube_level);
 
-    // Copy cached state
+    pthread_mutex_lock(&m->io_mtx);
+    // Service the toolchanger-fault + emc-abort handshakes on this poll
+    // (the async half of 2.9's per-cycle read_inputs()).
+    poll_inputs(m);
+
+    s.lube_level = *(d->lube_level);
     s.heartbeat = m->emcioStatus.heartbeat++;
     s.status = EMCIO_DONE;
     s.reason = m->toolchanger_reason;
@@ -997,6 +1061,7 @@ static emcio_io_status_t gmi_get_status(void *ctx)
     s.coolant.flood = m->emcioStatus.coolant.flood;
     s.lube_on = m->emcioStatus.lube.on;
     s.debug = m->debug;
+    pthread_mutex_unlock(&m->io_mtx);
 
     return s;
 }
@@ -1078,6 +1143,8 @@ static void iocontrol_destroy(cmod_t *self)
         m->comp_id = 0;
     }
 
+    pthread_mutex_destroy(&m->io_mtx);
+
     gomc_log_warnf(m->env->log, m->name, "%s: exiting", m->name);
     free(m);
 }
@@ -1131,6 +1198,8 @@ int New(const cmod_env_t *env, const char *name,
     m->emcioStatus.coolant.flood = 0;
     m->emcioStatus.lube.on = 0;
     m->emcioStatus.lube.level = 1;
+
+    pthread_mutex_init(&m->io_mtx, NULL);
 
     // Register GMI emcio API so milltask can call us via function pointers.
     m->emcio_cb = emcio_table;

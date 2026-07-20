@@ -1,16 +1,18 @@
 /********************************************************************
-* Description: IoControl.cc
-*           Simply accepts NML messages sent to the IO controller
-*           outputs those to a HAL pin,
-*           and sends back a "Done" message.
+* Description: IoControl.c
+*           IO controller: drives the HAL estop/tool/coolant/lube pins.
 *
 *   Built as a C plugin (.so) loaded by gomc-server via:
 *
 *       load iocontrol
 *
-*   The launcher calls New (constructor + HAL init), Start
-*   (NML + main loop thread), Stop (signal shutdown), and Destroy
-*   (release resources) in that order during its lifecycle.
+*   The launcher calls New (constructor + HAL init), Start (resolve
+*   tooltable), Stop (signal shutdown), and Destroy (release resources)
+*   in that order during its lifecycle. There is NO NML transport and NO
+*   main loop thread: milltask invokes the emcio GMI callbacks directly
+*   through cgo function pointers, and all HAL reads/writes happen inside
+*   those synchronous callbacks (the tool-change/prepare handshakes
+*   busy-wait on their HAL ack pins).
 *
 *   Derived from a work by Fred Proctor & Will Shackleford
 *
@@ -72,6 +74,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdatomic.h>
+#include <pthread.h>
 #include "iocontrol_stat.h"
 
 #include "gomc/pkg/cmodule/gomc_env.h"
@@ -128,6 +131,11 @@ typedef struct iocontrol_module {
 
     // Shutdown flag (checked by blocking GMI callbacks)
     atomic_int done;
+
+    // Serialises the iocontrol state machine across the sequencer (tool
+    // prepare/change loops), the command path (io_abort, coolant) and the
+    // monitor status poll. The busy-wait loops release it across their usleep.
+    pthread_mutex_t io_mtx;
 
     // GMI callback table (persists for lifetime of module)
     emcio_callbacks_t emcio_cb;
@@ -460,12 +468,16 @@ static int32_t gmi_io_abort(void *ctx, int32_t reason)
     iocontrol_str *d = m->hal_data;
 
     gomc_log_debugf(m->env->log, m->name, "gmi_io_abort reason=%d", reason);
+    pthread_mutex_lock(&m->io_mtx);
     m->emcioStatus.coolant.mist = 0;
     m->emcioStatus.coolant.flood = 0;
     *(d->coolant_mist) = 0;
     *(d->coolant_flood) = 0;
+    // Clearing the request lines ends any in-progress prepare/change wait
+    // (2.9: abort clears the line and the loop stops waiting).
     *(d->tool_change) = 0;
     *(d->tool_prepare) = 0;
+    pthread_mutex_unlock(&m->io_mtx);
     return 0;
 }
 
@@ -589,14 +601,24 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
         *(d->tool_prep_pocket) = tdata.pocketno;
     }
 
-    // Signal HAL and wait for tool-prepared
+    // Signal HAL and wait for tool-prepared. Complete on the prepared ack, or
+    // bail when an abort clears tool_prepare. (The old `tool_prepare &&
+    // tool_prepared` success test wedged forever once abort cleared
+    // tool_prepare: the wait could then neither succeed nor escape.)
     *(d->tool_prepare) = 1;
     while (!m->done) {
-        if (*(d->tool_prepare) && *(d->tool_prepared)) {
+        pthread_mutex_lock(&m->io_mtx);
+        if (!*(d->tool_prepare)) {
+            pthread_mutex_unlock(&m->io_mtx);
+            return -1;
+        }
+        if (*(d->tool_prepared)) {
             m->emcioStatus.tool.pocketPrepped = toolno;
             *(d->tool_prepare) = 0;
+            pthread_mutex_unlock(&m->io_mtx);
             return 0;
         }
+        pthread_mutex_unlock(&m->io_mtx);
         usleep((useconds_t)(m->io_cycle_time * 1e6));
     }
     return -1;  // shutdown
@@ -632,6 +654,7 @@ static int32_t gmi_tool_load(void *ctx)
     // Signal HAL and wait for tool-changed
     *(d->tool_change) = 1;
     while (!m->done) {
+        pthread_mutex_lock(&m->io_mtx);
         if (*(d->tool_change) && *(d->tool_changed)) {
             // Capture the tool's pre-swap pocket first — a random change
             // moves it to pocket 0, losing where it came from.
@@ -663,6 +686,7 @@ static int32_t gmi_tool_load(void *ctx)
             *(d->tool_prep_pocket) = 0;
             *(d->tool_prep_index) = 0;
             *(d->tool_change) = 0;
+            pthread_mutex_unlock(&m->io_mtx);
             return 0;
         }
         // Abort detected: gmi_io_abort cleared tool_change
@@ -672,8 +696,10 @@ static int32_t gmi_tool_load(void *ctx)
             *(d->tool_prep_number) = 0;
             *(d->tool_prep_pocket) = 0;
             *(d->tool_prep_index) = 0;
+            pthread_mutex_unlock(&m->io_mtx);
             return -1;
         }
+        pthread_mutex_unlock(&m->io_mtx);
         usleep((useconds_t)(m->io_cycle_time * 1e6));
     }
     return -1;  // shutdown
@@ -763,11 +789,12 @@ static emcio_io_status_t gmi_get_status(void *ctx)
     emcio_io_status_t s;
     memset(&s, 0, sizeof(s));
 
-    // Read live HAL inputs
+    // Estop is read lock-free (single HAL word) so a tool-change commit
+    // holding io_mtx can never delay external-estop detection.
     s.estop = (*(d->emc_enable_in) == 0);
-    s.lube_level = *(d->lube_level);
 
-    // Copy cached state
+    pthread_mutex_lock(&m->io_mtx);
+    s.lube_level = *(d->lube_level);
     s.heartbeat = m->emcioStatus.heartbeat++;
     s.status = EMCIO_DONE;
     s.reason = m->emcioStatus.reason;
@@ -779,6 +806,7 @@ static emcio_io_status_t gmi_get_status(void *ctx)
     s.coolant.flood = m->emcioStatus.coolant.flood;
     s.lube_on = m->emcioStatus.lube.on;
     s.debug = m->debug;
+    pthread_mutex_unlock(&m->io_mtx);
 
     return s;
 }
@@ -860,6 +888,8 @@ static void iocontrol_destroy(cmod_t *self)
         m->comp_id = 0;
     }
 
+    pthread_mutex_destroy(&m->io_mtx);
+
     free(m);
 }
 
@@ -908,6 +938,8 @@ int New(const cmod_env_t *env, const char *name,
     m->emcioStatus.coolant.flood = 0;
     m->emcioStatus.lube.on = 0;
     m->emcioStatus.lube.level = 1;
+
+    pthread_mutex_init(&m->io_mtx, NULL);
 
     // Register GMI emcio API so milltask can call us via function pointers.
     m->emcio_cb = emcio_table;
