@@ -38,6 +38,62 @@ maintaining strict RT guarantees. If the servo loop crashes, the entire process
 dies and an external watchdog triggers E-stop — clean, predictable failure
 instead of ambiguous partial failures.
 
+### Why Go — a Garbage-Collected Language — for Machine Control?
+
+The short answer: **Go never runs in the real-time path.**
+
+- **All RT code is C.** The servo loop, HAL cyclic components and fieldbus
+  cycle run in plain C pthreads (SCHED_FIFO, locked memory) that are never
+  attached to the Go runtime. The garbage collector cannot pause them — its
+  stop-the-world only reaches Go-managed threads. This is not an assumption;
+  it is verified by measurement (see below).
+- **Go replaces Python, not C.** In classic LinuxCNC the non-RT layer is a mix
+  of Python, C++ and Tcl — and Python is just as garbage-collected and
+  non-deterministic as Go, without anyone objecting. Go fills exactly that
+  role, but with compile-time type checking, real concurrency, and refactoring
+  safety that an interpreted language cannot offer.
+- **A powerful standard ecosystem.** HTTP/WebSocket servers, TLS, JSON, MQTT,
+  databases — the entire modern API surface of GOMC is standard-library-grade
+  Go, with no dependency sprawl.
+- **Single static binary.** No interpreter, no virtualenv, no version drift on
+  the deployment machine.
+- **Easy to learn.** A deliberately small language keeps the entry barrier low
+  for machine integrators and new contributors alike.
+
+### Measured Real-Time Jitter
+
+Measured with the built-in `latency-test` under **full adversarial load**,
+including a dedicated Go garbage-collector stress generator running inside the
+control process — the exact scenario the single-process architecture is
+criticized for:
+
+| | |
+|---|---|
+| Hardware | Beckhoff C6030 industrial PC |
+| Kernel | Debian 13, `6.12.95+deb13-rt-amd64` (PREEMPT_RT) |
+| Boot parameters | `isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3 irqaffinity=0,1 intel_idle.max_cstate=1 processor.max_cstate=1 cpufreq.default_governor=performance nmi_watchdog=0 nosoftlockup consoleblank=0` |
+| RT thread | 1 ms servo thread, SCHED_FIFO on isolated CPU |
+| Duration | 8,000,000 cycles ≈ 2 h 13 min |
+| **Max jitter** | **34.95 µs** |
+| Min / max latency | −31.36 µs / +34.95 µs |
+| Mean \|latency\| | 1.24 µs |
+| Std deviation | 1.78 µs |
+
+The stress load ran every `latency-test --stress` vector simultaneously:
+Go GC pressure (in-process), memory bandwidth (`stress-ng --stream`),
+last-level-cache thrashing (`--cache`), TLB-shootdown IPIs
+(`--tlb-shootdown`), fork/exec churn (`--exec`), ALU load (`--cpu`),
+disk I/O (`--hdd`), network softirqs (`--sock`) and GPU load (glxgears).
+Stressors are confined to the housekeeping CPUs — exactly as real non-RT
+load is in production — and a watchdog verifies that nothing violates the
+CPU isolation during the run.
+
+A typical cycle deviates ~1.2 µs from its nominal period; the worst cycle in
+over two hours of hostile load deviated 35 µs — 3.5% of the 1 ms period.
+The garbage collector was part of the attack, not a victim of special
+treatment: the single-image concept holds under measurement, not just in
+theory.
+
 ### Component Model (cmod + gomod)
 
 Two component types serve different needs:
