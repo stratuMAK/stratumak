@@ -134,52 +134,60 @@ func main() {
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+
+		// Accept the getopt_long forms the IgH tool accepts, not just the
+		// space-separated one: the attached short form (-p0) and the long
+		// form with '=' (--position=0), in addition to -p 0 / --position 0.
+		name := a
+		val := ""
+		hasVal := false
+		if strings.HasPrefix(a, "--") {
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				name, val, hasVal = a[:eq], a[eq+1:], true
+			}
+		} else if len(a) > 2 && a[0] == '-' && strings.IndexByte("mpadtos", a[1]) >= 0 {
+			// a value-taking short option with its value attached: -p0
+			name, val, hasVal = a[:2], a[2:], true
+		}
+
+		// nextVal yields the option's argument: the attached value if there
+		// is one, otherwise the following token.
+		nextVal := func() string {
+			if hasVal {
+				return val
+			}
+			i++
+			if i < len(args) {
+				return args[i]
+			}
+			return ""
+		}
+
 		switch {
-		case a == "--help" || a == "-h":
+		case name == "--help" || name == "-h":
 			usage(progName)
 			os.Exit(0)
-		case a == "--master" || a == "-m":
-			i++
-			if i < len(args) {
-				opts.Masters = args[i]
-			}
-		case a == "--position" || a == "-p":
-			i++
-			if i < len(args) {
-				opts.Positions = args[i]
-			}
-		case a == "--alias" || a == "-a":
-			i++
-			if i < len(args) {
-				opts.Aliases = args[i]
-			}
-		case a == "--domain" || a == "-d":
-			i++
-			if i < len(args) {
-				opts.Domains = args[i]
-			}
-		case a == "--type" || a == "-t":
-			i++
-			if i < len(args) {
-				opts.DataType = args[i]
-			}
-		case a == "--output-file" || a == "-o":
-			i++
-			if i < len(args) {
-				opts.OutputFile = args[i]
-			}
-		case a == "--skin" || a == "-s":
-			i++
-			if i < len(args) {
-				opts.Skin = args[i]
-			}
-		case a == "--force" || a == "-f":
+		case name == "--master" || name == "-m":
+			opts.Masters = nextVal()
+		case name == "--position" || name == "-p":
+			opts.Positions = nextVal()
+		case name == "--alias" || name == "-a":
+			opts.Aliases = nextVal()
+		case name == "--domain" || name == "-d":
+			opts.Domains = nextVal()
+		case name == "--type" || name == "-t":
+			opts.DataType = nextVal()
+		case name == "--output-file" || name == "-o":
+			opts.OutputFile = nextVal()
+		case name == "--skin" || name == "-s":
+			opts.Skin = nextVal()
+		case name == "--force" || name == "-f":
 			opts.Force = true
-		case a == "--emergency" || a == "-e":
+		case name == "--emergency" || name == "-e":
 			opts.Emergency = true
-		case a == "--quiet" || a == "-q":
+		case name == "--quiet" || name == "-q":
 			opts.Verbosity = Quiet
-		case a == "--verbose" || a == "-v":
+		case name == "--verbose" || name == "-v":
 			opts.Verbosity = Verbose
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(os.Stderr, "Error: Unknown option '%s'.\n", a)
