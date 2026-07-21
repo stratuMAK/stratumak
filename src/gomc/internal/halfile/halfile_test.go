@@ -233,7 +233,7 @@ func TestResolvePath_TildeExpansion(t *testing.T) {
 	if err := os.WriteFile(p, []byte("# tilde"), 0o600); err != nil {
 		t.Skipf("cannot write to home dir: %v", err)
 	}
-	defer os.Remove(p)
+	defer func() { _ = os.Remove(p) }()
 
 	e := New(nil, "", nil, "")
 	got, err := e.resolvePath("~/" + name)
