@@ -1150,7 +1150,12 @@ func cmdAddF(args []string) error {
 	}
 	function := args[0]
 	thread := args[1]
-	var position *int32
+	// Default position to -1 (append at end) — the impl's own nil default. This
+	// must be sent EXPLICITLY: an omitted nullable i32 is flattened to 0 across
+	// the cgo REST boundary, and 0 means "insert at front" rather than append
+	// (same class as issue #265; function order in a thread is significant).
+	appendPos := int32(-1)
+	position := &appendPos
 	if len(args) > 2 {
 		p, err := strconv.ParseInt(args[2], 10, 32)
 		if err != nil {

@@ -1,36 +1,48 @@
 #!/bin/bash
-# Regression for issue #265: "Adding threads while running GOMC Server".
+# Regression for issue #265 ("Adding threads while running GOMC Server") and the
+# same nullable-scalar-argument class in addf.
 #
-# `halcmd newthread <name> <period>` (no explicit cpu) against a RUNNING
-# gomc-server must succeed, exactly like `newthread` in a HAL file at startup.
-# It used to fail with "cpu=0 is not an isolated CPU (isolated: [])" on a machine
-# with no isolated CPUs: the omitted nullable cpu argument was flattened to 0
-# across the cgo REST boundary instead of the -1 "auto-assign" sentinel that the
-# HAL-file parser uses, and 0 is a non-isolated core so the RT-thread validator
-# rejected it. gomc has no userspace comps / loadusr, so a resident gomc-server
-# + halcmd replaces the classic halrun test.hal.
+# Two runtime halcmd operations that used to break because an omitted nullable
+# i32 argument is flattened to 0 across the cgo REST dispatch boundary (the C
+# int32_t ABI has no "absent"), instead of the sentinel the .hal parser uses:
+#   1. `newthread <name> <period>` (no cpu): flattened cpu 0 is a non-isolated
+#      core → rejected "cpu=0 is not an isolated CPU" on a no-isolcpus machine
+#      (the parser default is -1 = auto). This was issue #265.
+#   2. `addf <funct> <thread>` (no position): flattened position 0 = insert at
+#      FRONT instead of append (the parser/impl default is -1 = append), so a
+#      second addf would land before the first — silently wrong function order.
+#
+# gomc has no userspace comps / loadusr, so a resident gomc-server + halcmd
+# replaces the classic halrun test.hal. stdout must stay exactly the lines
+# `expected` compares against; diagnostics go to stderr.
 gomc-server -r -f nt.hal --serve >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
-# Wait for the REST API to accept commands. Diagnostics go to stderr; stdout
-# must stay the single thread name checkresult compares against `expected`.
 ready=""
 for i in $(seq 100); do
-    if halcmd show comp 2>/dev/null | grep -q and2; then
+    if halcmd show comp 2>/dev/null | grep -qw not; then
         ready=1
         break
     fi
     kill -0 $SRV 2>/dev/null || break
     sleep 0.1
 done
-[ -n "$ready" ] || { echo "*** and2 never loaded within 10s; see $PWD/server.log" >&2; exit 1; }
+[ -n "$ready" ] || { echo "*** components never loaded within 10s; see $PWD/server.log" >&2; exit 1; }
 
-# The issue #265 scenario: add a thread at runtime with no cpu argument.
+# (1) Add a thread at runtime with no cpu argument (issue #265).
 if ! halcmd newthread runtime_thread 1000000; then
     echo "*** newthread failed at runtime (issue #265); see $PWD/server.log" >&2
     exit 1
 fi
 
-# Confirm the thread now really exists in the running instance.
+# (2) addf two functions with no position — they must APPEND in order.
+if ! halcmd addf and2 runtime_thread || ! halcmd addf not runtime_thread; then
+    echo "*** addf failed at runtime; see $PWD/server.log" >&2
+    exit 1
+fi
+
+# Emit the thread name, then its function names in thread order. Front-insertion
+# (the bug) would reverse the two functions.
 halcmd list thread | grep -x runtime_thread
+halcmd show thread | sed -n '/^runtime_thread/,/^$/p' | awk '/^ *[0-9]+ /{print $2}'

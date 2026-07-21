@@ -1,3 +1,5 @@
-# Load a component but create NO thread here — the thread is added at runtime
-# via `halcmd newthread` (see test.sh). Regression for issue #265.
+# Load components but create NO thread and add NO functions here — the thread is
+# added and the functions are addf'd at runtime via halcmd (see test.sh).
+# Regression for issue #265 (newthread) and the same nullable-scalar class in addf.
 loadrt and2 names=and2.0
+loadrt not names=not.0
