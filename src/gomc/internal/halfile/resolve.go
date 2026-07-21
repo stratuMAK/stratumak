@@ -9,6 +9,37 @@ import (
 	"strings"
 )
 
+// isRegularFile reports whether path names an existing regular (non-directory)
+// file. The legacy linuxcnc.in resolver clears its "found" marker for a
+// directory (`[ -d $foundfile ] && foundmsg=""`, linuxcnc.in), forcing a clean
+// "cannot find file" instead of returning a directory that then fails
+// confusingly in the parser. os.Stat succeeds on directories, so this guard
+// reproduces that behaviour.
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+// expandTilde reproduces the `$INIVAR -tildeexpand` step the legacy
+// linuxcnc.in applies to HALFILE values before resolution: a leading "~" or
+// "~/" is replaced with the current user's home directory. "~user" forms are
+// left untouched (rare and not portably resolvable here). If the home
+// directory cannot be determined, the path is returned unchanged.
+func expandTilde(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
 // resolvePath finds a HAL file by searching in:
 //  1. The directory containing the INI configuration file (configDir).
 //  2. Each directory in halibPath (colon-separated, same as HALLIB_PATH).
@@ -19,7 +50,11 @@ import (
 //
 // If filename is already absolute and the file exists, it is returned as-is.
 // An error is returned if the file cannot be found in any search location.
+// Directories that name-match are rejected (a HAL file must be a regular file),
+// and a leading "~"/"~/" is expanded to the user's home directory.
 func (e *Executor) resolvePath(filename string) (string, error) {
+	filename = expandTilde(filename)
+
 	// LIB: prefix – resolve from hallib directories only, not configDir.
 	if strings.HasPrefix(filename, "LIB:") {
 		libFile := strings.TrimPrefix(filename, "LIB:")
@@ -29,7 +64,7 @@ func (e *Executor) resolvePath(filename string) (string, error) {
 				continue
 			}
 			candidate := filepath.Join(dir, libFile)
-			if _, err := os.Stat(candidate); err == nil {
+			if isRegularFile(candidate) {
 				abs, err := filepath.Abs(candidate)
 				if err != nil {
 					return "", fmt.Errorf("resolving path %q: %w", candidate, err)
@@ -42,7 +77,7 @@ func (e *Executor) resolvePath(filename string) (string, error) {
 
 	// Absolute paths are used directly if the file exists.
 	if filepath.IsAbs(filename) {
-		if _, err := os.Stat(filename); err == nil {
+		if isRegularFile(filename) {
 			return filename, nil
 		}
 		return "", fmt.Errorf("HAL file not found: %s", filename)
@@ -62,7 +97,7 @@ func (e *Executor) resolvePath(filename string) (string, error) {
 
 	for _, dir := range searchDirs {
 		candidate := filepath.Join(dir, filename)
-		if _, err := os.Stat(candidate); err == nil {
+		if isRegularFile(candidate) {
 			abs, err := filepath.Abs(candidate)
 			if err != nil {
 				return "", fmt.Errorf("resolving path %q: %w", candidate, err)

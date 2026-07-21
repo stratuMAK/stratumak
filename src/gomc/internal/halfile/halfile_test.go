@@ -182,6 +182,69 @@ func TestResolvePath_LibPrefix_NotFound(t *testing.T) {
 	}
 }
 
+// A directory whose name matches the requested HAL file must be rejected, not
+// returned (2.9 linuxcnc.in: `[ -d $foundfile ] && foundmsg=""`). Otherwise the
+// resolution "succeeds" and the failure surfaces later as a confusing read/parse
+// error.
+func TestResolvePath_RejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "spindle.hal"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	e := New(nil, dir, nil, "")
+	if _, err := e.resolvePath("spindle.hal"); err == nil {
+		t.Error("resolvePath must reject a directory that name-matches the HAL file")
+	}
+}
+
+func TestResolvePath_RejectsDirectory_LibPrefix(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "lib.hal"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	e := New(nil, dir, nil, "")
+	if _, err := e.resolvePath("LIB:lib.hal"); err == nil {
+		t.Error("resolvePath(LIB:...) must reject a directory")
+	}
+}
+
+func TestResolvePath_RejectsDirectory_Absolute(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "conf.hal")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	e := New(nil, "", nil, "")
+	if _, err := e.resolvePath(sub); err == nil {
+		t.Error("resolvePath must reject an absolute path that is a directory")
+	}
+}
+
+// A leading "~"/"~/" is expanded to the user's home directory, matching 2.9's
+// `$INIVAR -tildeexpand` step for HALFILE values.
+func TestResolvePath_TildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	// Place a file directly under home and resolve it via "~/<name>".
+	name := ".gomc_halfile_test.hal"
+	p := filepath.Join(home, name)
+	if err := os.WriteFile(p, []byte("# tilde"), 0o600); err != nil {
+		t.Skipf("cannot write to home dir: %v", err)
+	}
+	defer os.Remove(p)
+
+	e := New(nil, "", nil, "")
+	got, err := e.resolvePath("~/" + name)
+	if err != nil {
+		t.Fatalf("resolvePath(~/%s) error: %v", name, err)
+	}
+	if got != p {
+		t.Errorf("resolvePath(~/%s) = %q; want %q", name, got, p)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ParseAll tests (INI reading / path resolution; no actual HAL execution)
 // ---------------------------------------------------------------------------
