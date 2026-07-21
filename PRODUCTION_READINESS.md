@@ -391,9 +391,10 @@ unauthenticated client could crash or OOM the motion controller with a single ~2
   shutdown-UAF window (the full free-barrier contract stays open, to decide with pkg/hal H1).
 - **Cleared by refutation:** the notifyManager races and the SymbolTable lock model (incl. the
   suspected re-entrant-RLock deadlock) — locking there is correct; ADS1 already fixed.
+- **Also fixed:** A8 (`[0..N]` array lower-bound silently mis-laid-out — added `Node.IsArray`,
+  replacing the broken `ArrayStart>0` guards; regression test).
 - **Open (adjudication / follow-up):** A5 contract, A7 (connection/subscription caps — needs the
-  expected-HMI-count decision), A8 (`[0..N]` array lower-bound silently mis-laid-out — fix
-  proposed, separate commit), A9 (0.0.0.0/no-auth → Safety-boundary doc), A13/A14 (low).
+  expected-HMI-count decision), A9 (0.0.0.0/no-auth → Safety-boundary doc), A13/A14 (low).
 Verified: build/vet/gofmt clean, lint 0, `go test -race` green. `F` left ◐ (A5/A7/A8 open),
 `U` ◐ (crash-path regression tests added; happy-path coverage already strong), `S` pending.
 

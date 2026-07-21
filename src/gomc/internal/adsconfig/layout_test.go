@@ -689,3 +689,39 @@ stRoot
 		}
 	})
 }
+
+// TestComputeLayoutZeroLowerBoundArray is the A8 regression: an array declared
+// with a lower bound of 0 (aFlags[0..2]) is a legal TwinCAT array but left
+// ArrayStart=0, so the old ArrayStart>0 array detector treated it as a single
+// scalar and laid out one element instead of three. It must now produce three
+// contiguous leaf pins.
+func TestComputeLayoutZeroLowerBoundArray(t *testing.T) {
+	const cfg = "DATA\n" +
+		"  in aFlags[0..2] BOOL\n"
+	tree, err := ParseTree(strings.NewReader(cfg))
+	if err != nil {
+		t.Fatalf("ParseTree: %v", err)
+	}
+	pins, err := ComputeLayout(tree)
+	if err != nil {
+		t.Fatalf("ComputeLayout: %v", err)
+	}
+	var flags []LayoutPin
+	for _, p := range pins {
+		if p.Dir == DirPad {
+			continue
+		}
+		flags = append(flags, p)
+	}
+	if len(flags) != 3 {
+		t.Fatalf("got %d leaf pins for aFlags[0..2], want 3 (lower-bound-0 array mis-laid-out)", len(flags))
+	}
+	for i, p := range flags {
+		if p.Offset != uint32(i) {
+			t.Errorf("aFlags[%d] Offset = %d, want %d", i, p.Offset, i)
+		}
+	}
+	if flags[0].ADSName != "DATA.aFlags[0]" || flags[2].ADSName != "DATA.aFlags[2]" {
+		t.Errorf("ADSNames = %q..%q, want DATA.aFlags[0]..DATA.aFlags[2]", flags[0].ADSName, flags[2].ADSName)
+	}
+}

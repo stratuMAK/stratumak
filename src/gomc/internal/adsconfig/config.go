@@ -79,10 +79,15 @@ type Node struct {
 	// When an @enum/@struct alias is referenced, TypeName holds the alias name (not the base type).
 	// Empty for container nodes.
 	TypeName string
-	// ArrayStart and ArrayEnd are >0 for array containers, e.g. [1..4] gives
-	// ArrayStart=1, ArrayEnd=4. Both are 0 for plain struct containers.
+	// ArrayStart and ArrayEnd give the element index range for array nodes,
+	// e.g. [1..4] gives ArrayStart=1, ArrayEnd=4. IsArray (not ArrayStart>0) is
+	// the array flag, because a lower bound of 0 (e.g. aFoo[0..3]) is a legal
+	// TwinCAT array yet leaves ArrayStart=0.
 	ArrayStart int
 	ArrayEnd   int
+	// IsArray marks this node as an array (leaf or struct). Set by
+	// parseContainerNode when the token carries bracket notation.
+	IsArray bool
 	// Children holds child nodes for containers (nil for leaves).
 	Children []*Node
 }
@@ -585,7 +590,7 @@ func parseContainerNode(token string, lineNo int) (*Node, error) {
 	if start > end {
 		return nil, fmt.Errorf("line %d: array range start %d > end %d", lineNo, start, end)
 	}
-	return &Node{Name: baseName, ArrayStart: start, ArrayEnd: end}, nil
+	return &Node{Name: baseName, ArrayStart: start, ArrayEnd: end, IsArray: true}, nil
 }
 
 // parseTypeName reconstructs the type name from the remaining tokens on a leaf line.

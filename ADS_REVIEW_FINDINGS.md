@@ -134,15 +134,16 @@ subscription cap — but the right numbers depend on how many HMIs a deployment 
 is a design call, not a mechanical fix.
 
 ### A8 — Arrays declared `[0..N]` are silently mis-laid-out (lower bound 0 reads as "not an array")
-`layout.go:150,173`, `bridge.go:282`, `xmlgen.go:217,358,399,420`. **CONFIRMED.** `[OPEN — fix proposed]`
+`layout.go:150,173`, `bridge.go:282`, `xmlgen.go:217,358,399,420`. **CONFIRMED.** `[FIX APPLIED]`
 
-Array-ness is detected via `node.ArrayStart > 0`, but `parseContainerNode` (`config.go:588`)
+Array-ness was detected via `node.ArrayStart > 0`, but `parseContainerNode` (`config.go`)
 accepts any `start <= end` including `start=0`. A config using `aFoo[0..3]` (a perfectly legal
-TwinCAT bound) parses with `ArrayStart=0`, so every `> 0` guard treats it as a **scalar/struct**
-and lays out **one** element instead of four — silent process-image corruption with no error.
-Fix: give `Node` an explicit `IsArray bool` set in `parseContainerNode` and switch the guards
-to it (mechanical, but touches layout/bridge/xmlgen + tests, so proposed here rather than folded
-into the security batch).
+TwinCAT bound) parses with `ArrayStart=0`, so every `> 0` guard treated it as a **scalar/struct**
+and laid out **one** element instead of four — silent process-image corruption with no error.
+Fixed by adding an explicit `Node.IsArray bool` (set in `parseContainerNode`) and switching every
+guard to it. Regression test `TestComputeLayoutZeroLowerBoundArray` (adsconfig). The bracket-
+string parsing paths (`symbols.parentPrefixes`, `bridge` `arrayGroups`) already handled
+lower-bound-0 correctly, so only the `ArrayStart>0` guards were affected.
 
 ### A9 — Default bind `0.0.0.0` + no authentication = any host on the network can drive HAL outputs
 `serverconf.go:52`. **PLAUSIBLE / by-protocol-design.** `[OPEN — safety-boundary doc]`
@@ -223,6 +224,9 @@ Regression tests for the crash/OOM vectors live in `internal/ads/dos_test.go`.
 - **A11** — `Server.Stop()` is now idempotent (`sync.Once`).
 - **A12** — `newADSModule` releases the HAL component on any post-`NewComponent` failure.
 
+- **A8** — `Node.IsArray` flag replaces the broken `ArrayStart > 0` array detector across
+  `config.go`/`layout.go`/`bridge.go`/`xmlgen.go`; regression test added (separate commit).
+
 **Still open** (documented above): A5 contract, A7 (connection/subscription caps — needs the
-expected-HMI-count decision), A8 (`[0..N]` array — fix proposed, separate commit), A9
-(0.0.0.0/no-auth — safety-boundary doc), A13/A14 (low-priority consistency/leak).
+expected-HMI-count decision), A9 (0.0.0.0/no-auth — safety-boundary doc), A13/A14 (low-priority
+consistency/leak).

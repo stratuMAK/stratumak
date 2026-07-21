@@ -279,7 +279,7 @@ func ApplyContainerTypeInfo(nodes []*adsconfig.Node, adsPrefix string, st *ads.S
 		}
 		adsPath := joinName(adsPrefix, node.Name)
 
-		if node.ArrayStart > 0 {
+		if node.IsArray {
 			// Array container: each array element [i] gets the struct type info
 			// when the array was declared with "struct name[s..e] TypeName" syntax.
 			for i := node.ArrayStart; i <= node.ArrayEnd; i++ {

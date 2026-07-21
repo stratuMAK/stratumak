@@ -214,7 +214,7 @@ func collectTypeDefs(node *Node, nameSet map[string]int, tm nodeTypeMap, typeDef
 
 	// Determine base name for this type.
 	baseName := node.Name
-	if node.ArrayStart > 0 {
+	if node.IsArray {
 		baseName += "_ITEM"
 	}
 	typeName := uniqueName("T_"+baseName, nameSet)
@@ -353,9 +353,9 @@ func emitVariable(e *errEncoder, node *Node, tm nodeTypeMap, aliases TypeAliasMa
 // element for struct containers or @enum/@struct aliases, or an <array> block
 // for array containers.
 func emitTypeRef(e *errEncoder, node *Node, tm nodeTypeMap, aliases TypeAliasMap) error {
-	// Scalar leaf array (ArrayStart > 0, no Children): emit <array> with a
+	// Scalar leaf array (IsArray, no Children): emit <array> with a
 	// primitive or alias base type directly.
-	if node.ArrayStart > 0 && len(node.Children) == 0 {
+	if node.IsArray && len(node.Children) == 0 {
 		e.start("array")
 		e.start("dimension",
 			xml.Attr{Name: xml.Name{Local: "lower"}, Value: fmt.Sprintf("%d", node.ArrayStart)},
@@ -396,7 +396,7 @@ func emitTypeRef(e *errEncoder, node *Node, tm nodeTypeMap, aliases TypeAliasMap
 	// Container node with TypeName set (from a "struct varName TypeName" or
 	// a "struct varName[s..e] TypeName" inline array).
 	if node.TypeName != "" {
-		if node.ArrayStart > 0 {
+		if node.IsArray {
 			// Struct array with TypeName: emit <array> wrapper with <derived> base type.
 			e.start("array")
 			e.start("dimension",
@@ -417,7 +417,7 @@ func emitTypeRef(e *errEncoder, node *Node, tm nodeTypeMap, aliases TypeAliasMap
 		return e.err
 	}
 
-	if node.ArrayStart > 0 {
+	if node.IsArray {
 		// Array container.
 		elemTypeName := tm[node]
 		e.start("array")

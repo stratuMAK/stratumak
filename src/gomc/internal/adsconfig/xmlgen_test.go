@@ -395,6 +395,7 @@ func xmlVarToNode(name string, td *xmlTypeDef, typeMap map[string]*xmlDataType) 
 			Name:       name,
 			ArrayStart: arr.Dimension.Lower,
 			ArrayEnd:   arr.Dimension.Upper,
+			IsArray:    true,
 			Children:   elemChildren,
 		}, nil
 	}
