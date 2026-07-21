@@ -3,6 +3,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
@@ -513,5 +514,84 @@ func f(x: i32 byref @min(0), y: i32 @max(10)) -> i32
 	}
 	if got := fn.Params[1].Constraints; len(got) != 1 || got[0].Kind != ast.ConstraintMax {
 		t.Errorf("Params[1].Constraints = %+v, want [max]", got)
+	}
+}
+
+// --- fail-loud regression tests -------------------------------------------
+//
+// The parser's contract is to fail loud with a file:line diagnostic rather
+// than silently accept malformed input and build a wrong AST. These pin down
+// four sites that previously discarded an error / lacked a default and so
+// produced a silently-wrong AST that still generated (mis)compilable bindings.
+
+// hasErrContaining reports whether any parse error mentions substr.
+func hasErrContaining(errs []string, substr string) bool {
+	for _, e := range errs {
+		if strings.Contains(e, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// A non-integer enum value must error, not silently become 0.
+func TestParseEnumValueNonIntegerErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+enum E {
+    A = notanumber
+}
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "must be an integer") {
+		t.Fatalf("expected an integer-value error, got %v", errors)
+	}
+}
+
+// A non-positive fixed array size must error, not silently become length 0.
+func TestParseArraySizeMustBePositive(t *testing.T) {
+	for _, sz := range []string{"0", "-1"} {
+		src := `@api test
+@version 1
+
+type T {
+    v: [` + sz + `]f64
+}
+`
+		_, errors := Parse("test.gmi", src)
+		if !hasErrContaining(errors, "positive integer") {
+			t.Errorf("array size %q: expected a positive-integer error, got %v", sz, errors)
+		}
+	}
+}
+
+// A typo'd / unknown annotation on a func must error, not be silently dropped
+// (which would lose e.g. the HTTP method or @rt_safe with no diagnostic).
+func TestParseUnknownFuncAnnotationErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+@methdo "GET"
+func f() -> i32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "unknown annotation @methdo") {
+		t.Fatalf("expected an unknown-annotation error, got %v", errors)
+	}
+}
+
+// A duplicate const must error, not silently overwrite the resolution map
+// (which would make array sizes / @min/@max resolve to whichever came last).
+func TestParseDuplicateConstErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+const MAX = 16
+const MAX = 32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, `duplicate const "MAX"`) {
+		t.Fatalf("expected a duplicate-const error, got %v", errors)
 	}
 }

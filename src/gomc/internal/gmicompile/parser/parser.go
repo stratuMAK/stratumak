@@ -168,6 +168,11 @@ func (p *Parser) parseConst() ast.Const {
 		p.errorf("const value must be integer, got %q", p.cur.Text)
 	}
 	p.advance()
+	if _, dup := p.consts[name]; dup {
+		// A silent overwrite would make array sizes / @min/@max resolve to
+		// whichever const came last, and both copies emit into the C header.
+		p.errorf("duplicate const %q", name)
+	}
 	p.consts[name] = val
 	return ast.Const{Name: name, Value: val, Pos: pos}
 }
@@ -209,7 +214,12 @@ func (p *Parser) parseEnum() ast.Enum {
 		vname := p.cur.Text
 		p.advance()
 		p.expect(EQ)
-		val, _ := strconv.Atoi(p.cur.Text)
+		val, err := strconv.Atoi(p.cur.Text)
+		if err != nil {
+			// Fail loud, matching parseConst: a discarded error here would
+			// silently give the member value 0 and emit a wrong enum constant.
+			p.errorf("enum %s: value for %q must be an integer, got %q", name, vname, p.cur.Text)
+		}
 		p.advance()
 		enum.Values = append(enum.Values, ast.EnumValue{Name: vname, Value: val, Pos: vpos})
 	}
@@ -488,6 +498,12 @@ func (p *Parser) parseFunc(anns []annotation) ast.Func {
 			fn.WatchSource = ann.value
 		case "returns_value":
 			fn.ReturnsValue = true
+		default:
+			// Fail loud on a typo'd/unknown annotation instead of silently
+			// dropping it (e.g. "@methdo" would otherwise lose the HTTP method
+			// with no diagnostic). Mirrors parseConstraints, which already
+			// errors on an unknown inline @name.
+			p.errorf("unknown annotation @%s on func %s", ann.name, fn.Name)
 		}
 	}
 
@@ -508,7 +524,16 @@ func (p *Parser) parseTypeRef() ast.TypeRef {
 		var size int
 		var sizeName string
 		if p.cur.Type == INT {
-			size, _ = strconv.Atoi(p.cur.Text)
+			var err error
+			size, err = strconv.Atoi(p.cur.Text)
+			if err != nil {
+				// A discarded error here would silently yield length 0.
+				p.errorf("invalid array size %q: %v", p.cur.Text, err)
+			} else if size <= 0 {
+				// Zero/negative would emit a broken (or 0-length) array; the
+				// only valid fixed sizes are positive.
+				p.errorf("array size must be a positive integer, got %d", size)
+			}
 			p.advance()
 		} else if p.cur.Type == IDENT {
 			sizeName = p.cur.Text

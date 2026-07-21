@@ -225,7 +225,7 @@ final human sign — the functional/parity work itself is complete.
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | pkg/hal | 1088/444 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ◐ |
-| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ✅ | ◐ | ◐ | ◐ | ✅ | — | ◐ |
+| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ✅ | ✅ | ◐ | ◐ | ✅ | — | ◐ |
 | generated/gmi/* boundary | n/a | 3 (spot-check vs IDL) | — | ✅ | — | — | ✅ | — | ◐ |
 | internal/realtime | 47/28 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/gmi (kinstest) | 376/262 | 2 | ✅ | ✅ | — | ✅ | ✅ | — | ◐ |
@@ -296,15 +296,36 @@ double-free / UAF for any returning shape that occurs). Live/production findings
   with a shape-naming message instead of emitting broken/mismapped cgo (`cTypeForAPICgo` no longer
   defaults to `C.int`; `emitFieldGoToC` rejects `[N]string`). Both latent-no-trigger — a full `make`
   regen of every package is byte-identical (guards never fire); two guard tests added.
-`R`/`F`/`U`/`S` left ◐ because (a) only the **Tier-1 emission logic** was in scope — the parser/AST
-side is Tier 2, not yet reviewed; and (b) the remaining findings are **deferred as NEEDING MANUAL
-REVIEW / a design decision, not auto-fixable**: G-M4 (TS 64-bit `number`→`string`+bigint = client
-API-surface call), G-L1 (`_cb` RT annotation — cross-cutting, belongs to `RT_HARDENING_CHECKLIST.md`
-item 1b), G-L5 (array-size symbol drift — latent, fix touches emission across ~39 packages), G-L7
-(external `*_client.c` nested-struct parser — feature work needing a consumer test). Each still
-needs its own test (risk class 4). `RC` ✅ (module-wide `-race` sweep green). `FP` — (a code
-generator, not a runtime fault-path module). Verified across the fix commits: full `make` regen
-git-clean, cgen suite green, build/vet green.
+**Parser/AST side — reviewed 2026-07-21 (Tier 2; the front-end `parser/scanner.go`+`parser.go`,
+`ast/ast.go`, `check/check.go`, ~1383 lines).** Method: two independent AI reads (lexer+parser;
+ast+check), each finding adjudicated against the source. The unifying theme: this is **build-time
+tooling on trusted in-repo IDL**, so "produces uncompilable generated code" fails loud at `cc`
+(annoying, not dangerous) — the real hazard is **silent-wrong that still compiles**. `check.go`
+validates *only* inline `@constraints` (its constraint logic is correct — range-fit, `minlen≤arraylen`
+boundary, `min>max` ordering, regex-compile, type-applicability all check out); it is not a structural
+validator, so type-graph/name-uniqueness checks live in the parser or nowhere. **Four fail-loud fixes
+landed** (`internal/gmicompile/parser/parser.go`), each closing a discarded-error / missing-default
+site that silently built a wrong AST, and each matching the parser's own `parseConst`/
+`parseConstraints` precedent: (1) enum value `strconv.Atoi` error was discarded → a non-integer member
+silently became `0`; (2) fixed-array integer size discarded its parse error and had no range check →
+`[0]`/`[-1]`/overflow silently became length 0; (3) the func-level annotation `switch` had **no
+`default`** → a typo'd `@methdo`/`@rt_saef` silently dropped the HTTP method / RT flag; (4) duplicate
+`const` silently overwrote the resolution map → array sizes / `@min`/`@max` resolved to whichever came
+last. Four regression tests added; **all 33 shipped IDLs still parse clean and the full `make` GMI
+regen is byte-identical** (the fixes only add error paths for malformed input). **Deferred as design
+decisions (the manual bucket):** a structural validation pass in `check.go` for unknown named-type
+references (F1) and duplicate names across types/enums/funcs/fields/params (F2/F3) — these currently
+fail loud at `cc` rather than silently, and a strict checker must first settle how imports/callbacks/
+primitives are resolved; plus the single-pass forward-reference callback classification (H4, latent,
+needs two-pass) and low-severity robustness items (unterminated-string accept, hex literals, doubled
+diagnostics). The **Tier-1 emission-logic** deferrals remain open too: G-M4 (TS 64-bit
+`number`→`string`+bigint = client API-surface call), G-L1 (`_cb` RT annotation — cross-cutting, belongs
+to `RT_HARDENING_CHECKLIST.md` item 1b), G-L5 (array-size symbol drift — latent, fix touches emission
+across ~39 packages), G-L7 (external `*_client.c` nested-struct parser — feature work needing a
+consumer test). `R` now ✅ (both halves reviewed); `F`/`U` left ◐ (deferred design items above still
+open + untested). `RC` ✅ (module-wide `-race` sweep green). `FP` — (a code generator, not a runtime
+fault-path module). Verified: full `make` regen git-clean, parser/check tests green (incl. 4 new),
+build/vet/gofmt/lint(0) green.
 
 **`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
 human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
@@ -888,6 +909,7 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-21 | **Phase 4 (HAL tooling) reviewed — Tier 2 adversarial + 2.9 oracles** (`PHASE4_REVIEW_FINDINGS.md`). halcmd+cmd/halcmd, halparse, halfile, haljson, modcompile+cmd, hallib. **No HIGH wire-reachable crash** in the REST-reachable command path (halcmd is defensively written). Fixes landed: **HJ-1 (cross-cutting)** — module unload never removed the apiserver *watch* registration (only the REST one), so `Destroy` freed a module's pins while the WatchAPI stayed live → a later WS subscribe served stale/recycled HAL memory + leaked the entry; added `WatchRegistry.UnregisterByInstance` + shared `unregisterModuleAPIs()` before `Destroy` in both unload paths (covers haljson **and** mqttbridge). **modcompile codegen (risk-class-3):** MC-1 array-param defaults dropped, MC-2 `option data` err-path leak, MC-3 string-modparam not C-escaped, MC-5 function names not hyphenated (broke shipped `moveoff addf mv.read-inputs` — verified end-to-end regenerating comps), MC-7 unknown-flag handling. **halparse HP-5** (template seq/count OOM clamp), **halcmd HC-1** (completion mid-line-TAB panic) + **HC-3** (`list comp` fnmatch parity), **halfile HF-2/HF-5** (dir rejection + tilde; nil-INI deref ABSENT), **haljson HJ-3/HJ-4** (array cap + rate clamp). hallib cleared (12-line cgo shim; C core owned by RT_HARDENING). **Deferred for a ruling:** halparse **HP-1/HP-2/HP-3/HP-4** — CONFIRMED 2.9-tokenizer parity divergences (substitution-before-comment/quote lexing → silent config truncation; missing-INI-var silently ignored vs 2.9 fail-loud; extra backslash escapes; continuation join-with-space) that change parse semantics across the shipped-config corpus (same character as inifile I-2) → need runtests + keep/fix decision; also HC-2 (arg-path heuristic), HJ-2 (drain contract → ADS A5/pkg-hal H1), HF-1 (`LIB:` scope). Regression tests per fix; build cgo+nocgo, `-race`, vet, gofmt, lint(0) green. Rows → halcmd/halfile/haljson/modcompile L R F RC ✅; halparse L R RC ✅ F ◐. |
 | 2026-07-21 | **Full runtests GREEN** after the Phase-4 parser-semantics changes (halparse HP-1..HP-4) and the corpus-wide GMI ABI regeneration (nullable-scalar pointers) — validates both against the whole 232-test suite + shipped-config corpus. The two "needs a full runtests round" caveats below are now discharged. |
 | 2026-07-21 | **Phase 0 `L` ticked — milltask lint-clean.** `golangci-lint v2.12.2 run ./internal/task/...` under the full `gomc-lint-full` linter set (`gomc/.golangci.yml`, pinned tool + make cgo env) = **0 issues**. Clears the last blocking item for `internal/task`; row → L R F U RC FP ✅, only `S` (final human sign) remaining. |
+| 2026-07-21 | **Phase 1 gmicompile parser/AST reviewed (Tier 2) — 4 fail-loud fixes.** The front-end (`parser/scanner.go`+`parser.go`, `ast/ast.go`, `check/check.go`, ~1383 lines; the emission side was hotspot #2). Two independent AI reads, adjudicated against source through the right lens — build-time tooling on trusted IDL, so the real hazard is *silent-wrong-that-compiles*, not uncompilable output (which fails loud at `cc`). `check.go` validates only `@constraints` (logic correct); structural checks live in the parser or nowhere. Fixed 4 discarded-error/missing-default sites that silently built a wrong AST (matching the parser's own `parseConst`/`parseConstraints` fail-loud precedent): enum-value `Atoi` error discarded (non-int→0); fixed-array size discarded parse error + no range check (`[0]`/`[-1]`→len 0); func-annotation `switch` had no `default` (typo'd `@methdo` silently dropped the method); duplicate `const` silently overwrote the resolution map. 4 regression tests; **all 33 shipped IDLs still parse clean, full `make` GMI regen byte-identical**. Deferred as design decisions (manual bucket): structural check.go pass for unknown-type-refs (F1) + duplicate names (F2/F3) — currently fail loud at `cc`, not silent; single-pass forward-ref callback (H4); low robustness items. Row → R RC ✅ (both halves reviewed), F/U ◐ (deferred + emission G-M4/L1/L5/L7), FP —, only `S`. |
 | 2026-07-21 | **Phase 1 generated/gmi/* boundary spot-checked (Tier 3) — faithful.** Sampled IDL→generated fidelity (the generator itself was deep-reviewed in hotspot #2, so this is a spot-check not a re-audit). kins (const/enum/9-field struct/array/byref + reserved-word escaping `switch`→`switch_`, wire names preserved), ini (`string?`→`const char*`, NULL=absent, not double-pointered), halcmd (`newthread` `fp: bool?`/`cpu_id: i32?`→`const bool*`/`const int32_t*` — the issue-#265 nullable-scalar ABI fix correctly reflected in the committed tree). Sound alongside the generator's byte-identical-regen guards + full runtests green. Row → R RC ✅, L/U/F/FP —, only `S`. |
 | 2026-07-21 | **Phase 1 internal/gmi (kinstest) reviewed (Tier 2) — clean, no findings.** The 376 "non-test" lines are a cgo test harness (`helpers.go`): it `dlopen`s real kins cmod `.so`s, stubs the `cmod_env`, and drives forward/inverse/type/switchable through C function pointers. Not imported by any production package (grep-confirmed); lives in a `.go` (not `_test.go`) file only because cgo+`//export`+`dlopen` can't go in test files. Faithfully mirrors production — the `//export` register/get stubs route through the real `apiserver.DefaultRegistry`; per-test fresh registry avoids contamination. Only smells are benign run-to-exit harness leaks (calloc / dlopen handle never freed). `go test`/`-race`/vet/lint(0) green. Row → L R U RC ✅, F/FP —, only `S`. |
 | 2026-07-21 | **Phase 1 pkg/gomc + pkg/cmodule reviewed (Tier 2).** `pkg/gomc` module + log-hook registries. **GO-1 (HJ-1 + N2 class, FIXED):** `OnLogError` had no unregister path and `NotifyLogError` ran hooks synchronously on the recover-less log-drain goroutine — in `doCleanup`, `destroyGoModules()` runs before the ring's final flush (drain goroutine still live during destroy), so milltask's hook kept firing `Task.operatorError` into a torn-down task during **normal shutdown**, and any hook panic would kill the process. Fix: `OnLogError` returns an idempotent unregister func (milltask chains it into `apiCleanup`→`Destroy`); `NotifyLogError` isolates each hook behind `recover()`+`slog.Error`. Tests: unregister-stops-delivery, one-of-many-order, panic-isolation. `pkg/cmodule` (cmod C-ABI headers) spot-checked clean — bounded `vsnprintf`, documented mirror-constants, deliberate cross-referenced `nonblocking`-macro duplication, no TODO/FIXME. build/vet/`-race`/gofmt/lint(0) green. Row → L R F U RC ✅, FP —, only `S`. |
