@@ -251,6 +251,19 @@ func main() {
 	var outputFile string
 	var files []string
 
+	// Known file-processing modes. Any other dashed argument is an unknown flag
+	// and must be rejected explicitly — not silently absorbed as a "mode" (which
+	// let a typo like --compil, or a stray --personalities, either error with a
+	// misleading "unknown mode" message or clobber a real mode supplied earlier).
+	validModes := map[string]bool{
+		"--parse":      true,
+		"--preprocess": true,
+		"--document":   true,
+		"--view-doc":   true,
+		"--compile":    true,
+		"--install":    true,
+	}
+
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -263,8 +276,15 @@ func main() {
 			i++
 		case strings.HasPrefix(arg, "-o"):
 			outputFile = arg[2:]
-		case strings.HasPrefix(arg, "-"):
+		case validModes[arg]:
+			if mode != "" && mode != arg {
+				fmt.Fprintf(os.Stderr, "modcompile: conflicting modes %q and %q\n", mode, arg)
+				os.Exit(1)
+			}
 			mode = arg
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(os.Stderr, "modcompile: unknown flag %q\n", arg)
+			os.Exit(1)
 		default:
 			files = append(files, arg)
 		}
