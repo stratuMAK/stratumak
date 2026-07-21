@@ -121,7 +121,7 @@ func (g *clientGoGen) emitTypes() {
 			if f.Type.Nullable {
 				omit = ",omitempty"
 			}
-			g.printf("\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+			g.printf("\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOpt(f.Type))
 		}
 		g.printf("}\n\n")
 	}
@@ -307,7 +307,10 @@ func (g *clientGoGen) emitClientMethod(clientName string, fn ast.Func) {
 			if bp.Type.Nullable {
 				omit = ",omitempty"
 			}
-			g.printf("\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+			// Body params: 64-bit ints are string-encoded (symmetric with the
+			// server dispatch struct). The check layer guarantees no 64-bit
+			// path/query param reaches here. See jsonStringOpt.
+			g.printf("\t\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOptParam(bp))
 		}
 		g.printf("\t}{\n")
 		for _, bp := range bodyParams {

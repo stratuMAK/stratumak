@@ -110,7 +110,7 @@ func (g *publishGoGen) emitGoEventType(fn ast.Func) {
 	for _, p := range fn.Params {
 		goType := g.paramGoType(p)
 		jsonTag := p.Name
-		g.printf("\t%s %s `json:\"%s\"`\n", toPascalCase(p.Name), goType, jsonTag)
+		g.printf("\t%s %s `json:\"%s%s\"`\n", toPascalCase(p.Name), goType, jsonTag, jsonStringOptParam(p))
 	}
 	g.printf("}\n\n")
 }

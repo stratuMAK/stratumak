@@ -136,7 +136,7 @@ func (g *serverGoGen) emitTypes() {
 			if f.Type.Nullable {
 				omit = ",omitempty"
 			}
-			g.printf("\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+			g.printf("\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOpt(f.Type))
 		}
 		g.printf("}\n\n")
 	}
@@ -218,7 +218,11 @@ func (g *serverGoGen) emitDispatchFuncs() {
 				fieldName := toPascalCase(p.Name)
 				fieldType := g.toGoType(p.Type)
 				jsonTag := p.Name
-				g.printf("\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, jsonTag)
+				// A surviving 64-bit param is always a POST/PUT/PATCH *body* param:
+				// the check layer rejects 64-bit path/query params (they would reach
+				// apiserver.encodeParams as bare numbers, which a ",string" field
+				// rejects). So ",string" here is safe and symmetric with the client.
+				g.printf("\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, jsonStringOptParam(p))
 			}
 			g.printf("\t}\n")
 			g.printf("\tif len(req) > 0 {\n")
@@ -522,7 +526,9 @@ func (g *serverGoGen) emitCommands() {
 			for _, p := range fn.Params {
 				fieldName := toPascalCase(p.Name)
 				fieldType := g.toGoType(p.Type)
-				g.printf("\t\t\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, p.Name)
+				// WS command params travel as JSON args (no encodeParams), so a
+				// 64-bit param is string-encoded here too. See jsonStringOpt.
+				g.printf("\t\t\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, p.Name, jsonStringOptParam(p))
 			}
 			g.printf("\t\t\t}\n")
 			g.printf("\t\t\tif len(req) > 0 {\n")

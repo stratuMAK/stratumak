@@ -156,7 +156,7 @@ function onPosWheel(e: WheelEvent) {
             @change="onThreadChange"
           >
             <option v-for="t in scopeStore.state.threads" :key="t.name" :value="t.name">
-              {{ t.name }} ({{ (t.periodNs / 1000).toFixed(0) }}µs)
+              {{ t.name }} ({{ (Number(t.periodNs) / 1000).toFixed(0) }}µs)
             </option>
           </select>
         </label>

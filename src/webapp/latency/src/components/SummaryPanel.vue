@@ -5,14 +5,15 @@ import { latencyStore } from '../stores/latency';
 const s = computed(() => latencyStore.state.status);
 
 // Format a nanosecond value as a readable us / ms string.
-function ns(v: number | undefined): string {
+function ns(v: number | bigint | undefined): string {
   if (v === undefined || v === null) return '—';
-  const a = Math.abs(v);
-  if (a >= 1_000_000) return (v / 1_000_000).toFixed(3) + ' ms';
-  if (a >= 1_000) return (v / 1_000).toFixed(2) + ' µs';
-  return Math.round(v) + ' ns';
+  const n = Number(v);
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return (n / 1_000_000).toFixed(3) + ' ms';
+  if (a >= 1_000) return (n / 1_000).toFixed(2) + ' µs';
+  return Math.round(n) + ' ns';
 }
-function count(v: number | undefined): string {
+function count(v: number | bigint | undefined): string {
   return v === undefined || v === null ? '—' : v.toLocaleString();
 }
 </script>

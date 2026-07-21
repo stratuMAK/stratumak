@@ -48,7 +48,7 @@ function buildData(): uPlot.AlignedData {
   const h = hist.value;
   if (!h || h.points.length === 0) return [[], [], []];
   return [
-    h.points.map((p) => p.tMs / 1000),
+    h.points.map((p) => Number(p.tMs) / 1000),
     h.points.map((p) => p.maxNs / 1000),
     h.points.map((p) => p.meanNs / 1000),
   ];

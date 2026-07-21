@@ -272,7 +272,7 @@ func (g *dispatchCGen) emitGoTypes() {
 				if f.Type.Nullable {
 					omit = ",omitempty"
 				}
-				g.printf("\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+				g.printf("\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOpt(f.Type))
 			}
 			g.printf("}\n\n")
 		}
@@ -819,7 +819,9 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 				fieldType = goTypeForDispatch(p.Type)
 			}
 			jsonTag := p.Name
-			g.printf("\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, jsonTag)
+			// A surviving 64-bit param is a body param (check layer rejects 64-bit
+			// path/query params), so ",string" is safe. See jsonStringOpt.
+			g.printf("\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, jsonStringOptParam(p))
 		}
 		g.printf("\t}\n")
 		g.printf("\tif len(req) > 0 {\n")

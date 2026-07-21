@@ -259,6 +259,13 @@ func (t TypeRef) IsPrimitive() bool {
 	return t.Kind == TypePrimitive
 }
 
+// Is64BitInt reports whether t is a scalar i64 or u64 (nullable or not). Such
+// values are wire-encoded as JSON strings so they survive a JavaScript client,
+// whose numbers are IEEE-754 doubles that truncate integers above 2^53.
+func (t TypeRef) Is64BitInt() bool {
+	return t.Kind == TypePrimitive && (t.Name == PrimI64 || t.Name == PrimU64)
+}
+
 // Primitive type names.
 const (
 	PrimBool   = "bool"

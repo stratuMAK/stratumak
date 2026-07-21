@@ -221,6 +221,57 @@ func primitiveToCType(name string) string {
 	return "int"
 }
 
+// is64BitScalarInt reports whether t is a scalar i64 or u64 (nullable or not).
+// Such values serialize as JSON strings (see jsonStringOpt) so they survive a
+// JavaScript client, whose numbers are IEEE-754 doubles and silently truncate
+// integers above 2^53. No IDL uses a slice/array of 64-bit ints, so only the
+// scalar shape is handled; introduce that shape and this must grow to match.
+func is64BitScalarInt(t ast.TypeRef) bool {
+	return t.Is64BitInt()
+}
+
+// jsonStringOpt returns the ",string" encoding/json tag option for 64-bit scalar
+// ints (see is64BitScalarInt), else "". Append it after the field name and any
+// ",omitempty" already present in the struct tag.
+func jsonStringOpt(t ast.TypeRef) string {
+	if is64BitScalarInt(t) {
+		return ",string"
+	}
+	return ""
+}
+
+// apiNeeds64BitConv reports whether any named type field or function parameter
+// is a scalar i64/u64 — i.e. whether a client needs the JSON-string <-> integer
+// converters at its (de)serialization / send seams.
+func apiNeeds64BitConv(api *ast.API) bool {
+	for i := range api.Types {
+		for _, f := range api.Types[i].Fields {
+			if is64BitScalarInt(f.Type) {
+				return true
+			}
+		}
+	}
+	for _, fn := range api.Funcs {
+		for _, p := range fn.Params {
+			if is64BitScalarInt(p.Type) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// jsonStringOptParam is jsonStringOpt for a function parameter. It excludes
+// opaque-pointer (ptr), byref, and out params: those do not carry a plain
+// marshaled scalar i64/u64 value in the request/response body, so widening them
+// to a JSON string would desync the two sides.
+func jsonStringOptParam(p ast.Param) string {
+	if p.IsPtr || p.ByRef || p.IsOut {
+		return ""
+	}
+	return jsonStringOpt(p.Type)
+}
+
 // constType const-qualifies a C type unless it already is (string maps to
 // "const char *" — prepending another const would emit "const const").
 func constType(cType string) string {

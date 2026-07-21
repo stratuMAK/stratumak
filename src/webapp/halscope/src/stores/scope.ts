@@ -92,7 +92,7 @@ const state = reactive<ScopeStore>({
     sampleLen: 0,
     maxChannels: 1,
     samplePeriodMult: 1,
-    threadPeriodNs: 0,
+    threadPeriodNs: 0n,
     threadName: '',
     trigChannel: -1,
     generation: 0,
@@ -348,7 +348,7 @@ function onSamplesUpdate(buf: ArrayBuffer) {
 
 function getSelectedThreadPeriod(): number {
   const t = state.threads.find(t => t.name === state.captureConfig.threadName);
-  return t?.periodNs ?? 1000000;
+  return Number(t?.periodNs ?? 1000000);
 }
 
 async function configure() {
@@ -546,7 +546,7 @@ function calcDispScale(): number {
 
 function getSamplePeriod(): number {
   // Use the actual thread period and mult from RT status
-  const periodNs = state.status.threadPeriodNs || getSelectedThreadPeriod();
+  const periodNs = Number(state.status.threadPeriodNs) || getSelectedThreadPeriod();
   const mult = state.status.samplePeriodMult || state.captureConfig.samplePeriodMult;
   return (periodNs * mult) / 1e9;
 }

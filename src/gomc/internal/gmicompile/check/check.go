@@ -41,7 +41,62 @@ func Validate(api *ast.API) []error {
 			c.checkSite(site, p.Type, p.Constraints)
 		}
 	}
+	c.check64BitParamPositions()
 	return c.errs
+}
+
+// check64BitParamPositions rejects a 64-bit (i64/u64) parameter in a REST path
+// or query position. Such a value reaches the server via apiserver.encodeParams
+// as a bare JSON number, which silently truncates above 2^53 in a JavaScript
+// client (and a ",string" server field would reject it). 64-bit params are only
+// supported in a request body (POST/PUT/PATCH), where they are string-encoded
+// end to end. Functions with no @path are not REST routes (internal/cgo only)
+// and are unaffected.
+func (c *checker) check64BitParamPositions() {
+	for _, fn := range c.api.Funcs {
+		if fn.Path == "" {
+			continue // not a REST route
+		}
+		pathParams := pathParamNames(fn.Path)
+		isQueryMethod := fn.Method == "" || fn.Method == "GET" || fn.Method == "DELETE"
+		for _, p := range fn.Params {
+			if !p.Type.Is64BitInt() {
+				continue
+			}
+			site := fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name)
+			switch {
+			case pathParams[p.Name]:
+				c.errf(site, "64-bit int (%s) cannot be a REST path parameter: it truncates above 2^53 in a JavaScript client; pass it in the request body (POST/PUT/PATCH)", p.Type.Name)
+			case isQueryMethod:
+				c.errf(site, "64-bit int (%s) cannot be a query parameter of a %s endpoint: it truncates above 2^53 in a JavaScript client; use a request body (POST/PUT/PATCH)", p.Type.Name, restMethod(fn.Method))
+			}
+		}
+	}
+}
+
+// pathParamNames returns the set of {name} placeholders in a REST path pattern.
+func pathParamNames(path string) map[string]bool {
+	out := map[string]bool{}
+	for {
+		i := strings.IndexByte(path, '{')
+		if i < 0 {
+			return out
+		}
+		j := strings.IndexByte(path[i:], '}')
+		if j < 0 {
+			return out
+		}
+		out[path[i+1:i+j]] = true
+		path = path[i+j+1:]
+	}
+}
+
+// restMethod spells the effective HTTP method (empty defaults to GET).
+func restMethod(m string) string {
+	if m == "" {
+		return "GET"
+	}
+	return m
 }
 
 type checker struct {

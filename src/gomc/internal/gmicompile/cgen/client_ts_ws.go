@@ -5,6 +5,7 @@ package cgen
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
 )
@@ -17,9 +18,10 @@ func GenerateClientTSWS(w io.Writer, api *ast.API) error {
 }
 
 type clientTSWSGen struct {
-	w   io.Writer
-	api *ast.API
-	err error
+	w         io.Writer
+	api       *ast.API
+	err       error
+	reviveSet map[string]bool
 }
 
 func (g *clientTSWSGen) printf(format string, args ...interface{}) {
@@ -30,10 +32,12 @@ func (g *clientTSWSGen) printf(format string, args ...interface{}) {
 }
 
 func (g *clientTSWSGen) generate() error {
+	g.reviveSet = tsReviveSet(g.api)
 	g.emitHeader()
 	g.emitConstants()
 	g.emitEnums()
 	g.emitInterfaces()
+	emitTSRevivers(g.printf, g.api, g.reviveSet)
 	g.emitClient()
 	g.emitSubscribeMethods()
 	g.emitCommandMethods()
@@ -283,16 +287,16 @@ func (g *clientTSWSGen) emitSubscribeMethods() {
 						pName := toCamelCaseTS(p.Name)
 						optional := p.Type.Nullable || (p.Type.Kind == ast.TypeSlice && p.Type.Elem != nil && p.Type.Elem.Nullable)
 						if optional {
-							g.printf("    if (%s !== undefined) { args['%s'] = %s; }\n", pName, p.Name, pName)
+							g.printf("    if (%s !== undefined) { args['%s'] = %s; }\n", pName, p.Name, tsParamSend(pName, p.Type))
 						} else {
-							g.printf("    args['%s'] = %s;\n", p.Name, pName)
+							g.printf("    args['%s'] = %s;\n", p.Name, tsParamSend(pName, p.Type))
 						}
 					}
-					g.printf("    this.subscribe('%s', rateMs, (raw) => callback(raw as %s), args);\n", fn.Name, retType)
+					g.printf("    this.subscribe('%s', rateMs, %s, args);\n", fn.Name, g.reviveCallback(*fn.Return, retType))
 				} else {
 					g.printf("  subscribe%s(callback: (data: %s) => void, rateMs = %s): void {\n",
 						toPascalCase(fn.Name), retType, defaultRate)
-					g.printf("    this.subscribe('%s', rateMs, (raw) => callback(raw as %s));\n", fn.Name, retType)
+					g.printf("    this.subscribe('%s', rateMs, %s);\n", fn.Name, g.reviveCallback(*fn.Return, retType))
 				}
 			}
 		} else {
@@ -336,21 +340,45 @@ func (g *clientTSWSGen) emitCommandMethods() {
 		}
 
 		g.printf("  async %s(%s): Promise<%s> {\n", methodName, params, retType)
+		var revive string
+		if fn.Return != nil {
+			revive = tsReviveStmt("__res", *fn.Return, g.reviveSet)
+		}
+		// callArgs is the trailing arguments to this.call(name[, {...}]).
+		callArgs := ""
 		if len(fn.Params) > 0 {
-			g.printf("    return await this.call('%s', {\n", fn.Name)
+			var sb strings.Builder
+			sb.WriteString(", {\n")
 			for _, p := range fn.Params {
 				pName := toCamelCaseTS(p.Name)
-				g.printf("      %s: %s,\n", p.Name, pName)
+				sb.WriteString(fmt.Sprintf("      %s: %s,\n", p.Name, tsParamSend(pName, p.Type)))
 			}
-			g.printf("    }) as %s;\n", retType)
+			sb.WriteString("    }")
+			callArgs = sb.String()
+		}
+		if revive == "" {
+			g.printf("    return await this.call('%s'%s) as %s;\n", fn.Name, callArgs, retType)
 		} else {
-			g.printf("    return await this.call('%s') as %s;\n", fn.Name, retType)
+			g.printf("    const __res = await this.call('%s'%s) as %s;\n", fn.Name, callArgs, retType)
+			g.printf("    %s", revive)
+			g.printf("    return __res;\n")
 		}
 		g.printf("  }\n\n")
 	}
 }
 
 // --- Helpers ---
+
+// reviveCallback returns the watch-dispatch lambda for a subscribe method,
+// inserting an in-place 64-bit revival pass before invoking the user callback
+// when the return type contains a bigint field.
+func (g *clientTSWSGen) reviveCallback(ret ast.TypeRef, retType string) string {
+	revive := strings.TrimRight(tsReviveStmt("__d", ret, g.reviveSet), "\n")
+	if revive == "" {
+		return fmt.Sprintf("(raw) => callback(raw as %s)", retType)
+	}
+	return fmt.Sprintf("(raw) => { const __d = raw as %s; %s callback(__d); }", retType, revive)
+}
 
 func (g *clientTSWSGen) defaultRateMS(fn ast.Func) string {
 	if fn.WatchDefaultRate != "" {

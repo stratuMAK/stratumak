@@ -18,9 +18,10 @@ func GenerateClientTS(w io.Writer, api *ast.API) error {
 }
 
 type clientTSGen struct {
-	w   io.Writer
-	api *ast.API
-	err error
+	w         io.Writer
+	api       *ast.API
+	err       error
+	reviveSet map[string]bool
 }
 
 func (g *clientTSGen) printf(format string, args ...interface{}) {
@@ -31,10 +32,12 @@ func (g *clientTSGen) printf(format string, args ...interface{}) {
 }
 
 func (g *clientTSGen) generate() error {
+	g.reviveSet = tsReviveSet(g.api)
 	g.emitHeader()
 	g.emitConstants()
 	g.emitEnums()
 	g.emitInterfaces()
+	emitTSRevivers(g.printf, g.api, g.reviveSet)
 	g.emitClient()
 	g.emitClientMethods()
 	g.printf("}\n")
@@ -232,7 +235,7 @@ func (g *clientTSGen) emitClientMethod(fn ast.Func) {
 		g.printf("    const body = {\n")
 		for _, bp := range queryParams {
 			paramName := toCamelCaseTS(bp.Name)
-			g.printf("      %s: %s,\n", bp.Name, paramName)
+			g.printf("      %s: %s,\n", bp.Name, tsParamSend(paramName, bp.Type))
 		}
 		g.printf("    };\n")
 		bodyExpr = "body"
@@ -260,10 +263,21 @@ func (g *clientTSGen) emitClientMethod(fn ast.Func) {
 		}
 	} else {
 		tsType := g.toTSType(*fn.Return)
-		if bodyExpr != "" {
-			g.printf("    return await this.doRequest<%s>('%s', %s, %s) as %s;\n", tsType, method, pathVar, bodyExpr, tsType)
+		revive := tsReviveStmt("__res", *fn.Return, g.reviveSet)
+		if revive == "" {
+			if bodyExpr != "" {
+				g.printf("    return await this.doRequest<%s>('%s', %s, %s) as %s;\n", tsType, method, pathVar, bodyExpr, tsType)
+			} else {
+				g.printf("    return await this.doRequest<%s>('%s', %s) as %s;\n", tsType, method, pathVar, tsType)
+			}
 		} else {
-			g.printf("    return await this.doRequest<%s>('%s', %s) as %s;\n", tsType, method, pathVar, tsType)
+			if bodyExpr != "" {
+				g.printf("    const __res = await this.doRequest<%s>('%s', %s, %s) as %s;\n", tsType, method, pathVar, bodyExpr, tsType)
+			} else {
+				g.printf("    const __res = await this.doRequest<%s>('%s', %s) as %s;\n", tsType, method, pathVar, tsType)
+			}
+			g.printf("    %s", revive)
+			g.printf("    return __res;\n")
 		}
 	}
 	g.printf("  }\n\n")
@@ -340,7 +354,7 @@ func primitiveToTSType(name string) string {
 	case "i8", "u8", "i16", "u16", "i32", "u32", "f32", "f64":
 		return "number"
 	case "i64", "u64":
-		return "number" // JSON doesn't support bigint natively
+		return "bigint" // wire-encoded as a JSON string; revived via BigInt()
 	case "string":
 		return "string"
 	default:
@@ -358,6 +372,140 @@ func toCamelCaseTS(s string) string {
 	}
 	result := strings.Join(parts, "")
 	return tsEscapeReserved(result)
+}
+
+// --- 64-bit bigint revival (shared by the REST and WS TS clients) ---
+//
+// 64-bit ints cross the wire as JSON strings (a JS number truncates above 2^53).
+// TS types them as `bigint`; after JSON.parse each such field is a string that
+// must be run through BigInt(). tsReviveSet/emitTSRevivers generate one in-place
+// reviver per type that (transitively) contains a 64-bit field.
+
+// tsPrinter is the shared printf signature of the two TS generators.
+type tsPrinter = func(format string, args ...interface{})
+
+// tsReviverName is the emitted reviver function name for a named type.
+func tsReviverName(typeName string) string { return "__revive" + toPascalCase(typeName) }
+
+// tsElemNeedsRevive reports whether a slice/array element type is a named type
+// in the revive set, and panics (fail-loud, matching the emitter's other latent
+// -shape guards) if it is a slice/array of a 64-bit primitive — a shape no IDL
+// uses and which the reviver does not handle.
+func tsElemNeedsRevive(elem *ast.TypeRef, set map[string]bool) bool {
+	if elem == nil {
+		return false
+	}
+	if is64BitScalarInt(*elem) {
+		panic(fmt.Sprintf("gmicompile: slice/array of 64-bit int (%s) not supported by the TS bigint reviver", elem.String()))
+	}
+	return elem.Kind == ast.TypeNamed && set[elem.Name]
+}
+
+// typeNeedsReviveGiven reports whether a field's type requires revival given the
+// current set of revivable named types.
+func typeNeedsReviveGiven(t ast.TypeRef, set map[string]bool) bool {
+	switch t.Kind {
+	case ast.TypePrimitive:
+		return is64BitScalarInt(t)
+	case ast.TypeNamed:
+		return set[t.Name]
+	case ast.TypeSlice, ast.TypeArray:
+		return tsElemNeedsRevive(t.Elem, set)
+	}
+	return false
+}
+
+// tsReviveSet computes, by fixpoint, the set of named types needing revival: a
+// type qualifies if any field is a 64-bit int, a named type already in the set,
+// or a slice/array whose element is such a named type.
+func tsReviveSet(api *ast.API) map[string]bool {
+	set := make(map[string]bool)
+	for {
+		changed := false
+		for i := range api.Types {
+			t := &api.Types[i]
+			if set[t.Name] {
+				continue
+			}
+			for _, f := range t.Fields {
+				if typeNeedsReviveGiven(f.Type, set) {
+					set[t.Name] = true
+					changed = true
+					break
+				}
+			}
+		}
+		if !changed {
+			return set
+		}
+	}
+}
+
+// emitTSRevivers writes an in-place reviver function for every type in the set.
+func emitTSRevivers(p tsPrinter, api *ast.API, set map[string]bool) {
+	if len(set) == 0 {
+		return
+	}
+	p("// --- 64-bit field revival (JSON string -> bigint) ---\n\n")
+	for i := range api.Types {
+		t := &api.Types[i]
+		if !set[t.Name] {
+			continue
+		}
+		name := toPascalCase(t.Name)
+		p("function %s(o: %s): %s {\n", tsReviverName(t.Name), name, name)
+		p("  if (o == null) return o;\n")
+		for _, f := range t.Fields {
+			p("%s", tsReviveFieldStmt(f, set))
+		}
+		p("  return o;\n")
+		p("}\n\n")
+	}
+}
+
+// tsReviveFieldStmt returns the reviver statement(s) for a single field.
+func tsReviveFieldStmt(f ast.Field, set map[string]bool) string {
+	acc := "o." + f.Name
+	switch {
+	case is64BitScalarInt(f.Type):
+		conv := fmt.Sprintf("  %s = BigInt(%s as unknown as string);\n", acc, acc)
+		if f.Type.Nullable {
+			return fmt.Sprintf("  if (%s != null) %s = BigInt(%s as unknown as string);\n", acc, acc, acc)
+		}
+		return conv
+	case f.Type.Kind == ast.TypeNamed && set[f.Type.Name]:
+		call := fmt.Sprintf("  %s(%s);\n", tsReviverName(f.Type.Name), acc)
+		if f.Type.Nullable {
+			return fmt.Sprintf("  if (%s != null) %s(%s);\n", acc, tsReviverName(f.Type.Name), acc)
+		}
+		return call
+	case (f.Type.Kind == ast.TypeSlice || f.Type.Kind == ast.TypeArray) && tsElemNeedsRevive(f.Type.Elem, set):
+		return fmt.Sprintf("  %s?.forEach(%s);\n", acc, tsReviverName(f.Type.Elem.Name))
+	}
+	return ""
+}
+
+// tsReviveStmt returns the statement that revives a result variable of the given
+// return type in place, or "" if no revival is needed.
+func tsReviveStmt(varName string, t ast.TypeRef, set map[string]bool) string {
+	switch {
+	case t.Kind == ast.TypeNamed && set[t.Name]:
+		return fmt.Sprintf("%s(%s);\n", tsReviverName(t.Name), varName)
+	case (t.Kind == ast.TypeSlice || t.Kind == ast.TypeArray) && tsElemNeedsRevive(t.Elem, set):
+		return fmt.Sprintf("%s?.forEach(%s);\n", varName, tsReviverName(t.Elem.Name))
+	}
+	return ""
+}
+
+// tsParamSend returns the JSON send expression for a request-body/command
+// parameter. 64-bit ints are typed `bigint` but the wire carries them as JSON
+// strings (see jsonStringOpt), and JSON.stringify throws on a bigint — so they
+// are serialized via String(). All other params serialize as-is.
+func tsParamSend(name string, t ast.TypeRef) string {
+	if is64BitScalarInt(t) {
+		return "String(" + name + ")"
+	}
+	return name
 }
 
 // tsEscapeReserved adds a trailing underscore to JavaScript/TypeScript reserved words.
