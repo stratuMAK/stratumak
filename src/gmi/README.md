@@ -36,6 +36,13 @@ gmicompile --server-c hal.gmi -o hal_api.h
 gmicompile --client-c halcmd.gmi -o halcmd_client
 ```
 
+> **`--client-c` supports a subset of the type system:** primitive scalars,
+> `[]string`, and one level of nested struct. Narrow scalars (`u8`/`i16`/`f32`/…),
+> enum-typed fields, non-string slices, slice-of-struct, and deeper nesting are
+> rejected at generate time (a build error, never a silently-broken client). For
+> APIs that use those shapes, generate a `--client-go`, `--client-python`, or
+> `--client-ts` client instead.
+
 The compiler is built from Go source in `src/gomc/cmd/gmicompile/`.
 
 ### Runtime Library (`libgmi`)

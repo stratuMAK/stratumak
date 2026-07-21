@@ -96,10 +96,14 @@ wire-facing one). 2 generator tests; all generated clients + `cmd/*` rebuild cle
 bridge is now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenName` can never emit
 `[0]`; Go array bounds stay numeric. All generated cgo recompiles clean; 2 tests.
 
-**Remaining (require manual review / a design decision — NOT auto-fixable):** G-L1 (`_cb` RT
-annotation: cross-cutting with the RT-hardening checklist item 1b — belongs to that session; needs
-the clang `-Wfunction-effects` worktree), G-L7 (external `*_client.c` nested-struct parser: real
-feature work needing a consumer test). Each stays deferred with the rationale in §4/§5.
+**Remaining: NONE — both former deferrals CLOSED (2026-07-21, `505e87d19f`).** G-L1 landed as an
+additive capability (not an RT-session deferral): the investigation confirmed there is no RT-invoked
+`@callback` today and the four existing ones are task/worker-level (must stay blocking), so `@rt_safe`
+on a `@callback` now stamps the `_cb` typedef `GOMC_API_NONBLOCKING` — default-false, byte-identical
+for existing callbacks — ready for the first RT consumer without needing the clang worktree now. G-L7
+landed as fail-loud (Option B): every silent-drop site in `--client-c` now errors at generate time; the
+sweep revealed the generator faithfully supports only 5 of 16 `@rest_export` IDLs, so the full recursive
+rewrite (G-L7/A) stays deferred-until-consumer. See the updated §G-L1/§G-L7 entries.
 
 ---
 
@@ -198,11 +202,18 @@ or at minimum a generator warning.
 
 ## LOW / latent
 
-- **G-L1 — `@callback` (`_cb`) typedefs are not `GOMC_API_NONBLOCKING`-annotated; the publish
-  inline producer has no independent enforcement seam.** `server.go:238-263`, `publish_c.go:133-173`.
-  A cycle-invoked callback param loses its nonblocking type at the seam; matches the already-tracked
-  **RT_HARDENING item 1b**. PLAUSIBLE/known; the publish inline body is in fact nonblocking-safe.
-  Fix: optional `@rt_safe` on `@callback` types → annotate the `_cb` typedef.
+- **G-L1 — `@callback` (`_cb`) typedefs are not `GOMC_API_NONBLOCKING`-annotated. DONE (capability
+  added, 2026-07-21, `505e87d19f`).** Investigation corrected the framing: there is **no RT-invoked
+  `@callback` today** — the four real ones (`interp_ext` oword/remap ×3, `mcode_handler` handler) are
+  all task/worker-level and *must* stay blocking-capable (`mcode_handler.handler` blocks on `abort_fd`),
+  and everything actually RT-invoked (mot/tp/hm2_serial `@rt_safe`) rides on `func`→`_fn` typedefs that
+  were already annotated. So nothing was mis-typed. But since gomc is a general framework and an RT
+  callback is a legitimate future need, the capability was wired symmetric to the `_fn` precedent:
+  `ast.Callback.RTSafe`; `parseCallback` applies `@rt_safe` (other annotations before a callback still
+  error); `emitCallbackDecls` stamps `GOMC_API_NONBLOCKING` iff RTSafe. Additive/non-breaking (default
+  false → existing callbacks byte-identical). The clang `-Wfunction-effects` check only bites when a
+  real RT `@callback` appears — same as `_fn` — so this is **out of the RT-hardening bucket**. Tests:
+  parser (RTSafe set + default-false + guard) + cgen (`callback_rtsafe_test.go`).
 - **G-L2 — `server_ws.go` dead-mode binary watch hardcodes the generation counter to `0`.**
   `server_ws.go:122-130`. The consumer dedup `gen > 0 && gen == sentGen` never fires → re-sends
   unchanged binary frames. **But `--server-ws` is not wired** (`cmd/modcompile/main.go` uses
@@ -233,10 +244,21 @@ or at minimum a generator warning.
   future unmatched primitive) now **panics** naming the shape+api instead of silently truncating a
   pointer/array at the FFI boundary. Unreached today (dead `client_go_internal.go:517` copy already
   deleted in G-L3). Regen byte-identical; guard test added.
-- **G-L7 — external C REST client parses only one level of struct nesting.**
-  `client.go:582-620`. Deeper-nested / slice-of-struct-containing-slice fields are left zeroed in
-  the `*_client.c` consumer path. Data-completeness gap (no leak/UAF in our code — external caller
-  owns the `strdup`s). Fix: recurse the parser (already structurally ready).
+- **G-L7 — external C REST client silently drops fields it can't emit. DONE via fail-loud (Option B,
+  2026-07-21, `505e87d19f`); full recursion deferred-until-consumer.** `--client-c` is a *published*
+  modcompile feature with **zero in-tree consumers and no test**; it silently dropped fields in BOTH
+  directions (receive inlined one level of primitive-scalar nesting; send serialized primitives only,
+  with a literal `// would go here` TODO stub emitting empty arrays for slice-of-struct). Rather than a
+  speculative recursive rewrite for a feature nobody builds, added `failf` (sets `g.err` → build fails)
+  + `default:` guards at every silent-drop site across all 5 emitters, and upgraded 2 "type not found"
+  warnings to hard errors. **The fail-loud sweep is the finding:** of 16 `@rest_export` IDLs only **5
+  generate cleanly, 11 fail loud** — the generator was producing broken clients for ~69% of the real
+  REST surface, and the gap is broader than "nested struct": narrow scalars (u8/i16/f32), enum-typed
+  fields (resolve to `TypeNamed` but lookup skips `api.Enums`), non-string slices, depth-≥2, and
+  slice-of-struct. `--help` now documents the supported subset. G-L7/A (recursive parity with the
+  Go/Py/TS clients + a compile-and-run C consumer test) remains deferred until a real C consumer needs
+  it. Tests: `client_failloud_test.go` (synthetic fail-loud + supported-shapes-succeed + real-IDL
+  characterization pinning "unsupported ⇒ `--client-c:`-attributed error, never silent").
 
 ## INFO / by-design (not bugs)
 - Publish ring-full returns `-1` and the RT producer's caller may ignore it — a third burst
@@ -295,11 +317,12 @@ or at minimum a generator warning.
    path/query param; Python nested-64-bit) + body-param support; tests per target. G-L5: all C
    array bounds through one `#define`-aware helper (`cArraySizeStr`); regenerated cgo recompiles
    clean; 2 tests. See the STATUS blocks and the per-finding entries above.
-6. **Deferred — require manual review / a design decision, NOT auto-fixable:** G-L1 (`_cb` RT
-   annotation — cross-cutting, tracked as RT-checklist 1b, belongs to the RT-hardening session with
-   the clang `-Wfunction-effects` worktree), G-L7 (external `*_client.c` nested-struct parser —
-   real feature work needing a consumer test). Each still needs its own test. Revisit if an IDL
-   introduces the shape or a client needs it.
+6. **Former deferrals — BOTH DONE** (2026-07-21, `505e87d19f`). G-L1: `@rt_safe` on a `@callback`
+   now annotates the `_cb` typedef `GOMC_API_NONBLOCKING` (additive capability, out of the
+   RT-hardening bucket — no RT `@callback` exists today; existing callbacks are correctly blocking).
+   G-L7: `--client-c` fail-loud — silent field-drops are now generate-time build errors; the sweep
+   found the generator faithfully supports only 5/16 `@rest_export` IDLs, so full recursive parity
+   (G-L7/A) stays deferred-until-a-real-C-consumer. Both have tests. **No open findings remain.**
 
 **Every fix needs a test that would have caught it** (risk class 4) — for G-H1 a multi-subscriber
 publish test; for G-H2 a generate+build check of a callback/ptr API under `--server-go`; for the
