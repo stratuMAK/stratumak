@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path"
 	"strings"
 	"unsafe"
 
@@ -417,12 +416,13 @@ func List(halType string, patterns ...string) ([]string, error) {
 			if pat == "" {
 				return all, nil
 			}
-			// Filter by pattern using path.Match glob semantics.
-			// Note: C shims handle patterns for pin/sig/param/funct/thread
-			// via fnmatch internally; for comp we filter in Go.
+			// Filter with libc fnmatch (halFnmatch), the same matcher the C
+			// shims use for pin/sig/param/funct/thread — so `list comp` shares
+			// the glob dialect of every other list type instead of diverging on
+			// Go's path.Match semantics.
 			var filtered []string
 			for _, name := range all {
-				if matched, _ := matchPattern(pat, name); matched {
+				if halFnmatch(pat, name) {
 					filtered = append(filtered, name)
 				}
 			}
@@ -448,15 +448,6 @@ func List(halType string, patterns ...string) ([]string, error) {
 		}
 	}
 	return all, nil
-}
-
-// matchPattern does a glob-style match in Go for the "comp" list case.
-// Returns true if name matches pat using path.Match syntax (*, ?, [...] wildcards).
-func matchPattern(pat, name string) (bool, error) {
-	if pat == "" {
-		return true, nil
-	}
-	return path.Match(pat, name)
 }
 
 // ===== Structured info types =====

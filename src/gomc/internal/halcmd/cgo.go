@@ -1477,6 +1477,20 @@ func halFindCompID(name string) int {
 
 // halListComponents wraps hal_shim_list_comps() to return all HAL component names.
 // Returns a slice of component name strings, or an error on failure.
+// halFnmatch reports whether name matches the shell glob pattern using libc
+// fnmatch — the exact matcher the C list shims use for pin/sig/param/funct/
+// thread/comp (cgo.go: fnmatch(pattern, ->name, 0)). The `comp` list type
+// enumerates components in Go, so it routes its filtering through here to stay
+// consistent with the other list types rather than diverging on Go's path.Match
+// glob dialect (which special-cases '/' and errors on a malformed pattern).
+func halFnmatch(pattern, name string) bool {
+	cp := C.CString(pattern)
+	defer C.free(unsafe.Pointer(cp))
+	cn := C.CString(name)
+	defer C.free(unsafe.Pointer(cn))
+	return C.fnmatch(cp, cn, 0) == 0
+}
+
 func halListComponents() ([]string, error) {
 	// Allocate a buffer sized for HAL_SHIM_MAX_COMPS components, each with a
 	// name up to HAL_NAME_LEN+1 bytes (HAL_NAME_LEN is 127, defined in hal.h).

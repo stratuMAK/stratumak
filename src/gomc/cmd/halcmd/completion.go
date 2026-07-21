@@ -9,6 +9,45 @@ import (
 	"unicode"
 )
 
+// parseCompPoint parses the bash COMP_POINT cursor offset. It mirrors C atoi:
+// consume leading digits and stop at the first non-digit, so a stray character
+// yields the digits parsed so far rather than a garbage/negative offset.
+func parseCompPoint(compPoint string) int {
+	point := 0
+	for _, ch := range compPoint {
+		if ch < '0' || ch > '9' {
+			break
+		}
+		point = point*10 + int(ch-'0')
+	}
+	return point
+}
+
+// relevantCompLine returns the portion of the command line between the end of
+// the command name (argv[0] + following whitespace) and the cursor. The cursor
+// offset is clamped on BOTH sides: bash reports it as an absolute offset, so a
+// cursor inside the command name (point < i) — e.g. a mid-line TAB — would make
+// a naive compLine[i:point] panic with a slice-bounds error. 2.9 guards the
+// same case (halcmd_main.c: `if (c<0) c=0`).
+func relevantCompLine(compLine string, point int) string {
+	// Find end of the first word (the command name "halcmd").
+	i := 0
+	for i < len(compLine) && !unicode.IsSpace(rune(compLine[i])) {
+		i++
+	}
+	// Skip whitespace after the command name.
+	for i < len(compLine) && unicode.IsSpace(rune(compLine[i])) {
+		i++
+	}
+	if point > len(compLine) {
+		point = len(compLine)
+	}
+	if point < i {
+		point = i
+	}
+	return compLine[i:point]
+}
+
 // runCompletion implements bash's "complete -C" protocol.
 // Bash sets COMP_LINE (full command line) and COMP_POINT (cursor position).
 // We parse the context, query the REST API, and print matching candidates to stdout.
@@ -19,28 +58,8 @@ func runCompletion() {
 		return
 	}
 
-	// Parse cursor position and extract the relevant portion of the line
-	point := 0
-	for _, ch := range compPoint {
-		point = point*10 + int(ch-'0')
-	}
-
-	// Strip the program name (argv[0]) from the beginning
-	// Find end of first word (the command name "halcmd")
-	i := 0
-	for i < len(compLine) && !unicode.IsSpace(rune(compLine[i])) {
-		i++
-	}
-	// Skip space after command name
-	for i < len(compLine) && unicode.IsSpace(rune(compLine[i])) {
-		i++
-	}
-
-	// Adjust point relative to after the command name
-	if point > len(compLine) {
-		point = len(compLine)
-	}
-	line := compLine[i:point]
+	point := parseCompPoint(compPoint)
+	line := relevantCompLine(compLine, point)
 
 	// Skip any leading options (e.g. -k, -q, -s, -U <url>)
 	line = skipOptions(line)

@@ -7,6 +7,7 @@ package halcmd
 
 import (
 	"errors"
+	"path"
 	"unsafe"
 
 	hal "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
@@ -25,9 +26,14 @@ func halStopThreads() error                                    { return ErrNoCGO
 func halCreateThreadCPU(_ string, _ int64, _ int, _ int) error { return ErrNoCGO }
 func halThreadDelete(_ string) error                           { return ErrNoCGO }
 func halListComponents() ([]string, error)                     { return nil, ErrNoCGO }
-func halUnloadAll(_ int) error                                 { return ErrNoCGO }
-func halLockDLHandle(_ unsafe.Pointer)                         {}
-func halUnlockDLHandle(_ unsafe.Pointer)                       {}
+
+// halFnmatch: without cgo there is no libc fnmatch. comp listing is unreachable
+// here (halListComponents errors first), so a path.Match fallback suffices to
+// keep the package compiling.
+func halFnmatch(pattern, name string) bool { m, _ := path.Match(pattern, name); return m }
+func halUnloadAll(_ int) error             { return ErrNoCGO }
+func halLockDLHandle(_ unsafe.Pointer)     {}
+func halUnlockDLHandle(_ unsafe.Pointer)   {}
 
 func halNewSig(_ string, _ hal.PinType) error { return ErrNoCGO }
 func halDelSig(_ string) error                { return ErrNoCGO }
