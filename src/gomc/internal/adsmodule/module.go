@@ -119,6 +119,16 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 	if err != nil {
 		return nil, fmt.Errorf("ADS %q: creating HAL component: %w", name, err)
 	}
+	// Release the HAL component if construction fails after this point, so a
+	// failed load does not leak a HAL component slot (ADS_REVIEW_FINDINGS.md A12).
+	ok := false
+	defer func() {
+		if !ok {
+			if exitErr := comp.Exit(); exitErr != nil {
+				logger.Debug("ADS HAL component exit error during failed load", "name", name, "error", exitErr)
+			}
+		}
+	}()
 
 	// Create symbol table and bridge (HAL pins + ADS symbol registrations).
 	st := ads.NewSymbolTable()
@@ -152,6 +162,7 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 		"pins", len(pins),
 	)
 
+	ok = true // construction succeeded — keep the HAL component
 	return &adsModule{
 		logger:  logger,
 		comp:    comp,

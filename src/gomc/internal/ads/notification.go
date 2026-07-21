@@ -108,6 +108,14 @@ func (nm *notifyManager) del(handle uint32) bool {
 func (nm *notifyManager) sendLoop() {
 	defer nm.wg.Done()
 
+	// Recover from any panic in the notification path so it drops the connection
+	// rather than killing the process. See ADS_REVIEW_FINDINGS.md A4.
+	defer func() {
+		if r := recover(); r != nil {
+			nm.server.logger.Error("ADS notification sendLoop panic", "panic", r)
+		}
+	}()
+
 	// Tick at a fixed base interval. We check each subscription's own
 	// cycleTime against the elapsed time since its last send.
 	const baseInterval = 10 * time.Millisecond
@@ -239,6 +247,8 @@ func (nm *notifyManager) sendNotifications(now time.Time, items []notifySample) 
 	encodeAMSHeader(pkt[AMSTCPHeaderSize:], &hdr)
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], payload)
 
+	// Bound the write (TCP backpressure) — see ADS_REVIEW_FINDINGS.md A6.
+	_ = nm.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if _, err := nm.conn.Write(pkt); err != nil {
 		if nm.server.verbose {
 			nm.server.logger.Debug("ADS notification send error", "error", err)

@@ -368,10 +368,34 @@ Row → L R F ◐ (L-3 open); `U`/`FP`/`S` pending (L-3 design + L-4 contract ch
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | cmd/ethercat | 3867/90 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ◐ |
-| internal/ads | 1763/1700 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/adsbridge | 498/47 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/adsconfig | 1473/2988 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/adsmodule | 163/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/ads | 1763/1700 | 2 | ✅ | ✅ | ◐ | ◐ | ✅ | ◐ | ☐ |
+| internal/adsbridge | 498/47 | 2 | ✅ | ✅ | ◐ | ☐ | ✅ | — | ☐ |
+| internal/adsconfig | 1473/2988 | 2 | ✅ | ✅ | ◐ | ◐ | ✅ | — | ☐ |
+| internal/adsmodule | 163/0 | 2 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
+
+**ADS cluster — reviewed 2026-07-21 (Tier 2, adversarial). Full findings +
+verdicts in `ADS_REVIEW_FINDINGS.md`.** Net-new gomc code (no 2.9 oracle); the ADS/AMS server
+binds `0.0.0.0:48898` with **no protocol authentication**, so every command handler is reachable
+by any host that can route to the controller. Method: primary read-through + two independent
+refutation passes (remote-DoS lens, concurrency/lifecycle lens). **Headline: a remote,
+unauthenticated client could crash or OOM the motion controller with a single ~28-byte packet**
+— all fixed this pass:
+- **A1** SumWrite `uint32` overflow → slice panic (deterministic crash); **A2** unbounded
+  `make` from the client-controlled sub-request count (≈137 GB alloc → OOM); **A3** unbounded
+  process-image read `length` (≈4 GB, incl. a notification `sendLoop` that re-OOMs every 10 ms);
+  **A4** no `recover()` in any goroutine (a wire-path panic killed the process). Bounds +
+  `recover()` added; regression tests in `internal/ads/dos_test.go`.
+- Robustness fixes: **A6** write deadlines, **A10** accept-loop backoff, **A11** idempotent
+  `Stop()`, **A12** construction-error HAL-component leak. **A5 (partial):** closed the
+  accept/register race + made the stage-2 read honor `quit`, narrowing the known **ADS2**
+  shutdown-UAF window (the full free-barrier contract stays open, to decide with pkg/hal H1).
+- **Cleared by refutation:** the notifyManager races and the SymbolTable lock model (incl. the
+  suspected re-entrant-RLock deadlock) — locking there is correct; ADS1 already fixed.
+- **Open (adjudication / follow-up):** A5 contract, A7 (connection/subscription caps — needs the
+  expected-HMI-count decision), A8 (`[0..N]` array lower-bound silently mis-laid-out — fix
+  proposed, separate commit), A9 (0.0.0.0/no-auth → Safety-boundary doc), A13/A14 (low).
+Verified: build/vet/gofmt clean, lint 0, `go test -race` green. `F` left ◐ (A5/A7/A8 open),
+`U` ◐ (crash-path regression tests added; happy-path coverage already strong), `S` pending.
 
 **EtherCAT sim-transport integration harness — M1+M2 done (2026-07-21).** The whole `cmd/ethercat`
 + lcec driver stack (Phase 2's highest-risk, untested-per-line area) is now testable **without
@@ -699,3 +723,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-20 | **Tier 1 hotspot #3 — cmd/ethercat unblocked; EtherCAT sim-transport integration harness M1 done.** Promoted the master's test-only `transport_sim` slave emulator to a first-class, config-selectable transport (`EC_TRANSPORT_SIM`; `transportType=sim`, `interface=<bus-description-file>`; RT-`TRUSTED` cyclic ops, in `rt-effects-check`). Submodule `670737d4` (branch `transport-sim`): moved `transport_sim.{c,h}` to `transport/`, file-driven `sim_open` parser, registry entry, `interface[16]→[64]`, new `test_sim_transport_file` (14 PASS/2 SKIP/0 FAIL). Superproject `b6c9c9a6a1` (conf.c `transportType=sim` + submodule bump) and `bb1ac3a0be` (`tests/ethercat/sim-basic` — first gomc EtherCAT runtests case: driver on an emulated slave reaches OP, PDOs map to HAL pins; passes `runtests`). Rebuilt `libethercat`+`cmod/ethercat.so`. Next: M2 (PDO round-trip/SDO/DC/link-loss), M3 (`bin/ethercat` REST-CLI assertions → closes the CLI review). |
 | 2026-07-21 | **EtherCAT harness M2 complete — driver integration-tested hardware-free.** Five more increments across six runtests: `sim-pdo-loopback` (PDO value round-trip both ways via a `loopback` sim slave, submodule `6a7591e1`), `sim-sdo-config` (startup `<sdoConfig>` init-commands written via CoE, read back through the `ethercat` REST CLI — proving the CLI+REST path works resident), `sim-link-loss` (cable-pull: a `<interface>.link` control file drops the link → slave-lost pins → rescan back to OP, submodule `ecde9e8b`), `sim-multi-slave` (three CoE slaves output-only/input-only/bidirectional all reach OP; slave-2 round-trip verifies its domain offset), and a CoE-mailbox upgrade to all sim slaves (clean PDO config, 0 log errors). DC skipped (niche). **cmd/ethercat parity bug found + fixed** by the harness: the hand-rolled option parser rejected the attached getopt form `-p0` (IgH tool accepts it) — fixed `d7da8ef2bd`, guarded by the SDO test. Commits: submodule `6a7591e1`/`ecde9e8b`; superproject `2028c099ff`/`520abc1090`/`682e384ca7`/`d7da8ef2bd`/`90380552ee`/`2f2dd5d941`. Next: M3 — cmd/ethercat CLI read-review + output-assertion tests (closes Tier-1 hotspot #3). |
 | 2026-07-21 | **EtherCAT M3 done — cmd/ethercat CLI reviewed; Tier-1 hotspot #3 substantially closed.** Read-reviewed the hand-written command formatting/parsing against the authoritative IgH source (`master/tool/Command*.cpp`); **four real parity bugs found + fixed:** option parser rejected the attached `-p0` (`d7da8ef2bd`) and clustered `-fq` (`bd40e617b9`, which also extracted `parseArgs()` + added `main_test.go`, the first unit test for the package); and the SM-direction bug — output sync managers mislabelled — replicated across `pdos` (`237a156b3b`), `cstruct` and `xml` (`4592b682e8`; real rule is control bit 0x04 = output). `master`/`slaves`/`sdos`/`config`/`domains` parity-confirmed (e.g. the `slaves` `0x<vid>:0x<pid>` fallback and `sdos` cached-dictionary read both match IgH). Test: `tests/ethercat/sim-cli` (`9c7d4e11de`) asserts CLI output format. Deferred: deep-review of rarely-used `reg/sii/foe/soe` commands. Master-side follow-ups (not CLI bugs): `version` shows ioctl magic (master tool API exposes no version string), `Phase: Idle` while active, no SDO-dictionary fetch. cmd/ethercat matrix row → L R F RC ✅, U FP S ◐. |
+| 2026-07-21 | **ADS cluster reviewed (Phase 2, Tier 2 adversarial)** — `ADS_REVIEW_FINDINGS.md`. Net-new code, no 2.9 oracle; server binds `0.0.0.0:48898` with no protocol auth. Two independent refutation passes (remote-DoS, concurrency/lifecycle). **Headline: a remote unauthenticated client could crash/OOM the motion controller with a single ~28-byte packet** — all fixed: A1 SumWrite `uint32` overflow → slice panic; A2 unbounded `make` from client sub-request count (≈137 GB → OOM); A3 unbounded process-image read `length` (≈4 GB, incl. notification `sendLoop` re-OOM every 10 ms); A4 no `recover()` in any goroutine. Bounds + `recover()` added; regression tests `internal/ads/dos_test.go`. Robustness: A6 write deadlines, A10 accept backoff, A11 idempotent `Stop()`, A12 construction-error HAL-component leak. A5 (partial): closed accept/register race + stage-2 read honors `quit`, narrowing the known ADS2 shutdown-UAF (full free-barrier contract still open, decide with pkg/hal H1). Refuted (locking correct): notifyManager races, SymbolTable lock model incl. suspected re-entrant-RLock deadlock. Open: A5 contract, A7 (conn/sub caps — HMI-count decision), A8 (`[0..N]` array silently mis-laid-out — fix proposed, separate commit), A9 (0.0.0.0/no-auth → safety-boundary doc), A13/A14 (low). build/vet/gofmt clean, lint 0, `-race` green. Rows → ads/adsbridge/adsconfig/adsmodule L R RC ✅, F ◐. |

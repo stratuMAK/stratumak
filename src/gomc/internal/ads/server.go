@@ -33,6 +33,15 @@ const shutdownTimeout = 2 * time.Second
 // a malicious client from triggering excessive memory allocation.
 const maxAMSPacketSize = 64 * 1024
 
+// writeTimeout bounds every response/notification write so a client that stops
+// reading (TCP backpressure) cannot block a server goroutine indefinitely, and
+// so a stuck write cannot outlive the shutdown grace period.
+const writeTimeout = 5 * time.Second
+
+// acceptErrorBackoff is the pause after a persistent (non-timeout) Accept error
+// so a condition like fd exhaustion (EMFILE) does not spin the accept loop hot.
+const acceptErrorBackoff = 20 * time.Millisecond
+
 // Server listens for ADS connections, parses AMS/TCP packets, and dispatches
 // ADS commands to a SymbolTable.
 type Server struct {
@@ -45,6 +54,7 @@ type Server struct {
 	listener net.Listener
 	wg       sync.WaitGroup
 	quit     chan struct{}
+	stopOnce sync.Once
 	connsMu  sync.Mutex
 	conns    map[net.Conn]struct{}
 }
@@ -85,6 +95,13 @@ func (s *Server) Start() error {
 // Stop closes the listener and all active connections, then waits for all
 // connection goroutines to finish.
 func (s *Server) Stop() {
+	// Idempotent: the launcher can reach Stop via both the shutdown path
+	// (stopGoModules) and the runtime-unload path (unloadGoModule), and a bare
+	// close(s.quit) would panic "close of closed channel" on the second call.
+	s.stopOnce.Do(s.doStop)
+}
+
+func (s *Server) doStop() {
 	close(s.quit)
 	if s.listener != nil {
 		_ = s.listener.Close()
@@ -117,9 +134,28 @@ func (s *Server) acceptLoop() {
 				return // normal shutdown
 			default:
 				s.logger.Error("ADS accept error", "error", err)
+				// Back off so a persistent error (e.g. fd exhaustion) does not
+				// spin this loop hot and flood the log.
+				time.Sleep(acceptErrorBackoff)
 				continue
 			}
 		}
+		// Register the connection under connsMu *before* spawning its handler and
+		// re-check quit atomically. This closes the race where Stop()'s close-loop
+		// runs between Accept() and the handler registering itself, leaving a
+		// connection that Stop() never force-closes (and could then touch HAL pins
+		// after Destroy frees them). See ADS_REVIEW_FINDINGS.md A5.
+		s.connsMu.Lock()
+		select {
+		case <-s.quit:
+			s.connsMu.Unlock()
+			_ = conn.Close()
+			return
+		default:
+		}
+		s.conns[conn] = struct{}{}
+		s.connsMu.Unlock()
+
 		s.wg.Add(1)
 		go s.handleConn(conn)
 	}
@@ -130,9 +166,17 @@ func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
 	defer func() { _ = conn.Close() }()
 
-	s.connsMu.Lock()
-	s.conns[conn] = struct{}{}
-	s.connsMu.Unlock()
+	// Recover from any panic on the untrusted wire path so a single malformed
+	// packet drops this connection instead of killing the whole process (the
+	// motion controller). See ADS_REVIEW_FINDINGS.md A4.
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("ADS connection handler panic", "remote", conn.RemoteAddr(), "panic", r)
+		}
+	}()
+
+	// The connection was registered in acceptLoop (under connsMu) before this
+	// goroutine started; deregister on exit.
 	defer func() {
 		s.connsMu.Lock()
 		delete(s.conns, conn)
@@ -199,12 +243,24 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		amsData := make([]byte, amsLen)
 		if _, err := io.ReadFull(conn, amsData); err != nil {
+			// A stage-2 timeout during shutdown must exit promptly rather than
+			// dispatch on stale data after the HAL component may have been freed
+			// (see ADS_REVIEW_FINDINGS.md A5). Any read error here ends the
+			// connection anyway, so no retry is needed.
 			select {
 			case <-s.quit:
 			default:
 				s.logger.Error("ADS read error", "remote", conn.RemoteAddr(), "error", err)
 			}
 			return
+		}
+		// If shutdown began while we were reading the payload, do not dispatch:
+		// the HAL pins this command would touch may be freed by Destroy() right
+		// after Stop() returns.
+		select {
+		case <-s.quit:
+			return
+		default:
 		}
 
 		h := decodeAMSHeader(amsData[:AMSHeaderSize])

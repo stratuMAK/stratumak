@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"time"
 )
 
 // AMSNetID represents an AMS Net ID (6 bytes).
@@ -230,6 +231,9 @@ func (s *Server) sendAMSResponse(conn net.Conn, req *AMSHeader, cmdID uint16, er
 	// Payload
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], data)
 
+	// Bound the write so a client that stops reading cannot block this goroutine
+	// indefinitely (TCP backpressure). See ADS_REVIEW_FINDINGS.md A6.
+	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := conn.Write(pkt)
 	return err
 }
