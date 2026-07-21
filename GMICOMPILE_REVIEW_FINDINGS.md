@@ -76,6 +76,21 @@ is reachable only through a **nested** named type (Python from_dict doesn't recu
 `period_ns` is now bigint; webapp consumers convert bigint→number at the display boundary. Full
 gmicompile suite + gomc build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
 clean (a separate commit `1926c82ca8` fixed pre-existing halscope errors the regen surfaced).
+
+**G-M4 regression + root-cause fix (commit `69c6bea407`):** the `,string` change broke
+`tests/ethercat/sim-cli` — `cmd/ethercat` carried a **hand-written duplicate** of every ethercat
+wire type (no `,string`), so `unmarshal DeviceStats.tx_count` failed against the now-string server.
+The "no external client" note above missed in-repo **hand-written Go consumers**. Fixed the class:
+added an ethercat `--client-go` target (→ `generated/gmi/ethercatclient`) and refactored
+`cmd/ethercat` onto the generated client with qualified names, **deleting the hand-written client**
+— generated types are the single source of truth and can't drift. halcmd never broke (it already
+consumes its generated client — the model). Two `--client-go` generator fixes this required: a
+numeric REST path param was passed bare to `url.PathEscape` (wants a string) → now
+`fmt.Sprintf("%v", …)` first (halcmd's path params are strings, so it never hit it); and an additive
+`New<X>ClientInstance(baseURL, instance)` constructor (default delegates) so the CLI keeps a
+configurable instance (`EC_INST`). Lesson: any wire-format change breaks hand-written consumers —
+sweep `grep 'uint64\|int64.*json:"' cmd/ internal/ | grep -v ,string` (ethercat was the only
+wire-facing one). 2 generator tests; all generated clients + `cmd/*` rebuild clean.
 **G-L5** — all C array bounds now route through one `#define`-aware helper (`cArraySizeStr`;
 `serverGen.arraySizeStr` delegates), so header/cgo-bridge/dispatch/external-client agree (e.g. kins
 bridge is now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenName` can never emit
