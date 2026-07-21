@@ -1166,7 +1166,13 @@ Options:
     --server-c          Generate C server header only (types, callback typedefs)
     --server-meta       Generate Go META dispatch (cgo types, converters, dispatch, init)
     --server-go         Generate Go provider interface + cbridge
-    --client-c          Generate C REST client (header + source)
+    --client-c          Generate C REST client (header + source). Supports a
+                        subset of the type system: primitive scalars, []string,
+                        and one level of nested struct. Narrow scalars (u8/i16/
+                        f32/...), enum fields, non-string slices, slice-of-struct,
+                        and deeper nesting are rejected at generate time (build
+                        error, never a silently-broken client) — use --client-go/
+                        --client-python/--client-ts for APIs that need them.
     --client-go         Generate Go REST client
     --client-python     Generate Python REST client
     --client-ts         Generate TypeScript REST client

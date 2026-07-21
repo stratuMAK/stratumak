@@ -150,11 +150,8 @@ func (p *Parser) parseAPI() *ast.API {
 			}
 			api.Types = append(api.Types, p.parseType())
 		case p.cur.Type == CALLBACK:
-			if len(pendingAnns) > 0 {
-				p.errorf("annotations before callback are not supported")
-				pendingAnns = nil
-			}
-			api.Callbacks = append(api.Callbacks, p.parseCallback())
+			api.Callbacks = append(api.Callbacks, p.parseCallback(pendingAnns))
+			pendingAnns = nil
 		case p.cur.Type == STREAM_SERVER:
 			if len(pendingAnns) > 0 {
 				p.errorf("annotations before stream_server are not supported")
@@ -380,7 +377,7 @@ func (p *Parser) constraintStr() string {
 	return v
 }
 
-func (p *Parser) parseCallback() ast.Callback {
+func (p *Parser) parseCallback(anns []annotation) ast.Callback {
 	pos := p.pos()
 	p.advance() // skip "callback"
 	name := p.cur.Text
@@ -388,6 +385,18 @@ func (p *Parser) parseCallback() ast.Callback {
 
 	cb := ast.Callback{Name: name, Pos: pos}
 	p.callbacks[name] = true
+
+	// Apply preceding annotations. Only @rt_safe is meaningful on a callback
+	// type (it stamps the _cb typedef GOMC_API_NONBLOCKING); any other
+	// annotation before a callback stays an error, as it did before.
+	for _, ann := range anns {
+		switch ann.name {
+		case "rt_safe":
+			cb.RTSafe = ann.value == "true"
+		default:
+			p.errorf("annotation @%s before callback is not supported", ann.name)
+		}
+	}
 
 	// Parameters
 	p.expect(LPAREN)

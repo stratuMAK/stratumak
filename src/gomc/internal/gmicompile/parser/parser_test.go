@@ -373,6 +373,10 @@ func register_handler(mcode: i32, fn: handler, user_data: ptr) -> i32
 	if cb.Return == nil || cb.Return.Name != "i32" {
 		t.Errorf("cb.Return = %v, want i32", cb.Return)
 	}
+	// Un-annotated callbacks default to blocking-capable (task/worker level).
+	if cb.RTSafe {
+		t.Error("cb.RTSafe = true, want false for an un-annotated callback")
+	}
 
 	// Function using callback type
 	fn := api.Funcs[0]
@@ -381,6 +385,40 @@ func register_handler(mcode: i32, fn: handler, user_data: ptr) -> i32
 	}
 	if fn.Params[1].Type.Name != "handler" {
 		t.Errorf("fn.Params[1].Type.Name = %q, want %q", fn.Params[1].Type.Name, "handler")
+	}
+}
+
+// @rt_safe on a callback declaration flags it for RT-cycle invocation, which
+// the emitter turns into GOMC_API_NONBLOCKING on the _cb typedef (mirrors the
+// @rt_safe/_fn provider-typedef precedent). Any other annotation before a
+// callback remains an error.
+func TestParseCallbackRTSafe(t *testing.T) {
+	src := `@api rttest
+@version 1
+
+@rt_safe "true"
+callback tick_fn(ctx: ptr) -> i32
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+	if len(api.Callbacks) != 1 {
+		t.Fatalf("len(Callbacks) = %d, want 1", len(api.Callbacks))
+	}
+	if !api.Callbacks[0].RTSafe {
+		t.Error("Callback.RTSafe = false, want true")
+	}
+
+	// A non-rt_safe annotation before a callback must still be rejected.
+	bad := `@api rttest
+@version 1
+
+@watch "true"
+callback tick_fn(ctx: ptr) -> i32
+`
+	if _, errs := Parse("bad.gmi", bad); len(errs) == 0 {
+		t.Error("expected an error for @watch before a callback, got none")
 	}
 }
 

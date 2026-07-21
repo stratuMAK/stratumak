@@ -307,7 +307,15 @@ func (g *serverGen) emitCallbackDecls() {
 			}
 			g.printf("    %s%s\n", p, comma)
 		}
-		g.printf(");\n\n")
+		// @rt_safe callbacks are invoked from the RT cycle — stamp the _cb
+		// typedef nonblocking so clang's function-effects analysis checks
+		// implementations and allows RT callers (mirrors the _fn precedent).
+		// Task/worker-level callbacks (the default) stay blocking-capable.
+		if cb.RTSafe {
+			g.printf(") GOMC_API_NONBLOCKING;\n\n")
+		} else {
+			g.printf(");\n\n")
+		}
 	}
 }
 

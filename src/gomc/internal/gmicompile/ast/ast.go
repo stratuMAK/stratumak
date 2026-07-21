@@ -312,6 +312,14 @@ type Callback struct {
 	Pos    Pos
 	Params []Param
 	Return *TypeRef // nil if no return type
+
+	// RTSafe marks the callback as invocable from the RT cycle. When set, the
+	// generated _cb typedef is stamped GOMC_API_NONBLOCKING so clang's
+	// function-effects analysis both checks implementations and permits RT
+	// callers — mirrors the @rt_safe/_fn provider-typedef precedent. Existing
+	// callbacks (oword/remap/mcode handler) run at task/worker level and must
+	// stay blocking-capable, so they leave this false.
+	RTSafe bool // true if invocable from RT context (@rt_safe)
 }
 
 // ---------------------------------------------------------------------------
