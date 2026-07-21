@@ -451,73 +451,81 @@ func List(halType string, patterns ...string) ([]string, error) {
 }
 
 // ===== Structured info types =====
+//
+// These are internal, CGO-backed domain types populated by reading HAL shared
+// memory directly. They are NOT wire types: the REST provider
+// (internal/halrest) converts them field-by-field into the generated
+// halcmdapi.* types, which are the single source of truth for JSON marshaling
+// (and carry the ",string" 64-bit tags). Deliberately no json tags here — so
+// these can never be mistaken for the wire representation and silently drift
+// from it (the cmd/ethercat hand-written-client trap).
 
 // CompInfo holds the attributes of a HAL component.
 type CompInfo struct {
-	Name string `json:"name"`
-	ID   int    `json:"id"`
-	Type string `json:"type"`
+	Name string
+	ID   int
+	Type string
 }
 
 // PinInfo holds all attributes of a HAL pin.
 type PinInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Direction string `json:"direction"`
-	Value     string `json:"value"`
-	Signal    string `json:"signal,omitempty"`
-	Owner     string `json:"owner"`
-	HasWriter bool   `json:"has_writer"`
+	Name      string
+	Type      string
+	Direction string
+	Value     string
+	Signal    string
+	Owner     string
+	HasWriter bool
 }
 
 // ParamInfo holds all attributes of a HAL parameter.
 type ParamInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Direction string `json:"direction"`
-	Value     string `json:"value"`
-	Owner     string `json:"owner"`
+	Name      string
+	Type      string
+	Direction string
+	Value     string
+	Owner     string
 }
 
 // SigInfo holds all attributes of a HAL signal.
 type SigInfo struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	Name  string
+	Type  string
+	Value string
 }
 
 // FunctInfo holds all attributes of a HAL realtime function.
 type FunctInfo struct {
-	Name    string `json:"name"`
-	Owner   string `json:"owner"`
-	Users   int32  `json:"users"`
-	FP      bool   `json:"fp"`
-	MaxTime int64  `json:"maxtime_ns"`
+	Name    string
+	Owner   string
+	Users   int32
+	FP      bool
+	MaxTime int64
 }
 
 // ThreadInfo holds all attributes of a HAL thread.
 type ThreadInfo struct {
-	Name    string   `json:"name"`
-	Period  int64    `json:"period_ns"`
-	FP      bool     `json:"fp"`
-	Functs  []string `json:"functs"`
-	Running bool     `json:"running"`
+	Name    string
+	Period  int64
+	FP      bool
+	Functs  []string
+	Running bool
 }
 
 // ShowResult aggregates the results of a Show() call.
 type ShowResult struct {
-	Comps   []CompInfo   `json:"comps,omitempty"`
-	Pins    []PinInfo    `json:"pins,omitempty"`
-	Params  []ParamInfo  `json:"params,omitempty"`
-	Signals []SigInfo    `json:"signals,omitempty"`
-	Functs  []FunctInfo  `json:"functs,omitempty"`
-	Threads []ThreadInfo `json:"threads,omitempty"`
+	Comps   []CompInfo
+	Pins    []PinInfo
+	Params  []ParamInfo
+	Signals []SigInfo
+	Functs  []FunctInfo
+	Threads []ThreadInfo
 }
 
 // StatusInfo holds HAL shared-memory status information.
 type StatusInfo struct {
-	ShmemFree int    `json:"shmem_free_bytes"`
-	LockLevel string `json:"lock_level"`
+	ShmemFree int
+	LockLevel string
 }
 
 // ===== Show / Save / Status / SetDebug =====
