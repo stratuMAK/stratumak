@@ -19,6 +19,7 @@ import (
 // the first — a compiler should report all mistakes in one run.
 func Validate(api *ast.API) []error {
 	c := &checker{api: api}
+	c.checkDuplicateNames()
 	c.checkTypeExistence()
 	for _, t := range api.Types {
 		for _, f := range t.Fields {
@@ -50,6 +51,128 @@ type checker struct {
 
 func (c *checker) errf(site, format string, a ...interface{}) {
 	c.errs = append(c.errs, fmt.Errorf("%s: %s", site, fmt.Sprintf(format, a...)))
+}
+
+// checkDuplicateNames rejects name collisions that would otherwise emit
+// duplicate C/Go declarations (an uncompilable enum { A, A }, two struct members
+// or params named the same, a re-declared type) — caught here as a source-level
+// diagnostic instead of a confusing compiler error in generated output.
+//
+// types, enums, callbacks and imports share ONE namespace: a TypeNamed
+// reference resolves to exactly one of them (see checkTypeExistence), so a name
+// may name only one. funcs and stream servers each have their own namespace.
+// Field names are unique within a struct, param names within a callable, and
+// member names within an enum. Duplicate enum *values* are intentionally allowed
+// (aliases — see ast.DistinctMembers); only duplicate member names are rejected.
+func (c *checker) checkDuplicateNames() {
+	// Shared type namespace.
+	type decl struct {
+		kind string
+		pos  ast.Pos
+	}
+	typeNS := map[string]decl{}
+	noteType := func(name, kind string, pos ast.Pos) {
+		if prev, ok := typeNS[name]; ok {
+			c.errf(pos.String(), "duplicate name %q (already declared as %s at %s)", name, prev.kind, prev.pos)
+			return
+		}
+		typeNS[name] = decl{kind, pos}
+	}
+	for _, t := range c.api.Types {
+		noteType(t.Name, "type", t.Pos)
+	}
+	for _, e := range c.api.Enums {
+		noteType(e.Name, "enum", e.Pos)
+	}
+	for _, cb := range c.api.Callbacks {
+		noteType(cb.Name, "callback", cb.Pos)
+	}
+	for _, im := range c.api.Imports {
+		noteType(im.Name, "import", im.Pos)
+	}
+
+	// funcs and stream servers: one namespace each.
+	c.checkUnique("func", funcDecls(c.api.Funcs))
+	c.checkUnique("stream_server", streamServerDecls(c.api.StreamServers))
+
+	// Fields within each struct.
+	for _, t := range c.api.Types {
+		c.checkUnique(fmt.Sprintf("field of type %s", t.Name), fieldDecls(t.Fields))
+	}
+	// Params within each callable, member names within each enum.
+	for _, fn := range c.api.Funcs {
+		c.checkUnique(fmt.Sprintf("param of func %s", fn.Name), paramDecls(fn.Params))
+	}
+	for _, cb := range c.api.Callbacks {
+		c.checkUnique(fmt.Sprintf("param of callback %s", cb.Name), paramDecls(cb.Params))
+	}
+	for _, ss := range c.api.StreamServers {
+		for _, fn := range ss.Funcs {
+			c.checkUnique(fmt.Sprintf("param of stream_server %s.%s", ss.Name, fn.Name), paramDecls(fn.Params))
+		}
+	}
+	for _, e := range c.api.Enums {
+		c.checkUnique(fmt.Sprintf("member of enum %s", e.Name), enumMemberDecls(e.Values))
+	}
+}
+
+// namedDecl is one declaration's name and position, for uniqueness checking.
+type namedDecl struct {
+	name string
+	pos  ast.Pos
+}
+
+// checkUnique reports every duplicate name within one scope. kindLabel names the
+// scope+kind for the diagnostic (e.g. "field of type Rec").
+func (c *checker) checkUnique(kindLabel string, decls []namedDecl) {
+	seen := make(map[string]ast.Pos, len(decls))
+	for _, d := range decls {
+		if prev, ok := seen[d.name]; ok {
+			c.errf(d.pos.String(), "duplicate %s %q (first declared at %s)", kindLabel, d.name, prev)
+			continue
+		}
+		seen[d.name] = d.pos
+	}
+}
+
+func funcDecls(fns []ast.Func) []namedDecl {
+	out := make([]namedDecl, len(fns))
+	for i, fn := range fns {
+		out[i] = namedDecl{fn.Name, fn.Pos}
+	}
+	return out
+}
+
+func streamServerDecls(ss []ast.StreamServer) []namedDecl {
+	out := make([]namedDecl, len(ss))
+	for i, s := range ss {
+		out[i] = namedDecl{s.Name, s.Pos}
+	}
+	return out
+}
+
+func fieldDecls(fs []ast.Field) []namedDecl {
+	out := make([]namedDecl, len(fs))
+	for i, f := range fs {
+		out[i] = namedDecl{f.Name, f.Pos}
+	}
+	return out
+}
+
+func paramDecls(ps []ast.Param) []namedDecl {
+	out := make([]namedDecl, len(ps))
+	for i, p := range ps {
+		out[i] = namedDecl{p.Name, p.Pos}
+	}
+	return out
+}
+
+func enumMemberDecls(vs []ast.EnumValue) []namedDecl {
+	out := make([]namedDecl, len(vs))
+	for i, v := range vs {
+		out[i] = namedDecl{v.Name, v.Pos}
+	}
+	return out
 }
 
 // checkTypeExistence verifies every named type reference resolves to something

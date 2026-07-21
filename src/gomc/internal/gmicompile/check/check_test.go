@@ -76,6 +76,12 @@ func TestValidateRejections(t *testing.T) {
 		{"unknown type in slice", `type T { xs: []Bogus }`, `unknown type "Bogus"`},
 		{"unknown type in array", `type T { xs: [4]Bogus }`, `unknown type "Bogus"`},
 		{"misspelled primitive", `type T { n: i32x }`, `unknown type "i32x"`},
+		{"duplicate type", "type A { x: i32 }\ntype A { y: i32 }", `duplicate name "A" (already declared as type`},
+		{"type vs enum collision", "type A { x: i32 }\nenum A { X = 0 }", `duplicate name "A" (already declared as type`},
+		{"duplicate func", "func f() -> i32\nfunc f() -> i32", `duplicate func "f"`},
+		{"duplicate field", `type T { x: i32  x: f64 }`, `duplicate field of type T "x"`},
+		{"duplicate param", `func f(a: i32, a: f64) -> i32`, `duplicate param of func f "a"`},
+		{"duplicate enum member name", "enum E { A = 1  A = 2 }", `duplicate member of enum E "A"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,6 +91,24 @@ func TestValidateRejections(t *testing.T) {
 				t.Errorf("errors = %q, want substring %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// Duplicate enum VALUES (aliases) are intentionally allowed — only duplicate
+// member NAMES are rejected (F3). ast.DistinctMembers dedups by value for the
+// emitters, so two names sharing a value is legal.
+func TestValidateAllowsAliasedEnumValues(t *testing.T) {
+	src := `@api test
+@version 1
+
+enum E {
+    OK = 0
+    DEFAULT = 0
+    ERR = 1
+}
+`
+	if got := validate(t, src); got != "" {
+		t.Fatalf("expected aliased enum values to be accepted, got:\n%s", got)
 	}
 }
 
