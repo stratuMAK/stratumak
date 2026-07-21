@@ -91,6 +91,31 @@ guards this (`halcmd_main.c`: `if (c<0) c=0` + atoi). Extracted `parseCompPoint`
 `fnmatch` in the C shims. Added a `halFnmatch` cgo wrapper and routed comp
 filtering through it (nocgo → `path.Match` fallback, unreachable there).
 
+### HC-4 — `newthread` at runtime rejected with `cpu=0` (GitHub issue #265)
+`cmd/halcmd/main.go`. **CONFIRMED, MED (reported by a user).** `[FIXED — b4c7ffb74a]`
+`halcmd newthread <name> <period>` (no cpu) against a running gomc-server failed
+with `cpu=0 is not an isolated CPU (isolated: [])` on a machine with no isolated
+CPUs, while the same `newthread` in a HAL file at startup worked. Root cause: the
+`.hal` parser defaults cpu to **-1** (auto-assign / no-affinity), but the CLI left
+it nil, and a **nil nullable-`i32?` is flattened to 0 across the cgo REST dispatch**
+(`halcmd_cgo.go`: `var cn C.int32_t; if p != nil {…}` → 0 when absent — the C
+`int32_t` ABI has no "absent"; the trampoline then hands the impl a non-nil `&0`).
+cpu=0 is a non-isolated core → correctly rejected by the RT-thread validator. The
+pure-Go bridge preserves nil, but the halcmd API is registered as C callbacks
+(`RegisterHalcmdAPI` → `BuildHalcmdCallbacks`), so the cgo path runs. **Fix:** the
+CLI defaults cpu to -1 and sends it explicitly (survives the round-trip), matching
+the parser. Regression runtest `tests/newthread-runtime` (resident server + runtime
+`newthread`; passes `scripts/runtests`). Reproduced + verified live on a
+no-isolcpus box.
+
+**Follow-up (broader, flagged): nullable-scalar-through-cgo flattening is a
+gmicompile codegen limitation.** Any `T?` scalar param that the cgo REST dispatch
+handles loses its "absent" and defaults to the zero value — e.g. `addf`'s optional
+`position: i32?` becomes 0 (insert-at-front) instead of "append at end" when
+omitted. The proper fix (preserve nullability through the C ABI, e.g. a pointer or
+presence flag) belongs to **gmicompile (Tier-1 hotspot #2)** and would regenerate
+all packages → a separate task. The HC-4 CLI fix resolves the reported case.
+
 ### HF-2 / HF-5 — halfile resolver parity
 `internal/halfile/resolve.go`. **CONFIRMED / PLAUSIBLE.** `[FIXED — 45b8a58f69]`
 HF-2: `os.Stat` succeeds on directories, so a directory that name-matched a HAL
