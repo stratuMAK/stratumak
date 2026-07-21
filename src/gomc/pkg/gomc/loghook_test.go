@@ -74,6 +74,69 @@ func TestNotifyLogError_UnfilteredForwardsAll(t *testing.T) {
 	}
 }
 
+// TestOnLogError_Unregister verifies the returned unregister function removes a
+// hook so it stops receiving errors, and is idempotent. Without this a destroyed
+// module's hook keeps firing on later errors (the shutdown final-flush hazard).
+func TestOnLogError_Unregister(t *testing.T) {
+	resetLogHooks()
+	t.Cleanup(resetLogHooks)
+
+	var got []string
+	unregister := OnLogError(func(component, msg string) {
+		got = append(got, component)
+	})
+
+	NotifyLogError("a.mot", "x")
+	unregister()
+	NotifyLogError("b.mot", "y") // must NOT reach the removed hook
+	unregister()                 // idempotent: second call is a no-op
+
+	if want := []string{"a.mot"}; !equalStrings(got, want) {
+		t.Errorf("after unregister got %v, want %v", got, want)
+	}
+}
+
+// TestOnLogError_UnregisterOneOfMany verifies removing one hook leaves the
+// others registered and in order.
+func TestOnLogError_UnregisterOneOfMany(t *testing.T) {
+	resetLogHooks()
+	t.Cleanup(resetLogHooks)
+
+	var first, second []string
+	unregFirst := OnLogError(func(_, msg string) { first = append(first, msg) })
+	OnLogError(func(_, msg string) { second = append(second, msg) })
+
+	NotifyLogError("c", "1")
+	unregFirst()
+	NotifyLogError("c", "2")
+
+	if want := []string{"1"}; !equalStrings(first, want) {
+		t.Errorf("first hook got %v, want %v", first, want)
+	}
+	if want := []string{"1", "2"}; !equalStrings(second, want) {
+		t.Errorf("second hook got %v, want %v", second, want)
+	}
+}
+
+// TestNotifyLogError_PanicIsolation verifies a panicking hook is contained: it
+// does not propagate out of NotifyLogError (which runs on the recover-less drain
+// goroutine) and does not stop the remaining hooks from running.
+func TestNotifyLogError_PanicIsolation(t *testing.T) {
+	resetLogHooks()
+	t.Cleanup(resetLogHooks)
+
+	var after []string
+	OnLogError(func(_, _ string) { panic("boom") })
+	OnLogError(func(component, _ string) { after = append(after, component) })
+
+	// Must not panic out to the caller.
+	NotifyLogError("d.mot", "z")
+
+	if want := []string{"d.mot"}; !equalStrings(after, want) {
+		t.Errorf("hook after the panicking one got %v, want %v (panic not isolated?)", after, want)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -290,12 +290,24 @@ func (m *milltaskModule) Start() error {
 	// optional "error_filter=<regexp>" module parameter, matched against the
 	// emitting component name (e.g. error_filter=^pnp\. on pnp.task). Unset =
 	// forward everything (legacy behaviour).
-	gomc.OnLogError(func(component, msg string) {
+	// Register the hook and chain its unregister into apiCleanup so Destroy
+	// removes it. The registry is a process-global with no owner; the log ring's
+	// final flush runs after Go modules are destroyed, so a hook left registered
+	// would forward a late error into this freed task (operatorError on a stopped
+	// task). Unregistering at Destroy closes that window.
+	unregisterLogHook := gomc.OnLogError(func(component, msg string) {
 		if !m.forwardsErrorFrom(component) {
 			return
 		}
 		t.operatorError(msg)
 	})
+	prevCleanupLog := m.apiCleanup
+	m.apiCleanup = func() {
+		unregisterLogHook()
+		if prevCleanupLog != nil {
+			prevCleanupLog()
+		}
+	}
 
 	// Create and configure the G-code interpreter.
 	if err := m.initInterpreter(); err != nil {
