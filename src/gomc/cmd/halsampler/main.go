@@ -13,16 +13,15 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"math"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 
 	"github.com/coder/websocket"
+	"github.com/sittner/linuxcnc/src/gomc/internal/halstream"
 )
 
 const (
@@ -72,14 +71,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := string(headerMsg)
-	if !strings.HasPrefix(cfg, "cfg:") {
-		fmt.Fprintf(os.Stderr, "halsampler: unexpected header: %s\n", cfg)
+	pinTypes, ok := halstream.ParseHeader(headerMsg)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "halsampler: unexpected header: %s\n", string(headerMsg))
 		os.Exit(1)
 	}
-	pinTypes := cfg[4:]
 	numPins := len(pinTypes)
-	sampleSize := numPins * 8 // each value is 8 bytes
+	sampleSize := numPins * halstream.ValueSize
 
 	sampleNum := 0
 	for numSamples != 0 {
@@ -99,20 +97,22 @@ func main() {
 			}
 
 			for i := 0; i < numPins; i++ {
-				raw := binary.LittleEndian.Uint64(data[offset+i*8:])
-				switch pinTypes[i] {
-				case 'f':
-					fmt.Printf("%f ", math.Float64frombits(raw))
-				case 'b':
-					if raw != 0 {
+				val, err := halstream.Decode(pinTypes[i], halstream.ReadRaw(data[offset:], i))
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "halsampler: %v\n", err)
+					os.Exit(1)
+				}
+				switch v := val.(type) {
+				case float64:
+					fmt.Printf("%f ", v)
+				case bool:
+					if v {
 						fmt.Print("1 ")
 					} else {
 						fmt.Print("0 ")
 					}
-				case 'u':
-					fmt.Printf("%d ", uint32(raw))
-				case 's':
-					fmt.Printf("%d ", int32(raw))
+				default:
+					fmt.Printf("%d ", v)
 				}
 			}
 			fmt.Println()

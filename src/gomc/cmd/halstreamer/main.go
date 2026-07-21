@@ -17,17 +17,15 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"math"
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 
 	"github.com/coder/websocket"
+	"github.com/sittner/linuxcnc/src/gomc/internal/halstream"
 )
 
 const (
@@ -70,12 +68,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := string(headerMsg)
-	if !strings.HasPrefix(cfg, "cfg:") {
-		fmt.Fprintf(os.Stderr, "halstreamer: unexpected header: %s\n", cfg)
+	pinTypes, ok := halstream.ParseHeader(headerMsg)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "halstreamer: unexpected header: %s\n", string(headerMsg))
 		os.Exit(1)
 	}
-	pinTypes := cfg[4:]
 	numPins := len(pinTypes)
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -98,45 +95,16 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Encode one sample as binary (numPins * 8 bytes)
-		buf := make([]byte, numPins*8)
+		// Encode one sample as binary (numPins * ValueSize bytes)
+		buf := make([]byte, numPins*halstream.ValueSize)
 		for i := 0; i < numPins; i++ {
-			var raw uint64
-			switch pinTypes[i] {
-			case 'f':
-				v, err := strconv.ParseFloat(fields[i], 64)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "halstreamer: line %d pin %d: %v\n",
-						lineNum+1, i, err)
-					os.Exit(1)
-				}
-				raw = math.Float64bits(v)
-			case 'b':
-				v, err := strconv.ParseUint(fields[i], 10, 1)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "halstreamer: line %d pin %d: %v\n",
-						lineNum+1, i, err)
-					os.Exit(1)
-				}
-				raw = v
-			case 'u':
-				v, err := strconv.ParseUint(fields[i], 10, 32)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "halstreamer: line %d pin %d: %v\n",
-						lineNum+1, i, err)
-					os.Exit(1)
-				}
-				raw = v
-			case 's':
-				v, err := strconv.ParseInt(fields[i], 10, 32)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "halstreamer: line %d pin %d: %v\n",
-						lineNum+1, i, err)
-					os.Exit(1)
-				}
-				raw = uint64(v)
+			raw, err := halstream.Encode(pinTypes[i], fields[i])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "halstreamer: line %d pin %d: %v\n",
+					lineNum+1, i, err)
+				os.Exit(1)
 			}
-			binary.LittleEndian.PutUint64(buf[i*8:], raw)
+			halstream.WriteRaw(buf, i, raw)
 		}
 
 		err := conn.Write(ctx, websocket.MessageBinary, buf)
