@@ -23,6 +23,14 @@ const (
 	TypeGomod EntryType = "gomod"
 )
 
+// isValidType reports whether t is a recognised registry entry type. Only these
+// types are emitted by GenerateImports/WriteFile, so an unrecognised type in
+// packages.conf would otherwise be parsed but silently dropped from the
+// generated imports, making the module vanish at runtime with a green build.
+func isValidType(t EntryType) bool {
+	return t == TypeGMI || t == TypeGomod
+}
+
 // Entry is one line in packages.conf.
 type Entry struct {
 	Type       EntryType // "gmi" or "gomod"
@@ -199,7 +207,9 @@ func ReadConfIn(path string, enabledFlags map[string]bool) (*Registry, error) {
 
 	var reg Registry
 	scanner := bufio.NewScanner(f)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -217,10 +227,14 @@ func ReadConfIn(path string, enabledFlags map[string]bool) (*Registry, error) {
 
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
-			continue
+			return nil, fmt.Errorf("pkgreg: %s:%d: malformed entry %q (want: TYPE IMPORT_PATH)", path, lineNo, line)
+		}
+		t := EntryType(fields[0])
+		if !isValidType(t) {
+			return nil, fmt.Errorf("pkgreg: %s:%d: unknown type %q (want %q or %q)", path, lineNo, fields[0], TypeGMI, TypeGomod)
 		}
 		reg.Entries = append(reg.Entries, Entry{
-			Type:       EntryType(fields[0]),
+			Type:       t,
 			ImportPath: fields[1],
 		})
 	}
@@ -285,7 +299,7 @@ func hasInitFunc(dir string) bool {
 		return false
 	}
 	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, f.Name()))
@@ -333,7 +347,10 @@ func hasGoFiles(dir string) bool {
 		return false
 	}
 	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(f.Name(), ".go") {
+		// Discover a package only by its buildable (non-test) sources: a dir
+		// with only *_test.go files is not a compilable package, and
+		// blank-importing it would break the build with "no non-test Go files".
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".go") && !strings.HasSuffix(f.Name(), "_test.go") {
 			return true
 		}
 	}
