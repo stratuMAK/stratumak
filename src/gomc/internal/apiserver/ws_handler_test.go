@@ -534,3 +534,30 @@ func TestWatchOriginCheck(t *testing.T) {
 		t.Errorf("cross-origin handshake rejected with wildcard policy: %v", err)
 	}
 }
+
+// UnregisterByInstance must remove every watch API for an instance (and only
+// that instance) so a module's watch registration does not survive its unload
+// and Destroy (which frees the pins the WatchAPI closures capture).
+func TestWatchRegistryUnregisterByInstance(t *testing.T) {
+	r := NewWatchRegistry()
+	r.Register(&WatchAPI{APIName: "haljson", Instance: "panel"})
+	r.Register(&WatchAPI{APIName: "other", Instance: "panel"})
+	r.Register(&WatchAPI{APIName: "haljson", Instance: "keep"})
+
+	if n := r.UnregisterByInstance("panel"); n != 2 {
+		t.Errorf("removed %d; want 2", n)
+	}
+	if r.Get("haljson", "panel") != nil || r.Get("other", "panel") != nil {
+		t.Error("panel watch APIs still resolvable after unregister")
+	}
+	if r.Get("haljson", "keep") == nil {
+		t.Error("unrelated instance was removed")
+	}
+	if got := len(r.All()); got != 1 {
+		t.Errorf("registry has %d APIs; want 1", got)
+	}
+	// Unregistering an absent instance is a no-op.
+	if n := r.UnregisterByInstance("nope"); n != 0 {
+		t.Errorf("removed %d for absent instance; want 0", n)
+	}
+}

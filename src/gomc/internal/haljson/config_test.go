@@ -142,3 +142,48 @@ func TestParseConfigTemplateError(t *testing.T) {
 		t.Fatal("expected template error, got nil")
 	}
 }
+
+// HJ-3: an array whose size exceeds maxArraySize must be rejected at parse time
+// rather than allocating a huge slice / spinning up runaway hal_pin_new calls.
+func TestParseConfigArraySizeBounded(t *testing.T) {
+	cfg := `<halJson>
+  <halJsonRoot path="pins">
+    <halJsonArray name="big" size="2000000000">
+      <halJsonPin name="v" type="float" dir="in"/>
+    </halJsonArray>
+  </halJsonRoot>
+</halJson>`
+	path := writeTempConfig(t, cfg)
+	if _, err := parseConfig(path, templateData()); err == nil {
+		t.Fatal("expected oversized-array error, got nil")
+	}
+
+	// A sane size still parses.
+	ok := `<halJson>
+  <halJsonRoot path="pins">
+    <halJsonArray name="small" size="3">
+      <halJsonPin name="v" type="float" dir="in"/>
+    </halJsonArray>
+  </halJsonRoot>
+</halJson>`
+	if _, err := parseConfig(writeTempConfig(t, ok), templateData()); err != nil {
+		t.Fatalf("sane array size should parse: %v", err)
+	}
+}
+
+// HJ-4: an oversized rate= arg is clamped so it cannot overflow time.Duration
+// into a degenerate/negative interval.
+func TestParseArgsRateClamped(t *testing.T) {
+	_, rate := parseArgs([]string{"rate=999999999999999"})
+	if rate != maxRateMS {
+		t.Errorf("rate = %d; want clamped to %d", rate, maxRateMS)
+	}
+	// A normal rate passes through.
+	if _, r := parseArgs([]string{"rate=50"}); r != 50 {
+		t.Errorf("rate = %d; want 50", r)
+	}
+	// A zero/negative rate keeps the default.
+	if _, r := parseArgs([]string{"rate=0"}); r != 50 {
+		t.Errorf("rate = %d; want default 50", r)
+	}
+}

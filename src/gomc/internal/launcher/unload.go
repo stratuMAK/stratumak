@@ -58,6 +58,22 @@ func (l *Launcher) UnloadModule(name string) error {
 	return fmt.Errorf("module %q not found: %w", name, syscall.ENOENT)
 }
 
+// unregisterModuleAPIs removes every API registration for the given instance
+// from BOTH the REST registry and the watch registry. It must run before the
+// module is destroyed: a WatchAPI's Factory/Watch closures capture the module's
+// HAL pins, so a registration left behind after Destroy frees those pins lets a
+// later WS subscribe resolve it and read freed/recycled memory (and leaks the
+// entry). The REST Registry was already unregistered here historically; the
+// watch registry had no unregister at all, so its entries survived unload.
+func unregisterModuleAPIs(name string) {
+	if reg := apiserver.DefaultRegistry(); reg != nil {
+		reg.UnregisterByInstance(name)
+	}
+	if wr := apiserver.DefaultWatchRegistry(); wr != nil {
+		wr.UnregisterByInstance(name)
+	}
+}
+
 // isModuleLoaded returns true if a module with the given instance name is
 // currently loaded (either as cmod or gomod).
 // Caller must hold modMu (called only from UnloadModule).
@@ -110,10 +126,10 @@ func (l *Launcher) unloadCModule(name string) error {
 	}
 
 	// Step 4: Remove consumer records (this module as consumer).
-	// Step 5: Unregister APIs (this module as provider).
-	if reg := apiserver.DefaultRegistry(); reg != nil {
-		reg.UnregisterByInstance(name)
-	}
+	// Step 5: Unregister APIs (this module as provider) — both the REST registry
+	// and the watch registry, BEFORE Destroy frees this module's HAL pins (a
+	// registered WatchAPI captures those pins; see unregisterModuleAPIs).
+	unregisterModuleAPIs(name)
 
 	// Step 6: Destroy the module.
 	cmodDestroy(cm)
@@ -175,10 +191,9 @@ func (l *Launcher) unloadGoModule(name string) error {
 	// Step 3: Stop the module.
 	gm.mod.Stop()
 
-	// Step 4+5: Remove consumer records and unregister APIs.
-	if reg := apiserver.DefaultRegistry(); reg != nil {
-		reg.UnregisterByInstance(name)
-	}
+	// Step 4+5: Remove consumer records and unregister APIs (REST + watch),
+	// BEFORE Destroy frees this module's HAL pins.
+	unregisterModuleAPIs(name)
 
 	// Step 6: Destroy the module.
 	gm.mod.Destroy()

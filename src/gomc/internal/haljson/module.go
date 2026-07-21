@@ -60,6 +60,10 @@ func (m *haljsonModule) Destroy() {
 }
 
 // parseArgs extracts key=value parameters from the load command args.
+// maxRateMS caps the watch-subscription rate (1 hour) so an oversized `rate=`
+// arg can't overflow time.Duration and produce a degenerate/negative interval.
+const maxRateMS = 3600_000
+
 func parseArgs(args []string) (configPath string, rateMS int) {
 	rateMS = 50
 	for _, arg := range args {
@@ -71,7 +75,13 @@ func parseArgs(args []string) (configPath string, rateMS int) {
 		case "config":
 			configPath = v
 		case "rate":
+			// Clamp to a sane range: a huge value (13+ digits) would overflow
+			// time.Duration(rateMS)*time.Millisecond to a negative/degenerate
+			// interval, which the watch scheduler could treat as a hot-spin.
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				if n > maxRateMS {
+					n = maxRateMS
+				}
 				rateMS = n
 			}
 		}

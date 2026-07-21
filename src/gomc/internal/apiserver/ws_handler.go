@@ -112,6 +112,25 @@ func (r *WatchRegistry) Get(apiName, instance string) *WatchAPI {
 	return r.apis[apiName+"/"+instance]
 }
 
+// UnregisterByInstance removes all watch APIs registered under the given
+// instance name, returning the number removed. This MUST be called on module
+// unload (alongside Registry.UnregisterByInstance) before the module's Destroy
+// frees its HAL pins: a WatchAPI's Factory/Watch closures capture the module's
+// pins, so leaving it registered lets a later WS subscribe resolve it and read
+// freed/recycled HAL memory (and leaks the registration entry indefinitely).
+func (r *WatchRegistry) UnregisterByInstance(instance string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	removed := 0
+	for key, api := range r.apis {
+		if api.Instance == instance {
+			delete(r.apis, key)
+			removed++
+		}
+	}
+	return removed
+}
+
 // All returns all registered watch APIs.
 func (r *WatchRegistry) All() []*WatchAPI {
 	r.mu.RLock()
