@@ -1,3 +1,6 @@
 node_modules/
 dist/
 src/generated/
+# type-checker emit artifacts (source is TS/Vue only; vite bundles from source)
+*.tsbuildinfo
+src/**/*.js
