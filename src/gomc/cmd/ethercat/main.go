@@ -112,15 +112,13 @@ Call '%s <COMMAND> --help' for command-specific help.
 `, progName)
 }
 
-func main() {
-	progName := "ethercat"
-	if len(os.Args) > 0 {
-		parts := strings.Split(os.Args[0], "/")
-		progName = parts[len(parts)-1]
-	}
-
-	// Parse global options before and after command name.
-	opts := &GlobalOpts{
+// parseArgs parses global options and the command name/arguments from the
+// argument list. It accepts the getopt_long forms the IgH tool accepts:
+// separated (-p 0), attached (-p0), long with '=' (--position=0), and clustered
+// short options (-fq == -f -q, -fp0 == -f -p 0). "--" ends option processing.
+// It sets help=true for -h/--help and returns an error on a malformed option.
+func parseArgs(args []string) (opts *GlobalOpts, cmdName string, cmdArgs []string, help bool, err error) {
+	opts = &GlobalOpts{
 		Masters:   "-",
 		Positions: "-",
 		Aliases:   "-",
@@ -128,70 +126,125 @@ func main() {
 		Verbosity: Normal,
 	}
 
-	args := os.Args[1:]
-	var cmdName string
-	var cmdArgs []string
+	// valuePtr returns the destination for a value-taking option (by its short
+	// letter), or nil if the letter is not a value option.
+	valuePtr := func(c byte) *string {
+		switch c {
+		case 'm':
+			return &opts.Masters
+		case 'p':
+			return &opts.Positions
+		case 'a':
+			return &opts.Aliases
+		case 'd':
+			return &opts.Domains
+		case 't':
+			return &opts.DataType
+		case 'o':
+			return &opts.OutputFile
+		case 's':
+			return &opts.Skin
+		}
+		return nil
+	}
+	// setBool applies a boolean option by its short letter; returns false if the
+	// letter is not a known boolean option.
+	setBool := func(c byte) bool {
+		switch c {
+		case 'f':
+			opts.Force = true
+		case 'e':
+			opts.Emergency = true
+		case 'q':
+			opts.Verbosity = Quiet
+		case 'v':
+			opts.Verbosity = Verbose
+		case 'h':
+			help = true
+		default:
+			return false
+		}
+		return true
+	}
+	longToShort := map[string]byte{
+		"master": 'm', "position": 'p', "alias": 'a', "domain": 'd',
+		"type": 't', "output-file": 'o', "skin": 's',
+	}
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-
-		// Accept the getopt_long forms the IgH tool accepts, not just the
-		// space-separated one: the attached short form (-p0) and the long
-		// form with '=' (--position=0), in addition to -p 0 / --position 0.
-		name := a
-		val := ""
-		hasVal := false
-		if strings.HasPrefix(a, "--") {
-			if eq := strings.IndexByte(a, '='); eq >= 0 {
-				name, val, hasVal = a[:eq], a[eq+1:], true
-			}
-		} else if len(a) > 2 && a[0] == '-' && strings.IndexByte("mpadtos", a[1]) >= 0 {
-			// a value-taking short option with its value attached: -p0
-			name, val, hasVal = a[:2], a[2:], true
-		}
-
-		// nextVal yields the option's argument: the attached value if there
-		// is one, otherwise the following token.
-		nextVal := func() string {
-			if hasVal {
-				return val
-			}
-			i++
-			if i < len(args) {
-				return args[i]
-			}
-			return ""
-		}
-
 		switch {
-		case name == "--help" || name == "-h":
-			usage(progName)
-			os.Exit(0)
-		case name == "--master" || name == "-m":
-			opts.Masters = nextVal()
-		case name == "--position" || name == "-p":
-			opts.Positions = nextVal()
-		case name == "--alias" || name == "-a":
-			opts.Aliases = nextVal()
-		case name == "--domain" || name == "-d":
-			opts.Domains = nextVal()
-		case name == "--type" || name == "-t":
-			opts.DataType = nextVal()
-		case name == "--output-file" || name == "-o":
-			opts.OutputFile = nextVal()
-		case name == "--skin" || name == "-s":
-			opts.Skin = nextVal()
-		case name == "--force" || name == "-f":
-			opts.Force = true
-		case name == "--emergency" || name == "-e":
-			opts.Emergency = true
-		case name == "--quiet" || name == "-q":
-			opts.Verbosity = Quiet
-		case name == "--verbose" || name == "-v":
-			opts.Verbosity = Verbose
-		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(os.Stderr, "Error: Unknown option '%s'.\n", a)
-			os.Exit(1)
+		case a == "--":
+			// End of options; everything after is positional.
+			for _, rest := range args[i+1:] {
+				if cmdName == "" {
+					cmdName = rest
+				} else {
+					cmdArgs = append(cmdArgs, rest)
+				}
+			}
+			return
+		case strings.HasPrefix(a, "--"):
+			name := a[2:]
+			val, hasVal := "", false
+			if eq := strings.IndexByte(name, '='); eq >= 0 {
+				name, val, hasVal = name[:eq], name[eq+1:], true
+			}
+			if name == "help" {
+				help = true
+				continue
+			}
+			if short, ok := longToShort[name]; ok {
+				p := valuePtr(short)
+				if hasVal {
+					*p = val
+				} else {
+					i++
+					if i >= len(args) {
+						err = fmt.Errorf("option '--%s' requires a value", name)
+						return
+					}
+					*p = args[i]
+				}
+				continue
+			}
+			switch name {
+			case "force":
+				opts.Force = true
+			case "emergency":
+				opts.Emergency = true
+			case "quiet":
+				opts.Verbosity = Quiet
+			case "verbose":
+				opts.Verbosity = Verbose
+			default:
+				err = fmt.Errorf("Unknown option '%s'", a)
+				return
+			}
+		case len(a) > 1 && a[0] == '-':
+			// Short option cluster: -v, -fq, -p0, -fp0 ...
+			for j := 1; j < len(a); j++ {
+				c := a[j]
+				if p := valuePtr(c); p != nil {
+					// A value-taking option consumes the rest of the token as
+					// its value, or the next argument if the token ends here.
+					if j+1 < len(a) {
+						*p = a[j+1:]
+					} else {
+						i++
+						if i >= len(args) {
+							err = fmt.Errorf("option '-%c' requires a value", c)
+							return
+						}
+						*p = args[i]
+					}
+					break
+				}
+				if !setBool(c) {
+					err = fmt.Errorf("Unknown option '-%c'", c)
+					return
+				}
+			}
 		default:
 			if cmdName == "" {
 				cmdName = a
@@ -200,7 +253,25 @@ func main() {
 			}
 		}
 	}
+	return
+}
 
+func main() {
+	progName := "ethercat"
+	if len(os.Args) > 0 {
+		parts := strings.Split(os.Args[0], "/")
+		progName = parts[len(parts)-1]
+	}
+
+	opts, cmdName, cmdArgs, help, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v.\n", err)
+		os.Exit(1)
+	}
+	if help {
+		usage(progName)
+		os.Exit(0)
+	}
 	if cmdName == "" {
 		usage(progName)
 		os.Exit(1)
