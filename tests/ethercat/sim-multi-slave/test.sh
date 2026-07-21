@@ -28,7 +28,7 @@ echo "all-op=$(getp ethercat.0.all-op) slaves-responding=$resp"
 [ "$resp" = 3 ] || { echo "FAIL: expected 3 slaves responding, got '$resp'" >&2; fail=1; }
 
 # Every slave reached OP.
-for s in do di io; do
+for s in "do" "di" "io"; do
     o=$(getp ethercat.0.$s.slave-oper)
     echo "  $s.slave-oper=$o"
     [ "$o" = TRUE ] || { echo "FAIL: slave '$s' did not reach OP" >&2; fail=1; }
