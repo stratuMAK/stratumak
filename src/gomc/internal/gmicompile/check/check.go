@@ -15,10 +15,11 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
 )
 
-// Validate returns every constraint error found in the API. It does not stop at
+// Validate returns every semantic error found in the API. It does not stop at
 // the first — a compiler should report all mistakes in one run.
 func Validate(api *ast.API) []error {
 	c := &checker{api: api}
+	c.checkTypeExistence()
 	for _, t := range api.Types {
 		for _, f := range t.Fields {
 			site := fmt.Sprintf("%s: type %s.%s", f.Pos, t.Name, f.Name)
@@ -49,6 +50,86 @@ type checker struct {
 
 func (c *checker) errf(site, format string, a ...interface{}) {
 	c.errs = append(c.errs, fmt.Errorf("%s: %s", site, fmt.Sprintf(format, a...)))
+}
+
+// checkTypeExistence verifies every named type reference resolves to something
+// declared in the API. An unresolved reference otherwise flows to the emitter
+// and produces uncompilable generated code (e.g. a Go/C reference to a type that
+// does not exist); catching it here yields a source-level `file:line` diagnostic
+// instead of a confusing compiler error in generated output.
+//
+// A TypeNamed is valid iff it names a declared type, enum, callback, or import.
+// Callbacks and imports are included because the parser classifies a *forward*
+// reference to one as TypeNamed (its callbacks/imports sets are populated in
+// declaration order); resolving against the fully-parsed API here avoids a false
+// "unknown type" on a legal forward reference. Primitives, and back-referenced
+// callbacks/imports, already carry their own TypeKind and need no lookup.
+func (c *checker) checkTypeExistence() {
+	known := c.knownTypeNames()
+	for _, t := range c.api.Types {
+		for _, f := range t.Fields {
+			c.checkTypeRef(fmt.Sprintf("%s: type %s.%s", f.Pos, t.Name, f.Name), f.Type, known)
+		}
+	}
+	for _, fn := range c.api.Funcs {
+		for _, p := range fn.Params {
+			c.checkTypeRef(fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name), p.Type, known)
+		}
+		if fn.Return != nil {
+			c.checkTypeRef(fmt.Sprintf("%s: func %s return", fn.Pos, fn.Name), *fn.Return, known)
+		}
+	}
+	for _, cb := range c.api.Callbacks {
+		for _, p := range cb.Params {
+			c.checkTypeRef(fmt.Sprintf("%s: callback %s param %s", p.Pos, cb.Name, p.Name), p.Type, known)
+		}
+		if cb.Return != nil {
+			c.checkTypeRef(fmt.Sprintf("%s: callback %s return", cb.Pos, cb.Name), *cb.Return, known)
+		}
+	}
+	for _, ss := range c.api.StreamServers {
+		for _, fn := range ss.Funcs {
+			for _, p := range fn.Params {
+				c.checkTypeRef(fmt.Sprintf("%s: stream_server %s.%s param %s", p.Pos, ss.Name, fn.Name, p.Name), p.Type, known)
+			}
+			if fn.Return != nil {
+				c.checkTypeRef(fmt.Sprintf("%s: stream_server %s.%s return", fn.Pos, ss.Name, fn.Name), *fn.Return, known)
+			}
+		}
+	}
+}
+
+// knownTypeNames is the set of every name a TypeNamed reference may resolve to.
+func (c *checker) knownTypeNames() map[string]bool {
+	known := make(map[string]bool, len(c.api.Types)+len(c.api.Enums)+len(c.api.Callbacks)+len(c.api.Imports))
+	for _, t := range c.api.Types {
+		known[t.Name] = true
+	}
+	for _, e := range c.api.Enums {
+		known[e.Name] = true
+	}
+	for _, cb := range c.api.Callbacks {
+		known[cb.Name] = true
+	}
+	for _, im := range c.api.Imports {
+		known[im.Name] = true
+	}
+	return known
+}
+
+// checkTypeRef recurses into array/slice element types and flags an unresolved
+// named type.
+func (c *checker) checkTypeRef(site string, t ast.TypeRef, known map[string]bool) {
+	switch t.Kind {
+	case ast.TypeArray, ast.TypeSlice:
+		if t.Elem != nil {
+			c.checkTypeRef(site, *t.Elem, known)
+		}
+	case ast.TypeNamed:
+		if !known[t.Name] {
+			c.errf(site, "unknown type %q (no matching type, enum, callback, or import)", t.Name)
+		}
+	}
 }
 
 // checkSite validates all constraints attached to one field or parameter.

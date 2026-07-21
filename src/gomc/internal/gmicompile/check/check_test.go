@@ -70,6 +70,12 @@ func TestValidateRejections(t *testing.T) {
 		{"duplicate", `type T { n: i32 @min(0) @min(1) }`, "duplicate constraint @min"},
 		{"constraint on out param", `func f(x: i32 out @min(0)) -> i32`, "out (output) parameter"},
 		{"enum_open on non-enum", `type T { n: i32 @enum_open }`, "@enum_open applies to enum"},
+		{"unknown type in field", `type T { x: Bogus }`, `unknown type "Bogus"`},
+		{"unknown type in param", `func f(x: Bogus) -> i32`, `unknown type "Bogus"`},
+		{"unknown type in return", `func f() -> Bogus`, `unknown type "Bogus"`},
+		{"unknown type in slice", `type T { xs: []Bogus }`, `unknown type "Bogus"`},
+		{"unknown type in array", `type T { xs: [4]Bogus }`, `unknown type "Bogus"`},
+		{"misspelled primitive", `type T { n: i32x }`, `unknown type "i32x"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
