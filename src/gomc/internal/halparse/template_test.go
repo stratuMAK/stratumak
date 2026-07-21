@@ -293,3 +293,34 @@ func TestRenderHalTemplate_Seq1Function(t *testing.T) {
 		t.Errorf("seq1 should not produce 0, got %q", out)
 	}
 }
+
+// An absurd (hostile/typo'd) iteration count must fail the render with an error
+// instead of allocating an unbounded slice and OOM-ing the controller at
+// bring-up. Covers seq1/count/seq, including a huge count sourced from an INI
+// value via atoi.
+func TestRenderHalTemplate_SeqLenBounded(t *testing.T) {
+	data := &HalTemplateData{INI: map[string]map[string]string{
+		"KINS": {"JOINTS": "2000000000"},
+	}}
+	cases := []string{
+		"{{range seq1 2000000000}}x{{end}}",
+		"{{range count 2000000000}}x{{end}}",
+		"{{range seq 0 2000000000}}x{{end}}",
+		`{{range count (atoi (ini "KINS" "JOINTS"))}}x{{end}}`,
+	}
+	for _, input := range cases {
+		if _, err := RenderHalTemplate("test.hal", input, data); err == nil {
+			t.Errorf("expected error for oversized count in %q, got nil", input)
+		}
+	}
+}
+
+// A negative iteration count must be rejected cleanly (not panic in make()).
+func TestRenderHalTemplate_SeqLenNegative(t *testing.T) {
+	data := &HalTemplateData{INI: map[string]map[string]string{}}
+	for _, input := range []string{"{{range seq1 -1}}x{{end}}", "{{range seq 5 0}}x{{end}}"} {
+		if _, err := RenderHalTemplate("test.hal", input, data); err == nil {
+			t.Errorf("expected error for negative count in %q, got nil", input)
+		}
+	}
+}

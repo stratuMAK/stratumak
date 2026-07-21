@@ -11,6 +11,25 @@ import (
 	"text/template"
 )
 
+// maxSeqLen bounds the element count of the seq/seq1/count template helpers.
+// The count is template/INI-driven, so an absurd value must not be allowed to
+// allocate an unbounded slice (OOM at bring-up). 1e6 is far above any real HAL
+// instance count while capping the worst case at a few MB.
+const maxSeqLen = 1_000_000
+
+// checkSeqLen validates a template iteration count: non-negative and within
+// maxSeqLen. It returns a template-friendly error (surfaced as a render failure)
+// rather than letting an out-of-range value panic make() or OOM the process.
+func checkSeqLen(n int) error {
+	if n < 0 {
+		return fmt.Errorf("iteration count %d is negative", n)
+	}
+	if n > maxSeqLen {
+		return fmt.Errorf("iteration count %d exceeds maximum %d", n, maxSeqLen)
+	}
+	return nil
+}
+
 // HalTemplateData holds the data context available to HAL file templates.
 type HalTemplateData struct {
 	INI    map[string]map[string]string
@@ -178,27 +197,41 @@ func halTemplateFuncs(data *HalTemplateData) template.FuncMap {
 			return ia * ib, err
 		},
 
-		// Iteration helpers
-		"seq": func(start, end int) []int {
-			result := make([]int, 0, end-start)
+		// Iteration helpers. The element count comes from the template (often
+		// via `atoi (ini ...)`), so it is bounded to maxSeqLen: an absurd count
+		// (a hostile/typo'd INI value) would otherwise `make` a multi-GB slice
+		// and OOM the controller at bring-up. Negative counts are rejected
+		// rather than left to panic in make().
+		"seq": func(start, end int) ([]int, error) {
+			n := end - start
+			if err := checkSeqLen(n); err != nil {
+				return nil, err
+			}
+			result := make([]int, 0, n)
 			for i := start; i < end; i++ {
 				result = append(result, i)
 			}
-			return result
+			return result, nil
 		},
-		"seq1": func(n int) []int {
+		"seq1": func(n int) ([]int, error) {
+			if err := checkSeqLen(n); err != nil {
+				return nil, err
+			}
 			result := make([]int, n)
 			for i := range result {
 				result[i] = i + 1
 			}
-			return result
+			return result, nil
 		},
-		"count": func(n int) []int {
+		"count": func(n int) ([]int, error) {
+			if err := checkSeqLen(n); err != nil {
+				return nil, err
+			}
 			result := make([]int, n)
 			for i := range result {
 				result[i] = i
 			}
-			return result
+			return result, nil
 		},
 
 		// INI access — closure over the template's own INI data
