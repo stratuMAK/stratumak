@@ -108,13 +108,22 @@ the parser. Regression runtest `tests/newthread-runtime` (resident server + runt
 `newthread`; passes `scripts/runtests`). Reproduced + verified live on a
 no-isolcpus box.
 
-**Follow-up (broader, flagged): nullable-scalar-through-cgo flattening is a
-gmicompile codegen limitation.** Any `T?` scalar param that the cgo REST dispatch
-handles loses its "absent" and defaults to the zero value — e.g. `addf`'s optional
-`position: i32?` becomes 0 (insert-at-front) instead of "append at end" when
-omitted. The proper fix (preserve nullability through the C ABI, e.g. a pointer or
-presence flag) belongs to **gmicompile (Tier-1 hotspot #2)** and would regenerate
-all packages → a separate task. The HC-4 CLI fix resolves the reported case.
+**Follow-up (broader): nullable-scalar-through-cgo flattening — FIXED at the
+generator (user ruling, commit `4e1f2ac387`).** Any `T?` scalar param handled by
+the cgo callback FFI lost its "absent" and defaulted to the zero value — the
+dispatch zero-filled it and the bridge trampoline always took `&local`, so a Go
+provider always saw a non-nil pointer to a fabricated 0 (`addf position` → 0 =
+insert-at-front; `newthread fp` → false = non-FP thread; also `newthread cpu`).
+The user chose the C-ABI-pointer fix: nullable scalars now transit as pointers
+(NULL = absent) across the api.h typedef, `call_X`, dispatch marshaling (malloc +
+`_freeList`), and the bridge trampoline (nil-preserving `*T`). Strings excluded
+(already `char*`). The one C provider with nullable scalar params
+(`gmi_ethercat.c`: `master_index` ×32, `size?`, `mem_size?`) updated to the
+pointer signatures; builds 0-warning. CLI band-aids (HC-4 -1 sentinels) reverted
+to `nil` — the ABI carries it now, and `tests/newthread-runtime` exercises the
+omitted→nil path end-to-end. cgen regression tests added. **Needs a full runtests
+round** (regenerated ABI is corpus-wide). The HC-4 CLI note above records the
+original narrow fix; the generator fix supersedes it.
 
 ### HF-2 / HF-5 — halfile resolver parity
 `internal/halfile/resolve.go`. **CONFIRMED / PLAUSIBLE.** `[FIXED — 45b8a58f69]`
