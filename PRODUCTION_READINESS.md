@@ -335,14 +335,21 @@ gated the same way: 33 IDLs still clean + regen byte-identical + tests):
   `0x1F` already errors (not silent), so no change; and the two doubled diagnostics (F6 `@min/@max`
   on enum, F7 negative-on-unsigned) — current behavior judged correct/acceptable.
 
-**Tier-1 emission-logic deferrals remain open** (separate session): G-M4 (TS 64-bit
-`number`→`string`+bigint = client API-surface call), G-L1 (`_cb` RT annotation — cross-cutting, belongs
-to `RT_HARDENING_CHECKLIST.md` item 1b), G-L5 (array-size symbol drift — latent, fix touches emission
-across ~39 packages), G-L7 (external `*_client.c` nested-struct parser — feature work needing a
-consumer test). `R` ✅ (both halves reviewed); `F`/`U` left ◐ **only** for those four emission
-deferrals now. `RC` ✅ (module-wide `-race` sweep green). `FP` — (a code generator, not a runtime
-fault-path module). Verified: full `make` regen git-clean, parser/check tests green (incl. 12 new this
-round), build/vet/gofmt/lint(0) green.
+**Tier-1 emission-logic deferrals — 2 of 4 now DONE (2026-07-21).** **G-M4 FIXED** (`d7d3e7fe7f`):
+64-bit ints cross the wire as JSON strings (protobuf3 convention) across Go/Python/TS clients —
+Go native `json:",string"`, Python int↔str at the seam, TS `bigint` + recursive revivers; body
+64-bit params supported; two **fail-loud** gmicompile guards (64-bit REST path/query param; Python
+nested-64-bit field). `newthread(period_ns)` now bigint; webapp consumers convert at display. All 6
+webapps `vue-tsc --force` clean (pre-existing halscope errors fixed, `1926c82ca8`). **G-L5 FIXED**
+(`7d8d51408f`): all C array bounds route through one `#define`-aware helper (`cArraySizeStr`) so
+header/bridge/dispatch agree and no `[0]` can leak; regenerated cgo recompiles clean.
+**Still open** (separate/fresh session): G-L1 (`_cb` RT annotation — cross-cutting, belongs to
+`RT_HARDENING_CHECKLIST.md` item 1b, needs the clang `-Wfunction-effects` worktree), G-L7 (external
+`*_client.c` nested-struct parser — feature work needing a consumer test). `R` ✅ (both halves
+reviewed); `F`/`U` left ◐ **only** for those two remaining emission deferrals. `RC` ✅ (module-wide
+`-race` sweep green). `FP` — (a code generator, not a runtime fault-path module). Verified: full
+`make` regen git-clean, gmicompile suite green (incl. G-M4/G-L5 tests this round), all generated
+cgo recompiles, build/vet/gofmt/lint(0) green.
 
 **`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
 human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
@@ -679,9 +686,10 @@ Human review mandatory, in this order:
    **DONE (2026-07-19/20) — see `GMICOMPILE_REVIEW_FINDINGS.md` + the Phase-1 note above.** Both
    catastrophic classes (cgo handle transit, returned-data ownership) verified closed
    generator-wide across all 33 packages; all live/production findings fixed (operator-message
-   loss root-caused here; `--server-go` ptr truncation; mapper drift; fail-fast guards). Deferred
-   as manual/design-decision (not auto-fixable): G-M4, G-L1, G-L5, G-L7. Tier-2 parser/AST still
-   to review.
+   loss root-caused here; `--server-go` ptr truncation; mapper drift; fail-fast guards; **G-M4
+   64-bit-as-JSON-string + G-L5 array-size `#define` consolidation, 2026-07-21**). Deferred as
+   manual/design-decision (not auto-fixable): G-L1 (RT annotation), G-L7 (external C nested-struct
+   parser). Tier-2 parser/AST still to review.
 3. **cmd/ethercat** — **DONE (M1+M2+M3, 2026-07-21); hotspot substantially closed.** This is a
    *diagnostic CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI to the master at
    `GMC_REST_URL`) — it holds **no** state machine, watchdog, or slave-loss logic; every
@@ -936,3 +944,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-21 | **GitHub issue #265 (`newthread` at runtime) FIXED** (commit `b4c7ffb74a`; Phase-4 halcmd, HC-4). `halcmd newthread <name> <period>` (no cpu) against a running server failed `cpu=0 is not an isolated CPU (isolated: [])` on a no-isolcpus box, while `newthread` in a HAL file worked. Root cause: the `.hal` parser defaults cpu to -1 (auto), but the CLI left it nil, and a nil `i32?` is flattened to 0 across the cgo REST dispatch (`int32_t` ABI has no "absent"; halcmd registers as C callbacks so the cgo path runs, not the nil-preserving Go bridge) → the impl gets `&0` → cpu 0 is non-isolated → rejected. Fix: CLI defaults cpu to -1 and sends it explicitly; explicit `cpu=0` still correctly rejected. Reproduced + verified live; regression runtest `tests/newthread-runtime` (resident server + runtime newthread) passes `scripts/runtests`. **Follow-up flagged:** the nullable-scalar-through-cgo flattening is a gmicompile codegen limitation affecting any `T?` scalar the cgo dispatch handles (e.g. `addf` optional `position` → 0/insert-at-front vs append) — the general fix belongs to gmicompile (hotspot #2), regenerating all packages. |
 | 2026-07-21 | **halparse HP-1..HP-4 FIXED after user ruling** (commit `7bf02a484e`). Ruling: fix HP-1/HP-2, match 2.9 for HP-3/HP-4. The tokenizer now follows 2.9's per-line order `strip_comments → replace_vars → tokenize` (new quote-aware `stripComments`; a `#` in a substituted INI/ENV value no longer truncates the line; refs inside comments are stripped before substitution — which is why HP-2's blast radius is small, 0 non-comment env refs in the shipped corpus). A missing INI/ENV var is now a hard parse error (2.9 replace_vars -5/-4) via a new `INILookup.Get` `found bool` (adapter derives it from `GetAll`; env via `os.LookupEnv`; present-but-empty still OK). Backslash is an ordinary char everywhere (dropped gomc's `\n \t \" \\` escapes). Continuation joins with no separator. Tests reworked (mockINI 3-return Get, new TestStripComments + end-to-end HP-1/HP-2 tests, literal-backslash + no-separator-continuation cases); build/vet/gofmt/lint(0) green. Validated by a full runtests round (all green); a `[SEC]KEY` that fails to resolve now errors, exactly 2.9's behavior. halparse row → F ✅. |
 | 2026-07-21 | **ADS cluster reviewed (Phase 2, Tier 2 adversarial)** — `ADS_REVIEW_FINDINGS.md`. Net-new code, no 2.9 oracle; server binds `0.0.0.0:48898` with no protocol auth. Two independent refutation passes (remote-DoS, concurrency/lifecycle). **Headline: a remote unauthenticated client could crash/OOM the motion controller with a single ~28-byte packet** — all fixed: A1 SumWrite `uint32` overflow → slice panic; A2 unbounded `make` from client sub-request count (≈137 GB → OOM); A3 unbounded process-image read `length` (≈4 GB, incl. notification `sendLoop` re-OOM every 10 ms); A4 no `recover()` in any goroutine. Bounds + `recover()` added; regression tests `internal/ads/dos_test.go`. Robustness: A6 write deadlines, A10 accept backoff, A11 idempotent `Stop()`, A12 construction-error HAL-component leak. A5 (partial): closed accept/register race + stage-2 read honors `quit`, narrowing the known ADS2 shutdown-UAF (full free-barrier contract still open, decide with pkg/hal H1). Refuted (locking correct): notifyManager races, SymbolTable lock model incl. suspected re-entrant-RLock deadlock. Open: A5 contract, A7 (conn/sub caps — HMI-count decision), A8 (`[0..N]` array silently mis-laid-out — fix proposed, separate commit), A9 (0.0.0.0/no-auth → safety-boundary doc), A13/A14 (low). build/vet/gofmt clean, lint 0, `-race` green. Rows → ads/adsbridge/adsconfig/adsmodule L R RC ✅, F ◐. |
+| 2026-07-21 | **gmicompile Tier-1 emission deferrals — G-M4 + G-L5 landed (2 of 4).** **G-M4** (`d7d3e7fe7f`): 64-bit ints cross the wire as JSON **strings** (protobuf3 convention) across Go/Python/TS clients — Go native `json:",string"` (response fields + POST/PUT/PATCH body params, through pointers/nil), Python int↔str at from_dict/to_dict/body seam, TS `bigint` + recursive per-type revivers (BigInt() over nested structs+slices) wired into REST returns/WS subscribe/WS command results. Two **fail-loud** gmicompile guards (fire on no current IDL): reject a 64-bit REST **path/query** param (encodeParams→bare number→JS truncation), and reject `--client-python` for an API whose 64-bit field is reachable only through a **nested** named type (from_dict doesn't recurse). `newthread(period_ns)`→bigint; webapp consumers convert at display boundary. Decided with user: full clean solution over doc-footnote, hard-fail the unsupportable shapes. **G-L5** (`7d8d51408f`): all C array bounds route through one `#define`-aware helper (`cArraySizeStr`; `serverGen.arraySizeStr` delegates) so header/cgo-bridge/dispatch/external-client agree (kins bridge now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenName` can't emit `[0]`; Go bounds stay numeric. Regenerated cgo recompiles clean; per-target tests added. **Bonus:** `vue-tsc --force` sweep of all 6 webapps flushed out pre-existing halscope type errors masked by stale incremental cache (missing trigger fields, `preTrig` on wrong type, dead var) — fixed separately (`1926c82ca8`); all 6 webapps now type-check from cold. gmicompile row F/U ◐ **now only for G-L1 + G-L7** (both → fresh/RT-hardening session). |

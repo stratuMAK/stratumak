@@ -64,12 +64,27 @@ struct field), so this is pure fail-fast hardening — a full `make` regen of ev
 Reconciliation confirmed all prior fix commits landed and both dead files (`server_ws.go`,
 `client_go_internal.go`) are gone.
 
-**Remaining (all require manual review / a design decision — NOT auto-fixable):** G-M4 (TS 64-bit:
-`number`→`string`+bigint changes the client API surface — design call), G-L1 (`_cb` RT annotation:
-cross-cutting with the RT-hardening checklist item 1b — belongs to that session), G-L5 (array-size
-symbol drift: latent, but the fix touches emission across all ~39 packages), G-L7 (external
-`*_client.c` nested-struct parser: real feature work needing a consumer test). Each stays deferred
-with the rationale in §4/§5.
+**STATUS (2026-07-21): G-M4 + G-L5 FIXED** (commits `d7d3e7fe7f`, `7d8d51408f`). **G-M4** — 64-bit
+ints now cross the wire as JSON strings (protobuf3 convention), consistent across Go/Python/TS
+clients: Go uses native `json:",string"` on scalar i64/u64 (response fields + POST/PUT/PATCH body
+params; works through pointers/nil); Python converts at the from_dict/to_dict/body seam; TS types
+them `bigint` with recursive per-type revivers (BigInt() over nested structs+slices) wired into
+REST returns, WS subscribe callbacks, and WS command results. Two **fail-loud guards** added (no
+current IDL trips them): the check layer rejects a 64-bit REST **path/query** param (encodeParams
+coerces to a bare number → JS truncation), and `--client-python` rejects an API whose 64-bit field
+is reachable only through a **nested** named type (Python from_dict doesn't recurse). `newthread`'s
+`period_ns` is now bigint; webapp consumers convert bigint→number at the display boundary. Full
+gmicompile suite + gomc build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
+clean (a separate commit `1926c82ca8` fixed pre-existing halscope errors the regen surfaced).
+**G-L5** — all C array bounds now route through one `#define`-aware helper (`cArraySizeStr`;
+`serverGen.arraySizeStr` delegates), so header/cgo-bridge/dispatch/external-client agree (e.g. kins
+bridge is now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenName` can never emit
+`[0]`; Go array bounds stay numeric. All generated cgo recompiles clean; 2 tests.
+
+**Remaining (require manual review / a design decision — NOT auto-fixable):** G-L1 (`_cb` RT
+annotation: cross-cutting with the RT-hardening checklist item 1b — belongs to that session; needs
+the clang `-Wfunction-effects` worktree), G-L7 (external `*_client.c` nested-struct parser: real
+feature work needing a consumer test). Each stays deferred with the rationale in §4/§5.
 
 ---
 
@@ -151,7 +166,11 @@ them (u16 ×80), and the py/ts clients are opt-in CLI outputs not in the server 
 value still serializes as a JSON int; the impact is degraded type-safety and a live example of
 the G-M2 drift. **Fix:** add the cases (or the shared table from G-M2).
 
-### G-M4 — TS clients collapse `i64`/`u64` → JS `number`, truncating above 2⁵³
+### G-M4 — TS clients collapse `i64`/`u64` → JS `number`, truncating above 2⁵³ — **FIXED (2026-07-21, `d7d3e7fe7f`)**
+Resolved wire-format-wide (not TS-only): 64-bit ints serialize as JSON **strings** (protobuf3
+convention) across Go (`json:",string"`), Python (int↔str at the seam), and TS (`bigint` +
+recursive revivers). Body 64-bit params supported symmetrically; 64-bit REST path/query params and
+Python nested-64-bit fields now **fail loud** at gmicompile. See the STATUS block at the top.
 `client_ts.go:342-343` (inherited by `client_ts_ws.go`)
 **CONFIRMED · MED/LOW (TS clients only, opt-in)** — real large-valued u64 exist:
 `canon.update_tag(tag_ptr: u64)` (a raw pointer!), ethercat byte/packet counters, `kins` bitmasks.
@@ -187,10 +206,12 @@ or at minimum a generator warning.
   alloc/free, `emitFieldGoToC` now **panics with a shape-naming message** on fixed-array-of-string
   — a build-time generator failing loud beats silently-broken cgo. Regen byte-identical; guard
   test added. Revisit to *implement* only if an IDL introduces the shape.
-- **G-L5 — array-size symbol drift:** the header mapper emits the `#define` name
-  (`MOTSTAT_MAX_JOINTS`) while the dispatch/client copies emit the raw number. Harmless today
-  (parser resolves lengths), latent `[0]` if an `ArrayLenName` ever stays unresolved. Route all
-  through the `#define`-aware helper. `server.go:156` vs `dispatch_c.go:1163`/`client.go`.
+- **G-L5 — array-size symbol drift. FIXED (2026-07-21, `7d8d51408f`).** The header mapper emitted
+  the `#define` name (`MOTSTAT_MAX_JOINTS`) while the cgo-bridge/dispatch/external-client copies
+  emitted the raw number. Now all C array bounds route through one helper (`cArraySizeStr`;
+  `serverGen.arraySizeStr` delegates), so every C copy agrees and an unresolved `ArrayLenName` can
+  never emit `[0]`; Go bounds stay numeric (C `#define` invisible to Go). E.g. kins bridge is now
+  `joints[KINS_MAX_JOINTS]`. All generated cgo recompiles clean; 2 tests.
 - **G-L6 — cgo `ptr`/array → `C.int` silent fallback. FIXED (fail-fast).** (struct-field angle of
   G-H2; `dispatch_c.go` `cTypeForAPICgo`.) The PrimPtr half was fixed in `04b1d14df9`; the
   residual `C.int` default for any other unsupported shape (a fixed array reaching the mapper, a
@@ -254,13 +275,16 @@ or at minimum a generator warning.
    rather than emit broken/mismapped cgo. Zero-risk (regen byte-identical over all 33 packages);
    two guard tests added. This is the automatable subset — converting silent-latent-corruption into
    a loud build error, exactly the doc's "make the default a generator error" recommendation.
-5. **Deferred — require manual review / a design decision, NOT auto-fixable:** G-M4 (TS 64-bit:
-   `number`→`string`+bigint is an API-surface design call for opt-in TS clients), G-L1 (`_cb` RT
-   annotation — cross-cutting, tracked as RT-checklist 1b, belongs to the RT-hardening session),
-   G-L5 (array-size symbol drift — latent, but the fix touches emission across all ~39 packages so
-   it needs a regen-diff review), G-L7 (external `*_client.c` nested-struct parser — real feature
-   work needing a consumer test). Each still needs its own test. Revisit if an IDL introduces the
-   shape or a client needs it.
+5. **G-M4 + G-L5 — DONE** (2026-07-21, commits `d7d3e7fe7f`, `7d8d51408f`). G-M4: 64-bit ints as
+   JSON strings across all clients (protobuf3 convention) + two fail-loud guards (64-bit REST
+   path/query param; Python nested-64-bit) + body-param support; tests per target. G-L5: all C
+   array bounds through one `#define`-aware helper (`cArraySizeStr`); regenerated cgo recompiles
+   clean; 2 tests. See the STATUS blocks and the per-finding entries above.
+6. **Deferred — require manual review / a design decision, NOT auto-fixable:** G-L1 (`_cb` RT
+   annotation — cross-cutting, tracked as RT-checklist 1b, belongs to the RT-hardening session with
+   the clang `-Wfunction-effects` worktree), G-L7 (external `*_client.c` nested-struct parser —
+   real feature work needing a consumer test). Each still needs its own test. Revisit if an IDL
+   introduces the shape or a client needs it.
 
 **Every fix needs a test that would have caught it** (risk class 4) — for G-H1 a multi-subscriber
 publish test; for G-H2 a generate+build check of a callback/ptr API under `--server-go`; for the
