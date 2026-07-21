@@ -141,15 +141,15 @@ func TestClientTSBigintAndRevive(t *testing.T) {
 	}
 	out := buf.String()
 	checks := []string{
-		"tx_bytes: bigint;",                 // field typed bigint
-		"t_ms: bigint;",                     // nested field typed bigint
-		"function __reviveStats",            // reviver emitted
-		"function __revivePoint",            // nested reviver emitted
+		"tx_bytes: bigint;",      // field typed bigint
+		"t_ms: bigint;",          // nested field typed bigint
+		"function __reviveStats", // reviver emitted
+		"function __revivePoint", // nested reviver emitted
 		"BigInt(o.tx_bytes as unknown as string)",
-		"o.points?.forEach(__revivePoint)",  // nested slice revived
-		"__reviveStats(__res);",             // wired into the getter
-		"periodNs: bigint",                  // 64-bit body param typed bigint
-		"period_ns: String(periodNs)",       // ...serialized as a JSON string
+		"o.points?.forEach(__revivePoint)", // nested slice revived
+		"__reviveStats(__res);",            // wired into the getter
+		"periodNs: bigint",                 // 64-bit body param typed bigint
+		"period_ns: String(periodNs)",      // ...serialized as a JSON string
 	}
 	for _, c := range checks {
 		if !strings.Contains(out, c) {
