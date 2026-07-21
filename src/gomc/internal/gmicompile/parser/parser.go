@@ -32,6 +32,11 @@ func Parse(filename, src string) (*ast.API, []string) {
 	p.advance()
 	api := p.parseAPI()
 	p.reclassifyForwardRefs(api)
+	// Merge lexical errors (all tokens have been scanned by now, since the
+	// parser pulls them eagerly through parseAPI), prefixed with the file name.
+	for _, e := range p.scanner.errs {
+		p.errors = append(p.errors, p.file+":"+e)
+	}
 	return api, p.errors
 }
 

@@ -559,6 +559,21 @@ func hasErrContaining(errs []string, substr string) bool {
 	return false
 }
 
+// An unterminated string literal must error, not silently swallow the rest of
+// the file as string content.
+func TestParseUnterminatedStringErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+@doc "this quote never closes
+func f() -> i32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "unterminated string literal") {
+		t.Fatalf("expected an unterminated-string error, got %v", errors)
+	}
+}
+
 // A non-integer enum value must error, not silently become 0.
 func TestParseEnumValueNonIntegerErrors(t *testing.T) {
 	src := `@api test
