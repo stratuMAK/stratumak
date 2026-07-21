@@ -121,9 +121,9 @@ The user chose the C-ABI-pointer fix: nullable scalars now transit as pointers
 (`gmi_ethercat.c`: `master_index` ×32, `size?`, `mem_size?`) updated to the
 pointer signatures; builds 0-warning. CLI band-aids (HC-4 -1 sentinels) reverted
 to `nil` — the ABI carries it now, and `tests/newthread-runtime` exercises the
-omitted→nil path end-to-end. cgen regression tests added. **Needs a full runtests
-round** (regenerated ABI is corpus-wide). The HC-4 CLI note above records the
-original narrow fix; the generator fix supersedes it.
+omitted→nil path end-to-end. cgen regression tests added. Validated by a full
+runtests round (all green, regenerated ABI corpus-wide). The HC-4 CLI note above
+records the original narrow fix; the generator fix supersedes it.
 
 ### HF-2 / HF-5 — halfile resolver parity
 `internal/halfile/resolve.go`. **CONFIRMED / PLAUSIBLE.** `[FIXED — 45b8a58f69]`
@@ -185,9 +185,9 @@ tokenize + `halcmd_main.c` continuation loop.
 - **HP-4 (CONFIRMED):** line continuation joins with NO separator (2.9 strips the
   trailing `\` and concatenates), not an inserted space.
 
-**Needs a full runtests round** (parser-semantics change): any `[SEC]KEY` that
-fails to resolve now errors — which is exactly 2.9's behavior, so such a config
-was already broken on 2.9.
+**Validated by a full runtests round (all green).** This is a parser-semantics
+change: any `[SEC]KEY` that fails to resolve now errors — which is exactly 2.9's
+behavior, so such a config was already broken on 2.9.
 
 ## FLAGGED — need a ruling before changing (parser semantics / API surface)
 
