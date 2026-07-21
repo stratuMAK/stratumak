@@ -561,6 +561,18 @@ Not per-module; each needs an owner and a done-definition.
 - [ ] **Safety boundary document** — list exactly which functions the external certified
   hardware covers (estop chain, limits, spindle stop, interlocks) and assert per module that
   the software is not load-bearing for any of them. <a name="safety-boundary"></a>
+- [ ] **Security model / API authentication** (ruling 2026-07-21, see
+  `NETWORK_MODULES_REVIEW_FINDINGS.md` + `gomc-rest-auth-and-loadunload-rulings` memory). The
+  REST/WS control surface has **no authentication** today; this is a **deferred-but-required**
+  deliverable, not "won't fix". Decisions taken: (a) **robustness is intrinsic** — harden the
+  crash/DoS surface regardless of binding (endpoints will be exposed eventually); (b) bind
+  **loopback only** until auth lands; ADS is machine-internal for now; (c) the auth *mechanism*
+  (authN/TLS/coarse allow-deny) is an **external** reverse-proxy / API-gateway — **not** built
+  into gomc; (d) auth needs **fine-grained permission control**, and per-command **authZ** needs a
+  thin app-side seam in gomc at `handleAPIRequest`/`handleCall` (a gateway can't do it blind to
+  command semantics); (e) the same-origin WS fix (N1) is complementary and stays regardless.
+  Runtime REST module load/unload **is** a supported production path → **launcher L-3 gets the
+  full locking fix** (now the highest-priority open Tier-1/L item).
 - [ ] **Concurrency policy** — per-module goroutine ownership writeup; `-race` gate in CI.
 - [ ] **Panic/robustness policy** — recover-and-log vs. die-and-restart, decided once,
   applied everywhere; watchdog/supervision behavior documented.

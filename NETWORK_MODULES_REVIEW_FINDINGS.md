@@ -86,6 +86,10 @@ double-`dlclose` / UAF. halrest itself adds no unsafe allocation — the danger 
 unlocked launcher state. **This is exactly the open Tier-1 launcher finding L-3**; the fix (a
 locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock) belongs there, not
 in halrest. Recorded here as confirmation that the REST surface makes L-3 remotely reachable.
+**RULING 2026-07-21 (user): runtime REST load/unload IS a supported production path**, so L-3
+gets the FULL locking fix (`arenaMu` around the arena append/free + `modMu` serialising the REST
+handlers, snapshot-under-lock in the shutdown iterators) — not the shrink. Now the
+highest-priority open item. See `gomc-rest-auth-and-loadunload-rulings` (auto-memory).
 
 ---
 
@@ -140,7 +144,17 @@ golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/laun
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
 
-**Still open:** N6 (= launcher L-3 design decision), N7 (mqtt publish-count semantics), N9
-(connection cap — policy). A **safety-boundary-doc** item: even with N1/N5 fixed, the REST/WS
-surface has **no authentication** — the security model is "trusted local origin"; a non-loopback
-deployment must add a network-level control (reverse proxy / auth).
+**Still open:** N6 (= launcher L-3, now FULL fix per the 2026-07-21 ruling), N7 (mqtt
+publish-count semantics), N9 (connection cap — policy).
+
+**Auth ruling (2026-07-21, user).** The REST/WS surface has **no authentication** and that is a
+deferred-but-required architecture item, not "won't fix": auth needs **fine-grained permission
+control**, is an OPEN design question, and until it lands the surface **binds loopback only**.
+Key decisions: (a) **robustness is intrinsic** — the crash/DoS hardening above stands regardless
+of binding, because the endpoints will be exposed eventually; (b) the auth *mechanism* (authN,
+TLS, coarse allow/deny) is an **external** reverse-proxy / API-gateway (a product, not built into
+gomc); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to gomc's
+command semantics — the expected split is gateway→verified-identity, gomc enforces per-command
+permissions at `handleAPIRequest`/`handleCall` (one thin app-side seam, future work); (d) **N1
+stays required** even with a gateway — cross-site WS hijacking is a browser-origin attack the
+gateway can't see. Belongs in the Safety-boundary / security-model doc.
