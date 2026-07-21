@@ -128,38 +128,34 @@ cgen regression tests added (the package's first).
 
 ---
 
+## FIXED after ruling — halparse tokenizer now matches 2.9 (HP-1..HP-4)
+
+User ruling (2026-07-21): fix HP-1/HP-2, match 2.9 for HP-3/HP-4.
+`[FIXED — 7bf02a484e]` Verified against `halcmd.c` strip_comments/replace_vars/
+tokenize + `halcmd_main.c` continuation loop.
+
+- **HP-1 (CONFIRMED, MED):** per-line processing now follows 2.9's order
+  `strip_comments → replace_vars → tokenize`. New quote-aware `stripComments()`
+  removes `#`..EOL (respecting quotes; unterminated quote → error) and runs
+  BEFORE substitution, so a `#` in a substituted INI/ENV value no longer
+  truncates the line. `tokenizeLine` no longer treats `#` as a comment. Bonus:
+  refs inside comments are no longer substituted (stripped first) — this keeps
+  HP-2's blast radius small (0 non-comment env refs in the shipped corpus).
+- **HP-2 (CONFIRMED, MED):** a missing INI var (2.9 `-5`) or env var (2.9 `-4`)
+  now fails the parse loudly instead of silently substituting `""` (production
+  adapter) / leaving the literal (test path). `INILookup.Get` gained a
+  `found bool` (adapter derives it from `GetAll`; env via `os.LookupEnv`), so
+  present-but-empty is still fine.
+- **HP-3 (CONFIRMED):** dropped the backslash-escape processing gomc had added —
+  `\` is now an ordinary character everywhere (2.9 tokenize).
+- **HP-4 (CONFIRMED):** line continuation joins with NO separator (2.9 strips the
+  trailing `\` and concatenates), not an inserted space.
+
+**Needs a full runtests round** (parser-semantics change): any `[SEC]KEY` that
+fails to resolve now errors — which is exactly 2.9's behavior, so such a config
+was already broken on 2.9.
+
 ## FLAGGED — need a ruling before changing (parser semantics / API surface)
-
-These are **CONFIRMED parity divergences** but changing them alters parse
-behavior across every shipped/customer config, so — like the pending inifile I-2
-ruling — they are deferred rather than auto-applied. Each is a real, fixable
-divergence with a clear 2.9 reference.
-
-### HP-1 — Variable substitution runs BEFORE comment/quote lexing (silent corruption)
-`internal/halparse/parser.go`. **CONFIRMED, MED.** 2.9 does
-`strip_comments → replace_vars → tokenize`; gomc substitutes first, so a `#` in a
-substituted INI/ENV value truncates the line (silent config alteration) and a `"`
-aborts the whole parse. **Recommend fix** (reorder to 2.9), but it is a tokenizer
-refactor with corpus-wide blast radius → ruling + full runtests.
-
-### HP-2 — Missing INI/ENV variable silently ignored (2.9 aborts at bring-up)
-`internal/halparse/parser.go`. **CONFIRMED, MED.** 2.9 fails the run on a missing
-INI var; gomc leaves the literal `[SEC]KEY` text (missing env → `""`). Fixing to
-fail-loud requires the `INILookup.Get` contract to distinguish missing-vs-empty
-(the adapter currently flattens both to `""`) → interface change + ruling.
-
-### HP-3 — Backslash escapes gomc adds that 2.9's tokenizer does not
-`internal/halparse/parser.go`. **CONFIRMED behavior / PLAUSIBLE intent.** gomc
-processes `\n \t \" \\` inside double quotes (and `\<c>` outside); 2.9 treats `\`
-as an ordinary char. Silent value divergence for any backslash — **may be a
-wanted gomc extension**; needs a keep-or-drop ruling.
-
-### HP-4 — Line continuation joins with a space (2.9 concatenates with nothing)
-`internal/halparse/parser.go`. **CONFIRMED, LOW-MED.** gomc's global
-`ReplaceAll("\\\n", " ")` differs from 2.9 (no separator, only at true line-end)
-and also fires inside quotes/mid-line. A code comment says the space is
-deliberate → ruling; the "only join a trailing backslash" robustness part is
-worth doing regardless.
 
 ### HP-6 / HP-7 — `$(VAR)`/`[SEC](VAR)` syntax unsupported; `getp`/`print` output dropped
 `internal/halparse/parser.go`, `executor.go`. **CONFIRMED, LOW.** Additive
