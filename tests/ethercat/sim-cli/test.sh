@@ -57,6 +57,15 @@ absent "pdos p0: output PDO not mislabelled TxPDO" "TxPDO 0x1600" "$pdos0"
 pdos1=$(ethercat pdos -p1 2>&1)
 check  "pdos p1: input SM is TxPDO 0x1a00"  "TxPDO 0x1a00" "$pdos1"
 
+# cstruct/xml carry the same SM-direction logic as pdos — guard those too:
+# output slave 0 -> EC_DIR_OUTPUT / <RxPdo>, input slave 1 -> EC_DIR_INPUT / <TxPdo>.
+cstruct0=$(ethercat cstruct -p0 2>&1)
+check "cstruct p0: SM2 sync is EC_DIR_OUTPUT" "{2, EC_DIR_OUTPUT," "$cstruct0"
+xml0=$(ethercat xml -p0 2>&1)
+check "xml p0: output SM is RxPdo Sm=2" '<RxPdo Sm="2">' "$xml0"
+xml1=$(ethercat xml -p1 2>&1)
+check "xml p1: input SM is TxPdo Sm=3"  '<TxPdo Sm="3">' "$xml1"
+
 halcmd stop >/dev/null 2>&1
 
 [ $fail -eq 0 ] && echo "ethercat sim CLI: OK"

@@ -351,11 +351,11 @@ func cmdCstruct(client *EthercatClient, opts *GlobalOpts, args []string) error {
 			if err != nil {
 				continue
 			}
-			dirStr := "EC_DIR_INVALID"
-			switch sm.ControlRegister & 0x0C {
-			case 0x04:
-				dirStr = "EC_DIR_INPUT"
-			case 0x08:
+			// SM control-register direction bit (0x04): set = output, clear =
+			// input (CommandCStruct.cpp: EC_READ_BIT(control, 2) ?
+			// EC_DIR_OUTPUT : EC_DIR_INPUT).
+			dirStr := "EC_DIR_INPUT"
+			if sm.ControlRegister&0x04 != 0 {
 				dirStr = "EC_DIR_OUTPUT"
 			}
 			wdStr := "EC_WD_DISABLE"
@@ -628,8 +628,10 @@ func cmdXml(client *EthercatClient, opts *GlobalOpts, args []string) error {
 			if err != nil || sm.PdoCount == 0 {
 				continue
 			}
+			// Output SM (control bit 0x04 set) -> RxPdo, input -> TxPdo
+			// (CommandXml.cpp: control_register & 0x04 ? "R" : "T").
 			pdoTag := "TxPdo"
-			if sm.ControlRegister&0x0C == 0x08 {
+			if sm.ControlRegister&0x04 != 0 {
 				pdoTag = "RxPdo"
 			}
 			for pdoIdx := uint32(0); pdoIdx < uint32(sm.PdoCount); pdoIdx++ {
