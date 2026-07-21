@@ -48,10 +48,11 @@ check "master: slave count" "Slaves: 2" "$master"
 # (it reached OP above), not Idle.
 check "master: phase Operation while active" "Phase: Operation" "$master"
 
-# Version follow-up: `version` must show a real master version, not the ioctl
-# ABI magic decoded as "0.0.<magic>".
+# Version follow-up: `version` must show a real master version plus the ioctl
+# ABI revision, not the ABI magic decoded as "0.0.<magic>".
 version=$(ethercat version 2>&1)
 check  "version: real master version" "IgH EtherCAT master 1." "$version"
+check  "version: API revision shown"  "(API Version "         "$version"
 absent "version: not the ioctl magic" "0.0."                   "$version"
 
 slaves=$(ethercat slaves 2>&1)

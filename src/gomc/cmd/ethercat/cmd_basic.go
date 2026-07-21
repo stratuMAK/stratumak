@@ -37,15 +37,15 @@ func cmdVersion(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []
 	if err != nil {
 		return err
 	}
+	// Show the real master version plus the ioctl ABI revision (the "magic" is
+	// a flat compatibility counter libethercat checks against the master, not a
+	// packed version). Version may be empty against an older server that does
+	// not report it yet; the API revision is always available.
 	if mod.Version != "" {
-		fmt.Printf("IgH EtherCAT master %s\n", mod.Version)
-		return nil
+		fmt.Printf("IgH EtherCAT master %s (API Version %d)\n", mod.Version, mod.IoctlVersionMagic)
+	} else {
+		fmt.Printf("IgH EtherCAT master (API Version %d)\n", mod.IoctlVersionMagic)
 	}
-	// Fallback for an older master that does not report a version string: the
-	// ioctl magic is the ioctl ABI version, not the master version, but it is
-	// all we have.
-	magic := mod.IoctlVersionMagic
-	fmt.Printf("IgH EtherCAT master (ioctl API %d)\n", magic)
 	return nil
 }
 

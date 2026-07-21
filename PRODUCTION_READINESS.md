@@ -740,12 +740,13 @@ Human review mandatory, in this order:
    priority):** deep-review of the rarely-used `reg/sii/foe/soe` read-write commands. **Master-side
    follow-ups — RESOLVED 2026-07-22 (driver verified working on 5+ machines; these were cosmetic
    diagnostics fixed at the GMI/CLI boundary, master core untouched):**
-   - **`version` (fixed):** the CLI decoded the ioctl ABI magic as a version → "0.0.37". Now the
-     GMI `ModuleInfo` carries a real `version` string, populated in `gmi_ethercat.c` from the public
-     `ecrt.h` RT-interface macros (`ECRT_VER_MAJOR`.`ECRT_VER_MINOR` → "1.6") — no master-core change.
-     The CLI prints it (with an ioctl-API fallback). (The full patch level "1.6.8" lives only in the
-     master's private `config.h`; surfacing it would need a tool-API field — deferred as not worth a
-     submodule change for a diagnostic.)
+   - **`version` (fixed):** the CLI decoded the ioctl ABI magic as a version → "0.0.37" (the magic is
+     a flat ABI-compatibility counter, currently 37, not a packed version). Now the GMI `ModuleInfo`
+     carries a real `version` string, populated in `gmi_ethercat.c` from the public `ecrt.h`
+     RT-interface macros (`ECRT_VER_MAJOR`.`ECRT_VER_MINOR` → "1.6") — no master-core change. The CLI
+     prints both facts: **`IgH EtherCAT master 1.6 (API Version 37)`**. (The full patch level "1.6.8"
+     lives only in the master's private `config.h`; surfacing it would need a tool-API field —
+     deferred as not worth a submodule change for a diagnostic.)
    - **`Phase: Idle` while active (fixed):** the in-process uspace master (`--enable-uspace-master
      --disable-kernel`) never runs the kernel-only `ec_master_enter_operation_phase()`, so it stays
      in the IDLE phase and signals "in use" via the `active` flag. The CLI now reports **Operation
