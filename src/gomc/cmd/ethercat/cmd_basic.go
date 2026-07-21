@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"strconv"
 	"strings"
 )
@@ -31,7 +32,7 @@ func init() {
 	})
 }
 
-func cmdVersion(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdVersion(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	mod, err := client.GetModule()
 	if err != nil {
 		return err
@@ -44,7 +45,7 @@ func cmdVersion(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdDebug(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdDebug(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("debug level required")
 	}
@@ -57,13 +58,13 @@ func cmdDebug(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return err
 }
 
-func cmdRescan(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdRescan(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	_, err := client.Rescan(masterIndex)
 	return err
 }
 
-func cmdStates(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdStates(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("'states' takes exactly one argument")
 	}
@@ -88,11 +89,11 @@ func cmdStates(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	positions := parsePositionList(opts.Positions)
 
 	if positions == nil {
-		_, err := client.SetSlaveState(masterIndex, 0xFFFF, SlaveStateRequest{AlState: stateVal})
+		_, err := client.SetSlaveState(masterIndex, 0xFFFF, ethercatclient.SlaveStateRequest{AlState: stateVal})
 		return err
 	}
 	for _, pos := range positions {
-		_, err := client.SetSlaveState(masterIndex, pos, SlaveStateRequest{AlState: stateVal})
+		_, err := client.SetSlaveState(masterIndex, pos, ethercatclient.SlaveStateRequest{AlState: stateVal})
 		if err != nil {
 			return err
 		}

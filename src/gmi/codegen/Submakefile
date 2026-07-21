@@ -733,6 +733,18 @@ $(GMI_ETHERCAT_GEN)/ethercat_api.h $(GMI_ETHERCAT_GEN)/ethercat_cgo.go &: $(GMI_
 TARGETS += $(GMI_ETHERCAT_GEN)/ethercat_api.h
 GMI_ALL_GEN_GO += $(GMI_ETHERCAT_GEN)/ethercat_cgo.go
 
+# --- ethercat Go REST client (for the ethercat diagnostic CLI) ---
+
+GMI_ETHERCAT_CLIENT_GO := gomc/generated/gmi/ethercatclient/ethercat_client.go
+
+$(GMI_ETHERCAT_CLIENT_GO): $(GMI_ETHERCAT_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI ethercat Go REST client"
+	@mkdir -p $(dir $(GMI_ETHERCAT_CLIENT_GO))
+	$(Q)$(GMICOMPILE) --client-go $(GMI_ETHERCAT_IDL) -o $(GMI_ETHERCAT_CLIENT_GO)
+
+TARGETS += $(GMI_ETHERCAT_CLIENT_GO)
+GMI_ALL_GEN_GO += $(GMI_ETHERCAT_CLIENT_GO)
+
 # --- persist API (Go-provided, generic key-value persistence) ---
 
 GMI_PERSIST_IDL := gmi/idl/persist.gmi

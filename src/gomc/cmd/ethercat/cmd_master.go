@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"time"
 )
 
@@ -15,7 +16,7 @@ func init() {
 	})
 }
 
-func cmdMaster(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdMaster(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("'master' takes no arguments")
 	}

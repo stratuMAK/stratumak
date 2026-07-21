@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"os"
 )
 
@@ -20,7 +21,7 @@ func init() {
 	})
 }
 
-func cmdDomains(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdDomains(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -60,7 +61,7 @@ func cmdDomains(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdData(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdData(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {

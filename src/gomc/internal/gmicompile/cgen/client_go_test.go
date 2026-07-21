@@ -181,6 +181,40 @@ func TestGenerateClientGoPathParams(t *testing.T) {
 	assertContains(t, out, `path = strings.Replace(path, "{childId}", url.PathEscape(childId), 1)`)
 }
 
+// TestGenerateClientGoNumericPathParam covers the numeric-path-param fix: a
+// non-string path param must be formatted to a string before url.PathEscape
+// (which takes a string). A bare uint would not compile.
+func TestGenerateClientGoNumericPathParam(t *testing.T) {
+	api := &ast.API{
+		Name: "eth", Version: 1, Prefix: "eth", RestExport: true,
+		Funcs: []ast.Func{{
+			Name: "get_slave", Method: "GET", Path: "/slave/{position}",
+			Params: []ast.Param{{Name: "position", Type: ast.TypeRef{Kind: ast.TypePrimitive, Name: "u16"}}},
+			Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "ethclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	assertContains(t, buf.String(), `path = strings.Replace(path, "{position}", url.PathEscape(fmt.Sprintf("%v", position)), 1)`)
+}
+
+// TestGenerateClientGoInstanceConstructor verifies the additive
+// instance-configurable constructor is emitted and the default one delegates to
+// it (so a server hosting multiple named instances can be addressed).
+func TestGenerateClientGoInstanceConstructor(t *testing.T) {
+	api := &ast.API{Name: "eth", Version: 1, Prefix: "eth", RestExport: true}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "ethclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	out := buf.String()
+	assertContains(t, out, `func NewEthClientInstance(baseURL, instance string) *EthClient {`)
+	assertContains(t, out, `"/api/v1/" + instance`)
+	assertContains(t, out, `return NewEthClientInstance(baseURL, "eth")`)
+}
+
 func TestGenerateClientGoNoREST(t *testing.T) {
 	api := &ast.API{
 		Name:       "internal",

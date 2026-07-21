@@ -13,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"os"
 	"sort"
 	"strings"
@@ -45,7 +46,7 @@ type GlobalOpts struct {
 type Command struct {
 	Name  string
 	Brief string
-	Run   func(client *EthercatClient, opts *GlobalOpts, args []string) error
+	Run   func(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error
 }
 
 var commands []*Command
@@ -293,7 +294,7 @@ func main() {
 		instance = "ethercat"
 	}
 
-	client := NewEthercatClient(restURL, instance)
+	client := ethercatclient.NewEthercatClientInstance(restURL, instance)
 
 	if err := cmd.Run(client, opts, cmdArgs); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

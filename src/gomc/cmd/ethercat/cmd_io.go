@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"os"
 	"strconv"
 )
@@ -51,7 +52,7 @@ func init() {
 	})
 }
 
-func cmdRegRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdRegRead(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: reg_read <ADDRESS> <SIZE>")
 	}
@@ -96,7 +97,7 @@ func cmdRegRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdRegWrite(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdRegWrite(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: reg_write <ADDRESS> <DATA>")
 	}
@@ -116,7 +117,7 @@ func cmdRegWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 		if err != nil {
 			return fmt.Errorf("invalid data '%s': %v", args[1], err)
 		}
-		req := RegWriteRequest{
+		req := ethercatclient.RegWriteRequest{
 			Address:   uint16(addr),
 			Emergency: opts.Emergency,
 			Data:      data,
@@ -183,7 +184,7 @@ func splitFields(s string) []string {
 	return fields
 }
 
-func cmdSiiRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSiiRead(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	positions := parsePositionList(opts.Positions)
 	if positions == nil {
@@ -206,7 +207,7 @@ func cmdSiiRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdSiiWrite(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSiiWrite(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	positions := parsePositionList(opts.Positions)
 	if positions == nil {
@@ -225,7 +226,7 @@ func cmdSiiWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 	}
 
 	for _, pos := range positions {
-		_, err := client.SiiWrite(masterIndex, pos, SiiData{Words: inputData})
+		_, err := client.SiiWrite(masterIndex, pos, ethercatclient.SiiData{Words: inputData})
 		if err != nil {
 			return err
 		}
@@ -233,7 +234,7 @@ func cmdSiiWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 	return nil
 }
 
-func cmdFoeRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdFoeRead(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: foe_read <FILENAME>")
 	}
@@ -263,7 +264,7 @@ func cmdFoeRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdFoeWrite(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdFoeWrite(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: foe_write <FILENAME>")
 	}
@@ -286,7 +287,7 @@ func cmdFoeWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 	}
 
 	for _, pos := range positions {
-		req := FoeWriteRequest{
+		req := ethercatclient.FoeWriteRequest{
 			FileName: args[0],
 			Data:     inputData,
 		}
@@ -301,7 +302,7 @@ func cmdFoeWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 	return nil
 }
 
-func cmdSoeRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSoeRead(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: soe_read <DRIVE_NO> <IDN>")
 	}
@@ -338,7 +339,7 @@ func cmdSoeRead(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdSoeWrite(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSoeWrite(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("usage: soe_write <DRIVE_NO> <IDN> <VALUE>")
 	}
@@ -362,7 +363,7 @@ func cmdSoeWrite(client *EthercatClient, opts *GlobalOpts, args []string) error 
 		if err != nil {
 			return err
 		}
-		req := SoeWriteRequest{
+		req := ethercatclient.SoeWriteRequest{
 			DriveNo: uint8(driveNo),
 			Idn:     uint16(idn),
 			Data:    data,

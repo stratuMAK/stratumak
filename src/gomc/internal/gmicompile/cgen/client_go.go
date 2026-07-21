@@ -152,13 +152,21 @@ func (g *clientGoGen) emitClient() {
 	g.printf("\thttp    *http.Client\n")
 	g.printf("}\n\n")
 
-	// Constructor
-	g.printf("// New%s creates a new client.\n", clientName)
+	// Constructor (default instance)
+	g.printf("// New%s creates a new client for the default \"%s\" instance.\n", clientName, g.api.Prefix)
 	g.printf("// baseURL should be the server address, e.g. \"http://localhost:8080\".\n")
 	g.printf("// The API prefix \"/api/v1/%s\" is appended automatically.\n", g.api.Prefix)
 	g.printf("func New%s(baseURL string) *%s {\n", clientName, clientName)
+	g.printf("\treturn New%sInstance(baseURL, %q)\n", clientName, g.api.Prefix)
+	g.printf("}\n\n")
+
+	// Instance-configurable constructor — a server may host several named
+	// instances of the same API under /api/v1/<instance>.
+	g.printf("// New%sInstance creates a client for a specific instance name, for a\n", clientName)
+	g.printf("// server hosting multiple instances of this API under /api/v1/<instance>.\n")
+	g.printf("func New%sInstance(baseURL, instance string) *%s {\n", clientName, clientName)
 	g.printf("\treturn &%s{\n", clientName)
-	g.printf("\t\tbaseURL: strings.TrimSuffix(baseURL, \"/\") + \"/api/v1/%s\",\n", g.api.Prefix)
+	g.printf("\t\tbaseURL: strings.TrimSuffix(baseURL, \"/\") + \"/api/v1/\" + instance,\n")
 	g.printf("\t\thttp:    &http.Client{},\n")
 	g.printf("\t}\n")
 	g.printf("}\n\n")
@@ -261,7 +269,13 @@ func (g *clientGoGen) emitClientMethod(clientName string, fn ast.Func) {
 		g.printf("\tpath := %q\n", path)
 		for _, pp := range pathParams {
 			paramName := toLowerCamel(pp)
-			g.printf("\tpath = strings.Replace(path, \"{%s}\", url.PathEscape(%s), 1)\n", pp, paramName)
+			// url.PathEscape needs a string; a numeric path param (e.g. a slave
+			// position) must be formatted first, mirroring the query path.
+			valExpr := "url.PathEscape(" + paramName + ")"
+			if p, ok := paramByName(fn, pp); ok && p.Type.Name != ast.PrimString {
+				valExpr = fmt.Sprintf("url.PathEscape(fmt.Sprintf(\"%%v\", %s))", paramName)
+			}
+			g.printf("\tpath = strings.Replace(path, \"{%s}\", %s, 1)\n", pp, valExpr)
 		}
 	} else {
 		g.printf("\tpath := %q\n", path)
@@ -375,6 +389,17 @@ func (g *clientGoGen) methodReturn(fn ast.Func) string {
 		return fmt.Sprintf("(*%s, error)", retType)
 	}
 	return fmt.Sprintf("(%s, error)", retType)
+}
+
+// paramByName returns the function parameter with the given name (as it appears
+// in a {path} placeholder), if any.
+func paramByName(fn ast.Func, name string) (ast.Param, bool) {
+	for _, p := range fn.Params {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return ast.Param{}, false
 }
 
 // queryParams returns parameters that are not in the path

@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 )
 
 func init() {
@@ -14,7 +15,7 @@ func init() {
 	})
 }
 
-func cmdPdos(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdPdos(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
