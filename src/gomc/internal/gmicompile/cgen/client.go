@@ -136,7 +136,7 @@ func (g *clientHeaderGen) toCType(t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := g.toCType(*t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(g.api.Name, t))
 	}
 	return "void"
 }
@@ -717,7 +717,7 @@ func (g *clientSourceGen) toCType(t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := g.toCType(*t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(g.api.Name, t))
 	}
 	return "void"
 }

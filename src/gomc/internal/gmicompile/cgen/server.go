@@ -180,13 +180,11 @@ func (g *serverGen) toCType(t ast.TypeRef) string {
 	return "void"
 }
 
-// arraySizeStr returns the C size expression for an array type.
-// Uses the #define constant name if available.
+// arraySizeStr returns the C array-size expression for a type, delegating to the
+// shared cArraySizeStr so every C emitter agrees on the #define-vs-literal
+// choice.
 func (g *serverGen) arraySizeStr(t ast.TypeRef) string {
-	if t.ArrayLenName != "" {
-		return fmt.Sprintf("%s_%s", strings.ToUpper(g.api.Name), t.ArrayLenName)
-	}
-	return fmt.Sprintf("%d", t.ArrayLen)
+	return cArraySizeStr(g.api.Name, t)
 }
 
 func primitiveToCType(name string) string {

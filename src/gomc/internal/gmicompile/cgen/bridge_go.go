@@ -896,7 +896,7 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 		if p.Type.Elem.Kind == ast.TypeNamed {
 			elemCType = fmt.Sprintf("%s_%s_t", apiName, toSnakeCase(p.Type.Elem.Name))
 		}
-		return elemCType + " " + name + fmt.Sprintf("[%d]", p.Type.ArrayLen)
+		return elemCType + " " + name + fmt.Sprintf("[%s]", cArraySizeStr(apiName, p.Type))
 	}
 	return "int " + name
 }

@@ -190,7 +190,7 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 
 	case ast.TypeArray:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
-		sizeStr := cgoArraySizeStr(apiName, p.Type)
+		sizeStr := cArraySizeStr(apiName, p.Type)
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s %s[%s]", elemCType, name, sizeStr)
 		}
@@ -200,8 +200,14 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 	return fmt.Sprintf("void *%s", name)
 }
 
-// cgoArraySizeStr returns the C size expression for an array type (using #define name).
-func cgoArraySizeStr(apiName string, t ast.TypeRef) string {
+// cArraySizeStr returns the C array-size expression for a fixed-array type. It
+// is the single source of truth for C array bounds: it emits the #define symbol
+// name (e.g. MOTSTAT_MAX_JOINTS) whenever the length came from a named const, so
+// every C declaration/copy of the same array agrees — and an unresolved
+// ArrayLenName can never silently emit a "[0]" bound. Go array bounds must stay
+// numeric literals (a C #define is not visible to Go), so Go-emitting sites use
+// t.ArrayLen directly and do not call this.
+func cArraySizeStr(apiName string, t ast.TypeRef) string {
 	if t.ArrayLenName != "" {
 		return fmt.Sprintf("%s_%s", strings.ToUpper(apiName), t.ArrayLenName)
 	}
@@ -1182,7 +1188,7 @@ func toCTypeForAPI(apiName string, t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := toCTypeForAPI(apiName, *t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(apiName, t))
 	}
 	return "void"
 }
