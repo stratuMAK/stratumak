@@ -472,12 +472,45 @@ added for every fix; `-race`/vet/gofmt/lint(0) green.
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/halcmd + cmd/halcmd | 3540+1932/364 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/halparse | 1769/2330 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/halfile | 343/400 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/haljson | 876/151 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/modcompile + cmd | 2909+1636/393 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/hallib | 30/0 | 3 | ☐ | ☐ | ☐ | — | ☐ | — | ☐ |
+| internal/halcmd + cmd/halcmd | 3540+1932/364 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
+| internal/halparse | 1769/2330 | 2 | ✅ | ✅ | ◐ | ◐ | ✅ | — | ☐ |
+| internal/halfile | 343/400 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
+| internal/haljson | 876/151 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
+| internal/modcompile + cmd | 2909+1636/393 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
+| internal/hallib | 30/0 | 3 | ✅ | ✅ | — | — | ✅ | — | ◐ |
+
+**Phase 4 reviewed 2026-07-21 (Tier 2 adversarial + 2.9 oracles). Full findings
+in `PHASE4_REVIEW_FINDINGS.md`.** No HIGH wire-reachable crash in the
+REST-reachable command path — halcmd is defensively written (watch C-returns free
+correctly, `net` caps pins at 64, show/save capped, `Save`-to-file not
+REST-reachable). Fixes landed (each with regression tests; build cgo+nocgo, `-race`,
+vet, gofmt, lint(0) green):
+- **HJ-1 (cross-cutting lifecycle):** module unload never removed the apiserver
+  **watch** registration (only the REST one) → after `Destroy` freed a module's
+  pins, a later WS subscribe served stale/recycled HAL memory + the entry leaked.
+  Added `WatchRegistry.UnregisterByInstance` + a shared `unregisterModuleAPIs()`
+  called before `Destroy` in both unload paths (covers haljson **and** mqttbridge).
+- **modcompile codegen (risk-class-3 multiplier):** MC-1 array-param defaults
+  dropped; MC-2 `option data` leak on the New() err path; MC-3 string-modparam
+  default not C-escaped; MC-5 function names not hyphenated (broke the shipped
+  moveoff `addf mv.read-inputs`) — verified end-to-end regenerating comps; MC-7
+  unknown-flag handling.
+- **halparse HP-5** (template `seq/seq1/count` OOM clamp), **halcmd HC-1**
+  (completion mid-line-TAB panic) **+ HC-3** (`list comp` fnmatch parity),
+  **halfile HF-2/HF-5** (directory rejection + tilde expansion; nil-INI deref
+  verified ABSENT), **haljson HJ-3/HJ-4** (array-size cap + rate clamp).
+- **Tier-3 `internal/hallib`:** Go surface is a 12-line cgo link shim + test-only
+  wrappers; the inherited 2.9 C core (`hal_lib.c`, `uspace_rtapi_lib.c`) is owned
+  by `RT_HARDENING_CHECKLIST.md`. Cleared by inspection.
+
+`F` left ◐ on **halparse** (HP-1/HP-2/HP-3/HP-4 open): CONFIRMED 2.9-tokenizer
+parity divergences (substitution-before-comment/quote lexing → silent config
+truncation; missing-INI-var silently ignored vs 2.9 fail-loud; extra backslash
+escapes; continuation join-with-space) **deferred for a ruling** — they change
+parse semantics across the shipped-config corpus (same character as inifile I-2)
+and need full runtests + a keep/fix decision. Other flagged (not auto-fixable):
+HC-2 (ambiguous arg-path heuristic), HJ-2 (drain contract — ties to ADS A5 /
+pkg-hal H1), HF-1 (`LIB:` scope). `U` ◐ where happy-path coverage still wanted.
 
 ### Phase 5 — services & auxiliaries
 
@@ -788,4 +821,5 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-21 | **Launcher L-3 FIXED (Tier-1 hotspot #4 follow-up).** Runtime REST module load/unload is a supported production path (user ruling) and halrest confirmed the unlocked `cModules`/`goModules`/`cModArena` race is remotely reachable (N6). Full locking landed: `arenaMu` guards `cModArena` (held only around `arenaAppend`/free, never across a cgo call — so the re-entrant `gomc_ini_get*` `//export` appends can't self-deadlock); `modMu` serializes `loadModuleNamed`/`UnloadModule` end-to-end (held across the cgo `cmod_call_*` — safe, no `//export` takes it) and guards the slices with snapshot-under-lock in the shutdown iterators (destroy nils under the lock); a `shuttingDown` gate (set under `modMu` in `doCleanup` after `stopAPIServer`) fails straggler load/unload fast with `ESHUTDOWN`. Lock nesting only `modMu ⊃ arenaMu`. Mutation-verified `-race` test `TestLoadRace` + `TestShutdownGate` (HAL-free Go-module path; real cmod re-entrancy covered by nightly `-race` runtests). build/vet/gofmt clean, lint 0, `-race` green. Launcher row → L R RC ✅, F ◐ (L-4/L-5/L-6 low open). |
 | 2026-07-21 | **Network modules reviewed (Phases 4–6, Tier 2 adversarial)** — `NETWORK_MODULES_REVIEW_FINDINGS.md`. apiserver/halrest/inirest/mqttbridge/halscope, same untrusted-wire lens as ADS. **N1 (HIGH): cross-site WebSocket hijacking** — both WS upgraders set `InsecureSkipVerify:true`, a `call` action dispatches real controller commands, so a browser tab on a malicious page could drive the machine **even on the loopback default**. Fixed: same-origin secure default (`OriginPatterns`), opt-in `GMC_REST_ORIGINS`/`[GMC]REST_ORIGINS` allow-list, `TestWatchOriginCheck`. Also fixed: **N2** `recover()` in spawned `pushLoop`/`pushLoopBinary` (watch-fn cgo panic killed the process; net/http recover doesn't cover spawned goroutines); **N3** `MaxBytesReader` 8 MiB on REST body (OOM); **N4** `ReadHeaderTimeout`+`IdleTimeout` (Slowloris; not Read/Write — would kill WS); **N5** pprof gated behind `GMC_REST_PPROF=1`; **N8** `recover()` in mqtt publish/message goroutines; streamWg `Add` moved inside the lock (shutdown-vs-new-stream cgo-in-flight window). Cleared: inirest `make` (bounded), halscope HS1 (properly fixed), mqtt MQ1 (present), registry/webapp. Open: **N6 = launcher L-3** (halrest load/unload proves the unlocked module-map race is remotely reachable), N7 (mqtt publish-count), N9 (conn cap), + safety-boundary-doc: REST/WS has no auth (trusted-local-origin model). build/vet/gofmt clean, lint 0, `-race` green. Rows → apiserver/halrest/inirest/mqttbridge/halscope L R RC ✅. |
 | 2026-07-21 | **Phase 3 tail reviewed — COMPLETE** (`PHASE3_REVIEW_FINDINGS.md`). `pkg/inifile` reviewed against the 2.9 C oracle (`libnml/inifile`); two CONFIRMED parity divergences fixed: **I-1** backslash line-continuation not implemented (158 shipped lines, incl. `[DISPLAY]APP = sim_pin \` losing all args) — now joins up to 20 lines like the C parser; **I-2** inline `;` stripped as a comment truncated `MDI_COMMAND = G0 Z25;X0 Y0;Z0` → `G0 Z25` (36 shipped uses, 0 configs use `;` as a comment, C parser never strips it) — `;` is now data; narrow whitespace-`#` strip kept for `strtod`-style numeric tolerance. I-2 reverses an intended-in-test behavior → **ruling to confirm** (bug fix, zero shipped regression). `internal/pkgreg`: **F1** typo'd TYPE silently dropped a module (green build, gone at runtime) → loud `file:line` error; **F2** `_test.go`-only dir mis-discovery fixed. `cmd/gomc-server`/`internal/config` clean (LOW notes only). Regression tests added for each fix; `go test`/`-race`/vet/gofmt/lint(0) green; inifile consumers (task, haljson, halfile, inirest) green. Rows → inifile/pkgreg L R F U RC ✅; gomc-server/config L R F RC ✅. **All Phase-3 modules now reviewed** (launcher/daemon under hotspot #4). |
+| 2026-07-21 | **Phase 4 (HAL tooling) reviewed — Tier 2 adversarial + 2.9 oracles** (`PHASE4_REVIEW_FINDINGS.md`). halcmd+cmd/halcmd, halparse, halfile, haljson, modcompile+cmd, hallib. **No HIGH wire-reachable crash** in the REST-reachable command path (halcmd is defensively written). Fixes landed: **HJ-1 (cross-cutting)** — module unload never removed the apiserver *watch* registration (only the REST one), so `Destroy` freed a module's pins while the WatchAPI stayed live → a later WS subscribe served stale/recycled HAL memory + leaked the entry; added `WatchRegistry.UnregisterByInstance` + shared `unregisterModuleAPIs()` before `Destroy` in both unload paths (covers haljson **and** mqttbridge). **modcompile codegen (risk-class-3):** MC-1 array-param defaults dropped, MC-2 `option data` err-path leak, MC-3 string-modparam not C-escaped, MC-5 function names not hyphenated (broke shipped `moveoff addf mv.read-inputs` — verified end-to-end regenerating comps), MC-7 unknown-flag handling. **halparse HP-5** (template seq/count OOM clamp), **halcmd HC-1** (completion mid-line-TAB panic) + **HC-3** (`list comp` fnmatch parity), **halfile HF-2/HF-5** (dir rejection + tilde; nil-INI deref ABSENT), **haljson HJ-3/HJ-4** (array cap + rate clamp). hallib cleared (12-line cgo shim; C core owned by RT_HARDENING). **Deferred for a ruling:** halparse **HP-1/HP-2/HP-3/HP-4** — CONFIRMED 2.9-tokenizer parity divergences (substitution-before-comment/quote lexing → silent config truncation; missing-INI-var silently ignored vs 2.9 fail-loud; extra backslash escapes; continuation join-with-space) that change parse semantics across the shipped-config corpus (same character as inifile I-2) → need runtests + keep/fix decision; also HC-2 (arg-path heuristic), HJ-2 (drain contract → ADS A5/pkg-hal H1), HF-1 (`LIB:` scope). Regression tests per fix; build cgo+nocgo, `-race`, vet, gofmt, lint(0) green. Rows → halcmd/halfile/haljson/modcompile L R F RC ✅; halparse L R RC ✅ F ◐. |
 | 2026-07-21 | **ADS cluster reviewed (Phase 2, Tier 2 adversarial)** — `ADS_REVIEW_FINDINGS.md`. Net-new code, no 2.9 oracle; server binds `0.0.0.0:48898` with no protocol auth. Two independent refutation passes (remote-DoS, concurrency/lifecycle). **Headline: a remote unauthenticated client could crash/OOM the motion controller with a single ~28-byte packet** — all fixed: A1 SumWrite `uint32` overflow → slice panic; A2 unbounded `make` from client sub-request count (≈137 GB → OOM); A3 unbounded process-image read `length` (≈4 GB, incl. notification `sendLoop` re-OOM every 10 ms); A4 no `recover()` in any goroutine. Bounds + `recover()` added; regression tests `internal/ads/dos_test.go`. Robustness: A6 write deadlines, A10 accept backoff, A11 idempotent `Stop()`, A12 construction-error HAL-component leak. A5 (partial): closed accept/register race + stage-2 read honors `quit`, narrowing the known ADS2 shutdown-UAF (full free-barrier contract still open, decide with pkg/hal H1). Refuted (locking correct): notifyManager races, SymbolTable lock model incl. suspected re-entrant-RLock deadlock. Open: A5 contract, A7 (conn/sub caps — HMI-count decision), A8 (`[0..N]` array silently mis-laid-out — fix proposed, separate commit), A9 (0.0.0.0/no-auth → safety-boundary doc), A13/A14 (low). build/vet/gofmt clean, lint 0, `-race` green. Rows → ads/adsbridge/adsconfig/adsmodule L R RC ✅, F ◐. |
