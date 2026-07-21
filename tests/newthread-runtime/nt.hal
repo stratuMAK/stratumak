@@ -1,0 +1,3 @@
+# Load a component but create NO thread here — the thread is added at runtime
+# via `halcmd newthread` (see test.sh). Regression for issue #265.
+loadrt and2 names=and2.0

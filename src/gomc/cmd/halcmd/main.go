@@ -1101,7 +1101,14 @@ func cmdNewThread(args []string) error {
 	}
 
 	var fp *bool
-	var cpuId *int32
+	// Default cpu to -1 (auto-assign an isolated core, or no affinity when none
+	// exist) — matching the .hal `newthread` parser default (nThreadToken.CPU =
+	// -1). This must be sent EXPLICITLY: an omitted nullable i32 is flattened to
+	// 0 across the cgo REST boundary, and 0 is then rejected on a machine with no
+	// isolated CPUs ("cpu=0 is not an isolated CPU"), which is exactly issue #265
+	// — `newthread` at runtime failing while the same command in a HAL file works.
+	autoCPU := int32(-1)
+	cpuId := &autoCPU
 	for _, arg := range args[2:] {
 		lower := strings.ToLower(arg)
 		if lower == "fp" {
