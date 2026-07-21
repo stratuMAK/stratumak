@@ -39,27 +39,26 @@ func cmdPdos(client *EthercatClient, opts *GlobalOpts, args []string) error {
 			if err != nil {
 				continue
 			}
-			dirStr := ""
-			switch sm.ControlRegister & 0x0C {
-			case 0x04:
-				dirStr = " (Inputs)"
-			case 0x08:
-				dirStr = " (Outputs)"
-			}
 			enableStr := uint8(0)
 			if sm.Enable {
 				enableStr = 1
 			}
-			fmt.Printf("SM%d: PhysAddr 0x%04x, DefaultSize %d, ControlRegister 0x%02x%s, Enable %d\n",
-				smIdx, sm.PhysicalStartAddress, sm.DefaultSize, sm.ControlRegister, dirStr, enableStr)
+			// Match the IgH tool's format exactly (CommandPdos.cpp): no
+			// direction annotation on the SM line, DefaultSize right-aligned
+			// to width 4.
+			fmt.Printf("SM%d: PhysAddr 0x%04x, DefaultSize %4d, ControlRegister 0x%02x, Enable %d\n",
+				smIdx, sm.PhysicalStartAddress, sm.DefaultSize, sm.ControlRegister, enableStr)
 
 			for pdoIdx := uint32(0); pdoIdx < uint32(sm.PdoCount); pdoIdx++ {
 				pdo, err := client.GetSlaveSyncPdo(masterIndex, pos, smIdx, pdoIdx)
 				if err != nil {
 					continue
 				}
+				// SM control-register direction bit (0x04): set = process data
+				// output (master->slave) = RxPDO, clear = input = TxPDO
+				// (CommandPdos.cpp: control_register & 0x04 ? "R" : "T").
 				pdoType := "TxPDO"
-				if sm.ControlRegister&0x0C == 0x08 {
+				if sm.ControlRegister&0x04 != 0 {
 					pdoType = "RxPDO"
 				}
 				fmt.Printf("  %s 0x%04x \"%s\"\n", pdoType, pdo.Index, pdo.Name)
