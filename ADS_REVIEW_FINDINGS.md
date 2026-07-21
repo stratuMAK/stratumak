@@ -91,7 +91,20 @@ does not catch them; the bounds fixes A2/A3 are the real remedy there.)
 `module.go:58-68` (`Stop`→`server.Stop`, then `Destroy`→`comp.Exit`) · `server.go:102-106`
 (2 s cap, returns even with live goroutines) · `server.go:198-208` (5 s stage-2 read ignores
 `s.quit`) · `server.go:92-96` vs `:133-135` (accept/register window). **CONFIRMED** (narrow
-trigger). *Deepens the existing PLAUSIBLE `ADS2`.* `[PARTIAL FIX APPLIED; contract decision OPEN]`
+trigger). *Deepens the existing PLAUSIBLE `ADS2`.* `[FIX APPLIED — true join; pkg/hal H1 barrier is the memory-safety backstop]`
+
+**RESOLVED (2026-07-22).** Two-part resolution now that **pkg/hal H1 is fixed** (component-liveness
+barrier — a straggler pin access after `Exit()` returns zero / `ErrComponentExited` instead of
+corrupting freed HAL memory, so the UAF *consequence* is already gone):
+1. *Memory safety* — closed by the H1 barrier (defense-in-depth; ADS relies on it only if the join
+   below is ever beaten).
+2. *Shutdown contract* — `doStop()` now does a **true `wg.Wait()` with no silent cap**. This is
+   sound because the wait is *bounded*: the listener and every connection are closed first, and both
+   read (`readDeadlineInterval`/`amsDataReadTimeout`) and write (`writeTimeout`) paths carry
+   deadlines, so no goroutine can block indefinitely. Once `Stop()` returns, no ADS goroutine can
+   still touch a pin, so the subsequent `Destroy()`→`comp.Exit()` cannot race live pin access. The
+   `shutdownTimeout` const was removed. Regression test `TestStopJoinsWithIdleConnection` (force-close
+   + join of a live idle connection).
 
 `Server.Stop()` is best-effort: on the 2 s cap it logs and returns. `Destroy()` then
 unconditionally `comp.Exit()`s → `hal_exit()` frees the component's HAL shared memory, which
@@ -125,13 +138,19 @@ deadline makes every write promptly cancellable.
 
 ### A7 — No connection or subscription cap → resource exhaustion
 `server.go:124` (`acceptLoop`, unlimited conns), `notification.go:78` (`add`, unlimited subs).
-**PLAUSIBLE.** `[OPEN — design decision]`
+**PLAUSIBLE.** `[FIX APPLIED — 8 conns / 256 subs default, config-overridable]`
 
 A remote peer can open unlimited connections (2 goroutines + buffers each) and register
 unlimited subscriptions (map growth + per-sub 10 ms HAL polling). Grep-confirmed: no
 semaphore/limit anywhere. The natural fix is a small connection cap and a per-connection
-subscription cap — but the right numbers depend on how many HMIs a deployment expects, so this
-is a design call, not a mechanical fix.
+subscription cap — but the right numbers depend on how many HMIs a deployment expects.
+
+**RESOLVED (2026-07-22, user ruling):** default **8** concurrent connections / **256**
+subscriptions per connection, overridable per instance via `$max-connections` /
+`$max-subscriptions` in the `.conf` (siblings of `$bind`/`$port`). `acceptLoop` refuses (closes)
+a connection over the cap; `notifyManager.add` returns `ErrDeviceNoMemory` (ADSERR_DEVICE_NOMEMORY,
+`0x070A`) over the sub cap. `<= 0` means unlimited (used by the unit tests). Regression tests
+`TestConnectionCapRejects`, `TestSubscriptionCap`, and the config tests in `adsconfig`.
 
 ### A8 — Arrays declared `[0..N]` are silently mis-laid-out (lower bound 0 reads as "not an array")
 `layout.go:150,173`, `bridge.go:282`, `xmlgen.go:217,358,399,420`. **CONFIRMED.** `[FIX APPLIED]`
@@ -146,13 +165,17 @@ string parsing paths (`symbols.parentPrefixes`, `bridge` `arrayGroups`) already 
 lower-bound-0 correctly, so only the `ArrayStart>0` guards were affected.
 
 ### A9 — Default bind `0.0.0.0` + no authentication = any host on the network can drive HAL outputs
-`serverconf.go:52`. **PLAUSIBLE / by-protocol-design.** `[OPEN — safety-boundary doc]`
+`serverconf.go:52`. **PLAUSIBLE / by-protocol-design.** `[FIX APPLIED — default bind now loopback; exposure opt-in]`
 
 ADS has no auth by design, and the default binds all interfaces. Any host that reaches
 :48898 can write `out`/`inout` pins, i.e. command machine outputs, and (with A1–A4) crash the
-controller. This belongs in the **Safety boundary document** cross-cutting item: state the
-network trust assumption explicitly, and consider defaulting `$bind` to a loopback/named
-interface so exposure is opt-in. Not a code bug per se — a deployment/contract decision.
+controller.
+
+**RESOLVED (2026-07-22, user ruling):** the default `$bind` is now **`127.0.0.1`** (loopback), so
+network exposure is **opt-in** — a deployment that wants a remote HMI must set `$bind 0.0.0.0` (or a
+specific interface IP) explicitly. The network-trust assumption still belongs in the cross-cutting
+**Safety boundary document** (an exposed ADS port has no authentication), but the *default* is now
+safe-by-default. Regression test `TestServerConfDefaults` pins the loopback default.
 
 ---
 
@@ -174,10 +197,14 @@ interface so exposure is opt-in. Not a code bug per se — a deployment/contract
   `writeProcessImageRange` read-modify-writes pins while holding only `st.mu.RLock()`; two
   concurrent overlapping process-image writes can interleave and lose one. Pin-level `p.mu`
   keeps it memory-safe, so this is a consistency wart, not a crash. **CONFIRMED.**
-  `[OPEN — low priority]`
+  `[FIX APPLIED]` — `writeProcessImageRange` now takes the full `st.mu.Lock()`, serializing the
+  RMW against other process-image writes/reads. Regression test
+  `TestConcurrentProcessImageWritesNoLostUpdate` (fails under the old `RLock`, verified).
 - **A14 — `handles` map grows unbounded** (`symbols.go:343-355`): `CreateHandle` allocates
   monotonically and only `ReleaseHandle` reclaims; a client that never releases (buggy or
-  hostile) grows the map without limit. Minor, slow DoS. **CONFIRMED.** `[OPEN — low priority]`
+  hostile) grows the map without limit. Minor, slow DoS. **CONFIRMED.** `[FIX APPLIED]` —
+  `CreateHandle` returns `ErrDeviceNoMemory` once `maxHandles` (65536) live handles exist.
+  Regression test `TestHandleCap`.
 
 ---
 
@@ -227,6 +254,18 @@ Regression tests for the crash/OOM vectors live in `internal/ads/dos_test.go`.
 - **A8** — `Node.IsArray` flag replaces the broken `ArrayStart > 0` array detector across
   `config.go`/`layout.go`/`bridge.go`/`xmlgen.go`; regression test added (separate commit).
 
-**Still open** (documented above): A5 contract, A7 (connection/subscription caps — needs the
-expected-HMI-count decision), A9 (0.0.0.0/no-auth — safety-boundary doc), A13/A14 (low-priority
-consistency/leak).
+**Second pass — 2026-07-22 (all remaining findings resolved).** `go build`/`vet`/`gofmt` clean,
+pinned golangci-lint **0 issues**, `go test -race ./internal/ads/... ./internal/adsconfig/...` green.
+- **A5** — `doStop()` now does a true `wg.Wait()` (no silent cap); bounded by the listener/conn
+  close + read/write deadlines, backstopped by the pkg/hal H1 liveness barrier. `shutdownTimeout`
+  const removed. Test `TestStopJoinsWithIdleConnection`.
+- **A7** — connection cap (default 8) in `acceptLoop` + per-connection subscription cap (default 256)
+  in `notifyManager.add`; overridable via `$max-connections` / `$max-subscriptions`. Tests
+  `TestConnectionCapRejects`, `TestSubscriptionCap`, `adsconfig/serverconf_test.go`.
+- **A9** — default `$bind` changed to `127.0.0.1` (exposure opt-in). Test `TestServerConfDefaults`.
+- **A13** — `writeProcessImageRange` upgraded to a full write lock. Test
+  `TestConcurrentProcessImageWritesNoLostUpdate`.
+- **A14** — `CreateHandle` capped at `maxHandles` (65536). Test `TestHandleCap`.
+
+**Nothing left open in the ADS cluster.** The generic "an exposed ADS port has no authentication"
+statement remains a line item for the cross-cutting **Safety boundary document** (not ADS code).

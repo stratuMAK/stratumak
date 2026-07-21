@@ -337,13 +337,23 @@ func (st *SymbolTable) GetByHandle(handle uint32) *Symbol {
 	return st.handles[handle]
 }
 
+// maxHandles caps the number of live name-to-symbol handles. Handles live for
+// the lifetime of the SymbolTable and are only reclaimed by an explicit
+// ReleaseHandle, so a client that never releases (buggy or hostile) would
+// otherwise grow the map without limit. See ADS_REVIEW_FINDINGS.md A14.
+const maxHandles = 1 << 16
+
 // CreateHandle allocates a new handle for the named symbol.
-// Returns the handle and ErrNoSymbol if the name is not found.
+// Returns the handle and ErrNoSymbol if the name is not found, or
+// ErrDeviceNoMemory if the live-handle cap is reached.
 // Name lookup uses findSymbolWithFallback for prefix/case-insensitive matching.
 func (st *SymbolTable) CreateHandle(name string) (uint32, uint32) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	if len(st.handles) >= maxHandles {
+		return 0, ErrDeviceNoMemory
+	}
 	sym := st.findSymbolWithFallback(name)
 	if sym == nil {
 		return 0, ErrNoSymbol
@@ -631,8 +641,13 @@ func (st *SymbolTable) readProcessImageRange(offset, length uint32) ([]byte, uin
 // including partial overlaps. For partial writes the untouched bytes of the
 // symbol retain their current value (read-modify-write).
 func (st *SymbolTable) writeProcessImageRange(offset uint32, data []byte) uint32 {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	// Full write lock (not RLock): each overlapping symbol is read-modify-written
+	// below, so two concurrent overlapping process-image writes under a shared
+	// RLock could interleave and lose an update. Serializing the whole range write
+	// makes the RMW atomic against other process-image writes and reads.
+	// See ADS_REVIEW_FINDINGS.md A13.
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
 	length := uint32(len(data))
 	end := offset + length

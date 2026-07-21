@@ -45,6 +45,7 @@ type notifyManager struct {
 	stopped bool
 	cNetID  AMSNetID // client AMS Net ID (set on first subscribe)
 	cPort   uint16   // client AMS port (set on first subscribe)
+	maxSubs int      // cap on active subscriptions (<= 0 = unlimited); see A7
 }
 
 // newNotifyManager creates a notification manager for a connection.
@@ -56,6 +57,7 @@ func newNotifyManager(s *Server, conn net.Conn) *notifyManager {
 		conn:    conn,
 		server:  s,
 		quit:    make(chan struct{}),
+		maxSubs: s.maxSubs,
 	}
 }
 
@@ -74,10 +76,16 @@ func (nm *notifyManager) stop() {
 	nm.wg.Wait()
 }
 
-// add creates a new subscription and returns its handle.
-func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, cycleTime time.Duration) uint32 {
+// add creates a new subscription and returns its handle and an ADS error code.
+// It returns ErrDeviceNoMemory (without creating a subscription) when the
+// per-connection subscription cap is reached — see ADS_REVIEW_FINDINGS.md A7.
+func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, cycleTime time.Duration) (uint32, uint32) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
+
+	if nm.maxSubs > 0 && len(nm.subs) >= nm.maxSubs {
+		return 0, ErrDeviceNoMemory
+	}
 
 	h := nm.nextHdl
 	nm.nextHdl++
@@ -89,7 +97,7 @@ func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, 
 		transMode:   transMode,
 		cycleTime:   cycleTime,
 	}
-	return h
+	return h, ErrNoError
 }
 
 // del removes a subscription by handle. Returns true if found.

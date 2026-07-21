@@ -27,8 +27,8 @@ func TestNotifyManagerAddDel(t *testing.T) {
 
 	nm := newNotifyManager(s, c1)
 
-	h1 := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeCyclic, 100*time.Millisecond)
-	h2 := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeOnChange, 200*time.Millisecond)
+	h1, _ := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeCyclic, 100*time.Millisecond)
+	h2, _ := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeOnChange, 200*time.Millisecond)
 
 	if h1 == h2 {
 		t.Fatalf("expected different handles, got %d and %d", h1, h2)

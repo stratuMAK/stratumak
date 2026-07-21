@@ -24,11 +24,6 @@ const readDeadlineInterval = 100 * time.Millisecond
 // genuinely stuck connections.
 const amsDataReadTimeout = 5 * time.Second
 
-// shutdownTimeout is the maximum time Stop() will wait for active connections
-// to finish after signalling shutdown. If this elapses, Stop() returns anyway
-// so the process can exit.
-const shutdownTimeout = 2 * time.Second
-
 // maxAMSPacketSize is the upper bound on AMS packet length to prevent
 // a malicious client from triggering excessive memory allocation.
 const maxAMSPacketSize = 64 * 1024
@@ -57,23 +52,31 @@ type Server struct {
 	stopOnce sync.Once
 	connsMu  sync.Mutex
 	conns    map[net.Conn]struct{}
+	// maxConns caps concurrent connections; maxSubs caps notifications per
+	// connection. <= 0 means unlimited. See ADS_REVIEW_FINDINGS.md A7.
+	maxConns int
+	maxSubs  int
 }
 
 // NewServer creates a new ADS server listening on addr (e.g. ":48898").
-// netID and port identify this device in AMS routing.
-func NewServer(addr string, netID AMSNetID, port uint16, symbols *SymbolTable, verbose bool, logger *slog.Logger) *Server {
+// netID and port identify this device in AMS routing. maxConns caps concurrent
+// client connections and maxSubs caps device notifications per connection (both
+// <= 0 mean unlimited) — see ADS_REVIEW_FINDINGS.md A7.
+func NewServer(addr string, netID AMSNetID, port uint16, symbols *SymbolTable, maxConns, maxSubs int, verbose bool, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Server{
-		addr:    addr,
-		netID:   netID,
-		port:    port,
-		symbols: symbols,
-		verbose: verbose,
-		logger:  logger,
-		quit:    make(chan struct{}),
-		conns:   make(map[net.Conn]struct{}),
+		addr:     addr,
+		netID:    netID,
+		port:     port,
+		symbols:  symbols,
+		verbose:  verbose,
+		logger:   logger,
+		quit:     make(chan struct{}),
+		conns:    make(map[net.Conn]struct{}),
+		maxConns: maxConns,
+		maxSubs:  maxSubs,
 	}
 }
 
@@ -111,16 +114,16 @@ func (s *Server) doStop() {
 		_ = conn.Close()
 	}
 	s.connsMu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(shutdownTimeout):
-		s.logger.Warn("timeout waiting for connections to close")
-	}
+
+	// True join, no silent cap: wait for every connection (and its notification
+	// sendLoop) to finish before returning. This is the sound shutdown contract —
+	// once Stop() returns, no ADS goroutine can still touch a HAL pin, so the
+	// subsequent Destroy()->comp.Exit() that frees the pins cannot race live pin
+	// access (ADS_REVIEW_FINDINGS.md A5 / pkg-hal H1). The wait is bounded: the
+	// listener and every connection are already closed above, and both read and
+	// write paths carry deadlines (readDeadlineInterval / amsDataReadTimeout /
+	// writeTimeout), so no goroutine can block indefinitely.
+	s.wg.Wait()
 }
 
 // acceptLoop accepts incoming TCP connections.
@@ -152,6 +155,16 @@ func (s *Server) acceptLoop() {
 			_ = conn.Close()
 			return
 		default:
+		}
+		// Cap concurrent connections so a remote peer cannot exhaust resources by
+		// opening unbounded sockets (2 goroutines + buffers each). See
+		// ADS_REVIEW_FINDINGS.md A7.
+		if s.maxConns > 0 && len(s.conns) >= s.maxConns {
+			s.connsMu.Unlock()
+			s.logger.Warn("ADS connection rejected: connection cap reached",
+				"remote", conn.RemoteAddr(), "max", s.maxConns)
+			_ = conn.Close()
+			continue
 		}
 		s.conns[conn] = struct{}{}
 		s.connsMu.Unlock()
@@ -442,7 +455,12 @@ func (s *Server) handleAddNotification(conn net.Conn, hdr *AMSHeader, payload []
 	}
 
 	nm.setClientAddr(hdr)
-	handle := nm.add(indexGroup, indexOffset, length, transMode, cycleTime)
+	handle, errCode := nm.add(indexGroup, indexOffset, length, transMode, cycleTime)
+	if errCode != ErrNoError {
+		// Subscription cap reached (A7): tell the client no more resources.
+		s.sendErrorResponse(conn, hdr, errCode)
+		return
+	}
 
 	resp := make([]byte, 8)
 	binary.LittleEndian.PutUint32(resp[0:], ErrNoError)

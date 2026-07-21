@@ -153,13 +153,15 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 
 	// Create ADS TCP server (not started yet).
 	addr := fmt.Sprintf("%s:%d", conf.Bind, conf.Port)
-	server := ads.NewServer(addr, netID, DefaultAMSPort, st, debug, logger)
+	server := ads.NewServer(addr, netID, DefaultAMSPort, st, conf.MaxConnections, conf.MaxSubscriptions, debug, logger)
 
 	logger.Info("ADS instance initialized",
 		"name", name,
 		"addr", addr,
 		"ams-net-id", conf.AMSNetID,
 		"pins", len(pins),
+		"max-connections", conf.MaxConnections,
+		"max-subscriptions", conf.MaxSubscriptions,
 	)
 
 	ok = true // construction succeeded — keep the HAL component

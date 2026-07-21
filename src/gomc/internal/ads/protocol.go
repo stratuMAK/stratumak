@@ -150,6 +150,10 @@ const (
 	ErrClientBufTooSmall uint32 = 0x1868
 	ErrClientInvalidHdl  uint32 = 0x1869
 	ErrAccessDenied      uint32 = 0x0712
+	// ErrDeviceNoMemory (ADSERR_DEVICE_NOMEMORY) is returned when a
+	// client-controlled resource (subscriptions, handles) hits its configured
+	// cap. See ADS_REVIEW_FINDINGS.md A7/A14.
+	ErrDeviceNoMemory uint32 = 0x070A
 )
 
 // AMSHeader is the 32-byte AMS packet header.
