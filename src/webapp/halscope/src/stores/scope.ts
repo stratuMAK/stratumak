@@ -95,6 +95,9 @@ const state = reactive<ScopeStore>({
     threadPeriodNs: 0n,
     threadName: '',
     trigChannel: -1,
+    trigLevel: 0,
+    trigEdge: TrigEdge.RISING,
+    trigAutoTrig: false,
     generation: 0,
     continuous: false,
     channels: [],
@@ -109,7 +112,6 @@ const state = reactive<ScopeStore>({
     threadName: '',
     maxChannels: 1,
     samplePeriodMult: 1,
-    preTrig: 0,
   },
 
   triggerConfig: {
@@ -355,8 +357,8 @@ async function configure() {
   if (!restClient) return;
   try {
     state.captureConfig.threadName = state.selectedThread;
-    // preTrig is always recLen/2 (hardcoded server-side, like original halscope)
-    state.captureConfig.preTrig = 0;
+    // preTrig is hardcoded server-side (recLen/2, like original halscope); the
+    // client does not send it (CaptureConfig has no preTrig field).
     await restClient.configure(state.captureConfig);
     // Re-fetch status so recLen/preTrig reflect the new maxChannels
     const status = await restClient.getStatus();

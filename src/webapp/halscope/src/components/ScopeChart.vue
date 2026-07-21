@@ -48,7 +48,6 @@ function timeToIdx(time: number): number {
 
 // --- Drag state (non-reactive, for mouse events) ---
 let dragging = false;
-let dragStartIdx = -1;
 let dragStartPx = { x: 0, y: 0 };
 let dragCurPx = { x: 0, y: 0 };
 let hoverPx = { x: 0, traceY: 0, active: false };
@@ -187,7 +186,6 @@ function onPlotMouseDown(e: MouseEvent) {
   const startRealY = divToReal(plot.posToVal(y, 'y'));
 
   dragging = true;
-  dragStartIdx = timeToIdx(time);
   dragStartPx = { x, y };
   dragCurPx = { ...dragStartPx };
   scopeStore.state.isDragging = true;
@@ -203,7 +201,6 @@ function onPlotMouseDown(e: MouseEvent) {
 function onPlotMouseUp(_e: MouseEvent) {
   if (dragging) {
     dragging = false;
-    dragStartIdx = -1;
     scopeStore.state.isDragging = false;
     scopeStore.state.dragStartTime = null;
     scopeStore.state.dragStartValue = null;
