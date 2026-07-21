@@ -31,12 +31,21 @@ func cmdMaster(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []s
 	fmt.Printf("Master%d\n", mi)
 
 	fmt.Printf("  Phase: ")
-	switch info.Phase {
-	case 0:
+	switch {
+	// The in-process uspace master does not run the kernel/daemon
+	// IDLE->OPERATION phase transition (ec_master_enter_operation_phase is a
+	// kernel-only path, and this build is --enable-uspace-master
+	// --disable-kernel). It stays in the IDLE phase and signals "in use by the
+	// RT application" via the `active` flag instead. Report Operation when the
+	// master is active so the phase reflects reality (matches the IgH tool,
+	// which shows Operation once an application holds the master).
+	case info.Active:
+		fmt.Printf("Operation")
+	case info.Phase == 0:
 		fmt.Printf("Waiting for device(s)...")
-	case 1:
+	case info.Phase == 1:
 		fmt.Printf("Idle")
-	case 2:
+	case info.Phase == 2:
 		fmt.Printf("Operation")
 	default:
 		fmt.Printf("???")

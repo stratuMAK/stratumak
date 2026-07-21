@@ -37,11 +37,15 @@ func cmdVersion(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []
 	if err != nil {
 		return err
 	}
+	if mod.Version != "" {
+		fmt.Printf("IgH EtherCAT master %s\n", mod.Version)
+		return nil
+	}
+	// Fallback for an older master that does not report a version string: the
+	// ioctl magic is the ioctl ABI version, not the master version, but it is
+	// all we have.
 	magic := mod.IoctlVersionMagic
-	major := (magic >> 16) & 0xFF
-	minor := (magic >> 8) & 0xFF
-	patch := magic & 0xFF
-	fmt.Printf("IgH EtherCAT master %d.%d.%d\n", major, minor, patch)
+	fmt.Printf("IgH EtherCAT master (ioctl API %d)\n", magic)
 	return nil
 }
 

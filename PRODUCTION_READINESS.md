@@ -737,11 +737,26 @@ Human review mandatory, in this order:
    first `cmd/ethercat` unit test, `main_test.go`), and the SM-direction bug replicated across
    `pdos`/`cstruct`/`xml` (output SMs mislabelled). `master`/`slaves`/`sdos`/`config`/`domains` are
    parity-confirmed; `tests/ethercat/sim-cli` asserts the output format. **Deferred (lower
-   priority):** deep-review of the rarely-used `reg/sii/foe/soe` read-write commands. **Two
-   master-side follow-ups (not CLI bugs):** `version` shows the ioctl magic (0.0.37) because the
-   master tool API (`ec_tool_module_t`) exposes no version string — needs the master to surface
-   `PACKAGE_VERSION`; and the master reports `Phase: Idle` while active + doesn't fetch the SDO
-   dictionary (both master/GMI-side, surfaced by the harness).
+   priority):** deep-review of the rarely-used `reg/sii/foe/soe` read-write commands. **Master-side
+   follow-ups — RESOLVED 2026-07-22 (driver verified working on 5+ machines; these were cosmetic
+   diagnostics fixed at the GMI/CLI boundary, master core untouched):**
+   - **`version` (fixed):** the CLI decoded the ioctl ABI magic as a version → "0.0.37". Now the
+     GMI `ModuleInfo` carries a real `version` string, populated in `gmi_ethercat.c` from the public
+     `ecrt.h` RT-interface macros (`ECRT_VER_MAJOR`.`ECRT_VER_MINOR` → "1.6") — no master-core change.
+     The CLI prints it (with an ioctl-API fallback). (The full patch level "1.6.8" lives only in the
+     master's private `config.h`; surfacing it would need a tool-API field — deferred as not worth a
+     submodule change for a diagnostic.)
+   - **`Phase: Idle` while active (fixed):** the in-process uspace master (`--enable-uspace-master
+     --disable-kernel`) never runs the kernel-only `ec_master_enter_operation_phase()`, so it stays
+     in the IDLE phase and signals "in use" via the `active` flag. The CLI now reports **Operation
+     when `active`** — no master-core change.
+   - **SDO dictionary (not a bug):** the master FSM *does* auto-fetch the dictionary
+     (`fsm_master.c`), gated on `EC_WAIT_SDO_DICT = 3 s` after a CoE slave reaches PREOP. A `sdos`
+     query inside that 3 s window sees `SdoCount = 0`; on a running machine it fetches fine (matches
+     the "works perfectly on 5+ machines" evidence). Left as-is; the verified master FSM is not
+     touched for a timing artifact.
+   Both fixes covered end-to-end by new assertions in `tests/ethercat/sim-cli` (phase Operation while
+   active; real version, not the ioctl magic).
 4. **internal/launcher + internal/daemon** — process supervision, startup/shutdown ordering,
    restart-after-crash. Focus: goroutine ownership, orphan handling, partial-startup failure.
 5. **State machines & abort paths across modules** — wherever a Tier 2 AI review flags a

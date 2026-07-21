@@ -75,11 +75,20 @@ static ethercat_module_info_t gmi_ethercat_get_module(void *ctx)
     (void)ctx;
     ec_tool_module_t mod;
     ethercat_module_info_t out = {0};
+    char verbuf[32];
 
     if (ecrt_tool_get_module(&mod) == 0) {
         out.ioctl_version_magic = mod.ioctl_version_magic;
         out.master_count = mod.master_count;
     }
+    /* The ioctl magic is the ioctl ABI version, not the master version — the
+     * CLI used to decode it as "0.0.<magic>". Surface the real master version
+     * from the public ecrt.h RT-interface version macros (ECRT_VER_MAJOR/MINOR)
+     * so `ethercat version` prints a meaningful number. This uses only the
+     * installed public header; it does not touch the master core. */
+    snprintf(verbuf, sizeof(verbuf), "%u.%u",
+             (unsigned)ECRT_VER_MAJOR, (unsigned)ECRT_VER_MINOR);
+    out.version = strdup(verbuf);
     return out;
 }
 

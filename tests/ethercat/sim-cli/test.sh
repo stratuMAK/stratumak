@@ -43,6 +43,16 @@ absent() { # <description> <text-that-must-NOT-appear> <actual-output>
 
 master=$(ethercat master 2>&1)
 check "master: slave count" "Slaves: 2" "$master"
+# Phase follow-up: the in-process uspace master stays in the IDLE phase and
+# signals "in use" via `active`; the CLI must report Operation once active
+# (it reached OP above), not Idle.
+check "master: phase Operation while active" "Phase: Operation" "$master"
+
+# Version follow-up: `version` must show a real master version, not the ioctl
+# ABI magic decoded as "0.0.<magic>".
+version=$(ethercat version 2>&1)
+check  "version: real master version" "IgH EtherCAT master 1." "$version"
+absent "version: not the ioctl magic" "0.0."                   "$version"
 
 slaves=$(ethercat slaves 2>&1)
 check "slaves: slave 0 in OP"   "0  0:0  OP" "$slaves"
