@@ -13,11 +13,55 @@ import (
 	hal "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 )
 
-// tokenizeLine splits a single HAL config line into raw string tokens.
-// It handles double-quoted strings (with backslash escapes), single-quoted
-// strings (no escaping inside), backslash escapes outside quotes, and
-// comment stripping (# outside quotes). Returns an error for unterminated
-// quotes.
+// stripComments removes a '#' comment (to end of line) from a single line,
+// respecting single- and double-quoted strings — a '#' inside quotes is NOT a
+// comment. It mirrors 2.9's strip_comments and runs BEFORE variable
+// substitution, so a '#' introduced by a substituted INI/ENV value (e.g. an INI
+// value "abc#1") is not treated as a comment. Returns an error for an
+// unterminated quoted string, matching 2.9's strip_comments (-1).
+func stripComments(line string) (string, error) {
+	const (
+		normal = iota
+		single
+		double
+	)
+	state := normal
+	for i := 0; i < len(line); i++ {
+		switch state {
+		case normal:
+			switch line[i] {
+			case '#':
+				return line[:i], nil
+			case '\'':
+				state = single
+			case '"':
+				state = double
+			}
+		case single:
+			if line[i] == '\'' {
+				state = normal
+			}
+		case double:
+			if line[i] == '"' {
+				state = normal
+			}
+		}
+	}
+	if state != normal {
+		return "", fmt.Errorf("unterminated quoted string")
+	}
+	return line, nil
+}
+
+// tokenizeLine splits a single HAL config line into raw string tokens. Comment
+// removal (stripComments) and variable substitution (substituteVars) are done
+// by the caller FIRST, matching 2.9's strip_comments → replace_vars → tokenize
+// ordering — so this no longer treats '#' as a comment. Double- and
+// single-quoted strings protect embedded whitespace; the surrounding quotes are
+// removed but their contents are taken literally, and a backslash is an
+// ordinary character everywhere (2.9's tokenize does NO escape processing).
+// Returns an error for an unterminated quote (a quote can still appear in the
+// post-substitution line via a substituted value).
 func tokenizeLine(line string) ([]string, error) {
 	var tokens []string
 	var current strings.Builder
@@ -26,11 +70,6 @@ func tokenizeLine(line string) ([]string, error) {
 
 	for i < len(line) {
 		ch := line[i]
-
-		if ch == '#' {
-			// Comment: discard everything from here to end of line
-			break
-		}
 
 		if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' {
 			// Whitespace ends current token
@@ -44,7 +83,7 @@ func tokenizeLine(line string) ([]string, error) {
 		}
 
 		if ch == '"' {
-			// Double-quoted string — backslash escapes are processed
+			// Double-quoted string — contents literal, no escape processing.
 			inToken = true
 			i++ // skip opening quote
 			for {
@@ -56,29 +95,6 @@ func tokenizeLine(line string) ([]string, error) {
 					i++ // skip closing quote
 					break
 				}
-				if c == '\\' {
-					i++
-					if i >= len(line) {
-						return nil, fmt.Errorf("unterminated double quote")
-					}
-					switch line[i] {
-					case '"':
-						current.WriteByte('"')
-					case '\\':
-						current.WriteByte('\\')
-					case 'n':
-						current.WriteByte('\n')
-					case 't':
-						current.WriteByte('\t')
-					case 'r':
-						current.WriteByte('\r')
-					default:
-						current.WriteByte('\\')
-						current.WriteByte(line[i])
-					}
-					i++
-					continue
-				}
 				current.WriteByte(c)
 				i++
 			}
@@ -86,7 +102,7 @@ func tokenizeLine(line string) ([]string, error) {
 		}
 
 		if ch == '\'' {
-			// Single-quoted string — no escape processing inside
+			// Single-quoted string — contents literal.
 			inToken = true
 			i++ // skip opening quote
 			for {
@@ -104,20 +120,7 @@ func tokenizeLine(line string) ([]string, error) {
 			continue
 		}
 
-		if ch == '\\' {
-			// Backslash escape outside quotes: next character is literal
-			inToken = true
-			i++
-			if i >= len(line) {
-				// Trailing backslash (file should have had continuation join already)
-				break
-			}
-			current.WriteByte(line[i])
-			i++
-			continue
-		}
-
-		// Regular character
+		// Regular character (backslash included — no escape processing).
 		inToken = true
 		current.WriteByte(ch)
 		i++
@@ -130,12 +133,12 @@ func tokenizeLine(line string) ([]string, error) {
 	return tokens, nil
 }
 
-// joinContinuationLines normalizes line endings and joins lines ending with \.
-// A space is inserted at the join point to preserve token boundaries when the
-// continuation line has no leading whitespace.
+// joinContinuationLines normalizes CRLF and joins a line ending in a backslash
+// to the next with NO separator, matching 2.9's continuation loop
+// (halcmd_main.c: strip the trailing '\' and concatenate the next line's text).
 func joinContinuationLines(content string) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\\\n", " ")
+	content = strings.ReplaceAll(content, "\\\n", "")
 	return content
 }
 
@@ -148,34 +151,62 @@ var iniVarPattern = regexp.MustCompile(`\[([A-Za-z0-9_-]+)\]([A-Za-z0-9_-]+)`)
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 // substituteVars replaces [SECTION]KEY with INI values and $ENV_VAR / ${ENV_VAR}
-// with environment variable values. Called per-line before tokenizing.
-func substituteVars(line string, ini INILookup) string {
-	// Replace [SECTION]KEY with INI values; leave as-is if not found
+// with environment variable values. Called per-line AFTER stripComments and
+// BEFORE tokenizing (2.9 order). A reference to a variable that does not exist
+// is a hard error (2.9's replace_vars returns -5 for a missing INI var and -4
+// for a missing env var, aborting the run) — this fails bring-up loudly on a
+// typo'd [SEC]KEY instead of silently substituting "".
+func substituteVars(line string, ini INILookup) (string, error) {
+	var subErr error
+
+	// Replace [SECTION]KEY with INI values.
 	line = iniVarPattern.ReplaceAllStringFunc(line, func(match string) string {
+		if subErr != nil {
+			return match
+		}
 		groups := iniVarPattern.FindStringSubmatch(match)
 		if len(groups) < 3 {
 			return match
 		}
-		val, err := ini.Get(groups[1], groups[2])
+		val, found, err := ini.Get(groups[1], groups[2])
 		if err != nil {
+			subErr = fmt.Errorf("INI variable %s not found: %w", match, err)
+			return match
+		}
+		if !found {
+			subErr = fmt.Errorf("INI variable %s not found", match)
 			return match
 		}
 		return val
 	})
+	if subErr != nil {
+		return "", subErr
+	}
 
-	// Replace ${VARNAME} and $VARNAME with environment variables
+	// Replace ${VARNAME} and $VARNAME with environment variables.
 	line = envVarPattern.ReplaceAllStringFunc(line, func(match string) string {
+		if subErr != nil {
+			return match
+		}
 		groups := envVarPattern.FindStringSubmatch(match)
+		name := ""
 		if len(groups) > 1 && groups[1] != "" {
-			return os.Getenv(groups[1]) // ${VARNAME}
+			name = groups[1] // ${VARNAME}
+		} else if len(groups) > 2 && groups[2] != "" {
+			name = groups[2] // $VARNAME
 		}
-		if len(groups) > 2 && groups[2] != "" {
-			return os.Getenv(groups[2]) // $VARNAME
+		val, ok := os.LookupEnv(name)
+		if !ok {
+			subErr = fmt.Errorf("environment variable %s not found", name)
+			return match
 		}
-		return ""
+		return val
 	})
+	if subErr != nil {
+		return "", subErr
+	}
 
-	return line
+	return line, nil
 }
 
 // --- calibreg interceptor helpers ---
@@ -810,12 +841,23 @@ func (sp *SingleFileParser) Parse(path string) (*ParseResult, error) {
 	for lineNum, line := range lines {
 		loc := SourceLoc{File: path, Line: lineNum + 1}
 
-		// Capture raw line for calibreg interceptor before substitution.
+		// 2.9 order: strip comments (quote-aware) → substitute vars → tokenize.
+		line, sErr := stripComments(line)
+		if sErr != nil {
+			return nil, &ParseError{Loc: loc, Msg: sErr.Error()}
+		}
+
+		// Capture the comment-stripped, pre-substitution line for calibreg
+		// (a [SECTION]KEY inside a comment must not be recorded).
 		rawLine := line
 
-		// Substitute INI and environment variables
+		// Substitute INI and environment variables (missing var → hard error).
 		if sp.ini != nil {
-			line = substituteVars(line, sp.ini)
+			var subErr error
+			line, subErr = substituteVars(line, sp.ini)
+			if subErr != nil {
+				return nil, &ParseError{Loc: loc, Msg: subErr.Error()}
+			}
 		}
 
 		// Tokenize the line

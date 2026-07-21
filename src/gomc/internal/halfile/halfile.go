@@ -26,11 +26,15 @@ type iniLookupAdapter struct {
 	ini *inifile.IniFile
 }
 
-// Get implements halparse.INILookup. It returns ("", nil) when the key is absent
-// (the halparse parser treats an empty string the same as "not found" for
-// substitution purposes).
-func (a *iniLookupAdapter) Get(section, key string) (string, error) {
-	return a.ini.Get(section, key), nil
+// Get implements halparse.INILookup. found is false when the key is absent
+// (distinct from present-but-empty), so the parser can fail loud on a missing
+// INI variable like 2.9's replace_vars. Presence is determined via GetAll (nil
+// == absent); the value is read via Get to preserve namespace resolution.
+func (a *iniLookupAdapter) Get(section, key string) (string, bool, error) {
+	if len(a.ini.GetAll(section, key)) == 0 {
+		return "", false, nil
+	}
+	return a.ini.Get(section, key), true, nil
 }
 
 // GetAll implements halparse.INILookup. It returns the full INI content as a

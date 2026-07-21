@@ -16,13 +16,13 @@ type mockINI struct {
 	data map[string]map[string]string
 }
 
-func (m *mockINI) Get(section, key string) (string, error) {
+func (m *mockINI) Get(section, key string) (string, bool, error) {
 	if s, ok := m.data[section]; ok {
 		if v, ok := s[key]; ok {
-			return v, nil
+			return v, true, nil
 		}
 	}
-	return "", fmt.Errorf("ini: [%s]%s not found", section, key)
+	return "", false, nil
 }
 
 func (m *mockINI) GetAll() map[string]map[string]string {
@@ -40,12 +40,17 @@ func TestTokenizeLine(t *testing.T) {
 		{"loadrt pid", []string{"loadrt", "pid"}, false},
 		{"  setp  comp.pin  3.14  ", []string{"setp", "comp.pin", "3.14"}, false},
 		{`setp "hello world" 1`, []string{"setp", "hello world", "1"}, false},
-		{"# comment only", []string{}, false},
-		{"setp pin 1 # inline comment", []string{"setp", "pin", "1"}, false},
 		{`setp pin "unterminated`, nil, true},
 		{"", []string{}, false},
 		{"\t\t  ", []string{}, false},
+		// Comment stripping is stripComments' job now (2.9 order), so a '#'
+		// reaching tokenizeLine is an ordinary character. Inside quotes it stays
+		// literal.
 		{`setp p "quoted with # hash"`, []string{"setp", "p", "quoted with # hash"}, false},
+		{"a # b", []string{"a", "#", "b"}, false},
+		// Backslash is an ordinary character — no escape processing (2.9 parity).
+		{`net foo\bar`, []string{"net", `foo\bar`}, false},
+		{`setp p "a\tb"`, []string{"setp", "p", `a\tb`}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -65,6 +70,80 @@ func TestTokenizeLine(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- TestStripComments ---
+
+func TestStripComments(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"setp pin 1", "setp pin 1", false},
+		{"setp pin 1 # inline comment", "setp pin 1 ", false},
+		{"# comment only", "", false},
+		{"", "", false},
+		// A '#' inside quotes is not a comment (quote-aware, 2.9 strip_comments).
+		{`setp p "has # hash"`, `setp p "has # hash"`, false},
+		{`setp p 'has # hash'`, `setp p 'has # hash'`, false},
+		// Unterminated quote is an error (2.9 strip_comments -1).
+		{`setp p "unterminated`, "", true},
+		{`setp p 'unterminated`, "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := stripComments(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("stripComments(%q) error = %v, wantErr %v", tc.input, err, tc.wantErr)
+			}
+			if tc.wantErr {
+				return
+			}
+			if got != tc.want {
+				t.Errorf("stripComments(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// A '#' introduced by a substituted INI value must NOT be treated as a comment,
+// because comment stripping runs before substitution (2.9 order) — this is the
+// HP-1 fix (previously the '#' truncated the line).
+func TestParse_SubstitutedHashNotAComment(t *testing.T) {
+	ini := &mockINI{data: map[string]map[string]string{
+		"COMP": {"DEV": "abc#1"},
+	}}
+	files := map[string]string{"test.hal": "setp comp.dev [COMP]DEV"}
+	sp := &SingleFileParser{
+		ini:      ini,
+		readFile: func(path string) (string, error) { return files[path], nil },
+	}
+	result, err := sp.Parse("test.hal")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HALCmd) != 1 {
+		t.Fatalf("HALCmd count = %d, want 1", len(result.HALCmd))
+	}
+	st := result.HALCmd[0].Data.(*SetPToken)
+	if st.Value != "abc#1" {
+		t.Errorf("Value = %q, want %q (substituted '#' must not be a comment)", st.Value, "abc#1")
+	}
+}
+
+// A missing INI variable must fail the parse loudly (2.9 replace_vars -5),
+// rather than silently substituting "" — this is the HP-2 fix.
+func TestParse_MissingINIVarIsError(t *testing.T) {
+	ini := &mockINI{data: map[string]map[string]string{}}
+	files := map[string]string{"test.hal": "setp comp.pin [NOPE]MISSING"}
+	sp := &SingleFileParser{
+		ini:      ini,
+		readFile: func(path string) (string, error) { return files[path], nil },
+	}
+	if _, err := sp.Parse("test.hal"); err == nil {
+		t.Error("expected parse error for missing INI var, got nil")
 	}
 }
 
@@ -985,75 +1064,68 @@ func TestSubstituteVars(t *testing.T) {
 		},
 	}}
 
-	t.Run("INI substitution", func(t *testing.T) {
-		result := substituteVars("machine=[EMC]MACHINE", ini)
-		if result != "machine=My Machine" {
-			t.Errorf("got %q, want %q", result, "machine=My Machine")
+	sub := func(t *testing.T, line, want string) {
+		t.Helper()
+		got, err := substituteVars(line, ini)
+		if err != nil {
+			t.Fatalf("substituteVars(%q) error: %v", line, err)
 		}
+		if got != want {
+			t.Errorf("substituteVars(%q) = %q, want %q", line, got, want)
+		}
+	}
+
+	t.Run("INI substitution", func(t *testing.T) {
+		sub(t, "machine=[EMC]MACHINE", "machine=My Machine")
 	})
 
-	t.Run("INI key not found leaves as-is", func(t *testing.T) {
-		result := substituteVars("[EMC]NOTFOUND", ini)
-		if result != "[EMC]NOTFOUND" {
-			t.Errorf("got %q, want %q", result, "[EMC]NOTFOUND")
+	t.Run("missing INI key is a hard error (2.9 replace_vars -5)", func(t *testing.T) {
+		if _, err := substituteVars("[EMC]NOTFOUND", ini); err == nil {
+			t.Error("expected error for missing INI var, got nil")
 		}
 	})
 
 	t.Run("env var $VARNAME", func(t *testing.T) {
 		_ = os.Setenv("HAL_TEST_VAR", "testvalue")
 		defer func() { _ = os.Unsetenv("HAL_TEST_VAR") }()
-		result := substituteVars("val=$HAL_TEST_VAR", ini)
-		if result != "val=testvalue" {
-			t.Errorf("got %q, want %q", result, "val=testvalue")
-		}
+		sub(t, "val=$HAL_TEST_VAR", "val=testvalue")
 	})
 
 	t.Run("env var ${VARNAME}", func(t *testing.T) {
 		_ = os.Setenv("HAL_TEST_VAR2", "enclosed")
 		defer func() { _ = os.Unsetenv("HAL_TEST_VAR2") }()
-		result := substituteVars("val=${HAL_TEST_VAR2}", ini)
-		if result != "val=enclosed" {
-			t.Errorf("got %q, want %q", result, "val=enclosed")
+		sub(t, "val=${HAL_TEST_VAR2}", "val=enclosed")
+	})
+
+	t.Run("missing env var is a hard error (2.9 replace_vars -4)", func(t *testing.T) {
+		_ = os.Unsetenv("HAL_DEFINITELY_NOT_SET_XYZ")
+		if _, err := substituteVars("val=$HAL_DEFINITELY_NOT_SET_XYZ", ini); err == nil {
+			t.Error("expected error for missing env var, got nil")
 		}
 	})
 
-	t.Run("missing env var replaced with empty string", func(t *testing.T) {
-		_ = os.Unsetenv("HAL_DEFINITELY_NOT_SET_XYZ")
-		result := substituteVars("val=$HAL_DEFINITELY_NOT_SET_XYZ", ini)
-		if result != "val=" {
-			t.Errorf("got %q, want %q", result, "val=")
-		}
+	t.Run("env var set-but-empty is not an error", func(t *testing.T) {
+		_ = os.Setenv("HAL_EMPTY_VAR", "")
+		defer func() { _ = os.Unsetenv("HAL_EMPTY_VAR") }()
+		sub(t, "val=$HAL_EMPTY_VAR", "val=")
 	})
 
 	t.Run("multiple substitutions on one line", func(t *testing.T) {
 		_ = os.Setenv("HAL_MULTI_TEST", "42")
 		defer func() { _ = os.Unsetenv("HAL_MULTI_TEST") }()
-		result := substituteVars("[EMC]DEBUG $HAL_MULTI_TEST", ini)
-		if result != "0 42" {
-			t.Errorf("got %q, want %q", result, "0 42")
-		}
+		sub(t, "[EMC]DEBUG $HAL_MULTI_TEST", "0 42")
 	})
 
 	t.Run("no substitution needed", func(t *testing.T) {
-		result := substituteVars("loadrt motmod", ini)
-		if result != "loadrt motmod" {
-			t.Errorf("got %q, want %q", result, "loadrt motmod")
-		}
+		sub(t, "loadrt motmod", "loadrt motmod")
 	})
 
 	t.Run("substitution operates on raw line before tokenizing", func(t *testing.T) {
-		// The substitution happens before tokenizing so it can affect multiple tokens
-		result := substituteVars("setp [EMC]MACHINE [TRAJ]COORDINATES", ini)
-		if result != "setp My Machine XYZ" {
-			t.Errorf("got %q, want %q", result, "setp My Machine XYZ")
-		}
+		sub(t, "setp [EMC]MACHINE [TRAJ]COORDINATES", "setp My Machine XYZ")
 	})
 
 	t.Run("INI key with hyphen", func(t *testing.T) {
-		result := substituteVars("setp joint.0.min-limit [JOINT_0]MIN-LIMIT", ini)
-		if result != "setp joint.0.min-limit -180.0" {
-			t.Errorf("got %q, want %q", result, "setp joint.0.min-limit -180.0")
-		}
+		sub(t, "setp joint.0.min-limit [JOINT_0]MIN-LIMIT", "setp joint.0.min-limit -180.0")
 	})
 }
 
@@ -1251,11 +1323,12 @@ func TestSingleFileParser(t *testing.T) {
 		}
 	})
 
-	t.Run("line continuation no leading whitespace", func(t *testing.T) {
-		// When the continuation line has no leading whitespace the inserted space
-		// must keep the two token parts separate.
+	t.Run("line continuation joins with no separator (2.9 parity)", func(t *testing.T) {
+		// 2.9's continuation strips the trailing backslash and concatenates the
+		// next line with NO separator, so a value split across the break rejoins
+		// into a single token.
 		files := map[string]string{
-			"test.hal": "setp very.long.pin.name\\\n3.14159",
+			"test.hal": "setp very.long.pin.name 3.14\\\n159",
 		}
 		sp := &SingleFileParser{
 			readFile: func(path string) (string, error) {
