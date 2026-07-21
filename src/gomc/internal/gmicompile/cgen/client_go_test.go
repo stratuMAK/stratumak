@@ -4,6 +4,7 @@ package cgen
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
@@ -198,6 +199,34 @@ func TestGenerateClientGoNumericPathParam(t *testing.T) {
 		t.Fatalf("GenerateClientGo: %v", err)
 	}
 	assertContains(t, buf.String(), `path = strings.Replace(path, "{position}", url.PathEscape(fmt.Sprintf("%v", position)), 1)`)
+}
+
+// TestGenerateClientGoSkipsWatch verifies the Go client emits a method only for
+// REST-dispatched functions: a @watch-only function (no @method — served over
+// WebSocket) must NOT get a broken empty-path REST method, while a normal
+// command still does.
+func TestGenerateClientGoSkipsWatch(t *testing.T) {
+	api := &ast.API{
+		Name: "hc", Version: 1, Prefix: "hc", RestExport: true,
+		Funcs: []ast.Func{
+			{Name: "watch_items", Watch: true, // no Method → WebSocket-only
+				Params: []ast.Param{{Name: "names", Type: ast.TypeRef{Kind: ast.TypeSlice, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "string"}}}},
+				Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"}},
+			{Name: "get_status", Method: "GET", Path: "/status",
+				Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "hcclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "WatchItems") {
+		t.Errorf("watch-only function must not get a REST client method:\n%s", out)
+	}
+	if !strings.Contains(out, "func (c *HcClient) GetStatus(") {
+		t.Errorf("command function should still get a REST client method")
+	}
 }
 
 // TestGenerateClientGoInstanceConstructor verifies the additive

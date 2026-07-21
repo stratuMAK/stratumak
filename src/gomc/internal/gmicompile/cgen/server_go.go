@@ -470,6 +470,16 @@ func HasWatchFuncs(api *ast.API) bool {
 // remote JSON request, and exposing one would accept an arbitrary client-supplied
 // pointer — such functions (e.g. callback registration) are cgo-local only.
 func (g *serverGoGen) isCommandFunc(fn ast.Func) bool {
+	return isRESTCommandFunc(fn)
+}
+
+// isRESTCommandFunc reports whether fn is dispatched over REST (a "command"):
+// not a watch-only function (@watch with no @method — those are WebSocket),
+// not a @publish producer, and with no out/opaque-ptr params (unmarshalable).
+// The server dispatch and every generated REST client must agree on this set,
+// or a client emits a method the server never serves (e.g. halcmd's watch_items
+// was mis-emitted as a broken empty-path GET returning []PinInfo).
+func isRESTCommandFunc(fn ast.Func) bool {
 	if fn.Watch && fn.Method == "" {
 		return false
 	}

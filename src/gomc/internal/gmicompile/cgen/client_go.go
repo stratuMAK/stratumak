@@ -241,6 +241,13 @@ func (g *clientGoGen) emitClientMethods() {
 	clientName := toPascalCase(g.api.Name) + "Client"
 
 	for _, fn := range g.api.Funcs {
+		// Emit a REST method only for functions the server actually dispatches
+		// over REST — skip watch-only/publish/out-param functions, matching the
+		// server. Otherwise the client carries a broken method (empty path) for
+		// e.g. a @watch function that is served over WebSocket, not REST.
+		if !isRESTCommandFunc(fn) {
+			continue
+		}
 		g.emitClientMethod(clientName, fn)
 	}
 }
