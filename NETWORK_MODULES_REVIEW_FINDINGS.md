@@ -77,7 +77,7 @@ debugging without exposing it by default.
 
 ### N6 — halrest load/unload REST surface reaches the launcher L-3 data race
 `halrest_impl.go:342,352` → launcher `runtimeLoadModule`/`UnloadModule`. **CONFIRMED (reachability).**
-`[OPEN — belongs to launcher L-3]`
+`[FIXED in launcher L-3]`
 
 `halcmdImpl.Load`/`Unload` (HTTP-handler goroutines) call into the launcher, which appends/splices
 `l.cModules`/`l.goModules` with **no lock** while shutdown iterates/frees them (and two concurrent

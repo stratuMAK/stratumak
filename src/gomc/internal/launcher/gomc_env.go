@@ -262,7 +262,7 @@ func gomc_ini_get(ctx C.uintptr_t, section, key *C.char) *C.char {
 		return nil
 	}
 	cs := C.CString(val)
-	l.cModArena = append(l.cModArena, unsafe.Pointer(cs))
+	l.arenaAppend(unsafe.Pointer(cs))
 	return cs
 }
 
@@ -270,7 +270,7 @@ func gomc_ini_get(ctx C.uintptr_t, section, key *C.char) *C.char {
 func gomc_ini_source_file(ctx C.uintptr_t) *C.char {
 	l := cgo.Handle(ctx).Value().(*Launcher)
 	cs := C.CString(l.ini.SourceFile())
-	l.cModArena = append(l.cModArena, unsafe.Pointer(cs))
+	l.arenaAppend(unsafe.Pointer(cs))
 	return cs
 }
 
@@ -288,11 +288,11 @@ func gomc_ini_get_all(ctx C.uintptr_t, section, key *C.char, outCount *C.int) **
 	// and each string.  All freed in destroyCModules via cModArena.
 	ptrSize := unsafe.Sizeof((*C.char)(nil))
 	arr := (**C.char)(C.malloc(C.size_t(uintptr(n+1) * ptrSize)))
-	l.cModArena = append(l.cModArena, unsafe.Pointer(arr))
+	l.arenaAppend(unsafe.Pointer(arr))
 
 	for i, v := range vals {
 		cs := C.CString(v)
-		l.cModArena = append(l.cModArena, unsafe.Pointer(cs))
+		l.arenaAppend(unsafe.Pointer(cs))
 		*(**C.char)(unsafe.Add(unsafe.Pointer(arr), uintptr(i)*ptrSize)) = cs
 	}
 	// NULL terminator

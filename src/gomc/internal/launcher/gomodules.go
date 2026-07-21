@@ -64,15 +64,24 @@ func (l *Launcher) startGoModules() error {
 // stopGoModules calls Stop() on all loaded Go modules in reverse order.
 // Called during cleanup before Destroy.
 func (l *Launcher) stopGoModules() {
-	for i := len(l.goModules) - 1; i >= 0; i-- {
-		l.goModules[i].mod.Stop()
+	l.modMu.Lock()
+	snapshot := l.goModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		snapshot[i].mod.Stop()
 	}
 }
 
 // destroyGoModules calls Destroy() on all loaded Go modules in reverse order.
 // Called after all modules have been stopped to release resources.
 func (l *Launcher) destroyGoModules() {
-	for i := len(l.goModules) - 1; i >= 0; i-- {
-		l.goModules[i].mod.Destroy()
+	// Snapshot and clear under modMu (see destroyCModules) so a straggler REST
+	// unload cannot double-destroy.
+	l.modMu.Lock()
+	snapshot := l.goModules
+	l.goModules = nil
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		snapshot[i].mod.Destroy()
 	}
 }

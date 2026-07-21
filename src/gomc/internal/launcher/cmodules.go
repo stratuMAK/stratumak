@@ -307,6 +307,7 @@ import (
 	"path/filepath"
 	"runtime/cgo"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
@@ -392,8 +393,11 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 
 	// Convert args to C strings.  Keep them alive for the full module
 	// lifecycle so C code can hold pointers into name/argv safely.
+	// Append arena strings under arenaMu (short critical section, released
+	// before the cgo cmod_call_new below, whose gomc_ini_get* callbacks re-take
+	// arenaMu on this same goroutine — see the arenaMu contract on Launcher).
 	cName := C.CString(name)
-	l.cModArena = append(l.cModArena, unsafe.Pointer(cName))
+	l.arenaAppend(unsafe.Pointer(cName))
 
 	argc := C.int(len(args))
 	var argv **C.char
@@ -401,7 +405,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 		cargs := make([]*C.char, len(args))
 		for i, a := range args {
 			cargs[i] = C.CString(a)
-			l.cModArena = append(l.cModArena, unsafe.Pointer(cargs[i]))
+			l.arenaAppend(unsafe.Pointer(cargs[i]))
 		}
 		argv = &cargs[0]
 	}
@@ -439,6 +443,16 @@ func (l *Launcher) runtimeLoadModule(module string, args []string) error {
 // default (the module basename).  The explicit-name form supports HAL-file
 // syntax like "load abs <abs.0>", where the instance must be named "abs.0".
 func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) error {
+	// Serialize the whole load against concurrent REST load/unload and against
+	// shutdown (modMu is held across the cgo cmod_call_* calls — safe, no
+	// //export callback takes modMu). This also makes the cModules[len-1] /
+	// goModules[len-1] reads below correct under concurrency.
+	l.modMu.Lock()
+	defer l.modMu.Unlock()
+	if l.shuttingDown {
+		return fmt.Errorf("cannot load %q: shutting down: %w", module, syscall.ESHUTDOWN)
+	}
+
 	path := resolveCModulePath(module)
 	if !cModuleExists(path) {
 		// Try as a Go module — load and start immediately.
@@ -535,8 +549,11 @@ func (l *Launcher) unlockRTModules() {
 
 // stopCModules calls Stop() on all loaded C plugin modules in reverse order.
 func (l *Launcher) stopCModules() {
-	for i := len(l.cModules) - 1; i >= 0; i-- {
-		cm := l.cModules[i]
+	l.modMu.Lock()
+	snapshot := l.cModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		cm := snapshot[i]
 		// Only stop modules that were actually started. On a partial-startup
 		// failure (startCModules returns mid-loop) later modules are loaded but
 		// never started; calling stop on them violates the plugin's
@@ -549,6 +566,17 @@ func (l *Launcher) stopCModules() {
 	}
 }
 
+// arenaAppend records a C allocation in cModArena for later free in
+// destroyCModules. It takes arenaMu only for the append and MUST NOT be called
+// while holding arenaMu across a cgo call (see the arenaMu contract on
+// Launcher). Safe to call re-entrantly from the gomc_ini_get* //export
+// callbacks during a load.
+func (l *Launcher) arenaAppend(p unsafe.Pointer) {
+	l.arenaMu.Lock()
+	l.cModArena = append(l.cModArena, p)
+	l.arenaMu.Unlock()
+}
+
 // destroyCModules calls Destroy() on all loaded C plugin modules in reverse
 // order, unlocks and closes the dlopen handles, and frees all arena-tracked
 // strings and gomc env structs.  The log ring is NOT destroyed here — it
@@ -556,8 +584,14 @@ func (l *Launcher) stopCModules() {
 // can still emit log messages.  See doCleanup() for ring teardown.
 func (l *Launcher) destroyCModules() {
 	l.unlockRTModules()
-	for i := len(l.cModules) - 1; i >= 0; i-- {
-		cm := l.cModules[i]
+	// Snapshot and clear the live slice under modMu so a straggler REST unload
+	// (should already be blocked by shuttingDown) can never double-destroy.
+	l.modMu.Lock()
+	snapshot := l.cModules
+	l.cModules = nil
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		cm := snapshot[i]
 		C.cmod_call_destroy(cm.mod)
 		if cm.env != nil {
 			C.gomc_env_destroy(cm.env)
@@ -569,10 +603,12 @@ func (l *Launcher) destroyCModules() {
 		cm.hCtx.Delete()
 	}
 	// Free arena strings after all modules have been destroyed.
+	l.arenaMu.Lock()
 	for _, p := range l.cModArena {
 		C.free(p)
 	}
 	l.cModArena = nil
+	l.arenaMu.Unlock()
 	// Free the RT handle tracking array.
 	C.rt_dl_handles_free()
 }

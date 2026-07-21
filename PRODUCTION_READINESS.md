@@ -335,8 +335,8 @@ pidfile, unlocked — same PID, low severity). The concurrency exposure is conce
   are loaded-but-not-started; bulk-stop then violates their start-before-stop contract and can
   crash. Guarded `stopCModules` with `cm.started`. (Not unit-tested: `cmod_call_stop` is a cgo
   call on a real module pointer — mirrors the already-established `unload.go` contract.)
-- **L-3 (data race, OPEN — needs manual review / a locking design):** `l.cModules`, `l.goModules`,
-  and `l.cModArena` are mutated with **no lock** from HTTP-handler goroutines
+- **L-3 (data race, FIXED 2026-07-21):** `l.cModules`, `l.goModules`,
+  and `l.cModArena` were mutated with **no lock** from HTTP-handler goroutines
   (`runtimeLoadModule`/`UnloadModule`, wired via `halrest.SetLoad/UnloadModuleFunc`) while the
   shutdown goroutine iterates/frees them (`stopCModules`/`destroyCModules`, cmodules.go:566 nils
   the arena). The only mutexes in the package are `subsMu` and `fatalMu`. Two concurrent REST
@@ -350,6 +350,19 @@ pidfile, unlocked — same PID, low severity). The concurrency exposure is conce
   `doCleanup` stops the REST server first (`stopAPIServer`, 2s `http.Server.Shutdown` drains
   in-flight handlers) before iterating modules — but concurrent REST-to-REST load/unload still
   races. Decide whether runtime REST load/unload is a supported production path before sizing.
+  **RESOLVED (2026-07-21): runtime REST load/unload IS supported (user ruling) → full fix landed.**
+  Two locks per the recommended design: **`arenaMu`** guards `cModArena`, held only around each
+  append (via `arenaAppend`) and the free-and-nil loop, **never** across a cgo call — so the
+  re-entrant `gomc_ini_get*` `//export` appends on the loading goroutine can't self-deadlock;
+  **`modMu`** serializes `loadModuleNamed`/`UnloadModule` end-to-end (held across the cgo
+  `cmod_call_*` calls — safe because no `//export` callback takes `modMu`) and guards the
+  `cModules`/`goModules` slices, with snapshot-under-lock in the shutdown iterators (destroy
+  variants nil the live slice under the lock). A **`shuttingDown` gate** (set under `modMu` in
+  `doCleanup` right after `stopAPIServer`) makes any straggler load/unload fail fast with
+  `ESHUTDOWN`, so the iterators run with no concurrent mutator. Lock nesting only `modMu ⊃ arenaMu`.
+  Mutation-verified `-race` regression `TestLoadRace` + gate test `TestShutdownGate`
+  (`loadunload_race_test.go`) — HAL-free (Go-module path); the real cmod `gomc_ini_get` re-entrancy
+  is exercised by the nightly `-race` runtests load/unload cycle.
 - **L-4 (LOW, documented):** `stopGoModules`/`unloadGoModule` call `Module.Stop()` without a
   started-guard (goModule has no `started` field). Internally consistent (both paths do it), so
   only a bug if `gomc.Module.Stop()` is unsafe without a prior `Start()`; verify the interface
@@ -361,7 +374,7 @@ pidfile, unlocked — same PID, low severity). The concurrency exposure is conce
   process, e.g. tests). `retainSync`'s 1s busy-wait can delay shutdown by up to 1s if the servo
   thread stalls.
 Verified: vet clean, build ./launcher + ./daemon green, `go test -race ./launcher/...` green.
-Row → L R F ◐ (L-3 open); `U`/`FP`/`S` pending (L-3 design + L-4 contract check + human sign).
+Row → L R F ✅ (L-3 fixed 2026-07-21); `U`/`FP`/`S` pending (L-4 contract check + L-5/L-6 + human sign).
 
 ### Phase 2 — field I/O (drives real iron; highest risk per untested line)
 
@@ -433,8 +446,8 @@ bug in `pdos`/`cstruct`/`xml`); Tier-1 hotspot #3 is substantially closed (see i
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/launcher | 2599/237 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/daemon | 157/0 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/launcher | 2599/237 | 1 | ✅ | ✅ | ◐ | ◐ | ✅ | ◐ | ☐ |
+| internal/daemon | 157/0 | 1 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
 | cmd/gomc-server | 266/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/config | 86/37 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/pkgreg | 353/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
@@ -757,5 +770,6 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-20 | **Tier 1 hotspot #3 — cmd/ethercat unblocked; EtherCAT sim-transport integration harness M1 done.** Promoted the master's test-only `transport_sim` slave emulator to a first-class, config-selectable transport (`EC_TRANSPORT_SIM`; `transportType=sim`, `interface=<bus-description-file>`; RT-`TRUSTED` cyclic ops, in `rt-effects-check`). Submodule `670737d4` (branch `transport-sim`): moved `transport_sim.{c,h}` to `transport/`, file-driven `sim_open` parser, registry entry, `interface[16]→[64]`, new `test_sim_transport_file` (14 PASS/2 SKIP/0 FAIL). Superproject `b6c9c9a6a1` (conf.c `transportType=sim` + submodule bump) and `bb1ac3a0be` (`tests/ethercat/sim-basic` — first gomc EtherCAT runtests case: driver on an emulated slave reaches OP, PDOs map to HAL pins; passes `runtests`). Rebuilt `libethercat`+`cmod/ethercat.so`. Next: M2 (PDO round-trip/SDO/DC/link-loss), M3 (`bin/ethercat` REST-CLI assertions → closes the CLI review). |
 | 2026-07-21 | **EtherCAT harness M2 complete — driver integration-tested hardware-free.** Five more increments across six runtests: `sim-pdo-loopback` (PDO value round-trip both ways via a `loopback` sim slave, submodule `6a7591e1`), `sim-sdo-config` (startup `<sdoConfig>` init-commands written via CoE, read back through the `ethercat` REST CLI — proving the CLI+REST path works resident), `sim-link-loss` (cable-pull: a `<interface>.link` control file drops the link → slave-lost pins → rescan back to OP, submodule `ecde9e8b`), `sim-multi-slave` (three CoE slaves output-only/input-only/bidirectional all reach OP; slave-2 round-trip verifies its domain offset), and a CoE-mailbox upgrade to all sim slaves (clean PDO config, 0 log errors). DC skipped (niche). **cmd/ethercat parity bug found + fixed** by the harness: the hand-rolled option parser rejected the attached getopt form `-p0` (IgH tool accepts it) — fixed `d7da8ef2bd`, guarded by the SDO test. Commits: submodule `6a7591e1`/`ecde9e8b`; superproject `2028c099ff`/`520abc1090`/`682e384ca7`/`d7da8ef2bd`/`90380552ee`/`2f2dd5d941`. Next: M3 — cmd/ethercat CLI read-review + output-assertion tests (closes Tier-1 hotspot #3). |
 | 2026-07-21 | **EtherCAT M3 done — cmd/ethercat CLI reviewed; Tier-1 hotspot #3 substantially closed.** Read-reviewed the hand-written command formatting/parsing against the authoritative IgH source (`master/tool/Command*.cpp`); **four real parity bugs found + fixed:** option parser rejected the attached `-p0` (`d7da8ef2bd`) and clustered `-fq` (`bd40e617b9`, which also extracted `parseArgs()` + added `main_test.go`, the first unit test for the package); and the SM-direction bug — output sync managers mislabelled — replicated across `pdos` (`237a156b3b`), `cstruct` and `xml` (`4592b682e8`; real rule is control bit 0x04 = output). `master`/`slaves`/`sdos`/`config`/`domains` parity-confirmed (e.g. the `slaves` `0x<vid>:0x<pid>` fallback and `sdos` cached-dictionary read both match IgH). Test: `tests/ethercat/sim-cli` (`9c7d4e11de`) asserts CLI output format. Deferred: deep-review of rarely-used `reg/sii/foe/soe` commands. Master-side follow-ups (not CLI bugs): `version` shows ioctl magic (master tool API exposes no version string), `Phase: Idle` while active, no SDO-dictionary fetch. cmd/ethercat matrix row → L R F RC ✅, U FP S ◐. |
+| 2026-07-21 | **Launcher L-3 FIXED (Tier-1 hotspot #4 follow-up).** Runtime REST module load/unload is a supported production path (user ruling) and halrest confirmed the unlocked `cModules`/`goModules`/`cModArena` race is remotely reachable (N6). Full locking landed: `arenaMu` guards `cModArena` (held only around `arenaAppend`/free, never across a cgo call — so the re-entrant `gomc_ini_get*` `//export` appends can't self-deadlock); `modMu` serializes `loadModuleNamed`/`UnloadModule` end-to-end (held across the cgo `cmod_call_*` — safe, no `//export` takes it) and guards the slices with snapshot-under-lock in the shutdown iterators (destroy nils under the lock); a `shuttingDown` gate (set under `modMu` in `doCleanup` after `stopAPIServer`) fails straggler load/unload fast with `ESHUTDOWN`. Lock nesting only `modMu ⊃ arenaMu`. Mutation-verified `-race` test `TestLoadRace` + `TestShutdownGate` (HAL-free Go-module path; real cmod re-entrancy covered by nightly `-race` runtests). build/vet/gofmt clean, lint 0, `-race` green. Launcher row → L R RC ✅, F ◐ (L-4/L-5/L-6 low open). |
 | 2026-07-21 | **Network modules reviewed (Phases 4–6, Tier 2 adversarial)** — `NETWORK_MODULES_REVIEW_FINDINGS.md`. apiserver/halrest/inirest/mqttbridge/halscope, same untrusted-wire lens as ADS. **N1 (HIGH): cross-site WebSocket hijacking** — both WS upgraders set `InsecureSkipVerify:true`, a `call` action dispatches real controller commands, so a browser tab on a malicious page could drive the machine **even on the loopback default**. Fixed: same-origin secure default (`OriginPatterns`), opt-in `GMC_REST_ORIGINS`/`[GMC]REST_ORIGINS` allow-list, `TestWatchOriginCheck`. Also fixed: **N2** `recover()` in spawned `pushLoop`/`pushLoopBinary` (watch-fn cgo panic killed the process; net/http recover doesn't cover spawned goroutines); **N3** `MaxBytesReader` 8 MiB on REST body (OOM); **N4** `ReadHeaderTimeout`+`IdleTimeout` (Slowloris; not Read/Write — would kill WS); **N5** pprof gated behind `GMC_REST_PPROF=1`; **N8** `recover()` in mqtt publish/message goroutines; streamWg `Add` moved inside the lock (shutdown-vs-new-stream cgo-in-flight window). Cleared: inirest `make` (bounded), halscope HS1 (properly fixed), mqtt MQ1 (present), registry/webapp. Open: **N6 = launcher L-3** (halrest load/unload proves the unlocked module-map race is remotely reachable), N7 (mqtt publish-count), N9 (conn cap), + safety-boundary-doc: REST/WS has no auth (trusted-local-origin model). build/vet/gofmt clean, lint 0, `-race` green. Rows → apiserver/halrest/inirest/mqttbridge/halscope L R RC ✅. |
 | 2026-07-21 | **ADS cluster reviewed (Phase 2, Tier 2 adversarial)** — `ADS_REVIEW_FINDINGS.md`. Net-new code, no 2.9 oracle; server binds `0.0.0.0:48898` with no protocol auth. Two independent refutation passes (remote-DoS, concurrency/lifecycle). **Headline: a remote unauthenticated client could crash/OOM the motion controller with a single ~28-byte packet** — all fixed: A1 SumWrite `uint32` overflow → slice panic; A2 unbounded `make` from client sub-request count (≈137 GB → OOM); A3 unbounded process-image read `length` (≈4 GB, incl. notification `sendLoop` re-OOM every 10 ms); A4 no `recover()` in any goroutine. Bounds + `recover()` added; regression tests `internal/ads/dos_test.go`. Robustness: A6 write deadlines, A10 accept backoff, A11 idempotent `Stop()`, A12 construction-error HAL-component leak. A5 (partial): closed accept/register race + stage-2 read honors `quit`, narrowing the known ADS2 shutdown-UAF (full free-barrier contract still open, decide with pkg/hal H1). Refuted (locking correct): notifyManager races, SymbolTable lock model incl. suspected re-entrant-RLock deadlock. Open: A5 contract, A7 (conn/sub caps — HMI-count decision), A8 (`[0..N]` array silently mis-laid-out — fix proposed, separate commit), A9 (0.0.0.0/no-auth → safety-boundary doc), A13/A14 (low). build/vet/gofmt clean, lint 0, `-race` green. Rows → ads/adsbridge/adsconfig/adsmodule L R RC ✅, F ◐. |

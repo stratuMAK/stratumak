@@ -67,6 +67,14 @@ func (l *Launcher) doCleanup() {
 	l.logger.Debug("stopping REST API server")
 	l.stopAPIServer()
 
+	// Step 0b — Gate runtime load/unload. stopAPIServer has drained in-flight
+	// HTTP handlers; taking modMu here additionally waits for any load/unload
+	// that outlived the drain, and shuttingDown makes any later one fail fast
+	// (ESHUTDOWN) — so the module iterators below run with no concurrent mutator.
+	l.modMu.Lock()
+	l.shuttingDown = true
+	l.modMu.Unlock()
+
 	// Step 2 — Stop C plugin modules (reverse of startCModules).
 	// Runs BEFORE StopThreads so that modules can perform graceful
 	// shutdown while RT threads are still processing (e.g. milltask

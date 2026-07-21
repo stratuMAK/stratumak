@@ -51,15 +51,29 @@ type Options struct {
 
 // Launcher orchestrates the LinuxCNC startup and shutdown sequence.
 type Launcher struct {
-	opts         Options
-	ini          *inifile.IniFile
-	logger       *slog.Logger
-	rtMgr        *realtime.Manager // realtime environment manager
-	halibPath    string            // colon-separated HAL library search path
-	cleanupOnce  sync.Once         // ensures cleanup runs exactly once
-	halComp      *hal.Component    // launcher's HAL component (like halcmd's hal_init)
-	goModules    []*goModule       // Go modules loaded via "load" command (compiled-in)
-	cModules     []*cModule        // C plugin modules loaded via "load" command
+	opts        Options
+	ini         *inifile.IniFile
+	logger      *slog.Logger
+	rtMgr       *realtime.Manager // realtime environment manager
+	halibPath   string            // colon-separated HAL library search path
+	cleanupOnce sync.Once         // ensures cleanup runs exactly once
+	halComp     *hal.Component    // launcher's HAL component (like halcmd's hal_init)
+	// modMu serializes runtime load/unload operations (a supported production
+	// path via the halcmd REST surface — see NETWORK_MODULES_REVIEW_FINDINGS.md
+	// N6 / launcher L-3) and guards the goModules/cModules slices and the
+	// shuttingDown flag. It may be held across the cgo cmod_call_* load calls:
+	// no //export callback ever acquires it (they touch only cModArena/ini/the
+	// apiserver registry), so the synchronous re-entry cannot self-deadlock.
+	modMu        sync.Mutex
+	shuttingDown bool        // set under modMu once shutdown begins; blocks new load/unload
+	goModules    []*goModule // Go modules loaded via "load" command (compiled-in)
+	cModules     []*cModule  // C plugin modules loaded via "load" command
+	// arenaMu guards cModArena. It is held ONLY around an individual append or
+	// the free-and-nil loop, NEVER across a cgo call — the gomc_ini_get*
+	// //export callbacks append to the arena synchronously on the loading
+	// goroutine during cmod_call_new/init, so holding it across that call would
+	// self-deadlock. Nesting only ever goes modMu ⊃ arenaMu, never the reverse.
+	arenaMu      sync.Mutex
 	cModArena    []unsafe.Pointer  // arena-tracked C strings freed in destroyCModules
 	logRing      *gomcLogRing      // shared log ring buffer for C module FIFO logging
 	retain       *retainInstance   // integrated retain subsystem (nil if unused)

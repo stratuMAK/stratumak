@@ -18,6 +18,15 @@ import (
 // Returns EBUSY if another loaded module depends on this module's APIs.
 // Returns ENOENT if no module with the given name is found.
 func (l *Launcher) UnloadModule(name string) error {
+	// Serialize against concurrent REST load/unload and shutdown. isModuleLoaded,
+	// unloadCModule, and unloadGoModule below run with modMu held (they are
+	// caller-holds-modMu helpers — they must NOT re-lock it).
+	l.modMu.Lock()
+	defer l.modMu.Unlock()
+	if l.shuttingDown {
+		return fmt.Errorf("cannot unload %q: shutting down: %w", name, syscall.ESHUTDOWN)
+	}
+
 	// Check API dependency guard.
 	reg := apiserver.DefaultRegistry()
 	if reg != nil {
@@ -51,6 +60,7 @@ func (l *Launcher) UnloadModule(name string) error {
 
 // isModuleLoaded returns true if a module with the given instance name is
 // currently loaded (either as cmod or gomod).
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) isModuleLoaded(name string) bool {
 	for _, cm := range l.cModules {
 		if cm.name == name {
@@ -66,6 +76,7 @@ func (l *Launcher) isModuleLoaded(name string) bool {
 }
 
 // unloadCModule unloads a single C plugin module.
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) unloadCModule(name string) error {
 	idx := -1
 	for i, cm := range l.cModules {
@@ -133,6 +144,7 @@ func (l *Launcher) unloadCModule(name string) error {
 }
 
 // unloadGoModule unloads a single Go module.
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) unloadGoModule(name string) error {
 	idx := -1
 	for i, gm := range l.goModules {
