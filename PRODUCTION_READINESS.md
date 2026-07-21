@@ -225,7 +225,7 @@ final human sign — the functional/parity work itself is complete.
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | pkg/hal | 1088/444 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ◐ |
-| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ✅ | ✅ | ◐ | ◐ | ✅ | — | ◐ |
+| internal/gmicompile | 10755/2141 | 1 (emission logic) / 2 (rest) | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | generated/gmi/* boundary | n/a | 3 (spot-check vs IDL) | — | ✅ | — | — | ✅ | — | ◐ |
 | internal/realtime | 47/28 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/gmi (kinstest) | 376/262 | 2 | ✅ | ✅ | — | ✅ | ✅ | — | ◐ |
@@ -343,13 +343,22 @@ nested-64-bit field). `newthread(period_ns)` now bigint; webapp consumers conver
 webapps `vue-tsc --force` clean (pre-existing halscope errors fixed, `1926c82ca8`). **G-L5 FIXED**
 (`7d8d51408f`): all C array bounds route through one `#define`-aware helper (`cArraySizeStr`) so
 header/bridge/dispatch agree and no `[0]` can leak; regenerated cgo recompiles clean.
-**Still open** (separate/fresh session): G-L1 (`_cb` RT annotation — cross-cutting, belongs to
-`RT_HARDENING_CHECKLIST.md` item 1b, needs the clang `-Wfunction-effects` worktree), G-L7 (external
-`*_client.c` nested-struct parser — feature work needing a consumer test). `R` ✅ (both halves
-reviewed); `F`/`U` left ◐ **only** for those two remaining emission deferrals. `RC` ✅ (module-wide
-`-race` sweep green). `FP` — (a code generator, not a runtime fault-path module). Verified: full
-`make` regen git-clean, gmicompile suite green (incl. G-M4/G-L5 tests this round), all generated
-cgo recompiles, build/vet/gofmt/lint(0) green.
+**Final 2 deferrals — BOTH DONE (2026-07-21, `505e87d19f`; docs `a6b598240c`).** **G-L1 FIXED** as an
+additive capability, *not* an RT-session deferral: the investigation confirmed there is **no RT-invoked
+`@callback`** today (the four real ones — `interp_ext` oword/remap ×3, `mcode_handler` handler — are all
+task/worker-level and must stay blocking; everything RT-invoked rides on already-annotated `_fn`
+typedefs), so nothing was mis-typed. But since gomc is a general framework, `@rt_safe` on a `@callback`
+now stamps the `_cb` typedef `GOMC_API_NONBLOCKING` (mirrors `_fn`; default-false → existing callbacks
+byte-identical) — ready for the first RT consumer without needing the clang worktree now; **out of the
+RT-hardening bucket.** **G-L7 FIXED** as fail-loud (Option B): every silent-drop site in `--client-c`
+now errors at generate time. The sweep is the finding — of 16 `@rest_export` IDLs only **5 generate
+cleanly, 11 fail loud** (narrow scalars, enum fields, non-string slices, depth-≥2, slice-of-struct), so
+the generator was producing broken clients for ~69% of the real REST surface; `--help`/README now
+document the supported subset. Full recursive parity (**G-L7/A**) stays deferred-until-a-real-C-consumer.
+`F`/`U` now ✅. `RC` ✅ (module-wide `-race` sweep green). `FP` — (a code generator, not a runtime
+fault-path module). **Only `S` (final human sign-off) remains open for this module.** Verified: full
+`make` regen git-clean, gmicompile suite green (incl. G-L1/G-L7 tests), all generated cgo recompiles,
+build/vet/gofmt/lint(0) green.
 
 **`internal/realtime` — reviewed 2026-07-20 (Tier 1; functional review done, awaiting final
 human sign `S`).** Architecturally reduced to a startup stub: `New()`/`Start()` are called
@@ -687,9 +696,13 @@ Human review mandatory, in this order:
    catastrophic classes (cgo handle transit, returned-data ownership) verified closed
    generator-wide across all 33 packages; all live/production findings fixed (operator-message
    loss root-caused here; `--server-go` ptr truncation; mapper drift; fail-fast guards; **G-M4
-   64-bit-as-JSON-string + G-L5 array-size `#define` consolidation, 2026-07-21**). Deferred as
-   manual/design-decision (not auto-fixable): G-L1 (RT annotation), G-L7 (external C nested-struct
-   parser). Tier-2 parser/AST still to review.
+   64-bit-as-JSON-string + G-L5 array-size `#define` consolidation, 2026-07-21**). The last two
+   deferrals are now **also DONE** (`505e87d19f`, 2026-07-21): G-L1 landed as an additive
+   `@rt_safe`→`_cb` `GOMC_API_NONBLOCKING` capability (no RT `@callback` exists today, so out of the
+   RT-hardening bucket), G-L7 as `--client-c` fail-loud (silent field-drops → generate-time errors;
+   only 5/16 `@rest_export` IDLs generate cleanly, so full recursive parity G-L7/A stays
+   deferred-until-a-real-C-consumer). Tier-2 parser/AST also reviewed + closed (see the Phase-1
+   note). **No open gmicompile findings remain** — only the final human sign-off.
 3. **cmd/ethercat** — **DONE (M1+M2+M3, 2026-07-21); hotspot substantially closed.** This is a
    *diagnostic CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI to the master at
    `GMC_REST_URL`) — it holds **no** state machine, watchdog, or slave-loss logic; every
@@ -947,3 +960,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-21 | **gmicompile Tier-1 emission deferrals — G-M4 + G-L5 landed (2 of 4).** **G-M4** (`d7d3e7fe7f`): 64-bit ints cross the wire as JSON **strings** (protobuf3 convention) across Go/Python/TS clients — Go native `json:",string"` (response fields + POST/PUT/PATCH body params, through pointers/nil), Python int↔str at from_dict/to_dict/body seam, TS `bigint` + recursive per-type revivers (BigInt() over nested structs+slices) wired into REST returns/WS subscribe/WS command results. Two **fail-loud** gmicompile guards (fire on no current IDL): reject a 64-bit REST **path/query** param (encodeParams→bare number→JS truncation), and reject `--client-python` for an API whose 64-bit field is reachable only through a **nested** named type (from_dict doesn't recurse). `newthread(period_ns)`→bigint; webapp consumers convert at display boundary. Decided with user: full clean solution over doc-footnote, hard-fail the unsupportable shapes. **G-L5** (`7d8d51408f`): all C array bounds route through one `#define`-aware helper (`cArraySizeStr`; `serverGen.arraySizeStr` delegates) so header/cgo-bridge/dispatch/external-client agree (kins bridge now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenName` can't emit `[0]`; Go bounds stay numeric. Regenerated cgo recompiles clean; per-target tests added. **Bonus:** `vue-tsc --force` sweep of all 6 webapps flushed out pre-existing halscope type errors masked by stale incremental cache (missing trigger fields, `preTrig` on wrong type, dead var) — fixed separately (`1926c82ca8`); all 6 webapps now type-check from cold. gmicompile row F/U ◐ **now only for G-L1 + G-L7** (both → fresh/RT-hardening session). |
 | 2026-07-21 | **G-M4 regression caught + root-caused → ethercat CLI de-duplicated onto the generated client** (`69c6bea407`). `,string` broke `tests/ethercat/sim-cli`: `cmd/ethercat` carried a **hand-written duplicate** of every ethercat wire type (no `,string`), so `unmarshal DeviceStats.tx_count` failed against the now-string server. (The G-M4 "no external client" assumption missed in-repo **hand-written Go consumers**; halcmd never broke because it consumes its *generated* client — the model.) Fixed the class, not the tag: added an ethercat `--client-go` target (→ `generated/gmi/ethercatclient`, gitignored) and refactored `cmd/ethercat` onto it with qualified names, **deleting the ~35KB hand-written client**. Two `--client-go` generator fixes this required: a numeric REST path param was passed bare to `url.PathEscape` (wants a string, wouldn't compile) → now `fmt.Sprintf("%v",…)` first (halcmd's are strings, never hit); and an additive `New<X>ClientInstance(baseURL, instance)` ctor (default delegates) so the CLI keeps a configurable instance (`EC_INST`) — existing callers unaffected. Instance of the **codegen-duplication risk class** (a hand-written mirror silently drifts from the generated wire format); the durable fix is that consumers use the generated client. 2 generator tests; all generated clients + `cmd/*` rebuild clean; sim-cli green. Sweep confirmed ethercat was the only wire-facing hand-written 64-bit consumer. |
 | 2026-07-21 | **Codegen-duplication audit (whole gomc) + 3 remediations.** Prompted by the ethercat regression, swept all of `cmd/`+`internal/` (3 parallel auditors) for hand-written code that replicates GMI-generated wire structs/clients/providers. **Conclusion: ethercat was the ONLY ethercat-class latent duplicate** — everything else either routes through generated code (providers implement generated command tables and return generated types; C `#include`s the generated `*_api.h`) or is bespoke with no GMI peer (`TaskMessage`/`posPoint`), or is a separate protocol (ADS/AMS binary) or the apiserver framework itself. Name-intersection false-positives dismissed (`McodeCall` has a Go channel field; `Entry`/`Section`/`Symbol` are cross-domain coincidences). Three non-break-risk items fixed: (1) `internal/halcmd` `*Info` structs — dropped **dead json tags** (they're CGO-backed internal types converted to generated `halcmdapi.*` at the halrest seam before marshaling; tags never serialized, but misleading) (`bed039a80d`); (2) **`internal/halstream`** — the HAL WS stream framing (`cfg:` header + 8-byte codec + f/b/u/s) was hand-coded in *both* halsampler and halstreamer; factored into one shared package (the C `hal_stream_common.h` stays authoritative; no `--stream-client` generator exists) (`df1adb7e3c`); (3) **`--client-go` mis-emitted a broken REST method for `@watch`-only funcs** (halcmd `watch_items` → empty-path GET returning `[]PinInfo`, matching no transport) — extracted the server's `isCommandFunc` into a shared `isRESTCommandFunc` and gated the Go client on it, so client/server agree on the REST-callable set (`8401338ecc`). All build/vet/gofmt clean; new tests; sim-cli/hal-stream/ws-stream green. Closes the risk-class-3 "hand-written where generated should be used" concern with evidence. |
+| 2026-07-21 | **gmicompile Tier-1 emission — final 2 deferrals DONE (G-L1 + G-L7); module now closed but for human sign-off** (`505e87d19f`; docs `a6b598240c`). **G-L1** landed as an *additive capability*, not the RT-session deferral it was filed as: investigation confirmed there is **no RT-invoked `@callback`** today — the four real ones (`interp_ext` oword/remap ×3, `mcode_handler` handler) are task/worker-level and *must* stay blocking (`mcode_handler.handler` blocks on `abort_fd`), and everything RT-invoked (mot/tp/hm2_serial `@rt_safe`) rides on already-annotated `_fn` typedefs. So nothing was mis-typed — but since gomc is a general framework, `@rt_safe` on a `@callback` now stamps the `_cb` typedef `GOMC_API_NONBLOCKING` (mirrors `_fn`; default-false → existing callbacks byte-identical). **Out of the RT-hardening bucket** — the clang check only bites when a real RT `@callback` appears. This *unblocks* `RT_HARDENING_CHECKLIST.md` item 1b (type hm2_serial's opaque-ptr BSPI callback), now a driver-side task, not an emitter one. **G-L7** landed as **fail-loud** (Option B, user ruling): `--client-c` is a published feature with zero in-tree consumers and no test that silently dropped fields in both directions (receive inlined one level of primitive-scalar nesting; send serialized primitives only, with a `// would go here` TODO stub emitting empty arrays). Added `failf` + `default:` guards at every silent-drop site across all 5 emitters. **The sweep is the finding: of 16 `@rest_export` IDLs only 5 generate cleanly, 11 fail loud** (narrow scalars like u8, enum fields, non-string slices, depth-≥2, slice-of-struct) — the generator was producing broken clients for ~69% of the real REST surface. `--help`+README now document the supported subset. Full recursive parity (**G-L7/A**) stays deferred-until-a-real-C-consumer. Tests: `callback_rtsafe_test.go`, `client_failloud_test.go` (synthetic fail-loud + supported-shapes-succeed + real-IDL characterization). gmicompile row → **L R F U RC ✅**, FP — (code generator), only `S` (human sign-off) open. |
