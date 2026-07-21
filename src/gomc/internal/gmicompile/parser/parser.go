@@ -31,7 +31,62 @@ func Parse(filename, src string) (*ast.API, []string) {
 	}
 	p.advance()
 	api := p.parseAPI()
+	p.reclassifyForwardRefs(api)
 	return api, p.errors
+}
+
+// reclassifyForwardRefs fixes up TypeNamed references that actually name a
+// callback or import declared LATER in the file. parseTypeRef classifies a name
+// against the callbacks/imports sets known at the point of use (single pass), so
+// a forward reference lands as TypeNamed; now that the whole file is parsed,
+// re-resolve against the complete sets so the emitter — which switches on
+// TypeKind (callback → function pointer, named → struct) — sees the correct kind
+// regardless of declaration order. A no-op when everything is declared before
+// use (the usual style).
+func (p *Parser) reclassifyForwardRefs(api *ast.API) {
+	for i := range api.Types {
+		for j := range api.Types[i].Fields {
+			p.reclassifyRef(&api.Types[i].Fields[j].Type)
+		}
+	}
+	for i := range api.Funcs {
+		for j := range api.Funcs[i].Params {
+			p.reclassifyRef(&api.Funcs[i].Params[j].Type)
+		}
+		p.reclassifyRef(api.Funcs[i].Return)
+	}
+	for i := range api.Callbacks {
+		for j := range api.Callbacks[i].Params {
+			p.reclassifyRef(&api.Callbacks[i].Params[j].Type)
+		}
+		p.reclassifyRef(api.Callbacks[i].Return)
+	}
+	for i := range api.StreamServers {
+		for j := range api.StreamServers[i].Funcs {
+			for k := range api.StreamServers[i].Funcs[j].Params {
+				p.reclassifyRef(&api.StreamServers[i].Funcs[j].Params[k].Type)
+			}
+			p.reclassifyRef(api.StreamServers[i].Funcs[j].Return)
+		}
+	}
+}
+
+// reclassifyRef re-resolves one type reference (recursing into array/slice
+// element types). Nil-safe so callers can pass an optional *TypeRef return type.
+func (p *Parser) reclassifyRef(t *ast.TypeRef) {
+	if t == nil {
+		return
+	}
+	switch t.Kind {
+	case ast.TypeArray, ast.TypeSlice:
+		p.reclassifyRef(t.Elem)
+	case ast.TypeNamed:
+		if p.callbacks[t.Name] {
+			t.Kind = ast.TypeCallback
+		} else if p.imports[t.Name] {
+			t.Kind = ast.TypeImport
+		}
+	}
 }
 
 func (p *Parser) advance() {

@@ -384,6 +384,31 @@ func register_handler(mcode: i32, fn: handler, user_data: ptr) -> i32
 	}
 }
 
+// A callback referenced BEFORE its declaration must still classify as
+// TypeCallback after the post-parse forward-reference resolution pass (H4).
+// Single-pass classification would otherwise leave it TypeNamed and the emitter
+// would emit it as a struct type instead of a function pointer.
+func TestParseForwardReferencedCallback(t *testing.T) {
+	src := `@api test
+@version 1
+
+func register(fn: later_fn, user: ptr) -> i32
+
+callback later_fn(x: i32) -> i32
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+	got := api.Funcs[0].Params[0].Type
+	if got.Kind != ast.TypeCallback {
+		t.Errorf("forward-referenced callback: Kind = %v, want TypeCallback", got.Kind)
+	}
+	if got.Name != "later_fn" {
+		t.Errorf("Name = %q, want %q", got.Name, "later_fn")
+	}
+}
+
 func TestParseImport(t *testing.T) {
 	src := `@api interp_ext
 @version 1
