@@ -218,7 +218,7 @@ func parseArgs(args []string) (opts *GlobalOpts, cmdName string, cmdArgs []strin
 			case "verbose":
 				opts.Verbosity = Verbose
 			default:
-				err = fmt.Errorf("Unknown option '%s'", a)
+				err = fmt.Errorf("unknown option '%s'", a)
 				return
 			}
 		case len(a) > 1 && a[0] == '-':
@@ -241,7 +241,7 @@ func parseArgs(args []string) (opts *GlobalOpts, cmdName string, cmdArgs []strin
 					break
 				}
 				if !setBool(c) {
-					err = fmt.Errorf("Unknown option '-%c'", c)
+					err = fmt.Errorf("unknown option '-%c'", c)
 					return
 				}
 			}
