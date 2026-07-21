@@ -358,6 +358,13 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s", cType, name)
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar (T?) → pointer, NULL = absent. Lets the provider
+			// distinguish an omitted optional argument from a zero value across
+			// the C ABI (a plain scalar cannot carry "absent"). Strings are
+			// excluded — they are already char* and carry nullability via NULL.
+			return fmt.Sprintf("const %s *%s", cType, name)
+		}
 		return fmt.Sprintf("%s %s", cType, name)
 
 	case ast.TypeCallback:

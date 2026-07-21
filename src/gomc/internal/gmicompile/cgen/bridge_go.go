@@ -518,6 +518,11 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s", name, cType)
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar arrives as a pointer (NULL = absent). Strings are
+			// already *C.char (nullability via NULL), so are not double-pointered.
+			return fmt.Sprintf("%s *%s", name, cType)
+		}
 		return fmt.Sprintf("%s %s", name, cType)
 	case ast.TypeNamed:
 		cType := cTypeForAPICgo(apiName, p.Type)
@@ -539,6 +544,16 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 		return fmt.Sprintf("%s *%s", name, elemCType)
 	}
 	return fmt.Sprintf("%s C.int", name)
+}
+
+// emitNullableScalarCToGo converts a nullable scalar param that arrives as a C
+// pointer (name, e.g. a `*C.int32_t`) into a nil-preserving Go `*goType`, so the
+// provider sees "absent" (nil) rather than a fabricated zero. goType is the Go
+// primitive name, e.g. "int32". Returns the Go variable to pass to the impl.
+func (g *bridgeGoGen) emitNullableScalarCToGo(goVar, goType, name string) string {
+	g.printf("\tvar %s *%s\n", goVar, goType)
+	g.printf("\tif %s != nil { _v := %s(*%s); %s = &_v }\n", name, goType, name, goVar)
+	return goVar
 }
 
 // emitParamCToGo emits conversion code for a single parameter from C to Go
@@ -565,70 +580,70 @@ func (g *bridgeGoGen) emitParamCToGo(apiName string, p ast.Param) string {
 			g.printf("\t%s := C.GoString(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimBool:
-			g.printf("\t%s := bool(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "bool", name)
 			}
+			g.printf("\t%s := bool(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI32:
-			g.printf("\t%s := int32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int32", name)
 			}
+			g.printf("\t%s := int32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU32:
-			g.printf("\t%s := uint32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint32", name)
 			}
+			g.printf("\t%s := uint32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI64:
-			g.printf("\t%s := int64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int64", name)
 			}
+			g.printf("\t%s := int64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU64:
-			g.printf("\t%s := uint64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint64", name)
 			}
+			g.printf("\t%s := uint64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimF32:
-			g.printf("\t%s := float32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "float32", name)
 			}
+			g.printf("\t%s := float32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimF64:
-			g.printf("\t%s := float64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "float64", name)
 			}
+			g.printf("\t%s := float64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI8:
-			g.printf("\t%s := int8(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int8", name)
 			}
+			g.printf("\t%s := int8(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU8:
-			g.printf("\t%s := uint8(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint8", name)
 			}
+			g.printf("\t%s := uint8(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI16:
-			g.printf("\t%s := int16(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int16", name)
 			}
+			g.printf("\t%s := int16(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU16:
-			g.printf("\t%s := uint16(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint16", name)
 			}
+			g.printf("\t%s := uint16(%s)\n", goVar, name)
 			return goVar
 		}
 	case ast.TypeNamed:
@@ -844,6 +859,12 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 			return "char *" + name
 		}
 		if p.ByRef || p.IsOut {
+			return cType + " *" + name
+		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar → pointer. Non-const to match the cgo //export
+			// signature (the callbacks builder casts to the const typedef).
+			// Strings are excluded (handled as char* above).
 			return cType + " *" + name
 		}
 		return cType + " " + name

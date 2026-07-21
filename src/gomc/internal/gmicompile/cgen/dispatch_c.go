@@ -164,6 +164,11 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s", cType, name)
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar → pointer (NULL = absent); matches the api.h typedef.
+			// Strings are excluded (already char*, nullability via NULL).
+			return fmt.Sprintf("const %s *%s", cType, name)
+		}
 		return fmt.Sprintf("%s %s", cType, name)
 
 	case ast.TypeNamed:
@@ -854,6 +859,19 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	g.printf("}\n\n")
 }
 
+// emitNullableScalarGoToC marshals a nullable scalar param (Go *T) into a
+// C-heap `*C.<ctype>` — NULL when the Go pointer is nil, so "absent" survives
+// the C ABI. The allocation is tracked in _freeList and freed after the call
+// (same lifetime as the CString params). cType is the cgo type, e.g. "C.int32_t".
+func (g *dispatchCGen) emitNullableScalarGoToC(cVar, goVar, cType string) {
+	g.printf("\tvar %s *%s\n", cVar, cType)
+	g.printf("\tif %s != nil {\n", goVar)
+	g.printf("\t\t%s = (*%s)(C.malloc(C.size_t(unsafe.Sizeof(*new(%s)))))\n", cVar, cType, cType)
+	g.printf("\t\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+	g.printf("\t\t*%s = %s(*%s)\n", cVar, cType, goVar)
+	g.printf("\t}\n")
+}
+
 func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 	// ptr qualifier: cast uintptr → unsafe.Pointer → *C.type (no marshaling).
 	if p.IsPtr {
@@ -876,8 +894,7 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 			g.printf("\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
 		case ast.PrimBool:
 			if t.Nullable {
-				g.printf("\tvar %s C.bool\n", cVar)
-				g.printf("\tif %s != nil { %s = C.bool(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.bool")
 			} else {
 				g.printf("\t%s := C.bool(%s)\n", cVar, goVar)
 			}
@@ -887,43 +904,37 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 			g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
 		case ast.PrimI16:
 			if t.Nullable {
-				g.printf("\tvar %s C.int16_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int16_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int16_t")
 			} else {
 				g.printf("\t%s := C.int16_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU16:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint16_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint16_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint16_t")
 			} else {
 				g.printf("\t%s := C.uint16_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI32:
 			if t.Nullable {
-				g.printf("\tvar %s C.int32_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int32_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int32_t")
 			} else {
 				g.printf("\t%s := C.int32_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU32:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint32_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint32_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint32_t")
 			} else {
 				g.printf("\t%s := C.uint32_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI64:
 			if t.Nullable {
-				g.printf("\tvar %s C.int64_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int64_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int64_t")
 			} else {
 				g.printf("\t%s := C.int64_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU64:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint64_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint64_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint64_t")
 			} else {
 				g.printf("\t%s := C.uint64_t(%s)\n", cVar, goVar)
 			}

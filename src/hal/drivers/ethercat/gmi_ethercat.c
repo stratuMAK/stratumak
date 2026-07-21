@@ -27,12 +27,16 @@
  * Resolve the Nth ec_master_t from the instance's master linked list.
  * Returns NULL if index is out of range.
  */
-static ec_master_t *resolve_master(lcec_rt_context_t *ctx, uint32_t master_index)
+static ec_master_t *resolve_master(lcec_rt_context_t *ctx, const uint32_t *master_index)
 {
+    /* master_index is an optional GMI arg: NULL (omitted) means the default
+     * master (index 0). The generated ABI now passes a pointer so "omitted"
+     * is distinguishable from an explicit 0 — both resolve to master 0 here. */
+    uint32_t target = master_index ? *master_index : 0;
     lcec_master_t *m = ctx->first_master;
     uint32_t i = 0;
     while (m) {
-        if (i == master_index)
+        if (i == target)
             return m->master;
         m = m->next;
         i++;
@@ -80,7 +84,7 @@ static ethercat_module_info_t gmi_ethercat_get_module(void *ctx)
 }
 
 static ethercat_master_info_t gmi_ethercat_get_master(void *ctx,
-        uint32_t master_index)
+        const uint32_t *master_index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_master_info_t out = {0};
@@ -144,7 +148,7 @@ static ethercat_master_info_t gmi_ethercat_get_master(void *ctx,
 }
 
 static ethercat_slave_info_t gmi_ethercat_get_slave(void *ctx,
-        uint32_t master_index, uint16_t position)
+        const uint32_t *master_index, uint16_t position)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_slave_info_t out = {0};
@@ -204,7 +208,7 @@ static ethercat_slave_info_t gmi_ethercat_get_slave(void *ctx,
 }
 
 static ethercat_sync_info_t gmi_ethercat_get_slave_sync(void *ctx,
-        uint32_t master_index, uint16_t position, uint32_t sync_index)
+        const uint32_t *master_index, uint16_t position, uint32_t sync_index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_sync_info_t out = {0};
@@ -231,7 +235,7 @@ static ethercat_sync_info_t gmi_ethercat_get_slave_sync(void *ctx,
 }
 
 static ethercat_pdo_info_t gmi_ethercat_get_slave_sync_pdo(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint32_t sync_index, uint32_t pdo_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -259,7 +263,7 @@ static ethercat_pdo_info_t gmi_ethercat_get_slave_sync_pdo(void *ctx,
 }
 
 static ethercat_pdo_entry_info_t gmi_ethercat_get_slave_sync_pdo_entry(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint32_t sync_index, uint32_t pdo_pos, uint32_t entry_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -290,7 +294,7 @@ static ethercat_pdo_entry_info_t gmi_ethercat_get_slave_sync_pdo_entry(void *ctx
 }
 
 static ethercat_domain_info_t gmi_ethercat_get_domain(void *ctx,
-        uint32_t master_index, uint32_t index)
+        const uint32_t *master_index, uint32_t index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_domain_info_t out = {0};
@@ -315,7 +319,7 @@ static ethercat_domain_info_t gmi_ethercat_get_domain(void *ctx,
 }
 
 static ethercat_domain_fmmu_info_t gmi_ethercat_get_domain_fmmu(void *ctx,
-        uint32_t master_index, uint32_t domain_index, uint32_t fmmu_index)
+        const uint32_t *master_index, uint32_t domain_index, uint32_t fmmu_index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_domain_fmmu_info_t out = {0};
@@ -343,7 +347,7 @@ static ethercat_domain_fmmu_info_t gmi_ethercat_get_domain_fmmu(void *ctx,
 }
 
 static ethercat_get_domain_data_result_t gmi_ethercat_get_domain_data(void *ctx,
-        uint32_t master_index, uint32_t domain_index)
+        const uint32_t *master_index, uint32_t domain_index)
 {
     ethercat_get_domain_data_result_t out = {0};
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -359,7 +363,7 @@ static ethercat_get_domain_data_result_t gmi_ethercat_get_domain_data(void *ctx,
 }
 
 static bool gmi_ethercat_set_debug(void *ctx,
-        uint32_t master_index, uint32_t level)
+        const uint32_t *master_index, uint32_t level)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ec_master_t *master = resolve_master(rt, master_index);
@@ -368,7 +372,7 @@ static bool gmi_ethercat_set_debug(void *ctx,
     return ecrt_tool_set_debug(master, level) == 0;
 }
 
-static bool gmi_ethercat_rescan(void *ctx, uint32_t master_index)
+static bool gmi_ethercat_rescan(void *ctx, const uint32_t *master_index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ec_master_t *master = resolve_master(rt, master_index);
@@ -378,7 +382,7 @@ static bool gmi_ethercat_rescan(void *ctx, uint32_t master_index)
 }
 
 static bool gmi_ethercat_set_slave_state(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         const ethercat_slave_state_request_t *state)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -393,7 +397,7 @@ static bool gmi_ethercat_set_slave_state(void *ctx,
 }
 
 static ethercat_slave_sdo_info_t gmi_ethercat_get_slave_sdo(void *ctx,
-        uint32_t master_index, uint16_t position, uint16_t sdo_position)
+        const uint32_t *master_index, uint16_t position, uint16_t sdo_position)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_slave_sdo_info_t out = {0};
@@ -416,7 +420,7 @@ static ethercat_slave_sdo_info_t gmi_ethercat_get_slave_sdo(void *ctx,
 }
 
 static ethercat_sdo_entry_info_t gmi_ethercat_get_slave_sdo_entry(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         int32_t sdo_spec, uint8_t subindex)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -446,8 +450,8 @@ static ethercat_sdo_entry_info_t gmi_ethercat_get_slave_sdo_entry(void *ctx,
 }
 
 static ethercat_sdo_upload_result_t gmi_ethercat_sdo_upload(void *ctx,
-        uint32_t master_index, uint16_t position,
-        uint16_t sdo_index, uint8_t subindex, uint32_t size)
+        const uint32_t *master_index, uint16_t position,
+        uint16_t sdo_index, uint8_t subindex, const uint32_t *size)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_sdo_upload_result_t out = {0};
@@ -459,7 +463,8 @@ static ethercat_sdo_upload_result_t gmi_ethercat_sdo_upload(void *ctx,
     if (!master)
         return out;
 
-    target_size = size ? size : ETHERCAT_MAX_SDO_DATA_SIZE;
+    /* size is optional: NULL (or 0) means "use the max buffer". */
+    target_size = (size && *size) ? *size : ETHERCAT_MAX_SDO_DATA_SIZE;
     target = malloc(target_size);
     if (!target)
         return out;
@@ -482,7 +487,7 @@ static ethercat_sdo_upload_result_t gmi_ethercat_sdo_upload(void *ctx,
 }
 
 static ethercat_sdo_download_result_t gmi_ethercat_sdo_download(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint16_t sdo_index, uint8_t subindex,
         const ethercat_sdo_download_request_t *req_in)
 {
@@ -506,7 +511,7 @@ static ethercat_sdo_download_result_t gmi_ethercat_sdo_download(void *ctx,
 }
 
 static ethercat_sii_data_t gmi_ethercat_sii_read(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint16_t offset, uint32_t nwords)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -539,7 +544,7 @@ static ethercat_sii_data_t gmi_ethercat_sii_read(void *ctx,
 }
 
 static bool gmi_ethercat_sii_write(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         const ethercat_sii_data_t *sii)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -561,7 +566,7 @@ static bool gmi_ethercat_sii_write(void *ctx,
 }
 
 static ethercat_reg_read_result_t gmi_ethercat_reg_read(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint16_t address, uint32_t size)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -593,7 +598,7 @@ static ethercat_reg_read_result_t gmi_ethercat_reg_read(void *ctx,
 }
 
 static bool gmi_ethercat_reg_write(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint16_t address, const ethercat_reg_write_request_t *req_in)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -611,7 +616,7 @@ static bool gmi_ethercat_reg_write(void *ctx,
 }
 
 static ethercat_foe_read_result_t gmi_ethercat_foe_read(void *ctx,
-        uint32_t master_index, uint16_t position, const char *file_name)
+        const uint32_t *master_index, uint16_t position, const char *file_name)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_foe_read_result_t out = {0};
@@ -648,7 +653,7 @@ static ethercat_foe_read_result_t gmi_ethercat_foe_read(void *ctx,
 }
 
 static ethercat_foe_write_result_t gmi_ethercat_foe_write(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         const char *file_name, const ethercat_foe_write_request_t *req_in)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -672,8 +677,8 @@ static ethercat_foe_write_result_t gmi_ethercat_foe_write(void *ctx,
 }
 
 static ethercat_soe_read_result_t gmi_ethercat_soe_read(void *ctx,
-        uint32_t master_index, uint16_t position,
-        uint8_t drive_no, uint16_t idn, uint32_t mem_size)
+        const uint32_t *master_index, uint16_t position,
+        uint8_t drive_no, uint16_t idn, const uint32_t *mem_size)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_soe_read_result_t out = {0};
@@ -685,7 +690,8 @@ static ethercat_soe_read_result_t gmi_ethercat_soe_read(void *ctx,
     if (!master)
         return out;
 
-    buf_size = mem_size ? mem_size : ETHERCAT_MAX_IDN_DATA_SIZE;
+    /* mem_size is optional: NULL (or 0) means "use the max IDN buffer". */
+    buf_size = (mem_size && *mem_size) ? *mem_size : ETHERCAT_MAX_IDN_DATA_SIZE;
     data = malloc(buf_size);
     if (!data)
         return out;
@@ -708,7 +714,7 @@ static ethercat_soe_read_result_t gmi_ethercat_soe_read(void *ctx,
 }
 
 static ethercat_soe_write_result_t gmi_ethercat_soe_write(void *ctx,
-        uint32_t master_index, uint16_t position,
+        const uint32_t *master_index, uint16_t position,
         uint8_t drive_no, uint16_t idn,
         const ethercat_soe_write_request_t *req_in)
 {
@@ -731,7 +737,7 @@ static ethercat_soe_write_result_t gmi_ethercat_soe_write(void *ctx,
 }
 
 static ethercat_config_info_t gmi_ethercat_get_config(void *ctx,
-        uint32_t master_index, uint32_t config_index)
+        const uint32_t *master_index, uint32_t config_index)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_config_info_t out = {0};
@@ -770,7 +776,7 @@ static ethercat_config_info_t gmi_ethercat_get_config(void *ctx,
 }
 
 static ethercat_config_pdo_info_t gmi_ethercat_get_config_pdo(void *ctx,
-        uint32_t master_index, uint32_t config_index,
+        const uint32_t *master_index, uint32_t config_index,
         uint8_t sync_index, uint16_t pdo_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -796,7 +802,7 @@ static ethercat_config_pdo_info_t gmi_ethercat_get_config_pdo(void *ctx,
 }
 
 static ethercat_config_pdo_entry_info_t gmi_ethercat_get_config_pdo_entry(void *ctx,
-        uint32_t master_index, uint32_t config_index,
+        const uint32_t *master_index, uint32_t config_index,
         uint8_t sync_index, uint16_t pdo_pos, uint8_t entry_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
@@ -825,7 +831,7 @@ static ethercat_config_pdo_entry_info_t gmi_ethercat_get_config_pdo_entry(void *
 }
 
 static ethercat_config_sdo_info_t gmi_ethercat_get_config_sdo(void *ctx,
-        uint32_t master_index, uint32_t config_index, uint32_t sdo_pos)
+        const uint32_t *master_index, uint32_t config_index, uint32_t sdo_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_config_sdo_info_t out = {0};
@@ -855,7 +861,7 @@ static ethercat_config_sdo_info_t gmi_ethercat_get_config_sdo(void *ctx,
 }
 
 static ethercat_config_idn_info_t gmi_ethercat_get_config_idn(void *ctx,
-        uint32_t master_index, uint32_t config_index, uint32_t idn_pos)
+        const uint32_t *master_index, uint32_t config_index, uint32_t idn_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_config_idn_info_t out = {0};
@@ -885,7 +891,7 @@ static ethercat_config_idn_info_t gmi_ethercat_get_config_idn(void *ctx,
 }
 
 static ethercat_config_flag_info_t gmi_ethercat_get_config_flag(void *ctx,
-        uint32_t master_index, uint32_t config_index, uint32_t flag_pos)
+        const uint32_t *master_index, uint32_t config_index, uint32_t flag_pos)
 {
     lcec_rt_context_t *rt = (lcec_rt_context_t *)ctx;
     ethercat_config_flag_info_t out = {0};
@@ -907,7 +913,7 @@ static ethercat_config_flag_info_t gmi_ethercat_get_config_flag(void *ctx,
 }
 
 static ethercat_eoe_handler_info_t gmi_ethercat_get_eoe_handler(void *ctx,
-        uint32_t master_index, uint16_t eoe_index)
+        const uint32_t *master_index, uint16_t eoe_index)
 {
     ethercat_eoe_handler_info_t out = {0};
 #ifdef EC_EOE
@@ -938,7 +944,7 @@ static ethercat_eoe_handler_info_t gmi_ethercat_get_eoe_handler(void *ctx,
 }
 
 static ethercat_eoe_ip_result_t gmi_ethercat_set_eoe_ip(void *ctx,
-        uint32_t master_index, uint16_t position, const ethercat_eoe_ip_request_t *req)
+        const uint32_t *master_index, uint16_t position, const ethercat_eoe_ip_request_t *req)
 {
     ethercat_eoe_ip_result_t out = {0};
 #ifdef EC_EOE

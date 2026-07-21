@@ -1101,14 +1101,11 @@ func cmdNewThread(args []string) error {
 	}
 
 	var fp *bool
-	// Default cpu to -1 (auto-assign an isolated core, or no affinity when none
-	// exist) — matching the .hal `newthread` parser default (nThreadToken.CPU =
-	// -1). This must be sent EXPLICITLY: an omitted nullable i32 is flattened to
-	// 0 across the cgo REST boundary, and 0 is then rejected on a machine with no
-	// isolated CPUs ("cpu=0 is not an isolated CPU"), which is exactly issue #265
-	// — `newthread` at runtime failing while the same command in a HAL file works.
-	autoCPU := int32(-1)
-	cpuId := &autoCPU
+	// cpu is optional: omitted (nil) means auto-assign — the server impl maps a
+	// nil cpu to -1. The GMI ABI now carries the nullable i32 as a pointer, so an
+	// omitted cpu correctly reaches the impl as nil (was previously flattened to
+	// 0 across the cgo boundary and rejected as a non-isolated core — issue #265).
+	var cpuId *int32
 	for _, arg := range args[2:] {
 		lower := strings.ToLower(arg)
 		if lower == "fp" {
@@ -1150,12 +1147,11 @@ func cmdAddF(args []string) error {
 	}
 	function := args[0]
 	thread := args[1]
-	// Default position to -1 (append at end) — the impl's own nil default. This
-	// must be sent EXPLICITLY: an omitted nullable i32 is flattened to 0 across
-	// the cgo REST boundary, and 0 means "insert at front" rather than append
-	// (same class as issue #265; function order in a thread is significant).
-	appendPos := int32(-1)
-	position := &appendPos
+	// position is optional: omitted (nil) means append at end — the server impl
+	// maps a nil position to -1. The GMI ABI now carries the nullable i32 as a
+	// pointer, so an omitted position correctly reaches the impl as nil (was
+	// previously flattened to 0 = insert-at-front across the cgo boundary).
+	var position *int32
 	if len(args) > 2 {
 		p, err := strconv.ParseInt(args[2], 10, 32)
 		if err != nil {
