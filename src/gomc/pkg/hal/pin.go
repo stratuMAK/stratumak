@@ -36,10 +36,14 @@ type Pin[T PinValue] struct {
 	// This is set by hal_pin_*_new() and used for Get/Set operations.
 	ptr unsafe.Pointer
 
-	// comp is the component that owns this pin.
+	// comp is the component that owns this pin. Get/Set take comp's liveness
+	// read barrier (enter/leave) around every shared-memory dereference so a pin
+	// access can never race Component.Exit() into freed HAL memory.
 	comp *Component
 
-	// mu protects the pin value.
+	// mu serializes concurrent Go-side access to this pin's value. It does NOT
+	// protect against the RT thread (which never takes it) nor against Exit()
+	// freeing the pin — the latter is the job of comp's liveness barrier.
 	mu sync.RWMutex
 }
 
@@ -127,8 +131,18 @@ func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], erro
 // For input pins, this reads the value written by the connected signal.
 // For output pins, this reads the value last written by Set().
 //
-// This dereferences the pointer to HAL shared memory.
+// This dereferences the pointer to HAL shared memory. If the owning component
+// has already been released with Exit(), the pin's HAL memory is gone; Get then
+// takes no dereference and returns the zero value of T.
 func (p *Pin[T]) Get() T {
+	// Liveness barrier: refuse to dereference freed HAL memory if the owning
+	// component has exited (see Component.enter). Held across the whole read.
+	if !p.comp.enter() {
+		var zeroValue T
+		return zeroValue
+	}
+	defer p.comp.leave()
+
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -223,7 +237,17 @@ func (p *Pin[T]) Set(value T) {
 // write is dropped and TrySet returns ErrPortWriteFailed. This is the one pin
 // type whose Set can silently no-op, so callers that must confirm delivery of a
 // string value should use TrySet.
+//
+// If the owning component has already been released with Exit(), the pin's HAL
+// memory is gone; TrySet takes no dereference and returns ErrComponentExited.
 func (p *Pin[T]) TrySet(value T) error {
+	// Liveness barrier: refuse to dereference freed HAL memory if the owning
+	// component has exited (see Component.enter). Held across the whole write.
+	if !p.comp.enter() {
+		return newError("Pin.TrySet", ErrComponentExited.Message, ErrComponentExited.Code)
+	}
+	defer p.comp.leave()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

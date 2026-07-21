@@ -24,6 +24,20 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("%s (code %d)", e.Message, e.Code)
 }
 
+// Is reports whether e matches target for errors.Is. Two HAL errors match when
+// they carry the same code and message, so a wrapped error created with
+// newError(op, sentinel.Message, sentinel.Code) still satisfies
+// errors.Is(err, sentinel) even though it is a distinct value with its own Op.
+// The message is part of the identity because several sentinels share a code
+// (e.g. -EINVAL is used by both ErrInvalidName and ErrComponentNotFound).
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	if !ok {
+		return false
+	}
+	return e.Code == t.Code && e.Message == t.Message
+}
+
 // Common HAL errors.
 // These error codes are based on typical RTAPI/HAL error codes.
 var (
@@ -76,6 +90,15 @@ var (
 	ErrPortWriteFailed = &Error{
 		Code:    -28, // -ENOSPC
 		Message: "HAL_PORT write failed (pin not linked to a sized port signal?)",
+	}
+
+	// ErrComponentExited indicates a pin was accessed after its owning
+	// component was released with Exit(). The pin's HAL shared memory has been
+	// freed, so the access is refused rather than dereferencing freed memory
+	// (see the component-liveness barrier in Component/Pin).
+	ErrComponentExited = &Error{
+		Code:    -3, // -ESRCH
+		Message: "component has exited; pin memory has been released",
 	}
 )
 

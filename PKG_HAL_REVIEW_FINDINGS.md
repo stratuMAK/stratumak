@@ -17,9 +17,17 @@ human owns. **This is a candidate list — no code was changed.**
 
 **STATUS (2026-07-19):** the clean mechanical fixes **M4, M9, L1, L5 are APPLIED**
 (commit `4c023b0de5`; verified: both build tags, vet, lint 0, full suite green). **L4**
-deliberately left as-is (unreachable sentinel — churn for no benefit). Everything else
-below remains **open for adjudication**: the Tier-1 design calls **H1, H2, H3, M1, M2, M3**,
-and the efficiency item **M5** (belongs with the M1 Pin rework), plus L2/L3.
+deliberately left as-is (unreachable sentinel — churn for no benefit).
+
+**STATUS (2026-07-21):** **H3 and M2 are FIXED** (commit `77ef6a43b2`: `String()` no longer
+recursively read-locks; the dead `done`/signal-handler scaffolding and its `doc.go` promise
+were deleted so the package contract matches reality — it runs no goroutines/handlers).
+**H1 and M3 are now FIXED** (this change) via a **component-liveness barrier**: `Component.mu`
+serializes every pin `Get`/`Set` (read side, `enter`/`leave`) against `Exit()` (write side,
+held across `hal_exit()`), and an `exited` flag makes `Exit()` idempotent (M3) and refuses
+post-teardown pin access (`Get`→zero, `TrySet`→`ErrComponentExited`) instead of touching freed
+HAL memory. This establishes the synchronization seam **M1** builds on. Remaining **open**:
+**H2** (IN-pin Set doc/enforce), **M1** (RWMutex→atomic scalar rework + `M5`), and **L2/L3**.
 
 **Headline:** the cgo pointer discipline is careful and largely correct (double-pointer
 re-deref, no Go pointer retained by C, paired `CString`/`free`, nil-checked `hal_malloc`,
@@ -31,9 +39,51 @@ one fix.
 
 ## HIGH
 
-### H1 — Use-after-free / lifecycle race: `Pin.Get/Set` vs `Component.Exit` (disjoint mutexes)
+### H1 — Use-after-free / lifecycle race: `Pin.Get/Set` vs `Component.Exit` (disjoint mutexes) — **FIXED (2026-07-21)**
 `pin.go:126-242` (all `**ptrPtr` derefs) · `component.go:104-125` (`Exit`→`halExit`)
-**CONFIRMED (race) / PLAUSIBLE (crash-vs-corruption depends on HAL arena lifetime)**
+**CONFIRMED (race) — CONSEQUENCE RESOLVED: silent corruption, not segfault**
+
+**Resolution:** a component-liveness barrier now serializes pin access against teardown.
+`Component.mu` (RWMutex) is the barrier: `Exit()` takes the **write** lock across `hal_exit()`
+and sets an `exited` flag before releasing; every pin `Get`/`TrySet` takes the **read** lock via
+`Component.enter()`/`leave()` around its shared-memory dereference and bails if `exited` is set
+(`Get`→zero value, `TrySet`→`ErrComponentExited`, `Set`→no-op). The write lock cannot be granted
+while any access holds the read lock, and any access starting after `Exit()` sees `exited` and
+refuses — so no goroutine can dereference freed HAL memory. `Exit()` is now idempotent (closes
+**M3**). Tests: `barrier_test.go` (`TestPinAccessAfterExit`, `TestExitIdempotent`,
+`TestPinExitRace` under `-race`). `pin.go` keeps `Pin.mu` for Go-vs-Go same-pin value
+serialization; **M1** will later collapse that to atomics behind this same barrier.
+
+**Two facts verified during the fix (both worse than the original adjudication assumed):**
+
+1. *Consequence is silent corruption, not a fail-fast segfault.* gomc links a **vendored** HAL
+   (`src/gomc/internal/hallib/hal_lib.c` + `uspace_rtapi_lib.c`), not `src/hal/hal_lib.c`. The
+   userspace HAL arena is a plain `malloc()`'d 1 MiB block (`HAL_SIZE`), **not** SysV/POSIX shm.
+   On the last `hal_exit` it is `free()`'d but stays **mapped** — RT hardening sets
+   `mallopt(M_MMAP_MAX,0)` + `M_TRIM_THRESHOLD,-1` (`uspace_rtapi_lib.c:379,383`), so glibc never
+   `munmap`s it and it is recycled into later allocations. Pin *struct* descriptors go on a
+   freelist (`free_pin_struct`→`pin_free_ptr`) reused by the **next component's** pin. So a stale
+   pin write after `Exit()` lands in another live component's pin value — the worst failure mode
+   for a controller, and one the race detector cannot see (it is a C-level UAF, not a Go race).
+2. *The race is reachable in real modules, not just theoretically.* The launcher runs **all**
+   `Stop()` before **any** `Destroy()` (`internal/launcher/cleanup.go`), so safety reduces to
+   "does each `Stop()` join the goroutines that touch its pins?" `mqtt-bridge` does (hard
+   `wg.Wait()` + `Disconnect`); `ads-server` does modulo a 2 s handler-drain timeout; but
+   **`haljson`/`pyvcp` do not** — they own no goroutine, and their pins are read by the apiserver
+   **WS-watch `pushLoop`** goroutines, which `apiserver.Shutdown()` only *cancels* (`h.cancel()`),
+   never *joins*. On the **runtime-unload** path `unregisterModuleAPIs()` only deletes the registry
+   entry and never cancels in-flight `pushLoop`s, so a live WS watch keeps calling `pin.Get()`
+   across `Destroy()`→`Exit()`. The barrier makes all of these memory-safe (a straggler read now
+   returns zero instead of corrupting memory); see **the residual call-site item below** for the
+   deeper join/cancel cleanup.
+
+**Residual (separate from H1's memory-safety fix, tracked here so it is not lost):** the WS-watch
+`pushLoop` goroutines should be joined by `WatchHandler.Close()` (mirror `streamWg`), and
+`unregisterModuleAPIs()` should cancel active per-instance subscriptions before `Destroy()` on the
+unload path (`internal/apiserver/ws_handler.go`, `internal/launcher/unload.go`). This is a
+correctness/cleanliness fix in `internal/apiserver` — the H1 barrier already removes the UAF.
+
+*(Original finding, for the record:)*
 
 `Pin.ptr` points into HAL shared memory owned by the component; `Exit()` calls `hal_exit()`
 which returns the component's pins to the HAL allocator. `Get/Set` guard with `Pin.mu`;
@@ -127,9 +177,12 @@ false when a shutdown signal is received."* The real binaries wire signals exter
 package (`signal.Notify` in `NewComponent` → `Stop()` → teardown), or delete `done` + the
 comments + the `doc.go` paragraph so the contract matches reality.
 
-### M3 — `Exit()` is not idempotent: double-call runs `hal_exit(id)` twice
+### M3 — `Exit()` is not idempotent: double-call runs `hal_exit(id)` twice — **FIXED (2026-07-21)**
 `component.go:104-125`
-**CONFIRMED**
+**CONFIRMED — fixed alongside H1:** `Exit()` now guards on the `exited` flag (set under the
+barrier write lock after a successful `hal_exit`); a second call is a no-op returning nil, so the
+`defer comp.Exit()` + explicit-teardown-`Exit()` pattern never runs `hal_exit(id)` twice.
+Test: `TestExitIdempotent`.
 
 `close(c.done)` is guarded (select/default) but `halExit(c.id)` is not; there is no `exited`
 flag and `c.id` is not invalidated. The codebase mixes `defer comp.Exit()` with explicit
@@ -258,9 +311,10 @@ repetition. (Cosmetic-ish, but this is exactly the duplication the review checkl
    `RWMutex` for scalars, use atomic single-word access. This dissolves **H3** (recursive RLock)
    and the `Set`-under-lock part of **L3**, and forces a decision on the RT memory-model
    (`RT_HARDENING §1.3`). *Tier-1 human design call.*
-2. **Lifecycle contract (H1 + M2 + M3):** decide and document component/pin liveness — who owns
-   the signal goroutine, whether pin access must cease before `Exit()`, and make `Exit`
-   idempotent. *Tier-1 human design call* (also verify the HAL-arena-lifetime fact for H1).
+2. **Lifecycle contract (H1 + M2 + M3):** **DONE.** M2 fixed in `77ef6a43b2` (dead scaffolding
+   removed). H1 + M3 fixed 2026-07-21 via the component-liveness barrier + idempotent `Exit()`
+   (see H1 above; HAL-arena-lifetime fact verified — silent corruption, not segfault). Residual
+   WS-watch `pushLoop` join/cancel cleanup tracked under H1.
 3. **Direction & doc truth (H2, M7, M8):** decide enforce-vs-convention for `Set` on IN pins and
    `PORT&&IO`; fix `doc.go`/pin docs; align the nocgo stub. *Human design call + clear doc fixes.*
 4. **Clean mechanical fixes (M4, M9, L1, L5):** `47`→`NameLen`, collapse the five `halPin*New`,
