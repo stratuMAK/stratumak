@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"runtime/cgo"
 	"strconv"
 	"strings"
@@ -39,7 +40,28 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	nsIni := ini.WithNamespace(name)
 	m := &milltaskModule{ini: nsIni, logger: logger, name: name}
 
-	// Parse module parameters.
+	// Parse module parameters (given on the "load milltask <name> k=v ..." line):
+	//   halui=<prefix>              export halui HAL pins under <prefix>
+	//   motion_instance=<name>      motmod instance to drive (default "motmod")
+	//   iocontrol_instance=<name>   io instance to drive (default "iocontrol")
+	//   tooltable_instance=<name>   tooltable instance (default "tooltable")
+	//   persist_instance=<name>     persist instance (default "persistence")
+	//   error_filter=<regexp>       forward a C-module ERROR message to this
+	//                               instance's operator list only when its
+	//                               emitting component name matches <regexp>;
+	//                               unset = forward everything (see below).
+	//
+	// error_filter note: the ERROR-forwarding hook fires for EVERY milltask
+	// instance, so in a multi-instance config set a per-instance filter (e.g.
+	// error_filter=^pnp\. on pnp.task) to stop one instance's "joint N following
+	// error" from also surfacing on the others. The HAL tokenizer does NO
+	// backslash-escape processing, so the regexp is taken literally — write
+	// \. \d \w as-is, no doubling. But INI/ENV substitution runs on the line
+	// BEFORE tokenizing, so avoid regex metacharacters that collide with it:
+	// a [...] class immediately followed by a word char parses as an
+	// [SECTION]KEY INI ref (use (?:a|b) instead), and $NAME/${NAME} parses as
+	// an env ref (a trailing $ anchor is fine). Anchored prefixes like ^pnp\.
+	// dodge all of this.
 	for _, arg := range args {
 		k, v, ok := strings.Cut(arg, "=")
 		if !ok {
@@ -56,6 +78,12 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 			m.ttInstance = v
 		case "persist_instance":
 			m.persistInstance = v
+		case "error_filter":
+			re, err := regexp.Compile(v)
+			if err != nil {
+				return nil, fmt.Errorf("milltask: invalid error_filter regexp %q: %w", v, err)
+			}
+			m.errorFilter = re
 		}
 	}
 
@@ -130,12 +158,21 @@ type milltaskModule struct {
 	halui             *halUI                     // halui HAL component (created in factory)
 	motInstance       string                     // motion module instance name (default "motmod")
 	ioInstance        string                     // io controller instance name (default "iocontrol")
+	errorFilter       *regexp.Regexp             // if set, only C-module errors whose component matches are forwarded to operator messages
 	ttInstance        string                     // tooltable instance name (default "tooltable")
 	persistInstance   string                     // persist instance name (default "persistence")
 	iniAccessorHandle cgo.Handle                 // CGo handle for the INI accessor (must be freed)
 	ttClient          *tooltable.TooltableClient // tooltable GMI client
 	paramIO           *interpParamIOPersist      // persist-backed parameter I/O (default)
 	fileParamIO       *interpParamIOFile         // classic .var-file parameter I/O (opt-in)
+}
+
+// forwardsErrorFrom reports whether an ERROR-level message from the named C
+// module component should be forwarded to this instance's operator message
+// list. With no error_filter configured every component is forwarded (legacy
+// behaviour); otherwise the component name must match the filter regexp.
+func (m *milltaskModule) forwardsErrorFrom(component string) bool {
+	return m.errorFilter == nil || m.errorFilter.MatchString(component)
 }
 
 func (m *milltaskModule) Start() error {
@@ -242,11 +279,21 @@ func (m *milltaskModule) Start() error {
 		t.SetErrorPublisher(&drainErrorPublisher{drain: drain})
 	}
 
-	// Forward ERROR-level log messages from motion-related modules to the
-	// operator message list. This covers motmod, per-joint homemod instances
-	// (regardless of their configured name), and any future servo-thread
-	// modules that use gomc_log_errorf.
+	// Forward ERROR-level log messages from C modules (motmod, per-joint
+	// homemod instances, io, etc.) to the operator message list.
+	//
+	// gomc.NotifyLogError fans out to EVERY registered hook globally, so in a
+	// multi-instance config (e.g. coat.task + pnp.task) an unfiltered hook makes
+	// each task report every OTHER instance's errors — "pnp.mot: joint N
+	// following error" would also surface on coat.task. Rather than guess which
+	// components belong to this task, routing is left to the operator via the
+	// optional "error_filter=<regexp>" module parameter, matched against the
+	// emitting component name (e.g. error_filter=^pnp\. on pnp.task). Unset =
+	// forward everything (legacy behaviour).
 	gomc.OnLogError(func(component, msg string) {
+		if !m.forwardsErrorFrom(component) {
+			return
+		}
 		t.operatorError(msg)
 	})
 

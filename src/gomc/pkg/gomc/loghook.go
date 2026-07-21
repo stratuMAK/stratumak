@@ -32,3 +32,12 @@ func NotifyLogError(component, msg string) {
 		fn(component, msg)
 	}
 }
+
+// resetLogHooks clears all registered hooks. Test-only: the hook registry is a
+// process-global with no unregister path, so tests that register hooks must be
+// able to start from a clean slate.
+func resetLogHooks() {
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	logHooks = nil
+}
