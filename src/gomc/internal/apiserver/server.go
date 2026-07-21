@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,13 @@ type Server struct {
 	prefix       string // e.g. "/api/v1"
 	logger       *slog.Logger
 	watchHandler *WatchHandler
+
+	// wsOriginPatterns is the WebSocket Origin allow-list. Empty means
+	// same-origin only (the secure default): a cross-origin page — e.g. a
+	// malicious tab in the operator's browser — cannot open the watch/stream
+	// sockets and issue `call` commands to the controller. Set to the HMI's
+	// host(s), or to []string{"*"} to allow any origin (opt-in, insecure).
+	wsOriginPatterns []string
 
 	streamMu    sync.Mutex
 	streamConns map[*streamConn]struct{}
@@ -45,20 +53,43 @@ func NewServer(registry *Registry, addr string) *Server {
 	s.mux.HandleFunc(s.prefix+"/", s.handleAPIRequest)
 	s.mux.HandleFunc(s.prefix+"/_registry", s.handleRegistryRequest)
 
-	// pprof profiling endpoints — always available for diagnostics.
-	s.mux.HandleFunc("/debug/pprof/", pprof.Index)
-	s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// pprof profiling endpoints are opt-in (GMC_REST_PPROF=1). They are
+	// unauthenticated and leak memory/argv/config plus allow a CPU-profile DoS,
+	// so they must not be mounted by default — especially when the server is
+	// bound to a non-loopback address for a remote HMI.
+	if os.Getenv("GMC_REST_PPROF") == "1" {
+		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
+		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: s.mux,
+		// ReadHeaderTimeout bounds slow-header (Slowloris) connections. We
+		// deliberately do NOT set ReadTimeout/WriteTimeout: those would also
+		// apply to the long-lived WebSocket watch/stream connections and kill
+		// them. IdleTimeout bounds idle keep-alive between plain requests.
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	return s
 }
+
+// maxRequestBodyBytes caps a REST request body so a large POST cannot OOM the
+// controller. API command bodies are small JSON; 8 MiB is generous headroom.
+const maxRequestBodyBytes = 8 << 20
+
+// readHeaderTimeout / idleTimeout harden the HTTP server against slow-header
+// and idle-keepalive resource exhaustion without affecting upgraded WebSocket
+// connections (which are hijacked and no longer governed by these).
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
 
 // SetAddr updates the listen address before ListenAndServe is called.
 func (s *Server) SetAddr(addr string) {
@@ -102,6 +133,14 @@ func (s *Server) Handler() http.Handler {
 // SetLogger sets the logger for request and error logging.
 func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
+}
+
+// SetWSOriginPatterns sets the WebSocket Origin allow-list (see wsOriginPatterns).
+// Must be called before AddWatchEndpoint/RegisterStream so the patterns reach the
+// upgraders. Empty keeps the secure same-origin default; []string{"*"} allows any
+// origin (opt-in).
+func (s *Server) SetWSOriginPatterns(patterns []string) {
+	s.wsOriginPatterns = patterns
 }
 
 // RegisterStream registers a stream_server endpoint.
@@ -176,8 +215,8 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read request body
-	body, err := io.ReadAll(r.Body)
+	// Read request body, bounded so a large POST cannot OOM the controller.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
 	if err != nil {
 		writeErrorJSON(w, http.StatusBadRequest, "failed to read request body")
 		return

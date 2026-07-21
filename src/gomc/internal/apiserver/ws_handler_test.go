@@ -496,3 +496,41 @@ func TestWatchResubscribeNoStaleSnapshot(t *testing.T) {
 			"superseded subscription clobbered the newest)", lastGen, generations)
 	}
 }
+
+// TestWatchOriginCheck is the N1 regression: with the secure default (empty
+// originPatterns) a cross-origin WebSocket handshake must be rejected, so a
+// malicious page in the operator's browser cannot open the watch socket and
+// issue `call` commands. Setting originPatterns to "*" re-allows any origin.
+func TestWatchOriginCheck(t *testing.T) {
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{APIName: "test", Instance: "default"})
+
+	dialCrossOrigin := func(url string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+			HTTPHeader: map[string][]string{"Origin": {"http://evil.example"}},
+		})
+		if err == nil {
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		}
+		return err
+	}
+
+	// Secure default: cross-origin rejected.
+	h1 := NewWatchHandler(reg)
+	srv1 := httptest.NewServer(h1)
+	defer srv1.Close()
+	if err := dialCrossOrigin("ws" + strings.TrimPrefix(srv1.URL, "http")); err == nil {
+		t.Error("cross-origin handshake accepted with default (same-origin) policy; want rejection")
+	}
+
+	// Opt-in "*": cross-origin allowed.
+	h2 := NewWatchHandler(reg)
+	h2.originPatterns = []string{"*"}
+	srv2 := httptest.NewServer(h2)
+	defer srv2.Close()
+	if err := dialCrossOrigin("ws" + strings.TrimPrefix(srv2.URL, "http")); err != nil {
+		t.Errorf("cross-origin handshake rejected with wildcard policy: %v", err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
@@ -50,7 +51,30 @@ func (l *Launcher) createAPIServer() {
 
 	l.apiServer = apiserver.NewServer(reg, addr)
 	l.apiServer.SetLogger(l.logger)
+	l.apiServer.SetWSOriginPatterns(l.resolveWSOriginPatterns())
 	apiserver.SetDefaultServer(l.apiServer)
+}
+
+// resolveWSOriginPatterns returns the WebSocket Origin allow-list, from the
+// GMC_REST_ORIGINS environment variable, else [GMC]REST_ORIGINS in the INI
+// (both comma-separated). Empty means same-origin only — the secure default
+// that blocks cross-site WebSocket hijacking. Set it to the HMI host(s), or to
+// "*" to allow any origin (opt-in, insecure).
+func (l *Launcher) resolveWSOriginPatterns() []string {
+	raw := os.Getenv("GMC_REST_ORIGINS")
+	if raw == "" && l.ini != nil {
+		raw = l.ini.Get("GMC", "REST_ORIGINS")
+	}
+	if raw == "" {
+		return nil
+	}
+	var patterns []string
+	for _, p := range strings.Split(raw, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			patterns = append(patterns, p)
+		}
+	}
+	return patterns
 }
 
 // startAPIServer starts the REST API server in the background.

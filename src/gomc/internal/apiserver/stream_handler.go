@@ -14,7 +14,9 @@ import (
 // dispatches to the StreamServer's ServeConn in a goroutine.
 func (s *Server) handleStreamUpgrade(w http.ResponseWriter, r *http.Request, server StreamServer) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
+		// Empty OriginPatterns → same-origin only (secure default). See
+		// Server.wsOriginPatterns.
+		OriginPatterns: s.wsOriginPatterns,
 	})
 	if err != nil {
 		s.logger.Warn("stream websocket accept failed", "error", err)
@@ -33,8 +35,13 @@ func (s *Server) handleStreamUpgrade(w http.ResponseWriter, r *http.Request, ser
 		s.streamConns = make(map[*streamConn]struct{})
 	}
 	s.streamConns[sc] = struct{}{}
-	s.streamMu.Unlock()
+	// Add to the WaitGroup INSIDE the lock, together with the map insert, so
+	// Shutdown() (which takes streamMu then streamWg.Wait()) can never observe a
+	// registered conn with a not-yet-incremented counter — which would let
+	// Wait() return while ServeConn is about to make cgo calls into a
+	// being-destroyed module (UAF), or race Add() against a returned Wait().
 	s.streamWg.Add(1)
+	s.streamMu.Unlock()
 
 	// ServeConn blocks until the stream is done (poll_transmit returns <=0
 	// or a write error occurs).

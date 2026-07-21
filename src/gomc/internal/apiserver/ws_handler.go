@@ -180,10 +180,11 @@ type wsError struct {
 
 // WatchHandler handles WebSocket connections for the watch channel.
 type WatchHandler struct {
-	registry *WatchRegistry
-	logger   *slog.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	registry       *WatchRegistry
+	logger         *slog.Logger
+	ctx            context.Context
+	cancel         context.CancelFunc
+	originPatterns []string // WebSocket Origin allow-list; empty = same-origin only
 }
 
 // NewWatchHandler creates a new WebSocket watch handler.
@@ -206,8 +207,11 @@ func (h *WatchHandler) SetLogger(logger *slog.Logger) {
 // ServeHTTP upgrades the connection to WebSocket and runs the watch loop.
 func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Allow any origin for now — tighten in production
-		InsecureSkipVerify: true,
+		// Empty OriginPatterns → same-origin only (secure default). This blocks
+		// cross-site WebSocket hijacking — a malicious page in the operator's
+		// browser cannot open this socket and issue `call` commands. Widen via
+		// Server.SetWSOriginPatterns for a cross-origin HMI.
+		OriginPatterns: h.originPatterns,
 	})
 	if err != nil {
 		h.logger.Warn("websocket accept failed", "error", err)
@@ -450,6 +454,17 @@ func (c *wsConn) handleCall(call wsCall) {
 }
 
 func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName string, rate time.Duration, watch WatchFunc, delta bool) {
+	// This runs in a goroutine spawned by handleSubscribe, so net/http's
+	// per-request panic recovery does NOT cover it. watch() calls into
+	// generated/cgo code; a panic there would otherwise kill the whole
+	// controller. Recover and drop the subscription instead.
+	defer func() {
+		if r := recover(); r != nil {
+			c.handler.logger.Error("watch push goroutine panic",
+				"api", apiName, "instance", instance, "func", funcName, "panic", r)
+		}
+	}()
+
 	ticker := time.NewTicker(rate)
 	defer ticker.Stop()
 
@@ -539,6 +554,13 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 // frames. The frame format is: funcName + '\0' + payload, so the client can
 // demux multiple binary watch subscriptions on one connection.
 func (c *wsConn) pushLoopBinary(ctx context.Context, funcName string, rate time.Duration, watch BinaryWatchFunc) {
+	// Spawned goroutine — not covered by net/http recover (see pushLoop).
+	defer func() {
+		if r := recover(); r != nil {
+			c.handler.logger.Error("binary watch push goroutine panic", "func", funcName, "panic", r)
+		}
+	}()
+
 	ticker := time.NewTicker(rate)
 	defer ticker.Stop()
 
@@ -614,6 +636,7 @@ func (c *wsConn) deltaEncode(data json.RawMessage, prevMap *map[string]json.RawM
 func (s *Server) AddWatchEndpoint(registry *WatchRegistry) {
 	handler := NewWatchHandler(registry)
 	handler.SetLogger(s.logger)
+	handler.originPatterns = s.wsOriginPatterns
 	s.watchHandler = handler
 	pattern := strings.TrimSuffix(s.prefix, "/") + "/watch"
 	s.mux.Handle(pattern, handler)

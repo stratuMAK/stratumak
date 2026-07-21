@@ -363,6 +363,15 @@ func (b *bridge) onConnect(_ mqtt.Client) {
 }
 
 func (b *bridge) handleMessage(th *topicHandler, msg mqtt.Message) {
+	// Runs in a paho callback goroutine, outside net/http's recover. A panic
+	// here (e.g. a future pin-shape assumption breaking on unexpected input)
+	// would otherwise kill the whole controller; drop the message instead.
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error("MQTT message handler panic", "topic", th.cfg.Path, "panic", r)
+		}
+	}()
+
 	payload := msg.Payload()
 
 	switch th.cfg.Mode {
@@ -395,6 +404,13 @@ func (b *bridge) handleMessage(th *topicHandler, msg mqtt.Message) {
 
 func (b *bridge) publishLoop(th *topicHandler) {
 	defer b.wg.Done()
+	// Spawned goroutine — not covered by net/http recover. A panic here would
+	// crash the controller; log and exit this loop instead.
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error("MQTT publish loop panic", "topic", th.cfg.Path, "panic", r)
+		}
+	}()
 	ticker := time.NewTicker(th.cfg.Rate)
 	defer ticker.Stop()
 
