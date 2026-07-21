@@ -367,7 +367,7 @@ Row → L R F ◐ (L-3 open); `U`/`FP`/`S` pending (L-3 design + L-4 contract ch
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| cmd/ethercat | 3867/0 | 1 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| cmd/ethercat | 3867/90 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ◐ |
 | internal/ads | 1763/1700 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/adsbridge | 498/47 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | internal/adsconfig | 1473/2988 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
@@ -399,8 +399,10 @@ CoE" fallback; clean log). DC (distributed clocks) deliberately skipped as niche
 `cmd/ethercat` parity bug was found + fixed en route (attached option form `-p0`, commit
 `d7da8ef2bd`). Details + the M3 plan in the auto-memory `ethercat-sim-transport`. This makes the
 Phase-2 EtherCAT rows (`cmd/ethercat` + the driver cmods) reviewable/testable now, and feeds the
-cross-cutting "Simulation configs" / "Real-machine test plan" items below. **Next: M3** — the
-`cmd/ethercat` CLI review + output-assertion tests, closing Tier-1 hotspot #3.
+cross-cutting "Simulation configs" / "Real-machine test plan" items below. **M3 done** — the
+`cmd/ethercat` CLI was read-reviewed against the IgH source and its output-assertion test added
+(`tests/ethercat/sim-cli`), fixing four parity bugs (`-p0`, clustered `-fq`, and the SM-direction
+bug in `pdos`/`cstruct`/`xml`); Tier-1 hotspot #3 is substantially closed (see its entry).
 
 ### Phase 3 — supervision & startup (first thing a field tech touches)
 
@@ -471,20 +473,26 @@ Human review mandatory, in this order:
    loss root-caused here; `--server-go` ptr truncation; mapper drift; fail-fast guards). Deferred
    as manual/design-decision (not auto-fixable): G-M4, G-L1, G-L5, G-L7. Tier-2 parser/AST still
    to review.
-3. **cmd/ethercat** — **UNBLOCKED; hardware-free harness M1+M2 done, M3 (CLI review) in progress
-   (2026-07-21).** This is a *diagnostic CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI
-   to the master at `GMC_REST_URL`) — it holds **no** state machine, watchdog, or slave-loss logic;
-   every PREOP/SAFEOP/OP/watchdog reference is formatting of state read back from the master. Rather
-   than only read-review the CLI, the sim transport was promoted from the master's test-only
+3. **cmd/ethercat** — **DONE (M1+M2+M3, 2026-07-21); hotspot substantially closed.** This is a
+   *diagnostic CLI* (drop-in for the IgH `ethercat` tool, talks REST/GMI to the master at
+   `GMC_REST_URL`) — it holds **no** state machine, watchdog, or slave-loss logic; every
+   PREOP/SAFEOP/OP/watchdog reference is formatting of state read back from the master. Rather than
+   only read-review the CLI, the sim transport was promoted from the master's test-only
    `transport_sim` into a **first-class, config-selectable transport** (`transportType=sim`,
-   `interface=<bus-description-file>`) so the *whole lcec driver* can be integration-tested with no
-   hardware — see the Phase-2 harness note above. **M1+M2 done + committed**: six ethercat runtests
-   (bring-up, PDO round-trip, startup SDO, link-loss/rescan, multi-slave) exercise the driver
-   end-to-end on emulated slaves; the CLI+REST path is proven working and one parity bug was already
-   fixed (`-p0`, `d7da8ef2bd`). **M3 (closing this hotspot):** read-review the hand-written CLI
-   formatting/parsing (`cmd_*.go`) for output-format parity with the IgH tool, add end-to-end CLI
-   output-assertion tests on the sim (master/slaves/sdos/pdos/domains), fix the remaining getopt gap
-   (clustered booleans `-fq`), and extract `parseArgs()` from `main()` for an option-parser unit test.
+   `interface=<bus-description-file>`) so the *whole lcec driver* is integration-tested with no
+   hardware — see the Phase-2 harness note above. **M1+M2:** six ethercat runtests (bring-up, PDO
+   round-trip, startup SDO, link-loss/rescan, multi-slave) exercise the driver end-to-end on
+   emulated slaves. **M3 (CLI review, done):** the hand-written command formatting/parsing was
+   read-reviewed against the authoritative IgH source (`master/tool/Command*.cpp`) and **four real
+   bugs fixed** — option parsing `-p0` + clustered `-fq` (with `parseArgs()` extracted and the
+   first `cmd/ethercat` unit test, `main_test.go`), and the SM-direction bug replicated across
+   `pdos`/`cstruct`/`xml` (output SMs mislabelled). `master`/`slaves`/`sdos`/`config`/`domains` are
+   parity-confirmed; `tests/ethercat/sim-cli` asserts the output format. **Deferred (lower
+   priority):** deep-review of the rarely-used `reg/sii/foe/soe` read-write commands. **Two
+   master-side follow-ups (not CLI bugs):** `version` shows the ioctl magic (0.0.37) because the
+   master tool API (`ec_tool_module_t`) exposes no version string — needs the master to surface
+   `PACKAGE_VERSION`; and the master reports `Phase: Idle` while active + doesn't fetch the SDO
+   dictionary (both master/GMI-side, surfaced by the harness).
 4. **internal/launcher + internal/daemon** — process supervision, startup/shutdown ordering,
    restart-after-crash. Focus: goroutine ownership, orphan handling, partial-startup failure.
 5. **State machines & abort paths across modules** — wherever a Tier 2 AI review flags a
@@ -690,3 +698,4 @@ Not per-module; each needs an owner and a done-definition.
 | 2026-07-20 | `internal/launcher` + `internal/daemon` reviewed (Phase 1, Tier 1 hotspot #4). Fixed `shutdown()` double-close panic race — 3 goroutines, non-atomic check-then-close → `close of closed channel` crashing ordered shutdown; now `shutdownOnce sync.Once` + 64-goroutine `-race` regression test (L-1). Fixed `stopCModules` calling stop on never-started modules after partial-startup failure (guarded on `cm.started`, matching unload.go/startCModules) (L-2). OPEN for manual review: L-3 module-state data race on the runtime REST load/unload surface (`cModules`/`goModules`/`cModArena` unlocked vs shutdown iteration; needs a locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock). LOW documented: L-4 goModule Stop-without-started, L-5/L-6 apiServer field + orphan signal goroutine + retainSync 1s wait. vet/build/`-race` green. Row → L R F ◐, U FP S pending |
 | 2026-07-20 | **Tier 1 hotspot #3 — cmd/ethercat unblocked; EtherCAT sim-transport integration harness M1 done.** Promoted the master's test-only `transport_sim` slave emulator to a first-class, config-selectable transport (`EC_TRANSPORT_SIM`; `transportType=sim`, `interface=<bus-description-file>`; RT-`TRUSTED` cyclic ops, in `rt-effects-check`). Submodule `670737d4` (branch `transport-sim`): moved `transport_sim.{c,h}` to `transport/`, file-driven `sim_open` parser, registry entry, `interface[16]→[64]`, new `test_sim_transport_file` (14 PASS/2 SKIP/0 FAIL). Superproject `b6c9c9a6a1` (conf.c `transportType=sim` + submodule bump) and `bb1ac3a0be` (`tests/ethercat/sim-basic` — first gomc EtherCAT runtests case: driver on an emulated slave reaches OP, PDOs map to HAL pins; passes `runtests`). Rebuilt `libethercat`+`cmod/ethercat.so`. Next: M2 (PDO round-trip/SDO/DC/link-loss), M3 (`bin/ethercat` REST-CLI assertions → closes the CLI review). |
 | 2026-07-21 | **EtherCAT harness M2 complete — driver integration-tested hardware-free.** Five more increments across six runtests: `sim-pdo-loopback` (PDO value round-trip both ways via a `loopback` sim slave, submodule `6a7591e1`), `sim-sdo-config` (startup `<sdoConfig>` init-commands written via CoE, read back through the `ethercat` REST CLI — proving the CLI+REST path works resident), `sim-link-loss` (cable-pull: a `<interface>.link` control file drops the link → slave-lost pins → rescan back to OP, submodule `ecde9e8b`), `sim-multi-slave` (three CoE slaves output-only/input-only/bidirectional all reach OP; slave-2 round-trip verifies its domain offset), and a CoE-mailbox upgrade to all sim slaves (clean PDO config, 0 log errors). DC skipped (niche). **cmd/ethercat parity bug found + fixed** by the harness: the hand-rolled option parser rejected the attached getopt form `-p0` (IgH tool accepts it) — fixed `d7da8ef2bd`, guarded by the SDO test. Commits: submodule `6a7591e1`/`ecde9e8b`; superproject `2028c099ff`/`520abc1090`/`682e384ca7`/`d7da8ef2bd`/`90380552ee`/`2f2dd5d941`. Next: M3 — cmd/ethercat CLI read-review + output-assertion tests (closes Tier-1 hotspot #3). |
+| 2026-07-21 | **EtherCAT M3 done — cmd/ethercat CLI reviewed; Tier-1 hotspot #3 substantially closed.** Read-reviewed the hand-written command formatting/parsing against the authoritative IgH source (`master/tool/Command*.cpp`); **four real parity bugs found + fixed:** option parser rejected the attached `-p0` (`d7da8ef2bd`) and clustered `-fq` (`bd40e617b9`, which also extracted `parseArgs()` + added `main_test.go`, the first unit test for the package); and the SM-direction bug — output sync managers mislabelled — replicated across `pdos` (`237a156b3b`), `cstruct` and `xml` (`4592b682e8`; real rule is control bit 0x04 = output). `master`/`slaves`/`sdos`/`config`/`domains` parity-confirmed (e.g. the `slaves` `0x<vid>:0x<pid>` fallback and `sdos` cached-dictionary read both match IgH). Test: `tests/ethercat/sim-cli` (`9c7d4e11de`) asserts CLI output format. Deferred: deep-review of rarely-used `reg/sii/foe/soe` commands. Master-side follow-ups (not CLI bugs): `version` shows ioctl magic (master tool API exposes no version string), `Phase: Idle` while active, no SDO-dictionary fetch. cmd/ethercat matrix row → L R F RC ✅, U FP S ◐. |
