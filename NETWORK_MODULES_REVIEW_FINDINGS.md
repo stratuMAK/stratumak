@@ -182,6 +182,69 @@ Two real defects fell out of writing them:
   `[FIX APPLIED]` (serve the index file directly with `http.ServeFile`, which does not perform
   that redirect; covered by `TestAddWebApps`.)
 
+## inirest coverage pass (2026-07-22) — the last Phase-5 `U` row, plus one finding
+
+`internal/inirest` 57.5 % → **100.0 %**. It was the one module the network coverage pass skipped,
+and the whole of its gap was `GetParameterFile`, at **0 %** — the one method in the package that
+touches the disk, taking a path out of operator-supplied INI content and serving that file's
+*contents* over REST. Its `pathres` containment check was the only untested thing standing
+between `[RS274NGC]PARAMETER_FILE = ../../etc/shadow` and any REST caller. Now covered: the
+containment refusal for both an absolute and a relative escape (**and** that an in-root traversal
+still resolves, so the check cannot be "reject anything with `..`"), namespace override and
+global fallback, PARAMETER_FILE unset vs. the file missing vs. the file unreadable — three
+distinct failures that must not collapse into an empty string, because an empty parameter table
+is a plausible-looking answer — and the nil-INI guard on both methods (halrun mode; `pkg/inifile`
+dereferences its receiver immediately, so the guard is what keeps a REST call from killing the
+controller). Five mutations, all caught.
+
+**Method note, worth carrying:** the first version of the containment test passed for the wrong
+reason. Two independent `t.TempDir()` calls are not siblings in a predictable way, so
+`../<base>/secret.var` did not reach the target and the refusal was an ordinary "not found" — a
+test that asserted only `err != nil` would have gone green with containment removed entirely.
+Fixed by laying the config root and the escape target out as siblings under one parent **and**
+asserting the error is the containment message. Any path-containment test that does not assert
+*why* it was refused is suspect.
+
+### I-3 — a `string?` result field cannot express "not found" (server-side emitter)
+
+`internal/inirest/inirest.go:39`, root cause in `internal/gmicompile/cgen`. **CONFIRMED — low
+severity here, but it is a codegen divergence.** `[OPEN — needs a ruling]`
+
+`ini.gmi` declares `IniQueryResult.value` as `string?`, documented as "null if not found", and
+`Query` has a branch to honour it: an absent key yields `IniQueryResult{}` while a present-but-
+empty key yields `IniQueryResult{Value: ""}`. Those are the same value. Both marshal to exactly
+`{"values":null}`, so the `keyExists` call that distinguishes them cannot affect any caller — the
+branch is dead.
+
+The cause is that the two Go emitters disagree about `string?`:
+
+- `cgen/server_go.go` `toGoType` (emits `*_cgo.go`, the types the **provider** uses):
+  `if t.Nullable && t.Name != ast.PrimString { return "*" + base }` — strings are *explicitly*
+  excluded, so `string?` is a plain `string` with `omitempty`.
+- `cgen/client_go.go` `toGoType` (the standalone Go client): has an added branch
+  `if t.Nullable && t.Name == "string" { return "*string" }` — so `string?` is `*string`.
+
+Same IDL field, two Go types. `bool?` is `*bool` on both sides, which is why `all` works and
+`value` does not. The generated Python client is built for the documented contract
+(`value=d.get("value", None)`, `Optional[str]`) and simply can never receive the distinction.
+
+24 `string?` fields exist across four IDLs (`ini`, `halcmd`, `halscope`, `ethercat`); most are
+function *parameters*, where the collapse is harmless. Result *fields* are where it bites.
+
+**Not fixed here, deliberately.** Making the server emitter match the client one changes a
+generated Go type in every API that uses `string?`, which moves provider call sites across the
+tree — the same shape as G-1/G-2, which was correctly routed through a ruling rather than done
+inside a coverage pass. The two candidate resolutions are (a) align the emitters and let
+`value` become `*string`, or (b) accept that absent and empty are one thing here, delete the dead
+branch and `keyExists`, and correct the IDL comment. **(b) is the smaller and probably right
+answer for INI specifically** — an INI key with an empty value and an absent INI key mean the
+same thing to essentially every consumer — but the emitter divergence itself outlives that
+choice and should be settled once, not per-API. Pinned meanwhile by
+`TestQueryAbsentAndEmptyAreIndistinguishable`, which asserts the *actual* wire behaviour and
+fails loudly if it ever changes.
+
+---
+
 Everything else the pass touched behaved as documented. Two expectations that looked like bugs
 and are not, now pinned by tests so they stay deliberate: `watchItemsFactory` **accepts** a name
 that does not resolve (carried as a dead item — a watched pin may appear later when its module
@@ -226,7 +289,9 @@ golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/laun
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
 
-**Still open:** none — the network half is closed.
+**Still open:** **I-3** only (the `string?` server-emitter divergence, found by the 2026-07-22
+inirest coverage pass; needs a ruling, and its resolution lives in `gmicompile`, not here). Every
+N-numbered finding is fixed and the network half's `U`/`FP` rows are closed.
 **N6 closed 2026-07-22** — launcher L-3 landed its full locking fix on 2026-07-21; see N6 above.
 
 **Auth ruling (2026-07-21, user).** The REST/WS surface has **no authentication** and that is a

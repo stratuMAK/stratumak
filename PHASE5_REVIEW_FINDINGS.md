@@ -468,8 +468,13 @@ test.
 
 **What is left in Phase 5** (2026-07-22, after the network half and G-1/G-2):
 
-- `internal/inirest` `U` ◐ (57.5 %) — the one module the network coverage pass
-  did not reach.
+- ~~`internal/inirest` `U` ◐ (57.5 %)~~ — **CLOSED 2026-07-22, 100 %.** The whole
+  gap was `GetParameterFile` (0 %), including its `pathres` containment check.
+  Write-up and the new open finding **I-3** (a `string?` result field cannot
+  express "not found" — the server and client Go emitters disagree about
+  `string?`, so the IDL's documented contract is unrepresentable provider-side)
+  are in `NETWORK_MODULES_REVIEW_FINDINGS.md`. I-3 is a `gmicompile` ruling, not
+  a Phase-5 row blocker.
 - ~~`internal/emccalib` `U` ◐ (43.2 %)~~ — **CLOSED 2026-07-22, 94.4 %.** It had
   been accepted because `GetTunables`/`SaveIni` read live HAL pins; the network
   pass's in-process HAL pattern (keep-alive `TestMain`; `RtapiInitializeApp` is
