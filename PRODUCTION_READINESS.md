@@ -1040,6 +1040,26 @@ Not per-module; each needs an owner and a done-definition.
   (2026-07-14) — but for gomc-native clients/GUIs an explicit rc return (or opt-in raise)
   would remove a whole class of silently-doing-nothing bugs. Decide the API contract once,
   apply to gmi python + any future client bindings.
+  **Root-caused and pinned by tests 2026-07-22** (`internal/apiserver/emccmdtest`, the first
+  tests this surface has had). The mechanism is not what the code reads like, and the cause is
+  architectural rather than a missing `if`:
+  - `RegisterEmccmdAPI` wraps **even a pure-Go provider** into the C callbacks struct
+    (`BuildEmccmdCallbacks`), so REST dispatch is C-ABI-mediated for *every* module, Go or C.
+    The C signature is `int32_t (*)(...)` — no error channel — so the `//export` trampoline
+    collapses the Go error to `-1` and the dispatch marshals that as an ordinary result.
+  - **The same command already reports failure correctly over WebSocket.** `EmccmdCommands(m)`
+    (`internal/task/watches.go:60`) is the Go-native handler set that propagates the provider
+    error, and `ws_handler.go` renders it as `wsResult{Error: "…"}` with the full message. So
+    REST and WS disagree about the contract for the same call, and REST — the surface
+    `gmi.Command`, `bin/axis` and the test drivers use — is the lossy one.
+  - Neither of the obvious IDL shapes fixes it: a **void** func's dispatch discards the rc
+    entirely (`return nil, nil`), and the existing `-> i32` marshals it as data. `@rc_error`
+    would give REST a failure *signal*, but the message still cannot cross an `int32_t`.
+  - So the fix with the best ratio is to **let a Go provider's REST dispatch use the Go
+    handlers directly, as WS already does** — emit a Go-native `FuncMeta` set (Method/Path +
+    handler) alongside the cgo one and prefer it when the provider is Go. No IDL change, no
+    wire change on success, full messages and the existing errno→HTTP mapping on failure.
+    Every C-provided module keeps the current path unchanged.
   **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
   `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
   rather than returning it, and the suite constructs through it. `gmi.Command` itself was
