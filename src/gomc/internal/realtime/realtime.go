@@ -8,8 +8,9 @@
 //
 // In the gomc architecture there is nothing to bring up at this layer: RT
 // modules load in-process via dlopen in the halcmd CGo shims, and HAL/RTAPI
-// shared memory is in-process heap allocation (there is no SysV-shm or
-// /dev/zero mmap to wait for, nor any ipcrm cleanup — see ipc_cleanup.go).
+// shared memory is in-process heap allocation: there is no SysV-shm or
+// /dev/zero mmap to wait for, and 2.9's realtime.in ipcrm cleanup has no
+// counterpart here.
 // Start() is retained as the startup seam and error-return contract for the
 // launcher; RT-correctness of the cyclic paths lives in cmod/* and is tracked
 // in RT_HARDENING_CHECKLIST.md, not here.

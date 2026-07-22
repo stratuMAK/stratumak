@@ -366,9 +366,16 @@ exactly once (`launcher.go:230` full `Run()`; `halrun.go:85` subset), no gorouti
 shared-memory lifecycle, **no cyclic path** — so Tier-1 hotspot #6 ("no GC-managed allocation
 in cyclic paths") does not apply here; the cyclic RT paths live in `cmod/*` /
 `RT_HARDENING_CHECKLIST.md`. RT modules load in-process via `dlopen` (halcmd shims); HAL/RTAPI
-shm is in-process heap, so the 2.9 `realtime.in` SysV-shm `ipcrm` cleanup is obsolete
-(`ipc_cleanup.go` correctly empty). **Two cleanups applied (user ruling — remove vestigial
-checks):** (1) dropped the `/dev/zero` "sanity check" — the in-process heap rtapi never
+shm is in-process heap, so the 2.9 `realtime.in` SysV-shm `ipcrm` cleanup is obsolete.
+(This review originally kept `ipc_cleanup.go` — a file whose entire content was a comment
+saying it is intentionally empty — as a marker for that. **Deleted 2026-07-22 on the same
+"remove vestigial" ruling:** its rationale was already stated in full in the package doc of
+`realtime.go`, which additionally pointed readers at the empty file; a file justified only by
+its own existence is not a marker, it is noise. It was the only effectively-empty Go file in
+the tree — the other candidates all load-bear: `hallib/cgo.go` carries the `#cgo` directives,
+`hallibtest/doc.go` *is* the blank import, the per-package `link_test.go` shims are required
+one-per-test-binary by Go, and `pkg/hal/doc.go` is real package documentation.)
+**Two cleanups applied (user ruling — remove vestigial checks):** (1) dropped the `/dev/zero` "sanity check" — the in-process heap rtapi never
 touches `/dev/zero` (confirmed: it appears nowhere else in gomc), so the check validated a
 resource the runtime doesn't use and gave false RT-readiness confidence; (2) removed the dead
 `RTAPI_DEBUG` branch — it only logged and propagated nowhere (no `getenv` consumer in the
