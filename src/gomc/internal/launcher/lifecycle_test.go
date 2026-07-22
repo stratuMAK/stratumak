@@ -3,8 +3,10 @@
 package launcher
 
 import (
+	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ type countingModule struct {
 	starts   int
 	stops    int
 	destroys int
+	startErr error // when set, Start reports this failure
 	stopCh   chan struct{}
 }
 
@@ -35,7 +38,7 @@ func (m *countingModule) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.starts++
-	return nil
+	return m.startErr
 }
 
 func (m *countingModule) Stop() {
@@ -185,4 +188,73 @@ func TestStopAPIServer_IdempotentAndConcurrent(t *testing.T) {
 		t.Errorf("apiServer = %v after stop, want nil", got)
 	}
 	l.stopAPIServer() // still a no-op
+}
+
+// TestStartGoModules_PartialFailure is the fault path the whole Stop-without-
+// Start contract exists for: a module's Start() fails, so startGoModules bails
+// mid-loop and the modules after it are loaded-but-never-started. The launcher
+// must still tear all of them down — exactly once each — rather than leaking the
+// ones it did start or double-stopping the ones it did not.
+func TestStartGoModules_PartialFailure(t *testing.T) {
+	l := testLauncher()
+	first, boom, never := newCountingModule(), newCountingModule(), newCountingModule()
+	boom.startErr = errors.New("no device")
+	for i, m := range []*countingModule{first, boom, never} {
+		l.goModules = append(l.goModules, &goModule{mod: m, name: string(rune('a' + i))})
+	}
+
+	err := l.startGoModules()
+	if err == nil {
+		t.Fatal("startGoModules returned nil despite a failing module")
+	}
+	if !strings.Contains(err.Error(), "no device") || !strings.Contains(err.Error(), `"b"`) {
+		t.Errorf("error = %q, want it to name the failing module and its cause", err)
+	}
+	if starts, _, _ := never.counts(); starts != 0 {
+		t.Errorf("module after the failure was started %d times, want 0", starts)
+	}
+
+	l.doCleanup()
+
+	for name, m := range map[string]*countingModule{"started": first, "failed": boom, "never-started": never} {
+		if _, stops, destroys := m.counts(); stops != 1 || destroys != 1 {
+			t.Errorf("%s module: (stop %d, destroy %d), want (1, 1)", name, stops, destroys)
+		}
+	}
+}
+
+// TestFail_FirstErrorWinsAndTriggersShutdown covers the fatal-runtime-error path
+// (the REST server dying): the error must reach Run's return value so the
+// process exits non-zero instead of lingering as a headless zombie, the FIRST
+// error must win, and the ordered shutdown must be triggered exactly once.
+func TestFail_FirstErrorWinsAndTriggersShutdown(t *testing.T) {
+	l := testLauncher()
+	firstErr := errors.New("REST API server: bind: address already in use")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i == 0 {
+				l.fail(firstErr)
+				return
+			}
+			<-l.shutdownCh // let the first one land before piling on
+			l.fail(errors.New("later error"))
+		}(i)
+	}
+	wg.Wait()
+
+	select {
+	case <-l.shutdownCh:
+	default:
+		t.Fatal("fail() did not trigger shutdown")
+	}
+	l.fatalMu.Lock()
+	got := l.fatalErr
+	l.fatalMu.Unlock()
+	if !errors.Is(got, firstErr) {
+		t.Errorf("fatalErr = %v, want the first error %v", got, firstErr)
+	}
 }

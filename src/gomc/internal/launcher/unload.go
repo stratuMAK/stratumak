@@ -74,6 +74,21 @@ func unregisterModuleAPIs(name string) {
 	}
 }
 
+// halCompID resolves a HAL component id by name, or 0 when HAL was never
+// initialised.
+//
+// The guard is not cosmetic: halcmd.FindCompID goes straight into
+// halpr_find_comp_by_name, which dereferences hal_data — NULL until the first
+// hal_init — so calling it without HAL is a SIGSEGV, not an error return. The
+// unload hooks are wired into halrest at the very top of Run(), before HAL
+// comes up, and no HAL also means there are no RT functions to remove.
+func (l *Launcher) halCompID(name string) int {
+	if l.halComp == nil {
+		return 0
+	}
+	return halcmd.FindCompID(name)
+}
+
 // isModuleLoaded returns true if a module with the given instance name is
 // currently loaded (either as cmod or gomod).
 // Caller must hold modMu (called only from UnloadModule).
@@ -107,8 +122,9 @@ func (l *Launcher) unloadCModule(name string) error {
 
 	cm := l.cModules[idx]
 
-	// Step 1: Remove RT functions from threads.
-	compID := halcmd.FindCompID(name)
+	// Step 1: Remove RT functions from threads. Skipped when HAL was never
+	// initialised — see unloadGoModule for why the guard is needed at all.
+	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
@@ -176,7 +192,7 @@ func (l *Launcher) unloadGoModule(name string) error {
 	gm := l.goModules[idx]
 
 	// Step 1: Remove RT functions from threads.
-	compID := halcmd.FindCompID(name)
+	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
