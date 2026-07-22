@@ -256,14 +256,97 @@ func (cl *PersistClient) GetEntry(handle int32, key string) (Entry, error) {
 The C callback returns the struct **by value** with no `rc` out-param, so there
 is nowhere for a failure to travel. Void-returning funcs are fine — they get an
 `rc` and do report errors (`emcio`: `return fmt.Errorf("io_abort: rc=%d", rc)`).
-The split across the tree: **23** struct-returning client methods hard-code
-`nil` (persist 8, motstat 10, tooltable 4, emcio 1); `motctl` has none.
 
-Consequences beyond T-4: every in-process consumer of `persist` (tooltable,
-milltask, ngcpreview) is blind to storage failures. A sqlite error and a missing
-row are the same event to the caller — precisely the confusion the comment at
-`GetTool` was written to prevent, describing an intent the boundary cannot
-deliver.
+**Scope (corrected 2026-07-22 after tracing the emitter).** **13** client methods
+are structurally unable to report a failure: `persist` 8 (`Open`,
+`GetNamespaces`, `GetEntries`, `GetEntry`, `SetEntry`, `DeleteEntry`,
+`SetEntries`, `DeleteAll`), `tooltable` 4 (`ListTools`, `GetTool`, `PutTool`,
+`DeleteTool`), and `emcio.GetStatus`. A further 6 `motstat` methods and
+`motstat.GetAnalogInput` also end in `nil`, but those are `@returns_value` — the
+`rc` *is* the answer — which is a deliberate contract, not this defect.
+
+**The REST surface is NOT affected.** A generated REST `CommandMeta` handler
+calls the Go *provider* directly (`result, err := impl.GetTool(...)`; `if err !=
+nil { return nil, err }`) and never crosses the C ABI. Only **in-process GMI
+consumers** are blind — and that includes the C ones.
+
+Consequences beyond T-4 — the live in-process consumers, all blind:
+`internal/tooltable` and `internal/halscope` → `persist`; `internal/task`
+(milltask) and `internal/ngcpreview` → `tooltable`; and on the C side
+`emc/iotask/ioControl_v2.c` → `tooltable` (5 `tt->get_tool(...)` call sites, on
+the **tool-change path**) and `internal/task/interp_param_io_persist.c` →
+`persist`. A sqlite error and a missing row are the same event to every one of
+them — precisely the confusion the comment at `GetTool` was written to prevent,
+describing an intent the boundary cannot deliver.
+
+**G-2 (found while scoping G-1): the dispatch emitter treats an `out` param as
+an input.** `cgen/dispatch_c.go` unmarshals the out param *from the request*,
+passes it in, and marshals only the `rc` as the result — the value the provider
+filled in is discarded (`motstatDispatchGetStatus` in
+`generated/gmi/motstat/motstat_cgo.go` is the live example). Latent today because
+the only IDLs using `out` are `@rest_export false`, but it is the direct blocker
+for the recommended fix below.
+
+#### How to fix it
+
+The mechanism already exists and is in production: an `out` parameter plus an
+`i32` return. `motstat.gmi` line 209 declares
+
+```
+func get_status(status: MotionStatus out) -> i32
+```
+
+and the generated cgo client is exactly what is wanted — and, critically, its Go
+signature is *identical* to the struct-returning form:
+
+```go
+func (cl *MotstatClient) GetStatus() (MotionStatus, error) {
+        var cStatus C.motstat_motion_status_t
+        rc := int32(C.call_motstat_get_status(cl.cb, &cStatus))
+        statusOut := motionStatusCToGo(&cStatus)
+        if rc != 0 {
+                return MotionStatus{}, fmt.Errorf("get_status: rc=%d", rc)
+        }
+        return statusOut, nil
+}
+```
+
+So `func get_entry(handle: i32, key: string) -> Entry` becomes
+`func get_entry(handle: i32, key: string, entry: Entry out) -> i32`, and every
+**Go** consumer compiles unchanged — `GetEntry(h, k) (Entry, error)` before and
+after. That is what makes this tractable: the churn is in the IDLs, the
+generator, and the C consumers, not in the Go call sites.
+
+Three things have to happen first, in this order:
+
+1. **Fix G-2** (the dispatch emitter). Until an `out` param round-trips through
+   dispatch instead of being read from the request and dropped, converting a
+   `@rest_export true` API would break its C-provider dispatch path. This is the
+   real prerequisite and it is generator-only work.
+2. **Convert the IDLs.** Scope it to the *storage* APIs — `persist.gmi` and
+   `tooltable.gmi` — not the whole tree. That is where a swallowed error is a
+   silent data fault; for an RT-adjacent status API, a caller usually has
+   nothing useful to do with an error anyway, and `@returns_value` is the honest
+   contract there. `emcio.GetStatus` can follow or stay, on its own merits.
+3. **Update the C consumers**, which is the only place the ABI break is felt:
+   `emc/iotask/ioControl_v2.c` (5 `tt->get_tool` sites plus `put_tool` and
+   `list_tools`) and `internal/task/interp_param_io_persist.c`. Provider and
+   consumer share a header, so this is a single atomic change — there is no
+   partial-rollout path, and it must land with a rebuild of both.
+
+Rejected alternatives, for the record:
+
+- **A trailing `int32_t *rc` alongside the struct return.** Smaller conceptual
+  change, but it invents a second error convention next to the `out`+`rc` one
+  that already exists and is proven. Two conventions is worse than one.
+- **A blanket error channel on every callback** (an `rc` out-param everywhere,
+  or last-error state on the `ctx`). Touches all 34 APIs and the RT-facing ones
+  for no benefit; `ctx` state is also not safe for the RT callers.
+- **Per-API sentinel conventions**, which is what tooltable does today (empty
+  value ⇒ absent). Correct there because tooltable only ever stores JSON, so the
+  zero value cannot occur legitimately — but it does not generalise, and leaving
+  it as the general answer means every future consumer re-derives it, or
+  doesn't.
 
 This is the same class as the already-tracked "Surface RCS command errors to
 clients" cross-cutting item: an error contract that has to be decided once and
