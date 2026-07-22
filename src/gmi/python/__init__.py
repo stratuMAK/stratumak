@@ -2,6 +2,11 @@
 
 import os
 
+# Classic parity: the linuxcnc module exposed all constants at module level
+# (linuxcnc.MODE_MDI). Re-export them so gmi.MODE_MDI works the same
+# (constants.py holds only UPPER_CASE names — no collision with this module).
+from gmi.constants import *  # noqa: F401,F403
+
 _DEFAULT_REST_URL = "http://127.0.0.1:5080"
 _ENV_VAR = "GMC_REST_URL"
 _INSTANCE_ENV_VAR = "GMC_INSTANCE"
@@ -94,10 +99,16 @@ def ToolTable():
 
 
 def component_exists(name: str) -> bool:
-    """Check if a HAL component exists via the halcmd REST API."""
+    """Check if a HAL component exists via the halcmd REST API.
+
+    Returns False on ANY failure, including an unreachable server — this is
+    an existence probe, not a health check (review finding GP-29).
+    """
     import json
+    import urllib.parse
     import urllib.request
-    url = rest_url() + "/api/v1/halcmd/components?pattern=" + name
+    url = (rest_url() + "/api/v1/halcmd/components?pattern="
+           + urllib.parse.quote(name, safe=""))
     try:
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read())
@@ -107,10 +118,15 @@ def component_exists(name: str) -> bool:
 
 
 def pin_has_writer(name: str) -> bool:
-    """Check if a HAL pin's signal has any writers via the halcmd REST API."""
+    """Check if a HAL pin's signal has any writers via the halcmd REST API.
+
+    Returns False on ANY failure, including an unreachable server (GP-29).
+    """
     import json
+    import urllib.parse
     import urllib.request
-    url = rest_url() + "/api/v1/halcmd/pins?pattern=" + name
+    url = (rest_url() + "/api/v1/halcmd/pins?pattern="
+           + urllib.parse.quote(name, safe=""))
     try:
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read())
@@ -141,8 +157,15 @@ class IniFile:
         ns = os.environ.get(_INSTANCE_ENV_VAR)
         self._namespace = ns if ns else None
 
-    def find(self, section, key):
-        """Return the first value for section/key, or None if not found."""
+    def find(self, section, key, num=None):
+        """Return the first value for section/key, or None if not found.
+
+        ``num`` selects the num'th occurrence (1-based), matching classic
+        linuxcnc.ini().find(section, option, num).
+        """
+        if num is not None and num != 1:
+            vals = self.findall(section, key)
+            return vals[num - 1] if 0 < num <= len(vals) else None
         cache_key = (section, key)
         if cache_key in self._cache:
             return self._cache[cache_key]

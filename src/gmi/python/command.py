@@ -13,9 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
-import queue
 import sys
-import threading
 import urllib.request
 from typing import Optional
 
@@ -41,24 +39,6 @@ class Command:
 
     def __init__(self, instance: str = "milltask"):
         self._base = rest_url() + "/api/v1/" + instance
-        self._async_queue = queue.Queue()
-        self._async_worker = threading.Thread(
-            target=self._async_loop, daemon=True)
-        self._async_worker.start()
-
-    def _async_loop(self):
-        """Worker thread that sends queued requests in order."""
-        while True:
-            req = self._async_queue.get()
-            try:
-                with urllib.request.urlopen(req, timeout=_SOCKET_TIMEOUT) as resp:
-                    resp.read()
-            except Exception as e:
-                # Fire-and-forget delivery still has to be *observable*: a
-                # dropped jog that fails silently here surfaces far away as an
-                # unexplained "machine never moved" timeout.
-                print(f"gmi.Command: async POST {req.full_url} failed: {e}",
-                      file=sys.stderr)
 
     def _post(self, path: str, data: dict = None,
               timeout: float = _SOCKET_TIMEOUT) -> dict:
@@ -78,17 +58,6 @@ class Command:
             print(f"gmi.Command: {e.code} {url}: {err_body}", file=sys.stderr)
             raise
 
-    def _post_async(self, path: str, data: dict = None):
-        """Queue a POST request for ordered async delivery (non-blocking)."""
-        url = self._base + path
-        body = json.dumps(data or {}).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        self._async_queue.put(req)
-
     def state(self, state: int):
         """Set task state (STATE_ESTOP, STATE_ON, etc.)."""
         return self._post("/state", {"state": state})
@@ -107,8 +76,15 @@ class Command:
 
     def jog(self, jog_type: int, jjogmode: bool, axis_or_joint: int,
             velocity: float = 0.0, distance: float = 0.0):
-        """Jog an axis or joint (non-blocking, fire-and-forget)."""
-        self._post_async("/jog", {
+        """Jog an axis or joint.
+
+        Synchronous like every other command: an earlier version queued jogs
+        on a private async worker while abort()/state() posted directly, so a
+        queued jog could be delivered AFTER an abort the caller saw complete
+        (review finding GP-4). Classic NML serialized all commands on one
+        channel; so does this. Velocity is mm/s at this boundary.
+        """
+        return self._post("/jog", {
             "jog_type": jog_type,
             "jjogmode": bool(jjogmode),
             "axis_or_joint": axis_or_joint,
@@ -117,15 +93,23 @@ class Command:
         })
 
     def jog_stop(self, jjogmode: bool, axis_or_joint: int):
-        """Stop a jog (non-blocking, fire-and-forget)."""
-        self._post_async("/jog-stop", {
+        """Stop a jog (synchronous — ordered with all other commands)."""
+        return self._post("/jog-stop", {
             "jjogmode": bool(jjogmode),
             "axis_or_joint": axis_or_joint,
         })
 
     def spindle(self, direction: int, speed: float = 0.0,
                 spindle: int = 0, wait: int = 0):
-        """Control spindle (SPINDLE_FORWARD, SPINDLE_OFF, etc.)."""
+        """Control spindle (SPINDLE_FORWARD, SPINDLE_OFF, etc.).
+
+        DIVERGENCE from classic linuxcnc.command().spindle() (finding GP-21):
+        classic reads the first optional positional arg as the SPINDLE NUMBER
+        for OFF/INCREASE/DECREASE/CONSTANT and as the speed for FORWARD/
+        REVERSE. This signature is fixed — a classic-style positional
+        ``spindle(SPINDLE_OFF, 1)`` would be read as speed=1, spindle 0.
+        Multi-spindle callers must pass ``spindle=`` by keyword.
+        """
         return self._post("/spindle", {
             "cmd": direction,
             "speed": speed,
@@ -160,6 +144,19 @@ class Command:
     def rapidrate(self, rate: float):
         """Set rapid override (0.0 - 1.0)."""
         return self._post("/rapid-override", {"rate": rate})
+
+    def set_feed_override(self, enable):
+        """Enable/disable feed override (classic EMC_TRAJ_SET_FO_ENABLE)."""
+        return self._post("/feed-override-enable", {"enable": bool(enable)})
+
+    def set_feed_hold(self, enable):
+        """Enable/disable feed hold (classic EMC_TRAJ_SET_FH_ENABLE)."""
+        return self._post("/feed-hold-enable", {"enable": bool(enable)})
+
+    def set_spindle_override(self, enable, spindle: int = 0):
+        """Enable/disable spindle-speed override (EMC_TRAJ_SET_SO_ENABLE)."""
+        return self._post("/spindle-override-enable",
+                          {"enable": bool(enable), "spindle_num": spindle})
 
     def maxvel(self, velocity: float):
         """Set maximum velocity."""

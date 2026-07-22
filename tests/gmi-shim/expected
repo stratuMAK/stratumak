@@ -1,0 +1,9 @@
+PASS constants
+PASS stat-frozen-between-polls
+PASS command-jog-abort-ordered
+PASS tools-put-envelope
+PASS tools-get-absent-none
+PASS errorchannel-connects-late
+PASS errorchannel-reconnects
+PASS positionlogger-lifecycle
+ALL OK

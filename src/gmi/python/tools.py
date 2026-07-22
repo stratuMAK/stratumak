@@ -9,8 +9,11 @@ import gmi
 class ToolTable:
     """REST client for the tool table API.
 
-    Provides list/get/put/delete/reload operations mirroring the
-    GET/PUT/DELETE /api/v1/tools/* endpoints served by milltask.
+    Provides list/get/put/delete/reload operations against the tools API the
+    milltask module registers under its own instance name — routes are
+    ``/api/v1/{instance}/…`` (default instance "milltask"). Not to be
+    confused with the tooltable module's separate raw store at
+    ``/api/v1/tooltable/`` (review finding GP-14).
     """
 
     def __init__(self, instance: str = "milltask"):
@@ -22,20 +25,35 @@ class ToolTable:
             return json.loads(resp.read())
 
     def get(self, toolno):
-        """Return a single tool dict by tool number, or None if not found."""
+        """Return a single tool dict by tool number, or None if not found.
+
+        The server deliberately answers an absent tool with the zero entry
+        (toolno == 0), not a 404 — mapping only 404 to None returned a
+        phantom all-zero tool for every missing number (finding GP-6).
+        """
         url = self._base + "/%d" % toolno
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
-                return json.loads(resp.read())
+                t = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
             raise
+        if not t or t.get("toolno", 0) == 0:
+            return None
+        return t
 
     def put(self, toolno, entry):
-        """Create or update a tool. entry is a dict of tool fields."""
-        entry["toolno"] = toolno
-        data = json.dumps(entry).encode("utf-8")
+        """Create or update a tool. entry is a dict of ToolEntry fields.
+
+        The wire contract is ``{"entry": {...}}`` (put_tool's ``entry``
+        param; toolno comes from the path). The fields were once sent flat —
+        the server ignored them as unknown keys and persisted a zero entry
+        while returning 200 (finding GP-1).
+        """
+        e = dict(entry)
+        e["toolno"] = toolno
+        data = json.dumps({"entry": e}).encode("utf-8")
         req = urllib.request.Request(
             self._base + "/%d" % toolno,
             data=data,

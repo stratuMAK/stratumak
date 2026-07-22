@@ -1,11 +1,13 @@
 """gmi.stat — Drop-in replacement for linuxcnc.stat().
 
-Subscribes to the emcstat WebSocket watch channel and maintains a local
-cache of all stat fields. Attribute access (stat.task_mode) reads from
-the cache. poll() fetches a fresh snapshot synchronously over REST —
-classic linuxcnc.stat.poll() was a synchronous NML peek, and drivers
-rely on poll() observing the effect of a command they just sent; the
-WS cache alone can be up to rate_ms stale.
+poll() fetches a stat snapshot synchronously over REST and swaps it in
+wholesale; attribute access (stat.task_mode) reads from that snapshot.
+Attributes are therefore FROZEN between poll() calls, exactly like the
+classic NML peek (which memcpy'd EMC_STAT on poll): a multi-attribute
+predicate always observes one coherent snapshot. An earlier version kept
+a WebSocket watch mutating the cache live between polls — that made
+cross-attribute reads mix epochs (review finding GP-7) while adding
+nothing once poll() became a fresh GET, so it was removed.
 
 Usage:
     s = gmi.Stat()
@@ -15,19 +17,14 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import http.client
 import json
+import sys
 import threading
 import urllib.parse
 from typing import Any, Optional
 
-try:
-    import websockets
-except ImportError:
-    websockets = None
-
-from gmi import rest_url, ws_url
+from gmi import rest_url
 
 
 class _ToolEntry:
@@ -141,115 +138,30 @@ class Stat:
     def __init__(self, instance: str = "milltask"):
         self._instance = instance
         self._data = {}
-        self._lock = threading.Lock()
-        self._connected = threading.Event()
-        self._loop = None
-        self._thread = None
-        self._ws = None
         self._poll_conn = None
         self._poll_lock = threading.Lock()
-        self._start_watch()
-
-    def _start_watch(self):
-        """Start background thread for WebSocket watch."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self._connected.wait(timeout=10)
-
-    def _run(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        # Best-effort initial snapshot: consumers read attributes right after
+        # construction (classic stat() was usable immediately). A server that
+        # is not up yet is not an error here — drivers run their own
+        # poll-until-ready loops.
         try:
-            self._loop.run_until_complete(self._connect_and_subscribe())
-        except Exception as e:
-            import sys
-            print(f"gmi.Stat: WebSocket connect failed: {e}", file=sys.stderr)
-            self._connected.set()
-            return
-        self._connected.set()
-        self._loop.run_forever()
-        self._loop.close()
-
-    async def _connect_and_subscribe(self):
-        url = ws_url()
-        # Retry connection — REST server may not be ready yet.
-        for attempt in range(20):
-            try:
-                self._ws = await websockets.connect(url)
-                break
-            except (OSError, ConnectionRefusedError):
-                await asyncio.sleep(0.25)
-        else:
-            raise ConnectionError(f"gmi.Stat: could not connect to {url} after retries")
-        # Subscribe to emcstat.get_stat at 50ms
-        msg = {
-            "action": "subscribe",
-            "api": "emcstat",
-            "instance": self._instance,
-            "func": "get_stat",
-            "rate_ms": 50,
-        }
-        await self._ws.send(json.dumps(msg))
-        # Keep a strong reference: asyncio holds tasks only weakly, so an
-        # unreferenced recv task can be garbage-collected mid-flight — the
-        # socket stays open but nothing reads it and the cache silently
-        # freezes at the last-delivered snapshot (observed as a boot-era
-        # STATE_ESTOP surfacing mid-run in gmi.Stat).
-        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
-
-    async def _recv_loop(self):
-        try:
-            async for raw in self._ws:
-                msg = json.loads(raw)
-                if msg.get("type") == "update" and msg.get("func") == "get_stat":
-                    # Delta merge: server sends only changed keys after
-                    # the initial full snapshot.
-                    self._merge_update(msg.get("data", {}))
-                elif msg.get("type") == "error":
-                    import sys
-                    print(f"gmi.Stat: watch error: {msg}", file=sys.stderr)
-        except asyncio.CancelledError:
+            self._data = self._poll_fetch()
+        except Exception:
             pass
-        except Exception as e:
-            import sys
-            print(f"gmi.Stat: recv error: {e}", file=sys.stderr)
-
-    def _merge_update(self, data):
-        """Merge a snapshot/delta into the cache, dropping out-of-order data.
-
-        Both the WS watch thread and poll() write into the same cache. The
-        server bumps stat.heartbeat once per status build, so it is present
-        in every WS delta and every poll snapshot — use it to order them: a
-        WS delta sampled BEFORE a poll's fresh GET must not overwrite the
-        newer data when it arrives a moment after poll() returns (that
-        re-introduces exactly the stale-read window poll() exists to close).
-        The wrap guard keeps a server restart (heartbeat resets to 0) or an
-        i32 rollover from freezing the cache.
-        """
-        hb = data.get("heartbeat")
-        with self._lock:
-            if hb is not None:
-                last = self._data.get("heartbeat")
-                if last is not None and hb < last and (last - hb) < 2**30:
-                    return  # stale out-of-order update — drop it
-            self._data.update(data)
 
     def poll(self):
-        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll()).
-
-        The WS watch keeps the cache warm between polls, but a driver that
-        polls right after issuing a command must see that command's effect —
-        the push cache alone can serve a snapshot up to rate_ms stale. On
-        fetch failure the (possibly stale) cache is kept rather than raising:
-        drivers poll in loops and the watch channel still converges.
+        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll())
+        and swap it in wholesale — attributes are frozen until the next poll.
+        On fetch failure the previous snapshot is kept rather than raising:
+        drivers poll in loops, and classic-style except-and-retry code keeps
+        working through a transient server outage.
         """
         try:
             data = self._poll_fetch()
         except Exception as e:
-            import sys
             print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
             return
-        self._merge_update(data)
+        self._data = data
 
     def _poll_fetch(self):
         """GET the stat snapshot over a persistent keep-alive connection.
@@ -296,7 +208,7 @@ class Stat:
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
         "joint_actual_position", "rotation_xy",
         # Collections
-        "joints", "joint", "spindle", "axis",
+        "joints", "joint", "spindle", "spindles", "axis",
         "gcodes", "mcodes", "settings",
         "homed", "limit",
         # Scalars
@@ -342,8 +254,9 @@ class Stat:
         if name.startswith("_"):
             raise AttributeError(name)
 
-        with self._lock:
-            data = self._data
+        # One reference read — the snapshot is replaced atomically by poll()
+        # and never mutated, so all lookups below see one coherent epoch.
+        data = self._data
 
         # Direct top-level fields (only for non-special names)
         if name not in self._SPECIAL_NAMES and name in data:
@@ -429,6 +342,10 @@ class Stat:
         if name == "joints":
             return data.get("joints_count", 0)
 
+        # spindles (count) — classic linuxcnc.stat().spindles
+        if name == "spindles":
+            return len(data.get("spindle") or [])
+
         # joint (array of dicts) — data["joints"]. Expose the classic
         # linuxcnc.stat() joint-dict keys: the only mismatch is the wire's
         # snake_case joint_type vs the classic camelCase jointType, so alias it.
@@ -501,12 +418,17 @@ class Stat:
         C extension's tool_table semantics. Index 0 is the spindle tool.
         The REST API returns all entries in mmap index order.
 
-        Cached: only re-fetches when tool_in_spindle changes.
+        Cached: re-fetches when tool_in_spindle OR the applied tool offset
+        changes. The offset in the key catches tool touch-off (G10 L10/L11 +
+        G43), which edits the current tool's geometry without a tool change —
+        keyed on tool_in_spindle alone the display stayed stale until the
+        next M6 (finding GP-8; classic read the live mmap on every access).
         """
         data = self._data
-        current_tool_in_spindle = data.get("tool_in_spindle", 0)
+        current_key = (data.get("tool_in_spindle", 0),
+                       _pos_to_tuple(data.get("tool_offset", {})))
         if (hasattr(self, '_tool_table_cache') and
-                self._tool_table_last_spindle == current_tool_in_spindle):
+                self._tool_table_key == current_key):
             return self._tool_table_cache
 
         try:
@@ -520,7 +442,7 @@ class Stat:
         # Index 0 = spindle slot, same as the original C extension.
         result = [_ToolEntry.from_dict(t) for t in tools]
         self._tool_table_cache = result
-        self._tool_table_last_spindle = current_tool_in_spindle
+        self._tool_table_key = current_key
         return result
 
     def invalidate_tool_table(self):
@@ -529,11 +451,12 @@ class Stat:
             del self._tool_table_cache
 
     def stop(self):
-        """Stop the background WebSocket thread."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=2)
+        """Release the keep-alive poll connection (kept for API compat with
+        the earlier WebSocket-backed Stat; there is no background thread)."""
+        with self._poll_lock:
+            if self._poll_conn is not None:
+                self._poll_conn.close()
+                self._poll_conn = None
 
 
 def _pos_to_tuple(pos):

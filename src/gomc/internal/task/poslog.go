@@ -13,6 +13,11 @@ const (
 	poslogDropFraction  = 10    // drop oldest 1/10 when full
 	poslogDefaultRateUS = 10000 // 10ms = 100Hz
 	poslogDefaultChunk  = 100
+	// pending is drained only while a get_positions subscriber polls; a
+	// vanished client must not let it grow without bound (~100 Hz of points
+	// while the machine moves). 2x the ring: enough to bridge a client
+	// reconnect gap-free, bounded when nobody ever comes back.
+	poslogMaxPending = 2 * poslogMaxPoints
 )
 
 // posPoint is one sampled position (raw 9-axis, tool-offset subtracted).
@@ -146,8 +151,11 @@ func (pl *posLogger) sample(m *milltaskModule) {
 	pl.lastMT = mt
 	pl.hasPrev = true
 
-	pt := posPoint{MotionType: mt, Pos: pos}
+	pl.appendPoint(posPoint{MotionType: mt, Pos: pos})
+}
 
+// appendPoint adds a point to the ring and pending buffers (mu held).
+func (pl *posLogger) appendPoint(pt posPoint) {
 	// Append to ring buffer.
 	if pl.npts >= poslogMaxPoints {
 		drop := poslogMaxPoints / poslogDropFraction
@@ -164,7 +172,12 @@ func (pl *posLogger) sample(m *milltaskModule) {
 	}
 	pl.npts++
 
-	// Append to pending buffer for WS delivery.
+	// Append to pending buffer for WS delivery, dropping the oldest beyond
+	// the cap (copy, so the backing array cannot grow unbounded).
+	if len(pl.pending) >= poslogMaxPending {
+		drop := poslogMaxPending / poslogDropFraction
+		pl.pending = append(pl.pending[:0], pl.pending[drop:]...)
+	}
 	pl.pending = append(pl.pending, pt)
 }
 
