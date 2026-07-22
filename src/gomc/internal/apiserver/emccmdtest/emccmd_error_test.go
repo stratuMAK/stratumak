@@ -1,14 +1,12 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
 
-// Package emccmdtest pins how a rejected machine command reaches a REST client.
+// Package emccmdtest pins how a *provider error* reaches a REST client.
 //
-// This is the surface that starts and stops the machine — MDI, state, jog,
-// spindle, home — and it had no test at all. The tracked item "surface RCS
-// command errors to clients" described it as returning the RCS code in a
-// normal HTTP 200 body, so that a caller discarding the return could not tell
-// a refusal from success. These tests establish what it actually does, so the
-// contract stops being a matter of recollection.
+// The primary case is emccmd — the surface that starts and stops the machine
+// (MDI, state, jog, spindle, home), which had no test at all. scope_probe_test.go
+// then shows the same defect on a second, differently-shaped API, because the
+// cause is the shared dispatch path rather than anything specific to emccmd.
 package emccmdtest
 
 import (

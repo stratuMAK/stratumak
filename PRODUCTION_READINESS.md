@@ -1055,11 +1055,38 @@ Not per-module; each needs an owner and a done-definition.
   - Neither of the obvious IDL shapes fixes it: a **void** func's dispatch discards the rc
     entirely (`return nil, nil`), and the existing `-> i32` marshals it as data. `@rc_error`
     would give REST a failure *signal*, but the message still cannot cross an `int32_t`.
+  - **Scope measured 2026-07-22: it is systemic, not an emccmd bug.** Of 16 `@rest_export`
+    APIs only **`persist` (8 funcs) and `tooltable` (4)** can report a provider failure over
+    REST, and only because the G-1 ruling converted them to `@rc_error`. The other ~10
+    Go-provided ones — `emccmd`, `emcstat`, `halcmd`, `ini`, `halscope`, `emccalib`,
+    `ngcpreview`, `pyvcp`, `tools`, `classicladder` — all lose it, and **the failure mode gets
+    worse as the return type gets richer**, because each trampoline substitutes its own zero
+    value: `i32` → `-1` (odd-looking, at least), slice → `[]`, struct → a zeroed record. A
+    failing `inirest.Query` is HTTP 200 + `[]` — indistinguishable from a legitimately empty
+    answer (verified, `internal/apiserver/emccmdtest`).
+  - **WS is lossless only where a module passes the generated Go handler set**, which is
+    `emcstat`, `emccmd` (`internal/task/watches.go`), `classicladder` and `pyvcp`. So four APIs
+    currently answer the same call two different ways depending on transport.
+  - **The C shim is pure indirection** — `call_emccmd_mdi` is `cbs->mdi(cbs->ctx, command)`,
+    and `BuildEmccmdCallbacks` only wraps the impl in a `cgo.Handle`. No locking, no instance
+    resolution. It exists for the in-process call matrix (cmod↔gomod, either direction), which
+    a REST request is not part of; bypassing it for REST costs nothing semantically and removes
+    two ABI transitions.
   - So the fix with the best ratio is to **let a Go provider's REST dispatch use the Go
-    handlers directly, as WS already does** — emit a Go-native `FuncMeta` set (Method/Path +
-    handler) alongside the cgo one and prefer it when the provider is Go. No IDL change, no
-    wire change on success, full messages and the existing errno→HTTP mapping on failure.
-    Every C-provided module keeps the current path unchanged.
+    handlers directly, as WS already does** — the generator *already emits*
+    `XxxCommands(impl)` for all 14 Go-provided APIs, so the handlers exist and are lossless;
+    what they lack is the `Method`/`Path` the REST router needs, which the generator also
+    already has. Emit a Go-native `FuncMeta` set and prefer it when the provider is Go. One
+    change fixes all ~10 at once, with no IDL churn. Every C-provided module keeps the current
+    path unchanged.
+  - **Open questions before doing it:** (1) success responses must be proven byte-identical —
+    both paths end in `json.Marshal(result)`, so this should hold, but the G-1 precedent is to
+    prove it mechanically rather than assert it; (2) validation equivalence (`validateXxx` runs
+    in both paths — confirm no third path skips it); (3) **the client-visible change is the
+    product decision** — `gmi.Command._post` re-raises `HTTPError`, so a refused MDI would go
+    from silently returning to raising in `bin/axis`, `linuxcnctop` and `manualtoolchange_ui`.
+    That is the behaviour we want, but it is a contract change and wants an opt-in or a
+    coordinated update of those three.
   **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
   `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
   rather than returning it, and the suite constructs through it. `gmi.Command` itself was
