@@ -440,6 +440,23 @@ func (l *Launcher) logConfiguration() {
 	l.logger.Debug("INI configuration loaded", fields...)
 }
 
+// validateDependencies checks cross-section INI dependencies, after parsing and
+// include expansion but before any process is started.
+//
+// Rules:
+//   - At least one [HAL]HALFILE is required.
+//
+// Reads through iniGetAll, so a launcher with no INI at all (halrun mode)
+// reports the missing-HALFILE error rather than dereferencing a nil INI —
+// though that path never reaches here, since only Run() calls this and
+// RunHalFile() does not.
+func (l *Launcher) validateDependencies() error {
+	if len(l.iniGetAll("HAL", "HALFILE")) == 0 {
+		return fmt.Errorf("at least one [HAL]HALFILE is required")
+	}
+	return nil
+}
+
 // startHalThreads starts all HAL realtime threads via the hal-go API.
 func (l *Launcher) startHalThreads() error {
 	l.logger.Info("starting HAL threads")

@@ -5,6 +5,7 @@ package launcher
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -258,6 +259,27 @@ MACHINE = TestMachine
 	err := l.validateDependencies()
 	if err == nil {
 		t.Fatal("config without [HAL]HALFILE should be rejected")
+	}
+	if !strings.Contains(err.Error(), "HALFILE") {
+		t.Errorf("error should mention HALFILE, got: %v", err)
+	}
+}
+
+// TestValidateDependencies_NoINI covers the nil-INI receiver. `halrun -f` /
+// `gomc-server -f` never set l.ini, and pkg/inifile's methods dereference the
+// receiver immediately — so reading the INI directly here would segfault rather
+// than report a configuration error. Only Run() calls validateDependencies and
+// RunHalFile() does not, so this is defence in depth against a future caller,
+// not a live crash; it is pinned because the raw-l.ini form used to be exactly
+// the shape that produced the nil-INI crash class.
+func TestValidateDependencies_NoINI(t *testing.T) {
+	l := New(Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if l.ini != nil {
+		t.Fatal("a launcher built without an INI path should have no INI")
+	}
+	err := l.validateDependencies()
+	if err == nil {
+		t.Fatal("a launcher with no INI has no HALFILE and must be rejected")
 	}
 	if !strings.Contains(err.Error(), "HALFILE") {
 		t.Errorf("error should mention HALFILE, got: %v", err)
