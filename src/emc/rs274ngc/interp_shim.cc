@@ -32,6 +32,15 @@ void interp_shim_set_callbacks(interp_handle_t *h,
     }
 }
 
+void interp_shim_set_ini_accessor(interp_handle_t *h,
+                                  const interp_shim_ini_accessor_t *acc) {
+    if (h && h->interp && acc) {
+        h->interp->_setup.ini_accessor.ctx = acc->ctx;
+        h->interp->_setup.ini_accessor.get = acc->get;
+        h->interp->_setup.ini_accessor.get_nth = acc->get_nth;
+    }
+}
+
 int interp_shim_init(interp_handle_t *h) {
     if (!h || !h->interp) return INTERP_SHIM_ERROR;
     return h->interp->init();

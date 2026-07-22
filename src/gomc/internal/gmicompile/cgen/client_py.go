@@ -217,8 +217,13 @@ func (g *clientPyGen) emitClient() {
 	g.printf("    \"\"\"REST client for the %s API.\"\"\"\n\n", g.api.Name)
 
 	// Constructor
-	g.printf("    def __init__(self, base_url: str, instance: str = %q):\n", g.api.Name)
-	g.printf("        self.base_url = base_url.rstrip(\"/\") + \"/api/v1/\" + instance\n\n")
+	g.printf("    # Socket timeout for every request: a stalled server must surface as an\n")
+	g.printf("    # error in the client, not a forever-blocked caller (GUIs call these on\n")
+	g.printf("    # their main thread). Override per instance for known-long calls.\n")
+	g.printf("    DEFAULT_TIMEOUT = 90.0\n\n")
+	g.printf("    def __init__(self, base_url: str, instance: str = %q, timeout: float = None):\n", g.api.Name)
+	g.printf("        self.base_url = base_url.rstrip(\"/\") + \"/api/v1/\" + instance\n")
+	g.printf("        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT\n\n")
 
 	// _do_request helper
 	g.printf("    def _do_request(self, method: str, path: str, body: Any = None, has_result: bool = False) -> Any:\n")
@@ -231,7 +236,7 @@ func (g *clientPyGen) emitClient() {
 	g.printf("        if data is not None:\n")
 	g.printf("            req.add_header(\"Content-Type\", \"application/json\")\n")
 	g.printf("        try:\n")
-	g.printf("            with urllib.request.urlopen(req) as resp:\n")
+	g.printf("            with urllib.request.urlopen(req, timeout=self.timeout) as resp:\n")
 	g.printf("                resp_body = resp.read()\n")
 	g.printf("                if has_result and resp_body:\n")
 	g.printf("                    return json.loads(resp_body)\n")

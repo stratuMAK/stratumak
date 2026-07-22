@@ -58,6 +58,13 @@ def parse(filename, canon, *args):
             unitcode = args[0] or ""
     if len(args) >= 2 and not isinstance(args[0], list):
         initcodes = args[1] or ""
+    if len(args) >= 3 and args[2]:
+        # Classic loaded [TASK]INTERPRETER as a custom interpreter .so; the
+        # preview server has no such capability — the preview runs the stock
+        # interpreter and may diverge from execution (finding N-10).
+        import sys
+        print(f"gcode_rest: custom interpreter {args[2]!r} not supported by "
+              f"the preview server; using the stock interpreter", file=sys.stderr)
 
     # Connect to the REST server
     base_url = os.environ.get("GMC_REST_URL", "http://localhost:5080")
@@ -76,11 +83,14 @@ def parse(filename, canon, *args):
         print(f"gcode_rest: REST error: {e}", file=sys.stderr)
         return 5, 0
 
+    # NOTE: on result.error the partial geometry is still replayed below and
+    # the error code returned at the end — classic showed everything up to
+    # the failing line plus the error dialog; dropping the partial preview
+    # left an empty screen (finding N-6).
     if result.error:
         _last_error = result.error
         import sys
         print(f"gcode_rest: {result.error}", file=sys.stderr)
-        return 5, result.max_line
 
     # Set active G5x and G92 offsets in the canon so that
     # rotate_and_translate converts program coords to machine coords
@@ -116,13 +126,40 @@ def parse(filename, canon, *args):
     if hasattr(canon, 'plane'):
         canon.plane = plane
 
-    # Replay segments through canon
+    # Replay segments through canon, interleaving dwells and tool changes at
+    # their line positions. The wire carries three separate execution-ordered
+    # lists; replaying them list-after-list drew every dwell at the program's
+    # FINAL position and applied change_tool's first_move suppression after
+    # the fact (finding N-7). A line-number walk restores the interleave
+    # exactly for monotonic programs (the overwhelming case); programs whose
+    # O-word loops contain dwells/toolchanges need an ordered event stream on
+    # the wire (recorded as deferred). Leftovers replay at the end.
+    def _get(item, key):
+        return item[key] if isinstance(item, dict) else getattr(item, key)
+
+    pending_dwells = list(result.dwells or [])
+    pending_tcs = list(result.tool_changes or [])
+
+    def _replay_events_up_to(line_no):
+        while pending_tcs and _get(pending_tcs[0], "line_no") <= line_no:
+            tc = pending_tcs.pop(0)
+            canon.next_line(_SequenceState(_get(tc, "line_no")))
+            if hasattr(canon, 'change_tool'):
+                canon.change_tool(_get(tc, "tool_no"))
+        while pending_dwells and _get(pending_dwells[0], "line_no") <= line_no:
+            dw = pending_dwells.pop(0)
+            canon.next_line(_SequenceState(_get(dw, "line_no"),
+                                           plane=_get(dw, "plane")))
+            canon.dwell(_get(dw, "seconds"))
+
     for seg in result.segments or []:
         end = seg["end"] if isinstance(seg, dict) else seg.end
         start = seg["start"] if isinstance(seg, dict) else seg.start
         seg_type = seg["type"] if isinstance(seg, dict) else seg.type
         line_no = seg["line_no"] if isinstance(seg, dict) else seg.line_no
         feedrate = seg["feedrate"] if isinstance(seg, dict) else seg.feedrate
+
+        _replay_events_up_to(line_no)
 
         # Build a minimal state tag for next_line
         canon.next_line(_SequenceState(line_no))
@@ -167,36 +204,30 @@ def parse(filename, canon, *args):
             else:
                 canon.straight_feed(ex, ey, ez, ea, eb, ec, eu, ev, ew)
 
-    # Replay dwells
-    for dwell in result.dwells or []:
-        if isinstance(dwell, dict):
-            seconds = dwell["seconds"]
-            line_no = dwell["line_no"]
-        else:
-            seconds = dwell.seconds
-            line_no = dwell.line_no
-        canon.next_line(_SequenceState(line_no))
-        canon.dwell(seconds)
+    # Replay whatever dwells / tool changes remain (looping programs).
+    _replay_events_up_to(float("inf"))
 
-    # Replay tool changes
-    for tc in result.tool_changes or []:
-        if isinstance(tc, dict):
-            tool_no = tc["tool_no"]
-            line_no = tc["line_no"]
-        else:
-            tool_no = tc.tool_no
-            line_no = tc.line_no
-        canon.next_line(_SequenceState(line_no))
-        if hasattr(canon, 'change_tool'):
-            canon.change_tool(tool_no)
-
+    if result.error:
+        return 5, result.max_line
     return 0, result.max_line
 
 
 class _SequenceState:
-    """Minimal state object passed to canon.next_line()."""
-    def __init__(self, seq):
+    """State object passed to canon.next_line().
+
+    GLCanon reads more than sequence_number from it: dwell() decodes
+    state.plane (as the active G-code 170/180/190), comment()/others iterate
+    state.gcodes/mcodes. A bare sequence_number crashed the replay on the
+    first G4 (finding N-5).
+    """
+    # Wire plane (1=XY, 2=YZ, 3=XZ) → G-code number GLCanon expects.
+    _PLANE_GCODE = {1: 170, 2: 190, 3: 180}
+
+    def __init__(self, seq, plane=1):
         self.sequence_number = seq
+        self.plane = self._PLANE_GCODE.get(plane, 170)
+        self.gcodes = ()
+        self.mcodes = ()
 
 
 # --- Expression evaluation ---

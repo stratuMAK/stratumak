@@ -21,13 +21,27 @@ typedef struct canon_callbacks canon_callbacks_t;
 void interp_shim_set_callbacks(interp_handle_t *h,
                                const canon_callbacks_t *cb);
 
+// INI accessor callbacks (mirrors Interp _setup.ini_accessor). Values
+// returned by get/get_nth must stay valid until the next call on the same
+// accessor. Must be set before interp_shim_init so Interp::init reads REMAP,
+// SUBROUTINE_PATH, PROGRAM_PREFIX etc. from the machine's INI — without it
+// the interpreter runs fully defaulted and previews diverge from execution.
+typedef struct {
+    void *ctx;
+    const char* (*get)(void *ctx, const char *section, const char *key);
+    const char* (*get_nth)(void *ctx, const char *section, const char *key, int n);
+} interp_shim_ini_accessor_t;
+void interp_shim_set_ini_accessor(interp_handle_t *h,
+                                  const interp_shim_ini_accessor_t *acc);
+
 // Initialize the interpreter (loads parameter file, etc.)
 int interp_shim_init(interp_handle_t *h);
 
 // Open a G-code file for interpretation.
 int interp_shim_open(interp_handle_t *h, const char *filename);
 
-// Read the next line. Returns INTERP_OK (0), INTERP_ENDFILE (2), or error.
+// Read the next line. Returns INTERP_SHIM_OK (0), INTERP_SHIM_ENDFILE (3),
+// or an error code.
 int interp_shim_read(interp_handle_t *h);
 
 // Read a specific string (e.g. initcodes).
