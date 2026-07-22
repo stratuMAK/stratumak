@@ -444,9 +444,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: bool(%s),\n", goField, cExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *int8 { v := int8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *uint8 { v := uint8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\t\t%s: func() *int16 { v := int16(%s); return &v }(),\n", goField, cExpr)
@@ -484,9 +492,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: uint64(%s),\n", goField, cExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float32 { v := float32(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float64 { v := float64(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			}
 		}
 	case ast.TypeNamed:
 		// Could be enum or struct — for enums, cast; for structs, recurse
@@ -678,9 +694,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.bool(%s)\n", cField, goExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.int8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.uint8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\tif %s != nil { %s = C.int16_t(*%s) }\n", goExpr, cField, goExpr)
@@ -718,9 +742,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.uint64_t(%s)\n", cField, goExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.float(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.double(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			}
 		}
 	case ast.TypeNamed:
 		if g.isEnum(t.Name) {
@@ -962,9 +994,17 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 				g.printf("\t%s := C.bool(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int8_t")
+			} else {
+				g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint8_t")
+			} else {
+				g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.emitNullableScalarGoToC(cVar, goVar, "C.int16_t")
@@ -1002,9 +1042,17 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 				g.printf("\t%s := C.uint64_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.float")
+			} else {
+				g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.double")
+			} else {
+				g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			}
 		case ast.PrimPtr:
 			// ptr is an opaque pointer — not serializable; pass nil for non-REST stubs
 			g.printf("\tvar %s unsafe.Pointer // ptr: not serializable\n", cVar)
