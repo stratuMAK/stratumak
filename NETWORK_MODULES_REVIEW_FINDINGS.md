@@ -205,10 +205,11 @@ Fixed by laying the config root and the escape target out as siblings under one 
 asserting the error is the containment message. Any path-containment test that does not assert
 *why* it was refused is suspect.
 
-### I-3 — a `string?` result field cannot express "not found" (server-side emitter)
+### I-3 — a `string?` field cannot express "not supplied" (server-side emitter)
 
-`internal/inirest/inirest.go:39`, root cause in `internal/gmicompile/cgen`. **CONFIRMED — low
-severity here, but it is a codegen divergence.** `[OPEN — needs a ruling]`
+`internal/inirest/inirest.go:39`, root cause in `internal/gmicompile/cgen`; also
+`src/hal/drivers/ethercat/gmi_ethercat.c` (EoE hostname). **CONFIRMED — raised to HIGH once the
+EtherCAT consequence was found.** `[FIXED 2026-07-22]`
 
 `ini.gmi` declares `IniQueryResult.value` as `string?`, documented as "null if not found", and
 `Query` has a branch to honour it: an absent key yields `IniQueryResult{}` while a present-but-
@@ -231,17 +232,58 @@ Same IDL field, two Go types. `bool?` is `*bool` on both sides, which is why `al
 24 `string?` fields exist across four IDLs (`ini`, `halcmd`, `halscope`, `ethercat`); most are
 function *parameters*, where the collapse is harmless. Result *fields* are where it bites.
 
-**Not fixed here, deliberately.** Making the server emitter match the client one changes a
-generated Go type in every API that uses `string?`, which moves provider call sites across the
-tree — the same shape as G-1/G-2, which was correctly routed through a ruling rather than done
-inside a coverage pass. The two candidate resolutions are (a) align the emitters and let
-`value` become `*string`, or (b) accept that absent and empty are one thing here, delete the dead
-branch and `keyExists`, and correct the IDL comment. **(b) is the smaller and probably right
-answer for INI specifically** — an INI key with an empty value and an absent INI key mean the
-same thing to essentially every consumer — but the emitter divergence itself outlives that
-choice and should be settled once, not per-API. Pinned meanwhile by
-`TestQueryAbsentAndEmptyAreIndistinguishable`, which asserts the *actual* wire behaviour and
-fails loudly if it ever changes.
+#### RULING 2026-07-22 (user) — fix it in gmi. `[FIXED]`
+
+Resolution (a): align the emitters so `string?` is genuinely nullable, rather than deleting
+inirest's branch. The framing that settled it: one goal of this review is to make gmi meet the
+requirements placed on it, and a construct the IDL offers but a provider cannot express is a gap
+in gmi, not a quirk of one consumer.
+
+Investigating the fix turned up a **live bug of the same cause**, which decided the severity.
+`ethercat.gmi`'s `EoeIpRequest` has six `string?` fields and the C provider is written to exactly
+the documented contract — `gmi_ethercat.c` is a series of `if (req->mac_address)`,
+`if (req->hostname)`, where NULL means "not supplied, leave the device alone" (`*_included = 0`).
+But the REST dispatch is Go, and `GoToC` emitted `C.CString("")` for an absent field, so every
+one of those checks was **true for a field the caller never sent**. Five survived by luck —
+`sscanf`/`inet_pton` reject `""`, so `*_included` stayed clear. `hostname` has no parse step: it
+took the empty name, set `name_included = 1`, and **an EoE IP request that set only `ip_address`
+also wiped the slave's hostname**. `master_index: u32?` in the same call was handled correctly as
+a NULL pointer, which is the proof that only strings were broken.
+
+**What was actually wrong: four copies of one rule.** `serverGoGen.toGoType`,
+`goTypeForDispatch`, `clientGoGen.toGoType` and `constraintEmitter.goIsPointer` each decided
+independently whether a type maps to a Go pointer, and three carried a `t.Name != PrimString`
+exception. Fixed by making `goTypeForDispatch` the single mapping (the server copy now delegates;
+`goIsPointer` agrees), plus the four converter directions that had to follow: `CToGo` keeps NULL
+as nil, `GoToC` leaves the C pointer NULL for nil, for both struct fields and parameters, and the
+provider bridge hands nil to the implementation for a NULL argument. Writing the emission test
+caught a bug in that last one — the generated nil check tested the Go variable instead of the
+incoming C pointer, so a nullable param would have arrived nil always.
+
+**Two things fell out.** `[]string?` binds the `?` to the *element*, so it means a slice of
+nullable strings — which no IDL ever meant, and which generated identical code to `[]string`
+while nullable strings were demoted. All three uses (`ini.values`, `halcmd.load`,
+`halcmd.watch_items`) meant "the slice is optional", which needs no marker; the checker now
+rejects it. And `@notnull` on a `string?` was rejected with the reason "(string? maps to a
+non-pointer Go string)" — the bug, quoted. It is expressible now, and allowed.
+
+**Deliberately kept as `string?`:** the 12 *parameters* (`pattern`, `level`, `type`, `namespace`,
+`kind`). Empty and absent do mean the same thing for a glob filter, so they cost their providers
+a nil-check for no semantic gain — but demoting them to `string` would take the "optional
+argument" affordance away from the generated TS/Python clients, and one uniform rule is worth
+more than 11 saved nil-checks. Where empty genuinely *is* absent, the IDL should say `string`;
+that guidance is now in `src/gmi/idl/README.md`.
+
+**This changes the REST wire, unlike G-1/G-2** — deliberately, and it is the whole point. A
+present-but-empty value now encodes as `{"value":""}` where it used to be indistinguishable from
+`{"values":null}`. The generated TS/Python clients already typed these fields as optional, so
+they absorb it. `inirest.Query` needed no logic change: its `keyExists` branch simply became
+reachable.
+
+Verified: five mutations on the emitters and checker, all caught; an EtherCAT regression test on
+the wire contract the C handler depends on; a halscope dispatch test asserting an omitted optional
+parameter reaches the provider as nil. Full build, `go vet`, gofmt, golangci-lint (0 issues) and
+`-race` all clean; whole Go suite green.
 
 ---
 
@@ -289,9 +331,9 @@ golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/laun
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
 
-**Still open:** **I-3** only (the `string?` server-emitter divergence, found by the 2026-07-22
-inirest coverage pass; needs a ruling, and its resolution lives in `gmicompile`, not here). Every
-N-numbered finding is fixed and the network half's `U`/`FP` rows are closed.
+**Still open:** none. **I-3 was fixed 2026-07-22** by the ruling recorded above (the fix lives in
+`gmicompile`, and closed a live EtherCAT EoE bug with it). Every N-numbered finding is fixed and
+the network half's `U`/`FP` rows are closed.
 **N6 closed 2026-07-22** — launcher L-3 landed its full locking fix on 2026-07-21; see N6 above.
 
 **Auth ruling (2026-07-21, user).** The REST/WS surface has **no authentication** and that is a

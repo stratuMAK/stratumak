@@ -629,17 +629,22 @@ func (m *halscope) GetStatus() (*halscopeapi.ScopeStatus, error) {
 	return &st, nil
 }
 
-func (m *halscope) ListPins(pattern string, kind string) ([]string, error) {
-	match := pattern
-	if match == "" {
-		match = "*"
+func (m *halscope) ListPins(pattern *string, kind *string) ([]string, error) {
+	// Both parameters are optional: absent and empty alike mean "no filter".
+	match := "*"
+	if pattern != nil && *pattern != "" {
+		match = *pattern
 	}
 	cMatch := C.CString(match)
 	defer C.free(unsafe.Pointer(cMatch))
 
-	wantPins := kind == "" || kind == "pin"
-	wantSigs := kind == "" || kind == "sig"
-	wantParams := kind == "" || kind == "param"
+	k := ""
+	if kind != nil {
+		k = *kind
+	}
+	wantPins := k == "" || k == "pin"
+	wantSigs := k == "" || k == "sig"
+	wantParams := k == "" || k == "param"
 
 	names := make([]string, 0)
 

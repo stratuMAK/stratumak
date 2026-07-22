@@ -91,7 +91,7 @@ func put_tool(toolno: i32 @min(1), entry: ToolEntry) -> PutToolResult
 | `@min(n)` / `@max(n)` | `i*`, `u*`, `f*`         | numeric bound (inclusive)     |
 | `@minlen(n)` / `@maxlen(n)` | `string`, `[]T`, `[N]T` | length bound (chars / elems) |
 | `@notempty`           | `string`, `[]T`, `[N]T`  | length > 0                    |
-| `@notnull`            | nullable `T?` (not `string?`) | value must be present    |
+| `@notnull`            | any nullable `T?`        | value must be present         |
 | `@regex("…")`         | `string`                 | full-match pattern (server only) |
 
 Enum-typed fields/params are validated **automatically** (value must be a
@@ -120,6 +120,19 @@ See `../FIELD_VALIDATION_DESIGN.md` for the full design.
 | [T; N]    | T[N]           | [N]T      | list[T]        |
 | []T       | T*, size_t len | []T       | list[T]        |
 | ptr       | void*          | unsafe.Pointer | N/A       |
+
+`T?` is **nullable, not merely optional**: null and the zero value are distinct,
+all the way through. `string?` is `*string` in Go and a possibly-NULL `const
+char*` in C, so a C callee tests supplied-ness the usual way (`if (req->field)`)
+and a Go provider returns nil for "absent" and `&""` for "present and empty".
+Use it only where that difference is real — `[RS274NGC]PARAMETER_FILE` absent
+versus set to nothing, or an EoE field left alone versus cleared. Where empty
+already means absent (a glob pattern, a filter), plain `string` says so more
+honestly.
+
+The `?` binds to the **element** in a collection, so `[]T?` is a slice of
+nullable `T` — which is almost never what is meant and is rejected by the
+checker. A nil/empty collection already expresses absence: write `[]T`.
 
 ## Files
 

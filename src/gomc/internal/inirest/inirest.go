@@ -25,8 +25,8 @@ func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error)
 	results := make([]ini.IniQueryResult, len(items))
 	for i, q := range items {
 		iniFile := im.ini
-		if q.Namespace != "" {
-			iniFile = iniFile.WithNamespace(q.Namespace)
+		if q.Namespace != nil && *q.Namespace != "" {
+			iniFile = iniFile.WithNamespace(*q.Namespace)
 		}
 		if q.All != nil && *q.All {
 			vals := iniFile.GetAll(q.Section, q.Key)
@@ -35,24 +35,29 @@ func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error)
 			}
 			results[i] = ini.IniQueryResult{Values: vals}
 		} else {
+			// An absent key reports a null value; a key that is present with an
+			// empty value reports "". Those are different answers — an INI may
+			// legitimately carry `LATHE =` — and until `string?` became a real
+			// pointer this branch could not express the difference: both arms
+			// produced the same zero struct.
 			v := iniFile.Get(q.Section, q.Key)
 			if v == "" && !im.keyExists(q.Section, q.Key) {
 				results[i] = ini.IniQueryResult{}
 			} else {
-				results[i] = ini.IniQueryResult{Value: v}
+				results[i] = ini.IniQueryResult{Value: &v}
 			}
 		}
 	}
 	return results, nil
 }
 
-func (im *iniImpl) GetParameterFile(namespace string) (string, error) {
+func (im *iniImpl) GetParameterFile(namespace *string) (string, error) {
 	if im.ini == nil {
 		return "", fmt.Errorf("INI file not loaded")
 	}
 	ini := im.ini
-	if namespace != "" {
-		ini = ini.WithNamespace(namespace)
+	if namespace != nil && *namespace != "" {
+		ini = ini.WithNamespace(*namespace)
 	}
 	rel := ini.Get("RS274NGC", "PARAMETER_FILE")
 	if rel == "" {

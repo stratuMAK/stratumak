@@ -41,6 +41,7 @@ type Rec {
     fixed: [4]f64  @minlen(1)
     mode:  Mode    @enum_open
     opt:   i32?    @notnull
+    opts:  string? @notnull
 }
 
 func f(n: i32 @min(0)) -> i32
@@ -64,7 +65,6 @@ func TestValidateRejections(t *testing.T) {
 		{"negative unsigned", `type T { n: u32 @min(-1) }`, "negative on unsigned"},
 		{"min gt max", `type T { n: i32 @min(10) @max(1) }`, "@min(10) > @max(1)"},
 		{"redundant notnull", `type T { s: string @notnull }`, "redundant on non-nullable"},
-		{"notnull on nullable string", `type T { s: string? @notnull }`, "not expressible"},
 		{"unsatisfiable len", `type T { xs: [4]f64 @minlen(9) }`, "exceeds fixed array length 4"},
 		{"bad regex", `type T { s: string @regex("(") }`, "does not compile"},
 		{"duplicate", `type T { n: i32 @min(0) @min(1) }`, "duplicate constraint @min"},
@@ -90,6 +90,13 @@ func TestValidateRejections(t *testing.T) {
 		{"rc_error REST with two outs", "type T { x: i32 }\n@method GET\n@path /\n@rc_error\nfunc f(a: T out, b: T out) -> i32", "exactly one out parameter"},
 		{"slice out without rc_error", "type T { x: i32 }\nfunc f(xs: []T out) -> i32", "only supported on an @rc_error func"},
 		{"two slice outs", "type T { x: i32 }\n@rc_error\nfunc f(a: []T out, b: []T out) -> i32", "only one slice out parameter"},
+		// `[]T?` binds the `?` to the element, which no IDL has ever meant —
+		// and while nullable strings were silently demoted it generated the
+		// same code as `[]T`, so the ambiguity was invisible.
+		{"nullable slice element", `type T { xs: []string? }`, "binds to the element"},
+		{"nullable array element", `type T { xs: [4]string? }`, "binds to the element"},
+		{"nullable element in param", `func f(xs: []string?) -> i32`, "binds to the element"},
+		{"nullable element in return", `func f() -> []string?`, "binds to the element"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

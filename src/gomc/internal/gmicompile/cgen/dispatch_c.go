@@ -431,7 +431,9 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 		switch t.Name {
 		case ast.PrimString:
 			if t.Nullable {
-				g.printf("\t\t%s: func() string { if %s != nil { return C.GoString(%s) }; return \"\" }(),\n", goField, cExpr, cExpr)
+				// NULL stays nil: collapsing it to "" here is what made
+				// "absent" and "present but empty" the same value in Go.
+				g.printf("\t\t%s: func() *string { if %s == nil { return nil }; v := C.GoString(%s); return &v }(),\n", goField, cExpr, cExpr)
 			} else {
 				g.printf("\t\t%s: C.GoString(%s),\n", goField, cExpr)
 			}
@@ -655,9 +657,20 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 		case ast.PrimString:
 			g.tmpSeq++
 			tmp := fmt.Sprintf("_cs%d", g.tmpSeq)
-			g.printf("\t%s := C.CString(%s)\n", tmp, goExpr)
-			g.printf("\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
-			g.printf("\t%s = %s\n", cField, tmp)
+			if t.Nullable {
+				// nil must reach C as NULL. Emitting C.CString("") here is what
+				// let an omitted field read as a supplied empty one on the C
+				// side, where the convention is a NULL check.
+				g.printf("\tif %s != nil {\n", goExpr)
+				g.printf("\t\t%s := C.CString(*%s)\n", tmp, goExpr)
+				g.printf("\t\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
+				g.printf("\t\t%s = %s\n", cField, tmp)
+				g.printf("\t}\n")
+			} else {
+				g.printf("\t%s := C.CString(%s)\n", tmp, goExpr)
+				g.printf("\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
+				g.printf("\t%s = %s\n", cField, tmp)
+			}
 		case ast.PrimBool:
 			if t.Nullable {
 				g.printf("\tif %s != nil { %s = C.bool(*%s) }\n", goExpr, cField, goExpr)
@@ -930,8 +943,18 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 	case ast.TypePrimitive:
 		switch t.Name {
 		case ast.PrimString:
-			g.printf("\t%s := C.CString(%s)\n", cVar, goVar)
-			g.printf("\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+			if t.Nullable {
+				// Same rule as a nullable struct field: nil reaches C as NULL,
+				// so a callee's `if (pattern)` means what it says.
+				g.printf("\tvar %s *C.char\n", cVar)
+				g.printf("\tif %s != nil {\n", goVar)
+				g.printf("\t\t%s = C.CString(*%s)\n", cVar, goVar)
+				g.printf("\t\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+				g.printf("\t}\n")
+			} else {
+				g.printf("\t%s := C.CString(%s)\n", cVar, goVar)
+				g.printf("\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+			}
 		case ast.PrimBool:
 			if t.Nullable {
 				g.emitNullableScalarGoToC(cVar, goVar, "C.bool")
@@ -1299,11 +1322,17 @@ func cTypeForAPICgo(apiName string, t ast.TypeRef) string {
 }
 
 // goTypeForDispatch returns Go type string for use in dispatch code.
+//
+// This is the single mapping for provider-facing Go types: dispatch structs,
+// the callbacks interface (via bridge_go), and the cgo client all go through
+// it, and serverGoGen.toGoType delegates here.  It used to be one of three
+// near-copies of the same rule, which is how `string?` came to mean *string in
+// one emitter and string in another.
 func goTypeForDispatch(t ast.TypeRef) string {
 	switch t.Kind {
 	case ast.TypePrimitive:
 		base := primitiveToGoType(t.Name)
-		if t.Nullable && t.Name != ast.PrimString {
+		if t.Nullable {
 			return "*" + base
 		}
 		return base

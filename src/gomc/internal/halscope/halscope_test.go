@@ -35,6 +35,9 @@ const maxChannels = 16 // HALSCOPE_MAX_CHANNELS
 // TestMain holds one keep-alive HAL component open for the whole test binary.
 // The in-process HAL data segment is torn down when the last component exits
 // and cannot be re-initialised afterwards — see pkg/hal's TestMain.
+// sp makes an optional string parameter from a literal.
+func sp(s string) *string { return &s }
+
 func TestMain(m *testing.M) {
 	// Without the RTAPI app init, thread creation fails with EPERM in an
 	// unprivileged process (see internal/halcmd's TestMain).
@@ -629,7 +632,7 @@ func TestListPinsFiltersByPatternAndKind(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = halcmd.DelSig(sig) })
 
-	names, err := m.ListPins(pins+".*", "pin")
+	names, err := m.ListPins(sp(pins+".*"), sp("pin"))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}
@@ -638,14 +641,14 @@ func TestListPinsFiltersByPatternAndKind(t *testing.T) {
 	}
 
 	// kind="sig" must exclude pins entirely.
-	names, err = m.ListPins(pins+".*", "sig")
+	names, err = m.ListPins(sp(pins+".*"), sp("sig"))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}
 	if len(names) != 0 {
 		t.Errorf("ListPins(%q, sig) = %v, want none", pins+".*", names)
 	}
-	names, err = m.ListPins(sig, "sig")
+	names, err = m.ListPins(sp(sig), sp("sig"))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}
@@ -654,7 +657,7 @@ func TestListPinsFiltersByPatternAndKind(t *testing.T) {
 	}
 
 	// An empty kind means all kinds, and an empty pattern means "*".
-	all, err := m.ListPins("", "")
+	all, err := m.ListPins(sp(""), sp(""))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}
@@ -663,7 +666,7 @@ func TestListPinsFiltersByPatternAndKind(t *testing.T) {
 	}
 	// A pattern that matches nothing yields an empty list, never nil (the JSON
 	// contract is an array).
-	none, err := m.ListPins("zzz-no-match-*", "")
+	none, err := m.ListPins(sp("zzz-no-match-*"), sp(""))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}

@@ -221,16 +221,18 @@ func (e *constraintEmitter) enumCaseList(en *ast.Enum) string {
 	return strings.Join(names, ", ")
 }
 
-// goIsPointer reports whether t maps to a Go pointer (nil-checkable) — mirrors
-// goTypeForDispatch: nullable named types and nullable non-string primitives.
+// goIsPointer reports whether t maps to a Go pointer (nil-checkable). It must
+// agree with goTypeForDispatch, which is the single source for the mapping —
+// this predicate decides whether a constraint is guarded by a nil check, so a
+// disagreement emits validation that dereferences nil or that skips a value it
+// should have checked. It carried its own copy of the old string exception,
+// which is why `@maxlen` on a nullable string compiled only while such a field
+// was not really a pointer.
 func (e *constraintEmitter) goIsPointer(t ast.TypeRef) bool {
 	if !t.Nullable {
 		return false
 	}
-	if t.Kind == ast.TypeNamed {
-		return true
-	}
-	return t.Kind == ast.TypePrimitive && t.Name != ast.PrimString
+	return t.Kind == ast.TypeNamed || t.Kind == ast.TypePrimitive
 }
 
 func lenExpr(expr string, t ast.TypeRef) string {

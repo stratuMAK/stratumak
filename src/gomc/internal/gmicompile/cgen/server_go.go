@@ -302,26 +302,13 @@ func (g *serverGoGen) emitRegister() {
 
 // --- Type Mapping ---
 
+// toGoType delegates to goTypeForDispatch so the provider-facing type mapping
+// exists exactly once.  This used to be its own copy that differed in one
+// clause — `string?` mapped to a plain `string` here while the dispatch and
+// client emitters produced *string — which is what made a nullable string
+// unrepresentable on the provider side.  See the note on goTypeForDispatch.
 func (g *serverGoGen) toGoType(t ast.TypeRef) string {
-	switch t.Kind {
-	case ast.TypePrimitive:
-		base := primitiveToGoType(t.Name)
-		if t.Nullable && t.Name != ast.PrimString {
-			return "*" + base
-		}
-		return base
-	case ast.TypeNamed:
-		name := toPascalCase(t.Name)
-		if t.Nullable {
-			return "*" + name
-		}
-		return name
-	case ast.TypeSlice:
-		return "[]" + g.toGoType(*t.Elem)
-	case ast.TypeArray:
-		return fmt.Sprintf("[%d]%s", t.ArrayLen, g.toGoType(*t.Elem))
-	}
-	return "interface{}"
+	return goTypeForDispatch(t)
 }
 
 func primitiveToGoType(name string) string {

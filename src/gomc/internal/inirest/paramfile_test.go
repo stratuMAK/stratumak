@@ -55,7 +55,7 @@ func TestNotLoaded(t *testing.T) {
 	if _, err := impl.Query([]ini.IniQueryItem{{Section: "EMC", Key: "MACHINE"}}); err == nil {
 		t.Error("Query with no INI loaded returned no error")
 	}
-	if _, err := impl.GetParameterFile(""); err == nil {
+	if _, err := impl.GetParameterFile(sp("")); err == nil {
 		t.Error("GetParameterFile with no INI loaded returned no error")
 	}
 }
@@ -69,7 +69,7 @@ func TestGetParameterFile(t *testing.T) {
 		map[string]string{"sim.var": varContent},
 	)
 
-	got, err := impl.GetParameterFile("")
+	got, err := impl.GetParameterFile(sp(""))
 	if err != nil {
 		t.Fatalf("GetParameterFile: %v", err)
 	}
@@ -87,15 +87,15 @@ func TestGetParameterFileNamespace(t *testing.T) {
 		map[string]string{"global.var": "global", "mc2.var": "mc2"},
 	)
 
-	if got, err := impl.GetParameterFile(""); err != nil || got != "global" {
+	if got, err := impl.GetParameterFile(sp("")); err != nil || got != "global" {
 		t.Errorf("no namespace = %q, %v; want \"global\"", got, err)
 	}
-	if got, err := impl.GetParameterFile("mc2"); err != nil || got != "mc2" {
+	if got, err := impl.GetParameterFile(sp("mc2")); err != nil || got != "mc2" {
 		t.Errorf("namespace mc2 = %q, %v; want \"mc2\"", got, err)
 	}
 	// A namespace with no override of its own falls back to the global section
 	// rather than failing — that is what makes partial per-instance INIs work.
-	if got, err := impl.GetParameterFile("mc3"); err != nil || got != "global" {
+	if got, err := impl.GetParameterFile(sp("mc3")); err != nil || got != "global" {
 		t.Errorf("namespace mc3 = %q, %v; want the global fallback \"global\"", got, err)
 	}
 }
@@ -106,7 +106,7 @@ func TestGetParameterFileNamespace(t *testing.T) {
 func TestGetParameterFileUnset(t *testing.T) {
 	impl, _ := paramFileImpl(t, "[EMC]\nMACHINE = Test\n", nil)
 
-	got, err := impl.GetParameterFile("")
+	got, err := impl.GetParameterFile(sp(""))
 	if err == nil {
 		t.Fatalf("GetParameterFile with no PARAMETER_FILE returned %q and no error", got)
 	}
@@ -124,7 +124,7 @@ func TestGetParameterFileUnset(t *testing.T) {
 func TestGetParameterFileMissing(t *testing.T) {
 	impl, _ := paramFileImpl(t, "[RS274NGC]\nPARAMETER_FILE = nosuch.var\n", nil)
 
-	if got, err := impl.GetParameterFile(""); err == nil {
+	if got, err := impl.GetParameterFile(sp("")); err == nil {
 		t.Errorf("GetParameterFile of a missing file returned %q and no error", got)
 	}
 }
@@ -148,7 +148,7 @@ func TestGetParameterFileUnreadable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
 
-	got, err := impl.GetParameterFile("")
+	got, err := impl.GetParameterFile(sp(""))
 	if err == nil {
 		t.Fatalf("an unreadable var file returned %q and no error", got)
 	}
@@ -198,7 +198,7 @@ func TestGetParameterFileContainment(t *testing.T) {
 			}
 			impl := &iniImpl{ini: parsed}
 
-			got, err := impl.GetParameterFile("")
+			got, err := impl.GetParameterFile(sp(""))
 			if err == nil {
 				t.Fatalf("an out-of-root PARAMETER_FILE was served: %q", got)
 			}
@@ -236,7 +236,7 @@ func TestGetParameterFileInRootTraversal(t *testing.T) {
 	}
 	impl := &iniImpl{ini: parsed}
 
-	if got, err := impl.GetParameterFile(""); err != nil || got != "ok" {
+	if got, err := impl.GetParameterFile(sp("")); err != nil || got != "ok" {
 		t.Errorf("a traversal staying inside the root = %q, %v; want \"ok\"", got, err)
 	}
 }
@@ -263,17 +263,17 @@ GEOMETRY = XYZ
 
 	results, err := impl.Query([]ini.IniQueryItem{
 		{Section: "EMC", Key: "MACHINE"},
-		{Section: "EMC", Key: "MACHINE", Namespace: "mc2"},
-		{Section: "EMC", Key: "MACHINE", Namespace: "mc3"},
-		{Section: "DISPLAY", Key: "GEOMETRY", Namespace: "mc2"},
+		{Section: "EMC", Key: "MACHINE", Namespace: sp("mc2")},
+		{Section: "EMC", Key: "MACHINE", Namespace: sp("mc3")},
+		{Section: "DISPLAY", Key: "GEOMETRY", Namespace: sp("mc2")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"global", "second", "global", "XYZ"}
 	for i, w := range want {
-		if results[i].Value != w {
-			t.Errorf("result[%d] = %q, want %q", i, results[i].Value, w)
+		if derefStr(results[i].Value) != w {
+			t.Errorf("result[%d] = %q, want %q", i, derefStr(results[i].Value), w)
 		}
 	}
 }
@@ -294,7 +294,7 @@ PROGRAM_EXTENSION = .py
 	impl := &iniImpl{ini: parsed}
 
 	results, err := impl.Query([]ini.IniQueryItem{
-		{Section: "FILTER", Key: "PROGRAM_EXTENSION", All: boolPtr(true), Namespace: "mc2"},
+		{Section: "FILTER", Key: "PROGRAM_EXTENSION", All: boolPtr(true), Namespace: sp("mc2")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -322,36 +322,51 @@ func TestQueryEmptyRequest(t *testing.T) {
 	}
 }
 
-// TestQueryAbsentAndEmptyAreIndistinguishable pins what Query actually does
-// today, which is *not* what the IDL says it does.
+// TestQueryAbsentVsEmpty pins the distinction the IDL always promised and the
+// code always tried to make: `value: string?` is "null if not found", so a key
+// that is absent reports null while a key present with an empty value reports
+// "".
 //
-// ini.gmi declares `value: string?` — "null if not found" — and Query has a
-// branch to honour it: a key that does not exist yields IniQueryResult{}, a key
-// that exists with an empty value yields IniQueryResult{Value: ""}. Those two
-// are the same value. The server-side Go emitter maps `string?` to a plain
-// `string` with `omitempty` (only the standalone Go *client* emitter maps it to
-// `*string`), so both marshal to exactly `{"values":null}` and the keyExists
-// call that distinguishes them cannot affect any caller.
-//
-// This test asserts the real behaviour rather than the documented one, so that
-// the day the emitter divergence is settled this fails and gets updated
-// deliberately. See NETWORK_MODULES_REVIEW_FINDINGS.md I-3.
-func TestQueryAbsentAndEmptyAreIndistinguishable(t *testing.T) {
-	parsed, err := inifile.ParseString("[DISPLAY]\nLATHE =\n")
+// This could not work until `string?` became a real *string on the provider
+// side. The server emitter mapped it to a plain `string`, so Query's two
+// branches — IniQueryResult{} for absent, {Value: v} for present — produced the
+// same value and marshalled to the same bytes, and the keyExists call that
+// chose between them could not affect any caller. An INI may legitimately carry
+// `LATHE =`, which is why the difference is worth having here.
+func TestQueryAbsentVsEmpty(t *testing.T) {
+	parsed, err := inifile.ParseString("[DISPLAY]\nLATHE =\nGEOMETRY = XYZ\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	impl := &iniImpl{ini: parsed}
 
 	results, err := impl.Query([]ini.IniQueryItem{
-		{Section: "DISPLAY", Key: "LATHE"},   // present, empty value
-		{Section: "DISPLAY", Key: "NOSUCH"},  // absent
-		{Section: "NOSUCH", Key: "WHATEVER"}, // absent section
+		{Section: "DISPLAY", Key: "LATHE"},    // present, empty value
+		{Section: "DISPLAY", Key: "NOSUCH"},   // absent key
+		{Section: "NOSUCH", Key: "WHATEVER"},  // absent section
+		{Section: "DISPLAY", Key: "GEOMETRY"}, // present, non-empty
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Compare on the wire, which is the only thing a caller ever sees.
+
+	if results[0].Value == nil {
+		t.Error("a key present with an empty value reported null; want a non-nil \"\"")
+	} else if *results[0].Value != "" {
+		t.Errorf("present-but-empty reported %q, want \"\"", *results[0].Value)
+	}
+	if results[1].Value != nil {
+		t.Errorf("an absent key reported %q, want null", *results[1].Value)
+	}
+	if results[2].Value != nil {
+		t.Errorf("a key in an absent section reported %q, want null", *results[2].Value)
+	}
+	if results[3].Value == nil || *results[3].Value != "XYZ" {
+		t.Errorf("present value = %v, want \"XYZ\"", results[3].Value)
+	}
+
+	// The distinction has to survive to the wire, which is the only thing a
+	// REST caller sees. `omitempty` on a *string omits only nil.
 	enc := func(r ini.IniQueryResult) string {
 		b, err := json.Marshal(r)
 		if err != nil {
@@ -359,17 +374,14 @@ func TestQueryAbsentAndEmptyAreIndistinguishable(t *testing.T) {
 		}
 		return string(b)
 	}
-	present, absent, absentSection := enc(results[0]), enc(results[1]), enc(results[2])
-	if present != absent || absent != absentSection {
-		t.Fatalf("present-but-empty and absent now differ on the wire (%s vs %s vs %s) — "+
-			"the emitter divergence in I-3 may have been fixed; update this test",
-			present, absent, absentSection)
+	if got, want := enc(results[0]), `{"value":"","values":null}`; got != want {
+		t.Errorf("present-but-empty encodes as %s, want %s", got, want)
 	}
-	if present != `{"values":null}` {
-		t.Errorf("the shared encoding is %s; the test's premise has moved", present)
+	if got, want := enc(results[1]), `{"values":null}`; got != want {
+		t.Errorf("absent encodes as %s, want %s", got, want)
 	}
 
-	// keyExists itself does work, and is what a fix would build on.
+	// keyExists is what makes the choice; it stays directly covered.
 	if !impl.keyExists("DISPLAY", "LATHE") {
 		t.Error("keyExists says LATHE is absent, but it is present with an empty value")
 	}

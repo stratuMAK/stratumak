@@ -1044,12 +1044,7 @@ func cmdLoad(args []string) error {
 	// The CLI used to guess which arguments were paths and rewrite them to its
 	// own cwd, which mangled positional values that merely looked path-like
 	// and was meaningless for a remote client (HC-2).
-	var modArgs []*string
-	for _, a := range args[1:] {
-		s := a
-		modArgs = append(modArgs, &s)
-	}
-	result, err := client.Load(module, modArgs)
+	result, err := client.Load(module, args[1:])
 	if err != nil {
 		return err
 	}

@@ -44,6 +44,17 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// sp makes an optional string argument from a literal; derefStr reads an
+// optional string field, treating absent as empty.
+func sp(s string) *string { return &s }
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // uniq gives each test its own HAL namespace. HAL names are process-global and
 // only freed on component exit / delsig, so sharing them across tests would
 // make failures cascade.
@@ -82,11 +93,15 @@ func testComp(t *testing.T, name string) *hal.Component {
 
 func TestShowPatterns(t *testing.T) {
 	// An empty pattern must become "no patterns" (list everything), not a
-	// single empty pattern — halcmd.Show treats those differently.
-	if got := showPatterns(""); got != nil {
+	// single empty pattern — halcmd.Show treats those differently. An absent
+	// pattern means the same: for a glob filter there is no third answer.
+	if got := showPatterns(sp("")); got != nil {
 		t.Errorf("showPatterns(\"\") = %v, want nil", got)
 	}
-	if got := showPatterns("axis.*"); len(got) != 1 || got[0] != "axis.*" {
+	if got := showPatterns(nil); got != nil {
+		t.Errorf("showPatterns(nil) = %v, want nil", got)
+	}
+	if got := showPatterns(sp("axis.*")); len(got) != 1 || got[0] != "axis.*" {
 		t.Errorf("showPatterns(\"axis.*\") = %v", got)
 	}
 }
@@ -114,7 +129,7 @@ func TestListPinsAndGetPin(t *testing.T) {
 	name := uniq("hrcomp")
 	testComp(t, name)
 
-	pins, err := h.ListPins(name + ".*")
+	pins, err := h.ListPins(sp(name + ".*"))
 	if err != nil {
 		t.Fatalf("ListPins: %v", err)
 	}
@@ -138,7 +153,7 @@ func TestListPinsAndGetPin(t *testing.T) {
 	}
 
 	// The unfiltered listing must be a superset of the filtered one.
-	all, err := h.ListPins("")
+	all, err := h.ListPins(sp(""))
 	if err != nil {
 		t.Fatalf("ListPins(\"\"): %v", err)
 	}
@@ -180,7 +195,7 @@ func TestGetPinReportsSignalLinkage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPin: %v", err)
 	}
-	if !pi.Linked || pi.Signal != sig {
+	if !pi.Linked || derefStr(pi.Signal) != sig {
 		t.Errorf("after Link, pin = %+v; want Linked with Signal=%q", pi, sig)
 	}
 
@@ -217,7 +232,7 @@ func TestListSignalsAndGetSignalMiss(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = h.DeleteSignal(sig) })
 
-	sigs, err := h.ListSignals(sig)
+	sigs, err := h.ListSignals(sp(sig))
 	if err != nil {
 		t.Fatalf("ListSignals: %v", err)
 	}
@@ -239,7 +254,7 @@ func TestListParamsAndGetParamMiss(t *testing.T) {
 	h := &halcmdImpl{}
 	// No component here exports params, so this only asserts the call shape and
 	// the miss path; the listing itself may legitimately be empty.
-	if _, err := h.ListParams(""); err != nil {
+	if _, err := h.ListParams(sp("")); err != nil {
 		t.Fatalf("ListParams: %v", err)
 	}
 	if _, err := h.GetParam("no.such.param"); err == nil {
@@ -252,7 +267,7 @@ func TestListComponentsAndStatus(t *testing.T) {
 	name := uniq("hrcomps")
 	testComp(t, name)
 
-	comps, err := h.ListComponents(name)
+	comps, err := h.ListComponents(sp(name))
 	if err != nil {
 		t.Fatalf("ListComponents: %v", err)
 	}
@@ -306,7 +321,7 @@ func TestSetPinAndSetSignal(t *testing.T) {
 		if err != nil {
 			t.Errorf("SetPin(%q,%q) returned a transport error: %v", tc.name, tc.value, err)
 		}
-		if res.Success || res.Error == "" {
+		if res.Success || derefStr(res.Error) == "" {
 			t.Errorf("SetPin(%q,%q) = %+v; want Success=false with a reason", tc.name, tc.value, res)
 		}
 	}
@@ -356,7 +371,7 @@ func TestNewAndDeleteSignalErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSignal returned a transport error: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Error, "unknown HAL type") {
+	if res.Success || !strings.Contains(derefStr(res.Error), "unknown HAL type") {
 		t.Errorf("NewSignal with a bad type = %+v", res)
 	}
 
@@ -430,7 +445,7 @@ func TestNetAndLinkPp(t *testing.T) {
 		t.Fatalf("Net: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("Net joining two input pins failed: %s", res.Error)
+		t.Fatalf("Net joining two input pins failed: %s", derefStr(res.Error))
 	}
 	t.Cleanup(func() { _, _ = h.DeleteSignal(sig2) })
 
@@ -440,7 +455,7 @@ func TestNetAndLinkPp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetPin(%q): %v", pin, err)
 		}
-		if !pi.Linked || pi.Signal != sig2 {
+		if !pi.Linked || derefStr(pi.Signal) != sig2 {
 			t.Errorf("pin %q = %+v; want linked to %q", pin, pi, sig2)
 		}
 	}
@@ -466,11 +481,11 @@ func TestThreadLifecycle(t *testing.T) {
 		t.Fatalf("Newthread: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("Newthread failed: %s", res.Error)
+		t.Fatalf("Newthread failed: %s", derefStr(res.Error))
 	}
 	t.Cleanup(func() { _, _ = h.Delthread(thread) })
 
-	threads, err := h.ListThreads(thread)
+	threads, err := h.ListThreads(sp(thread))
 	if err != nil {
 		t.Fatalf("ListThreads: %v", err)
 	}
@@ -491,7 +506,7 @@ func TestThreadLifecycle(t *testing.T) {
 	}
 
 	// Functions listing must not error even when empty.
-	if _, err := h.ListFunctions(""); err != nil {
+	if _, err := h.ListFunctions(sp("")); err != nil {
 		t.Fatalf("ListFunctions: %v", err)
 	}
 
@@ -527,9 +542,9 @@ func TestLockUnlockDefaultsToAll(t *testing.T) {
 	h := &halcmdImpl{}
 	// An empty level means "all" on both sides. The test must leave HAL
 	// unlocked or every later test would fail.
-	defer func() { _, _ = h.Unlock("all") }()
+	defer func() { _, _ = h.Unlock(sp("all")) }()
 
-	if res, err := h.Lock(""); err != nil || !res.Success {
+	if res, err := h.Lock(sp("")); err != nil || !res.Success {
 		t.Fatalf("Lock(\"\"): %v / %+v", err, res)
 	}
 	st, err := h.GetStatus()
@@ -540,17 +555,17 @@ func TestLockUnlockDefaultsToAll(t *testing.T) {
 		t.Error("GetStatus does not report the lock taken by Lock(\"\")")
 	}
 
-	if res, err := h.Unlock(""); err != nil || !res.Success {
+	if res, err := h.Unlock(sp("")); err != nil || !res.Success {
 		t.Fatalf("Unlock(\"\"): %v / %+v", err, res)
 	}
 	if st, _ := h.GetStatus(); st.RtLock {
 		t.Error("HAL still locked after Unlock(\"\")")
 	}
 
-	if res, _ := h.Lock("sideways"); res.Success {
+	if res, _ := h.Lock(sp("sideways")); res.Success {
 		t.Error("Lock with an unknown level must not report success")
 	}
-	if res, _ := h.Unlock("sideways"); res.Success {
+	if res, _ := h.Unlock(sp("sideways")); res.Success {
 		t.Error("Unlock with an unknown level must not report success")
 	}
 }
@@ -577,24 +592,24 @@ func TestSaveDefaultsToAll(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = h.DeleteSignal(sig) })
 
-	res, err := h.Save("")
+	res, err := h.Save(sp(""))
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("Save failed: %s", res.Error)
+		t.Fatalf("Save failed: %s", derefStr(res.Error))
 	}
 	// "" means "all", so the signal just created has to appear in the dump.
-	if !strings.Contains(res.Output, sig) {
-		t.Errorf("Save(\"\") output does not mention %q:\n%s", sig, res.Output)
+	if !strings.Contains(derefStr(res.Output), sig) {
+		t.Errorf("Save(\"\") output does not mention %q:\n%s", sig, derefStr(res.Output))
 	}
 	// Every emitted line must be newline-terminated so the output pastes
 	// straight into a HAL file.
-	if res.Output != "" && !strings.HasSuffix(res.Output, "\n") {
+	if derefStr(res.Output) != "" && !strings.HasSuffix(derefStr(res.Output), "\n") {
 		t.Error("Save output is not newline-terminated")
 	}
 
-	if res, _ := h.Save("bogustype"); res.Success {
+	if res, _ := h.Save(sp("bogustype")); res.Success {
 		t.Error("Save with an unknown type must not report success")
 	}
 }
@@ -655,14 +670,14 @@ func TestLoadUnloadWithoutLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned a transport error: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Error, "not supported") {
+	if res.Success || !strings.Contains(derefStr(res.Error), "not supported") {
 		t.Errorf("Load without a launcher = %+v", res)
 	}
 	res, err = h.Unload("somemod")
 	if err != nil {
 		t.Fatalf("Unload returned a transport error: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Error, "not supported") {
+	if res.Success || !strings.Contains(derefStr(res.Error), "not supported") {
 		t.Errorf("Unload without a launcher = %+v", res)
 	}
 }
@@ -700,10 +715,10 @@ func TestLoadUnloadDelegateToHooks(t *testing.T) {
 	// A hook error surfaces as an unsuccessful result, not a transport error.
 	SetLoadModuleFunc(func(string, []string) error { return fmt.Errorf("boom") })
 	SetUnloadModuleFunc(func(string) error { return fmt.Errorf("bang") })
-	if res, err := h.Load("m", nil); err != nil || res.Success || res.Error != "boom" {
+	if res, err := h.Load("m", nil); err != nil || res.Success || derefStr(res.Error) != "boom" {
 		t.Errorf("Load with a failing hook = %+v / %v", res, err)
 	}
-	if res, err := h.Unload("m"); err != nil || res.Success || res.Error != "bang" {
+	if res, err := h.Unload("m"); err != nil || res.Success || derefStr(res.Error) != "bang" {
 		t.Errorf("Unload with a failing hook = %+v / %v", res, err)
 	}
 }

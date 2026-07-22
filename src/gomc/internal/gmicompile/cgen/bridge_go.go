@@ -647,6 +647,14 @@ func (g *bridgeGoGen) emitParamCToGo(apiName string, p ast.Param) string {
 	case ast.TypePrimitive:
 		switch p.Type.Name {
 		case ast.PrimString:
+			if p.Type.Nullable {
+				// A C caller signals "not supplied" with NULL; keep that as nil
+				// rather than handing the Go provider an empty string it cannot
+				// tell apart from a supplied one.
+				g.printf("\tvar %s *string\n", goVar)
+				g.printf("\tif %s != nil { _v := C.GoString(%s); %s = &_v }\n", name, name, goVar)
+				return goVar
+			}
 			g.printf("\t%s := C.GoString(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimBool:

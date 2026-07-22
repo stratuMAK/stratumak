@@ -43,7 +43,54 @@ func Validate(api *ast.API) []error {
 	}
 	c.check64BitParamPositions()
 	c.checkRcError()
+	c.checkNullableElements()
 	return c.errs
+}
+
+// checkNullableElements rejects `[]T?` and `[N]T?`.
+//
+// The grammar binds the `?` to the element, so `[]string?` declares a slice
+// whose *elements* may be null — which no IDL here has ever meant. All three
+// former uses meant "the slice itself is optional", and that needs no marker:
+// a nil slice already marshals to JSON null and reaches C as a NULL data
+// pointer with zero length.
+//
+// This went unnoticed while a nullable string was silently demoted to a plain
+// string, so `[]string?` and `[]string` generated identical code. Once
+// nullability became real the two diverged into `[]*string`, and a per-element
+// pointer is both unmarshalable from the existing wire format and meaningless
+// to every consumer. Rejecting it keeps the ambiguity from being decided by
+// accident a second time.
+func (c *checker) checkNullableElements() {
+	var walk func(site string, t ast.TypeRef)
+	walk = func(site string, t ast.TypeRef) {
+		switch t.Kind {
+		case ast.TypeSlice, ast.TypeArray:
+			if t.Elem == nil {
+				return
+			}
+			if t.Elem.Nullable {
+				c.errf(site, "nullable element type %q inside a collection: the `?` binds to the "+
+					"element, not the collection. A nil/empty collection already expresses "+
+					"absence — drop the `?`", t.Elem.Name)
+				return
+			}
+			walk(site, *t.Elem)
+		}
+	}
+	for _, t := range c.api.Types {
+		for _, f := range t.Fields {
+			walk(fmt.Sprintf("%s: type %s.%s", f.Pos, t.Name, f.Name), f.Type)
+		}
+	}
+	for _, fn := range c.api.Funcs {
+		for _, p := range fn.Params {
+			walk(fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name), p.Type)
+		}
+		if fn.Return != nil {
+			walk(fmt.Sprintf("%s: func %s return", fn.Pos, fn.Name), *fn.Return)
+		}
+	}
 }
 
 // checkRcError validates the @rc_error shape. It is the contract that lets a
@@ -430,11 +477,14 @@ func (c *checker) checkSite(site string, t ast.TypeRef, cs []ast.Constraint) {
 			}
 
 		case ast.ConstraintNotNull:
+			// Nullable strings used to be excluded here, because `string?`
+			// mapped to a non-pointer Go string and there was nothing for
+			// @notnull to test. Now that it is a real *string, "must be
+			// supplied" is expressible for a string like any other type — and
+			// it is a different requirement from @notempty, which says a
+			// supplied value must be non-empty.
 			if !t.Nullable {
 				c.errf(site, "@notnull is redundant on non-nullable type %s", t.String())
-			} else if isString(t) {
-				c.errf(site, "@notnull on a nullable string is not expressible "+
-					"(string? maps to a non-pointer Go string); use @notempty")
 			}
 
 		case ast.ConstraintEnumOpen:

@@ -25,6 +25,12 @@ type mockHalscope struct {
 	sampleLen int32
 	channels  []halscope.ChannelInfo
 	thread    string
+
+	// What the last ListPins call received, so a test can assert that an
+	// omitted optional parameter arrives as nil.
+	listPinsCalled bool
+	lastPattern    *string
+	lastKind       *string
 }
 
 func newMock() *mockHalscope {
@@ -128,13 +134,25 @@ func (m *mockHalscope) GetStatus() (*halscope.ScopeStatus, error) {
 	}, nil
 }
 
-func (m *mockHalscope) ListPins(pattern string, kind string) ([]string, error) {
+// ListPins records what it was handed: both parameters are `string?`, so a
+// request that names neither must reach the provider as nil rather than as "".
+func (m *mockHalscope) ListPins(pattern *string, kind *string) ([]string, error) {
+	m.lastPattern, m.lastKind = pattern, kind
+	m.listPinsCalled = true
 	return []string{"joint.0.pos-cmd", "joint.1.pos-cmd", "joint.2.pos-cmd"}, nil
 }
 
 // --- Test helpers ---
 
 func setupTestServer(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+	ts, _, cleanup := setupTestServerWithMock(t)
+	return ts, cleanup
+}
+
+// setupTestServerWithMock also hands back the provider, for tests that assert
+// on what the dispatch layer passed it.
+func setupTestServerWithMock(t *testing.T) (*httptest.Server, *mockHalscope, func()) {
 	t.Helper()
 
 	mock := newMock()
@@ -149,7 +167,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 
 	srv := apiserver.NewServer(reg, "")
 	ts := httptest.NewServer(srv.Handler())
-	return ts, func() {
+	return ts, mock, func() {
 		ts.Close()
 	}
 }
@@ -221,7 +239,7 @@ func TestGetStatus_Initial(t *testing.T) {
 }
 
 func TestListPins(t *testing.T) {
-	ts, cleanup := setupTestServer(t)
+	ts, mock, cleanup := setupTestServerWithMock(t)
 	defer cleanup()
 
 	code, body := get(t, ts, "/pins")
@@ -241,6 +259,19 @@ func TestListPins(t *testing.T) {
 	}
 	if pins[2] != "joint.2.pos-cmd" {
 		t.Errorf("expected joint.2.pos-cmd, got %s", pins[2])
+	}
+
+	// The request carried no pattern and no kind. Both are optional, so the
+	// provider must see that they were absent — not an empty string, which is
+	// what it saw while `string?` was demoted to a plain `string`.
+	if !mock.listPinsCalled {
+		t.Fatal("ListPins was not reached")
+	}
+	if mock.lastPattern != nil {
+		t.Errorf("an omitted pattern arrived as %q, want nil", *mock.lastPattern)
+	}
+	if mock.lastKind != nil {
+		t.Errorf("an omitted kind arrived as %q, want nil", *mock.lastKind)
 	}
 }
 
