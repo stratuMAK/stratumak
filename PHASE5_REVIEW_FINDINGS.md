@@ -287,6 +287,27 @@ filled in is discarded (`motstatDispatchGetStatus` in
 the only IDLs using `out` are `@rest_export false`, but it is the direct blocker
 for the recommended fix below.
 
+#### RULING 2026-07-22 (user)
+
+**Do G-2 plus the storage APIs, and do it after Phase 5 closes.**
+
+- **In scope:** fix the dispatch emitter (G-2), convert `persist.gmi` and
+  `tooltable.gmi` to the `out`-param + `i32` form, update the two C consumers
+  (`emc/iotask/ioControl_v2.c`, `internal/task/interp_param_io_persist.c`),
+  regenerate and rebuild both sides together.
+- **Out of scope:** `emcio.GetStatus` (its consumer situation is untraced; it can
+  be argued on its own merits later) and the `@returns_value` contracts, which
+  stay as they are.
+- **Sequencing:** *after* the Phase-5 remainder — the network half's `U`/`FP`
+  tail (halrest and mqttbridge at 0 % coverage, halscope 4.1 %, apiserver
+  45.6 %) and N7/N9. G-1/G-2 then gets its own session.
+- Because the conversion touches `ioControl_v2.c`, which is on the tool-change
+  path, it owes a **full runtests round**, not the per-module fast gate.
+
+Until it lands, tooltable's empty-value convention (T-4) is the local mitigation
+and the other consumers stay blind — that is a known, accepted gap, not an
+oversight.
+
 #### How to fix it
 
 The mechanism already exists and is in production: an `out` parameter plus an
