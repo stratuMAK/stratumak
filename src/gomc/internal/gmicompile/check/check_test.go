@@ -144,3 +144,100 @@ type T {
 		t.Errorf("errors = %q, want enum redundancy message", got)
 	}
 }
+
+// --- map[string]T confinement ---
+
+func TestValidateMapWatchReturnAccepted(t *testing.T) {
+	src := `@api test
+@version 1
+
+type State {
+    value: f64
+}
+
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_state() -> map[string]State
+`
+	if msgs := validate(t, src); msgs != "" {
+		t.Fatalf("expected no errors, got:\n%s", msgs)
+	}
+}
+
+func TestValidateMapRejectedOutsideWatchReturn(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"struct field", `@api test
+@version 1
+type Bad {
+    m: map[string]f64
+}
+`, "supported only as the full return type of a watch-only func"},
+		{"param", `@api test
+@version 1
+func f(m: map[string]f64)
+`, "supported only as the full return type of a watch-only func"},
+		{"plain return", `@api test
+@version 1
+func f() -> map[string]f64
+`, "supported only as the full return type of a watch-only func"},
+		{"dual-purpose watch", `@api test
+@version 1
+@watch true
+@method "GET"
+@path "/state"
+func watch_state() -> map[string]f64
+`, "supported only as the full return type of a watch-only func"},
+		{"nested map", `@api test
+@version 1
+@watch true
+func watch_state() -> map[string]map[string]f64
+`, "nested maps are not supported"},
+		{"map inside slice", `@api test
+@version 1
+func f() -> []map[string]f64
+`, "supported only as the full return type of a watch-only func"},
+		{"nullable map values", `@api test
+@version 1
+@watch true
+func watch_state() -> map[string]f64?
+`, "nullable element type"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := validate(t, tc.src)
+			if !strings.Contains(msgs, tc.want) {
+				t.Fatalf("want error containing %q, got:\n%s", tc.want, msgs)
+			}
+		})
+	}
+}
+
+func TestValidateWatchDeltaRequiresWatch(t *testing.T) {
+	src := `@api test
+@version 1
+@watch_delta true
+func f() -> f64
+`
+	msgs := validate(t, src)
+	if !strings.Contains(msgs, "@watch_delta is only meaningful on a @watch func") {
+		t.Fatalf("want watch_delta error, got:\n%s", msgs)
+	}
+}
+
+func TestValidateWatchDeltaRejectsBinaryWatch(t *testing.T) {
+	src := `@api test
+@version 1
+@watch true
+@watch_delta true
+func watch_frame() -> []u8
+`
+	msgs := validate(t, src)
+	if !strings.Contains(msgs, "@watch_delta cannot apply to a binary") {
+		t.Fatalf("want binary-watch error, got:\n%s", msgs)
+	}
+}

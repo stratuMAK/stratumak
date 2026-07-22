@@ -416,6 +416,9 @@ func (g *clientPyGen) toPyType(t ast.TypeRef) string {
 	case ast.TypeArray:
 		elem := g.toPyType(*t.Elem)
 		return "list[" + elem + "]"
+	case ast.TypeMap:
+		elem := g.toPyType(*t.Elem)
+		return "dict[str, " + elem + "]"
 	}
 	return "Any"
 }

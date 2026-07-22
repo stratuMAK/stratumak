@@ -94,6 +94,9 @@ func (g *dispatchCGen) emitCgoPreamble() {
 		if fn.Publish {
 			continue // publish functions use ring buffers, not callbacks
 		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
+		}
 		g.emitCallWrapper(fn)
 	}
 
@@ -444,9 +447,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: bool(%s),\n", goField, cExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *int8 { v := int8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *uint8 { v := uint8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\t\t%s: func() *int16 { v := int16(%s); return &v }(),\n", goField, cExpr)
@@ -484,9 +495,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: uint64(%s),\n", goField, cExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float32 { v := float32(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float64 { v := float64(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			}
 		}
 	case ast.TypeNamed:
 		// Could be enum or struct — for enums, cast; for structs, recurse
@@ -678,9 +697,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.bool(%s)\n", cField, goExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.int8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.uint8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\tif %s != nil { %s = C.int16_t(*%s) }\n", goExpr, cField, goExpr)
@@ -718,9 +745,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.uint64_t(%s)\n", cField, goExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.float(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.double(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			}
 		}
 	case ast.TypeNamed:
 		if g.isEnum(t.Name) {
@@ -815,6 +850,9 @@ func (g *dispatchCGen) emitDispatchFuncs() {
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
 			continue
+		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
 		}
 		g.emitOneDispatch(fn)
 	}
@@ -962,9 +1000,17 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 				g.printf("\t%s := C.bool(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int8_t")
+			} else {
+				g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint8_t")
+			} else {
+				g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.emitNullableScalarGoToC(cVar, goVar, "C.int16_t")
@@ -1002,9 +1048,17 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 				g.printf("\t%s := C.uint64_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.float")
+			} else {
+				g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.double")
+			} else {
+				g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			}
 		case ast.PrimPtr:
 			// ptr is an opaque pointer — not serializable; pass nil for non-REST stubs
 			g.printf("\tvar %s unsafe.Pointer // ptr: not serializable\n", cVar)
@@ -1232,6 +1286,12 @@ func (g *dispatchCGen) emitMeta() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			// JSON-only watch (map return): a C provider cannot serve it, so
+			// it has no dispatch entry here. Go providers register it via
+			// RegisterXxxWatch in the bridge.
+			continue
+		}
 		dispatchName := g.api.Name + "Dispatch" + toPascalCase(fn.Name)
 		g.printf("\t\t{\n")
 		g.printf("\t\t\tName:     %q,\n", fn.Name)
@@ -1346,8 +1406,19 @@ func goTypeForDispatch(t ast.TypeRef) string {
 		return "[]" + goTypeForDispatch(*t.Elem)
 	case ast.TypeArray:
 		return fmt.Sprintf("[%d]%s", t.ArrayLen, goTypeForDispatch(*t.Elem))
+	case ast.TypeMap:
+		return "map[string]" + goTypeForDispatch(*t.Elem)
 	}
 	return "interface{}"
+}
+
+// isMapWatchFunc reports whether fn is a watch-only func returning a map.
+// Such a func is JSON-only: it exists for Go providers (WatchCallbacks +
+// RegisterXxxWatch) and on the WS wire, but has NO C ABI — the C header,
+// callbacks vtable, and C-provider dispatch all skip it. The checker
+// guarantees a map appears in no other position.
+func isMapWatchFunc(fn ast.Func) bool {
+	return fn.Watch && fn.Method == "" && fn.Return != nil && fn.Return.Kind == ast.TypeMap
 }
 
 // cgoFieldAccess returns the field name for accessing a C struct field from Go.

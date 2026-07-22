@@ -37,8 +37,8 @@ def create_vcp_rest(master, compname="pyvcp"):
         creates event-driven widgets connected via PyVCPClient.
 
         No polling loop. Server pushes state via WebSocket; widgets
-        update displays via callbacks. User interactions send set_pin
-        directly to server.
+        update displays via callbacks. User interactions send widget_event
+        commands to the server.
 
         Args:
             master: Tkinter root window or other master container
@@ -53,7 +53,7 @@ def create_vcp_rest(master, compname="pyvcp"):
     info = fetch_panel_info(compname)
 
     # Create WebSocket client.
-    client = PyVCPClient(compname, info["pins"], tk_root=master)
+    client = PyVCPClient(compname, info["widgets"], tk_root=master)
 
     # Parse XML from server and build widgets.
     _create_widgets_from_xml(info["xml"], master, client)

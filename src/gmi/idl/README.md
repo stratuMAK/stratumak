@@ -151,6 +151,7 @@ still needs to read the resulting state. Only a *refusal* is a transport error.
 | T?        | T* (nullable)  | *T        | Optional[T]    |
 | [T; N]    | T[N]           | [N]T      | list[T]        |
 | []T       | T*, size_t len | []T       | list[T]        |
+| map[string]T | — (none)    | map[string]T | dict[str, T] |
 | ptr       | void*          | unsafe.Pointer | N/A       |
 
 `T?` is **nullable, not merely optional**: null and the zero value are distinct,
@@ -165,6 +166,30 @@ honestly.
 The `?` binds to the **element** in a collection, so `[]T?` is a slice of
 nullable `T` — which is almost never what is meant and is rejected by the
 checker. A nil/empty collection already expresses absence: write `[]T`.
+
+### Maps: `map[string]T`
+
+A JSON-object map. The key is locked to `string` because a JSON object key
+**is** a string; the checker rejects any other key type, nested maps, and
+nullable values (a missing key already expresses absence).
+
+A map has **no C ABI**, so it is confined to the one position that never
+crosses C: the full return type of a **watch-only** func (`@watch true`, no
+`@method`). A watch frame is Go-marshaled JSON end to end, and a map return is
+what makes per-key delta encoding meaningful (see `@watch_delta`). The C
+surface skips such a func entirely — the generated header documents the gap —
+so a map-returning watch is servable by **Go providers only**; every other
+placement fails the build. First consumer: `pyvcp.watch_state`
+(`map[widget_id]WidgetState`).
+
+### `@watch_delta`
+
+`@watch_delta true` on a `@watch` func registers the watch with per-connection
+delta encoding: the first push is a full snapshot, subsequent pushes carry only
+the top-level JSON keys whose value changed. Combine with a `map[string]T`
+return for per-entry deltas (a struct return diffs on its field names instead).
+Rejected on a non-`@watch` func and on a binary (`[]u8`) watch, which has no
+JSON keys to diff.
 
 ## Files
 

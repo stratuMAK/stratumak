@@ -222,13 +222,14 @@ const (
 	TypeSlice                     // []T dynamic slice
 	TypeCallback                  // callback type reference (named callback declaration)
 	TypeImport                    // imported API type reference (@import)
+	TypeMap                       // map[string]T — JSON-object map, string keys only
 )
 
 // TypeRef represents a reference to a type.
 type TypeRef struct {
 	Kind         TypeKind
 	Name         string   // for Primitive: "bool", "i32", etc.; for Named: type name
-	Elem         *TypeRef // for Array/Slice: element type
+	Elem         *TypeRef // for Array/Slice/Map: element (value) type
 	ArrayLen     int      // for Array: resolved integer length
 	ArrayLenName string   // for Array: const name if used (e.g. "MAX_JOINTS")
 	Nullable     bool     // T? syntax
@@ -247,6 +248,8 @@ func (t TypeRef) String() string {
 		}
 	case TypeSlice:
 		base = fmt.Sprintf("[]%s", t.Elem.String())
+	case TypeMap:
+		base = fmt.Sprintf("map[string]%s", t.Elem.String())
 	}
 	if t.Nullable {
 		return base + "?"
@@ -341,6 +344,7 @@ type Func struct {
 	Watch            bool   // true if this function supports WebSocket watch subscriptions
 	WatchDefaultRate string // default push rate (e.g. "50ms", "1s")
 	WatchFactory     bool   // true if watch uses per-connection factory (params sent as subscribe args)
+	WatchDelta       bool   // true if watch frames are delta-encoded on top-level JSON keys (@watch_delta)
 	Publish          bool   // true if this is a publish (event producer) function
 	PublishRingSize  int    // ring buffer slot count (default 64)
 	WatchSource      string // name of @publish function that feeds this watch

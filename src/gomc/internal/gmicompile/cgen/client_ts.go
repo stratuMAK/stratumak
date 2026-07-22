@@ -345,6 +345,8 @@ func (g *clientTSGen) toTSType(t ast.TypeRef) string {
 	case ast.TypeArray:
 		elem := g.toTSType(*t.Elem)
 		return elem + "[]"
+	case ast.TypeMap:
+		return "Record<string, " + g.toTSType(*t.Elem) + ">"
 	}
 	return "unknown"
 }
@@ -495,6 +497,8 @@ func tsReviveStmt(varName string, t ast.TypeRef, set map[string]bool) string {
 		return fmt.Sprintf("%s(%s);\n", tsReviverName(t.Name), varName)
 	case (t.Kind == ast.TypeSlice || t.Kind == ast.TypeArray) && tsElemNeedsRevive(t.Elem, set):
 		return fmt.Sprintf("%s?.forEach(%s);\n", varName, tsReviverName(t.Elem.Name))
+	case t.Kind == ast.TypeMap && tsElemNeedsRevive(t.Elem, set):
+		return fmt.Sprintf("if (%s) Object.values(%s).forEach(%s);\n", varName, varName, tsReviverName(t.Elem.Name))
 	}
 	return ""
 }

@@ -673,3 +673,49 @@ const MAX = 32
 		t.Fatalf("expected a duplicate-const error, got %v", errors)
 	}
 }
+
+func TestParseMapType(t *testing.T) {
+	src := `@api test
+@version 1
+
+type State {
+    value: f64
+}
+
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_state() -> map[string]State
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+
+	fn := api.Funcs[0]
+	if !fn.Watch || !fn.WatchDelta {
+		t.Errorf("Watch/WatchDelta = %v/%v, want true/true", fn.Watch, fn.WatchDelta)
+	}
+	if fn.Return.Kind != ast.TypeMap {
+		t.Fatalf("Return.Kind = %v, want TypeMap", fn.Return.Kind)
+	}
+	if fn.Return.Elem == nil || fn.Return.Elem.Kind != ast.TypeNamed || fn.Return.Elem.Name != "State" {
+		t.Errorf("Return.Elem = %+v, want named State", fn.Return.Elem)
+	}
+	if got := fn.Return.String(); got != "map[string]State" {
+		t.Errorf("Return.String() = %q, want %q", got, "map[string]State")
+	}
+}
+
+func TestParseMapTypeRejectsNonStringKey(t *testing.T) {
+	src := `@api test
+@version 1
+
+@watch true
+func watch_state() -> map[i32]f64
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "map key type must be string") {
+		t.Fatalf("expected a map-key error, got %v", errors)
+	}
+}

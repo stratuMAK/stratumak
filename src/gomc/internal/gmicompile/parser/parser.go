@@ -557,6 +557,8 @@ func (p *Parser) parseFunc(anns []annotation) ast.Func {
 			fn.WatchDefaultRate = ann.value
 		case "watch_factory":
 			fn.WatchFactory = ann.value == "true"
+		case "watch_delta":
+			fn.WatchDelta = ann.value == "true"
 		case "publish":
 			fn.Publish = ann.value == "true"
 		case "publish_ring_size":
@@ -625,6 +627,20 @@ func (p *Parser) parseTypeRef() ast.TypeRef {
 
 	name := p.cur.Text
 	p.advance()
+
+	// map[string]T — JSON-object map. The key is locked to string because a
+	// JSON object key IS a string; any other key type would be a lie on the
+	// wire. The map itself cannot be nullable (absent == empty object).
+	if name == "map" && p.cur.Type == LBRACKET {
+		p.advance()
+		if p.cur.Type != IDENT || p.cur.Text != "string" {
+			p.errorf("map key type must be string (JSON object keys are strings), got %q", p.cur.Text)
+		}
+		p.advance()
+		p.expect(RBRACKET)
+		elem := p.parseTypeRef()
+		return ast.TypeRef{Kind: ast.TypeMap, Elem: &elem}
+	}
 
 	nullable := false
 	if p.cur.Type == QUESTION {

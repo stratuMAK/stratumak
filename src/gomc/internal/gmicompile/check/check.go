@@ -44,7 +44,94 @@ func Validate(api *ast.API) []error {
 	c.check64BitParamPositions()
 	c.checkRcError()
 	c.checkNullableElements()
+	c.checkMaps()
 	return c.errs
+}
+
+// checkMaps confines map[string]T to the one position the emitters support:
+// the full return type of a watch-only func (@watch with no @method). A watch
+// frame is Go-marshaled JSON end to end, so a map is natural there — it is
+// what makes per-key delta encoding (@watch_delta) work. Everywhere else a
+// value must cross the C ABI (callbacks vtable, REST dispatch structs), where
+// a map has no representation, so any other placement must fail the build
+// rather than generate a vtable the C side cannot express. This is also why a
+// map-returning watch func is emitted for Go providers only (the C-provider
+// path skips it, with a comment in the generated header).
+func (c *checker) checkMaps() {
+	const onlyWatch = "map[string]T is JSON-only (no C ABI); it is supported only as the " +
+		"full return type of a watch-only func (@watch true, no @method)"
+	var containsMap func(t ast.TypeRef) bool
+	containsMap = func(t ast.TypeRef) bool {
+		if t.Kind == ast.TypeMap {
+			return true
+		}
+		if t.Elem != nil {
+			return containsMap(*t.Elem)
+		}
+		return false
+	}
+	for _, t := range c.api.Types {
+		for _, f := range t.Fields {
+			if containsMap(f.Type) {
+				c.errf(fmt.Sprintf("%s: type %s.%s", f.Pos, t.Name, f.Name), onlyWatch)
+			}
+		}
+	}
+	for _, fn := range c.api.Funcs {
+		site := fmt.Sprintf("%s: func %s", fn.Pos, fn.Name)
+		if fn.WatchDelta && !fn.Watch {
+			c.errf(site, "@watch_delta is only meaningful on a @watch func")
+		}
+		if fn.WatchDelta && fn.Watch && fn.Return != nil &&
+			fn.Return.Kind == ast.TypeSlice && fn.Return.Elem != nil &&
+			fn.Return.Elem.Kind == ast.TypePrimitive && fn.Return.Elem.Name == ast.PrimU8 {
+			// A []u8 watch is pushed as raw binary frames; there are no JSON
+			// keys to diff, so a declared delta would be silently ignored.
+			c.errf(site, "@watch_delta cannot apply to a binary ([]u8) watch")
+		}
+		for _, p := range fn.Params {
+			if containsMap(p.Type) {
+				c.errf(fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name), onlyWatch)
+			}
+		}
+		if fn.Return == nil {
+			continue
+		}
+		if fn.Return.Kind == ast.TypeMap {
+			if !(fn.Watch && fn.Method == "") {
+				c.errf(site+" return", onlyWatch)
+			}
+			if fn.Return.Elem != nil && containsMap(*fn.Return.Elem) {
+				c.errf(site+" return", "nested maps are not supported")
+			}
+		} else if containsMap(*fn.Return) {
+			c.errf(site+" return", onlyWatch)
+		}
+	}
+	for _, cb := range c.api.Callbacks {
+		site := fmt.Sprintf("%s: callback %s", cb.Pos, cb.Name)
+		for _, p := range cb.Params {
+			if containsMap(p.Type) {
+				c.errf(site, onlyWatch)
+			}
+		}
+		if cb.Return != nil && containsMap(*cb.Return) {
+			c.errf(site, onlyWatch)
+		}
+	}
+	for _, ss := range c.api.StreamServers {
+		for _, fn := range ss.Funcs {
+			site := fmt.Sprintf("%s: stream_server %s.%s", fn.Pos, ss.Name, fn.Name)
+			for _, p := range fn.Params {
+				if containsMap(p.Type) {
+					c.errf(site, onlyWatch)
+				}
+			}
+			if fn.Return != nil && containsMap(*fn.Return) {
+				c.errf(site, onlyWatch)
+			}
+		}
+	}
 }
 
 // checkNullableElements rejects `[]T?` and `[N]T?`.
@@ -65,11 +152,13 @@ func (c *checker) checkNullableElements() {
 	var walk func(site string, t ast.TypeRef)
 	walk = func(site string, t ast.TypeRef) {
 		switch t.Kind {
-		case ast.TypeSlice, ast.TypeArray:
+		case ast.TypeSlice, ast.TypeArray, ast.TypeMap:
 			if t.Elem == nil {
 				return
 			}
 			if t.Elem.Nullable {
+				// For a map the same reasoning holds one step earlier: a
+				// missing key already expresses absence.
 				c.errf(site, "nullable element type %q inside a collection: the `?` binds to the "+
 					"element, not the collection. A nil/empty collection already expresses "+
 					"absence — drop the `?`", t.Elem.Name)
@@ -401,7 +490,7 @@ func (c *checker) knownTypeNames() map[string]bool {
 // named type.
 func (c *checker) checkTypeRef(site string, t ast.TypeRef, known map[string]bool) {
 	switch t.Kind {
-	case ast.TypeArray, ast.TypeSlice:
+	case ast.TypeArray, ast.TypeSlice, ast.TypeMap:
 		if t.Elem != nil {
 			c.checkTypeRef(site, *t.Elem, known)
 		}
