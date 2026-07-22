@@ -47,8 +47,15 @@ func (s *Server) AddWebApps(webappDir string) {
 			}
 
 			// Check if the file exists. If not, serve index.html (SPA fallback).
+			//
+			// It has to be served directly, not by rewriting the URL to
+			// .../index.html: http.FileServer redirects any request whose path
+			// ends in "index.html" back to "./", which made every deep link
+			// (e.g. /app/hmi/settings/network on a hard refresh) bounce between
+			// the rewrite and the redirect until the client gave up.
 			if _, err := os.Stat(filepath.Join(appDir, relPath)); os.IsNotExist(err) {
-				r.URL.Path = prefix + "index.html"
+				http.ServeFile(w, r, filepath.Join(appDir, "index.html"))
+				return
 			}
 
 			http.StripPrefix(prefix, fileServer).ServeHTTP(w, r)

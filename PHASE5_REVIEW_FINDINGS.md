@@ -12,7 +12,8 @@ Tier-2 adversarial review, 2026-07-22, of the Phase-5 modules that the
 | `cmd/halsampler`, `cmd/halstreamer` | 146+142 | 0 % (end-to-end via `tests/ws-stream`) |
 
 The network half (`apiserver`/`halrest`/`inirest`/`mqttbridge`/`halscope`) is in
-`NETWORK_MODULES_REVIEW_FINDINGS.md`; its open tail is N7 and N9.
+`NETWORK_MODULES_REVIEW_FINDINGS.md`; its open tail is N9 (N7 and the U/FP
+coverage gap closed 2026-07-22).
 
 **Lenses applied.** The same untrusted-wire lens as the network pass — all four
 service IDLs (`persist.gmi`, `tooltable.gmi`, `emccalib.gmi`, `halscope.gmi`) are
@@ -298,9 +299,11 @@ for the recommended fix below.
 - **Out of scope:** `emcio.GetStatus` (its consumer situation is untraced; it can
   be argued on its own merits later) and the `@returns_value` contracts, which
   stay as they are.
-- **Sequencing:** *after* the Phase-5 remainder — the network half's `U`/`FP`
-  tail (halrest and mqttbridge at 0 % coverage, halscope 4.1 %, apiserver
-  45.6 %) and N7/N9. G-1/G-2 then gets its own session.
+- **Sequencing:** *after* the Phase-5 remainder. The network half's `U`/`FP`
+  tail and N7 **closed 2026-07-22** (halrest 0 → 87.1 %, mqttbridge 0 → 86.8 %,
+  halscope 4.1 → 91.3 %, apiserver 45.6 → 96.2 %; two new bugs N10/N11 found and
+  fixed — see `NETWORK_MODULES_REVIEW_FINDINGS.md`). Only N9 (connection cap —
+  policy) is left. G-1/G-2 then gets its own session.
 - Because the conversion touches `ioControl_v2.c`, which is on the tool-change
   path, it owes a **full runtests round**, not the per-module fast gate.
 

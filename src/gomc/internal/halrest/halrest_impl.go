@@ -4,6 +4,7 @@ package halrest
 
 import (
 	"fmt"
+	"strings"
 
 	halcmdapi "github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmd"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halcmd"
@@ -226,7 +227,10 @@ func (h *halcmdImpl) GetStatus() (*halcmdapi.HalStatus, error) {
 		return nil, err
 	}
 	return &halcmdapi.HalStatus{
-		RtLock:     st.LockLevel != "NONE",
+		// halcmd renders the unlocked state as the lower-case "none" (see
+		// lockLevelName); comparing against "NONE" made RtLock report true on
+		// every call, so an HMI could never see HAL as unlocked.
+		RtLock:     !strings.EqualFold(st.LockLevel, "none"),
 		Components: int32(len(result.Comps)),
 		Pins:       int32(len(result.Pins)),
 		Signals:    int32(len(result.Signals)),
