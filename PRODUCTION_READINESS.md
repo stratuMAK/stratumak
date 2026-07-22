@@ -891,7 +891,7 @@ exercised against real pins rather than around them.
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | internal/ngcpreview (+ gcode.py adapter) | 1302/0 → +tests | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
-| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ✅ | — | — | ☐ | ☐ |
+| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ✅ | — | — | — | ☐ |
 | internal/pyvcpmodule | 1585/555 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
 | lib/python/gmi (classic `linuxcnc` API shim) | 2098/0 (+py contract tests) | 2 | — | ✅ | ✅ | ✅ | — | ✅ | ☐ |
 | webapps ×5 (`src/webapp/`, excl. classicladder) | 7103/0 (Vue/TS) | 2 (write paths) / 3 (display) | ◐ | ☐ | ☐ | ☐ | — | ☐ | ☐ |
@@ -1016,7 +1016,12 @@ but severe consequence). **A-9** ruled: `loadusr` is dead, the integrated MTC
 poller is authoritative; the `loadusr manualtoolchange_ui` lines in shipped
 configs are unmigrated content for the deferred config-migration effort —
 interim double dialog accepted. No automated AXIS test exists (Tk GUI — `U`
-n/a), runtests cover the shim/served contracts.
+and `FP` n/a by automation): the underlying fault contracts are tested one
+layer down (Go contract tests, `tests/gmi-shim`, `genpreview_test.go`), and
+the AXIS-side fault handling has an 8-point **manual smoke checklist in the
+findings doc, to be executed at the human `S` sign-off** (refusal→
+notification, server death/reconnect, partial preview + error line,
+confirm-failure re-arm, ghost-jog guard, multi-axis jog release).
 
 ### Deferred / frozen
 

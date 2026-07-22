@@ -126,6 +126,36 @@ out of scope.
   behavior. The 1 s poll latency (classic 100 ms) stays a LOW note for
   the same migration pass.
 
+## Fault-path verification (FP column)
+
+No automated fault-path suite is possible for this row: axis.py is a
+monolithic Tk script (importing it launches the GUI), the same reason `U` is
+n/a. The underlying fault contracts ARE automatically tested one layer down —
+refusal→HTTPError with reason (Go contract tests, `gomc_test`), shim
+reconnect/retry (`tests/gmi-shim`), preview partial-geometry/error-line/bounds
+(`genpreview_test.go`). The AXIS-side handling is verified by this **manual
+smoke checklist, to be executed as part of the human `S` sign-off**:
+
+1. Refused command → notification, not traceback: with the machine unhomed,
+   issue an MDI move — the server's reason must appear in the notification
+   area (AxisCommand, A-3).
+2. `wait_complete` timeout path: pause a running program, hit a
+   wait_complete-backed action (e.g. touch-off) — notification, GUI stays
+   alive.
+3. Server death mid-session: kill gomc-server under a running AXIS — poll
+   errors on stderr, GUI responsive; restart the server — ErrorChannel/
+   MessageList reconnect (messages flow again) and poll() recovers.
+4. Preview of a file with a mid-file error — partial toolpath drawn PLUS the
+   "Near line N" dialog with the right line (N-6/N-9).
+5. Preview of a program with T1 M6 + G4 — full toolpath incl. past the tool
+   change, dwell marker at the dwell position (N-2/N-5).
+6. Tool-change confirm failure (stop the manualtoolchange comp between dialog
+   and Continue) — error surfaced AND the dialog re-appears on the next poll
+   (A-8).
+7. Ghost-jog guard: hold a jog key, open a menu with the mouse — motion stops
+   within one display cycle (A-6).
+8. Hold X and Y jogs, release Y — X keeps jogging past 2 s (A-4).
+
 ## Verified clean (by the review, no findings)
 
 Frozen-snapshot Stat: no axis code depends on live-updating attributes (every
