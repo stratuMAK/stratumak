@@ -63,6 +63,12 @@ func (l *Launcher) cleanup() {
 func (l *Launcher) doCleanup() {
 	l.logger.Info("shutting down and cleaning up LinuxCNC...")
 
+	// Close shutdownCh (idempotent) even when cleanup was reached without it —
+	// a startup error return, or halrun finishing its one-shot file. It is the
+	// signal watcher's exit condition, so this is what lets that goroutine
+	// deregister and finish instead of parking forever (L-6).
+	l.shutdown()
+
 	// Step 0 — Stop REST API server (reverse of startAPIServer).
 	l.logger.Debug("stopping REST API server")
 	l.stopAPIServer()
@@ -193,10 +199,13 @@ func (l *Launcher) doCleanup() {
 		l.logger.Debug("shutting down RTAPI app (in-process)")
 		halcmd.RtapiAppCleanup()
 	} else {
-		// HAL was never initialized — still run module cleanup if any
-		// modules were loaded before the failure.
-		l.stopCModules()
-		l.stopGoModules()
+		// HAL was never initialized — steps 2/2b above already stopped whatever
+		// was loaded before the failure; only the destroy half is still owed.
+		// (Repeating the stops here would be a second Stop() on every module,
+		// which the lifecycle contract does not allow: a Stop that closes its
+		// own stop channel — mqttbridge, milltask's mcode worker — panics with
+		// "close of closed channel" on the second call. Unreachable today, since
+		// module loading happens after hal.NewComponent, but the shape is a trap.)
 		l.destroyCModules()
 		l.destroyGoModules()
 

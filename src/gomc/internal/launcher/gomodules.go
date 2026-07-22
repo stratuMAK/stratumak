@@ -63,6 +63,12 @@ func (l *Launcher) startGoModules() error {
 
 // stopGoModules calls Stop() on all loaded Go modules in reverse order.
 // Called during cleanup before Destroy.
+//
+// There is deliberately no started-guard here (goModule has no `started` field,
+// unlike cModule): when startGoModules fails mid-loop the later modules are
+// loaded-but-not-started and must still be stopped, so gomc.Module.Stop is
+// specified to be safe without a preceding Start (see the lifecycle contract on
+// gomc.Module — every in-tree implementation was audited against it).
 func (l *Launcher) stopGoModules() {
 	l.modMu.Lock()
 	snapshot := l.goModules

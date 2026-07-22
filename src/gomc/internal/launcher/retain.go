@@ -309,6 +309,14 @@ const (
 
 	retainDefaultPollPeriod = 1000 // ms
 	retainSyncTimeout       = time.Second
+	// retainSyncSpin is how long retainSync busy-spins (Gosched) before it
+	// backs off to sleeping. The RT function clears the action flag within one
+	// servo cycle, so the healthy case never leaves the spin; the backoff only
+	// covers a stalled RT thread, where spinning for the full second would pin
+	// a CPU at 100% for no gain — including on the shutdown path, where
+	// stopRetain's final sync runs before StopThreads (L-6).
+	retainSyncSpin = 5 * time.Millisecond
+	retainSyncPoll = 500 * time.Microsecond
 )
 
 // retainInstance holds all state for the integrated retain subsystem.
@@ -455,13 +463,20 @@ func (l *Launcher) retainSync(ri *retainInstance) bool {
 	atomic.StoreUint32((*uint32)(unsafe.Pointer(&ri.state.action)), retainActionRead)
 
 	// Wait for the RT function to complete the snapshot.
-	deadline := time.Now().Add(retainSyncTimeout)
+	start := time.Now()
+	deadline := start.Add(retainSyncTimeout)
+	spinUntil := start.Add(retainSyncSpin)
 	for atomic.LoadUint32((*uint32)(unsafe.Pointer(&ri.state.action))) == retainActionRead {
-		if time.Now().After(deadline) {
+		now := time.Now()
+		if now.After(deadline) {
 			l.logger.Warn("retain: sync timeout")
 			return false
 		}
-		runtime.Gosched()
+		if now.After(spinUntil) {
+			time.Sleep(retainSyncPoll)
+		} else {
+			runtime.Gosched()
+		}
 	}
 
 	return atomic.LoadUint32((*uint32)(unsafe.Pointer(&ri.state.action))) == retainActionStore

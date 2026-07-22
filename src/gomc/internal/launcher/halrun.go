@@ -22,9 +22,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"unsafe"
 
 	hal "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
@@ -73,13 +71,7 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 	}()
 
 	// Trap SIGINT/SIGTERM for an ordered shutdown.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		l.logger.Info("received signal, shutting down", "signal", sig)
-		l.shutdown()
-	}()
+	l.watchSignals()
 
 	// Bring up the realtime + HAL environment (subset of Run(), no INI).
 	l.rtMgr = realtime.New(l.logger)

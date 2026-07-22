@@ -478,18 +478,47 @@ pidfile, unlocked — same PID, low severity). The concurrency exposure is conce
   Mutation-verified `-race` regression `TestLoadRace` + gate test `TestShutdownGate`
   (`loadunload_race_test.go`) — HAL-free (Go-module path); the real cmod `gomc_ini_get` re-entrancy
   is exercised by the nightly `-race` runtests load/unload cycle.
-- **L-4 (LOW, documented):** `stopGoModules`/`unloadGoModule` call `Module.Stop()` without a
-  started-guard (goModule has no `started` field). Internally consistent (both paths do it), so
-  only a bug if `gomc.Module.Stop()` is unsafe without a prior `Start()`; verify the interface
-  contract, then either document it or add symmetric `started` tracking.
-- **L-5 / L-6 (LOW):** `l.apiServer` field write/read is unsynchronised (safe only under the
-  current start-before-stop ordering; would race if runtime restart is added); the signal-handler
-  goroutine + `signal.Notify` are never `Stop()`d (orphaned goroutine + leaked registration —
-  harmless for a process that then exits, matters only if a `Launcher` is constructed twice in one
-  process, e.g. tests). `retainSync`'s 1s busy-wait can delay shutdown by up to 1s if the servo
-  thread stalls.
-Verified: vet clean, build ./launcher + ./daemon green, `go test -race ./launcher/...` green.
-Row → L R F ✅ (L-3 fixed 2026-07-21); `U`/`FP`/`S` pending (L-4 contract check + L-5/L-6 + human sign).
+- **L-4 (contract, RESOLVED 2026-07-22 — documented, no code change):** `stopGoModules`/
+  `unloadGoModule` call `Module.Stop()` without a started-guard (goModule has no `started` field,
+  unlike cModule). The guard is *not* the fix: when `startGoModules` fails mid-loop the remaining
+  modules are loaded-but-not-started and still must be stopped, so Stop-without-Start is the
+  intended contract. All 17 in-tree implementations were audited against it — 7 are `Stop() {}`
+  no-ops and every live one already guards its teardown (`halscope.saverStarted`,
+  `stress_gc.startedOK` — whose comment states the contract verbatim —, classicladder's modbus
+  `running` flags, milltask's `mon.stopCh`-nil / `seqAbort`-nil / `poslog.running` guards +
+  a constructor-started mcode worker, ADS's nil-listener + `stopOnce`, mqtt's constructor-made
+  `stopCh`). Written down where implementers will read it: the lifecycle contract now lives on
+  `gomc.Module` (factory completeness, Stop-without-Start, at-most-once Stop, Stop-before-Destroy)
+  with the launcher's no-guard rationale on `stopGoModules`. Test: `TestStopGoModules_WithoutStart`.
+- **L-7 (latent double-Stop, FIXED 2026-07-22 — found while closing L-4):** `doCleanup`'s
+  `halComp == nil` branch (startup failed before HAL init) re-ran `stopCModules`/`stopGoModules`,
+  which steps 2/2b had already run unconditionally — a **second `Stop()` on every loaded module**,
+  which the contract above forbids and which panics `close of closed channel` for any module whose
+  Stop closes its own channel (mqttbridge, milltask's mcode worker). Unreachable today (module
+  loading happens after `hal.NewComponent`), but it is the trap the contract exists to prevent.
+  The branch now only owes the destroy half. Mutation-verified test
+  `TestDoCleanup_HALUninitialized_StopsModulesOnce` (restoring the duplicate call panics it).
+- **L-5 (FIXED 2026-07-22):** `l.apiServer` is now guarded by a dedicated `apiMu` with an
+  `apiServerRef()` accessor; `stopAPIServer` takes the server *out* of the field under the lock and
+  runs the 2 s `Shutdown` outside it, so a second or concurrent caller cannot shut the same
+  instance down twice, and `startAPIServer` configures/serves one captured local instead of
+  re-reading the field. The old code was safe only by call ordering — precisely what a future
+  runtime-restart path would break. `-race` test `TestStopAPIServer_IdempotentAndConcurrent`
+  (mutation-verified: reverting the accessor reports a DATA RACE).
+- **L-6 (FIXED 2026-07-22):** the signal watcher (duplicated in `Run` and `RunHalFile`) blocked on
+  a bare `<-sigCh` forever, so it outlived the shutdown it watched for and left `signal.Notify`
+  delivering into a channel nobody reads — a leaked goroutine + runtime signal registration per
+  `Launcher`. Both copies now call one `watchSignals()` helper that also selects on `shutdownCh`
+  and `signal.Stop`s on the way out, and `doCleanup` closes `shutdownCh` (idempotent) so a startup
+  error return or a one-shot halrun releases the watcher too. Tests
+  `TestWatchSignals_ExitsOnShutdown` + `TestDoCleanup_ReleasesSignalWatcher` (both mutation-verified).
+  `retainSync`'s busy-wait now spins for 5 ms and then backs off to 500 µs sleeps: the RT function
+  clears the flag within one servo cycle, so the healthy path is unchanged, but a stalled RT no
+  longer pins a CPU at 100 % for the full 1 s timeout (the shutdown-path final sync included).
+Verified: build ./... green, vet clean, `go test -race ./launcher/... ./pkg/gomc/...` green,
+`make gomc-lint-full` 0 issues, `make gomc-fmt-check` clean.
+Row → L R F RC ✅ (all L-1…L-7 closed); `U` ◐ (lifecycle/shutdown paths now covered; `cmodules.go`,
+`retain.go`, `unload.go`, `halrun.go` still thin), `FP` ◐, `S` pending human sign.
 
 ### Phase 2 — field I/O (drives real iron; highest risk per untested line)
 
@@ -580,7 +609,7 @@ bug in `pdos`/`cstruct`/`xml`); Tier-1 hotspot #3 is substantially closed (see i
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/launcher | 2599/237 | 1 | ✅ | ✅ | ◐ | ◐ | ✅ | ◐ | ☐ |
+| internal/launcher | 2599/415 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ☐ |
 | internal/daemon | 157/0 | 1 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
 | cmd/gomc-server | 266/0 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
 | internal/config | 86/37 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
@@ -982,6 +1011,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-22 | **Launcher LOW-findings tail closed (Phase 3, Tier-1 hotspot #4) — row `F` ✅.** **L-4** resolved as a *contract*, not a guard: `stopGoModules`/`unloadGoModule` deliberately call `Stop()` without a started-flag, because a mid-loop `startGoModules` failure leaves later modules loaded-but-not-started and they still must be stopped. Audited all 17 in-tree `gomc.Module` implementations against it (7 no-op Stops; every live one already guards — halscope `saverStarted`, stress_gc `startedOK`, classicladder modbus `running`, milltask nil/running guards + constructor-started mcode worker, ADS nil-listener+`stopOnce`, mqtt constructor-made `stopCh`) and wrote the lifecycle contract onto `gomc.Module` (factory completeness, Stop-without-Start, at-most-once Stop, Stop-before-Destroy) with the launcher rationale on `stopGoModules`. **L-7 (new, found while closing L-4):** `doCleanup`'s `halComp == nil` branch re-ran `stopCModules`/`stopGoModules` after steps 2/2b already had — a **second `Stop()` on every module**, which panics `close of closed channel` for mqttbridge / milltask's mcode worker; unreachable today (loading happens after HAL init) but exactly the trap the contract forbids — branch now owes only the destroys. **L-5:** `apiServer` guarded by `apiMu` + `apiServerRef()`; `stopAPIServer` removes the server from the field under the lock and runs the 2 s `Shutdown` outside it (no double-shutdown, no torn read when a restart path is added). **L-6:** the signal watcher — duplicated in `Run` and `RunHalFile` — blocked on a bare `<-sigCh` forever, leaking a goroutine + `signal.Notify` registration per Launcher; one `watchSignals()` helper now also selects on `shutdownCh` and `signal.Stop`s on exit, and `doCleanup` closes `shutdownCh` so an error return / one-shot halrun releases it too; `retainSync` spins 5 ms then backs off to 500 µs sleeps instead of burning a CPU for the full 1 s timeout. 5 regression tests (`lifecycle_test.go`), **all four mutation-verified** (duplicate stop → panic; blocking watcher → 2 s timeout ×2; unsynchronised field → `-race` DATA RACE). build/vet green, `-race` green, `make gomc-lint-full` 0, `gomc-fmt-check` clean. Row → L R F RC ✅; `U`/`FP` ◐, `S` open. |
 | 2026-07-09 | milltask review closed, merged (PR #248) |
 | 2026-07-11 | This document created |
 | 2026-07-15 | Tool-change/lifecycle porting sweep complete (`MILLTASK_LIFECYCLE_SWEEP.md`): 13 gaps fixed across milltask/canon/interp/iocontrol/tooltable, 17 tests un-xfailed (G43 Hn, tool tracking, M61, RANDOM_TOOLCHANGER, TOOL_CHANGE_POSITION, abort modal-state restore via restore_from_tag, g5x desync, tool_from_pocket in stat) |

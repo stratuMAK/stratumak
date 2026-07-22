@@ -73,10 +73,17 @@ type Launcher struct {
 	// //export callbacks append to the arena synchronously on the loading
 	// goroutine during cmod_call_new/init, so holding it across that call would
 	// self-deadlock. Nesting only ever goes modMu ⊃ arenaMu, never the reverse.
-	arenaMu      sync.Mutex
-	cModArena    []unsafe.Pointer  // arena-tracked C strings freed in destroyCModules
-	logRing      *gomcLogRing      // shared log ring buffer for C module FIFO logging
-	retain       *retainInstance   // integrated retain subsystem (nil if unused)
+	arenaMu   sync.Mutex
+	cModArena []unsafe.Pointer // arena-tracked C strings freed in destroyCModules
+	logRing   *gomcLogRing     // shared log ring buffer for C module FIFO logging
+	retain    *retainInstance  // integrated retain subsystem (nil if unused)
+	// apiMu guards apiServer. Today create/start/stop all run on the startup
+	// goroutine and the serve goroutine only ever touches a captured local, so
+	// the field is ordered by construction — but "safe because of the current
+	// call order" is exactly what breaks when a runtime restart or a second
+	// stop path is added (L-5). The lock is never held across ListenAndServe
+	// or Shutdown, only around the field access.
+	apiMu        sync.Mutex
 	apiServer    *apiserver.Server // REST API server for halcmd and external tools
 	shutdownCh   chan struct{}     // closed by signal handler to unblock wait
 	shutdownOnce sync.Once         // ensures shutdownCh is closed exactly once
@@ -165,16 +172,7 @@ func (l *Launcher) Run() (runErr error) {
 
 	// M7: Trap SIGINT and SIGTERM so that Ctrl-C triggers an ordered shutdown
 	// instead of an abrupt process exit that leaves HAL loaded.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		l.logger.Info("received signal, shutting down", "signal", sig)
-		// Signal the main wait loop to unblock so that the deferred
-		// cleanup runs through the normal exit path.  Calling os.Exit()
-		// here would race with C plugin destructors causing segfaults.
-		l.shutdown()
-	}()
+	l.watchSignals()
 
 	l.logger.Info("parsing INI file", "path", l.opts.IniFile)
 	ini, err := inifile.Parse(l.opts.IniFile)
@@ -433,6 +431,40 @@ func (l *Launcher) fail(err error) {
 	}
 	l.fatalMu.Unlock()
 	l.shutdown()
+}
+
+// watchSignals traps SIGINT/SIGTERM and triggers the ordered shutdown.
+//
+// The watcher owns its registration for its whole life: it exits on the first
+// signal OR when shutdownCh closes for any other reason (a fatal error, halrun
+// finishing its file), and deregisters sigCh on the way out. Blocking on a bare
+// <-sigCh instead would leave the goroutine parked forever with signal.Notify
+// still delivering into a channel nobody reads — harmless for a process that
+// then exits, but it leaks a goroutine plus a runtime signal registration per
+// Launcher, which matters as soon as two are constructed in one process, e.g.
+// in tests (L-6).
+//
+// The returned channel is closed once the watcher has exited and deregistered;
+// production callers ignore it, tests use it to join.
+func (l *Launcher) watchSignals() <-chan struct{} {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer signal.Stop(sigCh)
+		select {
+		case sig := <-sigCh:
+			l.logger.Info("received signal, shutting down", "signal", sig)
+			// Signal the main wait loop to unblock so that the deferred
+			// cleanup runs through the normal exit path.  Calling os.Exit()
+			// here would race with C plugin destructors causing segfaults.
+			l.shutdown()
+		case <-l.shutdownCh:
+			// Shutdown already under way — stop listening.
+		}
+	}()
+	return done
 }
 
 // shutdown signals the main wait loop to unblock.  Called from the signal

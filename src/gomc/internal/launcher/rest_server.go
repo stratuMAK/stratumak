@@ -49,10 +49,22 @@ func (l *Launcher) createAPIServer() {
 		return
 	}
 
-	l.apiServer = apiserver.NewServer(reg, addr)
-	l.apiServer.SetLogger(l.logger)
-	l.apiServer.SetWSOriginPatterns(l.resolveWSOriginPatterns())
-	apiserver.SetDefaultServer(l.apiServer)
+	srv := apiserver.NewServer(reg, addr)
+	srv.SetLogger(l.logger)
+	srv.SetWSOriginPatterns(l.resolveWSOriginPatterns())
+
+	l.apiMu.Lock()
+	l.apiServer = srv
+	l.apiMu.Unlock()
+
+	apiserver.SetDefaultServer(srv)
+}
+
+// apiServerRef returns the current API server (nil if none), read under apiMu.
+func (l *Launcher) apiServerRef() *apiserver.Server {
+	l.apiMu.Lock()
+	defer l.apiMu.Unlock()
+	return l.apiServer
 }
 
 // resolveWSOriginPatterns returns the WebSocket Origin allow-list, from the
@@ -81,10 +93,14 @@ func (l *Launcher) resolveWSOriginPatterns() []string {
 // The listen address is read from [GMC]REST_ADDR in the INI file,
 // defaulting to "127.0.0.1:5080".
 func (l *Launcher) startAPIServer() {
-	if l.apiServer == nil {
+	if l.apiServerRef() == nil {
 		l.createAPIServer()
 	}
-	if l.apiServer == nil {
+	// Everything below configures and serves this one instance; a concurrent
+	// stopAPIServer() nils the field, so hold the reference in a local rather
+	// than re-reading it (that is also what the serve goroutine closes over).
+	srv := l.apiServerRef()
+	if srv == nil {
 		return
 	}
 
@@ -94,7 +110,7 @@ func (l *Launcher) startAPIServer() {
 		watchReg = apiserver.NewWatchRegistry()
 		apiserver.SetDefaultWatchRegistry(watchReg)
 	}
-	l.apiServer.AddWatchEndpoint(watchReg)
+	srv.AddWatchEndpoint(watchReg)
 
 	// Register halcmd watch functions (live pin/signal value streaming).
 	// [HAL]WATCH_INTERVAL overrides the default 100ms push rate.
@@ -111,17 +127,14 @@ func (l *Launcher) startAPIServer() {
 	// Serve web applications from share/gomc/webapp/<app>/
 	if config.EMC2WebAppDir != "" {
 		l.logger.Info("configuring web apps", "dir", config.EMC2WebAppDir)
-		l.apiServer.AddWebApps(config.EMC2WebAppDir)
+		srv.AddWebApps(config.EMC2WebAppDir)
 	} else {
 		l.logger.Warn("EMC2WebAppDir not set, web apps disabled")
 	}
 
 	addr := l.resolveRESTAddr()
-	l.apiServer.SetAddr(addr)
+	srv.SetAddr(addr)
 
-	// Capture the server in a local so that a concurrent stopAPIServer() (which
-	// nils l.apiServer during shutdown) cannot cause a nil dereference here.
-	srv := l.apiServer
 	go func() {
 		l.logger.Info("starting REST API server", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil {
@@ -142,13 +155,19 @@ func (l *Launcher) startAPIServer() {
 
 // stopAPIServer gracefully shuts down the REST API server.
 func (l *Launcher) stopAPIServer() {
-	if l.apiServer == nil {
+	// Take the server out of the field first, so a second caller (or a future
+	// restart path) cannot shut the same instance down twice; the 2s Shutdown
+	// then runs without apiMu held.
+	l.apiMu.Lock()
+	srv := l.apiServer
+	l.apiServer = nil
+	l.apiMu.Unlock()
+	if srv == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := l.apiServer.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(ctx); err != nil {
 		l.logger.Debug("REST API server shutdown error", "error", err)
 	}
-	l.apiServer = nil
 }
