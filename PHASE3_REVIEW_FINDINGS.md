@@ -97,13 +97,22 @@ so the module's `init()`/`loadrt` registration never ran and it vanished at runt
 test files would be discovered as a `gomod` entry → blank import → hard `go build` failure
 ("no non-test Go files"). Now both skip `_test.go`.
 
-### Not fixed (documented)
-- **F3 (dead code, LOW):** `ReadFile`/`WriteFile`/`Remove` have no callers; `WriteFile`'s
-  round-trip is lossy (drops `@GOMOD:TAG@` markers and comments). Left in place as a
-  coherent API; latent only — flag before wiring `WriteFile` to `ReadConfIn`.
-- **hasInitFunc** still uses a raw-byte regex that could match `func init()` inside a
-  comment/string in a generated file (unlikely in gofmt'd output) — LOW, not worth a
-  go/parser dependency.
+### F3 (dead code, LOW — REMOVED 2026-07-22)
+`ReadFile`, `(*Registry).WriteFile` and `(*Registry).Remove` had **no callers anywhere**
+(`cmd/modcompile` uses only `ReadConfIn` / `Add` / `GenerateImports` / `Discover*` /
+`ParseBuildFlags`), and `WriteFile`'s round-trip was **lossy**: it dropped the
+`@GOMOD:TAG@` build-flag markers and every comment that `ReadConfIn` exists to interpret.
+Keeping a lossy writer next to a marker-aware reader is a live trap — the first caller who
+wires the two together silently strips every conditional-build marker from `packages.conf`,
+i.e. drops optional modules from the build with a green compile. Deleted (the package is
+`internal/`, so no out-of-tree importer can exist; same disposition as pkg/hal H-2).
+
+### hasInitFunc regex (LOW — reviewed, no change)
+The pattern is already line-anchored (`(?m)^func init\(\)`), so a mention in a comment or
+an ordinary string cannot match; only a raw string literal containing a line that itself
+begins with `func init()` could, in gofmt'd *generated* code. Not worth a `go/parser`
+dependency — which would additionally have to decide what a syntactically invalid file
+means for discovery. Rationale recorded at the regex.
 
 ---
 
