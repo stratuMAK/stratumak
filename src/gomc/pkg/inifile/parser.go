@@ -197,6 +197,20 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 //     No shipped config uses ';' as an inline comment; ';'-separated MDI
 //     commands are common, so this matches both the C parser and real configs.
 func stripInlineComment(s string) string {
+	value, _ := SplitInlineComment(s)
+	return value
+}
+
+// SplitInlineComment splits a value string into the value proper and its
+// trailing inline comment, applying exactly the rule documented on
+// stripInlineComment. comment is "" when there is none, and otherwise starts
+// with the whitespace that preceded the '#', so value+comment reconstructs the
+// input apart from whitespace trimmed from the end of value.
+//
+// Exported so that code which *rewrites* an INI line (emccalib's save-back)
+// splits at the same boundary the parser reads at, instead of carrying a second
+// copy of the rule that can drift from this one.
+func SplitInlineComment(s string) (value, comment string) {
 	minIdx := len(s)
 	for _, prefix := range []string{" #", "\t#"} {
 		if idx := strings.Index(s, prefix); idx >= 0 && idx < minIdx {
@@ -204,9 +218,9 @@ func stripInlineComment(s string) string {
 		}
 	}
 	if minIdx < len(s) {
-		s = strings.TrimRight(s[:minIdx], " \t")
+		return strings.TrimRight(s[:minIdx], " \t"), s[minIdx:]
 	}
-	return s
+	return s, ""
 }
 
 // --------------------------------------------------------------------------
