@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
+	"path/filepath"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // mockMotion implements MotionController for testing.
@@ -530,6 +533,17 @@ func TestSpindle_BroadcastAndRange(t *testing.T) {
 }
 
 func TestProgramOpen_AnyModeAnyState(t *testing.T) {
+	// program_open resolves the filename against the program directories
+	// before the interpreter sees it, so the test needs a resolver and real
+	// files (see internal/pathres).
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	for _, name := range []string{"test.ngc", "test2.ngc"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("M2\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
 	task, _, _ := newTestTask()
 	bringUp(t, task)
 

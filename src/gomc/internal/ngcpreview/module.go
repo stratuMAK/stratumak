@@ -783,7 +783,6 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ngcpreview"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
-	"github.com/sittner/linuxcnc/src/gomc/internal/config"
 	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -844,8 +843,12 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 		linearUnits = parseLinearUnits(nsIni.Get("TRAJ", "LINEAR_UNITS"))
 		iniDir = filepath.Dir(ini.SourceFile())
 	}
-	// Build allowed directories for get_file path restriction
-	allowedDirs := collectAllowedDirs(nsIni, iniDir)
+	// Allowed G-code directories for the get_file/gen_preview path restriction.
+	var iniGet func(string, string) string
+	if nsIni != nil {
+		iniGet = nsIni.Get
+	}
+	allowedDirs := pathres.ProgramDirs(iniGet, iniDir)
 	m := &ngcPreview{logger: logger, name: name, linearUnits: linearUnits, ttInstanceName: ttInst, persistInstanceName: persistInst, allowedDirs: allowedDirs}
 	if err := ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m); err != nil {
 		return nil, fmt.Errorf("ngcpreview: register API: %w", err)
@@ -1141,60 +1144,6 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	result.Plane = int32(ctx.plane)
 
 	return result, nil
-}
-
-// collectAllowedDirs builds the whitelist of directories from which get_file
-// may serve files. Directories are resolved to absolute paths.
-func collectAllowedDirs(ini *inifile.IniFile, iniDir string) []string {
-	var dirs []string
-	resolve := func(p string) string {
-		if p == "" {
-			return ""
-		}
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(iniDir, p)
-		}
-		// EvalSymlinks resolves ".." and symlinks
-		if abs, err := filepath.EvalSymlinks(p); err == nil {
-			return abs
-		}
-		// Fall back to Abs if the dir doesn't exist yet
-		abs, _ := filepath.Abs(p)
-		return abs
-	}
-
-	// ini is nil in an INI-less launcher; only the system share dir below is
-	// then allowed.
-	if ini != nil {
-		// [DISPLAY] PROGRAM_PREFIX — the NC_FILES directory
-		if pp := ini.Get("DISPLAY", "PROGRAM_PREFIX"); pp != "" {
-			if d := resolve(pp); d != "" {
-				dirs = append(dirs, d)
-			}
-		}
-		// [RS274NGC] SUBROUTINE_PATH — colon-separated list
-		if sp := ini.Get("RS274NGC", "SUBROUTINE_PATH"); sp != "" {
-			for _, p := range strings.Split(sp, ":") {
-				p = strings.TrimSpace(p)
-				if d := resolve(p); d != "" {
-					dirs = append(dirs, d)
-				}
-			}
-		}
-	}
-	// [FILTER] PROGRAM_EXTENSION lines define filtered file types;
-	// the filtered output typically goes to a tempdir, but we allow
-	// the PROGRAM_PREFIX which already covers it.
-
-	// System share directory (contains splash screen NGC files, etc.)
-	if config.EMC2Home != "" {
-		shareDir := filepath.Join(config.EMC2Home, "share")
-		if d := resolve(shareDir); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-
-	return dirs
 }
 
 // resolveProgramPath resolves a G-code path with the shared resolver

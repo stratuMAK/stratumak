@@ -18,6 +18,8 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emcerror"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motctl"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // TaskState represents the machine state (estop, on, etc.)
@@ -408,7 +410,10 @@ type Task struct {
 	// Program state
 	programFile string
 	programOpen bool
-	previewSeq  int32 // increments on changes that invalidate preview
+	// programRes resolves G-code paths against the program directories
+	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
+	programRes *pathres.Resolver
+	previewSeq int32 // increments on changes that invalidate preview
 
 	// Sequencer
 	interpQueue chan QueuedCmd

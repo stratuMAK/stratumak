@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // TestNewNgcPreview_NilIni pins the nil-INI guard.  The launcher passes
@@ -39,13 +40,12 @@ func TestNewNgcPreview_NilIni(t *testing.T) {
 	}
 }
 
-// TestCollectAllowedDirs_NilIni covers the allow-list builder directly: with no
-// INI there are no PROGRAM_PREFIX / SUBROUTINE_PATH entries to add.
-func TestCollectAllowedDirs_NilIni(t *testing.T) {
-	withIniDir := collectAllowedDirs(nil, t.TempDir())
-	for _, d := range withIniDir {
+// TestProgramDirs_NilIni covers the allow-list builder directly: with no INI
+// there are no PROGRAM_PREFIX / SUBROUTINE_PATH entries to add.
+func TestProgramDirs_NilIni(t *testing.T) {
+	for _, d := range pathres.ProgramDirs(nil, t.TempDir()) {
 		if d == "" {
-			t.Error("collectAllowedDirs returned an empty entry")
+			t.Error("ProgramDirs returned an empty entry")
 		}
 	}
 }

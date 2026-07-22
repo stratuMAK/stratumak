@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,19 @@ type MotionConfig interface {
 // loadConfig reads INI sections and configures the motion controller.
 // Called once at startup from the factory.
 func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
+	// Resolver for G-code paths opened over REST (program_open).  G-code is
+	// user data, not configuration, so it gets the program directories as
+	// roots rather than the config directories.
+	iniDir := "."
+	if ini != nil && ini.SourceFile() != "" {
+		iniDir = filepath.Dir(ini.SourceFile())
+	}
+	var iniGet func(string, string) string
+	if ini != nil {
+		iniGet = ini.Get
+	}
+	t.programRes = pathres.ProgramResolver(iniGet, iniDir)
+
 	if err := loadTraj(ini, t, mc); err != nil {
 		return fmt.Errorf("traj config: %w", err)
 	}

@@ -155,11 +155,21 @@ probe map, which arrives straight off the GMI `load()` call). A17 (halparse
 `source` include) needed no change — it already resolves through
 `halfile.Executor.Resolve`, now the shared rule.
 
-**Category C — partly open.** C5 (ngcpreview) uses the shared resolver with its
-program directories as extra roots (`Resolver.WithRoots`), replacing its own
-`isAllowedPath`. **C1 `program_open` has no containment at all** and still
-needs a ruling: G-code is user data, not configuration, so the root set is a
-policy decision (`PROGRAM_PREFIX` + `SUBROUTINE_PATH` + share, as ngcpreview
-already ships, or wider). C2/C3/C4/C6 likewise open.
+**Category C — DONE.** Ruling (2026-07-22): G-code is user data, not
+configuration, so program paths get their own roots — **PROGRAM_PREFIX +
+SUBROUTINE_PATH + `<EMC2_HOME>/share`**, the set ngcpreview already shipped.
+`pathres.ProgramDirs`/`ProgramResolver` now own that definition (moved out of
+ngcpreview, which used to be its only home) on top of the shared base rule.
+- C1 `program_open` (`task/commands.go:761`) — had **no containment at all**;
+  now resolved before the interpreter sees the name. The busy check still runs
+  first, so a rejected-anyway request keeps reporting `ErrBusy`.
+- C3 classicladder `load_project`/`save_project` — config paths (Read/Write).
+- C4 `z_level_compensation load()` — resolved in the cmod at the `fopen`.
+- C5 ngcpreview — shared resolver + program roots; its `isAllowedPath` is gone.
+- C2 `load_tool_table`/`tool_load_table` — **no change needed**: both iocontrol
+  implementations are no-ops (`ioControl.c:716`, `ioControl_v2.c:971`); the
+  tooltable module owns the data and no file is opened.
+- C6 `set_parameter_file_name` — **not REST-reachable**: `canon.gmi` declares no
+  `@path`, it is the interpreter's C callback interface.
 
 **Category D** is unchanged by design — those sites must never be resolved.

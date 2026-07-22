@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // mcodeAbort signals the M-code handler worker to stop.
@@ -757,11 +759,41 @@ func (t *Task) SetMode(mode int32) error {
 	return ErrWrongMode
 }
 
+// resolveProgram resolves a G-code path against the program directories.
+//
+// The resolver is built in loadConfig, where the INI is available; a Task that
+// never loaded a config (only tests do that) falls back to the shared default
+// so the check is never silently skipped.
+func (t *Task) resolveProgram(file string) (string, error) {
+	r := t.programRes
+	if r == nil {
+		r = pathres.ProgramResolver(nil, ".")
+	}
+	if r == nil {
+		return "", fmt.Errorf("path resolver not initialised")
+	}
+	return r.Resolve(file, pathres.Read)
+}
+
 // ProgramOpen opens a G-code file for execution.
+//
+// The filename arrives over REST, so it is resolved and containment-checked
+// before the interpreter sees it.  G-code is user data rather than
+// configuration, so the allowed roots are the program directories —
+// PROGRAM_PREFIX + SUBROUTINE_PATH + <EMC2_HOME>/share — the same set
+// ngcpreview's get_file has always enforced (user ruling, 2026-07-22).
 func (t *Task) ProgramOpen(file string) error {
+	// Busy is checked first so a request that would be rejected anyway keeps
+	// reporting ErrBusy rather than a path error.
 	if err := t.preflightNotBusy("Can't open a program while one is running"); err != nil {
 		return err
 	}
+	resolved, err := t.resolveProgram(file)
+	if err != nil {
+		t.operatorError(fmt.Sprintf("can't open %s: %s", file, err))
+		return err
+	}
+	file = resolved
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
 	t.mu.Lock()
