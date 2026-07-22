@@ -265,3 +265,74 @@ func TestThreadCreateDeleteCycles(t *testing.T) {
 		t.Fatalf("final ThreadDelete: %v", err)
 	}
 }
+
+// ===== process-lifetime entry points =====
+
+// TestUnloadAllDoesNotSignalOurself covers the in-process behaviour of
+// `halcmd unload all`. The shim walks the component list and SIGTERMs the
+// *owning process* of each component whose pid is not our own; realtime
+// components in our own process are left to the cmod infrastructure. So
+// in-process it must be a no-op that leaves our components alive.
+//
+// The assertion that matters is the pid guard: if it ever inverted, the
+// launcher would SIGTERM itself on `unload all` and the controller would die.
+// A live component of ours exists here, so an inverted guard kills this test
+// binary rather than passing quietly.
+func TestUnloadAllDoesNotSignalOurself(t *testing.T) {
+	before, err := ListComponents()
+	if err != nil {
+		t.Fatalf("ListComponents: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("no components to protect — the keep-alive should be present")
+	}
+
+	if err := UnloadAll(0); err != nil {
+		t.Fatalf("UnloadAll: %v", err)
+	}
+
+	after, err := ListComponents()
+	if err != nil {
+		t.Fatalf("ListComponents after UnloadAll: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("UnloadAll changed our own component set: %v -> %v", before, after)
+	}
+	// exceptID is honoured the same way (nothing of ours is touched either way).
+	if err := UnloadAll(FindCompID("halcmd-test-keepalive")); err != nil {
+		t.Errorf("UnloadAll with an exceptID: %v", err)
+	}
+}
+
+// TestSetExactRefusedAfterBasePeriod covers the guard on
+// `setexact_for_test_suite_only`: it makes HAL treat the requested thread base
+// period as exactly achievable, which is only meaningful before any thread has
+// established one. Once a thread exists it must be refused rather than silently
+// changing timing under a running configuration.
+//
+// The other thread tests in this binary have already established a base period,
+// so this exercises the refusal. The accept path is inherently first-call-only
+// and is covered by the runtests suite, which issues it on a fresh instance.
+func TestSetExactRefusedAfterBasePeriod(t *testing.T) {
+	setPool(t, nil, false)
+
+	// Make sure a base period exists regardless of test ordering.
+	const name = "halcmd-test-setexact"
+	if err := CreateThreadCPU(name, 2_000_000, 0, -1); err != nil {
+		t.Fatalf("CreateThreadCPU: %v", err)
+	}
+	defer func() { _ = ThreadDelete(name) }()
+
+	if err := SetExact(); err == nil {
+		t.Error("SetExact after a base period was established must be refused")
+	}
+}
+
+// TestLockDLHandleNilIsSafe covers the mlock helpers' nil guard. They are
+// called from the cmod loader over every dlopen handle; a nil handle (a module
+// that failed to load) must be ignored rather than dereferenced, because this
+// runs on the load/unload path of a live controller.
+func TestLockDLHandleNilIsSafe(t *testing.T) {
+	LockDLHandle(nil)
+	UnlockDLHandle(nil)
+}
