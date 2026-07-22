@@ -444,6 +444,11 @@ func (g *clientGoGen) toGoType(t ast.TypeRef) string {
 		return "[]" + g.toGoType(*t.Elem)
 	case ast.TypeArray:
 		return fmt.Sprintf("[%d]%s", t.ArrayLen, g.toGoType(*t.Elem))
+	case ast.TypeMap:
+		// Unreachable today (the checker confines maps to watch-only returns,
+		// which isRESTCommandFunc excludes) — mapped anyway so a future caller
+		// gets a real type instead of interface{}.
+		return "map[string]" + g.toGoType(*t.Elem)
 	}
 	return "interface{}"
 }

@@ -427,6 +427,8 @@ func (g *clientTSWSGen) toTSType(t ast.TypeRef) string {
 	case ast.TypeArray:
 		elem := g.toTSType(*t.Elem)
 		return elem + "[]"
+	case ast.TypeMap:
+		return "Record<string, " + g.toTSType(*t.Elem) + ">"
 	}
 	return "unknown"
 }

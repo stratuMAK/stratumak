@@ -94,6 +94,9 @@ func (g *dispatchCGen) emitCgoPreamble() {
 		if fn.Publish {
 			continue // publish functions use ring buffers, not callbacks
 		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
+		}
 		g.emitCallWrapper(fn)
 	}
 
@@ -848,6 +851,9 @@ func (g *dispatchCGen) emitDispatchFuncs() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
+		}
 		g.emitOneDispatch(fn)
 	}
 }
@@ -1280,6 +1286,12 @@ func (g *dispatchCGen) emitMeta() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			// JSON-only watch (map return): a C provider cannot serve it, so
+			// it has no dispatch entry here. Go providers register it via
+			// RegisterXxxWatch in the bridge.
+			continue
+		}
 		dispatchName := g.api.Name + "Dispatch" + toPascalCase(fn.Name)
 		g.printf("\t\t{\n")
 		g.printf("\t\t\tName:     %q,\n", fn.Name)
@@ -1394,8 +1406,19 @@ func goTypeForDispatch(t ast.TypeRef) string {
 		return "[]" + goTypeForDispatch(*t.Elem)
 	case ast.TypeArray:
 		return fmt.Sprintf("[%d]%s", t.ArrayLen, goTypeForDispatch(*t.Elem))
+	case ast.TypeMap:
+		return "map[string]" + goTypeForDispatch(*t.Elem)
 	}
 	return "interface{}"
+}
+
+// isMapWatchFunc reports whether fn is a watch-only func returning a map.
+// Such a func is JSON-only: it exists for Go providers (WatchCallbacks +
+// RegisterXxxWatch) and on the WS wire, but has NO C ABI — the C header,
+// callbacks vtable, and C-provider dispatch all skip it. The checker
+// guarantees a map appears in no other position.
+func isMapWatchFunc(fn ast.Func) bool {
+	return fn.Watch && fn.Method == "" && fn.Return != nil && fn.Return.Kind == ast.TypeMap
 }
 
 // cgoFieldAccess returns the field name for accessing a C struct field from Go.

@@ -354,6 +354,12 @@ func (g *serverGen) emitCallbackTypedefs() {
 		if fn.Publish {
 			continue // publish functions use ring buffers, not callbacks
 		}
+		if isMapWatchFunc(fn) {
+			g.printf("// %s: watch-only, returns map[string]%s — JSON-only, no C ABI.\n",
+				toSnakeCase(fn.Name), fn.Return.Elem.String())
+			g.printf("// Servable by Go providers only (RegisterXxxWatch in the bridge).\n\n")
+			continue
+		}
 		// Direct return: function returns the declared type (or void).
 		retCType := "void"
 		if fn.Return != nil {
@@ -493,6 +499,11 @@ func (g *serverGen) emitCallbacksStruct() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			g.printf("    /* %s: JSON-only watch (map return) — no C ABI, Go providers only */\n",
+				toSnakeCase(fn.Name))
+			continue
+		}
 		fieldName := cSafeName(toSnakeCase(fn.Name))
 		g.printf("    %s_%s_fn %s;\n", g.api.Name, toSnakeCase(fn.Name), fieldName)
 	}
@@ -508,6 +519,9 @@ func (g *serverGen) emitCallbacksStruct() {
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
 			continue
+		}
+		if isMapWatchFunc(fn) {
+			continue // no vtable field to wire (JSON-only watch)
 		}
 		fieldName := cSafeName(toSnakeCase(fn.Name))
 		funcName := fmt.Sprintf("gmi_%s_%s", g.api.Name, toSnakeCase(fn.Name))

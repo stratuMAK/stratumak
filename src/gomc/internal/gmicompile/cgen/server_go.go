@@ -660,22 +660,29 @@ func (g *serverGoGen) emitWatchRegister() {
 		methodName := toPascalCase(fn.Name)
 		rate := g.parseRate(fn.WatchDefaultRate)
 
+		// @watch_delta — per-connection diff on top-level JSON keys. Emitted
+		// only when set so every existing watch registration stays byte-identical.
+		delta := ""
+		if fn.WatchDelta {
+			delta = "Delta: true, "
+		}
+
 		if g.isBinaryWatch(fn) {
 			// Binary watch — call WatchCallbacks method directly.
 			g.printf("\t\t\t{Name: %q, DefaultRate: %s, BinaryWatch: watchImpl.%s},\n",
 				fn.Name, rate, methodName)
 		} else if fn.Method == "" {
 			// Watch-only JSON — wrap WatchCallbacks method.
-			g.printf("\t\t\t{Name: %q, DefaultRate: %s, Watch: func() (json.RawMessage, error) {\n",
-				fn.Name, rate)
+			g.printf("\t\t\t{Name: %q, DefaultRate: %s, %sWatch: func() (json.RawMessage, error) {\n",
+				fn.Name, rate, delta)
 			g.printf("\t\t\t\tresult, err := watchImpl.%s()\n", methodName)
 			g.printf("\t\t\t\tif err != nil { return nil, err }\n")
 			g.printf("\t\t\t\treturn json.Marshal(result)\n")
 			g.printf("\t\t\t}},\n")
 		} else {
 			// Dual-purpose (REST + watch) — wrap Callbacks method.
-			g.printf("\t\t\t{Name: %q, DefaultRate: %s, Watch: func() (json.RawMessage, error) {\n",
-				fn.Name, rate)
+			g.printf("\t\t\t{Name: %q, DefaultRate: %s, %sWatch: func() (json.RawMessage, error) {\n",
+				fn.Name, rate, delta)
 			g.printf("\t\t\t\tresult, err := impl.%s()\n", methodName)
 			g.printf("\t\t\t\tif err != nil { return nil, err }\n")
 			g.printf("\t\t\t\treturn json.Marshal(result)\n")
