@@ -806,11 +806,11 @@ shipped `.comp` on each run, which is the stronger signal.
 | internal/inirest | 90/171 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
 | internal/mqttbridge | 873/0 | 2 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
 | internal/halscope | 1035/115 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
-| internal/persist_sqlite | 334/63 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/tooltable | 354/25 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/emccalib, internal/calibreg | 330+46/53+53 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/halstream | 94/56 | 3 | ✅ | ☐ | ☐ | ☐ | ✅ | — | ☐ |
-| cmd/halsampler, cmd/halstreamer | 146+142/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/persist_sqlite | 390/393 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
+| internal/tooltable | 450/416 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
+| internal/emccalib, internal/calibreg | 393+46/245+53 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | ✅ | ☐ |
+| internal/halstream | 125/125 | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ☐ |
+| cmd/halsampler, cmd/halstreamer | 130+131/0 | 2 | ✅ | ✅ | ✅ | — | ✅ | — | ☐ |
 
 LOC in *this* table refreshed 2026-07-22 (the rest of the matrix is still the 2026-07-11
 snapshot). Three rows had drifted out of the table body into the prose below it and are
@@ -841,6 +841,40 @@ finding is fixed — row `F` → ✅ (still no halrest code change; the fix is i
 **safety-boundary-doc** item: the REST/WS surface has **no authentication** (model is "trusted
 local origin"; non-loopback needs a proxy/auth) — tracked as a cross-cutting item, not a Phase-5
 row blocker. build/vet/gofmt clean, lint 0, `-race` green.
+
+**Services & auxiliaries (persist_sqlite/tooltable/emccalib+calibreg/halstream/halsampler+
+halstreamer) — reviewed 2026-07-22 (Tier 2, adversarial). Full findings in
+`PHASE5_REVIEW_FINDINGS.md`.** Same untrusted-wire lens (all four service IDLs are
+`@rest_export`), plus a line-by-line diff of the two file-format parsers against the C they
+replace. **Three HIGH, all fixed.** **E-1 (emccalib):** the tunable index stored
+`&e.tunables[len-1]` taken *inside* the append loop, so every pointer captured before a
+reallocation aliased an orphaned backing array — `Revert` read `iniValue` through it and kept
+restoring the process-start value no matter how often the operator saved. Now an `int` position.
+**T-1 (tooltable):** `parseTblLine` checked only `T` and `P`; every offset used the
+discarded-error form, so an unparsable field silently became `0.0` and the line still imported —
+and a zeroed **tool-length offset** is a tool driven into the work. The C does `if (!valid)
+return -1` after each `sscanf`; that is now matched, and rejected lines are logged. **T-4
+(tooltable):** `GetTool` of an unstored tool returned "unexpected end of JSON input" instead of
+the zero entry — its not-found branch matched on an error string that can never arrive (see G-1).
+Also fixed: **P-1/P-2** (persist_sqlite — REST-reachable `open` grew namespaces, fds and disk
+without bound; `delete_all`/`open` cycling grew the handle slice), **T-2** (a lowercase `.tbl`
+imported as an *empty* table; the C folds case), **T-3** (a transient read error at `Start` read
+as "empty" and replayed the legacy `.tbl` over edited offsets), **T-5/T-6** (unsynchronised
+publish + nil client in the runtime-REST-load window), **E-2/E-3/E-4/E-5** (use-after-unlock; a
+stale line number overwriting an unrelated INI key; saves destroying inline comments — the split
+rule now shared out of `pkg/inifile` as `SplitInlineComment`; hard-coded instance name),
+**S-1..S-4** (a zero-pin `cfg:` header spun halsampler forever; unbounded `ReadRaw`; halstreamer
+not skipping `#` lines; `httpToWS` duplicated). Coverage: persist_sqlite 10.3→86.0 %, tooltable
+2.1→89.0 %, emccalib 9.1→43.2 %, halstream 100 %. T-1/T-2/P-1/P-2/E-3/E-4 mutation-verified.
+build/vet/gofmt clean, `-race` green. **Open: G-1 — a GMI data-returning call cannot report
+failure** (`--client-go` emits a literal `return result, nil` for struct-returning funcs; the C
+callback returns the struct by value with no `rc` out-param, so **23** client methods across 5
+generated packages are structurally unable to signal an error, and every in-process consumer of
+`persist` is blind to storage failures). Same class as the "Surface RCS command errors to clients"
+cross-cutting item; needs a ruling before generator work starts. Note this contradicts the
+"no open gmicompile findings remain" line in the Tier-1 hotspot list — it was found by testing a
+*consumer*, not the generator. emccalib's `U` stays ◐: `GetTunables`/`SaveIni` read live HAL pins
+through `halcmd.GetP`, so only the pure logic they wrap is unit-covered.
 
 ### Phase 6 — UI-adjacent
 
@@ -1141,6 +1175,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-22 | **Phase-5 second half reviewed — the five never-reviewed modules are now `L R F RC FP` ✅** (`PHASE5_REVIEW_FINDINGS.md`). persist_sqlite / tooltable / emccalib+calibreg / halstream / halsampler+halstreamer, Tier-2 adversarial, under the network pass's untrusted-wire lens (all four service IDLs are `@rest_export`) plus a line-by-line diff of the two file-format parsers against the C they replace. **Three HIGH:** **E-1** emccalib's tunable index stored `&e.tunables[len-1]` taken inside the append loop, so pointers captured before a reallocation aliased an orphaned array — `Revert` kept restoring the process-start value however often the operator saved; **T-1** tooltable's `.tbl` parser checked only `T`/`P` and discarded every offset's parse error, so an unparsable field became `0.0` and the tool still imported (a zeroed tool-length offset is a tool driven into the work — the C rejects the whole line, and now so does this); **T-4** `GetTool` of an unstored tool failed with "unexpected end of JSON input" because its not-found branch matched an error string that cannot arrive. Also fixed: P-1/P-2 (REST-reachable `open` grew namespaces/fds/disk without bound; `delete_all`+`open` cycling grew the handle slice), T-2 (a lowercase `.tbl` imported as an empty table), T-3 (a transient read error replayed the legacy `.tbl` over edited offsets), T-5/T-6 (unsynchronised publish + nil client in the runtime-REST-load window), E-2..E-5 (use-after-unlock; a stale line number overwriting an unrelated INI key; saves destroying inline comments — the split rule now shared out of `pkg/inifile` as `SplitInlineComment`; hard-coded instance name), S-1..S-4 (a zero-pin `cfg:` header spun halsampler forever; unbounded `ReadRaw`; halstreamer not skipping `#` lines; duplicated `httpToWS`). Coverage persist_sqlite 10.3→86.0 %, tooltable 2.1→89.0 %, emccalib 9.1→43.2 %, halstream 100 %; T-1/T-2/P-1/P-2/E-3/E-4 mutation-verified. **New open cross-cutting finding G-1:** a GMI data-returning call *cannot* report failure — `--client-go` emits a literal `return result, nil` for struct-returning funcs because the C callback returns the struct by value with no `rc` out-param, leaving 23 client methods across 5 generated packages structurally unable to signal an error and every in-process consumer of `persist` blind to storage failures. Needs a ruling; same class as the RCS-error item. build/vet/gofmt clean, `-race` green. Full runtests owed at the phase checkpoint (`tests/ws-stream`, `configs/sim/axis/multiinst`, any config with a legacy `.tbl`). |
 | 2026-07-22 | **Phase-5 matrix reconciled before starting the phase.** Three bookkeeping corrections, no code: (1) **N6 marked closed** — it was only ever the *reachability* half of launcher L-3 ("halrest's REST load/unload makes the unlocked module-slice race remotely reachable"), and L-3's full locking fix landed 2026-07-21, so halrest owes nothing further; row `F` `—` → ✅, and both the findings doc's "Still open" line and the auth cross-cutting item ("now the highest-priority open Tier-1/L item") were still claiming it open. (2) **`internal/persist_sqlite`/`tooltable`/`emccalib`+`calibreg` had drifted out of the table body** into the prose paragraph beneath it, where they render as literal pipe-text — the three never-reviewed modules were the easiest rows in the document to miss. Moved back in. (3) **New row `internal/halstream`** (94/56, Tier 3): factored out of halsampler/halstreamer by the 2026-07-21 codegen-duplication audit and never added. Phase-5 LOC refreshed to 2026-07-22 (the rest of the matrix stays the 2026-07-11 snapshot). Net remaining Phase-5 work after this: N7/N9 + the `U`/`FP` tail on the network half (halrest and mqttbridge are at 0 % coverage, halscope 4.1 %, apiserver 45.6 %), and a full Tier-2 review of the five never-reviewed modules. |
 | 2026-07-22 | **pkgreg F3 closed — dead lossy API removed.** `ReadFile`, `Registry.WriteFile` and `Registry.Remove` had no callers anywhere (modcompile uses only `ReadConfIn`/`Add`/`GenerateImports`/`Discover*`/`ParseBuildFlags`), and `WriteFile`'s round-trip **dropped the `@GOMOD:TAG@` build-flag markers and all comments** that `ReadConfIn` exists to interpret — a live trap, since the first caller wiring the two together would silently strip every conditional-build marker from `packages.conf` (optional modules vanish from the build, green compile). Deleted; `internal/` package, so no out-of-tree importer can exist (same disposition as pkg/hal H-2). The companion `hasInitFunc` note is closed no-change: the regex is already line-anchored, so a comment/string mention cannot match, and a `go/parser` dependency would have to define what an unparsable file means for discovery — rationale recorded at the regex. build/vet/test green. |
 | 2026-07-22 | **Launcher `U`/`FP` closed — row now `L R F U RC FP` ✅, only human `S` open** (237 → 898 test lines). Added the runtime-unload path (stop → unregister REST **and** watch APIs → destroy → remove from the slice; bystander untouched; a second unload is `ENOENT`, not a double Stop), the `EBUSY` dependency guard plus the two records that must NOT block it (self-reference, consumer no longer loaded), the fault paths (a mid-loop `startGoModules` failure — the scenario the Stop-without-Start contract exists for — still stops+destroys every loaded module exactly once; `fail()` keeps the FIRST error for `Run`'s return and triggers shutdown once under concurrent callers), and the config/CLI surface (REST addr precedence env > INI > loopback default, the `REST_ORIGINS` parse incl. the empty → same-origin-only N1 default, `initHalibPath`, `setConfigEnv`, the halrun tokenizer + its `loadusr`/`waitusr` rejection). **Found while writing them — L-8 (nil-HAL SIGSEGV, FIXED):** both unload paths called `halcmd.FindCompID` unconditionally, which dereferences `hal_data` (NULL before the first `hal_init`), so a runtime unload before HAL is up **segfaults** instead of erroring; the hooks are wired into halrest at the top of `Run()` before HAL init, which is what makes it reachable, and only the REST server starting later has kept it latent. Now routed through `halCompID()` (returns 0 without HAL — no HAL also means no RT functions to remove). `cmodules.go`/`retain.go` stay unit-untested by design (need a real cmod `.so` + a running RT thread; covered by runtests). build/vet/gofmt green, `-race ×3` stable, lint 0. |
