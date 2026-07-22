@@ -827,6 +827,18 @@ class LivePlotter:
             continuous_jog_in_progress = 0
             cjogindices = []
 
+        # A Tk grab (menu, combobox popdown, any nf_dialog — patient_grab
+        # retries until it wins) delivers the jog key's KeyRelease to the
+        # grabbed window, so the "."-bound jog_off never fires, and the
+        # _focusout_handler deliberately ignores in-app focus moves — the
+        # refresh below would then keep a ghost jog alive indefinitely
+        # (finding A-6). Nobody legitimately jogs THROUGH a modal grab
+        # (classic killed jogs on any FocusOut, dialogs included), so stop
+        # all jogs the moment one appears; the server dead-man remains the
+        # backstop for grab sources this misses.
+        if continuous_jog_in_progress and str(root_window.tk.call("grab", "current")):
+            jog_off_all()
+
         # Jog refresh watchdog: re-send active continuous jogs to keep
         # milltask's 2s jog dead-man from timing out. Time-based, NOT
         # cycle-counted: with [DISPLAY]CYCLE_TIME up to 0.2s a 10-cycle

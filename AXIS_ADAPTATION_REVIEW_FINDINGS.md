@@ -92,25 +92,39 @@ out of scope.
   progress/ESC-cancel restoration is deferred with N-8 (needs a streaming
   preview protocol).
 
-## Open — needs human ruling
+## Ruled 2026-07-23 (user), then fixed / closed
 
-- **A-6 MED (PLAUSIBLE) ghost jog through a lost KeyRelease.** The narrowed
-  `_focusout_handler` (deliberate: in-app focus changes must not kill jogs)
-  plus the active 0.5 s refresh can keep a jog alive if a modal grab steals
-  the KeyRelease while a key is held — classic's server-side persistence had
-  no client actively re-arming the watchdog. Proposed: suppress the refresh
-  (or jog_off_all) while a Tk grab is active / the manual tab is not the key
-  target. Not fixed — the interaction with deliberate fork behavior needs a
-  ruling.
-- **A-9 MED duplicate manual-tool-change dialogs.** axis.py auto-activates
-  its integrated MTC poller whenever the endpoint answers — which is exactly
-  when the comp is loaded — while shipped configs (rolfmill, 3axis-tutorial,
-  ethercat/swm-fm45a, stepconf/pncconf emitters) still `loadusr
-  manualtoolchange_ui`: two dialogs for one request (they do auto-dismiss on
-  the other's confirm). Product decision needed: drop the integrated poller,
-  gate it behind an INI key, or make it authoritative and strip `loadusr`
-  from AXIS-display configs + generators. Both UIs also poll at 1 s vs
-  classic 100 ms (dialog up to 1 s late) — fold into the same ruling.
+- **A-6 MED ghost jog through a lost KeyRelease — mechanics CONFIRMED,
+  FIXED.** Verified: jog keys are bound on the "." toplevel (not
+  `bind_class all`), `nf_dialog` takes a persistent grab (`patient_grab`
+  retries until it wins), and `_focusout_handler` deliberately ignores
+  in-app focus moves (`focus_get()` returns the dialog) — so a grab
+  appearing while a jog key is held swallows the KeyRelease AND the
+  focus-out path, and the 0.5 s refresh then re-arms the server dead-man
+  indefinitely. **Trigger probability: low** — it needs a key held
+  simultaneously with a grab: menubar menus or the jogincr combobox
+  popdown (one hand jogging, the other mousing — physically easy,
+  operationally odd), or a rare async modal in manual mode (the MTC
+  dialog needs an executing M6 and a jog cannot start while running;
+  another client's mode switch kills the jog server-side anyway).
+  External focus loss was already covered. Low probability x severe
+  consequence (uncommanded sustained motion, ESC also swallowed by the
+  grab, the watchdog actively defeated) → fixed regardless: the update
+  loop calls `jog_off_all()` the moment `grab current` is non-empty
+  (stop within one display cycle; classic parity — classic killed jogs
+  on ANY FocusOut, dialogs included), with the 2 s dead-man as backstop
+  for anything this misses. Residual exposure ≈ one display cycle.
+- **A-9 MED duplicate manual-tool-change dialogs — RULED, no code
+  change.** User ruling: `loadusr` is dead; the axis-integrated MTC
+  poller is the authoritative UI. The `loadusr manualtoolchange_ui`
+  lines in shipped configs (rolfmill, 3axis-tutorial,
+  ethercat/swm-fm45a, stepconf/pncconf emitters) are not-yet-migrated
+  config content — their removal belongs to the deferred
+  config-migration effort (the config-compatibility-corpus cross-cutting
+  item), not to this review. Until a config is migrated it shows two
+  dialogs (they auto-dismiss on each other's confirm) — accepted interim
+  behavior. The 1 s poll latency (classic 100 ms) stays a LOW note for
+  the same migration pass.
 
 ## Verified clean (by the review, no findings)
 

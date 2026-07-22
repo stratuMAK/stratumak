@@ -891,7 +891,7 @@ exercised against real pins rather than around them.
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | internal/ngcpreview (+ gcode.py adapter) | 1302/0 → +tests | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
-| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ◐ | — | — | ☐ | ☐ |
+| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ✅ | — | — | ☐ | ☐ |
 | internal/pyvcpmodule | 1585/555 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
 | lib/python/gmi (classic `linuxcnc` API shim) | 2098/0 (+py contract tests) | 2 | — | ✅ | ✅ | ✅ | — | ✅ | ☐ |
 | webapps ×5 (`src/webapp/`, excl. classicladder) | 7103/0 (Vue/TS) | 2 (write paths) / 3 (display) | ◐ | ☐ | ☐ | ☐ | — | ☐ | ☐ |
@@ -1008,12 +1008,15 @@ Also fixed: multi-axis jog dead-man starvation (A-4), CYCLE_TIME-scaled
 refresh reaching the 2 s watchdog (A-5), filtered-load resync clobber (A-7),
 tool-change confirm wedge (A-8), unbounded server message list (A-17, capped
 200 + test), linuxcnctop garbage row, glhelpers py_vertex9 double bug,
-motion_id highlight fallback. **Open for human ruling: A-6** (ghost jog via
-lost KeyRelease under a modal grab vs the deliberate in-app focus behavior)
-and **A-9** (duplicate manual-tool-change dialogs: integrated poller vs
-`loadusr manualtoolchange_ui` in shipped configs + stepconf/pncconf — product
-decision). `F` stays ◐ until those two are ruled; no automated AXIS test
-exists (Tk GUI — `U` n/a), runtests cover the shim/served contracts.
+motion_id highlight fallback. **Rulings closed 2026-07-23: A-6** mechanics
+confirmed (grab swallows KeyRelease AND the focus-out path; refresh re-armed
+the dead-man) and fixed — the update loop stops all jogs the moment a Tk grab
+appears (classic FocusOut parity; dead-man backstop; low-probability trigger
+but severe consequence). **A-9** ruled: `loadusr` is dead, the integrated MTC
+poller is authoritative; the `loadusr manualtoolchange_ui` lines in shipped
+configs are unmigrated content for the deferred config-migration effort —
+interim double dialog accepted. No automated AXIS test exists (Tk GUI — `U`
+n/a), runtests cover the shim/served contracts.
 
 ### Deferred / frozen
 
@@ -1344,6 +1347,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-23 | **AXIS rulings closed (user): A-6 fixed, A-9 accepted-as-interim.** A-6 (ghost jog): mechanics confirmed in code — jog keys bind on the "." toplevel, `nf_dialog`'s `patient_grab` wins a persistent grab, `_focusout_handler` deliberately ignores in-app focus moves — so a grab during a held jog key swallowed BOTH the KeyRelease and the focus-out path while the 0.5 s refresh kept re-arming the server dead-man. Probability low (needs key-hold + concurrent grab: menus/combobox popdown, or a rare async modal in manual mode), consequence severe (sustained uncommanded motion; ESC swallowed too). Fix: the update loop `jog_off_all()`s the moment `grab current` is non-empty — stop within one display cycle, classic FocusOut parity, dead-man as backstop. A-9: ruling = `loadusr` is dead, the integrated MTC poller is authoritative; `loadusr manualtoolchange_ui` in shipped configs is unmigrated content for the deferred config-migration effort (interim double dialog accepted; 1 s poll latency noted for the same pass). AXIS row `F` → ✅. |
 | 2026-07-23 | **Phase 6: ngcpreview + AXIS adaptation reviewed + fixed** (`NGCPREVIEW_REVIEW_FINDINGS.md`, `AXIS_ADAPTATION_REVIEW_FINDINGS.md`). ngcpreview: 6 HIGHs fixed — preview truncated silently at the first M6 (EXECUTE_FINISH-as-stop), dwells crashed the replay (empty preview for drilling programs), gen_preview bypassed path containment, the preview interp ran with **no INI** (new `interp_shim_set_ini_accessor` + Go bridge), unbounded segments/no deadline in the controller process (cap + `[DISPLAY]PREVIEW_TIMEOUT` + serialization + generated-py-client socket timeouts via gmicompile), partial geometry discarded on error. AXIS: **GP-16 closed** — machine_units() wrap + boundary conversions + constant-mm backplot scale (the 25.4× break was inch-only; jog velocity was also 25.4× too SLOW on inch); **correction: the 2026-07-22 claim that "bin/axis wraps gmi.Command" was false — no wrapper existed until `AxisCommand` landed in this pass** (A-3); GP-17 roffsets wired; plus multi-axis jog dead-man starvation, CYCLE_TIME-scaled refresh hitting the 2 s watchdog, filtered-load resync clobber, tool-change confirm wedge, server message list capped (A-17). Open rulings: A-6 (ghost jog vs focus model), A-9 (duplicate MTC dialogs vs shipped configs). Full runtests owed at the phase checkpoint. |
 | 2026-07-22 | **`lib/python/gmi` shim reviewed + fixed — Phase-6 row `R F U FP` ✅** (`GMI_PYTHON_REVIEW_FINDINGS.md`). Three independent passes (2.9 parity / wire contract / concurrency), 29 adjudicated findings. Five HIGHs fixed: tool-table PUT sent flat fields the server ignores → **200-OK silent zero-entry write** (a tooledit save wipes tool geometry); ErrorChannel/MessageList permanent death on a startup race; **no WS client ever reconnected** (server restart = operator errors silently lost for the session; all four rebuilt on a shared resilient `_watch.py`); **queued jog delivered after a synchronous abort** (jogs synchronous again — classic NML ordering); `stop_logger` never sent + server poslog `pending` unbounded (shim + server cap). Design fix: **Stat is now REST-only with classic frozen-on-poll snapshots** — the live WS cache let multi-attribute predicates mix epochs (the lathe/jog-axis flake class) and was a redundant second data path once poll() became a fresh GET. **Found for the AXIS row: AXIS/glcanon are 25.4× off on inch machines** (raw mm Stat under unchanged classic units math — invisible on metric CI). New `tests/gmi-shim` runtests (stub REST/WS servers, 8 contract cases) + `poslog_test.go`. Full runtests owed at the phase checkpoint. |
 | 2026-07-22 | **Phase-6 scope extended to the hand-written UI client surface** (ruling, backed by a survey of the actual tree). Three rows added: **`lib/python/gmi`** (2047 LOC hand-written; the drop-in `linuxcnc.stat()/command()` shim every ported Python UI and every runtests driver stand on — Tier 2, highest priority: it already produced production-relevant bugs found only in passing, e.g. the no-op `poll()` over the WS cache); the **AXIS adaptation diff** (+1663/−3038 vs merge-base `f5a72ff602` — the NML→gmi backend swap reviewed diff-only against the documented client contracts: 2 s jog refresh, mm boundary, error routing; the untouched Tk/GL bulk is proven 2.9 code, out of scope); and the **5 non-deferred webapps** (7103 LOC Vue/TS, zero automated tests — Tier 2 on write/command paths only: tooledit/emccalib/halshow/halscope, where a wrong value written is machine damage; Tier 3 for display-only rendering; the classicladder webapp defers with its frozen backend). Generated TS + Python clients stay Tier 3 under the closed gmicompile review (incl. G-M4 bigint). New cross-cutting item: **webapp write-path tests** (request-level against a mock server; no browser-e2e for prototype delivery). Rationale: a UI cannot crash the hardened server — the hazard is showing or writing wrong values to an operator — and `ngcpreview` was already in phase while the client half of its contract was not. |
