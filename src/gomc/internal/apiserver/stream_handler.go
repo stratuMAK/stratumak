@@ -13,6 +13,16 @@ import (
 // handleStreamUpgrade upgrades the HTTP connection to WebSocket and
 // dispatches to the StreamServer's ServeConn in a goroutine.
 func (s *Server) handleStreamUpgrade(w http.ResponseWriter, r *http.Request, server StreamServer) {
+	// Refuse before upgrading: a stream connection holds a ServeConn goroutine
+	// making cgo calls for as long as it lives (see limits.go).
+	if !s.wsLimit.acquire() {
+		s.logger.Warn("stream websocket refused: at the WebSocket connection cap",
+			"open", s.wsLimit.count(), "path", r.URL.Path)
+		writeErrorJSON(w, http.StatusServiceUnavailable, "too many WebSocket connections")
+		return
+	}
+	defer s.wsLimit.release()
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Empty OriginPatterns → same-origin only (secure default). See
 		// Server.wsOriginPatterns.

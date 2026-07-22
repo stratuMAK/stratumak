@@ -35,6 +35,11 @@ type Server struct {
 	// host(s), or to []string{"*"} to allow any origin (opt-in, insecure).
 	wsOriginPatterns []string
 
+	// maxConns caps concurrently accepted HTTP connections; wsLimit caps
+	// concurrent WebSocket connections. See limits.go (finding N9).
+	maxConns int
+	wsLimit  *wsLimiter
+
 	streamMu    sync.Mutex
 	streamConns map[*streamConn]struct{}
 	streamWg    sync.WaitGroup
@@ -48,6 +53,8 @@ func NewServer(registry *Registry, addr string) *Server {
 		mux:      http.NewServeMux(),
 		prefix:   "/api/v1",
 		logger:   slog.Default(),
+		maxConns: defaultMaxConnections,
+		wsLimit:  newWSLimiter(defaultMaxWSConnections),
 	}
 
 	s.mux.HandleFunc(s.prefix+"/", s.handleAPIRequest)
@@ -96,14 +103,32 @@ func (s *Server) SetAddr(addr string) {
 	s.server.Addr = addr
 }
 
+// SetMaxConnections caps concurrently accepted HTTP connections (WebSocket
+// connections included — they are hijacked HTTP connections). Zero or negative
+// means unlimited. Must be called before ListenAndServe/Serve.
+func (s *Server) SetMaxConnections(n int) {
+	s.maxConns = n
+}
+
+// SetMaxWSConnections caps concurrent WebSocket connections across the watch
+// and stream endpoints; further upgrade attempts get 503. Zero or negative
+// means unlimited. Must be called before AddWatchEndpoint/RegisterStream.
+func (s *Server) SetMaxWSConnections(n int) {
+	s.wsLimit = newWSLimiter(n)
+}
+
 // ListenAndServe starts the HTTP server. Blocks until the server stops.
 func (s *Server) ListenAndServe() error {
-	return s.server.ListenAndServe()
+	ln, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ln)
 }
 
 // Serve accepts connections on the given listener. Useful for tests.
 func (s *Server) Serve(ln net.Listener) error {
-	return s.server.Serve(ln)
+	return s.server.Serve(limitListener(ln, s.maxConns))
 }
 
 // Shutdown gracefully shuts down the server.

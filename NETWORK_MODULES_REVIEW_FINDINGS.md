@@ -216,7 +216,7 @@ golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/laun
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
 
-**Still open:** N9 (connection cap — policy).
+**Still open:** none — the network half is closed.
 **N6 closed 2026-07-22** — launcher L-3 landed its full locking fix on 2026-07-21; see N6 above.
 
 **Auth ruling (2026-07-21, user).** The REST/WS surface has **no authentication** and that is a

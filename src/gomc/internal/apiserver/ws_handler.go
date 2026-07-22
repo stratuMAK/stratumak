@@ -203,7 +203,8 @@ type WatchHandler struct {
 	logger         *slog.Logger
 	ctx            context.Context
 	cancel         context.CancelFunc
-	originPatterns []string // WebSocket Origin allow-list; empty = same-origin only
+	originPatterns []string   // WebSocket Origin allow-list; empty = same-origin only
+	wsLimit        *wsLimiter // shared with the server's stream endpoint; nil = unlimited
 }
 
 // NewWatchHandler creates a new WebSocket watch handler.
@@ -225,6 +226,17 @@ func (h *WatchHandler) SetLogger(logger *slog.Logger) {
 
 // ServeHTTP upgrades the connection to WebSocket and runs the watch loop.
 func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Refuse before upgrading: every accepted connection can subscribe to the
+	// registered watch functions, each of which runs a ticker goroutine calling
+	// into generated/cgo code (see limits.go).
+	if !h.wsLimit.acquire() {
+		h.logger.Warn("watch websocket refused: at the WebSocket connection cap",
+			"open", h.wsLimit.count())
+		writeErrorJSON(w, http.StatusServiceUnavailable, "too many WebSocket connections")
+		return
+	}
+	defer h.wsLimit.release()
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Empty OriginPatterns → same-origin only (secure default). This blocks
 		// cross-site WebSocket hijacking — a malicious page in the operator's
@@ -656,6 +668,9 @@ func (s *Server) AddWatchEndpoint(registry *WatchRegistry) {
 	handler := NewWatchHandler(registry)
 	handler.SetLogger(s.logger)
 	handler.originPatterns = s.wsOriginPatterns
+	// One limiter shared with the stream endpoint, so the cap bounds the total
+	// number of WebSocket connections rather than each endpoint separately.
+	handler.wsLimit = s.wsLimit
 	s.watchHandler = handler
 	pattern := strings.TrimSuffix(s.prefix, "/") + "/watch"
 	s.mux.Handle(pattern, handler)

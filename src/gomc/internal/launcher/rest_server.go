@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,15 @@ const (
 	// defaultRESTAddr is the default listen address for the REST API server.
 	// Can be overridden via [GMC]REST_ADDR in the INI file.
 	defaultRESTAddr = "127.0.0.1:5080"
+
+	// defaultRESTMaxConnections caps concurrently accepted HTTP connections;
+	// [GMC]REST_MAX_CONNECTIONS overrides it (0 = unlimited).
+	defaultRESTMaxConnections = 256
+	// defaultRESTMaxWSConnections caps concurrent WebSocket connections across
+	// the watch and stream endpoints; [GMC]REST_MAX_WS_CONNECTIONS overrides it
+	// (0 = unlimited). Kept below the overall cap on purpose — a WebSocket is a
+	// hijacked HTTP connection and holds an accept slot for its whole life.
+	defaultRESTMaxWSConnections = 64
 )
 
 // resolveRESTAddr returns the REST API listen address, in precedence order:
@@ -37,6 +47,28 @@ func (l *Launcher) resolveRESTAddr() string {
 	return defaultRESTAddr
 }
 
+// resolveConnLimit reads a connection cap from the GMC_<key> environment
+// variable, else [GMC]<key> in the INI, else def. Zero means "unlimited" and is
+// an explicit opt-out; an unparsable or negative value is a configuration
+// mistake, so it is logged and the default is used rather than silently
+// disabling the cap.
+func (l *Launcher) resolveConnLimit(key string, def int) int {
+	raw := os.Getenv("GMC_" + key)
+	if raw == "" && l.ini != nil {
+		raw = l.ini.Get("GMC", key)
+	}
+	if raw = strings.TrimSpace(raw); raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		l.logger.Warn("invalid connection limit, using the default",
+			"key", key, "value", raw, "default", def)
+		return def
+	}
+	return n
+}
+
 // createAPIServer creates the API server instance and sets it as the
 // default. Called early in startup so that stream_server registrations
 // from cmod plugins can find it. Does not start listening.
@@ -52,6 +84,22 @@ func (l *Launcher) createAPIServer() {
 	srv := apiserver.NewServer(reg, addr)
 	srv.SetLogger(l.logger)
 	srv.SetWSOriginPatterns(l.resolveWSOriginPatterns())
+
+	// Connection caps (finding N9). Both are blast-radius limits, not security
+	// controls — see internal/apiserver/limits.go for why there are two and why
+	// the defaults are generous. 0 disables either cap explicitly.
+	maxConns := l.resolveConnLimit("REST_MAX_CONNECTIONS", defaultRESTMaxConnections)
+	maxWS := l.resolveConnLimit("REST_MAX_WS_CONNECTIONS", defaultRESTMaxWSConnections)
+	if maxConns > 0 && maxWS >= maxConns {
+		// WebSocket connections are hijacked HTTP connections and so consume
+		// accept slots too: a WS cap at or above the overall cap lets watch
+		// clients starve plain REST of connections entirely.
+		l.logger.Warn("REST_MAX_WS_CONNECTIONS >= REST_MAX_CONNECTIONS — WebSocket clients can starve REST",
+			"ws", maxWS, "total", maxConns)
+	}
+	srv.SetMaxConnections(maxConns)
+	srv.SetMaxWSConnections(maxWS)
+	l.logger.Info("REST connection limits", "max_connections", maxConns, "max_ws_connections", maxWS)
 
 	l.apiMu.Lock()
 	l.apiServer = srv
