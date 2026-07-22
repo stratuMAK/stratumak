@@ -19,7 +19,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -49,7 +48,7 @@ func main() {
 		restURL = defaultRestURL
 	}
 
-	wsURL := httpToWS(restURL) + "/api/v1/stream/hal_streamer_stream/" + instance
+	wsURL := halstream.HTTPToWS(restURL) + "/api/v1/stream/hal_streamer_stream/" + instance
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -84,7 +83,11 @@ func main() {
 		}
 
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		// Blank and '#' comment lines are skipped, as in the classic
+		// halstreamer and in the filestream cmod that replays the same capture
+		// files. Only blanks were skipped here, so feeding back a file with a
+		// header comment aborted with "expected N values, got 1".
+		if line == "" || line[0] == '#' {
 			continue
 		}
 
@@ -125,18 +128,4 @@ func main() {
 	}
 
 	_ = conn.Close(websocket.StatusNormalClosure, "done")
-}
-
-func httpToWS(httpURL string) string {
-	u, err := url.Parse(httpURL)
-	if err != nil {
-		return strings.Replace(strings.Replace(httpURL, "https://", "wss://", 1), "http://", "ws://", 1)
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	default:
-		u.Scheme = "ws"
-	}
-	return u.String()
 }

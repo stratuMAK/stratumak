@@ -15,9 +15,27 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 )
+
+// HTTPToWS converts a gomc-server base URL into its WebSocket form. It lives
+// here for the same reason the framing does: halsampler and halstreamer each
+// carried an identical copy.
+func HTTPToWS(httpURL string) string {
+	u, err := url.Parse(httpURL)
+	if err != nil {
+		return strings.Replace(strings.Replace(httpURL, "https://", "wss://", 1), "http://", "ws://", 1)
+	}
+	switch u.Scheme {
+	case "https":
+		u.Scheme = "wss"
+	default:
+		u.Scheme = "ws"
+	}
+	return u.String()
+}
 
 const (
 	// CfgPrefix marks the first WebSocket message from the server:
@@ -39,18 +57,31 @@ const (
 )
 
 // ParseHeader parses the "cfg:<types>" header message, returning the per-pin
-// type chars. ok is false if the message is not a cfg header.
+// type chars. ok is false if the message is not a cfg header, or if it declares
+// no pins — a zero-pin config makes every frame zero bytes wide, which is not a
+// stream any client can make progress on. Rejecting it here is what stops a
+// consumer looping forever on an empty sample size.
 func ParseHeader(msg []byte) (types string, ok bool) {
 	s := string(msg)
 	if !strings.HasPrefix(s, CfgPrefix) {
 		return "", false
 	}
-	return s[len(CfgPrefix):], true
+	types = s[len(CfgPrefix):]
+	if types == "" {
+		return "", false
+	}
+	return types, true
 }
 
-// ReadRaw returns the raw 8-byte little-endian value of pin i within a frame.
+// ReadRaw returns the raw 8-byte little-endian value of pin i within a frame,
+// or 0 if the frame is too short to hold it. Frames arrive off the wire, so a
+// truncated one must not panic the caller.
 func ReadRaw(frame []byte, i int) uint64 {
-	return binary.LittleEndian.Uint64(frame[i*ValueSize:])
+	off := i * ValueSize
+	if i < 0 || off < 0 || off+ValueSize > len(frame) {
+		return 0
+	}
+	return binary.LittleEndian.Uint64(frame[off:])
 }
 
 // WriteRaw stores the raw 8-byte little-endian value of pin i into a frame.

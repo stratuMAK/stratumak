@@ -15,10 +15,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halstream"
@@ -50,7 +48,7 @@ func main() {
 	}
 
 	// Convert http(s) URL to ws(s) URL
-	wsURL := httpToWS(restURL) + "/api/v1/stream/hal_sampler_stream/" + instance
+	wsURL := halstream.HTTPToWS(restURL) + "/api/v1/stream/hal_sampler_stream/" + instance
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -129,18 +127,4 @@ func main() {
 	}
 
 	_ = conn.Close(websocket.StatusNormalClosure, "done")
-}
-
-func httpToWS(httpURL string) string {
-	u, err := url.Parse(httpURL)
-	if err != nil {
-		return strings.Replace(strings.Replace(httpURL, "https://", "wss://", 1), "http://", "ws://", 1)
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	default:
-		u.Scheme = "ws"
-	}
-	return u.String()
 }
