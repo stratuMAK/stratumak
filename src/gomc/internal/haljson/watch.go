@@ -34,20 +34,31 @@ func newWatchFactory(root *jsonRoot) apiserver.WatchFactory {
 			pins:    pins,
 			shadows: make([]uint64, len(pins)),
 		}
-		// Initialize shadows to impossible value to force first full send.
-		for i := range state.shadows {
-			state.shadows[i] = ^uint64(0)
-		}
 		first := true
 
 		return func() (json.RawMessage, error) {
 			if first {
 				first = false
-				// First tick: send full structured JSON.
+				// First tick: send the full structured JSON, and prime the
+				// shadows from it so the next poll reports only real changes.
+				// Priming *before* buildJSON is deliberate: if a pin moves
+				// between the two reads, the shadow holds the older value and
+				// the next poll re-sends the pin (redundant but correct). The
+				// other order would leave the shadow ahead of what was actually
+				// sent and drop that update.
+				state.prime()
 				return root.buildJSON(), nil
 			}
 			return state.poll()
 		}, nil
+	}
+}
+
+// prime loads every shadow with the pin's current raw value, so a following
+// poll only reports pins that changed since.
+func (s *watchState) prime() {
+	for i := range s.pins {
+		s.shadows[i] = readPinRaw(s.pins[i].item)
 	}
 }
 

@@ -1594,3 +1594,162 @@ setp axis.{{$i}}.scale 100
 		t.Fatalf("expected 2 HALCmd tokens, got %d", len(result.HALCmd))
 	}
 }
+
+// parseOne parses a single HAL command line and returns its token data, or the
+// parse error.
+func parseOne(t *testing.T, line string) (TokenData, error) {
+	t.Helper()
+	res, err := NewSingleFileParser(nil, nil).ParseContent("t.hal", line)
+	if err != nil {
+		return nil, err
+	}
+	toks := append(append([]Token(nil), res.Loads...), res.HALCmd...)
+	if len(toks) != 1 {
+		t.Fatalf("%q produced %d tokens; want 1", line, len(toks))
+	}
+	return toks[0].Data, nil
+}
+
+// TestParseNewThread covers the newthread option grammar: the default fp/cpu,
+// the fp/nofp words, cpu=N, and the rejections. A mis-parsed period or cpu here
+// silently changes the RT thread configuration of a machine.
+func TestParseNewThread(t *testing.T) {
+	data, err := parseOne(t, "newthread servo-thread 1000000")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tok, ok := data.(*NewThreadToken)
+	if !ok {
+		t.Fatalf("token is %T; want *NewThreadToken", data)
+	}
+	if tok.Name != "servo-thread" || tok.Period != 1000000 {
+		t.Errorf("token = %+v; want name servo-thread period 1000000", tok)
+	}
+	// Defaults: floating point on, no CPU affinity requested.
+	if tok.FP != 1 {
+		t.Errorf("default FP = %d; want 1", tok.FP)
+	}
+	if tok.CPU != -1 {
+		t.Errorf("default CPU = %d; want -1", tok.CPU)
+	}
+
+	for _, tc := range []struct {
+		line    string
+		wantFP  int
+		wantCPU int
+	}{
+		{"newthread t 500000 nofp", 0, -1},
+		{"newthread t 500000 fp", 1, -1},
+		{"newthread t 500000 NOFP", 0, -1},
+		{"newthread t 500000 cpu=3", 1, 3},
+		{"newthread t 500000 nofp cpu=0", 0, 0},
+		{"newthread t 500000 cpu=-1", 1, -1},
+	} {
+		data, err := parseOne(t, tc.line)
+		if err != nil {
+			t.Errorf("%q: %v", tc.line, err)
+			continue
+		}
+		tok := data.(*NewThreadToken)
+		if tok.FP != tc.wantFP || tok.CPU != tc.wantCPU {
+			t.Errorf("%q → FP=%d CPU=%d; want FP=%d CPU=%d", tc.line, tok.FP, tok.CPU, tc.wantFP, tc.wantCPU)
+		}
+	}
+
+	for _, line := range []string{
+		"newthread",
+		"newthread onlyname",
+		"newthread t notanumber",
+		"newthread t 0",
+		"newthread t -5",
+		"newthread t 500000 bogusopt",
+		"newthread t 500000 cpu=x",
+	} {
+		if _, err := parseOne(t, line); err == nil {
+			t.Errorf("%q parsed; want a rejection", line)
+		}
+	}
+}
+
+// TestParseThreadAndRetainCommands covers the remaining single-argument
+// commands and their arity checks.
+func TestParseThreadAndRetainCommands(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		want interface{}
+	}{
+		{"delthread mythread", &DelThreadToken{Name: "mythread"}},
+		{"retain mysig", &RetainToken{Name: "mysig"}},
+		{"unretain mysig", &UnretainToken{Name: "mysig"}},
+		{"delsig mysig", &DelSigToken{Name: "mysig"}},
+		{"unlinkp mypin", &UnlinkPToken{Pin: "mypin"}},
+		{"start", &StartToken{}},
+		{"stop", &StopToken{}},
+		{"status", &StatusToken{}},
+		{"ptype my.pin", &PTypeToken{Name: "my.pin"}},
+		{"stype mysig", &STypeToken{Name: "mysig"}},
+		{"linkps my.pin mysig", &LinkPSToken{Pin: "my.pin", Sig: "mysig"}},
+		{"linksp mysig my.pin", &LinkSPToken{Sig: "mysig", Pin: "my.pin"}},
+	} {
+		data, err := parseOne(t, tc.line)
+		if err != nil {
+			t.Errorf("%q: %v", tc.line, err)
+			continue
+		}
+		if fmt.Sprintf("%T", data) != fmt.Sprintf("%T", tc.want) {
+			t.Errorf("%q → %T; want %T", tc.line, data, tc.want)
+			continue
+		}
+		if fmt.Sprintf("%+v", data) != fmt.Sprintf("%+v", tc.want) {
+			t.Errorf("%q → %+v; want %+v", tc.line, data, tc.want)
+		}
+	}
+
+	// Arity violations must be rejected, not silently truncated.
+	for _, line := range []string{
+		"delthread", "delthread a b",
+		"retain", "retain a b",
+		"unretain", "unretain a b",
+		"delsig", "delsig a b",
+		"unlinkp", "unlinkp a b",
+		"start extra", "stop extra", "status extra",
+		"ptype", "ptype a b",
+		"stype", "stype a b",
+		"linkps onlyone", "linkps a b c",
+		"linksp onlyone", "linksp a b c",
+	} {
+		if _, err := parseOne(t, line); err == nil {
+			t.Errorf("%q parsed; want a rejection", line)
+		}
+	}
+}
+
+// TestParseSaveTypes covers every save-type keyword and the rejection of an
+// unknown one.
+func TestParseSaveTypes(t *testing.T) {
+	for _, tc := range []struct {
+		word string
+		want SaveType
+	}{
+		{"comp", SaveComp},
+		{"sig", SaveSig},
+		{"link", SaveLink},
+		{"net", SaveNet},
+		{"param", SaveParam},
+		{"thread", SaveThread},
+		{"all", SaveAll},
+		{"ALL", SaveAll},
+	} {
+		data, err := parseOne(t, "save "+tc.word)
+		if err != nil {
+			t.Errorf("save %s: %v", tc.word, err)
+			continue
+		}
+		if got := data.(*SaveToken).SaveType; got != tc.want {
+			t.Errorf("save %s → %v; want %v", tc.word, got, tc.want)
+		}
+	}
+	if _, err := parseOne(t, "save notatype"); err == nil {
+		t.Error("save with an unknown type parsed; want a rejection")
+	}
+}

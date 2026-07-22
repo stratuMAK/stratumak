@@ -37,6 +37,18 @@ func TestExecuteToken_AllTypes(t *testing.T) {
 			t.Errorf("expected nil, got %v", err)
 		}
 	}
+	// `load` is the launcher's job (IterLoads); executeToken must refuse it
+	// rather than reach a HAL shim at all.
+	rejected := func(t *testing.T, tok Token) {
+		t.Helper()
+		err := executeToken(tok)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cannot be executed directly") {
+			t.Errorf("expected the load-via-launcher message, got %v", err)
+		}
+	}
 
 	tests := []struct {
 		name  string
@@ -65,14 +77,16 @@ func TestExecuteToken_AllTypes(t *testing.T) {
 		{"List", Token{loc, &ListToken{ObjType: ObjPin}}, noCGO},
 		{"Show", Token{loc, &ShowToken{ObjType: ObjAll}}, noCGO},
 		{"Save", Token{loc, &SaveToken{SaveType: SaveAll}}, noCGO},
-		{"Status", Token{loc, &StatusToken{}}, noCGO},
-		{"Debug", Token{loc, &DebugToken{Level: 3}}, noCGO},
+		// status renders the lock block in pure Go (halcmd.LockStatusString)
+		// and debug only moves a slog level — neither reaches the C shim.
+		{"Status", Token{loc, &StatusToken{}}, noOp},
+		{"Debug", Token{loc, &DebugToken{Level: 3}}, noOp},
 		{"PType", Token{loc, &PTypeToken{Name: "x.y"}}, noCGO},
 		{"SType", Token{loc, &STypeToken{Name: "s"}}, noCGO},
 		{"Echo", Token{loc, &EchoToken{}}, noOp},
 		{"UnEcho", Token{loc, &UnEchoToken{}}, noOp},
 		{"Print", Token{loc, &PrintToken{Message: "hello"}}, noOp},
-		{"Load", Token{loc, &LoadToken{Path: "/tmp/foo.so", Args: []string{"a=1"}, Params: "a=1"}}, noCGO},
+		{"Load", Token{loc, &LoadToken{Path: "/tmp/foo.so", Args: []string{"a=1"}}}, rejected},
 	}
 
 	for _, tc := range tests {
