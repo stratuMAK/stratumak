@@ -75,17 +75,34 @@ func (m *module) Start() error {
 	if err != nil {
 		return fmt.Errorf("tooltable: persist API lookup (%s): %w", m.persistInstance, err)
 	}
-	m.db = persist.NewPersistClient(unsafe.Pointer(cbs))
+	db := persist.NewPersistClient(unsafe.Pointer(cbs))
 
 	// Open the tooltable namespace.
-	res, err := m.db.Open(persistNamespace)
+	res, err := db.Open(persistNamespace)
 	if err != nil {
 		return fmt.Errorf("tooltable: persist open namespace: %w", err)
 	}
-	m.dbHandle = res.Handle
 
-	// Import legacy .tbl if namespace is empty.
-	entries, _ := m.db.GetEntries(m.dbHandle)
+	// Publish the client and its handle together, under the lock the API
+	// methods read them through: on the runtime REST load path the API server
+	// is already serving while Start runs, so an unsynchronised write here
+	// races every handler. Nothing is published until the namespace is open,
+	// so a caller that gets past ready() has a usable handle.
+	m.mu.Lock()
+	m.db, m.dbHandle = db, res.Handle
+	m.mu.Unlock()
+
+	// Import the legacy .tbl only when the namespace is genuinely empty.
+	//
+	// The error used to be discarded, which conflated "empty" with "could not
+	// tell" — so a transient read failure (sqlite busy, say) re-ran the import
+	// and upserted the shipped .tbl over the live table, silently reverting
+	// every offset the operator had edited since the migration. A namespace we
+	// cannot read is not a namespace we may overwrite.
+	entries, err := db.GetEntries(res.Handle)
+	if err != nil {
+		return fmt.Errorf("tooltable: reading namespace %q: %w", persistNamespace, err)
+	}
 	if len(entries) == 0 {
 		m.tryImportLegacy()
 	}
@@ -96,6 +113,21 @@ func (m *module) Start() error {
 
 func (m *module) Stop()    {}
 func (m *module) Destroy() {}
+
+// ready reports whether Start has bound the persist client.
+//
+// The API is registered in the constructor but the client is only resolved in
+// Start, and on the runtime REST load path (launcher loadModuleNamed: construct
+// -> register -> Start) the API server is already serving, so a request can
+// arrive in between. Dereferencing the nil client there panicked the handler;
+// net/http turns that into a 500, but an honest error beats an unwound
+// goroutine. Callers must hold m.mu.
+func (m *module) ready() error {
+	if m.db == nil {
+		return fmt.Errorf("tooltable: not started yet (persist instance %q not bound)", m.persistInstance)
+	}
+	return nil
+}
 
 // tryImportLegacy attempts to import a legacy .tbl file on first run.
 func (m *module) tryImportLegacy() {
@@ -128,6 +160,10 @@ func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if err := m.ready(); err != nil {
+		return nil, err
+	}
+
 	entries, err := m.db.GetEntries(m.dbHandle)
 	if err != nil {
 		return nil, err
@@ -137,6 +173,10 @@ func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 	for _, e := range entries {
 		var t tooltable.ToolEntry
 		if err := json.Unmarshal([]byte(e.Value), &t); err != nil {
+			// A corrupt record must not take the whole listing down, but it
+			// must not vanish without a word either — the tool is simply gone
+			// from every UI until someone notices.
+			m.logger.Warn("tooltable: skipping unreadable entry", "key", e.Key, "err", err)
 			continue
 		}
 		tools = append(tools, t)
@@ -148,24 +188,37 @@ func (m *module) GetTool(toolno int32) (*tooltable.ToolEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if err := m.ready(); err != nil {
+		return nil, err
+	}
+
 	key := strconv.FormatInt(int64(toolno), 10)
 	entry, err := m.db.GetEntry(m.dbHandle, key)
 	if err != nil {
-		// Only a genuinely missing key maps to the documented zero-entry
-		// return (persist reports it as "not found: <ns>/<key>"). A real
-		// db error must propagate: swallowing it made a transient failure
-		// (e.g. sqlite busy) indistinguishable from a deleted tool, which
-		// callers then acted on — zeroed tool params, cached "nothing
-		// prepped".
-		if strings.Contains(err.Error(), "not found:") {
-			return &tooltable.ToolEntry{}, nil
-		}
 		return nil, err
+	}
+
+	// An absent tool reads back as the zero entry, which is what 2.9 does and
+	// what the callers expect (they tell "no such tool" from Toolno == 0).
+	//
+	// It has to be detected by the empty value, not by the error, because the
+	// in-process GMI client CANNOT report one: for a func returning a struct,
+	// --client-go emits `return result, nil` — the C callback hands back the
+	// struct by value with no rc out-param, so persist's "not found: <ns>/<key>"
+	// never crosses the boundary. This module previously matched on that error
+	// string; the branch was unreachable, and every lookup of an unstored tool
+	// failed with "unexpected end of JSON input" from unmarshalling "".
+	// tooltable only ever stores JSON, so an empty value is unambiguous here.
+	// The general problem — a GMI data-returning call cannot signal failure at
+	// all, so a real sqlite error is indistinguishable from a missing row — is
+	// a generator/architecture item, recorded in PHASE5_REVIEW_FINDINGS.md.
+	if entry.Value == "" {
+		return &tooltable.ToolEntry{}, nil
 	}
 
 	var t tooltable.ToolEntry
 	if err := json.Unmarshal([]byte(entry.Value), &t); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tooltable: tool %d is corrupt: %w", toolno, err)
 	}
 	return &t, nil
 }
@@ -173,6 +226,10 @@ func (m *module) GetTool(toolno int32) (*tooltable.ToolEntry, error) {
 func (m *module) PutTool(toolno int32, entry tooltable.ToolEntry) (*tooltable.PutToolResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if err := m.ready(); err != nil {
+		return nil, err
+	}
 
 	entry.Toolno = toolno
 	data, err := json.Marshal(entry)
@@ -190,6 +247,10 @@ func (m *module) PutTool(toolno int32, entry tooltable.ToolEntry) (*tooltable.Pu
 func (m *module) DeleteTool(toolno int32) (*tooltable.DeleteResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if err := m.ready(); err != nil {
+		return nil, err
+	}
 
 	key := strconv.FormatInt(int64(toolno), 10)
 	res, err := m.db.DeleteEntry(m.dbHandle, key)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
@@ -23,15 +24,23 @@ func (m *module) importTbl(path string) error {
 	defer func() { _ = f.Close() }()
 
 	var entries []persist.Entry
+	lineNo := 0
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || line[0] == ';' {
 			continue
 		}
 		t, err := parseTblLine(line)
 		if err != nil {
-			continue // skip unparsable lines
+			// The C parser also skips a bad line rather than aborting the load.
+			// It is logged, though: this is a one-shot migration of the
+			// operator's tool data, and a silently dropped tool is a tool that
+			// is simply gone the next time it is called up.
+			m.logger.Warn("tooltable: skipping unparsable .tbl line",
+				"path", path, "line", lineNo, "text", line, "err", err)
+			continue
 		}
 		tool := tooltable.ToolEntry{
 			Toolno:      t.toolno,
@@ -95,54 +104,80 @@ func parseTblLine(line string) (tblEntry, error) {
 		return t, fmt.Errorf("empty line")
 	}
 
+	// Field keys are matched case-insensitively and EVERY numeric conversion is
+	// checked, both to match the C parser this replaces (tooldata.cc /
+	// sai_tooltable.cc: `switch (toupper(token[0]))`, and `if (!valid) return
+	// -1` after each sscanf). Dropping the error was not a shortcut without
+	// consequence: an unparsable "Z abc" silently became a Z offset of 0, and a
+	// zeroed tool-length offset is a tool driven into the work. A malformed
+	// field now rejects the whole line, exactly as the C does.
 	for _, field := range fields {
 		if len(field) < 2 {
-			continue
+			// A bare key with no value. The C hits sscanf on an empty string,
+			// which returns 0 and fails the line.
+			return t, fmt.Errorf("field %q has no value", field)
 		}
-		key := field[0]
+		key := byte(unicode.ToUpper(rune(field[0])))
 		val := field[1:]
+
+		var fp *float64
 		switch key {
 		case 'T':
 			n, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
-				return t, err
+				return t, fmt.Errorf("tool number %q: %w", val, err)
 			}
 			t.toolno = int32(n)
 			seenToolno = true
+			continue
 		case 'P':
 			n, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
-				return t, err
+				return t, fmt.Errorf("pocket number %q: %w", val, err)
 			}
 			t.pocketno = int32(n)
-		case 'X':
-			t.x, _ = strconv.ParseFloat(val, 64)
-		case 'Y':
-			t.y, _ = strconv.ParseFloat(val, 64)
-		case 'Z':
-			t.z, _ = strconv.ParseFloat(val, 64)
-		case 'A':
-			t.a, _ = strconv.ParseFloat(val, 64)
-		case 'B':
-			t.b, _ = strconv.ParseFloat(val, 64)
-		case 'C':
-			t.c, _ = strconv.ParseFloat(val, 64)
-		case 'U':
-			t.u, _ = strconv.ParseFloat(val, 64)
-		case 'V':
-			t.v, _ = strconv.ParseFloat(val, 64)
-		case 'W':
-			t.w, _ = strconv.ParseFloat(val, 64)
-		case 'D':
-			t.diameter, _ = strconv.ParseFloat(val, 64)
-		case 'I':
-			t.frontangle, _ = strconv.ParseFloat(val, 64)
-		case 'J':
-			t.backangle, _ = strconv.ParseFloat(val, 64)
+			continue
 		case 'Q':
-			n, _ := strconv.ParseInt(val, 10, 32)
+			n, err := strconv.ParseInt(val, 10, 32)
+			if err != nil {
+				return t, fmt.Errorf("orientation %q: %w", val, err)
+			}
 			t.orientation = int32(n)
+			continue
+		case 'X':
+			fp = &t.x
+		case 'Y':
+			fp = &t.y
+		case 'Z':
+			fp = &t.z
+		case 'A':
+			fp = &t.a
+		case 'B':
+			fp = &t.b
+		case 'C':
+			fp = &t.c
+		case 'U':
+			fp = &t.u
+		case 'V':
+			fp = &t.v
+		case 'W':
+			fp = &t.w
+		case 'D':
+			fp = &t.diameter
+		case 'I':
+			fp = &t.frontangle
+		case 'J':
+			fp = &t.backangle
+		default:
+			// Unknown keys are ignored, as in the C parser's `default: break`.
+			continue
 		}
+
+		v, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return t, fmt.Errorf("field %q: %w", field, err)
+		}
+		*fp = v
 	}
 
 	if !seenToolno {
