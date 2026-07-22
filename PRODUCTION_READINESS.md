@@ -801,12 +801,23 @@ shipped `.comp` on each run, which is the stronger signal.
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/apiserver | 2174/2446 | 2 | ✅ | ✅ | ◐ | ◐ | ✅ | ◐ | ☐ |
-| internal/halrest | 659/0 | 2 | ✅ | ✅ | — | ☐ | ✅ | — | ☐ |
-| internal/inirest | 87/171 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
-| internal/mqttbridge | 791/0 | 2 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
-| internal/halscope | 939/0 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
-| cmd/halsampler, cmd/halstreamer | 146+174/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/apiserver | 2275/2598 | 2 | ✅ | ✅ | ◐ | ◐ | ✅ | ◐ | ☐ |
+| internal/halrest | 659/0 | 2 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
+| internal/inirest | 90/171 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
+| internal/mqttbridge | 873/0 | 2 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
+| internal/halscope | 1035/115 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ☐ |
+| internal/persist_sqlite | 334/63 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/tooltable | 354/25 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/emccalib, internal/calibreg | 330+46/53+53 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/halstream | 94/56 | 3 | ✅ | ☐ | ☐ | ☐ | ✅ | — | ☐ |
+| cmd/halsampler, cmd/halstreamer | 146+142/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+
+LOC in *this* table refreshed 2026-07-22 (the rest of the matrix is still the 2026-07-11
+snapshot). Three rows had drifted out of the table body into the prose below it and are
+back where they belong. **`internal/halstream` is a new row** — it was factored out of
+halsampler/halstreamer by the 2026-07-21 codegen-duplication audit (the shared WS stream
+framing: `cfg:` header + 8-byte codec) and never got one. Tier 3: the authoritative
+definition of the wire format is the C `hal_stream_common.h`, this is its Go reader/writer.
 
 **Network modules (apiserver/halrest/inirest/mqttbridge/halscope) — reviewed 2026-07-21
 (Tier 2, adversarial). Full findings in `NETWORK_MODULES_REVIEW_FINDINGS.md`.** Shared lens:
@@ -822,15 +833,14 @@ body (OOM); **N4** `ReadHeaderTimeout`+`IdleTimeout` (Slowloris; not Read/Write 
 WS); **N5** pprof gated behind `GMC_REST_PPROF=1`; **N8** `recover()` in mqtt publish/message
 goroutines; a stream `streamWg.Add` shutdown-race narrowed. **Cleared:** inirest `make` (bounded by
 decoded array), halscope lifecycle (HS1 properly fixed), mqtt MQ1 (present), registry races +
-webapp traversal. **Open:** **N6 = launcher L-3** (halrest load/unload confirms the unlocked
-`cModules`/`goModules` race is *remotely reachable* — fix belongs to L-3); N7 (mqtt publish-count
-semantics); N9 (connection cap — policy); and a **safety-boundary-doc** item: the REST/WS surface
-has **no authentication** (model is "trusted local origin"; non-loopback needs a proxy/auth).
-build/vet/gofmt clean, lint 0, `-race` green. halrest `F` marked — (no code change; its one
-finding is L-3, owned by launcher).
-| internal/persist_sqlite | 323/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/tooltable | 338/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
-| internal/emccalib, internal/calibreg | 313+46/53 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+webapp traversal. **`N6` CLOSED 2026-07-22** (bookkeeping — the fix landed 2026-07-21): N6 *was*
+the observation that halrest's load/unload makes launcher **L-3** remotely reachable, and L-3 got
+the full locking fix (`arenaMu`/`modMu`/shutdown gate) the same day, so halrest's one and only
+finding is fixed — row `F` → ✅ (still no halrest code change; the fix is in the launcher).
+**Still open:** N7 (mqtt publish-count semantics); N9 (connection cap — policy); and a
+**safety-boundary-doc** item: the REST/WS surface has **no authentication** (model is "trusted
+local origin"; non-loopback needs a proxy/auth) — tracked as a cross-cutting item, not a Phase-5
+row blocker. build/vet/gofmt clean, lint 0, `-race` green.
 
 ### Phase 6 — UI-adjacent
 
@@ -956,8 +966,9 @@ Not per-module; each needs an owner and a done-definition.
   into gomc; (d) auth needs **fine-grained permission control**, and per-command **authZ** needs a
   thin app-side seam in gomc at `handleAPIRequest`/`handleCall` (a gateway can't do it blind to
   command semantics); (e) the same-origin WS fix (N1) is complementary and stays regardless.
-  Runtime REST module load/unload **is** a supported production path → **launcher L-3 gets the
-  full locking fix** (now the highest-priority open Tier-1/L item).
+  Runtime REST module load/unload **is** a supported production path → launcher **L-3 got the
+  full locking fix** (landed 2026-07-21; that also closes network finding N6). What remains open
+  here is the auth deliverable itself, nothing in the launcher.
 - [ ] **Concurrency policy** — per-module goroutine ownership writeup; `-race` gate in CI.
 - [ ] **Panic/robustness policy** — recover-and-log vs. die-and-restart, decided once,
   applied everywhere; watchdog/supervision behavior documented.
@@ -1130,6 +1141,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-22 | **Phase-5 matrix reconciled before starting the phase.** Three bookkeeping corrections, no code: (1) **N6 marked closed** — it was only ever the *reachability* half of launcher L-3 ("halrest's REST load/unload makes the unlocked module-slice race remotely reachable"), and L-3's full locking fix landed 2026-07-21, so halrest owes nothing further; row `F` `—` → ✅, and both the findings doc's "Still open" line and the auth cross-cutting item ("now the highest-priority open Tier-1/L item") were still claiming it open. (2) **`internal/persist_sqlite`/`tooltable`/`emccalib`+`calibreg` had drifted out of the table body** into the prose paragraph beneath it, where they render as literal pipe-text — the three never-reviewed modules were the easiest rows in the document to miss. Moved back in. (3) **New row `internal/halstream`** (94/56, Tier 3): factored out of halsampler/halstreamer by the 2026-07-21 codegen-duplication audit and never added. Phase-5 LOC refreshed to 2026-07-22 (the rest of the matrix stays the 2026-07-11 snapshot). Net remaining Phase-5 work after this: N7/N9 + the `U`/`FP` tail on the network half (halrest and mqttbridge are at 0 % coverage, halscope 4.1 %, apiserver 45.6 %), and a full Tier-2 review of the five never-reviewed modules. |
 | 2026-07-22 | **pkgreg F3 closed — dead lossy API removed.** `ReadFile`, `Registry.WriteFile` and `Registry.Remove` had no callers anywhere (modcompile uses only `ReadConfIn`/`Add`/`GenerateImports`/`Discover*`/`ParseBuildFlags`), and `WriteFile`'s round-trip **dropped the `@GOMOD:TAG@` build-flag markers and all comments** that `ReadConfIn` exists to interpret — a live trap, since the first caller wiring the two together would silently strip every conditional-build marker from `packages.conf` (optional modules vanish from the build, green compile). Deleted; `internal/` package, so no out-of-tree importer can exist (same disposition as pkg/hal H-2). The companion `hasInitFunc` note is closed no-change: the regex is already line-anchored, so a comment/string mention cannot match, and a `go/parser` dependency would have to define what an unparsable file means for discovery — rationale recorded at the regex. build/vet/test green. |
 | 2026-07-22 | **Launcher `U`/`FP` closed — row now `L R F U RC FP` ✅, only human `S` open** (237 → 898 test lines). Added the runtime-unload path (stop → unregister REST **and** watch APIs → destroy → remove from the slice; bystander untouched; a second unload is `ENOENT`, not a double Stop), the `EBUSY` dependency guard plus the two records that must NOT block it (self-reference, consumer no longer loaded), the fault paths (a mid-loop `startGoModules` failure — the scenario the Stop-without-Start contract exists for — still stops+destroys every loaded module exactly once; `fail()` keeps the FIRST error for `Run`'s return and triggers shutdown once under concurrent callers), and the config/CLI surface (REST addr precedence env > INI > loopback default, the `REST_ORIGINS` parse incl. the empty → same-origin-only N1 default, `initHalibPath`, `setConfigEnv`, the halrun tokenizer + its `loadusr`/`waitusr` rejection). **Found while writing them — L-8 (nil-HAL SIGSEGV, FIXED):** both unload paths called `halcmd.FindCompID` unconditionally, which dereferences `hal_data` (NULL before the first `hal_init`), so a runtime unload before HAL is up **segfaults** instead of erroring; the hooks are wired into halrest at the top of `Run()` before HAL init, which is what makes it reachable, and only the REST server starting later has kept it latent. Now routed through `halCompID()` (returns 0 without HAL — no HAL also means no RT functions to remove). `cmodules.go`/`retain.go` stay unit-untested by design (need a real cmod `.so` + a running RT thread; covered by runtests). build/vet/gofmt green, `-race ×3` stable, lint 0. |
 | 2026-07-22 | **Phase-3 `U` tail closed — `internal/daemon`, `cmd/gomc-server`, `internal/config` (rows → `U` ✅); `pkg/inifile` I-2 ruled keep-as-is (closed).** Writing the missing tests surfaced three defects. **daemon D-4 (real bug):** `SyslogHandler.WithAttrs` did `append(h.attrs, attrs...)` into the parent's spare capacity, so two loggers derived from the same parent via `slog.With` shared a backing array and the second overwrote the first one's attrs (mutation-verified — both records logged `who=beta`); `WithGroup` had the mirror defect, recording `groups` that `Handle` never applied, so attrs from different groups collided under bare keys. Both fixed; handler attrs now precede record attrs per the stdlib convention. **daemon D-1/D-2/D-3 + gomc-server F5 (pidfile ownership):** parent and child both wrote the pidfile (two writers → a child that fails and removes it gets it recreated by the parent's later write, naming a dead process); a second daemon silently overwrote a LIVE instance's pidfile, orphaning it while both fought over the same HAL shm and REST port; and `RemovePidFile` would delete a replacement instance's file. Now the parent is sole writer, `Daemonize` refuses with `ErrAlreadyRunning` on a live PID (stale/malformed still overwritten; EPERM counts as alive so a root-owned daemon is not read as dead), removal is ownership-checked, and `main.go` defers it so every exit path drops it (previously only a clean `Run()`). **config C-1 (dead `-X`):** `-ldflags -X pkg.Name=v` is a SILENT no-op for an unknown `Name`; the Submakefile injected `DefaultNmlFile`, which no Go code has ever declared (NML-era leftover). Removed + a drift guard that parses the Submakefile against `paths.go` (mutation-verified), plus the reverse direction (never-injected vars must document their empty-value fallback) and a check that every path var stays an uninitialised `string`. Coverage 0→365 / 0→159 / 37→223 test lines. **Also fixed en route (pre-existing, from the 2026-07-22 adsbridge test addition): `internal/adsbridge` had no keep-alive `TestMain`,** so its per-test HAL create/exit cycles dropped the component count to zero and re-init hit pkg/hal **H-4** — the whole-module `-race` run failed 4 accessor tests with `hal_init_ex … (code -22)` and hung outright once (464 s), while the package alone or the suite with `-p 1` always passed. Added the same keep-alive `TestMain` pkg/hal uses. build/vet/gofmt green, `-race` green, lint 0. |

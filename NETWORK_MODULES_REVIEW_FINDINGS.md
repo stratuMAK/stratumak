@@ -86,6 +86,12 @@ double-`dlclose` / UAF. halrest itself adds no unsafe allocation — the danger 
 unlocked launcher state. **This is exactly the open Tier-1 launcher finding L-3**; the fix (a
 locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock) belongs there, not
 in halrest. Recorded here as confirmation that the REST surface makes L-3 remotely reachable.
+**RESOLVED 2026-07-22 (bookkeeping; the fix landed 2026-07-21).** The full locking fix is in the
+launcher — `arenaMu` around the arena append/free, `modMu` serialising `loadModuleNamed`/
+`UnloadModule` end-to-end, snapshot-under-lock in the shutdown iterators, plus a `shuttingDown`
+gate returning `ESHUTDOWN` to stragglers; mutation-verified by `-race` `TestLoadRace`/
+`TestShutdownGate`. Nothing further is owed by halrest, whose matrix `F` is now ✅.
+
 **RULING 2026-07-21 (user): runtime REST load/unload IS a supported production path**, so L-3
 gets the FULL locking fix (`arenaMu` around the arena append/free + `modMu` serialising the REST
 handlers, snapshot-under-lock in the shutdown iterators) — not the shrink. Now the
@@ -144,8 +150,8 @@ golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/laun
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
 
-**Still open:** N6 (= launcher L-3, now FULL fix per the 2026-07-21 ruling), N7 (mqtt
-publish-count semantics), N9 (connection cap — policy).
+**Still open:** N7 (mqtt publish-count semantics), N9 (connection cap — policy).
+**N6 closed 2026-07-22** — launcher L-3 landed its full locking fix on 2026-07-21; see N6 above.
 
 **Auth ruling (2026-07-21, user).** The REST/WS surface has **no authentication** and that is a
 deferred-but-required architecture item, not "won't fix": auth needs **fine-grained permission
