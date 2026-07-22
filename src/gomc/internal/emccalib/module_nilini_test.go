@@ -31,7 +31,7 @@ func TestNewEmccalib_NilIni(t *testing.T) {
 		apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mod, err := newEmccalib(nil, logger, "emccalib-nilini-test", nil)
+	mod, err := newEmccalib(nil, logger, uniq("emccalib-nilini-test"), nil)
 	if err != nil {
 		t.Fatalf("newEmccalib with a nil INI: %v", err)
 	}

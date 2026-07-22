@@ -470,11 +470,17 @@ test.
 
 - `internal/inirest` `U` ◐ (57.5 %) — the one module the network coverage pass
   did not reach.
-- `internal/emccalib` `U` ◐ (43.2 %) — recorded above as accepted because
-  `GetTunables`/`SaveIni` read live HAL pins. **That reason is now obsolete:** the
-  network pass established the live in-process HAL test pattern (keep-alive
-  `TestMain`, `RtapiAppInit` where a real component is needed), which is exactly
-  what this needs. Prefer closing it over continuing to accept it.
+- ~~`internal/emccalib` `U` ◐ (43.2 %)~~ — **CLOSED 2026-07-22, 94.4 %.** It had
+  been accepted because `GetTunables`/`SaveIni` read live HAL pins; the network
+  pass's in-process HAL pattern (keep-alive `TestMain`; `RtapiInitializeApp` is
+  enough here, no RT component involved) removed the excuse, and all four REST
+  methods — previously at **0 %** — now run against real pins and a real INI file
+  on disk. Includes the E-1 regression at the API level (tune → save → nudge →
+  revert), the `pathres` containment check on the write path, and the soft-fail /
+  hard-fail split described in the status log. Six mutations, all caught. Fixed in
+  passing: the test helpers registered the API under `t.Name()`, which is
+  process-global and never unregistered, so the package could not run under
+  `-count>1`; now green under `-race -count=3`.
 - `S` (human sign-off) on all ten rows.
 
 Not Phase 5, tracked as cross-cutting: REST/WS authentication (ruled

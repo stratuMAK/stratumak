@@ -18,8 +18,10 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// newTestEmccalib builds a module from a set of calibreg mappings, bypassing
-// the API registration (which needs a unique instance name per call).
+// newTestEmccalib builds a module from a set of calibreg mappings. The
+// instance name is uniquified rather than t.Name(): API registration is
+// process-global and never unregistered, so a plain test name collides with
+// itself under -count=2.
 func newTestEmccalib(t *testing.T, mappings ...calibreg.IniPinMapping) *emccalib {
 	t.Helper()
 	calibreg.Reset()
@@ -30,7 +32,7 @@ func newTestEmccalib(t *testing.T, mappings ...calibreg.IniPinMapping) *emccalib
 	if apiserver.DefaultRegistry() == nil {
 		apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 	}
-	mod, err := newEmccalib(nil, testLogger(), t.Name(), nil)
+	mod, err := newEmccalib(nil, testLogger(), uniq(t.Name()), nil)
 	if err != nil {
 		t.Fatalf("newEmccalib: %v", err)
 	}
