@@ -254,11 +254,46 @@ func cStringFromBytes(b []byte) string {
 
 // --- INI callback implementations (exported to C) ---
 
+// The launcher runs without an INI file in halrun mode (`halrun -f file.hal`
+// never sets l.ini), and pkg/inifile's methods dereference the receiver
+// immediately — so l.ini must be checked before it is touched.  These are
+// //export'ed callbacks: a panic here unwinds into a C caller and kills the
+// process.  The nil check lives in the three iniX helpers below (also unit
+// testable, which the cgo callbacks are not — cgo is not allowed in _test.go).
+// No-INI is reported as "key not found" (NULL / count 0), which the documented
+// gomc_ini.h contract and the gomc_ini_get_* helpers already handle.
+
+// iniGet returns the INI value for section/key and whether it is present.
+// A launcher with no INI reports "not present" for every key.
+func (l *Launcher) iniGet(section, key string) (string, bool) {
+	if l.ini == nil {
+		return "", false
+	}
+	val := l.ini.Get(section, key)
+	return val, val != ""
+}
+
+// iniGetAll returns all INI values for section/key; nil when there is no INI.
+func (l *Launcher) iniGetAll(section, key string) []string {
+	if l.ini == nil {
+		return nil
+	}
+	return l.ini.GetAll(section, key)
+}
+
+// iniSourceFile returns the INI file path, or "" when there is no INI.
+func (l *Launcher) iniSourceFile() string {
+	if l.ini == nil {
+		return ""
+	}
+	return l.ini.SourceFile()
+}
+
 //export gomc_ini_get
 func gomc_ini_get(ctx C.uintptr_t, section, key *C.char) *C.char {
 	l := cgo.Handle(ctx).Value().(*Launcher)
-	val := l.ini.Get(C.GoString(section), C.GoString(key))
-	if val == "" {
+	val, ok := l.iniGet(C.GoString(section), C.GoString(key))
+	if !ok {
 		return nil
 	}
 	cs := C.CString(val)
@@ -269,7 +304,9 @@ func gomc_ini_get(ctx C.uintptr_t, section, key *C.char) *C.char {
 //export gomc_ini_source_file
 func gomc_ini_source_file(ctx C.uintptr_t) *C.char {
 	l := cgo.Handle(ctx).Value().(*Launcher)
-	cs := C.CString(l.ini.SourceFile())
+	// Unlike get/get_all, this one keeps its "always a valid string" contract
+	// and reports no-INI as "" — C callers may strlen/strcpy the result.
+	cs := C.CString(l.iniSourceFile())
 	l.arenaAppend(unsafe.Pointer(cs))
 	return cs
 }
@@ -277,7 +314,7 @@ func gomc_ini_source_file(ctx C.uintptr_t) *C.char {
 //export gomc_ini_get_all
 func gomc_ini_get_all(ctx C.uintptr_t, section, key *C.char, outCount *C.int) **C.char {
 	l := cgo.Handle(ctx).Value().(*Launcher)
-	vals := l.ini.GetAll(C.GoString(section), C.GoString(key))
+	vals := l.iniGetAll(C.GoString(section), C.GoString(key))
 	n := len(vals)
 	*outCount = C.int(n)
 	if n == 0 {

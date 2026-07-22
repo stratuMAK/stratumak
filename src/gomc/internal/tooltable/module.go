@@ -100,6 +100,10 @@ func (m *module) Destroy() {}
 
 // tryImportLegacy attempts to import a legacy .tbl file on first run.
 func (m *module) tryImportLegacy() {
+	// No INI (halrun mode) → no TOOL_TABLE to import from.
+	if m.ini == nil {
+		return
+	}
 	v := m.ini.Get("EMCIO", "TOOL_TABLE")
 	if !strings.HasSuffix(v, ".tbl") {
 		return

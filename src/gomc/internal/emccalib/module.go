@@ -65,7 +65,9 @@ func newEmccalib(ini *inifile.IniFile, logger *slog.Logger, name string, args []
 			iniValue: m.IniValue,
 		}
 		// Find provenance — which file and line this entry came from.
-		for i := range ini.Sections {
+		// ini is nil in an INI-less launcher (halrun mode); the tunables
+		// themselves come from calibreg, so provenance is simply unavailable.
+		for i := 0; ini != nil && i < len(ini.Sections); i++ {
 			if ini.Sections[i].Name != m.Section {
 				continue
 			}

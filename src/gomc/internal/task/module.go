@@ -34,6 +34,12 @@ var _ MotionConfig = (*motctl.MotctlClient)(nil)
 
 func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
 	logger = logger.With("module", name)
+	// milltask is INI-driven throughout (loadConfig reads TRAJ/KINS/JOINT_n/…),
+	// so an INI-less launcher (halrun mode, ini == nil) cannot run it.  Reject
+	// it here with a clear error instead of nil-dereferencing on the next line.
+	if ini == nil {
+		return nil, fmt.Errorf("milltask %q: requires an INI file (loaded without one)", name)
+	}
 	// Use a namespaced view of the INI so this instance reads [name:SECTION]
 	// with fallback to [SECTION].  For the default "milltask" instance name
 	// where no namespaced sections exist, all lookups fall through to global.

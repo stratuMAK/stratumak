@@ -91,9 +91,14 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 		return nil, fmt.Errorf("ads-server: missing required config= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory.
+	// Resolve relative paths against the INI file directory.  ini is nil when
+	// the launcher runs without an INI file (halrun mode), in which case the
+	// path stays relative to the server's working directory.
 	if !filepath.IsAbs(configPath) {
-		iniDir := filepath.Dir(ini.SourceFile())
+		iniDir := "."
+		if ini != nil && ini.SourceFile() != "" {
+			iniDir = filepath.Dir(ini.SourceFile())
+		}
 		configPath = filepath.Join(iniDir, configPath)
 	}
 

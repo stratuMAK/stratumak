@@ -53,8 +53,14 @@ func newPersistSQLite(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		}
 	}
 
-	// Default: db/ directory next to INI file.
-	iniDir := filepath.Dir(ini.SourceFile())
+	// Default: db/ directory next to INI file.  ini is nil when the launcher
+	// runs without an INI (halrun mode) — dereferencing it here would segfault,
+	// the same nil-INI class as the haljson/pyvcp/mqttbridge guards; fall back
+	// to the server's working directory.
+	iniDir := "."
+	if ini != nil && ini.SourceFile() != "" {
+		iniDir = filepath.Dir(ini.SourceFile())
+	}
 	if dbDir == "" {
 		dbDir = filepath.Join(iniDir, "db")
 	} else if !filepath.IsAbs(dbDir) && iniDir != "" {

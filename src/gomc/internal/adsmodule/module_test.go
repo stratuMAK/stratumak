@@ -72,3 +72,19 @@ func TestNewADSModuleBadConfigPath(t *testing.T) {
 		t.Error("expected a nil module on error")
 	}
 }
+
+// TestNewADSModule_NilIni pins the nil-INI guard on the config-path resolution.
+// The launcher passes ini == nil whenever it runs without an INI file (halrun
+// mode), and pkg/inifile's methods dereference the receiver immediately, so the
+// unguarded filepath.Dir(ini.SourceFile()) killed the process.  A relative
+// config path must instead resolve against the working directory and fail
+// normally on the missing file.
+func TestNewADSModule_NilIni(t *testing.T) {
+	_, err := newADSModule(nil, discardLogger(), "ads-server", []string{"config=no-such-ads.conf"})
+	if err == nil {
+		t.Fatal("newADSModule with a missing config file: want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no-such-ads.conf") {
+		t.Errorf("error %q does not name the config path", err)
+	}
+}

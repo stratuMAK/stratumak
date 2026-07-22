@@ -832,10 +832,18 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 			persistInst = strings.TrimPrefix(arg, "persist_instance=")
 		}
 	}
-	nsIni := ini.WithNamespace(ns)
-	linearUnits := parseLinearUnits(nsIni.Get("TRAJ", "LINEAR_UNITS"))
+	// ini is nil in an INI-less launcher (halrun mode): keep the default units
+	// and let collectAllowedDirs fall back to the system share dir only — a
+	// narrower allow-list, never a wider one.
+	var nsIni *inifile.IniFile
+	linearUnits := parseLinearUnits("")
+	iniDir := "."
+	if ini != nil {
+		nsIni = ini.WithNamespace(ns)
+		linearUnits = parseLinearUnits(nsIni.Get("TRAJ", "LINEAR_UNITS"))
+		iniDir = filepath.Dir(ini.SourceFile())
+	}
 	// Build allowed directories for get_file path restriction
-	iniDir := filepath.Dir(ini.SourceFile())
 	allowedDirs := collectAllowedDirs(nsIni, iniDir)
 	m := &ngcPreview{logger: logger, name: name, linearUnits: linearUnits, ttInstanceName: ttInst, persistInstanceName: persistInst, allowedDirs: allowedDirs}
 	if err := ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m); err != nil {
@@ -1154,18 +1162,22 @@ func collectAllowedDirs(ini *inifile.IniFile, iniDir string) []string {
 		return abs
 	}
 
-	// [DISPLAY] PROGRAM_PREFIX — the NC_FILES directory
-	if pp := ini.Get("DISPLAY", "PROGRAM_PREFIX"); pp != "" {
-		if d := resolve(pp); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-	// [RS274NGC] SUBROUTINE_PATH — colon-separated list
-	if sp := ini.Get("RS274NGC", "SUBROUTINE_PATH"); sp != "" {
-		for _, p := range strings.Split(sp, ":") {
-			p = strings.TrimSpace(p)
-			if d := resolve(p); d != "" {
+	// ini is nil in an INI-less launcher; only the system share dir below is
+	// then allowed.
+	if ini != nil {
+		// [DISPLAY] PROGRAM_PREFIX — the NC_FILES directory
+		if pp := ini.Get("DISPLAY", "PROGRAM_PREFIX"); pp != "" {
+			if d := resolve(pp); d != "" {
 				dirs = append(dirs, d)
+			}
+		}
+		// [RS274NGC] SUBROUTINE_PATH — colon-separated list
+		if sp := ini.Get("RS274NGC", "SUBROUTINE_PATH"); sp != "" {
+			for _, p := range strings.Split(sp, ":") {
+				p = strings.TrimSpace(p)
+				if d := resolve(p); d != "" {
+					dirs = append(dirs, d)
+				}
 			}
 		}
 	}
