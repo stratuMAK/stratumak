@@ -230,10 +230,13 @@ the same handle to every caller of a namespace, so honouring one consumer's
 consumer calls it. A real close would need refcounting, which buys nothing while
 the module's lifetime is the process's.
 
-**Still open:** `persist.gmi`'s own comment on `close` promises "releases
-resources", which is now the only place stating something untrue. Not changed
-here because editing the IDL regenerates code across packages, which does not
-belong in the same commit as a behaviour review. One-line follow-up.
+**CLOSED 2026-07-22.** `persist.gmi`'s own comment on `close` promised "releases
+resources", which was the last place stating something untrue. It now says what
+the call is — a caller releasing its interest — and why the sqlite provider makes
+it a no-op (shared handles), while keeping it in the API for a provider that
+hands out per-caller handles. The edit is comment-only: regenerating from the
+old and new IDL produces byte-identical output, because a `#` comment is not
+`@doc` and reaches no emitter.
 
 ---
 
@@ -459,3 +462,21 @@ this code end-to-end and none of them are unit tests — `tests/ws-stream`
 (halsampler ↔ halstreamer loopback, which S-3 and S-4 touch), the
 `configs/sim/axis/multiinst` instances (two `persist_sqlite`, two `tooltable`),
 and any config with a legacy `.tbl` to migrate (T-1/T-2/T-3).
+**Run 2026-07-22 with the `@rc_error` conversion in: 241/241, 0 failed.**
+`tooltable` coverage is 91.3 % after the conversion's end-to-end storage-failure
+test.
+
+**What is left in Phase 5** (2026-07-22, after the network half and G-1/G-2):
+
+- `internal/inirest` `U` ◐ (57.5 %) — the one module the network coverage pass
+  did not reach.
+- `internal/emccalib` `U` ◐ (43.2 %) — recorded above as accepted because
+  `GetTunables`/`SaveIni` read live HAL pins. **That reason is now obsolete:** the
+  network pass established the live in-process HAL test pattern (keep-alive
+  `TestMain`, `RtapiAppInit` where a real component is needed), which is exactly
+  what this needs. Prefer closing it over continuing to accept it.
+- `S` (human sign-off) on all ten rows.
+
+Not Phase 5, tracked as cross-cutting: REST/WS authentication (ruled
+deferred-but-required, loopback-only until settled) and "surface RCS command
+errors to clients" — the same class as G-1 on a different surface.

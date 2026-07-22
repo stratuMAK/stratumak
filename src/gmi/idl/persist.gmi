@@ -30,7 +30,10 @@ type DeleteResult {
 @rc_error
 func open(namespace: string @regex("^[A-Za-z0-9_]+$"), result: OpenResult out) -> i32
 
-# Close a handle (releases resources).
+# Release a caller's interest in a handle. Deliberately a no-op in the sqlite
+# provider: open() hands the same handle to every caller of a namespace, so
+# closing the database here would pull it out from under the others. It stays in
+# the API because a provider that hands out per-caller handles needs it.
 func close(handle: i32 @min(0))
 
 # Get all open namespaces.

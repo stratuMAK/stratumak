@@ -126,8 +126,18 @@ highest-priority open item. See `gomc-rest-auth-and-loadunload-rulings` (auto-me
   to both.)
 - **N9 — apiserver: no global connection cap.** Standard `net/http` behavior; per-connection
   subscriptions are already bounded (only *registered* watch funcs are subscribable), so the only
-  unbounded axis is connection count. Capping risks breaking legitimate multi-client use; left as
-  a documented follow-up (N1's same-origin gate is the real control). **PLAUSIBLE — low.** `[OPEN]`
+  unbounded axis is connection count. **PLAUSIBLE — low.** `[FIX APPLIED]`
+
+  Ruling and fix (2026-07-22, user): cap **both** axes, INI-configurable. The original write-up
+  argued for leaving it as a documented follow-up because capping "risks breaking legitimate
+  multi-client use" — the ruling was that a blast-radius limit with a generous default does not,
+  and that no cap at all is the wrong default for a controller. `internal/apiserver/limits.go`:
+  `REST_MAX_CONNECTIONS` (default 256) bounds accepted HTTP connections and
+  `REST_MAX_WS_CONNECTIONS` (default 64) bounds concurrent WebSockets, either overridable via
+  `[GMC]` or the environment, `0` = explicitly unlimited. Two caps rather than one because a
+  WebSocket *is* a hijacked HTTP connection and holds an accept slot for its whole life, so a
+  single cap lets watch clients starve plain REST; the launcher warns when the WS cap is not
+  comfortably below the overall one. Covered by `limits_test.go`.
 
 ---
 
