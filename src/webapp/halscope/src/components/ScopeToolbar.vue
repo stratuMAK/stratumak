@@ -50,9 +50,12 @@ const scaleLabel = computed(() => {
 });
 
 const recInfo = computed(() => {
-  const sp = scopeStore.getSamplePeriod();
+  // Describe the capture on screen (S-2): decode-time snapshot when data is
+  // displayed, live status otherwise.
+  const dw = scopeStore.calcDisplayWindow();
+  const sp = dw.samplePeriod;
   if (sp === 0) return '----';
-  const rl = scopeStore.state.status.recLen;
+  const rl = dw.recLen;
   const freq = 1 / sp;
   let fStr: string;
   if (freq >= 1e6) fStr = (freq / 1e6).toFixed(1) + ' MHz';
@@ -134,7 +137,8 @@ function onPosWheel(e: WheelEvent) {
       <div class="toolbar-group">
         <span v-if="scopeStore.state.connected" class="connected-badge">●</span>
         <span v-else class="disconnected-badge">○</span>
-        <span class="state-badge" :class="stateClass">{{ stateLabel }}</span>
+        <!-- S-7: badge greys out while the connection is stale -->
+        <span class="state-badge" :class="[stateClass, { stale: scopeStore.state.stale }]">{{ stateLabel }}</span>
       </div>
 
       <div class="toolbar-group">
@@ -375,6 +379,11 @@ function onPosWheel(e: WheelEvent) {
   border-radius: 3px;
   background: #333;
   font-weight: 600;
+}
+
+.state-badge.stale {
+  opacity: 0.4;
+  filter: grayscale(1);
 }
 
 .state-done { color: #4f4; background: #1a2a1a; }

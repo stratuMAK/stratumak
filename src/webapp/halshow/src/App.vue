@@ -42,7 +42,7 @@ function onFilterInput(e: Event) {
         :value="halshowStore.state.treeFilter"
         @input="onFilterInput"
       />
-      <button class="refresh-btn" @click="halshowStore.refresh()">Refresh</button>
+      <button class="refresh-btn" @click="halshowStore.refreshSafe()">Refresh</button>
     </div>
     <div class="main-area" v-if="halshowStore.state.treeCategory === 'api'">
       <ApiPanel />

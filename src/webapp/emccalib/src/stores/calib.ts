@@ -25,25 +25,47 @@ const state = reactive<CalibState>({
   saveMessage: '',
 });
 
+// Drops out-of-order getTunables responses: only the latest load may commit.
+let loadGen = 0;
+
 function itemKey(section: string, key: string): string {
   return `${section}\0${key}`;
+}
+
+// Strict numeric parse for values that end up on live HAL pins. parseFloat is
+// not usable here: it truncates trailing garbage ("1.5abc" → 1.5), reads a
+// decimal comma as 0 ("0,5" → 0), and lets Infinity through — which JSON
+// serializes as null and the server then applies as 0.0. A single decimal
+// comma with no dot is accepted as the locale spelling and normalized.
+export function parseTunableValue(raw: string): number | null {
+  let s = raw.trim();
+  if (s.includes(',') && !s.includes('.') && s.indexOf(',') === s.lastIndexOf(',')) {
+    s = s.replace(',', '.');
+  }
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 export const calibStore = {
   state,
 
   async loadTunables() {
+    const gen = ++loadGen;
     state.loading = true;
     state.error = '';
     try {
-      state.sections = await client.getTunables();
+      const sections = await client.getTunables();
+      if (gen !== loadGen) return;
+      state.sections = sections;
       if (state.sections.length > 0 && !state.activeTab) {
         state.activeTab = state.sections[0].name;
       }
     } catch (e: unknown) {
+      if (gen !== loadGen) return;
       state.error = e instanceof Error ? e.message : String(e);
     } finally {
-      state.loading = false;
+      if (gen === loadGen) state.loading = false;
     }
   },
 
@@ -52,7 +74,11 @@ export const calibStore = {
   },
 
   setEdit(section: string, key: string, value: string) {
-    state.edits.set(itemKey(section, key), value);
+    if (value.trim() === '') {
+      state.edits.delete(itemKey(section, key));
+    } else {
+      state.edits.set(itemKey(section, key), value);
+    }
   },
 
   clearEdit(section: string, key: string) {
@@ -60,17 +86,22 @@ export const calibStore = {
   },
 
   async testValue(item: TunableItem) {
-    const editVal = state.edits.get(itemKey(item.section, item.key));
+    const k = itemKey(item.section, item.key);
+    const editVal = state.edits.get(k);
     if (editVal === undefined) return;
-    const numVal = parseFloat(editVal);
-    if (isNaN(numVal)) {
-      state.error = `Invalid number: ${editVal}`;
+    const numVal = parseTunableValue(editVal);
+    if (numVal === null) {
+      state.error = `Invalid number: "${editVal}"`;
       return;
     }
     state.error = '';
+    state.saveMessage = '';
     try {
-      await client.setPin(item.section, item.key, numVal);
-      state.edits.delete(itemKey(item.section, item.key));
+      if (!(await client.setPin(item.section, item.key, numVal))) {
+        throw new Error(`set_pin ${item.section}/${item.key} refused`);
+      }
+      // Only clear the edit if the operator has not retyped meanwhile.
+      if (state.edits.get(k) === editVal) state.edits.delete(k);
       await this.loadTunables();
     } catch (e: unknown) {
       state.error = e instanceof Error ? e.message : String(e);
@@ -79,8 +110,11 @@ export const calibStore = {
 
   async revertValue(item: TunableItem) {
     state.error = '';
+    state.saveMessage = '';
     try {
-      await client.revert(item.section, item.key);
+      if (!(await client.revert(item.section, item.key))) {
+        throw new Error(`revert ${item.section}/${item.key} refused`);
+      }
       state.edits.delete(itemKey(item.section, item.key));
       await this.loadTunables();
     } catch (e: unknown) {
@@ -93,7 +127,9 @@ export const calibStore = {
     state.error = '';
     state.saveMessage = '';
     try {
-      await client.saveIni();
+      if (!(await client.saveIni())) {
+        throw new Error('save_ini refused');
+      }
       state.saveMessage = 'INI file saved successfully';
       await this.loadTunables();
     } catch (e: unknown) {

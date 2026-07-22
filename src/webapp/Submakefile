@@ -195,6 +195,18 @@ $(LATENCY_WEBAPP_STAMP): $(LATENCY_WEBAPP_SRCS) $(LATENCY_NPM_STAMP) $(LATENCY_G
 
 TARGETS += $(LATENCY_WEBAPP_STAMP)
 
+# Request-level write-path tests (vitest) for the apps that have them.
+# Depends on the npm stamps so a fresh checkout installs first.
+WEBAPP_TEST_APPS := $(TOOLEDIT_WEBAPP_SRC) $(EMCCALIB_WEBAPP_SRC) \
+	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC)
+
+.PHONY: webapp-test
+webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) $(HALSCOPE_NPM_STAMP)
+	$(Q)for app in $(WEBAPP_TEST_APPS); do \
+		echo "Testing webapp $$app"; \
+		(cd $$app && npm test) || exit 1; \
+	done
+
 clean: webapp-clean
 .PHONY: webapp-clean
 webapp-clean:

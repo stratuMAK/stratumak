@@ -157,7 +157,7 @@ func TestNewEmccalibProvenance(t *testing.T) {
 	wantLine := map[string]int{"JOINT_0\x00P": 2, "JOINT_0\x00I": 3, "JOINT_1\x00P": 6}
 	for key, line := range wantLine {
 		sec, k, _ := strings.Cut(key, "\x00")
-		got := e.lookup(sec, k)
+		got := lookupOne(e, sec, k)
 		if got == nil {
 			t.Fatalf("%s/%s missing from the index", sec, k)
 		}
@@ -168,7 +168,7 @@ func TestNewEmccalibProvenance(t *testing.T) {
 			t.Errorf("%s/%s sourceLine = %d, want %d", sec, k, got.sourceLine, line)
 		}
 	}
-	if got := e.lookup("SPINDLE_0", "P"); got == nil {
+	if got := lookupOne(e, "SPINDLE_0", "P"); got == nil {
 		t.Fatal("SPINDLE_0/P missing from the index")
 	} else if got.sourceFile != "" {
 		t.Errorf("SPINDLE_0/P is not in the INI but got sourceFile %q", got.sourceFile)
@@ -304,8 +304,52 @@ func TestSetPin(t *testing.T) {
 	}
 	// Tuning a pin must not touch the INI value — that is what Revert restores
 	// to and what SaveIni compares against to decide there is anything to save.
-	if got := e.lookup("JOINT_0", "P"); got.iniValue != 1 {
+	if got := lookupOne(e, "JOINT_0", "P"); got.iniValue != 1 {
 		t.Errorf("SetPin changed iniValue to %v; it must stay 1", got.iniValue)
+	}
+}
+
+// TestSetPinFanOut pins the tandem/gantry contract: one [SECTION]KEY feeding
+// two pins must write BOTH. The index used to keep only the last registration,
+// so the first tandem PID silently kept its old gain — mismatched gains on a
+// gantry while the panel reported success.
+func TestSetPinFanOut(t *testing.T) {
+	comp := uniq("emccalib-fanout")
+	pfx := tunePins(t, comp, "p0", "p1")
+	e := newTestEmccalib(t,
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "p0", IniValue: 1},
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "p1", IniValue: 1},
+	)
+
+	ok, err := e.SetPin("JOINT_0", "P", 7.5)
+	if err != nil || !ok {
+		t.Fatalf("SetPin = %v, %v; want true, nil", ok, err)
+	}
+	if got := getPin(t, pfx+"p0"); got != 7.5 {
+		t.Errorf("first tandem pin holds %v after SetPin, want 7.5", got)
+	}
+	if got := getPin(t, pfx+"p1"); got != 7.5 {
+		t.Errorf("second tandem pin holds %v after SetPin, want 7.5", got)
+	}
+}
+
+// TestSetPinFanOutPartialFailure: with one live and one dead pin under the same
+// key, the live pin is still written and the dead one is reported — a partial
+// tandem write must not masquerade as success.
+func TestSetPinFanOutPartialFailure(t *testing.T) {
+	comp := uniq("emccalib-fanoutdead")
+	pfx := tunePins(t, comp, "p0")
+	e := newTestEmccalib(t,
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "p0", IniValue: 1},
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "nosuchpin", IniValue: 1},
+	)
+
+	ok, err := e.SetPin("JOINT_0", "P", 3.25)
+	if err == nil || ok {
+		t.Fatalf("SetPin with a dead tandem pin = %v, %v; want false and an error", ok, err)
+	}
+	if got := getPin(t, pfx+"p0"); got != 3.25 {
+		t.Errorf("live tandem pin holds %v, want 3.25 (partial failure must still write it)", got)
 	}
 }
 
@@ -361,6 +405,31 @@ func TestRevert(t *testing.T) {
 	}
 	if got := getPin(t, pfx+"p"); got != 1.5 {
 		t.Errorf("pin holds %v after Revert, want the INI value 1.5", got)
+	}
+}
+
+// TestRevertFanOut: revert must restore every pin the key feeds, same tandem
+// contract as TestSetPinFanOut.
+func TestRevertFanOut(t *testing.T) {
+	comp := uniq("emccalib-revertfanout")
+	pfx := tunePins(t, comp, "p0", "p1")
+	e := newTestEmccalib(t,
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "p0", IniValue: 2.5},
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "p1", IniValue: 2.5},
+	)
+
+	if _, err := e.SetPin("JOINT_0", "P", 99); err != nil {
+		t.Fatalf("SetPin: %v", err)
+	}
+	ok, err := e.Revert("JOINT_0", "P")
+	if err != nil || !ok {
+		t.Fatalf("Revert = %v, %v; want true, nil", ok, err)
+	}
+	if got := getPin(t, pfx+"p0"); got != 2.5 {
+		t.Errorf("first tandem pin holds %v after Revert, want 2.5", got)
+	}
+	if got := getPin(t, pfx+"p1"); got != 2.5 {
+		t.Errorf("second tandem pin holds %v after Revert, want 2.5", got)
 	}
 }
 
@@ -423,7 +492,7 @@ func TestSaveIniRoundTrip(t *testing.T) {
 	}
 	// The in-memory INI value must now agree with what is on disk, or the next
 	// save thinks the value is still dirty and Revert undoes to a stale number.
-	if v := e.lookup("JOINT_0", "P").iniValue; v != 7.25 {
+	if v := lookupOne(e, "JOINT_0", "P").iniValue; v != 7.25 {
 		t.Errorf("in-memory iniValue = %v after saving, want 7.25", v)
 	}
 }
@@ -478,7 +547,7 @@ func TestSaveIniNoProvenance(t *testing.T) {
 		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: pfx + "known", IniValue: 1},
 		calibreg.IniPinMapping{Section: "GHOST", Key: "P", Pin: pfx + "orphan", IniValue: 5},
 	)
-	if e.lookup("GHOST", "P").sourceFile != "" {
+	if lookupOne(e, "GHOST", "P").sourceFile != "" {
 		t.Fatal("the ghost tunable unexpectedly has provenance")
 	}
 
@@ -523,7 +592,7 @@ func TestSaveIniSkipsUnreadablePin(t *testing.T) {
 	if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
 		t.Errorf("a no-op save created a backup (stat err = %v)", err)
 	}
-	if v := e.lookup("JOINT_0", "P").iniValue; v != 1 {
+	if v := lookupOne(e, "JOINT_0", "P").iniValue; v != 1 {
 		t.Errorf("an unreadable pin overwrote iniValue with %v, want 1 kept", v)
 	}
 }
@@ -553,7 +622,7 @@ func TestSaveIniWriteError(t *testing.T) {
 	}
 	// The failed save must not have advanced the in-memory INI value, or a
 	// retry would decide there is nothing left to save.
-	if v := e.lookup("JOINT_0", "P").iniValue; v != 1 {
+	if v := lookupOne(e, "JOINT_0", "P").iniValue; v != 1 {
 		t.Errorf("a failed save advanced iniValue to %v, want 1", v)
 	}
 }

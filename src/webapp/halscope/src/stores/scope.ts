@@ -21,10 +21,24 @@ export interface ChannelUI {
   visible: boolean;
 }
 
-// Decoded sample data per channel
+// Decoded sample data per channel.  pinName/dataType are snapshotted at
+// frame-decode time (S-4) so labels and CSV export always describe the data
+// on screen, even if the live channel config changes afterwards.
 export interface ChannelSamples {
   channel: number;
+  pinName: string;
+  dataType: number;
   data: Float64Array;
+}
+
+// Capture parameters snapshotted at frame-decode time (S-2).  The time base,
+// display window, buffer indicator and CSV export are driven from this — not
+// from the live (UI-editable) captureConfig or the current server status.
+export interface CaptureMeta {
+  periodNs: number;         // thread period of the displayed capture
+  samplePeriodMult: number;
+  recLen: number;
+  preTrig: number;
 }
 
 const CHANNEL_COLORS = [
@@ -38,6 +52,12 @@ interface ScopeStore {
   // Connection
   connected: boolean;
   error: string;
+  stale: boolean;     // S-7: liveness watchdog lost contact with the server
+
+  // File-view mode (S-10): a loaded capture file is displayed; live sample
+  // pushes are not applied to the displayed data until the user returns to
+  // live.
+  fileView: boolean;
 
   // Status from server
   status: ScopeStatus;
@@ -61,6 +81,7 @@ interface ScopeStore {
   // Sample data
   samples: ChannelSamples[];
   timeBase: Float64Array; // time axis in seconds
+  captureMeta: CaptureMeta | null;
 
   // UI state
   selectedThread: string;
@@ -83,6 +104,8 @@ interface ScopeStore {
 const state = reactive<ScopeStore>({
   connected: false,
   error: '',
+  stale: false,
+  fileView: false,
 
   status: {
     state: ScopeState.IDLE,
@@ -130,6 +153,7 @@ const state = reactive<ScopeStore>({
 
   samples: [],
   timeBase: new Float64Array(0),
+  captureMeta: null,
 
   selectedThread: '',
   selectedChannel: -1,
@@ -159,6 +183,60 @@ function getBaseUrl(): string {
 function getWsUrl(): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/api/v1/watch`;
+}
+
+// --- Command result checking (S-1) ---
+//
+// Provider commands return HTTP 200 with an int rc: 0 = ok, negative errno =
+// refusal (e.g. -EBUSY while a capture is running).  Every command rc must be
+// checked or the UI silently diverges from what the RT actually accepted.
+
+function rcText(rc: number): string {
+  if (rc === -16) return 'busy';    // -EBUSY
+  if (rc === -22) return 'invalid'; // -EINVAL
+  return `error ${rc}`;
+}
+
+function checkRc(rc: number, what: string): boolean {
+  if (rc !== 0) {
+    state.error = `${what} failed: ${rcText(rc)}`;
+    return false;
+  }
+  return true;
+}
+
+/** Force capture/trigger config back to what the server actually has. */
+function applyConfigFromStatus(status: ScopeStatus) {
+  if (status.maxChannels > 0) {
+    state.captureConfig.maxChannels = status.maxChannels;
+  }
+  if (status.samplePeriodMult > 0) {
+    state.captureConfig.samplePeriodMult = status.samplePeriodMult;
+  }
+  if (status.threadName) {
+    state.captureConfig.threadName = status.threadName;
+    state.selectedThread = status.threadName;
+  }
+  state.triggerConfig.channel = status.trigChannel;
+  state.triggerConfig.level = status.trigLevel;
+  state.triggerConfig.edge = status.trigEdge;
+  state.triggerConfig.autoTrig = status.trigAutoTrig;
+}
+
+/**
+ * After a refused configure/setTrigger, resync the UI config from a fresh
+ * getStatus() so the UI shows what the RT actually accepted (S-1).
+ * Never clobbers the refusal message already in state.error.
+ */
+async function resyncConfig() {
+  if (!restClient) return;
+  try {
+    const status = await restClient.getStatus();
+    onStatusUpdate(status);
+    applyConfigFromStatus(status);
+  } catch {
+    // keep the refusal message; resync will happen on the next status poll
+  }
 }
 
 // --- Actions ---
@@ -193,6 +271,10 @@ async function connect() {
     return;
   }
 
+  // S-7: liveness watchdog — REST is up, keep checking it independently of
+  // the WS so a dead connection can't display a frozen capture as live.
+  startLivenessWatchdog();
+
   // Connect WS for live updates — failures here don't block the UI
   try {
     wsClient = new HalscopeWatchClient(getWsUrl());
@@ -206,7 +288,7 @@ async function connect() {
     wsClient.subscribeWatchState(onStatusUpdate, 100);
 
     // Subscribe to sample data
-    wsClient.subscribeWatchSamples(onSamplesUpdate, 100);
+    wsClient.subscribeWatchSamples(handleSampleFrame, 100);
   } catch (e) {
     state.error = `WebSocket failed, retrying…`;
     state.connected = false;
@@ -228,10 +310,55 @@ function disconnect() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  stopLivenessWatchdog();
   wsClient?.close();
   wsClient = null;
   restClient = null;
   state.connected = false;
+}
+
+// --- Liveness watchdog (S-7 client half) ---
+//
+// Polls getStatus via REST every ~2s independent of the WS.  On failure or
+// timeout the UI is marked stale (chart greyed, "connection lost") until a
+// poll succeeds again.  Server keepalive frames are a deferred shared
+// apiserver change.
+
+const LIVENESS_INTERVAL_MS = 2000;
+const LIVENESS_TIMEOUT_MS = 1800;
+
+let livenessTimer: ReturnType<typeof setInterval> | null = null;
+let livenessBusy = false;
+
+function startLivenessWatchdog() {
+  if (livenessTimer) return;
+  livenessTimer = setInterval(pollLiveness, LIVENESS_INTERVAL_MS);
+}
+
+function stopLivenessWatchdog() {
+  if (livenessTimer) {
+    clearInterval(livenessTimer);
+    livenessTimer = null;
+  }
+  state.stale = false;
+}
+
+async function pollLiveness() {
+  if (!restClient || livenessBusy) return;
+  livenessBusy = true;
+  try {
+    const status = await Promise.race([
+      restClient.getStatus(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('status poll timeout')), LIVENESS_TIMEOUT_MS)),
+    ]);
+    state.stale = false;
+    onStatusUpdate(status);
+  } catch {
+    state.stale = true;
+  } finally {
+    livenessBusy = false;
+  }
 }
 
 function channelsChanged(a: typeof state.status.channels, b: typeof state.status.channels): boolean {
@@ -305,11 +432,42 @@ function onWsClose() {
   scheduleReconnect();
 }
 
-function onSamplesUpdate(buf: ArrayBuffer) {
-  if (buf.byteLength < 16) return;
+// --- Sample frame decode (S-2, S-4, S-12) ---
 
-  // Binary layout: sample_header_t (16 bytes, 4× uint32 LE) + sample data (float64 LE)
-  // Header: { sample_count, sample_len, start_offset, reserved }
+// S-12: malformed-frame errors are reported once, not per frame.
+let frameErrorReported = false;
+
+function reportBadFrame(detail: string) {
+  if (frameErrorReported) return;
+  frameErrorReported = true;
+  state.error = `Dropped malformed sample frame (${detail})`;
+}
+
+/**
+ * Decode a binary sample frame from the watch WS and publish it to the store.
+ *
+ * Binary layout: sample_header_t (16 bytes, 4× uint32 LE) + sample data
+ * (float64 LE).  Header: { sample_count, sample_len, start_offset, reserved }.
+ *
+ * Exported for tests.
+ */
+export function handleSampleFrame(buf: ArrayBuffer) {
+  // S-10: while viewing a loaded file, live pushes must not clobber the
+  // displayed data.
+  if (state.fileView) return;
+
+  // S-12: validate the header against the actual buffer size before
+  // constructing any views.
+  const byteLength = buf.byteLength;
+  if (byteLength < 16) {
+    reportBadFrame(`${byteLength} bytes < header size`);
+    return;
+  }
+  if ((byteLength - 16) % 8 !== 0) {
+    reportBadFrame(`${byteLength} bytes not 8-aligned after header`);
+    return;
+  }
+
   const view = new DataView(buf);
   const sampleCount = view.getUint32(0, true);
   const sampleLen = view.getUint32(4, true);
@@ -317,11 +475,16 @@ function onSamplesUpdate(buf: ArrayBuffer) {
 
   if (sampleLen === 0 || sampleCount === 0) return;
 
-  const dataOffset = 16; // header size in bytes
+  if (16 + sampleCount * sampleLen * 8 > byteLength) {
+    reportBadFrame(`header claims ${sampleCount}×${sampleLen} samples, got ${byteLength} bytes`);
+    return;
+  }
+  frameErrorReported = false;
+
   const channels = state.status.channels.filter(c => c.enabled);
 
-  // Create a Float64Array view over the data portion (header is 16 bytes = aligned to 8)
-  const allSamples = new Float64Array(buf, dataOffset);
+  // Float64Array view over the data portion (header is 16 bytes = aligned to 8)
+  const allSamples = new Float64Array(buf, 16, sampleCount * sampleLen);
 
   const decoded: ChannelSamples[] = [];
   for (const ch of channels) {
@@ -332,56 +495,115 @@ function onSamplesUpdate(buf: ArrayBuffer) {
     for (let si = 0; si < sampleCount; si++) {
       data[si] = allSamples[si * sampleLen + ch.channel];
     }
-    decoded.push({ channel: ch.channel, data });
+    // S-4: snapshot pin identity together with the data
+    decoded.push({ channel: ch.channel, pinName: ch.pinName, dataType: ch.dataType, data });
   }
 
-  state.samples = decoded;
+  // S-2: snapshot the capture parameters that produced this frame.  No
+  // silent fallback: if the thread period is unknown at decode time, surface
+  // a warning.
+  let periodNs = Number(state.status.threadPeriodNs);
+  if (!(periodNs > 0)) {
+    const t = state.threads.find(t => t.name === state.status.threadName);
+    periodNs = Number(t?.periodNs ?? 0);
+    state.error = 'Thread period unknown at capture-decode time — time axis may be wrong';
+  }
+  const meta: CaptureMeta = {
+    periodNs,
+    samplePeriodMult: state.status.samplePeriodMult,
+    recLen: state.status.recLen,
+    preTrig: state.status.preTrig,
+  };
 
-  // Build time base
-  const threadPeriodNs = getSelectedThreadPeriod();
-  const dt = (threadPeriodNs * state.captureConfig.samplePeriodMult) / 1e9;
+  // Build time base from the snapshotted parameters
+  const dt = (meta.periodNs * meta.samplePeriodMult) / 1e9;
   const tb = new Float64Array(sampleCount);
   const t0 = -(startOffset * dt);
   for (let i = 0; i < sampleCount; i++) {
     tb[i] = t0 + i * dt;
   }
+
+  state.samples = decoded;
   state.timeBase = tb;
+  state.captureMeta = meta;
+}
+
+/** Clear displayed capture data (S-4: on any channel-set edit). */
+function clearSampleData() {
+  state.samples = [];
+  state.timeBase = new Float64Array(0);
+  state.captureMeta = null;
 }
 
 function getSelectedThreadPeriod(): number {
   const t = state.threads.find(t => t.name === state.captureConfig.threadName);
-  return Number(t?.periodNs ?? 1000000);
+  return Number(t?.periodNs ?? 0);
 }
 
-async function configure() {
-  if (!restClient) return;
+async function configure(): Promise<boolean> {
+  if (!restClient) return false;
   try {
     state.captureConfig.threadName = state.selectedThread;
     // preTrig is hardcoded server-side (recLen/2, like original halscope); the
     // client does not send it (CaptureConfig has no preTrig field).
-    await restClient.configure(state.captureConfig);
+    const rc = await restClient.configure(state.captureConfig);
+    if (!checkRc(rc, 'Configure')) {
+      await resyncConfig();
+      return false;
+    }
     // Re-fetch status so recLen/preTrig reflect the new maxChannels
     const status = await restClient.getStatus();
     onStatusUpdate(status);
-    state.error = '';
+    return true;
   } catch (e) {
     state.error = `Configure failed: ${e}`;
+    return false;
+  }
+}
+
+async function setTrigger(): Promise<boolean> {
+  if (!restClient) return false;
+  try {
+    const rc = await restClient.setTrigger(state.triggerConfig);
+    if (!checkRc(rc, 'Set trigger')) {
+      await resyncConfig();
+      return false;
+    }
+    return true;
+  } catch (e) {
+    state.error = `Set trigger failed: ${e}`;
+    return false;
   }
 }
 
 async function addChannel(pinName: string, channel: number) {
   if (!restClient) return;
+  state.error = '';
   try {
+    // S-9: remember the previous pin type on this slot — if the trigger
+    // sources this slot and the type changes, the trigger must be re-sent.
+    const prev = state.status.channels.find(c => c.channel === channel && c.enabled);
+    const prevType = prev?.dataType;
+
     const ch: ChannelConfig = { channel, pinName: pinName };
     const rc = await restClient.setChannel(ch);
-    if (rc !== 0) {
-      state.error = `Set channel failed: error code ${rc}`;
-      return;
-    }
-    state.error = '';
+    if (!checkRc(rc, 'Set channel')) return;
+
     // Refresh status to see the new channel
     const status = await restClient.getStatus();
     onStatusUpdate(status);
+
+    // S-4: the channel set changed — the displayed capture no longer
+    // matches it.
+    clearSampleData();
+
+    // S-9: re-send the trigger if its source channel changed pin type
+    if (state.triggerConfig.channel === channel) {
+      const now = state.status.channels.find(c => c.channel === channel && c.enabled);
+      if (now && prevType !== undefined && now.dataType !== prevType) {
+        await setTrigger();
+      }
+    }
   } catch (e) {
     state.error = `Set channel failed: ${e}`;
   }
@@ -389,32 +611,41 @@ async function addChannel(pinName: string, channel: number) {
 
 async function removeChannel(channel: number) {
   if (!restClient) return;
+  state.error = '';
   try {
-    await restClient.clearChannel(channel);
-    state.error = '';
+    const rc = await restClient.clearChannel(channel);
+    if (!checkRc(rc, 'Clear channel')) return;
+
+    // Refresh status to see the channel gone
+    const status = await restClient.getStatus();
+    onStatusUpdate(status);
+
+    // S-4: the channel set changed
+    clearSampleData();
+
+    // S-9: don't leave a dangling trigger on the removed channel — retarget
+    // to another enabled channel (or none) and push it to the server.
+    if (state.triggerConfig.channel === channel) {
+      const remaining = state.status.channels.filter(c => c.enabled);
+      state.triggerConfig.channel = remaining.length > 0 ? remaining[0].channel : -1;
+      await setTrigger();
+    }
   } catch (e) {
     state.error = `Clear channel failed: ${e}`;
   }
 }
 
-async function setTrigger() {
-  if (!restClient) return;
-  try {
-    await restClient.setTrigger(state.triggerConfig);
-    state.error = '';
-  } catch (e) {
-    state.error = `Set trigger failed: ${e}`;
-  }
-}
-
 async function arm() {
   if (!restClient) return;
+  state.error = '';
   try {
     // Always send current config + trigger before arming
-    await configure();
-    await setTrigger();
-    await restClient.arm();
-    state.error = '';
+    if (!(await configure())) return;
+    if (!(await setTrigger())) return;
+    // S-8: Single is a one-shot capture — clear continuous mode first so a
+    // leftover continuous=1 can't turn Single into free-run.
+    if (!checkRc(await restClient.setContinuous(false), 'Set continuous')) return;
+    if (!checkRc(await restClient.arm(), 'Arm')) return;
   } catch (e) {
     state.error = `Arm failed: ${e}`;
   }
@@ -422,10 +653,10 @@ async function arm() {
 
 async function stop() {
   if (!restClient) return;
+  state.error = '';
   try {
-    await restClient.setContinuous(false);
-    await restClient.reset();
-    state.error = '';
+    if (!checkRc(await restClient.setContinuous(false), 'Set continuous')) return;
+    checkRc(await restClient.reset(), 'Reset');
   } catch (e) {
     state.error = `Reset failed: ${e}`;
   }
@@ -433,26 +664,26 @@ async function stop() {
 
 async function fullReset() {
   if (!restClient) return;
+  state.error = '';
   try {
     // Stop any running capture
-    await restClient.setContinuous(false);
-    await restClient.reset();
-    // Clear all channels on server
-    for (let i = 0; i < state.status.channels.length; i++) {
-      const ch = state.status.channels[i];
-      if (ch.enabled) {
-        await restClient.clearChannel(ch.channel);
-      }
+    checkRc(await restClient.setContinuous(false), 'Set continuous');
+    checkRc(await restClient.reset(), 'Reset');
+    // Clear all channels on server.  S-14: snapshot the enabled-channel list
+    // before awaiting — the live reactive array can be replaced mid-loop by a
+    // status update.
+    const toClear = state.status.channels.filter(c => c.enabled).map(c => c.channel);
+    for (const ch of toClear) {
+      checkRc(await restClient.clearChannel(ch), `Clear channel ${ch}`);
     }
     // Reset local UI state
-    state.samples = [];
-    state.timeBase = new Float64Array(0);
+    clearSampleData();
+    state.fileView = false;
     state.selectedChannel = -1;
     state.triggerConfig.channel = -1;
     state.triggerConfig.level = 0;
-    state.triggerConfig.edge = 0;
+    state.triggerConfig.edge = TrigEdge.RISING;
     state.triggerConfig.autoTrig = true;
-    state.error = '';
     // Refresh status
     const status = await restClient.getStatus();
     onStatusUpdate(status);
@@ -463,12 +694,26 @@ async function fullReset() {
 
 async function run() {
   if (!restClient) return;
+  state.error = '';
   try {
-    await configure();
-    await setTrigger();
-    await restClient.setContinuous(true);
-    await restClient.arm();
-    state.error = '';
+    // S-1: stop on any refusal — do not proceed to continuous/arm with a
+    // config the RT never accepted.
+    if (!(await configure())) return;
+    if (!(await setTrigger())) return;
+    if (!checkRc(await restClient.setContinuous(true), 'Set continuous')) return;
+    const rc = await restClient.arm();
+    if (rc !== 0) {
+      checkRc(rc, 'Arm');
+      // S-8: don't leave continuous=1 armed server-side after a failed run —
+      // the next Single would free-run.  Best-effort rollback; keep the arm
+      // error visible.
+      try {
+        await restClient.setContinuous(false);
+      } catch {
+        // rollback failed — the arm error stays on screen
+      }
+      return;
+    }
   } catch (e) {
     state.error = `Run failed: ${e}`;
   }
@@ -476,9 +721,9 @@ async function run() {
 
 async function forceTrigger() {
   if (!restClient) return;
+  state.error = '';
   try {
-    await restClient.forceTrigger();
-    state.error = '';
+    checkRc(await restClient.forceTrigger(), 'Force trigger');
   } catch (e) {
     state.error = `Force trigger failed: ${e}`;
   }
@@ -488,7 +733,8 @@ async function forceTrigger() {
 async function applyConfig() {
   const s = state.status.state;
   if (s === ScopeState.IDLE || s === ScopeState.DONE) {
-    await configure();
+    state.error = '';
+    if (!(await configure())) return;
     await setTrigger();
   }
 }
@@ -510,6 +756,21 @@ async function searchPins(pattern?: string, kind?: string) {
 }
 
 /**
+ * Capture parameters for the data currently on screen (S-2): the decode-time
+ * snapshot when a capture is displayed, otherwise the live server status
+ * (nothing on screen yet — show what the next capture would use).
+ */
+function getCaptureParams(): CaptureMeta {
+  if (state.captureMeta) return state.captureMeta;
+  return {
+    periodNs: Number(state.status.threadPeriodNs) || getSelectedThreadPeriod(),
+    samplePeriodMult: state.status.samplePeriodMult || state.captureConfig.samplePeriodMult,
+    recLen: state.status.recLen,
+    preTrig: state.status.preTrig,
+  };
+}
+
+/**
  * Calculate display scale (seconds per division) — exact port of
  * calc_horiz_scaling() from scope_horiz.c.
  *
@@ -517,9 +778,10 @@ async function searchPins(pattern?: string, kind?: string) {
  * across 10 divisions. Each zoom step divides by one 1-2-5 step.
  */
 function calcDispScale(): number {
-  const samplePeriod = getSamplePeriod();
+  const p = getCaptureParams();
+  const samplePeriod = (p.periodNs * p.samplePeriodMult) / 1e9;
   if (samplePeriod === 0) return 0;
-  const totalRecTime = state.status.recLen * samplePeriod;
+  const totalRecTime = p.recLen * samplePeriod;
   if (totalRecTime < 0.000010) return 0.000001;
 
   const desiredUsecPerDiv = (totalRecTime / 10.0) * 1000000.0;
@@ -547,23 +809,25 @@ function calcDispScale(): number {
 }
 
 function getSamplePeriod(): number {
-  // Use the actual thread period and mult from RT status
-  const periodNs = Number(state.status.threadPeriodNs) || getSelectedThreadPeriod();
-  const mult = state.status.samplePeriodMult || state.captureConfig.samplePeriodMult;
-  return (periodNs * mult) / 1e9;
+  const p = getCaptureParams();
+  return (p.periodNs * p.samplePeriodMult) / 1e9;
 }
 
 /**
  * Compute display window parameters — port of scope_disp.c display calc.
- * Returns start/end sample indices for chart slicing, plus time-domain
- * values needed by the buffer indicator.
+ * Driven by the decode-time capture snapshot (S-2) so window, indicator and
+ * chart always describe the capture on screen.
  */
 function calcDisplayWindow() {
-  const samplePeriod = getSamplePeriod();
+  const p = getCaptureParams();
+  const samplePeriod = (p.periodNs * p.samplePeriodMult) / 1e9;
   const dispScale = calcDispScale();
-  const recLen = state.status.recLen || 1;
-  // Use actual preTrig from RT status (always recLen/2, set server-side)
-  const preTrig = state.status.preTrig > 0 ? state.status.preTrig : Math.round(recLen / 2);
+  const recLen = p.recLen || 1;
+  // A decode-time snapshot's preTrig is authoritative (may legitimately be
+  // 0 for a loaded file); for live status the server always sets recLen/2.
+  const preTrig = state.captureMeta
+    ? p.preTrig
+    : (p.preTrig > 0 ? p.preTrig : Math.round(recLen / 2));
 
   // Record boundaries relative to trigger (t=0)
   const recStart = -preTrig * samplePeriod;
@@ -574,11 +838,6 @@ function calcDisplayWindow() {
   const screenStartTime = screenCenterTime - 5.0 * dispScale;
   const screenEndTime = screenCenterTime + 5.0 * dispScale;
 
-  let startSample = Math.floor(screenStartTime / samplePeriod);
-  if (startSample < 0) startSample = 0;
-  let endSample = Math.ceil(screenEndTime / samplePeriod) + 1;
-  if (endSample > recLen - 1) endSample = recLen - 1;
-
   return {
     samplePeriod,
     dispScale,
@@ -587,8 +846,6 @@ function calcDisplayWindow() {
     screenCenterTime,
     screenStartTime,
     screenEndTime,
-    startSample,
-    endSample,
   };
 }
 
@@ -614,7 +871,8 @@ function saveCapture() {
     return;
   }
 
-  const channels = state.status.channels.filter(c => c.enabled);
+  // S-2/S-4: header and columns come from the decode-time snapshot, not the
+  // live config.
   const sampleCount = state.timeBase.length;
   const periodNs = Math.round(getSamplePeriod() * 1e9);
 
@@ -628,26 +886,19 @@ function saveCapture() {
     lines.push(`# trigger_channel=${trigCh} trigger_level=${state.triggerConfig.level} trigger_edge=${edgeName}`);
   }
 
-  // Column header: time + channel names with type annotation
+  // Column header: time + snapshotted channel names with type annotation
   const colHeaders = ['time_s'];
-  for (const ch of channels) {
-    const typeName = HAL_TYPE_NAMES[ch.dataType] ?? `TYPE${ch.dataType}`;
-    colHeaders.push(`${ch.pinName}[${typeName}]`);
+  for (const s of state.samples) {
+    const typeName = HAL_TYPE_NAMES[s.dataType] ?? `TYPE${s.dataType}`;
+    colHeaders.push(`${s.pinName}[${typeName}]`);
   }
   lines.push(colHeaders.join(';'));
-
-  // Lookup sample arrays by channel index
-  const sampleMap = new Map<number, Float64Array>();
-  for (const s of state.samples) {
-    sampleMap.set(s.channel, s.data);
-  }
 
   // Data rows
   for (let i = 0; i < sampleCount; i++) {
     const row = [state.timeBase[i].toFixed(9)];
-    for (const ch of channels) {
-      const data = sampleMap.get(ch.channel);
-      const v = data ? data[i] : 0;
+    for (const s of state.samples) {
+      const v = i < s.data.length ? s.data[i] : 0;
       row.push(v.toFixed(14));
     }
     lines.push(row.join(';'));
@@ -684,16 +935,21 @@ function loadCapture() {
   input.click();
 }
 
-function parseAndLoadCapture(text: string) {
+/**
+ * Parse a saved CSV capture and enter file-view mode (S-10): the file data is
+ * displayed via the samples/timeBase/captureMeta snapshot and live pushes are
+ * paused; server status fields are never overwritten by the file.
+ *
+ * Exported for tests.
+ */
+export function parseAndLoadCapture(text: string) {
   const lines = text.split('\n').filter(l => l.length > 0);
 
   // Parse comment headers
   let periodNs = 0;
-  const comments: string[] = [];
   let dataStart = 0;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].startsWith('#')) {
-      comments.push(lines[i]);
       dataStart = i + 1;
       const m = lines[i].match(/sample_period_ns=(\d+)/);
       if (m) periodNs = Number(m[1]);
@@ -728,6 +984,14 @@ function parseAndLoadCapture(text: string) {
     }
   }
 
+  // S-16: cap at what the UI can render (channelUI is MAX_CHANNELS deep)
+  let truncError = '';
+  if (chanNames.length > MAX_CHANNELS) {
+    truncError = `File has ${chanNames.length} channels — showing only the first ${MAX_CHANNELS}`;
+    chanNames.length = MAX_CHANNELS;
+    chanTypes.length = MAX_CHANNELS;
+  }
+
   const sampleCount = lines.length - dataStart;
   if (sampleCount === 0) throw new Error('No sample rows');
 
@@ -753,27 +1017,50 @@ function parseAndLoadCapture(text: string) {
     }
   }
 
-  // Update store with loaded data
-  const samples: ChannelSamples[] = [];
-  const channels = [];
-  for (let ci = 0; ci < chanNames.length; ci++) {
-    samples.push({ channel: ci, data: chanData[ci] });
-    channels.push({
-      channel: ci,
-      pinName: chanNames[ci],
-      dataType: chanTypes[ci],
-      enabled: true,
-    });
+  // Infer the period from the time column if the file lacks the header
+  if (periodNs <= 0 && hasTimeCol && sampleCount > 1) {
+    periodNs = Math.round((timeArr[1] - timeArr[0]) * 1e9);
   }
+
+  // File-local display model (S-10): samples/timeBase/captureMeta describe
+  // the file; state.status is left alone.
+  const samples: ChannelSamples[] = chanNames.map((name, ci) => ({
+    channel: ci,
+    pinName: name,
+    dataType: chanTypes[ci],
+    data: chanData[ci],
+  }));
+
+  // preTrig = number of samples before t=0
+  let preTrig = 0;
+  while (preTrig < sampleCount && timeArr[preTrig] < 0) preTrig++;
 
   state.samples = samples;
   state.timeBase = timeArr;
-  state.status.channels = channels;
-  state.status.maxChannels = Math.max(chanNames.length, state.status.maxChannels);
-  state.status.recLen = sampleCount;
-  state.status.state = ScopeState.DONE;
+  state.captureMeta = {
+    periodNs: periodNs > 0 ? periodNs : 0,
+    samplePeriodMult: 1,
+    recLen: sampleCount,
+    preTrig,
+  };
+  state.fileView = true;
   state.selectedChannel = 0;
+  state.error = truncError;
+}
+
+/** Leave file-view mode: clear the file data and resync from the server. */
+async function returnToLive() {
+  state.fileView = false;
+  clearSampleData();
+  state.selectedChannel = -1;
   state.error = '';
+  if (!restClient) return;
+  try {
+    const status = await restClient.getStatus();
+    onStatusUpdate(status);
+  } catch (e) {
+    state.error = `Status refresh failed: ${e}`;
+  }
 }
 
 function formatTimeValue(seconds: number): string {
@@ -805,6 +1092,7 @@ export const scopeStore = {
   searchPins,
   applyConfig,
   isCapturing,
+  returnToLive,
 
   // Mutable config refs for v-model binding
   captureConfig: state.captureConfig,

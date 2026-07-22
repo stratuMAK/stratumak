@@ -5,6 +5,9 @@ export interface ToolEditState {
   tools: ToolEntry[];
   loading: boolean;
   error: string | null;
+  // true when a write succeeded but the follow-up reload failed, i.e. the
+  // displayed table no longer matches the server; cleared by a successful load
+  stale: boolean;
 }
 
 const instance = new URLSearchParams(window.location.search).get('instance') || 'milltask';
@@ -14,6 +17,7 @@ const state = reactive<ToolEditState>({
   tools: [],
   loading: false,
   error: null,
+  stale: false,
 });
 
 async function loadTools() {
@@ -21,6 +25,7 @@ async function loadTools() {
   state.error = null;
   try {
     state.tools = await client.listTools();
+    state.stale = false;
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -28,39 +33,57 @@ async function loadTools() {
   }
 }
 
-async function saveTool(tool: ToolEntry) {
+async function getTool(toolno: number): Promise<ToolEntry | null> {
+  state.error = null;
+  try {
+    return await client.getTool(toolno);
+  } catch (e: unknown) {
+    state.error = e instanceof Error ? e.message : String(e);
+    return null;
+  }
+}
+
+async function saveTool(tool: ToolEntry): Promise<boolean> {
   state.error = null;
   try {
     await client.putTool(tool.toolno, tool);
-    await loadTools();
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
+    return false;
   }
+  state.stale = true;
+  await loadTools();
+  return true;
 }
 
 async function deleteTool(toolno: number) {
   state.error = null;
   try {
     await client.deleteTool(toolno);
-    state.tools = state.tools.filter(t => t.toolno !== toolno);
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
+    return;
   }
+  state.stale = true;
+  await loadTools();
 }
 
 async function reloadTable() {
   state.error = null;
   try {
     await client.reloadTools();
-    await loadTools();
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
+    return;
   }
+  state.stale = true;
+  await loadTools();
 }
 
 export const toolStore = {
   state,
   loadTools,
+  getTool,
   saveTool,
   deleteTool,
   reloadTable,

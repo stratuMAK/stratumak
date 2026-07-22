@@ -8,7 +8,14 @@ const editError = ref('');
 
 function getWatchValue(name: string): string {
   const item = halshowStore.state.watchValues.find(v => v.name === name);
-  return item?.value ?? '—';
+  if (!item || isDead(name)) return '—';
+  return item.value;
+}
+
+// H-5: item no longer resolves server-side (deleted/unloaded)
+function isDead(name: string): boolean {
+  const item = halshowStore.state.watchValues.find(v => v.name === name);
+  return item?.kind === 'unknown';
 }
 
 function getWatchType(name: string): string {
@@ -43,12 +50,16 @@ function startEdit(name: string) {
 
 async function submitEdit() {
   if (!editingName.value) return;
-  const result = await halshowStore.setWatchValue(editingName.value, editValue.value);
-  if (result.success) {
-    editingName.value = '';
-    editError.value = '';
-  } else {
-    editError.value = result.error ?? 'Failed';
+  try {
+    const result = await halshowStore.setWatchValue(editingName.value, editValue.value);
+    if (result.success) {
+      editingName.value = '';
+      editError.value = '';
+    } else {
+      editError.value = result.error ?? 'Failed';
+    }
+  } catch (e) {
+    editError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -63,6 +74,13 @@ function cancelEdit() {
     <div class="watch-header">
       <span>Watch List ({{ halshowStore.state.watchList.length }} items)</span>
       <button v-if="halshowStore.state.watchList.length > 0" @click="halshowStore.clearWatch()">Clear All</button>
+    </div>
+
+    <!-- H-2/H-3: watch transport state must be visible, not silent '—' -->
+    <div v-if="!halshowStore.state.watchOk" class="watch-warn">
+      <template v-if="halshowStore.state.watchStale">Watch connection lost — values are stale.</template>
+      <template v-else>Watch unavailable — no live values.</template>
+      <template v-if="halshowStore.state.watchReconnecting"> Reconnecting…</template>
     </div>
 
     <div v-if="halshowStore.state.watchList.length === 0" class="empty">
@@ -91,9 +109,9 @@ function cancelEdit() {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="name in halshowStore.state.watchList" :key="name">
+        <tr v-for="name in halshowStore.state.watchList" :key="name" :class="{ dead: isDead(name) }">
           <td class="name">{{ name }}</td>
-          <td class="value">{{ getWatchValue(name) }}</td>
+          <td class="value" :class="{ stale: halshowStore.state.watchStale }">{{ getWatchValue(name) }}</td>
           <td class="type">{{ getWatchType(name) }}</td>
           <td class="dir">{{ getWatchDir(name) }}</td>
           <td class="set-col">
@@ -175,6 +193,15 @@ function cancelEdit() {
   padding: 12px 0;
 }
 
+.watch-warn {
+  background: #3a2a1a;
+  color: #fa4;
+  border: 1px solid #742;
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
+
 .watch-table {
   width: 100%;
   border-collapse: collapse;
@@ -209,6 +236,22 @@ function cancelEdit() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* H-2: values from a lost connection must not render as live green */
+.watch-table .value.stale {
+  color: #887;
+  font-weight: normal;
+}
+
+/* H-5: unresolvable (deleted/unloaded) items render dead */
+.watch-table tr.dead td {
+  color: #555;
+}
+
+.watch-table tr.dead .value {
+  color: #555;
+  font-weight: normal;
 }
 
 .watch-table .type {

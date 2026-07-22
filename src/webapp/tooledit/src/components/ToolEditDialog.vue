@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { ToolEntry } from '../generated/tools_client';
+import { toolStore } from '../stores/tools';
+import { fields, toForm, validateForm, type Field, type ToolForm } from './toolform';
 
 const props = defineProps<{
   tool: ToolEntry | null;
   isNew: boolean;
+  existingToolnos: number[];
 }>();
 
 const emit = defineEmits<{
@@ -12,76 +15,31 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-const form = ref<ToolEntry>({
+const form = ref<ToolForm>(toForm({
   toolno: 0, pocketno: 0,
   x_offset: 0, y_offset: 0, z_offset: 0,
   a_offset: 0, b_offset: 0, c_offset: 0,
   u_offset: 0, v_offset: 0, w_offset: 0,
   diameter: 0, frontangle: 0, backangle: 0,
   orientation: 0, comment: '',
-});
+}));
 
 watch(() => props.tool, (t) => {
   if (t) {
-    form.value = { ...t };
+    form.value = toForm(t);
   }
 }, { immediate: true });
 
-interface Field {
-  key: keyof ToolEntry;
-  label: string;
-  type: 'int' | 'float' | 'text';
-  readonly?: boolean;
-}
-
-const fields: Field[] = [
-  { key: 'toolno', label: 'Tool Number', type: 'int', readonly: false },
-  { key: 'pocketno', label: 'Pocket', type: 'int' },
-  { key: 'x_offset', label: 'X Offset', type: 'float' },
-  { key: 'y_offset', label: 'Y Offset', type: 'float' },
-  { key: 'z_offset', label: 'Z Offset', type: 'float' },
-  { key: 'a_offset', label: 'A Offset', type: 'float' },
-  { key: 'b_offset', label: 'B Offset', type: 'float' },
-  { key: 'c_offset', label: 'C Offset', type: 'float' },
-  { key: 'u_offset', label: 'U Offset', type: 'float' },
-  { key: 'v_offset', label: 'V Offset', type: 'float' },
-  { key: 'w_offset', label: 'W Offset', type: 'float' },
-  { key: 'diameter', label: 'Diameter', type: 'float' },
-  { key: 'frontangle', label: 'Front Angle', type: 'float' },
-  { key: 'backangle', label: 'Back Angle', type: 'float' },
-  { key: 'orientation', label: 'Orientation', type: 'int' },
-  { key: 'comment', label: 'Comment', type: 'text' },
-];
-
 function onInput(field: Field, event: Event) {
-  const input = event.target as HTMLInputElement;
-  if (field.type === 'text') {
-    (form.value as unknown as Record<string, unknown>)[field.key] = input.value;
-  } else {
-    const val = Number(input.value);
-    if (!isNaN(val)) {
-      (form.value as unknown as Record<string, unknown>)[field.key] = val;
-    }
-  }
+  form.value[field.key] = (event.target as HTMLInputElement).value;
 }
 
 const errors = ref<string[]>([]);
 
-function validate(): boolean {
-  const e: string[] = [];
-  const f = form.value;
-  if (f.toolno <= 0) e.push('Tool number must be > 0');
-  if (f.pocketno < 0 || f.pocketno > 1000) e.push('Pocket must be 0–1000');
-  if (f.orientation < 0 || f.orientation > 9) e.push('Orientation must be 0–9');
-  if (f.frontangle < -360 || f.frontangle > 360) e.push('Front angle must be -360..360');
-  if (f.backangle < -360 || f.backangle > 360) e.push('Back angle must be -360..360');
-  errors.value = e;
-  return e.length === 0;
-}
-
 function onSave() {
-  if (!validate()) return;
-  emit('save', { ...form.value });
+  const { entry, errors: e } = validateForm(form.value, props.isNew, props.existingToolnos);
+  errors.value = e;
+  if (entry) emit('save', entry);
 }
 </script>
 
@@ -96,18 +54,11 @@ function onSave() {
         <div v-for="field in fields" :key="field.key" class="field-row">
           <label :for="'f-' + field.key">{{ field.label }}</label>
           <input
-            v-if="field.type === 'text'"
             :id="'f-' + field.key"
             type="text"
+            :inputmode="field.type === 'text' ? undefined : 'decimal'"
+            :class="{ num: field.type !== 'text' }"
             :value="form[field.key]"
-            @input="onInput(field, $event)"
-          />
-          <input
-            v-else
-            :id="'f-' + field.key"
-            type="number"
-            :value="form[field.key]"
-            :step="field.type === 'int' ? 1 : 0.0001"
             :readonly="field.readonly && !isNew"
             @input="onInput(field, $event)"
           />
@@ -115,6 +66,9 @@ function onSave() {
       </div>
       <div v-if="errors.length" class="dialog-errors">
         <div v-for="(err, i) in errors" :key="i">{{ err }}</div>
+      </div>
+      <div v-if="toolStore.state.error" class="dialog-errors">
+        {{ toolStore.state.error }}
       </div>
       <div class="dialog-footer">
         <button class="btn-cancel" @click="emit('cancel')">Cancel</button>
@@ -202,7 +156,7 @@ function onSave() {
   font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
-.field-row input[type="number"] {
+.field-row input.num {
   text-align: right;
 }
 
@@ -214,16 +168,6 @@ function onSave() {
 .field-row input[readonly] {
   color: #888;
   background: #2a2a2a;
-}
-
-/* Hide number spinner */
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
 }
 
 .dialog-errors {

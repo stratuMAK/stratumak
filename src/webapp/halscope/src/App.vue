@@ -37,11 +37,20 @@ const dragInfo = computed(() => {
 <template>
   <div class="app">
     <ScopeToolbar />
+    <!-- S-10: file-view mode banner -->
+    <div v-if="scopeStore.state.fileView" class="file-banner">
+      <span>viewing loaded file &mdash; live paused</span>
+      <button class="btn-live" @click="scopeStore.returnToLive()">Return to live</button>
+    </div>
     <div class="main-area">
       <div class="chart-area">
-        <BufferIndicator />
-        <ScopeChart />
-        <div class="cursor-bar">{{ dragInfo || '\u00A0' }}</div>
+        <div class="chart-stack" :class="{ stale: scopeStore.state.stale }">
+          <BufferIndicator />
+          <ScopeChart />
+          <div class="cursor-bar">{{ dragInfo || '\u00A0' }}</div>
+        </div>
+        <!-- S-7: staleness watchdog overlay -->
+        <div v-if="scopeStore.state.stale" class="stale-overlay">connection lost</div>
       </div>
       <VerticalControls />
       <div class="side-panel">
@@ -86,6 +95,57 @@ html, body, #app {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
+}
+
+/* S-7: greyed-out chart area while the connection is stale */
+.chart-area.stale {
+  opacity: 0.45;
+  filter: grayscale(0.8);
+  pointer-events: none;
+}
+
+.stale-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #f84;
+  border: 1px solid #f84;
+  border-radius: 4px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* S-10: file-view banner */
+.file-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #2a2a1a;
+  color: #ff4;
+  border-bottom: 1px solid #664;
+  padding: 4px 12px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.btn-live {
+  background: #333;
+  color: #ff4;
+  border: 1px solid #886;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.btn-live:hover {
+  background: #443;
 }
 
 .side-panel {

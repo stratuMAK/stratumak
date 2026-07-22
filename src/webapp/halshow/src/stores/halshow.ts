@@ -65,8 +65,11 @@ export interface ApiInfo {
 }
 
 interface HalshowState {
-  // Connection
-  connected: boolean;
+  // Connection (H-3: REST and watch health tracked separately)
+  restOk: boolean;
+  watchOk: boolean;
+  watchStale: boolean;        // H-2: last watch values may be outdated (WS lost)
+  watchReconnecting: boolean; // H-2: reconnect loop is active
   error: string;
 
   // HAL data
@@ -108,7 +111,10 @@ interface HalshowState {
 }
 
 const state = reactive<HalshowState>({
-  connected: false,
+  restOk: false,
+  watchOk: false,
+  watchStale: false,
+  watchReconnecting: false,
   error: '',
 
   pins: [],
@@ -142,6 +148,22 @@ const state = reactive<HalshowState>({
 
 let client: HalcmdClient;
 let watchClient: HalcmdWatchClient;
+
+// H-2: watch WS reconnect loop with backoff (1s doubling to 10s cap).
+const WATCH_RECONNECT_MIN_MS = 1000;
+const WATCH_RECONNECT_MAX_MS = 10000;
+let watchReconnectDelay = WATCH_RECONNECT_MIN_MS;
+let watchReconnectActive = false; // timer pending or connect attempt in flight
+
+function scheduleWatchReconnect() {
+  if (watchReconnectActive) return; // guard against concurrent reconnect loops
+  watchReconnectActive = true;
+  state.watchReconnecting = true;
+  setTimeout(() => {
+    void halshowStore.connectWatch();
+  }, watchReconnectDelay);
+  watchReconnectDelay = Math.min(watchReconnectDelay * 2, WATCH_RECONNECT_MAX_MS);
+}
 
 const WATCH_STORAGE_KEY = 'halshow-watch-list';
 
@@ -192,6 +214,13 @@ function buildTree(items: { name: string }[], kind: TreeCategory): TreeNode[] {
         };
         map.set(path, node);
         parent.push(node);
+      } else if (isLeaf && !node.isLeaf) {
+        // H-6: item name collides with an existing interior node (a.b vs
+        // a.b.c) — mark the interior node as leaf too so the item is visible.
+        // The reverse order (leaf first, deeper item later) just gains
+        // children below. TreeNodeItem renders a self-row for such nodes.
+        node.isLeaf = true;
+        node.kind = leafKind;
       }
       parent = node.children;
     }
@@ -207,7 +236,7 @@ function filterTree(nodes: TreeNode[], filter: string): TreeNode[] {
   for (const node of nodes) {
     if (node.fullPath.toLowerCase().includes(lower)) {
       result.push(node);
-    } else if (!node.isLeaf) {
+    } else if (node.children.length > 0) {
       const filteredChildren = filterTree(node.children, filter);
       if (filteredChildren.length > 0) {
         result.push({ ...node, children: filteredChildren, expanded: true });
@@ -224,27 +253,50 @@ export const halshowStore = {
     const origin = window.location.origin;
     client = new HalcmdClient(origin);
 
-    try {
-      await this.refresh();
-      state.connected = true;
-      state.error = '';
-    } catch (e) {
-      state.error = e instanceof Error ? e.message : String(e);
-    }
+    await this.refreshSafe();
 
     // Connect WebSocket for watch
+    await this.connectWatch();
+    // Restore saved watch list (items are subscribed once the WS is up)
+    this.restoreWatchList();
+  },
+
+  /** Connect (or reconnect) the watch WebSocket. On success re-runs
+   *  updateWatch() to resubscribe — subscription state is client-side. */
+  async connectWatch() {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProto}//${window.location.host}/api/v1/watch`;
     watchClient = new HalcmdWatchClient(wsUrl);
     try {
       await watchClient.connect();
       watchClient.onClose = () => {
-        state.connected = false;
+        state.watchOk = false;
+        state.watchStale = true;
+        scheduleWatchReconnect();
       };
-      // Restore saved watch list now that WebSocket is ready
-      this.restoreWatchList();
+      watchReconnectActive = false;
+      watchReconnectDelay = WATCH_RECONNECT_MIN_MS;
+      state.watchOk = true;
+      state.watchReconnecting = false;
+      this.updateWatch();
+      state.watchStale = false;
     } catch {
-      // Watch is optional — REST still works
+      // Watch is optional — REST still works; keep retrying with backoff
+      watchReconnectActive = false;
+      state.watchOk = false;
+      scheduleWatchReconnect();
+    }
+  },
+
+  /** refresh() with transport errors routed into state (H-4). */
+  async refreshSafe() {
+    try {
+      await this.refresh();
+      state.restOk = true;
+      state.error = '';
+    } catch (e) {
+      state.restOk = false;
+      state.error = e instanceof Error ? e.message : String(e);
     }
   },
 
@@ -359,11 +411,9 @@ export const halshowStore = {
   collectLeaves(node: TreeNode): TreeNode[] {
     const leaves: TreeNode[] = [];
     const visit = (n: TreeNode) => {
-      if (n.isLeaf) {
-        leaves.push(n);
-      } else {
-        for (const child of n.children) visit(child);
-      }
+      if (n.isLeaf) leaves.push(n);
+      // H-6: a leaf may also have children (name-collision node)
+      for (const child of n.children) visit(child);
     };
     visit(node);
     return leaves;
@@ -396,7 +446,7 @@ export const halshowStore = {
     state.watchList = [];
     state.watchValues = [];
     saveWatchList(state.watchList);
-    watchClient?.unsubscribeWatchItems();
+    if (state.watchOk) watchClient?.unsubscribeWatchItems();
   },
 
   /** Restore watch list from localStorage, dropping pins/params that no longer exist. */
@@ -422,10 +472,14 @@ export const halshowStore = {
 
   updateWatch() {
     if (state.watchList.length === 0) {
-      watchClient?.unsubscribeWatchItems();
+      if (state.watchOk) watchClient?.unsubscribeWatchItems();
       state.watchValues = [];
       return;
     }
+
+    // H-8: socket not open (CONNECTING/closed) — send would throw. Skip;
+    // connectWatch() re-runs updateWatch() once the socket is open.
+    if (!state.watchOk) return;
 
     // Seed maps from existing watchValues so old items stay visible during
     // re-subscription.  The new subscription's meta response will replace
@@ -441,8 +495,12 @@ export const halshowStore = {
       const msg = data as Record<string, unknown>;
 
       if (msg.meta && Array.isArray(msg.meta)) {
-        // First message (or structure change): contains metadata + initial values
+        // First message (or structure change): contains metadata + initial values.
+        // H-5: clear valueMap too — a deleted item must not keep showing its
+        // last value as live (safe: the same message re-delivers every live
+        // item's value because the server inverts the shadows).
         metaMap.clear();
+        valueMap.clear();
         for (const m of msg.meta as Array<{ name: string; type: string; dir: string; kind: string; owner: string; linked: boolean }>) {
           metaMap.set(m.name, { type: m.type, dir: m.dir ?? '', kind: m.kind ?? '', owner: m.owner, linked: m.linked });
         }
@@ -598,8 +656,18 @@ export const halshowStore = {
         const name = args[0];
         if (!name) return { success: false, error: `Usage: ${cmd} <name>` };
         if (cmd === 'getp') {
-          const pin = await client.getPin(name);
-          return { success: true, output: pin.value };
+          // H-7: real halcmd getp reads pins AND params
+          try {
+            const pin = await client.getPin(name);
+            return { success: true, output: pin.value };
+          } catch (pinErr) {
+            try {
+              const param = await client.getParam(name);
+              return { success: true, output: param.value };
+            } catch {
+              throw pinErr;
+            }
+          }
         } else {
           const sig = await client.getSignal(name);
           return { success: true, output: sig.value };

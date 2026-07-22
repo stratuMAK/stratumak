@@ -31,7 +31,7 @@ function isSelected(api: ApiInfo): boolean {
       <!-- Left: tree -->
       <div class="api-tree">
         <div v-if="apiTree.length === 0" class="empty">
-          <span v-if="!halshowStore.state.connected">Connecting...</span>
+          <span v-if="!halshowStore.state.restOk">Connecting...</span>
           <span v-else>No APIs registered</span>
         </div>
         <div v-for="[instance, apis] in apiTree" :key="instance" class="instance-group">

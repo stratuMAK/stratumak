@@ -486,6 +486,77 @@ func TestSetTrigger(t *testing.T) {
 	}
 }
 
+// TestSetTriggerLevelTypedReadback: the level is stored in the union member
+// matching the trigger channel's HAL type, and it must be read back through
+// the same member. The untyped d_real read returned the 4-byte int
+// reinterpreted as half a double — garbage the UI resynced into its level box
+// and then wrote back as the real trigger level (and persisted across
+// restarts via saveState).
+func TestSetTriggerLevelTypedReadback(t *testing.T) {
+	for _, tc := range []struct {
+		pin   string
+		level float64
+	}{
+		{"s", 100},  // HAL_S32
+		{"u", 250},  // HAL_U32
+		{"f", 1.25}, // HAL_FLOAT (control)
+	} {
+		t.Run(tc.pin, func(t *testing.T) {
+			m := newScope(t)
+			pins := testPins(t)
+			if rc, err := m.Configure(halscopeapi.CaptureConfig{MaxChannels: 2}); err != nil || rc != 0 {
+				t.Fatalf("Configure: %d, %v", rc, err)
+			}
+			if rc, err := m.SetChannel(halscopeapi.ChannelConfig{Channel: 0, PinName: pins + "." + tc.pin}); err != nil || rc != 0 {
+				t.Fatalf("SetChannel: %d, %v", rc, err)
+			}
+			if rc, err := m.SetTrigger(halscopeapi.TriggerConfig{Channel: 0, Level: tc.level}); err != nil || rc != 0 {
+				t.Fatalf("SetTrigger: %d, %v", rc, err)
+			}
+			st, _ := m.GetStatus()
+			if st.TrigLevel != tc.level {
+				t.Errorf("TrigLevel reads back %v, want %v", st.TrigLevel, tc.level)
+			}
+		})
+	}
+}
+
+// TestChannelEditRefusedWhileCapturing: the RT sampler re-reads the channel
+// slots every sample, so channel add/remove must be gated on IDLE/DONE like
+// Configure/Arm — a mid-capture edit splices two pins into one trace or makes
+// RT read through a stale address with the wrong width.
+func TestChannelEditRefusedWhileCapturing(t *testing.T) {
+	m := newScope(t)
+	pins := testPins(t)
+	thread := newThread(t)
+	if rc, err := m.Configure(halscopeapi.CaptureConfig{MaxChannels: 2, ThreadName: thread}); err != nil || rc != 0 {
+		t.Fatalf("Configure: %d, %v", rc, err)
+	}
+	if rc, err := m.SetChannel(halscopeapi.ChannelConfig{Channel: 0, PinName: pins + ".f"}); err != nil || rc != 0 {
+		t.Fatalf("SetChannel: %d, %v", rc, err)
+	}
+	if rc, err := m.Arm(); err != nil || rc != 0 {
+		t.Fatalf("Arm = %d, %v", rc, err)
+	}
+
+	if rc, err := m.SetChannel(halscopeapi.ChannelConfig{Channel: 1, PinName: pins + ".b"}); err != nil || rc != -int32(syscall.EBUSY) {
+		t.Errorf("SetChannel while armed = %d, %v; want -EBUSY", rc, err)
+	}
+	if rc, err := m.ClearChannel(0); err != nil || rc != -int32(syscall.EBUSY) {
+		t.Errorf("ClearChannel while armed = %d, %v; want -EBUSY", rc, err)
+	}
+
+	if rc, err := m.Reset(); err != nil || rc != 0 {
+		t.Fatalf("Reset = %d, %v", rc, err)
+	}
+	if rc, err := m.SetChannel(halscopeapi.ChannelConfig{Channel: 1, PinName: pins + ".b"}); err != nil || rc != 0 {
+		t.Errorf("SetChannel after Reset = %d, %v; want 0", rc, err)
+	}
+	if rc, err := m.ClearChannel(1); err != nil || rc != 0 {
+		t.Errorf("ClearChannel after Reset = %d, %v; want 0", rc, err)
+	}
+}
+
 // --- Arm / force / reset ---
 
 func TestArmRequiresThreadAndConfig(t *testing.T) {

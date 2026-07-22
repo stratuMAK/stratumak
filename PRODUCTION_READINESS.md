@@ -894,7 +894,7 @@ exercised against real pins rather than around them.
 | AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ✅ | — | — | — | ☐ |
 | internal/pyvcpmodule | 1585/555 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
 | lib/python/gmi (classic `linuxcnc` API shim) | 2098/0 (+py contract tests) | 2 | — | ✅ | ✅ | ✅ | — | ✅ | ☐ |
-| webapps ×5 (`src/webapp/`, excl. classicladder) | 7103/0 (Vue/TS) | 2 (write paths) / 3 (display) | ◐ | ☐ | ☐ | ☐ | — | ☐ | ☐ |
+| webapps ×5 (`src/webapp/`, excl. classicladder) | 7103/0 → +tests (Vue/TS) | 2 (write paths) / 3 (display) | ◐ | ✅ | ✅ | ✅ | — | ✅ | ☐ |
 
 **`internal/pyvcpmodule` — reviewed 2026-07-22 as part of the widget-centric
 fix-and-migrate** (`PYVCP_REVIEW_FINDINGS.md`; branch `pyvcp-restruct`, commits
@@ -945,6 +945,39 @@ half of its contract was not.
   Generated TS clients (~2.7k LOC) are Tier 3, covered by the closed gmicompile review
   (incl. the G-M4 64-bit-bigint sweep). The zero-test finding is tracked as its own
   cross-cutting item (webapp write-path tests) rather than per-row `U`.
+
+**Webapps ×5 — reviewed + fixed 2026-07-23** (`WEBAPP_REVIEW_FINDINGS.md`; 47 adjudicated
+findings, five independent adversarial passes — one per app — each diffed against the
+generated TS clients, the IDLs and the Go providers; every HIGH re-verified by hand).
+**Two CRITICALs, both silent-wrong-write classes:** tooledit T-1 (`Number('')`/badInput
+coercion — a cleared or mid-edit field silently became 0, and the reactive clobber could
+turn a typed `-5.2` into **+5.2 saved**; dialog now holds raw strings, strict parse only
+at Save) and emccalib C-1 (`parseFloat` let `Infinity` through → JSON `null` → Go
+no-op unmarshal → **`setp` of 0.0 onto a live servo gain** with HTTP 200; strict
+full-string parser, decimal-comma aware). **Three provider (Go/C) bugs found through the
+client review, all fixed with mutation-verified tests:** emccalib C-3 — the tunable index
+kept only the LAST registration per `[SECTION]KEY`, so tandem/gantry configs (two `setp`
+lines, one INI key) had `set_pin`/`revert` write only one PID — mismatched gantry gains
+under a success report (index now fans out; HAL-backed tests); halscope S-3 — trigger
+level for S32/U32 channels stored typed but always read back as `d_real` (int bytes
+reinterpreted as half a double), so clients resynced garbage into the level box and
+wrote it back (typed readback); S-5 — `SetChannel`/`ClearChannel` had no capture gate
+while RT re-reads the slot every sample (now -EBUSY unless IDLE/DONE/RESET); S-11 —
+`WatchSamples` read `done_len`/`done_ring_start` after its done_buf recheck (seqlock
+order + acquire fence). Other HIGHs fixed: halshow H-1 (Set dialog wrote to the pin
+selected at *submit* time — wrong-target write; target captured at open) and H-2 (watch
+WS never reconnected — frozen values rendered live; reconnect+backoff+stale marking);
+halscope S-1 (all command rcs ignored + errors actively erased; the provider refuses as
+200+negative-errno), S-2 (time base from UI-editable config instead of the displayed
+capture's parameters — 40× axis error scenarios; per-capture snapshot at decode), S-4
+(trace labels vs data from different pins); latency LT-1 (frozen data under a green
+"live" badge during the exact `--stress` soak the tool certifies; timeout+sequence+
+watchdog). Deferred with rationale (doc §deferrals): tooledit optimistic concurrency
+(wire change), apiserver WS keepalive (shared transport), latency cumulative
+out-of-range counters (latency-test branch), halshow watch {name,kind} tuples, tooledit
+machine-units display. `L` stays ◐: `vue-tsc --force` from cold clean ×5 (+`noEmit`
+hardening), still no ESLint gate. Go gate: build/vet/gofmt clean, emccalib + halscope
+`-race` green.
 
 **`lib/python/gmi` — reviewed + fixed 2026-07-22** (`GMI_PYTHON_REVIEW_FINDINGS.md`;
 three independent AI passes — classic-2.9 parity vs `emcmodule.cc`, wire-contract
@@ -1160,13 +1193,18 @@ Not per-module; each needs an owner and a done-definition.
   per migration — pyvcp's review missed two pin-inventory regressions that only its
   parity test caught. The deferred watch snapshot/seq marker (shared-infra wire change,
   all watch consumers) is tracked in the findings doc's D-1.
-- [ ] **Webapp write-path tests** (ruling 2026-07-22, Phase 6). ~9k LOC of hand-written
-  Vue/TS across the 6 webapps has **zero automated tests**. Minimum bar for prototype
-  delivery: request-level tests for the state-mutating paths (tooledit tool-table save,
-  emccalib tunable save/revert, halshow pin-set, halscope trigger/control) asserting the
-  emitted JSON against a mock server — the "fixed-but-untested" rule applied to the client
-  side. A browser-e2e harness is explicitly out of scope for now; `vue-tsc` from cold
-  stays the type gate.
+- [x] **Webapp write-path tests — DONE 2026-07-23** (ruling 2026-07-22, Phase 6). vitest +
+  happy-dom, request-level against a stubbed `fetch`/WebSocket asserting the emitted JSON:
+  tooledit 17 (incl. the `{"entry":{…}}` envelope guard — the GP-1 regression class),
+  emccalib 19 (strict-parse table incl. the Infinity→null→0.0 case, 200-body-`false`,
+  out-of-order response fence), halshow 11 (pin/param/signal set bodies, 200-with-
+  `success:false` surfacing, the H-1 wrong-target capture against the real mounted
+  DetailPanel, WS reconnect/backoff with fake timers), halscope 14 (trigger/configure
+  bodies, refused-rc resync, arm ordering, binary frame decode + malformed-frame cases).
+  61 tests, `npm test` per app. Browser-e2e stays out of scope; `vue-tsc --force` from
+  cold stays the type gate (all 6 apps now also `noEmit: true` — `vue-tsc -b` used to
+  emit gitignored `.js` beside every source, which vite/vitest could silently resolve
+  instead of the `.ts`; artifacts purged).
 - [ ] **Concurrency policy** — per-module goroutine ownership writeup; `-race` gate in CI.
 - [ ] **Panic/robustness policy** — recover-and-log vs. die-and-restart, decided once,
   applied everywhere; watchdog/supervision behavior documented.
@@ -1352,6 +1390,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-23 | **Phase 6: webapps ×5 reviewed + fixed — last review row of the phase; webapp write-path tests cross-cutting item DONE** (`WEBAPP_REVIEW_FINDINGS.md`, 47 findings; details in the Phase-6 module note). Headlines: two CRITICAL silent-wrong-write bugs (tooledit `Number('')→0` coercion incl. a sign-flip clobber path; emccalib `Infinity`→JSON `null`→Go-no-op→`setp 0.0` on a live servo gain, HTTP 200); **three provider bugs found via the client review** — emccalib tandem `[SECTION]KEY` fan-out (only the LAST registered pin was ever written → mismatched gantry PID gains under a success report), halscope S32/U32 trigger-level union misread (garbage resynced+written back+persisted), halscope channel-edit-during-capture gate + `WatchSamples` seqlock TOCTOU — all with mutation-verified tests, `-race` green. halshow wrong-target Set dialog + never-reconnecting watch WS (frozen-as-live), halscope ignored rcs/wrong time base/label-data mismatch, latency frozen-under-green-badge during soak — fixed. New: 61 vitest request-level write-path tests across the 4 Tier-2 apps; `noEmit` hardening for all 6 (stale emitted `.js` could shadow `.ts` in vite/vitest). Deferred (recorded in the findings doc): tooledit optimistic concurrency, apiserver WS keepalive, latency cumulative overflow counters, halshow watch tuples, machine-units display. Phase 6 review work COMPLETE — **full runtests (232) now owed at the phase checkpoint (user runs)**; human `S` column remains. |
 | 2026-07-23 | **AXIS rulings closed (user): A-6 fixed, A-9 accepted-as-interim.** A-6 (ghost jog): mechanics confirmed in code — jog keys bind on the "." toplevel, `nf_dialog`'s `patient_grab` wins a persistent grab, `_focusout_handler` deliberately ignores in-app focus moves — so a grab during a held jog key swallowed BOTH the KeyRelease and the focus-out path while the 0.5 s refresh kept re-arming the server dead-man. Probability low (needs key-hold + concurrent grab: menus/combobox popdown, or a rare async modal in manual mode), consequence severe (sustained uncommanded motion; ESC swallowed too). Fix: the update loop `jog_off_all()`s the moment `grab current` is non-empty — stop within one display cycle, classic FocusOut parity, dead-man as backstop. A-9: ruling = `loadusr` is dead, the integrated MTC poller is authoritative; `loadusr manualtoolchange_ui` in shipped configs is unmigrated content for the deferred config-migration effort (interim double dialog accepted; 1 s poll latency noted for the same pass). AXIS row `F` → ✅. |
 | 2026-07-23 | **Phase 6: ngcpreview + AXIS adaptation reviewed + fixed** (`NGCPREVIEW_REVIEW_FINDINGS.md`, `AXIS_ADAPTATION_REVIEW_FINDINGS.md`). ngcpreview: 6 HIGHs fixed — preview truncated silently at the first M6 (EXECUTE_FINISH-as-stop), dwells crashed the replay (empty preview for drilling programs), gen_preview bypassed path containment, the preview interp ran with **no INI** (new `interp_shim_set_ini_accessor` + Go bridge), unbounded segments/no deadline in the controller process (cap + `[DISPLAY]PREVIEW_TIMEOUT` + serialization + generated-py-client socket timeouts via gmicompile), partial geometry discarded on error. AXIS: **GP-16 closed** — machine_units() wrap + boundary conversions + constant-mm backplot scale (the 25.4× break was inch-only; jog velocity was also 25.4× too SLOW on inch); **correction: the 2026-07-22 claim that "bin/axis wraps gmi.Command" was false — no wrapper existed until `AxisCommand` landed in this pass** (A-3); GP-17 roffsets wired; plus multi-axis jog dead-man starvation, CYCLE_TIME-scaled refresh hitting the 2 s watchdog, filtered-load resync clobber, tool-change confirm wedge, server message list capped (A-17). Open rulings: A-6 (ghost jog vs focus model), A-9 (duplicate MTC dialogs vs shipped configs). Full runtests owed at the phase checkpoint. |
 | 2026-07-22 | **`lib/python/gmi` shim reviewed + fixed — Phase-6 row `R F U FP` ✅** (`GMI_PYTHON_REVIEW_FINDINGS.md`). Three independent passes (2.9 parity / wire contract / concurrency), 29 adjudicated findings. Five HIGHs fixed: tool-table PUT sent flat fields the server ignores → **200-OK silent zero-entry write** (a tooledit save wipes tool geometry); ErrorChannel/MessageList permanent death on a startup race; **no WS client ever reconnected** (server restart = operator errors silently lost for the session; all four rebuilt on a shared resilient `_watch.py`); **queued jog delivered after a synchronous abort** (jogs synchronous again — classic NML ordering); `stop_logger` never sent + server poslog `pending` unbounded (shim + server cap). Design fix: **Stat is now REST-only with classic frozen-on-poll snapshots** — the live WS cache let multi-attribute predicates mix epochs (the lathe/jog-axis flake class) and was a redundant second data path once poll() became a fresh GET. **Found for the AXIS row: AXIS/glcanon are 25.4× off on inch machines** (raw mm Stat under unchanged classic units math — invisible on metric CI). New `tests/gmi-shim` runtests (stub REST/WS servers, 8 contract cases) + `poslog_test.go`. Full runtests owed at the phase checkpoint. |

@@ -3,7 +3,6 @@ import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { scopeStore } from '../stores/scope';
-import { ScopeState } from '../generated/halscope_client';
 
 const chartEl = ref<HTMLDivElement>();
 let plot: uPlot | null = null;
@@ -264,15 +263,38 @@ function formatReal(v: number): string {
   return v.toExponential(2);
 }
 
+/**
+ * The channels the chart renders, with labels from the decode-time snapshot
+ * (S-4): a trace label always names the pin whose data is on screen, never
+ * the live channel config.  In file-view mode (S-10) the series come purely
+ * from the loaded file's snapshot.
+ */
+function seriesChannels(): { channel: number; label: string }[] {
+  const st = scopeStore.state;
+  if (st.fileView) {
+    return st.samples.map(s => ({
+      channel: s.channel,
+      label: s.pinName || `Ch ${s.channel}`,
+    }));
+  }
+  return st.status.channels.filter(c => c.enabled).map(ch => {
+    const snap = st.samples.find(s => s.channel === ch.channel);
+    return {
+      channel: ch.channel,
+      label: (snap ? snap.pinName : ch.pinName) || `Ch ${ch.channel}`,
+    };
+  });
+}
+
 function buildOpts(width: number, height: number): uPlot.Options {
-  const channels = scopeStore.state.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   const selChVal = scopeStore.state.selectedChannel;
   const selUIVal = selChVal >= 0 ? scopeStore.channelUI[selChVal] : null;
 
   const series: uPlot.Series[] = [
     { label: 'Time (s)' },
     ...channels.map((ch) => ({
-      label: ch.pinName || `Ch ${ch.channel}`,
+      label: ch.label,
       stroke: scopeStore.channelUI[ch.channel]?.color ?? '#ffff00',
       width: ch.channel === selChVal ? 2 : 1,
       show: scopeStore.channelUI[ch.channel]?.visible ?? true,
@@ -336,9 +358,9 @@ function buildData(): uPlot.AlignedData {
   }
 
   const time = Array.from(st.timeBase) as unknown as number[];
-  const data: (number[] | Float64Array)[] = [time];
+  const data: (number[] | (number | null)[] | Float64Array)[] = [time];
 
-  const channels = st.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   for (const ch of channels) {
     const s = st.samples.find(s => s.channel === ch.channel);
     const ui = scopeStore.channelUI[ch.channel];
@@ -352,7 +374,9 @@ function buildData(): uPlot.AlignedData {
       }
       data.push(transformed);
     } else {
-      data.push(new Float64Array(st.timeBase.length));
+      // S-6: no captured data for this channel — render a gap (nulls),
+      // never a fabricated flat-zero trace.
+      data.push(new Array<number | null>(st.timeBase.length).fill(null));
     }
   }
 
@@ -395,7 +419,7 @@ function updateData() {
     return;
   }
 
-  const channels = scopeStore.state.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   const data = buildData();
 
   // If channel count changed, rebuild the plot (series config differs)
@@ -443,13 +467,26 @@ watch(
   },
 );
 
-// Watch for status changes (channel list may change)
+// S-4: rebuild the plot unconditionally whenever the rendered channel list
+// (identity, not just count) changes — labels and series config must always
+// match the channel set.
 watch(
-  () => scopeStore.state.status.channels,
+  () => seriesChannels().map(c => `${c.channel}:${c.label}`).join(' ')
+    + (scopeStore.state.fileView ? ' file' : ''),
+  () => createPlot(),
+);
+
+// S-13: channel visibility toggles take effect immediately.
+watch(
+  () => scopeStore.channelUI.map(u => (u.visible ? '1' : '0')).join(''),
   () => {
-    if (scopeStore.state.status.state === ScopeState.DONE) {
-      createPlot();
-    }
+    if (!plot) return;
+    const channels = seriesChannels();
+    channels.forEach((ch, i) => {
+      plot!.setSeries(i + 1, {
+        show: scopeStore.channelUI[ch.channel]?.visible ?? true,
+      });
+    });
   },
 );
 

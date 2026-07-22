@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { toolStore } from '../stores/tools';
 import type { ToolEntry } from '../generated/tools_client';
 import ToolEditDialog from './ToolEditDialog.vue';
@@ -13,27 +13,35 @@ interface Column {
 const columns: Column[] = [
   { key: 'toolno', label: 'Tool', type: 'int' },
   { key: 'pocketno', label: 'Poc', type: 'int' },
-  { key: 'x_offset', label: 'X', type: 'float' },
-  { key: 'y_offset', label: 'Y', type: 'float' },
-  { key: 'z_offset', label: 'Z', type: 'float' },
-  { key: 'a_offset', label: 'A', type: 'float' },
-  { key: 'b_offset', label: 'B', type: 'float' },
-  { key: 'c_offset', label: 'C', type: 'float' },
-  { key: 'u_offset', label: 'U', type: 'float' },
-  { key: 'v_offset', label: 'V', type: 'float' },
-  { key: 'w_offset', label: 'W', type: 'float' },
-  { key: 'diameter', label: 'Diam', type: 'float' },
-  { key: 'frontangle', label: 'Front', type: 'float' },
-  { key: 'backangle', label: 'Back', type: 'float' },
+  { key: 'x_offset', label: 'X (mm)', type: 'float' },
+  { key: 'y_offset', label: 'Y (mm)', type: 'float' },
+  { key: 'z_offset', label: 'Z (mm)', type: 'float' },
+  { key: 'a_offset', label: 'A (deg)', type: 'float' },
+  { key: 'b_offset', label: 'B (deg)', type: 'float' },
+  { key: 'c_offset', label: 'C (deg)', type: 'float' },
+  { key: 'u_offset', label: 'U (mm)', type: 'float' },
+  { key: 'v_offset', label: 'V (mm)', type: 'float' },
+  { key: 'w_offset', label: 'W (mm)', type: 'float' },
+  { key: 'diameter', label: 'Diam (mm)', type: 'float' },
+  { key: 'frontangle', label: 'Front (deg)', type: 'float' },
+  { key: 'backangle', label: 'Back (deg)', type: 'float' },
   { key: 'orientation', label: 'Orient', type: 'int' },
   { key: 'comment', label: 'Comment', type: 'text' },
 ];
 
+const sortedTools = computed(() =>
+  [...toolStore.state.tools].sort((a, b) => a.toolno - b.toolno)
+);
+
+const existingToolnos = computed(() => toolStore.state.tools.map(t => t.toolno));
+
 const dialogTool = ref<ToolEntry | null>(null);
 const dialogIsNew = ref(false);
 
-function editTool(tool: ToolEntry) {
-  dialogTool.value = { ...tool };
+async function editTool(tool: ToolEntry) {
+  // re-fetch fresh so a stale row copy can't silently revert concurrent edits
+  const fresh = await toolStore.getTool(tool.toolno);
+  dialogTool.value = fresh ?? { ...tool };
   dialogIsNew.value = false;
 }
 
@@ -49,9 +57,10 @@ function addTool() {
   dialogIsNew.value = true;
 }
 
-function onDialogSave(tool: ToolEntry) {
-  toolStore.saveTool(tool);
-  dialogTool.value = null;
+async function onDialogSave(tool: ToolEntry) {
+  if (await toolStore.saveTool(tool)) {
+    dialogTool.value = null;
+  }
 }
 
 function onDialogCancel() {
@@ -93,7 +102,7 @@ defineExpose({ addTool });
         </thead>
         <tbody>
           <tr
-            v-for="tool in toolStore.state.tools"
+            v-for="tool in sortedTools"
             :key="tool.toolno"
           >
             <td v-for="col in columns" :key="col.key" :class="col.type">
@@ -107,7 +116,10 @@ defineExpose({ addTool });
         </tbody>
       </table>
     </div>
-    <div v-if="toolStore.state.tools.length === 0" class="empty">
+    <div
+      v-if="toolStore.state.tools.length === 0 && !toolStore.state.error && !toolStore.state.loading"
+      class="empty"
+    >
       No tools loaded. Click "Add Tool" to create one.
     </div>
   </div>
@@ -116,6 +128,7 @@ defineExpose({ addTool });
     v-if="dialogTool"
     :tool="dialogTool"
     :isNew="dialogIsNew"
+    :existingToolnos="existingToolnos"
     @save="onDialogSave"
     @cancel="onDialogCancel"
   />

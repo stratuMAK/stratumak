@@ -175,11 +175,20 @@ watch(h, render, { deep: true });
       <label class="chk"><input type="checkbox" v-model="logScale" /> log scale</label>
       <span class="meta" v-if="h">
         bin {{ (h.binWidthNs / 1000).toFixed(2) }} µs ·
-        under {{ h.underflow }} · over {{ h.overflow }} ·
+        under {{ h.underflow }} · over {{ h.overflow }} (since rescale) ·
         {{ h.samples.toLocaleString() }} samples
       </span>
     </div>
-    <div ref="el" class="chart"></div>
+    <div class="plotarea">
+      <!-- The chart is not rendered here: uPlot lives in `host`, appended by
+           the component.  Vue only manages this (always empty) container. -->
+      <div ref="el" class="chart"></div>
+      <!-- Until the first histogram arrives (or right after a reset) there is
+           nothing to draw; say so rather than showing a blank chart. -->
+      <div v-show="(h?.bins.length ?? 0) < 1" class="empty">
+        waiting for data…
+      </div>
+    </div>
   </div>
 </template>
 
@@ -195,5 +204,11 @@ watch(h, render, { deep: true });
 .toolbar button.active { color: var(--accent); border-color: var(--accent); }
 .chk { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-primary); margin-left: 10px; }
 .meta { margin-left: 10px; }
-.chart { flex: 1; min-height: 320px; }
+.plotarea { position: relative; flex: 1; min-height: 320px; display: flex; }
+.chart { flex: 1; }
+.empty {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  color: var(--text-secondary); font-size: 13px; pointer-events: none;
+}
 </style>

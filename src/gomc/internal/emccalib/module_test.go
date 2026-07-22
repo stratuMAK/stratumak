@@ -18,6 +18,16 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// lookupOne is the single-mapping accessor the tests grew up with; production
+// code fans out over lookupAll because one [SECTION]KEY may feed several pins.
+func lookupOne(e *emccalib, section, key string) *tunable {
+	idx := e.lookupAll(section, key)
+	if len(idx) == 0 {
+		return nil
+	}
+	return &e.tunables[idx[0]]
+}
+
 // newTestEmccalib builds a module from a set of calibreg mappings. The
 // instance name is uniquified rather than t.Name(): API registration is
 // process-global and never unregistered, so a plain test name collides with
@@ -62,7 +72,7 @@ func TestIndexTracksTunableUpdates(t *testing.T) {
 	for _, tc := range []struct{ section, key string }{
 		{"JOINT_0", "P"}, {"JOINT_0", "I"}, {"JOINT_1", "P"}, {"JOINT_1", "I"},
 	} {
-		got := e.lookup(tc.section, tc.key)
+		got := lookupOne(e, tc.section, tc.key)
 		if got == nil {
 			t.Fatalf("%s/%s not in the index", tc.section, tc.key)
 		}
@@ -73,14 +83,33 @@ func TestIndexTracksTunableUpdates(t *testing.T) {
 	}
 }
 
+// TestIndexKeepsDuplicateMappings pins the tandem/gantry case: two setp lines
+// feeding two pins from the same [SECTION]KEY. The index used to keep only the
+// last registration, so set_pin/revert silently skipped the first pin — a
+// gantry ran with mismatched PID gains while the operator believed both were
+// updated.
+func TestIndexKeepsDuplicateMappings(t *testing.T) {
+	e := newTestEmccalib(t,
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: "pid.0.Pgain", IniValue: 1},
+		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: "pid.10.Pgain", IniValue: 1},
+	)
+	idx := e.lookupAll("JOINT_0", "P")
+	if len(idx) != 2 {
+		t.Fatalf("lookupAll = %d positions, want 2 (both tandem pins)", len(idx))
+	}
+	if p0, p1 := e.tunables[idx[0]].pin, e.tunables[idx[1]].pin; p0 != "pid.0.Pgain" || p1 != "pid.10.Pgain" {
+		t.Errorf("lookupAll pins = %q, %q; want pid.0.Pgain, pid.10.Pgain", p0, p1)
+	}
+}
+
 func TestLookupUnknownKey(t *testing.T) {
 	e := newTestEmccalib(t,
 		calibreg.IniPinMapping{Section: "JOINT_0", Key: "P", Pin: "pid.0.Pgain", IniValue: 1},
 	)
-	if got := e.lookup("JOINT_0", "NOPE"); got != nil {
+	if got := lookupOne(e, "JOINT_0", "NOPE"); got != nil {
 		t.Errorf("lookup of an unrecorded key returned %+v, want nil", got)
 	}
-	if got := e.lookup("NOSUCH", "P"); got != nil {
+	if got := lookupOne(e, "NOSUCH", "P"); got != nil {
 		t.Errorf("lookup in an unrecorded section returned %+v, want nil", got)
 	}
 }
