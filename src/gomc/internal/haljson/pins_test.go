@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -525,9 +526,26 @@ func TestNewHaljsonModule(t *testing.T) {
 // config path that does not resolve, and a config file that fails to parse.
 // Each must return an error rather than a half-built module.
 func TestNewHaljsonModuleErrors(t *testing.T) {
-	dir := t.TempDir()
+	// Lay the config root and the escape target out as known siblings. The
+	// escaping case used to be "config=../../etc/passwd" from a temp dir, which
+	// reaches nothing — so it failed with "not found" and would have passed
+	// with containment deleted outright, making it a duplicate of the
+	// unresolvable case below it. The target here is real, reachable by the
+	// relative path, and *parseable*: if containment stopped working the module
+	// would build and this test would fail loudly.
+	root := t.TempDir()
+	dir := filepath.Join(root, "config")
+	outside := filepath.Join(root, "outside")
+	for _, d := range []string{dir, outside} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "bad.xml"), []byte(`<halJson></halJson>`), 0o644); err != nil {
 		t.Fatalf("writing config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "escape.xml"), []byte(`<halJson></halJson>`), 0o644); err != nil {
+		t.Fatalf("writing the out-of-root config: %v", err)
 	}
 	pathres.SetDefaultForTest(t, dir)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -535,17 +553,30 @@ func TestNewHaljsonModuleErrors(t *testing.T) {
 	for i, tc := range []struct {
 		name string
 		args []string
+		// wantReason, when set, must appear in the error: an "any error will
+		// do" assertion cannot tell a containment refusal from a typo.
+		wantReason string
 	}{
-		{"missing config=", []string{"rate=10"}},
-		{"unresolvable config", []string{"config=nosuchfile.xml"}},
-		{"config escaping the roots", []string{"config=../../etc/passwd"}},
-		{"unparsable config", []string{"config=bad.xml"}},
+		{name: "missing config=", args: []string{"rate=10"}},
+		{name: "unresolvable config", args: []string{"config=nosuchfile.xml"}},
+		{
+			name:       "config escaping the roots",
+			args:       []string{"config=../outside/escape.xml"},
+			wantReason: "outside the allowed directories",
+		},
+		{name: "unparsable config", args: []string{"config=bad.xml"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mod, err := newHaljsonModule(nil, logger, fmt.Sprintf("hjerr%d", i), tc.args)
 			if err == nil {
 				t.Error("want an error, got a module")
 				mod.Destroy()
+				return
+			}
+			if tc.wantReason != "" && !strings.Contains(err.Error(), tc.wantReason) {
+				t.Errorf("refused with %q, want the reason %q — the target exists and is "+
+					"parseable, so any other reason means containment was not what stopped it",
+					err, tc.wantReason)
 			}
 		})
 	}

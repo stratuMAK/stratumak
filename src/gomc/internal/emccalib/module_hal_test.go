@@ -581,8 +581,15 @@ func TestSaveIniOutsideRoot(t *testing.T) {
 	if _, err := e.SetPin("JOINT_0", "P", 2); err != nil {
 		t.Fatalf("SetPin: %v", err)
 	}
-	if ok, err := e.SaveIni(); err == nil || ok {
+	ok, err := e.SaveIni()
+	if err == nil || ok {
 		t.Fatalf("SaveIni to a path outside the root = %v, %v; want false and an error", ok, err)
+	}
+	// Name the reason. The unchanged-file assertion below already fails if
+	// containment stops working, but an "any error" check would also pass on a
+	// typo'd path, which proves nothing about the check under test.
+	if !strings.Contains(err.Error(), "outside the allowed directories") {
+		t.Errorf("refused with %q, want the containment error", err)
 	}
 	got, err := os.ReadFile(outside)
 	if err != nil {
