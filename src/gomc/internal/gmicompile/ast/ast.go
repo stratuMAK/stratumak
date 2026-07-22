@@ -345,6 +345,34 @@ type Func struct {
 	PublishRingSize  int    // ring buffer slot count (default 64)
 	WatchSource      string // name of @publish function that feeds this watch
 	ReturnsValue     bool   // true if i32 return is a value, not an error code (@returns_value)
+
+	// RcError marks the "status + payload" shape (@rc_error): the i32 return is
+	// purely a status channel (0 = success) and the out parameter(s) carry the
+	// payload. It is what lets a data-returning call report a failure at all — a
+	// callback that returns its payload by value has nowhere to put an error.
+	//
+	// For a Go provider the rc is synthesized from the returned error, so the
+	// implementation signature stays (payload..., error) and never spells out an
+	// rc; for a Go consumer a non-zero rc becomes the error. Without it, an i32
+	// return is a value the provider supplies itself (canon's out-param getters
+	// return -1 for "not found" that way).
+	RcError bool
+}
+
+// RcErrorOuts returns fn's out parameters when fn uses the @rc_error shape.
+// Every emitter that has to tell "payload" from "status" goes through this, so
+// the shape is recognised identically on the C, Go-provider and REST sides.
+func (f *Func) RcErrorOuts() []Param {
+	if !f.RcError {
+		return nil
+	}
+	var outs []Param
+	for _, p := range f.Params {
+		if p.IsOut {
+			outs = append(outs, p)
+		}
+	}
+	return outs
 }
 
 // Param represents a function parameter.

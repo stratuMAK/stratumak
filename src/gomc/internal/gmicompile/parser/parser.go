@@ -567,6 +567,8 @@ func (p *Parser) parseFunc(anns []annotation) ast.Func {
 			fn.WatchSource = ann.value
 		case "returns_value":
 			fn.ReturnsValue = true
+		case "rc_error":
+			fn.RcError = true
 		default:
 			// Fail loud on a typo'd/unknown annotation instead of silently
 			// dropping it (e.g. "@methdo" would otherwise lose the HTTP method

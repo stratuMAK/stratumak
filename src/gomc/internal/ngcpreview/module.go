@@ -31,8 +31,10 @@ static int preview_param_restore(void *ctx, double parameters[INTERP_PARAM_MAX])
     int k;
     for (k = 0; k < INTERP_PARAM_MAX; k++)
         parameters[k] = 0;
-    persist_get_entries_result_t res = pctx->persist->get_entries(
-        pctx->persist->ctx, pctx->handle);
+    persist_entry_slice_t res;
+    memset(&res, 0, sizeof(res));
+    if (pctx->persist->get_entries(pctx->persist->ctx, pctx->handle, &res) != 0)
+        return -1;   // storage failure — no longer indistinguishable from "empty"
     if (res.data == NULL)
         return 0;
     for (size_t i = 0; i < res.len; i++) {
@@ -56,8 +58,12 @@ static int preview_param_save_noop(void *ctx, const double parameters[INTERP_PAR
 static interp_param_io_t preview_param_io_persist_create(const persist_callbacks_t *persist) {
     preview_param_io_ctx_t *pctx = (preview_param_io_ctx_t *)malloc(sizeof(preview_param_io_ctx_t));
     pctx->persist = persist;
-    persist_open_result_t open_res = persist->open(persist->ctx, "ngc_vars");
-    pctx->handle = open_res.handle;
+    persist_open_result_t open_res;
+    memset(&open_res, 0, sizeof(open_res));
+    if (persist->open(persist->ctx, "ngc_vars", &open_res) != 0)
+        pctx->handle = -1;   // invalid: later calls fail instead of hitting handle 0
+    else
+        pctx->handle = open_res.handle;
     interp_param_io_t io;
     memset(&io, 0, sizeof(io));
     io.restore = preview_param_restore;

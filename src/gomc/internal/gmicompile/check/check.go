@@ -42,7 +42,59 @@ func Validate(api *ast.API) []error {
 		}
 	}
 	c.check64BitParamPositions()
+	c.checkRcError()
 	return c.errs
+}
+
+// checkRcError validates the @rc_error shape. It is the contract that lets a
+// data-returning call report a failure — the i32 return carries the status and
+// the out parameter carries the payload — so a declaration that cannot express
+// it (no i32 return, no out param, or an rc that is also claimed to be a value)
+// has to fail the build rather than generate a bridge whose two sides disagree
+// about which value is the answer.
+func (c *checker) checkRcError() {
+	for _, fn := range c.api.Funcs {
+		if !fn.RcError {
+			continue
+		}
+		site := fmt.Sprintf("%s: func %s", fn.Pos, fn.Name)
+		if fn.ReturnsValue {
+			c.errf(site, "@rc_error and @returns_value are mutually exclusive: the i32 return is either a status or a value")
+		}
+		if fn.Return == nil || fn.Return.Kind != ast.TypePrimitive || fn.Return.Name != ast.PrimI32 {
+			c.errf(site, "@rc_error requires an i32 return (the status channel)")
+		}
+		if len(fn.RcErrorOuts()) == 0 {
+			c.errf(site, "@rc_error requires at least one out parameter (the payload)")
+		}
+		if fn.Path != "" && len(fn.RcErrorOuts()) > 1 {
+			c.errf(site, "a REST-routed @rc_error func must have exactly one out parameter (the response body); it has %d", len(fn.RcErrorOuts()))
+		}
+	}
+	c.checkSliceOutParams()
+}
+
+// checkSliceOutParams rejects the slice-out shapes the emitters cannot express.
+// A slice out parameter exists to carry an @rc_error payload — the callee
+// allocates it, so it needs the owning {data, len} struct — and the generated
+// converters name their locals for a single such payload per function.
+func (c *checker) checkSliceOutParams() {
+	for _, fn := range c.api.Funcs {
+		n := 0
+		for _, p := range fn.Params {
+			if !p.IsOut || p.Type.Kind != ast.TypeSlice {
+				continue
+			}
+			n++
+			site := fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name)
+			if !fn.RcError {
+				c.errf(site, "a slice out parameter is only supported on an @rc_error func (it carries the payload)")
+			}
+			if n > 1 {
+				c.errf(site, "only one slice out parameter per func is supported")
+			}
+		}
+	}
 }
 
 // check64BitParamPositions rejects a 64-bit (i64/u64) parameter in a REST path
@@ -62,6 +114,9 @@ func (c *checker) check64BitParamPositions() {
 		for _, p := range fn.Params {
 			if !p.Type.Is64BitInt() {
 				continue
+			}
+			if p.IsOut {
+				continue // reply, not request: never a path or query parameter
 			}
 			site := fmt.Sprintf("%s: func %s param %s", p.Pos, fn.Name, p.Name)
 			switch {

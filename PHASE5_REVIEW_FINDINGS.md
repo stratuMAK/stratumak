@@ -241,7 +241,7 @@ belong in the same commit as a behaviour review. One-line follow-up.
 
 ### G-1 — a GMI data-returning call cannot report failure
 `internal/gmicompile/cgen` (`--client-go`), surfaced via T-4. **CONFIRMED.**
-`[OPEN — architecture, needs a ruling]`
+`[FIXED 2026-07-22 — @rc_error; see "Resolution" at the end of this section]`
 
 For a func returning a struct, the generated in-process client ends with a
 literal `return result, nil`:
@@ -308,9 +308,46 @@ for the recommended fix below.
 - Because the conversion touches `ioControl_v2.c`, which is on the tool-change
   path, it owes a **full runtests round**, not the per-module fast gate.
 
-Until it lands, tooltable's empty-value convention (T-4) is the local mitigation
+#### RESOLUTION 2026-07-22 — landed as `@rc_error`
+
+Both findings are fixed; the detail is in the `PRODUCTION_READINESS.md` status
+log. What is worth carrying forward from doing it:
+
+- **The mechanism is an opt-in annotation, not an inference.** `@rc_error` says
+  "the i32 return is the status channel, the out param is the payload". It has to
+  be declared: a plain `i32` next to an `out` param is a *value* the provider
+  supplies itself, which is exactly what canon's `get_tool_by_number` does with
+  its `-1` for "not found". Inferring the contract would have silently rewritten
+  that API's meaning.
+- **Both Go signatures survive the conversion unchanged** — consumer *and*
+  provider stay `GetEntry(h, k) (Entry, error)`, because the trampoline maps the
+  provider's `error` onto the rc and the client maps it back. That is what kept
+  the change tractable: no Go call site moved.
+- **`[]T out` was a new generator capability**, not just a re-plumbing. A
+  callee-allocated slice cannot be a caller-provided buffer, so it travels in an
+  owning `<api>_<elem>_slice_t {data, len}`. Without it the three
+  slice-returning methods — the ones both C consumers actually use — would have
+  stayed blind.
+- **The finding under-counted the C consumers: five, not two.**
+  `emc/iotask/ioControl.c` (v1 iocontrol), `internal/ngcpreview/module.go` and
+  `internal/launcher/retain.go` were found by the compiler after the ABI change,
+  not by the review that scoped the work. A grep for the API *header* would have
+  found them; a grep for the two named files did not.
+- **A generated remote client nearly broke silently.** `tooltable` does emit a
+  TypeScript client (`webapp/tooledit`), and the first conversion turned
+  `listTools(): Promise<ToolEntry[]>` into
+  `listTools(tools: ToolEntry[]): Promise<number>` — the status as the result,
+  the payload as a query parameter. The fix is `restView(fn)`, applied by every
+  marshaling emitter; the regenerated client is now byte-identical to the
+  pre-conversion one, which is the check that proves the wire format held.
+- **A missing row is no longer an error.** persist's `GetEntry` returns the zero
+  entry with a nil error; the status channel is reserved for storage actually
+  failing. "Absent" is still distinguishable from "present and empty" — a stored
+  row echoes its `Key` back.
+
+(Superseded, kept for the record: until it landed, tooltable's empty-value convention (T-4) is the local mitigation
 and the other consumers stay blind — that is a known, accepted gap, not an
-oversight.
+oversight.)
 
 #### How to fix it
 

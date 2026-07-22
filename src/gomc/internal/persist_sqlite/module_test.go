@@ -3,6 +3,7 @@
 package persist_sqlite
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -187,10 +188,27 @@ func TestEntryRoundTrip(t *testing.T) {
 		t.Error("updated timestamp not set")
 	}
 
-	// A missing key is an error, not a zero entry — the consumer must be able
-	// to tell "absent" from "present and empty".
-	if _, err := m.GetEntry(h, "nope"); err == nil {
-		t.Error("GetEntry of a missing key succeeded, want an error")
+	// A missing key is the zero entry, not an error: since persist.gmi became
+	// @rc_error the status channel means "storage failed", and folding "no such
+	// key" into it would make an unwritten key look like a broken database.
+	// "Absent" is still distinguishable from "present and empty" — a stored row
+	// echoes its Key back, the zero entry does not.
+	missing, err := m.GetEntry(h, "nope")
+	if err != nil {
+		t.Fatalf("GetEntry of a missing key: %v, want the zero entry", err)
+	}
+	if missing.Key != "" || missing.Value != "" {
+		t.Errorf("GetEntry of a missing key = %+v, want the zero entry", missing)
+	}
+	if _, err := m.SetEntry(h, "empty", ""); err != nil {
+		t.Fatalf("SetEntry (empty value): %v", err)
+	}
+	present, err := m.GetEntry(h, "empty")
+	if err != nil {
+		t.Fatalf("GetEntry (empty value): %v", err)
+	}
+	if present.Key != "empty" || present.Value != "" {
+		t.Errorf("stored empty value = %+v, want Key set and Value empty", present)
 	}
 
 	del, err := m.DeleteEntry(h, "a")
@@ -327,4 +345,64 @@ func TestDestroyIsIdempotent(t *testing.T) {
 	m.Stop()
 	m.Destroy()
 	m.Destroy() // must not double-close
+}
+
+// TestRESTDispatchWireFormat pins what a REST client sees, on both sides of the
+// @rc_error conversion (G-1). The dispatch goes through the generated C
+// callback table, which is where the payload used to lose its error: a failed
+// provider call reached the HTTP layer as a zero-valued 200. The response body
+// must be unchanged — the out param is the body — and a failure must now be an
+// error the server can turn into a 5xx.
+func TestRESTDispatchWireFormat(t *testing.T) {
+	m := newTestModule(t)
+	cbs := persist.BuildPersistCallbacks(m)
+	t.Cleanup(func() { persist.FreePersistCallbacks(cbs) })
+
+	dispatch := func(name string) apiserver.DispatchFunc {
+		t.Helper()
+		for _, fn := range persist.PersistMeta.Funcs {
+			if fn.Name == name {
+				return fn.Dispatch
+			}
+		}
+		t.Fatalf("%s is not REST-dispatched", name)
+		return nil
+	}
+
+	body, err := dispatch("open")(cbs, []byte(`{"namespace":"ns"}`))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	var opened struct {
+		Handle int32 `json:"handle"`
+	}
+	if err := json.Unmarshal(body, &opened); err != nil {
+		t.Fatalf("open body %s: %v", body, err)
+	}
+
+	req := fmt.Sprintf(`{"handle":%d,"key":"k","value":"v"}`, opened.Handle)
+	if _, err := dispatch("set_entry")(cbs, []byte(req)); err != nil {
+		t.Fatalf("set_entry: %v", err)
+	}
+
+	body, err = dispatch("get_entries")(cbs, []byte(fmt.Sprintf(`{"handle":%d}`, opened.Handle)))
+	if err != nil {
+		t.Fatalf("get_entries: %v", err)
+	}
+	var entries []persist.Entry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		t.Fatalf("get_entries body %s: %v", body, err)
+	}
+	if len(entries) != 1 || entries[0].Key != "k" || entries[0].Value != "v" {
+		t.Errorf("get_entries = %s, want the one stored entry", body)
+	}
+
+	// An invalid handle is a provider error; it must not come back as an empty
+	// 200 body the way it did when the payload was returned by value.
+	if body, err := dispatch("get_entries")(cbs, []byte(`{"handle":99}`)); err == nil {
+		t.Errorf("get_entries on an invalid handle = %s, nil; want an error", body)
+	}
+	if body, err := dispatch("get_entry")(cbs, []byte(`{"handle":99,"key":"k"}`)); err == nil {
+		t.Errorf("get_entry on an invalid handle = %s, nil; want an error", body)
+	}
 }

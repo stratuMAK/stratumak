@@ -184,78 +184,73 @@ func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 	return tools, nil
 }
 
-func (m *module) GetTool(toolno int32) (*tooltable.ToolEntry, error) {
+func (m *module) GetTool(toolno int32) (tooltable.ToolEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if err := m.ready(); err != nil {
-		return nil, err
+		return tooltable.ToolEntry{}, err
 	}
 
 	key := strconv.FormatInt(int64(toolno), 10)
 	entry, err := m.db.GetEntry(m.dbHandle, key)
 	if err != nil {
-		return nil, err
+		return tooltable.ToolEntry{}, err
 	}
 
 	// An absent tool reads back as the zero entry, which is what 2.9 does and
 	// what the callers expect (they tell "no such tool" from Toolno == 0).
 	//
-	// It has to be detected by the empty value, not by the error, because the
-	// in-process GMI client CANNOT report one: for a func returning a struct,
-	// --client-go emits `return result, nil` — the C callback hands back the
-	// struct by value with no rc out-param, so persist's "not found: <ns>/<key>"
-	// never crosses the boundary. This module previously matched on that error
-	// string; the branch was unreachable, and every lookup of an unstored tool
-	// failed with "unexpected end of JSON input" from unmarshalling "".
-	// tooltable only ever stores JSON, so an empty value is unambiguous here.
-	// The general problem — a GMI data-returning call cannot signal failure at
-	// all, so a real sqlite error is indistinguishable from a missing row — is
-	// a generator/architecture item, recorded in PHASE5_REVIEW_FINDINGS.md.
+	// "Absent" is the empty value, not an error: persist reports a missing row
+	// that way on purpose, keeping its status channel for real storage
+	// failures. Since persist.gmi became @rc_error those failures do arrive
+	// here — the err above is no longer structurally unreachable — so a broken
+	// database now surfaces instead of masquerading as an empty tool table.
+	// tooltable only ever stores JSON, so an empty value is unambiguous.
 	if entry.Value == "" {
-		return &tooltable.ToolEntry{}, nil
+		return tooltable.ToolEntry{}, nil
 	}
 
 	var t tooltable.ToolEntry
 	if err := json.Unmarshal([]byte(entry.Value), &t); err != nil {
-		return nil, fmt.Errorf("tooltable: tool %d is corrupt: %w", toolno, err)
+		return tooltable.ToolEntry{}, fmt.Errorf("tooltable: tool %d is corrupt: %w", toolno, err)
 	}
-	return &t, nil
+	return t, nil
 }
 
-func (m *module) PutTool(toolno int32, entry tooltable.ToolEntry) (*tooltable.PutToolResult, error) {
+func (m *module) PutTool(toolno int32, entry tooltable.ToolEntry) (tooltable.PutToolResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if err := m.ready(); err != nil {
-		return nil, err
+		return tooltable.PutToolResult{}, err
 	}
 
 	entry.Toolno = toolno
 	data, err := json.Marshal(entry)
 	if err != nil {
-		return nil, err
+		return tooltable.PutToolResult{}, err
 	}
 
 	key := strconv.FormatInt(int64(toolno), 10)
 	if _, err := m.db.SetEntry(m.dbHandle, key, string(data)); err != nil {
-		return nil, err
+		return tooltable.PutToolResult{}, err
 	}
-	return &tooltable.PutToolResult{Ok: true, Index: toolno}, nil
+	return tooltable.PutToolResult{Ok: true, Index: toolno}, nil
 }
 
-func (m *module) DeleteTool(toolno int32) (*tooltable.DeleteResult, error) {
+func (m *module) DeleteTool(toolno int32) (tooltable.DeleteResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if err := m.ready(); err != nil {
-		return nil, err
+		return tooltable.DeleteResult{}, err
 	}
 
 	key := strconv.FormatInt(int64(toolno), 10)
 	res, err := m.db.DeleteEntry(m.dbHandle, key)
 	if err != nil {
-		return nil, err
+		return tooltable.DeleteResult{}, err
 	}
-	return &tooltable.DeleteResult{Ok: res.Ok}, nil
+	return tooltable.DeleteResult{Ok: res.Ok}, nil
 }

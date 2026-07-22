@@ -45,8 +45,17 @@ type outParam struct {
 func (g *clientCgoGen) emitOutParamConverts(outParams []outParam) []string {
 	var outVars []string
 	for _, op := range outParams {
-		converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
 		outVar := toLowerCamel(op.param.Name) + "Out"
+		if op.param.Type.Kind == ast.TypeSlice {
+			// Slice payload: the provider malloc'd both the buffer and anything
+			// inside it, so the conversion copies out and frees, same as a
+			// slice return.
+			g.emitPayloadConvert(op.cVar, op.param.Type)
+			g.printf("\t%s := result\n", outVar)
+			outVars = append(outVars, outVar)
+			continue
+		}
+		converter := toLowerCamelRaw(op.param.Type.Name) + "CToGo"
 		g.printf("\t%s := %s(&%s)\n", outVar, converter, op.cVar)
 		if t := g.findType(op.param.Type.Name); t != nil && g.typeHasCAllocs(op.param.Type.Name, map[string]bool{}) {
 			g.emitFreeCAllocs(op.cVar, t, 0, "\t")
@@ -184,7 +193,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 
 	// Add out param types to return signature
 	for _, op := range outParams {
-		retParts = append(retParts, toPascalCase(op.param.Type.Name))
+		retParts = append(retParts, goTypeForDispatch(op.param.Type))
 	}
 
 	if fn.Return == nil {
@@ -213,8 +222,7 @@ func (g *clientCgoGen) emitOneMethod(clientName string, fn ast.Func) {
 
 	// Declare zeroed C structs for out params
 	for _, op := range outParams {
-		cType := fmt.Sprintf("C.%s_%s_t", apiName, toSnakeCase(op.param.Type.Name))
-		g.printf("\tvar %s %s\n", op.cVar, cType)
+		g.emitOutParamDecl(op.cVar, op.param)
 	}
 
 	// Convert Go params → C. The wrapper reads the function pointer and ctx
@@ -326,6 +334,8 @@ func (g *clientCgoGen) zeroValue(t ast.TypeRef) string {
 		default:
 			return "0"
 		}
+	case ast.TypeSlice:
+		return "nil"
 	default:
 		return toPascalCase(t.Name) + "{}"
 	}

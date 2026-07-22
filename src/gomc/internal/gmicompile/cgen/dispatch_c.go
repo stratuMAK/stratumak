@@ -128,8 +128,9 @@ func (g *dispatchCGen) emitCallWrapper(fn ast.Func) {
 		name := p.Name
 		params = append(params, g.cgoParamDecl(apiName, p))
 		args = append(args, name)
-		// Slice params also pass a length arg
-		if p.Type.Kind == ast.TypeSlice {
+		// Slice params also pass a length arg — except a slice out param, whose
+		// length comes back inside the owning result struct.
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			args = append(args, name+"_len")
 		}
 	}
@@ -183,7 +184,12 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 
 	case ast.TypeSlice:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
-		if p.ByRef || p.IsOut {
+		if p.IsOut {
+			// Callee-allocated payload — an owning {data, len} struct, not a
+			// caller-provided buffer (see sliceOutCTypeName).
+			return fmt.Sprintf("%s *%s", sliceOutCTypeName(apiName, p.Type), name)
+		}
+		if p.ByRef {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemCType, name, name)
 		}
 		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemCType), name, name)
@@ -813,10 +819,18 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	g.printf("\tvar _freeList []unsafe.Pointer\n")
 	g.printf("\tdefer func() { for _, p := range _freeList { C.free(p) } }()\n")
 
-	// Unmarshal JSON params
-	if len(fn.Params) > 0 {
+	// Unmarshal JSON params. Out params carry the reply, not the request — the
+	// request has no field for them and reading one would let a caller supply
+	// the value the provider is supposed to produce.
+	inParams := make([]ast.Param, 0, len(fn.Params))
+	for _, p := range fn.Params {
+		if !p.IsOut {
+			inParams = append(inParams, p)
+		}
+	}
+	if len(inParams) > 0 {
 		g.printf("\tvar params struct {\n")
-		for _, p := range fn.Params {
+		for _, p := range inParams {
 			fieldName := toPascalCase(p.Name)
 			var fieldType string
 			if p.IsPtr {
@@ -851,8 +865,26 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	for _, p := range fn.Params {
 		cVar := "c" + toPascalCase(p.Name)
 		goVar := "params." + toPascalCase(p.Name)
-		g.emitParamGoToC(cVar, goVar, p)
+		if p.IsOut {
+			g.emitOutParamDecl(cVar, p)
+		} else {
+			g.emitParamGoToC(cVar, goVar, p)
+		}
 		callArgs = append(callArgs, g.paramCallArg(cVar, p)...)
+	}
+
+	// @rc_error: the return is the status channel and the out param is the
+	// payload, so a provider failure becomes an error here instead of a
+	// zero-valued 200 response.
+	if payload, ok := rcErrorPayload(fn); ok {
+		g.printf("\trc := int32(%s(%s))\n", wrapperName, strings.Join(callArgs, ", "))
+		g.printf("\tif rc != 0 {\n")
+		g.printf("\t\treturn nil, fmt.Errorf(%q, rc)\n", fn.Name+": rc=%d")
+		g.printf("\t}\n")
+		g.emitOutPayloadConvert("c"+toPascalCase(payload.Name), payload)
+		g.printf("\treturn json.Marshal(result)\n")
+		g.printf("}\n\n")
+		return
 	}
 
 	// Call C wrapper — direct return (no error code, no out-param)
@@ -1047,70 +1079,107 @@ func (g *dispatchCGen) paramCallArg(cVar string, p ast.Param) []string {
 		// Arrays pass pointer to first element.
 		return []string{"&" + cVar + "[0]"}
 	case ast.TypeSlice:
+		if p.IsOut {
+			return []string{"&" + cVar}
+		}
 		return []string{cVar, cVar + "Len"}
 	}
 	return []string{cVar}
 }
 
+// emitOutParamDecl declares the zeroed C variable an out parameter is written
+// into. Nothing is read from the request for it — the provider fills it.
+func (g *dispatchCGen) emitOutParamDecl(cVar string, p ast.Param) {
+	switch p.Type.Kind {
+	case ast.TypeSlice:
+		g.printf("\tvar %s C.%s\n", cVar, sliceOutCTypeName(g.api.Name, p.Type))
+	case ast.TypeArray:
+		g.printf("\tvar %s [%d]%s\n", cVar, p.Type.ArrayLen, cTypeForAPICgo(g.api.Name, *p.Type.Elem))
+	default:
+		g.printf("\tvar %s %s\n", cVar, cTypeForAPICgo(g.api.Name, p.Type))
+	}
+}
+
+// emitOutPayloadConvert converts a filled-in out parameter into the Go `result`
+// the dispatch marshals, freeing whatever the provider allocated. The
+// conversion is the same one a by-value return goes through — an @rc_error func
+// and its value-returning predecessor produce byte-identical JSON.
+func (g *dispatchCGen) emitOutPayloadConvert(cVar string, p ast.Param) {
+	g.emitPayloadConvert(cVar, p.Type)
+}
+
 func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 	ret := fn.Return
+	g.emitPayloadConvert("out", *ret)
 
-	switch ret.Kind {
+	// For []u8 (byte slices), return raw bytes without JSON encoding.
+	// This supports BinaryWatchFunc which sends data as binary WS frames.
+	if ret.Kind == ast.TypeSlice && ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == "u8" {
+		g.printf("\treturn result, nil\n")
+		return
+	}
+	g.printf("\treturn json.Marshal(result)\n")
+}
+
+// emitPayloadConvert emits `result := <Go value>` from the C value in cExpr and
+// frees the C allocations it owns. cExpr is a by-value C struct/scalar for a
+// direct return, or the local an out parameter was written into; a slice payload
+// is a {data, len} struct either way, so both share this code.
+func (g *dispatchCGen) emitPayloadConvert(cExpr string, t ast.TypeRef) {
+	switch t.Kind {
 	case ast.TypePrimitive:
-		switch ret.Name {
+		switch t.Name {
 		case ast.PrimString:
 			// Caller owns returned data: free the C string after copying.
-			g.printf("\tresult := C.GoString(out)\n")
-			g.printf("\tif out != nil {\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out))\n")
+			g.printf("\tresult := C.GoString(%s)\n", cExpr)
+			g.printf("\tif %s != nil {\n", cExpr)
+			g.printf("\t\tC.free(unsafe.Pointer(%s))\n", cExpr)
 			g.printf("\t}\n")
 		case ast.PrimBool:
-			g.printf("\tresult := bool(out)\n")
+			g.printf("\tresult := bool(%s)\n", cExpr)
 		default:
-			goType := primitiveToGoType(ret.Name)
-			g.printf("\tresult := %s(out)\n", goType)
+			goType := primitiveToGoType(t.Name)
+			g.printf("\tresult := %s(%s)\n", goType, cExpr)
 		}
-		g.printf("\treturn json.Marshal(result)\n")
 
 	case ast.TypeNamed:
-		if g.isEnum(ret.Name) {
-			goType := toPascalCase(ret.Name)
-			g.printf("\tresult := %s(out)\n", goType)
+		if g.isEnum(t.Name) {
+			goType := toPascalCase(t.Name)
+			g.printf("\tresult := %s(%s)\n", goType, cExpr)
 		} else {
-			converter := toLowerCamelRaw(ret.Name) + "CToGo"
-			g.printf("\tresult := %s(&out)\n", converter)
+			converter := toLowerCamelRaw(t.Name) + "CToGo"
+			g.printf("\tresult := %s(&%s)\n", converter, cExpr)
 			// Caller owns returned data: free the C allocations
 			// (strings, slice buffers) after converting to Go.
-			if t := g.findType(ret.Name); t != nil && g.typeHasCAllocs(ret.Name, map[string]bool{}) {
-				g.emitFreeCAllocs("out", t, 0, "\t")
+			if ty := g.findType(t.Name); ty != nil && g.typeHasCAllocs(t.Name, map[string]bool{}) {
+				g.emitFreeCAllocs(cExpr, ty, 0, "\t")
 			}
 		}
-		g.printf("\treturn json.Marshal(result)\n")
 
 	case ast.TypeSlice:
-		// out is a result struct with .data (pointer) and .len (size_t)
-		g.printf("\tn := int(out.len)\n")
-		if ret.Elem.Kind == ast.TypeNamed && !g.isEnum(ret.Elem.Name) {
-			goElemType := toPascalCase(ret.Elem.Name)
-			converter := toLowerCamelRaw(ret.Elem.Name) + "CToGo"
+		// cExpr is a result struct with .data (pointer) and .len (size_t)
+		g.printf("\tn := int(%s.len)\n", cExpr)
+		if t.Elem.Kind == ast.TypeNamed && !g.isEnum(t.Elem.Name) {
+			goElemType := toPascalCase(t.Elem.Name)
+			converter := toLowerCamelRaw(t.Elem.Name) + "CToGo"
 			g.printf("\tresult := make([]%s, n)\n", goElemType)
 			g.printf("\tif n > 0 {\n")
-			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
+			g.printf("\t\tcSlice := unsafe.Slice(%s.data, n)\n", cExpr)
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			g.printf("\t\t\tresult[i] = %s(&cSlice[i])\n", converter)
-			if t := g.findType(ret.Elem.Name); t != nil && g.typeHasCAllocs(ret.Elem.Name, map[string]bool{}) {
-				g.emitFreeCAllocs("cSlice[i]", t, 1, "\t\t\t")
+			if ty := g.findType(t.Elem.Name); ty != nil && g.typeHasCAllocs(t.Elem.Name, map[string]bool{}) {
+				g.emitFreeCAllocs("cSlice[i]", ty, 1, "\t\t\t")
 			}
 			g.printf("\t\t}\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
+			g.printf("\t\tC.free(unsafe.Pointer(%s.data))\n", cExpr)
 			g.printf("\t}\n")
 		} else {
-			goElemType := goTypeForDispatch(*ret.Elem)
+			goElemType := goTypeForDispatch(*t.Elem)
 			g.printf("\tresult := make([]%s, n)\n", goElemType)
 			g.printf("\tif n > 0 {\n")
-			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
+			g.printf("\t\tcSlice := unsafe.Slice(%s.data, n)\n", cExpr)
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
-			if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == ast.PrimString {
+			if t.Elem.Kind == ast.TypePrimitive && t.Elem.Name == ast.PrimString {
 				g.printf("\t\t\tresult[i] = C.GoString(cSlice[i])\n")
 				g.printf("\t\t\tif cSlice[i] != nil {\n")
 				g.printf("\t\t\t\tC.free(unsafe.Pointer(cSlice[i]))\n")
@@ -1119,15 +1188,8 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 				g.printf("\t\t\tresult[i] = %s(cSlice[i])\n", goElemType)
 			}
 			g.printf("\t\t}\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
+			g.printf("\t\tC.free(unsafe.Pointer(%s.data))\n", cExpr)
 			g.printf("\t}\n")
-		}
-		// For []u8 (byte slices), return raw bytes without JSON encoding.
-		// This supports BinaryWatchFunc which sends data as binary WS frames.
-		if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == "u8" {
-			g.printf("\treturn result, nil\n")
-		} else {
-			g.printf("\treturn json.Marshal(result)\n")
 		}
 	}
 }

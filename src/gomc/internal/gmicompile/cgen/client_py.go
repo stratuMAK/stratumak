@@ -261,6 +261,8 @@ func (g *clientPyGen) emitClientMethods() {
 }
 
 func (g *clientPyGen) emitClientMethod(fn ast.Func) {
+	// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+	fn = restView(fn)
 	methodName := toSnakeCase(fn.Name)
 
 	// Signature

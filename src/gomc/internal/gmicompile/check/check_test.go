@@ -82,6 +82,14 @@ func TestValidateRejections(t *testing.T) {
 		{"duplicate field", `type T { x: i32  x: f64 }`, `duplicate field of type T "x"`},
 		{"duplicate param", `func f(a: i32, a: f64) -> i32`, `duplicate param of func f "a"`},
 		{"duplicate enum member name", "enum E { A = 1  A = 2 }", `duplicate member of enum E "A"`},
+		// @rc_error: the status/payload contract has to be declarable, or the
+		// two sides of the bridge disagree about which value is the answer.
+		{"rc_error without out param", "@rc_error\nfunc f(x: i32) -> i32", "requires at least one out parameter"},
+		{"rc_error without i32 return", "type T { x: i32 }\n@rc_error\nfunc f(t: T out)", "requires an i32 return"},
+		{"rc_error with returns_value", "type T { x: i32 }\n@rc_error\n@returns_value\nfunc f(t: T out) -> i32", "mutually exclusive"},
+		{"rc_error REST with two outs", "type T { x: i32 }\n@method GET\n@path /\n@rc_error\nfunc f(a: T out, b: T out) -> i32", "exactly one out parameter"},
+		{"slice out without rc_error", "type T { x: i32 }\nfunc f(xs: []T out) -> i32", "only supported on an @rc_error func"},
+		{"two slice outs", "type T { x: i32 }\n@rc_error\nfunc f(a: []T out, b: []T out) -> i32", "only one slice out parameter"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

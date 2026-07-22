@@ -325,6 +325,16 @@ func (g *serverGen) emitCallbackTypedefs() {
 	}
 	g.printf("// --- Callback Typedefs ---\n\n")
 
+	// Emit the owning wrapper for every slice-valued out param (see
+	// sliceOutCTypeName). Keyed by element type, so it is emitted once even when
+	// several functions hand back the same element.
+	for _, t := range sliceOutParams(g.api) {
+		g.printf("typedef struct {\n")
+		g.printf("    %s *data;\n", g.toCType(*t.Elem))
+		g.printf("    size_t len;\n")
+		g.printf("} %s;\n\n", sliceOutCTypeName(g.api.Name, t))
+	}
+
 	// Emit result structs for functions that return slices (need ptr + len).
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
@@ -446,7 +456,12 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 
 	case ast.TypeSlice:
 		elemType := g.toCType(*p.Type.Elem)
-		if p.ByRef || p.IsOut {
+		if p.IsOut {
+			// The callee allocates, so the caller cannot preallocate a buffer:
+			// the payload travels in an owning {data, len} struct instead.
+			return fmt.Sprintf("%s *%s", sliceOutCTypeName(g.api.Name, p.Type), name)
+		}
+		if p.ByRef {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemType, name, name)
 		}
 		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemType), name, name)

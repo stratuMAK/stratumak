@@ -253,6 +253,9 @@ func (g *clientGoGen) emitClientMethods() {
 }
 
 func (g *clientGoGen) emitClientMethod(clientName string, fn ast.Func) {
+	// A REST client marshals the payload, not the status: for an @rc_error func
+	// that is the out param, and the out param is not a request field.
+	fn = restView(fn)
 	methodName := toPascalCase(fn.Name)
 
 	// Doc comment

@@ -36,16 +36,20 @@ type DeleteResult {
 
 @method GET
 @path /
-func list_tools() -> []ToolEntry
+@rc_error
+func list_tools(tools: []ToolEntry out) -> i32
 
 @method GET
 @path /{toolno}
-func get_tool(toolno: i32) -> ToolEntry
+@rc_error
+func get_tool(toolno: i32, entry: ToolEntry out) -> i32
 
 @method PUT
 @path /{toolno}
-func put_tool(toolno: i32, entry: ToolEntry) -> PutToolResult
+@rc_error
+func put_tool(toolno: i32, entry: ToolEntry, result: PutToolResult out) -> i32
 
 @method DELETE
 @path /{toolno}
-func delete_tool(toolno: i32) -> DeleteResult
+@rc_error
+func delete_tool(toolno: i32, result: DeleteResult out) -> i32

@@ -45,6 +45,32 @@ func name(params) -> ReturnType
 Function annotations (`@method`, `@path`, `@rt_safe`, `@doc`) precede the `func`
 declaration. Values must be quoted strings. Functions do not use braces.
 
+## Reporting Failures: `@rc_error`
+
+A callback that hands its payload back as the C return value has nowhere left
+to report a failure, so a provider error reaches every consumer as a zeroed
+struct — indistinguishable from a valid empty answer. `@rc_error` is the shape
+that fixes it: the `i32` return is the status channel (`0` = success) and the
+payload travels in an `out` parameter.
+
+```
+@rc_error
+func get_entry(handle: i32, key: string, entry: Entry out) -> i32
+```
+
+Both Go signatures are unchanged by the conversion — consumer and provider each
+stay `GetEntry(handle int32, key string) (Entry, error)` — because the generated
+bridge maps the provider's `error` to the rc and back. The REST request and
+response bodies are unchanged too: the out parameter *is* the response body. So
+only C callers see the difference, where the payload becomes a pointer argument.
+
+Without it, an `i32` return is a value the provider supplies itself (canon's
+out-param getters return `-1` for "not found" that way); `@returns_value` says
+the same thing for a function with no out parameter, and the two annotations are
+mutually exclusive. A slice payload (`entries: []Entry out`) is passed as an
+owning `{data, len}` struct — the provider mallocs, the caller frees, exactly as
+for a slice return — and is only allowed on an `@rc_error` func.
+
 ## Field & Parameter Constraints
 
 Fields (in `type` blocks) and parameters may carry inline validation

@@ -487,7 +487,18 @@ func isRESTCommandFunc(fn ast.Func) bool {
 		return false
 	}
 	for _, p := range fn.Params {
-		if p.IsOut || isOpaquePtrParam(p) {
+		if isOpaquePtrParam(p) {
+			return false
+		}
+		// An out param is normally unmarshalable, but the @rc_error shape gives
+		// it a defined place on the wire: it is the response body, and the rc is
+		// the status. The checker guarantees exactly one for a REST-routed func.
+		if p.IsOut && !fn.RcError {
+			return false
+		}
+	}
+	if fn.RcError {
+		if _, ok := rcErrorPayload(fn); !ok {
 			return false
 		}
 	}
@@ -526,6 +537,10 @@ func (g *serverGoGen) emitCommands() {
 		if !g.isCommandFunc(fn) {
 			continue
 		}
+		// The handler calls the Go provider directly, so it sees the REST view:
+		// an @rc_error func's payload out-param is its return value here, and
+		// there is no rc to encode (the provider's error is the error).
+		fn = restView(fn)
 		methodName := toPascalCase(fn.Name)
 
 		g.printf("\t\t{Name: %q, Handler: func(req json.RawMessage) (json.RawMessage, error) {\n", fn.Name)

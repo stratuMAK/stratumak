@@ -183,6 +183,8 @@ func (g *clientTSGen) emitClientMethods() {
 }
 
 func (g *clientTSGen) emitClientMethod(fn ast.Func) {
+	// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+	fn = restView(fn)
 	methodName := toCamelCaseTS(fn.Name)
 
 	// Signature

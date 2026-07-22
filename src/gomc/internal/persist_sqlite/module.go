@@ -154,9 +154,9 @@ func (m *module) getHandle(handle int32) (*nsHandle, error) {
 
 // --- Persist API implementation ---
 
-func (m *module) Open(namespace string) (*persist.OpenResult, error) {
+func (m *module) Open(namespace string) (persist.OpenResult, error) {
 	if !validName(namespace) {
-		return nil, fmt.Errorf("invalid namespace: %q", namespace)
+		return persist.OpenResult{}, fmt.Errorf("invalid namespace: %q", namespace)
 	}
 
 	m.mu.Lock()
@@ -165,27 +165,27 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 	// Check if already open — return existing handle.
 	for i, h := range m.handles {
 		if h.namespace == namespace && h.db != nil {
-			return &persist.OpenResult{Handle: int32(i)}, nil
+			return persist.OpenResult{Handle: int32(i)}, nil
 		}
 	}
 
 	if m.countOpen() >= maxNamespaces {
-		return nil, fmt.Errorf("persist_sqlite: too many open namespaces (limit %d)", maxNamespaces)
+		return persist.OpenResult{}, fmt.Errorf("persist_sqlite: too many open namespaces (limit %d)", maxNamespaces)
 	}
 
 	// Open new DB file.
 	dbPath := filepath.Join(m.dbDir, namespace+".db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", dbPath, err)
+		return persist.OpenResult{}, fmt.Errorf("open %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("set WAL on %s: %w", dbPath, err)
+		return persist.OpenResult{}, fmt.Errorf("set WAL on %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout on %s: %w", dbPath, err)
+		return persist.OpenResult{}, fmt.Errorf("set busy_timeout on %s: %w", dbPath, err)
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS entries (
 		key     TEXT PRIMARY KEY,
@@ -193,7 +193,7 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		updated INTEGER NOT NULL DEFAULT 0
 	)`); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("create table in %s: %w", dbPath, err)
+		return persist.OpenResult{}, fmt.Errorf("create table in %s: %w", dbPath, err)
 	}
 
 	// Reuse a slot vacated by DeleteAll before growing the slice; otherwise a
@@ -212,7 +212,7 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		m.handles = append(m.handles, nsHandle{namespace: namespace, db: db})
 	}
 	m.logger.Debug("persist_sqlite: opened namespace", "namespace", namespace, "handle", handle)
-	return &persist.OpenResult{Handle: handle}, nil
+	return persist.OpenResult{Handle: handle}, nil
 }
 
 // Close is deliberately a no-op; every handle is closed at Destroy().
@@ -279,31 +279,38 @@ func (m *module) GetEntries(handle int32) ([]persist.Entry, error) {
 	return entries, rows.Err()
 }
 
-func (m *module) GetEntry(handle int32, key string) (*persist.Entry, error) {
+func (m *module) GetEntry(handle int32, key string) (persist.Entry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	h, err := m.getHandle(handle)
 	if err != nil {
-		return nil, err
+		return persist.Entry{}, err
 	}
 	var e persist.Entry
 	err = h.db.QueryRow(`SELECT key, value, updated FROM entries WHERE key = ?`, key).
 		Scan(&e.Key, &e.Value, &e.Updated)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("not found: %s/%s", h.namespace, key)
+		// A missing row is an answer, not a failure: it reads back as the zero
+		// entry with no error. The @rc_error status channel carries one bit —
+		// worked or did not — so folding "no such key" into it would make an
+		// unwritten key indistinguishable from a broken database, which is the
+		// confusion the conversion exists to remove. Consumers already tell the
+		// two apart by the empty value (halscope's first start, tooltable's
+		// unstored tool); now a non-nil error means storage really is broken.
+		return persist.Entry{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return persist.Entry{}, err
 	}
-	return &e, nil
+	return e, nil
 }
 
-func (m *module) SetEntry(handle int32, key, value string) (*persist.SetResult, error) {
+func (m *module) SetEntry(handle int32, key, value string) (persist.SetResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h, err := m.getHandle(handle)
 	if err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
 	now := time.Now().Unix()
 	_, err = h.db.Exec(
@@ -312,36 +319,36 @@ func (m *module) SetEntry(handle int32, key, value string) (*persist.SetResult, 
 		key, value, now,
 	)
 	if err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
-	return &persist.SetResult{Ok: true}, nil
+	return persist.SetResult{Ok: true}, nil
 }
 
-func (m *module) DeleteEntry(handle int32, key string) (*persist.DeleteResult, error) {
+func (m *module) DeleteEntry(handle int32, key string) (persist.DeleteResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h, err := m.getHandle(handle)
 	if err != nil {
-		return &persist.DeleteResult{Ok: false}, err
+		return persist.DeleteResult{Ok: false}, err
 	}
 	res, err := h.db.Exec(`DELETE FROM entries WHERE key = ?`, key)
 	if err != nil {
-		return &persist.DeleteResult{Ok: false}, err
+		return persist.DeleteResult{Ok: false}, err
 	}
 	n, _ := res.RowsAffected()
-	return &persist.DeleteResult{Ok: n > 0, Count: int32(n)}, nil
+	return persist.DeleteResult{Ok: n > 0, Count: int32(n)}, nil
 }
 
-func (m *module) SetEntries(handle int32, entries []persist.Entry) (*persist.SetResult, error) {
+func (m *module) SetEntries(handle int32, entries []persist.Entry) (persist.SetResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h, err := m.getHandle(handle)
 	if err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
 	tx, err := h.db.Begin()
 	if err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
 	now := time.Now().Unix()
@@ -349,7 +356,7 @@ func (m *module) SetEntries(handle int32, entries []persist.Entry) (*persist.Set
 		`INSERT INTO entries (key, value, updated) VALUES (?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated`)
 	if err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, e := range entries {
@@ -358,25 +365,25 @@ func (m *module) SetEntries(handle int32, entries []persist.Entry) (*persist.Set
 			ts = now
 		}
 		if _, err := stmt.Exec(e.Key, e.Value, ts); err != nil {
-			return &persist.SetResult{Ok: false}, err
+			return persist.SetResult{Ok: false}, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return &persist.SetResult{Ok: false}, err
+		return persist.SetResult{Ok: false}, err
 	}
-	return &persist.SetResult{Ok: true}, nil
+	return persist.SetResult{Ok: true}, nil
 }
 
-func (m *module) DeleteAll(handle int32) (*persist.DeleteResult, error) {
+func (m *module) DeleteAll(handle int32) (persist.DeleteResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h, err := m.getHandle(handle)
 	if err != nil {
-		return &persist.DeleteResult{Ok: false}, err
+		return persist.DeleteResult{Ok: false}, err
 	}
 	// Close the DB, remove files.
 	if err := h.db.Close(); err != nil {
-		return &persist.DeleteResult{Ok: false}, fmt.Errorf("close %s before delete: %w", h.namespace, err)
+		return persist.DeleteResult{Ok: false}, fmt.Errorf("close %s before delete: %w", h.namespace, err)
 	}
 	h.db = nil
 	dbPath := filepath.Join(m.dbDir, h.namespace+".db")
@@ -384,7 +391,7 @@ func (m *module) DeleteAll(handle int32) (*persist.DeleteResult, error) {
 	_ = os.Remove(dbPath + "-wal")
 	_ = os.Remove(dbPath + "-shm")
 	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
-		return &persist.DeleteResult{Ok: false}, fmt.Errorf("remove %s: %w", dbPath, err)
+		return persist.DeleteResult{Ok: false}, fmt.Errorf("remove %s: %w", dbPath, err)
 	}
-	return &persist.DeleteResult{Ok: true, Count: 1}, nil
+	return persist.DeleteResult{Ok: true, Count: 1}, nil
 }

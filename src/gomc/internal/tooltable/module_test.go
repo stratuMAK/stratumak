@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gmitooltable "github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
@@ -80,6 +81,48 @@ func TestNotStartedIsAnError(t *testing.T) {
 	}
 	if _, err := m.DeleteTool(1); err == nil {
 		t.Error("DeleteTool on an unstarted module succeeded, want an error")
+	}
+}
+
+// TestStorageFailureIsReported is the end-to-end proof of the @rc_error
+// conversion (G-1): tooltable reaches persist through the C callback table, so
+// before the conversion a storage failure arrived as a zeroed payload and an
+// unreadable tool table was indistinguishable from an empty one — a silent
+// zero-offset tool on the tool-change path. Deleting the namespace out from
+// under the handle makes every persist call fail; each tooltable method must
+// now say so.
+func TestStorageFailureIsReported(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	m := newBoundTooltable(t, dir, nil)
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := m.PutTool(3, gmitooltable.ToolEntry{Pocketno: 3}); err != nil {
+		t.Fatalf("PutTool: %v", err)
+	}
+
+	// DeleteAll closes the database and invalidates the handle.
+	if _, err := m.db.DeleteAll(m.dbHandle); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+
+	tools, err := m.ListTools()
+	if err == nil {
+		t.Errorf("ListTools over broken storage = %+v, nil; want an error", tools)
+	} else if !strings.Contains(err.Error(), "rc=") {
+		// The rc is what proves the failure crossed the C callback boundary
+		// rather than being caught locally.
+		t.Errorf("ListTools error = %v, want the persist rc", err)
+	}
+	if got, err := m.GetTool(3); err == nil {
+		t.Errorf("GetTool over broken storage = %+v, nil; want an error", got)
+	}
+	if got, err := m.PutTool(4, gmitooltable.ToolEntry{}); err == nil {
+		t.Errorf("PutTool over broken storage = %+v, nil; want an error", got)
+	}
+	if got, err := m.DeleteTool(3); err == nil {
+		t.Errorf("DeleteTool over broken storage = %+v, nil; want an error", got)
 	}
 }
 

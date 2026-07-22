@@ -240,7 +240,7 @@ func (g *bridgeGoGen) emitOneTrampoline(apiName, ifaceName string, fn ast.Func) 
 
 	for _, p := range fn.Params {
 		cParams = append(cParams, g.trampolineParam(apiName, p))
-		if p.Type.Kind == ast.TypeSlice {
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			cParams = append(cParams, fmt.Sprintf("%s_len C.size_t", escapeGoKeyword(p.Name)))
 		}
 	}
@@ -293,6 +293,27 @@ func (g *bridgeGoGen) emitOneTrampoline(apiName, ifaceName string, fn ast.Func) 
 // emitTrampolineWithOutParams handles trampolines where the Go method returns
 // extra values for out-params, which must be written back to C pointers.
 func (g *bridgeGoGen) emitTrampolineWithOutParams(apiName string, fn ast.Func, methodName, callArgs string, outParams []ast.Param) {
+	// @rc_error: the rc is the error channel, so the provider never spells one
+	// out — it returns (payload..., error) and the trampoline encodes it. This
+	// is the whole point of the shape: the provider's error reaches the caller
+	// instead of being flattened into a zero-valued payload.
+	if fn.RcError {
+		lhsParts := make([]string, 0, len(outParams)+1)
+		for i := range outParams {
+			lhsParts = append(lhsParts, fmt.Sprintf("_out%d", i))
+		}
+		lhsParts = append(lhsParts, "_err")
+		g.printf("\t%s := impl.%s(%s)\n", strings.Join(lhsParts, ", "), methodName, callArgs)
+		g.printf("\tif _err != nil {\n")
+		g.printf("\t\treturn -1\n")
+		g.printf("\t}\n")
+		for i, p := range outParams {
+			g.emitOutParamWriteback(apiName, p, fmt.Sprintf("_out%d", i), escapeGoKeyword(p.Name))
+		}
+		g.printf("\treturn 0\n")
+		return
+	}
+
 	// Build the LHS of the multi-return assignment
 	var lhsParts []string
 	if fn.Return != nil {
@@ -410,7 +431,52 @@ func (g *bridgeGoGen) emitOutParamWriteback(apiName string, p ast.Param, goVar, 
 		g.printf("\t\tvar _freeList []unsafe.Pointer\n")
 		g.printf("\t\t*%s = %s(%s, &_freeList)\n", cName, converter, goVar)
 		g.printf("\t}\n")
+	case ast.TypeSlice:
+		g.emitSliceOutWriteback(apiName, p, goVar, cName)
 	}
+}
+
+// emitSliceOutWriteback fills a slice out param's {data, len} struct from a Go
+// slice. The buffer (and every string in it) is malloc'd and handed to the
+// caller, which frees it — the same ownership rule as a slice return, so the
+// consuming client code is unchanged by the conversion.
+func (g *bridgeGoGen) emitSliceOutWriteback(apiName string, p ast.Param, goVar, cName string) {
+	elem := *p.Type.Elem
+	g.printf("\tif %s != nil {\n", cName)
+	g.printf("\t\t%s.len = C.size_t(len(%s))\n", cName, goVar)
+	g.printf("\t\t%s.data = nil\n", cName)
+	g.printf("\t\tif len(%s) > 0 {\n", goVar)
+
+	switch {
+	case elem.Kind == ast.TypePrimitive && elem.Name == ast.PrimString:
+		g.printf("\t\t\t_arr := (**C.char)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof((*C.char)(nil)))))\n", goVar)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = C.CString(%s[i])\n", goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	case elem.Kind == ast.TypeNamed && !g.isEnum(elem.Name):
+		elemCType := cTypeForAPICgo(apiName, elem)
+		converter := toLowerCamelRaw(elem.Name) + "GoToC"
+		g.printf("\t\t\t_arr := (*%s)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof(%s{}))))\n", elemCType, goVar, elemCType)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tvar _retAllocs []unsafe.Pointer // not freed: caller owns return data\n")
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = %s(%s[i], &_retAllocs)\n", converter, goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	default:
+		elemCType := cTypeForAPICgo(apiName, elem)
+		g.printf("\t\t\t_arr := (*%s)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof(%s(0)))))\n", elemCType, goVar, elemCType)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = %s(%s[i])\n", elemCType, goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	}
+
+	g.printf("\t\t}\n")
+	g.printf("\t}\n")
 }
 
 // emitTrampolineStandardCall handles the original trampoline pattern (no out-params).
@@ -536,6 +602,10 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 		// Structs pass by pointer (matches _api.h: const T *param)
 		return fmt.Sprintf("%s *%s", name, cType)
 	case ast.TypeSlice:
+		if p.IsOut {
+			// Callee-allocated payload: an owning {data, len} struct.
+			return fmt.Sprintf("%s *C.%s", name, sliceOutCTypeName(apiName, p.Type))
+		}
 		elemCType := cTypeForAPICgo(apiName, *p.Type.Elem)
 		return fmt.Sprintf("%s *%s", name, elemCType)
 	case ast.TypeArray:
@@ -753,7 +823,10 @@ func (g *bridgeGoGen) goMethodReturn(fn ast.Func) string {
 	// Collect return types: declared return + out-params + optional error.
 	// Error is only included if the C function returns a value (non-void).
 	var rets []string
-	if fn.Return != nil {
+	// @rc_error: the rc is generated from the error, so it is not part of the
+	// provider's signature — the implementation returns (payload..., error) and
+	// looks exactly like the value-returning method it replaced.
+	if fn.Return != nil && !fn.RcError {
 		retType := goTypeForDispatch(*fn.Return)
 		if fn.Return.Kind == ast.TypeNamed {
 			rets = append(rets, "*"+retType)
@@ -817,7 +890,9 @@ func (g *bridgeGoGen) emitExternDecl(apiName string, fn ast.Func) {
 	params := []string{"uintptr_t ctx"}
 	for _, p := range fn.Params {
 		params = append(params, g.cParamDecl(apiName, p))
-		if p.Type.Kind == ast.TypeSlice {
+		// A slice out param carries its length in the owning result struct, so
+		// it takes no _len companion (see sliceOutCTypeName).
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			params = append(params, "size_t "+p.Name+"_len")
 		}
 	}
@@ -880,6 +955,9 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 		// Structs always pass by pointer (matches _api.h convention)
 		return cType + " *" + name
 	case ast.TypeSlice:
+		if p.IsOut {
+			return sliceOutCTypeName(apiName, p.Type) + " *" + name
+		}
 		elemCType := fmt.Sprintf("%s_%s_t", apiName, toSnakeCase(p.Type.Elem.Name))
 		if p.Type.Elem.Kind == ast.TypePrimitive {
 			ct := primitiveToCType(p.Type.Elem.Name)

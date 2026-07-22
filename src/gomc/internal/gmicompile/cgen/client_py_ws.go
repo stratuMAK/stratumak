@@ -246,6 +246,8 @@ func (g *clientPyWSGen) emitCommands() {
 		if fn.Watch {
 			continue
 		}
+		// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+		fn = restView(fn)
 		methodName := toSnakeCase(fn.Name)
 		params := g.methodParams(fn)
 		retAnnot := g.methodReturnAnnotation(fn)

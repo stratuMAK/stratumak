@@ -332,6 +332,8 @@ func (g *clientTSWSGen) emitCommandMethods() {
 		if fn.Watch {
 			continue
 		}
+		// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+		fn = restView(fn)
 		methodName := toCamelCaseTS(fn.Name)
 		params := g.methodParams(fn)
 		retType := "unknown"

@@ -57,7 +57,12 @@ static void retain_state_destroy(retain_state_t *st) {
 }
 
 static int32_t retain_open_namespace(retain_state_t *st, const char *ns) {
-    persist_open_result_t res = st->persist->open(st->persist->ctx, ns);
+    persist_open_result_t res;
+    memset(&res, 0, sizeof(res));
+    // -1 on failure: a bad handle makes every later call fail at the persist
+    // end instead of silently reading and writing namespace handle 0.
+    if (st->persist->open(st->persist->ctx, ns, &res) != 0)
+        return -1;
     return res.handle;
 }
 
@@ -155,8 +160,13 @@ static int retain_load_vars(retain_state_t *st) {
 
     if (st->persist == NULL) return -1;
 
-    persist_get_entries_result_t res = st->persist->get_entries(
-        st->persist->ctx, st->handle);
+    persist_entry_slice_t res;
+    memset(&res, 0, sizeof(res));
+    // A read failure is not "nothing stored": returning 0 here would leave
+    // every retained signal at its default and then overwrite the saved
+    // values on the next save.
+    if (st->persist->get_entries(st->persist->ctx, st->handle, &res) != 0)
+        return -1;
     if (res.len == 0) {
         if (res.data) free(res.data);
         return 0;
@@ -269,8 +279,14 @@ static int retain_save_vars(retain_state_t *st) {
     }
     rtapi_mutex_give(&(hd->mutex));
 
+    int rc = 0;
     if (count > 0) {
-        st->persist->set_entries(st->persist->ctx, st->handle, entries, count);
+        persist_set_result_t sres;
+        memset(&sres, 0, sizeof(sres));
+        if (st->persist->set_entries(st->persist->ctx, st->handle, entries,
+                                     count, &sres) != 0 || !sres.ok) {
+            rc = -1;
+        }
     }
 
     for (size_t i = 0; i < count; i++) {
@@ -278,7 +294,7 @@ static int retain_save_vars(retain_state_t *st) {
     }
     free(value_bufs);
     free(entries);
-    return 0;
+    return rc;
 
 cleanup:
     for (size_t i = 0; i < count; i++) {
