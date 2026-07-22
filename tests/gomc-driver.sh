@@ -84,6 +84,7 @@ gomc_wait_ready() {
     local timeout="${1:-30}"
 
     if [ -n "$GOMC_SRV" ] && ! kill -0 "$GOMC_SRV" 2>/dev/null; then
+        gomc_bind_failure
         gomc_fail "server exited before it became ready; see $PWD/server.log"
     fi
 
@@ -92,6 +93,7 @@ import sys
 import gomc_test
 gomc_test.wait_for_startup(gomc_test.Stat(), timeout=float(sys.argv[1]))
 ' "$timeout"; then
+        gomc_bind_failure
         if [ -n "$GOMC_SRV" ] && ! kill -0 "$GOMC_SRV" 2>/dev/null; then
             gomc_fail "server exited while starting up; see $PWD/server.log"
         fi

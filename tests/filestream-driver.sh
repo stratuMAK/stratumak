@@ -49,6 +49,7 @@ fs_run() {
         sleep 0.1
     done
     if [ -z "$ready" ]; then
+        gomc_bind_failure
         echo "filestream-driver: server did not load filestream within 10s;" \
              "see $PWD/server.log" >&2
         exit 1

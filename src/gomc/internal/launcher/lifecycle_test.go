@@ -5,6 +5,7 @@ package launcher
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -166,8 +167,14 @@ func TestDoCleanup_ReleasesSignalWatcher(t *testing.T) {
 // down twice and no reader can observe a torn field.
 func TestStopAPIServer_IdempotentAndConcurrent(t *testing.T) {
 	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
+	// An ephemeral port: createAPIServer binds for real, and a unit test must
+	// not fail because this machine happens to be running LinuxCNC on the
+	// configured one (nor collide with a second test run).
+	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
 	l := testLauncher()
-	l.createAPIServer()
+	if err := l.createAPIServer(); err != nil {
+		t.Fatalf("createAPIServer: %v", err)
+	}
 
 	if l.apiServerRef() == nil {
 		t.Fatal("createAPIServer did not install a server")
@@ -257,4 +264,68 @@ func TestFail_FirstErrorWinsAndTriggersShutdown(t *testing.T) {
 	if !errors.Is(got, firstErr) {
 		t.Errorf("fatalErr = %v, want the first error %v", got, firstErr)
 	}
+}
+
+// TestCreateAPIServer_BindFailureIsReported pins where a taken REST address is
+// discovered. The bind used to happen inside the serve goroutine at the very
+// end of startup, so a port conflict surfaced only after realtime was running,
+// motmod was loaded, HAL threads were started and the interpreter was up — a
+// fully started machine, torn straight back down. createAPIServer binds, so
+// Run() can refuse before touching realtime.
+func TestCreateAPIServer_BindFailureIsReported(t *testing.T) {
+	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
+
+	// Hold an address, then point a launcher at it.
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = blocker.Close() }()
+	t.Setenv("GMC_REST_ADDR", blocker.Addr().String())
+
+	l := testLauncher()
+	err = l.createAPIServer()
+	if err == nil {
+		l.stopAPIServer()
+		t.Fatal("createAPIServer on a taken address succeeded, want a bind error")
+	}
+	if !strings.Contains(err.Error(), "address already in use") {
+		t.Errorf("error = %v, want it to name the bind failure", err)
+	}
+	if l.apiListenerRef() != nil {
+		t.Error("a failed bind left a listener installed")
+	}
+}
+
+// TestCreateAPIServer_ListenerClosedOnStop pins that a bind which never got as
+// far as being served is still released. http.Server.Shutdown only knows about
+// listeners it is serving, so without an explicit close the socket would
+// outlive a launcher that failed a later startup step — and the next start
+// would hit "address already in use" caused by its own predecessor.
+func TestCreateAPIServer_ListenerClosedOnStop(t *testing.T) {
+	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
+	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
+
+	l := testLauncher()
+	if err := l.createAPIServer(); err != nil {
+		t.Fatalf("createAPIServer: %v", err)
+	}
+	ln := l.apiListenerRef()
+	if ln == nil {
+		t.Fatal("createAPIServer installed no listener")
+	}
+	addr := ln.Addr().String()
+
+	l.stopAPIServer() // never served
+
+	if l.apiListenerRef() != nil {
+		t.Error("stopAPIServer left the listener installed")
+	}
+	// The address must be free again — the real proof, rather than trusting
+	// that Close was called.
+	again, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("address still held after stop: %v", err)
+	}
+	_ = again.Close()
 }

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -86,6 +87,7 @@ type Launcher struct {
 	// or Shutdown, only around the field access.
 	apiMu        sync.Mutex
 	apiServer    *apiserver.Server // REST API server for halcmd and external tools
+	apiListener  net.Listener      // bound at startup, served later (see createAPIServer)
 	shutdownCh   chan struct{}     // closed by signal handler to unblock wait
 	shutdownOnce sync.Once         // ensures shutdownCh is closed exactly once
 	fatalMu      sync.Mutex        // guards fatalErr
@@ -139,8 +141,12 @@ func (l *Launcher) Run() (runErr error) {
 
 	// Create the API server early so that stream_server registrations
 	// from cmod plugins (which happen during HAL file loading) can find it.
-	// The server won't start listening until startAPIServer() is called later.
-	l.createAPIServer()
+	// This also binds the listen address — before realtime starts — so a taken
+	// port fails here instead of after the machine is up (see createAPIServer).
+	// The server does not accept requests until startAPIServer() serves it.
+	if err := l.createAPIServer(); err != nil {
+		return err
+	}
 
 	// Register the halcmd REST API handler (uses internal HAL access, not liblinuxcnchal.so).
 	if err := halrest.Register(apiserver.DefaultRegistry()); err != nil {

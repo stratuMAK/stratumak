@@ -65,6 +65,29 @@ if ! command -v lsof > /dev/null 2>&1; then
     exit 2
 fi
 
+# Nearly every test starts a gomc-server, and they all bind the same well-known
+# REST address. A server left over from an earlier run (or a real machine on
+# this host) therefore does not fail one test — it fails every test that starts
+# one, and it fails them *misleadingly*: the server exits on the bind error, so
+# each test reports only its own "server did not become ready" timeout, dozens
+# of times over, with the actual cause buried in a per-test server.log. That
+# reads like a code regression and has been mistaken for one. The environment is
+# unusable before the first test runs, so say so once, up front, and stop.
+check_rest_addr_free () {
+    local addr="${GMC_REST_ADDR:-127.0.0.1:5080}"
+    local port="${addr##*:}"
+    case "$port" in
+        ''|*[!0-9]*) return 0 ;;  # not a host:port we can parse — let the tests try
+    esac
+    local holder
+    holder=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)
+    [ -n "$holder" ] || return 0
+    echo "$0: $addr is already in use by pid $holder ($(ps -o comm= -p "$holder" 2>/dev/null))" 1>&2
+    echo "$0: every test that starts gomc-server would fail to bind it." 1>&2
+    echo "$0: stop that process, or set GMC_REST_ADDR to a free address, then re-run." 1>&2
+    exit 2
+}
+
 wait_for_result_close() {
     # Test for the 'result' and 'stderr' files in the current testdir to be
     # closed. The 'checkresult' script cannot be run if these files are still
@@ -335,5 +358,6 @@ fi
 if [ $CLEAN_ONLY -eq 1 ]; then
     clean "$@"
 else
+    check_rest_addr_free
     run_tests "$@"
 fi

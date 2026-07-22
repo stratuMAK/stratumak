@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Small shared shell helpers for the gomc test suite: deadline scaling
-# (gomc_scale) and EXIT-trap composition (gomc_add_exit_trap). Source it, don't
-# execute it.
+# (gomc_scale), EXIT-trap composition (gomc_add_exit_trap) and the
+# address-in-use diagnosis (gomc_bind_failure). Source it, don't execute it.
 #
 # --- Deadline scaling ---
 # One knob for every shell-side deadline in the gomc test suite, so the bespoke
@@ -50,4 +50,26 @@ gomc_add_exit_trap() {
     else
         trap -- "$cmd" EXIT
     fi
+}
+
+# --- REST address diagnosis ---
+# gomc_bind_failure [logfile] prints a diagnosis if the server died because its
+# REST address was taken, and returns 0 in that case.
+#
+# Every test binds the same well-known REST address, so one leaked server fails
+# every test that follows it. runtests checks the address once before the suite
+# starts, but a server leaked by an *earlier test* slips past that check — and
+# the symptom each later test reports ("server did not become ready") says
+# nothing about the cause, which sits in a per-test server.log nobody reads
+# until the whole run has been misread as a code regression once. The server
+# already logged the reason; surface it where the failure is printed.
+gomc_bind_failure() {
+    local logfile="${1:-server.log}"
+    [ -f "$logfile" ] || return 1
+    grep -q "address already in use" "$logfile" || return 1
+    echo "*** the REST address (${GMC_REST_ADDR:-127.0.0.1:5080}) was already in use," \
+         "so this server exited instead of starting." >&2
+    echo "*** a gomc-server leaked by an earlier test is the usual cause;" \
+         "every later test that starts one fails the same way." >&2
+    return 0
 }
