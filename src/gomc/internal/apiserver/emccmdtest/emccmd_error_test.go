@@ -146,6 +146,50 @@ func TestRejectedCommandMapsErrno(t *testing.T) {
 	}
 }
 
+// TestWrappedErrnoStillMaps: a provider that wraps its errno for context is
+// doing the normal thing, and the status must survive it. The mapping used a
+// bare `switch err`, so every wrapped errno silently became a 500 — the
+// opposite of what wrapping is for.
+func TestWrappedErrnoStillMaps(t *testing.T) {
+	ts := serve(t, &stubTask{rc: 3, err: fmt.Errorf("opening tool table: %w", syscall.ENOENT)})
+	code, body := post(t, ts, "/mdi", `{"command":"G0 X1"}`)
+	if code != http.StatusNotFound {
+		t.Errorf("a wrapped ENOENT rendered as %d (%s), want %d", code, body, http.StatusNotFound)
+	}
+	if !strings.Contains(body, "tool table") {
+		t.Errorf("the wrapping context was lost: %s", body)
+	}
+}
+
+// TestFaultKindsMapToStatus pins the classification. A refusal is not a
+// controller malfunction — reporting it as 500 tells a client the machine
+// broke, invites a retry against a controller presumed sick, and is what
+// monitoring escalates on.
+func TestFaultKindsMapToStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind apiserver.FaultKind
+		want int
+	}{
+		{"state forbids it", apiserver.FaultState, http.StatusConflict},
+		{"module not ready", apiserver.FaultNotReady, http.StatusServiceUnavailable},
+		{"not found", apiserver.FaultNotFound, http.StatusNotFound},
+		{"genuine internal failure", apiserver.FaultInternal, http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := serve(t, &stubTask{rc: 3,
+				err: apiserver.NewFault(tc.kind, errors.New("must be in MDI mode"))})
+			code, body := post(t, ts, "/mdi", `{"command":"G0 X1"}`)
+			if code != tc.want {
+				t.Errorf("%v rendered as %d, want %d (%s)", tc.kind, code, tc.want, body)
+			}
+			if !strings.Contains(body, "must be in MDI mode") {
+				t.Errorf("classifying lost the reason: %s", body)
+			}
+		})
+	}
+}
+
 // TestAcceptedCommandReturnsRC pins the success shape: HTTP 200 whose body is
 // the bare RCS code.
 func TestAcceptedCommandReturnsRC(t *testing.T) {

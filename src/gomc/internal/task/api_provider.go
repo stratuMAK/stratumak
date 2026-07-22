@@ -8,6 +8,7 @@ import (
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emccmd"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emcstat"
+	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 )
 
 // Compile-time interface checks.
@@ -15,7 +16,8 @@ var _ emccmd.EmccmdCallbacks = (*milltaskModule)(nil)
 var _ emcstat.EmcstatCallbacks = (*milltaskModule)(nil)
 
 // errNotReady is returned by command handlers before Start() completes.
-var errNotReady = fmt.Errorf("milltask: not ready")
+var errNotReady = apiserver.NewFault(apiserver.FaultNotReady,
+	fmt.Errorf("milltask: not ready"))
 
 // RCS status codes returned to C callers (halui, etc.)
 // The C milltask returns RCS_DONE(1) on success; match that for compatibility.
@@ -38,14 +40,14 @@ func (m *milltaskModule) SetState(state int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetState(state)
+	return rcFor(m.task.SetState(state))
 }
 
 func (m *milltaskModule) SetMode(mode int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetMode(mode)
+	return rcFor(m.task.SetMode(mode))
 }
 
 func (m *milltaskModule) AutoCmd(cmd emccmd.AutoCmd, line int32) (int32, error) {
@@ -70,7 +72,15 @@ func rcFor(err error) (int32, error) {
 	if errors.As(err, &ee) {
 		return rcsError, nil
 	}
-	return rcsError, err
+	// A refusal is not a controller malfunction — the machine's state forbids
+	// the request. Classify it so the transport does not report a working
+	// controller as broken. An error that already carries a kind (errNotReady,
+	// or anything a lower layer classified) keeps it.
+	var f *apiserver.Fault
+	if errors.As(err, &f) {
+		return rcsError, err
+	}
+	return rcsError, apiserver.NewFault(apiserver.FaultState, err)
 }
 
 func (m *milltaskModule) Mdi(command string) (int32, error) {
@@ -84,175 +94,175 @@ func (m *milltaskModule) Jog(jogType emccmd.JogType, jjogmode bool, axisOrJoint 
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Jog(int32(jogType), jjogmode, axisOrJoint, velocity, distance)
+	return rcFor(m.task.Jog(int32(jogType), jjogmode, axisOrJoint, velocity, distance))
 }
 
 func (m *milltaskModule) JogStop(jjogmode bool, axisOrJoint int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.JogStop(jjogmode, axisOrJoint)
+	return rcFor(m.task.JogStop(jjogmode, axisOrJoint))
 }
 
 func (m *milltaskModule) Spindle(cmd emccmd.SpindleCmd, speed float64, spindleNum int32, wait int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Spindle(int32(cmd), speed, spindleNum, wait)
+	return rcFor(m.task.Spindle(int32(cmd), speed, spindleNum, wait))
 }
 
 func (m *milltaskModule) Home(joint int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Home(joint)
+	return rcFor(m.task.Home(joint))
 }
 
 func (m *milltaskModule) Unhome(joint int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Unhome(joint)
+	return rcFor(m.task.Unhome(joint))
 }
 
 func (m *milltaskModule) OverrideLimits(joint int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.OverrideLimits(joint)
+	return rcFor(m.task.OverrideLimits(joint))
 }
 
 func (m *milltaskModule) TeleopEnable(enable bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.TeleopEnable(enable)
+	return rcFor(m.task.TeleopEnable(enable))
 }
 
 func (m *milltaskModule) SetFeedOverride(rate float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetFeedOverride(rate)
+	return rcFor(m.task.SetFeedOverride(rate))
 }
 
 func (m *milltaskModule) SetSpindleOverride(rate float64, spindleNum int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetSpindleOverride(rate, spindleNum)
+	return rcFor(m.task.SetSpindleOverride(rate, spindleNum))
 }
 
 func (m *milltaskModule) SetRapidOverride(rate float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetRapidOverride(rate)
+	return rcFor(m.task.SetRapidOverride(rate))
 }
 
 func (m *milltaskModule) SetMaxVelocity(velocity float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetMaxVelocity(velocity)
+	return rcFor(m.task.SetMaxVelocity(velocity))
 }
 
 func (m *milltaskModule) SetFoEnable(enable bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetFeedOverrideEnable(enable)
+	return rcFor(m.task.SetFeedOverrideEnable(enable))
 }
 
 func (m *milltaskModule) SetFhEnable(enable bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetFeedHoldEnable(enable)
+	return rcFor(m.task.SetFeedHoldEnable(enable))
 }
 
 func (m *milltaskModule) SetSoEnable(enable bool, spindleNum int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetSpindleOverrideEnable(enable, spindleNum)
+	return rcFor(m.task.SetSpindleOverrideEnable(enable, spindleNum))
 }
 
 func (m *milltaskModule) Flood(on bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Flood(on)
+	return rcFor(m.task.Flood(on))
 }
 
 func (m *milltaskModule) Mist(on bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Mist(on)
+	return rcFor(m.task.Mist(on))
 }
 
 func (m *milltaskModule) Brake(on bool, spindleNum int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Brake(on, spindleNum)
+	return rcFor(m.task.Brake(on, spindleNum))
 }
 
 func (m *milltaskModule) Lube(on bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Lube(on)
+	return rcFor(m.task.Lube(on))
 }
 
 func (m *milltaskModule) Abort() (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.Abort()
+	return rcFor(m.task.Abort())
 }
 
 func (m *milltaskModule) TaskPlanSynch() (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.TaskPlanSynch()
+	return rcFor(m.task.TaskPlanSynch())
 }
 
 func (m *milltaskModule) SetOptionalStop(on bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetOptionalStop(on)
+	return rcFor(m.task.SetOptionalStop(on))
 }
 
 func (m *milltaskModule) SetBlockDelete(on bool) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetBlockDelete(on)
+	return rcFor(m.task.SetBlockDelete(on))
 }
 
 func (m *milltaskModule) LoadToolTable(file string) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.LoadToolTable(file)
+	return rcFor(m.task.LoadToolTable(file))
 }
 
 func (m *milltaskModule) ToolUnload() (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.ToolUnload()
+	return rcFor(m.task.ToolUnload())
 }
 
 func (m *milltaskModule) ProgramOpen(file string) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.ProgramOpen(file)
+	return rcFor(m.task.ProgramOpen(file))
 }
 
 func (m *milltaskModule) WaitComplete(timeout float64) (int32, error) {
@@ -262,45 +272,44 @@ func (m *milltaskModule) WaitComplete(timeout float64) (int32, error) {
 	if timeout <= 0 {
 		timeout = 5.0
 	}
-	if err := m.task.WaitComplete(timeout); err != nil {
-		return rcsError, err
-	}
-	return rcsDone, nil
+	// A wait that did not happen is a state fault, not a controller failure:
+	// the machine never settled within the deadline.
+	return rcFor(m.task.WaitComplete(timeout))
 }
 
 func (m *milltaskModule) SetDebug(debug int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetDebug(debug)
+	return rcFor(m.task.SetDebug(debug))
 }
 
 func (m *milltaskModule) SetJogAxis(axis int32) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetJogAxis(axis)
+	return rcFor(m.task.SetJogAxis(axis))
 }
 
 func (m *milltaskModule) SetJogIncrement(increment float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetJogIncrement(increment)
+	return rcFor(m.task.SetJogIncrement(increment))
 }
 
 func (m *milltaskModule) SetJogSpeed(speed float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetJogSpeed(speed)
+	return rcFor(m.task.SetJogSpeed(speed))
 }
 
 func (m *milltaskModule) SetAjogSpeed(speed float64) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.SetAjogSpeed(speed)
+	return rcFor(m.task.SetAjogSpeed(speed))
 }
 
 // --- EmcstatCallbacks implementation ---

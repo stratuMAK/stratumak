@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 )
 
 // TestRcForSeparatesRefusedFromExecuted pins the distinction the emccmd contract
@@ -34,6 +36,26 @@ func TestRcForSeparatesRefusedFromExecuted(t *testing.T) {
 		}
 		if !errors.Is(err, refusal) {
 			t.Errorf("the reason was lost: %v", err)
+		}
+		// The kind is what stops a refusal being reported as a broken
+		// controller: FaultState renders as 409, not 500.
+		var f *apiserver.Fault
+		if !errors.As(err, &f) {
+			t.Fatal("a refusal must be classified, or the transport can only guess (500)")
+		}
+		if f.Kind != apiserver.FaultState {
+			t.Errorf("kind = %v, want FaultState", f.Kind)
+		}
+	})
+
+	t.Run("an already-classified error keeps its kind", func(t *testing.T) {
+		// errNotReady is FaultNotReady (503, the request may succeed shortly);
+		// re-wrapping it as FaultState would turn a transient condition into a
+		// permanent-looking one.
+		_, err := rcFor(errNotReady)
+		var f *apiserver.Fault
+		if !errors.As(err, &f) || f.Kind != apiserver.FaultNotReady {
+			t.Errorf("errNotReady lost its kind: %v", err)
 		}
 	})
 

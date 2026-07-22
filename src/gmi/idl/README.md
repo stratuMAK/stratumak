@@ -105,6 +105,37 @@ constraints (e.g. `@maxlen` on an `i32`, `@min > @max`) fail the build.
 
 See `../FIELD_VALIDATION_DESIGN.md` for the full design.
 
+## Failure reporting
+
+A `@rest_export` function's Go provider returns `(result, error)`, and the error
+reaches the client — REST dispatch for a Go provider does not cross the C ABI,
+which has no error channel and would substitute a zero value. The status comes
+from what *kind* of failure it was, which the provider says with
+`apiserver.NewFault`:
+
+| kind | status | meaning |
+|---|---|---|
+| `FaultState` | 409 Conflict | the machine's current state forbids it ("must be in MDI mode"). Nothing happened; re-sending unchanged fails the same way. |
+| `FaultNotReady` | 503 Service Unavailable | the module is not started, or was stopped. The same request may succeed shortly. |
+| `FaultNotFound` | 404 | the named thing does not exist. |
+| `FaultInternal` (zero value) | 500 | the controller itself failed. |
+
+An unclassified error keeps the conservative 500, and a bare or wrapped errno
+still maps (`EBUSY`/`EEXIST` → 409, `ENOENT` → 404, `EINVAL`/`ERANGE` → 400,
+`EPERM` → 403, `ENOSYS` → 501). A `@constraint` violation is a 400 before the
+provider is reached.
+
+**Classify refusals.** A 500 says the controller broke: it invites a retry
+against a machine presumed sick and is what monitoring escalates on. Most
+failures on a command surface are not that — they are the machine correctly
+declining, which is a 409.
+
+**A command that was accepted and then faulted is not a transport error at
+all.** The interpreter rejecting `G10 L1 P0` is a machine event: it is published
+on the error channel and the call reports `RCS_ERROR` in a normal response,
+because the call did its job — the command reached the machine — and the caller
+still needs to read the resulting state. Only a *refusal* is a transport error.
+
 ## Type System
 
 | GMI       | C              | Go        | Python         |

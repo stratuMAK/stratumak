@@ -447,23 +447,40 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 		return
 	}
 
-	// Map errno to HTTP status
+	// A classified fault knows what it is; prefer it over guessing from an
+	// errno. Without this a refusal the machine's state made ("must be in MDI
+	// mode") reached the client as a 500 — the controller reported as broken
+	// when it was working correctly and declining.
+	var f *Fault
+	if errors.As(err, &f) {
+		code := http.StatusInternalServerError
+		switch f.Kind {
+		case FaultState:
+			code = http.StatusConflict
+		case FaultNotReady:
+			code = http.StatusServiceUnavailable
+		case FaultNotFound:
+			code = http.StatusNotFound
+		}
+		writeErrorJSON(w, code, err.Error())
+		return
+	}
+
+	// Map errno to HTTP status. errors.Is, not ==: a provider that wraps its
+	// errno for context ("open %s: %w") would otherwise fall through to 500,
+	// which is the opposite of what wrapping is for.
 	code := http.StatusInternalServerError
-	switch err {
-	case syscall.EINVAL:
+	switch {
+	case errors.Is(err, syscall.EINVAL), errors.Is(err, syscall.ERANGE):
 		code = http.StatusBadRequest
-	case syscall.ENOENT:
+	case errors.Is(err, syscall.ENOENT):
 		code = http.StatusNotFound
-	case syscall.EPERM:
+	case errors.Is(err, syscall.EPERM):
 		code = http.StatusForbidden
-	case syscall.EEXIST:
+	case errors.Is(err, syscall.EEXIST), errors.Is(err, syscall.EBUSY):
 		code = http.StatusConflict
-	case syscall.ENOSYS:
+	case errors.Is(err, syscall.ENOSYS):
 		code = http.StatusNotImplemented
-	case syscall.EBUSY:
-		code = http.StatusConflict
-	case syscall.ERANGE:
-		code = http.StatusBadRequest
 	}
 	writeErrorJSON(w, code, err.Error())
 }
