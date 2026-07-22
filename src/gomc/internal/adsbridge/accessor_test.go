@@ -43,8 +43,11 @@ func TestMain(m *testing.M) {
 
 func newTestComp(t *testing.T) *hal.Component {
 	t.Helper()
-	// A unique component name per test — HAL keys components by name and reusing
-	// one across tests in the same binary conflicts (see pkg/hal barrier_test).
+	// Distinct name per test, so no two components are ever live under the same
+	// name. Name *reuse* after an Exit is legal (pkg/hal component_test.go
+	// deliberately re-creates "test-exit"); the real hazard here is the
+	// component count reaching zero, which the keep-alive TestMain above holds
+	// off — not the naming.
 	comp, err := hal.NewComponent("adsbridge-acc-" + t.Name())
 	if err != nil {
 		t.Fatalf("NewComponent: %v", err)
