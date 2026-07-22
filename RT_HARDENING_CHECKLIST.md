@@ -178,7 +178,7 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 - [x] RT regions (stacks + buffers) locked and **write-touched once** at init (prefaulted)
   — `rtapi_lock_mem()` write-prefaults every page then `mlock`s (`uspace_rtapi_lib.c:196-225`); used by `rtapi_malloc/calloc/realloc`, thread stacks, dlopen'd cmod PT_LOAD segments (RELRO-aware, `dl_mlock_callback`), and — since `rt-validate` — the halscope instance + capture buffers. `mlockall(MCL_CURRENT)` one-shot + `mallopt(M_TRIM_THRESHOLD=-1, M_MMAP_MAX=0)` in `configure_memory()`.
 - [x] RT `pthread` stacks pre-grown to worst-case depth
-  — Minimum 1 MB enforced (`task_new`, `uspace_rtapi_lib.c:720`), and the whole stack (minus guard page) is write-prefaulted + mlocked at thread start (`task_wrapper`, `uspace_rtapi_lib.c:637-656`).
+  — Minimum 1 MB enforced (`task_new`, `uspace_rtapi_lib.c:751`), and the whole stack (minus guard page) is write-prefaulted + mlocked at thread start (`task_wrapper`, `uspace_rtapi_lib.c:656-668`).
 - [ ] `minflt`/`majflt` frozen after warmup (asserted)
   — Not implemented; no `/proc/<tid>/stat` fault-counter check anywhere.
 

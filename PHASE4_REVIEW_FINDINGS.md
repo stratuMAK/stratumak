@@ -28,6 +28,12 @@ a cross-cutting **module-unload watch-registration lifecycle gap (HJ-1)** shared
 with mqttbridge, plus several **codegen-correctness** fixes in modcompile and a
 set of **2.9 tokenizer-parity divergences in halparse deferred for a ruling**
 (they change parse semantics across the shipped-config corpus).
+**Amended 2026-07-22:** closing the `U` column added two more CONFIRMED findings
+that a read-through had not surfaced — **HJ-6** (haljson watch sends full state
+twice per subscribe) and **HP-8** (halparse's executor tests never compiled in
+any build, so the executor had zero effective coverage) — and exercising the
+`internal/hallib` C core through those tests exposed a `thread_lock` deadlock
+(see the Tier-3 caveat below).
 
 ---
 
@@ -36,6 +42,16 @@ Its Go surface is a 12-line cgo link shim (`cgo.go`) + two test-only cgo wrapper
 (`rtapialloc`, `hallibtest`). The bulk is inherited 2.9 C (`hal_lib.c`,
 `uspace_rtapi_lib.c`, `uspace_rtapi_string.c`) whose RT-correctness is owned by
 `RT_HARDENING_CHECKLIST.md`, not this review. No Phase-4 Go work needed.
+
+**Caveat added 2026-07-22 — "cleared" means the *Go* surface, and inspection of
+the C core did not substitute for exercising it.** Writing the `U`-closure tests
+for `internal/halcmd` drove real HAL threads through create/start/stop/delete for
+the first time in a unit test and immediately hit a **deadlock in that C core**:
+`thread_lock` leaked locked on one of the cooperative task-exit paths, hanging
+`delthread` on every non-RT-privileged deployment (fixed `3f7eec6cce`, tracked in
+`RT_HARDENING_CHECKLIST.md`). Nothing about the Phase-4 Go review was wrong — the
+bug is outside its scope — but it is a concrete reminder that "inherited C,
+cleared by inspection" is a scoping decision, not evidence of correctness.
 
 ---
 
@@ -66,6 +82,40 @@ Covers haljson **and** mqttbridge. Regression test.
 (absurd value → huge slice + runaway `hal_pin_new` at load → OOM); now capped at
 `maxArraySize` (100k). An oversized `rate=` arg could overflow `time.Duration`
 into a degenerate/negative hot-spin interval; clamped to `maxRateMS` (1h).
+
+### HJ-6 — haljson watch sends the full state twice on every subscribe
+`internal/haljson/watch.go`. **CONFIRMED (found 2026-07-22 while closing `U`).**
+`[FIXED — c264a86db8]` The per-connection watch state pre-set every shadow to an
+impossible value "to force first full send", and the first tick separately
+returned `root.buildJSON()` without priming those shadows. So the tick *after*
+the structured snapshot found every pin differing from its shadow and re-sent the
+lot as a flat delta — **two full sends per subscriber, on every subscribe**. Not
+a correctness bug for a client (the second message is redundant, not wrong), but
+it doubles subscribe cost on a panel with hundreds of pins and defeats the point
+of the shadow mechanism. The first tick now primes the shadows *before*
+`buildJSON`; that order is deliberate — if a pin moves between the two reads the
+shadow holds the older value and the next poll re-sends it (redundant but
+correct), whereas priming afterwards would leave the shadow ahead of what was
+actually sent and drop the update. Regression test asserts the second tick is
+suppressed.
+
+### HP-8 — halparse's executor tests never ran in any build
+`internal/halparse/executor_test.go`, `link_test.go`,
+`executor_integration_test.go`. **CONFIRMED (found 2026-07-22 while closing `U`).**
+`[FIXED — c264a86db8]` The executor — the code that applies a parsed HAL file to
+HAL — had **zero effective test coverage**, and the tests that appeared to cover
+it could not compile. `executor_test.go` is `//go:build !cgo`, but the package's
+`link_test.go` blank-imported the cgo-only HAL shim *unconditionally*, so the
+nocgo test binary never built and nobody noticed the file had rotted: it
+referenced a `LoadToken.Params` field that no longer exists and still expected
+`status`/`debug`/`load` to reach the C shim. The cgo-side counterpart
+(`executor_integration_test.go`, tagged `cgo && haltest`) was two `t.Skip`
+placeholders. Fixed by tagging `link_test.go` `cgo` (so the nocgo suite compiles
+and runs again), repairing the rotted expectations, and replacing the
+placeholders with a real suite that applies a parsed HAL file to a live
+in-process HAL. **Class:** a build-tag combination that no CI job builds silently
+converts a test file into dead weight that still *reads* as coverage — worth
+checking wherever `!cgo` test files exist.
 
 ### HP-5 — halparse template iteration unbounded → OOM
 `internal/halparse/template.go`. **PLAUSIBLE.** `[FIXED — 4bac0834fe]` `seq/seq1/
