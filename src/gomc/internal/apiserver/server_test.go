@@ -110,7 +110,7 @@ func TestMatchFunc(t *testing.T) {
 		{"GET", "/unknown", -1}, // no match
 	}
 	for _, tt := range tests {
-		got := matchFunc(meta, tt.method, tt.path)
+		got := matchFunc(meta.Funcs, tt.method, tt.path)
 		if got != tt.want {
 			t.Errorf("matchFunc(%q, %q) = %d, want %d", tt.method, tt.path, got, tt.want)
 		}

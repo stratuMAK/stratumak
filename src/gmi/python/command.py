@@ -91,19 +91,19 @@ class Command:
 
     def state(self, state: int):
         """Set task state (STATE_ESTOP, STATE_ON, etc.)."""
-        self._post("/state", {"state": state})
+        return self._post("/state", {"state": state})
 
     def mode(self, mode: int):
         """Set task mode (MODE_MANUAL, MODE_MDI, MODE_AUTO)."""
-        self._post("/mode", {"mode": mode})
+        return self._post("/mode", {"mode": mode})
 
     def auto(self, cmd: int, line: int = 0):
         """Auto program control (AUTO_RUN, AUTO_STEP, AUTO_PAUSE, etc.)."""
-        self._post("/auto", {"cmd": cmd, "line": line})
+        return self._post("/auto", {"cmd": cmd, "line": line})
 
     def mdi(self, command: str):
         """Execute MDI command string."""
-        self._post("/mdi", {"command": command})
+        return self._post("/mdi", {"command": command})
 
     def jog(self, jog_type: int, jjogmode: bool, axis_or_joint: int,
             velocity: float = 0.0, distance: float = 0.0):
@@ -126,7 +126,7 @@ class Command:
     def spindle(self, direction: int, speed: float = 0.0,
                 spindle: int = 0, wait: int = 0):
         """Control spindle (SPINDLE_FORWARD, SPINDLE_OFF, etc.)."""
-        self._post("/spindle", {
+        return self._post("/spindle", {
             "cmd": direction,
             "speed": speed,
             "spindle_num": spindle,
@@ -135,90 +135,89 @@ class Command:
 
     def home(self, joint: int):
         """Home a joint (-1 = all)."""
-        self._post("/home", {"joint": joint})
+        return self._post("/home", {"joint": joint})
 
     def unhome(self, joint: int):
         """Unhome a joint (-1 = all)."""
-        self._post("/unhome", {"joint": joint})
+        return self._post("/unhome", {"joint": joint})
 
     def override_limits(self, joint: int = 0):
         """Override soft limits (joint < 0 resumes normal limit checking)."""
-        self._post("/override-limits", {"joint": joint})
+        return self._post("/override-limits", {"joint": joint})
 
     def teleop_enable(self, enable: bool):
         """Enable/disable teleop mode."""
-        self._post("/teleop", {"enable": bool(enable)})
+        return self._post("/teleop", {"enable": bool(enable)})
 
     def feedrate(self, rate: float):
         """Set feed override (0.0 - 1.0+)."""
-        self._post("/feed-override", {"rate": rate})
+        return self._post("/feed-override", {"rate": rate})
 
     def spindleoverride(self, rate: float, spindle: int = 0):
         """Set spindle speed override."""
-        self._post("/spindle-override", {"rate": rate, "spindle_num": spindle})
+        return self._post("/spindle-override", {"rate": rate, "spindle_num": spindle})
 
     def rapidrate(self, rate: float):
         """Set rapid override (0.0 - 1.0)."""
-        self._post("/rapid-override", {"rate": rate})
+        return self._post("/rapid-override", {"rate": rate})
 
     def maxvel(self, velocity: float):
         """Set maximum velocity."""
-        self._post("/max-velocity", {"velocity": velocity})
+        return self._post("/max-velocity", {"velocity": velocity})
 
     def flood(self, on):
         """Flood coolant on/off."""
-        self._post("/flood", {"on": bool(on)})
+        return self._post("/flood", {"on": bool(on)})
 
     def mist(self, on):
         """Mist coolant on/off."""
-        self._post("/mist", {"on": bool(on)})
+        return self._post("/mist", {"on": bool(on)})
 
     def brake(self, on, spindle: int = 0):
         """Spindle brake engage/release."""
-        self._post("/brake", {"on": bool(on), "spindle_num": spindle})
+        return self._post("/brake", {"on": bool(on), "spindle_num": spindle})
 
     def abort(self):
         """Abort current operation."""
-        self._post("/abort")
+        return self._post("/abort")
 
     def task_plan_synch(self):
         """Synchronize task planner."""
-        self._post("/task-plan-synch")
+        return self._post("/task-plan-synch")
 
     def set_optional_stop(self, on: bool):
         """Set optional stop."""
-        self._post("/optional-stop", {"on": bool(on)})
+        return self._post("/optional-stop", {"on": bool(on)})
 
     def set_block_delete(self, on: bool):
         """Set block delete."""
-        self._post("/block-delete", {"on": bool(on)})
+        return self._post("/block-delete", {"on": bool(on)})
 
     def load_tool_table(self, file: str = ""):
         """Reload tool table from file (empty string = default table)."""
-        self._post("/load-tool-table", {"file": file})
+        return self._post("/load-tool-table", {"file": file})
 
     def program_open(self, filename: str):
         """Open a program file."""
-        self._post("/program-open", {"file": filename})
+        return self._post("/program-open", {"file": filename})
 
     def wait_complete(self, timeout: float = 5.0) -> int:
-        """Wait for the task to settle. Returns an RCS code; never raises on
-        a machine-side timeout.
+        """Wait for the task to settle. Returns RCS_DONE (1), or raises.
 
-        Returns:
-            RCS_DONE (1)   — settled
-            RCS_ERROR (3)  — the command failed
-            -1             — the wait did not complete: the task is NOT settled
-                             and any state read afterwards is unsynchronised.
-                             This covers a machine-side timeout AND the task not
-                             being ready — the cgo bridge flattens any
-                             server-side error to -1, so it is not strictly a
-                             "timed out" signal, just "the wait did not happen".
+        A wait that did not happen — a machine-side timeout, or the task not
+        being ready — raises ``urllib.error.HTTPError`` carrying the server's
+        reason. It used to arrive as -1 in a normal HTTP 200 body, because REST
+        dispatch crossed the C ABI, which has no channel for an error; a caller
+        that discarded the return could not tell it from success. A Go provider
+        now serves REST directly, so a failed wait cannot be mistaken for a
+        settled machine.
 
-        The -1 is delivered as a normal HTTP 200 body, so a caller that discards
-        the return cannot tell it from success. Callers that need the wait to
-        have actually happened must check for it — see lib/python/gomc_test.py,
-        which wraps this and raises.
+        A command that *errors on the machine* is a different thing and does not
+        raise here: those travel on the error channel and leave the task
+        settled. Read them via gmi.ErrorChannel.
+
+        See lib/python/gomc_test.py, which turns the HTTPError into a Timeout
+        naming the deadline.
 
         A negative timeout is meaningless (the IDL constrains it to >= 0); the
         socket deadline is floored so it never goes negative and raises a local
@@ -229,20 +228,20 @@ class Command:
 
     def debug(self, level: int):
         """Set debug level (bitmask of DEBUG_* flags)."""
-        self._post("/debug", {"debug": level})
+        return self._post("/debug", {"debug": level})
 
     def set_jog_axis(self, axis: int):
         """Set the active jog axis (0=X, 1=Y, ...)."""
-        self._post("/jog-axis", {"axis": axis})
+        return self._post("/jog-axis", {"axis": axis})
 
     def set_jog_increment(self, increment: float):
         """Set jog increment (0 = continuous)."""
-        self._post("/jog-increment", {"increment": increment})
+        return self._post("/jog-increment", {"increment": increment})
 
     def set_jog_speed(self, speed: float):
         """Set linear jog speed (units/sec)."""
-        self._post("/jog-speed", {"speed": speed})
+        return self._post("/jog-speed", {"speed": speed})
 
     def set_ajog_speed(self, speed: float):
         """Set angular jog speed (deg/sec)."""
-        self._post("/ajog-speed", {"speed": speed})
+        return self._post("/ajog-speed", {"speed": speed})

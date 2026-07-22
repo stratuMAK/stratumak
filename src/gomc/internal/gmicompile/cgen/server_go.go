@@ -508,7 +508,7 @@ func (g *serverGoGen) emitCommands() {
 
 	apiPascal := toPascalCase(g.api.Name)
 	ifaceName := apiPascal + "Callbacks"
-	funcName := apiPascal + "Commands"
+	funcName := apiPascal + "Handlers"
 
 	// Same @constraint validation as the REST dispatch — but call the shared
 	// validate<Api><Fn> functions emitted once into _cgo.go (same package) rather
@@ -516,10 +516,19 @@ func (g *serverGoGen) emitCommands() {
 	// here (D8). ce is used only to generate the call expressions.
 	ce := newConstraintEmitter(g.api)
 
-	g.printf("// --- WebSocket Commands ---\n\n")
-	g.printf("// %s generates WS command metadata from the callbacks implementation.\n", funcName)
-	g.printf("func %s(impl %s) []apiserver.CommandMeta {\n", funcName, ifaceName)
-	g.printf("\treturn []apiserver.CommandMeta{\n")
+	g.printf("// --- Go-native handlers (REST + WebSocket) ---\n\n")
+	g.printf("// %s returns the dispatch set that calls the provider directly.\n", funcName)
+	g.printf("//\n")
+	g.printf("// Both REST and WS use this. Routing through the C callbacks struct instead\n")
+	g.printf("// would cost the provider's error: that ABI has no error channel, so the\n")
+	g.printf("// //export trampoline substitutes a zero value and the caller is told the\n")
+	g.printf("// call succeeded. The C path remains for in-process cmod<->gomod calls,\n")
+	g.printf("// which is the reason it exists.\n")
+	g.printf("//\n")
+	g.printf("// Funcs that are WS-commands-only carry no Method/Path; REST routing skips\n")
+	g.printf("// those, so one set serves both surfaces.\n")
+	g.printf("func %s(impl %s) []apiserver.FuncMeta {\n", funcName, ifaceName)
+	g.printf("\treturn []apiserver.FuncMeta{\n")
 	for _, fn := range g.api.Funcs {
 		if !g.isCommandFunc(fn) {
 			continue
@@ -530,7 +539,8 @@ func (g *serverGoGen) emitCommands() {
 		fn = restView(fn)
 		methodName := toPascalCase(fn.Name)
 
-		g.printf("\t\t{Name: %q, Handler: func(req json.RawMessage) (json.RawMessage, error) {\n", fn.Name)
+		g.printf("\t\t{Name: %q, Method: %q, Path: %q, RTSafe: %t, Dispatch: func(_ unsafe.Pointer, req []byte) ([]byte, error) {\n",
+			fn.Name, fn.Method, fn.Path, fn.RTSafe)
 
 		// Unmarshal params if any
 		if len(fn.Params) > 0 {
@@ -579,6 +589,28 @@ func (g *serverGoGen) emitCommands() {
 		g.printf("\t\t}},\n")
 	}
 	g.printf("\t}\n")
+	g.printf("}\n\n")
+
+	// WS command metadata, derived from the same handlers rather than emitted a
+	// second time — two independently generated copies of one dispatch body is
+	// how REST and WS came to disagree about errors in the first place.
+	cmdName := apiPascal + "Commands"
+	g.printf("// %s generates WS command metadata from the callbacks implementation.\n", cmdName)
+	g.printf("// Thin view over %s — same handlers, keyed by name only.\n", funcName)
+	g.printf("func %s(impl %s) []apiserver.CommandMeta {\n", cmdName, ifaceName)
+	g.printf("\tfuncs := %s(impl)\n", funcName)
+	g.printf("\tcmds := make([]apiserver.CommandMeta, 0, len(funcs))\n")
+	g.printf("\tfor i := range funcs {\n")
+	g.printf("\t\tfn := funcs[i]\n")
+	g.printf("\t\tcmds = append(cmds, apiserver.CommandMeta{\n")
+	g.printf("\t\t\tName: fn.Name,\n")
+	g.printf("\t\t\tHandler: func(req json.RawMessage) (json.RawMessage, error) {\n")
+	g.printf("\t\t\t\tres, err := fn.Dispatch(nil, []byte(req))\n")
+	g.printf("\t\t\t\treturn json.RawMessage(res), err\n")
+	g.printf("\t\t\t},\n")
+	g.printf("\t\t})\n")
+	g.printf("\t}\n")
+	g.printf("\treturn cmds\n")
 	g.printf("}\n\n")
 }
 

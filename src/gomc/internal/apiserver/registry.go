@@ -57,6 +57,22 @@ func (r *Registry) RegisterNoREST(apiName string, version int, instance string, 
 	return r.register(apiName, version, instance, callbacks, false)
 }
 
+// RegisterGo registers a Go provider: the callbacks pointer is still the C
+// callbacks struct, so in-process cmod→gomod calls keep working, but REST is
+// served by goFuncs — the generated handlers that call the provider directly
+// and can therefore report its errors. See RegisteredAPI.GoFuncs.
+func (r *Registry) RegisterGo(apiName string, version int, instance string, callbacks unsafe.Pointer, goFuncs []FuncMeta) error {
+	if err := r.register(apiName, version, instance, callbacks, true); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if api, ok := r.instances[registryKey(apiName, instance)]; ok {
+		api.GoFuncs = goFuncs
+	}
+	return nil
+}
+
 func (r *Registry) register(apiName string, version int, instance string, callbacks unsafe.Pointer, attachMeta bool) error {
 	if apiName == "" || instance == "" {
 		return syscall.EINVAL

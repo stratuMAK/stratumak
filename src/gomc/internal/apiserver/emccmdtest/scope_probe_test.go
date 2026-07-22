@@ -23,13 +23,12 @@ func (failingIni) GetParameterFile(namespace *string) (string, error) {
 	return "", errors.New("INI file not loaded")
 }
 
-// TestSliceReturningProviderErrorBecomesEmptyResult shows the RCS-error gap is
-// not specific to emccmd's i32 returns. For a slice-returning func the
-// trampoline's error branch returns the zero C slice, so a provider failure
-// arrives as HTTP 200 with an empty array — indistinguishable from a
-// legitimately empty answer, and strictly worse than emccmd's -1 because it
-// looks like ordinary data.
-func TestSliceReturningProviderErrorBecomesEmptyResult(t *testing.T) {
+// TestSliceReturningProviderErrorReachesClient covers the shape that was worst
+// affected. For a slice-returning func the C trampoline's error branch returned
+// the zero C slice, so a provider failure arrived as HTTP 200 with an empty
+// array — indistinguishable from a legitimately empty answer, and worse than
+// emccmd's -1 because it looked like ordinary data.
+func TestSliceReturningProviderErrorReachesClient(t *testing.T) {
 	reg := apiserver.NewRegistry()
 	apiserver.RegisterMeta(ini.IniMeta)
 	if err := ini.RegisterIniAPI(reg, "ini", failingIni{}); err != nil {
@@ -47,12 +46,11 @@ func TestSliceReturningProviderErrorBecomesEmptyResult(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	body := readAll(t, resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status %d — a provider error now reaches the client; "+
-			"the gap may be fixed, update this test", resp.StatusCode)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a failing provider returned 200 with body %q — "+
+			"indistinguishable from an empty result set", strings.TrimSpace(body))
 	}
-	if strings.Contains(body, "not loaded") {
-		t.Fatal("the reason survived; the gap may be fixed, update this test")
+	if !strings.Contains(body, "not loaded") {
+		t.Errorf("status %d body %q does not carry the reason", resp.StatusCode, body)
 	}
-	t.Logf("a failing provider returned HTTP %d with body %q", resp.StatusCode, strings.TrimSpace(body))
 }

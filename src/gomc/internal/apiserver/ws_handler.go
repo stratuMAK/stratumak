@@ -55,11 +55,18 @@ type CommandMeta struct {
 // in the given registered API. This exposes a REST API's functions as WS
 // commands without manual per-function wiring.
 func CommandsFromAPI(api *RegisteredAPI) []CommandMeta {
-	if api == nil || api.Meta == nil {
+	if api == nil {
 		return nil
 	}
-	cmds := make([]CommandMeta, 0, len(api.Meta.Funcs))
-	for _, fn := range api.Meta.Funcs {
+	// RESTFuncs, not Meta.Funcs: for a Go provider this is the direct handler
+	// set, so a WS command reports the provider's error instead of the zero
+	// value the C trampoline would substitute.
+	funcs := api.RESTFuncs()
+	if funcs == nil {
+		return nil
+	}
+	cmds := make([]CommandMeta, 0, len(funcs))
+	for _, fn := range funcs {
 		if fn.Dispatch == nil {
 			continue
 		}

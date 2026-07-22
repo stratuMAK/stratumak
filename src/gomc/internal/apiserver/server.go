@@ -212,9 +212,10 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 		if candidate.Meta == nil || !candidate.Meta.RESTExport {
 			continue
 		}
-		idx := matchFunc(candidate.Meta, r.Method, funcPath)
+		funcs := candidate.RESTFuncs()
+		idx := matchFunc(funcs, r.Method, funcPath)
 		if idx >= 0 {
-			if isLiteralPath(candidate.Meta.Funcs[idx].Path) {
+			if isLiteralPath(funcs[idx].Path) {
 				api = candidate
 				funcIndex = idx
 				break
@@ -234,7 +235,7 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fn := &api.Meta.Funcs[funcIndex]
+	fn := &api.RESTFuncs()[funcIndex]
 	if fn.Dispatch == nil {
 		writeErrorJSON(w, http.StatusNotImplemented, "function not dispatachable: "+fn.Name)
 		return
@@ -282,9 +283,9 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 
 // matchFunc finds the FuncMeta index matching the given HTTP method and path.
 // Returns -1 if no match found.
-func matchFunc(meta *APIMeta, method, requestPath string) int {
-	for i := range meta.Funcs {
-		f := &meta.Funcs[i]
+func matchFunc(funcs []FuncMeta, method, requestPath string) int {
+	for i := range funcs {
+		f := &funcs[i]
 		if f.Method == "" || f.Path == "" {
 			continue // not REST-exported
 		}
@@ -527,9 +528,9 @@ func (s *Server) handleRegistryRequest(w http.ResponseWriter, r *http.Request) {
 			REST:     api.Meta != nil && api.Meta.RESTExport,
 		}
 
-		// Functions from APIMeta
+		// Functions from APIMeta (or the Go-native set, when the provider is a gomod)
 		if api.Meta != nil {
-			for _, fn := range api.Meta.Funcs {
+			for _, fn := range api.RESTFuncs() {
 				path := fn.Path
 				if info.REST && path != "" {
 					path = "/api/v1/" + api.Instance + path

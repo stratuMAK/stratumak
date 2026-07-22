@@ -37,6 +37,34 @@ type RegisteredAPI struct {
 	Meta      *APIMeta       // optional — REST routing/dispatch (nil for pure C-to-C)
 	Instance  string         // "default" — unique instance name within an API
 	Callbacks unsafe.Pointer // opaque — *tp_callbacks_t (cmod) or Go interface
+
+	// GoFuncs, when set, replaces Meta.Funcs for this instance: the same
+	// routing but dispatch straight into the Go provider instead of through
+	// the C callbacks struct.
+	//
+	// The C indirection exists for the in-process call matrix — a cmod and a
+	// gomod must be able to call each other in either direction, and a shared
+	// C ABI is what makes that one mechanism instead of four. A REST request is
+	// not part of that matrix, and routing it Go → C → Go costs the provider's
+	// error: the C callback signature has no error channel, so the //export
+	// trampoline substitutes a zero value (an i32 becomes -1, a slice becomes
+	// empty, a struct becomes zeroed) and the client is told the call succeeded.
+	// A Go provider therefore serves REST directly; C-provided modules keep the
+	// C path, which is the only one they have.
+	GoFuncs []FuncMeta
+}
+
+// RESTFuncs returns the function set REST routing and dispatch must use: the
+// Go-native one when the provider is a gomod, otherwise the C-mediated set from
+// the shared metadata.
+func (a *RegisteredAPI) RESTFuncs() []FuncMeta {
+	if a.GoFuncs != nil {
+		return a.GoFuncs
+	}
+	if a.Meta == nil {
+		return nil
+	}
+	return a.Meta.Funcs
 }
 
 // StreamConn represents a single WebSocket connection for stream_server.

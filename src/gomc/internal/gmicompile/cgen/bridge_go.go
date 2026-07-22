@@ -201,10 +201,35 @@ func (g *bridgeGoGen) emitBuildCallbacks() {
 	// Register function — convenience wrapper that builds callbacks and registers
 	regName := "Register" + apiPascal + "API"
 	g.printf("// %s registers a Go implementation of the %s API with the apiserver registry.\n", regName, apiName)
+	g.printf("//\n")
+	g.printf("// The C callbacks struct is still built and registered: it is what lets a\n")
+	g.printf("// cmod call this gomod in-process. REST and WS, which are not part of that\n")
+	g.printf("// call matrix, are served by the Go-native handlers instead — routing them\n")
+	g.printf("// through the C ABI would discard the provider's error, since that\n")
+	g.printf("// signature has no channel to carry one.\n")
 	g.printf("func %s(registry *apiserver.Registry, instance string, impl %s) error {\n", regName, ifaceName)
 	g.printf("\tptr := %s(impl)\n", funcName)
-	g.printf("\treturn registry.Register(%q, %d, instance, ptr)\n", apiName, g.api.Version)
+	if g.hasCommandFuncs() {
+		g.printf("\treturn registry.RegisterGo(%q, %d, instance, ptr, %sHandlers(impl))\n",
+			apiName, g.api.Version, apiPascal)
+	} else {
+		g.printf("\treturn registry.Register(%q, %d, instance, ptr)\n", apiName, g.api.Version)
+	}
 	g.printf("}\n\n")
+}
+
+// hasCommandFuncs reports whether GenerateServerGoExtra emitted an XxxHandlers
+// set for this API. It must agree with serverGoGen.isCommandFunc, which is the
+// predicate that decides whether the set exists — referencing a function that
+// was never emitted would not compile.
+func (g *bridgeGoGen) hasCommandFuncs() bool {
+	sg := &serverGoGen{api: g.api}
+	for _, fn := range g.api.Funcs {
+		if sg.isCommandFunc(fn) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Trampolines ---

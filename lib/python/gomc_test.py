@@ -23,9 +23,10 @@ Two rules the whole suite depends on:
 1. **Never sleep-then-assert.** Use `wait_stat`/`wait_until`/`wait_pin`. A
    deadline that is too long costs nothing on the happy path (the poll returns
    as soon as the predicate holds); a sleep that is too short costs a flake.
-2. **Never call `gmi.Command.wait_complete()` bare.** It returns -1 on timeout
-   in a normal HTTP 200 body, so ignoring the result silently desynchronises
-   the test from the machine. `gomc_test.Command` (below) raises instead.
+2. **Never call `gmi.Command.wait_complete()` bare.** A wait that did not happen
+   now reaches the caller as an HTTP error rather than the old silent -1, but
+   the useful message is the server's, not urllib's. `gomc_test.Command` (below)
+   translates it into a `Timeout` naming the deadline.
 
 Timeouts are deliberately generous. Set GOMC_TEST_TIMEOUT_SCALE=3 to stretch
 every deadline in the suite (slow/emulated/race-instrumented runners) without
@@ -50,6 +51,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 
 import gmi
 from gmi.command import Command as _GmiCommand
@@ -166,17 +168,18 @@ def wait_for_startup(stat, timeout=None):
 
 
 class Command(_GmiCommand):
-    """gmi.Command with a wait_complete() that cannot fail silently.
+    """gmi.Command with a wait_complete() that reports a failed wait usefully.
 
-    gmi.Command.wait_complete() reports a timed-out wait as -1 inside a normal
-    HTTP 200 body, so a caller that ignores the return proceeds against a
-    machine that never settled. Every subsequent assertion is then reading
-    unsynchronised state, and the failure surfaces somewhere unrelated. Tests
-    want the opposite: a timeout is a test failure, at the point it happened.
+    A wait that did not happen used to arrive as -1 in a normal HTTP 200 body,
+    so a caller that ignored the return proceeded against a machine that never
+    settled and the failure surfaced somewhere unrelated. The server now reports
+    it as an HTTP error, so nothing is silent — but urllib's exception says
+    "HTTP Error 500", and what a failing test needs to read is the deadline and
+    the machine's own reason. This translates one into the other.
 
-    RCS_ERROR is deliberately NOT an exception — tests legitimately issue
-    commands that error (e.g. G10 L1 P0 with no tool) and then introspect the
-    resulting state. Only the timeout raises.
+    A command that *errors on the machine* is still not an exception here: those
+    travel on the error channel and leave the task settled, so tests can issue
+    them (e.g. G10 L1 P0 with no tool) and introspect the resulting state.
     """
 
     def __init__(self, instance=None):
@@ -184,12 +187,14 @@ class Command(_GmiCommand):
 
     def wait_complete(self, timeout=None):
         secs = _deadline_secs(timeout)
-        rc = super().wait_complete(secs)
-        if rc == -1:
+        try:
+            return super().wait_complete(secs)
+        except urllib.error.HTTPError as e:
+            reason = e.read().decode("utf-8", errors="replace").strip()
             raise Timeout(
-                "wait_complete timed out after %.1fs — the task never settled; "
-                "any state read after this point is unsynchronised" % secs)
-        return rc
+                "wait_complete failed after %.1fs — the task never settled (%s); "
+                "any state read after this point is unsynchronised" % (secs, reason)
+            ) from e
 
 
 def Stat():

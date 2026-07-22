@@ -111,55 +111,38 @@ func serve(t *testing.T, stub *stubTask) *httptest.Server {
 	return ts
 }
 
-// TestRejectedCommandOverREST documents what a refused machine command looks
-// like to a REST client today. It is not what the code reads like: the handler
-// set in emccmd_bridge.go propagates the provider's error, but that set is not
-// what REST uses.
+// TestRejectedCommandOverREST: a command the task refuses must not come back as
+// a success status, and the reason must travel with it.
 //
-// RegisterEmccmdAPI wraps even a pure-Go provider into the C callbacks struct
-// (BuildEmccmdCallbacks), so REST dispatch is C-ABI-mediated for every module,
-// Go or C. The C signature for these commands is `int32_t (*)(...)`, which has
-// no error channel, so the //export trampoline collapses the Go error to -1 and
-// the dispatch marshals that -1 as an ordinary result. The client gets HTTP 200.
-//
-// Consequence: a caller that checks the HTTP status — the normal thing to do —
-// cannot tell a refused MDI from an executed one, and the reason ("Cannot issue
-// MDI command when not homed") is destroyed at the C boundary.
-//
-// This asserts the current shape rather than the desired one, so that whoever
-// fixes it sees these tests fail and updates them deliberately. Tracked in
-// PRODUCTION_READINESS.md as "Surface RCS command errors to clients".
+// This used to be HTTP 200 with body -1. REST dispatch went through the C
+// callbacks struct even for a pure-Go provider, and that ABI has no error
+// channel, so the //export trampoline substituted -1 and the client was told the
+// call succeeded. A Go provider now serves REST directly.
 func TestRejectedCommandOverREST(t *testing.T) {
 	ts := serve(t, &stubTask{rc: 3, err: errors.New("Cannot issue MDI command when not homed")})
 
 	for _, path := range []string{"/mdi", "/state", "/wait-complete"} {
 		t.Run(path, func(t *testing.T) {
 			code, body := post(t, ts, path, `{"command":"G0 X1","state":1,"timeout":1}`)
-			if code != http.StatusOK {
-				t.Fatalf("status %d — a refusal now has its own status; "+
-					"the RCS-error gap may be fixed, update this test", code)
+			if code == http.StatusOK {
+				t.Fatalf("a refused command returned 200 with body %s", body)
 			}
-			if strings.TrimSpace(body) != "-1" {
-				t.Errorf("body %q, want the flattened -1", body)
-			}
-			if strings.Contains(body, "not homed") {
-				t.Error("the reason survived to the client; the RCS-error gap may be " +
-					"fixed, update this test")
+			if !strings.Contains(body, "not homed") {
+				t.Errorf("status %d body %s does not carry the refusal reason — "+
+					"an rc alone cannot say why", code, body)
 			}
 		})
 	}
 }
 
-// TestRejectedCommandErrnoIsAlsoFlattened: the apiserver maps a provider errno
-// to an HTTP status (EBUSY → 409) for every API that dispatches in Go. These
-// commands never reach that code, because the errno is already a -1 by the time
-// dispatch returns.
-func TestRejectedCommandErrnoIsAlsoFlattened(t *testing.T) {
+// TestRejectedCommandMapsErrno: a provider errno becomes the matching HTTP
+// status rather than a blanket 500. EBUSY is the common one here — a command
+// issued while the previous one is still running.
+func TestRejectedCommandMapsErrno(t *testing.T) {
 	ts := serve(t, &stubTask{rc: 3, err: syscall.EBUSY})
 	code, body := post(t, ts, "/mdi", `{"command":"G0 X1"}`)
-	if code != http.StatusOK || strings.TrimSpace(body) != "-1" {
-		t.Errorf("EBUSY rendered as %d/%s; the errno mapping now reaches these commands, "+
-			"update this test", code, body)
+	if code != http.StatusConflict {
+		t.Errorf("EBUSY rendered as %d (%s), want %d", code, body, http.StatusConflict)
 	}
 }
 

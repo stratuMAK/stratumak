@@ -1032,82 +1032,25 @@ Not per-module; each needs an owner and a done-definition.
   scope, priority headroom) are tracked in `RT_HARDENING_CHECKLIST.md` §0 "Biggest open gaps",
   not here.
 - [ ] **Fuzzing** — `go fuzz` targets for halparse, inifile, gmicompile parser.
-- [ ] **Surface RCS command errors to clients** — command endpoints return the RCS code
-  in-body with HTTP 200 (the cgo bridge flattens the Go error to `-1`), and the gmi python
-  `Command` methods discard even that: a rejected MDI/state command is invisible to the
-  caller. This matches classic `linuxcnc.command()` semantics (errors via the error channel
-  + `wait_complete()==RCS_ERROR`), which is why it wasn't changed during the flaky-test fix
-  (2026-07-14) — but for gomc-native clients/GUIs an explicit rc return (or opt-in raise)
-  would remove a whole class of silently-doing-nothing bugs. Decide the API contract once,
-  apply to gmi python + any future client bindings.
-  **Root-caused and pinned by tests 2026-07-22** (`internal/apiserver/emccmdtest`, the first
-  tests this surface has had). The mechanism is not what the code reads like, and the cause is
-  architectural rather than a missing `if`:
-  - `RegisterEmccmdAPI` wraps **even a pure-Go provider** into the C callbacks struct
-    (`BuildEmccmdCallbacks`), so REST dispatch is C-ABI-mediated for *every* module, Go or C.
-    The C signature is `int32_t (*)(...)` — no error channel — so the `//export` trampoline
-    collapses the Go error to `-1` and the dispatch marshals that as an ordinary result.
-  - **The same command already reports failure correctly over WebSocket.** `EmccmdCommands(m)`
-    (`internal/task/watches.go:60`) is the Go-native handler set that propagates the provider
-    error, and `ws_handler.go` renders it as `wsResult{Error: "…"}` with the full message. So
-    REST and WS disagree about the contract for the same call, and REST — the surface
-    `gmi.Command`, `bin/axis` and the test drivers use — is the lossy one.
-  - Neither of the obvious IDL shapes fixes it: a **void** func's dispatch discards the rc
-    entirely (`return nil, nil`), and the existing `-> i32` marshals it as data. `@rc_error`
-    would give REST a failure *signal*, but the message still cannot cross an `int32_t`.
-  - **Scope measured 2026-07-22: it is systemic, not an emccmd bug.** Of 16 `@rest_export`
-    APIs only **`persist` (8 funcs) and `tooltable` (4)** can report a provider failure over
-    REST, and only because the G-1 ruling converted them to `@rc_error`. The other ~10
-    Go-provided ones — `emccmd`, `emcstat`, `halcmd`, `ini`, `halscope`, `emccalib`,
-    `ngcpreview`, `pyvcp`, `tools`, `classicladder` — all lose it, and **the failure mode gets
-    worse as the return type gets richer**, because each trampoline substitutes its own zero
-    value: `i32` → `-1` (odd-looking, at least), slice → `[]`, struct → a zeroed record. A
-    failing `inirest.Query` is HTTP 200 + `[]` — indistinguishable from a legitimately empty
-    answer (verified, `internal/apiserver/emccmdtest`).
-  - **WS is lossless only where a module passes the generated Go handler set**, which is
-    `emcstat`, `emccmd` (`internal/task/watches.go`), `classicladder` and `pyvcp`. So four APIs
-    currently answer the same call two different ways depending on transport.
-  - **The C shim is pure indirection** — `call_emccmd_mdi` is `cbs->mdi(cbs->ctx, command)`,
-    and `BuildEmccmdCallbacks` only wraps the impl in a `cgo.Handle`. No locking, no instance
-    resolution. It exists for the in-process call matrix (cmod↔gomod, either direction), which
-    a REST request is not part of; bypassing it for REST costs nothing semantically and removes
-    two ABI transitions.
-  - So the fix with the best ratio is to **let a Go provider's REST dispatch use the Go
-    handlers directly, as WS already does** — the generator *already emits*
-    `XxxCommands(impl)` for all 14 Go-provided APIs, so the handlers exist and are lossless;
-    what they lack is the `Method`/`Path` the REST router needs, which the generator also
-    already has. Emit a Go-native `FuncMeta` set and prefer it when the provider is Go. One
-    change fixes all ~10 at once, with no IDL churn. Every C-provided module keeps the current
-    path unchanged.
-  - **Preconditions verified 2026-07-22** (`internal/apiserver/emccmdtest`,
-    `dispatch_equivalence_test.go` — driven off the metadata, so a function added later is
-    covered without anyone remembering):
-    (1) **Success responses are byte-identical** across both paths — all 35 emccmd functions
-    and both ini functions, the latter covering the shapes that could diverge (a slice of
-    structs, a nullable string present *and* null, a plain string): both produce
-    `[{"value":"XYZ","values":["a","b"]},{"values":null}]`. A negative control proves the
-    comparison is sensitive rather than trivially satisfied.
-    (2) **Validation is identical** — four constraint classes (`@maxlen`, `@max`, `@min` on a
-    signed floor, `@min` on a rate) are refused by exactly the same functions on both paths.
-    (3) **The Go handler set names every REST-dispatchable function**, so nothing is dropped
-    by the move.
-    Nothing blocks the change on correctness grounds.
-  - **Client contract — ruled 2026-07-22 (user): take the clean solution, no compatibility
-    shim.** This release is the first public one and only the lab runs it, so risk and diff
-    size are secondary to getting the contract right once. That means REST reports the failure,
-    `gmi.Command` methods return the rc instead of discarding it (purely additive — they return
-    `None` today), and `bin/axis`, `linuxcnctop` and `manualtoolchange_ui` are updated to the
-    new behaviour rather than shielded from it via an opt-in.
-  **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
-  `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
-  rather than returning it, and the suite constructs through it. `gmi.Command` itself was
-  left drop-in-compatible on purpose: `bin/axis`, `linuxcnctop` and `manualtoolchange_ui`
-  import gmi directly, so changing the contract underneath them is a product decision, not a
-  test fix. What remains open is exactly that: whether gomc-native clients should get a
-  raising/rc-returning variant. Also fixed in that pass: `_post` hard-coded a 10s socket
-  timeout while `/wait-complete` blocks server-side for its full `timeout`, so any
-  `wait_complete(t>10)` raised a socket error instead of ever returning -1 — the -1 contract
-  was unreachable for long waits.
+- [x] **Surface RCS command errors to clients — DONE 2026-07-22.** A Go provider now serves
+  REST and WS from the generated Go-native handler set; the C callbacks struct is still built
+  and registered, because that is what lets a cmod call a gomod in-process. Routing REST
+  through it was the bug: that ABI has no error channel, so the `//export` trampoline
+  substituted a zero value (an `i32` became `-1`, a slice became empty, a struct became
+  zeroed) and the client was told the call succeeded. A refused MDI is now an HTTP error
+  carrying the machine's reason, and a provider errno maps to its status (EBUSY → 409).
+  `RegisteredAPI.GoFuncs` + `RESTFuncs()` is the whole switch; C-provided modules are
+  untouched. The generator emits `XxxHandlers` once and derives `XxxCommands` from it, so the
+  two surfaces cannot drift apart again — two independently generated copies of one dispatch
+  body is how REST and WS came to disagree in the first place. Clients: `gmi.Command` methods
+  `return` the rc instead of discarding it (additive — they returned `None`), `gomc_test`
+  translates the HTTP error into its `Timeout` so a failing test still reads the deadline and
+  the machine's reason, and `bin/axis` wraps `gmi.Command` to route a refusal into the
+  notification area operators already watch rather than a traceback on stderr. `linuxcnctop`
+  is read-only and `manualtoolchange_ui` talks to a cmod, so neither was affected.
+  Mutation-verified (disabling the switch fails all three contract tests); build, vet, gofmt,
+  golangci-lint, `-race` and the whole Go suite clean. **Full runtests owed** — this changes
+  what a refused command does to every driver in the suite.
 - **FIXED (2026-07-17): M-code completions were credited to the wrong job — the
   `Submit`/`CheckDone` handshake had no job identity.** The suspect recorded here on
   2026-07-16 was right, and the interleaving is now proven by a unit test rather than
