@@ -5,9 +5,15 @@
 // function registers a factory that creates PyVCP panel instances in response
 // to HAL "load pyvcp" commands.
 //
-// Each instance parses a PyVCP XML file, extracts widget pin definitions,
+// Each instance parses a PyVCP XML file, extracts widget definitions,
 // creates a HAL component with the required pins, and provides REST + WebSocket
-// endpoints for the Python frontend to display/control the panel.
+// endpoints for frontends to display/control the panel.
+//
+// Protocol: widget-centric
+//   - Client sends widget events (press/release/increment/set/toggle/select)
+//   - Server owns all state: clamping, quantization, pin derivation (-i from -f)
+//   - Watch returns map<widget_id, WidgetState> with delta encoding
+//   - Multiple clients sync via shared server-authoritative state
 //
 // Usage in a HAL file:
 //
@@ -19,10 +25,13 @@
 package pyvcpmodule
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/pyvcp"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
@@ -39,16 +48,106 @@ func init() {
 	apiserver.RegisterMeta(pyvcp.PyvcpMeta)
 }
 
+// nanToZero converts NaN to 0 for JSON-safe serialization of constraints.
+// Used for WidgetDef min/max/resolution where 0 means "not applicable".
+func nanToZero(v float64) float64 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	return v
+}
+
+// nanToNull converts a float64 to *float64, returning nil for NaN.
+// Used for WidgetState.Value where null means "not applicable" and 0.0
+// is a valid reading.
+func nanToNull(v float64) *float64 {
+	if math.IsNaN(v) {
+		return nil
+	}
+	return &v
+}
+
+// emptyToNull converts a string to *string, returning nil for the empty string.
+// Used for the nullable WidgetDef.Format / WidgetDef.Text display hints.
+func emptyToNull(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// scanInterval is how often the module processes HAL inputs and accrues timer
+// elapsed time, independent of any UI client.
+const scanInterval = 100 * time.Millisecond
+
 // pyvcpModule implements gomc.Module for a PyVCP panel.
 type pyvcpModule struct {
 	logger *slog.Logger
 	comp   *hal.Component
 	panel  *panel
+	stopCh chan struct{} // closed by Stop() to end the scan loop
+	doneCh chan struct{} // closed by the scan loop when it exits
 }
 
-func (m *pyvcpModule) Start() error { return nil }
-func (m *pyvcpModule) Stop()        {}
+// Start launches the periodic scan loop. HAL-driven inputs (changepin,
+// jogwheel reset, param_pin) and timer elapsed time are processed here so the
+// panel behaves correctly whether or not a UI client is connected.
+func (m *pyvcpModule) Start() error {
+	m.stopCh = make(chan struct{})
+	m.doneCh = make(chan struct{})
+	m.panel.mu.Lock()
+	m.panel.lastScan = time.Now()
+	m.panel.mu.Unlock()
+	go m.run()
+	return nil
+}
+
+func (m *pyvcpModule) run() {
+	defer close(m.doneCh)
+	ticker := time.NewTicker(scanInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.panel.mu.Lock()
+			m.panel.scan()
+			m.panel.mu.Unlock()
+		}
+	}
+}
+
+// Stop ends the scan loop and waits for it to exit. Idempotent: the launcher
+// calls Stop() before Destroy(), and Destroy() calls Stop() again defensively.
+func (m *pyvcpModule) Stop() {
+	if m.stopCh == nil {
+		return // Start() never ran
+	}
+	select {
+	case <-m.stopCh: // already closed
+	default:
+		close(m.stopCh)
+	}
+	<-m.doneCh
+}
+
 func (m *pyvcpModule) Destroy() {
+	m.Stop()
+
+	// Mark the panel closed under mu before freeing the HAL component. An
+	// already-open WS connection's watch pushLoop keeps calling the
+	// WatchStateJSON closure even after the instance is unregistered (the
+	// closure was captured at subscribe time, and its context is tied to the
+	// connection, not to this module). The closed flag — set here under the
+	// same lock that every pin accessor takes — guarantees no goroutine touches
+	// a pin after this point, closing the unload use-after-free.
+	m.panel.mu.Lock()
+	m.panel.closed = true
+	m.panel.mu.Unlock()
+
+	panelRegistry.unregister(m.panel.name)
+
 	if m.comp != nil {
 		if err := m.comp.Exit(); err != nil {
 			m.logger.Debug("pyvcp HAL component exit error", "name", m.panel.name, "error", err)
@@ -82,7 +181,7 @@ func newPyVCPModule(ini *inifile.IniFile, logger *slog.Logger, name string, args
 	logger = logger.With("module", "pyvcp", "name", name)
 	logger.Info("loading PyVCP panel", "xml", xmlPath)
 
-	// Parse XML and extract pin definitions.
+	// Parse XML and extract widget definitions.
 	p, err := parsePanel(name, xmlPath)
 	if err != nil {
 		return nil, fmt.Errorf("pyvcp %q: %w", name, err)
@@ -94,7 +193,7 @@ func newPyVCPModule(ini *inifile.IniFile, logger *slog.Logger, name string, args
 		return nil, fmt.Errorf("pyvcp %q: creating HAL component: %w", name, err)
 	}
 
-	// Create all pins.
+	// Create all HAL pins for all widgets.
 	if err := p.createPins(comp); err != nil {
 		return nil, fmt.Errorf("pyvcp %q: creating pins: %w", name, err)
 	}
@@ -103,25 +202,37 @@ func newPyVCPModule(ini *inifile.IniFile, logger *slog.Logger, name string, args
 		return nil, fmt.Errorf("pyvcp %q: hal ready: %w", name, err)
 	}
 
+	// Apply initial values to OUT pins.
+	p.applyInitialValues()
+
 	// Register with the panel registry for REST/WS access.
 	panelRegistry.register(p)
 
 	// Register the API instance with the apiserver registry.
-	cb := &pyvcpCallbacks{panel: p, comp: comp}
+	cb := &pyvcpCallbacks{panel: p, comp: comp, logger: logger}
 	if err := pyvcp.RegisterPyvcpAPI(apiserver.DefaultRegistry(), name, cb); err != nil {
 		return nil, fmt.Errorf("pyvcp %q: api register: %w", name, err)
 	}
 
-	// Register WebSocket watch API.
+	// Register WebSocket watch API (manual — watch_state returns a map
+	// which is not expressible in the IDL, so we register it by hand with
+	// Delta:true for per-connection change tracking).
 	if apiserver.DefaultWatchRegistry() == nil {
 		apiserver.SetDefaultWatchRegistry(apiserver.NewWatchRegistry())
 	}
-	pyvcp.RegisterPyvcpWatch(
-		apiserver.DefaultWatchRegistry(), name, cb,
-		pyvcp.PyvcpCommands(cb),
-	)
+	apiserver.DefaultWatchRegistry().Register(&apiserver.WatchAPI{
+		APIName:  "pyvcp",
+		Instance: name,
+		Watches: []apiserver.WatchFuncMeta{{
+			Name:        "watch_state",
+			DefaultRate: 100 * time.Millisecond,
+			Watch:       cb.WatchStateJSON,
+			Delta:       true,
+		}},
+		Commands: pyvcp.PyvcpCommands(cb),
+	})
 
-	logger.Info("PyVCP panel initialized", "name", name, "pins", len(p.pins))
+	logger.Info("PyVCP panel initialized", "name", name, "widgets", len(p.widgets))
 
 	return &pyvcpModule{
 		logger: logger,
@@ -149,6 +260,12 @@ func (r *panelRegistry_) register(p *panel) {
 	r.panels[p.name] = p
 }
 
+func (r *panelRegistry_) unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.panels, name)
+}
+
 func (r *panelRegistry_) get(name string) *panel {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -165,11 +282,14 @@ func (r *panelRegistry_) list() []string {
 	return names
 }
 
-// pyvcpCallbacks holds the state for one panel's API callbacks.
-// Implements pyvcp.PyvcpCallbacks and pyvcp.PyvcpWatchCallbacks.
+// pyvcpCallbacks holds the state for one panel's API callbacks. It implements
+// the generated pyvcp.PyvcpCallbacks (REST + widget_event command) and provides
+// WatchStateJSON, which is registered by hand (the watch returns a map that the
+// IDL cannot yet express).
 type pyvcpCallbacks struct {
-	panel *panel
-	comp  *hal.Component
+	panel  *panel
+	comp   *hal.Component
+	logger *slog.Logger
 }
 
 // --- PyvcpCallbacks implementation (REST + WS commands) ---
@@ -183,39 +303,84 @@ func (cb *pyvcpCallbacks) GetPanel(name string) (*pyvcp.PanelInfo, error) {
 	if p == nil {
 		return nil, fmt.Errorf("panel %q not found", name)
 	}
-	defs := make([]pyvcp.PinDef, len(p.pins))
-	for i, pin := range p.pins {
-		defs[i] = pyvcp.PinDef{
-			Name:    pin.name,
-			HalType: pyvcp.HalType(pin.halType),
-			Dir:     pyvcp.PinDir(pin.dir),
+
+	widgets := make([]pyvcp.WidgetDef, len(p.widgets))
+	for i, w := range p.widgets {
+		widgets[i] = pyvcp.WidgetDef{
+			Id:   w.id,
+			Type: pyvcp.WidgetType(w.wtype),
+			// min/max are nullable: null means "no limit", which is distinct
+			// from a real limit of 0 (a 0..100 scale, a -100..0 bar).
+			Min:        nanToNull(w.min),
+			Max:        nanToNull(w.max),
+			Resolution: nanToZero(w.resolution), // 0 = continuous (unambiguous)
+			Choices:    w.choices,
+			// format/text are nullable strings (null = not set).
+			Format: emptyToNull(w.format),
+			Text:   emptyToNull(w.text),
 		}
 	}
+
 	return &pyvcp.PanelInfo{
-		Name: p.name,
-		Xml:  p.xml,
-		Pins: defs,
+		Name:    p.name,
+		Xml:     p.xml,
+		Widgets: widgets,
 	}, nil
 }
 
-func (cb *pyvcpCallbacks) SetPin(panel string, name string, value string) (bool, error) {
-	for _, pin := range cb.panel.pins {
-		if pin.name == name {
-			return pin.writeValue(value)
-		}
+func (cb *pyvcpCallbacks) WidgetEvent(event pyvcp.WidgetEvent) (bool, error) {
+	p := cb.panel
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return false, fmt.Errorf("panel %q is shutting down", p.name)
 	}
-	return false, fmt.Errorf("pin %q not found", name)
+
+	w, ok := p.byID[event.Widget]
+	if !ok {
+		return false, fmt.Errorf("widget %q not found", event.Widget)
+	}
+
+	accepted := w.handleEvent(eventType(event.Event), event.Value, event.Increment, event.Index)
+	if !accepted {
+		cb.logger.Debug("widget event rejected",
+			"widget", event.Widget,
+			"event", event.Event,
+		)
+	}
+	return accepted, nil
 }
 
-// --- PyvcpWatchCallbacks implementation (WS watch) ---
+// --- WebSocket watch (registered manually in newPyVCPModule) ---
 
-func (cb *pyvcpCallbacks) WatchPins() ([]pyvcp.PinValue, error) {
-	values := make([]pyvcp.PinValue, len(cb.panel.pins))
-	for i, pin := range cb.panel.pins {
-		values[i] = pyvcp.PinValue{
-			Name:  pin.name,
-			Value: pin.readValue(),
+// WatchStateJSON returns the current state of all widgets as a JSON map
+// for the WebSocket watch loop. The map is keyed by widget ID, enabling
+// per-connection delta encoding (only changed widgets are sent after
+// the initial full snapshot). Input processing is done by the module's own
+// scan loop (see run), not here, so state is pushed even with no client.
+func (cb *pyvcpCallbacks) WatchStateJSON() (json.RawMessage, error) {
+	p := cb.panel
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.closed {
+		// The instance is being torn down; a pushLoop from an already-open
+		// connection may still call this. Return an empty map — never touch
+		// a pin, which may already be freed.
+		return json.RawMessage("{}"), nil
+	}
+
+	states := make(map[string]*pyvcp.WidgetState, len(p.widgets))
+	for _, w := range p.widgets {
+		ws := w.readState()
+		states[w.id] = &pyvcp.WidgetState{
+			Value:    nanToNull(ws.Value),
+			State:    ws.State,
+			Index:    ws.Index,
+			Disabled: ws.Disabled,
+			Reset:    ws.Reset,
 		}
 	}
-	return values, nil
+	return json.Marshal(states)
 }

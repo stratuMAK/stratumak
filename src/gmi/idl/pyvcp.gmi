@@ -1,48 +1,106 @@
-# PyVCP API
+# PyVCP API — Widget-centric protocol
 # REST + WebSocket interface for PyVCP panels.
 # The gomod parses panel XML, creates HAL components with required pins,
-# and serves pin state via WebSocket for the Tkinter frontend.
+# and serves widget state via WebSocket for frontends.
 #
 # Data flows:
-#   HAL → UI:  watch pushes all pin values to pyvcp frontend
-#   UI → HAL:  set_pin commands write output pin values from frontend
+#   HAL → UI:  watch pushes widget state (delta-encoded map)
+#   UI → HAL:  widget_event commands send user interactions
+#
+# Architecture:
+#   - Server owns all HAL pins, constraints (min/max), derivations (-i from -f)
+#   - Server receives widget events (press/release/increment/set/toggle/select)
+#   - Server computes new value, clamps, quantizes, derives, writes HAL pins
+#   - Server pushes widget state map (only changed widgets after first snapshot)
+#   - Client renders widgets and translates gestures to events
+#   - Multiple clients sync via shared server state
 
 @api pyvcp
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 1
+@version 2
 @prefix pyvcp
 @rest_export true
 
 # --- Types ---
 
-enum HalType {
-    BIT = 1
-    FLOAT = 2
-    S32 = 3
+enum WidgetType {
+    LED = 1
+    RECTLED = 2
+    NUMBER = 3
     U32 = 4
+    S32 = 5
+    TIMER = 6
+    BAR = 7
+    METER = 8
+    MULTILABEL = 9
+    IMAGE_BIT = 10
+    IMAGE_U32 = 11
+    BUTTON = 12
+    CHECKBUTTON = 13
+    RADIOBUTTON = 14
+    SCALE = 15
+    SPINBOX = 16
+    DIAL = 17
+    JOGWHEEL = 18
 }
 
-enum PinDir {
-    IN = 16
-    OUT = 32
+# Widget definition — sent once on panel load (static config from XML).
+# Clients use this to construct the appropriate UI widget.
+type WidgetDef {
+    id: string             # unique widget ID (e.g. "button.0", "dial.0")
+    type: WidgetType
+    # Constraints and config (populated from XML, enforced by server).
+    # min/max are nullable: null = no limit. A real limit of 0 (a 0..100 scale,
+    # a -100..0 bar) is distinct from "no limit" and must not be conflated, so
+    # 0 cannot be used as the sentinel here.
+    min: f64?             # lower limit (null = no limit)
+    max: f64?             # upper limit (null = no limit)
+    resolution: f64       # quantization step (0 = continuous; 0 is unambiguous)
+    choices: []string     # for radiobutton: choice labels
+    # Display hints (client uses, server doesn't enforce)
+    format: string?       # printf-style format for display (e.g. "2.1f")
+    text: string?         # label text
 }
 
-type PinDef {
-    name: string
-    hal_type: HalType
-    dir: PinDir
+# Widget state — pushed via WebSocket watch.
+# The watch returns a map<widget_id, WidgetState> for delta encoding.
+# Note: watch_state is registered manually (returns map which IDL cannot
+# express), but WidgetState defines the per-widget value in that map.
+type WidgetState {
+    value: f64?           # current numeric value (null = not applicable);
+                          # for timer this is server-accrued elapsed seconds
+    state: bool           # on/off state (led, button, checkbutton, timer run)
+    index: i32            # selected index (radiobutton, multilabel, image); -1 = N/A
+    disabled: bool        # disable state (if widget has disable_pin)
+    reset: bool           # timer reset pin active (advisory display hint)
 }
 
-type PinValue {
-    name: string
-    value: string
-}
-
+# Panel info — returned by REST on initial load.
 type PanelInfo {
     name: string
-    xml: string
-    pins: []PinDef
+    xml: string           # raw XML for client-side layout rendering
+    widgets: []WidgetDef  # widget definitions with IDs and constraints
+}
+
+# --- Widget Events (client → server) ---
+
+enum EventType {
+    PRESS = 1         # momentary button press
+    RELEASE = 2       # momentary button release
+    TOGGLE = 3        # checkbutton toggle
+    SELECT = 4        # radiobutton selection (index in 'index' field)
+    SET = 5           # absolute value set (scale, spinbox direct entry)
+    INCREMENT = 6     # relative increment (dial, jogwheel, spinbox arrows)
+}
+
+type WidgetEvent {
+    widget: string        # widget ID
+    event: EventType
+    value: f64            # for SET: the desired value; 0 when not used
+                          # (JSON has no NaN — do not send NaN here)
+    increment: i32        # for INCREMENT: number of steps (+/-); 0 = not used
+    index: i32            # for SELECT: choice index; -1 = not used
 }
 
 # --- REST endpoints ---
@@ -52,19 +110,22 @@ type PanelInfo {
 @path "/panels"
 func list_panels() -> []string
 
-# Get panel info (XML + pin definitions)
+# Get panel info (XML + widget definitions)
 @method "GET"
 @path "/panel/{name}"
 func get_panel(name: string) -> PanelInfo
 
 # --- WebSocket watch (HAL → UI) ---
 
-# Push all pin values at 100ms interval
-@watch true
-@watch_default_rate 100ms
-func watch_pins(panel: string) -> []PinValue
+# watch_state is registered manually (not generated) because it returns
+# a map<widget_id, WidgetState> which the IDL parser cannot express.
+# Delta-encoded: first message is full snapshot, subsequent messages only
+# contain changed widgets. Registered with Delta:true at 100ms.
 
 # --- WebSocket commands (UI → HAL) ---
 
-# Set an output pin value (string-encoded)
-func set_pin(panel: string, name: string, value: string) -> bool
+# Send a widget event (user interaction).
+# Server processes the event, applies constraints, updates HAL pins,
+# and the new state will appear in the next watch push.
+# Returns true if the event was accepted.
+func widget_event(event: WidgetEvent) -> bool
