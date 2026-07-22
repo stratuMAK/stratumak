@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
 
@@ -448,7 +449,13 @@ func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) erro
 // (C++ stops at the first such line; skipping is a strict superset that loads
 // the same pure-triplet files identically and tolerates comments/headers).
 func loadJointComp(joint int32, file string, compType int, setComp func(joint int32, nominal, fwd, rev float64) error) error {
-	f, err := os.Open(file)
+	// [JOINT_n]COMP_FILE is a configuration path: resolved server-side and
+	// contained by the shared rule (internal/pathres).
+	path, err := pathres.Resolve(file, pathres.Read)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}

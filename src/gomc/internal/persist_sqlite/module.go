@@ -23,6 +23,7 @@ import (
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 
@@ -53,18 +54,15 @@ func newPersistSQLite(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		}
 	}
 
-	// Default: db/ directory next to INI file.  ini is nil when the launcher
-	// runs without an INI (halrun mode) — dereferencing it here would segfault,
-	// the same nil-INI class as the haljson/pyvcp/mqttbridge guards; fall back
-	// to the server's working directory.
-	iniDir := "."
-	if ini != nil && ini.SourceFile() != "" {
-		iniDir = filepath.Dir(ini.SourceFile())
-	}
+	// Default: db/ directory next to the INI file.  dbpath= is a configuration
+	// path and a *write* target, so it resolves through the shared rule and
+	// must land inside the allowed roots (internal/pathres).
 	if dbDir == "" {
-		dbDir = filepath.Join(iniDir, "db")
-	} else if !filepath.IsAbs(dbDir) && iniDir != "" {
-		dbDir = filepath.Join(iniDir, dbDir)
+		dbDir = "db"
+	}
+	dbDir, err := pathres.Resolve(dbDir, pathres.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("persist_sqlite: dbpath=: %w", err)
 	}
 
 	// Create directory if it doesn't exist.

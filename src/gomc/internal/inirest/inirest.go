@@ -6,10 +6,10 @@ package inirest
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ini"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
 
@@ -58,9 +58,12 @@ func (im *iniImpl) GetParameterFile(namespace string) (string, error) {
 	if rel == "" {
 		return "", fmt.Errorf("[RS274NGC]PARAMETER_FILE not set")
 	}
-	path := rel
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(im.ini.SourceFile()), rel)
+	// The file's contents are served over REST, so the path goes through the
+	// shared resolver and its containment check (internal/pathres) — an INI
+	// value must not be able to name an arbitrary file.
+	path, err := pathres.Resolve(rel, pathres.Read)
+	if err != nil {
+		return "", fmt.Errorf("paramfile: %w", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

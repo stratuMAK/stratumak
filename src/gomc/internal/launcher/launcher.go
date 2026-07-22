@@ -27,6 +27,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/halfile"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halrest"
 	"github.com/sittner/linuxcnc/src/gomc/internal/inirest"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/internal/realtime"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -210,6 +211,12 @@ func (l *Launcher) Run() (runErr error) {
 		return fmt.Errorf("chdir to INI directory %s: %w", iniDir, err)
 	}
 	l.logger.Info("changed working directory", "dir", iniDir)
+
+	// Install the path resolver now: the config directory is known and we are
+	// in it, and nothing has loaded a module yet.
+	if err := l.initPathResolver(); err != nil {
+		return err
+	}
 
 	l.logConfiguration()
 
@@ -397,6 +404,27 @@ func (l *Launcher) initHalibPath() {
 		halibPath = d + ":" + halibPath
 	}
 	l.halibPath = halibPath
+}
+
+// initPathResolver publishes the process-wide resolver for
+// configuration-supplied paths (module arguments, files they reference, INI
+// values).  Every module — Go via pathres.Resolve, C via env->path->resolve —
+// resolves through it, so it must be installed before the first module load.
+//
+// The base directory is the INI file's directory; Run() has already chdir'd
+// there, and with no INI (halrun) the working directory is the base.
+func (l *Launcher) initPathResolver() error {
+	configDir := ""
+	if l.ini != nil && l.ini.SourceFile() != "" {
+		configDir = filepath.Dir(l.ini.SourceFile())
+	}
+	r, err := pathres.New(configDir, l.halibPath)
+	if err != nil {
+		return fmt.Errorf("initialising the path resolver: %w", err)
+	}
+	pathres.SetDefault(r)
+	l.logger.Debug("path resolver ready", "base", r.Base(), "roots", r.Roots())
+	return nil
 }
 
 // logConfiguration logs key INI settings at debug level.

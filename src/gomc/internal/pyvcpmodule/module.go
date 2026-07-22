@@ -21,12 +21,12 @@ package pyvcpmodule
 import (
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/pyvcp"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -71,15 +71,12 @@ func newPyVCPModule(ini *inifile.IniFile, logger *slog.Logger, name string, args
 		return nil, fmt.Errorf("pyvcp: missing required xml= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory, or the current
-	// working directory when loaded without an INI (e.g. one-shot `gomc-server
-	// -f file.hal`, where ini is nil).
-	if !filepath.IsAbs(xmlPath) {
-		iniDir := "."
-		if ini != nil && ini.SourceFile() != "" {
-			iniDir = filepath.Dir(ini.SourceFile())
-		}
-		xmlPath = filepath.Join(iniDir, xmlPath)
+	// Configuration paths are server-side paths resolved by the shared rule
+	// (config dir, then HALLIB_PATH, contained within them) — see
+	// internal/pathres.
+	xmlPath, err := pathres.Resolve(xmlPath, pathres.Read)
+	if err != nil {
+		return nil, fmt.Errorf("pyvcp: xml=: %w", err)
 	}
 
 	logger = logger.With("module", "pyvcp", "name", name)

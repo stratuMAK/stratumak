@@ -17,9 +17,9 @@ package mqttbridge
 import (
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -58,16 +58,12 @@ func newMQTTBridge(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 		return nil, fmt.Errorf("mqtt-bridge: missing required config= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory, falling back to the
-	// cwd when loaded without an INI (a one-shot/resident `-f` HAL file has no
-	// INI, so ini is nil — dereferencing it here would segfault, the same nil-INI
-	// class as the haljson/pyvcp fixes).
-	if !filepath.IsAbs(configPath) {
-		iniDir := "."
-		if ini != nil {
-			iniDir = filepath.Dir(ini.SourceFile())
-		}
-		configPath = filepath.Join(iniDir, configPath)
+	// Configuration paths are server-side paths resolved by the shared rule
+	// (config dir, then HALLIB_PATH, contained within them) — see
+	// internal/pathres.
+	configPath, err := pathres.Resolve(configPath, pathres.Read)
+	if err != nil {
+		return nil, fmt.Errorf("mqtt-bridge: config=: %w", err)
 	}
 
 	logger = logger.With("module", name)

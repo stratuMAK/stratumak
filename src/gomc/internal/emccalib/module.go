@@ -21,6 +21,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	"github.com/sittner/linuxcnc/src/gomc/internal/calibreg"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halcmd"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -231,6 +232,15 @@ func (e *emccalib) Revert(section, key string) (bool, error) {
 // updateINIFile rewrites a single INI file, replacing values at specific lines.
 // Creates a .bak backup before modification.
 func (e *emccalib) updateINIFile(path string, updates []tunable) error {
+	// The path comes from INI entry provenance, and this rewrites the file in
+	// place (plus a .bak alongside it), so it goes through the shared resolver
+	// in Write mode: a save must land inside the allowed roots
+	// (internal/pathres).
+	path, err := pathres.Resolve(path, pathres.Write)
+	if err != nil {
+		return err
+	}
+
 	// Build line→value map for O(1) lookup during scan.
 	lineUpdates := make(map[int]string, len(updates))
 	for _, u := range updates {

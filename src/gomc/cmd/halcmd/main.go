@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -1034,30 +1033,20 @@ func cmdUnlinkP(args []string) error {
 	return checkResult(result)
 }
 
-// resolveArgPath makes a relative file path absolute so the server (which may
-// have a different cwd) can find it.  Non-path args (key=value) are unchanged.
-func resolveArgPath(arg string) string {
-	if strings.Contains(arg, "=") {
-		return arg
-	}
-	if strings.Contains(arg, "/") || strings.Contains(arg, ".") {
-		if !filepath.IsAbs(arg) {
-			if abs, err := filepath.Abs(arg); err == nil {
-				return abs
-			}
-		}
-	}
-	return arg
-}
-
 func cmdLoad(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("load requires module name")
 	}
 	module := args[0]
+	// Module arguments are forwarded verbatim.  A path in a module argument is
+	// a *server-side* path: the server resolves it against the config
+	// directory and HALLIB_PATH and enforces containment (internal/pathres).
+	// The CLI used to guess which arguments were paths and rewrite them to its
+	// own cwd, which mangled positional values that merely looked path-like
+	// and was meaningless for a remote client (HC-2).
 	var modArgs []*string
 	for _, a := range args[1:] {
-		s := resolveArgPath(a)
+		s := a
 		modArgs = append(modArgs, &s)
 	}
 	result, err := client.Load(module, modArgs)

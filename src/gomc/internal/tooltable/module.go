@@ -14,8 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +22,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -108,12 +107,12 @@ func (m *module) tryImportLegacy() {
 	if !strings.HasSuffix(v, ".tbl") {
 		return
 	}
-	tblPath := v
-	iniDir := filepath.Dir(m.ini.SourceFile())
-	if !filepath.IsAbs(tblPath) && iniDir != "" {
-		tblPath = filepath.Join(iniDir, tblPath)
-	}
-	if _, err := os.Stat(tblPath); err != nil {
+	// [EMCIO]TOOL_TABLE is a configuration path: resolved server-side and
+	// contained by the shared rule (internal/pathres).  A missing file is not
+	// an error here — the legacy import is best-effort.
+	tblPath, err := pathres.Resolve(v, pathres.Read)
+	if err != nil {
+		m.logger.Debug("tooltable: no legacy .tbl to import", "value", v, "err", err)
 		return
 	}
 	if err := m.importTbl(tblPath); err != nil {

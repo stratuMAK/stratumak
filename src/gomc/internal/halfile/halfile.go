@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	halparse "github.com/sittner/linuxcnc/src/gomc/internal/halparse"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -50,6 +51,9 @@ type Executor struct {
 	halibPath   string
 	logger      *slog.Logger
 	configDir   string
+
+	// pathResolver is built lazily by resolver(); see resolve.go.
+	pathResolver *pathres.Resolver
 }
 
 // New creates a new Executor for HAL file loading.

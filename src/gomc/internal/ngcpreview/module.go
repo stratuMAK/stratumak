@@ -784,6 +784,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -1196,15 +1197,19 @@ func collectAllowedDirs(ini *inifile.IniFile, iniDir string) []string {
 	return dirs
 }
 
-// isAllowedPath checks whether the resolved path resides under one of the
-// allowed directories.
-func (m *ngcPreview) isAllowedPath(resolvedPath string) bool {
-	for _, dir := range m.allowedDirs {
-		if strings.HasPrefix(resolvedPath, dir+string(filepath.Separator)) || resolvedPath == dir {
-			return true
-		}
+// resolveProgramPath resolves a G-code path with the shared resolver
+// (internal/pathres) extended by this instance's program directories.
+//
+// G-code files are not configuration: they live under [DISPLAY]PROGRAM_PREFIX
+// and [RS274NGC]SUBROUTINE_PATH, deliberately outside the config directory.
+// So the allow-list this module already computed becomes extra roots on top of
+// the shared base rule, rather than a second, separate path check.
+func (m *ngcPreview) resolveProgramPath(filename string) (string, error) {
+	base := pathres.Default()
+	if base == nil {
+		return "", fmt.Errorf("path resolver not initialised")
 	}
-	return false
+	return base.WithRoots(m.allowedDirs...).Resolve(filename, pathres.Read)
 }
 
 // GetFile implements ngcpreview.NgcpreviewCallbacks — serves file contents
@@ -1214,17 +1219,9 @@ func (m *ngcPreview) GetFile(filename string) (*ngcpreview.FileResult, error) {
 		return &ngcpreview.FileResult{Error: "empty filename"}, nil
 	}
 
-	abs, err := filepath.Abs(filename)
+	real, err := m.resolveProgramPath(filename)
 	if err != nil {
-		return &ngcpreview.FileResult{Error: "invalid path"}, nil
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return &ngcpreview.FileResult{Error: "file not found"}, nil
-	}
-
-	if !m.isAllowedPath(real) {
-		m.logger.Warn("get_file: access denied", "requested", filename, "resolved", real)
+		m.logger.Warn("get_file: access denied", "requested", filename, "err", err)
 		return &ngcpreview.FileResult{Error: "access denied: file is not in an allowed directory"}, nil
 	}
 

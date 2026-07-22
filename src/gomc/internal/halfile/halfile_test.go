@@ -37,17 +37,32 @@ func parseIni(t *testing.T, content string) *inifile.IniFile {
 // Path resolution tests
 // ---------------------------------------------------------------------------
 
+// An absolute path inside the allowed roots (config dir + HALLIB_PATH) is used
+// as given.
 func TestResolvePath_AbsoluteExists(t *testing.T) {
 	dir := t.TempDir()
 	halPath := writeTemp(t, dir, "test.hal", "# empty")
 
-	e := New(nil, "", nil, "")
+	e := New(nil, dir, nil, "")
 	got, err := e.resolvePath(halPath)
 	if err != nil {
 		t.Fatalf("resolvePath(%q) error: %v", halPath, err)
 	}
 	if got != halPath {
 		t.Errorf("resolvePath(%q) = %q; want %q", halPath, got, halPath)
+	}
+}
+
+// ... and one outside them is rejected.  Paths named by configuration are
+// reachable over REST, so an absolute path is not a way around the search
+// path (see internal/pathres).
+func TestResolvePath_AbsoluteOutsideRootsRejected(t *testing.T) {
+	dir := t.TempDir()
+	halPath := writeTemp(t, dir, "test.hal", "# empty")
+
+	e := New(nil, "", nil, "") // roots: the working directory only
+	if _, err := e.resolvePath(halPath); err == nil {
+		t.Errorf("resolvePath(%q) must reject a path outside the allowed roots", halPath)
 	}
 }
 
@@ -235,13 +250,21 @@ func TestResolvePath_TildeExpansion(t *testing.T) {
 	}
 	defer func() { _ = os.Remove(p) }()
 
-	e := New(nil, "", nil, "")
+	// The home directory must be an allowed root for the result to be usable —
+	// tilde expansion happens before containment, not instead of it.
+	e := New(nil, home, nil, "")
 	got, err := e.resolvePath("~/" + name)
 	if err != nil {
 		t.Fatalf("resolvePath(~/%s) error: %v", name, err)
 	}
 	if got != p {
 		t.Errorf("resolvePath(~/%s) = %q; want %q", name, got, p)
+	}
+
+	// Outside the roots it is rejected like any other path.
+	eContained := New(nil, "", nil, "")
+	if _, err := eContained.resolvePath("~/" + name); err == nil {
+		t.Errorf("resolvePath(~/%s) must reject a home-dir path outside the allowed roots", name)
 	}
 }
 

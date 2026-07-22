@@ -62,6 +62,11 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 
 	l.initHalibPath()
 
+	// halrun has no INI, so the resolver's base is the working directory.
+	if err := l.initPathResolver(); err != nil {
+		return err
+	}
+
 	// Single deferred cleanup (idempotent) runs the ordered shutdown.
 	defer func() {
 		if runErr != nil {

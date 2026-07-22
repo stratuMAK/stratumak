@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	halparse "github.com/sittner/linuxcnc/src/gomc/internal/halparse"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -95,14 +95,12 @@ func newHaljsonModule(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		return nil, fmt.Errorf("haljson: missing required config= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory, or the current
-	// working directory when loaded without an INI (e.g. `gomc-server -f`).
-	if !filepath.IsAbs(configPath) {
-		iniDir := "."
-		if ini != nil {
-			iniDir = filepath.Dir(ini.SourceFile())
-		}
-		configPath = filepath.Join(iniDir, configPath)
+	// Configuration paths are server-side paths resolved by the shared rule
+	// (config dir, then HALLIB_PATH, contained within them) — see
+	// internal/pathres.
+	configPath, err := pathres.Resolve(configPath, pathres.Read)
+	if err != nil {
+		return nil, fmt.Errorf("haljson: config=: %w", err)
 	}
 
 	logger = logger.With("module", "haljson", "instance", name)

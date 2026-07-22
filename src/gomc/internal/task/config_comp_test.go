@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 type compTriplet struct{ nom, fwd, rev float64 }
@@ -27,6 +29,9 @@ func approxComp(got, want []compTriplet) bool {
 
 func TestLoadJointComp(t *testing.T) {
 	dir := t.TempDir()
+	// COMP_FILE goes through the shared path resolver, which the launcher
+	// normally publishes; root it at the temp dir for the test.
+	pathres.SetDefaultForTest(t, dir)
 	file := filepath.Join(dir, "comp.txt")
 	// Header comment + a blank line exercise the skip path; C++ would stop at the
 	// comment, gomc tolerates it (strict superset for pure-triplet files).

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // TestNewPersistSQLite_NilIni pins the nil-INI guard.  The launcher passes
@@ -20,7 +21,9 @@ func TestNewPersistSQLite_NilIni(t *testing.T) {
 	if apiserver.DefaultRegistry() == nil {
 		apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 	}
-	dir := filepath.Join(t.TempDir(), "db")
+	root := t.TempDir()
+	pathres.SetDefaultForTest(t, root)
+	dir := filepath.Join(root, "db")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	mod, err := newPersistSQLite(nil, logger, "persist-nilini-test", []string{"dbpath=" + dir})
@@ -43,7 +46,9 @@ func TestNewPersistSQLite_NilIniRelativeDbpath(t *testing.T) {
 	if apiserver.DefaultRegistry() == nil {
 		apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 	}
-	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	t.Chdir(root)
+	pathres.SetDefaultForTest(t, root)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	mod, err := newPersistSQLite(nil, logger, "persist-nilini-rel-test", []string{"dbpath=state"})
@@ -51,8 +56,8 @@ func TestNewPersistSQLite_NilIniRelativeDbpath(t *testing.T) {
 		t.Fatalf("newPersistSQLite with a nil INI: %v", err)
 	}
 	m := mod.(*module)
-	if m.dbDir != filepath.Join(".", "state") {
-		t.Errorf("dbDir = %q, want %q", m.dbDir, filepath.Join(".", "state"))
+	if m.dbDir != filepath.Join(root, "state") {
+		t.Errorf("dbDir = %q, want %q", m.dbDir, filepath.Join(root, "state"))
 	}
 	mod.Destroy()
 }
