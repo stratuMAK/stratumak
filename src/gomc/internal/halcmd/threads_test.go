@@ -5,8 +5,10 @@
 package halcmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestParseCPUList covers the sysfs CPU-list parser. Its input is
@@ -45,17 +47,6 @@ func TestParseCPUList(t *testing.T) {
 	}
 }
 
-// requireRT skips a test that needs real HAL threads when the process lacks RT
-// scheduling privileges: rtapi_task_start() then fails with EPERM and thread
-// creation cannot succeed at all. On an RT-capable machine (and in the runtests
-// suite, which runs the same paths end-to-end) these tests run for real.
-func requireRT(t *testing.T) {
-	t.Helper()
-	if !rtapiIsRealtime() {
-		t.Skip("no POSIX realtime scheduling privileges — HAL threads cannot be created")
-	}
-}
-
 // TestThreadLifecycle covers newthread/start/stop/delthread against real HAL
 // threads: creation, the listing and show output the REST/CLI surface, the
 // cycle-counter helpers the launcher's shutdown ordering depends on, and
@@ -65,7 +56,6 @@ func requireRT(t *testing.T) {
 // affinity — otherwise it would inherit whatever pool state the cpupool tests
 // left and try to pin to a core this machine may not have.
 func TestThreadLifecycle(t *testing.T) {
-	requireRT(t)
 	setPool(t, nil, false)
 
 	const name = "halcmd-test-thread"
@@ -118,11 +108,14 @@ func TestThreadLifecycle(t *testing.T) {
 		t.Error("CreateThreadCPU with a duplicate name must fail")
 	}
 
-	// The cycle counter only advances while the threads run, so the pre-start
-	// wait must time out rather than block forever.
-	base := GetMaxCycleCount()
-	if err := WaitCycleAdvance(base); err == nil {
-		t.Error("WaitCycleAdvance on stopped threads must time out")
+	// The cycle counter advances as soon as the thread exists: hal_create_thread
+	// starts the pthread, and start/stop gate whether the thread's *functions*
+	// run (and the Running flag), not whether it cycles. The launcher relies on
+	// this for its unload synchronisation — it waits for a cycle to pass before
+	// freeing a component's pins, which must work whether or not the functions
+	// are currently enabled.
+	if err := WaitCycleAdvance(GetMaxCycleCount()); err != nil {
+		t.Errorf("WaitCycleAdvance before StartThreads: %v", err)
 	}
 
 	if err := StartThreads(); err != nil {
@@ -157,7 +150,6 @@ func TestThreadLifecycle(t *testing.T) {
 // need a component that exports a realtime function, which only a loaded
 // cmod/comp does — those are covered end-to-end by the runtests HAL bucket.
 func TestAddFDelFErrors(t *testing.T) {
-	requireRT(t)
 	setPool(t, nil, false)
 
 	const thread = "halcmd-test-addf-thread"
@@ -213,5 +205,63 @@ func TestLockStatusStringAllBits(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("LockStatusString is missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// TestThreadCreateDeleteCycles is the regression test for a thread-teardown
+// deadlock in the uspace non-RT scheduling path (do_thread_lock=1, which is
+// what rtapi_initialize_app selects whenever RT hardening is unavailable).
+//
+// task_wrapper() acquired thread_lock at task start and never released it,
+// relying on task_wait() to drop it when it observed the cooperative-exit flag.
+// But the flag can also be set just after task_wait() re-acquired the lock and
+// checked it — the task loop's own condition then ends the task with the lock
+// still HELD, leaking it locked with its owner gone. The next thread created
+// then blocked forever acquiring it in task_wrapper, so it never observed its
+// own exit flag, so hal_thread_delete's pthread_join never returned: a hung
+// controller on `delthread` after a previous thread had been deleted.
+//
+// Hitting the window needs a delete that races the task's wait rather than one
+// that arrives while it is safely asleep, so the loop deletes at a spread of
+// delays across the 1 ms period and then proves a fresh thread can still be
+// created and deleted afterwards. Verified to hang before the fix.
+func TestThreadCreateDeleteCycles(t *testing.T) {
+	setPool(t, nil, false)
+
+	// Must not be faster than the base period the first thread in this process
+	// established (the other thread tests use 2 ms) — HAL rejects a thread
+	// shorter than the base period with EINVAL.
+	const period = 2_000_000 // 2 ms
+	for i := 0; i < 12; i++ {
+		name := fmt.Sprintf("halcmd-test-cycle%d", i)
+		if err := CreateThreadCPU(name, period, 0, -1); err != nil {
+			t.Fatalf("cycle %d: CreateThreadCPU: %v", i, err)
+		}
+		// Walk the delete across the period so some deletes land while the
+		// task sleeps and some land just as it wakes and re-takes the lock.
+		time.Sleep(time.Duration(i%10) * 200 * time.Microsecond)
+		// Before the fix this blocked forever once a previous cycle had
+		// leaked thread_lock.
+		if err := ThreadDelete(name); err != nil {
+			t.Fatalf("cycle %d: ThreadDelete: %v", i, err)
+		}
+	}
+
+	// A full start/stop/delete must still work after all that churn.
+	const last = "halcmd-test-cycle-last"
+	if err := CreateThreadCPU(last, period, 0, -1); err != nil {
+		t.Fatalf("final CreateThreadCPU: %v", err)
+	}
+	if err := WaitCycleAdvance(GetMaxCycleCount()); err != nil {
+		t.Errorf("final WaitCycleAdvance: %v", err)
+	}
+	if err := StartThreads(); err != nil {
+		t.Fatalf("final StartThreads: %v", err)
+	}
+	if err := StopThreads(); err != nil {
+		t.Fatalf("final StopThreads: %v", err)
+	}
+	if err := ThreadDelete(last); err != nil {
+		t.Fatalf("final ThreadDelete: %v", err)
 	}
 }

@@ -141,6 +141,24 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
   — `pthread_attr_setaffinity_np` per task when `cpu_number >= 0` (`src/gomc/internal/hallib/uspace_rtapi_lib.c:609`); cpu assigned from the isolated pool or validated against it (`cpupool.go:68` `acquireCPU`).
 - [x] `SCHED_FIFO` set on the RT thread only (never the whole process / Go threads)
   — Set per-thread via `pthread_attr_setschedpolicy` + `PTHREAD_EXPLICIT_SCHED` (`uspace_rtapi_lib.c:603-607`); falls back to `SCHED_OTHER` + cooperative lock if `harden_rt()` fails.
+  **Note:** `rtapi_initialize_app()` is what performs that fallback — `app_policy` is a
+  static `SCHED_FIFO` until it runs, so any embedder that reaches `hal_create_thread`
+  without calling it first gets `EPERM` from `pthread_create` in an unprivileged process
+  and no threads at all.
+- [x] Cooperative task exit releases `thread_lock` on every path (non-RT `do_thread_lock`)
+  — **Fixed 2026-07-22.** `task_wrapper()` took `thread_lock` at task start and never
+  released it, relying on `task_wait()` to drop it when it saw `task_exit`. `task_wait()`
+  does so on its two exit checks, but the flag can be set in the window *after* it
+  re-acquires the lock and checks it — the task loop's own condition then ends the task
+  with the lock **held**, leaking it locked with its owner gone. The next `newthread`
+  blocked forever in `task_wrapper`'s acquire, never saw its own exit flag, and
+  `hal_thread_delete`'s `pthread_join` never returned: **a hung controller on `delthread`
+  once a thread had already been deleted, on every non-RT-privileged deployment**. Ownership
+  is now explicit (`struct rtapi_task.holds_thread_lock`, `rtapi/rtapi_task.h`) and released
+  exactly once, on whichever path the task leaves. Regression test:
+  `internal/halcmd.TestThreadCreateDeleteCycles` (mutation-verified: hangs 5/5 without the
+  fix). Sibling of the earlier `task_wait()` shutdown-deadlock fix — same lock, different
+  escape path.
 - [ ] RT priority leaves headroom below kernel/IRQ threads (e.g. ≤ 80); below the EtherCAT NIC IRQ thread
   — Not met: `hal_create_thread` reserves only the single highest priority and hands out `sched_get_priority_max()-1` (= 98 on Linux) descending (`src/gomc/internal/hallib/hal_lib.c:2021-2050`). No policy caps HAL threads below IRQ-thread priorities (default 50) — deliberate headroom requires threadsirq-priority tuning at deployment, and nothing enforces or documents it.
 - [x] `/dev/cpu_dma_latency` opened + `0` written, fd held open

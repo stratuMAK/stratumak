@@ -25,6 +25,13 @@ import (
 // The in-process HAL data segment is torn down when the last component exits
 // and cannot be re-initialised afterwards — see pkg/hal's TestMain.
 func TestMain(m *testing.M) {
+	// Initialise the RTAPI application environment exactly as the launcher
+	// does, before any HAL init. Without it the uspace scheduling policy keeps
+	// its SCHED_FIFO default and every thread creation fails with EPERM in an
+	// unprivileged process; rtapi_initialize_app is what falls back to
+	// SCHED_OTHER when RT hardening is unavailable.
+	halcmd.RtapiInitializeApp()
+
 	keep, err := hal.NewComponent("halcmd-test-keepalive")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hal keep-alive init failed: %v\n", err)

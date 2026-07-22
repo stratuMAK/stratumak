@@ -682,14 +682,28 @@ static void *task_wrapper(void *arg)
     pthread_setspecific(task_key, arg);
     rtapi_set_namef("rtapi:T#%d", task->id);
 
-    if(do_thread_lock)
+    if(do_thread_lock) {
         pthread_mutex_lock(&thread_lock);
+        task->holds_thread_lock = 1;
+    }
 
     struct timespec now;
     clock_gettime(RTAPI_CLOCK, &now);
     rtapi_timespec_advance(&task->nextstart, &now, task->period + task->pll_correction);
 
     (task->taskcode)(task->arg);
+
+    /* Release thread_lock if the task still holds it.  task_wait() drops it
+       when it observes task_exit itself, but the flag can equally be set just
+       after task_wait() re-acquired the lock and checked it — the task loop's
+       own condition then sees it and returns with the lock HELD.  Without this
+       the mutex is leaked locked with its owner gone, and the next task to
+       start blocks forever on the acquire above while whoever called
+       rtapi_task_delete() blocks forever in pthread_join(). */
+    if(do_thread_lock && task->holds_thread_lock) {
+        task->holds_thread_lock = 0;
+        pthread_mutex_unlock(&thread_lock);
+    }
 
 #ifdef __linux__
     /* Pre-fault and lock all pages (read+write) */
@@ -781,9 +795,14 @@ static int task_self(void) {
 }
 
 static void task_wait(void) {
-    if(do_thread_lock)
-        pthread_mutex_unlock(&thread_lock);
+    /* Resolve the task before releasing the lock so the ownership flag can be
+       cleared with it — pthread_getspecific is a plain TLS read, no syscall. */
     struct rtapi_task *task = (struct rtapi_task*)pthread_getspecific(task_key);
+    if(do_thread_lock) {
+        if(task)
+            task->holds_thread_lock = 0;
+        pthread_mutex_unlock(&thread_lock);
+    }
     if(!task) {
         rtapi_print_msg(RTAPI_MSG_ERR, "rtapi_wait called from non-task thread\n");
         if(do_thread_lock)
@@ -815,11 +834,17 @@ static void task_wait(void) {
     }
     if(do_thread_lock) {
         pthread_mutex_lock(&thread_lock);
+        task->holds_thread_lock = 1;
         /* If we were asked to exit while sleeping, release the lock again so
            the next task waiting to re-acquire it can run and exit. */
-        if(task->task_exit)
+        if(task->task_exit) {
+            task->holds_thread_lock = 0;
             pthread_mutex_unlock(&thread_lock);
+        }
     }
+    /* Note: if task_exit is set AFTER the check above, this returns holding the
+       lock and the task loop's own condition ends the task — task_wrapper()
+       then releases it via holds_thread_lock. */
 }
 
 static unsigned char do_inb(unsigned int port)
