@@ -5,12 +5,35 @@ package adsbridge
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/ads"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 )
+
+// TestMain holds one keep-alive HAL component open for the whole test binary,
+// mirroring pkg/hal's TestMain and for the same reason (pkg/hal review, H-4):
+// the in-process HAL data segment is created on the first hal_init and torn
+// down when the LAST component exits, and re-initialising it afterwards is not
+// clean — a later hal_init can come back EINVAL. Every test below creates and
+// exits its own component, so without this the component count drops to zero
+// between tests. It surfaced as a parallel-only flake: the whole module under
+// `go test -race ./...` (packages in parallel) failed four of these with
+// "hal_init_ex: invalid argument (code -22)", and hung outright on one run,
+// while this binary on its own — or the same suite with -p 1 — always passed.
+func TestMain(m *testing.M) {
+	keep, err := hal.NewComponent("adsbridge-test-keepalive")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hal keep-alive init failed: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = keep.Exit()
+	os.Exit(code)
+}
 
 // These tests cover the byte<->HAL-pin conversion in the accessors — the
 // risk-bearing part of the bridge (endianness, sign extension, IEEE-754 float

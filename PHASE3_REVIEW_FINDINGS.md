@@ -63,12 +63,11 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
   (handled separately at line-classification). Doc rewritten to the true C-parser semantics.
 - **Tests:** `TestSemicolonIsDataNotComment` (MDI_COMMAND round-trip), updated
   `TestComments` / `TestInlineCommentOrdering`.
-- **RULING TO CONFIRM:** this reverses a behavior an existing test encoded as intended.
-  It is a bug fix (data loss vs. 2.9, zero shipped-config regression), taken under the
-  "load identically" goal. If strict full 2.9 parity is later wanted (drop the `#` strip
-  too), that additionally needs `strtod`-lenient conversion at every INI→number site
-  (centralised in `getFloatOr`/`getIntOr` + ~11 direct `strconv` sites) — a larger change
-  deferred as not obviously worth the risk.
+- **RULING — CONFIRMED KEEP-AS-IS (user, 2026-07-22).** The fix stands as landed: `;` is
+  data, the narrow whitespace-`#` strip stays. Full 2.9 parity (dropping the `#` strip too)
+  would additionally require `strtod`-lenient conversion at every INI→number site
+  (centralised in `getFloatOr`/`getIntOr` + ~11 direct `strconv` sites) and was judged not
+  worth the risk for behaviour the `#`-strip already reproduces. **I-2 is closed.**
 
 ### I-3 (parity, LOW — DOCUMENTED, not fixed)
 An `#INCLUDE`d file that *continues* a section without repeating its `[HEADER]` lands its
@@ -108,19 +107,76 @@ test files would be discovered as a `gomod` entry → blank import → hard `go 
 
 ---
 
-## cmd/gomc-server — clean; 2 LOW notes (no code change)
+## cmd/gomc-server — clean; 2 LOW notes (F5 fixed 2026-07-22, F4 left as-is)
 Thin wrapper over `internal/launcher` (Tier-1-reviewed). Flag/arg handling is correct;
 `-H` validation short-circuits safely; `-d` out-of-range is rejected by `SetDebug`;
 `runtime.LockOSThread()` in `init()` is correct and documented (Boost.Python thread-state).
 - **F4 (LOW):** `RtapiInitializeApp()` runs before flag parsing, so `-h` prints the POSIX
   RT note first — cosmetic (the C init does *not* hard-fail unprivileged; falls back to
   SCHED_OTHER). Left as-is (moving it risks `mlockall` ordering).
-- **F5 (LOW):** a daemon-mode error exit leaves the pidfile the parent wrote; no liveness
-  check trips on it (next start overwrites). Cleanup contract belongs to `internal/daemon`.
+- **F5 (FIXED 2026-07-22):** a daemon-mode error exit left the pidfile the parent wrote,
+  and nothing checked liveness, so the next start silently overwrote a file that still
+  looked valid. Both halves closed: `main.go` now `defer`s `RemovePidFile` right after
+  `Daemonize` returns in the child, so EVERY exit path drops it (it used to run only after
+  a clean `Run()`, and never in `-f` halrun mode); and the cleanup contract that the review
+  assigned to `internal/daemon` is now implemented there — see the daemon section below.
 
-## internal/config — clean
-Pure ldflags-injected string vars, no logic. `paths_test.go` asserts a subset default to
-empty (incomplete but not a defect).
+## internal/daemon — pidfile ownership + a slog aliasing bug (2026-07-22)
+Reviewed under Tier-1 hotspot #4 in 2026-07-20 with one note ("parent+child both write the
+pidfile, unlocked — same PID, low severity"); revisited here to close `U` (the package had
+**no test file at all**) and F5's cleanup contract.
+- **D-1 (double writer, FIXED):** parent and child both wrote the pidfile. Same value, so
+  not a corruption bug — but two writers open a window where a child that fails and removes
+  the file has it recreated behind its back by the parent's later write, leaving a pidfile
+  that names a dead process. The **parent is now the sole writer** (that is what guarantees
+  the file exists by the time the parent exits, for a supervisor reading it right after the
+  fork); the child just clears the sentinel and returns.
+- **D-2 (no liveness check, FIXED):** starting a second daemon over a live pidfile silently
+  overwrote the record of the first — orphaning it (nothing could stop it afterwards) while
+  two servers fight over the same HAL shm and REST port. `Daemonize` now refuses with
+  `ErrAlreadyRunning` when the pidfile names a live process; a stale one (missing,
+  malformed, or a dead/reaped PID) is overwritten as before. Liveness is signal-0, and
+  **EPERM counts as alive** so a root-owned daemon does not look dead to an unprivileged
+  caller.
+- **D-3 (foreign-pidfile deletion, FIXED):** `RemovePidFile` unconditionally removed the
+  path. After a crash a replacement instance may already own it, and deleting a live
+  server's pidfile leaves it unsupervised. It now removes only when the file records this
+  process or is stale.
+- **D-4 (slog aliasing, FIXED — real bug):** `SyslogHandler.WithAttrs` did
+  `append(h.attrs, attrs...)`, reusing the parent's spare capacity. Two handlers derived
+  from the *same* parent — the ordinary `slog.With` pattern — then shared one backing array
+  and the second silently overwrote the first one's attrs (mutation-verified: the test
+  reports both records logging `who=beta`). Now copies. `WithGroup` had the twin defect in
+  the other direction: it recorded `groups` and `Handle` never used them, so attrs from
+  different groups collided under bare keys — keys are now dotted-qualified. Handler attrs
+  also now precede record attrs, matching every stdlib handler.
+- **Tests (new, 0 → 2 files):** `daemon_test.go` (pidfile read/write round-trip and its
+  malformed/empty/negative rejections, `processAlive` self/reaped/EPERM arms, the
+  already-running refusal, the child-does-not-rewrite path, and all four `RemovePidFile`
+  cases) and `syslog_test.go` (severity routing, live `Leveler`, attr rendering/ordering,
+  the aliasing regression, group qualification) — the latter against a `syslogWriter`
+  interface introduced so the handler is testable without a syslog daemon.
+
+## internal/config — 1 CONFIRMED dead injection (2026-07-22)
+Pure ldflags-injected string vars, no logic — but the *injection* is the risk surface, and
+it was untested: `paths_test.go` only asserted that 15 of the 24 vars default to empty.
+- **C-1 (dead `-X`, FIXED):** `go build -ldflags -X pkg.Name=v` **silently does nothing**
+  when `Name` does not exist in `pkg` — no warning, no error. The Submakefile injected
+  `-X '$(GOMC_LDFLAGS_PKG).DefaultNmlFile=$(DEFAULT_NMLFILE)'`, and **no Go code has ever
+  declared `DefaultNmlFile`** (an NML-era leftover; gomc has no NML). Removed. Nothing read
+  it, so there is no behaviour change — the point is the class: a renamed or removed
+  variable leaves the build green while the value it was meant to carry is empty at runtime.
+- **Tests:** `TestLdflagsInjectionTargetsExist` parses the Submakefile's `-X` flags and the
+  `paths.go` declarations and fails on any injection with no target (mutation-verified by
+  re-adding the `DefaultNmlFile` line), also checking each `-X` is qualified with
+  `$(GOMC_LDFLAGS_PKG)` rather than a literal package path.
+  `TestUninjectedVarsAreDocumented` covers the other direction — a declared-but-never-
+  injected var is always empty in a real build, legitimate only where the doc comment
+  describes a fallback (`Tclsh` → PATH lookup). `TestPathsDefaultValues` is now driven off
+  the parsed declarations, so a newly added variable is covered automatically instead of
+  drifting out of a hand-maintained list. The parse pass additionally asserts every path var
+  is an uninitialised `string` — an initializer or a non-string type would make `-X`
+  silently ineffective.
 
 ---
 

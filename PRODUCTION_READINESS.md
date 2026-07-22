@@ -610,9 +610,9 @@ bug in `pdos`/`cstruct`/`xml`); Tier-1 hotspot #3 is substantially closed (see i
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
 | internal/launcher | 2599/415 | 1 | ✅ | ✅ | ✅ | ◐ | ✅ | ◐ | ☐ |
-| internal/daemon | 157/0 | 1 | ✅ | ✅ | ✅ | ☐ | ✅ | — | ☐ |
-| cmd/gomc-server | 266/0 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
-| internal/config | 86/37 | 2 | ✅ | ✅ | ✅ | ◐ | ✅ | — | ◐ |
+| internal/daemon | 277/365 | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ☐ |
+| cmd/gomc-server | 234/159 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
+| internal/config | 97/223 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | internal/pkgreg | 353/0 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 | pkg/inifile | 606/966 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ◐ |
 
@@ -630,6 +630,38 @@ typo'd `packages.conf` TYPE silently dropped a module (green build, module gone 
 → now a loud `file:line` build error; **F2** `_test.go`-only dirs no longer mis-discovered.
 `cmd/gomc-server`/`internal/config` clean (2 LOW notes, no code change). Regression tests
 added for every fix; `-race`/vet/gofmt/lint(0) green.
+
+**Phase-3 `U` tail closed 2026-07-22** (`internal/daemon`, `cmd/gomc-server`, `internal/config`
+— the three rows the review left at `☐`/`◐` for coverage). `pkg/inifile` **I-2 ruled
+keep-as-is by the user** (`;` stays data; the narrow whitespace-`#` strip stays) — that
+finding is closed. Three defects surfaced by writing the tests:
+- **daemon D-4 (real bug):** `SyslogHandler.WithAttrs` appended into the parent's spare
+  capacity, so two loggers derived from the same parent via `slog.With` shared one backing
+  array and the second overwrote the first one's attrs (mutation-verified). `WithGroup` had
+  the mirror defect — `groups` was recorded and never applied, so attrs from different groups
+  collided under bare keys. Both fixed; handler attrs now also precede record attrs.
+- **daemon D-1/D-2/D-3 + gomc-server F5 (pidfile ownership):** the parent and child both wrote
+  the pidfile; a second daemon silently overwrote a live instance's file (orphaning it — nothing
+  could stop it afterwards, while two servers fought over the same HAL shm and REST port); and
+  `RemovePidFile` would delete a *replacement* instance's file. Now: parent is the sole writer,
+  `Daemonize` refuses with `ErrAlreadyRunning` on a live PID (stale/malformed still overwritten,
+  EPERM counts as alive), removal is ownership-checked, and `main.go` `defer`s the removal so
+  **every** exit path drops it (it used to run only after a clean `Run()`).
+- **config C-1 (dead `-X`):** `go build -ldflags -X pkg.Name=v` is a **silent no-op** when
+  `Name` does not exist. The Submakefile injected `DefaultNmlFile`, which no Go code has ever
+  declared (NML-era leftover). Removed, and a test now parses the Submakefile against
+  `paths.go` and fails on any injection with no target — plus the reverse direction
+  (declared-but-never-injected must document its empty-value fallback) and a check that every
+  path var stays an uninitialised `string` (an initializer would make `-X` silently ineffective).
+Coverage: `internal/daemon` 0 → 365 test lines (pidfile round-trip/malformed rejection,
+`processAlive` self/reaped/EPERM, already-running refusal, child-does-not-rewrite, all four
+`RemovePidFile` cases; syslog severity routing, live `Leveler`, attr ordering, the aliasing
+regression, group qualification — against a new `syslogWriter` seam so no syslog daemon is
+needed). `cmd/gomc-server` 0 → 159 (every argument path that returns before `launcher.Run`:
+`-h` incl. a flag-documentation check, unknown flag → 2, missing INI, `-l`/`-` not-implemented,
+`-H` missing-dir and not-a-dir, `-d` out-of-range, and the `multiFlag` accumulator).
+`internal/config` 37 → 223 (the three checks above; the old hand-maintained default-value list
+had drifted to 15 of 24 vars and is now driven off the parsed declarations).
 
 ### Phase 4 — HAL tooling
 
@@ -1011,6 +1043,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-22 | **Phase-3 `U` tail closed — `internal/daemon`, `cmd/gomc-server`, `internal/config` (rows → `U` ✅); `pkg/inifile` I-2 ruled keep-as-is (closed).** Writing the missing tests surfaced three defects. **daemon D-4 (real bug):** `SyslogHandler.WithAttrs` did `append(h.attrs, attrs...)` into the parent's spare capacity, so two loggers derived from the same parent via `slog.With` shared a backing array and the second overwrote the first one's attrs (mutation-verified — both records logged `who=beta`); `WithGroup` had the mirror defect, recording `groups` that `Handle` never applied, so attrs from different groups collided under bare keys. Both fixed; handler attrs now precede record attrs per the stdlib convention. **daemon D-1/D-2/D-3 + gomc-server F5 (pidfile ownership):** parent and child both wrote the pidfile (two writers → a child that fails and removes it gets it recreated by the parent's later write, naming a dead process); a second daemon silently overwrote a LIVE instance's pidfile, orphaning it while both fought over the same HAL shm and REST port; and `RemovePidFile` would delete a replacement instance's file. Now the parent is sole writer, `Daemonize` refuses with `ErrAlreadyRunning` on a live PID (stale/malformed still overwritten; EPERM counts as alive so a root-owned daemon is not read as dead), removal is ownership-checked, and `main.go` defers it so every exit path drops it (previously only a clean `Run()`). **config C-1 (dead `-X`):** `-ldflags -X pkg.Name=v` is a SILENT no-op for an unknown `Name`; the Submakefile injected `DefaultNmlFile`, which no Go code has ever declared (NML-era leftover). Removed + a drift guard that parses the Submakefile against `paths.go` (mutation-verified), plus the reverse direction (never-injected vars must document their empty-value fallback) and a check that every path var stays an uninitialised `string`. Coverage 0→365 / 0→159 / 37→223 test lines. **Also fixed en route (pre-existing, from the 2026-07-22 adsbridge test addition): `internal/adsbridge` had no keep-alive `TestMain`,** so its per-test HAL create/exit cycles dropped the component count to zero and re-init hit pkg/hal **H-4** — the whole-module `-race` run failed 4 accessor tests with `hal_init_ex … (code -22)` and hung outright once (464 s), while the package alone or the suite with `-p 1` always passed. Added the same keep-alive `TestMain` pkg/hal uses. build/vet/gofmt green, `-race` green, lint 0. |
 | 2026-07-22 | **Launcher LOW-findings tail closed (Phase 3, Tier-1 hotspot #4) — row `F` ✅.** **L-4** resolved as a *contract*, not a guard: `stopGoModules`/`unloadGoModule` deliberately call `Stop()` without a started-flag, because a mid-loop `startGoModules` failure leaves later modules loaded-but-not-started and they still must be stopped. Audited all 17 in-tree `gomc.Module` implementations against it (7 no-op Stops; every live one already guards — halscope `saverStarted`, stress_gc `startedOK`, classicladder modbus `running`, milltask nil/running guards + constructor-started mcode worker, ADS nil-listener+`stopOnce`, mqtt constructor-made `stopCh`) and wrote the lifecycle contract onto `gomc.Module` (factory completeness, Stop-without-Start, at-most-once Stop, Stop-before-Destroy) with the launcher rationale on `stopGoModules`. **L-7 (new, found while closing L-4):** `doCleanup`'s `halComp == nil` branch re-ran `stopCModules`/`stopGoModules` after steps 2/2b already had — a **second `Stop()` on every module**, which panics `close of closed channel` for mqttbridge / milltask's mcode worker; unreachable today (loading happens after HAL init) but exactly the trap the contract forbids — branch now owes only the destroys. **L-5:** `apiServer` guarded by `apiMu` + `apiServerRef()`; `stopAPIServer` removes the server from the field under the lock and runs the 2 s `Shutdown` outside it (no double-shutdown, no torn read when a restart path is added). **L-6:** the signal watcher — duplicated in `Run` and `RunHalFile` — blocked on a bare `<-sigCh` forever, leaking a goroutine + `signal.Notify` registration per Launcher; one `watchSignals()` helper now also selects on `shutdownCh` and `signal.Stop`s on exit, and `doCleanup` closes `shutdownCh` so an error return / one-shot halrun releases it too; `retainSync` spins 5 ms then backs off to 500 µs sleeps instead of burning a CPU for the full 1 s timeout. 5 regression tests (`lifecycle_test.go`), **all four mutation-verified** (duplicate stop → panic; blocking watcher → 2 s timeout ×2; unsynchronised field → `-race` DATA RACE). build/vet green, `-race` green, `make gomc-lint-full` 0, `gomc-fmt-check` clean. Row → L R F RC ✅; `U`/`FP` ◐, `S` open. |
 | 2026-07-09 | milltask review closed, merged (PR #248) |
 | 2026-07-11 | This document created |

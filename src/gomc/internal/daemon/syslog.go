@@ -6,11 +6,21 @@ import (
 	"context"
 	"log/slog"
 	"log/syslog"
+	"strings"
 )
+
+// syslogWriter is the subset of *syslog.Writer SyslogHandler uses. Named so the
+// severity routing can be tested without a syslog daemon.
+type syslogWriter interface {
+	Err(m string) error
+	Warning(m string) error
+	Info(m string) error
+	Debug(m string) error
+}
 
 // SyslogHandler is an slog.Handler that writes to syslog.
 type SyslogHandler struct {
-	writer *syslog.Writer
+	writer syslogWriter
 	level  slog.Leveler
 	attrs  []slog.Attr
 	groups []string
@@ -31,15 +41,18 @@ func (h *SyslogHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *SyslogHandler) Handle(_ context.Context, r slog.Record) error {
-	msg := r.Message
-	// Append attributes inline.
+	var sb strings.Builder
+	sb.WriteString(r.Message)
+	// Handler attrs first (they were bound earlier, via slog.With), then the
+	// record's own — the order every stdlib handler emits.
+	for _, a := range h.attrs {
+		writeAttr(&sb, h.groups, a)
+	}
 	r.Attrs(func(a slog.Attr) bool {
-		msg += " " + a.Key + "=" + a.Value.String()
+		writeAttr(&sb, h.groups, a)
 		return true
 	})
-	for _, a := range h.attrs {
-		msg += " " + a.Key + "=" + a.Value.String()
-	}
+	msg := sb.String()
 
 	switch {
 	case r.Level >= slog.LevelError:
@@ -53,20 +66,54 @@ func (h *SyslogHandler) Handle(_ context.Context, r slog.Record) error {
 	}
 }
 
+// writeAttr appends " group.key=value" for one attr. Open groups qualify the
+// key, matching slog's dotted-path convention — without this the groups slice
+// was recorded by WithGroup and then never used, so attrs from different groups
+// collided under bare keys.
+func writeAttr(sb *strings.Builder, groups []string, a slog.Attr) {
+	sb.WriteByte(' ')
+	for _, g := range groups {
+		sb.WriteString(g)
+		sb.WriteByte('.')
+	}
+	sb.WriteString(a.Key)
+	sb.WriteByte('=')
+	sb.WriteString(a.Value.String())
+}
+
 func (h *SyslogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	if len(attrs) == 0 {
+		return h
+	}
+	// Copy rather than append in place: append(h.attrs, ...) reuses h.attrs'
+	// spare capacity, so two handlers derived from the SAME parent (the normal
+	// slog.With pattern) would share the backing array and the second would
+	// overwrite the first one's attrs.
 	return &SyslogHandler{
 		writer: h.writer,
 		level:  h.level,
-		attrs:  append(h.attrs, attrs...),
+		attrs:  concatAttrs(h.attrs, attrs),
 		groups: h.groups,
 	}
 }
 
 func (h *SyslogHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	groups := make([]string, len(h.groups), len(h.groups)+1)
+	copy(groups, h.groups)
 	return &SyslogHandler{
 		writer: h.writer,
 		level:  h.level,
 		attrs:  h.attrs,
-		groups: append(h.groups, name),
+		groups: append(groups, name),
 	}
+}
+
+func concatAttrs(a, b []slog.Attr) []slog.Attr {
+	out := make([]slog.Attr, 0, len(a)+len(b))
+	out = append(out, a...)
+	out = append(out, b...)
+	return out
 }
