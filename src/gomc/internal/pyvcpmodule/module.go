@@ -25,7 +25,6 @@
 package pyvcpmodule
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -137,7 +136,7 @@ func (m *pyvcpModule) Destroy() {
 
 	// Mark the panel closed under mu before freeing the HAL component. An
 	// already-open WS connection's watch pushLoop keeps calling the
-	// WatchStateJSON closure even after the instance is unregistered (the
+	// WatchState closure even after the instance is unregistered (the
 	// closure was captured at subscribe time, and its context is tied to the
 	// connection, not to this module). The closed flag — set here under the
 	// same lock that every pin accessor takes — guarantees no goroutine touches
@@ -214,23 +213,13 @@ func newPyVCPModule(ini *inifile.IniFile, logger *slog.Logger, name string, args
 		return nil, fmt.Errorf("pyvcp %q: api register: %w", name, err)
 	}
 
-	// Register WebSocket watch API (manual — watch_state returns a map
-	// which is not expressible in the IDL, so we register it by hand with
-	// Delta:true for per-connection change tracking).
+	// Register the WebSocket watch API. watch_state is declared in the IDL
+	// (map[string]WidgetState, @watch_delta), so registration and the
+	// Delta:true per-connection change tracking are generated code.
 	if apiserver.DefaultWatchRegistry() == nil {
 		apiserver.SetDefaultWatchRegistry(apiserver.NewWatchRegistry())
 	}
-	apiserver.DefaultWatchRegistry().Register(&apiserver.WatchAPI{
-		APIName:  "pyvcp",
-		Instance: name,
-		Watches: []apiserver.WatchFuncMeta{{
-			Name:        "watch_state",
-			DefaultRate: 100 * time.Millisecond,
-			Watch:       cb.WatchStateJSON,
-			Delta:       true,
-		}},
-		Commands: pyvcp.PyvcpCommands(cb),
-	})
+	pyvcp.RegisterPyvcpWatch(apiserver.DefaultWatchRegistry(), name, cb, pyvcp.PyvcpCommands(cb))
 
 	logger.Info("PyVCP panel initialized", "name", name, "widgets", len(p.widgets))
 
@@ -283,9 +272,8 @@ func (r *panelRegistry_) list() []string {
 }
 
 // pyvcpCallbacks holds the state for one panel's API callbacks. It implements
-// the generated pyvcp.PyvcpCallbacks (REST + widget_event command) and provides
-// WatchStateJSON, which is registered by hand (the watch returns a map that the
-// IDL cannot yet express).
+// the generated pyvcp.PyvcpCallbacks (REST + widget_event command) and the
+// generated pyvcp.PyvcpWatchCallbacks (watch_state, map[string]WidgetState).
 type pyvcpCallbacks struct {
 	panel  *panel
 	comp   *hal.Component
@@ -352,14 +340,14 @@ func (cb *pyvcpCallbacks) WidgetEvent(event pyvcp.WidgetEvent) (bool, error) {
 	return accepted, nil
 }
 
-// --- WebSocket watch (registered manually in newPyVCPModule) ---
+// --- WebSocket watch (PyvcpWatchCallbacks, registered via RegisterPyvcpWatch) ---
 
-// WatchStateJSON returns the current state of all widgets as a JSON map
-// for the WebSocket watch loop. The map is keyed by widget ID, enabling
-// per-connection delta encoding (only changed widgets are sent after
-// the initial full snapshot). Input processing is done by the module's own
-// scan loop (see run), not here, so state is pushed even with no client.
-func (cb *pyvcpCallbacks) WatchStateJSON() (json.RawMessage, error) {
+// WatchState returns the current state of all widgets, keyed by widget ID.
+// The generated registration marshals it and the @watch_delta contract sends
+// only changed widgets after the initial full snapshot. Input processing is
+// done by the module's own scan loop (see run), not here, so state is pushed
+// even with no client.
+func (cb *pyvcpCallbacks) WatchState() (map[string]pyvcp.WidgetState, error) {
 	p := cb.panel
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -368,13 +356,13 @@ func (cb *pyvcpCallbacks) WatchStateJSON() (json.RawMessage, error) {
 		// The instance is being torn down; a pushLoop from an already-open
 		// connection may still call this. Return an empty map — never touch
 		// a pin, which may already be freed.
-		return json.RawMessage("{}"), nil
+		return map[string]pyvcp.WidgetState{}, nil
 	}
 
-	states := make(map[string]*pyvcp.WidgetState, len(p.widgets))
+	states := make(map[string]pyvcp.WidgetState, len(p.widgets))
 	for _, w := range p.widgets {
 		ws := w.readState()
-		states[w.id] = &pyvcp.WidgetState{
+		states[w.id] = pyvcp.WidgetState{
 			Value:    nanToNull(ws.Value),
 			State:    ws.State,
 			Index:    ws.Index,
@@ -382,5 +370,5 @@ func (cb *pyvcpCallbacks) WatchStateJSON() (json.RawMessage, error) {
 			Reset:    ws.Reset,
 		}
 	}
-	return json.Marshal(states)
+	return states, nil
 }

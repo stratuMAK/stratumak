@@ -64,9 +64,8 @@ type WidgetDef {
 }
 
 # Widget state — pushed via WebSocket watch.
-# The watch returns a map<widget_id, WidgetState> for delta encoding.
-# Note: watch_state is registered manually (returns map which IDL cannot
-# express), but WidgetState defines the per-widget value in that map.
+# watch_state returns map[string]WidgetState keyed by widget ID; @watch_delta
+# makes the server push only changed widgets after the first full snapshot.
 type WidgetState {
     value: f64?           # current numeric value (null = not applicable);
                           # for timer this is server-accrued elapsed seconds
@@ -117,10 +116,14 @@ func get_panel(name: string) -> PanelInfo
 
 # --- WebSocket watch (HAL → UI) ---
 
-# watch_state is registered manually (not generated) because it returns
-# a map<widget_id, WidgetState> which the IDL parser cannot express.
-# Delta-encoded: first message is full snapshot, subsequent messages only
-# contain changed widgets. Registered with Delta:true at 100ms.
+# Per-widget state map, keyed by widget ID. Delta-encoded (@watch_delta):
+# the first message is a full snapshot, subsequent messages contain only
+# changed widgets. Map-returning watches are JSON-only (no C ABI) and are
+# servable by Go providers only.
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_state() -> map[string]WidgetState
 
 # --- WebSocket commands (UI → HAL) ---
 

@@ -346,8 +346,10 @@ planned unified `vcpmodule` for gladevcp/qtvcp panels.
 Clients never write pin values directly — only send events.
 
 **Delta-encoded watch**: First message is a full snapshot
-(`map<widget_id, WidgetState>`). Subsequent messages contain only
-changed widgets. Rate: 100ms default.
+(`map[string]WidgetState`, keyed by widget ID — declared in the IDL as
+`watch_state`'s return type with `@watch_delta true`, so the registration
+is generated code). Subsequent messages contain only changed widgets.
+Rate: 100ms default.
 
 ## Protocol Reference
 

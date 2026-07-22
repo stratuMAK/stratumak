@@ -504,7 +504,7 @@ type panel struct {
 	// closed is set under mu by the module's Destroy(). Once set, scan(),
 	// readState() and handleEvent() must not touch HAL pins — the component is
 	// about to be (or has been) freed. A watch pushLoop from an already-open
-	// WS connection keeps its cb.WatchStateJSON closure after the instance is
+	// WS connection keeps its cb.WatchState closure after the instance is
 	// unregistered, so this flag (plus the mu barrier in Destroy) is what
 	// prevents a use-after-free on unload.
 	closed bool

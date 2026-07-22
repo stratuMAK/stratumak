@@ -188,7 +188,7 @@ func TestScanTimerServerAuthoritative(t *testing.T) {
 // use-after-free: after Destroy, the panel is marked closed, the watch callback
 // returns an empty state without touching (freed) pins, and the panel is gone
 // from the registry — even though an already-open pushLoop would still hold the
-// WatchStateJSON closure.
+// WatchState closure (via the generated RegisterPyvcpWatch wrapper).
 func TestDestroyClosesUseAfterFree(t *testing.T) {
 	name := uniq("pyvcp")
 	bt := uniq("bt")
@@ -201,8 +201,8 @@ func TestDestroyClosesUseAfterFree(t *testing.T) {
 	}
 
 	cb := &pyvcpCallbacks{panel: p, comp: comp, logger: slog.Default()}
-	if js, err := cb.WatchStateJSON(); err != nil || string(js) == "{}" {
-		t.Fatalf("live panel should return non-empty state, got %q err=%v", js, err)
+	if st, err := cb.WatchState(); err != nil || len(st) == 0 {
+		t.Fatalf("live panel should return non-empty state, got %v err=%v", st, err)
 	}
 
 	mod.Destroy() // Stop() + closed + unregister + comp.Exit()
@@ -215,12 +215,12 @@ func TestDestroyClosesUseAfterFree(t *testing.T) {
 	}
 	// The dangerous path: a pushLoop calling the captured closure after unload.
 	// It must return an empty map and never touch a freed pin.
-	js, err := cb.WatchStateJSON()
+	st, err := cb.WatchState()
 	if err != nil {
-		t.Errorf("WatchStateJSON after close errored: %v", err)
+		t.Errorf("WatchState after close errored: %v", err)
 	}
-	if string(js) != "{}" {
-		t.Errorf("closed panel WatchStateJSON = %q, want {}", js)
+	if len(st) != 0 {
+		t.Errorf("closed panel WatchState = %v, want empty map", st)
 	}
 	// A widget event after close must be rejected, not panic.
 	ev := pyvcp.WidgetEvent{Widget: bt, Event: pyvcp.EventType(evPress)}
