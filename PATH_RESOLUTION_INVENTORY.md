@@ -150,7 +150,10 @@ the INI dir" copies collapsed into one call.
 `<initCmds filename=>` — resolved at the `fopen`, which is what makes nesting
 safe), A3/B1 (filestream `infile=`/`outfile=`), A4 (`hm2_modbus mbccbs=` — its
 "path is not absolute" warning is gone, relative paths are first class now),
-A5 (`mb2hal config=`), A6 (`xhc-hb04 I=`).
+A5 (`mb2hal config=`), A6 (`xhc-hb04 I=`), A7/C4 (`z_level_compensation`'s
+probe map, which arrives straight off the GMI `load()` call). A17 (halparse
+`source` include) needed no change — it already resolves through
+`halfile.Executor.Resolve`, now the shared rule.
 
 **Category C — partly open.** C5 (ngcpreview) uses the shared resolver with its
 program directories as extra roots (`Resolver.WithRoots`), replacing its own
