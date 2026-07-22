@@ -1049,8 +1049,20 @@ Not per-module; each needs an owner and a done-definition.
   notification area operators already watch rather than a traceback on stderr. `linuxcnctop`
   is read-only and `manualtoolchange_ui` talks to a cmod, so neither was affected.
   Mutation-verified (disabling the switch fails all three contract tests); build, vet, gofmt,
-  golangci-lint, `-race` and the whole Go suite clean. **Full runtests owed** — this changes
-  what a refused command does to every driver in the suite.
+  golangci-lint, `-race` and the whole Go suite clean.
+  **Runtests caught a real over-correction, now fixed: 241/241.** Making *every* provider error
+  a transport error was the opposite mistake to swallowing them all. A command the task
+  **refuses** (wrong mode, not homed, busy) and one it **accepts, runs, and faults on** are
+  different events: the tool-table tests deliberately issue `G10 L1 P0`, which the interpreter
+  rejects with "P value out of range", and then read the resulting state — with the fault also
+  raised as HTTP 500 the driver died mid-test, and the same event was reported twice (it was
+  already on the error channel via `faultMDI`). `internal/task`'s `executedError` now marks the
+  accepted-and-faulted class and `rcFor` maps it to **`RCS_ERROR` in a normal response**, which
+  is what the `-> i32` return on every emccmd function was always for and what classic
+  `linuxcnc.command()` does. Refusals stay transport errors. This is exactly the distinction
+  `gomc_test.py` had documented all along ("tests legitimately issue commands that error … and
+  then introspect the resulting state"), and the one place it was written down is what named
+  the bug.
 - **FIXED (2026-07-17): M-code completions were credited to the wrong job — the
   `Submit`/`CheckDone` handshake had no job identity.** The suspect recorded here on
   2026-07-16 was right, and the interleaving is now proven by a unit test rather than

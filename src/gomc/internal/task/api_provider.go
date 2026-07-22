@@ -3,6 +3,7 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emccmd"
@@ -51,14 +52,32 @@ func (m *milltaskModule) AutoCmd(cmd emccmd.AutoCmd, line int32) (int32, error) 
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.AutoCommand(int32(cmd), line)
+	return rcFor(m.task.AutoCommand(int32(cmd), line))
+}
+
+// rcFor maps a task result onto the (rc, error) pair the emccmd contract wants.
+//
+// A command the task refused is a transport error — the request was invalid in
+// the current state. A command that was accepted and then faulted reports
+// RCS_ERROR with no transport error: it reached the machine, the fault is
+// already on the error channel, and the caller needs to be able to read the
+// state that resulted. See executedError.
+func rcFor(err error) (int32, error) {
+	if err == nil {
+		return rcsDone, nil
+	}
+	var ee *executedError
+	if errors.As(err, &ee) {
+		return rcsError, nil
+	}
+	return rcsError, err
 }
 
 func (m *milltaskModule) Mdi(command string) (int32, error) {
 	if err := m.ready(); err != nil {
 		return rcsError, err
 	}
-	return rcsDone, m.task.MDI(command)
+	return rcFor(m.task.MDI(command))
 }
 
 func (m *milltaskModule) Jog(jogType emccmd.JogType, jjogmode bool, axisOrJoint int32, velocity float64, distance float64) (int32, error) {

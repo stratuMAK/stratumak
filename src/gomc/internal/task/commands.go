@@ -1306,13 +1306,13 @@ func (t *Task) executeMDI(command string) error {
 		// discards the queued readahead, and leaves ExecError (C++ clears
 		// interp_list + emcTaskAbort/emcIoAbort on MDI INTERP_ERROR).
 		t.faultMDI(fmt.Sprintf("MDI error: %v", err))
-		return fmt.Errorf("MDI execute: %w", err)
+		return executed(fmt.Errorf("MDI execute: %w", err))
 	}
 
 	switch rc {
 	case InterpError:
 		t.faultMDI("MDI interpreter error")
-		return fmt.Errorf("MDI interpreter error")
+		return executed(fmt.Errorf("MDI interpreter error"))
 	default:
 		// Mark exec state as busy so WaitComplete doesn't return prematurely.
 		t.setExecState(ExecWaitingForMotion)
@@ -1337,7 +1337,7 @@ func (t *Task) executeMDI(command string) error {
 			// mdiDoneCmd nothing transitions interpState, wedging it at Reading.
 			// Fault it so the state is consistent and the failure is visible.
 			t.faultMDI(fmt.Sprintf("MDI enqueue failed: %v", err))
-			return fmt.Errorf("MDI enqueue: %w", err)
+			return executed(fmt.Errorf("MDI enqueue: %w", err))
 		}
 	}
 	return nil
