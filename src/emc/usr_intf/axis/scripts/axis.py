@@ -173,7 +173,8 @@ jogincr_index_last = 1
 mdi_history_index= -1
 continuous_jog_in_progress = False
 cjogindices = []
-_jog_refresh_counter = 0
+_jog_refresh_last = 0.0
+_last_program_open_path = None
 
 help1 = [
     ("F1", _("Emergency stop")),
@@ -758,7 +759,10 @@ class LivePlotter:
 
     def start(self):
         if self.running.get(): return
-        self.stat = gmi.Stat()
+        # machine_units(): the base gmi.Stat reports mm-everywhere; all the
+        # classic units math in axis/glcanon expects machine units and is
+        # 25.4x off on inch configs otherwise (review finding A-1/GP-16).
+        self.stat = gmi.Stat().machine_units()
         self.last_task_mode = self.stat.task_mode
         self.last_motion_mode  = self.stat.motion_mode
         def C(s):
@@ -784,7 +788,9 @@ class LivePlotter:
 
     def stop(self):
         if not self.running.get(): return
-        if hasattr(self, 'stat'): del self.stat
+        if hasattr(self, 'stat'):
+            self.stat.stop()
+            del self.stat
         if self.after is not None:
             self.win.after_cancel(self.after)
             self.after = None
@@ -792,7 +798,9 @@ class LivePlotter:
             self.win.after_cancel(self.error_after)
             self.error_after = None
         self.logger.stop()
-        self.running.set(True)
+        # was set(True) — a typo that made the plotter unrestartable
+        # (review finding A-3)
+        self.running.set(False)
 
     def error_task(self):
         # Message list is now driven by the WS watch callback.
@@ -819,18 +827,23 @@ class LivePlotter:
             continuous_jog_in_progress = 0
             cjogindices = []
 
-        # Jog refresh watchdog: re-send active continuous jogs every ~1s
-        # to keep milltask's jog watchdog from timing out.
-        global _jog_refresh_counter
-        _jog_refresh_counter += 1
-        if _jog_refresh_counter >= 10 and continuous_jog_in_progress:
-            _jog_refresh_counter = 0
-            jjogmode = get_jog_mode()
-            for idx in cjogindices:
-                if jog_cont[idx] and jogging[idx] != 0:
+        # Jog refresh watchdog: re-send active continuous jogs to keep
+        # milltask's 2s jog dead-man from timing out. Time-based, NOT
+        # cycle-counted: with [DISPLAY]CYCLE_TIME up to 0.2s a 10-cycle
+        # counter reaches the 2s server timeout (finding A-5). Gated on the
+        # per-axis jogging[] state, not continuous_jog_in_progress: releasing
+        # ONE axis of a multi-axis jog cleared that flag and starved the
+        # other axis's refresh (finding A-4).
+        global _jog_refresh_last
+        now = time.time()
+        if now - _jog_refresh_last >= 0.5:
+            _jog_refresh_last = now
+            active = [idx for idx in cjogindices
+                      if jog_cont[idx] and jogging[idx] != 0]
+            if active:
+                jjogmode = get_jog_mode()
+                for idx in active:
                     c.jog(JOG_CONTINUOUS, jjogmode, idx, jogging[idx])
-        elif _jog_refresh_counter >= 10:
-            _jog_refresh_counter = 0
 
         if  (   (self.stat.motion_mode == TRAJ_MODE_COORD)
             and (self.stat.task_mode   == MODE_MANUAL)
@@ -878,10 +891,12 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 pass
 
-        # Sync jog increment from server (multi-client sync)
+        # Sync jog increment from server (multi-client sync).
+        # Wire mirror values are canonical mm / mm/s (finding A-11);
+        # convert to machine units for the UI compare.
         if time.time() > jog_incr_blackout:
             try:
-                remote_jog_incr = self.stat.jog_increment
+                remote_jog_incr = self.stat.jog_increment * (self.stat.linear_units or 1)
                 jogincr = widgets.jogincr.get()
                 if jogincr == _("Continuous"):
                     current_incr = 0.0
@@ -909,7 +924,8 @@ class LivePlotter:
         # Sync jog speed from server (multi-client sync)
         if time.time() > jog_speed_blackout:
             try:
-                remote_speed = self.stat.jog_speed
+                # mm/s on the wire -> machine units/min for vars.jog_speed
+                remote_speed = self.stat.jog_speed * (self.stat.linear_units or 1) * 60.0
                 local_speed = vars.jog_speed.get()
                 if abs(remote_speed - local_speed) > 0.01 and remote_speed > 0:
                     global _jog_speed_from_remote
@@ -922,7 +938,8 @@ class LivePlotter:
 
         if time.time() > ajog_speed_blackout:
             try:
-                remote_aspeed = self.stat.ajog_speed
+                # deg/s on the wire -> deg/min for vars.jog_aspeed
+                remote_aspeed = self.stat.ajog_speed * 60.0
                 local_aspeed = vars.jog_aspeed.get()
                 if abs(remote_aspeed - local_aspeed) > 0.01 and remote_aspeed > 0:
                     _jog_speed_from_remote = True
@@ -932,7 +949,10 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 _jog_speed_from_remote = False
 
-        self.win.set_current_line(self.stat.motion_line)
+        # Classic fallback: motion_id (the executing segment's line tag) wins
+        # over the readahead motion_line so the highlight tracks execution
+        # during queued motion (finding A-15).
+        self.win.set_current_line(self.stat.motion_id or self.stat.motion_line)
 
         speed = self.stat.current_vel
 
@@ -950,7 +970,8 @@ class LivePlotter:
             # update text editor and loaded_file (without re-sending
             # program_open to avoid infinite seq increment loop).
             remote_file = self.stat.file
-            file_changed = remote_file and remote_file != loaded_file
+            file_changed = (remote_file and remote_file != loaded_file
+                            and remote_file != _last_program_open_path)
             if file_changed:
                 load_text_and_set_file(remote_file)
             if loaded_file:
@@ -1354,6 +1375,12 @@ def open_file_guts(f, filtered=False, addrecent=True):
         c.task_plan_synch()
         c.wait_complete()
         c.program_open(f)
+        # Remember what WE sent to program_open: for filtered programs f is
+        # the filter's tempfile while loaded_file stays the original, and the
+        # preview_seq resync in update() must not mistake our own load for
+        # another client's and clobber loaded_file (finding A-7).
+        global _last_program_open_path
+        _last_program_open_path = f
         lines = _fetch_file_lines(f)
         root_window.tk.call("destroy", ".info.progress")
         progress = Progress(1, len(lines))
@@ -1556,7 +1583,8 @@ def set_hal_jogincrement():
         distance = 0
     else:
         distance = parse_increment(jogincr)
-    c.set_jog_increment(distance)
+    # Wire mirror is canonical mm (finding A-11).
+    c.set_jog_increment(distance / (s.linear_units or 1))
 
 def jogspeed_listbox_change(dummy, value):
     global jogincr_index_last
@@ -2065,8 +2093,9 @@ def _do_refresh_preview(skip_synch=False, autofit=False):
                 _("G-Code error in %s") % os.path.basename(f),
                 _("Near line %(seq)d of %(f)s:\n%(error_str)s") % {'seq': seq, 'f': f, 'error_str': error_str},
                 "error",0,_("OK"))
-    o.lp.set_depth(from_internal_linear_unit(o.get_foam_z()),
-                   from_internal_linear_unit(o.get_foam_w()))
+    # Logger points are server-mm; foam planes must be mm too (finding A-1 —
+    # from_internal_linear_unit gave machine units: wrong on inch configs).
+    o.lp.set_depth(o.get_foam_z() * 25.4, o.get_foam_w() * 25.4)
     if autofit:
         autofit_view()
     o.tkRedraw()
@@ -2278,7 +2307,9 @@ class TclCommands(nf.TclCommands):
     def set_maxvel(newval):
         newval = float(newval)
         if vars.metric.get(): newval = newval / 25.4
-        newval = from_internal_linear_unit(newval)
+        # internal inches/min -> mm/min; the client boundary is mm
+        # (finding A-1/GP-16 — from_internal_linear_unit gave machine units).
+        newval = newval * 25.4
         global maxvel_blackout
         c.maxvel(newval / 60.)
         maxvel_blackout = time.time() + 1
@@ -3342,7 +3373,10 @@ def jog_on(a, b):
     if not manual_ok() or not manual_tab_visible() or running(): return
     if a < 3 or a > 5:
         if vars.metric.get(): b = b / 25.4
-        b = from_internal_linear_unit(b)
+        # internal inches/s -> mm/s: the gmi client boundary is mm/s.
+        # Classic converted to MACHINE units/s here, which jogged 25.4x too
+        # slow on inch configs (finding A-1/GP-16).
+        b = b * 25.4
     if jog_after[a]:
         root_window.after_cancel(jog_after[a])
         jog_after[a] = None
@@ -3352,7 +3386,9 @@ def jog_on(a, b):
     if jogincr != _("Continuous"):
         s.poll()
         if s.state != 1: return
-        distance = parse_increment(jogincr)
+        # parse_increment returns machine units (kept for the UI compare in
+        # update()); the wire wants mm.
+        distance = parse_increment(jogincr) / (s.linear_units or 1)
         jog(JOG_INCREMENT, jjogmode, a, b, distance)
         jog_cont[a] = False
     else:
@@ -3370,10 +3406,20 @@ def jog_off(a):
 
 def jog_off_actual(a):
     global continuous_jog_in_progress
-    continuous_jog_in_progress = False
-    if not manual_ok(): return
+    if not manual_ok():
+        # Still mark this axis inactive so the dead-man refresh loop stops
+        # re-sending it (finding A-4).
+        jogging[a] = 0
+        if not any(jogging):
+            continuous_jog_in_progress = False
+        return
     jog_after[a] = None
     jogging[a] = 0
+    # Only clear the flag when NO axis is still jogging: releasing one axis
+    # of a multi-axis jog used to stop the refresh for the others, and the
+    # server dead-man killed them 2s later mid-keypress (finding A-4).
+    if not any(jogging):
+        continuous_jog_in_progress = False
     jjogmode = get_jog_mode()
     if jog_cont[a]:
         jog(JOG_STOP, jjogmode, a)
@@ -3651,7 +3697,10 @@ else:
     update_ms = int(ct)
 interpname = inifile.find("TASK", "INTERPRETER") or ""
 
-s = gmi.Stat();
+# machine_units(): base gmi.Stat is mm-everywhere; all classic units math in
+# axis/glcanon expects machine units (finding A-1/GP-16 — 25.4x off on inch
+# configs without this).
+s = gmi.Stat().machine_units();
 s.poll()
 
 statfail=0
@@ -3906,7 +3955,39 @@ if  (       (s.axis_mask & 56 == 0)  # 56==0x38== 000111000 (ABC)
     ):
     widgets.ajogspeed.grid_forget()
 
-c = gmi.Command()
+from gmi.command import Command as _GmiCommand
+
+class AxisCommand(_GmiCommand):
+    """gmi.Command that routes a refused command into the notification area.
+
+    Every command method raises urllib.error.HTTPError when the server
+    refuses (wrong mode, not homed, busy — HTTP 409/503); from a Tk callback
+    that was an uncaught traceback (finding A-3/GP-18). The operator-facing
+    contract is: a refusal is a notification, not a crash.
+    """
+    def _post(self, path, data=None, **kw):
+        import json
+        import urllib.error
+        try:
+            return super()._post(path, data, **kw)
+        except urllib.error.HTTPError as e:
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            try:
+                msg = json.loads(body).get("error", body) or body
+            except Exception:
+                msg = body
+            msg = msg or ("command refused (HTTP %d)" % e.code)
+            try:
+                notifications.add("error", msg)
+            except Exception:
+                # notifications widget not built yet (startup commands)
+                print("axis: command refused: %s" % msg, file=sys.stderr)
+            return -1
+
+c = AxisCommand()
 
 _jog_speed_from_remote = False
 
@@ -3918,7 +3999,8 @@ def _on_jog_speed_changed(*args):
         speed = vars.jog_speed.get()
         if speed > 0:
             jog_speed_blackout = time.time() + 1
-            c.set_jog_speed(speed)
+            # machine units/min -> canonical mm/s (finding A-11)
+            c.set_jog_speed(speed / 60.0 / (s.linear_units or 1))
     except Exception:
         pass
 
@@ -3930,7 +4012,8 @@ def _on_ajog_speed_changed(*args):
         speed = vars.jog_aspeed.get()
         if speed > 0:
             ajog_speed_blackout = time.time() + 1
-            c.set_ajog_speed(speed)
+            # deg/min -> deg/s (finding A-11)
+            c.set_ajog_speed(speed / 60.0)
     except Exception:
         pass
 
@@ -3942,15 +4025,14 @@ root_window.tk.call("trace", "add", "variable", "jog_aspeed", "write",
 # Send initial jog speeds to server (traces miss the initial set that happened before registration)
 try:
     speed = vars.jog_speed.get()
-    print("note: initial jog_speed send: %.3f" % speed, file=sys.stderr)
     if speed > 0:
-        c.set_jog_speed(speed)
+        c.set_jog_speed(speed / 60.0 / (s.linear_units or 1))
 except Exception:
     pass
 try:
     speed = vars.jog_aspeed.get()
     if speed > 0:
-        c.set_ajog_speed(speed)
+        c.set_ajog_speed(speed / 60.0)
 except Exception:
     pass
 
@@ -4416,8 +4498,18 @@ try:
         if r == 0:
             try:
                 _mtc_client.confirm()
-            except Exception:
-                pass
+            except Exception as e:
+                # A failed confirm must re-arm the dialog: with the latch
+                # still set the poll never re-shows it and the change wedges
+                # until abort (finding A-8).
+                global _mtc_prev_change
+                _mtc_prev_change = False
+                try:
+                    notifications.add("error",
+                        _("Tool change confirm failed: %s") % e)
+                except Exception:
+                    print("axis: tool change confirm failed: %s" % e,
+                          file=sys.stderr)
 
     def _mtc_poll():
         global _mtc_prev_change

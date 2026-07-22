@@ -188,8 +188,13 @@ static PyObject *py_vertex9(PyObject *s, PyObject *o) {
             &pt1[6], &pt1[7], &pt1[8]))
         return NULL;
 
-    vertex9(pt, pt1, geometry);
-    return Py_BuildValue("(ddd)", &pt[0], &pt[1], &pt[2]);
+    // vertex9(input[9], output[3], geometry) — the classic code passed the
+    // arrays swapped (out-of-bounds read of the 3-array) and handed POINTERS
+    // to Py_BuildValue's "d" slots; both bugs inherited byte-for-byte from
+    // 2.9 emcmodule.cc and never noticed because nothing calls this method
+    // (finding A-13).
+    vertex9(pt1, pt, geometry);
+    return Py_BuildValue("(ddd)", pt[0], pt[1], pt[2]);
 }
 
 static PyObject *py_gui_respect_offsets(PyObject *s, PyObject *o) {

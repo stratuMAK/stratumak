@@ -581,4 +581,19 @@ class MachineUnitsStat:
                 out.append(ac)
             return tuple(out)
 
+        if name == "tool_table":
+            # REST tool entries are mm (server contract); classic tool_table
+            # was machine units. Convert the linear fields — XYZ/UVW offsets
+            # (indices 1-3, 7-9) and diameter (10) by lin, ABC offsets (4-6)
+            # by ang; toolno/front/backangle/orientation pass through.
+            out = []
+            for e in value:
+                f = list(e._fields)
+                for i in (1, 2, 3, 7, 8, 9, 10):
+                    f[i] = f[i] * lin
+                for i in (4, 5, 6):
+                    f[i] = f[i] * ang
+                out.append(_ToolEntry(*f))
+            return out
+
         return value

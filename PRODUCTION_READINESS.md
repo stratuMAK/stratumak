@@ -890,10 +890,10 @@ exercised against real pins rather than around them.
 
 | Module | LOC | Tier | L | R | F | U | RC | FP | S |
 |---|---|---|---|---|---|---|---|---|---|
-| internal/ngcpreview | 1302/0 | 2 | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| internal/ngcpreview (+ gcode.py adapter) | 1302/0 → +tests | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
+| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 | — | ✅ | ◐ | — | — | ☐ | ☐ |
 | internal/pyvcpmodule | 1585/555 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ☐ |
 | lib/python/gmi (classic `linuxcnc` API shim) | 2098/0 (+py contract tests) | 2 | — | ✅ | ✅ | ✅ | — | ✅ | ☐ |
-| AXIS gmi adaptation (diff-scoped) | Δ +1663/−3038 | 2 (diff only) | — | ☐ | ☐ | — | — | ☐ | ☐ |
 | webapps ×5 (`src/webapp/`, excl. classicladder) | 7103/0 (Vue/TS) | 2 (write paths) / 3 (display) | ◐ | ☐ | ☐ | ☐ | — | ☐ | ☐ |
 
 **`internal/pyvcpmodule` — reviewed 2026-07-22 as part of the widget-centric
@@ -976,6 +976,44 @@ gladevcp/qtvcp milestone. Coverage: `tests/gmi-shim` (stub REST/WS servers, 8
 contract cases incl. late-server connect + reconnect delivery) + `poslog_test.go`.
 Gate: py_compile all, new test green first run, go build/vet/gofmt/test green.
 Only human `S` remains.
+
+**`internal/ngcpreview` + `gcode.py` adapter — reviewed + fixed 2026-07-23**
+(`NGCPREVIEW_REVIEW_FINDINGS.md`). Six HIGHs, all fixed: **N-2** the preview
+silently truncated at the first M6/G38.x/M66 (EXECUTE_FINISH treated as a stop
+— every job with a tool change previewed wrong with no error); **N-5** any G4/
+canned-cycle dwell crashed the client replay → empty preview for drilling
+programs; **N-1** gen_preview bypassed path containment entirely (interp fopen
+on any server path); **N-3** the preview interp ran with NO INI (REMAP/
+SUBROUTINE_PATH/PROGRAM_PREFIX defaulted → previews diverged from execution;
+INI accessor plumbed through a new shim API); **N-4** unbounded segments/no
+deadline/unchecked realloc in the CONTROLLER process (classic ran this in the
+GUI) — segment cap + `[DISPLAY]PREVIEW_TIMEOUT` deadline + serialization +
+generated-python-client socket timeouts; **N-6** partial geometry discarded on
+interp error. Deferred: mid-program G5x offset changes need offset events on
+the wire (N-7b); interactive cancel/progress needs a streaming protocol (N-8).
+7 mutation-style Go tests (real interpreter). Only human `S` remains.
+
+**AXIS adaptation — reviewed + fixed 2026-07-23**
+(`AXIS_ADAPTATION_REVIEW_FINDINGS.md`; inherits GP-16/17/18). **A-1/GP-16
+fixed end-to-end:** both Stats wrapped in `machine_units()`, tool_table
+conversion added to the shim view, every command boundary converted to wire-mm
+(jog velocity was 25.4× too slow on inch machines; maxvel, increments, foam),
+backplot draw space fixed to constant mm→inch (metric was already correct —
+the whole break was inch-only, invisible to the metric CI), jog mirror state
+canonicalized to the IDL units. **A-3/GP-18:** the changelog's claimed
+command-refusal wrapper did NOT exist — now it does (`AxisCommand` routes
+refusals to the notification area), plus the `LivePlotter.stop()`
+running-flag typo. **A-2/GP-17:** logger rotation offsets wired from glcanon.
+Also fixed: multi-axis jog dead-man starvation (A-4), CYCLE_TIME-scaled
+refresh reaching the 2 s watchdog (A-5), filtered-load resync clobber (A-7),
+tool-change confirm wedge (A-8), unbounded server message list (A-17, capped
+200 + test), linuxcnctop garbage row, glhelpers py_vertex9 double bug,
+motion_id highlight fallback. **Open for human ruling: A-6** (ghost jog via
+lost KeyRelease under a modal grab vs the deliberate in-app focus behavior)
+and **A-9** (duplicate manual-tool-change dialogs: integrated poller vs
+`loadusr manualtoolchange_ui` in shipped configs + stepconf/pncconf — product
+decision). `F` stays ◐ until those two are ruled; no automated AXIS test
+exists (Tk GUI — `U` n/a), runtests cover the shim/served contracts.
 
 ### Deferred / frozen
 
@@ -1306,6 +1344,7 @@ Not per-module; each needs an owner and a done-definition.
 
 | Date | Event |
 |---|---|
+| 2026-07-23 | **Phase 6: ngcpreview + AXIS adaptation reviewed + fixed** (`NGCPREVIEW_REVIEW_FINDINGS.md`, `AXIS_ADAPTATION_REVIEW_FINDINGS.md`). ngcpreview: 6 HIGHs fixed — preview truncated silently at the first M6 (EXECUTE_FINISH-as-stop), dwells crashed the replay (empty preview for drilling programs), gen_preview bypassed path containment, the preview interp ran with **no INI** (new `interp_shim_set_ini_accessor` + Go bridge), unbounded segments/no deadline in the controller process (cap + `[DISPLAY]PREVIEW_TIMEOUT` + serialization + generated-py-client socket timeouts via gmicompile), partial geometry discarded on error. AXIS: **GP-16 closed** — machine_units() wrap + boundary conversions + constant-mm backplot scale (the 25.4× break was inch-only; jog velocity was also 25.4× too SLOW on inch); **correction: the 2026-07-22 claim that "bin/axis wraps gmi.Command" was false — no wrapper existed until `AxisCommand` landed in this pass** (A-3); GP-17 roffsets wired; plus multi-axis jog dead-man starvation, CYCLE_TIME-scaled refresh hitting the 2 s watchdog, filtered-load resync clobber, tool-change confirm wedge, server message list capped (A-17). Open rulings: A-6 (ghost jog vs focus model), A-9 (duplicate MTC dialogs vs shipped configs). Full runtests owed at the phase checkpoint. |
 | 2026-07-22 | **`lib/python/gmi` shim reviewed + fixed — Phase-6 row `R F U FP` ✅** (`GMI_PYTHON_REVIEW_FINDINGS.md`). Three independent passes (2.9 parity / wire contract / concurrency), 29 adjudicated findings. Five HIGHs fixed: tool-table PUT sent flat fields the server ignores → **200-OK silent zero-entry write** (a tooledit save wipes tool geometry); ErrorChannel/MessageList permanent death on a startup race; **no WS client ever reconnected** (server restart = operator errors silently lost for the session; all four rebuilt on a shared resilient `_watch.py`); **queued jog delivered after a synchronous abort** (jogs synchronous again — classic NML ordering); `stop_logger` never sent + server poslog `pending` unbounded (shim + server cap). Design fix: **Stat is now REST-only with classic frozen-on-poll snapshots** — the live WS cache let multi-attribute predicates mix epochs (the lathe/jog-axis flake class) and was a redundant second data path once poll() became a fresh GET. **Found for the AXIS row: AXIS/glcanon are 25.4× off on inch machines** (raw mm Stat under unchanged classic units math — invisible on metric CI). New `tests/gmi-shim` runtests (stub REST/WS servers, 8 contract cases) + `poslog_test.go`. Full runtests owed at the phase checkpoint. |
 | 2026-07-22 | **Phase-6 scope extended to the hand-written UI client surface** (ruling, backed by a survey of the actual tree). Three rows added: **`lib/python/gmi`** (2047 LOC hand-written; the drop-in `linuxcnc.stat()/command()` shim every ported Python UI and every runtests driver stand on — Tier 2, highest priority: it already produced production-relevant bugs found only in passing, e.g. the no-op `poll()` over the WS cache); the **AXIS adaptation diff** (+1663/−3038 vs merge-base `f5a72ff602` — the NML→gmi backend swap reviewed diff-only against the documented client contracts: 2 s jog refresh, mm boundary, error routing; the untouched Tk/GL bulk is proven 2.9 code, out of scope); and the **5 non-deferred webapps** (7103 LOC Vue/TS, zero automated tests — Tier 2 on write/command paths only: tooledit/emccalib/halshow/halscope, where a wrong value written is machine damage; Tier 3 for display-only rendering; the classicladder webapp defers with its frozen backend). Generated TS + Python clients stay Tier 3 under the closed gmicompile review (incl. G-M4 bigint). New cross-cutting item: **webapp write-path tests** (request-level against a mock server; no browser-e2e for prototype delivery). Rationale: a UI cannot crash the hardened server — the hazard is showing or writing wrong values to an operator — and `ngcpreview` was already in phase while the client half of its contract was not. |
 | 2026-07-22 | **`map[string]T` + `@watch_delta` land in the GMI IDL — pyvcp's `watch_state` is now generated, closing findings-doc D-2 and template condition (a) the day it was written.** The deferral's "large codegen feature" costing was stale: it dated from when REST went through the C dispatch, but after the Go-native handler switch (`9101c9ca4d`) the C ABI is the only place a map has no shape — and a watch never crosses it. So the feature is deliberately **narrow**: string keys only (a JSON object key IS a string; the parser rejects any other key), allowed *only* as the full return type of a watch-only func (`@watch`, no `@method`), no nested maps, no nullable values (a missing key already expresses absence) — every other placement (struct field, param, plain return, dual-purpose watch, map-in-slice) fails the checker with the reason. **The C-provider surface skips such a func entirely** — header typedef/vtable/`GMI_*_CALLBACKS` macro, cgo call wrapper, dispatch func, FuncMeta — with an emitted comment ("JSON-only watch (map return) — no C ABI, Go providers only"), so a C provider that tries to serve it fails at compile, not silently. **`@watch_delta true`** moves pyvcp's hand-set `Delta: true` (per-connection top-level-key diff) into the IDL; rejected on non-`@watch` funcs and on binary `[]u8` watches (no JSON keys to diff), and emitted only when set, so **every existing IDL's generated output is byte-identical** (no other IDL uses maps or `@watch_delta` — grep-verified — and `TestMapWatchDeltaOmittedWhenUnset` pins it). Type mappings: Go `map[string]T` (via the single `goTypeForDispatch`, honoring the four-copies lesson — the TS/Py/client-go copies each got the case too, the client-go one unreachable-but-mapped), TS `Record<string, T>` incl. the bigint reviver walking map values, Python `dict[str, T]` with per-value `from_dict` in the generated WS client. **pyvcp converted:** `pyvcp.gmi` declares `watch_state() -> map[string]WidgetState` `@watch_delta true`; `pyvcpmodule` implements the generated `PyvcpWatchCallbacks` (`WatchState() (map[string]pyvcp.WidgetState, error)`, closed-panel guard intact) and registers via `RegisterPyvcpWatch` — the manual `WatchAPI` block is deleted. Documented in `src/gmi/idl/README.md` (Type System row, "Maps", "`@watch_delta`") and `VCP_MIGRATION.md`. **Verified:** parser tests (map parse, non-string-key rejection), 9 checker cases (7 confinement + 2 `@watch_delta`), `cgen/map_watch_test.go` asserting all four surfaces (Go provider iface + `Delta: true`, C header/dispatch skip *and* ordinary funcs intact, TS/Py types); `go build ./...`, vet, gofmt clean; pyvcpmodule + gmicompile `-race` green; `gomc-lint-full` 0; **`tests/pyvcp` runtests green** — the untouched hand-written Python client passing against the generated registration proves the wire contract byte-compatible. |

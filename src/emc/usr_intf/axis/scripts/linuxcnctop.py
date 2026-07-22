@@ -92,6 +92,7 @@ maps = {
 'kinematics_type': {KINEMATICS_IDENTITY: 'identity', KINEMATICS_FORWARD_ONLY: 'forward_only', 
                     KINEMATICS_INVERSE_ONLY: 'inverse_only', KINEMATICS_BOTH: 'both'},
 'mcodes': show_mcodes, 'gcodes': show_gcodes, 'poll': None, 'tool_table': None,
+'stop': None, 'machine_units': None, 'invalidate_tool_table': None,
 'spindle':show_spindles,
 'axis': None, 'joint': None, 'gettaskfile': None,
 'actual_position': show_position, 
