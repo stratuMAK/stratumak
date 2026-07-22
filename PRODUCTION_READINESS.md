@@ -1079,14 +1079,25 @@ Not per-module; each needs an owner and a done-definition.
     already has. Emit a Go-native `FuncMeta` set and prefer it when the provider is Go. One
     change fixes all ~10 at once, with no IDL churn. Every C-provided module keeps the current
     path unchanged.
-  - **Open questions before doing it:** (1) success responses must be proven byte-identical —
-    both paths end in `json.Marshal(result)`, so this should hold, but the G-1 precedent is to
-    prove it mechanically rather than assert it; (2) validation equivalence (`validateXxx` runs
-    in both paths — confirm no third path skips it); (3) **the client-visible change is the
-    product decision** — `gmi.Command._post` re-raises `HTTPError`, so a refused MDI would go
-    from silently returning to raising in `bin/axis`, `linuxcnctop` and `manualtoolchange_ui`.
-    That is the behaviour we want, but it is a contract change and wants an opt-in or a
-    coordinated update of those three.
+  - **Preconditions verified 2026-07-22** (`internal/apiserver/emccmdtest`,
+    `dispatch_equivalence_test.go` — driven off the metadata, so a function added later is
+    covered without anyone remembering):
+    (1) **Success responses are byte-identical** across both paths — all 35 emccmd functions
+    and both ini functions, the latter covering the shapes that could diverge (a slice of
+    structs, a nullable string present *and* null, a plain string): both produce
+    `[{"value":"XYZ","values":["a","b"]},{"values":null}]`. A negative control proves the
+    comparison is sensitive rather than trivially satisfied.
+    (2) **Validation is identical** — four constraint classes (`@maxlen`, `@max`, `@min` on a
+    signed floor, `@min` on a rate) are refused by exactly the same functions on both paths.
+    (3) **The Go handler set names every REST-dispatchable function**, so nothing is dropped
+    by the move.
+    Nothing blocks the change on correctness grounds.
+  - **Client contract — ruled 2026-07-22 (user): take the clean solution, no compatibility
+    shim.** This release is the first public one and only the lab runs it, so risk and diff
+    size are secondary to getting the contract right once. That means REST reports the failure,
+    `gmi.Command` methods return the rc instead of discarding it (purely additive — they return
+    `None` today), and `bin/axis`, `linuxcnctop` and `manualtoolchange_ui` are updated to the
+    new behaviour rather than shielded from it via an opt-in.
   **Partly settled (test-sync pass, 2026-07-17):** the *test* half is decided —
   `lib/python/gomc_test.py` provides a `Command` whose `wait_complete()` raises on the -1
   rather than returning it, and the suite constructs through it. `gmi.Command` itself was
