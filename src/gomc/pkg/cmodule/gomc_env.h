@@ -12,8 +12,9 @@
 //   New(env, name, argc, argv) → Start() → Stop() → Destroy()
 //
 // The launcher guarantees:
-//   - Strings returned by ini->get() and ini->source_file() remain valid
-//     until Destroy() is called on the module that requested them (arena).
+//   - Strings returned by ini->get(), ini->source_file() and path->resolve()
+//     remain valid until Destroy() is called on the module that requested
+//     them (arena).
 //   - The env pointer and all sub-API pointers remain valid from New()
 //     through Destroy().
 //   - hal and rtapi pointers may be NULL for modules that don't need them.
@@ -29,6 +30,7 @@
 #include "gomc_rtapi.h"
 #include "gomc_log.h"
 #include "gomc_api.h"
+#include "gomc_path.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +53,11 @@ typedef struct {
     const gomc_hal_t   *hal;    // NULL if module has no HAL component
     const gomc_rtapi_t *rtapi;  // NULL if module needs no RT services
     const gomc_api_t   *api;    // NULL if module does not use dynamic APIs
+    // Configuration path resolution.  Always non-NULL.  Any path that comes
+    // from configuration (an argument, a filename inside a config file, an INI
+    // value) must go through path->resolve() before it is opened — see
+    // gomc_path.h.
+    const gomc_path_t  *path;
 } cmod_env_t;
 
 // ---------------------------------------------------------------------------

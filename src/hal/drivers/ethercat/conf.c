@@ -593,6 +593,23 @@ int New(const cmod_env_t *env, const char *name,
   *(m->conf_hal_data->master_count) = 0;
   *(m->conf_hal_data->slave_count) = 0;
 
+  // Resolve the config= value.  It is a configuration path, so it is a
+  // server-side path: resolved against the config directory / HAL library
+  // directories and required to stay inside them (see gomc_path.h).  A runtime
+  // "load" arrives over REST, where the client's working directory has no
+  // meaning at all.
+  {
+    const char *reserr = NULL;
+    const char *resolved = m->env->path->resolve(m->env->path->ctx, filename,
+                                                 GOMC_PATH_READ, &reserr);
+    if (resolved == NULL) {
+      CONF_ERR(m, "config file %s: %s", filename,
+               reserr ? reserr : "cannot be resolved");
+      goto fail1;
+    }
+    filename = resolved;
+  }
+
   // open file
   file = fopen(filename, "r");
   if (file == NULL) {

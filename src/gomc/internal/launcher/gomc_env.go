@@ -40,6 +40,7 @@ import "C"
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"runtime/cgo"
 	"sync"
@@ -48,6 +49,7 @@ import (
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 )
 
@@ -441,4 +443,57 @@ func gomc_watch_push_cb(ctx unsafe.Pointer, apiName *C.char, instanceName *C.cha
 		return -1
 	}
 	return 0
+}
+
+// --- Path resolution callback (exported to C) ---
+
+// pathMode maps the C gomc_path_mode_t values onto pathres.Mode.  An unknown
+// value is rejected rather than silently treated as a read.
+func pathMode(mode C.int) (pathres.Mode, bool) {
+	switch mode {
+	case 0:
+		return pathres.Read, true
+	case 1:
+		return pathres.Write, true
+	case 2:
+		return pathres.Dir, true
+	}
+	return 0, false
+}
+
+// resolveConfigPath is the Go half of env->path->resolve().  It is split out
+// so it can be unit tested; cgo is not allowed in _test.go.
+//
+// Returned strings are arena-allocated by the caller, so they live until the
+// module is destroyed, matching the gomc_path.h contract.
+func (l *Launcher) resolveConfigPath(name string, mode C.int) (string, error) {
+	m, ok := pathMode(mode)
+	if !ok {
+		return "", fmt.Errorf("path resolver: unknown access mode %d", int(mode))
+	}
+	return pathres.Resolve(name, m)
+}
+
+//export gomc_path_resolve
+func gomc_path_resolve(ctx C.uintptr_t, name *C.char, mode C.int, errOut **C.char) *C.char {
+	l := cgo.Handle(ctx).Value().(*Launcher)
+
+	resolved, err := l.resolveConfigPath(C.GoString(name), mode)
+	if err != nil {
+		// The caller logs with its own component name; hand back the reason so
+		// "not found" and "outside the allowed directories" stay
+		// distinguishable in the module's message.
+		if errOut != nil {
+			cs := C.CString(err.Error())
+			l.arenaAppend(unsafe.Pointer(cs))
+			*errOut = cs
+		}
+		return nil
+	}
+	if errOut != nil {
+		*errOut = nil
+	}
+	cs := C.CString(resolved)
+	l.arenaAppend(unsafe.Pointer(cs))
+	return cs
 }

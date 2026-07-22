@@ -172,6 +172,23 @@ int parseIcmds(lcec_conf_module *mod, LCEC_CONF_SLAVE_T *slave, LCEC_CONF_OUTBUF
   memset(&state, 0, sizeof(state));
   state.xml.mod = mod;
 
+  // The initCmds filename comes from an attribute *inside* the XML config, one
+  // level below the config= argument, so it needs the same treatment: resolved
+  // server-side and required to stay inside the config / HAL library
+  // directories (see gomc_path.h).  Resolving where the file is opened is what
+  // makes nested paths like this one safe.
+  {
+    const char *reserr = NULL;
+    const char *resolved = mod->env->path->resolve(mod->env->path->ctx, filename,
+                                                   GOMC_PATH_READ, &reserr);
+    if (resolved == NULL) {
+      xml_log_error_fmt((LCEC_CONF_XML_INST_T *)&state, "initCmds file %s: %s",
+                        filename, reserr ? reserr : "cannot be resolved");
+      goto fail1;
+    }
+    filename = resolved;
+  }
+
   // open file
   file = fopen(filename, "r");
   if (file == NULL) {

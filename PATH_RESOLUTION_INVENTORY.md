@@ -118,23 +118,45 @@ These take an arbitrary string straight off the wire.
 - **`ethercat.gmi:483/489 foe_read/foe_write file_name`** — an EtherCAT FoE
   device-side filename, not a host path.
 
-## Open rulings (block implementation)
+## Rulings (2026-07-22) — implemented
 
-1. Absolute paths in module args / config files — reject, allow-if-contained, or
-   allow anywhere? (Field ethercat configs may use absolute ESI paths today.)
-2. Containment roots — configDir + HALLIB_PATH, or configDir only? This also
-   decides **HF-1** (`LIB:` currently searches the whole `HALLIB_PATH`
-   incl. cwd `.`).
-3. Enforcement — hard-fail on an uncontained path immediately, or warn-then-
-   enforce for a release.
+1. Absolute paths: **allow if contained**.
+2. Containment roots: **configDir + HALLIB_PATH, without `.`** (this also rules
+   **HF-1** — `.` is no longer a search root; the base covers the working
+   directory).
+3. Enforcement: **hard fail**, no warn-then-enforce period.
 
-## Mechanism (agreed)
+## Status
 
-- Export the `halfile` resolver as the single implementation; add containment
-  (`EvalSymlinks` + root check) and a read/write flag.
-- Add `env->path->resolve(...)` to `cmod_env_t` (`pkg/cmodule/gomc_env.h`) so C
-  modules use the same rule. Appending a field is safe: all cmods build in-tree,
-  and out-of-tree modules ignoring a trailing field keep working.
-- Go modules call the resolver directly, replacing six hand-rolled
-  "join against the INI dir" copies.
-- Document the cwd = config-dir invariant as the default base.
+**Mechanism — DONE.** `internal/pathres` holds the single rule (`Read`/`Write`/
+`Dir` modes, `EvalSymlinks` containment, `SetDefault` published by the launcher
+after its chdir). `halfile.resolvePath` is a thin wrapper over it.
+`cmd/halcmd`'s `resolveArgPath` is deleted — arguments go over the wire
+verbatim. `pkg/cmodule/gomc_path.h` adds `env->path->resolve(ctx, name, mode,
+&err)`; `cmod_env_t` gained a trailing `path` field.
+
+Two rules that fell out of the implementation:
+- A **relative write target resolves under the base only**, never into a library
+  directory — otherwise `outfile=core.hal` would find and overwrite the system
+  `core.hal`.
+- **Non-regular files are refused in both directions.** `loadModuleNamed` holds
+  `modMu` across a whole load, so opening a FIFO would wedge every load, unload
+  and shutdown.
+
+**Category A/B Go sites — DONE** (A8–A18, B2–B4). Six hand-rolled "join against
+the INI dir" copies collapsed into one call.
+
+**Category A/B C sites — DONE:** A1/A2 (ethercat `config=` **and** the nested
+`<initCmds filename=>` — resolved at the `fopen`, which is what makes nesting
+safe), A3/B1 (filestream `infile=`/`outfile=`), A4 (`hm2_modbus mbccbs=` — its
+"path is not absolute" warning is gone, relative paths are first class now),
+A5 (`mb2hal config=`), A6 (`xhc-hb04 I=`).
+
+**Category C — partly open.** C5 (ngcpreview) uses the shared resolver with its
+program directories as extra roots (`Resolver.WithRoots`), replacing its own
+`isAllowedPath`. **C1 `program_open` has no containment at all** and still
+needs a ruling: G-code is user data, not configuration, so the root set is a
+policy decision (`PROGRAM_PREFIX` + `SUBROUTINE_PATH` + share, as ngcpreview
+already ships, or wider). C2/C3/C4/C6 likewise open.
+
+**Category D** is unchanged by design — those sites must never be resolved.

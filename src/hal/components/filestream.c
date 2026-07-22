@@ -361,7 +361,17 @@ int New(const cmod_env_t *env, const char *name,
     if (m->n_stream) {
         m->replay = calloc((size_t)depth * m->n_stream, sizeof(hal_stream_val_t));
         if (!m->replay) { retval = -ENOMEM; goto fail_early; }
-        m->infp = fopen(infile, "r");
+        // infile= is a configuration path: resolved server-side and required
+        // to stay inside the config / HAL library directories (gomc_path.h).
+        const char *inerr = NULL;
+        const char *inpath = env->path->resolve(env->path->ctx, infile,
+                                                GOMC_PATH_READ, &inerr);
+        if (!inpath) {
+            gomc_log_errorf(env->log, name, "infile '%s': %s", infile,
+                            inerr ? inerr : "cannot be resolved");
+            retval = -ENOENT; goto fail_early;
+        }
+        m->infp = fopen(inpath, "r");
         if (!m->infp) {
             gomc_log_errorf(env->log, name, "cannot open infile '%s'", infile);
             retval = -ENOENT; goto fail_early;
@@ -371,7 +381,18 @@ int New(const cmod_env_t *env, const char *name,
         m->capture = calloc((size_t)depth * m->n_sample, sizeof(hal_stream_val_t));
         m->cap_seq = calloc((size_t)depth, sizeof(int32_t));
         if (!m->capture || !m->cap_seq) { retval = -ENOMEM; goto fail_early; }
-        m->outfp = fopen(outfile, "w");
+        // outfile= is a *write* target: a relative name resolves under the
+        // config directory only, never into a HAL library directory, so it
+        // cannot overwrite a system file (gomc_path.h).
+        const char *outerr = NULL;
+        const char *outpath = env->path->resolve(env->path->ctx, outfile,
+                                                 GOMC_PATH_WRITE, &outerr);
+        if (!outpath) {
+            gomc_log_errorf(env->log, name, "outfile '%s': %s", outfile,
+                            outerr ? outerr : "cannot be resolved");
+            retval = -ENOENT; goto fail_early;
+        }
+        m->outfp = fopen(outpath, "w");
         if (!m->outfp) {
             gomc_log_errorf(env->log, name, "cannot open outfile '%s'", outfile);
             retval = -ENOENT; goto fail_early;

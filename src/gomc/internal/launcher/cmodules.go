@@ -171,6 +171,10 @@ extern char* gomc_ini_get(uintptr_t ctx, char *section, char *key);
 extern char** gomc_ini_get_all(uintptr_t ctx, char *section, char *key, int *out_count);
 extern char* gomc_ini_source_file(uintptr_t ctx);
 
+// --- Path resolution (forward-declared, implemented in Go) ---
+
+extern char* gomc_path_resolve(uintptr_t ctx, char *name, int mode, char **err_out);
+
 // --- Log subscribe/unsubscribe (forward-declared, implemented in Go) ---
 
 extern gomc_log_sub_t* gomc_log_subscribe_cb(uintptr_t ctx, gomc_log_level_t min_level);
@@ -190,6 +194,11 @@ static void gomc_ini_init(gomc_ini_t *ini, void *ctx) {
     ini->get         = (const char*(*)(void*,const char*,const char*))gomc_ini_get;
     ini->get_all     = (const char**(*)(void*,const char*,const char*,int*))gomc_ini_get_all;
     ini->source_file = (const char*(*)(void*))gomc_ini_source_file;
+}
+
+static void gomc_path_init(gomc_path_t *path, void *ctx) {
+    path->ctx     = ctx;
+    path->resolve = (const char*(*)(void*,const char*,gomc_path_mode_t,const char**))gomc_path_resolve;
 }
 
 static void gomc_hal_init_struct(gomc_hal_t *hal) {
@@ -237,17 +246,19 @@ static cmod_env_t *gomc_env_create(gomc_log_ring_t *ring, uintptr_t log_ctx,
 
     gomc_log_t *log = (gomc_log_t *)calloc(1, sizeof(gomc_log_t));
     gomc_ini_t *ini = (gomc_ini_t *)calloc(1, sizeof(gomc_ini_t));
+    gomc_path_t *path = (gomc_path_t *)calloc(1, sizeof(gomc_path_t));
     gomc_hal_t *hal = (gomc_hal_t *)calloc(1, sizeof(gomc_hal_t));
     gomc_rtapi_t *rtapi = (gomc_rtapi_t *)calloc(1, sizeof(gomc_rtapi_t));
     gomc_api_t *api = (gomc_api_t *)calloc(1, sizeof(gomc_api_t));
 
-    if (!log || !ini || !hal || !rtapi || !api) {
-        free(log); free(ini); free(hal); free(rtapi); free(api); free(env);
+    if (!log || !ini || !path || !hal || !rtapi || !api) {
+        free(log); free(ini); free(path); free(hal); free(rtapi); free(api); free(env);
         return NULL;
     }
 
     gomc_log_init(log, ring, (void *)log_ctx);
     gomc_ini_init(ini, (void *)ini_ctx);
+    gomc_path_init(path, (void *)ini_ctx);
     gomc_hal_init_struct(hal);
     gomc_rtapi_init_struct(rtapi);
     gomc_api_init_struct(api);
@@ -255,6 +266,7 @@ static cmod_env_t *gomc_env_create(gomc_log_ring_t *ring, uintptr_t log_ctx,
     env->dl_handle = dl_handle;
     env->log       = log;
     env->ini       = ini;
+    env->path      = path;
     env->hal       = hal;
     env->rtapi     = rtapi;
     env->api       = api;
@@ -266,6 +278,7 @@ static void gomc_env_destroy(cmod_env_t *env) {
     if (!env) return;
     free((void *)env->log);
     free((void *)env->ini);
+    free((void *)env->path);
     free((void *)env->hal);
     free((void *)env->rtapi);
     free((void *)env->api);
