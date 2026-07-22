@@ -173,7 +173,8 @@ func (e *emccalib) SetPin(section, key string, value float64) (bool, error) {
 	t := e.lookup(section, key)
 	if t == nil {
 		e.mu.Unlock()
-		return false, fmt.Errorf("emccalib: %s/%s not in tunable list", section, key)
+		return false, apiserver.Faultf(apiserver.FaultNotFound,
+			"emccalib: %s/%s not in tunable list", section, key)
 	}
 	pin := t.pin
 	e.mu.Unlock()
@@ -244,7 +245,8 @@ func (e *emccalib) Revert(section, key string) (bool, error) {
 	t := e.lookup(section, key)
 	if t == nil {
 		e.mu.Unlock()
-		return false, fmt.Errorf("emccalib: %s/%s not in tunable list", section, key)
+		return false, apiserver.Faultf(apiserver.FaultNotFound,
+			"emccalib: %s/%s not in tunable list", section, key)
 	}
 	pin, iniValue := t.pin, t.iniValue
 	e.mu.Unlock()

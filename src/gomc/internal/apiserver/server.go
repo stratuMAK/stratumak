@@ -457,7 +457,7 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 		switch f.Kind {
 		case FaultState:
 			code = http.StatusConflict
-		case FaultNotReady:
+		case FaultNotReady, FaultCapacity:
 			code = http.StatusServiceUnavailable
 		case FaultNotFound:
 			code = http.StatusNotFound

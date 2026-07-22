@@ -32,6 +32,13 @@ const (
 
 	// FaultNotFound — the named thing does not exist. HTTP 404.
 	FaultNotFound
+
+	// FaultCapacity — a resource limit is reached. HTTP 503. Distinct from
+	// FaultNotReady, which is about lifecycle: the module here is running and
+	// healthy, it is simply full. Both render as 503 because both mean "not
+	// now"; keeping them apart stops the name lying in logs and lets them
+	// diverge later if one wants Retry-After.
+	FaultCapacity
 )
 
 // Fault wraps an error with its kind. Use errors.As to recover it; the wrapped

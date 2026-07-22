@@ -118,6 +118,7 @@ from what *kind* of failure it was, which the provider says with
 | `FaultState` | 409 Conflict | the machine's current state forbids it ("must be in MDI mode"). Nothing happened; re-sending unchanged fails the same way. |
 | `FaultNotReady` | 503 Service Unavailable | the module is not started, or was stopped. The same request may succeed shortly. |
 | `FaultNotFound` | 404 | the named thing does not exist. |
+| `FaultCapacity` | 503 Service Unavailable | a resource limit is reached. Distinct from `FaultNotReady`: the module is running and healthy, it is simply full. |
 | `FaultInternal` (zero value) | 500 | the controller itself failed. |
 
 An unclassified error keeps the conservative 500, and a bare or wrapped errno

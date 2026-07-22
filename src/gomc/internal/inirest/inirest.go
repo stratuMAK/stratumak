@@ -19,7 +19,9 @@ type iniImpl struct {
 
 func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error) {
 	if im.ini == nil {
-		return nil, fmt.Errorf("INI file not loaded")
+		// Permanent for this process (an INI-less launcher, halrun mode), so
+		// this is a state conflict rather than a 503 inviting a retry.
+		return nil, apiserver.Faultf(apiserver.FaultState, "INI file not loaded")
 	}
 
 	results := make([]ini.IniQueryResult, len(items))
@@ -53,7 +55,7 @@ func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error)
 
 func (im *iniImpl) GetParameterFile(namespace *string) (string, error) {
 	if im.ini == nil {
-		return "", fmt.Errorf("INI file not loaded")
+		return "", apiserver.Faultf(apiserver.FaultState, "INI file not loaded")
 	}
 	ini := im.ini
 	if namespace != nil && *namespace != "" {
@@ -61,18 +63,22 @@ func (im *iniImpl) GetParameterFile(namespace *string) (string, error) {
 	}
 	rel := ini.Get("RS274NGC", "PARAMETER_FILE")
 	if rel == "" {
-		return "", fmt.Errorf("[RS274NGC]PARAMETER_FILE not set")
+		return "", apiserver.Faultf(apiserver.FaultNotFound, "[RS274NGC]PARAMETER_FILE not set")
 	}
 	// The file's contents are served over REST, so the path goes through the
 	// shared resolver and its containment check (internal/pathres) — an INI
 	// value must not be able to name an arbitrary file.
+	// Unset, unresolvable and unreadable are one answer to a client — there is
+	// no parameter file — and none of them is a controller failure. The reason
+	// (including a containment refusal) travels in the message, which is what
+	// an operator debugging their INI needs.
 	path, err := pathres.Resolve(rel, pathres.Read)
 	if err != nil {
-		return "", fmt.Errorf("paramfile: %w", err)
+		return "", apiserver.NewFault(apiserver.FaultNotFound, fmt.Errorf("paramfile: %w", err))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("paramfile: %w", err)
+		return "", apiserver.NewFault(apiserver.FaultNotFound, fmt.Errorf("paramfile: %w", err))
 	}
 	return string(data), nil
 }

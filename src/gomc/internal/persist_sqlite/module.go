@@ -147,7 +147,9 @@ func (m *module) countOpen() int {
 func (m *module) getHandle(handle int32) (*nsHandle, error) {
 	idx := int(handle)
 	if idx < 0 || idx >= len(m.handles) || m.handles[idx].db == nil {
-		return nil, fmt.Errorf("invalid handle: %d", handle)
+		// The handle names a namespace that was never opened, or was released.
+		// That is a missing resource, not a broken controller.
+		return nil, apiserver.Faultf(apiserver.FaultNotFound, "invalid handle: %d", handle)
 	}
 	return &m.handles[idx], nil
 }
@@ -170,7 +172,10 @@ func (m *module) Open(namespace string) (persist.OpenResult, error) {
 	}
 
 	if m.countOpen() >= maxNamespaces {
-		return persist.OpenResult{}, fmt.Errorf("persist_sqlite: too many open namespaces (limit %d)", maxNamespaces)
+		// Full, not broken: the module is healthy and a delete_all frees a slot,
+		// so this is 503 rather than a 500 that reads as a controller fault.
+		return persist.OpenResult{}, apiserver.Faultf(apiserver.FaultCapacity,
+			"persist_sqlite: too many open namespaces (limit %d)", maxNamespaces)
 	}
 
 	// Open new DB file.
