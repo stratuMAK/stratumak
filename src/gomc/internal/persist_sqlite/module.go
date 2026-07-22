@@ -99,9 +99,28 @@ func (m *module) Destroy() {
 
 // --- Validation ---
 
+const (
+	// maxNameLen bounds a namespace name. It becomes a filename, so the real
+	// ceiling is the filesystem's NAME_MAX (255 on ext4); staying well under it
+	// turns an obscure ENAMETOOLONG from deep inside sqlite into an honest
+	// rejection at the door.
+	maxNameLen = 64
+
+	// maxNamespaces bounds how many namespaces one instance will hold open.
+	//
+	// open is REST-reachable (POST /{namespace}) and every distinct name that
+	// reaches it creates a .db file plus its -wal/-shm sidecars, an *sql.DB
+	// with its own connection pool, and a permanent slot in m.handles. Without
+	// a ceiling a caller on the (unauthenticated) loopback surface can walk the
+	// name space and exhaust file descriptors and disk. Real configs use a
+	// handful of namespaces — one per consumer per instance, see
+	// configs/sim/axis/multiinst — so this is far above any legitimate use.
+	maxNamespaces = 256
+)
+
 // validName checks that a namespace name is safe for use as a filename.
 func validName(name string) bool {
-	if name == "" {
+	if name == "" || len(name) > maxNameLen {
 		return false
 	}
 	for _, c := range name {
@@ -110,6 +129,17 @@ func validName(name string) bool {
 		}
 	}
 	return true
+}
+
+// countOpen reports how many handle slots are live. Caller must hold m.mu.
+func (m *module) countOpen() int {
+	n := 0
+	for i := range m.handles {
+		if m.handles[i].db != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // --- Handle management ---
@@ -139,6 +169,10 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		}
 	}
 
+	if m.countOpen() >= maxNamespaces {
+		return nil, fmt.Errorf("persist_sqlite: too many open namespaces (limit %d)", maxNamespaces)
+	}
+
 	// Open new DB file.
 	dbPath := filepath.Join(m.dbDir, namespace+".db")
 	db, err := sql.Open("sqlite", dbPath)
@@ -162,14 +196,36 @@ func (m *module) Open(namespace string) (*persist.OpenResult, error) {
 		return nil, fmt.Errorf("create table in %s: %w", dbPath, err)
 	}
 
-	handle := int32(len(m.handles))
-	m.handles = append(m.handles, nsHandle{namespace: namespace, db: db})
+	// Reuse a slot vacated by DeleteAll before growing the slice; otherwise a
+	// delete_all/open cycle (both REST-reachable) grows m.handles without
+	// bound even though the number of live namespaces never rises.
+	handle := int32(-1)
+	for i := range m.handles {
+		if m.handles[i].db == nil {
+			handle = int32(i)
+			m.handles[i] = nsHandle{namespace: namespace, db: db}
+			break
+		}
+	}
+	if handle < 0 {
+		handle = int32(len(m.handles))
+		m.handles = append(m.handles, nsHandle{namespace: namespace, db: db})
+	}
 	m.logger.Debug("persist_sqlite: opened namespace", "namespace", namespace, "handle", handle)
 	return &persist.OpenResult{Handle: handle}, nil
 }
 
+// Close is deliberately a no-op; every handle is closed at Destroy().
+//
+// Handles are *shared*: Open returns the same handle to every caller asking
+// for the same namespace, so honouring one consumer's Close would pull the
+// database out from under the others (milltask, tooltable and ngcpreview can
+// all hold the same namespace — see configs/sim/axis/multiinst). The API is
+// also not REST-reachable — persist.gmi gives close no @method/@path, so only
+// in-process GMI consumers can call it, and none of them do. Turning it into a
+// real close would need refcounting, which buys nothing while the module's
+// lifetime is the process's.
 func (m *module) Close(handle int32) {
-	// No-op: all handles are closed at Destroy().
 }
 
 func (m *module) GetNamespaces() ([]string, error) {
