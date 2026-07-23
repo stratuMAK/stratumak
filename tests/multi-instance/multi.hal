@@ -1,0 +1,92 @@
+# Two complete, independent task stacks on one server.
+#
+# This is the shape no other test in the suite had, and its absence is why a
+# whole class of bug shipped: every client-side name that is correct only
+# because there is exactly one of everything ("tooltable", "spindle.0.forward")
+# works perfectly in a single-instance test and fails here.
+#
+# The preview instances are deliberately NOT named "<task>-preview": that is the
+# convention a client once DERIVED the name from, and a config that follows it
+# cannot tell a correct lookup from the old guess.
+#
+# The two sides are deliberately NOT symmetric. Each wires a different set of
+# capability pins, so a client that asks the wrong instance — or that probes
+# unqualified pin names and matches nothing — produces a different answer than
+# a correct one, rather than accidentally agreeing.
+
+# ─── left: spindle forward + speed, mist coolant, no limit switches ───
+
+load persist_sqlite <left.persistence> dbpath=db/left
+load tpmod <left.tp> mot_instance=left.mot
+load homemod <left.home.0,left.home.1,left.home.2> mot_instance=left.mot
+load trivkins <left.kins> coordinates=XYZ
+load motmod <left.mot> num_joints=3 num_spindles=1 kins_instance=left.kins tp_instance=left.tp home_instance=left.home
+load io <left.io> tooltable_instance=left.tt
+load tooltable <left.tt> persist_instance=left.persistence
+load milltask <left.task> motion_instance=left.mot iocontrol_instance=left.io tooltable_instance=left.tt persist_instance=left.persistence preview_instance=left.preview error_filter=^left\.
+load ngcpreview <left.preview> namespace=left.task tooltable_instance=left.tt persist_instance=left.persistence
+
+# ─── right: spindle reverse only, flood coolant, a driven limit switch ───
+
+load persist_sqlite <right.persistence> dbpath=db/right
+load tpmod <right.tp> mot_instance=right.mot
+load homemod <right.home.0,right.home.1,right.home.2> mot_instance=right.mot
+load trivkins <right.kins> coordinates=XYZ
+load motmod <right.mot> num_joints=3 num_spindles=1 kins_instance=right.kins tp_instance=right.tp home_instance=right.home
+load io <right.io> tooltable_instance=right.tt
+load tooltable <right.tt> persist_instance=right.persistence
+load milltask <right.task> motion_instance=right.mot iocontrol_instance=right.io tooltable_instance=right.tt persist_instance=right.persistence preview_instance=right.preview error_filter=^right\.
+load ngcpreview <right.preview> namespace=right.task tooltable_instance=right.tt persist_instance=right.persistence
+
+# A bit output per side, so an INPUT pin can be given a writer: "is a limit
+# switch wired" is a question about the signal driving the input, and setp does
+# not create a signal.
+load or2 <left.src,right.src>
+
+# ─── threads ───
+
+newthread servo-thread [EMCMOT]SERVO_PERIOD
+
+addf left.mot.motion-command-handler servo-thread
+addf right.mot.motion-command-handler servo-thread
+addf left.mot.motion-controller servo-thread
+addf right.mot.motion-controller servo-thread
+addf left.src servo-thread
+addf right.src servo-thread
+
+# ─── left wiring ───
+
+net left.estop-loop left.io.user-enable-out left.io.emc-enable-in
+
+net left.x-pos left.mot.joint.0.motor-pos-cmd => left.mot.joint.0.motor-pos-fb
+net left.y-pos left.mot.joint.1.motor-pos-cmd => left.mot.joint.1.motor-pos-fb
+net left.z-pos left.mot.joint.2.motor-pos-cmd => left.mot.joint.2.motor-pos-fb
+
+setp left.home.joint.0.home-sw-in 1
+setp left.home.joint.1.home-sw-in 1
+setp left.home.joint.2.home-sw-in 1
+setp left.mot.spindle.0.at-speed 1
+
+# Capabilities: forward + speed + mist. Netting an output pin is what gives its
+# signal a writer, which is the question "is this wired" reduces to.
+net left.spindle-fwd left.mot.spindle.0.forward
+net left.spindle-speed left.mot.spindle.0.speed-out
+net left.mist left.io.coolant-mist
+
+# ─── right wiring ───
+
+net right.estop-loop right.io.user-enable-out right.io.emc-enable-in
+
+net right.x-pos right.mot.joint.0.motor-pos-cmd => right.mot.joint.0.motor-pos-fb
+net right.y-pos right.mot.joint.1.motor-pos-cmd => right.mot.joint.1.motor-pos-fb
+net right.z-pos right.mot.joint.2.motor-pos-cmd => right.mot.joint.2.motor-pos-fb
+
+setp right.home.joint.0.home-sw-in 1
+setp right.home.joint.1.home-sw-in 1
+setp right.home.joint.2.home-sw-in 1
+setp right.mot.spindle.0.at-speed 1
+
+# Capabilities: reverse only (no forward, no speed), flood, one limit switch.
+net right.spindle-rev right.mot.spindle.0.reverse
+net right.flood right.io.coolant-flood
+net right.limsw right.src.out => right.mot.joint.1.neg-lim-sw-in

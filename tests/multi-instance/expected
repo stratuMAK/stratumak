@@ -1,0 +1,9 @@
+PASS config-is-a-reproducer
+PASS peers-left.task
+PASS caps-left.task
+PASS peers-right.task
+PASS caps-right.task
+PASS tool-table-left.task
+PASS tool-table-right.task
+PASS tool-tables-separate
+ALL OK
