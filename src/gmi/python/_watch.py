@@ -65,6 +65,7 @@ class WatchClient:
         self._announced_down = False
         self._next_id = 1
         self._thread = None
+        self._task = None  # the _main task, so stop() can cancel it
 
     def start(self, wait: float = 5.0):
         """Start the background thread; block up to ``wait`` for the first
@@ -89,6 +90,7 @@ class WatchClient:
             self._loop.close()
 
     async def _main(self):
+        self._task = asyncio.current_task()
         backoff = 0.25
         while not self._stopping:
             try:
@@ -127,7 +129,14 @@ class WatchClient:
                         pass
             if self._stopping:
                 return
-            await asyncio.sleep(backoff)
+            # The only await outside the try/except above: stop() cancels this
+            # task to wake it out of the backoff, so handle the cancellation
+            # here too rather than letting it escape as an unhandled-in-thread
+            # traceback.
+            try:
+                await asyncio.sleep(backoff)
+            except asyncio.CancelledError:
+                return
             backoff = min(backoff * 2, self._RECONNECT_MAX_DELAY)
 
     async def _recv_loop(self):
@@ -188,18 +197,30 @@ class WatchClient:
 
     def stop(self, final_call: Optional[tuple] = None, timeout: float = 2.0):
         """Stop the client. ``final_call`` = (api, instance, func, args) is
-        delivered best-effort before the socket closes (e.g. stop_logger)."""
+        delivered best-effort before the socket closes (e.g. stop_logger).
+
+        The thread join is the authoritative barrier, not the scheduled
+        coroutine's future: ``_shutdown`` closes the socket, which ends the recv
+        loop and returns ``_main``, which stops (and closes) the event loop. A
+        stopped loop can no longer run the cross-thread callback that resolves
+        the ``run_coroutine_threadsafe`` future, so waiting on ``fut.result``
+        blocked for the full ``timeout`` on every clean shutdown — the ~2 s
+        per-client stall that made AXIS take ~5 s to exit. We fire _shutdown and
+        wait on the thread instead, which the loop's own exit drives promptly.
+        """
         self._stopping = True
         loop = self._loop
         if loop is not None and loop.is_running():
-            fut = asyncio.run_coroutine_threadsafe(
-                self._shutdown(final_call), loop)
+            # Fire-and-forget: scheduling is thread-safe; we deliberately do not
+            # wait on the returned future (see docstring). _shutdown cancels
+            # _main, so a client parked in reconnect backoff also wakes at once.
             try:
-                fut.result(timeout)
-            except Exception:
-                pass
+                asyncio.run_coroutine_threadsafe(
+                    self._shutdown(final_call), loop)
+            except RuntimeError:
+                pass  # loop stopped between the check and the schedule
         if self._thread is not None:
-            self._thread.join(timeout=2)
+            self._thread.join(timeout)
 
     async def _shutdown(self, final_call):
         if final_call is not None and self._ws is not None:
@@ -214,3 +235,9 @@ class WatchClient:
                 await ws.close()
             except Exception:
                 pass
+        # Wake _main out of a recv or a backoff sleep so the thread exits now
+        # rather than after the current wait; its CancelledError handler returns
+        # cleanly.
+        task = self._task
+        if task is not None:
+            task.cancel()
