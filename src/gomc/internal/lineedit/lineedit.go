@@ -24,7 +24,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"unicode"
 	"unicode/utf8"
 )
@@ -150,6 +152,33 @@ func (e *Editor) ReadLine(prompt string) (string, error) {
 		return "", err
 	}
 	defer restore()
+
+	// An external kill must not leave the operator's terminal raw: process
+	// death does not run deferred restores, and with ECHO/ICANON/OPOST off the
+	// shell that regains the tty is unusable (no echo, staircase output). Note
+	// this covers external signals only — the keyboard cannot raise them here,
+	// since raw mode clears ISIG and Ctrl-C arrives as a byte the editor
+	// handles itself. After restoring, the signal is re-raised with its default
+	// disposition so the exit status still says "killed by SIGTERM/SIGHUP".
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	sigDone := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigCh:
+			restore()
+			signal.Reset(sig)
+			if s, ok := sig.(syscall.Signal); ok {
+				_ = syscall.Kill(syscall.Getpid(), s)
+			}
+			os.Exit(1)
+		case <-sigDone:
+		}
+	}()
+	defer func() {
+		signal.Stop(sigCh)
+		close(sigDone)
+	}()
 
 	e.prompt = prompt
 	e.buf = e.buf[:0]

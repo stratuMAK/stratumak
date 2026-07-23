@@ -46,6 +46,30 @@ func checkInputLine(line string) error {
 	return nil
 }
 
+// commandPart returns line up to an unquoted '#', using the same quoting rule
+// as parseCommandLine. The comment is never parsed into a command, so input
+// validation must not reject bytes there: legacy HAL files carry Latin-1
+// comments ("# Größe" saved as 0xF6), and refusing the whole line for a byte
+// the parser was going to discard would break files that ran fine before.
+func commandPart(line string) string {
+	inQuote := false
+	quoteChar := rune(0)
+	for i, r := range line {
+		switch {
+		case r == '"' || r == '\'':
+			if !inQuote {
+				inQuote = true
+				quoteChar = r
+			} else if r == quoteChar {
+				inQuote = false
+			}
+		case r == '#' && !inQuote:
+			return line[:i]
+		}
+	}
+	return line
+}
+
 // checkHALName validates a name before it is sent to the server. kind names the
 // thing being created for the message ("thread", "signal", …).
 func checkHALName(kind, name string) error {

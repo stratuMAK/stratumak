@@ -94,3 +94,26 @@ func TestParseIntArg(t *testing.T) {
 		t.Errorf("range error = %v; want an out-of-range message", err)
 	}
 }
+
+// A trailing comment is never parsed into a command, so validation must not
+// reject bytes there: legacy HAL files carry Latin-1 comment text that ran
+// fine before input validation existed. An unquoted '#' ends the command part
+// under the same quoting rule parseCommandLine uses.
+func TestCommandPart(t *testing.T) {
+	latin1 := "setp foo.gain 2 # Gr\xf6\xdfe" // "Größe" saved as Latin-1
+	if got := commandPart(latin1); got != "setp foo.gain 2 " {
+		t.Errorf("commandPart(%q) = %q", latin1, got)
+	}
+	if err := checkInputLine(commandPart(latin1)); err != nil {
+		t.Errorf("legacy comment bytes rejected: %v", err)
+	}
+	// A quoted '#' stays part of the command — and its bytes stay validated.
+	quoted := `setp foo.note "a # b"`
+	if got := commandPart(quoted); got != quoted {
+		t.Errorf("quoted # truncated: %q", got)
+	}
+	// Garbage in the command part itself is still refused.
+	if err := checkInputLine(commandPart("setp foo.gain 2\xf6 # ok")); err == nil {
+		t.Error("non-UTF-8 byte in the command part accepted")
+	}
+}

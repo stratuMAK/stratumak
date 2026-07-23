@@ -42,12 +42,11 @@ var (
 
 func main() {
 	// Get REST URL from environment or use default
-	restURL := os.Getenv(envRestURL)
-	if restURL == "" {
-		restURL = defaultRestURL
+	url := os.Getenv(envRestURL)
+	if url == "" {
+		url = defaultRestURL
 	}
-
-	client = halcmdclient.NewHalcmdClient(restURL)
+	installClients(url)
 
 	args := os.Args[1:]
 
@@ -92,7 +91,7 @@ func main() {
 			if len(args) < 2 {
 				fatal("-U requires a URL")
 			}
-			client = halcmdclient.NewHalcmdClient(args[1])
+			installClients(args[1])
 			args = args[2:]
 		default:
 			fatal("unknown option: " + args[0])
@@ -242,8 +241,9 @@ func runStream(r io.Reader, source string) error {
 		// A stray control byte in a HAL file (a mis-saved editor buffer, a
 		// terminal escape captured into a script) is reported as such instead
 		// of travelling into an argument and failing much later with a message
-		// about a value nobody typed.
-		if err := checkInputLine(line); err != nil {
+		// about a value nobody typed. Only the command part is validated —
+		// trailing comments may carry legacy non-UTF-8 bytes.
+		if err := checkInputLine(commandPart(line)); err != nil {
 			if keepGoing {
 				warn(fmt.Sprintf("%s:%d: %s", source, lineNum, err.Error()))
 				continue
@@ -329,7 +329,7 @@ func runInteractiveLine(raw string) bool {
 	if line == "" {
 		return false
 	}
-	if err := checkInputLine(line); err != nil {
+	if err := checkInputLine(commandPart(line)); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return false
 	}

@@ -4,10 +4,41 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 	"unicode"
+
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmdclient"
 )
+
+// completionTimeout bounds every REST query issued from completion. TAB
+// completion runs inside the raw-mode line editor, where ISIG is off: a query
+// against a hung server (accepted socket, no reply) would otherwise block the
+// prompt with Ctrl-C reduced to an unread byte — unkillable from the keyboard.
+// Commands keep the untimed shared client; only completion must never wedge.
+const completionTimeout = 2 * time.Second
+
+var compClient *halcmdclient.HalcmdClient
+
+// installClients builds both clients for url: the untimed shared command
+// client and the short-timeout completion client. main() and -U go through
+// here; tests that stub `client` directly leave compClient nil and completion
+// falls through to the stub.
+func installClients(url string) {
+	client = halcmdclient.NewHalcmdClient(url)
+	compClient = halcmdclient.NewHalcmdClient(url).
+		WithHTTPClient(&http.Client{Timeout: completionTimeout})
+}
+
+// completionClient returns the client completion queries go through.
+func completionClient() *halcmdclient.HalcmdClient {
+	if compClient != nil {
+		return compClient
+	}
+	return client
+}
 
 // parseCompPoint parses the bash COMP_POINT cursor offset. It mirrors C atoi:
 // consume leading digits and stop at the first non-digit, so a stray character
@@ -362,7 +393,7 @@ var (
 
 func completePins(prefix string) []string {
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -375,7 +406,7 @@ func completePins(prefix string) []string {
 
 func completeLinkedPins(prefix string) []string {
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -390,7 +421,7 @@ func completeLinkedPins(prefix string) []string {
 
 func completeParams(prefix string) []string {
 	pattern := prefix + "*"
-	params, err := client.ListParams(&pattern)
+	params, err := completionClient().ListParams(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -411,7 +442,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 	pattern := prefix + "*"
 	var results []string
 
-	params, err := client.ListParams(&pattern)
+	params, err := completionClient().ListParams(&pattern)
 	if err == nil {
 		for _, p := range params {
 			if p.Dir != "RO" {
@@ -420,7 +451,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 		}
 	}
 
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err == nil {
 		for _, p := range pins {
 			// Settable pins: not linked and not output direction
@@ -435,7 +466,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 
 func completeSignals(prefix string) []string {
 	pattern := prefix + "*"
-	sigs, err := client.ListSignals(&pattern)
+	sigs, err := completionClient().ListSignals(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -448,7 +479,7 @@ func completeSignals(prefix string) []string {
 
 func completeComponents(prefix string) []string {
 	pattern := prefix + "*"
-	comps, err := client.ListComponents(&pattern)
+	comps, err := completionClient().ListComponents(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -461,7 +492,7 @@ func completeComponents(prefix string) []string {
 
 func completeThreads(prefix string) []string {
 	pattern := prefix + "*"
-	threads, err := client.ListThreads(&pattern)
+	threads, err := completionClient().ListThreads(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -474,7 +505,7 @@ func completeThreads(prefix string) []string {
 
 func completeUnusedFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -489,7 +520,7 @@ func completeUnusedFunctions(prefix string) []string {
 
 func completeUsedFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -511,7 +542,7 @@ func completeTypedPinsForSignal(prevArgs []string, prefix string) []string {
 
 	// Get signal type from first arg (signal name)
 	sigName := prevArgs[0]
-	sig, err := client.GetSignal(sigName)
+	sig, err := completionClient().GetSignal(sigName)
 	if err != nil {
 		// Signal might not exist yet (net creates it), fall back to all pins
 		return completePins(prefix)
@@ -519,7 +550,7 @@ func completeTypedPinsForSignal(prevArgs []string, prefix string) []string {
 
 	// Get pins matching prefix and filter by type compatibility
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -540,14 +571,14 @@ func completeTypedSignalsForPin(prevArgs []string, prefix string) []string {
 
 	// Get pin type from first arg (pin name)
 	pinName := prevArgs[0]
-	pin, err := client.GetPin(pinName)
+	pin, err := completionClient().GetPin(pinName)
 	if err != nil {
 		return completeSignals(prefix)
 	}
 
 	// Get signals matching prefix and filter by type
 	pattern := prefix + "*"
-	sigs, err := client.ListSignals(&pattern)
+	sigs, err := completionClient().ListSignals(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -568,13 +599,13 @@ func completeTypedPinsForPin(prevArgs []string, prefix string) []string {
 
 	// Get pin type from first arg
 	pinName := prevArgs[0]
-	pin, err := client.GetPin(pinName)
+	pin, err := completionClient().GetPin(pinName)
 	if err != nil {
 		return completePins(prefix)
 	}
 
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -616,7 +647,7 @@ func completeByShowType(prevArgs []string, prefix string) []string {
 
 func completeFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}
