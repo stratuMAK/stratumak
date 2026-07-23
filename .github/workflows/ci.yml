@@ -160,6 +160,22 @@ jobs:
     - name: Static checks (gomc-owned shell + C)
       run: ./scripts/check-static
 
+  # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the five
+  # non-deferred webapps (classicladder is frozen/excluded). Self-contained
+  # (npm only, no RIP build) like static-checks — a fast merge gate on every
+  # push and PR. scripts/check-webapps.sh is the source of truth; keep its app
+  # lists in sync with the local `make webapp-lint`/`webapp-test` targets.
+  webapps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Webapp lint + type-check + tests
+      run: ./scripts/check-webapps.sh
+
   htmldocs:
     runs-on: ubuntu-24.04
     if: >-

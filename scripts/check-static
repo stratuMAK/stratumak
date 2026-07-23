@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 MODE="${1:-all}"
 rc=0
 
-SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-gomc-cwarnings scripts/check-static)
+SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-gomc-cwarnings scripts/check-static scripts/check-webapps.sh)
 
 # gomc-owned C (keep in sync with check-gomc-cwarnings)
 C_PATHS="src/gomc/internal/hallib src/gomc/pkg/cmodule src/hal/components src/emc/motion-logger src/emc/task src/emc/sai"
