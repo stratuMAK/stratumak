@@ -496,10 +496,24 @@ func TestThreadLifecycle(t *testing.T) {
 		t.Errorf("thread period = %d, want 1000000", threads[0].Period)
 	}
 
-	// Nil fp/cpuId must be accepted (the REST body may omit them).
+	if threads[0].Fp {
+		t.Errorf("explicit fp=false thread reports FP")
+	}
+
+	// Nil fp/cpuId must be accepted (the REST body may omit them), and an
+	// omitted fp must mean FP — the .hal parser default. Defaulting to nofp
+	// made every addf of a floating-point function fail on threads created at
+	// runtime while the same HAL-file line worked.
 	other := uniq("hrthread")
 	if res, err := h.Newthread(other, 1000000, nil, nil); err != nil || !res.Success {
 		t.Fatalf("Newthread with nil options: %v / %+v", err, res)
+	}
+	otherInfo, err := h.ListThreads(sp(other))
+	if err != nil || len(otherInfo) != 1 {
+		t.Fatalf("ListThreads(%s) = %+v / %v", other, otherInfo, err)
+	}
+	if !otherInfo[0].Fp {
+		t.Errorf("thread created with omitted fp is not FP; want the .hal parser default (fp)")
 	}
 	if res, err := h.Delthread(other); err != nil || !res.Success {
 		t.Fatalf("Delthread: %v / %+v", err, res)

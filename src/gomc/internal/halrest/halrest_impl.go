@@ -382,9 +382,14 @@ func (h *halcmdImpl) Unload(name string) (*halcmdapi.CmdResult, error) {
 }
 
 func (h *halcmdImpl) Newthread(name string, periodNs int64, fp *bool, cpuId *int32) (*halcmdapi.CmdResult, error) {
-	usesFP := 0
-	if fp != nil && *fp {
-		usesFP = 1
+	// An omitted fp flag means FP, matching the .hal `newthread` parser
+	// (NewThreadToken{FP: 1}) and classic halcmd. Defaulting to nofp here made
+	// `halcmd newthread <name> <period>` at runtime build a thread that then
+	// rejects every addf of a floating-point function (hal_lib: funct->uses_fp
+	// && !thread->uses_fp), while the identical line in a HAL file worked.
+	usesFP := 1
+	if fp != nil && !*fp {
+		usesFP = 0
 	}
 	cpuID := -1
 	if cpuId != nil {

@@ -501,11 +501,13 @@ var commandHelp = map[string]string{
 Usage: halcmd unload <name>
 Removes the module's RT functions from threads, stops and destroys it.
 Returns EBUSY if another module depends on this module's APIs.`,
-	"newthread": `newthread <name> <period-ns> [fp] [cpu=N]
+	"newthread": `newthread <name> <period-ns> [fp|nofp] [cpu=N]
   Create a new realtime thread.
   period-ns is the period in nanoseconds.
-  fp        enable floating-point support.
-  cpu=N     pin to CPU N.`,
+  fp|nofp   enable/disable floating-point support (default: fp).
+  cpu=N     pin to CPU N (default: auto-assign an isolated core, or no
+            affinity if the machine has none). Pinning to a non-isolated
+            CPU is allowed but warns.`,
 	"delthread": `delthread <name>
   Delete a thread (must have no attached functions).`,
 	"addf": `addf <function> <thread> [position]

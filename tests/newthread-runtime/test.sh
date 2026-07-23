@@ -12,6 +12,12 @@
 #      FRONT instead of append (the parser/impl default is -1 = append), so a
 #      second addf would land before the first — silently wrong function order.
 #
+# It also covers the fp default of the same command: `newthread <name> <period>`
+# with no fp/nofp argument must create an FP thread, like the .hal parser default
+# (NewThreadToken{FP: 1}) and classic halcmd. Defaulting to nofp made every addf
+# of a floating-point function fail on a runtime-created thread — hence the
+# floating-point `scale` function below alongside the nofp and2/not.
+#
 # gomc has no userspace comps / loadusr, so a resident gomc-server + halcmd
 # replaces the classic halrun test.hal. stdout must stay exactly the lines
 # `expected` compares against; diagnostics go to stderr.
@@ -21,7 +27,7 @@ trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
 ready=""
 for i in $(seq 100); do
-    if halcmd show comp 2>/dev/null | grep -qw not; then
+    if halcmd show comp 2>/dev/null | grep -qw scale; then
         ready=1
         break
     fi
@@ -36,11 +42,15 @@ if ! halcmd newthread runtime_thread 1000000; then
     exit 1
 fi
 
-# (2) addf two functions with no position — they must APPEND in order.
-if ! halcmd addf and2 runtime_thread || ! halcmd addf not runtime_thread; then
-    echo "*** addf failed at runtime; see $PWD/server.log" >&2
-    exit 1
-fi
+# (2) addf three functions with no position — they must APPEND in order.
+# scale is a floating-point function: addf'ing it fails outright ("function
+# requires FP but thread is not FP") if the runtime thread defaulted to nofp.
+for f in and2 not scale; do
+    if ! halcmd addf $f runtime_thread; then
+        echo "*** addf $f failed at runtime; see $PWD/server.log" >&2
+        exit 1
+    fi
+done
 
 # Emit the thread name, then its function names in thread order. Front-insertion
 # (the bug) would reverse the two functions.

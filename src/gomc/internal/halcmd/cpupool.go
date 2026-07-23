@@ -19,10 +19,12 @@ import (
 // InitCPUPool(). Each call to CreateThreadCPU with cpu=-1 pops the next
 // available core from the pool; once the pool is exhausted, further threads
 // co-locate onto the last-assigned isolated core rather than floating onto the
-// non-isolated housekeeping cores (see acquireCPU). Explicit cpu=N validates
-// against the isolated set.
+// non-isolated housekeeping cores (see acquireCPU). Explicit cpu=N is the
+// caller's deliberate choice and is honoured for any online CPU — isolated or
+// not — with a warning when it isn't isolated.
 type cpuPool struct {
 	mu           sync.Mutex
+	online       []int // all online CPUs, ascending; empty if topology is unknown
 	isolated     []int // all isolated physical cores, sorted descending
 	available    []int // remaining unassigned isolated cores, sorted descending
 	lastAssigned int   // most recently assigned isolated core, -1 if none yet
@@ -56,6 +58,7 @@ func InitCPUPool(logger *slog.Logger) error {
 	posixRT := rtapiIsRealtime()
 
 	pool.mu.Lock()
+	pool.online = append([]int(nil), topo.online...)
 	pool.isolated = append([]int(nil), avail...)
 	pool.available = avail
 	pool.lastAssigned = -1
@@ -73,8 +76,14 @@ func InitCPUPool(logger *slog.Logger) error {
 //   - cpu=-1: auto-assign next free isolated core; once the pool is exhausted,
 //     co-locate onto the last-assigned isolated core; -1 (no affinity) only if
 //     there are no isolated cores at all (warn in RT mode).
-//   - cpu>=0: must name an isolated core; return it (removing it from the free
-//     list, or co-locating if already handed out); error if not isolated.
+//   - cpu>=0: an explicit pin request. Any online CPU is accepted — pinning is
+//     the caller's deliberate choice and a machine without isolcpus must still
+//     be able to place a thread. An isolated core is removed from the free list
+//     (or co-located onto if already handed out); a non-isolated core is honoured
+//     with a warning and does NOT become lastAssigned, so later auto-assigned
+//     threads never inherit a non-isolated core. Only a CPU that is not online
+//     is an error (hal_create_thread_cpu ignores the affinity return value, so an
+//     out-of-range core would silently no-op).
 //
 // Co-location mirrors the classic base+servo-on-one-CPU model: threads are
 // created fastest-first with descending priority, so a slower thread stacked
@@ -126,8 +135,27 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 			return cpu, nil
 		}
 	}
-	return 0, fmt.Errorf("newthread %s: cpu=%d is not an isolated CPU (isolated: %v)",
-		threadName, cpu, pool.isolated)
+	// Not isolated. Refuse only if we know the topology and the CPU isn't online.
+	if len(pool.online) > 0 && !containsInt(pool.online, cpu) {
+		return 0, fmt.Errorf("newthread %s: cpu=%d is not an online CPU (online: %v)",
+			threadName, cpu, pool.online)
+	}
+	if pool.logger != nil {
+		pool.logger.Warn("thread pinned to a non-isolated CPU, realtime performance will depend on other load on that core",
+			"thread", threadName, "cpu", cpu, "isolated", pool.isolated)
+	}
+	// Deliberately not recorded as lastAssigned: auto-assigned threads must not
+	// spill onto a non-isolated core just because someone pinned one here.
+	return cpu, nil
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // --- CPU topology detection (moved from threadcfg/cpu_linux.go) ---

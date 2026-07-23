@@ -78,8 +78,9 @@ func StopThreads() error {
 // the pool initialized by InitCPUPool().  If the pool is exhausted the thread
 // runs without affinity (a warning is logged in POSIX RT mode).
 //
-// When cpu>=0, the value is validated against the pool of isolated physical
-// cores. An error is returned if the CPU is not available.
+// When cpu>=0, the thread is pinned to that CPU. Any online CPU is accepted —
+// pinning is the caller's explicit choice — but a non-isolated one logs a
+// warning. Only an offline/out-of-range CPU is an error.
 //
 // Threads must be created fastest-first (ascending period) for rate monotonic
 // priority scheduling.
