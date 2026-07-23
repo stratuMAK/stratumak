@@ -176,6 +176,13 @@ libemcpose = static_library('emcpose',
 libemcpose_dep = declare_dependency(include_directories : emcpose_inc,
     link_with : libemcpose)
 
+# hal_lib.c lives under src/gomc/internal/hallib — gomc compiles it into the
+# server via cgo, and that is the only copy.  Named here rather than in
+# src/hal/meson.build (where it used to point at a src/hal/hal_lib.c that has
+# not existed since the file moved) because meson's sandbox refuses a files()
+# path that escapes the current subdir.
+hal_lib_srcs = files('src/gomc/internal/hallib/hal_lib.c')
+
 liblinuxcnchal = library('linuxcnchal',
   hal_lib_srcs,
   dependencies : [m_dep, libulapi_dep],

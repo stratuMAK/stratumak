@@ -354,6 +354,13 @@ func cModuleExists(path string) bool {
 	return err == nil
 }
 
+// moduleLogHint is appended to a module load/init/start failure. A cmod reports
+// why it refused through its own logging, which reaches the server log with the
+// module's name on it; the launcher only ever sees the int it returned. Rather
+// than reconstruct the reason from the log stream and risk attributing an
+// unrelated message, point the operator at where the real one already is.
+const moduleLogHint = " (the module logs the reason it refused; see the server log)"
+
 // loadCPlugin loads a C plugin .so via dlopen, looks up the "New" symbol,
 // builds the cmod_env_t with gomc sub-API callbacks, calls the factory, and
 // appends the module to l.cModules.
@@ -429,7 +436,8 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 		hCtx.Delete()
 		C.gomc_env_destroy(env)
 		C.dlclose(handle)
-		return fmt.Errorf("load C plugin %q: factory returned error code %d", path, int(rc))
+		return fmt.Errorf("load C plugin %q: factory returned error code %d"+moduleLogHint,
+			path, int(rc))
 	}
 	cm.mod = mod
 
@@ -497,13 +505,15 @@ func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) e
 	// Init phase — look up other modules' APIs.
 	rc := C.cmod_call_init(cm.mod)
 	if rc != 0 {
-		return fmt.Errorf("init of C module %q returned error code %d", name, int(rc))
+		return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
+			name, int(rc))
 	}
 
 	// Start phase — begin operation.
 	rc = C.cmod_call_start(cm.mod)
 	if rc != 0 {
-		return fmt.Errorf("start of C module %q returned error code %d", name, int(rc))
+		return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
+			name, int(rc))
 	}
 	cm.started = true
 
@@ -519,7 +529,8 @@ func (l *Launcher) initCModules() error {
 	for _, cm := range l.cModules {
 		rc := C.cmod_call_init(cm.mod)
 		if rc != 0 {
-			return fmt.Errorf("init of C module %q returned error code %d", cm.name, int(rc))
+			return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
+				cm.name, int(rc))
 		}
 	}
 	return nil
@@ -534,7 +545,8 @@ func (l *Launcher) startCModules() error {
 		}
 		rc := C.cmod_call_start(cm.mod)
 		if rc != 0 {
-			return fmt.Errorf("start of C module %q returned error code %d", cm.name, int(rc))
+			return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
+				cm.name, int(rc))
 		}
 		cm.started = true
 	}

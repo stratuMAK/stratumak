@@ -48,14 +48,14 @@ func halGetP(_ string) (string, error)       { return "", ErrNoCGO }
 func halPType(_ string) (hal.PinType, error) { return 0, ErrNoCGO }
 
 func halNet(_ string, _ []string) error { return ErrNoCGO }
-func halLinkPS(_, _ string) error       { return ErrNoCGO }
+func halLinkPS(_, _, _ string) error    { return ErrNoCGO }
 func halUnlinkP(_ string) error         { return ErrNoCGO }
 
 func halAddF(_, _ string, _ int) error { return ErrNoCGO }
 func halDelF(_, _ string) error        { return ErrNoCGO }
 
-func halSetLock(_ int) error { return ErrNoCGO }
-func halGetLock() int        { return 0 }
+func halSetLock(_ int, _ string) error { return ErrNoCGO }
+func halGetLock() int                  { return 0 }
 
 func halAlias(_, _, _ string) error { return ErrNoCGO }
 func halUnAlias(_, _ string) error  { return ErrNoCGO }

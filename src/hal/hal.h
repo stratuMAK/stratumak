@@ -361,6 +361,28 @@ typedef struct {
 /***********************************************************************
 *                      "LOCKING" FUNCTIONS                             *
 ************************************************************************/
+/***********************************************************************
+*                    FAILURE REASONS ("_ex" ENTRY POINTS)              *
+************************************************************************/
+
+/** Every HAL call below reports why it refused via rtapi_print_msg and returns
+    a bare negative errno.  That is enough for a component, which cannot act on
+    the reason anyway, but not for a caller that has to show a person what is
+    wrong with their configuration: "-EINVAL" does not say "duplicate thread
+    name loop1".
+
+    Each such call therefore has an "_ex" form taking a caller-owned buffer that
+    receives the reason as plain text (no "HAL: ERROR:" prefix, no newline).
+    Pass err = NULL, errlen = 0 to ignore it; the original names are exactly
+    that call.  The reason is still logged either way — the buffer is an
+    addition to the log line, not a replacement for it.
+
+    HAL_ERRLEN is the recommended buffer size; a longer reason is truncated,
+    and the buffer is always NUL-terminated.  On success it is left untouched.
+*/
+
+#define HAL_ERRLEN 256
+
 /** The 'hal_set_lock()' function sets locking based on one of the 
     locking types defined in hal.h
     HAL_LOCK_NONE -locks none
@@ -368,6 +390,7 @@ typedef struct {
     HAL_LOCK_ALL - locks everything
 */
 extern int hal_set_lock(unsigned char lock_type);
+extern int hal_set_lock_ex(unsigned char lock_type, char *err, int errlen);
 
 /** The 'hal_get_lock()' function returns the current locking level 
     locking types defined in hal.h
@@ -475,6 +498,8 @@ extern int hal_pin_new(const char *name, hal_type_t type, hal_pin_dir_t dir,
     set to NULL will remove any existing alias.
 */
 extern int hal_pin_alias(const char *pin_name, const char *alias);
+extern int hal_pin_alias_ex(const char *pin_name, const char *alias,
+    char *err, int errlen);
 
 
 /***********************************************************************
@@ -499,6 +524,8 @@ extern int hal_pin_alias(const char *pin_name, const char *alias);
     it returns a negative error code.
 */
 extern int hal_signal_new(const char *name, hal_type_t type);
+extern int hal_signal_new_ex(const char *name, hal_type_t type,
+    char *err, int errlen);
 
 /** 'hal_signal_delete()' deletes a signal object.  Any pins linked to
     the object are unlinked.
@@ -507,6 +534,7 @@ extern int hal_signal_new(const char *name, hal_type_t type);
     failure, it returns a negative error code.
 */
 extern int hal_signal_delete(const char *name);
+extern int hal_signal_delete_ex(const char *name, char *err, int errlen);
 
 /** 'hal_link()' links a pin to a signal.  'pin_name' and 'sig_name' are
     strings containing the pin and signal names.  If the pin is already
@@ -520,6 +548,8 @@ extern int hal_signal_delete(const char *name);
     negative error code.
 */
 extern int hal_link(const char *pin_name, const char *sig_name);
+extern int hal_link_ex(const char *pin_name, const char *sig_name,
+    char *err, int errlen);
 
 /** 'hal_unlink()' unlinks any signal from the specified pin.  'pin_name'
     is a string containing the pin name.
@@ -527,6 +557,7 @@ extern int hal_link(const char *pin_name, const char *sig_name);
     returns a negative error code.
 */
 extern int hal_unlink(const char *pin_name);
+extern int hal_unlink_ex(const char *pin_name, char *err, int errlen);
 
 /***********************************************************************
 *                     "PARAMETER" FUNCTIONS                            *
@@ -635,6 +666,8 @@ extern int hal_param_s32_set(const char *name, signed long value);
     with 'alias' set to NULL will remove any existing alias.
 */
 extern int hal_param_alias(const char *pin_name, const char *alias);
+extern int hal_param_alias_ex(const char *pin_name, const char *alias,
+    char *err, int errlen);
 
 /** 'hal_param_set()' is a generic function that sets the value of a
     parameter.  It is provided ONLY for those special cases where a
@@ -771,6 +804,8 @@ extern int hal_create_thread(const char *name, unsigned long period_nsec,
 */
 extern int hal_create_thread_cpu(const char *name, unsigned long period_nsec,
     int uses_fp, int cpu);
+extern int hal_create_thread_cpu_ex(const char *name, unsigned long period_nsec,
+    int uses_fp, int cpu, char *err, int errlen);
 
 /** hal_thread_delete() deletes a realtime thread.
     'name' is the name of the thread, which must have been created
@@ -781,6 +816,7 @@ extern int hal_create_thread_cpu(const char *name, unsigned long period_nsec,
     space or realtime code.
 */
 extern int hal_thread_delete(const char *name);
+extern int hal_thread_delete_ex(const char *name, char *err, int errlen);
 
 /** hal_add_funct_to_thread() adds a function exported by a
     realtime HAL component to a realtime thread.  This determines
@@ -805,6 +841,8 @@ extern int hal_thread_delete(const char *name);
 */
 extern int hal_add_funct_to_thread(const char *funct_name, const char *thread_name,
     int position);
+extern int hal_add_funct_to_thread_ex(const char *funct_name,
+    const char *thread_name, int position, char *err, int errlen);
 
 /** hal_del_funct_from_thread() removes a function from a thread.
     'funct_name' is the name of the function, as specified in
@@ -816,6 +854,8 @@ extern int hal_add_funct_to_thread(const char *funct_name, const char *thread_na
     realtime code.
 */
 extern int hal_del_funct_from_thread(const char *funct_name, const char *thread_name);
+extern int hal_del_funct_from_thread_ex(const char *funct_name,
+    const char *thread_name, char *err, int errlen);
 
 /** hal_start_threads() starts all threads that have been created.
     This is the point at which realtime functions start being called.
@@ -823,6 +863,7 @@ extern int hal_del_funct_from_thread(const char *funct_name, const char *thread_
     error code.
 */
 extern int hal_start_threads(void);
+extern int hal_start_threads_ex(char *err, int errlen);
 
 /** hal_stop_threads() stops all threads that were previously
     started by hal_start_threads().  It should be called before
@@ -831,6 +872,7 @@ extern int hal_start_threads(void);
     error code.
 */
 extern int hal_stop_threads(void);
+extern int hal_stop_threads_ex(char *err, int errlen);
 
 /** HAL 'constructor' typedef
     If it is not NULL, this points to a function which can construct a new

@@ -406,6 +406,7 @@ extern hal_funct_t *halpr_find_funct_by_name(const char *name);
 /** Remove all functions owned by comp_id from all threads.
     Returns number removed, or negative errno. */
 extern int hal_del_functs_by_comp(int comp_id);
+extern int hal_del_functs_by_comp_ex(int comp_id, char *err, int errlen);
 
 /** Returns maximum cycle_count across all threads (for unload sync). */
 extern unsigned int hal_get_max_cycle_count(void);

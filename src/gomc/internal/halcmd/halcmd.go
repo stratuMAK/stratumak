@@ -22,7 +22,7 @@ var LogLevel slog.LevelVar
 // This is the low-level counterpart of Lock()/Unlock() and exists so that the
 // halparse executor can set lock levels directly via an integer bitmask.
 func SetLock(level int) error {
-	return halSetLock(level)
+	return halSetLock(level, "lock")
 }
 
 // GetLock returns the current HAL lock bitmask (0-255). The bitmask is a HAL-
@@ -338,13 +338,13 @@ func Net(signame string, pins ...string) error {
 // LinkPS links a pin to a signal.
 // Equivalent to "halcmd linkps <pin> <sig>".
 func LinkPS(pin, sig string) error {
-	return halLinkPS(pin, sig)
+	return halLinkPS(pin, sig, "linkps")
 }
 
 // LinkSP links a signal to a pin (argument order reversed from LinkPS).
 // Equivalent to "halcmd linksp <sig> <pin>".
 func LinkSP(sig, pin string) error {
-	return halLinkPS(pin, sig)
+	return halLinkPS(pin, sig, "linksp")
 }
 
 // UnlinkP unlinks a pin from its signal.
@@ -416,7 +416,7 @@ func Lock(level string) error {
 	if err != nil {
 		return err
 	}
-	return halSetLock(lvl)
+	return halSetLock(lvl, "lock")
 }
 
 // Unlock sets the HAL lock level to allow previously restricted commands.
@@ -430,7 +430,7 @@ func Unlock(level string) error {
 	if err != nil {
 		return err
 	}
-	return halSetLock(halGetLock() &^ lvl)
+	return halSetLock(halGetLock()&^lvl, "unlock")
 }
 
 // ===== Query commands =====

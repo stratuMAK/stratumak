@@ -189,8 +189,8 @@ func TestDelFunctsByComp(t *testing.T) {
 // TestLockStatusStringAllBits renders every lock bit at once, covering the
 // per-bit lines that `halrun -f file | grep lock` matches byte for byte.
 func TestLockStatusStringAllBits(t *testing.T) {
-	t.Cleanup(func() { _ = halSetLock(0) })
-	if err := halSetLock(15); err != nil {
+	t.Cleanup(func() { _ = halSetLock(0, "lock") })
+	if err := halSetLock(15, "lock"); err != nil {
 		t.Fatalf("halSetLock: %v", err)
 	}
 	got := LockStatusString()

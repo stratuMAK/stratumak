@@ -50,8 +50,6 @@ static inline int go_hal_pin_new(const char* name, hal_pin_dir_t dir, void** ptr
 */
 import "C"
 import (
-	"fmt"
-	"syscall"
 	"unsafe"
 )
 
@@ -154,55 +152,12 @@ func halPortClear(portPtr *C.hal_port_t) {
 // halError translates a HAL C error code to a Go error.
 // Returns nil if the code is 0 (success).
 // Error codes are negative errno values as returned by HAL/RTAPI functions.
+//
+// No Detail is attached here. hal_lib's diagnostics are captured per-thread by
+// internal/halcmd, which owns the RTAPI message handler; this package is linked
+// into Go components that do not install it. A component's hal_lib failures
+// still reach the operator: they are logged to the ring, and when they happen
+// during a module load the launcher attaches them to the load error.
 func halError(code int, op string) error {
-	if code == 0 {
-		return nil
-	}
-
-	// Map HAL error codes (negative errno values) to meaningful messages.
-	// These match the verbosity of the old halcmd error output.
-	var message string
-	switch code {
-	case -int(syscall.EPERM):
-		message = "operation not permitted (HAL may be locked)"
-	case -int(syscall.ENOENT):
-		message = "not found (no such pin, signal, parameter, function, thread, or component)"
-	case -int(syscall.ESRCH):
-		message = "no such process or component not running"
-	case -int(syscall.ECHILD):
-		message = "child process error"
-	case -int(syscall.EAGAIN):
-		message = "resource temporarily unavailable"
-	case -int(syscall.ENOMEM):
-		message = "insufficient HAL shared memory"
-	case -int(syscall.EACCES):
-		message = "permission denied"
-	case -int(syscall.EFAULT):
-		message = "bad address or invalid pointer"
-	case -int(syscall.EBUSY):
-		message = "resource busy (pin already linked to a signal, or signal has writers)"
-	case -int(syscall.EEXIST):
-		message = "already exists (signal, pin, parameter, function, or component with this name exists)"
-	case -int(syscall.ENODEV):
-		message = "no such device or component"
-	case -int(syscall.EINVAL):
-		message = "invalid argument (bad value, wrong type, or malformed name)"
-	case -int(syscall.ENFILE):
-		message = "too many open files or components"
-	case -int(syscall.ENOSPC):
-		message = "no space left in HAL shared memory"
-	case -int(syscall.ENAMETOOLONG):
-		message = "name too long (exceeds HAL_NAME_LEN)"
-	case -int(syscall.ETIMEDOUT):
-		message = "operation timed out (component did not become ready)"
-	default:
-		// For unmapped codes, include both the code and the errno name if possible
-		if code < 0 && code > -256 {
-			message = fmt.Sprintf("system error %d (%s)", -code, syscall.Errno(-code).Error())
-		} else {
-			message = fmt.Sprintf("HAL error code %d", code)
-		}
-	}
-
-	return newError(op, message, code)
+	return CodeError(op, code, "")
 }
