@@ -1207,8 +1207,37 @@ static int iocontrol_start(cmod_t *self)
         }
         m->emcioStatus.tool.toolInSpindle = spindle.toolno;
         *(m->hal_data->tool_number) = spindle.toolno;
+    } else {
+        // NON-RANDOM: slot 0 is only ever a session copy of whatever load_tool
+        // last mounted, but this store is durable — 2.9's .tbl never contained
+        // the non-random slot-0 row (tooldata_save starts at idx 1), so every
+        // 2.9 restart began with an empty spindle. Without this reset, a tool
+        // loaded before the restart survives in slot 0 while toolInSpindle
+        // starts at 0: the interp reads slot 0 directly and would set #5400
+        // and the G43/G43 H0 offsets from a tool io reports as absent — a
+        // phantom tool-length offset on a spindle that may have been emptied
+        // while the machine was off.
+        tooltable_tool_entry_t spindle;
+        if (tt_get_tool(m, 0, &spindle) != 0) {
+            gomc_log_errorf(m->env->log, m->name,
+                "IOV2: ERROR: tool table read failed at startup");
+            return -1;
+        }
+        // toolno > 0 ONLY: a real tool's session copy. Both empty shapes
+        // stay untouched — -1 ("never held a tool", what a fresh .tbl import
+        // leaves) and 0 (the in-session unload marker) — because rewriting -1
+        // to 0 changes the interp's answer for #<_current_pocket> at init
+        // (tests/tool-info expects -1 on a virgin table, matching 2.9).
+        if (spindle.toolno > 0) {
+            tooltable_tool_entry_t empty;
+            memset(&empty, 0, sizeof(empty));
+            if (tt_put_tool(m, 0, &empty) != 0) {
+                gomc_log_errorf(m->env->log, m->name,
+                    "IOV2: ERROR: spindle slot reset failed at startup");
+                return -1;
+            }
+        }
     }
-
 
     m->done = 0;
     return 0;
