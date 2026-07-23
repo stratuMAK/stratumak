@@ -107,6 +107,25 @@ def check_tool_table(side, toolno, diameter):
     ok(f"tool-table-{side}")
 
 
+def check_command_reaches_instance(side):
+    """A command must post to THIS task, not to the "milltask" default baked
+    into gmi.command.Command. AXIS builds its command object from that class
+    directly (a subclass), bypassing the gmi.Command() factory that applies the
+    instance — so a command posted to the wrong instance 404s on a server that
+    has no "milltask". The stat path followed the instance and hid this; only
+    issuing a command exposes it.
+    """
+    use(side)
+    from gmi.command import Command
+    c = Command(instance=gmi.instance())
+    # state() is accepted in any mode; a wrong instance 404s before mode matters.
+    try:
+        c.state(gmi.STATE_ESTOP)
+    except Exception as e:
+        fail(f"command-{side}", f"state() to {side} failed: {e}")
+    ok(f"command-{side}")
+
+
 def check_tables_are_separate():
     """Each task has its own store: neither side may see the other's tool."""
     use("left.task")
@@ -151,6 +170,7 @@ def main():
     for side in ("left.task", "right.task"):
         check_peers(side)
         check_caps(side)
+        check_command_reaches_instance(side)
     check_tool_table("left.task", 11, 6.0)
     check_tool_table("right.task", 22, 12.0)
     check_tables_are_separate()

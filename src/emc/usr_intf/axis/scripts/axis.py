@@ -4008,7 +4008,11 @@ class AxisCommand(_GmiCommand):
                 print("axis: command refused: %s" % msg, file=sys.stderr)
             return -1
 
-c = AxisCommand()
+# Bind to THIS UI's task instance (GMC_INSTANCE), not the "milltask" default
+# baked into gmi.command.Command — otherwise every command posts to a
+# nonexistent milltask instance and 404s on a multi-instance server, while stat
+# (built via gmi.Stat) correctly followed GMC_INSTANCE.
+c = AxisCommand(instance=gmi.instance())
 
 _jog_speed_from_remote = False
 
