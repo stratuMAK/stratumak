@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { toolStore } from '../stores/tools';
 import type { ToolEntry } from '../generated/tools_client';
+import { LINEAR_KEYS, fieldUnit } from './toolform';
 import ToolEditDialog from './ToolEditDialog.vue';
 
 interface Column {
@@ -10,24 +11,33 @@ interface Column {
   type: 'int' | 'float' | 'text';
 }
 
+// Base labels; the unit suffix (mm/in/deg) is appended dynamically from the
+// machine units so a mm header becomes "(in)" on an inch machine.
 const columns: Column[] = [
   { key: 'toolno', label: 'Tool', type: 'int' },
   { key: 'pocketno', label: 'Poc', type: 'int' },
-  { key: 'x_offset', label: 'X (mm)', type: 'float' },
-  { key: 'y_offset', label: 'Y (mm)', type: 'float' },
-  { key: 'z_offset', label: 'Z (mm)', type: 'float' },
-  { key: 'a_offset', label: 'A (deg)', type: 'float' },
-  { key: 'b_offset', label: 'B (deg)', type: 'float' },
-  { key: 'c_offset', label: 'C (deg)', type: 'float' },
-  { key: 'u_offset', label: 'U (mm)', type: 'float' },
-  { key: 'v_offset', label: 'V (mm)', type: 'float' },
-  { key: 'w_offset', label: 'W (mm)', type: 'float' },
-  { key: 'diameter', label: 'Diam (mm)', type: 'float' },
-  { key: 'frontangle', label: 'Front (deg)', type: 'float' },
-  { key: 'backangle', label: 'Back (deg)', type: 'float' },
+  { key: 'x_offset', label: 'X', type: 'float' },
+  { key: 'y_offset', label: 'Y', type: 'float' },
+  { key: 'z_offset', label: 'Z', type: 'float' },
+  { key: 'a_offset', label: 'A', type: 'float' },
+  { key: 'b_offset', label: 'B', type: 'float' },
+  { key: 'c_offset', label: 'C', type: 'float' },
+  { key: 'u_offset', label: 'U', type: 'float' },
+  { key: 'v_offset', label: 'V', type: 'float' },
+  { key: 'w_offset', label: 'W', type: 'float' },
+  { key: 'diameter', label: 'Diam', type: 'float' },
+  { key: 'frontangle', label: 'Front', type: 'float' },
+  { key: 'backangle', label: 'Back', type: 'float' },
   { key: 'orientation', label: 'Orient', type: 'int' },
   { key: 'comment', label: 'Comment', type: 'text' },
 ];
+
+// Header text with the live unit suffix appended (linear -> mm/in, angular -> deg).
+function colHeader(col: Column): string {
+  if (col.type !== 'float') return col.label;
+  const unit = fieldUnit(col.key as Exclude<keyof ToolEntry, 'updated'>, toolStore.state.units.metric);
+  return unit ? `${col.label} (${unit})` : col.label;
+}
 
 const sortedTools = computed(() =>
   [...toolStore.state.tools].sort((a, b) => a.toolno - b.toolno)
@@ -76,11 +86,18 @@ function deleteTool(tool: ToolEntry, event: Event) {
   }
 }
 
-function fmtNum(val: unknown, type: string): string {
-  if (type === 'text') return String(val);
-  const n = Number(val);
+// Cell text. LINEAR columns are stored in mm and scaled to display units before
+// the existing numeric formatting is applied; angular/count columns are shown
+// as-is.
+function fmtCell(tool: ToolEntry, col: Column): string {
+  const raw = tool[col.key];
+  if (col.type === 'text') return String(raw);
+  let n = Number(raw);
+  if (LINEAR_KEYS.has(col.key as Exclude<keyof ToolEntry, 'updated'>)) {
+    n *= toolStore.state.units.linearScale;
+  }
   if (n === 0) return '0';
-  if (type === 'int') return String(n);
+  if (col.type === 'int') return String(n);
   return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
 }
 
@@ -97,7 +114,7 @@ defineExpose({ addTool });
         <thead>
           <tr>
             <th v-for="col in columns" :key="col.key" :class="col.type">
-              {{ col.label }}
+              {{ colHeader(col) }}
             </th>
             <th class="col-actions"></th>
           </tr>
@@ -108,7 +125,7 @@ defineExpose({ addTool });
             :key="tool.toolno"
           >
             <td v-for="col in columns" :key="col.key" :class="col.type">
-              {{ fmtNum(tool[col.key], col.type) }}
+              {{ fmtCell(tool, col) }}
             </td>
             <td class="col-actions">
               <button class="btn-edit" @click="editTool(tool)" title="Edit">&#x270E;</button>

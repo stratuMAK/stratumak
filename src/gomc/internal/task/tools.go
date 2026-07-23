@@ -156,6 +156,22 @@ func (t *toolsImpl) ReloadTools() (*tools.CmdResult, error) {
 	return &tools.CmdResult{Ok: "true"}, nil
 }
 
+// GetUnits reports the machine's linear-unit scale. The tool table is stored
+// in mm; a UI multiplies a stored length by linearScale to display it in the
+// operator's units and divides typed input by it to store. linearUnits is
+// machine-units-per-mm (1.0 for mm, 1/25.4 for inch); an unset/degenerate
+// value falls back to mm, matching machineCanonUnits' INIT_CANON default.
+func (t *toolsImpl) GetUnits() (*tools.ToolUnits, error) {
+	scale := 1.0
+	if t.module.task != nil && t.module.task.linearUnits > 0 {
+		scale = t.module.task.linearUnits
+	}
+	return &tools.ToolUnits{
+		LinearScale: scale,
+		Metric:      machineCanonUnits(scale) == CanonUnitsMM,
+	}, nil
+}
+
 // lookupTool is the single presence-aware tool-table lookup. The store
 // returns a zero entry (with Toolno clobbered to the key) for missing keys,
 // so presence must be derived here and nowhere else: found=false with

@@ -4,6 +4,9 @@ import { toolStore } from './stores/tools';
 import { onMounted } from 'vue';
 
 onMounted(() => {
+  // units first so column headers/scaling are right on first paint; it resolves
+  // independently and never blocks the table load
+  toolStore.loadUnits();
   toolStore.loadTools();
 });
 </script>

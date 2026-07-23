@@ -39,6 +39,18 @@ type PutToolResult {
     index: i32
 }
 
+# Machine linear-unit metadata for display. The tool table is stored in mm
+# (the mm-everywhere convention), but an operator on an inch machine must see
+# and type inches — otherwise every length reads 25.4x wrong (the GP-16 class).
+type ToolUnits {
+    linearScale: f64      # machine linear units per mm: 1.0 on a mm machine,
+                          # 1/25.4 (~0.03937) on an inch machine. DISPLAY =
+                          # stored_mm * linearScale; STORE = typed / linearScale.
+                          # Only X/Y/Z/U/V/W offsets and diameter scale; A/B/C
+                          # and front/back angles are degrees, counts are counts.
+    metric: bool          # true if the machine's native linear unit is mm
+}
+
 # ─── Functions ───
 
 # List all tools in the tool table
@@ -65,6 +77,12 @@ func delete_tool(toolno: i32) -> CmdResult
 @method "POST"
 @path "/reload"
 func reload_tools() -> CmdResult
+
+# Report the machine's linear-unit scale so a UI can display/enter tool
+# lengths in the operator's units. Literal path — matched ahead of /{toolno}.
+@method "GET"
+@path "/units"
+func get_units() -> ToolUnits
 
 # ─── Shared Types ───
 

@@ -188,6 +188,29 @@ describe('deleteTool', () => {
   });
 });
 
+describe('loadUnits', () => {
+  it('populates state.units from the server', async () => {
+    stubFetch(() => jsonResponse({ linearScale: 1 / 25.4, metric: false }));
+    const store = await freshStore();
+    await store.loadUnits();
+    expect(calls[0]).toMatchObject({ method: 'GET', url: 'http://localhost/api/v1/milltask/units' });
+    expect(store.state.units.metric).toBe(false);
+    expect(store.state.units.linearScale).toBeCloseTo(1 / 25.4, 12);
+  });
+
+  it('leaves the mm default and does not throw on failure', async () => {
+    stubFetch(() => jsonResponse({ error: 'no units' }, 500));
+    const store = await freshStore();
+    await expect(store.loadUnits()).resolves.toBeUndefined();
+    expect(store.state.units).toEqual({ linearScale: 1, metric: true });
+  });
+
+  it('defaults to the metric identity before any fetch', async () => {
+    const store = await freshStore();
+    expect(store.state.units).toEqual({ linearScale: 1, metric: true });
+  });
+});
+
 describe('getTool', () => {
   it('GETs the single fresh entry and revives the updated stamp to bigint', async () => {
     stubFetch(() => jsonResponse(wireEntry));

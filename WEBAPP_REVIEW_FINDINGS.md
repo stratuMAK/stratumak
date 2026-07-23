@@ -321,6 +321,20 @@ ruling); the fifth is left as-is.
   check is equality-only, and everything treats the stamp as opaque).
   Mutation-verified module test + a pure task-layer conflict test.
 
-- **T-9 machine-units display in tooledit** (inch configs) — still deferred:
-  needs a units-metadata source the tools API does not carry yet; columns are
-  labeled `(mm)`/`(deg)` under the mm-everywhere convention in the meantime.
+- **T-9 machine-units display in tooledit — DONE.** The tools API gained
+  `get_units() -> ToolUnits {linearScale, metric}` (GET `/units`): `linearScale`
+  is machine-linear-units-per-mm (1.0 mm / 1/25.4 inch), from the milltask
+  Task's parsed `[TRAJ]LINEAR_UNITS`, defaulting to mm like INIT_CANON. The
+  webapp keeps the table in mm end-to-end (wire + 409 stamp unchanged) and
+  converts display/input only: X/Y/Z/U/V/W offsets and diameter scale by
+  `linearScale`, A/B/C and front/back angles stay degrees, counts stay counts
+  (field split verified against 2.9 `USER_TO_PROGRAM_LEN`/`_ANG` in
+  interp_convert.cc). Dialog edits in display units; an UNEDITED linear field
+  emits the exact original mm (no round-trip drift → a no-op save can never
+  spuriously trip the 409). Column/field labels carry the live unit. Router
+  fix this required: `matchFunc` now prefers a literal path over a same-shape
+  wildcard WITHIN an API (a bare first-match routed `GET /units` into
+  `GET /{toolno}`); the cross-API preference already existed. Tests: server
+  GetUnits (mm/inch/unset/nil-task), router literal-beats-wildcard
+  (mutation-verified), webapp conversion + bit-exact no-op round-trip (34 app
+  tests). **All five Phase-6 webapp deferrals are now closed.**

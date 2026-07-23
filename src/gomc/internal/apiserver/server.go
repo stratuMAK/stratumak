@@ -284,6 +284,11 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 // matchFunc finds the FuncMeta index matching the given HTTP method and path.
 // Returns -1 if no match found.
 func matchFunc(funcs []FuncMeta, method, requestPath string) int {
+	// Prefer a literal match over a wildcard one WITHIN an API, mirroring the
+	// cross-API preference in the dispatcher: without this a literal
+	// "GET /units" is shadowed by an earlier "GET /{toolno}" in the same API,
+	// since a bare first-match would return whichever appears first in the IDL.
+	wildcard := -1
 	for i := range funcs {
 		f := &funcs[i]
 		if f.Method == "" || f.Path == "" {
@@ -292,11 +297,17 @@ func matchFunc(funcs []FuncMeta, method, requestPath string) int {
 		if f.Method != method {
 			continue
 		}
-		if matchPath(f.Path, requestPath) {
+		if !matchPath(f.Path, requestPath) {
+			continue
+		}
+		if isLiteralPath(f.Path) {
 			return i
 		}
+		if wildcard < 0 {
+			wildcard = i
+		}
 	}
-	return -1
+	return wildcard
 }
 
 // matchPath matches a pattern like "/pin/{name}" against a request path like "/pin/axis.0".

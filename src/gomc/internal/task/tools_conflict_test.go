@@ -49,3 +49,40 @@ func TestCheckToolConflict(t *testing.T) {
 	wantState(t, checkToolConflict(&tools.ToolEntry{}, 111, 5))
 	wantState(t, checkToolConflict(nil, 111, 5))
 }
+
+// TestGetUnits pins the display-units factor a UI needs to show tool lengths
+// in the operator's units: the store is mm, so an inch machine must report a
+// 1/25.4 scale and metric=false, and anything else defaults to mm.
+func TestGetUnits(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		linear     float64
+		wantScale  float64
+		wantMetric bool
+	}{
+		{"mm machine", 1.0, 1.0, true},
+		{"inch machine", 1.0 / 25.4, 1.0 / 25.4, false},
+		{"unset defaults to mm", 0, 1.0, true},
+		{"negative defaults to mm", -3, 1.0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			impl := &toolsImpl{module: &milltaskModule{task: &Task{linearUnits: tc.linear}}}
+			u, err := impl.GetUnits()
+			if err != nil {
+				t.Fatalf("GetUnits: %v", err)
+			}
+			if u.LinearScale != tc.wantScale {
+				t.Errorf("LinearScale = %v, want %v", u.LinearScale, tc.wantScale)
+			}
+			if u.Metric != tc.wantMetric {
+				t.Errorf("Metric = %v, want %v", u.Metric, tc.wantMetric)
+			}
+		})
+	}
+
+	// A nil task (pre-config / halrun) must not panic and defaults to mm.
+	impl := &toolsImpl{module: &milltaskModule{}}
+	if u, err := impl.GetUnits(); err != nil || u.LinearScale != 1.0 || !u.Metric {
+		t.Errorf("GetUnits with nil task = %+v, %v; want mm defaults", u, err)
+	}
+}

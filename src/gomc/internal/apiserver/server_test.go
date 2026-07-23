@@ -117,6 +117,26 @@ func TestMatchFunc(t *testing.T) {
 	}
 }
 
+// TestMatchFuncLiteralBeatsWildcard: a literal path must win over a same-shape
+// wildcard in the SAME API even when the wildcard is listed first — the tools
+// API relies on this so GET /units resolves to get_units, not get_tool
+// (/{toolno}). A plain first-match-wins would route /units into the wildcard.
+func TestMatchFuncLiteralBeatsWildcard(t *testing.T) {
+	// Wildcard deliberately precedes the literal, as get_tool precedes
+	// get_units in the tools IDL order.
+	funcs := []FuncMeta{
+		{Name: "get_tool", Method: "GET", Path: "/{toolno}"},
+		{Name: "get_units", Method: "GET", Path: "/units"},
+	}
+	if got := matchFunc(funcs, "GET", "/units"); got != 1 {
+		t.Errorf("GET /units matched index %d (%s), want 1 (get_units)", got, funcs[max(got, 0)].Name)
+	}
+	// A genuine tool number still falls through to the wildcard.
+	if got := matchFunc(funcs, "GET", "/5"); got != 0 {
+		t.Errorf("GET /5 matched index %d, want 0 (get_tool)", got)
+	}
+}
+
 // --- HTTP integration tests ---
 
 // mockDispatch creates a DispatchFunc that echoes back a JSON response

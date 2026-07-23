@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import type { ToolEntry } from '../generated/tools_client';
 import { toolStore } from '../stores/tools';
-import { fields, toForm, validateForm, type Field, type ToolForm } from './toolform';
+import { fields, fieldUnit, toForm, validateForm, type Field, type ToolForm } from './toolform';
 
 const props = defineProps<{
   tool: ToolEntry | null;
@@ -26,7 +26,8 @@ const form = ref<ToolForm>(toForm({
 
 watch(() => props.tool, (t) => {
   if (t) {
-    form.value = toForm(t);
+    // edit in display units; the stored entry is mm
+    form.value = toForm(t, toolStore.state.units.linearScale);
   }
 }, { immediate: true });
 
@@ -34,10 +35,24 @@ function onInput(field: Field, event: Event) {
   form.value[field.key] = (event.target as HTMLInputElement).value;
 }
 
+// Label with the live unit suffix (linear -> mm/in, angular -> deg).
+function fieldLabel(field: Field): string {
+  const unit = fieldUnit(field.key, toolStore.state.units.metric);
+  return unit ? `${field.label} (${unit})` : field.label;
+}
+
 const errors = ref<string[]>([]);
 
 function onSave() {
-  const { entry, errors: e } = validateForm(form.value, props.isNew, props.existingToolnos);
+  // pass the original mm entry so untouched linear fields round-trip exactly and
+  // convert display->mm for the ones the operator actually edited
+  const { entry, errors: e } = validateForm(
+    form.value,
+    props.isNew,
+    props.existingToolnos,
+    toolStore.state.units.linearScale,
+    props.tool ?? undefined,
+  );
   errors.value = e;
   if (entry) emit('save', entry);
 }
@@ -52,7 +67,7 @@ function onSave() {
       </div>
       <div class="dialog-body">
         <div v-for="field in fields" :key="field.key" class="field-row">
-          <label :for="'f-' + field.key">{{ field.label }}</label>
+          <label :for="'f-' + field.key">{{ fieldLabel(field) }}</label>
           <input
             :id="'f-' + field.key"
             type="text"
