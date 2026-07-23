@@ -61,25 +61,29 @@ func runCompletion() {
 	point := parseCompPoint(compPoint)
 	line := relevantCompLine(compLine, point)
 
-	// Skip any leading options (e.g. -k, -q, -s, -U <url>)
-	line = skipOptions(line)
-
-	// Parse words from the remaining line
-	words := splitWords(line)
-
-	// Find the current fragment (word being completed)
-	var fragment string
-	if len(line) > 0 && !unicode.IsSpace(rune(line[len(line)-1])) {
-		// Currently typing a word
-		if len(words) > 0 {
-			fragment = words[len(words)-1]
-			words = words[:len(words)-1]
-		}
+	_, candidates := completeHead(line)
+	for _, c := range candidates {
+		fmt.Println(c)
 	}
+}
 
-	// Determine what to complete
+// completeHead is the single completion entry point, shared by bash's
+// "complete -C" protocol and the interactive line editor's TAB key. head is the
+// halcmd command line left of the cursor (without the "halcmd" argv[0]). It
+// returns the byte offset in head at which the word being completed starts,
+// plus the candidates for that word.
+func completeHead(head string) (int, []string) {
+	// Skip any leading options (e.g. -k, -q, -s, -U <url>). skipOptions only
+	// ever trims from the front, so the length difference is the offset of the
+	// remaining text within head.
+	line := skipOptions(head)
+	offset := len(head) - len(line)
+
+	start := lastWordStart(line)
+	fragment := line[start:]
+	words := splitWords(line[:start])
+
 	var candidates []string
-
 	if len(words) == 0 {
 		// Completing the subcommand itself
 		candidates = completeCommand(fragment)
@@ -89,10 +93,29 @@ func runCompletion() {
 		argPos := len(words) // 1-based argument position
 		candidates = completeArg(cmd, argPos, fragment, words[1:])
 	}
+	return offset + start, candidates
+}
 
-	for _, c := range candidates {
-		fmt.Println(c)
+// lastWordStart returns the byte offset at which the last word of s begins,
+// honouring the same simple quoting rule as splitWords. A line ending in
+// whitespace has an empty last word, i.e. the offset is len(s).
+func lastWordStart(s string) int {
+	start := 0
+	inQuote := false
+	quoteChar := byte(0)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case (c == '"' || c == '\'') && !inQuote:
+			inQuote = true
+			quoteChar = c
+		case inQuote && c == quoteChar:
+			inQuote = false
+		case !inQuote && (c == ' ' || c == '\t'):
+			start = i + 1
+		}
 	}
+	return start
 }
 
 // skipOptions strips leading halcmd options from the line (e.g. -k -q -s -U url).
