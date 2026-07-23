@@ -98,8 +98,22 @@ html, body, #app {
   position: relative;
 }
 
-/* S-7: greyed-out chart area while the connection is stale */
-.chart-area.stale {
+/* The chart stack must fill the chart-area with a DEFINITE height: ScopeChart
+ * sizes uPlot from its own box and feeds that back through a ResizeObserver, so
+ * a content-driven height here makes the plot grow every frame (Firefox pegs a
+ * CPU on the loop; WebKit caps it but settles oversized). flex + min-height:0
+ * pins the height to the viewport, breaking the loop. */
+.chart-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* S-7: greyed-out chart while the connection is stale. The `stale` class is on
+ * .chart-stack, so the overlay (a sibling in .chart-area) stays crisp above it. */
+.chart-stack.stale {
   opacity: 0.45;
   filter: grayscale(0.8);
   pointer-events: none;

@@ -10,6 +10,19 @@ let resizeObs: ResizeObserver | null = null;
 
 const NUM_DIVS = 10; // 10 vertical divisions like original scope
 
+// uPlot inserts its legend row INSIDE chartEl, below the canvas. Give the
+// canvas the box height minus this reservation so the legend fits within the
+// (now definite-height) container instead of overflowing it.
+const LEGEND_H = 40;
+
+// Plot dimensions for the current container box.
+function plotSize(rect: { width: number; height: number }) {
+  return {
+    width: Math.max(rect.width, 200),
+    height: Math.max(rect.height - LEGEND_H, 120),
+  };
+}
+
 // --- Cursor helpers ---
 const selCh = computed(() => scopeStore.state.selectedChannel);
 const selUI = computed(() => selCh.value >= 0 ? scopeStore.channelUI[selCh.value] : null);
@@ -395,9 +408,7 @@ function createPlot() {
   detachPlotEvents();
   plot?.destroy();
 
-  const rect = chartEl.value.getBoundingClientRect();
-  const w = Math.max(rect.width, 200);
-  const h = Math.max(rect.height, 150);
+  const { width: w, height: h } = plotSize(chartEl.value.getBoundingClientRect());
 
   const opts = buildOpts(w, h);
   const data = buildData();
@@ -494,8 +505,7 @@ onMounted(() => {
   createPlot();
   resizeObs = new ResizeObserver(() => {
     if (chartEl.value && plot) {
-      const r = chartEl.value.getBoundingClientRect();
-      plot.setSize({ width: Math.max(r.width, 200), height: Math.max(r.height, 150) });
+      plot.setSize(plotSize(chartEl.value.getBoundingClientRect()));
     }
   });
   if (chartEl.value) resizeObs.observe(chartEl.value);
@@ -522,8 +532,12 @@ onBeforeUnmount(() => {
 .scope-chart {
   position: relative;
   width: 100%;
-  height: 100%;
-  min-height: 300px;
+  /* Definite, flex-derived height (parent .chart-stack is flex:1/min-height:0).
+   * NOT height:100% against an auto parent — that made the box content-sized,
+   * so feeding it back into uPlot.setSize grew it every frame (the Firefox
+   * Y-zoom CPU loop). min-height is only a floor and never drives the size. */
+  flex: 1 1 0;
+  min-height: 200px;
   background: #111;
   border: 1px solid #333;
   border-radius: 4px;
