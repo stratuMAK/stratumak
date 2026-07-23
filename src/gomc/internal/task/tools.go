@@ -36,6 +36,7 @@ func tooltableToToolEntry(t *tooltable.ToolEntry) tools.ToolEntry {
 		Backangle:   t.Backangle,
 		Orientation: t.Orientation,
 		Comment:     t.Comment,
+		Updated:     t.Updated,
 	}
 }
 
@@ -57,12 +58,35 @@ func toolEntryToTooltable(e *tools.ToolEntry) tooltable.ToolEntry {
 		Backangle:   e.Backangle,
 		Orientation: e.Orientation,
 		Comment:     e.Comment,
+		Updated:     e.Updated,
 	}
 }
 
 // toolsImpl implements tools.ToolsCallbacks via the tooltable GMI client.
 type toolsImpl struct {
 	module *milltaskModule
+}
+
+// checkToolConflict is the optimistic-concurrency pre-check for PutTool: the
+// caller's non-zero baseline stamp must match the currently stored one. It is
+// a pre-check for UX only — the in-process client shim flattens the tooltable
+// module's authoritative (mutex-atomic) refusal to a bare rc, so the readable
+// 409 must be produced here, before crossing the shim. current.Toolno == 0
+// means the tool is gone: recreating a deleted tool from a stale dialog is a
+// conflict too, not an upsert.
+func checkToolConflict(current *tools.ToolEntry, baseline int64, toolno int32) error {
+	if baseline == 0 {
+		return nil // last-write-wins caller (canon/G10/legacy)
+	}
+	if current == nil || current.Toolno == 0 {
+		return apiserver.Faultf(apiserver.FaultState,
+			"tool %d was deleted since it was read — reload the table", toolno)
+	}
+	if current.Updated != baseline {
+		return apiserver.Faultf(apiserver.FaultState,
+			"tool %d changed since it was read — reload and re-apply the edit", toolno)
+	}
+	return nil
 }
 
 func (t *toolsImpl) ListTools() ([]tools.ToolEntry, error) {
@@ -89,6 +113,15 @@ func (t *toolsImpl) GetTool(toolno int32) (*tools.ToolEntry, error) {
 func (t *toolsImpl) PutTool(toolno int32, entry tools.ToolEntry) (*tools.PutToolResult, error) {
 	if toolno <= 0 {
 		return nil, fmt.Errorf("toolno must be > 0")
+	}
+	if entry.Updated != 0 {
+		current, err := t.GetTool(toolno)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkToolConflict(current, entry.Updated, toolno); err != nil {
+			return nil, err
+		}
 	}
 	entry.Toolno = toolno
 	ttEntry := toolEntryToTooltable(&entry)

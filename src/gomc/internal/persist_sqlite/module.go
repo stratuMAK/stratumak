@@ -317,7 +317,7 @@ func (m *module) SetEntry(handle int32, key, value string) (persist.SetResult, e
 	if err != nil {
 		return persist.SetResult{Ok: false}, err
 	}
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 	_, err = h.db.Exec(
 		`INSERT INTO entries (key, value, updated) VALUES (?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated`,
@@ -356,7 +356,7 @@ func (m *module) SetEntries(handle int32, entries []persist.Entry) (persist.SetR
 		return persist.SetResult{Ok: false}, err
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 	stmt, err := tx.Prepare(
 		`INSERT INTO entries (key, value, updated) VALUES (?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated`)

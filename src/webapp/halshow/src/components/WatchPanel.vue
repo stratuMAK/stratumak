@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { halshowStore } from '../stores/halshow';
+import { halshowStore, type WatchEntry, type WatchKind } from '../stores/halshow';
 
 const editingName = ref('');
+const editingKind = ref<WatchKind>('pin');
 const editValue = ref('');
 const editError = ref('');
 
+// Displayed value/type/dir come from the server-resolved bare name — for a
+// signal shadowed by a same-name pin these are the pin's (H-9 residual
+// limitation; see updateWatch in the store). Only the SET path is kind-exact.
 function getWatchValue(name: string): string {
   const item = halshowStore.state.watchValues.find(v => v.name === name);
   if (!item || isDead(name)) return '—';
@@ -28,9 +32,16 @@ function getWatchDir(name: string): string {
   return item?.dir ?? '';
 }
 
-function canSet(name: string): boolean {
-  const item = halshowStore.state.watchValues.find(v => v.name === name);
-  if (!item) return false;
+function canSet(entry: WatchEntry): boolean {
+  const item = halshowStore.state.watchValues.find(v => v.name === entry.name);
+  if (!item || item.kind === 'unknown') return false;
+  if (item.kind !== entry.kind) {
+    // H-9 residual: the server resolved the bare name to a different
+    // (shadowing) item, so the whitelist can't be evaluated for the stored
+    // kind. Offer Set — the write targets the stored kind and the server
+    // refuses unsettable targets, which surfaces in the dialog.
+    return true;
+  }
   // Whitelist: only allow setting known-settable items
   if (item.kind === 'pin' && (item.dir === 'IN' || item.dir === 'IO') && !item.linked) return true;
   if (item.kind === 'param' && item.dir === 'RW') return true;
@@ -42,16 +53,18 @@ function isBitType(name: string): boolean {
   return getWatchType(name) === 'bit';
 }
 
-function startEdit(name: string) {
-  editingName.value = name;
-  editValue.value = getWatchValue(name);
+function startEdit(entry: WatchEntry) {
+  editingName.value = entry.name;
+  editingKind.value = entry.kind;
+  editValue.value = getWatchValue(entry.name);
   editError.value = '';
 }
 
 async function submitEdit() {
   if (!editingName.value) return;
   try {
-    const result = await halshowStore.setWatchValue(editingName.value, editValue.value);
+    // H-9: target the stored kind — no pin-first precedence guessing
+    const result = await halshowStore.setWatchValue(editingName.value, editValue.value, editingKind.value);
     if (result.success) {
       editingName.value = '';
       editError.value = '';
@@ -109,16 +122,17 @@ function cancelEdit() {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="name in halshowStore.state.watchList" :key="name" :class="{ dead: isDead(name) }">
-          <td class="name">{{ name }}</td>
-          <td class="value" :class="{ stale: halshowStore.state.watchStale }">{{ getWatchValue(name) }}</td>
-          <td class="type">{{ getWatchType(name) }}</td>
-          <td class="dir">{{ getWatchDir(name) }}</td>
+        <!-- H-9: key includes kind — the same name may appear as pin AND signal -->
+        <tr v-for="entry in halshowStore.state.watchList" :key="entry.kind + ':' + entry.name" :class="{ dead: isDead(entry.name) }">
+          <td class="name">{{ entry.name }}</td>
+          <td class="value" :class="{ stale: halshowStore.state.watchStale }">{{ getWatchValue(entry.name) }}</td>
+          <td class="type">{{ getWatchType(entry.name) }}</td>
+          <td class="dir">{{ getWatchDir(entry.name) }}</td>
           <td class="set-col">
-            <button v-if="canSet(name)" class="set-btn" @click="startEdit(name)">Set</button>
+            <button v-if="canSet(entry)" class="set-btn" @click="startEdit(entry)">Set</button>
           </td>
           <td class="remove">
-            <button @click="halshowStore.removeFromWatch(name)">×</button>
+            <button @click="halshowStore.removeFromWatch(entry.name, entry.kind)">×</button>
           </td>
         </tr>
       </tbody>

@@ -96,6 +96,102 @@ func TestWatchSubscribeReceivesUpdates(t *testing.T) {
 	}
 }
 
+// TestWatchKeepaliveClosesDeadPeer: a peer that stops processing frames (app
+// wedged, cable pulled behind a NAT that keeps ACKing) must be detected and
+// closed by the server's ping loop — otherwise change-driven watch pushes
+// appear delivered forever and the client renders frozen values as live.
+// A client that never Reads stands in for the dead peer: coder/websocket only
+// answers pings inside Read, so the pong never arrives.
+func TestWatchKeepaliveClosesDeadPeer(t *testing.T) {
+	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
+	wsPingInterval, wsPingTimeout = 30*time.Millisecond, 50*time.Millisecond
+	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
+
+	handler := NewWatchHandler(NewWatchRegistry())
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	// Do not Read. Wait past interval+timeout, then the server must have
+	// closed the connection: our first Read fails immediately instead of
+	// blocking until the test context expires.
+	time.Sleep(200 * time.Millisecond)
+	readCtx, readCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer readCancel()
+	if _, _, err := conn.Read(readCtx); err == nil {
+		t.Fatal("server kept an unresponsive peer open; keepalive did not close it")
+	}
+}
+
+// TestWatchKeepaliveKeepsLivePeer: the inverse guard — a peer that reads (and
+// therefore pongs) must survive many ping intervals and still get service.
+func TestWatchKeepaliveKeepsLivePeer(t *testing.T) {
+	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
+	wsPingInterval, wsPingTimeout = 20*time.Millisecond, 50*time.Millisecond
+	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
+
+	// The value must keep changing: pushes are change-driven, and this test
+	// needs a continuous stream to prove the connection survives the pinger.
+	var counter int32
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{
+		APIName:  "test",
+		Instance: "default",
+		Watches: []WatchFuncMeta{{
+			Name:        "get_value",
+			DefaultRate: 20 * time.Millisecond,
+			Watch: func() (json.RawMessage, error) {
+				v := atomic.AddInt32(&counter, 1)
+				return json.Marshal(map[string]int32{"value": v})
+			},
+		}},
+	})
+	handler := NewWatchHandler(reg)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	sub, _ := json.Marshal(wsSubscribe{
+		Action: "subscribe", API: "test", Instance: "default",
+		Func: "get_value", RateMS: 20,
+	})
+	if err := conn.Write(ctx, websocket.MessageText, sub); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
+
+	// Read updates across ~10 ping intervals; pongs are answered inside Read,
+	// so the connection must stay up the whole time.
+	deadline := time.Now().Add(250 * time.Millisecond)
+	reads := 0
+	for time.Now().Before(deadline) {
+		if _, _, err := conn.Read(ctx); err != nil {
+			t.Fatalf("connection died after %d reads despite a live reader: %v", reads, err)
+		}
+		reads++
+	}
+	if reads == 0 {
+		t.Fatal("no updates received")
+	}
+}
+
 // TestWatchCommandCall verifies that command calls over WebSocket work.
 func TestWatchCommandCall(t *testing.T) {
 	reg := NewWatchRegistry()

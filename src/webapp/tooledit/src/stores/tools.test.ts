@@ -40,7 +40,13 @@ const entry: ToolEntry = {
   u_offset: 0, v_offset: 0, w_offset: 0,
   diameter: 6.35, frontangle: -30, backangle: 30,
   orientation: 7, comment: 'test tool',
+  updated: 7n,
 };
+
+// the generated client serializes bigint via a JSON.stringify replacer, and the
+// server sends the stamp as a JSON string that the client revives to bigint —
+// so on the wire (both directions) `updated` is a string
+const wireEntry = { ...entry, updated: String(entry.updated) };
 
 // the store creates its client and reactive state at module scope, so each
 // test imports a fresh copy
@@ -54,10 +60,10 @@ afterEach(() => {
 });
 
 describe('saveTool', () => {
-  it('PUTs the entry envelope with all 16 fields, then reloads', async () => {
+  it('PUTs the entry envelope with all 17 fields, then reloads', async () => {
     stubFetch(c => c.method === 'PUT'
       ? jsonResponse({ ok: true, index: 5 })
-      : jsonResponse([entry]));
+      : jsonResponse([wireEntry]));
     const store = await freshStore();
     const ok = await store.saveTool({ ...entry });
     expect(ok).toBe(true);
@@ -65,20 +71,21 @@ describe('saveTool', () => {
     expect(calls[0].url).toBe('http://localhost/api/v1/milltask/5');
     const sent = JSON.parse(calls[0].body!);
     expect(Object.keys(sent)).toEqual(['entry']);
-    expect(sent.entry).toEqual(entry);
-    expect(Object.keys(sent.entry)).toHaveLength(16);
+    expect(sent.entry).toEqual(wireEntry);
+    expect(Object.keys(sent.entry)).toHaveLength(17);
     expect(calls[1]).toMatchObject({ method: 'GET', url: 'http://localhost/api/v1/milltask/' });
     expect(store.state.tools).toEqual([entry]);
     expect(store.state.stale).toBe(false);
     expect(store.state.error).toBeNull();
   });
 
-  it('returns false and keeps the error on an HTTP failure', async () => {
+  it('returns false and keeps the generic error on a non-409 HTTP failure', async () => {
     stubFetch(() => jsonResponse({ error: 'boom' }, 500));
     const store = await freshStore();
     const ok = await store.saveTool({ ...entry });
     expect(ok).toBe(false);
     expect(store.state.error).toContain('boom');
+    expect(store.state.error).not.toContain('changed by another client');
     expect(calls).toHaveLength(1);
   });
 
@@ -99,9 +106,61 @@ describe('saveTool', () => {
     expect(ok).toBe(true);
     expect(store.state.stale).toBe(true);
     expect(store.state.error).toContain('list broke');
-    stubFetch(() => jsonResponse([entry]));
+    stubFetch(() => jsonResponse([wireEntry]));
     await store.loadTools();
     expect(store.state.stale).toBe(false);
+  });
+
+  it('round-trips the updated stamp from getTool into the PUT body', async () => {
+    const fresh = { ...wireEntry, updated: '9007199254740993' }; // 2^53+1: beyond Number precision
+    stubFetch(c => c.method === 'PUT'
+      ? jsonResponse({ ok: true, index: 5 })
+      : jsonResponse(c.url.endsWith('/5') ? fresh : [fresh]));
+    const store = await freshStore();
+    const got = await store.getTool(5);
+    expect(got!.updated).toBe(9007199254740993n);
+    const ok = await store.saveTool(got!);
+    expect(ok).toBe(true);
+    const putCall = calls.find(c => c.method === 'PUT')!;
+    const sent = JSON.parse(putCall.body!);
+    expect(sent.entry.updated).toBe('9007199254740993');
+  });
+
+  it('sends updated=0 for an Add-mode entry (last-write-wins create)', async () => {
+    stubFetch(c => c.method === 'PUT'
+      ? jsonResponse({ ok: true, index: 9 })
+      : jsonResponse([wireEntry]));
+    const store = await freshStore();
+    const ok = await store.saveTool({ ...entry, toolno: 9, updated: 0n });
+    expect(ok).toBe(true);
+    const sent = JSON.parse(calls[0].body!);
+    expect(sent.entry.updated).toBe('0');
+  });
+
+  it('on 409 sets the distinct conflict error, returns false and reloads the table', async () => {
+    const changed = { ...wireEntry, z_offset: 99, updated: '8' };
+    stubFetch(c => c.method === 'PUT'
+      ? jsonResponse({ error: 'tool 5 modified concurrently' }, 409)
+      : jsonResponse([changed]));
+    const store = await freshStore();
+    const ok = await store.saveTool({ ...entry });
+    expect(ok).toBe(false);
+    expect(store.state.error).toContain('Tool 5 was changed by another client');
+    expect(store.state.error).toContain('NOT saved');
+    // a follow-up GET refreshed the table to the new server state
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ method: 'GET', url: 'http://localhost/api/v1/milltask/' });
+    expect(store.state.tools).toEqual([{ ...entry, z_offset: 99, updated: 8n }]);
+  });
+
+  it('keeps the conflict error even when the post-409 reload also fails', async () => {
+    stubFetch(c => c.method === 'PUT'
+      ? jsonResponse({ error: 'conflict' }, 409)
+      : jsonResponse({ error: 'list broke' }, 500));
+    const store = await freshStore();
+    const ok = await store.saveTool({ ...entry });
+    expect(ok).toBe(false);
+    expect(store.state.error).toContain('changed by another client');
   });
 });
 
@@ -130,12 +189,13 @@ describe('deleteTool', () => {
 });
 
 describe('getTool', () => {
-  it('GETs the single fresh entry', async () => {
-    stubFetch(() => jsonResponse(entry));
+  it('GETs the single fresh entry and revives the updated stamp to bigint', async () => {
+    stubFetch(() => jsonResponse(wireEntry));
     const store = await freshStore();
     const got = await store.getTool(5);
     expect(calls[0]).toMatchObject({ method: 'GET', url: 'http://localhost/api/v1/milltask/5' });
     expect(got).toEqual(entry);
+    expect(typeof got!.updated).toBe('bigint');
   });
 
   it('returns null and sets the error on failure', async () => {

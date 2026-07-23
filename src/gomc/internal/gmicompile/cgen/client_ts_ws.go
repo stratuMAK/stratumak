@@ -195,7 +195,9 @@ func (g *clientTSWSGen) emitClient() {
 	g.printf("      rate_ms: rateMs,\n")
 	g.printf("    };\n")
 	g.printf("    if (args) { msg.args = args; }\n")
-	g.printf("    this.ws?.send(JSON.stringify(msg));\n")
+	// bigint replacer: watch args may carry 64-bit fields (typed bigint,
+	// wire = JSON string per G-M4); JSON.stringify throws on a bare bigint.
+	g.printf("    this.ws?.send(JSON.stringify(msg, (_k, v) => typeof v === 'bigint' ? String(v) : v));\n")
 	g.printf("  }\n\n")
 
 	// unsubscribe
@@ -215,6 +217,7 @@ func (g *clientTSWSGen) emitClient() {
 	g.printf("    return new Promise((resolve, reject) => {\n")
 	g.printf("      const id = this.nextId++;\n")
 	g.printf("      this.pending.set(id, { resolve, reject });\n")
+	// Same bigint replacer as subscribe: command args may carry 64-bit fields.
 	g.printf("      this.ws?.send(JSON.stringify({\n")
 	g.printf("        action: 'call',\n")
 	g.printf("        api: this.api,\n")
@@ -222,7 +225,7 @@ func (g *clientTSWSGen) emitClient() {
 	g.printf("        func: funcName,\n")
 	g.printf("        id,\n")
 	g.printf("        args: args ?? {},\n")
-	g.printf("      }));\n")
+	g.printf("      }, (_k, v) => typeof v === 'bigint' ? String(v) : v));\n")
 	g.printf("    });\n")
 	g.printf("  }\n\n")
 }

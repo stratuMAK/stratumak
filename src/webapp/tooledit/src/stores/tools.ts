@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { ToolsClient, type ToolEntry } from '../generated/tools_client';
+import { APIError, ToolsClient, type ToolEntry } from '../generated/tools_client';
 
 export interface ToolEditState {
   tools: ToolEntry[];
@@ -48,6 +48,18 @@ async function saveTool(tool: ToolEntry): Promise<boolean> {
   try {
     await client.putTool(tool.toolno, tool);
   } catch (e: unknown) {
+    if (e instanceof APIError && e.statusCode === 409) {
+      // optimistic-concurrency conflict: the tool changed on the server
+      // (touch-off, another client) since this copy was read. Refresh the
+      // table to the new server state; the dialog keeps the operator's
+      // unsaved edits open. Set the error after the reload so loadTools()
+      // clearing state.error cannot swallow the conflict message.
+      await loadTools();
+      state.error =
+        `Tool ${tool.toolno} was changed by another client since you opened it ` +
+        `— your edits were NOT saved. Reload and re-apply.`;
+      return false;
+    }
     state.error = e instanceof Error ? e.message : String(e);
     return false;
   }

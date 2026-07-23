@@ -27,6 +27,11 @@ type ToolEntry {
     backangle: f64
     orientation: i32 @min(0) @max(9)
     comment: string @maxlen(255)
+    updated: i64          # opaque modification stamp set by the server on
+                          # every read. Echo it back unchanged in put_tool to
+                          # get optimistic concurrency: the write is refused
+                          # (409) when the tool changed since it was read.
+                          # 0 skips the check (last-write-wins).
 }
 
 type PutToolResult {

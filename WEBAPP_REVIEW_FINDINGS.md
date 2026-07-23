@@ -274,13 +274,53 @@ design/wire change or a ruling), **RULED** (kept as-is with rationale),
   killed by exceptions; pure-REST design recovers from server restart by
   itself (the gap was the hang case, LT-1).
 
-## Cross-cutting deferrals out of this pass
+## Cross-cutting deferrals — follow-up pass 2026-07-23
 
-- **Optimistic concurrency for tooledit** (persist `updated` through the tools
-  API) — wire change (T-3 full fix).
-- **apiserver WS keepalive/ping** — shared transport change benefiting
-  halshow/halscope/AXIS watches alike (S-7 server half).
-- **Cumulative histogram out-of-range counters** — provider addition on the
-  latency-test branch (LT-4).
-- **Machine-units display in tooledit** for inch configs (T-9).
-- **halshow watch list as {name, kind} tuples** (H-9, localStorage migration).
+Four of the five recorded deferrals were taken in a follow-up pass (user
+ruling); the fifth is left as-is.
+
+- **H-9 halshow watch {name,kind} tuples — DONE.** Watch entries are now
+  `{name, kind}`; the SET path dispatches on the stored kind (no more
+  pin→param→signal precedence guessing, so a signal shadowed by a same-name
+  pin is set correctly). localStorage migrates the old `string[]` format
+  (kind back-derived by the old precedence, non-resolving names pruned) and
+  re-persists as tuples; dedupe by (name,kind); subscribe wire unchanged
+  (bare names, deduped). Residual (documented in code): the server-side watch
+  *value* resolve is still pin-first, so the DISPLAYED live value of a
+  shadowed signal is the pin's — only the SET path is kind-exact; a full fix
+  needs kind on the wire. 7 new tests.
+- **apiserver WS keepalive — DONE (S-7 server half).** The watch handler now
+  pings each peer every 10 s (5 s timeout) on a per-connection goroutine and
+  tears the connection down on failure, so a dead peer (pulled cable,
+  powered-off HMI, half-open NAT) is detected instead of receiving
+  change-driven pushes into the void forever. The stream handler deliberately
+  keeps no keepalive (continuous push surfaces a dead peer as write
+  backpressure). Cadence vars are test-overridable; two tests (dead peer
+  closed, live peer survives many intervals).
+- **LT-4 cumulative histogram counters — DONE (provider addition).**
+  `latency_hist.h` gains `total_underflow`/`total_overflow` (u64, NOT zeroed
+  by autoscale coarsening, only by reset); surfaced through `latency.gmi`
+  (`totalUnderflow`/`totalOverflow`) and the C fill; the UI now reads
+  "out-of-range N under / N over (N/N since rescale)". The evidence of
+  out-of-range samples no longer vanishes on a rescale.
+- **T-3 tooledit optimistic concurrency — DONE (wire change).** `ToolEntry`
+  gains an opaque `updated` stamp (unix ns, filled from the persist row on
+  every read; the stamp lives on the row, not in the stored JSON). `put_tool`
+  with a non-zero stamp is refused (**409 FaultState**) when the stored stamp
+  moved on or the tool was deleted — so a webapp Save can no longer silently
+  revert a concurrent touch-off. 0 skips the check (canon/G10/iocontrol/
+  legacy writers, last-write-wins). The authoritative refusal is atomic in
+  the tooltable module under its mutex; the task layer runs a friendly-message
+  pre-check because the in-process client shim flattens provider errors to a
+  bare rc (so the readable 409 must originate before the shim). Fallout fixed
+  in the generator: the TS client's `JSON.stringify(body)` throws on the
+  `updated` **bigint** field — all body/WS-arg stringify sites now use a
+  bigint→string replacer (a nested 64-bit field in a body struct was
+  previously only safe for top-level params via `String()`). persist stamp
+  moved seconds→nanoseconds so two rapid writes never share a stamp (the
+  check is equality-only, and everything treats the stamp as opaque).
+  Mutation-verified module test + a pure task-layer conflict test.
+
+- **T-9 machine-units display in tooledit** (inch configs) — still deferred:
+  needs a units-metadata source the tools API does not carry yet; columns are
+  labeled `(mm)`/`(deg)` under the mm-everywhere convention in the meantime.

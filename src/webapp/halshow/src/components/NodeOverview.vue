@@ -7,7 +7,8 @@ function getNodePins(): PinInfo[] {
 }
 
 function addToWatch(name: string) {
-  halshowStore.addToWatch(name);
+  // H-9: the overview only lists pins, so the watch kind is always 'pin'
+  halshowStore.addToWatch(name, 'pin');
 }
 
 function addAllToWatch() {
@@ -16,7 +17,7 @@ function addAllToWatch() {
 
 function allWatched(): boolean {
   const pins = getNodePins();
-  return pins.length > 0 && pins.every(p => halshowStore.isWatched(p.name));
+  return pins.length > 0 && pins.every(p => halshowStore.isWatched(p.name, 'pin'));
 }
 </script>
 
@@ -50,7 +51,7 @@ function allWatched(): boolean {
           <td class="dir">{{ pin.dir ?? '' }}</td>
           <td class="signal">{{ pin.linked ? pin.signal : '' }}</td>
           <td class="action">
-            <button :class="{ watched: halshowStore.isWatched(pin.name) }" @click="addToWatch(pin.name)" title="Add to watch">{{ halshowStore.isWatched(pin.name) ? '✓' : '+W' }}</button>
+            <button :class="{ watched: halshowStore.isWatched(pin.name, 'pin') }" @click="addToWatch(pin.name)" title="Add to watch">{{ halshowStore.isWatched(pin.name, 'pin') ? '✓' : '+W' }}</button>
           </td>
         </tr>
       </tbody>

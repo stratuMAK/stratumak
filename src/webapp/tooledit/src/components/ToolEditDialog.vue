@@ -21,7 +21,7 @@ const form = ref<ToolForm>(toForm({
   a_offset: 0, b_offset: 0, c_offset: 0,
   u_offset: 0, v_offset: 0, w_offset: 0,
   diameter: 0, frontangle: 0, backangle: 0,
-  orientation: 0, comment: '',
+  orientation: 0, comment: '', updated: 0n,
 }));
 
 watch(() => props.tool, (t) => {

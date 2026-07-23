@@ -317,6 +317,8 @@ static latency_latency_histogram_t gmi_latency_get_histogram(void *ctx) {
     h.baseNs     = hist_base(&priv->hist);
     h.underflow  = priv->hist.underflow;
     h.overflow   = priv->hist.overflow;
+    h.totalUnderflow = priv->hist.total_underflow;
+    h.totalOverflow  = priv->hist.total_overflow;
     h.samples    = priv->hist.n;
     h.autoscale  = priv->hist.autoscale != 0;
     pthread_mutex_unlock(&priv->lock);

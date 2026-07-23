@@ -2,8 +2,12 @@
 // component so the parse/validate rules are testable without mounting it.
 import type { ToolEntry } from '../generated/tools_client';
 
+// The concurrency stamp is not editable: it is carried through the form
+// verbatim as a bigint and never appears in the field list.
+export type EditableKey = Exclude<keyof ToolEntry, 'updated'>;
+
 export interface Field {
-  key: keyof ToolEntry;
+  key: EditableKey;
   label: string;
   type: 'int' | 'float' | 'text';
   readonly?: boolean;
@@ -28,16 +32,19 @@ export const fields: Field[] = [
   { key: 'comment', label: 'Comment', type: 'text' },
 ];
 
-// All fields are held as raw strings while editing; numbers are only parsed
-// on save so partial input ("-", "1e") is never coerced behind the user's back.
-export type ToolForm = Record<keyof ToolEntry, string>;
+// All editable fields are held as raw strings while editing; numbers are only
+// parsed on save so partial input ("-", "1e") is never coerced behind the
+// user's back. `updated` rides along unchanged (bigint) for the optimistic
+// concurrency check on PUT.
+export type ToolForm = Record<EditableKey, string> & { updated: bigint };
 
 export function toForm(t: ToolEntry): ToolForm {
-  const f = {} as Record<string, string>;
+  const f = {} as Record<string, string | bigint>;
   for (const field of fields) {
     const v = t[field.key];
     f[field.key] = typeof v === 'string' ? v : String(v);
   }
+  f.updated = t.updated;
   return f as ToolForm;
 }
 
@@ -63,7 +70,7 @@ export interface ValidateResult {
 
 export function validateForm(form: ToolForm, isNew: boolean, existingToolnos: number[]): ValidateResult {
   const e: string[] = [];
-  const vals: Partial<Record<keyof ToolEntry, number | string>> = {};
+  const vals: Partial<Record<EditableKey, number | string>> = {};
   for (const field of fields) {
     const raw = form[field.key];
     if (field.type === 'text') {
@@ -79,7 +86,7 @@ export function validateForm(form: ToolForm, isNew: boolean, existingToolnos: nu
       vals[field.key] = n;
     }
   }
-  const num = (k: keyof ToolEntry) => vals[k] as number | undefined;
+  const num = (k: EditableKey) => vals[k] as number | undefined;
   const toolno = num('toolno');
   if (toolno !== undefined) {
     if (toolno <= 0) e.push('Tool number must be > 0');
@@ -94,5 +101,10 @@ export function validateForm(form: ToolForm, isNew: boolean, existingToolnos: nu
   const backangle = num('backangle');
   if (backangle !== undefined && (backangle < -360 || backangle > 360)) e.push('Back angle must be -360..360');
   if ([...form.comment].length > 255) e.push('Comment must be at most 255 characters');
-  return { entry: e.length === 0 ? (vals as unknown as ToolEntry) : null, errors: e };
+  // the concurrency stamp goes back on the entry verbatim — it is a bigint and
+  // must never pass through the numeric field parsing above
+  return {
+    entry: e.length === 0 ? ({ ...vals, updated: form.updated } as unknown as ToolEntry) : null,
+    errors: e,
+  };
 }

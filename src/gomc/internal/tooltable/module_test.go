@@ -179,6 +179,85 @@ func TestToolCRUD(t *testing.T) {
 	}
 }
 
+// TestPutToolOptimisticConcurrency pins the stale-write refusal: a caller that
+// echoes the stamp it read must be refused once the tool moved on, while a
+// zero stamp keeps the classic last-write-wins for canon/G10/legacy writers.
+func TestPutToolOptimisticConcurrency(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	m := newBoundTooltable(t, dir, nil)
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if _, err := m.PutTool(5, gmitooltable.ToolEntry{ZOffset: 1}); err != nil {
+		t.Fatalf("PutTool: %v", err)
+	}
+	base, err := m.GetTool(5)
+	if err != nil {
+		t.Fatalf("GetTool: %v", err)
+	}
+	if base.Updated == 0 {
+		t.Fatal("stored tool reads back with a zero stamp — nothing to compare against")
+	}
+
+	// Matching stamp: the conditional write lands and produces a NEW stamp
+	// (nanosecond stamps must never repeat, or the check is blind).
+	upd := base
+	upd.ZOffset = 2
+	if _, err := m.PutTool(5, upd); err != nil {
+		t.Fatalf("PutTool with the matching stamp: %v", err)
+	}
+	cur, err := m.GetTool(5)
+	if err != nil {
+		t.Fatalf("GetTool: %v", err)
+	}
+	if cur.ZOffset != 2 {
+		t.Errorf("conditional write did not land (z = %v)", cur.ZOffset)
+	}
+	if cur.Updated == base.Updated {
+		t.Errorf("stamp did not change across a write (still %d)", cur.Updated)
+	}
+
+	// Stale stamp (the pre-rewrite baseline): refused, value untouched.
+	stale := base
+	stale.ZOffset = 99
+	if _, err := m.PutTool(5, stale); err == nil {
+		t.Fatal("PutTool with a stale stamp succeeded; want a conflict error")
+	}
+	after, _ := m.GetTool(5)
+	if after.ZOffset != 2 {
+		t.Errorf("stale write modified the tool anyway (z = %v)", after.ZOffset)
+	}
+
+	// Baseline against a deleted tool: recreating it from a stale dialog is a
+	// conflict, not an upsert.
+	if _, err := m.DeleteTool(5); err != nil {
+		t.Fatalf("DeleteTool: %v", err)
+	}
+	ghost := cur
+	if _, err := m.PutTool(5, ghost); err == nil {
+		t.Fatal("PutTool with a baseline onto a deleted tool succeeded; want a conflict error")
+	}
+
+	// Zero stamp: unconditional, recreates the tool (last-write-wins).
+	if _, err := m.PutTool(5, gmitooltable.ToolEntry{ZOffset: 7}); err != nil {
+		t.Fatalf("unconditional PutTool: %v", err)
+	}
+
+	// The stamp must not leak into the stored JSON (it lives on the persist
+	// row): a fresh read's stamp comes from the row of THIS write, and a
+	// second unconditional write refreshes it.
+	fresh, err := m.GetTool(5)
+	if err != nil {
+		t.Fatalf("GetTool: %v", err)
+	}
+	if fresh.Updated == 0 || fresh.Updated == base.Updated {
+		t.Errorf("recreated tool has stamp %d (base was %d); want a fresh non-zero stamp",
+			fresh.Updated, base.Updated)
+	}
+}
+
 // writeIni builds an INI naming a tool table, plus the .tbl itself.
 func writeIni(t *testing.T, dir, tbl string) *inifile.IniFile {
 	t.Helper()

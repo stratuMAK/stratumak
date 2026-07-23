@@ -175,7 +175,9 @@ watch(h, render, { deep: true });
       <label class="chk"><input type="checkbox" v-model="logScale" /> log scale</label>
       <span class="meta" v-if="h">
         bin {{ (h.binWidthNs / 1000).toFixed(2) }} µs ·
-        under {{ h.underflow }} · over {{ h.overflow }} (since rescale) ·
+        out-of-range {{ h.totalUnderflow.toLocaleString() }} under /
+        {{ h.totalOverflow.toLocaleString() }} over
+        ({{ h.underflow }}/{{ h.overflow }} since rescale) ·
         {{ h.samples.toLocaleString() }} samples
       </span>
     </div>

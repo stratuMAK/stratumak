@@ -42,8 +42,14 @@ type LatencyHistogram {
     binCount: i32         # number of bins
     baseNs: i32           # left edge of bins[0]
     bins: []u32           # per-bin counts
-    underflow: u32        # samples below baseNs
-    overflow: u32         # samples at/above the last bin's right edge
+    underflow: u32        # samples below baseNs since the last autoscale
+                          # coarsen (the counter doubles as the rescale
+                          # trigger, so it is zeroed on every coarsen)
+    overflow: u32         # samples at/above the last bin's right edge,
+                          # since the last coarsen
+    totalUnderflow: u64   # cumulative below-range samples since reset —
+                          # survives autoscale rescales
+    totalOverflow: u64    # cumulative above-range samples since reset
     samples: i64          # total binned samples
     autoscale: bool       # true = bin width tracks the bulk automatically
 }

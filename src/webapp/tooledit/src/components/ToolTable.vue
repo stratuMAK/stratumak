@@ -53,6 +53,8 @@ function addTool() {
     u_offset: 0, v_offset: 0, w_offset: 0,
     diameter: 0, frontangle: 0, backangle: 0,
     orientation: 0, comment: '',
+    // no baseline stamp on a create: 0 = last-write-wins on the server
+    updated: 0n,
   };
   dialogIsNew.value = true;
 }

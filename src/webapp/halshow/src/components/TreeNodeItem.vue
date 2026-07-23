@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { halshowStore, type TreeNode } from '../stores/halshow';
+import { halshowStore, type TreeNode, type WatchKind } from '../stores/halshow';
 
 const props = defineProps<{
   node: TreeNode;
@@ -27,9 +27,17 @@ function onClick() {
   }
 }
 
+// H-9: watch entries are (name, kind) tuples — only watchable node kinds
+// (pin/param/signal) can be added; components/functions/threads cannot.
+function watchKind(): WatchKind | null {
+  const k = props.node.kind;
+  return k === 'pin' || k === 'param' || k === 'signal' ? k : null;
+}
+
 function onDblClick() {
-  if (props.node.isLeaf && !isDual()) {
-    halshowStore.addToWatch(props.node.fullPath);
+  const kind = watchKind();
+  if (props.node.isLeaf && !isDual() && kind) {
+    halshowStore.addToWatch(props.node.fullPath, kind);
   }
 }
 
@@ -38,7 +46,8 @@ function onSelfClick() {
 }
 
 function onSelfDblClick() {
-  halshowStore.addToWatch(props.node.fullPath);
+  const kind = watchKind();
+  if (kind) halshowStore.addToWatch(props.node.fullPath, kind);
 }
 
 function mainSelected(): boolean {

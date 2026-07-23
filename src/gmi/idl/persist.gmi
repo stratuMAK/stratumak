@@ -8,7 +8,9 @@
 type Entry {
     key: string
     value: string
-    updated: i64
+    updated: i64          # opaque modification stamp (unix nanoseconds);
+                          # equality-compare only — optimistic-concurrency
+                          # checks depend on two writes never sharing a stamp
 }
 
 type OpenResult {

@@ -179,6 +179,9 @@ func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 			m.logger.Warn("tooltable: skipping unreadable entry", "key", e.Key, "err", err)
 			continue
 		}
+		// The modification stamp lives on the persist row, not in the stored
+		// JSON — overwrite whatever the JSON claims.
+		t.Updated = e.Updated
 		tools = append(tools, t)
 	}
 	return tools, nil
@@ -215,6 +218,8 @@ func (m *module) GetTool(toolno int32) (tooltable.ToolEntry, error) {
 	if err := json.Unmarshal([]byte(entry.Value), &t); err != nil {
 		return tooltable.ToolEntry{}, fmt.Errorf("tooltable: tool %d is corrupt: %w", toolno, err)
 	}
+	// Stamp comes from the persist row (see ListTools).
+	t.Updated = entry.Updated
 	return t, nil
 }
 
@@ -226,13 +231,33 @@ func (m *module) PutTool(toolno int32, entry tooltable.ToolEntry) (tooltable.Put
 		return tooltable.PutToolResult{}, err
 	}
 
+	key := strconv.FormatInt(int64(toolno), 10)
+
+	// Optimistic concurrency: a non-zero stamp is the caller's read baseline;
+	// refuse when the stored row moved on (or vanished) since. Atomic with the
+	// write below under m.mu, which makes it the authoritative backstop for
+	// the task layer's pre-check — that pre-check exists because this error is
+	// flattened to a bare rc by the in-process client shim, so the friendly
+	// 409 message cannot originate here.
+	if entry.Updated != 0 {
+		cur, err := m.db.GetEntry(m.dbHandle, key)
+		if err != nil {
+			return tooltable.PutToolResult{}, err
+		}
+		if cur.Value == "" || cur.Updated != entry.Updated {
+			return tooltable.PutToolResult{}, fmt.Errorf(
+				"tooltable: tool %d changed since it was read (stamp %d, caller had %d)",
+				toolno, cur.Updated, entry.Updated)
+		}
+	}
+
 	entry.Toolno = toolno
+	entry.Updated = 0 // the stamp lives on the persist row, not in the stored JSON
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return tooltable.PutToolResult{}, err
 	}
 
-	key := strconv.FormatInt(int64(toolno), 10)
 	if _, err := m.db.SetEntry(m.dbHandle, key, string(data)); err != nil {
 		return tooltable.PutToolResult{}, err
 	}

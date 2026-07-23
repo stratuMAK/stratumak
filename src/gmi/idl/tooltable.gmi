@@ -23,6 +23,11 @@ type ToolEntry {
     backangle: f64
     orientation: i32 @min(0) @max(9)
     comment: string @maxlen(255)
+    updated: i64          # opaque modification stamp, filled from the persist
+                          # row on every read. put_tool with a non-zero value
+                          # refuses the write when the stored stamp differs
+                          # (optimistic concurrency); 0 skips the check, which
+                          # is what the canon/G10/iocontrol writers send.
 }
 
 type PutToolResult {

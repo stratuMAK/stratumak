@@ -9,6 +9,8 @@ const entry: ToolEntry = {
   u_offset: 0, v_offset: 0, w_offset: 0,
   diameter: 6.35, frontangle: 0, backangle: 0,
   orientation: 0, comment: 'test tool',
+  // 2^53+1: only survives if the stamp never touches Number parsing
+  updated: 9007199254740993n,
 };
 
 function form(overrides: Partial<ToolForm> = {}): ToolForm {
@@ -81,5 +83,29 @@ describe('validateForm', () => {
     // 200 astral chars = 400 UTF-16 units but only 200 code points: allowed
     expect(validateForm(form({ comment: '\u{1F600}'.repeat(200) }), false, []).errors)
       .toEqual([]);
+  });
+});
+
+describe('updated stamp round-trip', () => {
+  it('toForm carries the stamp through as a bigint, not a string field', () => {
+    const f = toForm(entry);
+    expect(typeof f.updated).toBe('bigint');
+    expect(f.updated).toBe(9007199254740993n);
+  });
+
+  it('validateForm puts the stamp back verbatim, bypassing numeric parsing', () => {
+    const { entry: out, errors } = validateForm(form(), false, []);
+    expect(errors).toEqual([]);
+    expect(typeof out!.updated).toBe('bigint');
+    // exact value beyond Number precision: parseNumField/Number() would have
+    // rounded 2^53+1 to 2^53
+    expect(out!.updated).toBe(9007199254740993n);
+  });
+
+  it('preserves a 0n create stamp for Add mode', () => {
+    const { entry: out, errors } = validateForm(
+      { ...toForm({ ...entry, updated: 0n }), toolno: '9' }, true, [5]);
+    expect(errors).toEqual([]);
+    expect(out!.updated).toBe(0n);
   });
 });

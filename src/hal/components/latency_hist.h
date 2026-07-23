@@ -37,8 +37,15 @@ typedef struct {
     int32_t   init_width;  // starting bin width, restored on reset
     int32_t   max_width;   // width cap: (nbins/2)*max_width stays < INT32_MAX
     int       autoscale;   // 0 = bin width pinned by the client, no coarsening
-    uint32_t  underflow;   // samples below the covered range
-    uint32_t  overflow;    // samples above the covered range
+    uint32_t  underflow;   // samples below the covered range, since last coarsen
+                           // (doubles as the autoscale trigger, so hist_add
+                           // zeroes it on every coarsen)
+    uint32_t  overflow;    // samples above the covered range, since last coarsen
+    uint64_t  total_underflow; // cumulative since reset — NOT zeroed by
+                               // coarsening; the windowed counters above lose
+                               // the recorded evidence of out-of-range samples
+                               // on every rescale
+    uint64_t  total_overflow;  // cumulative since reset
     int64_t   sum;         // running sum of signed latencies (for stddev)
     int64_t   sum_abs;     // running sum of |latency| (for the mean tile: the
                            // signed mean is ~0 by construction - absolute
@@ -63,6 +70,8 @@ static inline void hist_init(hist_t *h, uint32_t *bins, int nbins,
     h->autoscale = 1;
     h->underflow = 0;
     h->overflow = 0;
+    h->total_underflow = 0;
+    h->total_overflow = 0;
     h->sum = 0;
     h->sum_abs = 0;
     h->sumsq = 0;
@@ -75,6 +84,8 @@ static inline void hist_reset(hist_t *h) {
     h->width = h->init_width;
     h->underflow = 0;
     h->overflow = 0;
+    h->total_underflow = 0;
+    h->total_overflow = 0;
     h->sum = 0;
     h->sum_abs = 0;
     h->sumsq = 0;
@@ -102,8 +113,8 @@ static inline void hist_add(hist_t *h, int32_t lat) {
     int32_t q = lat / h->width;
     if (lat % h->width != 0 && lat < 0) q -= 1;
     int idx = q + h->nbins / 2;
-    if (idx < 0) h->underflow++;
-    else if (idx >= h->nbins) h->overflow++;
+    if (idx < 0) { h->underflow++; h->total_underflow++; }
+    else if (idx >= h->nbins) { h->overflow++; h->total_overflow++; }
     else h->bins[idx]++;
 
     h->sum += lat;

@@ -58,16 +58,29 @@ async function doUnlink() {
   }
 }
 
+// H-9: derive the watch kind from the detail panel's own category — watch
+// entries are (name, kind) tuples.
+function itemWatchKind(): 'pin' | 'param' | 'signal' | null {
+  switch (halshowStore.state.selectedItemKind) {
+    case 'pins': return 'pin';
+    case 'params': return 'param';
+    case 'signals': return 'signal';
+    default: return null;
+  }
+}
+
 function addToWatch() {
   const item = halshowStore.state.selectedItem;
-  if (item) {
-    halshowStore.addToWatch(item.name);
+  const kind = itemWatchKind();
+  if (item && kind) {
+    halshowStore.addToWatch(item.name, kind);
   }
 }
 
 function isItemWatched(): boolean {
   const item = halshowStore.state.selectedItem;
-  return item ? halshowStore.isWatched(item.name) : false;
+  const kind = itemWatchKind();
+  return item && kind ? halshowStore.isWatched(item.name, kind) : false;
 }
 </script>
 

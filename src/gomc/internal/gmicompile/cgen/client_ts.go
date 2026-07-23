@@ -143,7 +143,11 @@ func (g *clientTSGen) emitClient() {
 	g.printf("    const init: RequestInit = { method };\n")
 	g.printf("    if (body !== undefined) {\n")
 	g.printf("      init.headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };\n")
-	g.printf("      init.body = JSON.stringify(body);\n")
+	// bigint replacer: 64-bit ints are typed bigint and travel as JSON strings
+	// (G-M4). Top-level params are converted by tsParamSend, but a bigint
+	// FIELD nested in a body struct reaches stringify as-is — and
+	// JSON.stringify throws on bigint.
+	g.printf("      init.body = JSON.stringify(body, (_k, v) => typeof v === 'bigint' ? String(v) : v);\n")
 	g.printf("    } else {\n")
 	g.printf("      init.headers = { 'Accept': 'application/json' };\n")
 	g.printf("    }\n")

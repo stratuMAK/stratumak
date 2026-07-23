@@ -268,7 +268,50 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		subs:    make(map[string]context.CancelFunc),
 	}
 
+	// Liveness keepalive. Watch pushes are change-driven, so a dead peer
+	// (pulled cable, powered-off HMI, half-open NAT) keeps the TCP connection
+	// ESTABLISHED for minutes with every push "delivered" into the void while
+	// the client renders its last values as live. Pings force protocol-level
+	// round-trips; on failure the connection is torn down, which is what lets
+	// the clients' reconnect logic take over. (The stream handler deliberately
+	// has no keepalive: it pushes continuously, so a dead peer surfaces as
+	// write backpressure there.)
+	go c.keepalive()
+
 	c.readLoop()
+}
+
+// Keepalive cadence. Vars, not consts, so tests can shorten them.
+var (
+	wsPingInterval = 10 * time.Second
+	wsPingTimeout  = 5 * time.Second
+)
+
+// keepalive pings the peer until the connection dies. Ping requires a
+// concurrent Read to process the pong — readLoop provides it (browsers answer
+// pongs automatically inside the protocol). Control frames may be written
+// concurrently with data frames, so writeMu is not needed here.
+func (c *wsConn) keepalive() {
+	t := time.NewTicker(wsPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-t.C:
+			ctx, cancel := context.WithTimeout(c.ctx, wsPingTimeout)
+			err := c.conn.Ping(ctx)
+			cancel()
+			if err != nil {
+				if c.ctx.Err() == nil {
+					c.handler.logger.Warn("watch websocket peer unresponsive, closing", "error", err)
+				}
+				c.cancel()
+				_ = c.conn.CloseNow()
+				return
+			}
+		}
+	}
 }
 
 // wsConn manages one WebSocket client connection.

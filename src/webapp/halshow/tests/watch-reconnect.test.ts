@@ -30,7 +30,7 @@ describe('watch reconnect (H-2)', () => {
     const { store, ws } = await connectStore();
     expect(store.state.watchOk).toBe(true);
 
-    store.addToWatch('c.p');
+    store.addToWatch('c.p', 'pin');
     ws.message(metaMsg([pinMeta('c.p')], { 'c.p': '42' }));
     expect(store.state.watchValues[0].value).toBe('42');
     expect(store.state.watchStale).toBe(false);
@@ -98,7 +98,7 @@ describe('watch reconnect (H-2)', () => {
 
   it('H-8: addToWatch during CONNECTING does not throw and subscribes on open', async () => {
     const { store, ws } = await connectStore();
-    store.addToWatch('c.p');
+    store.addToWatch('c.p', 'pin');
     ws.serverClose();
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -106,7 +106,7 @@ describe('watch reconnect (H-2)', () => {
     expect(ws2.readyState).toBe(0); // CONNECTING
 
     // send would throw on a CONNECTING socket — must be skipped, not thrown
-    expect(() => store.addToWatch('other.pin')).not.toThrow();
+    expect(() => store.addToWatch('other.pin', 'pin')).not.toThrow();
     expect(ws2.sent).toHaveLength(0);
 
     ws2.open();
@@ -119,7 +119,7 @@ describe('watch reconnect (H-2)', () => {
 describe('watch meta re-resolve (H-5)', () => {
   it('clears stale values; kind "unknown" renders as dead value', async () => {
     const { store, ws } = await connectStore();
-    store.addToWatch('c.p');
+    store.addToWatch('c.p', 'pin');
     ws.message(metaMsg([pinMeta('c.p')], { 'c.p': '42' }));
     expect(store.state.watchValues[0].value).toBe('42');
 
