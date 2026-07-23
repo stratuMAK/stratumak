@@ -264,6 +264,8 @@ func (m *milltaskModule) Start() error {
 	// Safe to do in Start: the launcher completes every module's New() — where
 	// APIs register — before it starts any of them, so a peer loaded on a LATER
 	// line of the HAL file is already registered by now.
+	//
+	m.derivePyvcpPeer(reg, m.ini.Get("DISPLAY", "PYVCP"))
 	if err := m.checkReportedPeers(reg); err != nil {
 		return err
 	}

@@ -28,6 +28,39 @@ func (m *milltaskModule) reportedPeers() []reportedPeer {
 	}
 }
 
+// derivePyvcpPeer applies the config-derived default for the pyvcp peer.
+//
+// pyvcp is the one peer whose absence of a load parameter does NOT mean the
+// feature is absent: classic configs declare their panel via [DISPLAY]PYVCP
+// and load it as `load pyvcp <pyvcp>` with no pyvcp_instance= on the (often
+// LIB-shared) milltask line. When the load param is unset but the INI declares
+// a panel, adopt the conventional instance name if such a module is actually
+// loaded — asserting the convention server-side, once, against reality — and
+// warn loudly when it is not, so an unmigrated config reads why its panel is
+// gone instead of watching it silently vanish. An explicit pyvcp_instance=
+// keeps strict validation (a typo fails checkReportedPeers).
+func (m *milltaskModule) derivePyvcpPeer(reg *apiserver.Registry, iniPyvcp string) {
+	if m.pyvcpInstance != "" || iniPyvcp == "" {
+		return
+	}
+	const conventional = "pyvcp"
+	if reg.GetByAPI("pyvcp", conventional) != nil {
+		m.pyvcpInstance = conventional
+		return
+	}
+	if m.logger != nil {
+		msg := "milltask: [DISPLAY]PYVCP is set but no pyvcp module named " +
+			"'pyvcp' is loaded — the panel will not be offered to clients; " +
+			"load one (`load pyvcp <pyvcp> xml=...`) or name it with " +
+			"pyvcp_instance= on the milltask load line"
+		if loaded := reg.InstancesOfAPI("pyvcp"); len(loaded) > 0 {
+			msg += fmt.Sprintf(" (loaded pyvcp instances: %s)",
+				strings.Join(loaded, ", "))
+		}
+		m.logger.Warn(msg)
+	}
+}
+
 // checkReportedPeers resolves every configured peer name at startup so a typo
 // fails the config load instead of surfacing much later as a client-side 404.
 //

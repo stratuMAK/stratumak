@@ -230,3 +230,52 @@ func TestGetInfoRefusesBeforeStart(t *testing.T) {
 		t.Fatal("GetInfo answered before Start; a cached empty answer is worse than an error")
 	}
 }
+
+// The pyvcp peer default is derived from the config, not fabricated: a classic
+// config declares its panel via [DISPLAY]PYVCP and loads it as `load pyvcp
+// <pyvcp>` with no pyvcp_instance= on the (LIB-shared) milltask line. Silently
+// reporting "no panel" for every such config is the regression this pins.
+func TestDerivePyvcpPeerAdoptsConventionalName(t *testing.T) {
+	reg := apiserver.NewRegistry()
+	registerFake(t, reg, "pyvcp", "pyvcp")
+
+	m := &milltaskModule{}
+	m.derivePyvcpPeer(reg, "panel.xml")
+	if m.pyvcpInstance != "pyvcp" {
+		t.Fatalf("pyvcpInstance = %q; want the conventional \"pyvcp\" adopted "+
+			"when [DISPLAY]PYVCP is set and the module is loaded", m.pyvcpInstance)
+	}
+}
+
+// The derivation asserts the convention AGAINST REALITY: with no pyvcp module
+// loaded it must not fabricate a peer (that is the request-a-panel-that-isn't-
+// there bug /info exists to prevent) — the config gets a warning instead.
+func TestDerivePyvcpPeerRequiresLoadedModule(t *testing.T) {
+	reg := apiserver.NewRegistry()
+
+	m := &milltaskModule{}
+	m.derivePyvcpPeer(reg, "panel.xml")
+	if m.pyvcpInstance != "" {
+		t.Fatalf("pyvcpInstance = %q; a peer was fabricated for an unloaded panel",
+			m.pyvcpInstance)
+	}
+}
+
+// An explicit pyvcp_instance= and an unset [DISPLAY]PYVCP each disable the
+// derivation: the former keeps strict validation, the latter means no panel.
+func TestDerivePyvcpPeerDefers(t *testing.T) {
+	reg := apiserver.NewRegistry()
+	registerFake(t, reg, "pyvcp", "pyvcp")
+
+	explicit := &milltaskModule{pyvcpInstance: "pnp.panel"}
+	explicit.derivePyvcpPeer(reg, "panel.xml")
+	if explicit.pyvcpInstance != "pnp.panel" {
+		t.Errorf("explicit pyvcp_instance overridden to %q", explicit.pyvcpInstance)
+	}
+
+	noKey := &milltaskModule{}
+	noKey.derivePyvcpPeer(reg, "")
+	if noKey.pyvcpInstance != "" {
+		t.Errorf("peer %q derived without [DISPLAY]PYVCP", noKey.pyvcpInstance)
+	}
+}
