@@ -43,6 +43,7 @@ func (t *Task) canSwitchModeAutoLocked(target TaskMode) error {
 // Must hold t.mu.
 func (t *Task) canPowerOnLocked() error {
 	if t.state != StateOn && t.state != StateEstopReset && t.state != StateOff {
+		t.operatorError("Can't turn the machine ON from the current state")
 		return ErrNotOn
 	}
 	return nil
@@ -161,6 +162,9 @@ func (t *Task) preflightAuto(cmd int32) error {
 		return err
 	}
 	if err := t.canSwitchMode(ModeAuto); err != nil {
+		// canSwitchMode is silent (also used by MDI, which words its own
+		// message); surface the AUTO-specific reason here.
+		t.operatorError("Can't switch to AUTO mode while the machine is busy")
 		return err
 	}
 	switch cmd {
@@ -231,10 +235,14 @@ func (t *Task) preflightManualMode(requireOn bool) error {
 		if err := t.requireOn(); err != nil {
 			return err
 		}
-		return t.canSwitchMode(ModeManual)
+	} else if t.state != StateOn {
+		// OverrideLimits off the ON path: nothing to gate.
+		return nil
 	}
-	if t.state == StateOn {
-		return t.canSwitchMode(ModeManual)
+	if err := t.canSwitchMode(ModeManual); err != nil {
+		// canSwitchMode is silent (shared with MDI); surface the reason here.
+		t.operatorError("Can't switch to manual mode while the machine is busy")
+		return err
 	}
 	return nil
 }
@@ -790,7 +798,11 @@ func (t *Task) ProgramOpen(file string) error {
 	}
 	resolved, err := t.resolveProgram(file)
 	if err != nil {
-		t.operatorError(fmt.Sprintf("can't open %s: %s", file, err))
+		// The resolver error enumerates every allowed root — worth logging, too
+		// long for the operator panel. Give the operator a short reason; the
+		// full detail stays in the log and in the returned error (dev-facing).
+		t.logger.Warn("program open denied", "file", file, "err", err)
+		t.operatorError(fmt.Sprintf("can't open %s: not in an allowed program directory", file))
 		return err
 	}
 	file = resolved
@@ -2357,17 +2369,19 @@ func (t *Task) LoadToolTable(file string) error {
 	}
 
 	err := t.io.ToolLoadTable(file)
-	if err == nil {
-		// Synch interpreter so it re-reads tool_table[] from the
-		// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
-		if t.interp != nil {
-			_ = t.interp.Synch()
-		}
-		t.mu.Lock()
-		t.previewSeq++
-		t.mu.Unlock()
+	if err != nil {
+		t.operatorError(fmt.Sprintf("can't load tool table: %s", err))
+		return err
 	}
-	return err
+	// Synch interpreter so it re-reads tool_table[] from the
+	// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
+	if t.interp != nil {
+		_ = t.interp.Synch()
+	}
+	t.mu.Lock()
+	t.previewSeq++
+	t.mu.Unlock()
+	return nil
 }
 
 // ToolUnload unloads the tool from the spindle (manual EMC_TOOL_UNLOAD).
@@ -2384,10 +2398,14 @@ func (t *Task) ToolUnload() error {
 	}
 
 	err := t.io.ToolUnload()
-	if err == nil && t.interp != nil {
+	if err != nil {
+		t.operatorError(fmt.Sprintf("can't unload tool: %s", err))
+		return err
+	}
+	if t.interp != nil {
 		_ = t.interp.Synch() // re-read tool state after the unload
 	}
-	return err
+	return nil
 }
 
 // WaitComplete waits for the task to settle: exec state done AND the

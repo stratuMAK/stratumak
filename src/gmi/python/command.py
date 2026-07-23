@@ -54,8 +54,19 @@ class Command:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
+            # The server's operator-facing error (if any) travels on the message
+            # channel, which is the authoritative surface every UI renders. Here
+            # we only need a concise developer log line and to make the parsed
+            # message available to callers — extract it now, because reading the
+            # HTTPError body is one-shot (a second .read() returns empty).
             err_body = e.read().decode("utf-8", errors="replace")
-            print(f"gmi.Command: {e.code} {url}: {err_body}", file=sys.stderr)
+            try:
+                msg = json.loads(err_body).get("error", err_body) or err_body
+            except Exception:
+                msg = err_body
+            e.gmi_error = msg  # stash for callers; the body is now consumed
+            print(f"gmi.Command: {path} refused ({e.code}): {msg}",
+                  file=sys.stderr)
             raise
 
     def state(self, state: int):

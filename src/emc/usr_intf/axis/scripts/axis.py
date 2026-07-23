@@ -1395,7 +1395,14 @@ def open_file_guts(f, filtered=False, addrecent=True):
         # Force a sync of the interpreter, which writes out the var file.
         c.task_plan_synch()
         c.wait_complete()
-        c.program_open(f)
+        if c.program_open(f) == -1:
+            # The server refused the open (bad mode, busy, or — most often here
+            # — a path outside the allowed directories). AxisCommand._post has
+            # already surfaced the reason as a notification and returned -1
+            # instead of raising. Stop here: falling through to the preview /
+            # text fetch below hits the same path-resolver guard and would log a
+            # second, redundant "access denied" for the identical root cause.
+            return
         # Remember what WE sent to program_open: for filtered programs f is
         # the filter's tempfile while loaded_file stays the original, and the
         # preview_seq resync in update() must not mistake our own load for
@@ -3985,33 +3992,28 @@ if  (       (s.axis_mask & 56 == 0)  # 56==0x38== 000111000 (ABC)
 from gmi.command import Command as _GmiCommand
 
 class AxisCommand(_GmiCommand):
-    """gmi.Command that routes a refused command into the notification area.
+    """gmi.Command that absorbs a refused command instead of crashing.
 
     Every command method raises urllib.error.HTTPError when the server
     refuses (wrong mode, not homed, busy — HTTP 409/503); from a Tk callback
-    that was an uncaught traceback (finding A-3/GP-18). The operator-facing
-    contract is: a refusal is a notification, not a crash.
+    that was an uncaught traceback (finding A-3/GP-18).
+
+    Operator-facing errors are NOT rendered here. The server publishes them on
+    the message-list channel — the authoritative, cross-client error surface
+    that AXIS already displays in the notification widget. Popping a second
+    toast from the HTTP status duplicated that channel with degraded text (the
+    body was already consumed upstream, so it collapsed to a generic "command
+    refused (HTTP 409)"). So we swallow the HTTP error, log it to stderr for
+    developers (done by the base _post), and return -1 so callers can branch on
+    failure (e.g. skip a preview load). Any operator-actionable refusal is
+    expected to emit an operatorError server-side; a path that returns an error
+    without one is a developer/config issue and belongs in the log, not a toast.
     """
     def _post(self, path, data=None, **kw):
-        import json
         import urllib.error
         try:
             return super()._post(path, data, **kw)
-        except urllib.error.HTTPError as e:
-            try:
-                body = e.read().decode("utf-8", errors="replace")
-            except Exception:
-                body = ""
-            try:
-                msg = json.loads(body).get("error", body) or body
-            except Exception:
-                msg = body
-            msg = msg or ("command refused (HTTP %d)" % e.code)
-            try:
-                notifications.add("error", msg)
-            except Exception:
-                # notifications widget not built yet (startup commands)
-                print("axis: command refused: %s" % msg, file=sys.stderr)
+        except urllib.error.HTTPError:
             return -1
 
 # Bind to THIS UI's task instance (GMC_INSTANCE), not the "milltask" default
