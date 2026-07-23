@@ -482,8 +482,8 @@ watch(
 // (identity, not just count) changes — labels and series config must always
 // match the channel set.
 watch(
-  () => seriesChannels().map(c => `${c.channel}:${c.label}`).join(' ')
-    + (scopeStore.state.fileView ? ' file' : ''),
+  () => seriesChannels().map(c => `${c.channel}:${c.label}`).join('\0')
+    + (scopeStore.state.fileView ? '\0file' : ''),
   () => createPlot(),
 );
 

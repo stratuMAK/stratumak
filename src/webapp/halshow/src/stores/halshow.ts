@@ -773,7 +773,7 @@ export const halshowStore = {
 
       case 'loadrt': {
         if (args.length < 1) return { success: false, error: 'Usage: loadrt <module> [args...]' };
-        return await client.load(args[0], args.slice(1) as any);
+        return await client.load(args[0], args.slice(1));
       }
 
       case 'unloadrt': {

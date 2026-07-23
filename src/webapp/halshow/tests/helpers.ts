@@ -58,7 +58,7 @@ export class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(obj) });
   }
 
-  sentJson(): Record<string, any>[] {
+  sentJson(): Record<string, unknown>[] {
     return this.sent.map(s => JSON.parse(s));
   }
 }

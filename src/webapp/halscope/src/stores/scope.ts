@@ -289,7 +289,7 @@ async function connect() {
 
     // Subscribe to sample data
     wsClient.subscribeWatchSamples(handleSampleFrame, 100);
-  } catch (e) {
+  } catch (_e) {
     state.error = `WebSocket failed, retrying…`;
     state.connected = false;
     scheduleReconnect();
