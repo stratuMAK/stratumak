@@ -968,7 +968,7 @@ func (c *ReloadTooldataCmd) Execute(t *Task) error {
 }
 
 func (c *ReloadTooldataCmd) Wait() WaitType { return WaitIO }
-func (c *ReloadTooldataCmd) String() string   { return "ReloadTooldata" }
+func (c *ReloadTooldataCmd) String() string { return "ReloadTooldata" }
 
 // FloodOnCmd turns flood coolant on (M8).
 type FloodOnCmd struct{}
