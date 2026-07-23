@@ -19,6 +19,8 @@ on stderr.
 import asyncio
 import json
 import os
+import socket
+import struct
 import sys
 import threading
 import time
@@ -139,13 +141,25 @@ class WsStub:
         self.port = server.sockets[0].getsockname()[1]
         self._started.set()
         await self._stop.wait()
-        server.close()
-        await server.wait_closed()
+        # Model a real server restart/crash: RST every client connection so the
+        # peer notices immediately. A graceful WebSocket close is unreliable
+        # here as a "restart" signal — on a loaded runner it can be delivered
+        # late, or the handler keeps auto-ponging with the listener already
+        # closed, leaving the ErrorChannel client on a dead connection past its
+        # 20 s reconnect window (the CI-only errorchannel-reconnect flake). A
+        # RST (SO_LINGER 0 + transport abort) is a single packet the OS
+        # delivers regardless of load, so the client reconnects deterministically.
         for c in list(self.conns):
             try:
-                await c.close()
+                sock = c.transport.get_extra_info("socket")
+                if sock is not None:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                    struct.pack("ii", 1, 0))
+                c.transport.abort()
             except Exception:
                 pass
+        server.close()
+        await server.wait_closed()
 
     async def _handler(self, websocket):
         self.conns.append(websocket)
