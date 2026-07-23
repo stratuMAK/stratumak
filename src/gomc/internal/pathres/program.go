@@ -13,9 +13,10 @@ import (
 // [DISPLAY]PROGRAM_PREFIX and [RS274NGC]SUBROUTINE_PATH, deliberately outside
 // the config directory.  Containing them within the config roots would break
 // ordinary machine use, so they get their own root set — the one ngcpreview
-// already shipped for its get_file endpoint (user ruling, 2026-07-22):
+// already shipped for its get_file endpoint (user ruling, 2026-07-22),
+// plus the system NC-files directory so the stock demos stay openable:
 //
-//	PROGRAM_PREFIX + SUBROUTINE_PATH + <EMC2_HOME>/share
+//	PROGRAM_PREFIX + SUBROUTINE_PATH + <EMC2_HOME>/share + <EMC2_NCFILES_DIR>
 //
 // Every entry point that opens a program by name off the wire resolves against
 // it: ngcpreview get_file/gen_preview and task program_open.
@@ -66,6 +67,16 @@ func ProgramDirs(get func(section, key string) string, baseDir string) []string 
 		if d := resolve(filepath.Join(config.EMC2Home, "share")); d != "" {
 			dirs = append(dirs, d)
 		}
+	}
+
+	// System NC-files directory — the demo/sample programs shipped with
+	// LinuxCNC (nc_files/3dtest.ngc and friends).  This is its own build-time
+	// path (@EMC2_NCFILES_DIR@) that need not live under EMC2Home, so it is
+	// added explicitly rather than derived from it.  A config that keeps its
+	// [DISPLAY]PROGRAM_PREFIX elsewhere would otherwise be unable to open the
+	// stock demos.
+	if d := resolve(config.EMC2NCFilesDir); d != "" {
+		dirs = append(dirs, d)
 	}
 
 	return dirs
