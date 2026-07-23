@@ -119,7 +119,7 @@ func TestWatchKeepaliveClosesDeadPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Do not Read. Wait past interval+timeout, then the server must have
 	// closed the connection: our first Read fails immediately instead of
