@@ -16,8 +16,8 @@ class ToolTable:
     ``/api/v1/tooltable/`` (review finding GP-14).
     """
 
-    def __init__(self, instance: str = "milltask"):
-        self._base = gmi.rest_url() + "/api/v1/" + instance
+    def __init__(self, instance: str = None):
+        self._base = gmi.rest_url() + "/api/v1/" + gmi.resolve_instance(instance)
 
     def list(self):
         """Return all tools as a list of dicts."""
@@ -97,8 +97,10 @@ class ToolSlots:
     a UI that edits tools wants that one.
     """
 
-    def __init__(self, instance: str = "tooltable"):
-        self._base = gmi.rest_url() + "/api/v1/" + instance
+    def __init__(self, instance: str = None):
+        # The raw slot store's own resolver, not instance(): its name comes from
+        # milltask's tooltable_instance, reported via /info.
+        self._base = gmi.rest_url() + "/api/v1/" + (instance or gmi.tooltable_instance())
 
     def list(self):
         """Return all occupied slots as a list of dicts, in idx order."""

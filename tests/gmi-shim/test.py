@@ -220,6 +220,21 @@ def main():
         fail("constants", "wrong module-level constant values")
     ok("constants")
 
+    # Instance-resolution schema: a client built with no instance follows
+    # GMC_INSTANCE; an explicit instance wins; unset falls back to the default.
+    # This is the rule AXIS leaned on when it constructed a Command subclass
+    # directly — a class hardcoding "milltask" instead posted to a nonexistent
+    # instance on a multi-instance server.
+    if Command()._base.rsplit("/", 1)[-1] != "milltask":
+        fail("instance-resolution", f"unset default = {Command()._base}")
+    os.environ["GMC_INSTANCE"] = "pnp.task"
+    if Command()._base.rsplit("/", 1)[-1] != "pnp.task":
+        fail("instance-resolution", "bare client ignored GMC_INSTANCE")
+    if Command(instance="explicit")._base.rsplit("/", 1)[-1] != "explicit":
+        fail("instance-resolution", "explicit instance did not win")
+    os.environ.pop("GMC_INSTANCE", None)
+    ok("instance-resolution")
+
     # GP-7: frozen snapshots. Constructor takes a best-effort initial poll.
     rest.stat_snapshot = {"task": {"mode": 1}, "tool_in_spindle": 3}
     s = Stat()

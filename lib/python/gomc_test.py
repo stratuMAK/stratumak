@@ -182,8 +182,8 @@ class Command(_GmiCommand):
     them (e.g. G10 L1 P0 with no tool) and introspect the resulting state.
     """
 
-    def __init__(self, instance=None):
-        super().__init__(instance=instance or gmi.instance())
+    # No __init__: the base gmi.Command resolves instance=None to the session
+    # default (GMC_INSTANCE) itself now.
 
     def wait_complete(self, timeout=None):
         secs = _deadline_secs(timeout)

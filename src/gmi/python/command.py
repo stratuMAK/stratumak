@@ -17,7 +17,7 @@ import sys
 import urllib.request
 from typing import Optional
 
-from gmi import rest_url
+from gmi import rest_url, resolve_instance
 
 # Socket timeout for a plain command POST. Every endpoint but /wait-complete
 # returns as soon as the command is registered, so this only has to cover
@@ -37,8 +37,8 @@ class Command:
     All methods correspond to REST calls to the emccmd API.
     """
 
-    def __init__(self, instance: str = "milltask"):
-        self._base = rest_url() + "/api/v1/" + instance
+    def __init__(self, instance: str = None):
+        self._base = rest_url() + "/api/v1/" + resolve_instance(instance)
 
     def _post(self, path: str, data: dict = None,
               timeout: float = _SOCKET_TIMEOUT) -> dict:

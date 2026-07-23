@@ -25,7 +25,7 @@ import time
 import urllib.parse
 from typing import Any, Optional
 
-from gmi import rest_url
+from gmi import rest_url, resolve_instance
 
 
 class _ToolEntry:
@@ -146,9 +146,9 @@ class Stat:
     All attributes from the stat struct are accessible as properties.
     """
 
-    def __init__(self, instance: str = "milltask",
+    def __init__(self, instance: str = None,
                  tooltable_instance: str = None):
-        self._instance = instance
+        self._instance = resolve_instance(instance)
         # tool_table is read from the raw slot store, which is its own module
         # instance (a multi-instance config binds each milltask to its own).
         # Resolved lazily from GET /info on first use, not here: a driver is

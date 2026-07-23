@@ -19,6 +19,7 @@ from __future__ import annotations
 import threading
 from typing import Callable, List, Optional
 
+from gmi import resolve_instance
 from gmi._watch import WatchClient
 
 # Error kind constants (matching emcerror.ErrorKind).
@@ -37,7 +38,8 @@ class MessageList:
     whenever the list changes (new message added or message acknowledged).
     """
 
-    def __init__(self, instance: str = "milltask", on_update: Optional[Callable] = None):
+    def __init__(self, instance: str = None, on_update: Optional[Callable] = None):
+        instance = resolve_instance(instance)
         self._instance = instance
         self._on_update = on_update
         self._messages: List[dict] = []

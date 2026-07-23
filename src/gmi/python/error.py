@@ -19,6 +19,7 @@ import collections
 import threading
 from typing import Optional, Tuple
 
+from gmi import resolve_instance
 from gmi._watch import WatchClient
 
 
@@ -29,7 +30,8 @@ class ErrorChannel:
     background thread and returned one at a time by poll().
     """
 
-    def __init__(self, instance: str = "milltask"):
+    def __init__(self, instance: str = None):
+        instance = resolve_instance(instance)
         self._queue = collections.deque()
         self._lock = threading.Lock()
         self._client = WatchClient(

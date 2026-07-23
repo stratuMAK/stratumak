@@ -1,4 +1,5 @@
 PASS constants
+PASS instance-resolution
 PASS stat-frozen-between-polls
 PASS command-jog-abort-ordered
 PASS tools-put-envelope

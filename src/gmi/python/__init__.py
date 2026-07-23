@@ -25,6 +25,20 @@ def instance() -> str:
     return os.environ.get(_INSTANCE_ENV_VAR, _DEFAULT_INSTANCE)
 
 
+def resolve_instance(name=None) -> str:
+    """The instance a client should address: the explicit name if one is given,
+    otherwise the session default from GMC_INSTANCE (instance()).
+
+    Every gmi client class takes ``instance=None`` and passes it through here, so
+    the ONE rule — explicit wins, unset follows the environment — holds whether a
+    client is built via the gmi.Stat()/gmi.Command() factories or constructed
+    directly (as AXIS does with a Command subclass). A class that hardcoded
+    "milltask" as its default instead posted to a nonexistent instance on a
+    multi-instance server; this is that trap closed at the source.
+    """
+    return name or instance()
+
+
 def info():
     """Return the machine description from milltask's GET /info (cached).
 
