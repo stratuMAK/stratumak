@@ -33,11 +33,17 @@
 package pathres
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrNotFound marks a resolution that failed because no candidate exists, as
+// opposed to a containment refusal. Callers use it to tell the operator "no
+// such file" instead of implying an access problem that is not there.
+var ErrNotFound = errors.New("not found")
 
 // Mode selects how a path is checked once it has been located.
 type Mode int
@@ -241,8 +247,8 @@ func (r *Resolver) Resolve(name string, mode Mode) (string, error) {
 	if firstContainErr != nil {
 		return "", firstContainErr
 	}
-	return "", fmt.Errorf("path resolver: %s (%s) not found in %s",
-		name, mode, strings.Join(r.searchDesc(name), ", "))
+	return "", fmt.Errorf("path resolver: %s (%s) %w in %s",
+		name, mode, ErrNotFound, strings.Join(r.searchDesc(name), ", "))
 }
 
 // searchDesc describes where Resolve looked, for the error message.

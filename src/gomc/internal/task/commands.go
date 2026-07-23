@@ -536,6 +536,9 @@ func (t *Task) setState(state int32) error {
 		}
 		if t.state != StateEstop {
 			t.mu.Unlock()
+			// Message it like every other refused state change: with the
+			// client-side toast gone, a bare error here is fully invisible.
+			t.operatorError("Can't reset E-stop from the current state")
 			return ErrEstop
 		}
 		// Request estop-off from IO (sets user-enable-out=1).
@@ -787,9 +790,10 @@ func (t *Task) resolveProgram(file string) (string, error) {
 //
 // The filename arrives over REST, so it is resolved and containment-checked
 // before the interpreter sees it.  G-code is user data rather than
-// configuration, so the allowed roots are the program directories —
-// PROGRAM_PREFIX + SUBROUTINE_PATH + <EMC2_HOME>/share — the same set
-// ngcpreview's get_file has always enforced (user ruling, 2026-07-22).
+// configuration, so the allowed roots are the program directories
+// (pathres.ProgramDirs: PROGRAM_PREFIX + SUBROUTINE_PATH + the system share
+// and nc_files directories) — the same set ngcpreview's get_file enforces
+// (user ruling, 2026-07-22).
 func (t *Task) ProgramOpen(file string) error {
 	// Busy is checked first so a request that would be rejected anyway keeps
 	// reporting ErrBusy rather than a path error.
@@ -801,8 +805,15 @@ func (t *Task) ProgramOpen(file string) error {
 		// The resolver error enumerates every allowed root — worth logging, too
 		// long for the operator panel. Give the operator a short reason; the
 		// full detail stays in the log and in the returned error (dev-facing).
+		// A plain missing file must say so: reporting it as "not allowed"
+		// sends the operator diagnosing permissions for a deleted file (the
+		// recent-files case).
 		t.logger.Warn("program open denied", "file", file, "err", err)
-		t.operatorError(fmt.Sprintf("can't open %s: not in an allowed program directory", file))
+		if errors.Is(err, pathres.ErrNotFound) {
+			t.operatorError(fmt.Sprintf("can't open %s: no such file", file))
+		} else {
+			t.operatorError(fmt.Sprintf("can't open %s: not in an allowed program directory", file))
+		}
 		return err
 	}
 	file = resolved
@@ -963,6 +974,11 @@ func (t *Task) autoCommand(cmd int32, line int32) error {
 	}
 	if err := t.ensureMode(ModeAuto); err != nil {
 		t.mu.Unlock()
+		// The preflight passed or this command would not be here: the refusal
+		// happened in the race window before cmdMu (another client started
+		// homing or an MDI), and without a message the operator's Run click
+		// does nothing with no explanation anywhere but stderr.
+		t.operatorError(fmt.Sprintf("Cannot switch to Auto mode: %v", err))
 		return err
 	}
 
@@ -1926,6 +1942,9 @@ func (t *Task) Home(joint int32) error {
 		return err
 	}
 	if err := t.ensureMode(ModeManual); err != nil {
+		// Same race-window refusal as autoCommand's: message it, or the
+		// operator's Home click dies silently (the MDI body's precedent).
+		t.operatorError(fmt.Sprintf("Cannot home: %v", err))
 		return err
 	}
 	// Home requires joint (FREE) mode — motion may be in teleop even when
@@ -1982,6 +2001,7 @@ func (t *Task) OverrideLimits(joint int32) error {
 
 	if t.state == StateOn {
 		if err := t.ensureMode(ModeManual); err != nil {
+			t.operatorError(fmt.Sprintf("Cannot override limits: %v", err))
 			return err
 		}
 	}

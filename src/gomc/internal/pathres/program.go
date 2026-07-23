@@ -25,8 +25,9 @@ import (
 //
 // get reads an INI value (pass a namespaced getter to honour per-instance
 // sections); it may be nil when the launcher runs without an INI, in which
-// case only the system share directory is allowed.  baseDir anchors relative
-// INI values — the INI file's directory.
+// case only the system directories (the share directory and the install-tree
+// nc_files directory) are allowed.  baseDir anchors relative INI values — the
+// INI file's directory.
 func ProgramDirs(get func(section, key string) string, baseDir string) []string {
 	var dirs []string
 
