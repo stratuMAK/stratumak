@@ -40,6 +40,18 @@ class WatchClient:
 
     _RECONNECT_MAX_DELAY = 5.0
 
+    # Keepalive: detect a dead or half-open connection quickly. websockets'
+    # defaults are ping_interval=ping_timeout=20 s, so a server that dies
+    # ungracefully — or a close frame that never arrives — is not noticed for
+    # 20–40 s, during which a controller HMI silently shows stale data and the
+    # reconnect never starts. Ping every 5 s / fail after 5 s bounds detection
+    # to ~10 s. open/close timeouts keep a stalled connect or teardown from
+    # blocking the reconnect loop for the library's 10 s defaults.
+    _PING_INTERVAL = 5.0
+    _PING_TIMEOUT = 5.0
+    _OPEN_TIMEOUT = 5.0
+    _CLOSE_TIMEOUT = 2.0
+
     def __init__(self, name: str, subscribe: dict,
                  on_update: Callable[[Optional[str], Any], None]):
         self._name = name
@@ -80,7 +92,13 @@ class WatchClient:
         backoff = 0.25
         while not self._stopping:
             try:
-                self._ws = await websockets.connect(ws_url())
+                self._ws = await websockets.connect(
+                    ws_url(),
+                    ping_interval=self._PING_INTERVAL,
+                    ping_timeout=self._PING_TIMEOUT,
+                    open_timeout=self._OPEN_TIMEOUT,
+                    close_timeout=self._CLOSE_TIMEOUT,
+                )
                 await self._ws.send(json.dumps(self._subscribe))
                 if self.on_connect is not None:
                     await self.on_connect(self)
