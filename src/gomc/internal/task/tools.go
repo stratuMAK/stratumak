@@ -4,6 +4,7 @@ package task
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tools"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
@@ -74,6 +75,14 @@ func toolEntryToTooltable(e *tools.ToolEntry) tooltable.ToolEntry {
 // first (2.9's tooldata_find_index_for_tool), and the slot never leaves.
 type toolsImpl struct {
 	module *milltaskModule
+
+	// writeMu serializes the write commands (PutTool/DeleteTool). PutTool's
+	// new-tool path is check-then-act across two client calls — NextFreeIndex
+	// (or the random-changer occupant check) and then the put — and the store
+	// has no allocate-if-empty primitive, so two concurrent creates would both
+	// be handed the same slot and the second would silently destroy the first
+	// tool (a create's Updated==0 bypasses the stamp CAS by design).
+	writeMu sync.Mutex
 }
 
 // checkToolConflict is the optimistic-concurrency pre-check for PutTool: the
@@ -165,6 +174,8 @@ func (t *toolsImpl) PutTool(toolno int32, entry tools.ToolEntry) (*tools.PutTool
 	if toolno <= 0 {
 		return nil, fmt.Errorf("toolno must be > 0")
 	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
 	if entry.Updated != 0 {
 		current, err := t.GetTool(toolno)
 		if err != nil {
@@ -232,6 +243,8 @@ func (t *toolsImpl) DeleteTool(toolno int32) (*tools.CmdResult, error) {
 	if toolno <= 0 {
 		return nil, fmt.Errorf("toolno must be > 0")
 	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
 	idx, err := t.findToolIdx(toolno)
 	if err != nil {
 		return nil, err
@@ -304,8 +317,9 @@ func (t *toolsImpl) GetUnits() (*tools.ToolUnits, error) {
 }
 
 // getToolSlot reads one tool table slot for the canon getters. An unoccupied
-// or unreadable slot answers retval -1, which is what 2.9's
-// GET_EXTERNAL_TOOL_TABLE reports for a slot with no tool in it.
+// slot answers rc 0 with toolno -1 (2.9's GET_EXTERNAL_TOOL_TABLE hands back
+// the empty entry, it does not fail); retval -1 is reserved for a slot that
+// cannot be READ at all (no client, negative index, store error).
 func getToolSlot(idx int32) (retval int32, toolno int32, pocketno int32, offset [9]float64, diameter, frontangle, backangle float64, orientation int32) {
 	if pkgTTClient == nil || idx < 0 {
 		return -1, 0, 0, [9]float64{}, 0, 0, 0, 0

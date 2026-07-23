@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"unsafe"
 
@@ -277,5 +278,43 @@ func TestRandomChangerNeedsAPocketForANewTool(t *testing.T) {
 	got, err := ti.GetTool(5)
 	if err != nil || got.Toolno != 5 {
 		t.Errorf("GetTool(5) = %+v, %v; the occupant must be untouched", got, err)
+	}
+}
+
+// Two concurrent creates must land on distinct slots. The new-tool path is
+// check-then-act (NextFreeIndex, then PutTool) with no allocate-if-empty
+// primitive in the store, so without writeMu both creates are handed the same
+// free slot and the second silently destroys the first tool — a create's
+// Updated==0 bypasses the stamp CAS by design.
+func TestPutToolConcurrentCreatesGetDistinctSlots(t *testing.T) {
+	ti := newToolsImpl(t, false)
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = ti.PutTool(int32(100+i), tools.ToolEntry{ZOffset: float64(i) + 0.5})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("create of tool %d failed: %v", 100+i, err)
+		}
+	}
+
+	// Every tool must still exist, with its own geometry — no silent overwrite.
+	for i := 0; i < n; i++ {
+		got, err := ti.GetTool(int32(100 + i))
+		if err != nil {
+			t.Fatalf("GetTool(%d): %v", 100+i, err)
+		}
+		if got.Toolno != int32(100+i) || got.ZOffset != float64(i)+0.5 {
+			t.Errorf("tool %d came back as toolno=%d z=%v — a concurrent create overwrote it",
+				100+i, got.Toolno, got.ZOffset)
+		}
 	}
 }

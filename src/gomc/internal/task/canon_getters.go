@@ -241,9 +241,9 @@ func (c *Canon) GetExternalToolLengthWoffset() (float64, error) {
 
 // GetExternalToolSlot mirrors 2.9's GET_EXTERNAL_TOOL_SLOT: the table SLOT of
 // the tool in the spindle (feeds _setup.current_pocket / #<_current_pocket>).
-// Classic resolves it with tooldata_find_index_for_tool, which yields -1 for
-// the empty non-random spindle (slot 0 carries toolno -1) and 0 for the
-// random spindle slot; so does the store's find_index_for_tool.
+// Classic resolves it with tooldata_find_index_for_tool, which yields 0 for
+// the empty non-random spindle (the toolno==0 special case, tooldata_mmap.cc)
+// and 0 for the random spindle slot; so does the store's find_index_for_tool.
 func (c *Canon) GetExternalToolSlot() (int32, error) {
 	if c.task.io == nil {
 		return -1, nil
