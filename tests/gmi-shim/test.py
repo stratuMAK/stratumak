@@ -391,9 +391,17 @@ def main():
     if caps.spindle_forward or caps.spindle_on or caps.spindle_brake or caps.coolant_mist:
         fail("info-peers", "unwired pins reported as wired")
     # An unset peer falls back to the module's own default instance name, which
-    # is what keeps a single-instance config working without naming anything.
+    # is what keeps a single-instance config working without naming anything —
+    # EXCEPT pyvcp, whose panel is optional and gated on the server reporting
+    # one. mtc keeps a default (it is probe-gated, so a wrong default just 404s
+    # and disables the feature); pyvcp must return "" so AXIS shows no panel
+    # rather than requesting a fabricated default that isn't loaded.
     if gmi.mtc_instance() != "manualtoolchange":
-        fail("info-peers", f"unset peer fallback = {gmi.mtc_instance()}")
+        fail("info-peers", f"unset mtc fallback = {gmi.mtc_instance()}")
+    rest.info_payload["peers"]["pyvcp"] = ""
+    gmi.reset_info()
+    if gmi.pyvcp_instance() != "":
+        fail("info-peers", f"absent pyvcp fabricated {gmi.pyvcp_instance()!r}")
     ok("info-peers")
 
     # The answer is fixed for the life of the task, so it is fetched once no

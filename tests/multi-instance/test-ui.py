@@ -71,6 +71,11 @@ def check_peers(side):
         fail(f"peers-{side}", f"preview_instance()={gmi.preview_instance()}")
     if gmi.tooltable_instance() != want["tooltable"]:
         fail(f"peers-{side}", f"tooltable_instance()={gmi.tooltable_instance()}")
+    # No pyvcp is loaded here, so pyvcp_instance() must be "" — NOT a fabricated
+    # "pyvcp" default. That empty string is what AXIS gates the panel on; a
+    # default would request a panel HAL never loaded and 404.
+    if gmi.pyvcp_instance() != "":
+        fail(f"peers-{side}", f"pyvcp_instance()={gmi.pyvcp_instance()!r}, want ''")
     ok(f"peers-{side}")
 
 

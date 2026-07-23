@@ -3903,7 +3903,13 @@ if increments:
 widgets.jogincr.configure(command= jogspeed_listbox_change)
 root_window.call(widgets.jogincr._w, "select", 0)
 
-vcp = inifile.find("DISPLAY", "PYVCP")
+# Whether to show a pyvcp panel is the server's fact, not the INI's: the panel
+# lives server-side now (load pyvcp xml=...), and milltask reports it as a peer.
+# The [DISPLAY]PYVCP key named an XML file for the old in-process pyvcp and no
+# longer gates anything — gating on it would request a panel HAL never loaded
+# and 404, the exact failure /info exists to remove. A config that wants a panel
+# names it with pyvcp_instance= on the milltask load line. Empty = no panel.
+vcp = gmi.pyvcp_instance() if server_present == 1 else ""
 
 arcdivision = int(inifile.find("DISPLAY", "ARCDIVISION") or 64)
 
@@ -4166,10 +4172,8 @@ if server_present == 1 :
             f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
         else:
             f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        # The panel is a module instance like any other: "pyvcp" only by default.
-        # A multi-instance config that gives each task its own panel names it on
-        # the milltask load line (pyvcp_instance=), and /info reports it here.
-        vcpparse.create_vcp_rest(f, compname=gmi.pyvcp_instance())
+        # vcp is the resolved instance name from /info (gate above).
+        vcpparse.create_vcp_rest(f, compname=vcp)
         vcp_frame = f
         root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
         help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]

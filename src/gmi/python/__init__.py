@@ -85,8 +85,17 @@ def mtc_instance() -> str:
 
 
 def pyvcp_instance() -> str:
-    """Return the pyvcp panel instance name for this task."""
-    return _peer("GMC_PYVCP_INSTANCE", "pyvcp", "pyvcp")
+    """Return the pyvcp panel instance for this task, or "" if none is loaded.
+
+    Unlike preview/mtc this has NO default-name fallback. A pyvcp panel is
+    optional and its presence is decided by the server: a client shows one only
+    when /info reports a peer. Falling back to a "pyvcp" default would be the
+    very guess that fabricates a request to a panel that isn't there — the INI
+    key [DISPLAY]PYVCP used to gate this, and a panel it named but HAL never
+    loaded 404'd. An empty answer here means "no panel", and the caller must
+    treat it as the gate.
+    """
+    return _peer("GMC_PYVCP_INSTANCE", "pyvcp", "")
 
 
 def tooltable_instance() -> str:
