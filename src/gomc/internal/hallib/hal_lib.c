@@ -1931,9 +1931,9 @@ int hal_create_thread_cpu(const char *name, unsigned long period_nsec,
     int uses_fp, int cpu)
 {
     void *next; int cmp, prev_priority;
-    int retval, n;
+    int retval;
     hal_thread_t *new, *tptr;
-    long prev_period, curr_period;
+    long curr_period;
     /* +6 leaves room for the longest decoration applied below to a
        full-length name: the "__" pseudo-comp prefix and the ".tmax"
        param suffix (5 chars + NUL). Avoids -Wformat-truncation. */
@@ -2009,47 +2009,26 @@ int hal_create_thread_cpu(const char *name, unsigned long period_nsec,
 		return -EINVAL;
 	    }
 	}
-	/* make sure period <= desired period (allow 1% roundoff error) */
-	if (curr_period > (period_nsec + (period_nsec / 100))) {
-	    rtapi_mutex_give(&(hal_data->mutex));
-	    rtapi_print_msg(RTAPI_MSG_ERR,
-		"HAL_LIB: ERROR: clock period too long: %ld\n", curr_period);
-	    return -EINVAL;
-	}
-	if(hal_data->exact_base_period) {
-		hal_data->base_period = period_nsec;
-	} else {
-		hal_data->base_period = curr_period;
-	}
+	/* base_period is informational only: the period of the first thread
+	   created.  Nothing is derived from it — see the note above about
+	   independent per-task deadlines. */
+	hal_data->base_period = period_nsec;
 	/* reserve the highest priority (maybe for a watchdog?) */
 	prev_priority = rtapi_prio_highest();
-	/* no previous period to worry about */
-	prev_period = 0;
     } else {
-	/* there are other threads, slowest (and lowest
-	   priority) is at head of list */
+	/* there are other threads; the most recently created one (and so the
+	   lowest priority so far) is at the head of the list */
 	tptr = hal_data->thread_list_ptr;
-	prev_period = tptr->period;
 	prev_priority = tptr->priority;
     }
-    if ( period_nsec < hal_data->base_period) { 
-	rtapi_mutex_give(&(hal_data->mutex));
-	rtapi_print_msg(RTAPI_MSG_ERR,
-	    "HAL_LIB: ERROR: new thread period %ld is less than clock period %ld\n",
-	     period_nsec, hal_data->base_period);
-	return -EINVAL;
-    }
-    /* make period an integer multiple of the timer period */
-    n = (period_nsec + hal_data->base_period / 2) / hal_data->base_period;
-    new->period = hal_data->base_period * n;
-    if ( new->period < prev_period ) {
-	rtapi_mutex_give(&(hal_data->mutex));
-	rtapi_print_msg(RTAPI_MSG_ERR,
-	    "HAL_LIB: ERROR: new thread period %ld is less than existing thread period %ld\n",
-	     period_nsec, prev_period);
-	return -EINVAL;
-    }
-    /* make priority one lower than previous */
+    /* The period is used as requested: each task waits on its own absolute
+       deadline, so nothing forces it to be a multiple of any other period. */
+    new->period = period_nsec;
+    /* Priority is assigned by creation order, one step lower each time. Rate
+       monotonic scheduling therefore requires threads to be created fastest
+       first; that is a convention, not a rule enforced here — a caller that
+       creates a faster thread later gets a lower priority for it, and is
+       warned about it by the layer that has somewhere to put the warning. */
     new->priority = rtapi_prio_next_lower(prev_priority);
     /* create task - owned by library module, not caller */
     retval = rtapi_task_new(thread_task, new, new->priority,

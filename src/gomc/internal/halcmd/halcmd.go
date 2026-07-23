@@ -82,9 +82,16 @@ func StopThreads() error {
 // pinning is the caller's explicit choice — but a non-isolated one logs a
 // warning. Only an offline/out-of-range CPU is an error.
 //
-// Threads must be created fastest-first (ascending period) for rate monotonic
-// priority scheduling.
+// HAL assigns thread priorities by creation order — each new thread one step
+// below the previous one — so threads should be created fastest-first to get
+// rate monotonic scheduling. That is a convention, not a rule: creating a
+// faster thread later succeeds and produces a warning (see ThreadOrderWarning).
 func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
+	if w := ThreadOrderWarning(name, periodNs); w != "" {
+		if logger := poolLogger(); logger != nil {
+			logger.Warn(w)
+		}
+	}
 	// Snapshot the pool before acquiring: a core popped for a thread that HAL
 	// then refuses would otherwise be lost for the rest of the session.
 	snap := snapshotPool()
@@ -97,6 +104,42 @@ func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
 		return err
 	}
 	return nil
+}
+
+// ThreadOrderWarning reports whether creating a thread of the given period now
+// would break rate monotonic scheduling, and returns the message to show if so
+// (empty when the order is fine).
+//
+// HAL gives each newly created thread the next lower priority, so the thread
+// about to be created will be the lowest-priority one. That inverts rate
+// monotonic scheduling as soon as ANY existing thread has a LONGER period: the
+// slower thread would preempt the faster one. Hence a scan of all threads
+// rather than a comparison against the newest — once creation order is free and
+// threads can be deleted, the most recently created thread is not necessarily
+// the slowest one. The list is a handful of entries on a non-realtime path, so
+// scanning beats caching a "slowest" value that delthread would invalidate.
+//
+// This lives in Go, not in hal_lib, because hal_lib's diagnostics go to the RT
+// log: a warning emitted there would never reach the operator who typed the
+// command.
+func ThreadOrderWarning(name string, periodNs int64) string {
+	threads, err := halShowThreads("")
+	if err != nil {
+		return ""
+	}
+	var slower []string
+	for _, t := range threads {
+		if t.Period > periodNs {
+			slower = append(slower, fmt.Sprintf("%s (%d ns)", t.Name, t.Period))
+		}
+	}
+	if len(slower) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("thread %s (%d ns) is created after the slower thread(s) %s, "+
+		"so it gets a LOWER priority than they do and they will preempt it — "+
+		"create faster threads first for rate monotonic scheduling",
+		name, periodNs, strings.Join(slower, ", "))
 }
 
 // ThreadDelete deletes a HAL realtime thread by name.

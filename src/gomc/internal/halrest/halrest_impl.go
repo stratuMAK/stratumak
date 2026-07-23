@@ -395,8 +395,15 @@ func (h *halcmdImpl) Newthread(name string, periodNs int64, fp *bool, cpuId *int
 	if cpuId != nil {
 		cpuID = int(*cpuId)
 	}
+	// Computed before creation (afterwards the new thread is in the list and
+	// compares against itself). CreateThreadCPU logs it too; this is what
+	// reaches the operator who typed the command, rather than the server log.
+	warning := halcmd.ThreadOrderWarning(name, periodNs)
 	if err := halcmd.CreateThreadCPU(name, periodNs, usesFP, cpuID); err != nil {
 		return errCmd(err)
+	}
+	if warning != "" {
+		return &halcmdapi.CmdResult{Success: true, Output: strPtr("warning: " + warning)}, nil
 	}
 	return okCmd(), nil
 }

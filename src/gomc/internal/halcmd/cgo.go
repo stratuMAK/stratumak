@@ -1315,25 +1315,18 @@ static int hal_shim_save(const char *type, char *buf, int buf_size) {
     return count;
 }
 
-// hal_shim_set_exact enables exact_base_period mode, mirroring the classic
-// halcmd "setexact_for_test_suite_only" command.  When set, HAL pretends the
-// requested thread base period is achievable exactly (instead of rounding to
-// the value RTAPI reports), which makes test sample counts deterministic.
-// Must be called before any thread is created.  Returns -EINVAL if a thread
-// has already established a base period, 0 on success.
+// hal_shim_set_exact implements the classic halcmd
+// "setexact_for_test_suite_only" command.  It used to ask HAL to pretend the
+// requested base period was achievable exactly instead of rounding thread
+// periods to the value RTAPI reported, which made test sample counts
+// deterministic.  Thread periods are no longer rounded at all — every period is
+// exact — so this is now a no-op, accepted (rather than removed) so the test
+// configurations that issue it keep working unchanged.
 static int hal_shim_set_exact(void) {
-    int retval = 0;
     if (hal_data == NULL) {
         return -EINVAL;
     }
-    rtapi_mutex_get(&(hal_data->mutex));
-    if (hal_data->base_period) {
-        retval = -EINVAL;
-    } else {
-        hal_data->exact_base_period = 1;
-    }
-    rtapi_mutex_give(&(hal_data->mutex));
-    return retval;
+    return 0;
 }
 */
 import "C"

@@ -228,9 +228,6 @@ func TestLockStatusStringAllBits(t *testing.T) {
 func TestThreadCreateDeleteCycles(t *testing.T) {
 	setPool(t, nil, false)
 
-	// Must not be faster than the base period the first thread in this process
-	// established (the other thread tests use 2 ms) — HAL rejects a thread
-	// shorter than the base period with EINVAL.
 	const period = 2_000_000 // 2 ms
 	for i := 0; i < 12; i++ {
 		name := fmt.Sprintf("halcmd-test-cycle%d", i)
@@ -266,14 +263,77 @@ func TestThreadCreateDeleteCycles(t *testing.T) {
 	}
 }
 
+// Thread periods used to be forced onto a multiple of the base period fixed by
+// the first thread ever created: a shorter period was refused outright, and
+// anything else was silently rounded. Both are gone — each task waits on its
+// own absolute deadline, so a period is used exactly as requested.
+func TestThreadPeriodIsUsedAsRequested(t *testing.T) {
+	setPool(t, nil, false)
+
+	// Every other test in this binary creates 2 ms threads, so a base period of
+	// 2 ms is already established before this runs.
+	for _, tc := range []struct {
+		name   string
+		period int64
+		why    string
+	}{
+		{"halcmd-test-period-odd", 1_234_567, "not a multiple of any existing period"},
+		{"halcmd-test-period-fast", 125_000, "faster than the first thread created"},
+	} {
+		if err := CreateThreadCPU(tc.name, tc.period, 0, -1); err != nil {
+			t.Fatalf("CreateThreadCPU(%s, %s): %v", tc.name, tc.why, err)
+		}
+		t.Cleanup(func() { _ = ThreadDelete(tc.name) })
+
+		res, err := Show("thread", tc.name)
+		if err != nil || len(res.Threads) != 1 {
+			t.Fatalf("Show thread %s = %+v / %v", tc.name, res, err)
+		}
+		if got := res.Threads[0].Period; got != tc.period {
+			t.Errorf("thread %s period = %d; want exactly %d (%s)", tc.name, got, tc.period, tc.why)
+		}
+	}
+}
+
+// Creating a faster thread after a slower one is allowed but inverts rate
+// monotonic scheduling, because HAL hands out priorities in creation order.
+// That has to be reported: it is the one way the caller can silently end up
+// with a fast thread that everything else preempts.
+func TestThreadOrderWarning(t *testing.T) {
+	setPool(t, nil, false)
+
+	const slow = "halcmd-test-order-slow"
+	if err := CreateThreadCPU(slow, 8_000_000, 0, -1); err != nil {
+		t.Fatalf("CreateThreadCPU(%s): %v", slow, err)
+	}
+	t.Cleanup(func() { _ = ThreadDelete(slow) })
+
+	// Faster than an existing thread: warned, and the offender is named so the
+	// operator knows which thread to create first next time.
+	w := ThreadOrderWarning("halcmd-test-order-fast", 1_000_000)
+	if w == "" {
+		t.Fatal("creating a thread faster than an existing one must warn")
+	}
+	if !strings.Contains(w, slow) {
+		t.Errorf("warning %q does not name the slower thread %s", w, slow)
+	}
+
+	// Slower than everything that exists: correct rate monotonic order, silent.
+	if w := ThreadOrderWarning("halcmd-test-order-slower", 16_000_000); w != "" {
+		t.Errorf("creating the slowest thread must not warn, got %q", w)
+	}
+	// Equal periods are not an inversion either.
+	if w := ThreadOrderWarning("halcmd-test-order-equal", 8_000_000); w != "" {
+		t.Errorf("an equal period must not warn, got %q", w)
+	}
+}
+
 // A CPU handed out for a thread that then fails to be created must go back into
 // the pool — otherwise every failed newthread permanently burns an isolated
 // core, and later threads co-locate for no reason.
 func TestCreateThreadFailureReturnsCPUToPool(t *testing.T) {
 	setPool(t, []int{3, 2}, false)
 
-	// 2 ms like the other thread tests: the base period is process-global and
-	// HAL refuses anything shorter than the first thread this binary created.
 	const period = int64(2_000_000)
 
 	const first = "halcmd-test-pool-first"
@@ -353,27 +413,22 @@ func TestUnloadAllDoesNotSignalOurself(t *testing.T) {
 	}
 }
 
-// TestSetExactRefusedAfterBasePeriod covers the guard on
-// `setexact_for_test_suite_only`: it makes HAL treat the requested thread base
-// period as exactly achievable, which is only meaningful before any thread has
-// established one. Once a thread exists it must be refused rather than silently
-// changing timing under a running configuration.
-//
-// The other thread tests in this binary have already established a base period,
-// so this exercises the refusal. The accept path is inherently first-call-only
-// and is covered by the runtests suite, which issues it on a fresh instance.
-func TestSetExactRefusedAfterBasePeriod(t *testing.T) {
+// `setexact_for_test_suite_only` used to ask HAL to treat the requested base
+// period as exactly achievable instead of rounding thread periods to it. Thread
+// periods are no longer rounded at all, so it is a no-op that must simply keep
+// being accepted — 10 test configurations in tests/ still issue it, and it used
+// to fail once any thread existed.
+func TestSetExactIsAcceptedAfterThreadsExist(t *testing.T) {
 	setPool(t, nil, false)
 
-	// Make sure a base period exists regardless of test ordering.
 	const name = "halcmd-test-setexact"
 	if err := CreateThreadCPU(name, 2_000_000, 0, -1); err != nil {
 		t.Fatalf("CreateThreadCPU: %v", err)
 	}
 	defer func() { _ = ThreadDelete(name) }()
 
-	if err := SetExact(); err == nil {
-		t.Error("SetExact after a base period was established must be refused")
+	if err := SetExact(); err != nil {
+		t.Errorf("SetExact with threads already created: %v; want accepted as a no-op", err)
 	}
 }
 

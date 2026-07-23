@@ -149,6 +149,14 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 	return cpu, nil
 }
 
+// poolLogger returns the pool's logger (nil if none was installed). It is the
+// halcmd package's only logger, installed by InitCPUPool at startup.
+func poolLogger() *slog.Logger {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return pool.logger
+}
+
 // poolState captures the assignable part of the pool so a CPU handed out for a
 // thread that then fails to be created can be given back (see CreateThreadCPU).
 type poolState struct {

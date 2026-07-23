@@ -507,7 +507,11 @@ Returns EBUSY if another module depends on this module's APIs.`,
   fp|nofp   enable/disable floating-point support (default: fp).
   cpu=N     pin to CPU N (default: auto-assign an isolated core, or no
             affinity if the machine has none). Pinning to a non-isolated
-            CPU is allowed but warns.`,
+            CPU is allowed but warns.
+  The period is used exactly as given — it need not relate to any other
+  thread's period. Priorities are handed out in creation order, each one
+  lower than the last, so create faster threads first; creating a thread
+  faster than an existing one is allowed but warns.`,
 	"delthread": `delthread <name>
   Delete a thread (must have no attached functions).`,
 	"addf": `addf <function> <thread> [position]
@@ -1118,7 +1122,14 @@ func cmdNewThread(args []string) error {
 	if err != nil {
 		return err
 	}
-	return checkResult(result)
+	if err := checkResult(result); err != nil {
+		return err
+	}
+	// Non-fatal notice — currently the rate-monotonic ordering warning.
+	if result.Output != nil && *result.Output != "" && !quietMode {
+		fmt.Fprintln(os.Stderr, *result.Output)
+	}
+	return nil
 }
 
 func cmdDelThread(args []string) error {
