@@ -128,6 +128,12 @@ class _ToolEntry:
         return self._fields[13]
 
 
+def _empty_tool_entry():
+    """An unoccupied tool table slot: 2.9's tooldata_entry_init, whose -1 tool
+    number is what distinguishes an empty slot from a real T0 entry."""
+    return _ToolEntry(toolno=-1)
+
+
 class Stat:
     """Drop-in replacement for linuxcnc.stat().
 
@@ -135,8 +141,12 @@ class Stat:
     All attributes from the stat struct are accessible as properties.
     """
 
-    def __init__(self, instance: str = "milltask"):
+    def __init__(self, instance: str = "milltask",
+                 tooltable_instance: str = "tooltable"):
         self._instance = instance
+        # tool_table is read from the raw slot store, which is its own module
+        # instance (a multi-instance config binds each milltask to its own).
+        self._tooltable_instance = tooltable_instance
         self._data = {}
         self._poll_conn = None
         self._poll_lock = threading.Lock()
@@ -381,10 +391,11 @@ class Stat:
         if name == "limit":
             return tuple(data.get("limit") or [0] * 16)
 
-        # tool_table — not available via NML stat (uses tooldata_get shared memory).
-        # Return a minimal stub so axis.py doesn't crash.
+        # tool_table — not part of the stat snapshot (2.9 read it straight out
+        # of the tooldata mmap on every access); fetched from the tool table
+        # service instead.
         if name == "tool_table":
-            return self._stub_tool_table()
+            return self._tool_table()
 
         # Remaining scalars — (json_key, default) so we never return None
         _SCALAR_MAP = {
@@ -411,12 +422,20 @@ class Stat:
 
         raise AttributeError(f"Stat has no attribute {name!r}")
 
-    def _stub_tool_table(self):
-        """Fetch tool table via REST API (cached).
+    def _tool_table(self):
+        """Fetch the tool table as a list indexed by SLOT (cached).
 
-        Returns a list indexed by mmap index, matching the linuxcnc
-        C extension's tool_table semantics. Index 0 is the spindle tool.
-        The REST API returns all entries in mmap index order.
+        This reproduces the C extension's Stat_tool_table exactly: a sequence
+        of 14-field entries subscripted by tooldata index, 0 through the
+        highest occupied slot inclusive, where index 0 is the spindle and
+        `stat.pocket_prepped` is an index into it. Unoccupied slots in the
+        middle are present and empty (toolno -1), because the list is an
+        array, not a set of the tools that happen to exist: axis.py reads
+        tool_table[0], touchy and gscreen read tool_table[pocket_prepped].
+
+        Slot 0 always exists server-side, so the list is never empty and
+        tool_table[0] never raises — a config with no tools at all used to
+        return [] here and crash AXIS on startup (issue #272).
 
         Cached: re-fetches when tool_in_spindle OR the applied tool offset
         changes. The offset in the key catches tool touch-off (G10 L10/L11 +
@@ -432,15 +451,27 @@ class Stat:
             return self._tool_table_cache
 
         try:
-            from gmi.tools import ToolTable
-            tt = ToolTable()
-            tools = tt.list()
+            from gmi.tools import ToolSlots
+            slots = ToolSlots(self._tooltable_instance).list()
         except Exception:
-            return getattr(self, '_tool_table_cache', [_ToolEntry()] * 56)
+            # A failed fetch must still hand back a subscriptable table: an
+            # exception here is a display glitch, an IndexError in the caller
+            # is a dead GUI.
+            return getattr(self, '_tool_table_cache', [_empty_tool_entry()])
 
-        # The REST API returns entries in mmap index order.
-        # Index 0 = spindle slot, same as the original C extension.
-        result = [_ToolEntry.from_dict(t) for t in tools]
+        by_idx = {}
+        for slot in slots:
+            try:
+                idx = int(slot.get("idx", -1))
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0:
+                by_idx[idx] = slot
+        # Slot 0 exists server-side; falling back to 0 keeps the list
+        # subscriptable even if a future store ever answers without it.
+        last = max(by_idx) if by_idx else 0
+        result = [_ToolEntry.from_dict(by_idx[i]) if i in by_idx else _empty_tool_entry()
+                  for i in range(last + 1)]
         self._tool_table_cache = result
         self._tool_table_key = current_key
         return result

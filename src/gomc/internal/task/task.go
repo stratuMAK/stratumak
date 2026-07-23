@@ -371,15 +371,6 @@ type Task struct {
 	// Written by canon at enqueue time; read by BuildStat for halui.program-line.
 	motionMap map[int32]motionInfo
 
-	// Memoized prepped-tool pocket for BuildStat (guarded by t.mu): the
-	// toolPocketFor lookup behind stat.pocket_prepped is a tooltable-service
-	// round-trip (SQLite read), too costly to repeat at the status publish
-	// rate for a value that only changes on prep/change/table-edit. The
-	// tool-mutating commands invalidate it.
-	prepPocketToolno int32
-	prepPocket       int32
-	prepPocketValid  bool
-
 	// Interpreter active codes (updated after each execute). These are the
 	// ONLY view of interpreter state stat consumers may use — BuildStat must
 	// not call into the (non-thread-safe) interpreter while the producer

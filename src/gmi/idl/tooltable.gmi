@@ -2,13 +2,40 @@
 @author "Dewey Garrett (tooldata.hh)"
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 1
+@version 2
 @prefix tooltable
 @rest_export true
 
+# The tool table is an ARRAY INDEXED BY idx, exactly as 2.9's tooldata is
+# (emc/tooldata/tooldata_mmap.cc).  This is the raw store: it is addressed by
+# storage slot, not by tool number.  The operator-facing API is the milltask
+# `tools` API, which is tool-number addressed and resolves to an idx here.
+#
+#   idx 0        the SPINDLE slot.  Always present.  It holds a copy of the
+#                tool currently in the spindle (or toolno -1/0 when empty).
+#                It is a slot, not a tool: it is never a second row for a tool
+#                that also lives in the table, and it is never listed as an
+#                editable tool by a UI.
+#   idx 1..N     the tool table proper.
+#
+# On a RANDOM toolchanger idx IS the carousel pocket, so idx == pocketno for
+# every row and a tool change swaps rows 0 and idx.  On a NON-RANDOM changer
+# idx is a synthetic slot number ("fakepocket", assigned 1..n in load order)
+# and `pocketno` is the unrelated carousel pocket the operator sees; a tool
+# change copies row idx to row 0 verbatim.
+#
+# Keying by idx rather than by toolno is what makes the spindle slot
+# representable at all: keyed by toolno the spindle row collided with a real
+# T0 entry and the stored toolno had to be clobbered with the key, which sent
+# Interp::set_tool_parameters into its empty-spindle branch (#5400 stuck at 0
+# after M6) and published a phantom tool 0 to every UI.
+
 type ToolEntry {
-    toolno: i32
-    pocketno: i32 @min(0) @max(1000)
+    idx: i32 @min(0) @max(1000)
+                          # storage slot; 0 = spindle.  Filled from the key on
+                          # every read; ignored in a put (the path carries it).
+    toolno: i32 @min(-1)  # -1 = slot empty/unknown (2.9 tooldata_entry_init)
+    pocketno: i32 @min(-1) @max(1000)
     x_offset: f64
     y_offset: f64
     z_offset: f64
@@ -39,22 +66,52 @@ type DeleteResult {
     ok: bool
 }
 
+# A resolved storage slot. -1 means "no such slot" — an absent tool or a full
+# table — and is a normal answer, not an error.
+type IndexResult {
+    idx: i32 @min(-1) @max(1000)
+}
+
 @method GET
 @path /
 @rc_error
 func list_tools(tools: []ToolEntry out) -> i32
 
+# Resolve a tool number to its storage slot, mirroring 2.9's
+# tooldata_find_index_for_tool: -1 for toolno -1 or a tool not in the table;
+# 0 for toolno 0 on a non-random changer (the empty spindle IS slot 0); and
+# otherwise the lowest non-zero slot holding that tool number.  The spindle
+# slot never wins over a real table slot, so a loaded tool resolves to its
+# home slot and not to the spindle copy of itself.
+#
+# Literal first segment — no conflict with the /{idx} routes below.
 @method GET
-@path /{toolno}
+@path /find/{toolno}
 @rc_error
-func get_tool(toolno: i32, entry: ToolEntry out) -> i32
+func find_index_for_tool(toolno: i32 @min(-1), result: IndexResult out) -> i32
+
+# The lowest unused slot >= 1, or -1 when the table is full.  Used when a UI
+# creates a tool on a non-random changer, where the slot is an implementation
+# detail the operator never sees.
+@method GET
+@path /nextfree
+@rc_error
+func next_free_index(result: IndexResult out) -> i32
+
+@method GET
+@path /{idx}
+@rc_error
+func get_tool(idx: i32 @min(0) @max(1000), entry: ToolEntry out) -> i32
 
 @method PUT
-@path /{toolno}
+@path /{idx}
 @rc_error
-func put_tool(toolno: i32, entry: ToolEntry, result: PutToolResult out) -> i32
+func put_tool(idx: i32 @min(0) @max(1000), entry: ToolEntry, result: PutToolResult out) -> i32
 
+# Slot 0 cannot be deleted: the spindle slot is a structural invariant of the
+# table, and its absence is what made an empty tool table crash every UI that
+# reads tool_table[0].
 @method DELETE
-@path /{toolno}
+@path /{idx}
 @rc_error
-func delete_tool(toolno: i32, result: DeleteResult out) -> i32
+func delete_tool(idx: i32 @min(1) @max(1000), result: DeleteResult out) -> i32

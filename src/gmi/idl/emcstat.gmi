@@ -201,7 +201,8 @@ type StatFull {
     mist: bool
     lube_on: bool
     tool_in_spindle: i32
-    pocket_prepped: i32
+    pocket_prepped: i32     # tool table slot (idx) prepped for the next change,
+                            # -1 when idle; index into tool_table, as in 2.9
     tool_from_pocket: i32
     linear_units: f64
     homed: [MAX_JOINTS]bool

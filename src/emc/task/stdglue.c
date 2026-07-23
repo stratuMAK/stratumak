@@ -216,12 +216,18 @@ static int settool_epilog(interp_ctx_callbacks_t *ctx, const char *name)
     double rv = ctx->get_return_value(ctx->ctx);
     if (rv > 0.0) {
         int tool = (int)ctx->get_param(ctx->ctx, "tool");
-        int pocket = (int)ctx->get_param(ctx->ctx, "pocket");
+        // current_pocket and change_tool_number take the tool table SLOT, not
+        // the carousel pocket that #<pocket> exposes to the remap procedure —
+        // see the note in interp_ctx.gmi. The builtin M61 passes
+        // settings->current_pocket, which find_tool_index produced.
+        int idx = ctx->find_tool_index(ctx->ctx, tool);
+        if (idx < 0) {
+            ctx->set_error(ctx->ctx, "M61: tool vanished from the table during the remap");
+            return INTERP_EXT_ERROR;
+        }
         ctx->set_current_tool(ctx->ctx, tool);
-        ctx->set_current_pocket(ctx->ctx, pocket);
-        // gomc iocontrol keys the spindle tool by TOOL NUMBER, not pocket
-        // (matches the builtin M61 in interp_convert.cc).
-        ctx->canon_change_tool_number(ctx->ctx, tool);
+        ctx->set_current_pocket(ctx->ctx, idx);
+        ctx->canon_change_tool_number(ctx->ctx, idx);
         ctx->set_toolchange_flag(ctx->ctx, 1);
         ctx->call_set_tool_parameters(ctx->ctx);
         return INTERP_EXT_OK;

@@ -253,14 +253,15 @@ public:
             offset.u, offset.v, offset.w);
     }
 
-    // Reconstructs CANON_TOOL_TABLE from out-parameters
-    CANON_TOOL_TABLE get_external_tool_table(int32_t pocket) {
+    // Reconstructs CANON_TOOL_TABLE from out-parameters. idx is the table
+    // SLOT; the tool's carousel pocket comes back as its own out-parameter,
+    // because on a non-random toolchanger it is a different number.
+    CANON_TOOL_TABLE get_external_tool_table(int32_t idx) {
         CANON_TOOL_TABLE t;
         double offset[9];
-        cb->get_external_tool_table(cb->ctx, pocket,
-            &t.toolno, offset, &t.diameter, &t.frontangle, &t.backangle,
+        cb->get_external_tool_table(cb->ctx, idx,
+            &t.toolno, &t.pocketno, offset, &t.diameter, &t.frontangle, &t.backangle,
             &t.orientation);
-        t.pocketno = pocket;
         t.offset.tran.x = offset[0];
         t.offset.tran.y = offset[1];
         t.offset.tran.z = offset[2];
@@ -274,10 +275,12 @@ public:
     }
 
     // Looks up a tool by toolno. Returns true if found, false otherwise.
-    bool get_tool_by_number(int32_t toolno, CANON_TOOL_TABLE *t) {
+    // *idx receives the tool's table slot (what find_tool_index reports);
+    // t->pocketno receives its carousel pocket (what find_tool_pocket does).
+    bool get_tool_by_number(int32_t toolno, int32_t *idx, CANON_TOOL_TABLE *t) {
         double offset[9];
         int32_t ret = cb->get_tool_by_number(cb->ctx, toolno,
-            &t->pocketno, offset, &t->diameter, &t->frontangle, &t->backangle,
+            idx, &t->pocketno, offset, &t->diameter, &t->frontangle, &t->backangle,
             &t->orientation);
         if (ret != 0)
             return false;

@@ -239,12 +239,11 @@ func (c *Canon) GetExternalToolLengthWoffset() (float64, error) {
 	return c.state.toProg(c.state.toolOffset.W), nil
 }
 
-// GetExternalToolSlot mirrors 2.9's GET_EXTERNAL_TOOL_SLOT: the home pocket
-// index of the tool in the spindle (feeds _setup.current_pocket /
-// #<_current_pocket>). Classic resolves it via tooldata_find_index_for_tool,
-// which yields -1 for the empty non-random spindle (idx0 carries toolno=-1)
-// and 0 for the random spindle pocket. gomc's io tracks the spindle by TOOL
-// NUMBER, so resolve the pocket through the tool's live table entry.
+// GetExternalToolSlot mirrors 2.9's GET_EXTERNAL_TOOL_SLOT: the table SLOT of
+// the tool in the spindle (feeds _setup.current_pocket / #<_current_pocket>).
+// Classic resolves it with tooldata_find_index_for_tool, which yields -1 for
+// the empty non-random spindle (slot 0 carries toolno -1) and 0 for the
+// random spindle slot; so does the store's find_index_for_tool.
 func (c *Canon) GetExternalToolSlot() (int32, error) {
 	if c.task.io == nil {
 		return -1, nil
@@ -253,22 +252,13 @@ func (c *Canon) GetExternalToolSlot() (int32, error) {
 	if err != nil {
 		return -1, nil
 	}
-	if tis <= 0 {
-		if c.task.randomToolchanger {
-			// Random: 0 = T0 empty-marker in the spindle pocket,
-			// -1 = unknown (no pocket-0 entry at startup).
-			return tis, nil
-		}
-		return -1, nil // non-random: no tool loaded
-	}
-	p, _ := toolPocketFor(tis)
-	return p, nil
+	return toolIdxFor(tis), nil
 }
 
 // GetExternalSelectedToolSlot mirrors 2.9's GET_EXTERNAL_SELECTED_TOOL_SLOT
 // (feeds _setup.selected_pocket / #<_selected_pocket>): the prepped tool's
-// pocket index, -1 when nothing is prepped. gomc's io stores the prepped TOOL
-// NUMBER, so resolve the pocket through the tool's live table entry.
+// slot, -1 when nothing is prepped. io already tracks the prepped SLOT (it is
+// what the tool-prep-index HAL pin carries), so this is a straight read.
 func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 	if c.task.io == nil {
 		return -1, nil
@@ -277,68 +267,36 @@ func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 	if err != nil {
 		return -1, nil
 	}
-	p, _ := toolPocketFor(pp)
-	return p, nil // -1 = idle, 0 = T0 (unload) prepped
+	return pp, nil // -1 = idle, 0 = the spindle slot (non-random T0 unload)
 }
 
-func (c *Canon) GetExternalToolTable(pocket int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
-	if pocket == 0 {
-		// Spindle entry (2.9 tooldata idx 0). Resolve the loaded tool via
-		// io's tool-in-spindle and hand back its live table data: the key-0
-		// snapshot iocontrol writes cannot serve as the spindle record
-		// because the tooltable service keys entries by toolno and clobbers
-		// entry.Toolno with the key — the snapshot always reads as tool 0,
-		// which sent Interp::set_tool_parameters into its empty-spindle
-		// branch (#5400/#<_current_tool> stuck at 0 after M6/M61).
-		var tis int32
-		if c.task.io != nil {
-			if v, err := c.task.io.GetToolInSpindle(); err == nil {
-				tis = v
-			}
-		}
-		if tis <= 0 {
-			c.spindleEntryValid = false // spindle empty — drop the snapshot
-			if c.task.randomToolchanger {
-				// Random: idx0's toolno IS the spindle state — -1
-				// unknown / 0 empty marker (set_tool_parameters writes
-				// it to #5400 unguarded, matching 2.9).
-				return 0, tis, [9]float64{}, 0, 0, 0, 0, nil
-			}
-			return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
-		}
-		entry, found, err := lookupTool(tis)
-		if err == nil && found {
-			c.spindleToolno, c.spindleEntry, c.spindleEntryValid = tis, entry, true
-			return 0, tis, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
-		}
-		// The lookup was degraded (service error) or the loaded tool's
-		// entry vanished from the table (edited/deleted while in the
-		// spindle). 2.9's persistent tooldata idx-0 record kept serving the
-		// loaded tool in both cases — fall back to the last-known-good
-		// snapshot rather than fabricating an empty spindle, which would
-		// silently zero #5400 and the active tool-length-offset params
-		// while io still reports the tool loaded.
-		if c.spindleEntryValid && c.spindleToolno == tis {
-			e := c.spindleEntry
-			return 0, tis, toolOffsets(&e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
-		}
-		// No snapshot to fall back on (the lookup never succeeded since
-		// this tool was loaded): report the empty spindle as before.
-		return 0, 0, [9]float64{}, 0, 0, 0, 0, nil
-	}
-	retval, toolno, offset, diameter, frontangle, backangle, orientation := getToolByPocket(pocket)
-	return retval, toolno, offset, diameter, frontangle, backangle, orientation, nil
+// GetExternalToolTable serves the interp's tool_table[] straight out of the
+// store, slot for slot — including slot 0, the spindle, which is a real row
+// that iocontrol maintains on every tool change. That directness is the point
+// of keying the store by slot: the previous toolno-keyed store could not
+// represent slot 0 at all, so this getter had to reconstruct the spindle from
+// io's tool-in-spindle plus a last-known-good snapshot in the Canon.
+func (c *Canon) GetExternalToolTable(idx int32) (int32, int32, int32, [9]float64, float64, float64, float64, int32, error) {
+	retval, toolno, pocketno, offset, diameter, frontangle, backangle, orientation := getToolSlot(idx)
+	return retval, toolno, pocketno, offset, diameter, frontangle, backangle, orientation, nil
 }
 
-func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, [9]float64, float64, float64, float64, int32, error) {
-	entry, found, err := lookupTool(toolno)
-	if err != nil || !found {
+// GetToolByNumber answers with the tool's SLOT (what find_tool_index reports)
+// and its carousel POCKET (what find_tool_pocket reports) — two different
+// numbers on a non-random toolchanger.
+func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, int32, [9]float64, float64, float64, float64, int32, error) {
+	idx := toolIdxFor(toolno)
+	if idx < 0 || pkgTTClient == nil {
 		// Missing or unresolvable tools report "not found" so the interp
 		// raises its tool-not-in-table error (classic G43 Hn on an unknown
 		// tool errors; it must not silently apply a zero offset).
-		return -1, 0, [9]float64{}, 0, 0, 0, 0, nil
+		return -1, 0, 0, [9]float64{}, 0, 0, 0, 0, nil
 	}
-	return 0, entry.Pocketno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
+	entry, err := pkgTTClient.GetTool(idx)
+	if err != nil || entry.Toolno != toolno {
+		return -1, 0, 0, [9]float64{}, 0, 0, 0, 0, nil
+	}
+	return 0, idx, entry.Pocketno, toolOffsets(&entry), entry.Diameter, entry.Frontangle, entry.Backangle, entry.Orientation, nil
 }
 
 func (c *Canon) GetExternalTcFault() (int32, error)  { return 0, nil }

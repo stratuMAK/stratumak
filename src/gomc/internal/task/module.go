@@ -218,7 +218,7 @@ func (m *milltaskModule) Start() error {
 	if ttInstance == "" {
 		ttInstance = "tooltable"
 	}
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 1)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 2)
 	if err != nil {
 		return fmt.Errorf("milltask: tooltable API lookup (%s): %w", ttInstance, err)
 	}

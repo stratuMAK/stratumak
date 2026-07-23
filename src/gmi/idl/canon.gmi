@@ -454,11 +454,15 @@ func get_external_tool_slot() -> i32
 @doc "Get selected (pending) tool slot"
 func get_external_selected_tool_slot() -> i32
 
-@doc "Get tool table entry (pocket → toolno, offsets, geometry)"
-func get_external_tool_table(pocket: i32, toolno: i32 out, offset: [9]f64 out, diameter: f64 out, frontangle: f64 out, backangle: f64 out, orientation: i32 out) -> i32
+# idx is the tool table SLOT — the subscript of the interp's tool_table[],
+# with slot 0 the spindle. pocketno is the tool's carousel pocket, a different
+# number on a non-random toolchanger: the slot is where the tool's record
+# lives, the pocket is where the tool physically sits.
+@doc "Get tool table entry by slot (idx → toolno, pocket, offsets, geometry)"
+func get_external_tool_table(idx: i32, toolno: i32 out, pocketno: i32 out, offset: [9]f64 out, diameter: f64 out, frontangle: f64 out, backangle: f64 out, orientation: i32 out) -> i32
 
-@doc "Get tool entry by tool number (returns pocket, offsets, geometry; retval -1 if not found)"
-func get_tool_by_number(toolno: i32, pocket: i32 out, offset: [9]f64 out, diameter: f64 out, frontangle: f64 out, backangle: f64 out, orientation: i32 out) -> i32
+@doc "Get tool entry by tool number (returns slot, pocket, offsets, geometry; retval -1 if not found)"
+func get_tool_by_number(toolno: i32, idx: i32 out, pocketno: i32 out, offset: [9]f64 out, diameter: f64 out, frontangle: f64 out, backangle: f64 out, orientation: i32 out) -> i32
 
 @doc "Get tool changer fault status"
 func get_external_tc_fault() -> i32

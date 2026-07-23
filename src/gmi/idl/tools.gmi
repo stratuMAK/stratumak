@@ -36,7 +36,9 @@ type ToolEntry {
 
 type PutToolResult {
     ok: bool
-    index: i32
+    index: i32            # the tool number that was written (this API is tool
+                          # number addressed; the tool table slot it landed in
+                          # is internal to the store)
 }
 
 # Machine linear-unit metadata for display. The tool table is stored in mm

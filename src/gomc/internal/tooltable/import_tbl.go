@@ -15,7 +15,19 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 )
 
-// importTbl parses a legacy LinuxCNC .tbl file and stores tools via persist API.
+// importTbl parses a legacy LinuxCNC .tbl file and stores its tools as table
+// slots via the persist API.
+//
+// Slot assignment follows 2.9's tooldata_read_entry exactly, because the two
+// changer kinds mean different things by a .tbl's P field:
+//
+//   - RANDOM: P is the carousel pocket AND the slot, so the line's P value is
+//     the idx. A P0 line is the spindle record 2.9's tooldata_save writes
+//     first for random changers, and it must land in slot 0 as such.
+//   - NON-RANDOM: P is the carousel pocket only. The slot is a synthetic
+//     "fakepocket" counter assigned 1..n in file order (2.9's nonrandom_idx),
+//     and slot 0 is left alone — tooldata_save starts at idx 1 for non-random,
+//     so a non-random .tbl has no spindle line to import.
 func (m *module) importTbl(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -25,6 +37,8 @@ func (m *module) importTbl(path string) error {
 
 	var entries []persist.Entry
 	lineNo := 0
+	nonrandomIdx := int32(1) // 2.9: tooldata_add_init(nonrandom_start_idx=1)
+	seen := map[int32]int32{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lineNo++
@@ -42,6 +56,27 @@ func (m *module) importTbl(path string) error {
 				"path", path, "line", lineNo, "text", line, "err", err)
 			continue
 		}
+
+		var idx int32
+		if m.randomToolchange {
+			idx = t.pocketno
+		} else {
+			idx = nonrandomIdx
+			nonrandomIdx++
+		}
+		if idx < 0 || idx > MaxIdx {
+			m.logger.Warn("tooltable: skipping .tbl line, slot out of range",
+				"path", path, "line", lineNo, "idx", idx, "max", MaxIdx)
+			continue
+		}
+		// 2.9 warns and lets the later line win; do the same rather than
+		// dropping data the operator can still see in the file.
+		if prev, dup := seen[idx]; dup {
+			m.logger.Warn("tooltable: .tbl assigns two tools to one slot — the later wins",
+				"path", path, "line", lineNo, "idx", idx, "was", prev, "is", t.toolno)
+		}
+		seen[idx] = t.toolno
+
 		tool := tooltable.ToolEntry{
 			Toolno:      t.toolno,
 			Pocketno:    t.pocketno,
@@ -65,7 +100,7 @@ func (m *module) importTbl(path string) error {
 			return fmt.Errorf("marshal tool %d: %w", t.toolno, err)
 		}
 		entries = append(entries, persist.Entry{
-			Key:   strconv.FormatInt(int64(t.toolno), 10),
+			Key:   idxKey(idx),
 			Value: string(data),
 		})
 	}

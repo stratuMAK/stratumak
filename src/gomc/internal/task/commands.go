@@ -2240,11 +2240,6 @@ func (t *Task) abortLocked() {
 	_ = t.io.CoolantFloodOff()
 	_ = t.io.CoolantMistOff()
 
-	// An aborted tool command's io mutation may still land after this abort
-	// (its PostWait invalidation is skipped on abort-during-wait) — drop the
-	// prep-pocket memo so the next stat build recomputes from the live table.
-	t.invalidatePrepPocket()
-
 	// Motion/IO are stopped; now wait for the runProgram producer to stop
 	// touching the interpreter before we Close/Reset it (avoids a data race on
 	// the non-thread-safe interpreter). Only the interpreter reset waits — the
@@ -2363,9 +2358,6 @@ func (t *Task) LoadToolTable(file string) error {
 
 	err := t.io.ToolLoadTable(file)
 	if err == nil {
-		// The reload may have moved the prepped tool to another pocket —
-		// recompute stat.pocket_prepped from the new table.
-		t.invalidatePrepPocket()
 		// Synch interpreter so it re-reads tool_table[] from the
 		// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
 		if t.interp != nil {

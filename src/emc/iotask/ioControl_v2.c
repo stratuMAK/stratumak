@@ -541,125 +541,121 @@ static void hal_init_pins(iocontrol_module *m)
 // failure through their rc (tooltable.gmi is @rc_error).  Before that the
 // payload came back by value with nowhere to put an error, so a broken tool
 // table was indistinguishable from an unstored tool — and on the tool-change
-// path that means driving the spindle with zeroed offsets.  An unstored tool
-// is still the zero entry with rc 0; only a real failure returns -1.
-static int tt_get_tool(iocontrol_module *m, int32_t toolno,
+// path that means driving the spindle with zeroed offsets.  An unstored slot
+// is still the empty entry with rc 0; only a real failure returns -1.
+//
+// The tool table is addressed by SLOT (idx), exactly as 2.9's tooldata is:
+// idx 0 is the spindle slot, idx 1..N the table proper.  Everything below
+// therefore speaks in idx, and converts a tool number to a slot through
+// tt_find_idx (2.9's tooldata_find_index_for_tool) at the boundary.
+static int tt_get_tool(iocontrol_module *m, int32_t idx,
                        tooltable_tool_entry_t *entry)
 {
     memset(entry, 0, sizeof(*entry));
-    if (m->tt->get_tool(m->tt->ctx, toolno, entry) != 0) {
+    if (m->tt->get_tool(m->tt->ctx, idx, entry) != 0) {
         memset(entry, 0, sizeof(*entry));
         gomc_log_errorf(m->env->log, m->name,
-            "IOV2: ERROR: tool table read failed for tool %d", toolno);
+            "IOV2: ERROR: tool table read failed for slot %d", idx);
         return -1;
     }
     return 0;
 }
 
-static int tt_put_tool(iocontrol_module *m, int32_t toolno,
+static int tt_put_tool(iocontrol_module *m, int32_t idx,
                        const tooltable_tool_entry_t *entry)
 {
     tooltable_put_tool_result_t res;
     memset(&res, 0, sizeof(res));
-    if (m->tt->put_tool(m->tt->ctx, toolno, entry, &res) != 0 || !res.ok) {
+    // iocontrol is an unconditional writer: it acts on a physical tool change
+    // that has already happened, so there is nothing to reconcile and nothing
+    // to refuse. Clear the optimistic-concurrency stamp — a slot read carries
+    // the stamp of ITS row, and copying a tool into the spindle slot would
+    // otherwise be checked against the spindle's stamp and always refused.
+    tooltable_tool_entry_t e = *entry;
+    e.updated = 0;
+    if (m->tt->put_tool(m->tt->ctx, idx, &e, &res) != 0 || !res.ok) {
         gomc_log_errorf(m->env->log, m->name,
-            "IOV2: ERROR: tool table write failed for tool %d", toolno);
+            "IOV2: ERROR: tool table write failed for slot %d", idx);
         return -1;
     }
     return 0;
 }
 
-static void load_tool(iocontrol_module *m, int toolno) {
+// tt_find_idx resolves a tool number to its slot.  Returns -1 when the tool
+// is not in the table (a normal answer), or -2 when the lookup itself failed
+// — an unreadable tool table must not be mistaken for an absent tool, which
+// on the change path means driving the spindle with zeroed offsets.
+static int tt_find_idx(iocontrol_module *m, int32_t toolno)
+{
+    tooltable_index_result_t res;
+    memset(&res, 0, sizeof(res));
+    if (m->tt->find_index_for_tool(m->tt->ctx, toolno, &res) != 0) {
+        gomc_log_errorf(m->env->log, m->name,
+            "IOV2: ERROR: tool table lookup failed for tool %d", toolno);
+        return -2;
+    }
+    return res.idx;
+}
+
+// load_tool moves table slot idx into the spindle slot, mirroring 2.9's
+// load_tool(idx) (ioControl.cc:541).
+//
+//   RANDOM     the spindle and the target slot swap, and the two rows swap
+//              carousel pockets with them: the outgoing tool takes the
+//              target's pocket, the incoming tool takes pocket 0.
+//   NON-RANDOM idx 0 is the "unload" handshake and resets the spindle slot;
+//              any other slot is copied to slot 0 VERBATIM — the copy keeps
+//              the tool's own pocketno, because on a non-random changer the
+//              pocket is the tool's home in the carousel and slot 0 is only
+//              ever a copy of what is currently mounted.
+static void load_tool(iocontrol_module *m, int idx) {
     if(m->random_toolchanger) {
-        // For random toolchanger: swap the tool in the spindle with the
-        // requested tool. The spindle tool is the entry at pocket 0, tracked
-        // by toolInSpindle (its entry keeps its own toolno; -1 = unknown,
-        // nothing to put back).
-        tooltable_tool_entry_t target;
-        if (tt_get_tool(m, toolno, &target) != 0) {
+        // Swap the tools between the desired slot and the spindle slot.
+        tooltable_tool_entry_t tzero, tpocket;
+        if (tt_get_tool(m, 0, &tzero) != 0
+            || tt_get_tool(m, idx, &tpocket) != 0) {
             UNEXPECTED_MSG; return;
         }
 
-        if (target.toolno == 0 && toolno != 0) {
-            UNEXPECTED_MSG; return;
-        }
-        if (toolno == 0 && target.pocketno <= 0) {
-            // Unload (T0) with no T0 marker row in the table: there is no
-            // pocket to park the spindle tool in. The interp rejects this
-            // upstream (find_tool_pocket); guard the direct io path too —
-            // proceeding would "return" the spindle tool to pocket 0 and
-            // write a duplicate pocket-0 T0 row.
+        // spindle --> pocket (the slot named by idx)
+        tzero.pocketno = tpocket.pocketno;
+        if (tt_put_tool(m, idx, &tzero) != 0) {
             UNEXPECTED_MSG; return;
         }
 
-        int target_pocket = target.pocketno;
-        int tis = m->emcioStatus.tool.toolInSpindle;
-        if (tis > 0) {
-            // Move the spindle tool to the target's pocket.
-            tooltable_tool_entry_t spindle;
-            if (tt_get_tool(m, tis, &spindle) != 0) {
-                UNEXPECTED_MSG; return;
-            }
-            if (spindle.toolno != tis) {
-                // The loaded tool's entry vanished from the table (deleted
-                // or renumbered while in the spindle). Writing it back would
-                // resurrect it as a zero-offset ghost at the target's pocket
-                // — refuse the swap. 2.9 could not hit this: the spindle
-                // record was tooldata slot 0 and always existed.
-                UNEXPECTED_MSG; return;
-            }
-            spindle.pocketno = target_pocket;
-            if (tt_put_tool(m, spindle.toolno, &spindle) != 0) {
-                UNEXPECTED_MSG; return;
-            }
-        } else if (tis == 0) {
-            // T0 empty marker in the spindle — its row may not exist yet:
-            // create/update it at the target's pocket.
-            tooltable_tool_entry_t spindle;
-            if (tt_get_tool(m, 0, &spindle) != 0) {
-                UNEXPECTED_MSG; return;
-            }
-            spindle.toolno = 0;
-            spindle.pocketno = target_pocket;
-            if (tt_put_tool(m, 0, &spindle) != 0) {
-                UNEXPECTED_MSG; return;
-            }
-        }
-
-        // Move target to spindle (pocket 0)
-        target.pocketno = 0;
-        if (tt_put_tool(m, target.toolno, &target) != 0) {
+        // pocket --> spindle (slot 0)
+        tpocket.pocketno = 0;
+        if (tt_put_tool(m, 0, &tpocket) != 0) {
             UNEXPECTED_MSG; return;
         }
-    } else if(toolno == 0) {
-        // on non-random tool-changers, asking for tool 0 is the secret
+    } else if(idx == 0) {
+        // on non-random tool-changers, asking for slot 0 is the secret
         // handshake for "unload the tool from the spindle"
         tooltable_tool_entry_t empty;
         memset(&empty, 0, sizeof(empty));
+        empty.toolno   = 0; // nonrandom unload tool from spindle
+        empty.pocketno = 0;
         if (tt_put_tool(m, 0, &empty) != 0) {
             UNEXPECTED_MSG; return;
         }
     } else {
-        // just copy the desired tool's offsets to spindle (pocket 0)
+        // just copy the desired tool to the spindle slot
         tooltable_tool_entry_t tdata;
-        if (tt_get_tool(m, toolno, &tdata) != 0) {
+        if (tt_get_tool(m, idx, &tdata) != 0) {
             UNEXPECTED_MSG; return;
         }
-        if (tdata.toolno == 0 && toolno != 0) {
-            UNEXPECTED_MSG; return;
-        }
-        tooltable_tool_entry_t spindle = tdata;
-        spindle.pocketno = 0;
-        if (tt_put_tool(m, 0, &spindle) != 0) {
+        if (tt_put_tool(m, 0, &tdata) != 0) {
             UNEXPECTED_MSG; return;
         }
     }
 } // load_tool()
 
 static void reload_tool_number(iocontrol_module *m, int toolno) {
-    if(m->random_toolchanger) return;
-    if(toolno > 0) {
-        load_tool(m, toolno);
+    if(m->random_toolchanger) return; // doesn't need special handling here
+    if(toolno <= 0) return;
+    int idx = tt_find_idx(m, toolno);
+    if (idx > 0) {
+        load_tool(m, idx);
     }
 }
 
@@ -811,44 +807,47 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
+
+    // pocketPrepped is an IDX, as it is in 2.9 — the slot the prepped tool
+    // lives in, which is also what the tool-prep-index HAL pin carries.
+    int idx = tt_find_idx(m, toolno);
+    if (idx < 0) {  // -2 lookup failed, -1 tool not in the table
+        m->emcioStatus.tool.pocketPrepped = -1;
+        return -1;
+    }
+
     tooltable_tool_entry_t tdata;
-    if (tt_get_tool(m, toolno, &tdata) != 0) {
+    if (tt_get_tool(m, idx, &tdata) != 0) {
         m->emcioStatus.tool.pocketPrepped = -1;
         return -1;
     }
 
-    // toolno==0 means "unload" — always valid
-    if (toolno != 0 && tdata.toolno == 0) {
-        m->emcioStatus.tool.pocketPrepped = -1;
-        return -1;
-    }
+    gomc_log_debugf(m->env->log, m->name, "gmi_tool_prepare tool=%d idx=%d pocket=%d",
+                    toolno, idx, tdata.pocketno);
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_prepare tool=%d pocket=%d", toolno, tdata.pocketno);
+    *(d->tool_prep_index) = idx;  // any type of changer
 
     if (m->random_toolchanger) {
-        // Random: T0 is the ordinary empty-pocket marker, prepped like any
-        // tool. A tool already sitting in pocket 0 IS the spindle tool —
-        // 2.9: "it doesn't make sense to prep the spindle pocket" —
-        // complete without raising tool-prepare.
-        *(d->tool_prep_index) = tdata.pocketno;
         *(d->tool_prep_number) = tdata.toolno;
-        *(d->tool_prep_pocket) = tdata.pocketno;
-        if (tdata.pocketno == 0) {
-            m->emcioStatus.tool.pocketPrepped = toolno;
+        if (idx == 0) {
+            // It doesn't make sense to prep the spindle pocket: the tool is
+            // already there. Complete without raising tool-prepare.
+            m->emcioStatus.tool.pocketPrepped = 0;
+            *(d->tool_prep_pocket) = 0;
             return 0;
         }
-    } else if (toolno == 0) {
-        *(d->tool_prep_number) = 0;
-        *(d->tool_prep_pocket) = 0;
-        *(d->tool_prep_index) = 0;
-        // 2.9 ioControl publishes pocketPrepped=0 for the spindle pocket
-        // BEFORE the handshake (idx==0 branch), but still runs the external
-        // prepare handshake for the non-random T0 ("unload").
-        m->emcioStatus.tool.pocketPrepped = 0;
-    } else {
-        *(d->tool_prep_index) = tdata.pocketno;
-        *(d->tool_prep_number) = tdata.toolno;
         *(d->tool_prep_pocket) = tdata.pocketno;
+    } else {
+        if (idx == 0) {
+            // Non-random T0: the "unload" handshake. 2.9 publishes
+            // pocketPrepped=0 up front but still runs the external prepare.
+            m->emcioStatus.tool.pocketPrepped = 0;
+            *(d->tool_prep_number) = 0;
+            *(d->tool_prep_pocket) = 0;
+        } else {
+            *(d->tool_prep_number) = tdata.toolno;
+            *(d->tool_prep_pocket) = tdata.pocketno;
+        }
     }
 
     // v2: warn if toolchanger is faulted — next M6 will abort
@@ -873,7 +872,7 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
             return -1;
         }
         if (*(d->tool_prepared)) {
-            m->emcioStatus.tool.pocketPrepped = toolno;
+            m->emcioStatus.tool.pocketPrepped = idx;
             *(d->tool_prepare) = 0;
             *(d->state) = ST_IDLE;
             pthread_mutex_unlock(&m->io_mtx);
@@ -925,15 +924,22 @@ static int32_t gmi_tool_load(void *ctx)
                     m->emcioStatus.tool.toolInSpindle,
                     m->emcioStatus.tool.pocketPrepped);
 
-    int prepped_toolno = m->emcioStatus.tool.pocketPrepped;
+    int prepped_idx = m->emcioStatus.tool.pocketPrepped;
 
-    if (prepped_toolno == -1)
+    if (prepped_idx == -1)
         return 0;
 
-    // Prepped tool already in the spindle — nothing to change (2.9: the
-    // random pocketPrepped==0 skip; non-random re-load of the same tool).
-    if (m->emcioStatus.tool.toolInSpindle == prepped_toolno &&
-        (m->random_toolchanger || prepped_toolno > 0))
+    // It doesn't make sense to load a tool from the spindle slot.
+    if (m->random_toolchanger && prepped_idx == 0)
+        return 0;
+
+    // It's not necessary to load the tool already in the spindle.
+    tooltable_tool_entry_t prepped;
+    if (tt_get_tool(m, prepped_idx, &prepped) != 0) {
+        UNEXPECTED_MSG; return -1;
+    }
+    if (!m->random_toolchanger && prepped_idx > 0 &&
+        m->emcioStatus.tool.toolInSpindle == prepped.toolno)
         return 0;
 
     // v2: toolchanger already faulted -> abort before starting the change.
@@ -986,15 +992,23 @@ static int32_t gmi_tool_load(void *ctx)
         }
 
         if (*(d->tool_changed)) {
+            // Re-read the prepped slot under the lock and BEFORE load_tool:
+            // a random change swaps it into the spindle, losing the tool
+            // number that identifies what is now mounted.
+            tooltable_tool_entry_t tdp;
+            if (tt_get_tool(m, prepped_idx, &tdp) != 0) {
+                pthread_mutex_unlock(&m->io_mtx);
+                UNEXPECTED_MSG; return -1;
+            }
             // Update the tool table DB BEFORE publishing toolInSpindle.
             // The stat watch goroutine uses toolInSpindle as a cache key;
             // if it observes the new value before the DB is updated, the
             // UI fetches stale data and caches it permanently (race).
-            load_tool(m, prepped_toolno);
-            if (!m->random_toolchanger && prepped_toolno == 0) {
+            load_tool(m, prepped_idx);
+            if (!m->random_toolchanger && prepped_idx == 0) {
                 m->emcioStatus.tool.toolInSpindle = 0;
             } else {
-                m->emcioStatus.tool.toolInSpindle = prepped_toolno;
+                m->emcioStatus.tool.toolInSpindle = tdp.toolno;
             }
             *(d->tool_number) = m->emcioStatus.tool.toolInSpindle;
             m->emcioStatus.tool.pocketPrepped = -1;
@@ -1042,14 +1056,23 @@ static int32_t gmi_tool_set_offset(void *ctx,
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
 
-    gomc_log_debugf(m->env->log, m->name,
-        "gmi_tool_set_offset pocket=%d toolno=%d z=%lf x=%lf dia=%lf",
-        pocket, toolno, z, x, diameter);
+    // `pocket` is the interp's tool_table[] subscript, i.e. our slot idx —
+    // see the identical note in ioControl.c.
+    int32_t idx = pocket;
 
+    gomc_log_debugf(m->env->log, m->name,
+        "gmi_tool_set_offset idx=%d toolno=%d z=%lf x=%lf dia=%lf",
+        idx, toolno, z, x, diameter);
+
+    // Read-modify-write, as 2.9 does: a fresh entry drops the tool's carousel
+    // pocketno and its comment, and the G10 spindle-copy call (idx 0) then
+    // wrote pocketno=0 onto the real tool's row.
     tooltable_tool_entry_t entry;
-    memset(&entry, 0, sizeof(entry));
+    if (tt_get_tool(m, idx, &entry) != 0) {
+        UNEXPECTED_MSG;
+        return -1;
+    }
     entry.toolno = toolno;
-    entry.pocketno = pocket;
     entry.x_offset = x;
     entry.y_offset = y;
     entry.z_offset = z;
@@ -1064,23 +1087,32 @@ static int32_t gmi_tool_set_offset(void *ctx,
     entry.backangle = backangle;
     entry.orientation = orientation;
 
-    if (tt_put_tool(m, toolno, &entry) != 0) {
+    if (tt_put_tool(m, idx, &entry) != 0) {
         UNEXPECTED_MSG;
         return -1;
     }
     return 0;
 }
 
-static int32_t gmi_tool_set_number(void *ctx, int32_t toolno)
+// M61 Q<n>. The interp resolves the tool number to a slot and sends the SLOT
+// (interp_convert.cc: change_tool_number(settings->current_pocket)).
+static int32_t gmi_tool_set_number(void *ctx, int32_t idx)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    load_tool(m, toolno);
+    load_tool(m, idx);
 
-    m->emcioStatus.tool.toolInSpindle = toolno;
+    // Read the spindle slot back rather than assuming: load_tool decides what
+    // ends up there (2.9 does the same re-read after load_tool).
+    tooltable_tool_entry_t spindle;
+    if (tt_get_tool(m, 0, &spindle) != 0) {
+        UNEXPECTED_MSG;
+        return -1;
+    }
+    m->emcioStatus.tool.toolInSpindle = spindle.toolno;
     gomc_log_debugf(m->env->log, m->name,
-        "gmi_tool_set_number new_tool=%d", toolno);
+        "gmi_tool_set_number idx=%d new_tool=%d", idx, spindle.toolno);
     *(d->tool_number) = m->emcioStatus.tool.toolInSpindle;
     return 0;
 }
@@ -1159,13 +1191,13 @@ static int iocontrol_start(cmod_t *self)
     }
 
     // RANDOM_TOOLCHANGER: restore the tool physically loaded in the spindle
-    // (the entry at pocket 0) at startup — 2.9 ioControl inits toolInSpindle
-    // from tooldata idx 0; -1 = unknown when no pocket-0 entry exists.
+    // from the spindle slot — 2.9 ioControl inits toolInSpindle from tooldata
+    // idx 0; -1 = unknown when the slot is empty. A non-random changer starts
+    // with an empty spindle (2.9: toolInSpindle = 0), because there is no
+    // record of what was left mounted across a restart.
     if (m->random_toolchanger) {
-        int32_t startup_tool = -1;
-        tooltable_tool_entry_slice_t res;
-        memset(&res, 0, sizeof(res));
-        if (m->tt->list_tools(m->tt->ctx, &res) != 0) {
+        tooltable_tool_entry_t spindle;
+        if (tt_get_tool(m, 0, &spindle) != 0) {
             // A tool table that cannot be read at startup must not be taken
             // for an empty one: that would silently report an empty spindle
             // and lose the tool physically loaded in it.
@@ -1173,17 +1205,10 @@ static int iocontrol_start(cmod_t *self)
                 "IOV2: ERROR: tool table read failed at startup");
             return -1;
         }
-        for (size_t i = 0; i < res.len; i++) {
-            if (res.data[i].pocketno == 0) {
-                startup_tool = res.data[i].toolno;
-                break;
-            }
-        }
-        if (res.data)
-            free(res.data);
-        m->emcioStatus.tool.toolInSpindle = startup_tool;
-        *(m->hal_data->tool_number) = startup_tool;
+        m->emcioStatus.tool.toolInSpindle = spindle.toolno;
+        *(m->hal_data->tool_number) = spindle.toolno;
     }
+
 
     m->done = 0;
     return 0;

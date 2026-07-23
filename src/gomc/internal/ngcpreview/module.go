@@ -466,19 +466,21 @@ static void pc_get_offsets(void *ctx, double off[9]) {
     (void)ctx;
 }
 
-static int32_t pc_get_tool_table(void *vctx, int32_t pocket,
-    int32_t *toolno, double offset[9], double *diameter,
+static int32_t pc_get_tool_table(void *vctx, int32_t idx,
+    int32_t *toolno, int32_t *pocketno, double offset[9], double *diameter,
     double *frontangle, double *backangle, int32_t *orientation) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
-    if (pocket >= 0 && pocket < CANON_POCKETS_MAX) {
-        *toolno = ctx->tools[pocket].toolno;
-        memcpy(offset, ctx->tools[pocket].offset, 9 * sizeof(double));
-        *diameter = ctx->tools[pocket].diameter;
-        *frontangle = ctx->tools[pocket].frontangle;
-        *backangle = ctx->tools[pocket].backangle;
-        *orientation = ctx->tools[pocket].orientation;
+    if (idx >= 0 && idx < CANON_POCKETS_MAX) {
+        *toolno = ctx->tools[idx].toolno;
+        *pocketno = ctx->tools[idx].pocketno;
+        memcpy(offset, ctx->tools[idx].offset, 9 * sizeof(double));
+        *diameter = ctx->tools[idx].diameter;
+        *frontangle = ctx->tools[idx].frontangle;
+        *backangle = ctx->tools[idx].backangle;
+        *orientation = ctx->tools[idx].orientation;
     } else {
         *toolno = 0;
+        *pocketno = 0;
         memset(offset, 0, 9 * sizeof(double));
         *diameter = 0; *frontangle = 0; *backangle = 0; *orientation = 0;
     }
@@ -486,12 +488,15 @@ static int32_t pc_get_tool_table(void *vctx, int32_t pocket,
 }
 
 static int32_t pc_get_tool_by_number(void *vctx, int32_t toolno,
-    int32_t *pocket, double offset[9], double *diameter,
+    int32_t *idx_out, int32_t *pocketno, double offset[9], double *diameter,
     double *frontangle, double *backangle, int32_t *orientation) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
+    // Slot 0 is the spindle's copy of a loaded tool, so it must lose to the
+    // tool's own slot — same rule as tooldata_find_index_for_tool.
     for (int i = 1; i < CANON_POCKETS_MAX; i++) {
         if (ctx->tools[i].toolno == toolno) {
-            *pocket = ctx->tools[i].pocketno;
+            *idx_out = i;
+            *pocketno = ctx->tools[i].pocketno;
             memcpy(offset, ctx->tools[i].offset, 9 * sizeof(double));
             *diameter = ctx->tools[i].diameter;
             *frontangle = ctx->tools[i].frontangle;
@@ -503,12 +508,17 @@ static int32_t pc_get_tool_by_number(void *vctx, int32_t toolno,
     return -1;  // not found
 }
 
+// ctx_set_tool fills one tool table SLOT. idx is the slot (== the interp's
+// tool_table[] subscript, 0 = spindle); pocketno is the tool's carousel
+// pocket, which is a different number on a non-random toolchanger and must
+// not be inferred from the slot.
 static void ctx_set_tool(preview_ctx_t *ctx, int32_t pocket, int32_t toolno,
+    int32_t pocketno,
     double *offset, double diameter, double frontangle, double backangle,
     int32_t orientation) {
     if (pocket < 0 || pocket >= CANON_POCKETS_MAX) return;
     ctx->tools[pocket].toolno = toolno;
-    ctx->tools[pocket].pocketno = pocket;
+    ctx->tools[pocket].pocketno = pocketno;
     memcpy(ctx->tools[pocket].offset, offset, 9 * sizeof(double));
     ctx->tools[pocket].diameter = diameter;
     ctx->tools[pocket].frontangle = frontangle;
@@ -943,7 +953,7 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 func (m *ngcPreview) Start() error {
 	// Look up tooltable API for tool data during preview generation.
 	reg := apiserver.DefaultRegistry()
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 1)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 2)
 	if err != nil {
 		m.logger.Warn("ngcpreview: tooltable API not available, tool data will be empty", "err", err)
 	} else {
@@ -1012,13 +1022,15 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	}
 	ctx.seg_limit = C.int(segLimit)
 
-	// Pre-populate tool table from tooltable API
+	// Pre-populate the tool table from the tooltable API, slot for slot —
+	// including slot 0, so a program that opens with G43 previews with the
+	// offsets of the tool actually in the spindle.
 	if m.ttClient != nil {
 		entries, err := m.ttClient.ListTools()
 		if err == nil {
 			for i := range entries {
-				pocket := entries[i].Pocketno
-				if pocket < 0 || int(pocket) >= int(C.CANON_POCKETS_MAX) {
+				idx := entries[i].Idx
+				if idx < 0 || int(idx) >= int(C.CANON_POCKETS_MAX) {
 					continue
 				}
 				off := [9]C.double{
@@ -1026,7 +1038,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 					C.double(entries[i].AOffset), C.double(entries[i].BOffset), C.double(entries[i].COffset),
 					C.double(entries[i].UOffset), C.double(entries[i].VOffset), C.double(entries[i].WOffset),
 				}
-				C.ctx_set_tool(ctx, C.int32_t(pocket), C.int32_t(entries[i].Toolno),
+				C.ctx_set_tool(ctx, C.int32_t(idx), C.int32_t(entries[i].Toolno),
+					C.int32_t(entries[i].Pocketno),
 					&off[0], C.double(entries[i].Diameter),
 					C.double(entries[i].Frontangle), C.double(entries[i].Backangle),
 					C.int32_t(entries[i].Orientation))

@@ -24,8 +24,17 @@ func set_param(name: string, val: f64) -> i32
 
 # --- Tool table ---
 
-@doc "Find pocket number for a tool"
+@doc "Find the carousel pocket number for a tool (-1 if not in the table)"
 func find_tool_pocket(tool_number: i32) -> i32
+
+# The SLOT is the tool table subscript (slot 0 = spindle); the POCKET is where
+# the tool sits in the carousel. They are the same number only on a random
+# toolchanger. Anything that feeds current_pocket or change_tool_number wants
+# the slot — 2.9's Python stdglue used the pocket for both, which on a
+# non-random changer left #<_current_pocket> pointing at the wrong row and
+# stopped G10 from updating the spindle copy of the loaded tool.
+@doc "Find the tool table slot (index) for a tool (-1 if not in the table)"
+func find_tool_index(tool_number: i32) -> i32
 
 # --- Error reporting ---
 

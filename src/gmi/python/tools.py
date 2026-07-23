@@ -82,3 +82,25 @@ class ToolTable:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read())
+
+
+class ToolSlots:
+    """REST client for the RAW tool table store at ``/api/v1/{instance}/``.
+
+    This is the slot-addressed view — the tool table as the interpreter sees
+    it, an array indexed by idx with idx 0 the spindle. It is what
+    ``stat.tool_table`` is built from, because that list has always been
+    subscripted by slot (``tool_table[0]`` is the tool in the spindle, and
+    ``stat.pocket_prepped`` is an index into it).
+
+    The operator-facing, tool-number-addressed API is ``ToolTable`` above;
+    a UI that edits tools wants that one.
+    """
+
+    def __init__(self, instance: str = "tooltable"):
+        self._base = gmi.rest_url() + "/api/v1/" + instance
+
+    def list(self):
+        """Return all occupied slots as a list of dicts, in idx order."""
+        with urllib.request.urlopen(self._base + "/", timeout=5) as resp:
+            return json.loads(resp.read())
