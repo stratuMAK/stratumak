@@ -122,7 +122,11 @@ def check_command_reaches_instance(side):
     """
     use(side)
     from gmi.command import Command
-    c = Command(instance=gmi.instance())
+    # A BARE construction, deliberately: this is exactly what AXIS's subclass
+    # did when it 404'd. Command's own default must resolve GMC_INSTANCE (set
+    # by use()); passing instance= here would let a re-hardcoded "milltask"
+    # default pass this test.
+    c = Command()
     # state() is accepted in any mode; a wrong instance 404s before mode matters.
     try:
         c.state(gmi.STATE_ESTOP)

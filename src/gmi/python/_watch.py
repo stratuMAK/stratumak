@@ -84,10 +84,25 @@ class WatchClient:
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._main())
+        except asyncio.CancelledError:
+            pass  # stop() cancelled _main at an uncatchable point; clean exit
         except Exception as e:
             print(f"gmi.{self._name}: watch thread died: {e}", file=sys.stderr)
         finally:
-            self._loop.close()
+            # Retire whatever is still pending (a _shutdown parked on its own
+            # ws.close() when _main returned first) BEFORE closing the loop:
+            # loop.close() on a pending task prints "Task was destroyed but it
+            # is pending!" on stderr at every otherwise-clean exit.
+            try:
+                pending = [t for t in asyncio.all_tasks(self._loop)
+                           if not t.done()]
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    self._loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True))
+            finally:
+                self._loop.close()
 
     async def _main(self):
         self._task = asyncio.current_task()
@@ -125,7 +140,14 @@ class WatchClient:
                 if ws is not None:
                     try:
                         await ws.close()
-                    except Exception:
+                    except (Exception, asyncio.CancelledError):
+                        # CancelledError must be caught HERE too: stop()'s
+                        # task.cancel() landing while we await this close
+                        # raises it inside the finally, where it would replace
+                        # the pending exception and escape _main past every
+                        # except clause — the unhandled-in-thread traceback
+                        # this client exists to avoid. _stopping is already
+                        # set, so the loop exits right below.
                         pass
             if self._stopping:
                 return

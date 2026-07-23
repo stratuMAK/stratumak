@@ -66,18 +66,25 @@ class TaskInfo:
 
 
 class InfoUnavailable(Exception):
-    """GET /info failed. Raised on every call once the first one fails.
+    """GET /info failed.
 
-    Not retried: the causes are a server older than this client, a wrong
-    GMC_INSTANCE, or a task that never started — none of which a retry loop
-    fixes. Retrying instead reproduces the 10 Hz 404 storm this endpoint was
-    added to remove, so the failure is cached and re-raised.
+    Only a DEFINITIVE answer is latched and re-raised on every later call: an
+    HTTP 404 from a live server (no such instance, or a server too old to
+    serve /info — neither heals on a retry, and retrying would reproduce the
+    10 Hz 404 storm this endpoint was added to remove).
+
+    A transport failure or any other HTTP status is transient — connection
+    refused while the server is still binding, the timeout, a 503 while a
+    runtime load settles — and is NOT latched: a client is entitled to
+    construct its Stat before the server answers, and its next poll must be
+    allowed to succeed. Latching those froze Stat.tool_table empty for the
+    whole session after one startup blip.
     """
 
 
 # Cached across the process: the answer is fixed for the life of the task
 # (peer names come from module parameters, which do not change while it runs).
-# The FAILURE is cached too — see InfoUnavailable.
+# Only DEFINITIVE failures (404) are cached — see InfoUnavailable.
 _cache: dict[str, TaskInfo] = {}
 _failure: dict[str, InfoUnavailable] = {}
 
@@ -98,11 +105,15 @@ def fetch(rest_url: str, instance: str) -> TaskInfo:
         if e.code == 404:
             detail += (" — no such instance, or a server too old to serve"
                        " /info (check GMC_INSTANCE)")
-        _failure[instance] = InfoUnavailable(f"GET {url} failed: {detail}")
-        raise _failure[instance] from e
+            _failure[instance] = InfoUnavailable(f"GET {url} failed: {detail}")
+            raise _failure[instance] from e
+        # Any other status (a 503 while a runtime load settles, a proxy 502)
+        # is transient: raise, do not latch.
+        raise InfoUnavailable(f"GET {url} failed: {detail}") from e
     except Exception as e:
-        _failure[instance] = InfoUnavailable(f"GET {url} failed: {e}")
-        raise _failure[instance] from e
+        # Transport failure (connection refused at startup, the timeout).
+        # Transient by nature: raise, do not latch.
+        raise InfoUnavailable(f"GET {url} failed: {e}") from e
 
     _cache[instance] = info
     return info
