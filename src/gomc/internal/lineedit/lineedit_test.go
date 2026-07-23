@@ -23,8 +23,8 @@ func (f fakeTerm) Columns() int {
 }
 
 // press feeds keys to an editor (pre-loaded with history) and returns the
-// accepted line, the error and everything written to the terminal.
-func press(t *testing.T, keys string, history ...string) (string, error, string) {
+// accepted line, everything written to the terminal, and the error.
+func press(t *testing.T, keys string, history ...string) (string, string, error) {
 	t.Helper()
 	var out strings.Builder
 	e := newEditor(strings.NewReader(keys), &out, fakeTerm{})
@@ -32,7 +32,7 @@ func press(t *testing.T, keys string, history ...string) (string, error, string)
 		e.AddHistory(h)
 	}
 	line, err := e.ReadLine("halcmd> ")
-	return line, err, out.String()
+	return line, out.String(), err
 }
 
 const (
@@ -47,7 +47,7 @@ const (
 )
 
 func TestPlainLine(t *testing.T) {
-	line, err, _ := press(t, "newthread loop 1000000"+cr)
+	line, _, err := press(t, "newthread loop 1000000"+cr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestPlainLine(t *testing.T) {
 // editor must recall the previous command instead and never leak a byte of the
 // escape sequence into the result.
 func TestArrowUpRecallsHistoryAndLeaksNothing(t *testing.T) {
-	line, err, _ := press(t, up+cr, "newthread loop 1000000")
+	line, _, err := press(t, up+cr, "newthread loop 1000000")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestArrowUpRecallsHistoryAndLeaksNothing(t *testing.T) {
 
 	// Same keystrokes with an empty history: the sequence is swallowed, not
 	// inserted.
-	line, err, _ = press(t, "1000"+up+down+cr)
+	line, _, err = press(t, "1000"+up+down+cr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestArrowUpRecallsHistoryAndLeaksNothing(t *testing.T) {
 
 func TestHistoryBrowsingKeepsTypedLine(t *testing.T) {
 	// Type something, walk up through two entries, walk back down to it.
-	line, err, _ := press(t, "half-typed"+up+up+down+down+cr, "first", "second")
+	line, _, err := press(t, "half-typed"+up+up+down+down+cr, "first", "second")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestUnknownEscapeSequencesAreSwallowed(t *testing.T) {
 	// A mouse report, an SGR colour sequence, a bracketed-paste marker and a
 	// bare ESC-x: none of them may reach the line.
 	keys := "ab" + "\x1b[200~" + "\x1b[1;31m" + "\x1b[<0;12;7M" + "\x1bZ" + "cd" + cr
-	line, err, _ := press(t, keys)
+	line, _, err := press(t, keys)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestCursorMovementAndEditing(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			line, err, _ := press(t, tc.keys)
+			line, _, err := press(t, tc.keys)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -163,7 +163,7 @@ func TestCursorMovementAndEditing(t *testing.T) {
 }
 
 func TestCtrlCDiscardsLine(t *testing.T) {
-	line, err, out := press(t, "half typed\x03")
+	line, out, err := press(t, "half typed\x03")
 	if !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("err = %v, want ErrInterrupted", err)
 	}
@@ -176,13 +176,13 @@ func TestCtrlCDiscardsLine(t *testing.T) {
 }
 
 func TestCtrlDOnEmptyLineIsEOF(t *testing.T) {
-	_, err, _ := press(t, "\x04")
+	_, _, err := press(t, "\x04")
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("err = %v, want io.EOF", err)
 	}
 
 	// On a non-empty line Ctrl-D deletes the character under the cursor.
-	line, err, _ := press(t, "abXc"+left+left+"\x04"+cr)
+	line, _, err := press(t, "abXc"+left+left+"\x04"+cr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestCtrlDOnEmptyLineIsEOF(t *testing.T) {
 }
 
 func TestEOFWithoutNewline(t *testing.T) {
-	_, err, _ := press(t, "show pin")
+	_, _, err := press(t, "show pin")
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("err = %v, want io.EOF", err)
 	}
@@ -291,7 +291,7 @@ func TestLongLineScrollsHorizontally(t *testing.T) {
 // paint over text the operator can still see.
 func TestLineIsFinishedAtItsEnd(t *testing.T) {
 	// prompt "halcmd> " is 8 columns, the text 3 more.
-	_, err, out := press(t, "abc"+left+left+"\x03")
+	_, out, err := press(t, "abc"+left+left+"\x03")
 	if !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("err = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestLineIsFinishedAtItsEnd(t *testing.T) {
 		t.Fatalf("^C was not written at the end of the line: %q", out)
 	}
 
-	_, err, out = press(t, "abc"+left+left+cr)
+	_, out, err = press(t, "abc"+left+left+cr)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
