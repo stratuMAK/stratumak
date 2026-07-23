@@ -26,7 +26,54 @@ func mustAcquire(t *testing.T, name string, cpu int) int {
 	if err != nil {
 		t.Fatalf("acquireCPU(%q, %d) unexpected error: %v", name, cpu, err)
 	}
-	return got
+	return got.cpu
+}
+
+// A failed creation must give back only its OWN core. Restoring a whole-pool
+// snapshot taken before the acquisition would also resurrect a core handed to
+// a concurrent newthread between snapshot and failure — the pool would then
+// auto-assign a second thread onto a core it believes is free.
+func TestReleaseCPU_UndoesOnlyOwnAcquisition(t *testing.T) {
+	setPool(t, []int{3, 2}, true)
+
+	a, err := acquireCPU("racer-a", -1)
+	if err != nil {
+		t.Fatalf("acquire a: %v", err)
+	}
+	b, err := acquireCPU("racer-b", -1)
+	if err != nil {
+		t.Fatalf("acquire b: %v", err)
+	}
+	if a.cpu != 3 || b.cpu != 2 {
+		t.Fatalf("got a=%d b=%d, want 3 and 2", a.cpu, b.cpu)
+	}
+
+	// a's thread creation fails while b's succeeded.
+	releaseCPU(a)
+
+	pool.mu.Lock()
+	avail := append([]int(nil), pool.available...)
+	last := pool.lastAssigned
+	pool.mu.Unlock()
+	if len(avail) != 1 || avail[0] != 3 {
+		t.Errorf("free list = %v; want [3] — b's core 2 must stay handed out", avail)
+	}
+	if last != 2 {
+		t.Errorf("lastAssigned = %d; want 2 (b's live thread), not a's rollback", last)
+	}
+
+	// And the sequential case restores the original preference exactly.
+	releaseCPU(b)
+	pool.mu.Lock()
+	avail = append([]int(nil), pool.available...)
+	last = pool.lastAssigned
+	pool.mu.Unlock()
+	if len(avail) != 2 || avail[0] != 2 || avail[1] != 3 {
+		t.Errorf("free list = %v; want [2 3]", avail)
+	}
+	if last != 3 {
+		t.Errorf("lastAssigned = %d; want 3 (restored to a's still-owned value)", last)
+	}
 }
 
 // The motivating case: one isolated core, base+servo. The base takes the core

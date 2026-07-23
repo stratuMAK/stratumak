@@ -92,15 +92,17 @@ func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
 			logger.Warn(w)
 		}
 	}
-	// Snapshot the pool before acquiring: a core popped for a thread that HAL
-	// then refuses would otherwise be lost for the rest of the session.
-	snap := snapshotPool()
-	assigned, err := acquireCPU(name, cpu)
+	// A core popped for a thread that HAL then refuses must go back into the
+	// pool — otherwise every failed newthread permanently burns an isolated
+	// core. Only this call's own acquisition is undone: restoring a whole-pool
+	// snapshot would also resurrect cores handed to concurrent newthread calls
+	// between the snapshot and the failure.
+	lease, err := acquireCPU(name, cpu)
 	if err != nil {
 		return err
 	}
-	if err := halCreateThreadCPU(name, periodNs, usesFP, assigned); err != nil {
-		restorePool(snap)
+	if err := halCreateThreadCPU(name, periodNs, usesFP, lease.cpu); err != nil {
+		releaseCPU(lease)
 		return err
 	}
 	return nil

@@ -90,9 +90,20 @@ func InitCPUPool(logger *slog.Logger) error {
 // onto a faster thread's core is simply preempted by it (rate monotonic) while
 // still running on an isolated core, rather than floating onto the noisy
 // non-isolated housekeeping cores.
-func acquireCPU(threadName string, cpu int) (int, error) {
+// cpuLease records what one acquireCPU call changed, so a thread creation HAL
+// then refuses can be undone precisely (releaseCPU). fromPool marks a core
+// popped from the free list; prevLast is lastAssigned before the acquisition,
+// restored only while this lease still owns it.
+type cpuLease struct {
+	cpu      int
+	fromPool bool
+	prevLast int
+}
+
+func acquireCPU(threadName string, cpu int) (cpuLease, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
+	lease := cpuLease{cpu: -1, prevLast: pool.lastAssigned}
 
 	if cpu < 0 {
 		// Auto-assign the next free isolated core.
@@ -100,7 +111,9 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 			assigned := pool.available[0]
 			pool.available = pool.available[1:]
 			pool.lastAssigned = assigned
-			return assigned, nil
+			lease.cpu = assigned
+			lease.fromPool = true
+			return lease, nil
 		}
 		// Pool exhausted but at least one isolated core exists — co-locate
 		// onto the last one handed out instead of dropping affinity.
@@ -109,14 +122,15 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 				pool.logger.Info("isolated CPU pool exhausted, co-locating thread onto isolated core",
 					"thread", threadName, "cpu", pool.lastAssigned)
 			}
-			return pool.lastAssigned, nil
+			lease.cpu = pool.lastAssigned
+			return lease, nil
 		}
 		// No isolated cores at all — run without affinity.
 		if pool.posixRT && pool.logger != nil {
 			pool.logger.Warn("no isolated CPU available for thread, running without affinity",
 				"thread", threadName)
 		}
-		return -1, nil
+		return lease, nil
 	}
 
 	// Explicit cpu=N requested — remove it from the free list if still there.
@@ -124,7 +138,9 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 		if c == cpu {
 			pool.available = append(pool.available[:i], pool.available[i+1:]...)
 			pool.lastAssigned = cpu
-			return cpu, nil
+			lease.cpu = cpu
+			lease.fromPool = true
+			return lease, nil
 		}
 	}
 	// Already handed out but still an isolated core — co-locate onto it (an
@@ -132,12 +148,13 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 	for _, c := range pool.isolated {
 		if c == cpu {
 			pool.lastAssigned = cpu
-			return cpu, nil
+			lease.cpu = cpu
+			return lease, nil
 		}
 	}
 	// Not isolated. Refuse only if we know the topology and the CPU isn't online.
 	if len(pool.online) > 0 && !containsInt(pool.online, cpu) {
-		return 0, fmt.Errorf("newthread %s: cpu=%d is not an online CPU (online: %v)",
+		return lease, fmt.Errorf("newthread %s: cpu=%d is not an online CPU (online: %v)",
 			threadName, cpu, pool.online)
 	}
 	if pool.logger != nil {
@@ -146,7 +163,24 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 	}
 	// Deliberately not recorded as lastAssigned: auto-assigned threads must not
 	// spill onto a non-isolated core just because someone pinned one here.
-	return cpu, nil
+	lease.cpu = cpu
+	return lease, nil
+}
+
+// releaseCPU undoes exactly what one acquireCPU changed, for a thread that HAL
+// then refused to create. The core goes back to the FRONT of the free list (it
+// was popped from there, and the next auto-assignment should prefer it again);
+// lastAssigned is restored only if this lease still owns it — a concurrent
+// acquisition that moved it on has recorded the truer value.
+func releaseCPU(l cpuLease) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if l.fromPool && !containsInt(pool.available, l.cpu) {
+		pool.available = append([]int{l.cpu}, pool.available...)
+	}
+	if pool.lastAssigned == l.cpu {
+		pool.lastAssigned = l.prevLast
+	}
 }
 
 // poolLogger returns the pool's logger (nil if none was installed). It is the
@@ -155,29 +189,6 @@ func poolLogger() *slog.Logger {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	return pool.logger
-}
-
-// poolState captures the assignable part of the pool so a CPU handed out for a
-// thread that then fails to be created can be given back (see CreateThreadCPU).
-type poolState struct {
-	available    []int
-	lastAssigned int
-}
-
-func snapshotPool() poolState {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-	return poolState{
-		available:    append([]int(nil), pool.available...),
-		lastAssigned: pool.lastAssigned,
-	}
-}
-
-func restorePool(s poolState) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-	pool.available = s.available
-	pool.lastAssigned = s.lastAssigned
 }
 
 func containsInt(list []int, v int) bool {
@@ -204,10 +215,20 @@ func detectTopology() (*cpuTopology, error) {
 		siblingOf:     make(map[int]int),
 	}
 
-	nCPU := runtime.NumCPU()
-	for i := 0; i < nCPU; i++ {
-		if cpuOnline(i) {
-			topo.online = append(topo.online, i)
+	// The kernel's own online list is authoritative. runtime.NumCPU() is the
+	// size of the process's startup affinity mask, not the highest CPU index —
+	// under a restricted CPUAffinity/cpuset, or with a mid-range CPU offline, a
+	// probe loop bounded by it never sees higher-numbered online CPUs, and
+	// acquireCPU would then refuse a perfectly valid explicit pin as "not an
+	// online CPU". The probe loop stays as the fallback.
+	if data, err := os.ReadFile("/sys/devices/system/cpu/online"); err == nil {
+		topo.online = parseCPUList(strings.TrimSpace(string(data)))
+	}
+	if len(topo.online) == 0 {
+		for i := 0; i < runtime.NumCPU(); i++ {
+			if cpuOnline(i) {
+				topo.online = append(topo.online, i)
+			}
 		}
 	}
 

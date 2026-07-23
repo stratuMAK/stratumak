@@ -153,11 +153,12 @@ func halPortClear(portPtr *C.hal_port_t) {
 // Returns nil if the code is 0 (success).
 // Error codes are negative errno values as returned by HAL/RTAPI functions.
 //
-// No Detail is attached here. hal_lib's diagnostics are captured per-thread by
-// internal/halcmd, which owns the RTAPI message handler; this package is linked
-// into Go components that do not install it. A component's hal_lib failures
-// still reach the operator: they are logged to the ring, and when they happen
-// during a module load the launcher attaches them to the load error.
+// No Detail is attached here. Detailed failure reasons travel in-band through
+// the hal_*_ex(err, errlen) call signatures (see internal/halcmd); this package
+// calls the plain variants, so there is no reason string to attach. A
+// component's hal_lib failures still reach the operator: they are logged to the
+// ring, and when they happen during a module load the launcher attaches them to
+// the load error.
 func halError(code int, op string) error {
 	return CodeError(op, code, "")
 }
