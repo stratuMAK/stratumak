@@ -329,3 +329,29 @@ func (m *milltaskModule) GetStat() (*emcstat.StatFull, error) {
 	stat := t.BuildStat()
 	return stat, nil
 }
+
+// GetInfo describes the machine: which peer modules serve this task, and which
+// operator controls are actually wired.
+//
+// Unlike GetStat this refuses to answer before Start completes, rather than
+// handing back a safe-looking default. Clients read /info ONCE and cache it, so
+// an empty answer would permanently disable features that do exist — a loud
+// not-ready is recoverable, a plausible wrong answer is not.
+func (m *milltaskModule) GetInfo() (*emcstat.TaskInfo, error) {
+	if err := m.ready(); err != nil {
+		return nil, err
+	}
+	caps, err := m.buildCaps()
+	if err != nil {
+		return nil, err
+	}
+	return &emcstat.TaskInfo{
+		Peers: emcstat.TaskPeers{
+			Tooltable:        m.ttInstance,
+			Preview:          m.previewInstance,
+			Manualtoolchange: m.mtcInstance,
+			Pyvcp:            m.pyvcpInstance,
+		},
+		Caps: caps,
+	}, nil
+}

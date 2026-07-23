@@ -4,6 +4,7 @@ package apiserver
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -280,6 +281,23 @@ func (r *Registry) GetByAPI(apiName, instance string) *RegisteredAPI {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.instances[key]
+}
+
+// InstancesOfAPI returns the instance names providing the given api, sorted.
+// Used to turn "no such instance" into a message that names the alternatives,
+// which is what makes a mistyped instance parameter obvious at config load.
+func (r *Registry) InstancesOfAPI(apiName string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var names []string
+	for _, api := range r.instances {
+		if api.APIName == apiName {
+			names = append(names, api.Instance)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Instances returns all registered instance names (without the api: prefix).

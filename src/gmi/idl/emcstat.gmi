@@ -233,6 +233,56 @@ type StatFull {
     dout: [MAX_DIO]i32      # motion digital outputs
 }
 
+# ─── Machine description ───
+#
+# TaskInfo answers "what is this machine made of, and what is wired"; StatFull
+# above answers "what is it doing right now". Nothing that changes while the
+# machine runs belongs here, and nothing already in StatFull (axis_mask,
+# spindle count, units) is repeated here.
+
+# REST instance names of the modules a UI client talks to directly, so a client
+# never has to derive them from a naming convention. Only modules the CLIENT
+# addresses over REST/WS appear here: the motion, io, persist and halui
+# instances are milltask's business alone and stay out of it.
+#
+# An empty string means "not configured" — the feature is absent and the client
+# must not probe for it. A name that IS configured is guaranteed to exist:
+# milltask resolves every one of them at startup and refuses to start otherwise.
+type TaskPeers {
+    tooltable: string           # raw slot store backing stat.tool_table
+    preview: string             # ngcpreview instance for this task
+    manualtoolchange: string    # manualtoolchange instance, if one is loaded
+    pyvcp: string               # pyvcp panel instance, if one is loaded
+}
+
+# What the operator UI should offer, decided by what is actually wired in HAL —
+# not by INI declarations. A config can declare SPINDLES = 1 and wire nothing;
+# 2.9 asked HAL (does anything drive spindle.0.forward?) and so do we. The
+# difference is that the pin names are qualified here — spindle and joint pins
+# with this task's motion instance, coolant pins with its io instance — where
+# those names are known, instead of guessed by the client.
+# Each flag is one wiring fact — "this pin is driven" — deliberately NOT a
+# ready-made "show the spindle controls" verdict. Which widget a fact enables is
+# the client's policy and differs between them: AXIS shows its clockwise button
+# for forward/on/speed but its counter-clockwise button for reverse/speed, so a
+# lathe wiring only one direction gets one button. A single collapsed flag would
+# quietly give it both.
+type TaskCaps {
+    spindle_forward: bool       # spindle 0 forward pin is driven
+    spindle_reverse: bool       # spindle 0 reverse pin is driven
+    spindle_on: bool            # spindle 0 on pin is driven
+    spindle_speed: bool         # any spindle 0 speed-out pin is driven
+    spindle_brake: bool         # spindle 0 brake pin is driven
+    limit_switch_override: bool # any joint has a limit switch input driven
+    coolant_mist: bool          # io coolant-mist pin is driven
+    coolant_flood: bool         # io coolant-flood pin is driven
+}
+
+type TaskInfo {
+    peers: TaskPeers
+    caps: TaskCaps
+}
+
 # ─── Functions ───
 
 # Full machine status, pushed via WebSocket at 50ms intervals
@@ -241,3 +291,10 @@ type StatFull {
 @method "GET"
 @path "/stat"
 func get_stat() -> StatFull
+
+# Machine description: peer instance names + wired-capability flags.
+# Read once at client startup; not watchable, and deliberately not part of the
+# 50ms stat push.
+@method "GET"
+@path "/info"
+func get_info() -> TaskInfo
