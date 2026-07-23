@@ -581,9 +581,14 @@ static int task_start(int task_id, unsigned long int period_nsec)
     struct posix_task *task = (struct posix_task*)get_task(task_id);
     if(!task) return -EINVAL;
 
-    if(period_nsec < (unsigned long)app_period) period_nsec = (unsigned long)app_period;
+    /* Each task sleeps on its own absolute deadline (see task_wait), so its
+       period is independent of every other task's and of app_period: there is
+       no shared hardware tick to be a multiple of.  The period is therefore
+       taken as given.  Zero is the one value that cannot work — it would make
+       task_wait advance the deadline by nothing, never sleep, and spin at RT
+       priority with no brake (the overrun path only prints, once). */
+    if(period_nsec == 0) return -EINVAL;
     task->task.period = period_nsec;
-    task->task.ratio = period_nsec / app_period;
 
     struct sched_param param;
     memset(&param, 0, sizeof(param));
@@ -672,12 +677,8 @@ static void *task_wrapper(void *arg)
     }
 #endif
 
-    long int period = app_period;
-    if(task->period < period) task->period = period;
-    task->ratio = task->period / period;
-    task->period = task->ratio * period;
-    rtapi_print_msg(RTAPI_MSG_INFO, "task %p period = %lu ratio=%u\n",
-          (void*)task, task->period, task->ratio);
+    rtapi_print_msg(RTAPI_MSG_INFO, "task %p period = %lu\n",
+          (void*)task, task->period);
 
     pthread_setspecific(task_key, arg);
     rtapi_set_namef("rtapi:T#%d", task->id);

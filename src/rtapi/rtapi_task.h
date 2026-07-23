@@ -17,7 +17,6 @@ struct rtapi_task {
     int cpu_number;  /* CPU to pin this task to; -1 = no affinity */
     long period;
     struct timespec nextstart;
-    unsigned ratio;
     long pll_correction;
     long pll_correction_limit;
     void *arg;

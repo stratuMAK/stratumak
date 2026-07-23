@@ -327,10 +327,12 @@ RTAPI_BEGIN_DECLS
 /** 'rtapi_task_start()' starts a task in periodic mode.  'task_id' is
     a task ID from a call to rtapi_task_new().  The task must be in
     the "paused" state, or it will return -EINVAL.
-    'period_nsec' is the task period in nanoseconds, which will be
-    rounded to the nearest multiple of the global clock period.  A
-    task period less than the clock period (including zero) will be
-    set equal to the clock period.
+    'period_nsec' is the task period in nanoseconds, and is used as
+    given: each task waits on its own absolute deadline, so its period
+    is independent of every other task's.  (Historically, when all
+    tasks were driven by one periodic hardware timer, the period was
+    rounded to a multiple of the global clock period and clamped up to
+    it.)  A period of zero is refused with -EINVAL.
     Call only from within init/cleanup code, not from realtime tasks.
 */
     extern int rtapi_task_start(int task_id, unsigned long int period_nsec);
