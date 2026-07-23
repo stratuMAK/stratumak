@@ -76,12 +76,26 @@ class RestHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/api/v1/milltask/stat":
+        if self.path.endswith("/info"):
+            self.server.info_requests.append(self.path)
+            if self.server.info_status != 200:
+                self._send({"error": "unknown API instance"},
+                           self.server.info_status)
+            else:
+                self._send(self.server.info_payload)
+        elif self.path == "/api/v1/milltask/stat":
             self._send(self.server.stat_snapshot)
         elif self.path == "/api/v1/milltask/7":
             self._send(ZERO_TOOL)  # absent tool = zero entry, NOT 404
         elif self.path == "/api/v1/milltask/8":
             self._send(REAL_TOOL)
+        elif self.path.startswith("/api/v1/") and self.path.endswith("/"):
+            # Raw tool-slot store: /api/v1/{tooltable-instance}/
+            inst = self.path[len("/api/v1/"):-1]
+            self.server.slot_requests.append(inst)
+            slots = self.server.slots.get(inst)
+            self._send(slots if slots is not None else {},
+                       200 if slots is not None else 404)
         else:
             self._send({}, 404)
 
@@ -102,6 +116,11 @@ def start_rest_stub():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), RestHandler)
     srv.stat_snapshot = {}
     srv.requests = []
+    srv.info_payload = {}
+    srv.info_status = 200
+    srv.info_requests = []
+    srv.slots = {}
+    srv.slot_requests = []
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, srv.server_address[1]
 
@@ -324,6 +343,108 @@ def main():
         fail("positionlogger", "stop_logger not sent on stop()")
     ws2.stop()
     ok("positionlogger-lifecycle")
+
+    # ─── GET /info: the machine description ───
+    #
+    # A client used to DERIVE peer names ("{instance}-preview") and hardcode
+    # defaults ("tooltable"). Both are right only in a single-instance config,
+    # and the tool table one made every multi-instance config 404 at 10 Hz.
+    # Names now come from the server, which resolved and verified them.
+
+    # The WS phase above repointed GMC_REST_URL at the WS stub's port; these are
+    # REST contracts again.
+    os.environ["GMC_REST_URL"] = f"http://127.0.0.1:{rest_port}"
+
+    rest.info_payload = {
+        "peers": {"tooltable": "pnp.tt", "preview": "pnp.task-preview",
+                  "manualtoolchange": "", "pyvcp": "pnp.panel"},
+        # A lathe wiring only reverse: the per-direction flags are what keep the
+        # clockwise button hidden while the counter-clockwise one shows.
+        "caps": {"spindle_forward": False, "spindle_reverse": True,
+                 "spindle_on": False, "spindle_speed": True,
+                 "spindle_brake": False, "limit_switch_override": True,
+                 "coolant_mist": False, "coolant_flood": True},
+    }
+    gmi.reset_info()
+    if (gmi.preview_instance(), gmi.pyvcp_instance(),
+            gmi.tooltable_instance()) != ("pnp.task-preview", "pnp.panel", "pnp.tt"):
+        fail("info-peers", "peer names not taken from /info")
+    caps = gmi.info().caps
+    if not (caps.spindle_reverse and caps.spindle_speed
+            and caps.limit_switch_override and caps.coolant_flood):
+        fail("info-peers", "capability flags not decoded")
+    if caps.spindle_forward or caps.spindle_on or caps.spindle_brake or caps.coolant_mist:
+        fail("info-peers", "unwired pins reported as wired")
+    # An unset peer falls back to the module's own default instance name, which
+    # is what keeps a single-instance config working without naming anything.
+    if gmi.mtc_instance() != "manualtoolchange":
+        fail("info-peers", f"unset peer fallback = {gmi.mtc_instance()}")
+    ok("info-peers")
+
+    # The answer is fixed for the life of the task, so it is fetched once no
+    # matter how many callers ask.
+    before = len(rest.info_requests)
+    for _i in range(20):
+        gmi.preview_instance()
+        gmi.tooltable_instance()
+    if len(rest.info_requests) != before:
+        fail("info-cached", f"{len(rest.info_requests) - before} extra requests")
+    ok("info-cached")
+
+    os.environ["GMC_PREVIEW_INSTANCE"] = "override-preview"
+    if gmi.preview_instance() != "override-preview":
+        fail("info-env-override", "env var did not win over /info")
+    del os.environ["GMC_PREVIEW_INSTANCE"]
+    ok("info-env-override")
+
+    # A server that cannot answer must fail loudly ONCE, not be retried: the
+    # causes (server older than the client, wrong GMC_INSTANCE, task never
+    # started) do not heal, and retrying is how the 10 Hz storm happened.
+    gmi.reset_info()
+    rest.info_status = 404
+    before = len(rest.info_requests)
+    for _i in range(5):
+        try:
+            gmi.info()
+            fail("info-failure-cached", "missing /info did not raise")
+        except gmi.InfoUnavailable:
+            pass
+    if len(rest.info_requests) - before != 1:
+        fail("info-failure-cached",
+             f"{len(rest.info_requests) - before} requests, want exactly 1")
+    rest.info_status = 200
+    gmi.reset_info()
+    ok("info-failure-cached")
+
+    # stat.tool_table reads the raw slot store, whose instance is its own module
+    # — the one thing a client must never guess, because axis.py reads
+    # tool_table[0] once per display cycle.
+    rest.slots["pnp.tt"] = [{"idx": 0, "toolno": 4, "z_offset": -1.5}]
+    rest.stat_snapshot = {"tool_in_spindle": 4}
+    s3 = Stat()
+    s3.poll()
+    if s3.tool_table[0].id != 4:
+        fail("stat-tooltable-from-info", f"tool_table[0]={s3.tool_table[0][0]}")
+    if "pnp.tt" not in rest.slot_requests:
+        fail("stat-tooltable-from-info", "slot store not addressed as pnp.tt")
+    ok("stat-tooltable-from-info")
+
+    # And a slot store that IS unreachable must not be re-fetched on every
+    # access: a failed fetch is not cached (the table must not freeze), so
+    # without a retry floor one wrong name is ten requests a second.
+    gmi.reset_info()
+    rest.info_payload["peers"]["tooltable"] = "missing.tt"
+    s4 = Stat()
+    s4.poll()
+    before = len(rest.slot_requests)
+    for _i in range(10):
+        s4.tool_table
+    tries = len(rest.slot_requests) - before
+    if tries > 1:
+        fail("stat-tooltable-retry-floor", f"{tries} fetches for 10 reads")
+    if s4.tool_table[0].id != -1:
+        fail("stat-tooltable-retry-floor", "unreachable store did not yield an empty slot")
+    ok("stat-tooltable-retry-floor")
 
     print("ALL OK")
 

@@ -112,6 +112,15 @@ class AxisPreferences(cp):
 
 inifile = gmi.IniFile()
 
+# The machine description: which peer modules serve this task, and which
+# controls are wired. Fetched once, before any window exists, and deliberately
+# NOT caught: without it every peer name would fall back to a single-instance
+# default and this UI would spend the session talking to the wrong modules —
+# which is far harder to diagnose than refusing to start. A stack trace here
+# means the server is older than this AXIS, GMC_INSTANCE names a task that does
+# not exist, or the task never started.
+_machine_info = gmi.info() if server_present == 1 else None
+
 ap = AxisPreferences()
 
 os.system("xhost -SI:localuser:gdm -SI:localuser:root > /dev/null 2>&1")
@@ -4153,7 +4162,10 @@ if server_present == 1 :
             f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
         else:
             f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        vcpparse.create_vcp_rest(f, compname="pyvcp")
+        # The panel is a module instance like any other: "pyvcp" only by default.
+        # A multi-instance config that gives each task its own panel names it on
+        # the milltask load line (pyvcp_instance=), and /info reports it here.
+        vcpparse.create_vcp_rest(f, compname=gmi.pyvcp_instance())
         vcp_frame = f
         root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
         help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
@@ -4374,54 +4386,55 @@ commands.set_rapidrate(100)
 widgets.spinoverride.set(100)
 commands.set_spindlerate(100)
 
-def forget(widget, *pins):
+# Which controls this machine gets is decided by what is wired in HAL, as it
+# always was — but the question is now asked once, server-side, via GET /info.
+# AXIS used to probe pin names like "spindle.0.forward" itself, which are only
+# correct on a single-instance config: the real pin is "pnp.mot.spindle.0.
+# forward", and only milltask knows the "pnp.mot" part. The probes therefore
+# matched nothing on every multi-instance config and silently hid the spindle,
+# coolant and limit-override controls (~26 REST round-trips to reach the wrong
+# answer, at that).
+# With no server there is no HAL to ask, and nothing is wired as far as this UI
+# can tell — same as the old probe loop, which hid every one of these widgets
+# because gmi was not even imported.
+caps = _machine_info.caps if server_present == 1 else None
+
+def forget(widget, wired):
     if "AXIS_NO_AUTOCONFIGURE" in os.environ: return
-    if server_present == 1:
-        for p in pins:
-            if gmi.pin_has_writer(p): return
+    if wired: return
     m = widget.winfo_manager()
     if m in ("grid", "pack"):
         widget.tk.call(m, "forget", widget._w)
 
-forget(widgets.brake, "spindle.0.brake")
-forget(widgets.spindle_cw, "spindle.0.forward", "spindle.0.on",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_ccw, "spindle.0.reverse",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_stop, "spindle.0.forward", "spindle.0.reverse", "spindle.0.on",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+# The server reports wiring facts, one per pin; which widget each fact enables
+# is this UI's policy, and these groupings are the ones the pin probes encoded.
+# Note they are not uniform: clockwise counts the forward pin, counter-clockwise
+# the reverse pin, so a lathe wiring one direction still gets one button.
+_fwd = caps.spindle_forward if caps else False
+_rev = caps.spindle_reverse if caps else False
+_on = caps.spindle_on if caps else False
+_speed = caps.spindle_speed if caps else False
+_brake = caps.spindle_brake if caps else False
 
-forget(widgets.spindle_plus,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_minus,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.brake, _brake)
+forget(widgets.spindle_cw, _fwd or _on or _speed)
+forget(widgets.spindle_ccw, _rev or _speed)
+forget(widgets.spindle_stop, _fwd or _rev or _on or _speed)
 
-forget(widgets.spindlef,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindlel,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindle_plus, _speed)
+forget(widgets.spindle_minus, _speed)
 
-forget(widgets.spinoverridef,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindlef, _fwd or _rev or _on or _brake or _speed)
+forget(widgets.spindlel, _fwd or _rev or _on or _brake or _speed)
 
-has_limit_switch = 0
-for j in range(MAX_JOINTS):
-    try:
-        if gmi.pin_has_writer("joint.%d.neg-lim-sw-in" % j):
-            has_limit_switch=1
-            break
-        if gmi.pin_has_writer("joint.%d.pos-lim-sw-in" % j):
-            has_limit_switch=1
-            break
-    except NameError as detail:
-        break
-if not has_limit_switch:
+forget(widgets.spinoverridef, _speed)
+
+if not (caps and caps.limit_switch_override):
     widgets.override.grid_forget()
 
-
-forget(widgets.mist, "iocontrol.coolant-mist")
-forget(widgets.flood, "iocontrol.coolant-flood")
-forget(widgets.coolant, "iocontrol.coolant-flood", "iocontrol.coolant-mist")
+forget(widgets.mist, caps.coolant_mist if caps else False)
+forget(widgets.flood, caps.coolant_flood if caps else False)
+forget(widgets.coolant, (caps.coolant_mist or caps.coolant_flood) if caps else False)
 
 rcfile = "~/.axisrc"
 user_command_file = inifile.find("DISPLAY", "USER_COMMAND_FILE") or ""
@@ -4460,6 +4473,12 @@ live_plotter.error_task()
 
 # --- Integrated manual tool change support ---
 # Detect manualtoolchange REST endpoint and poll for tool change requests.
+#
+# Still a probe rather than a straight read of info.peers.manualtoolchange: an
+# empty peer name means "not named on the milltask load line", which a config
+# loading a single `manualtoolchange` component has never had to do. Probing the
+# default name keeps those working; a multi-instance config that wants this must
+# set mtc_instance=, and then the name here is the one milltask verified.
 _mtc_poller = None
 try:
     from gmi.manualtoolchange_client import ManualtoolchangeClient

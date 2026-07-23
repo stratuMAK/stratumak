@@ -21,6 +21,7 @@ import http.client
 import json
 import sys
 import threading
+import time
 import urllib.parse
 from typing import Any, Optional
 
@@ -134,6 +135,10 @@ def _empty_tool_entry():
     return _ToolEntry(toolno=-1)
 
 
+# Floor on how often a FAILED tool table fetch is retried (seconds).
+_TOOL_TABLE_RETRY_S = 1.0
+
+
 class Stat:
     """Drop-in replacement for linuxcnc.stat().
 
@@ -142,11 +147,16 @@ class Stat:
     """
 
     def __init__(self, instance: str = "milltask",
-                 tooltable_instance: str = "tooltable"):
+                 tooltable_instance: str = None):
         self._instance = instance
         # tool_table is read from the raw slot store, which is its own module
         # instance (a multi-instance config binds each milltask to its own).
+        # Resolved lazily from GET /info on first use, not here: a driver is
+        # entitled to construct a Stat before the server is up and poll until it
+        # answers, and hardcoding a default here is what made every multi-
+        # instance config 404 on the tool table ten times a second.
         self._tooltable_instance = tooltable_instance
+        self._tool_table_retry_after = 0.0
         self._data = {}
         self._poll_conn = None
         self._poll_lock = threading.Lock()
@@ -450,13 +460,24 @@ class Stat:
                 self._tool_table_key == current_key):
             return self._tool_table_cache
 
+        # A failed fetch is not cached (the table must not freeze on a transient
+        # blip), so without a floor on the retry interval every read reaches the
+        # server: axis.py reads tool_table[0] once per display cycle, which
+        # turned one wrong instance name into ten failed requests a second.
+        if time.monotonic() < self._tool_table_retry_after:
+            return getattr(self, '_tool_table_cache', [_empty_tool_entry()])
+
         try:
             from gmi.tools import ToolSlots
+            if self._tooltable_instance is None:
+                import gmi
+                self._tooltable_instance = gmi.tooltable_instance()
             slots = ToolSlots(self._tooltable_instance).list()
         except Exception:
             # A failed fetch must still hand back a subscriptable table: an
             # exception here is a display glitch, an IndexError in the caller
             # is a dead GUI.
+            self._tool_table_retry_after = time.monotonic() + _TOOL_TABLE_RETRY_S
             return getattr(self, '_tool_table_cache', [_empty_tool_entry()])
 
         by_idx = {}

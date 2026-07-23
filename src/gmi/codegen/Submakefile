@@ -525,7 +525,7 @@ TARGETS += $(GMI_INIT_DST)
 
 # --- NML gateway Python wrappers (hand-written) ---
 
-GMI_PY_NML_SRCS := constants.py stat.py command.py error.py positionlogger.py tools.py messages.py _watch.py
+GMI_PY_NML_SRCS := constants.py stat.py command.py error.py positionlogger.py tools.py messages.py _watch.py taskinfo.py
 GMI_PY_NML_DSTS := $(addprefix ../lib/python/gmi/,$(GMI_PY_NML_SRCS))
 
 ../lib/python/gmi/%.py: gmi/python/%.py $(GMI_INIT_DST)

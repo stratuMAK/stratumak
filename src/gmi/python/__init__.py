@@ -7,6 +7,10 @@ import os
 # (constants.py holds only UPPER_CASE names — no collision with this module).
 from gmi.constants import *  # noqa: F401,F403
 
+# Raised by info() when the server cannot describe the machine. Re-exported so
+# callers catch gmi.InfoUnavailable without reaching into the submodule.
+from gmi.taskinfo import InfoUnavailable  # noqa: F401
+
 _DEFAULT_REST_URL = "http://127.0.0.1:5080"
 _ENV_VAR = "GMC_REST_URL"
 _INSTANCE_ENV_VAR = "GMC_INSTANCE"
@@ -21,30 +25,67 @@ def instance() -> str:
     return os.environ.get(_INSTANCE_ENV_VAR, _DEFAULT_INSTANCE)
 
 
-def preview_instance() -> str:
-    """Return the preview instance name.
+def info():
+    """Return the machine description from milltask's GET /info (cached).
 
-    If GMC_PREVIEW_INSTANCE is set, use it.
-    Otherwise derive from GMC_INSTANCE: '{instance}-preview'.
-    If neither is set, fall back to 'ngcpreview'.
+    This is how a client learns the names of the other modules it talks to.
+    Raises gmi.InfoUnavailable if the server cannot answer — see gmi.taskinfo for
+    why that is not retried.
     """
-    if "GMC_PREVIEW_INSTANCE" in os.environ:
-        return os.environ["GMC_PREVIEW_INSTANCE"]
-    inst = os.environ.get(_INSTANCE_ENV_VAR)
-    return f"{inst}-preview" if inst else "ngcpreview"
+    from gmi import taskinfo
+    return taskinfo.fetch(rest_url(), instance())
+
+
+def reset_info():
+    """Drop the cached machine description (tests; reconnect to a new server)."""
+    from gmi import taskinfo
+    taskinfo.reset()
+
+
+def _peer(env_var: str, peer_attr: str, legacy_default: str) -> str:
+    """Resolve a peer instance name: environment override, then /info, then the
+    peer module's own default instance name.
+
+    The last step is what keeps single-instance configs working without naming
+    anything: `load ngcpreview` with no arguments registers as "ngcpreview", so
+    that IS the instance. What is deliberately gone is the old middle step of
+    deriving a name from this one (f"{instance}-preview") — a guess that happens
+    to be right in the configs it was written against and wrong everywhere else.
+    A multi-instance config must name its peers on the milltask load line, which
+    milltask then verifies at startup.
+    """
+    if env_var in os.environ:
+        return os.environ[env_var]
+    name = getattr(info().peers, peer_attr, "")
+    return name if name else legacy_default
+
+
+def preview_instance() -> str:
+    """Return the ngcpreview instance name serving this task."""
+    return _peer("GMC_PREVIEW_INSTANCE", "preview", "ngcpreview")
 
 
 def mtc_instance() -> str:
-    """Return the manual-tool-change instance name.
+    """Return the manual-tool-change instance name for this task."""
+    return _peer("GMC_MTC_INSTANCE", "manualtoolchange", "manualtoolchange")
 
-    If GMC_MTC_INSTANCE is set, use it.
-    Otherwise derive from GMC_INSTANCE: '{instance}-manualtoolchange'.
-    If neither is set, fall back to 'manualtoolchange'.
+
+def pyvcp_instance() -> str:
+    """Return the pyvcp panel instance name for this task."""
+    return _peer("GMC_PYVCP_INSTANCE", "pyvcp", "pyvcp")
+
+
+def tooltable_instance() -> str:
+    """Return the raw tool-table slot store instance backing stat.tool_table.
+
+    Unlike the peers above this has no fallback: milltask always reports a
+    resolved name (its own default included), so an empty answer here means the
+    server did not answer at all, and guessing "tooltable" is what produced the
+    404 storm in the first place.
     """
-    if "GMC_MTC_INSTANCE" in os.environ:
-        return os.environ["GMC_MTC_INSTANCE"]
-    inst = os.environ.get(_INSTANCE_ENV_VAR)
-    return f"{inst}-manualtoolchange" if inst else "manualtoolchange"
+    if "GMC_TOOLTABLE_INSTANCE" in os.environ:
+        return os.environ["GMC_TOOLTABLE_INSTANCE"]
+    return info().peers.tooltable
 
 
 def rest_url() -> str:
