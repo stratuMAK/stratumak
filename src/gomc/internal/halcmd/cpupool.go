@@ -149,6 +149,29 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 	return cpu, nil
 }
 
+// poolState captures the assignable part of the pool so a CPU handed out for a
+// thread that then fails to be created can be given back (see CreateThreadCPU).
+type poolState struct {
+	available    []int
+	lastAssigned int
+}
+
+func snapshotPool() poolState {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return poolState{
+		available:    append([]int(nil), pool.available...),
+		lastAssigned: pool.lastAssigned,
+	}
+}
+
+func restorePool(s poolState) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	pool.available = s.available
+	pool.lastAssigned = s.lastAssigned
+}
+
 func containsInt(list []int, v int) bool {
 	for _, x := range list {
 		if x == v {

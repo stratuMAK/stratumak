@@ -266,6 +266,55 @@ func TestThreadCreateDeleteCycles(t *testing.T) {
 	}
 }
 
+// A CPU handed out for a thread that then fails to be created must go back into
+// the pool — otherwise every failed newthread permanently burns an isolated
+// core, and later threads co-locate for no reason.
+func TestCreateThreadFailureReturnsCPUToPool(t *testing.T) {
+	setPool(t, []int{3, 2}, false)
+
+	// 2 ms like the other thread tests: the base period is process-global and
+	// HAL refuses anything shorter than the first thread this binary created.
+	const period = int64(2_000_000)
+
+	const first = "halcmd-test-pool-first"
+	if err := CreateThreadCPU(first, period, 0, -1); err != nil {
+		t.Fatalf("CreateThreadCPU(%s): %v", first, err)
+	}
+	t.Cleanup(func() { _ = ThreadDelete(first) })
+
+	// Fails inside hal_lib (duplicate name), after a CPU was already acquired:
+	// acquireCPU has popped core 2 and moved lastAssigned by the time the C call
+	// refuses the thread.
+	if err := CreateThreadCPU(first, period, 0, -1); err == nil {
+		t.Fatal("duplicate thread name must be refused")
+	}
+
+	// Both must be rolled back — this is what the assertion is really about.
+	pool.mu.Lock()
+	avail := append([]int(nil), pool.available...)
+	last := pool.lastAssigned
+	pool.mu.Unlock()
+	if len(avail) != 1 || avail[0] != 2 {
+		t.Errorf("free list = %v after a failed create; want [2] (the acquired core returned)", avail)
+	}
+	if last != 3 {
+		t.Errorf("lastAssigned = %d after a failed create; want 3 (the last thread that really exists)", last)
+	}
+
+	// And the returned core is genuinely reusable, not just bookkeeping.
+	const second = "halcmd-test-pool-second"
+	if err := CreateThreadCPU(second, period, 0, -1); err != nil {
+		t.Fatalf("CreateThreadCPU(%s): %v", second, err)
+	}
+	t.Cleanup(func() { _ = ThreadDelete(second) })
+	pool.mu.Lock()
+	assigned := pool.lastAssigned
+	pool.mu.Unlock()
+	if assigned != 2 {
+		t.Errorf("second thread got cpu %d; want 2 (a free core, not a co-location)", assigned)
+	}
+}
+
 // ===== process-lifetime entry points =====
 
 // TestUnloadAllDoesNotSignalOurself covers the in-process behaviour of

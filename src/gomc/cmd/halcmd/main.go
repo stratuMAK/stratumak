@@ -1102,10 +1102,15 @@ func cmdNewThread(args []string) error {
 			fp = &f
 		} else if strings.HasPrefix(lower, "cpu=") {
 			cpu, err := strconv.ParseInt(arg[4:], 10, 32)
-			if err == nil {
-				c := int32(cpu)
-				cpuId = &c
+			if err != nil {
+				// Silently ignoring this used to turn a typo into an
+				// auto-assigned thread that looked like it honoured the pin.
+				return fmt.Errorf("invalid cpu value %q", arg[4:])
 			}
+			c := int32(cpu)
+			cpuId = &c
+		} else {
+			return fmt.Errorf("newthread: unknown option %q", arg)
 		}
 	}
 

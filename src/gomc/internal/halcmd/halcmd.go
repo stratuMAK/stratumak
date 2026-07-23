@@ -85,11 +85,18 @@ func StopThreads() error {
 // Threads must be created fastest-first (ascending period) for rate monotonic
 // priority scheduling.
 func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
+	// Snapshot the pool before acquiring: a core popped for a thread that HAL
+	// then refuses would otherwise be lost for the rest of the session.
+	snap := snapshotPool()
 	assigned, err := acquireCPU(name, cpu)
 	if err != nil {
 		return err
 	}
-	return halCreateThreadCPU(name, periodNs, usesFP, assigned)
+	if err := halCreateThreadCPU(name, periodNs, usesFP, assigned); err != nil {
+		restorePool(snap)
+		return err
+	}
+	return nil
 }
 
 // ThreadDelete deletes a HAL realtime thread by name.
