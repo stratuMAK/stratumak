@@ -223,7 +223,39 @@ Kernel command line::
 
     * `rcu_nocb_poll`: Poll for RCU callbacks instead of using sleep/wake.
 
-    * `nohz_full`: Disable clock tick on these CPUs.
+    * `nohz_full`: Disable clock tick on these CPUs.  WARNING: with
+      `nohz_full` the kernel refuses to arm non-pinned timers on these
+      CPUs — including the realtime thread's own `clock_nanosleep`
+      wakeup timer, which is then armed on a housekeeping CPU instead.
+      Every cycle wakeup then waits for the *housekeeping* CPU to
+      service the timer, so worst-case latency tracks the housekeeping
+      CPU's load (network IRQs, non-RT processes) rather than the
+      isolated CPU.  If you use `nohz_full`, you MUST also set
+      `sysctl.kernel.timer_migration=0` (see below).  Observed on a
+      production machine: ~375 µs worst case with `nohz_full` and timer
+      migration enabled, under 1 µs after disabling it.  Diagnostic
+      signature: in `/proc/interrupts`, the isolated CPU's `LOC` (local
+      timer) rate is far below the servo thread's cycle rate, with a
+      matching surplus on a housekeeping CPU.
+
+    * `intel_idle.max_cstate=1 processor.max_cstate=1`: Cap CPU sleep
+      states.  Deep C-states (C6 and deeper) add 100-400 µs of exit
+      latency to every cycle wakeup on an otherwise idle realtime CPU.
+      Note that LinuxCNC does NOT hold `/dev/cpu_dma_latency` at
+      runtime (the classic 2.9 `rtapi_app` was setuid root and held it
+      at 0; the gomc server runs unprivileged and deliberately does not
+      reimplement this): a global zero-latency request forces *all*
+      CPUs into poll idle — a real thermal and power cost on fanless
+      industrial PCs for no benefit on the housekeeping CPUs — and a
+      boot-time cap cannot be lost to process lifetime or privileges.
+      Capping C-states is therefore the deployment's responsibility via
+      these kernel parameters (or, for finer control, per-CPU
+      `/sys/devices/system/cpu/cpuN/power/pm_qos_resume_latency_us` on
+      the isolated CPUs only).  If an otherwise idle machine shows
+      latency spikes in the 100-400 µs range, check this cap first.
+
+    * `cpufreq.default_governor=performance`: Keep the CPUs at full
+      clock instead of ramping frequency on demand.
 
 Sysctl::
 
@@ -231,6 +263,11 @@ Sysctl::
 
     * `sysctl.kernel.sched_rt_runtime_us`: Set to -1 to remove the limit
       on how much time realtime tasks may use.
+
+    * `sysctl.kernel.timer_migration`: Set to 0 so timers armed on
+      isolated CPUs stay there.  MANDATORY when `nohz_full` is used
+      (see the `nohz_full` warning above).  Can be set directly on the
+      kernel command line as `sysctl.kernel.timer_migration=0`.
 
 
 // vim: set syntax=asciidoc:
