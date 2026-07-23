@@ -15,6 +15,16 @@ cd "$(dirname "$0")/../src/webapp" || exit 1
 TYPECHECK_APPS="tooledit emccalib halshow halscope latency"
 TEST_APPS="tooledit emccalib halshow halscope"
 
+# The per-app src/generated/*.ts REST clients are gitignored build artifacts
+# produced by modcompile during `make` (gmi/codegen/Submakefile). They are
+# absent on a clean checkout, so this gate must run AFTER the build. Fail with
+# a pointer rather than a wall of cryptic "Cannot find module" type errors.
+if [ ! -f tooledit/src/generated/tools_client.ts ]; then
+	echo "check-webapps: generated TS clients are missing." >&2
+	echo "  Run 'make' first (they are built by the gmi codegen targets)." >&2
+	exit 1
+fi
+
 # 1. ESLint correctness gate — the shared toolchain/config lints every app at
 #    once (classicladder and src/generated/** are excluded in the config).
 echo "== webapps: eslint =="
