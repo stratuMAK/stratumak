@@ -278,10 +278,48 @@ See individual source file headers for per-file license and copyright details.
 
 ## Status
 
-Active development. Not yet suitable for production use.
+**Lab-prototype stage.** GOMC has completed the automated half of a structured
+production-readiness program and is moving onto supervised prototype machines.
+Not yet suitable for unattended production use.
+
+What stands behind that:
+
+- **Systematic review.** Every subsystem went through a phased, per-module
+  review: independent adversarial AI passes cross-checked against the LinuxCNC
+  2.9 sources, each finding adjudicated and fixed with mutation-verified
+  regression tests. The full record — per-module matrix, findings documents,
+  design rulings — lives in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+- **Tests.** The classic LinuxCNC runtest suite is fully ported and green
+  (240+ tests, nothing skipped or expected-to-fail) and runs on every pull
+  request, plus nightly race-detector builds. Unit coverage was raised module
+  by module against a live in-process HAL; the web UIs carry their own
+  type-check/lint/test gates in CI.
+- **Fault paths.** Abort, E-stop and error semantics are verified against 2.9
+  as written-spec tests — not just the happy paths.
+- **Real-time.** RT correctness is tracked in
+  [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md): compiler-enforced
+  non-blocking guarantees across the RT paths (including the EtherCAT master),
+  and the adversarial-load jitter measurement documented above.
+
+Known limitations — read before deploying:
+
+- **No API authentication yet.** The REST/WebSocket control surface trusts its
+  network. Keep it on loopback or an isolated machine network. The plan is an
+  external authentication gateway plus fine-grained in-process authorization —
+  designed, not yet built.
+- **Safety.** GOMC is not a safety component. Operator protection must be
+  implemented in certified external hardware, independent of this software —
+  see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
+- **Pending.** The review program's final human sign-off pass runs alongside
+  lab deployment; a long-duration on-machine latency soak is still to be
+  published.
+- **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
+  not ported; some shipped example configurations still await migration to the
+  gomc model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been
 feasible for a small team without massive AI-assisted development (GitHub
-Copilot). This enabled rapid prototyping and refactoring at a scale that would
-otherwise require years of manual effort.
+Copilot, Claude). This enabled rapid prototyping, large-scale refactoring, and
+the adversarial review program at a scale that would otherwise require years
+of manual effort.
