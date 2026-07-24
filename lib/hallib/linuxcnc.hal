@@ -12,7 +12,11 @@ load {{$mod}} <homemod.{{$j}}>
 load io <iocontrol>
 load persist_sqlite <persistence>
 load tooltable
-load milltask halui=halui
+# A config with a server-side pyvcp panel names its instance via
+# [TASK]PYVCP_INSTANCE so milltask reports it over GET /info (the panel is a
+# milltask load parameter by design; this only fills it in, same as HOMEMOD
+# above). Unset = no panel.
+load milltask halui=halui{{with ini "TASK" "PYVCP_INSTANCE"}} pyvcp_instance={{.}}{{end}}
 
 # load UI helper
 load ngcpreview
