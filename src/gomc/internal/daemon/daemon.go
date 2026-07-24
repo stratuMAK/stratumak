@@ -148,7 +148,15 @@ func RedirectStdio() error {
 		return err
 	}
 	for _, fd := range []int{int(os.Stdin.Fd()), int(os.Stdout.Fd()), int(os.Stderr.Fd())} {
-		if err := syscall.Dup2(int(devNull.Fd()), fd); err != nil {
+		// Dup3, not Dup2: arm64 has no dup2 syscall, so Go defines only Dup3
+		// there (dup3 covers every architecture). The one behavioral gap is
+		// oldfd == newfd — a no-op for dup2 but EINVAL for dup3 — which is
+		// reachable here: started with stdin closed, OpenFile hands /dev/null
+		// fd 0, and the fd already IS the redirection.
+		if int(devNull.Fd()) == fd {
+			continue
+		}
+		if err := syscall.Dup3(int(devNull.Fd()), fd, 0); err != nil {
 			_ = devNull.Close()
 			return fmt.Errorf("daemon: redirecting fd %d to /dev/null: %w", fd, err)
 		}
