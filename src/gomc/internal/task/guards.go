@@ -77,17 +77,21 @@ func (t *Task) ensureMode(required TaskMode) error {
 		t.modeBeforeTx = t.mode
 		t.modeTx = true
 	}
-	// Perform the mode switch inline (same logic as SetMode but already holding mu).
+	// Perform the mode switch inline (same logic as SetMode but already holding
+	// mu). The light modeAbortLocked (2.9 emcTaskAbort) is essential here: this
+	// transactional switch runs on EVERY MDI when the resting mode differs, and
+	// the full abort's spindle/IO/coolant stop would kill a spindle the
+	// previous MDI just started.
 	switch required {
 	case ModeManual:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeManual
 		t.mu.Unlock()
 		_ = t.motion.SetFree()
 		t.waitMotionFree()
 		t.mu.Lock()
 	case ModeMDI:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeMDI
 		t.mu.Unlock()
 		_ = t.motion.SetCoord()
@@ -96,7 +100,7 @@ func (t *Task) ensureMode(required TaskMode) error {
 		}
 		t.mu.Lock()
 	case ModeAuto:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeAuto
 		t.mu.Unlock()
 		_ = t.motion.SetCoord()

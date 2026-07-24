@@ -726,7 +726,7 @@ func (t *Task) SetMode(mode int32) error {
 	switch target {
 	case ModeManual:
 		if t.mode != ModeManual {
-			t.abortLocked() // unlocks/re-locks internally for I/O
+			t.modeAbortLocked() // unlocks/re-locks internally for I/O
 		}
 		t.mode = ModeManual
 		homed := t.allHomed()
@@ -739,7 +739,7 @@ func (t *Task) SetMode(mode int32) error {
 		return t.motion.SetFree()
 	case ModeMDI:
 		if t.mode != ModeMDI {
-			t.abortLocked()
+			t.modeAbortLocked()
 		}
 		t.mode = ModeMDI
 		// Synch only while the interpreter is idle — a re-assertion of the
@@ -754,7 +754,7 @@ func (t *Task) SetMode(mode int32) error {
 		return nil
 	case ModeAuto:
 		if t.mode != ModeAuto {
-			t.abortLocked()
+			t.modeAbortLocked()
 		}
 		t.mode = ModeAuto
 		canSynch := t.interp != nil && !t.programBusy()
@@ -2191,10 +2191,30 @@ func (t *Task) Abort() error {
 	return nil
 }
 
-// abortLocked performs the full abort sequence.
+// abortLocked performs the full user-abort sequence, mirroring 2.9's
+// EMC_TASK_ABORT handler: emcTaskAbort + emcTaskStateRestore + emcIoAbort +
+// emcSpindleAbort(all) + mdi_execute_abort + emcAbortCleanup (on_abort).
 // Caller MUST hold t.mu on entry; t.mu is held on return.
 // Internally unlocks t.mu for external I/O calls to avoid blocking stat reads.
-func (t *Task) abortLocked() {
+func (t *Task) abortLocked() { t.abortMachineLocked(true) }
+
+// modeAbortLocked is the light abort a mode switch performs. 2.9's
+// emcTaskSetMode runs only emcTaskAbort (+ mdi_execute_abort when leaving to
+// MANUAL): motion abort, interp-list clear, plan close/reset, resynch. It does
+// NOT stop spindles, abort IO, touch coolant, run on_abort, or restore modal
+// state from the executing tag — a spindle started in one mode keeps turning
+// across the switch. Every MDI issued through the transactional
+// ensureMode(ModeMDI)/restoreModeTx round-trip re-enters MDI mode, so using
+// the full abort here stopped a running spindle on the NEXT MDI command (S1000
+// M3, then F100 → spindle off).
+// Same locking contract as abortLocked.
+func (t *Task) modeAbortLocked() { t.abortMachineLocked(false) }
+
+// abortMachineLocked is the shared abort core. full selects the user-abort
+// extras (spindle/IO/coolant stop, on_abort, tag restore) on top of the light
+// mode-switch teardown.
+// Caller MUST hold t.mu on entry; t.mu is held on return.
+func (t *Task) abortMachineLocked(full bool) {
 	// Captured before the clobber below: the last-dispatched fallback in the
 	// tag capture must only apply when this abort interrupts an ACTIVE
 	// program. After a normal completion the trailing modal-only lines (e.g.
@@ -2225,7 +2245,7 @@ func (t *Task) abortLocked() {
 	var restoreTag []byte
 	var restoreID, restoreLine int32
 	var usedFallback bool
-	if wasAuto && t.status != nil {
+	if full && wasAuto && t.status != nil {
 		t.mu.Lock()
 		if ms, err := t.status.GetStatus(); err == nil {
 			restoreID = ms.Id
@@ -2267,10 +2287,12 @@ func (t *Task) abortLocked() {
 	t.AbortSequencer()
 	t.mcodeAbort()
 	_ = t.motion.Abort()
-	_ = t.io.IoAbort(emcAbortTaskAbort)
-	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
-	_ = t.io.CoolantFloodOff()
-	_ = t.io.CoolantMistOff()
+	if full {
+		_ = t.io.IoAbort(emcAbortTaskAbort)
+		_ = t.motion.SpindleOff(-1) // all-spindles broadcast
+		_ = t.io.CoolantFloodOff()
+		_ = t.io.CoolantMistOff()
+	}
 
 	// Motion/IO are stopped; now wait for the runProgram producer to stop
 	// touching the interpreter before we Close/Reset it (avoids a data race on
@@ -2279,7 +2301,9 @@ func (t *Task) abortLocked() {
 	t.waitRunProgramDone()
 
 	if interp != nil {
-		t.abortInterp(emcAbortTaskAbort, "user abort")
+		if full {
+			t.abortInterp(emcAbortTaskAbort, "user abort")
+		}
 		_ = interp.Close()
 		_ = interp.Reset()
 		// Sync the canon endpoint from the machine BEFORE Synch (R6/C11), so the
@@ -2315,8 +2339,10 @@ func (t *Task) abortLocked() {
 	}
 
 	t.mu.Lock()
-	t.floodOn = false
-	t.mistOn = false
+	if full {
+		t.floodOn = false
+		t.mistOn = false
+	}
 }
 
 // waitRunProgramDone blocks until the runProgram goroutine (if any) has exited,

@@ -277,6 +277,78 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 	}
 }
 
+// TestModeSwitch_LeavesSpindleIOCoolantAlone pins 2.9 emcTaskSetMode parity:
+// a mode switch runs only the light emcTaskAbort (motion abort + interp-list
+// clear + plan close/reset + resynch) — never emcSpindleAbort, emcIoAbort,
+// coolant off, or emcAbortCleanup/on_abort (emctask.cc emcTaskSetMode vs the
+// EMC_TASK_ABORT handler in emctaskmain.cc). Before the fix, ensureMode/
+// SetMode used the full user-abort: since every MDI issued from a Manual
+// resting mode transactionally re-enters MDI mode, the SECOND MDI killed the
+// spindle the first one started (S1000 + M3 on, then F100 → spindle off).
+func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
+	restore := SetPollInterval(time.Millisecond)
+	t.Cleanup(restore)
+
+	task, mot, io := newRecordingTask()
+	task.noForceHoming = true
+
+	ri := &recordingInterp{}
+	task.SetInterpreter(ri)
+
+	bringUp(t, task)
+	task.StartSequencer()
+	t.Cleanup(task.StopSequencer)
+
+	// Rest in Manual and start the spindle with a manual command.
+	if err := task.SetMode(int32(ModeManual)); err != nil {
+		t.Fatalf("SetMode(Manual): %v", err)
+	}
+	if err := task.Spindle(SpindleForward, 500, 0, 0); err != nil {
+		t.Fatalf("Spindle(forward): %v", err)
+	}
+
+	baseSpindleOff := mot.countCall("SpindleOff")
+	baseIoAbort := io.ioAbortCalls.Load()
+	baseOnAbort := ri.abortCalls.Load()
+
+	// Two MDIs from Manual: each one transactionally enters MDI mode
+	// (ensureMode) and restores Manual on completion (restoreModeTx). The
+	// second entry is the switch that used to broadcast SpindleOff(-1).
+	for i, cmd := range []string{"S500 M3", "F100"} {
+		if err := task.MDI(cmd); err != nil {
+			t.Fatalf("MDI %q: %v", cmd, err)
+		}
+		if !waitForCond(5*time.Second, func() bool {
+			task.mu.Lock()
+			defer task.mu.Unlock()
+			return task.interpState == InterpIdle && task.mode == ModeManual
+		}) {
+			t.Fatalf("MDI %d (%q) did not complete and restore Manual mode", i, cmd)
+		}
+	}
+
+	// Explicit mode switches must not stop the spindle either.
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
+	if err := task.SetMode(int32(ModeManual)); err != nil {
+		t.Fatalf("SetMode(Manual): %v", err)
+	}
+
+	if got := mot.countCall("SpindleOff") - baseSpindleOff; got != 0 {
+		t.Fatalf("mode switches stopped the spindle %d times (2.9 emcTaskSetMode never does)", got)
+	}
+	if got := io.ioAbortCalls.Load() - baseIoAbort; got != 0 {
+		t.Fatalf("mode switches ran IoAbort %d times (2.9 emcTaskSetMode never does)", got)
+	}
+	if got := ri.abortCalls.Load() - baseOnAbort; got != 0 {
+		t.Fatalf("mode switches ran interp on_abort %d times (2.9 emcTaskSetMode never does)", got)
+	}
+}
+
 // TestMDI_AbortedEnqueueIsNotAnMDIError pins the executeMDI enqueue-failure
 // split: when the sequencer was closed by a concurrent teardown (user abort,
 // estop, sequencer fault) between synch and enqueue, the teardown owns the
@@ -318,8 +390,9 @@ func TestMDI_AbortedEnqueueIsNotAnMDIError(t *testing.T) {
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
-	// SetMode's abortLocked legitimately ran one on_abort/IoAbort/SpindleOff
-	// round — assert against deltas from here, not absolute counts.
+	// Assert against deltas from here, not absolute counts (SetMode's light
+	// modeAbortLocked no longer runs on_abort/IoAbort/SpindleOff, but keep the
+	// baseline so this test doesn't depend on that).
 	baseAbort := ri.abortCalls.Load()
 	baseIO := io.ioAbortCalls.Load()
 	baseSpindleOff := mot.countCall("SpindleOff")
