@@ -1,0 +1,33 @@
+component arm_step_watch """Armable per-cycle command-step watchdog.
+
+Like cmd_step_watch (switch-jerk-frame-shift), but tracks only while `arm`
+is TRUE and clears max-step on the arming edge. Needed here because the
+DISABLED state legitimately steps the command while it tracks a moved
+feedback — only the step at the re-enable transition is the defect.""";
+
+pin in  float in       "Watched value (motor position command)";
+pin in  bit   arm      "Track while TRUE; max-step clears on the rising edge";
+pin out float max_step "Largest per-cycle |delta| of in seen while armed";
+
+variable double prev = 0.0;
+variable int was_armed = 0;
+
+function _;
+license "GPL";
+;;
+
+if (arm) {
+    if (was_armed) {
+        double d = in - prev;
+        if (d < 0.0) d = -d;
+        if (d > max_step) max_step = d;
+    } else {
+        /* arming edge: start fresh, but measure from THIS cycle's value so
+           the very next cycle's step is seen (the enable transition). */
+        max_step = 0.0;
+    }
+    was_armed = 1;
+} else {
+    was_armed = 0;
+}
+prev = in;

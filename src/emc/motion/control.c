@@ -75,6 +75,7 @@
    inst->status structure.
 */
 static void process_inputs(motmod_inst_t *inst) GOMC_NONBLOCKING;
+static void jerk_filter_reanchor(motmod_inst_t *inst) GOMC_NONBLOCKING;
 
 /* 'joint_jog_abort_all()' if either jog-stop or jog-stop-immediate
    become True while jogging then the jog will abort.
@@ -1116,6 +1117,10 @@ static void set_operating_mode(motmod_inst_t *inst)
 	       state */
 	    SET_JOINT_ERROR_FLAG(joint, 0);
 	}
+	/* The DISABLED state tracked pos_cmd = pos_fb without running the
+	   jerk filter; its history still holds pre-disable positions and
+	   must be re-anchored with the rest of the command chain. */
+	jerk_filter_reanchor(inst);
 	if ( !GET_MOTION_ENABLE_FLAG() ) {
             if (GET_MOTION_TELEOP_FLAG()) {
                 axis_sync_teleop_tp_to_carte_pos(ai, 0, pcmd_p);
@@ -1500,6 +1505,36 @@ void jerk_filter_shift_joint(motmod_inst_t *inst, int jno, double delta)
 	jbuf[(idx - k + ws) % ws] += delta;
     }
     inst->jerk_filter.sum[jno] += delta * filled;
+}
+
+/* Re-anchor the whole filter to the joints' current commanded positions.
+   Called on the disable->enable transition: while DISABLED the filter
+   does not run and pos_cmd tracks pos_fb ("set position commands to
+   match feedbacks, this avoids disturbances when enabling"), but the
+   ring still holds the pre-disable history.  Left alone, the first
+   enabled cycle would command a single-cycle step from the current
+   position to the pre-disable window average — an estop while jogging,
+   gravity sag with the brake released, or an axis pushed by hand all
+   turn into a lurch on machine-on.  Same stale-history hazard
+   jerk_filter_shift_joint closes for homing frame redefinitions, at the
+   enable transition instead. */
+static void jerk_filter_reanchor(motmod_inst_t *inst)
+{
+    int ws = inst->jerk_filter.window_size;
+    int nj = inst->jerk_filter.num_joints;
+    int j, k;
+
+    if (ws <= 0 || !inst->jerk_filter.buf || !inst->jerk_filter.sum)
+	return;
+    for (j = 0; j < nj; j++) {
+	double pos = inst->joints[j].pos_cmd;
+	double *jbuf = inst->jerk_filter.buf + j * ws;
+	for (k = 0; k < ws; k++)
+	    jbuf[k] = pos;
+	inst->jerk_filter.sum[j] = pos * ws;
+    }
+    inst->jerk_filter.idx = 0;
+    inst->jerk_filter.filled = ws;
 }
 
 static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
