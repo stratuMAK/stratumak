@@ -1,0 +1,26 @@
+component cmd_step_watch """Per-cycle command-step watchdog for homing tests.
+
+Tracks the largest single-cycle change of its input. Wire it to
+joint.N.motor-pos-cmd: any coordinate-frame redefinition that leaks into the
+motor command as a physical step (instead of staying nominal) shows up as a
+max-step far above vel_limit * servo_period, no matter how briefly.""";
+
+pin in  float in       "Watched value (motor position command)";
+pin out float max_step "Largest per-cycle |delta| of in seen so far";
+
+variable double prev = 0.0;
+variable int armed = 0;
+
+function _;
+license "GPL";
+;;
+
+if (armed) {
+    double d = in - prev;
+    if (d < 0.0) d = -d;
+    if (d > max_step) max_step = d;
+} else {
+    /* skip the very first cycle: prev is not meaningful yet */
+    armed = 1;
+}
+prev = in;

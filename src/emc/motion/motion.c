@@ -389,7 +389,18 @@ static double gmi_mot_joint_get_pos_cmd(void *ctx, int32_t jno) GOMC_NONBLOCKING
 }
 
 static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
-{    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].pos_cmd = val;
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+    /* External writes come only from homing modules redefining the joint
+       coordinate frame (motor_offset is adjusted by the caller so the motor
+       command is nominally continuous).  Shift the jerk-filter history and
+       coarse_pos by the same delta, otherwise the filtered command drains
+       to the new frame over a full window while motor_offset has already
+       jumped — commanding a physical excursion of the whole offset. */
+    double delta = val - inst->joints[jno].pos_cmd;
+    jerk_filter_shift_joint(inst, jno, delta);
+    inst->joints[jno].coarse_pos += delta;
+    inst->joints[jno].pos_cmd = val;
 }
 
 static double gmi_mot_joint_get_pos_fb(void *ctx, int32_t jno) GOMC_NONBLOCKING

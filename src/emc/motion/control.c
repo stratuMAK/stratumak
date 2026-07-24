@@ -1471,6 +1471,37 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
     }
 }
 
+/* Shift one joint's filter history by a coordinate-frame delta.  Homing
+   redefines the joint frame (pos_cmd, pos_fb, free_tp.curr_pos shift by
+   +delta while motor_offset shifts by -delta) with the joint possibly
+   still moving.  That redefinition is purely nominal — the motor command
+   (pos_cmd + motor_offset) must stay continuous.  The filter history
+   still holds old-frame positions, so without this shift the filtered
+   pos_cmd would drain from the old frame to the new one over a full
+   window while motor_offset has already jumped, commanding a physical
+   excursion of the whole offset (on a real machine: a max-velocity lurch
+   into the just-tripped home switch and a drive fault). */
+void jerk_filter_shift_joint(motmod_inst_t *inst, int jno, double delta)
+{
+    int ws = inst->jerk_filter.window_size;
+    int filled = inst->jerk_filter.filled;
+    int idx = inst->jerk_filter.idx;
+    double *jbuf;
+    int k;
+
+    if (ws <= 0 || delta == 0.0)
+	return;
+    if (jno < 0 || jno >= inst->jerk_filter.num_joints)
+	return;
+    /* only the last `filled` entries written to the ring are part of the
+       running sum; walk them backwards from the write index */
+    jbuf = inst->jerk_filter.buf + jno * ws;
+    for (k = 1; k <= filled; k++) {
+	jbuf[(idx - k + ws) % ws] += delta;
+    }
+    inst->jerk_filter.sum[jno] += delta * filled;
+}
+
 static inline void jerk_filter_apply(motmod_inst_t *inst, double *positions)
 {
     int ws = inst->jerk_filter.window_size;
