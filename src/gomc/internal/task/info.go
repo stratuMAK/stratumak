@@ -100,11 +100,17 @@ func drivenPins() (map[string]bool, error) {
 // joint pins belong to motion, coolant pins to io. Defaults match the ones
 // Start applies when the corresponding load parameter is absent.
 func (m *milltaskModule) capsFrom(driven map[string]bool) emcstat.TaskCaps {
+	// The motion module prefixes its pins with the instance name ONLY for an
+	// aliased instance; the default name "motmod" exports the bare legacy pin
+	// names (motion.c PFMT / pin_prefix). Mirror that rule exactly, or every
+	// single-instance config reports no spindle/limit wiring and the UI hides
+	// controls the machine actually has.
 	mot := m.motInstance
-	if mot == "" {
-		mot = "motmod"
+	if mot == "" || mot == "motmod" {
+		mot = ""
+	} else {
+		mot += "."
 	}
-	mot += "."
 
 	io := m.ioInstance
 	if io == "" {

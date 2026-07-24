@@ -176,15 +176,33 @@ func TestCapsFromDefaultsToIocontrol(t *testing.T) {
 	}
 }
 
-// Single-instance configs carry no prefix on the motion module, and the default
-// instance name is what makes their pins resolve.
+// The default motion instance ("motmod", named or implied) exports the BARE
+// legacy pin names — motion.c only prefixes pins for an aliased instance.
+// capsFrom must mirror that rule: matching "motmod.spindle.0.speed-out" here
+// is what hid the spindle and limit-override controls on every
+// single-instance machine config (mds-swm-fm45a).
 func TestCapsFromDefaultsToMotmod(t *testing.T) {
-	m := &milltaskModule{} // no motion_instance= given
-	m.task = &Task{numJoints: 1}
+	for _, motInstance := range []string{"", "motmod"} {
+		m := &milltaskModule{motInstance: motInstance}
+		m.task = &Task{numJoints: 3}
 
-	caps := m.capsFrom(map[string]bool{"motmod.spindle.0.speed-out": true})
-	if !caps.SpindleSpeed {
-		t.Error("motmod.spindle.0.speed-out did not register as a speed pin")
+		caps := m.capsFrom(map[string]bool{
+			"spindle.0.speed-out":   true,
+			"spindle.0.forward":     true,
+			"joint.2.pos-lim-sw-in": true,
+		})
+		if !caps.SpindleSpeed || !caps.SpindleForward || !caps.LimitSwitchOverride {
+			t.Errorf("motInstance=%q: bare default-instance pins did not match: %+v",
+				motInstance, caps)
+		}
+
+		// The prefixed spelling cannot exist on a default instance; matching it
+		// means the rule regressed to prefix-always.
+		prefixed := m.capsFrom(map[string]bool{"motmod.spindle.0.speed-out": true})
+		if prefixed.SpindleSpeed {
+			t.Errorf("motInstance=%q: 'motmod.'-prefixed pin matched on the "+
+				"default instance, which exports bare pins", motInstance)
+		}
 	}
 }
 
