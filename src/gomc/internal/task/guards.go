@@ -63,7 +63,11 @@ func (t *Task) canSwitchMode(required TaskMode) error {
 // ensureMode switches to the required mode if safe (interpreter idle), or
 // returns nil if already in the right mode. This replaces client-side
 // ensure_mode() calls — the server decides whether a mode switch is allowed.
-// The previous mode is saved for transactional restore after command completion.
+// The switch is sticky: the mode stays where the command put it (2.9 AXIS
+// semantics — mode only changes when a command needs it or a client asks).
+// A repeat command in the same mode is a true no-op. The one 2.9 client that
+// restored the previous mode after MDI — halui (halui.cc halui_old_mode) —
+// does so locally in halui.go, not here.
 // Must be called with t.mu held. May temporarily unlock t.mu for I/O.
 func (t *Task) ensureMode(required TaskMode) error {
 	if err := t.canSwitchMode(required); err != nil {
@@ -72,16 +76,10 @@ func (t *Task) ensureMode(required TaskMode) error {
 	if t.mode == required {
 		return nil
 	}
-	// Save previous mode for transactional restore (only first switch in a tx).
-	if !t.modeTx {
-		t.modeBeforeTx = t.mode
-		t.modeTx = true
-	}
 	// Perform the mode switch inline (same logic as SetMode but already holding
-	// mu). The light modeAbortLocked (2.9 emcTaskAbort) is essential here: this
-	// transactional switch runs on EVERY MDI when the resting mode differs, and
-	// the full abort's spindle/IO/coolant stop would kill a spindle the
-	// previous MDI just started.
+	// mu). The light modeAbortLocked (2.9 emcTaskAbort) is essential here: the
+	// full abort's spindle/IO/coolant stop would kill a spindle a previous
+	// command started.
 	switch required {
 	case ModeManual:
 		t.modeAbortLocked()
@@ -112,50 +110,6 @@ func (t *Task) ensureMode(required TaskMode) error {
 		return fmt.Errorf("%w: unknown mode %d", ErrWrongMode, required)
 	}
 	return nil
-}
-
-// restoreModeTx restores the mode saved by ensureMode after a transactional
-// command sequence completes. Must be called with t.mu held.
-// May temporarily unlock t.mu for I/O.
-func (t *Task) restoreModeTx() {
-	if !t.modeTx {
-		return
-	}
-	t.modeTx = false
-	target := t.modeBeforeTx
-	if t.mode == target {
-		return
-	}
-	// Perform restore (same as ensureMode switch but no save).
-	switch target {
-	case ModeManual:
-		t.mode = ModeManual
-		t.mu.Unlock()
-		if t.allHomed() {
-			_ = t.motion.SetTeleop()
-			t.waitMotionTeleop()
-		} else {
-			_ = t.motion.SetFree()
-			t.waitMotionFree()
-		}
-		t.mu.Lock()
-	case ModeMDI:
-		t.mode = ModeMDI
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
-		}
-		t.mu.Lock()
-	case ModeAuto:
-		t.mode = ModeAuto
-		t.mu.Unlock()
-		_ = t.motion.SetCoord()
-		if t.interp != nil {
-			_ = t.interp.Synch()
-		}
-		t.mu.Lock()
-	}
 }
 
 // waitMotionFree polls motion status until the motion controller is in FREE

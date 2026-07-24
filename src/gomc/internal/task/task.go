@@ -299,8 +299,6 @@ type Task struct {
 	// Transactional mode restore: when ensureMode switches mode for a
 	// command (e.g. MDI from manual), the previous mode is saved here.
 	// After the command completes (MDI queue drained), mode is restored.
-	modeBeforeTx TaskMode
-	modeTx       bool // true if ensureMode performed a transient switch
 
 	// Configuration
 	numJoints       int
