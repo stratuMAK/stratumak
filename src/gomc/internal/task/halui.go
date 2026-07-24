@@ -1781,9 +1781,12 @@ func (h *halUI) updateOutputs(t *Task) {
 	h.mistIsOn.Set(mistOn)
 	h.lubeIsOn.Set(lubeOn)
 
-	// Program state
+	// Program state. is-running covers WAITING too (2.9 halui.cc:2177
+	// READING||WAITING) — with READING alone the pin flickers off at every
+	// queue-buster (probe, M66, tool change) mid-program, refiring any HAL
+	// edge logic watching it.
 	h.programIsIdle.Set(interpState == InterpIdle)
-	h.programIsRunning.Set(interpState == InterpReading)
+	h.programIsRunning.Set(interpState == InterpReading || interpState == InterpWaiting)
 	h.programIsPaused.Set(interpState == InterpPaused)
 	h.programOsIsOn.Set(optionalStop)
 	h.programBdIsOn.Set(blockDelete)
