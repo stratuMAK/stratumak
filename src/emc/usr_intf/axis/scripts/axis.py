@@ -3081,6 +3081,12 @@ class TclCommands(nf.TclCommands):
         if s.interp_state != INTERP_IDLE: return
         if not s.joint[0]['override_limits']:
             c.override_limits()
+        else:
+            # joint < 0 resumes normal limit checking. 2.9 AXIS got the same
+            # effect by switching to AUTO mode (the coord transition clears
+            # the override mask) because its Python binding could not send a
+            # negative joint; the motion semantics are unchanged.
+            c.override_limits(-1)
 
     def cycle_view(*args):
         if str(widgets.view_x['relief']) == "sunken":

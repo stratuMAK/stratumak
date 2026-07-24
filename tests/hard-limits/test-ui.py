@@ -304,5 +304,47 @@ assert(s.limit[0] == 0)
 #assert(s.inpos == True)
 assert(s.enabled == True)
 
+#
+# 2.9 parity: the override is auto-cleared at the end of the jog that used it
+# ("limits are automatically re-enabled at the end of the next jog").
+#
+
+gomc_test.wait_stat(
+    s, lambda st: not st.joint[0]['override_limits'],
+    "joint 0 limit override to auto-clear after the jog",
+    detail=lambda st: "override_limits=%s inpos=%s"
+                      % (st.joint[0]['override_limits'], st.joint[0]['inpos']))
+print("override limits auto-cleared after jog")
+
+#
+# 2.9 parity: override_limits(joint < 0) resumes normal limit checking without
+# jogging — the manual un-check path AXIS uses. (2.9 motion documented and
+# supported this; only its Python binding could not send it.)
+#
+
+# trip the limit again: machine faults off
+_set_lim(True)
+gomc_test.wait_stat(
+    s, lambda st: not st.enabled,
+    "machine to fault off on the re-tripped limit",
+    detail=lambda st: "enabled=%s min_hard_limit=%s"
+                      % (st.enabled, st.joint[0]['min_hard_limit']))
+
+# check the override, then manually revoke it
+c.override_limits()
+gomc_test.wait_stat(
+    s, lambda st: st.joint[0]['override_limits'],
+    "joint 0 hard limits to be overridden again",
+    detail=lambda st: "override_limits=%s" % st.joint[0]['override_limits'])
+
+c.override_limits(-1)
+gomc_test.wait_stat(
+    s, lambda st: not st.joint[0]['override_limits'],
+    "manual override_limits(-1) to resume normal limit checking",
+    detail=lambda st: "override_limits=%s" % st.joint[0]['override_limits'])
+print("override limits manually cleared via joint=-1")
+
+_set_lim(False)
+
 # success!
 sys.exit(0)
