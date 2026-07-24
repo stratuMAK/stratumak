@@ -75,6 +75,15 @@ fi
 # unusable before the first test runs, so say so once, up front, and stop.
 check_rest_addr_free () {
     local addr="${GMC_REST_ADDR:-127.0.0.1:5080}"
+    # An overridden server address must reach the CLIENTS too: the gmi
+    # python shim and halcmd resolve GMC_REST_URL with their own hardcoded
+    # 127.0.0.1:5080 default, so "set GMC_REST_ADDR to a free address"
+    # alone makes every test's server bind the new port while the test's
+    # own clients silently talk to whatever squats on 5080 — the exact
+    # confusion this check exists to prevent.
+    if [ -n "$GMC_REST_ADDR" ] && [ -z "$GMC_REST_URL" ]; then
+        export GMC_REST_URL="http://$GMC_REST_ADDR"
+    fi
     local port="${addr##*:}"
     case "$port" in
         ''|*[!0-9]*) return 0 ;;  # not a host:port we can parse — let the tests try
