@@ -125,6 +125,7 @@ func (g *bridgeGoGen) emitPreamble() {
 	g.printf("\t\"encoding/json\"\n")
 	g.printf("\t\"fmt\"\n")
 	g.printf("\t\"runtime/cgo\"\n")
+	g.printf("\t\"syscall\"\n")
 	if g.hasWatchFuncs() {
 		g.printf("\t\"time\"\n")
 	}
@@ -136,6 +137,7 @@ func (g *bridgeGoGen) emitPreamble() {
 	g.printf("var _ = unsafe.Pointer(nil) // suppress unused\n")
 	g.printf("var _ = json.Marshal // suppress unused\n")
 	g.printf("var _ = fmt.Sprintf // suppress unused\n")
+	g.printf("var _ = syscall.EINVAL // suppress unused\n")
 	if g.hasWatchFuncs() {
 		g.printf("var _ time.Duration // suppress unused\n")
 	}

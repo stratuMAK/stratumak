@@ -10,6 +10,7 @@ package apiserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -575,6 +576,35 @@ func TestWriteDispatchErrorErrnoMapping(t *testing.T) {
 		if body.Code != want || body.Error == "" {
 			t.Errorf("body for %v = %+v", err, body)
 		}
+	}
+}
+
+// TestWriteDispatchErrorRequestDecode pins the request-decode error contract:
+// every generated dispatcher (bridge, server-go, cgo) reports a request that
+// fails to unmarshal as fmt.Errorf("%w: %v", syscall.EINVAL, jsonErr) — EINVAL
+// in the wrap chain so the transport maps it to 400 (not a 500 provider
+// fault), with the json detail preserved in the message. This is the toolno
+// wart fix: GET /api/v1/milltask/status matched tools' GET /{toolno} and the
+// bridge's raw json error surfaced as a 500.
+func TestWriteDispatchErrorRequestDecode(t *testing.T) {
+	var params struct {
+		Toolno int32 `json:"toolno"`
+	}
+	jsonErr := json.Unmarshal([]byte(`{"toolno":"status"}`), &params)
+	if jsonErr == nil {
+		t.Fatal("expected unmarshal type error")
+	}
+	rec := httptest.NewRecorder()
+	writeDispatchError(rec, fmt.Errorf("%w: %v", syscall.EINVAL, jsonErr))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("wrapped EINVAL decode error = %d, want 400", rec.Code)
+	}
+	var body apiError
+	if e := json.Unmarshal(rec.Body.Bytes(), &body); e != nil {
+		t.Fatalf("body is not JSON: %v", e)
+	}
+	if !strings.Contains(body.Error, "toolno") {
+		t.Errorf("json detail lost from error body: %q", body.Error)
 	}
 }
 

@@ -68,6 +68,7 @@ func (g *serverGoGen) emitHeader() {
 
 	g.printf("import (\n")
 	g.printf("\t\"encoding/json\"\n")
+	g.printf("\t\"fmt\"\n")
 	g.printf("\t\"syscall\"\n")
 	if needsTime {
 		g.printf("\t\"time\"\n")
@@ -79,6 +80,7 @@ func (g *serverGoGen) emitHeader() {
 
 	// Suppress unused import warnings
 	g.printf("var _ = json.Marshal\n")
+	g.printf("var _ = fmt.Sprintf\n")
 	g.printf("var _ = syscall.EINVAL\n")
 	if needsTime {
 		g.printf("var _ time.Duration\n")
@@ -227,7 +229,9 @@ func (g *serverGoGen) emitDispatchFuncs() {
 			g.printf("\t}\n")
 			g.printf("\tif len(req) > 0 {\n")
 			g.printf("\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-			g.printf("\t\t\treturn nil, syscall.EINVAL\n")
+			// Client error (400 via EINVAL) with the json detail kept — same
+			// rule as the other dispatch emitters; keep all copies identical.
+			g.printf("\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 			g.printf("\t\t}\n")
 			g.printf("\t}\n")
 		}
@@ -555,7 +559,11 @@ func (g *serverGoGen) emitCommands() {
 			g.printf("\t\t\t}\n")
 			g.printf("\t\t\tif len(req) > 0 {\n")
 			g.printf("\t\t\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-			g.printf("\t\t\t\t\treturn nil, err\n")
+			// Request-decode failure is a CLIENT error: wrap EINVAL so the REST
+			// layer maps it to 400 (a bare raw error reads as a 500 provider
+			// fault), keeping the json detail in the message. Same rule as the
+			// other dispatch emitters — keep all copies identical.
+			g.printf("\t\t\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 			g.printf("\t\t\t\t}\n")
 			g.printf("\t\t\t}\n")
 

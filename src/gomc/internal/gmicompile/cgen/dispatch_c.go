@@ -897,7 +897,9 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 		g.printf("\t}\n")
 		g.printf("\tif len(req) > 0 {\n")
 		g.printf("\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-		g.printf("\t\t\treturn nil, syscall.EINVAL\n")
+		// Client error (400 via EINVAL) with the json detail kept — same rule
+		// as the other dispatch emitters; keep all copies identical.
+		g.printf("\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 		g.printf("\t\t}\n")
 		g.printf("\t}\n")
 
