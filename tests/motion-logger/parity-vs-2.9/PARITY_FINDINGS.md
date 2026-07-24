@@ -23,6 +23,21 @@ spindle-0 suppression, #5 M99-loop stub artifact). The committed gomc
 motion-logger golds (`basic`, `mountaindew`, `m98m99-12`) are **certified
 against LinuxCNC 2.9.8**; the runtests self-regression golds guard drift.
 
+**Re-certified 2026-07-24 after the mode-switch abort narrowing
+(`8e36d676f6`).** That commit changed the bring-up/teardown stream — the
+mode-switch abort no longer emits `SPINDLE_OFF` (2.9 `emcTaskAbort` parity;
+the old golds encoded the pre-parity divergence) — and the three golds were
+re-baselined accordingly. Harness re-run: identical picture, PARITY on
+`basic/g0`, `basic/g1`, `mountaindew`, and the same two accepted divergences
+(#3, #5) on `basic/s`, `m98m99-12` — no new findings, as expected: the
+change lives entirely in the bring-up preamble the normalizer strips, and
+every `SET_LINE` is byte-identical to the previously certified stream.
+Re-baselining trap recorded while doing it: `out.motion-logger` gains the
+SERVER-SHUTDOWN abort after the driver's in-run diff (test.sh kills the
+server on exit), so a gold copied from the on-disk file post-run carries a
+trailing `ABORT` the in-run comparison never sees — re-baseline from the
+in-run `result.*` files or strip the post-mortem tail.
+
 Ranked most-severe first.
 
 ## units (mm-everywhere)
