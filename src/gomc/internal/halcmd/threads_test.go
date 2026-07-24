@@ -440,3 +440,29 @@ func TestLockDLHandleNilIsSafe(t *testing.T) {
 	LockDLHandle(nil)
 	UnlockDLHandle(nil)
 }
+
+// A sub-µs period is refused outright (HAL_MIN_PERIOD_NSEC): it cannot be met
+// by any schedulable task and would run as a permanent-overrun SCHED_FIFO
+// spinner — task_wait always finds the next start in the past and never
+// sleeps. The classic trigger is a period typed in µs where ns were meant
+// ("newthread t 1000" asking for 1 µs instead of 1 ms), so the refusal must
+// name the unit.
+func TestCreateThreadRejectsSubMicrosecondPeriod(t *testing.T) {
+	setPool(t, nil, false)
+
+	err := CreateThreadCPU("halcmd-test-period-floor", 999, 0, -1)
+	if err == nil {
+		_ = ThreadDelete("halcmd-test-period-floor")
+		t.Fatal("a 999 ns period must be refused")
+	}
+	if !strings.Contains(err.Error(), "NANOSECONDS") {
+		t.Errorf("refusal does not explain the unit trap: %v", err)
+	}
+
+	// The floor itself is legal.
+	const ok = "halcmd-test-period-floor-ok"
+	if err := CreateThreadCPU(ok, 1000, 0, -1); err != nil {
+		t.Fatalf("a 1000 ns period must be accepted: %v", err)
+	}
+	_ = ThreadDelete(ok)
+}

@@ -132,6 +132,14 @@ RTAPI_BEGIN_DECLS
 
 #define HAL_NAME_LEN     127	/* length for pin, signal, etc, names */
 
+/** Minimum thread period in nanoseconds.  An absolute floor, not a
+    relational base-period constraint (thread periods are independent): a
+    period below 1 µs cannot be met by any schedulable task and would run as
+    a permanent-overrun SCHED_FIFO spinner.  hal_create_thread* refuses
+    anything smaller.  The REST boundary enforces the same value
+    (halcmd.gmi newthread @min). */
+#define HAL_MIN_PERIOD_NSEC 1000
+
 /** These locking codes define the state of HAL locking, are used by most functions */
 /** The functions locked will return a -EPERM error message **/
 

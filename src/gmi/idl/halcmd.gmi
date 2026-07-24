@@ -252,7 +252,9 @@ func unload(name: string) -> CmdResult
 @method "POST"
 @path "/thread"
 @rt_safe "false"
-func newthread(name: string @maxlen(47), period_ns: i64 @min(1), fp: bool?, cpu_id: i32?) -> CmdResult
+# period_ns @min mirrors HAL_MIN_PERIOD_NSEC (hal.h): a sub-µs period cannot
+# be met by any schedulable task and would spin a SCHED_FIFO core forever.
+func newthread(name: string @maxlen(47), period_ns: i64 @min(1000), fp: bool?, cpu_id: i32?) -> CmdResult
 
 # Delete thread (delthread)
 @method "DELETE"

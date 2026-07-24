@@ -1994,6 +1994,20 @@ int hal_create_thread_cpu_ex(const char *name, unsigned long period_nsec,
 	hal_report(err, errlen, "create_thread called with a period of zero");
 	return -EINVAL;
     }
+    /* Absolute floor — deliberately NOT a relational base-period constraint
+       (those were dropped: thread periods are independent). A period below
+       1 µs cannot be met by any schedulable task and produces a permanent-
+       overrun SCHED_FIFO spinner: task_wait() always finds the next start in
+       the past, warns once, never sleeps, and pins its core. The classic
+       trigger is a period typed in the wrong unit — "newthread t 1000"
+       meaning 1 ms but asking for 1 µs. */
+    if (period_nsec < HAL_MIN_PERIOD_NSEC) {
+	hal_report(err, errlen,
+	    "create_thread: period %lu ns is below the %d ns minimum "
+	    "(the period is in NANOSECONDS: 1 ms = 1000000 ns)",
+	    period_nsec, HAL_MIN_PERIOD_NSEC);
+	return -EINVAL;
+    }
 
     if (strlen(name) > HAL_NAME_LEN) {
 	hal_report(err, errlen, "thread name '%s' is too long (max %d)",
