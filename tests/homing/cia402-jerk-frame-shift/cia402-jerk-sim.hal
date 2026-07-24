@@ -1,0 +1,32 @@
+# Kinematics + motion controller + the simulated CiA 402 drive + watchdog.
+# linuxcnc.hal has already loaded homemod_cia402 <homemod.0> (from
+# [JOINT_0]HOMEMOD), io, milltask, etc.; threads.hal created servo-thread.
+
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+load sim_cia402_drive <simdrv.0>
+load pos_excursion_watch <watch.0>
+
+# Servo-thread functions. The sim drive runs AFTER motmod each cycle: it reads
+# motmod's motor-pos-cmd / homemod's opmode-cmd and produces the feedback motmod
+# reads next cycle. The watchdog observes the drive feedback.
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf simdrv.0 servo-thread
+addf watch.0 servo-thread
+
+# Joint 0 CSP position path: motmod <-> sim drive.
+net j0-pos-cmd joint.0.motor-pos-cmd => simdrv.0.pos-cmd
+net j0-pos-fb  simdrv.0.pos-fb       => joint.0.motor-pos-fb watch.0.in
+
+# Drive-internal homing handshake: homemod_cia402 <-> sim drive.
+net j0-opmode-cmd homemod.0.opmode-cmd      => simdrv.0.opmode-cmd
+net j0-opmode-fb  simdrv.0.opmode-fb        => homemod.0.opmode-fb
+net j0-home-cmd   homemod.0.home-cmd        => simdrv.0.home-cmd
+net j0-attained   simdrv.0.homing-attained  => homemod.0.homing-attained watch.0.enable
+net j0-home-err   simdrv.0.homing-error     => homemod.0.homing-error
+
+# estop + tool-change loopbacks (as in core_sim.hal) so milltask can enable.
+net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
+net tool-prep-loop  iocontrol.tool-prepare    iocontrol.tool-prepared
+net tool-change-loop iocontrol.tool-change    iocontrol.tool-changed
