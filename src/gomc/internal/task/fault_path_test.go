@@ -282,11 +282,9 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 // clear + plan close/reset + resynch) — never emcSpindleAbort, emcIoAbort,
 // coolant off, or emcAbortCleanup/on_abort (emctask.cc emcTaskSetMode vs the
 // EMC_TASK_ABORT handler in emctaskmain.cc). Before the fix, ensureMode/
-// SetMode used the full user-abort, so the Manual→MDI switch for an MDI
-// command killed a spindle started in Manual (S1000 + M3 on, then a mode
-// change → spindle off). Also pins sticky mode: ensureMode leaves the task in
-// MDI after the MDIs complete — there is no transactional restore (halui does
-// its own 2.9-style restore locally).
+// SetMode used the full user-abort: since every MDI issued from a Manual
+// resting mode transactionally re-enters MDI mode, the SECOND MDI killed the
+// spindle the first one started (S1000 + M3 on, then F100 → spindle off).
 func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
 	restore := SetPollInterval(time.Millisecond)
 	t.Cleanup(restore)
@@ -313,9 +311,9 @@ func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
 	baseIoAbort := io.ioAbortCalls.Load()
 	baseOnAbort := ri.abortCalls.Load()
 
-	// Two MDIs from Manual: the first performs the real Manual→MDI switch
-	// (the switch that used to broadcast SpindleOff(-1)); the second finds the
-	// mode already MDI — a true no-op ensure.
+	// Two MDIs from Manual: each one transactionally enters MDI mode
+	// (ensureMode) and restores Manual on completion (restoreModeTx). The
+	// second entry is the switch that used to broadcast SpindleOff(-1).
 	for i, cmd := range []string{"S500 M3", "F100"} {
 		if err := task.MDI(cmd); err != nil {
 			t.Fatalf("MDI %q: %v", cmd, err)
@@ -323,18 +321,10 @@ func TestModeSwitch_LeavesSpindleIOCoolantAlone(t *testing.T) {
 		if !waitForCond(5*time.Second, func() bool {
 			task.mu.Lock()
 			defer task.mu.Unlock()
-			return task.interpState == InterpIdle
+			return task.interpState == InterpIdle && task.mode == ModeManual
 		}) {
-			t.Fatalf("MDI %d (%q) did not complete", i, cmd)
+			t.Fatalf("MDI %d (%q) did not complete and restore Manual mode", i, cmd)
 		}
-	}
-
-	// Sticky mode: the task stays in MDI, no transactional restore to Manual.
-	task.mu.Lock()
-	stickyMode := task.mode
-	task.mu.Unlock()
-	if stickyMode != ModeMDI {
-		t.Fatalf("mode after MDI = %s, want MDI (sticky, no transactional restore)", stickyMode)
 	}
 
 	// Explicit mode switches must not stop the spindle either.

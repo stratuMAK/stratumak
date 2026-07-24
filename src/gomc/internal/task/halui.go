@@ -252,14 +252,6 @@ type halUI struct {
 	axisMask        int32
 	numMDI          int
 	mdiCommands_str []string // INI-configured MDI command strings
-
-	// 2.9 halui MDI mode round-trip (halui.cc halui_old_mode/halui_sent_mdi):
-	// the first MDI pin of a burst records the pre-MDI task mode; when every
-	// halui-issued MDI has finished cleanly, that mode is restored. This is
-	// halui-local behavior — task-level mode is otherwise sticky (ensureMode).
-	// Both fields are touched only on the halui dispatch goroutine.
-	mdiSent    bool
-	mdiOldMode TaskMode
 }
 
 // halUIValues stores the previous scan values for edge detection.
@@ -1698,17 +1690,7 @@ func (h *halUI) checkMDI(t *Task) {
 		v := h.mdiCommands[i].Get()
 		if risingEdge(v, h.old.mdiCommands[i]) {
 			if i < len(h.mdiCommands_str) {
-				// Record the pre-MDI mode before the first MDI of a burst
-				// (2.9 halui.cc sendMdiCommand); updateOutputs restores it
-				// once all halui MDIs have finished.
-				if !h.mdiSent {
-					t.mu.Lock()
-					h.mdiOldMode = t.mode
-					t.mu.Unlock()
-				}
-				if err := t.MDI(h.mdiCommands_str[i]); err == nil {
-					h.mdiSent = true
-				}
+				_ = t.MDI(h.mdiCommands_str[i])
 			}
 		}
 		h.old.mdiCommands[i] = v
@@ -1771,7 +1753,6 @@ func (h *halUI) updateOutputs(t *Task) {
 	state := t.state
 	mode := t.mode
 	interpState := t.interpState
-	execState := t.execState
 	floodOn := t.floodOn
 	mistOn := t.mistOn
 	lubeOn := t.lubeOn
@@ -1785,21 +1766,6 @@ func (h *halUI) updateOutputs(t *Task) {
 	// Value snapshot — t.canon.state is mutated lock-free by the producer.
 	cs := t.canonSnap
 	t.mu.Unlock()
-
-	// Restore the pre-MDI mode once every halui-issued MDI has finished
-	// cleanly (2.9 halui.cc modify_hal_pins: requires overall status DONE —
-	// on an error the restore stays pending until the error latch clears).
-	// SetMode may block on cmdMu; this goroutine dispatches blocking commands
-	// by design (see check).
-	if h.mdiSent && interpState == InterpIdle && execState == ExecDone {
-		h.mdiSent = false
-		if h.mdiOldMode != ModeMDI {
-			_ = t.SetMode(int32(h.mdiOldMode))
-			t.mu.Lock()
-			mode = t.mode
-			t.mu.Unlock()
-		}
-	}
 
 	// Machine state
 	h.machineIsOn.Set(state == StateOn)

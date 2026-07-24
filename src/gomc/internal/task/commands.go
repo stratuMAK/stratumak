@@ -720,6 +720,9 @@ func (t *Task) SetMode(mode int32) error {
 		return err
 	}
 
+	// Explicit mode switch cancels any transactional save.
+	t.modeTx = false
+
 	switch target {
 	case ModeManual:
 		if t.mode != ModeManual {
@@ -992,6 +995,8 @@ func (t *Task) autoCommand(cmd int32, line int32) error {
 			t.mu.Unlock()
 			return fmt.Errorf("no interpreter configured")
 		}
+		// Running a program is a deliberate mode commitment — no restore.
+		t.modeTx = false
 		t.interpState = InterpReading
 		t.stepping = false
 		t.runDone = make(chan struct{})
@@ -1278,11 +1283,11 @@ func (t *Task) finishMDI(gen uint64) {
 		}
 		return
 	}
-	// MDI queue empty — clear the echoed command (mirrors C++ clearing
-	// task.command once the MDI input queue drains). The mode stays MDI
-	// (sticky, 2.9 AXIS semantics); halui restores its own pre-MDI mode in
-	// halui.go, as 2.9 halui did.
+	// MDI queue empty — clear the echoed command and restore mode if this was
+	// a transactional switch (mirrors C++ clearing task.command once the MDI
+	// input queue drains).
 	t.taskCommand = ""
+	t.restoreModeTx()
 	t.mu.Unlock()
 }
 
@@ -2198,8 +2203,10 @@ func (t *Task) abortLocked() { t.abortMachineLocked(true) }
 // MANUAL): motion abort, interp-list clear, plan close/reset, resynch. It does
 // NOT stop spindles, abort IO, touch coolant, run on_abort, or restore modal
 // state from the executing tag — a spindle started in one mode keeps turning
-// across the switch (using the full abort here stopped a running spindle on
-// every real mode change: S1000 M3 in MDI, switch to Manual → spindle off).
+// across the switch. Every MDI issued through the transactional
+// ensureMode(ModeMDI)/restoreModeTx round-trip re-enters MDI mode, so using
+// the full abort here stopped a running spindle on the NEXT MDI command (S1000
+// M3, then F100 → spindle off).
 // Same locking contract as abortLocked.
 func (t *Task) modeAbortLocked() { t.abortMachineLocked(false) }
 
