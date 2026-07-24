@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist"
@@ -59,6 +60,17 @@ type module struct {
 	db               *persist.PersistClient
 	dbHandle         int32
 	mu               sync.RWMutex
+
+	// spindleMem is the NON-RANDOM spindle slot (idx 0): a SESSION copy of
+	// the mounted tool, held in memory and never persisted — 2.9 parity,
+	// where the durable form omits it (tooldata_save starts at idx 1 for
+	// non-random changers). Persisting it is how a restart came to apply a
+	// phantom G43 offset from a tool io reported as absent: the copy
+	// survived the power cycle while toolInSpindle initialised to 0. On a
+	// RANDOM changer slot 0 is carousel pocket 0 — a real row that MUST
+	// persist (startup restores toolInSpindle from it) — and this field is
+	// unused. Guarded by mu; Idx/Updated are kept meaningful in place.
+	spindleMem tooltable.ToolEntry
 }
 
 func newTooltable(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
@@ -197,12 +209,30 @@ func emptySlot() tooltable.ToolEntry {
 	return tooltable.ToolEntry{Toolno: emptyToolno, Pocketno: -1}
 }
 
-// ensureSpindleSlot creates slot 0 if it is absent. Caller must not hold m.mu.
+// ensureSpindleSlot materialises slot 0. Caller must not hold m.mu.
+//
+// RANDOM: slot 0 is carousel pocket 0, a real persisted row — created empty
+// if absent, left alone if present (it holds the tool physically in the
+// spindle across restarts).
+//
+// NON-RANDOM: slot 0 is session state — initialised empty in memory, and any
+// persisted slot-0 row is DELETED, not just ignored: it can only be leftover
+// from a store written before this rule (or from a config whose
+// RANDOM_TOOLCHANGER flag was flipped), and a row that merely lingered would
+// resurrect an ancient "tool in spindle" the moment the flag flips back.
 func (m *module) ensureSpindleSlot() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.ready(); err != nil {
 		return err
+	}
+	if !m.randomToolchange {
+		m.spindleMem = emptySlot()
+		m.spindleMem.Idx = SpindleIdx
+		if _, err := m.db.DeleteEntry(m.dbHandle, idxKey(SpindleIdx)); err != nil {
+			return fmt.Errorf("tooltable: purging the persisted spindle slot: %w", err)
+		}
+		return nil
 	}
 	entry, err := m.db.GetEntry(m.dbHandle, idxKey(SpindleIdx))
 	if err != nil {
@@ -267,7 +297,12 @@ func (m *module) listLocked() ([]tooltable.ToolEntry, error) {
 		return nil, err
 	}
 
-	tools := make([]tooltable.ToolEntry, 0, len(entries))
+	tools := make([]tooltable.ToolEntry, 0, len(entries)+1)
+	if !m.randomToolchange {
+		// The session spindle slot leads the listing (idx order; persisted
+		// keys are all >= 1 after Start's purge).
+		tools = append(tools, m.spindleMem)
+	}
 	for _, e := range entries {
 		t, err := decodeSlot(e.Key, e.Value, e.Updated)
 		if err != nil {
@@ -276,6 +311,9 @@ func (m *module) listLocked() ([]tooltable.ToolEntry, error) {
 			// from every UI until someone notices.
 			m.logger.Warn("tooltable: skipping unreadable slot", "key", e.Key, "err", err)
 			continue
+		}
+		if !m.randomToolchange && t.Idx == SpindleIdx {
+			continue // a persisted slot-0 row is stale by definition here
 		}
 		tools = append(tools, t)
 	}
@@ -288,6 +326,10 @@ func (m *module) GetTool(idx int32) (tooltable.ToolEntry, error) {
 
 	if err := m.ready(); err != nil {
 		return tooltable.ToolEntry{}, err
+	}
+
+	if !m.randomToolchange && idx == SpindleIdx {
+		return m.spindleMem, nil
 	}
 
 	entry, err := m.db.GetEntry(m.dbHandle, idxKey(idx))
@@ -323,6 +365,21 @@ func (m *module) PutTool(idx int32, entry tooltable.ToolEntry) (tooltable.PutToo
 
 	if err := m.ready(); err != nil {
 		return tooltable.PutToolResult{}, err
+	}
+
+	if !m.randomToolchange && idx == SpindleIdx {
+		// Session state: same CAS contract as a persisted row (a stale
+		// baseline refuses), same fresh stamp on every accepted write, no
+		// storage — see spindleMem.
+		if entry.Updated != 0 && entry.Updated != m.spindleMem.Updated {
+			return tooltable.PutToolResult{}, fmt.Errorf(
+				"tooltable: slot %d changed since it was read (stamp %d, caller had %d)",
+				idx, m.spindleMem.Updated, entry.Updated)
+		}
+		entry.Idx = SpindleIdx
+		entry.Updated = time.Now().UnixNano()
+		m.spindleMem = entry
+		return tooltable.PutToolResult{Ok: true, Index: idx}, nil
 	}
 
 	// Optimistic concurrency: a non-zero stamp is the caller's read baseline;

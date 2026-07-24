@@ -206,12 +206,55 @@ func TestSpindleSlotAlwaysExists(t *testing.T) {
 		t.Fatalf("empty table = %+v, want exactly the empty spindle slot", tools)
 	}
 
-	// And it survives a restart without being re-created as a duplicate or
-	// clobbering what the changer put there.
+	// On a NON-random changer the spindle slot is SESSION state: what the
+	// changer put there must be readable now — and must NOT survive a
+	// restart. 2.9's durable form (.tbl) never contained this row
+	// (tooldata_save starts at idx 1); persisting it is how a power cycle
+	// came to apply a phantom G43 offset from a tool io reported as absent.
 	if _, err := m.PutTool(0, gmitooltable.ToolEntry{Toolno: 4, ZOffset: -9}); err != nil {
 		t.Fatalf("PutTool(spindle): %v", err)
 	}
+	sp, err := m.GetTool(0)
+	if err != nil {
+		t.Fatalf("GetTool(0): %v", err)
+	}
+	if sp.Toolno != 4 || sp.ZOffset != -9 {
+		t.Fatalf("live spindle slot = %+v, want tool 4 z -9", sp)
+	}
+
 	m2 := newBoundTooltable(t, dir, nil)
+	if err := m2.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	sp, err = m2.GetTool(0)
+	if err != nil {
+		t.Fatalf("GetTool(0) after restart: %v", err)
+	}
+	if sp.Toolno != emptyToolno {
+		t.Errorf("non-random spindle slot after restart = %+v, want empty "+
+			"(the session copy must not be resurrected from the store)", sp)
+	}
+}
+
+// On a RANDOM changer slot 0 IS carousel pocket 0 — the tool in the spindle
+// lives there and nowhere else, so it MUST persist: iocontrol restores
+// toolInSpindle from it at startup.
+func TestRandomSpindleSlotPersists(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	ini, err := inifile.ParseString("[EMCIO]\nRANDOM_TOOLCHANGER = 1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newBoundTooltable(t, dir, ini)
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := m.PutTool(0, gmitooltable.ToolEntry{Toolno: 4, ZOffset: -9}); err != nil {
+		t.Fatalf("PutTool(spindle): %v", err)
+	}
+
+	m2 := newBoundTooltable(t, dir, ini)
 	if err := m2.Start(); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
@@ -220,7 +263,48 @@ func TestSpindleSlotAlwaysExists(t *testing.T) {
 		t.Fatalf("GetTool(0): %v", err)
 	}
 	if sp.Toolno != 4 || sp.ZOffset != -9 {
-		t.Errorf("spindle slot after restart = %+v, want tool 4 z -9", sp)
+		t.Errorf("random spindle slot after restart = %+v, want tool 4 z -9", sp)
+	}
+}
+
+// A store written before the session-state rule (or under a config whose
+// RANDOM_TOOLCHANGER flag was since flipped off) may hold a persisted slot-0
+// row. A non-random Start must PURGE it, not just mask it: a row that merely
+// lingered would resurrect an ancient "tool in spindle" the moment the flag
+// flips back to random.
+func TestNonRandomStartPurgesPersistedSpindleRow(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	randomIni, err := inifile.ParseString("[EMCIO]\nRANDOM_TOOLCHANGER = 1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newBoundTooltable(t, dir, randomIni)
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := m.PutTool(0, gmitooltable.ToolEntry{Toolno: 7, ZOffset: 3}); err != nil {
+		t.Fatalf("PutTool(spindle): %v", err)
+	}
+
+	// Reopen the same store non-random: slot 0 reads empty...
+	m2 := newBoundTooltable(t, dir, nil)
+	if err := m2.Start(); err != nil {
+		t.Fatalf("non-random Start: %v", err)
+	}
+	if sp, err := m2.GetTool(0); err != nil || sp.Toolno != emptyToolno {
+		t.Fatalf("non-random slot 0 over a random store = %+v, %v; want empty", sp, err)
+	}
+
+	// ...and the persisted row is genuinely gone: flipping back to random
+	// starts with an empty spindle instead of tool 7 from another era.
+	m3 := newBoundTooltable(t, dir, randomIni)
+	if err := m3.Start(); err != nil {
+		t.Fatalf("random re-Start: %v", err)
+	}
+	if sp, err := m3.GetTool(0); err != nil || sp.Toolno != emptyToolno {
+		t.Errorf("random slot 0 after a non-random session = %+v, %v; "+
+			"want empty (the stale row must have been purged, not masked)", sp, err)
 	}
 }
 
