@@ -7,8 +7,13 @@
  * Tests state transitions, trigger detection, sample capture, buffer
  * management, and ring-buffer linearization — all without HAL or RTAPI.
  *
- * Build:  cd src/gomc/internal/halscope/testrt && gcc -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -O2 -I testmock -I ../../../../../unit_tests -I .. -o test_halscope_rt test_halscope_rt.c -lm
- * Run:    ./test_halscope_rt
+ * Build + run:  make -C src gomc-test GOMC_TEST_PKGS=./internal/halscope/testrt
+ *
+ * The suite is driven from Go (runner.go / halscope_rt_test.go) so it runs in
+ * the same gate as everything else; halscope_rt_run_all() below is the entry
+ * point.  It used to be a standalone binary built by the top-level meson.build,
+ * which was the only thing that built it — and had not been buildable since
+ * 2019 (it required python2 for unrelated targets in the same project).
  */
 
 #define _DEFAULT_SOURCE  /* for htole32/htole64 in <endian.h> */
@@ -999,11 +1004,19 @@ SUITE(capture_and_buffer)
 
 GREATEST_MAIN_DEFS();
 
-int main(int argc, char **argv)
+/* halscope_rt_run_all is the entry point the Go wrapper calls (runner.go).
+ * It replaces the standalone main(): the suite now runs under `go test`, so
+ * it must return a count rather than an exit status, and greatest's option
+ * parsing has no command line to read.  greatest writes its per-test report
+ * to stdout, which `go test` captures and prints on failure.
+ *
+ * Returns the number of failed assertions (0 = all green). */
+int halscope_rt_run_all(void)
 {
-    GREATEST_MAIN_BEGIN();
+    GREATEST_INIT();
     RUN_SUITE(state_transitions);
     RUN_SUITE(trigger_detection);
     RUN_SUITE(capture_and_buffer);
-    GREATEST_MAIN_END();
+    GREATEST_PRINT_REPORT();
+    return (int)greatest_info.failed;
 }

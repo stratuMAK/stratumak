@@ -22,6 +22,3 @@ Build
 RT module loading is now handled in-process by the Go launcher via
 dlopen.  The standalone rtapi_app binary is no longer built.
 
-The meson.build exports source/include variables for the unit-test
-build only.
-
