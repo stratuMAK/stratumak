@@ -35,13 +35,22 @@ type fakeToolSlot struct {
 }
 
 // fakeToolTable implements tooltable.TooltableCallbacks over a flat array.
+//
+// The mutex is not ceremony: the tool table is genuinely reached from two
+// goroutines at once — the interpreter thread reads it through the canon
+// getters while the sequencer writes it through io.ToolSetOffset — and the
+// real store (internal/tooltable/module.go) guards itself the same way. The
+// race detector catches this immediately without it.
 type fakeToolTable struct {
+	mu    sync.RWMutex
 	slots [fakeToolSlots]fakeToolSlot
 }
 
 // setTool places a tool in a slot. Offsets beyond Z are left zero — the tests
 // that use this only exercise the XYZ tool offsets.
 func (f *fakeToolTable) setTool(idx, toolno int32, x, y, z, diameter float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.slots[idx] = fakeToolSlot{
 		occupied: true,
 		entry: tooltable.ToolEntry{
@@ -53,6 +62,8 @@ func (f *fakeToolTable) setTool(idx, toolno int32, x, y, z, diameter float64) {
 }
 
 func (f *fakeToolTable) ListTools() ([]tooltable.ToolEntry, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	var out []tooltable.ToolEntry
 	for i := range f.slots {
 		if f.slots[i].occupied {
@@ -66,6 +77,8 @@ func (f *fakeToolTable) ListTools() ([]tooltable.ToolEntry, error) {
 // 2.9's GET_EXTERNAL_TOOL_TABLE hands back the empty entry, it does not fail.
 // getToolSlot() reserves its error return for a slot that cannot be read.
 func (f *fakeToolTable) GetTool(idx int32) (tooltable.ToolEntry, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	if idx < 0 || int(idx) >= len(f.slots) || !f.slots[idx].occupied {
 		return tooltable.ToolEntry{Idx: idx, Toolno: fakeEmptyToolno}, nil
 	}
@@ -79,6 +92,8 @@ func (f *fakeToolTable) GetTool(idx int32) (tooltable.ToolEntry, error) {
 // loaded tool, so letting it win would resolve every loaded tool to the
 // spindle.
 func (f *fakeToolTable) FindIndexForTool(toolno int32) (tooltable.IndexResult, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	if toolno == fakeEmptyToolno {
 		return tooltable.IndexResult{Idx: -1}, nil
 	}
@@ -102,6 +117,8 @@ func (f *fakeToolTable) FindIndexForTool(toolno int32) (tooltable.IndexResult, e
 // NextFreeIndex returns the lowest unoccupied slot >= 1; slot 0 is never
 // offered, it is the spindle.
 func (f *fakeToolTable) NextFreeIndex() (tooltable.IndexResult, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	for idx := int32(1); int(idx) < len(f.slots); idx++ {
 		if !f.slots[idx].occupied {
 			return tooltable.IndexResult{Idx: idx}, nil
@@ -111,6 +128,8 @@ func (f *fakeToolTable) NextFreeIndex() (tooltable.IndexResult, error) {
 }
 
 func (f *fakeToolTable) PutTool(idx int32, entry tooltable.ToolEntry) (tooltable.PutToolResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if idx < 0 || int(idx) >= len(f.slots) {
 		return tooltable.PutToolResult{Ok: false, Index: -1}, nil
 	}
@@ -120,6 +139,8 @@ func (f *fakeToolTable) PutTool(idx int32, entry tooltable.ToolEntry) (tooltable
 }
 
 func (f *fakeToolTable) DeleteTool(idx int32) (tooltable.DeleteResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if idx < 0 || int(idx) >= len(f.slots) {
 		return tooltable.DeleteResult{Ok: false}, nil
 	}

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/canon"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 )
 
 // Canon unit systems.
@@ -306,6 +308,11 @@ type Canon struct {
 	// chained is the naive-CAM straight-feed buffer (2.9 chained_points);
 	// see canon_naivecam.go. Producer-goroutine-owned like all canon state.
 	chained []chainedPt
+	// pendingTools makes tool-table writes visible to the interpreter's own
+	// reads before the queued store write has executed — see
+	// canon_tooltable_pending.go for why that is required.
+	pendingToolsMu sync.Mutex
+	pendingTools   map[int32]tooltable.ToolEntry
 }
 
 // Compile-time check that Canon implements the generated CanonCallbacks interface.
@@ -385,6 +392,9 @@ func (c *Canon) InitCanon() {
 		xyRotation: c.state.xyRotation,
 		toolOffset: c.state.toolOffset,
 	}
+	// Queued-but-unexecuted tool-table writes are abandoned with the rest of
+	// the previous run's queue (canon_tooltable_pending.go).
+	c.clearPendingTools()
 	*c.state = *NewCanonState()
 	// Modal length units restart in the machine's native units (G20 on an inch
 	// machine, G21 on mm), like the C canon's INIT_CANON.
@@ -1209,6 +1219,10 @@ func (c *Canon) SetSpindleMode(spindle int32, cssMax float64) {
 
 func (c *Canon) SetToolTableEntry(pocket, toolno int32, ox, oy, oz, oa, ob, oc, ou, ov, ow, diameter, frontangle, backangle float64, orientation int32) {
 	c.flushSegments()
+	// Make the write visible to the interpreter's own on-demand reads before
+	// the queued store write executes — see canon_tooltable_pending.go.
+	c.recordPendingTool(pocket, toolno, ox, oy, oz, oa, ob, oc, ou, ov, ow,
+		diameter, frontangle, backangle, orientation)
 	c.enqueue(&SetToolTableEntryCmd{
 		Pocket: pocket, Toolno: toolno,
 		X: ox, Y: oy, Z: oz, A: oa, B: ob, C: oc, U: ou, V: ov, W: ow,

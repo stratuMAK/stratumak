@@ -277,6 +277,12 @@ func (c *Canon) GetExternalSelectedToolSlot() (int32, error) {
 // represent slot 0 at all, so this getter had to reconstruct the spindle from
 // io's tool-in-spindle plus a last-known-good snapshot in the Canon.
 func (c *Canon) GetExternalToolTable(idx int32) (int32, int32, int32, [9]float64, float64, float64, float64, int32, error) {
+	// A write this run has queued but not yet executed wins over the store —
+	// the interpreter caches whatever it reads here and would otherwise
+	// clobber its own uncommitted edit (canon_tooltable_pending.go).
+	if e, ok := c.pendingTool(idx); ok {
+		return 0, e.Toolno, e.Pocketno, toolOffsets(&e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+	}
 	retval, toolno, pocketno, offset, diameter, frontangle, backangle, orientation := getToolSlot(idx)
 	return retval, toolno, pocketno, offset, diameter, frontangle, backangle, orientation, nil
 }
@@ -286,6 +292,14 @@ func (c *Canon) GetExternalToolTable(idx int32) (int32, int32, int32, [9]float64
 // numbers on a non-random toolchanger.
 func (c *Canon) GetToolByNumber(toolno int32) (int32, int32, int32, [9]float64, float64, float64, float64, int32, error) {
 	idx := toolIdxFor(toolno)
+	// Same pending-write precedence as GetExternalToolTable. The slot lookup
+	// still goes to the store: a pending write never changes which slot holds
+	// a tool number, only that slot's contents.
+	if idx >= 0 {
+		if e, ok := c.pendingTool(idx); ok && e.Toolno == toolno {
+			return 0, idx, e.Pocketno, toolOffsets(&e), e.Diameter, e.Frontangle, e.Backangle, e.Orientation, nil
+		}
+	}
 	if idx < 0 || pkgTTClient == nil {
 		// Missing or unresolvable tools report "not found" so the interp
 		// raises its tool-not-in-table error (classic G43 Hn on an unknown

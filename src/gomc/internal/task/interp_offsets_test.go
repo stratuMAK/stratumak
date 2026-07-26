@@ -586,50 +586,6 @@ func TestInterpG10WithG92Active(t *testing.T) {
 	})
 }
 
-// skipToolTableStaleRead marks the three G10 tool-offset tests as blocked on a
-// real gomc defect, found while porting them.
-//
-// gomc's Interp::find_tool_index (interp_find.cc) does an on-demand lookup
-// through the canon and CACHES the result back into the interpreter's own
-// table:
-//
-//	if (settings->canon.get_tool_by_number(toolno, &idx, &t)) {
-//	    settings->tool_table[idx] = t;   // <-- overwrites local edits
-//
-// The matching WRITE is asynchronous: G10 L1 calls set_tool_table_entry, which
-// enqueues SetToolTableEntryCmd, which the sequencer later hands to
-// io.ToolSetOffset. So two consecutive G10 L1/L10 blocks that each name a
-// different axis lose the earlier one — the second block's find_tool_index
-// re-reads a store the first block's write has not reached yet and clobbers
-// the accumulated offsets.
-//
-// Verified: with a full sequencer drain between the two blocks the offsets
-// accumulate correctly (1,0,0) then (1,2,0), the exact values these tests
-// expect. Without one, X is lost. AUTO reads ahead without draining unless the
-// line returns EXECUTE_FINISH, and G10 L1 does not — so a plain program doing
-//
-//	g10 l1 p1 x1
-//	g10 l1 p1 y2
-//
-// silently loses the X offset on the machine, not just here.
-//
-// 2.9 cannot hit this: its find_tool_index only RESOLVES an index
-// (tooldata_find_index_for_tool) and never writes settings->tool_table, and
-// there the interpreter's table IS the shared tooldata, coherent by
-// construction.
-//
-// Forcing a drain per line is not a workaround: it also runs
-// syncEndPointFromMachine, which resets the interpreter's position against the
-// motion double and breaks the L10 position arithmetic these tests assert.
-//
-// Delete this call to enable the tests once find_tool_index stops clobbering
-// locally-modified slots (or the tool-table write becomes write-through).
-func skipToolTableStaleRead(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: find_tool_index re-reads the async tool-table store and " +
-		"clobbers in-flight G10 L1/L10 edits — see comment above")
-}
-
 // setupToolOffsetFixture builds the shared preamble of the three tool-offset
 // tests: an inch machine with tool 1 in slot 1, zeroed G54 and zeroed tool
 // offsets, tool 1 loaded and G43 active.
@@ -666,8 +622,6 @@ func checkToolOffsets(t *testing.T, f *interpFixture, x, y, z float64, what stri
 // "G10 L1 direct offsets" section: G10 L1 writes tool-table offsets directly,
 // one axis at a time, and the values persist across G49/G43.
 func TestInterpG10L1DirectOffsets(t *testing.T) {
-	skipToolTableStaleRead(t)
-
 	f := setupToolOffsetFixture(t, "")
 
 	// Two passes: the offsets must survive G49 (tool length compensation off)
@@ -693,8 +647,6 @@ func TestInterpG10L1DirectOffsets(t *testing.T) {
 // CURRENT point reads as the commanded coordinate, so the stored offset is
 // (current - commanded) — negative here.
 func TestInterpG10L10RelativeToPosition(t *testing.T) {
-	skipToolTableStaleRead(t)
-
 	f := setupToolOffsetFixture(t, "")
 
 	f.mdi(t, "g0 x.1 y.2 z.3")
@@ -714,8 +666,6 @@ func TestInterpG10L10RelativeToPosition(t *testing.T) {
 // offset G10 L10 stores is rotated too, and re-applying G43 moves the current
 // position to the commanded coordinate.
 func TestInterpG10L10WithRotation(t *testing.T) {
-	skipToolTableStaleRead(t)
-
 	f := setupToolOffsetFixture(t, " r45")
 
 	f.mdi(t, "g0 x0 y0 z0")
@@ -738,4 +688,33 @@ func TestInterpG10L10WithRotation(t *testing.T) {
 	checkToolOffsets(t, f, 0, -math.Sqrt2, 0, "offsets survive G49")
 	checkFuzz(t, f.interp.CurrentPosition(AxisX), 0.0, "X back to uncompensated")
 	checkFuzz(t, f.interp.CurrentPosition(AxisY), 0.0, "Y back to uncompensated")
+}
+
+// TestToolTableWriteVisibleBeforeDrain pins the defect the three tests above
+// were blocked on, independently of them.
+//
+// The interpreter reads tool entries on demand and caches what it reads
+// (find_tool_index), while the matching write is queued to the sequencer. If a
+// read between the two sees the pre-write store, the cache-fill wipes the
+// interpreter's own uncommitted edit. Two G10 L1 blocks naming different axes
+// is the shortest way to show it: the second block must not undo the first.
+//
+// No drain between the blocks — that is the point. AUTO reads ahead without
+// draining unless a line returns EXECUTE_FINISH, and G10 L1 does not.
+func TestToolTableWriteVisibleBeforeDrain(t *testing.T) {
+	f := setupToolOffsetFixture(t, "")
+
+	f.mdi(t, "g10 l1 p1 x1")
+	f.mdi(t, "g10 l1 p1 y2")
+	checkToolOffsets(t, f, 1, 2, 0, "back-to-back G10 L1 with no drain")
+
+	// And once the queued writes have executed, the store agrees — the
+	// pending copy is a read-through, not a shadow that diverges.
+	f.task.DrainQueue()
+	entry, err := f.tools.GetTool(1)
+	if err != nil {
+		t.Fatalf("read slot 1: %v", err)
+	}
+	checkFuzz(t, entry.XOffset, 1, "store slot 1 X after drain")
+	checkFuzz(t, entry.YOffset, 2, "store slot 1 Y after drain")
 }
