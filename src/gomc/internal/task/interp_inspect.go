@@ -35,7 +35,24 @@ const (
 	ParamG92X = 5211 // G92/G52 axis offsets, 5211..5219 (X Y Z A B C U V W)
 	ParamG92Y = 5212
 	ParamG92Z = 5213
+
+	// Work offsets: each coordinate system occupies 20 slots, X first,
+	// with the XY rotation R at +9. G54 starts at 5221, G55 at 5241, etc.
+	ParamG54X = 5221
+	ParamG55X = 5241
+
+	ParamToolOffsetX = 5401 // tool offsets, 5401..5403 (X Y Z)
+	ParamToolOffsetY = 5402
+	ParamToolOffsetZ = 5403
 )
+
+// paramCoordSysStride is the parameter-number spacing between consecutive
+// coordinate systems (G54 -> G55 -> ...).
+const paramCoordSysStride = 20
+
+// paramWorkOffsetR is the offset from a coordinate system's X parameter to
+// its XY rotation parameter.
+const paramWorkOffsetR = 9
 
 // Parameter returns numbered parameter #index (0 if out of range).
 func (i *CInterp) Parameter(index int) float64 {
@@ -46,6 +63,11 @@ func (i *CInterp) Parameter(index int) float64 {
 // LengthUnits* constants.
 func (i *CInterp) LengthUnits() int {
 	return int(C.interp_length_units(i.handle))
+}
+
+// OriginIndex returns the active coordinate system: 1=G54 ... 9=G59.3.
+func (i *CInterp) OriginIndex() int {
+	return int(C.interp_origin_index(i.handle))
 }
 
 // CurrentPosition returns the current position on one axis, in the

@@ -138,6 +138,10 @@ double interp_get_parameter(void *handle, int index);
 // Returns -1 for a non-Interp handle.
 int interp_length_units(void *handle);
 
+// Active coordinate system index: 1=G54, 2=G55 ... 9=G59.3.
+// Returns -1 for a non-Interp handle.
+int interp_origin_index(void *handle);
+
 // Current position, G5x work offset and G92 axis offset for one axis, in the
 // interpreter's internal units.  Return 0 for an out-of-range axis or a
 // non-Interp handle.

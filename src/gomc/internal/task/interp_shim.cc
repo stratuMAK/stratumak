@@ -292,6 +292,12 @@ int interp_length_units(void *handle) {
     return ip ? static_cast<int>(ip->_setup.length_units) : -1;
 }
 
+// interp_origin_index returns the active coordinate system (1=G54 .. 9=G59.3).
+int interp_origin_index(void *handle) {
+    Interp *ip = as_interp(handle);
+    return ip ? ip->_setup.origin_index : -1;
+}
+
 // The interp_inspection.hh accessors, indexed by enum interp_axis.  Going
 // through that header rather than touching _setup fields directly is
 // deliberate: it is the documented seam, so a field rename in setup breaks

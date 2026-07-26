@@ -66,10 +66,20 @@ func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	task := NewTask(mot, &mockIO{}, st, logger)
-	applyBlendLimits(task)
+	applyBlendLimits(task) // XYZ vel/acc limits, so the sequencer has real numbers
 	task.maxAcceleration = 600
-	task.numJoints = 3
 	task.linearUnits = linearUnits // feeds GET_EXTERNAL_LENGTH_UNITS
+
+	// XYZABC, matching the 2019 harness (saicanon hardcoded
+	// GET_EXTERNAL_AXIS_MASK() = 0x3f). The rotary axes carry no interesting
+	// dynamics here — the offset tests only ever assert positions — but they
+	// must exist or the interpreter rejects an A/B/C word outright.
+	task.axisMask = 0x3f
+	task.numJoints = 6
+	for a := AxisA; a <= AxisC; a++ {
+		task.axisMaxVel[a] = 100
+		task.axisMaxAcc[a] = 1000
+	}
 
 	iniUnits := "mm"
 	if linearUnits != machineUnitsMM {
@@ -83,7 +93,7 @@ func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	}
 	ini, err := inifile.ParseString("[EMC]\nMACHINE=interptest\n" +
 		"[RS274NGC]\nPARAMETER_FILE=" + varPath + "\n" +
-		"[TRAJ]\nCOORDINATES=X Y Z\nLINEAR_UNITS=" + iniUnits + "\n[EMCIO]\n")
+		"[TRAJ]\nCOORDINATES=X Y Z A B C\nLINEAR_UNITS=" + iniUnits + "\n[EMCIO]\n")
 	if err != nil {
 		t.Fatalf("parse ini: %v", err)
 	}
@@ -134,6 +144,22 @@ func (f *interpFixture) mdi(t *testing.T, line string) {
 	}
 }
 
+// newInchFixture is the fixture the ported sections use: an inch machine
+// running an inch program. The 2019 suite began every section with "g20" and
+// asserted raw parameter values, which only holds when the machine's native
+// units match the program's — parameters are stored in machine units (see
+// TestInterpG52WithoutRotation). Matching that here keeps the ported
+// expectations comparable to the originals digit for digit.
+func newInchFixture(t *testing.T) *interpFixture {
+	t.Helper()
+	f := newInterpFixture(t, machineUnitsInch)
+	f.mdi(t, "G20")
+	if got := f.interp.LengthUnits(); got != LengthUnitsInches {
+		t.Fatalf("program length units after G20 = %d, want %d (inches)", got, LengthUnitsInches)
+	}
+	return f
+}
+
 // interpFuzz is the tolerance the 2019 Catch suite used (INTERP_FUZZ).
 const interpFuzz = 1e-10
 
@@ -142,6 +168,33 @@ func checkFuzz(t *testing.T, got, want float64, what string) {
 	if math.Abs(got-want) > interpFuzz {
 		t.Errorf("%s = %.15g, want %.15g (tol %g)", what, got, want, interpFuzz)
 	}
+}
+
+// allAxes is X Y Z A B C — the order the accessors and the work-offset
+// parameter blocks both use.
+var allAxes = [...]int{AxisX, AxisY, AxisZ, AxisA, AxisB, AxisC}
+
+var axisNames = [...]string{"X", "Y", "Z", "A", "B", "C"}
+
+// checkAxes asserts one value per axis from a per-axis getter.
+func checkAxes(t *testing.T, get func(int) float64, want [6]float64, what string) {
+	t.Helper()
+	for i, ax := range allAxes {
+		checkFuzz(t, get(ax), want[i], what+" "+axisNames[i])
+	}
+}
+
+// workOffsetParam returns the parameter number for one axis of a coordinate
+// system, given that system's X parameter (ParamG54X, ParamG55X, ...).
+func workOffsetParam(csX, axis int) int { return csX + axis }
+
+// checkWorkOffsetParams asserts the stored work-offset parameters of one
+// coordinate system.
+func checkWorkOffsetParams(t *testing.T, f *interpFixture, csX int, want [6]float64, what string) {
+	t.Helper()
+	checkAxes(t, func(ax int) float64 {
+		return f.interp.Parameter(workOffsetParam(csX, ax))
+	}, want, what)
 }
 
 // TestInterpG52WithoutRotation ports the "G52 without rotation" section of
@@ -214,4 +267,258 @@ func TestInterpG52WithoutRotation(t *testing.T) {
 			checkFuzz(t, f.interp.CurrentAxisOffset(AxisY), 25.4, "axis offset Y (program mm)")
 		})
 	}
+}
+
+// TestInterpInitPosition ports the "Interp Init" section: a freshly
+// initialised interpreter sits at the origin.
+func TestInterpInitPosition(t *testing.T) {
+	f := newInchFixture(t)
+	checkAxes(t, f.interp.CurrentPosition, [6]float64{0, 0, 0, 0, 0, 0}, "current position at init")
+	checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{0, 0, 0, 0, 0, 0}, "work offset at init")
+	checkAxes(t, f.interp.CurrentAxisOffset, [6]float64{0, 0, 0, 0, 0, 0}, "axis offset at init")
+}
+
+// TestInterpG92AndG5xRotation ports the "G92 X and G5x Rotation" section.
+//
+// A G52 axis offset and a G5x work offset stack, and rotating the coordinate
+// system rotates the combined offset. The 2019 suite flagged the R90 result
+// with "FIXME this is the wrong behavior but what the interpreter currently
+// expects" — that judgement is preserved rather than re-litigated here: the
+// test pins current behavior so a change is visible, it does not endorse it.
+func TestInterpG92AndG5xRotation(t *testing.T) {
+	f := newInchFixture(t)
+
+	f.mdi(t, "G92.1") // clear any axis offset
+	checkFuzz(t, f.interp.Parameter(ParamG92X), 0.0, "#5211 after G92.1")
+
+	f.mdi(t, "G52 X1 Y0")
+	f.mdi(t, "G10 L2 P0 X1 Y0 Z0 R0")
+	checkFuzz(t, f.interp.CurrentPosition(AxisX), -2.0, "X with G52 X1 + G54 X1, unrotated")
+
+	// FIXME (carried over from the 2019 suite): the interpreter rotates the
+	// combined G92+G5x offset, which is arguably wrong. Pinned as-is.
+	f.mdi(t, "G10 L2 P0 X1 Y0 Z0 R90")
+	checkFuzz(t, f.interp.CurrentPosition(AxisX), 0.0, "X after R90")
+	checkFuzz(t, f.interp.CurrentPosition(AxisY), 2.0, "Y after R90")
+}
+
+// TestInterpG92OffAxisWithRotation ports the "G92 off-axis behavior with
+// rotation" section: only X/Y take part in the XY rotation, Z/A/B/C do not.
+func TestInterpG92OffAxisWithRotation(t *testing.T) {
+	f := newInchFixture(t)
+
+	f.mdi(t, "G92.1")
+	f.mdi(t, "G52 X1 Y0")
+	f.mdi(t, "G10 L2 P0 X1 Y2 Z3 A4 B5 C6 R90")
+
+	// FIXME (carried over): the X/Y pair follows the same rotation of the
+	// combined offset the section above flags.
+	checkAxes(t, f.interp.CurrentPosition,
+		[6]float64{-2, 2, -3, -4, -5, -6}, "position after rotated G10 L2")
+}
+
+// TestInterpG55CoordinateSystem ports the "G55 without rotation" and "G55
+// with rotation" sections.
+//
+// Re-expressed: the originals hacked _setup.parameters[G55_*] directly and
+// called the protected convert_coordinate_system(), "to avoid depending on
+// other functions". Both are unreachable across a C ABI and neither is a path
+// a program can take, so the offsets are established with G10 L2 P2 (which
+// leaves the position alone while G55 is inactive) and the position with G0.
+// Selecting G55 is then the public equivalent of the direct call.
+func TestInterpG55CoordinateSystem(t *testing.T) {
+	t.Run("without rotation", func(t *testing.T) {
+		f := newInchFixture(t)
+
+		f.mdi(t, "G10 L2 P2 X2 Y3 Z1") // G55 offsets, G55 not yet active
+		f.mdi(t, "G0 X1 Y1 Z1")        // machine position 1,1,1 under G54 (no offset)
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{1, 1, 1, 0, 0, 0}, "position before G55")
+
+		// Switching coordinate system holds the machine still, so the program
+		// position becomes machinePos - newOffset.
+		f.mdi(t, "G55")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{-1, -2, 0, 0, 0, 0}, "position after G55")
+	})
+
+	t.Run("with rotation", func(t *testing.T) {
+		f := newInchFixture(t)
+
+		f.mdi(t, "G10 L2 P2 X2 Y3 Z1 R90")
+		f.mdi(t, "G0 X0 Y0 Z0") // machine position 0,0,0
+		f.mdi(t, "G55")
+
+		// machine 0,0,0 minus offset (2,3) is (-2,-3), rotated by -90 deg:
+		//   x' = -2*cos(-90) - -3*sin(-90) = -3
+		//   y' = -2*sin(-90) + -3*cos(-90) =  2
+		// Z is untouched by the XY rotation: 0 - 1 = -1.
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{-3, 2, -1, 0, 0, 0}, "position after rotated G55")
+	})
+}
+
+// TestInterpG92SaveRestore ports the "Save / restore of G92 parameters"
+// scenario: G92.2 suspends the offset without discarding it, G92.3 restores.
+func TestInterpG92SaveRestore(t *testing.T) {
+	f := newInchFixture(t)
+
+	f.mdi(t, "G92 X3 Y4 Z5")
+	// G92 records the offset that makes the CURRENT point read as X3 Y4 Z5,
+	// so the stored parameters are negative.
+	checkFuzz(t, f.interp.Parameter(ParamG92X), -3.0, "#5211 after G92")
+	checkFuzz(t, f.interp.Parameter(ParamG92Y), -4.0, "#5212 after G92")
+	checkFuzz(t, f.interp.Parameter(ParamG92Z), -5.0, "#5213 after G92")
+	checkAxes(t, f.interp.CurrentPosition, [6]float64{3, 4, 5, 0, 0, 0}, "position under G92")
+
+	f.mdi(t, "G92.2")
+	checkAxes(t, f.interp.CurrentPosition, [6]float64{0, 0, 0, 0, 0, 0}, "position with G92 suspended")
+	// Suspended, not cleared — the parameters must survive.
+	checkFuzz(t, f.interp.Parameter(ParamG92X), -3.0, "#5211 after G92.2")
+	checkFuzz(t, f.interp.Parameter(ParamG92Y), -4.0, "#5212 after G92.2")
+	checkFuzz(t, f.interp.Parameter(ParamG92Z), -5.0, "#5213 after G92.2")
+
+	f.mdi(t, "G92.3")
+	checkAxes(t, f.interp.CurrentPosition, [6]float64{3, 4, 5, 0, 0, 0}, "position after G92.3")
+	checkFuzz(t, f.interp.Parameter(ParamG92X), -3.0, "#5211 after G92.3")
+	checkFuzz(t, f.interp.Parameter(ParamG92Y), -4.0, "#5212 after G92.3")
+	checkFuzz(t, f.interp.Parameter(ParamG92Z), -5.0, "#5213 after G92.3")
+}
+
+// TestInterpConvertG20G21 ports the "Convert G20 / G21" scenario: switching
+// program units rescales the linear position and both offset families, while
+// the angular axes are left alone.
+func TestInterpConvertG20G21(t *testing.T) {
+	const mmPerInch = 25.4
+
+	t.Run("current position", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G0 X1 Y2 Z3 A4 B5 C6")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{1, 2, 3, 4, 5, 6}, "position in G20")
+
+		f.mdi(t, "G21")
+		if got := f.interp.LengthUnits(); got != LengthUnitsMM {
+			t.Fatalf("length units after G21 = %d, want %d", got, LengthUnitsMM)
+		}
+		checkAxes(t, f.interp.CurrentPosition,
+			[6]float64{1 * mmPerInch, 2 * mmPerInch, 3 * mmPerInch, 4, 5, 6}, "position in G21")
+
+		f.mdi(t, "G20")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{1, 2, 3, 4, 5, 6}, "position back in G20")
+	})
+
+	t.Run("work offsets", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G10 L2 P1 X1 Y2 Z3 A4 B5 C6")
+		f.mdi(t, "G54")
+		f.mdi(t, "G0 X0.5 Y0.5")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{1, 2, 3, 4, 5, 6}, "work offset in G20")
+
+		f.mdi(t, "G21")
+		checkAxes(t, f.interp.CurrentWorkOffset,
+			[6]float64{1 * mmPerInch, 2 * mmPerInch, 3 * mmPerInch, 4, 5, 6}, "work offset in G21")
+
+		f.mdi(t, "G20")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{1, 2, 3, 4, 5, 6}, "work offset back in G20")
+	})
+
+	t.Run("axis offsets", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G92 X1 Y2 Z3 A4 B5 C6")
+		checkAxes(t, f.interp.CurrentAxisOffset, [6]float64{-1, -2, -3, -4, -5, -6}, "axis offset in G20")
+
+		f.mdi(t, "G21")
+		checkAxes(t, f.interp.CurrentAxisOffset,
+			[6]float64{-1 * mmPerInch, -2 * mmPerInch, -3 * mmPerInch, -4, -5, -6}, "axis offset in G21")
+
+		f.mdi(t, "G20")
+		checkAxes(t, f.interp.CurrentAxisOffset, [6]float64{-1, -2, -3, -4, -5, -6}, "axis offset back in G20")
+	})
+}
+
+// TestInterpWorkOffsetWhileActive ports the "Applying a work offset while
+// active" scenario: G10 L20 sets the offset that makes the current point read
+// as the given coordinate, and that offset lands rotated in a rotated system.
+func TestInterpWorkOffsetWhileActive(t *testing.T) {
+	f := newInchFixture(t)
+
+	f.mdi(t, "G54")
+	f.mdi(t, "G10 L2 P1 X0 Y0 Z0 R45")
+	f.mdi(t, "G0 G53 X0 Y0 Z0") // machine origin
+	checkAxes(t, f.interp.CurrentPosition, [6]float64{0, 0, 0, 0, 0, 0}, "position at machine origin")
+
+	f.mdi(t, "G10 L20 P1 X-1")
+	checkAxes(t, f.interp.CurrentWorkOffset,
+		[6]float64{math.Sqrt2 / 2, math.Sqrt2 / 2, 0, 0, 0, 0}, "work offset after L20 X-1")
+
+	f.mdi(t, "G0 X0")
+	f.mdi(t, "G10 L20 P1 Y-1")
+	checkAxes(t, f.interp.CurrentWorkOffset,
+		[6]float64{0, math.Sqrt2, 0, 0, 0, 0}, "work offset after L20 Y-1")
+}
+
+// TestInterpG10WithG92Active ports the "Call G10 with G92 active" scenario
+// (itself derived from the runtests g10-with-g92 case). Each WHEN gets a
+// fresh fixture, mirroring how Catch re-runs the GIVEN per section.
+func TestInterpG10WithG92Active(t *testing.T) {
+	t.Run("no offsets applied", func(t *testing.T) {
+		f := newInchFixture(t)
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{0, 0, 0, 0, 0, 0}, "position")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{0, 0, 0, 0, 0, 0}, "work offset")
+	})
+
+	t.Run("G10 L2 on the active system applies immediately", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G10 L2 P0 X7 Y8 Z9 A10 B11 C12") // P0 = whichever system is active
+
+		if got := f.interp.OriginIndex(); got != 1 {
+			t.Fatalf("origin index = %d, want 1 (G54)", got)
+		}
+		checkWorkOffsetParams(t, f, ParamG54X, [6]float64{7, 8, 9, 10, 11, 12}, "#5221.. after G10 L2 P0")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{7, 8, 9, 10, 11, 12}, "work offset")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{-7, -8, -9, -10, -11, -12}, "position")
+	})
+
+	t.Run("G10 L2 on an inactive system stores but does not apply", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G54")
+		f.mdi(t, "G10 L2 P2 X7 Y8 Z9 A10 B11 C12") // P2 = G55, not active
+
+		if got := f.interp.OriginIndex(); got != 1 {
+			t.Fatalf("origin index = %d, want 1 (G54)", got)
+		}
+		checkWorkOffsetParams(t, f, ParamG55X, [6]float64{7, 8, 9, 10, 11, 12}, "#5241.. after G10 L2 P2")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{0, 0, 0, 0, 0, 0}, "work offset (unchanged)")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{0, 0, 0, 0, 0, 0}, "position (unchanged)")
+	})
+
+	t.Run("G92 active, no work offsets", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G92 X3 Y4 Z5")
+		checkAxes(t, f.interp.CurrentPosition, [6]float64{3, 4, 5, 0, 0, 0}, "position due to G92 alone")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{0, 0, 0, 0, 0, 0}, "work offset")
+	})
+
+	t.Run("G92 active plus rotated work offset", func(t *testing.T) {
+		f := newInchFixture(t)
+		f.mdi(t, "G92 X3 Y4 Z5")
+		f.mdi(t, "G10 L2 P0 X7 Y8 Z9 A10 B11 C12 R45")
+
+		checkWorkOffsetParams(t, f, ParamG54X, [6]float64{7, 8, 9, 10, 11, 12}, "#5221.. after rotated G10 L2")
+		checkAxes(t, f.interp.CurrentWorkOffset, [6]float64{7, 8, 9, 10, 11, 12}, "work offset")
+
+		// FIXME (carried over from the 2019 suite): "this math is wrong but
+		// what the current interpreter expects" — the G92 axis offset is
+		// folded into the total BEFORE the work-offset rotation is applied,
+		// so it gets rotated too. Reproduced exactly, not endorsed.
+		const rot = math.Pi / 4
+		const axisOffsetX, axisOffsetY = -3.0, -4.0
+		const workOffsetX, workOffsetY = 7.0, 8.0
+		totalX := axisOffsetX + workOffsetX
+		totalY := axisOffsetY + workOffsetY
+		wantX := math.Cos(-rot)*-totalX + -math.Sin(-rot)*-totalY
+		wantY := math.Sin(-rot)*-totalX + math.Cos(-rot)*-totalY
+
+		checkFuzz(t, f.interp.CurrentPosition(AxisX), wantX, "position X")
+		checkFuzz(t, f.interp.CurrentPosition(AxisY), wantY, "position Y")
+		checkAxes(t, f.interp.CurrentPosition,
+			[6]float64{wantX, wantY, -4, -10, -11, -12}, "position")
+	})
 }
