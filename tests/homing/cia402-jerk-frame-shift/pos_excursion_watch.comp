@@ -1,0 +1,24 @@
+component pos_excursion_watch """Post-event position-excursion watchdog for homing tests.
+
+Once enable has been seen true (latched internally), tracks the largest |in|
+observed. Wire in to the drive position feedback and enable to
+homing-attained: after a CiA 402 drive redefines its origin to ~0, any later
+excursion of the feedback away from 0 means the controller commanded physical
+motion that should not exist (e.g. a stale jerk-filter history draining into
+the drive once it re-enters CSP).""";
+
+pin in  float in      "Watched value (drive position feedback)";
+pin in  bit   enable  "Start watching when this goes true (latched)";
+pin out float max_abs "Largest |in| seen since enable was first true";
+
+variable int latched = 0;
+
+function _;
+license "GPL";
+;;
+
+if (enable) latched = 1;
+if (latched) {
+    double a = in < 0.0 ? -in : in;
+    if (a > max_abs) max_abs = a;
+}

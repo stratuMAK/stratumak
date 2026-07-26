@@ -70,6 +70,26 @@ SPINDLE_INCREASE = 10
 SPINDLE_DECREASE = 11
 SPINDLE_CONSTANT = 12
 
+# ─── Coolant / brake command aliases (classic linuxcnc module) ───
+MIST_ON = 1
+MIST_OFF = 0
+FLOOD_ON = 1
+FLOOD_OFF = 0
+BRAKE_ENGAGE = 1
+BRAKE_RELEASE = 0
+
+# ─── Axis unit kinds (classic linuxcnc module; emc.hh EMC_AXIS_*) ───
+LINEAR = 1
+ANGULAR = 2
+
+# ─── Motion types (motion_types.h; stat.motion_type values) ───
+MOTION_TYPE_TRAVERSE = 1
+MOTION_TYPE_FEED = 2
+MOTION_TYPE_ARC = 3
+MOTION_TYPE_TOOLCHANGE = 4
+MOTION_TYPE_PROBING = 5
+MOTION_TYPE_INDEXROTARY = 6
+
 # ─── Error Kind (emcerror.gmi: ErrorKind) ───
 NML_ERROR = 1
 NML_TEXT = 2
@@ -119,3 +139,9 @@ EXEC_WAITING_FOR_MOTION_AND_IO = TASK_EXEC_WAITING_FOR_MOTION_AND_IO
 EXEC_WAITING_FOR_DELAY = TASK_EXEC_WAITING_FOR_DELAY
 EXEC_WAITING_FOR_MCODE_HANDLER = TASK_EXEC_WAITING_FOR_MCODE_HANDLER
 EXEC_WAITING_FOR_SPINDLE_ORIENTED = TASK_EXEC_WAITING_FOR_SPINDLE_ORIENTED
+
+# Classic 2.9 name for value 9: user M1xx scripts became compiled mcode
+# handlers in gomc, and the enum member was renamed with them. Classic code
+# referencing the classic name must keep working.
+EXEC_WAITING_FOR_SYSTEM_CMD = TASK_EXEC_WAITING_FOR_MCODE_HANDLER
+TASK_EXEC_WAITING_FOR_SYSTEM_CMD = TASK_EXEC_WAITING_FOR_MCODE_HANDLER

@@ -194,7 +194,10 @@ typedef struct hal_data_t {
     hal_param_t *param_list_ptr;		/* root of linked list of parameters */
     hal_funct_t *funct_list_ptr;		/* root of linked list of functions */
     hal_thread_t *thread_list_ptr;	/* root of linked list of threads */
-    long base_period;		/* timer period for realtime tasks */
+    long base_period;		/* informational: period of the first thread
+				   created.  Nothing is derived from it — thread
+				   periods are independent (each RT task waits on
+				   its own absolute deadline). */
     int threads_running;	/* non-zero if threads are started */
     hal_oldname_t *oldname_free_ptr;	/* list of free oldname structs */
     hal_comp_t *comp_free_ptr;		/* list of free component structs */
@@ -204,8 +207,11 @@ typedef struct hal_data_t {
     hal_funct_t *funct_free_ptr;		/* list of free function structs */
     hal_list_t funct_entry_free;	/* list of free funct entry structs */
     hal_thread_t *thread_free_ptr;	/* list of free thread structs */
-    int exact_base_period;      /* if set, pretend that rtapi satisfied our
-				   period request exactly */
+    int exact_base_period;      /* OBSOLETE, always 0: thread periods are no
+				   longer rounded to the base period, so there
+				   is nothing left to pretend about.  The field
+				   is retained so hal_data_t keeps its layout
+				   for already-built modules. */
     unsigned char lock;         /* hal locking, can be one of the HAL_LOCK_* types */
     unsigned int struct_generation;  /* incremented on structural changes (link/unlink/signal/comp) */
 } hal_data_t;
@@ -400,6 +406,7 @@ extern hal_funct_t *halpr_find_funct_by_name(const char *name);
 /** Remove all functions owned by comp_id from all threads.
     Returns number removed, or negative errno. */
 extern int hal_del_functs_by_comp(int comp_id);
+extern int hal_del_functs_by_comp_ex(int comp_id, char *err, int errlen);
 
 /** Returns maximum cycle_count across all threads (for unload sync). */
 extern unsigned int hal_get_max_cycle_count(void);

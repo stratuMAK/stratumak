@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"time"
 )
 
 // AMSNetID represents an AMS Net ID (6 bytes).
@@ -149,6 +150,10 @@ const (
 	ErrClientBufTooSmall uint32 = 0x1868
 	ErrClientInvalidHdl  uint32 = 0x1869
 	ErrAccessDenied      uint32 = 0x0712
+	// ErrDeviceNoMemory (ADSERR_DEVICE_NOMEMORY) is returned when a
+	// client-controlled resource (subscriptions, handles) hits its configured
+	// cap. See ADS_REVIEW_FINDINGS.md A7/A14.
+	ErrDeviceNoMemory uint32 = 0x070A
 )
 
 // AMSHeader is the 32-byte AMS packet header.
@@ -230,6 +235,9 @@ func (s *Server) sendAMSResponse(conn net.Conn, req *AMSHeader, cmdID uint16, er
 	// Payload
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], data)
 
+	// Bound the write so a client that stops reading cannot block this goroutine
+	// indefinitely (TCP backpressure). See ADS_REVIEW_FINDINGS.md A6.
+	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := conn.Write(pkt)
 	return err
 }

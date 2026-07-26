@@ -325,7 +325,11 @@ type PathResolver interface {
 // INILookup provides access to INI file values. The caller provides an
 // implementation backed by whatever INI parser they already have.
 type INILookup interface {
-	Get(section, key string) (string, error)
+	// Get returns the value for [section]key. found MUST be false when the key
+	// is absent, distinct from present-but-empty — the parser fails loud on a
+	// missing INI variable exactly as 2.9's replace_vars does (return -5), so a
+	// typo'd [SEC]KEY aborts bring-up instead of silently substituting "".
+	Get(section, key string) (value string, found bool, err error)
 	GetAll() map[string]map[string]string // needed for HalTemplateData
 }
 

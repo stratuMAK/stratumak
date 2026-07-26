@@ -54,7 +54,7 @@ func TestWaitComplete_SettlesNoMotionMDI(t *testing.T) {
 	}
 
 	task.SetInterpreter(fi)
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}

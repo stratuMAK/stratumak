@@ -4,6 +4,9 @@ import { toolStore } from './stores/tools';
 import { onMounted } from 'vue';
 
 onMounted(() => {
+  // units first so column headers/scaling are right on first paint; it resolves
+  // independently and never blocks the table load
+  toolStore.loadUnits();
   toolStore.loadTools();
 });
 </script>
@@ -20,8 +23,12 @@ onMounted(() => {
       {{ toolStore.state.error }}
       <button @click="toolStore.state.error = null">✕</button>
     </div>
+    <div v-if="toolStore.state.stale" class="stale-bar">
+      Tool table may be out of date —
+      <button @click="toolStore.loadTools()">reload</button>
+    </div>
     <div v-if="toolStore.state.loading" class="loading">Loading...</div>
-    <ToolTable v-else />
+    <ToolTable />
   </div>
 </template>
 
@@ -102,9 +109,27 @@ button:disabled {
   font-size: 14px;
 }
 
+.stale-bar {
+  padding: 6px 16px;
+  background: #4d3b00;
+  color: #e2c08d;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.stale-bar button {
+  border: none;
+  background: none;
+  color: #e2c08d;
+  text-decoration: underline;
+  padding: 0;
+}
+
 .loading {
-  padding: 32px;
+  padding: 4px 16px;
   text-align: center;
   color: #888;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 </style>

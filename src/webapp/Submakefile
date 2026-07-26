@@ -195,6 +195,34 @@ $(LATENCY_WEBAPP_STAMP): $(LATENCY_WEBAPP_SRCS) $(LATENCY_NPM_STAMP) $(LATENCY_G
 
 TARGETS += $(LATENCY_WEBAPP_STAMP)
 
+# Request-level write-path tests (vitest) for the apps that have them.
+# Depends on the npm stamps so a fresh checkout installs first.
+WEBAPP_TEST_APPS := $(TOOLEDIT_WEBAPP_SRC) $(EMCCALIB_WEBAPP_SRC) \
+	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC)
+
+.PHONY: webapp-test
+webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) $(HALSCOPE_NPM_STAMP)
+	$(Q)for app in $(WEBAPP_TEST_APPS); do \
+		echo "Testing webapp $$app"; \
+		(cd $$app && npm test) || exit 1; \
+	done
+
+# ESLint correctness gate for the non-deferred webapps. A single shared flat
+# config (webapp/eslint.config.mjs) lints all apps' hand-written source;
+# classicladder and every src/generated/** are excluded (see the config).
+# Its own toolchain installs from webapp/package.json.
+WEBAPP_LINT_NPM_STAMP := $(WEBAPP_DIR)/node_modules/.install-stamp
+
+$(WEBAPP_LINT_NPM_STAMP): $(WEBAPP_DIR)/package.json
+	$(ECHO) "Installing webapp lint toolchain"
+	$(Q)cd $(WEBAPP_DIR) && npm install --no-audit --no-fund
+	$(Q)touch $@
+
+.PHONY: webapp-lint
+webapp-lint: $(WEBAPP_LINT_NPM_STAMP)
+	$(ECHO) "Linting webapps"
+	$(Q)cd $(WEBAPP_DIR) && npx eslint .
+
 clean: webapp-clean
 .PHONY: webapp-clean
 webapp-clean:
@@ -205,4 +233,5 @@ webapp-clean:
 	rm -rf $(TOOLEDIT_WEBAPP_SRC)/node_modules
 	rm -rf $(CLASSICLADDER_WEBAPP_SRC)/node_modules
 	rm -rf $(LATENCY_WEBAPP_SRC)/node_modules
+	rm -rf $(WEBAPP_DIR)/node_modules
 

@@ -63,16 +63,31 @@ func (l *Launcher) startGoModules() error {
 
 // stopGoModules calls Stop() on all loaded Go modules in reverse order.
 // Called during cleanup before Destroy.
+//
+// There is deliberately no started-guard here (goModule has no `started` field,
+// unlike cModule): when startGoModules fails mid-loop the later modules are
+// loaded-but-not-started and must still be stopped, so gomc.Module.Stop is
+// specified to be safe without a preceding Start (see the lifecycle contract on
+// gomc.Module — every in-tree implementation was audited against it).
 func (l *Launcher) stopGoModules() {
-	for i := len(l.goModules) - 1; i >= 0; i-- {
-		l.goModules[i].mod.Stop()
+	l.modMu.Lock()
+	snapshot := l.goModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		snapshot[i].mod.Stop()
 	}
 }
 
 // destroyGoModules calls Destroy() on all loaded Go modules in reverse order.
 // Called after all modules have been stopped to release resources.
 func (l *Launcher) destroyGoModules() {
-	for i := len(l.goModules) - 1; i >= 0; i-- {
-		l.goModules[i].mod.Destroy()
+	// Snapshot and clear under modMu (see destroyCModules) so a straggler REST
+	// unload cannot double-destroy.
+	l.modMu.Lock()
+	snapshot := l.goModules
+	l.goModules = nil
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		snapshot[i].mod.Destroy()
 	}
 }

@@ -124,8 +124,12 @@ done
 
 # --- 5. lcec — the EtherCAT master driver ----------------------------------
 # Same defines/includes as the ethercat.so rule.  The EtherLab master
-# library itself is a separate audit item; its RT API is trusted via
-# src/hal/drivers/ethercat/ecrt_rt_api.h.
+# library now natively annotates its documented rt_safe subset with
+# ECRT_RT_ATTR (master include/ecrt.h); lcec.h hands that over to
+# GOMC_NONBLOCKING (#define ECRT_RT_ATTR before #include "ecrt.h"), so the
+# lcec RT code below verifies against the library's own annotations and a
+# non-RT ecrt call (SDO/EoE/config) from RT context is a diagnosable
+# error.  The master IMPLEMENTATION is verified separately in section 8.
 
 LCEC_INC="-DULAPI -URTAPI \
     -Isrc/hal/drivers/ethercat -Isrc -Iinclude \
@@ -183,6 +187,31 @@ for comp in src/hal/components/*.comp src/hal/drivers/*.comp; do
     fi
     check_tu "$gen" $COMP_INC
 done
+
+# --- 8. EtherLab master library — its own RT implementation audit ----------
+# The master is no longer a trust boundary.  It natively annotates its
+# documented rt_safe subset (ECRT_RT_ATTR) and ships a transitive
+# function-effects check of its cyclic IMPLEMENTATION — master
+# send/receive/domain, the userspace device layer and the raw/ccat
+# transports — with rt_ok/rt_bad/rt_override self-tests for the contract
+# itself.  Running it here means one target verifies the whole EtherCAT RT
+# path: the lcec driver (section 5) AND the master it calls into.  The
+# submodule uses the same pinned clang; hand it over via RT_CLANG so it is
+# resolved once.
+
+ECMASTER_CHECK="src/hal/drivers/ethercat/master/script/rt-effects-check.sh"
+if [ -x "$ECMASTER_CHECK" ]; then
+    echo "rt-effects-check: --- EtherLab master library (transitive impl audit) ---"
+    if RT_CLANG="$CLANG" "$ECMASTER_CHECK"; then
+        checked=$((checked+1))
+    else
+        echo "rt-effects-check: FAILED: EtherLab master library" >&2
+        fail=1
+    fi
+else
+    echo "rt-effects-check: skipping EtherLab master (submodule check absent)"
+    skipped=$((skipped+1))
+fi
 
 # Read-only staleness guard.  The per-TU depfiles name exactly the generated GMI
 # headers the RT TUs #include (discovered by the compiler, not a hand list).  If

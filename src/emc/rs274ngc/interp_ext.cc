@@ -62,6 +62,14 @@ static int ctx_find_tool_pocket(void *interp, int tool_number)
     return pocket;
 }
 
+static int ctx_find_tool_index(void *interp, int tool_number)
+{
+    Interp *ip = static_cast<Interp*>(interp);
+    int idx = -1;
+    ip->find_tool_index(&ip->_setup, tool_number, &idx);
+    return idx;
+}
+
 static void ctx_set_error(void *interp, const char *msg)
 {
     Interp *ip = static_cast<Interp*>(interp);
@@ -148,6 +156,7 @@ static void fill_ctx(interp_ctx_callbacks_t *ctx, Interp *ip, void *user, int ph
     ctx->get_param = ctx_get_param;
     ctx->set_param = ctx_set_param;
     ctx->find_tool_pocket = ctx_find_tool_pocket;
+    ctx->find_tool_index = ctx_find_tool_index;
     ctx->set_error = ctx_set_error;
 
     // Block word access

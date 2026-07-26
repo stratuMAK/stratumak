@@ -92,7 +92,7 @@ func TestMDI_MultiLevelSubContinuation(t *testing.T) {
 	fi.onCallLevel = func() int { return int(atomic.LoadInt32(&level)) }
 
 	task.SetInterpreter(fi)
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}

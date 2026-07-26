@@ -139,6 +139,23 @@ sensitive to.  `--stress-only[=LIST]` runs just the load, without a
 server or UI, so an already-running LinuxCNC can be stressed while you watch its
 own latency display.  Most vectors need the `stress-ng` package installed.
 
+On machines with isolated RT CPUs (`isolcpus=`/`nohz_full=`), the stress
+vectors are automatically confined to the housekeeping CPUs.  This matters
+because `isolcpus=` does not block explicit `sched_setaffinity()` calls, and
+some stress-ng stressors deliberately pin themselves onto every CPU: an
+unconfined stress worker parked on the RT CPU produces multi-millisecond
+"latency" that is an artifact of the test setup, not a property of the
+machine.  The confinement is layered: stress-ng's own `--taskset` option
+(so its CPU-walking stressors never even try the RT CPUs), plus a cgroup
+cpuset where available (which the kernel enforces), else `taskset`.  A watchdog
+additionally reports any foreign non-RT task observed on the RT CPUs during
+the run.  The special vector `invade` (never part of `all`) does the
+opposite on purpose: it runs unconfined cache and TLB stressors that pin
+themselves onto the isolated CPUs, to measure what an isolation-violating
+workload would do to the RT threads.  If the RT CPUs are isolated by other
+means (cgroup partitions), name them in the `LATENCY_RT_CPUS` environment
+variable.
+
 == Latency tuning
 
 LinuxCNC can run on many different hardware platforms and with many
@@ -193,7 +210,11 @@ Kernel command line::
     Details here: <https://www.kernel.org/doc/Documentation/admin-guide/kernel-parameters.txt>
 
     * `isolcpus`: Prevent most non-LinuxCNC processes from using these
-      CPUs, leaving more CPU time available for LinuxCNC.
+      CPUs, leaving more CPU time available for LinuxCNC.  Note that
+      `isolcpus` only removes the CPUs from the scheduler's normal
+      balancing: a process that calls `sched_setaffinity()` explicitly can
+      still place itself on an isolated CPU.  A cgroup cpuset partition is
+      required to make the reservation mandatory.
 
     * `irqaffinity`: Select which CPUs service interrupts, so that the
       CPUs reserved for LinuxCNC realtime don't have to perform this task.
@@ -202,7 +223,39 @@ Kernel command line::
 
     * `rcu_nocb_poll`: Poll for RCU callbacks instead of using sleep/wake.
 
-    * `nohz_full`: Disable clock tick on these CPUs.
+    * `nohz_full`: Disable clock tick on these CPUs.  WARNING: with
+      `nohz_full` the kernel refuses to arm non-pinned timers on these
+      CPUs — including the realtime thread's own `clock_nanosleep`
+      wakeup timer, which is then armed on a housekeeping CPU instead.
+      Every cycle wakeup then waits for the *housekeeping* CPU to
+      service the timer, so worst-case latency tracks the housekeeping
+      CPU's load (network IRQs, non-RT processes) rather than the
+      isolated CPU.  If you use `nohz_full`, you MUST also set
+      `sysctl.kernel.timer_migration=0` (see below).  Observed on a
+      production machine: ~375 µs worst case with `nohz_full` and timer
+      migration enabled, under 1 µs after disabling it.  Diagnostic
+      signature: in `/proc/interrupts`, the isolated CPU's `LOC` (local
+      timer) rate is far below the servo thread's cycle rate, with a
+      matching surplus on a housekeeping CPU.
+
+    * `intel_idle.max_cstate=1 processor.max_cstate=1`: Cap CPU sleep
+      states.  Deep C-states (C6 and deeper) add 100-400 µs of exit
+      latency to every cycle wakeup on an otherwise idle realtime CPU.
+      Note that LinuxCNC does NOT hold `/dev/cpu_dma_latency` at
+      runtime (the classic 2.9 `rtapi_app` was setuid root and held it
+      at 0; the gomc server runs unprivileged and deliberately does not
+      reimplement this): a global zero-latency request forces *all*
+      CPUs into poll idle — a real thermal and power cost on fanless
+      industrial PCs for no benefit on the housekeeping CPUs — and a
+      boot-time cap cannot be lost to process lifetime or privileges.
+      Capping C-states is therefore the deployment's responsibility via
+      these kernel parameters (or, for finer control, per-CPU
+      `/sys/devices/system/cpu/cpuN/power/pm_qos_resume_latency_us` on
+      the isolated CPUs only).  If an otherwise idle machine shows
+      latency spikes in the 100-400 µs range, check this cap first.
+
+    * `cpufreq.default_governor=performance`: Keep the CPUs at full
+      clock instead of ramping frequency on demand.
 
 Sysctl::
 
@@ -210,6 +263,11 @@ Sysctl::
 
     * `sysctl.kernel.sched_rt_runtime_us`: Set to -1 to remove the limit
       on how much time realtime tasks may use.
+
+    * `sysctl.kernel.timer_migration`: Set to 0 so timers armed on
+      isolated CPUs stay there.  MANDATORY when `nohz_full` is used
+      (see the `nohz_full` warning above).  Can be set directly on the
+      kernel command line as `sysctl.kernel.timer_migration=0`.
 
 
 // vim: set syntax=asciidoc:

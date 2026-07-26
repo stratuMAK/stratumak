@@ -9,30 +9,74 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/persist"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 )
 
-// importTbl parses a legacy LinuxCNC .tbl file and stores tools via persist API.
+// importTbl parses a legacy LinuxCNC .tbl file and stores its tools as table
+// slots via the persist API.
+//
+// Slot assignment follows 2.9's tooldata_read_entry exactly, because the two
+// changer kinds mean different things by a .tbl's P field:
+//
+//   - RANDOM: P is the carousel pocket AND the slot, so the line's P value is
+//     the idx. A P0 line is the spindle record 2.9's tooldata_save writes
+//     first for random changers, and it must land in slot 0 as such.
+//   - NON-RANDOM: P is the carousel pocket only. The slot is a synthetic
+//     "fakepocket" counter assigned 1..n in file order (2.9's nonrandom_idx),
+//     and slot 0 is left alone — tooldata_save starts at idx 1 for non-random,
+//     so a non-random .tbl has no spindle line to import.
 func (m *module) importTbl(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var entries []persist.Entry
+	lineNo := 0
+	nonrandomIdx := int32(1) // 2.9: tooldata_add_init(nonrandom_start_idx=1)
+	seen := map[int32]int32{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || line[0] == ';' {
 			continue
 		}
 		t, err := parseTblLine(line)
 		if err != nil {
-			continue // skip unparsable lines
+			// The C parser also skips a bad line rather than aborting the load.
+			// It is logged, though: this is a one-shot migration of the
+			// operator's tool data, and a silently dropped tool is a tool that
+			// is simply gone the next time it is called up.
+			m.logger.Warn("tooltable: skipping unparsable .tbl line",
+				"path", path, "line", lineNo, "text", line, "err", err)
+			continue
 		}
+
+		var idx int32
+		if m.randomToolchange {
+			idx = t.pocketno
+		} else {
+			idx = nonrandomIdx
+			nonrandomIdx++
+		}
+		if idx < 0 || idx > MaxIdx {
+			m.logger.Warn("tooltable: skipping .tbl line, slot out of range",
+				"path", path, "line", lineNo, "idx", idx, "max", MaxIdx)
+			continue
+		}
+		// 2.9 warns and lets the later line win; do the same rather than
+		// dropping data the operator can still see in the file.
+		if prev, dup := seen[idx]; dup {
+			m.logger.Warn("tooltable: .tbl assigns two tools to one slot — the later wins",
+				"path", path, "line", lineNo, "idx", idx, "was", prev, "is", t.toolno)
+		}
+		seen[idx] = t.toolno
+
 		tool := tooltable.ToolEntry{
 			Toolno:      t.toolno,
 			Pocketno:    t.pocketno,
@@ -56,7 +100,7 @@ func (m *module) importTbl(path string) error {
 			return fmt.Errorf("marshal tool %d: %w", t.toolno, err)
 		}
 		entries = append(entries, persist.Entry{
-			Key:   strconv.FormatInt(int64(t.toolno), 10),
+			Key:   idxKey(idx),
 			Value: string(data),
 		})
 	}
@@ -95,54 +139,80 @@ func parseTblLine(line string) (tblEntry, error) {
 		return t, fmt.Errorf("empty line")
 	}
 
+	// Field keys are matched case-insensitively and EVERY numeric conversion is
+	// checked, both to match the C parser this replaces (tooldata.cc /
+	// sai_tooltable.cc: `switch (toupper(token[0]))`, and `if (!valid) return
+	// -1` after each sscanf). Dropping the error was not a shortcut without
+	// consequence: an unparsable "Z abc" silently became a Z offset of 0, and a
+	// zeroed tool-length offset is a tool driven into the work. A malformed
+	// field now rejects the whole line, exactly as the C does.
 	for _, field := range fields {
 		if len(field) < 2 {
-			continue
+			// A bare key with no value. The C hits sscanf on an empty string,
+			// which returns 0 and fails the line.
+			return t, fmt.Errorf("field %q has no value", field)
 		}
-		key := field[0]
+		key := byte(unicode.ToUpper(rune(field[0])))
 		val := field[1:]
+
+		var fp *float64
 		switch key {
 		case 'T':
 			n, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
-				return t, err
+				return t, fmt.Errorf("tool number %q: %w", val, err)
 			}
 			t.toolno = int32(n)
 			seenToolno = true
+			continue
 		case 'P':
 			n, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
-				return t, err
+				return t, fmt.Errorf("pocket number %q: %w", val, err)
 			}
 			t.pocketno = int32(n)
-		case 'X':
-			t.x, _ = strconv.ParseFloat(val, 64)
-		case 'Y':
-			t.y, _ = strconv.ParseFloat(val, 64)
-		case 'Z':
-			t.z, _ = strconv.ParseFloat(val, 64)
-		case 'A':
-			t.a, _ = strconv.ParseFloat(val, 64)
-		case 'B':
-			t.b, _ = strconv.ParseFloat(val, 64)
-		case 'C':
-			t.c, _ = strconv.ParseFloat(val, 64)
-		case 'U':
-			t.u, _ = strconv.ParseFloat(val, 64)
-		case 'V':
-			t.v, _ = strconv.ParseFloat(val, 64)
-		case 'W':
-			t.w, _ = strconv.ParseFloat(val, 64)
-		case 'D':
-			t.diameter, _ = strconv.ParseFloat(val, 64)
-		case 'I':
-			t.frontangle, _ = strconv.ParseFloat(val, 64)
-		case 'J':
-			t.backangle, _ = strconv.ParseFloat(val, 64)
+			continue
 		case 'Q':
-			n, _ := strconv.ParseInt(val, 10, 32)
+			n, err := strconv.ParseInt(val, 10, 32)
+			if err != nil {
+				return t, fmt.Errorf("orientation %q: %w", val, err)
+			}
 			t.orientation = int32(n)
+			continue
+		case 'X':
+			fp = &t.x
+		case 'Y':
+			fp = &t.y
+		case 'Z':
+			fp = &t.z
+		case 'A':
+			fp = &t.a
+		case 'B':
+			fp = &t.b
+		case 'C':
+			fp = &t.c
+		case 'U':
+			fp = &t.u
+		case 'V':
+			fp = &t.v
+		case 'W':
+			fp = &t.w
+		case 'D':
+			fp = &t.diameter
+		case 'I':
+			fp = &t.frontangle
+		case 'J':
+			fp = &t.backangle
+		default:
+			// Unknown keys are ignored, as in the C parser's `default: break`.
+			continue
 		}
+
+		v, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return t, fmt.Errorf("field %q: %w", field, err)
+		}
+		*fp = v
 	}
 
 	if !seenToolno {

@@ -17,12 +17,17 @@ struct rtapi_task {
     int cpu_number;  /* CPU to pin this task to; -1 = no affinity */
     long period;
     struct timespec nextstart;
-    unsigned ratio;
     long pll_correction;
     long pll_correction_limit;
     void *arg;
     void (*taskcode)(void*);
     volatile int task_exit;  /* cooperative exit flag — set to 1 to request clean shutdown */
+    /* uspace non-RT only (do_thread_lock): does this task currently hold
+       thread_lock?  The cooperative-exit flag can be observed either inside
+       task_wait() or by the task loop's own condition afterwards, and the two
+       leave the lock in different states; task_wrapper() uses this to release
+       it exactly once on whichever path the task exits. */
+    volatile int holds_thread_lock;
 };
 
 #define MAX_TASKS  64

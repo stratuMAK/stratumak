@@ -22,9 +22,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"unsafe"
 
 	hal "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
@@ -54,7 +52,11 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 	// Initialize the API registry so cmod plugins can register/lookup APIs
 	// (e.g. sampler/streamer stream endpoints).
 	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
-	l.createAPIServer()
+	// Binds the REST address before any HAL work, so a taken port fails here
+	// rather than after the file has loaded components and started threads.
+	if err := l.createAPIServer(); err != nil {
+		return err
+	}
 
 	if err := halrest.Register(apiserver.DefaultRegistry()); err != nil {
 		l.logger.Warn("failed to register halcmd REST API", "error", err)
@@ -63,6 +65,11 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 	halrest.SetUnloadModuleFunc(l.UnloadModule)
 
 	l.initHalibPath()
+
+	// halrun has no INI, so the resolver's base is the working directory.
+	if err := l.initPathResolver(); err != nil {
+		return err
+	}
 
 	// Single deferred cleanup (idempotent) runs the ordered shutdown.
 	defer func() {
@@ -73,13 +80,7 @@ func (l *Launcher) RunHalFile(halFile string, resident bool) (runErr error) {
 	}()
 
 	// Trap SIGINT/SIGTERM for an ordered shutdown.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		l.logger.Info("received signal, shutting down", "signal", sig)
-		l.shutdown()
-	}()
+	l.watchSignals()
 
 	// Bring up the realtime + HAL environment (subset of Run(), no INI).
 	l.rtMgr = realtime.New(l.logger)
@@ -139,7 +140,7 @@ func (l *Launcher) halrunExecuteFile(halFile string) error {
 	if err != nil {
 		return fmt.Errorf("opening HAL file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

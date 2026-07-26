@@ -10,6 +10,11 @@ import (
 // Component represents a HAL component.
 // A component is the basic unit of HAL functionality. It can export pins
 // and parameters that other components can connect to via signals.
+//
+// In gomc a component is owned by a compiled-in module (package gomc); the
+// launcher drives the module's Start/Stop/Destroy lifecycle. pkg/hal itself
+// runs no goroutines and installs no signal handlers — a component has no
+// "running" state of its own and no self-driven main loop.
 type Component struct {
 	// id is the HAL component ID assigned by hal_init().
 	id int
@@ -20,26 +25,51 @@ type Component struct {
 	// ready indicates whether the component has been marked ready.
 	ready bool
 
-	// running indicates whether the component should continue running.
-	running bool
+	// exited indicates whether Exit() has released the component. Once set,
+	// hal_exit() has freed this component's pins from HAL shared memory, so any
+	// further pin access must be refused (see enter/leave).
+	exited bool
 
-	// done is used to signal the signal handler goroutine to exit.
-	done chan struct{}
-
-	// mu protects the component state.
+	// mu protects the component state and doubles as the component-liveness
+	// barrier: Exit() takes the write lock across hal_exit(), and every pin
+	// Get/Set takes the read lock (via enter/leave) around its shared-memory
+	// dereference. The write lock cannot be granted while any pin access holds
+	// the read lock, and any access that starts after Exit() sees exited==true
+	// and bails — so no goroutine can ever dereference freed pin memory.
 	mu sync.RWMutex
 }
+
+// enter acquires the component-liveness read barrier for a single pin access.
+//
+// It returns true with the read lock HELD when the component is still live —
+// the caller MUST pair it with a deferred leave(). It returns false with the
+// lock already released when the component has exited; the caller must then not
+// touch the pin's HAL shared memory (it has been freed by hal_exit).
+//
+// This is the read side of the barrier that serializes pin Get/Set against
+// Component.Exit(); see the Pin methods and the mu doc above.
+func (c *Component) enter() bool {
+	c.mu.RLock()
+	if c.exited {
+		c.mu.RUnlock()
+		return false
+	}
+	return true
+}
+
+// leave releases the read barrier taken by a successful enter().
+func (c *Component) leave() { c.mu.RUnlock() }
 
 // NewComponent creates and initializes a new HAL component.
 //
 // The name must be unique across all HAL components in the system and
-// must not exceed 47 characters (HAL_NAME_LEN).
+// must not exceed HAL_NAME_LEN (NameLen = 127) characters.
 //
 // This calls hal_init() via CGO to register the component with HAL.
 //
 // Returns the component on success, or an error if initialization fails.
 func NewComponent(name string) (*Component, error) {
-	if name == "" || len(name) > 47 {
+	if name == "" || len(name) > NameLen {
 		return nil, newError("NewComponent", ErrInvalidName.Message, ErrInvalidName.Code)
 	}
 
@@ -50,11 +80,9 @@ func NewComponent(name string) (*Component, error) {
 	}
 
 	comp := &Component{
-		id:      id,
-		name:    name,
-		ready:   false,
-		running: true,
-		done:    make(chan struct{}),
+		id:    id,
+		name:  name,
+		ready: false,
 	}
 
 	return comp, nil
@@ -83,44 +111,38 @@ func (c *Component) Ready() error {
 	return nil
 }
 
-// Running returns true while the component should continue running.
-//
-// The main loop should check this periodically and exit cleanly when
-// it returns false. This will be set to false when a shutdown signal
-// (SIGTERM or SIGINT) is received.
-func (c *Component) Running() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.running
-}
-
 // Exit cleans up the component and releases all HAL resources.
 //
-// This should be called (typically via defer) when the component is
-// shutting down. It unregisters the component and removes all pins
-// and parameters.
+// This should be called (typically via defer, or from a module's Destroy())
+// when the component is shutting down. It unregisters the component and
+// removes all pins and parameters.
+//
+// Exit is idempotent: a second call is a no-op that returns nil, so the common
+// "defer comp.Exit()" + explicit teardown-path Exit() pattern does not call
+// hal_exit() twice on the same id (which would error, or — if HAL recycled the
+// id — tear down a different component).
+//
+// Exit holds the component write lock across hal_exit(): this is the write side
+// of the liveness barrier (see the mu doc). It blocks until every in-flight pin
+// Get/Set has released the read barrier, and marks the component exited before
+// releasing the lock, so no pin access can dereference the freed HAL memory.
 //
 // This calls hal_exit() via CGO.
 func (c *Component) Exit() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Signal the signal handler goroutine to exit
-	select {
-	case <-c.done:
-		// Already closed
-	default:
-		close(c.done)
+	if c.exited {
+		return nil
 	}
 
-	// Call hal_exit()
+	// Call hal_exit() while holding the write lock so pin access is fully
+	// serialized against the freeing of this component's HAL shared memory.
 	if err := halExit(c.id); err != nil {
-		// Mark as not running even on error
-		c.running = false
 		return err
 	}
 
-	c.running = false
+	c.exited = true
 	return nil
 }
 
@@ -148,21 +170,10 @@ func (c *Component) IsReady() bool {
 	return c.ready
 }
 
-// Stop signals the component to stop running.
-//
-// This sets the running flag to false, which will cause Running() to
-// return false and the main loop to exit. This is typically called
-// by signal handlers.
-func (c *Component) Stop() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.running = false
-}
-
 // String returns a string representation of the component.
 func (c *Component) String() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return fmt.Sprintf("Component{name=%s, id=%d, ready=%t, running=%t}",
-		c.name, c.id, c.ready, c.running)
+	return fmt.Sprintf("Component{name=%s, id=%d, ready=%t}",
+		c.name, c.id, c.ready)
 }

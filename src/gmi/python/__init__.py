@@ -2,6 +2,15 @@
 
 import os
 
+# Classic parity: the linuxcnc module exposed all constants at module level
+# (linuxcnc.MODE_MDI). Re-export them so gmi.MODE_MDI works the same
+# (constants.py holds only UPPER_CASE names — no collision with this module).
+from gmi.constants import *  # noqa: F401,F403
+
+# Raised by info() when the server cannot describe the machine. Re-exported so
+# callers catch gmi.InfoUnavailable without reaching into the submodule.
+from gmi.taskinfo import InfoUnavailable  # noqa: F401
+
 _DEFAULT_REST_URL = "http://127.0.0.1:5080"
 _ENV_VAR = "GMC_REST_URL"
 _INSTANCE_ENV_VAR = "GMC_INSTANCE"
@@ -16,30 +25,90 @@ def instance() -> str:
     return os.environ.get(_INSTANCE_ENV_VAR, _DEFAULT_INSTANCE)
 
 
-def preview_instance() -> str:
-    """Return the preview instance name.
+def resolve_instance(name=None) -> str:
+    """The instance a client should address: the explicit name if one is given,
+    otherwise the session default from GMC_INSTANCE (instance()).
 
-    If GMC_PREVIEW_INSTANCE is set, use it.
-    Otherwise derive from GMC_INSTANCE: '{instance}-preview'.
-    If neither is set, fall back to 'ngcpreview'.
+    Every gmi client class takes ``instance=None`` and passes it through here, so
+    the ONE rule — explicit wins, unset follows the environment — holds whether a
+    client is built via the gmi.Stat()/gmi.Command() factories or constructed
+    directly (as AXIS does with a Command subclass). A class that hardcoded
+    "milltask" as its default instead posted to a nonexistent instance on a
+    multi-instance server; this is that trap closed at the source.
     """
-    if "GMC_PREVIEW_INSTANCE" in os.environ:
-        return os.environ["GMC_PREVIEW_INSTANCE"]
-    inst = os.environ.get(_INSTANCE_ENV_VAR)
-    return f"{inst}-preview" if inst else "ngcpreview"
+    return name or instance()
+
+
+def info():
+    """Return the machine description from milltask's GET /info (cached).
+
+    This is how a client learns the names of the other modules it talks to.
+    Raises gmi.InfoUnavailable if the server cannot answer — see gmi.taskinfo for
+    why that is not retried.
+    """
+    from gmi import taskinfo
+    return taskinfo.fetch(rest_url(), instance())
+
+
+def reset_info():
+    """Drop the cached machine description (tests; reconnect to a new server)."""
+    from gmi import taskinfo
+    taskinfo.reset()
+
+
+def _peer(env_var: str, peer_attr: str, legacy_default: str) -> str:
+    """Resolve a peer instance name: environment override, then /info, then the
+    peer module's own default instance name.
+
+    The last step is what keeps single-instance configs working without naming
+    anything: `load ngcpreview` with no arguments registers as "ngcpreview", so
+    that IS the instance. What is deliberately gone is the old middle step of
+    deriving a name from this one (f"{instance}-preview") — a guess that happens
+    to be right in the configs it was written against and wrong everywhere else.
+    A multi-instance config must name its peers on the milltask load line, which
+    milltask then verifies at startup.
+    """
+    if env_var in os.environ:
+        return os.environ[env_var]
+    name = getattr(info().peers, peer_attr, "")
+    return name if name else legacy_default
+
+
+def preview_instance() -> str:
+    """Return the ngcpreview instance name serving this task."""
+    return _peer("GMC_PREVIEW_INSTANCE", "preview", "ngcpreview")
 
 
 def mtc_instance() -> str:
-    """Return the manual-tool-change instance name.
+    """Return the manual-tool-change instance name for this task."""
+    return _peer("GMC_MTC_INSTANCE", "manualtoolchange", "manualtoolchange")
 
-    If GMC_MTC_INSTANCE is set, use it.
-    Otherwise derive from GMC_INSTANCE: '{instance}-manualtoolchange'.
-    If neither is set, fall back to 'manualtoolchange'.
+
+def pyvcp_instance() -> str:
+    """Return the pyvcp panel instance for this task, or "" if none is loaded.
+
+    Unlike preview/mtc this has NO default-name fallback. A pyvcp panel is
+    optional and its presence is decided by the server: a client shows one only
+    when /info reports a peer. Falling back to a "pyvcp" default would be the
+    very guess that fabricates a request to a panel that isn't there — the INI
+    key [DISPLAY]PYVCP used to gate this, and a panel it named but HAL never
+    loaded 404'd. An empty answer here means "no panel", and the caller must
+    treat it as the gate.
     """
-    if "GMC_MTC_INSTANCE" in os.environ:
-        return os.environ["GMC_MTC_INSTANCE"]
-    inst = os.environ.get(_INSTANCE_ENV_VAR)
-    return f"{inst}-manualtoolchange" if inst else "manualtoolchange"
+    return _peer("GMC_PYVCP_INSTANCE", "pyvcp", "")
+
+
+def tooltable_instance() -> str:
+    """Return the raw tool-table slot store instance backing stat.tool_table.
+
+    Unlike the peers above this has no fallback: milltask always reports a
+    resolved name (its own default included), so an empty answer here means the
+    server did not answer at all, and guessing "tooltable" is what produced the
+    404 storm in the first place.
+    """
+    if "GMC_TOOLTABLE_INSTANCE" in os.environ:
+        return os.environ["GMC_TOOLTABLE_INSTANCE"]
+    return info().peers.tooltable
 
 
 def rest_url() -> str:
@@ -94,10 +163,16 @@ def ToolTable():
 
 
 def component_exists(name: str) -> bool:
-    """Check if a HAL component exists via the halcmd REST API."""
+    """Check if a HAL component exists via the halcmd REST API.
+
+    Returns False on ANY failure, including an unreachable server — this is
+    an existence probe, not a health check (review finding GP-29).
+    """
     import json
+    import urllib.parse
     import urllib.request
-    url = rest_url() + "/api/v1/halcmd/components?pattern=" + name
+    url = (rest_url() + "/api/v1/halcmd/components?pattern="
+           + urllib.parse.quote(name, safe=""))
     try:
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read())
@@ -107,10 +182,15 @@ def component_exists(name: str) -> bool:
 
 
 def pin_has_writer(name: str) -> bool:
-    """Check if a HAL pin's signal has any writers via the halcmd REST API."""
+    """Check if a HAL pin's signal has any writers via the halcmd REST API.
+
+    Returns False on ANY failure, including an unreachable server (GP-29).
+    """
     import json
+    import urllib.parse
     import urllib.request
-    url = rest_url() + "/api/v1/halcmd/pins?pattern=" + name
+    url = (rest_url() + "/api/v1/halcmd/pins?pattern="
+           + urllib.parse.quote(name, safe=""))
     try:
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read())
@@ -141,8 +221,15 @@ class IniFile:
         ns = os.environ.get(_INSTANCE_ENV_VAR)
         self._namespace = ns if ns else None
 
-    def find(self, section, key):
-        """Return the first value for section/key, or None if not found."""
+    def find(self, section, key, num=None):
+        """Return the first value for section/key, or None if not found.
+
+        ``num`` selects the num'th occurrence (1-based), matching classic
+        linuxcnc.ini().find(section, option, num).
+        """
+        if num is not None and num != 1:
+            vals = self.findall(section, key)
+            return vals[num - 1] if 0 < num <= len(vals) else None
         cache_key = (section, key)
         if cache_key in self._cache:
             return self._cache[cache_key]

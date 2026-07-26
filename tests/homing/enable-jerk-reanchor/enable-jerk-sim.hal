@@ -1,0 +1,30 @@
+# Kinematics + motion controller + a feedback path that can simulate "the
+# axis moved while the machine was off" + an armable per-cycle step watchdog.
+# linuxcnc.hal has already loaded homemod for joint 0, io, milltask, etc.;
+# threads.hal created servo-thread.
+
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+load mux2 <fbmux.0>
+load arm_step_watch <watch.0>
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf fbmux.0 servo-thread
+addf watch.0 servo-thread
+
+# Feedback source select: sel=0 -> perfect servo (feedback follows the motor
+# command); sel=1 -> feedback comes from the driver-set "push" position, as
+# if the axis had been moved by hand while the machine was off.
+net j0-cmd  joint.0.motor-pos-cmd => fbmux.0.in0 watch.0.in
+net j0-push fbmux.0.in1
+net j0-pushsel fbmux.0.sel
+net j0-fb   fbmux.0.out => joint.0.motor-pos-fb
+
+# Watchdog arm line, set by the driver right before re-enabling.
+net j0-watch-arm watch.0.arm
+
+# estop + tool-change loopbacks (as in core_sim.hal) so milltask can enable.
+net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
+net tool-prep-loop  iocontrol.tool-prepare    iocontrol.tool-prepared
+net tool-change-loop iocontrol.tool-change    iocontrol.tool-changed

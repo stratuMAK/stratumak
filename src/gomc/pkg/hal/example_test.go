@@ -39,12 +39,10 @@ func Example() {
 	fmt.Printf("String type: %s\n", strPin.Type())
 
 	fmt.Printf("Component: %s\n", comp.Name())
-	fmt.Printf("Running: %t\n", comp.Running())
 
 	// Output:
 	// Input value: 3.14
 	// Output value: true
 	// String type: PORT
 	// Component: example
-	// Running: true
 }

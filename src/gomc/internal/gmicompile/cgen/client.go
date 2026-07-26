@@ -136,7 +136,7 @@ func (g *clientHeaderGen) toCType(t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := g.toCType(*t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(g.api.Name, t))
 	}
 	return "void"
 }
@@ -165,6 +165,53 @@ func (g *clientSourceGen) printf(format string, args ...interface{}) {
 		return
 	}
 	_, g.err = fmt.Fprintf(g.w, format, args...)
+}
+
+// failf records the first unsupported-construct error and suppresses all
+// further output. GenerateClientSource returns it, so modcompile fails the
+// build loudly instead of silently emitting a C client that drops fields.
+//
+// The --client-c generator does not recurse into deeply-nested types (it inlines
+// a single level of nested struct, primitive-scalar fields only) and does not
+// serialize slice-of-struct. Rather than emit a client that silently loses those
+// fields on the wire, every unhandled construct routes here. If a real C consumer
+// ever needs one of these shapes, the fix is to make the corresponding emitter
+// recurse — and add a compile-and-run consumer test (G-L7/A).
+func (g *clientSourceGen) failf(format string, args ...interface{}) {
+	if g.err != nil {
+		return
+	}
+	g.err = fmt.Errorf("--client-c: "+format, args...)
+}
+
+// elemOf returns a slice/array's element type, or the zero TypeRef if absent —
+// used only to build diagnostic messages.
+func elemOf(t ast.TypeRef) ast.TypeRef {
+	if t.Elem != nil {
+		return *t.Elem
+	}
+	return ast.TypeRef{}
+}
+
+// typeRefDesc renders a TypeRef for a diagnostic message (e.g. "[]struct Foo").
+func typeRefDesc(t ast.TypeRef) string {
+	switch t.Kind {
+	case ast.TypePrimitive:
+		return t.Name
+	case ast.TypeNamed:
+		return "struct " + t.Name
+	case ast.TypeSlice:
+		if t.Elem != nil {
+			return "[]" + typeRefDesc(*t.Elem)
+		}
+		return "[]?"
+	case ast.TypeArray:
+		if t.Elem != nil {
+			return "[N]" + typeRefDesc(*t.Elem)
+		}
+		return "[N]?"
+	}
+	return "?"
 }
 
 func (g *clientSourceGen) emitIncludes() {
@@ -411,6 +458,8 @@ func (g *clientSourceGen) emitRequestBody(fn ast.Func) {
 			g.emitStructToJson(p, pname)
 		case p.Type.Kind == ast.TypeSlice:
 			g.emitSliceToJson(p, pname)
+		default:
+			g.failf("request body param %q has unsupported type %s", p.Name, typeRefDesc(p.Type))
 		}
 	}
 	g.printf("    gmi_request_set_json(req, body);\n")
@@ -432,6 +481,8 @@ func (g *clientSourceGen) emitJsonAddPrimitive(t ast.TypeRef, jsonKey, cExpr str
 		g.printf("gmi_json_add_u64(body, \"%s\", %s);\n", jsonKey, cExpr)
 	case "f64":
 		g.printf("gmi_json_add_f64(body, \"%s\", %s);\n", jsonKey, cExpr)
+	default:
+		g.failf("request body param %q has unsupported primitive type %q", jsonKey, t.Name)
 	}
 }
 
@@ -445,7 +496,7 @@ func (g *clientSourceGen) emitStructToJson(p ast.Param, pname string) {
 		}
 	}
 	if typeDef == nil {
-		g.printf("    // Warning: type %s not found in API\n", p.Type.Name)
+		g.failf("request body param %q references undefined type %q", p.Name, p.Type.Name)
 		return
 	}
 	g.printf("    if (%s) {\n", pname)
@@ -469,6 +520,8 @@ func (g *clientSourceGen) emitStructToJson(p ast.Param, pname string) {
 			g.printf("        gmi_json_add_u64(%s_obj, \"%s\", %s);\n", pname, fname, accessor)
 		case f.Type.Kind == ast.TypePrimitive && f.Type.Name == "f64":
 			g.printf("        gmi_json_add_f64(%s_obj, \"%s\", %s);\n", pname, fname, accessor)
+		default:
+			g.failf("struct %s field %q (type %s) cannot be serialized in a --client-c request body: only primitive scalar fields are supported (nested structs, slices, and arrays are not)", typeDef.Name, fname, typeRefDesc(f.Type))
 		}
 	}
 	g.printf("        cJSON_AddItemToObject(body, \"%s\", %s_obj);\n", p.Name, pname)
@@ -485,7 +538,7 @@ func (g *clientSourceGen) emitSliceToJson(p ast.Param, pname string) {
 	if p.Type.Elem != nil && p.Type.Elem.Kind == ast.TypePrimitive && p.Type.Elem.Name == "string" {
 		g.printf("            if (%s[_i]) cJSON_AddItemToArray(%s_arr, cJSON_CreateString(%s[_i]));\n", pname, pname, pname)
 	} else {
-		g.printf("            // Nested element serialization would go here\n")
+		g.failf("slice param %q has element type %s: only []string is supported in a --client-c request body (slice-of-struct/primitive serialization is not implemented)", p.Name, typeRefDesc(elemOf(p.Type)))
 	}
 	g.printf("        }\n")
 	g.printf("        cJSON_AddItemToObject(body, \"%s\", %s_arr);\n", p.Name, pname)
@@ -512,6 +565,8 @@ func (g *clientSourceGen) emitResponseParsing(fn ast.Func) {
 		g.emitStructParsing(fn, *ret)
 	case ret.Kind == ast.TypeSlice:
 		g.emitSliceParsing(fn, *ret)
+	default:
+		g.failf("function %q has unsupported return type %s", fn.Name, typeRefDesc(*ret))
 	}
 
 	g.printf("            cJSON_Delete(json);\n")
@@ -529,7 +584,7 @@ func (g *clientSourceGen) emitStructParsing(fn ast.Func, ret ast.TypeRef) {
 		}
 	}
 	if typeDef == nil {
-		g.printf("            // Warning: type %s not found in API -- cannot parse\n", ret.Name)
+		g.failf("function returns undefined type %q", ret.Name)
 		return
 	}
 
@@ -591,8 +646,12 @@ func (g *clientSourceGen) emitStructFieldParsing(typeDef *ast.Type, jsonVar, pre
 					break
 				}
 			}
-			if subType != nil {
-				// Recursively parse sub-struct inline (shallow nesting only)
+			if subType == nil {
+				g.failf("struct %s field %q references undefined type %q", typeDef.Name, fname, f.Type.Name)
+			} else {
+				// One level of nested struct, primitive-scalar sub-fields only.
+				// A sub-field that is itself a struct (depth ≥2), slice, or array
+				// is not parsed — fail loud rather than silently drop it.
 				for _, sf := range subType.Fields {
 					sfname := sf.Name
 					scname := toSnakeCase(sf.Name)
@@ -612,11 +671,15 @@ func (g *clientSourceGen) emitStructFieldParsing(typeDef *ast.Type, jsonVar, pre
 						g.printf("                    %s = gmi_json_get_u64(sub, \"%s\", 0);\n", starget, sfname)
 					case sf.Type.Kind == ast.TypePrimitive && sf.Type.Name == "f64":
 						g.printf("                    %s = gmi_json_get_f64(sub, \"%s\", 0.0);\n", starget, sfname)
+					default:
+						g.failf("struct %s field %q.%q (type %s) is nested too deeply for --client-c: only one level of nested struct with primitive scalar fields is parsed (recurse the parser to support this — G-L7/A)", typeDef.Name, fname, sfname, typeRefDesc(sf.Type))
 					}
 				}
 			}
 			g.printf("                }\n")
 			g.printf("            }\n")
+		default:
+			g.failf("struct %s field %q (type %s) cannot be parsed by --client-c: supported field types are primitive scalars, []string, and one level of nested struct", typeDef.Name, fname, typeRefDesc(f.Type))
 		}
 	}
 }
@@ -641,7 +704,9 @@ func (g *clientSourceGen) emitSliceParsing(fn ast.Func, ret ast.TypeRef) {
 				break
 			}
 		}
-		if typeDef != nil {
+		if typeDef == nil {
+			g.failf("slice return references undefined element type %q", ret.Elem.Name)
+		} else {
 			for _, f := range typeDef.Fields {
 				fname := f.Name
 				cname := f.Name
@@ -678,6 +743,8 @@ func (g *clientSourceGen) emitSliceParsing(fn ast.Func, ret ast.TypeRef) {
 					g.printf("                                }\n")
 					g.printf("                            }\n")
 					g.printf("                        }\n")
+				default:
+					g.failf("slice element struct %s field %q (type %s) cannot be parsed by --client-c: supported element fields are primitive scalars and []string (recurse the parser to support this — G-L7/A)", typeDef.Name, fname, typeRefDesc(f.Type))
 				}
 			}
 		}
@@ -697,7 +764,11 @@ func (g *clientSourceGen) emitSliceParsing(fn ast.Func, ret ast.TypeRef) {
 			g.printf("                        (*out)[i] = (uint64_t)cJSON_GetNumberValue(elem);\n")
 		case "f64":
 			g.printf("                        (*out)[i] = cJSON_GetNumberValue(elem);\n")
+		default:
+			g.failf("slice return has unsupported primitive element type %q", ret.Elem.Name)
 		}
+	} else {
+		g.failf("slice return has unsupported element type %s in --client-c", typeRefDesc(*ret.Elem))
 	}
 
 	g.printf("                        i++;\n")
@@ -717,7 +788,7 @@ func (g *clientSourceGen) toCType(t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := g.toCType(*t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(g.api.Name, t))
 	}
 	return "void"
 }

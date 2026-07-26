@@ -177,7 +177,13 @@ Options:
 			fmt.Fprintf(os.Stderr, "gomc-server: %v\n", err)
 			return 1
 		}
-		// We are now the daemon child. Redirect stdio and switch to syslog.
+		// We are now the daemon child (the parent exited inside Daemonize).
+		// Drop the PID file on EVERY exit path, not just a clean Run(): an
+		// error return used to leave it behind, and nothing checks liveness, so
+		// the next start silently overwrote a file that already looked valid.
+		defer daemon.RemovePidFile(pidFile)
+
+		// Redirect stdio and switch to syslog.
 		if err := daemon.RedirectStdio(); err != nil {
 			fmt.Fprintf(os.Stderr, "gomc-server: redirect stdio: %v\n", err)
 			return 1
@@ -223,9 +229,6 @@ Options:
 		// syslog; print to stderr regardless so foreground callers see it.
 		fmt.Fprintf(os.Stderr, "gomc-server: %v\n", err)
 		return 1
-	}
-	if daemonMode {
-		daemon.RemovePidFile(pidFile)
 	}
 	return 0
 }

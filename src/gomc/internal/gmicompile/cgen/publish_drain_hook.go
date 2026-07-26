@@ -145,7 +145,7 @@ func (g *publishDrainHookGen) emitDrainHook(fn ast.Func) {
 		g.printf("\t\t\t{\n")
 		g.printf("\t\t\t\tName:        %q,\n", watchName)
 		g.printf("\t\t\t\tDefaultRate: %d * time.Millisecond,\n", rateMs)
-		g.printf("\t\t\t\tWatch:       drain.WatchFunc(),\n")
+		g.printf("\t\t\t\tFactory:     drain.WatchFactory(),\n")
 		g.printf("\t\t\t},\n")
 		g.printf("\t\t},\n")
 		g.printf("\t})\n")
@@ -205,8 +205,7 @@ func (g *publishDrainHookGen) emitPublishMethod(fn ast.Func) {
 		g.printf("%s %s", p.Name, g.paramGoType(p))
 	}
 	g.printf(") {\n")
-	g.printf("\td.mu.Lock()\n")
-	g.printf("\td.events = append(d.events, %s{", eventType)
+	g.printf("\td.record(%s{", eventType)
 	for i, p := range fn.Params {
 		if i > 0 {
 			g.printf(", ")
@@ -214,7 +213,6 @@ func (g *publishDrainHookGen) emitPublishMethod(fn ast.Func) {
 		g.printf("%s: %s", toPascalCase(p.Name), p.Name)
 	}
 	g.printf("})\n")
-	g.printf("\td.mu.Unlock()\n")
 	g.printf("}\n\n")
 }
 

@@ -4,6 +4,7 @@ package apiserver
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -55,6 +56,22 @@ func (r *Registry) Register(apiName string, version int, instance string, callba
 // not a Go interface — the Go-generated REST dispatch functions cannot use it.
 func (r *Registry) RegisterNoREST(apiName string, version int, instance string, callbacks unsafe.Pointer) error {
 	return r.register(apiName, version, instance, callbacks, false)
+}
+
+// RegisterGo registers a Go provider: the callbacks pointer is still the C
+// callbacks struct, so in-process cmod→gomod calls keep working, but REST is
+// served by goFuncs — the generated handlers that call the provider directly
+// and can therefore report its errors. See RegisteredAPI.GoFuncs.
+func (r *Registry) RegisterGo(apiName string, version int, instance string, callbacks unsafe.Pointer, goFuncs []FuncMeta) error {
+	if err := r.register(apiName, version, instance, callbacks, true); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if api, ok := r.instances[registryKey(apiName, instance)]; ok {
+		api.GoFuncs = goFuncs
+	}
+	return nil
 }
 
 func (r *Registry) register(apiName string, version int, instance string, callbacks unsafe.Pointer, attachMeta bool) error {
@@ -264,6 +281,23 @@ func (r *Registry) GetByAPI(apiName, instance string) *RegisteredAPI {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.instances[key]
+}
+
+// InstancesOfAPI returns the instance names providing the given api, sorted.
+// Used to turn "no such instance" into a message that names the alternatives,
+// which is what makes a mistyped instance parameter obvious at config load.
+func (r *Registry) InstancesOfAPI(apiName string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var names []string
+	for _, api := range r.instances {
+		if api.APIName == apiName {
+			names = append(names, api.Instance)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Instances returns all registered instance names (without the api: prefix).

@@ -3,6 +3,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
@@ -372,6 +373,10 @@ func register_handler(mcode: i32, fn: handler, user_data: ptr) -> i32
 	if cb.Return == nil || cb.Return.Name != "i32" {
 		t.Errorf("cb.Return = %v, want i32", cb.Return)
 	}
+	// Un-annotated callbacks default to blocking-capable (task/worker level).
+	if cb.RTSafe {
+		t.Error("cb.RTSafe = true, want false for an un-annotated callback")
+	}
 
 	// Function using callback type
 	fn := api.Funcs[0]
@@ -380,6 +385,65 @@ func register_handler(mcode: i32, fn: handler, user_data: ptr) -> i32
 	}
 	if fn.Params[1].Type.Name != "handler" {
 		t.Errorf("fn.Params[1].Type.Name = %q, want %q", fn.Params[1].Type.Name, "handler")
+	}
+}
+
+// @rt_safe on a callback declaration flags it for RT-cycle invocation, which
+// the emitter turns into GOMC_API_NONBLOCKING on the _cb typedef (mirrors the
+// @rt_safe/_fn provider-typedef precedent). Any other annotation before a
+// callback remains an error.
+func TestParseCallbackRTSafe(t *testing.T) {
+	src := `@api rttest
+@version 1
+
+@rt_safe "true"
+callback tick_fn(ctx: ptr) -> i32
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+	if len(api.Callbacks) != 1 {
+		t.Fatalf("len(Callbacks) = %d, want 1", len(api.Callbacks))
+	}
+	if !api.Callbacks[0].RTSafe {
+		t.Error("Callback.RTSafe = false, want true")
+	}
+
+	// A non-rt_safe annotation before a callback must still be rejected.
+	bad := `@api rttest
+@version 1
+
+@watch "true"
+callback tick_fn(ctx: ptr) -> i32
+`
+	if _, errs := Parse("bad.gmi", bad); len(errs) == 0 {
+		t.Error("expected an error for @watch before a callback, got none")
+	}
+}
+
+// A callback referenced BEFORE its declaration must still classify as
+// TypeCallback after the post-parse forward-reference resolution pass (H4).
+// Single-pass classification would otherwise leave it TypeNamed and the emitter
+// would emit it as a struct type instead of a function pointer.
+func TestParseForwardReferencedCallback(t *testing.T) {
+	src := `@api test
+@version 1
+
+func register(fn: later_fn, user: ptr) -> i32
+
+callback later_fn(x: i32) -> i32
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+	got := api.Funcs[0].Params[0].Type
+	if got.Kind != ast.TypeCallback {
+		t.Errorf("forward-referenced callback: Kind = %v, want TypeCallback", got.Kind)
+	}
+	if got.Name != "later_fn" {
+		t.Errorf("Name = %q, want %q", got.Name, "later_fn")
 	}
 }
 
@@ -513,5 +577,145 @@ func f(x: i32 byref @min(0), y: i32 @max(10)) -> i32
 	}
 	if got := fn.Params[1].Constraints; len(got) != 1 || got[0].Kind != ast.ConstraintMax {
 		t.Errorf("Params[1].Constraints = %+v, want [max]", got)
+	}
+}
+
+// --- fail-loud regression tests -------------------------------------------
+//
+// The parser's contract is to fail loud with a file:line diagnostic rather
+// than silently accept malformed input and build a wrong AST. These pin down
+// four sites that previously discarded an error / lacked a default and so
+// produced a silently-wrong AST that still generated (mis)compilable bindings.
+
+// hasErrContaining reports whether any parse error mentions substr.
+func hasErrContaining(errs []string, substr string) bool {
+	for _, e := range errs {
+		if strings.Contains(e, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// An unterminated string literal must error, not silently swallow the rest of
+// the file as string content.
+func TestParseUnterminatedStringErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+@doc "this quote never closes
+func f() -> i32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "unterminated string literal") {
+		t.Fatalf("expected an unterminated-string error, got %v", errors)
+	}
+}
+
+// A non-integer enum value must error, not silently become 0.
+func TestParseEnumValueNonIntegerErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+enum E {
+    A = notanumber
+}
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "must be an integer") {
+		t.Fatalf("expected an integer-value error, got %v", errors)
+	}
+}
+
+// A non-positive fixed array size must error, not silently become length 0.
+func TestParseArraySizeMustBePositive(t *testing.T) {
+	for _, sz := range []string{"0", "-1"} {
+		src := `@api test
+@version 1
+
+type T {
+    v: [` + sz + `]f64
+}
+`
+		_, errors := Parse("test.gmi", src)
+		if !hasErrContaining(errors, "positive integer") {
+			t.Errorf("array size %q: expected a positive-integer error, got %v", sz, errors)
+		}
+	}
+}
+
+// A typo'd / unknown annotation on a func must error, not be silently dropped
+// (which would lose e.g. the HTTP method or @rt_safe with no diagnostic).
+func TestParseUnknownFuncAnnotationErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+@methdo "GET"
+func f() -> i32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "unknown annotation @methdo") {
+		t.Fatalf("expected an unknown-annotation error, got %v", errors)
+	}
+}
+
+// A duplicate const must error, not silently overwrite the resolution map
+// (which would make array sizes / @min/@max resolve to whichever came last).
+func TestParseDuplicateConstErrors(t *testing.T) {
+	src := `@api test
+@version 1
+
+const MAX = 16
+const MAX = 32
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, `duplicate const "MAX"`) {
+		t.Fatalf("expected a duplicate-const error, got %v", errors)
+	}
+}
+
+func TestParseMapType(t *testing.T) {
+	src := `@api test
+@version 1
+
+type State {
+    value: f64
+}
+
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_state() -> map[string]State
+`
+	api, errors := Parse("test.gmi", src)
+	if len(errors) > 0 {
+		t.Fatalf("Parse errors: %v", errors)
+	}
+
+	fn := api.Funcs[0]
+	if !fn.Watch || !fn.WatchDelta {
+		t.Errorf("Watch/WatchDelta = %v/%v, want true/true", fn.Watch, fn.WatchDelta)
+	}
+	if fn.Return.Kind != ast.TypeMap {
+		t.Fatalf("Return.Kind = %v, want TypeMap", fn.Return.Kind)
+	}
+	if fn.Return.Elem == nil || fn.Return.Elem.Kind != ast.TypeNamed || fn.Return.Elem.Name != "State" {
+		t.Errorf("Return.Elem = %+v, want named State", fn.Return.Elem)
+	}
+	if got := fn.Return.String(); got != "map[string]State" {
+		t.Errorf("Return.String() = %q, want %q", got, "map[string]State")
+	}
+}
+
+func TestParseMapTypeRejectsNonStringKey(t *testing.T) {
+	src := `@api test
+@version 1
+
+@watch true
+func watch_state() -> map[i32]f64
+`
+	_, errors := Parse("test.gmi", src)
+	if !hasErrContaining(errors, "map key type must be string") {
+		t.Fatalf("expected a map-key error, got %v", errors)
 	}
 }

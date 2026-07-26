@@ -88,6 +88,8 @@ func (g *publishGoGen) emitImports() {
 	g.printf("\t\"sync/atomic\"\n")
 	g.printf("\t\"time\"\n")
 	g.printf("\t\"unsafe\"\n")
+	g.printf("\n")
+	g.printf("\t\"github.com/sittner/linuxcnc/src/gomc/internal/apiserver\"\n")
 	g.printf(")\n\n")
 }
 
@@ -108,7 +110,7 @@ func (g *publishGoGen) emitGoEventType(fn ast.Func) {
 	for _, p := range fn.Params {
 		goType := g.paramGoType(p)
 		jsonTag := p.Name
-		g.printf("\t%s %s `json:\"%s\"`\n", toPascalCase(p.Name), goType, jsonTag)
+		g.printf("\t%s %s `json:\"%s%s\"`\n", toPascalCase(p.Name), goType, jsonTag, jsonStringOptParam(p))
 	}
 	g.printf("}\n\n")
 }
@@ -124,8 +126,10 @@ func (g *publishGoGen) emitDrainType(fn ast.Func) {
 	g.printf("\tcancel  context.CancelFunc\n")
 	g.printf("\twg      sync.WaitGroup\n")
 	g.printf("\n")
-	g.printf("\tmu     sync.Mutex\n")
-	g.printf("\tevents []%sEvent\n", toPascalCase(fn.Name))
+	g.printf("\tmu      sync.Mutex\n")
+	g.printf("\tevents  []%sEvent // retained bounded buffer, oldest first\n", toPascalCase(fn.Name))
+	g.printf("\tbaseSeq uint64 // sequence number of events[0]\n")
+	g.printf("\tnextSeq uint64 // sequence number to assign the next event\n")
 	g.printf("}\n\n")
 }
 
@@ -206,9 +210,7 @@ func (g *publishGoGen) emitDrainMethods(fn ast.Func) {
 	g.printf("\t\td.readPos++\n")
 	g.printf("\t\tcount++\n")
 	g.printf("\n")
-	g.printf("\t\td.mu.Lock()\n")
-	g.printf("\t\td.events = append(d.events, ev)\n")
-	g.printf("\t\td.mu.Unlock()\n")
+	g.printf("\t\td.record(ev)\n")
 	g.printf("\t}\n")
 	g.printf("\treturn count\n")
 	g.printf("}\n\n")
@@ -232,14 +234,20 @@ func (g *publishGoGen) emitDrainMethods(fn ast.Func) {
 	g.printf("\t}\n")
 	g.printf("}\n\n")
 
-	// Flush — returns accumulated events and clears the buffer
-	g.printf("// Flush returns all accumulated events and clears the buffer.\n")
-	g.printf("func (d *%s) Flush() []%s {\n", drainType, eventType)
+	// record — append to the retained bounded buffer with a sequence number,
+	// dropping the oldest event(s) past the cap. Shared by the C-ring drain and
+	// the Go-side Publish path so both feed every subscriber's cursor.
+	g.printf("// %sWatchBufferSize bounds the retained event buffer (drop-oldest at cap).\n", toPascalCase(fn.Name))
+	g.printf("const %sWatchBufferSize = 256\n\n", toPascalCase(fn.Name))
+	g.printf("func (d *%s) record(ev %s) {\n", drainType, eventType)
 	g.printf("\td.mu.Lock()\n")
-	g.printf("\tevents := d.events\n")
-	g.printf("\td.events = nil\n")
+	g.printf("\td.events = append(d.events, ev)\n")
+	g.printf("\td.nextSeq++\n")
+	g.printf("\tif over := len(d.events) - %sWatchBufferSize; over > 0 {\n", toPascalCase(fn.Name))
+	g.printf("\t\td.events = d.events[over:]\n")
+	g.printf("\t\td.baseSeq += uint64(over)\n")
+	g.printf("\t}\n")
 	g.printf("\td.mu.Unlock()\n")
-	g.printf("\treturn events\n")
 	g.printf("}\n\n")
 }
 
@@ -247,20 +255,34 @@ func (g *publishGoGen) emitWatchFunc(fn ast.Func) {
 	drainType := toPascalCase(fn.Name) + "Drain"
 	eventType := toPascalCase(fn.Name) + "Event"
 
-	g.printf("// %sWatchFunc returns a WatchFunc that flushes accumulated events as JSON.\n", toPascalCase(fn.Name))
-	g.printf("// The returned function is safe to call from the WS push goroutine.\n")
-	g.printf("func (d *%s) WatchFunc() func() (json.RawMessage, error) {\n", drainType)
-	g.printf("\treturn func() (json.RawMessage, error) {\n")
-	g.printf("\t\tevents := d.Flush()\n")
-	g.printf("\t\tif len(events) == 0 {\n")
-	g.printf("\t\t\treturn []byte(\"[]\"), nil\n")
-	g.printf("\t\t}\n")
-	g.printf("\t\treturn json.Marshal(events)\n")
+	g.printf("// WatchFactory returns a per-connection watch factory. Each subscriber\n")
+	g.printf("// gets its own cursor and receives every event published after it\n")
+	g.printf("// subscribed, exactly once — there is no shared destructive flush, so N\n")
+	g.printf("// subscribers all see every message. Bounded: a connection that falls more\n")
+	g.printf("// than %sWatchBufferSize events behind drops the oldest undelivered events.\n", toPascalCase(fn.Name))
+	g.printf("func (d *%s) WatchFactory() apiserver.WatchFactory {\n", drainType)
+	g.printf("\treturn func(_ json.RawMessage) (apiserver.WatchFunc, error) {\n")
+	g.printf("\t\td.mu.Lock()\n")
+	g.printf("\t\tcursor := d.nextSeq\n")
+	g.printf("\t\td.mu.Unlock()\n")
+	g.printf("\t\treturn func() (json.RawMessage, error) {\n")
+	g.printf("\t\t\td.mu.Lock()\n")
+	g.printf("\t\t\tif cursor < d.baseSeq {\n")
+	g.printf("\t\t\t\tcursor = d.baseSeq\n")
+	g.printf("\t\t\t}\n")
+	g.printf("\t\t\tvar out []%s\n", eventType)
+	g.printf("\t\t\tif cursor < d.nextSeq {\n")
+	g.printf("\t\t\t\tout = append(out, d.events[cursor-d.baseSeq:]...)\n")
+	g.printf("\t\t\t\tcursor = d.nextSeq\n")
+	g.printf("\t\t\t}\n")
+	g.printf("\t\t\td.mu.Unlock()\n")
+	g.printf("\t\t\tif len(out) == 0 {\n")
+	g.printf("\t\t\t\treturn []byte(\"[]\"), nil\n")
+	g.printf("\t\t\t}\n")
+	g.printf("\t\t\treturn json.Marshal(out)\n")
+	g.printf("\t\t}, nil\n")
 	g.printf("\t}\n")
 	g.printf("}\n\n")
-
-	// Also emit the atomic helpers (only once per file)
-	_ = eventType // used above
 }
 
 func (g *publishGoGen) paramGoType(p ast.Param) string {

@@ -20,7 +20,7 @@ type IniQueryItem {
 # A single result from a bulk INI query.
 type IniQueryResult {
     value: string?      # single value (find semantics); null if not found
-    values: []string?   # all values (findall semantics); set when all=true
+    values: []string    # all values (findall semantics); set when all=true
 }
 
 # Bulk query: look up one or more INI keys in a single request.

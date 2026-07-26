@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 )
 
 func init() {
@@ -14,7 +15,7 @@ func init() {
 	})
 }
 
-func cmdConfig(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdConfig(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("'config' takes no arguments")
 	}
@@ -31,7 +32,7 @@ func cmdConfig(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return configBrief(client, masterIndex, master.ConfigCount)
 }
 
-func configBrief(client *EthercatClient, masterIndex *uint32, count uint32) error {
+func configBrief(client *ethercatclient.EthercatClient, masterIndex *uint32, count uint32) error {
 	type configRow struct {
 		alias    string
 		pos      string
@@ -96,7 +97,7 @@ func configBrief(client *EthercatClient, masterIndex *uint32, count uint32) erro
 	return nil
 }
 
-func configVerbose(client *EthercatClient, masterIndex *uint32, count uint32) error {
+func configVerbose(client *ethercatclient.EthercatClient, masterIndex *uint32, count uint32) error {
 	for i := uint32(0); i < count; i++ {
 		cfg, err := client.GetConfig(masterIndex, i)
 		if err != nil {

@@ -405,7 +405,12 @@ static PyMethodDef emc_methods[] = {
 static struct PyModuleDef linuxcnc_moduledef = {
     PyModuleDef_HEAD_INIT,
     "linuxcnc",
-    "LinuxCNC interface module (legacy - use gmi for new code)",
+    "LinuxCNC interface module (legacy - use gmi for new code).\n"
+    "NOTE: the GL entry points (draw_lines, draw_dwells, ...) kept here are\n"
+    "NON-FUNCTIONAL signature-changed stubs retained only for import\n"
+    "compatibility; AXIS uses the _glhelpers extension instead. A classic\n"
+    "consumer (gremlin etc.) calling them silently draws nothing — port to\n"
+    "_glhelpers (finding A-16).",
     -1,
     emc_methods
 };

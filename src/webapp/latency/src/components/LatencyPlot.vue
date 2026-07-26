@@ -41,15 +41,17 @@ function themeColors() {
   };
 }
 
-// Server-side buckets -> [elapsedSeconds, maxUs, meanUs].  x is the server's
-// own timeline (seconds since the instance started), so it is absolute,
-// monotonic, and identical for every client viewing the same data.
+// Server-side buckets -> [elapsedSeconds, maxUs, minUs, meanAbsUs].  x is the
+// server's own timeline (seconds since the instance started), so it is
+// absolute, monotonic, and identical for every client viewing the same data.
+// min is signed: early wakes show as negative excursions the max line hides.
 function buildData(): uPlot.AlignedData {
   const h = hist.value;
-  if (!h || h.points.length === 0) return [[], [], []];
+  if (!h || h.points.length === 0) return [[], [], [], []];
   return [
-    h.points.map((p) => p.tMs / 1000),
+    h.points.map((p) => Number(p.tMs) / 1000),
     h.points.map((p) => p.maxNs / 1000),
+    h.points.map((p) => p.minNs / 1000),
     h.points.map((p) => p.meanNs / 1000),
   ];
 }
@@ -94,7 +96,10 @@ function buildOpts(w: number, hgt: number): uPlot.Options {
     series: [
       { label: 'elapsed' },
       { label: 'max', stroke: c.s2, width: 2 },
-      { label: 'mean', stroke: c.s1, width: 2 },
+      // Same color family as max (both are latency extremes), but dashed and
+      // thinner so the envelope reads as one band with two distinct edges.
+      { label: 'min', stroke: c.s2, width: 1, dash: [5, 5] },
+      { label: 'mean |lat|', stroke: c.s1, width: 2 },
     ],
   };
 }

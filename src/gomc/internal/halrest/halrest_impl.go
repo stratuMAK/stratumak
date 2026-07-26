@@ -4,6 +4,7 @@ package halrest
 
 import (
 	"fmt"
+	"strings"
 
 	halcmdapi "github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmd"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halcmd"
@@ -14,14 +15,32 @@ import (
 // internal halcmd package (direct HAL shared-memory access via CGO).
 type halcmdImpl struct{}
 
-func showPatterns(pattern string) []string {
-	if pattern != "" {
-		return []string{pattern}
+// showPatterns turns the optional pattern into halcmd.Show's variadic filter.
+// Both nil (field absent) and "" mean "no filter" — for a glob there is no
+// third answer, so the two collapse deliberately here rather than by accident
+// in the type.
+func showPatterns(pattern *string) []string {
+	if pattern != nil && *pattern != "" {
+		return []string{*pattern}
 	}
 	return nil
 }
 
-func (h *halcmdImpl) ListPins(pattern string) ([]halcmdapi.PinInfo, error) {
+// optStr dereferences an optional string, substituting def when it is absent
+// or empty.
+func optStr(p *string, def string) string {
+	if p == nil || *p == "" {
+		return def
+	}
+	return *p
+}
+
+// strPtr returns a pointer to a copy of s, for an optional field that is
+// present. A present-but-empty value is distinct from an absent one, so this
+// never returns nil.
+func strPtr(s string) *string { return &s }
+
+func (h *halcmdImpl) ListPins(pattern *string) ([]halcmdapi.PinInfo, error) {
 	result, err := halcmd.Show("pin", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -38,14 +57,14 @@ func (h *halcmdImpl) ListPins(pattern string) ([]halcmdapi.PinInfo, error) {
 			HasWriter: p.HasWriter,
 		}
 		if p.Signal != "" {
-			pi.Signal = p.Signal
+			pi.Signal = strPtr(p.Signal)
 		}
 		out = append(out, pi)
 	}
 	return out, nil
 }
 
-func (h *halcmdImpl) ListParams(pattern string) ([]halcmdapi.ParamInfo, error) {
+func (h *halcmdImpl) ListParams(pattern *string) ([]halcmdapi.ParamInfo, error) {
 	result, err := halcmd.Show("param", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -63,7 +82,7 @@ func (h *halcmdImpl) ListParams(pattern string) ([]halcmdapi.ParamInfo, error) {
 	return out, nil
 }
 
-func (h *halcmdImpl) ListSignals(pattern string) ([]halcmdapi.SignalInfo, error) {
+func (h *halcmdImpl) ListSignals(pattern *string) ([]halcmdapi.SignalInfo, error) {
 	result, err := halcmd.Show("sig", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -82,7 +101,7 @@ func (h *halcmdImpl) ListSignals(pattern string) ([]halcmdapi.SignalInfo, error)
 	return out, nil
 }
 
-func (h *halcmdImpl) ListComponents(pattern string) ([]halcmdapi.ComponentInfo, error) {
+func (h *halcmdImpl) ListComponents(pattern *string) ([]halcmdapi.ComponentInfo, error) {
 	result, err := halcmd.Show("comp", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -99,7 +118,7 @@ func (h *halcmdImpl) ListComponents(pattern string) ([]halcmdapi.ComponentInfo, 
 	return out, nil
 }
 
-func (h *halcmdImpl) ListFunctions(pattern string) ([]halcmdapi.FunctionInfo, error) {
+func (h *halcmdImpl) ListFunctions(pattern *string) ([]halcmdapi.FunctionInfo, error) {
 	result, err := halcmd.Show("funct", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -117,7 +136,7 @@ func (h *halcmdImpl) ListFunctions(pattern string) ([]halcmdapi.FunctionInfo, er
 	return out, nil
 }
 
-func (h *halcmdImpl) ListThreads(pattern string) ([]halcmdapi.ThreadInfo, error) {
+func (h *halcmdImpl) ListThreads(pattern *string) ([]halcmdapi.ThreadInfo, error) {
 	result, err := halcmd.Show("thread", showPatterns(pattern)...)
 	if err != nil {
 		return nil, err
@@ -153,7 +172,7 @@ func (h *halcmdImpl) GetPin(name string) (*halcmdapi.PinInfo, error) {
 		HasWriter: p.HasWriter,
 	}
 	if p.Signal != "" {
-		pi.Signal = p.Signal
+		pi.Signal = strPtr(p.Signal)
 	}
 	return pi, nil
 }
@@ -226,7 +245,10 @@ func (h *halcmdImpl) GetStatus() (*halcmdapi.HalStatus, error) {
 		return nil, err
 	}
 	return &halcmdapi.HalStatus{
-		RtLock:     st.LockLevel != "NONE",
+		// halcmd renders the unlocked state as the lower-case "none" (see
+		// lockLevelName); comparing against "NONE" made RtLock report true on
+		// every call, so an HMI could never see HAL as unlocked.
+		RtLock:     !strings.EqualFold(st.LockLevel, "none"),
 		Components: int32(len(result.Comps)),
 		Pins:       int32(len(result.Pins)),
 		Signals:    int32(len(result.Signals)),
@@ -241,7 +263,7 @@ func okCmd() *halcmdapi.CmdResult {
 }
 
 func errCmd(err error) (*halcmdapi.CmdResult, error) {
-	return &halcmdapi.CmdResult{Success: false, Error: err.Error()}, nil
+	return &halcmdapi.CmdResult{Success: false, Error: strPtr(err.Error())}, nil
 }
 
 func (h *halcmdImpl) SetPin(name string, value string) (*halcmdapi.CmdResult, error) {
@@ -360,16 +382,28 @@ func (h *halcmdImpl) Unload(name string) (*halcmdapi.CmdResult, error) {
 }
 
 func (h *halcmdImpl) Newthread(name string, periodNs int64, fp *bool, cpuId *int32) (*halcmdapi.CmdResult, error) {
-	usesFP := 0
-	if fp != nil && *fp {
-		usesFP = 1
+	// An omitted fp flag means FP, matching the .hal `newthread` parser
+	// (NewThreadToken{FP: 1}) and classic halcmd. Defaulting to nofp here made
+	// `halcmd newthread <name> <period>` at runtime build a thread that then
+	// rejects every addf of a floating-point function (hal_lib: funct->uses_fp
+	// && !thread->uses_fp), while the identical line in a HAL file worked.
+	usesFP := 1
+	if fp != nil && !*fp {
+		usesFP = 0
 	}
 	cpuID := -1
 	if cpuId != nil {
 		cpuID = int(*cpuId)
 	}
+	// Computed before creation (afterwards the new thread is in the list and
+	// compares against itself). CreateThreadCPU logs it too; this is what
+	// reaches the operator who typed the command, rather than the server log.
+	warning := halcmd.ThreadOrderWarning(name, periodNs)
 	if err := halcmd.CreateThreadCPU(name, periodNs, usesFP, cpuID); err != nil {
 		return errCmd(err)
+	}
+	if warning != "" {
+		return &halcmdapi.CmdResult{Success: true, Output: strPtr("warning: " + warning)}, nil
 	}
 	return okCmd(), nil
 }
@@ -413,21 +447,15 @@ func (h *halcmdImpl) Stop() (*halcmdapi.CmdResult, error) {
 	return okCmd(), nil
 }
 
-func (h *halcmdImpl) Lock(level string) (*halcmdapi.CmdResult, error) {
-	if level == "" {
-		level = "all"
-	}
-	if err := halcmd.Lock(level); err != nil {
+func (h *halcmdImpl) Lock(level *string) (*halcmdapi.CmdResult, error) {
+	if err := halcmd.Lock(optStr(level, "all")); err != nil {
 		return errCmd(err)
 	}
 	return okCmd(), nil
 }
 
-func (h *halcmdImpl) Unlock(level string) (*halcmdapi.CmdResult, error) {
-	if level == "" {
-		level = "all"
-	}
-	if err := halcmd.Unlock(level); err != nil {
+func (h *halcmdImpl) Unlock(level *string) (*halcmdapi.CmdResult, error) {
+	if err := halcmd.Unlock(optStr(level, "all")); err != nil {
 		return errCmd(err)
 	}
 	return okCmd(), nil
@@ -440,11 +468,8 @@ func (h *halcmdImpl) SetDebug(level int32) (*halcmdapi.CmdResult, error) {
 	return okCmd(), nil
 }
 
-func (h *halcmdImpl) Save(type_ string) (*halcmdapi.CmdResult, error) {
-	if type_ == "" {
-		type_ = "all"
-	}
-	lines, err := halcmd.Save(type_, "")
+func (h *halcmdImpl) Save(type_ *string) (*halcmdapi.CmdResult, error) {
+	lines, err := halcmd.Save(optStr(type_, "all"), "")
 	if err != nil {
 		return errCmd(err)
 	}
@@ -452,7 +477,7 @@ func (h *halcmdImpl) Save(type_ string) (*halcmdapi.CmdResult, error) {
 	for _, line := range lines {
 		output += line + "\n"
 	}
-	return &halcmdapi.CmdResult{Success: true, Output: output}, nil
+	return &halcmdapi.CmdResult{Success: true, Output: strPtr(output)}, nil
 }
 
 func (h *halcmdImpl) Retain(name string) (*halcmdapi.CmdResult, error) {
@@ -486,7 +511,7 @@ func (h *halcmdImpl) WatchItems(names []string) ([]halcmdapi.PinInfo, error) {
 			HasWriter: p.HasWriter,
 		}
 		if p.Signal != "" {
-			pi.Signal = p.Signal
+			pi.Signal = strPtr(p.Signal)
 		}
 		out = append(out, pi)
 	}

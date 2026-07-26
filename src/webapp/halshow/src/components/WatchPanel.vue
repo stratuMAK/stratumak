@@ -1,14 +1,25 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { halshowStore } from '../stores/halshow';
+import { halshowStore, type WatchEntry, type WatchKind } from '../stores/halshow';
 
 const editingName = ref('');
+const editingKind = ref<WatchKind>('pin');
 const editValue = ref('');
 const editError = ref('');
 
+// Displayed value/type/dir come from the server-resolved bare name — for a
+// signal shadowed by a same-name pin these are the pin's (H-9 residual
+// limitation; see updateWatch in the store). Only the SET path is kind-exact.
 function getWatchValue(name: string): string {
   const item = halshowStore.state.watchValues.find(v => v.name === name);
-  return item?.value ?? '—';
+  if (!item || isDead(name)) return '—';
+  return item.value;
+}
+
+// H-5: item no longer resolves server-side (deleted/unloaded)
+function isDead(name: string): boolean {
+  const item = halshowStore.state.watchValues.find(v => v.name === name);
+  return item?.kind === 'unknown';
 }
 
 function getWatchType(name: string): string {
@@ -21,9 +32,16 @@ function getWatchDir(name: string): string {
   return item?.dir ?? '';
 }
 
-function canSet(name: string): boolean {
-  const item = halshowStore.state.watchValues.find(v => v.name === name);
-  if (!item) return false;
+function canSet(entry: WatchEntry): boolean {
+  const item = halshowStore.state.watchValues.find(v => v.name === entry.name);
+  if (!item || item.kind === 'unknown') return false;
+  if (item.kind !== entry.kind) {
+    // H-9 residual: the server resolved the bare name to a different
+    // (shadowing) item, so the whitelist can't be evaluated for the stored
+    // kind. Offer Set — the write targets the stored kind and the server
+    // refuses unsettable targets, which surfaces in the dialog.
+    return true;
+  }
   // Whitelist: only allow setting known-settable items
   if (item.kind === 'pin' && (item.dir === 'IN' || item.dir === 'IO') && !item.linked) return true;
   if (item.kind === 'param' && item.dir === 'RW') return true;
@@ -35,20 +53,26 @@ function isBitType(name: string): boolean {
   return getWatchType(name) === 'bit';
 }
 
-function startEdit(name: string) {
-  editingName.value = name;
-  editValue.value = getWatchValue(name);
+function startEdit(entry: WatchEntry) {
+  editingName.value = entry.name;
+  editingKind.value = entry.kind;
+  editValue.value = getWatchValue(entry.name);
   editError.value = '';
 }
 
 async function submitEdit() {
   if (!editingName.value) return;
-  const result = await halshowStore.setWatchValue(editingName.value, editValue.value);
-  if (result.success) {
-    editingName.value = '';
-    editError.value = '';
-  } else {
-    editError.value = result.error ?? 'Failed';
+  try {
+    // H-9: target the stored kind — no pin-first precedence guessing
+    const result = await halshowStore.setWatchValue(editingName.value, editValue.value, editingKind.value);
+    if (result.success) {
+      editingName.value = '';
+      editError.value = '';
+    } else {
+      editError.value = result.error ?? 'Failed';
+    }
+  } catch (e) {
+    editError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -63,6 +87,13 @@ function cancelEdit() {
     <div class="watch-header">
       <span>Watch List ({{ halshowStore.state.watchList.length }} items)</span>
       <button v-if="halshowStore.state.watchList.length > 0" @click="halshowStore.clearWatch()">Clear All</button>
+    </div>
+
+    <!-- H-2/H-3: watch transport state must be visible, not silent '—' -->
+    <div v-if="!halshowStore.state.watchOk" class="watch-warn">
+      <template v-if="halshowStore.state.watchStale">Watch connection lost — values are stale.</template>
+      <template v-else>Watch unavailable — no live values.</template>
+      <template v-if="halshowStore.state.watchReconnecting"> Reconnecting…</template>
     </div>
 
     <div v-if="halshowStore.state.watchList.length === 0" class="empty">
@@ -91,16 +122,17 @@ function cancelEdit() {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="name in halshowStore.state.watchList" :key="name">
-          <td class="name">{{ name }}</td>
-          <td class="value">{{ getWatchValue(name) }}</td>
-          <td class="type">{{ getWatchType(name) }}</td>
-          <td class="dir">{{ getWatchDir(name) }}</td>
+        <!-- H-9: key includes kind — the same name may appear as pin AND signal -->
+        <tr v-for="entry in halshowStore.state.watchList" :key="entry.kind + ':' + entry.name" :class="{ dead: isDead(entry.name) }">
+          <td class="name">{{ entry.name }}</td>
+          <td class="value" :class="{ stale: halshowStore.state.watchStale }">{{ getWatchValue(entry.name) }}</td>
+          <td class="type">{{ getWatchType(entry.name) }}</td>
+          <td class="dir">{{ getWatchDir(entry.name) }}</td>
           <td class="set-col">
-            <button v-if="canSet(name)" class="set-btn" @click="startEdit(name)">Set</button>
+            <button v-if="canSet(entry)" class="set-btn" @click="startEdit(entry)">Set</button>
           </td>
           <td class="remove">
-            <button @click="halshowStore.removeFromWatch(name)">×</button>
+            <button @click="halshowStore.removeFromWatch(entry.name, entry.kind)">×</button>
           </td>
         </tr>
       </tbody>
@@ -175,6 +207,15 @@ function cancelEdit() {
   padding: 12px 0;
 }
 
+.watch-warn {
+  background: #3a2a1a;
+  color: #fa4;
+  border: 1px solid #742;
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
+
 .watch-table {
   width: 100%;
   border-collapse: collapse;
@@ -209,6 +250,22 @@ function cancelEdit() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* H-2: values from a lost connection must not render as live green */
+.watch-table .value.stale {
+  color: #887;
+  font-weight: normal;
+}
+
+/* H-5: unresolvable (deleted/unloaded) items render dead */
+.watch-table tr.dead td {
+  color: #555;
+}
+
+.watch-table tr.dead .value {
+  color: #555;
+  font-weight: normal;
 }
 
 .watch-table .type {

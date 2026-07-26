@@ -236,7 +236,7 @@ func net(signal: string @maxlen(47), pins: []string) -> CmdResult
 @method "POST"
 @path "/load"
 @rt_safe "false"
-func load(module: string, args: []string?) -> CmdResult
+func load(module: string, args: []string) -> CmdResult
 
 # Unload module by instance name (unload)
 @method "DELETE"
@@ -252,7 +252,9 @@ func unload(name: string) -> CmdResult
 @method "POST"
 @path "/thread"
 @rt_safe "false"
-func newthread(name: string @maxlen(47), period_ns: i64 @min(1), fp: bool?, cpu_id: i32?) -> CmdResult
+# period_ns @min mirrors HAL_MIN_PERIOD_NSEC (hal.h): a sub-µs period cannot
+# be met by any schedulable task and would spin a SCHED_FIFO core forever.
+func newthread(name: string @maxlen(47), period_ns: i64 @min(1000), fp: bool?, cpu_id: i32?) -> CmdResult
 
 # Delete thread (delthread)
 @method "DELETE"
@@ -336,4 +338,4 @@ func unretain(name: string @maxlen(47)) -> CmdResult
 @watch true
 @watch_default_rate 100ms
 @watch_factory true
-func watch_items(names: []string?) -> []PinInfo
+func watch_items(names: []string) -> []PinInfo

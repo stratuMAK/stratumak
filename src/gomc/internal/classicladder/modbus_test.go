@@ -221,7 +221,7 @@ func TestModbusTCP_ReadWriteCoils(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	m.modbusSlave.start(port)
 	defer m.modbusSlave.stop()
@@ -232,14 +232,16 @@ func TestModbusTCP_ReadWriteCoils(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Write single coil at address 0 = ON (FC 5)
 	req := buildMBAPRequest(1, []byte{5, 0x00, 0x00, 0xFF, 0x00})
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
 	resp := make([]byte, 256)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err := conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)
@@ -254,9 +256,11 @@ func TestModbusTCP_ReadWriteCoils(t *testing.T) {
 
 	// Read coils (FC 1) — read 8 coils starting at address 0
 	req = buildMBAPRequest(2, []byte{1, 0x00, 0x00, 0x00, 0x08})
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err = conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +286,7 @@ func TestModbusTCP_ReadWriteRegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	m.modbusSlave.start(port)
 	defer m.modbusSlave.stop()
@@ -292,7 +296,7 @@ func TestModbusTCP_ReadWriteRegisters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Write single register at address 0 with value 12345 (FC 6)
 	pdu := make([]byte, 5)
@@ -300,10 +304,12 @@ func TestModbusTCP_ReadWriteRegisters(t *testing.T) {
 	binary.BigEndian.PutUint16(pdu[1:], 0)     // address
 	binary.BigEndian.PutUint16(pdu[3:], 12345) // value
 	req := buildMBAPRequest(1, pdu)
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
 	resp := make([]byte, 256)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err := conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)
@@ -315,9 +321,11 @@ func TestModbusTCP_ReadWriteRegisters(t *testing.T) {
 	// Read holding registers (FC 3) — 1 register at address 0
 	pdu = []byte{3, 0x00, 0x00, 0x00, 0x01}
 	req = buildMBAPRequest(2, pdu)
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err = conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +351,7 @@ func TestModbusTCP_WriteMultipleCoils(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	m.modbusSlave.start(port)
 	defer m.modbusSlave.stop()
@@ -353,15 +361,17 @@ func TestModbusTCP_WriteMultipleCoils(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Write 8 coils at address 0 (FC 15), pattern 0xA5
 	pdu := []byte{15, 0x00, 0x00, 0x00, 0x08, 0x01, 0xA5}
 	req := buildMBAPRequest(1, pdu)
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
 	resp := make([]byte, 256)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err := conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)
@@ -375,9 +385,11 @@ func TestModbusTCP_WriteMultipleCoils(t *testing.T) {
 
 	// Read back (FC 1)
 	req = buildMBAPRequest(2, []byte{1, 0x00, 0x00, 0x00, 0x08})
-	conn.Write(req)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err = conn.Read(resp)
 	if err != nil {
 		t.Fatal(err)

@@ -40,10 +40,19 @@ Layer) from the command line.  \fBhalcmd\fR can optionally read
 commands from a file, allowing complex HAL configurations to be
 set up with a single command.
 
-If the \fBreadline\fR library is available when LinuxCNC is compiled, then
-\fBhalcmd\fR offers commandline editing and completion when running
-interactively.  Use the up arrow to recall previous commands, and press tab to
-complete the names of items such as pins and signals.
+When run interactively on a terminal, \fBhalcmd\fR offers commandline editing
+and completion.  Use the up and down arrows to recall previous commands, the
+left and right arrows (Ctrl\-arrow moves a word at a time) to move within the
+line, and press tab to complete commands and the names of items such as pins
+and signals; pressing tab again on an ambiguous word lists the choices.  The
+usual editing keys are available: Ctrl\-A/Ctrl\-E or Home/End jump to the start
+and end of the line, Ctrl\-W deletes the word before the cursor, Ctrl\-U and
+Ctrl\-K delete to the start and end of the line, Ctrl\-Y pastes back the last
+deletion, Ctrl\-L clears the screen, Ctrl\-C abandons the line being typed and
+Ctrl\-D on an empty line exits.
+.PP
+Editing is disabled when the input is not a terminal (a pipe or a redirected
+file) or when \fB\-s\fR is given, so scripts behave exactly as before.
 .SH OPTIONS
 .TP
 \fB\-I\fR

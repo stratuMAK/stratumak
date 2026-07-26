@@ -217,12 +217,14 @@ func set_debug(debug: i32) -> i32
 @path "/jog-axis"
 func set_jog_axis(axis: i32 @min(-1) @max(8)) -> i32
 
-# Set jog increment (0 = continuous)
+# Set jog increment in mm (0 = continuous). Mirror-only GUI state (the
+# server stores and republishes it for multi-client sync); the canonical
+# wire unit is mm, like every other linear quantity on this API.
 @method "POST"
 @path "/jog-increment"
 func set_jog_increment(increment: f64 @min(0)) -> i32
 
-# Set linear jog speed (units/sec)
+# Set linear jog speed in mm/s. Mirror-only GUI state; canonical mm/s.
 @method "POST"
 @path "/jog-speed"
 func set_jog_speed(speed: f64 @min(0)) -> i32

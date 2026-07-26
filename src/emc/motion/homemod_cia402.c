@@ -354,7 +354,26 @@ static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if (inst->homing || inst->drv_state != DRV_HOME_IDLE) {
-        inst->drv_state = DRV_HOME_ERROR;
+        linmot_pins_t *p = &inst->pins;
+        /* Force the drive out of its autonomous HOMING opmode SYNCHRONOUSLY.
+         *
+         * Classic homing moves the joint via motmod's free_tp, which the
+         * disable edge (control.c set_operating_mode) zeroes directly
+         * (free_tp.enable=0) — so a classic joint stops the instant the
+         * machine disables/estops, before any homing tick runs. A CiA402
+         * drive homes AUTONOMOUSLY (opmode HOMING, home-cmd asserted);
+         * disabling free_tp does nothing to it. do_cancel is invoked from
+         * that same disable edge, at which point motion_state is already
+         * DISABLED, so the FREE-gated homing tick (do_homing_sequence) will
+         * NOT run and the deferred DRV_HOME_ERROR opmode reset would never
+         * fire — leaving the drive commanded in HOMING (still moving) while
+         * motmod believes it is disabled. Reset the drive here, immediately,
+         * mirroring the free_tp kill classic homing gets from the disable edge. */
+        *(p->home_cmd) = 0;
+        *(p->opmode_cmd) = CIA402_OP_CSP;
+        inst->homing = 0;
+        inst->homed = 0;
+        inst->drv_state = DRV_HOME_IDLE;
     }
     return 0;
 }
@@ -400,10 +419,29 @@ static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING
 
 static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
 {
-    (void)ctx;
-    /* CIA402 drives don't use index pulses — position tracking is handled
-     * by updating free_tp.curr_pos each servo cycle in drive_home_tick(). */
-    return 0;
+    linmot_inst_t *inst = (linmot_inst_t *)ctx;
+    /* While the drive owns the position loop (opmode HOMING, from the mode
+     * switch until we are back in CSP), motmod's pos_cmd is only a lagging
+     * shadow of the drive's autonomous motion. When the drive asserts
+     * HomingAttained it atomically redefines its position origin, so
+     * motor_pos_fb takes a one-cycle STEP. Because control.c computes ferror
+     * and runs check_for_faults BEFORE do_homing() re-syncs the offset, that
+     * step would trip a spurious "following error" on the just-homed joint.
+     *
+     * Reuse control.c's generic index-step suppression (process_inputs:
+     * `at_index_search_wait && index_enable==0` forces pos_fb = pos_cmd), the
+     * same mask classic homing uses at the encoder index latch. This hides the
+     * origin step WITHOUT freezing the DRO: pos_cmd is still slaved to the
+     * drive's live position by track_drive_position() each cycle, so the
+     * displayed position keeps following the physical homing move (one cycle
+     * behind) — only the confusing origin jump is masked.
+     *
+     * Gated to the drive-owns-loop window (SWITCH_MODE..WAIT_CSP). Once we
+     * reach the CSP final move motmod commands the joint again, so normal
+     * ferror protection resumes. (index_enable stays 0 — see get_index_enable.)
+     */
+    return (inst->drv_state >= DRV_HOME_SWITCH_MODE &&
+            inst->drv_state <= DRV_HOME_WAIT_CSP) ? 1 : 0;
 }
 
 static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING

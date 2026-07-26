@@ -117,7 +117,7 @@ func newMDITask(t *testing.T, fi *fakeInterp) *Task {
 	task, _, _ := newTestTask()
 	task.noForceHoming = true
 	task.SetInterpreter(fi)
-	bringUp(task)
+	bringUp(t, task)
 	if err := task.SetMode(int32(ModeMDI)); err != nil {
 		t.Fatalf("SetMode(MDI): %v", err)
 	}
@@ -151,11 +151,11 @@ func TestMDIChain_ExpandsPastQueueSize(t *testing.T) {
 		switch cmd {
 		case "first":
 			// Keep the sequencer busy long enough for the second MDI to queue.
-			task.EnqueueCmd(&DwellCmd{Seconds: 0.1})
+			_ = task.EnqueueCmd(&DwellCmd{Seconds: 0.1})
 		case "second":
 			// Expand well past interpQueueSize (64).
 			for i := 0; i < 3*interpQueueSize; i++ {
-				task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)})
+				_ = task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)})
 			}
 		}
 		return InterpOK, nil
@@ -188,9 +188,9 @@ func TestAbort_UnblocksBackpressuredMDI(t *testing.T) {
 		task := activeCanon().task
 		// Sequencer executes the dwell (stalls ~10s), everything after piles
 		// up in interpQueue until EnqueueCmd blocks.
-		task.EnqueueCmd(&DwellCmd{Seconds: 10})
+		_ = task.EnqueueCmd(&DwellCmd{Seconds: 10})
 		for i := 0; i < 2*interpQueueSize; i++ {
-			task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)}) // errors after abort are fine
+			_ = task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)}) // errors after abort are fine
 		}
 		return InterpOK, nil
 	}
@@ -212,7 +212,7 @@ func TestAbort_UnblocksBackpressuredMDI(t *testing.T) {
 	}
 
 	abortDone := make(chan struct{})
-	go func() { task.Abort(); close(abortDone) }()
+	go func() { _ = task.Abort(); close(abortDone) }()
 
 	select {
 	case <-abortDone:
@@ -246,8 +246,10 @@ func TestAutoRun_RejectedWhileRunning(t *testing.T) {
 	task, _, _ := newTestTask()
 	task.noForceHoming = true
 	task.SetInterpreter(fi)
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 	task.mu.Lock()
 	task.programOpen = true
 	task.programFile = "fake.ngc"
@@ -304,7 +306,7 @@ func TestConcurrentCommandStorm(t *testing.T) {
 	fi.onExecuteString = func(cmd string) (int, error) {
 		task := activeCanon().task
 		for i := 0; i < 8; i++ {
-			task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)})
+			_ = task.EnqueueCmd(&LinearMoveCmd{ID: int32(i + 1)})
 		}
 		return InterpOK, nil
 	}
@@ -384,7 +386,7 @@ func TestPreflight_RejectsWithoutCmdMu(t *testing.T) {
 // call never returned.
 func TestProgramOpen_BusyRejectDoesNotDeadlock(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 	task.mu.Lock()
 	task.interpState = InterpReading // simulate a running program
 	task.mu.Unlock()

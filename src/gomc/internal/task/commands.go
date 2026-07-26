@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // mcodeAbort signals the M-code handler worker to stop.
@@ -41,6 +43,7 @@ func (t *Task) canSwitchModeAutoLocked(target TaskMode) error {
 // Must hold t.mu.
 func (t *Task) canPowerOnLocked() error {
 	if t.state != StateOn && t.state != StateEstopReset && t.state != StateOff {
+		t.operatorError("Can't turn the machine ON from the current state")
 		return ErrNotOn
 	}
 	return nil
@@ -159,6 +162,9 @@ func (t *Task) preflightAuto(cmd int32) error {
 		return err
 	}
 	if err := t.canSwitchMode(ModeAuto); err != nil {
+		// canSwitchMode is silent (also used by MDI, which words its own
+		// message); surface the AUTO-specific reason here.
+		t.operatorError("Can't switch to AUTO mode while the machine is busy")
 		return err
 	}
 	switch cmd {
@@ -229,10 +235,14 @@ func (t *Task) preflightManualMode(requireOn bool) error {
 		if err := t.requireOn(); err != nil {
 			return err
 		}
-		return t.canSwitchMode(ModeManual)
+	} else if t.state != StateOn {
+		// OverrideLimits off the ON path: nothing to gate.
+		return nil
 	}
-	if t.state == StateOn {
-		return t.canSwitchMode(ModeManual)
+	if err := t.canSwitchMode(ModeManual); err != nil {
+		// canSwitchMode is silent (shared with MDI); surface the reason here.
+		t.operatorError("Can't switch to manual mode while the machine is busy")
+		return err
 	}
 	return nil
 }
@@ -490,8 +500,16 @@ func (t *Task) setState(state int32) error {
 		t.mdiQueue = t.mdiQueue[:0]
 		t.taskCommand = ""
 		t.stepping = false
-		t.programOpen = false
-		t.programFile = ""
+		// The loaded program SURVIVES estop. 2.9 closes only the interpreter's
+		// file handle on abort (emcTaskPlanClose, emctask.cc) and leaves
+		// emcStatus->task.file set, then re-opens it lazily on the next run
+		// ("if (!taskplanopen && task.file[0]) emcTaskPlanOpen(task.file)",
+		// emctaskmain.cc). We already mirror that: finishShutdown below closes
+		// and resets the interp, and the AUTO run/step paths re-open
+		// t.programFile before producing. Clearing the two fields here was the
+		// only divergence — and an operator-visible one: an estop emptied
+		// stat.task.file, so every UI lost its title, its run gate, and the
+		// program it had loaded, with no way back but re-opening the file.
 		t.mu.Unlock()
 
 		if wasOn {
@@ -526,6 +544,9 @@ func (t *Task) setState(state int32) error {
 		}
 		if t.state != StateEstop {
 			t.mu.Unlock()
+			// Message it like every other refused state change: with the
+			// client-side toast gone, a bare error here is fully invisible.
+			t.operatorError("Can't reset E-stop from the current state")
 			return ErrEstop
 		}
 		// Request estop-off from IO (sets user-enable-out=1).
@@ -615,6 +636,22 @@ func (t *Task) setState(state int32) error {
 		if err := t.motion.Enable(); err != nil {
 			return err
 		}
+		// Settle before committing state=ON: Enable()'s ack only means the RT
+		// command handler ran — the enabled flag lands in a *published* status
+		// at the end of that servo cycle. Committing ON earlier opens a window
+		// where a client poll right after this command completes still reads
+		// enabled=false (the hard-limits CI flake), and where the monitor's
+		// checkMotionEnabled pairs state=ON with a genuinely pre-enable
+		// snapshot. 2.9 had no such window by construction: task_state was
+		// DERIVED from motion.traj.enabled (determineState()). A timeout means
+		// motion refused or instantly revoked the enable (e.g. a tripped limit
+		// without override) — stay off and report, rather than flapping
+		// ON→EstopReset through the monitor.
+		if err := t.waitMotionEnabledStatus(); err != nil {
+			t.operatorError("Can't enable motion")
+			t.logger.Warn("machine-on: motion did not enable", "err", err)
+			return err
+		}
 		// Enable override scaling so feed/spindle override controls work.
 		_ = t.motion.FeedScaleEnable(1)
 		_ = t.motion.FeedHoldEnable(1)
@@ -636,6 +673,35 @@ func (t *Task) setState(state int32) error {
 	}
 	t.mu.Unlock()
 	return nil
+}
+
+// motionEnableSettleTimeout bounds how long SetState(ON) waits for the enable
+// to show up in a published motion status. Two servo cycles suffice on a
+// healthy machine, so a hit deadline means the enable was refused/revoked, not
+// that the machine is slow. A var, not a const, so tests exercising the
+// refusal path don't have to burn the full production deadline.
+var motionEnableSettleTimeout = 1 * time.Second
+
+const motionEnableSettleInterval = 2 * time.Millisecond
+
+// waitMotionEnabledStatus blocks until a published motion status reports
+// Enabled, or motionEnableSettleTimeout expires. See the SetState(ON) call
+// site for why committing state=ON before this holds is a race.
+func (t *Task) waitMotionEnabledStatus() error {
+	if t.status == nil {
+		return nil
+	}
+	deadline := time.Now().Add(motionEnableSettleTimeout)
+	for {
+		if ms, err := t.status.GetStatus(); err == nil && ms.Enabled != 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("motion status still disabled %v after enable ack",
+				motionEnableSettleTimeout)
+		}
+		time.Sleep(motionEnableSettleInterval)
+	}
 }
 
 // SetMode switches between MANUAL, MDI, and AUTO.
@@ -668,7 +734,7 @@ func (t *Task) SetMode(mode int32) error {
 	switch target {
 	case ModeManual:
 		if t.mode != ModeManual {
-			t.abortLocked() // unlocks/re-locks internally for I/O
+			t.modeAbortLocked() // unlocks/re-locks internally for I/O
 		}
 		t.mode = ModeManual
 		homed := t.allHomed()
@@ -681,7 +747,7 @@ func (t *Task) SetMode(mode int32) error {
 		return t.motion.SetFree()
 	case ModeMDI:
 		if t.mode != ModeMDI {
-			t.abortLocked()
+			t.modeAbortLocked()
 		}
 		t.mode = ModeMDI
 		// Synch only while the interpreter is idle — a re-assertion of the
@@ -696,7 +762,7 @@ func (t *Task) SetMode(mode int32) error {
 		return nil
 	case ModeAuto:
 		if t.mode != ModeAuto {
-			t.abortLocked()
+			t.modeAbortLocked()
 		}
 		t.mode = ModeAuto
 		canSynch := t.interp != nil && !t.programBusy()
@@ -712,11 +778,53 @@ func (t *Task) SetMode(mode int32) error {
 	return ErrWrongMode
 }
 
+// resolveProgram resolves a G-code path against the program directories.
+//
+// The resolver is built in loadConfig, where the INI is available; a Task that
+// never loaded a config (only tests do that) falls back to the shared default
+// so the check is never silently skipped.
+func (t *Task) resolveProgram(file string) (string, error) {
+	r := t.programRes
+	if r == nil {
+		r = pathres.ProgramResolver(nil, ".")
+	}
+	if r == nil {
+		return "", fmt.Errorf("path resolver not initialised")
+	}
+	return r.Resolve(file, pathres.Read)
+}
+
 // ProgramOpen opens a G-code file for execution.
+//
+// The filename arrives over REST, so it is resolved and containment-checked
+// before the interpreter sees it.  G-code is user data rather than
+// configuration, so the allowed roots are the program directories
+// (pathres.ProgramDirs: PROGRAM_PREFIX + SUBROUTINE_PATH + the system share
+// and nc_files directories) — the same set ngcpreview's get_file enforces
+// (user ruling, 2026-07-22).
 func (t *Task) ProgramOpen(file string) error {
+	// Busy is checked first so a request that would be rejected anyway keeps
+	// reporting ErrBusy rather than a path error.
 	if err := t.preflightNotBusy("Can't open a program while one is running"); err != nil {
 		return err
 	}
+	resolved, err := t.resolveProgram(file)
+	if err != nil {
+		// The resolver error enumerates every allowed root — worth logging, too
+		// long for the operator panel. Give the operator a short reason; the
+		// full detail stays in the log and in the returned error (dev-facing).
+		// A plain missing file must say so: reporting it as "not allowed"
+		// sends the operator diagnosing permissions for a deleted file (the
+		// recent-files case).
+		t.logger.Warn("program open denied", "file", file, "err", err)
+		if errors.Is(err, pathres.ErrNotFound) {
+			t.operatorError(fmt.Sprintf("can't open %s: no such file", file))
+		} else {
+			t.operatorError(fmt.Sprintf("can't open %s: not in an allowed program directory", file))
+		}
+		return err
+	}
+	file = resolved
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
 	t.mu.Lock()
@@ -874,6 +982,11 @@ func (t *Task) autoCommand(cmd int32, line int32) error {
 	}
 	if err := t.ensureMode(ModeAuto); err != nil {
 		t.mu.Unlock()
+		// The preflight passed or this command would not be here: the refusal
+		// happened in the race window before cmdMu (another client started
+		// homing or an MDI), and without a message the operator's Run click
+		// does nothing with no explanation anywhere but stderr.
+		t.operatorError(fmt.Sprintf("Cannot switch to Auto mode: %v", err))
 		return err
 	}
 
@@ -1229,13 +1342,13 @@ func (t *Task) executeMDI(command string) error {
 		// discards the queued readahead, and leaves ExecError (C++ clears
 		// interp_list + emcTaskAbort/emcIoAbort on MDI INTERP_ERROR).
 		t.faultMDI(fmt.Sprintf("MDI error: %v", err))
-		return fmt.Errorf("MDI execute: %w", err)
+		return executed(fmt.Errorf("MDI execute: %w", err))
 	}
 
 	switch rc {
 	case InterpError:
 		t.faultMDI("MDI interpreter error")
-		return fmt.Errorf("MDI interpreter error")
+		return executed(fmt.Errorf("MDI interpreter error"))
 	default:
 		// Mark exec state as busy so WaitComplete doesn't return prematurely.
 		t.setExecState(ExecWaitingForMotion)
@@ -1260,7 +1373,7 @@ func (t *Task) executeMDI(command string) error {
 			// mdiDoneCmd nothing transitions interpState, wedging it at Reading.
 			// Fault it so the state is consistent and the failure is visible.
 			t.faultMDI(fmt.Sprintf("MDI enqueue failed: %v", err))
-			return fmt.Errorf("MDI enqueue: %w", err)
+			return executed(fmt.Errorf("MDI enqueue: %w", err))
 		}
 	}
 	return nil
@@ -1472,7 +1585,10 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 			return
 		}
 		if rc == InterpEndfile || rc == InterpExit {
-			t.EnqueueCmd(&interpDoneCmd{})
+			// Best-effort completion signal: if the sequencer was aborted
+			// concurrently the enqueue fails, but recoverSeqFault/the abort
+			// select already own teardown (see recoverSeqFault doc).
+			_ = t.EnqueueCmd(&interpDoneCmd{})
 			return
 		}
 
@@ -1497,7 +1613,9 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 		case InterpExecuteFinish:
 			// Interpreter says "wait for motion/IO to complete before
 			// continuing" (tool change, probe, dwell, M-code, etc.)
-			t.EnqueueCmd(waitForMotionSingleton)
+			// Best-effort: an enqueue failure means the sequencer aborted, which
+			// waitSequencerDrain detects below and returns on.
+			_ = t.EnqueueCmd(waitForMotionSingleton)
 			// Wait for sequencer to drain before reading next line
 			if t.waitSequencerDrain() {
 				return // aborted
@@ -1507,7 +1625,8 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 				t.logger.Error("interp synch after execute_finish", "err", err)
 			}
 		case InterpExit:
-			t.EnqueueCmd(&interpDoneCmd{})
+			// Best-effort completion signal (see the InterpEndfile case above).
+			_ = t.EnqueueCmd(&interpDoneCmd{})
 			return
 		case InterpError:
 			t.logger.Error("interpreter error", "rc", rc)
@@ -1831,6 +1950,9 @@ func (t *Task) Home(joint int32) error {
 		return err
 	}
 	if err := t.ensureMode(ModeManual); err != nil {
+		// Same race-window refusal as autoCommand's: message it, or the
+		// operator's Home click dies silently (the MDI body's precedent).
+		t.operatorError(fmt.Sprintf("Cannot home: %v", err))
 		return err
 	}
 	// Home requires joint (FREE) mode — motion may be in teleop even when
@@ -1887,6 +2009,7 @@ func (t *Task) OverrideLimits(joint int32) error {
 
 	if t.state == StateOn {
 		if err := t.ensureMode(ModeManual); err != nil {
+			t.operatorError(fmt.Sprintf("Cannot override limits: %v", err))
 			return err
 		}
 	}
@@ -2076,10 +2199,36 @@ func (t *Task) Abort() error {
 	return nil
 }
 
-// abortLocked performs the full abort sequence.
+// abortLocked performs the full user-abort sequence, mirroring 2.9's
+// EMC_TASK_ABORT handler: emcTaskAbort + emcTaskStateRestore + emcIoAbort +
+// emcSpindleAbort(all) + mdi_execute_abort + emcAbortCleanup (on_abort).
 // Caller MUST hold t.mu on entry; t.mu is held on return.
 // Internally unlocks t.mu for external I/O calls to avoid blocking stat reads.
-func (t *Task) abortLocked() {
+func (t *Task) abortLocked() { t.abortMachineLocked(true) }
+
+// modeAbortLocked is the light abort a mode switch performs. 2.9's
+// emcTaskSetMode runs only emcTaskAbort (+ mdi_execute_abort when leaving to
+// MANUAL): motion abort, interp-list clear, plan close/reset, resynch. It does
+// NOT stop spindles, abort IO, touch coolant, run on_abort, or restore modal
+// state from the executing tag — a spindle started in one mode keeps turning
+// across the switch. Every MDI issued through the transactional
+// ensureMode(ModeMDI)/restoreModeTx round-trip re-enters MDI mode, so using
+// the full abort here stopped a running spindle on the NEXT MDI command (S1000
+// M3, then F100 → spindle off).
+// Same locking contract as abortLocked.
+func (t *Task) modeAbortLocked() { t.abortMachineLocked(false) }
+
+// abortMachineLocked is the shared abort core. full selects the user-abort
+// extras (spindle/IO/coolant stop, on_abort, tag restore) on top of the light
+// mode-switch teardown.
+// Caller MUST hold t.mu on entry; t.mu is held on return.
+func (t *Task) abortMachineLocked(full bool) {
+	// Captured before the clobber below: the last-dispatched fallback in the
+	// tag capture must only apply when this abort interrupts an ACTIVE
+	// program. After a normal completion the trailing modal-only lines (e.g.
+	// a final G64 P/Q) executed legitimately — rolling them back on the next
+	// mode switch (which also aborts) would be wrong.
+	wasRunning := t.interpState != InterpIdle
 	t.interpState = InterpIdle
 	t.execState = ExecDone
 	t.mdiQueue = t.mdiQueue[:0]
@@ -2102,29 +2251,56 @@ func (t *Task) abortLocked() {
 	// silently no-op. GetStatus is a shared-memory copy (no t.mu paths), cheap
 	// enough to hold the lock across on this once-per-abort path.
 	var restoreTag []byte
-	if wasAuto && t.status != nil {
+	var restoreID, restoreLine int32
+	var usedFallback bool
+	if full && wasAuto && t.status != nil {
 		t.mu.Lock()
 		if ms, err := t.status.GetStatus(); err == nil {
+			restoreID = ms.Id
 			if info, ok := t.motionMap[ms.Id]; ok {
 				restoreTag = info.Tag
+				restoreLine = info.LineNo
+			}
+			// Fallback: motion reports no executing segment. That is NOT
+			// "nothing was running" — the TP zeroes its exec id whenever the
+			// queue momentarily runs dry (feed starvation at an exact-stop
+			// corner is the observed case: the g64 abort test under CI load).
+			// With an empty queue everything dispatched has executed, so the
+			// last dispatched segment is the one the machine stopped on —
+			// restore its modal state instead of silently skipping and
+			// leaking readahead-only state (G64 P/Q, a G5x switch) past the
+			// abort. Same fallback for a pruned/untagged entry.
+			if restoreTag == nil && wasRunning && t.lastMotionID != 0 {
+				if info, ok := t.motionMap[t.lastMotionID]; ok && info.Tag != nil {
+					restoreTag = info.Tag
+					restoreLine = info.LineNo
+					restoreID = t.lastMotionID
+					usedFallback = true
+				}
 			}
 		}
 		t.mu.Unlock()
+		// Neither the executing id nor the last dispatched motion yielded a
+		// tag while a program was mid-run: the modal rollback below cannot
+		// run. Say so instead of letting it surface as a modal-state
+		// heisenbug three commands later. (restoreID==0 with no dispatched
+		// motion is the legitimate nothing-ran case — stay quiet.)
+		if restoreTag == nil && restoreID != 0 {
+			t.logger.Warn("abort: no state tag for executing motion — modal restore skipped",
+				"motion_id", restoreID)
+		}
 	}
 
 	// External calls (no mutex held — won't block stat reads).
 	t.AbortSequencer()
 	t.mcodeAbort()
 	_ = t.motion.Abort()
-	_ = t.io.IoAbort(emcAbortTaskAbort)
-	_ = t.motion.SpindleOff(-1) // all-spindles broadcast
-	_ = t.io.CoolantFloodOff()
-	_ = t.io.CoolantMistOff()
-
-	// An aborted tool command's io mutation may still land after this abort
-	// (its PostWait invalidation is skipped on abort-during-wait) — drop the
-	// prep-pocket memo so the next stat build recomputes from the live table.
-	t.invalidatePrepPocket()
+	if full {
+		_ = t.io.IoAbort(emcAbortTaskAbort)
+		_ = t.motion.SpindleOff(-1) // all-spindles broadcast
+		_ = t.io.CoolantFloodOff()
+		_ = t.io.CoolantMistOff()
+	}
 
 	// Motion/IO are stopped; now wait for the runProgram producer to stop
 	// touching the interpreter before we Close/Reset it (avoids a data race on
@@ -2133,7 +2309,9 @@ func (t *Task) abortLocked() {
 	t.waitRunProgramDone()
 
 	if interp != nil {
-		t.abortInterp(emcAbortTaskAbort, "user abort")
+		if full {
+			t.abortInterp(emcAbortTaskAbort, "user abort")
+		}
 		_ = interp.Close()
 		_ = interp.Reset()
 		// Sync the canon endpoint from the machine BEFORE Synch (R6/C11), so the
@@ -2162,12 +2340,17 @@ func (t *Task) abortLocked() {
 		if err := interp.RestoreFromTag(restoreTag); err != nil {
 			t.logger.Warn("abort: modal state restore failed", "err", err)
 		}
-		t.updateActiveCodes(interp)
+		gc, _, _ := t.updateActiveCodes(interp)
+		t.logger.Debug("abort: modal state restored from executing tag",
+			"motion_id", restoreID, "line", restoreLine,
+			"from_last_dispatched", usedFallback, "gcodes", gc)
 	}
 
 	t.mu.Lock()
-	t.floodOn = false
-	t.mistOn = false
+	if full {
+		t.floodOn = false
+		t.mistOn = false
+	}
 }
 
 // waitRunProgramDone blocks until the runProgram goroutine (if any) has exited,
@@ -2240,20 +2423,19 @@ func (t *Task) LoadToolTable(file string) error {
 	}
 
 	err := t.io.ToolLoadTable(file)
-	if err == nil {
-		// The reload may have moved the prepped tool to another pocket —
-		// recompute stat.pocket_prepped from the new table.
-		t.invalidatePrepPocket()
-		// Synch interpreter so it re-reads tool_table[] from the
-		// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
-		if t.interp != nil {
-			_ = t.interp.Synch()
-		}
-		t.mu.Lock()
-		t.previewSeq++
-		t.mu.Unlock()
+	if err != nil {
+		t.operatorError(fmt.Sprintf("can't load tool table: %s", err))
+		return err
 	}
-	return err
+	// Synch interpreter so it re-reads tool_table[] from the
+	// tooltable module via GET_EXTERNAL_TOOL_TABLE callbacks.
+	if t.interp != nil {
+		_ = t.interp.Synch()
+	}
+	t.mu.Lock()
+	t.previewSeq++
+	t.mu.Unlock()
+	return nil
 }
 
 // ToolUnload unloads the tool from the spindle (manual EMC_TOOL_UNLOAD).
@@ -2270,10 +2452,14 @@ func (t *Task) ToolUnload() error {
 	}
 
 	err := t.io.ToolUnload()
-	if err == nil && t.interp != nil {
+	if err != nil {
+		t.operatorError(fmt.Sprintf("can't unload tool: %s", err))
+		return err
+	}
+	if t.interp != nil {
 		_ = t.interp.Synch() // re-read tool state after the unload
 	}
-	return err
+	return nil
 }
 
 // WaitComplete waits for the task to settle: exec state done AND the

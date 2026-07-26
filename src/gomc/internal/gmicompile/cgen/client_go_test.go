@@ -4,6 +4,7 @@ package cgen
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/gmicompile/ast"
@@ -179,6 +180,68 @@ func TestGenerateClientGoPathParams(t *testing.T) {
 	// Check multiple path params are substituted
 	assertContains(t, out, `path = strings.Replace(path, "{parentId}", url.PathEscape(parentId), 1)`)
 	assertContains(t, out, `path = strings.Replace(path, "{childId}", url.PathEscape(childId), 1)`)
+}
+
+// TestGenerateClientGoNumericPathParam covers the numeric-path-param fix: a
+// non-string path param must be formatted to a string before url.PathEscape
+// (which takes a string). A bare uint would not compile.
+func TestGenerateClientGoNumericPathParam(t *testing.T) {
+	api := &ast.API{
+		Name: "eth", Version: 1, Prefix: "eth", RestExport: true,
+		Funcs: []ast.Func{{
+			Name: "get_slave", Method: "GET", Path: "/slave/{position}",
+			Params: []ast.Param{{Name: "position", Type: ast.TypeRef{Kind: ast.TypePrimitive, Name: "u16"}}},
+			Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "ethclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	assertContains(t, buf.String(), `path = strings.Replace(path, "{position}", url.PathEscape(fmt.Sprintf("%v", position)), 1)`)
+}
+
+// TestGenerateClientGoSkipsWatch verifies the Go client emits a method only for
+// REST-dispatched functions: a @watch-only function (no @method — served over
+// WebSocket) must NOT get a broken empty-path REST method, while a normal
+// command still does.
+func TestGenerateClientGoSkipsWatch(t *testing.T) {
+	api := &ast.API{
+		Name: "hc", Version: 1, Prefix: "hc", RestExport: true,
+		Funcs: []ast.Func{
+			{Name: "watch_items", Watch: true, // no Method → WebSocket-only
+				Params: []ast.Param{{Name: "names", Type: ast.TypeRef{Kind: ast.TypeSlice, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "string"}}}},
+				Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"}},
+			{Name: "get_status", Method: "GET", Path: "/status",
+				Return: &ast.TypeRef{Kind: ast.TypePrimitive, Name: "i32"}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "hcclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "WatchItems") {
+		t.Errorf("watch-only function must not get a REST client method:\n%s", out)
+	}
+	if !strings.Contains(out, "func (c *HcClient) GetStatus(") {
+		t.Errorf("command function should still get a REST client method")
+	}
+}
+
+// TestGenerateClientGoInstanceConstructor verifies the additive
+// instance-configurable constructor is emitted and the default one delegates to
+// it (so a server hosting multiple named instances can be addressed).
+func TestGenerateClientGoInstanceConstructor(t *testing.T) {
+	api := &ast.API{Name: "eth", Version: 1, Prefix: "eth", RestExport: true}
+	var buf bytes.Buffer
+	if err := GenerateClientGo(&buf, api, "ethclient"); err != nil {
+		t.Fatalf("GenerateClientGo: %v", err)
+	}
+	out := buf.String()
+	assertContains(t, out, `func NewEthClientInstance(baseURL, instance string) *EthClient {`)
+	assertContains(t, out, `"/api/v1/" + instance`)
+	assertContains(t, out, `return NewEthClientInstance(baseURL, "eth")`)
 }
 
 func TestGenerateClientGoNoREST(t *testing.T) {

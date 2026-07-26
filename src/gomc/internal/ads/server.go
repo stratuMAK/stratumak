@@ -24,14 +24,18 @@ const readDeadlineInterval = 100 * time.Millisecond
 // genuinely stuck connections.
 const amsDataReadTimeout = 5 * time.Second
 
-// shutdownTimeout is the maximum time Stop() will wait for active connections
-// to finish after signalling shutdown. If this elapses, Stop() returns anyway
-// so the process can exit.
-const shutdownTimeout = 2 * time.Second
-
 // maxAMSPacketSize is the upper bound on AMS packet length to prevent
 // a malicious client from triggering excessive memory allocation.
 const maxAMSPacketSize = 64 * 1024
+
+// writeTimeout bounds every response/notification write so a client that stops
+// reading (TCP backpressure) cannot block a server goroutine indefinitely, and
+// so a stuck write cannot outlive the shutdown grace period.
+const writeTimeout = 5 * time.Second
+
+// acceptErrorBackoff is the pause after a persistent (non-timeout) Accept error
+// so a condition like fd exhaustion (EMFILE) does not spin the accept loop hot.
+const acceptErrorBackoff = 20 * time.Millisecond
 
 // Server listens for ADS connections, parses AMS/TCP packets, and dispatches
 // ADS commands to a SymbolTable.
@@ -45,25 +49,34 @@ type Server struct {
 	listener net.Listener
 	wg       sync.WaitGroup
 	quit     chan struct{}
+	stopOnce sync.Once
 	connsMu  sync.Mutex
 	conns    map[net.Conn]struct{}
+	// maxConns caps concurrent connections; maxSubs caps notifications per
+	// connection. <= 0 means unlimited. See ADS_REVIEW_FINDINGS.md A7.
+	maxConns int
+	maxSubs  int
 }
 
 // NewServer creates a new ADS server listening on addr (e.g. ":48898").
-// netID and port identify this device in AMS routing.
-func NewServer(addr string, netID AMSNetID, port uint16, symbols *SymbolTable, verbose bool, logger *slog.Logger) *Server {
+// netID and port identify this device in AMS routing. maxConns caps concurrent
+// client connections and maxSubs caps device notifications per connection (both
+// <= 0 mean unlimited) — see ADS_REVIEW_FINDINGS.md A7.
+func NewServer(addr string, netID AMSNetID, port uint16, symbols *SymbolTable, maxConns, maxSubs int, verbose bool, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Server{
-		addr:    addr,
-		netID:   netID,
-		port:    port,
-		symbols: symbols,
-		verbose: verbose,
-		logger:  logger,
-		quit:    make(chan struct{}),
-		conns:   make(map[net.Conn]struct{}),
+		addr:     addr,
+		netID:    netID,
+		port:     port,
+		symbols:  symbols,
+		verbose:  verbose,
+		logger:   logger,
+		quit:     make(chan struct{}),
+		conns:    make(map[net.Conn]struct{}),
+		maxConns: maxConns,
+		maxSubs:  maxSubs,
 	}
 }
 
@@ -85,25 +98,32 @@ func (s *Server) Start() error {
 // Stop closes the listener and all active connections, then waits for all
 // connection goroutines to finish.
 func (s *Server) Stop() {
+	// Idempotent: the launcher can reach Stop via both the shutdown path
+	// (stopGoModules) and the runtime-unload path (unloadGoModule), and a bare
+	// close(s.quit) would panic "close of closed channel" on the second call.
+	s.stopOnce.Do(s.doStop)
+}
+
+func (s *Server) doStop() {
 	close(s.quit)
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 	s.connsMu.Lock()
 	for conn := range s.conns {
-		conn.Close()
+		_ = conn.Close()
 	}
 	s.connsMu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(shutdownTimeout):
-		s.logger.Warn("timeout waiting for connections to close")
-	}
+
+	// True join, no silent cap: wait for every connection (and its notification
+	// sendLoop) to finish before returning. This is the sound shutdown contract —
+	// once Stop() returns, no ADS goroutine can still touch a HAL pin, so the
+	// subsequent Destroy()->comp.Exit() that frees the pins cannot race live pin
+	// access (ADS_REVIEW_FINDINGS.md A5 / pkg-hal H1). The wait is bounded: the
+	// listener and every connection are already closed above, and both read and
+	// write paths carry deadlines (readDeadlineInterval / amsDataReadTimeout /
+	// writeTimeout), so no goroutine can block indefinitely.
+	s.wg.Wait()
 }
 
 // acceptLoop accepts incoming TCP connections.
@@ -117,9 +137,38 @@ func (s *Server) acceptLoop() {
 				return // normal shutdown
 			default:
 				s.logger.Error("ADS accept error", "error", err)
+				// Back off so a persistent error (e.g. fd exhaustion) does not
+				// spin this loop hot and flood the log.
+				time.Sleep(acceptErrorBackoff)
 				continue
 			}
 		}
+		// Register the connection under connsMu *before* spawning its handler and
+		// re-check quit atomically. This closes the race where Stop()'s close-loop
+		// runs between Accept() and the handler registering itself, leaving a
+		// connection that Stop() never force-closes (and could then touch HAL pins
+		// after Destroy frees them). See ADS_REVIEW_FINDINGS.md A5.
+		s.connsMu.Lock()
+		select {
+		case <-s.quit:
+			s.connsMu.Unlock()
+			_ = conn.Close()
+			return
+		default:
+		}
+		// Cap concurrent connections so a remote peer cannot exhaust resources by
+		// opening unbounded sockets (2 goroutines + buffers each). See
+		// ADS_REVIEW_FINDINGS.md A7.
+		if s.maxConns > 0 && len(s.conns) >= s.maxConns {
+			s.connsMu.Unlock()
+			s.logger.Warn("ADS connection rejected: connection cap reached",
+				"remote", conn.RemoteAddr(), "max", s.maxConns)
+			_ = conn.Close()
+			continue
+		}
+		s.conns[conn] = struct{}{}
+		s.connsMu.Unlock()
+
 		s.wg.Add(1)
 		go s.handleConn(conn)
 	}
@@ -128,11 +177,19 @@ func (s *Server) acceptLoop() {
 // handleConn processes all AMS packets from a single TCP connection.
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
-	s.connsMu.Lock()
-	s.conns[conn] = struct{}{}
-	s.connsMu.Unlock()
+	// Recover from any panic on the untrusted wire path so a single malformed
+	// packet drops this connection instead of killing the whole process (the
+	// motion controller). See ADS_REVIEW_FINDINGS.md A4.
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("ADS connection handler panic", "remote", conn.RemoteAddr(), "panic", r)
+		}
+	}()
+
+	// The connection was registered in acceptLoop (under connsMu) before this
+	// goroutine started; deregister on exit.
 	defer func() {
 		s.connsMu.Lock()
 		delete(s.conns, conn)
@@ -149,8 +206,9 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	for {
 		// Stage 1: short read deadline for the AMS/TCP header (idle-polling interval).
-		// This allows Stop() to interrupt blocked reads between packets.
-		conn.SetReadDeadline(time.Now().Add(readDeadlineInterval))
+		// This allows Stop() to interrupt blocked reads between packets. A failure
+		// here means the conn is already broken; the ReadFull below will surface it.
+		_ = conn.SetReadDeadline(time.Now().Add(readDeadlineInterval))
 
 		tcpHdr := make([]byte, AMSTCPHeaderSize)
 		_, err := io.ReadFull(conn, tcpHdr)
@@ -192,16 +250,30 @@ func (s *Server) handleConn(conn net.Conn) {
 		// Stage 2: longer read deadline for the AMS payload. Once the TCP header
 		// has arrived, we know the client is actively sending; a longer timeout
 		// handles TCP fragmentation and slow networks.
-		conn.SetReadDeadline(time.Now().Add(amsDataReadTimeout))
+		// A SetReadDeadline failure implies a broken conn; the ReadFull below
+		// then surfaces the error, so it is safe to ignore here.
+		_ = conn.SetReadDeadline(time.Now().Add(amsDataReadTimeout))
 
 		amsData := make([]byte, amsLen)
 		if _, err := io.ReadFull(conn, amsData); err != nil {
+			// A stage-2 timeout during shutdown must exit promptly rather than
+			// dispatch on stale data after the HAL component may have been freed
+			// (see ADS_REVIEW_FINDINGS.md A5). Any read error here ends the
+			// connection anyway, so no retry is needed.
 			select {
 			case <-s.quit:
 			default:
 				s.logger.Error("ADS read error", "remote", conn.RemoteAddr(), "error", err)
 			}
 			return
+		}
+		// If shutdown began while we were reading the payload, do not dispatch:
+		// the HAL pins this command would touch may be freed by Destroy() right
+		// after Stop() returns.
+		select {
+		case <-s.quit:
+			return
+		default:
 		}
 
 		h := decodeAMSHeader(amsData[:AMSHeaderSize])
@@ -383,7 +455,12 @@ func (s *Server) handleAddNotification(conn net.Conn, hdr *AMSHeader, payload []
 	}
 
 	nm.setClientAddr(hdr)
-	handle := nm.add(indexGroup, indexOffset, length, transMode, cycleTime)
+	handle, errCode := nm.add(indexGroup, indexOffset, length, transMode, cycleTime)
+	if errCode != ErrNoError {
+		// Subscription cap reached (A7): tell the client no more resources.
+		s.sendErrorResponse(conn, hdr, errCode)
+		return
+	}
 
 	resp := make([]byte, 8)
 	binary.LittleEndian.PutUint32(resp[0:], ErrNoError)

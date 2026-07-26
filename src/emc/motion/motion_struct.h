@@ -17,9 +17,20 @@
 
 /* Lock-free SPSC triple buffer for status.
    Writer (RT servo thread) and a single logical consumer exchange slots
-   through an atomic middle index.  Multiple physical readers are
-   serialized by reader_mtx so the buffer sees exactly one consumer. */
+   through an atomic middle index.  The writer tags the index it publishes
+   with MOTSTAT_MIDDLE_DIRTY; the reader swaps only when that flag is set
+   and otherwise re-reads its own slot, which still holds the newest
+   snapshot it ever took.  Without the flag an unconditional exchange hands
+   the reader its own previously-returned slot back whenever it polls
+   faster than the servo publishes — status then alternates between the
+   two latest snapshots and motion ids go BACKWARDS (observed as stat
+   readers seeing pruned/stale segment ids).  Only the reader stores an
+   untagged index, so a flag observed set cannot vanish before the
+   reader's exchange.  Multiple physical readers are serialized by
+   reader_mtx so the buffer sees exactly one consumer. */
 #define MOTSTAT_SLOTS 3
+#define MOTSTAT_MIDDLE_DIRTY 4              /* bit above the 2-bit slot index */
+#define MOTSTAT_MIDDLE_IDX(v) ((v) & 3)     /* strip the dirty flag */
 
 typedef struct emcmot_status_buf_t {
     struct emcmot_status_t slots[MOTSTAT_SLOTS];

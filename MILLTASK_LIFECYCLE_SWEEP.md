@@ -37,11 +37,11 @@ mechanisms; every lifecycle bug we found was a missing instance of one of them:
 | # | 2.9 site | gomc gap | Fix |
 |---|---|---|---|
 | F1 | emctaskmain initMain ordering | `pkgTTClient` (canon tool getters' tooltable client) was published in `registerTools()` — *after* `initInterpreter()` and `runStartupCode()`; startup `G43 H1` failed "tool 1 not found" | Publish `pkgTTClient` right after the tooltable API lookup in `module.go Start()` |
-| F2 | `set_tool_parameters()` via `GET_EXTERNAL_TOOL_TABLE(0)` | The key-0 spindle snapshot loses its toolno (tooltable `PutTool` clobbers `entry.Toolno` with the key) → `tool_table[0].toolno` always 0 → #5400/#<_current_tool> stuck at 0 after M6/M61 | `GetExternalToolTable(0)` resolves the spindle via `io.GetToolInSpindle()` + the tool's live table entry (`canon_getters.go`) |
-| F3 | `CHANGE_TOOL_NUMBER(pocket)` (M61) | interp passed `current_pocket` but gomc iocontrol keys the spindle by TOOL NUMBER → M61 loaded the wrong/no tool | interp passes the tool number (`interp_convert.cc` M61, `stdglue.c` settool_epilog) |
+| F2 ⚠ **superseded 2026-07-23** | `set_tool_parameters()` via `GET_EXTERNAL_TOOL_TABLE(0)` | The key-0 spindle snapshot loses its toolno (tooltable `PutTool` clobbers `entry.Toolno` with the key) → `tool_table[0].toolno` always 0 → #5400/#<_current_tool> stuck at 0 after M6/M61 | ~~`GetExternalToolTable(0)` resolves the spindle via `io.GetToolInSpindle()` + the tool's live table entry~~ — this was a workaround for a store keyed by TOOL NUMBER, in which the spindle record was not representable. The store is keyed by **slot** now (2.9's tooldata model, `920bfb085e`): slot 0 *is* the spindle, its toolno is real data, and the getter reads it directly. The `Canon`'s last-known-good spindle snapshot went with it. |
+| F3 ⚠ **superseded 2026-07-23** | `CHANGE_TOOL_NUMBER(pocket)` (M61) | interp passed `current_pocket` but gomc iocontrol keys the spindle by TOOL NUMBER → M61 loaded the wrong/no tool | ~~interp passes the tool number~~ — same cause as F2. With the slot-keyed store the interp passes `settings->current_pocket` (the **slot**) again, exactly as 2.9 does; `stdglue.c` settool_epilog resolves it with a new `find_tool_index` interp-ctx callback rather than reusing `#<pocket>` (2.9's Python stdglue passed the carousel pocket there — a 2.9 bug, not reproduced). |
 | F4 | ioControl EMC_TOOL_PREPARE idx-0 branch | gomc completed T0 prepare without the HAL handshake (classic non-random still pulses tool-prepare), and random treated T0 as the spindle instead of an ordinary table entry | `gmi_tool_prepare` restructured in ioControl.c + ioControl_v2.c |
-| F5 | ioControl random `load_tool` swap | Swap used `get_tool(0)` as "the spindle tool"; the spindle tool is the entry at pocket 0 tracked by `toolInSpindle` | Swap re-keyed on `toolInSpindle` (put the spindle tool back at the target's pocket; -1 = nothing to put back) |
-| F6 | ioControl init (`random_toolchanger` branch) | `toolInSpindle` hardcoded 0 at startup; classic restores the pocket-0 tool (or -1 unknown) | `iocontrol_start` scans the table for the pocket-0 entry (both io modules) |
+| F5 ⚠ **superseded 2026-07-23** | ioControl random `load_tool` swap | Swap used `get_tool(0)` as "the spindle tool"; the spindle tool is the entry at pocket 0 tracked by `toolInSpindle` | ~~Swap re-keyed on `toolInSpindle`~~ — with the slot-keyed store `load_tool(idx)` is 2.9's verbatim: swap slots 0 and idx, and swap their `pocketno` with them. The `toolInSpindle` keying (and the "entry vanished from the table" guard it needed) is gone. |
+| F6 | ioControl init (`random_toolchanger` branch) | `toolInSpindle` hardcoded 0 at startup; classic restores the pocket-0 tool (or -1 unknown) | `iocontrol_start` restores it from the spindle slot (both io modules). **2026-07-23:** was a `list_tools` scan for a `pocketno == 0` row; now a direct `get_tool(0)`, which is what 2.9 does (`tooldata_get(&tdata, 0)`). |
 | F7 | `GET_EXTERNAL_TOOL_SLOT` / `GET_EXTERNAL_SELECTED_TOOL_SLOT` | Returned raw toolno; classic semantics are pocket-index (-1 = empty non-random spindle / idle) — broke `#<_current_pocket>`, `#<_selected_pocket>`, `stat.pocket_prepped` | Resolve via the tool's live entry pocket (`toolPocketFor`), random/non-random empty-spindle conventions preserved |
 | F8 | `tooldata` idx vs pocket in stat | Classic `stat.pocket_prepped` reported a tooldata array index (file order), which has no gomc equivalent | gomc reports the pocket number (documented intentional divergence; reload-tool asserts updated) |
 | F9 | .tbl import | `T0 Pn` lines (random empty-pocket marker) rejected as "no tool number" | Parser tracks a seen-T flag (`import_tbl.go`) |
@@ -75,8 +75,14 @@ statbuffer-g5x-abort.
   source line executed (2.9 tags with the state before the line). Restoring a
   segment on the same line as a modal change restores the post-line state —
   arguably more correct; only differs for single-line mode-change+move.
-- **Spindle offsets are live:** `tool_table[0]` reads the loaded tool's
-  current table entry, not a copy frozen at load time.
+- **Spindle offsets** — ⚠ **reversed 2026-07-23.** This used to read "`tool_table[0]`
+  reads the loaded tool's current table entry, not a copy frozen at load time",
+  which was a consequence of the toolno-keyed store having no spindle row.
+  Slot 0 is 2.9's spindle **copy** again, written by `load_tool` at change time.
+  Both edit paths keep it in step: G10 re-emits `set_tool_table_entry(0, …)` for
+  the loaded tool (`interp_convert.cc:4129`), and the tools API mirrors an edit
+  of the loaded tool into slot 0 (`toolsImpl.syncSpindleSlot`). On a random
+  changer there is nothing to mirror — slot 0 is the tool's only row.
 
 ## 5. Still open (tracked in PRODUCTION_READINESS.md)
 

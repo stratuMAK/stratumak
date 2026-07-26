@@ -1,0 +1,8 @@
+# Load components but create NO thread and add NO functions here — the thread is
+# added and the functions are addf'd at runtime via halcmd (see test.sh).
+# Regression for issue #265 (newthread) and the same nullable-scalar class in addf.
+# and2/not export `nofp` functions; scale exports a floating-point one, so
+# addf'ing scale proves the runtime thread was created WITH fp support.
+loadrt and2 names=and2.0
+loadrt not names=not.0
+loadrt scale names=scale.0

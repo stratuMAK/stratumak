@@ -147,7 +147,7 @@ func layoutNode(node *Node, offset uint32, halPfx, adsPfx string, pins *[]Layout
 
 	if len(node.Children) == 0 {
 		// Leaf node (may be a scalar leaf array).
-		if node.ArrayStart > 0 {
+		if node.IsArray {
 			return layoutLeafArray(node, offset, halName, adsName, pins, aliases)
 		}
 		// Plain leaf node.
@@ -170,7 +170,7 @@ func layoutNode(node *Node, offset uint32, halPfx, adsPfx string, pins *[]Layout
 		return offset + sz, nil
 	}
 
-	if node.ArrayStart > 0 {
+	if node.IsArray {
 		return layoutArray(node, offset, halName, adsName, pins, aliases)
 	}
 	// Struct container.
@@ -239,7 +239,7 @@ func layoutArray(node *Node, offset uint32, halPfx, adsPfx string, pins *[]Layou
 	return offset, nil
 }
 
-// layoutLeafArray lays out a scalar leaf array: a node with ArrayStart > 0 and
+// layoutLeafArray lays out a scalar leaf array: a node with IsArray and
 // no Children where each element is a scalar of node.TypeName (e.g. BOOL, REAL).
 // Elements are packed contiguously at the natural alignment of the element type.
 func layoutLeafArray(node *Node, offset uint32, halPfx, adsPfx string, pins *[]LayoutPin, aliases TypeAliasMap) (uint32, error) {

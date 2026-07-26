@@ -222,13 +222,14 @@ const (
 	TypeSlice                     // []T dynamic slice
 	TypeCallback                  // callback type reference (named callback declaration)
 	TypeImport                    // imported API type reference (@import)
+	TypeMap                       // map[string]T — JSON-object map, string keys only
 )
 
 // TypeRef represents a reference to a type.
 type TypeRef struct {
 	Kind         TypeKind
 	Name         string   // for Primitive: "bool", "i32", etc.; for Named: type name
-	Elem         *TypeRef // for Array/Slice: element type
+	Elem         *TypeRef // for Array/Slice/Map: element (value) type
 	ArrayLen     int      // for Array: resolved integer length
 	ArrayLenName string   // for Array: const name if used (e.g. "MAX_JOINTS")
 	Nullable     bool     // T? syntax
@@ -247,6 +248,8 @@ func (t TypeRef) String() string {
 		}
 	case TypeSlice:
 		base = fmt.Sprintf("[]%s", t.Elem.String())
+	case TypeMap:
+		base = fmt.Sprintf("map[string]%s", t.Elem.String())
 	}
 	if t.Nullable {
 		return base + "?"
@@ -257,6 +260,13 @@ func (t TypeRef) String() string {
 // IsPrimitive returns true if this is a primitive type.
 func (t TypeRef) IsPrimitive() bool {
 	return t.Kind == TypePrimitive
+}
+
+// Is64BitInt reports whether t is a scalar i64 or u64 (nullable or not). Such
+// values are wire-encoded as JSON strings so they survive a JavaScript client,
+// whose numbers are IEEE-754 doubles that truncate integers above 2^53.
+func (t TypeRef) Is64BitInt() bool {
+	return t.Kind == TypePrimitive && (t.Name == PrimI64 || t.Name == PrimU64)
 }
 
 // Primitive type names.
@@ -305,6 +315,14 @@ type Callback struct {
 	Pos    Pos
 	Params []Param
 	Return *TypeRef // nil if no return type
+
+	// RTSafe marks the callback as invocable from the RT cycle. When set, the
+	// generated _cb typedef is stamped GOMC_API_NONBLOCKING so clang's
+	// function-effects analysis both checks implementations and permits RT
+	// callers — mirrors the @rt_safe/_fn provider-typedef precedent. Existing
+	// callbacks (oword/remap/mcode handler) run at task/worker level and must
+	// stay blocking-capable, so they leave this false.
+	RTSafe bool // true if invocable from RT context (@rt_safe)
 }
 
 // ---------------------------------------------------------------------------
@@ -326,10 +344,39 @@ type Func struct {
 	Watch            bool   // true if this function supports WebSocket watch subscriptions
 	WatchDefaultRate string // default push rate (e.g. "50ms", "1s")
 	WatchFactory     bool   // true if watch uses per-connection factory (params sent as subscribe args)
+	WatchDelta       bool   // true if watch frames are delta-encoded on top-level JSON keys (@watch_delta)
 	Publish          bool   // true if this is a publish (event producer) function
 	PublishRingSize  int    // ring buffer slot count (default 64)
 	WatchSource      string // name of @publish function that feeds this watch
 	ReturnsValue     bool   // true if i32 return is a value, not an error code (@returns_value)
+
+	// RcError marks the "status + payload" shape (@rc_error): the i32 return is
+	// purely a status channel (0 = success) and the out parameter(s) carry the
+	// payload. It is what lets a data-returning call report a failure at all — a
+	// callback that returns its payload by value has nowhere to put an error.
+	//
+	// For a Go provider the rc is synthesized from the returned error, so the
+	// implementation signature stays (payload..., error) and never spells out an
+	// rc; for a Go consumer a non-zero rc becomes the error. Without it, an i32
+	// return is a value the provider supplies itself (canon's out-param getters
+	// return -1 for "not found" that way).
+	RcError bool
+}
+
+// RcErrorOuts returns fn's out parameters when fn uses the @rc_error shape.
+// Every emitter that has to tell "payload" from "status" goes through this, so
+// the shape is recognised identically on the C, Go-provider and REST sides.
+func (f *Func) RcErrorOuts() []Param {
+	if !f.RcError {
+		return nil
+	}
+	var outs []Param
+	for _, p := range f.Params {
+		if p.IsOut {
+			outs = append(outs, p)
+		}
+	}
+	return outs
 }
 
 // Param represents a function parameter.

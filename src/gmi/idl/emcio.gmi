@@ -26,7 +26,11 @@ enum CmdStatus {
 # ─── Status types ───
 
 type ToolStatus {
-    pocket_prepped: i32         # pocket prepared for next tool change
+    pocket_prepped: i32         # tool table SLOT (idx) prepared for the next
+                                # tool change, -1 when nothing is prepped.
+                                # 2.9 calls it a pocket; it has always been an
+                                # index into the tool table, and on a random
+                                # changer the two coincide.
     tool_in_spindle: i32        # tool number currently in spindle
     tool_from_pocket: i32       # pocket the current tool came from
 }

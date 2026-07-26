@@ -9,6 +9,11 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 )
 
+// maxArraySize bounds a halJsonArray's element count. Each element creates a
+// HAL pin subtree, so the ceiling guards against an absurd/hostile config value
+// exhausting memory at load. 100k is far beyond any real panel.
+const maxArraySize = 100_000
+
 // pinType represents a HAL pin type.
 type pinType int
 
@@ -139,6 +144,13 @@ func convertArray(xi xmlItem) (*jsonItem, error) {
 	}
 	if xi.Size < 1 {
 		return nil, fmt.Errorf("array %q: size must be >= 1", xi.Name)
+	}
+	// Upper-bound the size: expandArray make()s this many elements and creates a
+	// HAL pin per element, so an absurd size (a hostile or templated config
+	// value) would allocate a huge slice / spin up runaway hal_pin_new calls at
+	// load → OOM or a very slow startup abort.
+	if xi.Size > maxArraySize {
+		return nil, fmt.Errorf("array %q: size %d exceeds maximum %d", xi.Name, xi.Size, maxArraySize)
 	}
 	// Parse the template children (used for each array element).
 	template, err := convertItems(xi.Children)

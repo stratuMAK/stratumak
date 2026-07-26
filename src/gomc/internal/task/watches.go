@@ -4,6 +4,7 @@ package task
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emccmd"
@@ -87,9 +88,13 @@ func (m *milltaskModule) registerWatches(name string) {
 func (m *milltaskModule) registerTools() {
 	reg := apiserver.DefaultRegistry()
 	if reg != nil {
-		tools.RegisterToolsAPI(reg, m.name, &toolsImpl{
+		if err := tools.RegisterToolsAPI(reg, m.name, &toolsImpl{
 			module: m,
-		})
+		}); err != nil {
+			// A failed registration breaks startup-code tool lookups
+			// (e.g. "G43 H1"); surface it rather than silently dropping it.
+			m.logger.Error("register tools API", "err", err)
+		}
 	}
 }
 
@@ -100,7 +105,9 @@ func (m *milltaskModule) cmdStartLogger(req json.RawMessage) (json.RawMessage, e
 		IntervalUS int `json:"interval_us"`
 	}
 	if req != nil {
-		json.Unmarshal(req, &args)
+		if err := json.Unmarshal(req, &args); err != nil {
+			return nil, fmt.Errorf("start_logger: bad request: %w", err)
+		}
 	}
 	m.poslog.startLogger(m, args.IntervalUS)
 	return json.RawMessage(`{"ok":true}`), nil

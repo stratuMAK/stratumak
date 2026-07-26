@@ -16,19 +16,14 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import ctypes
-import json
 import math
+import sys
 import threading
 from typing import Optional
 
-try:
-    import websockets
-except ImportError:
-    websockets = None
-
-from gmi import instance, ws_url
+from gmi import instance
+from gmi._watch import WatchClient
 
 # OpenGL imports are deferred to avoid pulling them at module load.
 _gl = None
@@ -211,12 +206,17 @@ class PositionLogger:
         self._roff = {"x": 0.0, "y": 0.0, "z": 0.0, "respect": 0}
         self._axis_mask = 0
 
+        # Guards the point buffer + counters: _process_chunk runs on the WS
+        # loop thread, call()/clear()/last() on the GUI thread, and the ring
+        # shift memmoves the same array the GL draw reads (finding GP-9).
+        self._buf_lock = threading.Lock()
+
         # WS state.
-        self._ws = None
-        self._loop = None
-        self._thread = None
+        self._client = None
+        self._cleared_server = False
         self._running = False
         self._interval = 0.01
+        self._decode_errors = 0
 
     @property
     def npts(self):
@@ -245,34 +245,69 @@ class PositionLogger:
         self._axis_mask = axis_mask
 
     def start(self, interval):
-        """Start position logging at the given interval (seconds)."""
+        """Start position logging at the given interval (seconds).
+
+        The classic logger started empty; the server-side buffer may hold a
+        previous session's points, so the first connect also clears it."""
         if self._running:
             return
         self._interval = interval
         self._running = True
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        with self._buf_lock:
+            self._npts = 0
+            self._lpts = 0
+            self._changed = True
+        self._client = WatchClient(
+            "PositionLogger",
+            {"api": "emcstat", "instance": instance(),
+             "func": "get_positions", "rate_ms": 200},
+            self._handle_update)
+        self._client.on_connect = self._on_connect
+        self._client.start(wait=5.0)
+
+    async def _on_connect(self, client):
+        """Re-issue server-side setup after every (re)connect: a restarted
+        server has no sampler running (start_logger while already running is a
+        no-op). The server buffer is cleared on the FIRST connect only — after
+        a mid-session reconnect the accumulated backlog is wanted (gap-free
+        backplot), after a fresh start() it is a stale previous session."""
+        interval_us = int(self._interval * 1_000_000)
+        await client.acall("emcstat", instance(), "start_logger",
+                           {"interval_us": interval_us})
+        if not self._cleared_server:
+            self._cleared_server = True
+            await client.acall("emcstat", instance(), "clear_logger")
 
     def stop(self):
-        """Stop position logging."""
+        """Stop position logging (local thread AND the server-side sampler —
+        leaving it running grew the server's pending buffer without bound,
+        finding GP-5). Note the sampler is shared server state: stopping it
+        stops sampling for every client of this instance."""
         if not self._running:
             return
         self._running = False
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._client is not None:
+            self._client.stop(
+                final_call=("emcstat", instance(), "stop_logger", None))
+            self._client = None
 
     def clear(self):
         """Clear all logged points."""
-        self._npts = 0
-        self._lpts = 0
-        self._changed = True
+        with self._buf_lock:
+            self._npts = 0
+            self._lpts = 0
+            self._changed = True
         # Tell server to clear too.
-        if self._loop and self._ws:
-            asyncio.run_coroutine_threadsafe(self._send_cmd("clear_logger"), self._loop)
+        if self._client is not None:
+            self._client.call("emcstat", instance(), "clear_logger")
 
     def call(self):
         """Render the backplot via OpenGL."""
         _ensure_gl()
+        with self._buf_lock:
+            self._render_locked()
+
+    def _render_locked(self):
         if self._npts == 0:
             return
 
@@ -310,97 +345,43 @@ class PositionLogger:
 
     def last(self, flag=1):
         """Return most recent point as (x,y,z,rx,ry,rz) or None."""
-        idx = self._lpts if flag else self._npts
-        if not idx:
-            return None
-        p = self._points[idx - 1]
-        return (float(p.x), float(p.y), float(p.z),
-                float(p.rx), float(p.ry), float(p.rz))
+        with self._buf_lock:
+            idx = self._lpts if flag else self._npts
+            if not idx:
+                return None
+            p = self._points[idx - 1]
+            return (float(p.x), float(p.y), float(p.z),
+                    float(p.rx), float(p.ry), float(p.rz))
 
     # ─── WebSocket communication ───
 
-    def _run(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        try:
-            self._loop.run_until_complete(self._connect_and_start())
-        except Exception as e:
-            import sys
-            print(f"gmi.PositionLogger: WS connect failed: {e}", file=sys.stderr)
+    def _handle_update(self, func, data):
+        if func != "get_positions" or data is None:
             return
-        self._loop.run_forever()
-        self._loop.close()
-
-    async def _connect_and_start(self):
-        url = ws_url()
-        for attempt in range(20):
-            try:
-                self._ws = await websockets.connect(url)
-                break
-            except (OSError, ConnectionRefusedError):
-                await asyncio.sleep(0.25)
-        else:
-            raise ConnectionError(
-                f"gmi.PositionLogger: could not connect to {url}")
-
-        # Send start_logger command.
-        interval_us = int(self._interval * 1_000_000)
-        await self._send_cmd("start_logger", {"interval_us": interval_us})
-
-        # Subscribe to position updates.
-        msg = {
-            "action": "subscribe",
-            "api": "emcstat",
-            "instance": instance(),
-            "func": "get_positions",
-            "rate_ms": 200,
-        }
-        await self._ws.send(json.dumps(msg))
-        # Keep a strong reference: asyncio holds tasks only weakly, so an
-        # unreferenced recv task can be garbage-collected mid-flight — the
-        # socket stays open but nothing reads it and the cache silently
-        # freezes at the last-delivered snapshot (observed as a boot-era
-        # STATE_ESTOP surfacing mid-run in gmi.Stat).
-        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
-
-    async def _send_cmd(self, func, args=None):
-        if not self._ws:
-            return
-        msg = {
-            "action": "call",
-            "api": "emcstat",
-            "instance": instance(),
-            "func": func,
-            "id": 0,
-        }
-        if args:
-            msg["args"] = args
-        await self._ws.send(json.dumps(msg))
-
-    async def _recv_loop(self):
-        try:
-            async for raw in self._ws:
-                msg = json.loads(raw)
-                if (msg.get("type") == "update"
-                        and msg.get("func") == "get_positions"):
-                    data = msg.get("data")
-                    if data is not None:
-                        self._process_chunk(data)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            import sys
-            print(f"gmi.PositionLogger: recv error: {e}", file=sys.stderr)
+        with self._buf_lock:
+            self._process_chunk(data)
 
     def _process_chunk(self, points):
         """Process a chunk of raw position points from the server.
 
         Each point is {"t": motion_type, "p": [x,y,z,a,b,c,u,v,w]}.
-        Apply vertex9, colinearity, and add to local buffer.
+        Apply vertex9, colinearity, and add to local buffer. A malformed
+        point is skipped, not fatal — one bad frame must not end position
+        logging for the session (finding GP-3/C-6).
         """
         for pt_data in points:
-            mt = pt_data["t"]
-            pos9 = pt_data["p"]
+            try:
+                mt = pt_data["t"]
+                pos9 = pt_data["p"]
+                if len(pos9) < 9:
+                    raise ValueError("short position vector")
+            except Exception as e:
+                self._decode_errors += 1
+                if self._decode_errors == 1:
+                    print(f"gmi.PositionLogger: skipping malformed point "
+                          f"({e}); further decode errors suppressed",
+                          file=sys.stderr)
+                continue
             color = self._colors[mt] if 0 <= mt < _NUM_COLORS else self._colors[0]
 
             if self._is_xyuv:

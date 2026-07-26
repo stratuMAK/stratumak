@@ -73,9 +73,10 @@ def main():
 
         if state.change_requested and not state.change_confirmed and not prev_change:
             prev_change = True
-            do_change(app, client, state.tool_number)
-        elif not state.change_requested:
-            prev_change = False
+            if not do_change(app, client, state.tool_number):
+                # confirm failed — re-arm so the dialog re-appears
+                # (finding A-8)
+                prev_change = False
 
         app.after(1000, poll)
 
@@ -96,7 +97,11 @@ def main():
 
 
 def do_change(app, client, tool_number):
-    """Show tool change dialog, confirm via REST when user clicks Continue."""
+    """Show tool change dialog, confirm via REST when user clicks Continue.
+
+    Returns False when the confirm call failed (caller must re-arm its
+    request latch so the dialog can re-appear — finding A-8), True otherwise.
+    """
     if tool_number:
         message = _("Insert tool %d and click continue when ready") % tool_number
     else:
@@ -133,12 +138,16 @@ def do_change(app, client, tool_number):
 
     if isinstance(r, str):
         r = int(r)
+    ok = True
     if r == 0:
         try:
             client.confirm()
-        except Exception:
-            pass
+        except Exception as e:
+            print("manualtoolchange_ui: confirm failed: %s" % e,
+                  file=sys.stderr)
+            ok = False
     app.update()
+    return ok
 
 
 if __name__ == "__main__":

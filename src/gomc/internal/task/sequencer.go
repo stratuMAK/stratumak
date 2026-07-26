@@ -229,13 +229,16 @@ func (t *Task) sequencerLoop() {
 			// the empty-queue/ExecDone gap between dequeue and execution.
 			t.setSeqInflight(true)
 
-			// Update currentLine from motion commands that carry a line ID.
+			// Update currentLine from motion commands that carry a line ID,
+			// and remember the id as the abort-restore fallback (see
+			// lastMotionID in task.go).
 			if lc, ok := cmd.(interface{ LineID() int32 }); ok {
 				if id := lc.LineID(); id > 0 {
 					t.mu.Lock()
 					if info, ok := t.motionMap[id]; ok {
 						t.currentLine = info.LineNo
 					}
+					t.lastMotionID = id
 					t.mu.Unlock()
 				}
 			}
@@ -922,7 +925,6 @@ func (c *ToolChangeCmd) PostWait(t *Task) {
 			t.logger.Warn("tool change: interpreter synch failed", "err", err)
 		}
 	}
-	t.invalidatePrepPocket()
 	t.logger.Info("tool change complete")
 }
 
@@ -938,17 +940,13 @@ func (c *SetToolTableEntryCmd) Execute(t *Task) error {
 	return t.io.ToolSetOffset(c.Pocket, c.Toolno, c.X, c.Y, c.Z, c.A, c.B, c.C, c.U, c.V, c.W, c.Diameter, c.Frontangle, c.Backangle, c.Orientation)
 }
 
-// PostWait invalidates the prep-pocket memo AFTER the io mutation has landed
-// (like ToolChangeCmd). Invalidating in Execute is too early: a concurrent
-// BuildStat in the window before the io write completes would recompute the
-// pocket from the pre-mutation table and re-cache it as valid.
-func (c *SetToolTableEntryCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
-func (c *SetToolTableEntryCmd) Wait() WaitType   { return WaitIO }
+func (c *SetToolTableEntryCmd) Wait() WaitType { return WaitIO }
 func (c *SetToolTableEntryCmd) String() string {
 	return fmt.Sprintf("SetToolTableEntry(P%d T%d)", c.Pocket, c.Toolno)
 }
 
-// ChangeToolNumberCmd tells IO to update the current tool number (G43.1 etc).
+// ChangeToolNumberCmd tells IO to load a tool table slot into the spindle
+// without running the changer handshake (M61 Q). Number is a SLOT.
 type ChangeToolNumberCmd struct {
 	Number int32
 }
@@ -957,9 +955,7 @@ func (c *ChangeToolNumberCmd) Execute(t *Task) error {
 	return t.io.ToolSetNumber(c.Number)
 }
 
-// PostWait: see SetToolTableEntryCmd — invalidate after the mutation lands.
-func (c *ChangeToolNumberCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
-func (c *ChangeToolNumberCmd) Wait() WaitType   { return WaitIO }
+func (c *ChangeToolNumberCmd) Wait() WaitType { return WaitIO }
 func (c *ChangeToolNumberCmd) String() string {
 	return fmt.Sprintf("ChangeToolNumber(%d)", c.Number)
 }
@@ -971,10 +967,8 @@ func (c *ReloadTooldataCmd) Execute(t *Task) error {
 	return t.io.ToolLoadTable("")
 }
 
-// PostWait: see SetToolTableEntryCmd — invalidate after the mutation lands.
-func (c *ReloadTooldataCmd) PostWait(t *Task) { t.invalidatePrepPocket() }
-func (c *ReloadTooldataCmd) Wait() WaitType   { return WaitIO }
-func (c *ReloadTooldataCmd) String() string   { return "ReloadTooldata" }
+func (c *ReloadTooldataCmd) Wait() WaitType { return WaitIO }
+func (c *ReloadTooldataCmd) String() string { return "ReloadTooldata" }
 
 // FloodOnCmd turns flood coolant on (M8).
 type FloodOnCmd struct{}
@@ -1068,10 +1062,6 @@ func (t *Task) DrainQueue() {
 		<-done
 	}
 }
-
-// Waiter allows tests to inject a mock for pollUntil.
-// Not exported — tests use the concrete mockStatus.InPosition approach.
-type waitFunc func() bool
 
 // Queue-depth throttling: do not send motion commands when the TP queue is
 // above this high-water mark. The TP has DEFAULT_TC_QUEUE_SIZE=2000 slots;

@@ -19,10 +19,12 @@ import (
 // InitCPUPool(). Each call to CreateThreadCPU with cpu=-1 pops the next
 // available core from the pool; once the pool is exhausted, further threads
 // co-locate onto the last-assigned isolated core rather than floating onto the
-// non-isolated housekeeping cores (see acquireCPU). Explicit cpu=N validates
-// against the isolated set.
+// non-isolated housekeeping cores (see acquireCPU). Explicit cpu=N is the
+// caller's deliberate choice and is honoured for any online CPU — isolated or
+// not — with a warning when it isn't isolated.
 type cpuPool struct {
 	mu           sync.Mutex
+	online       []int // all online CPUs, ascending; empty if topology is unknown
 	isolated     []int // all isolated physical cores, sorted descending
 	available    []int // remaining unassigned isolated cores, sorted descending
 	lastAssigned int   // most recently assigned isolated core, -1 if none yet
@@ -56,6 +58,7 @@ func InitCPUPool(logger *slog.Logger) error {
 	posixRT := rtapiIsRealtime()
 
 	pool.mu.Lock()
+	pool.online = append([]int(nil), topo.online...)
 	pool.isolated = append([]int(nil), avail...)
 	pool.available = avail
 	pool.lastAssigned = -1
@@ -73,17 +76,34 @@ func InitCPUPool(logger *slog.Logger) error {
 //   - cpu=-1: auto-assign next free isolated core; once the pool is exhausted,
 //     co-locate onto the last-assigned isolated core; -1 (no affinity) only if
 //     there are no isolated cores at all (warn in RT mode).
-//   - cpu>=0: must name an isolated core; return it (removing it from the free
-//     list, or co-locating if already handed out); error if not isolated.
+//   - cpu>=0: an explicit pin request. Any online CPU is accepted — pinning is
+//     the caller's deliberate choice and a machine without isolcpus must still
+//     be able to place a thread. An isolated core is removed from the free list
+//     (or co-located onto if already handed out); a non-isolated core is honoured
+//     with a warning and does NOT become lastAssigned, so later auto-assigned
+//     threads never inherit a non-isolated core. Only a CPU that is not online
+//     is an error (hal_create_thread_cpu ignores the affinity return value, so an
+//     out-of-range core would silently no-op).
 //
 // Co-location mirrors the classic base+servo-on-one-CPU model: threads are
 // created fastest-first with descending priority, so a slower thread stacked
 // onto a faster thread's core is simply preempted by it (rate monotonic) while
 // still running on an isolated core, rather than floating onto the noisy
 // non-isolated housekeeping cores.
-func acquireCPU(threadName string, cpu int) (int, error) {
+// cpuLease records what one acquireCPU call changed, so a thread creation HAL
+// then refuses can be undone precisely (releaseCPU). fromPool marks a core
+// popped from the free list; prevLast is lastAssigned before the acquisition,
+// restored only while this lease still owns it.
+type cpuLease struct {
+	cpu      int
+	fromPool bool
+	prevLast int
+}
+
+func acquireCPU(threadName string, cpu int) (cpuLease, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
+	lease := cpuLease{cpu: -1, prevLast: pool.lastAssigned}
 
 	if cpu < 0 {
 		// Auto-assign the next free isolated core.
@@ -91,7 +111,9 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 			assigned := pool.available[0]
 			pool.available = pool.available[1:]
 			pool.lastAssigned = assigned
-			return assigned, nil
+			lease.cpu = assigned
+			lease.fromPool = true
+			return lease, nil
 		}
 		// Pool exhausted but at least one isolated core exists — co-locate
 		// onto the last one handed out instead of dropping affinity.
@@ -100,14 +122,15 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 				pool.logger.Info("isolated CPU pool exhausted, co-locating thread onto isolated core",
 					"thread", threadName, "cpu", pool.lastAssigned)
 			}
-			return pool.lastAssigned, nil
+			lease.cpu = pool.lastAssigned
+			return lease, nil
 		}
 		// No isolated cores at all — run without affinity.
 		if pool.posixRT && pool.logger != nil {
 			pool.logger.Warn("no isolated CPU available for thread, running without affinity",
 				"thread", threadName)
 		}
-		return -1, nil
+		return lease, nil
 	}
 
 	// Explicit cpu=N requested — remove it from the free list if still there.
@@ -115,7 +138,9 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 		if c == cpu {
 			pool.available = append(pool.available[:i], pool.available[i+1:]...)
 			pool.lastAssigned = cpu
-			return cpu, nil
+			lease.cpu = cpu
+			lease.fromPool = true
+			return lease, nil
 		}
 	}
 	// Already handed out but still an isolated core — co-locate onto it (an
@@ -123,11 +148,56 @@ func acquireCPU(threadName string, cpu int) (int, error) {
 	for _, c := range pool.isolated {
 		if c == cpu {
 			pool.lastAssigned = cpu
-			return cpu, nil
+			lease.cpu = cpu
+			return lease, nil
 		}
 	}
-	return 0, fmt.Errorf("newthread %s: cpu=%d is not an isolated CPU (isolated: %v)",
-		threadName, cpu, pool.isolated)
+	// Not isolated. Refuse only if we know the topology and the CPU isn't online.
+	if len(pool.online) > 0 && !containsInt(pool.online, cpu) {
+		return lease, fmt.Errorf("newthread %s: cpu=%d is not an online CPU (online: %v)",
+			threadName, cpu, pool.online)
+	}
+	if pool.logger != nil {
+		pool.logger.Warn("thread pinned to a non-isolated CPU, realtime performance will depend on other load on that core",
+			"thread", threadName, "cpu", cpu, "isolated", pool.isolated)
+	}
+	// Deliberately not recorded as lastAssigned: auto-assigned threads must not
+	// spill onto a non-isolated core just because someone pinned one here.
+	lease.cpu = cpu
+	return lease, nil
+}
+
+// releaseCPU undoes exactly what one acquireCPU changed, for a thread that HAL
+// then refused to create. The core goes back to the FRONT of the free list (it
+// was popped from there, and the next auto-assignment should prefer it again);
+// lastAssigned is restored only if this lease still owns it — a concurrent
+// acquisition that moved it on has recorded the truer value.
+func releaseCPU(l cpuLease) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if l.fromPool && !containsInt(pool.available, l.cpu) {
+		pool.available = append([]int{l.cpu}, pool.available...)
+	}
+	if pool.lastAssigned == l.cpu {
+		pool.lastAssigned = l.prevLast
+	}
+}
+
+// poolLogger returns the pool's logger (nil if none was installed). It is the
+// halcmd package's only logger, installed by InitCPUPool at startup.
+func poolLogger() *slog.Logger {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return pool.logger
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // --- CPU topology detection (moved from threadcfg/cpu_linux.go) ---
@@ -145,10 +215,20 @@ func detectTopology() (*cpuTopology, error) {
 		siblingOf:     make(map[int]int),
 	}
 
-	nCPU := runtime.NumCPU()
-	for i := 0; i < nCPU; i++ {
-		if cpuOnline(i) {
-			topo.online = append(topo.online, i)
+	// The kernel's own online list is authoritative. runtime.NumCPU() is the
+	// size of the process's startup affinity mask, not the highest CPU index —
+	// under a restricted CPUAffinity/cpuset, or with a mid-range CPU offline, a
+	// probe loop bounded by it never sees higher-numbered online CPUs, and
+	// acquireCPU would then refuse a perfectly valid explicit pin as "not an
+	// online CPU". The probe loop stays as the fallback.
+	if data, err := os.ReadFile("/sys/devices/system/cpu/online"); err == nil {
+		topo.online = parseCPUList(strings.TrimSpace(string(data)))
+	}
+	if len(topo.online) == 0 {
+		for i := 0; i < runtime.NumCPU(); i++ {
+			if cpuOnline(i) {
+				topo.online = append(topo.online, i)
+			}
 		}
 	}
 

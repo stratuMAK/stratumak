@@ -20,12 +20,22 @@ type TaskMessage struct {
 // (non-reentrant mutex). msgMu is a leaf lock: nothing is called while
 // holding it.
 
+// maxMessageList bounds the current message list (drop-oldest): a chatty
+// error source (e.g. a repeating following-error) must not grow server
+// memory — and every watching UI's notification area — without bound.
+// Classic AXIS capped its notification area at 10 widgets.
+const maxMessageList = 200
+
 // appendMessage adds a message to the current list and returns its ID.
 func (t *Task) appendMessage(kind emcerror.ErrorKind, text string) uint64 {
 	t.msgMu.Lock()
 	defer t.msgMu.Unlock()
 	t.nextMessageID++
 	id := t.nextMessageID
+	if len(t.messageList) >= maxMessageList {
+		drop := len(t.messageList) - maxMessageList + 1
+		t.messageList = append(t.messageList[:0], t.messageList[drop:]...)
+	}
 	t.messageList = append(t.messageList, TaskMessage{
 		ID:   id,
 		Kind: int32(kind),

@@ -19,12 +19,12 @@ package adsmodule
 import (
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/ads"
 	"github.com/sittner/linuxcnc/src/gomc/internal/adsbridge"
 	"github.com/sittner/linuxcnc/src/gomc/internal/adsconfig"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -91,10 +91,12 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 		return nil, fmt.Errorf("ads-server: missing required config= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory.
-	if !filepath.IsAbs(configPath) {
-		iniDir := filepath.Dir(ini.SourceFile())
-		configPath = filepath.Join(iniDir, configPath)
+	// Configuration paths are server-side paths resolved by the shared rule
+	// (config dir, then HALLIB_PATH, contained within them) — see
+	// internal/pathres.
+	configPath, err := pathres.Resolve(configPath, pathres.Read)
+	if err != nil {
+		return nil, fmt.Errorf("ads-server: config=: %w", err)
 	}
 
 	logger = logger.With("plugin", name)
@@ -119,6 +121,16 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 	if err != nil {
 		return nil, fmt.Errorf("ADS %q: creating HAL component: %w", name, err)
 	}
+	// Release the HAL component if construction fails after this point, so a
+	// failed load does not leak a HAL component slot (ADS_REVIEW_FINDINGS.md A12).
+	ok := false
+	defer func() {
+		if !ok {
+			if exitErr := comp.Exit(); exitErr != nil {
+				logger.Debug("ADS HAL component exit error during failed load", "name", name, "error", exitErr)
+			}
+		}
+	}()
 
 	// Create symbol table and bridge (HAL pins + ADS symbol registrations).
 	st := ads.NewSymbolTable()
@@ -143,15 +155,18 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 
 	// Create ADS TCP server (not started yet).
 	addr := fmt.Sprintf("%s:%d", conf.Bind, conf.Port)
-	server := ads.NewServer(addr, netID, DefaultAMSPort, st, debug, logger)
+	server := ads.NewServer(addr, netID, DefaultAMSPort, st, conf.MaxConnections, conf.MaxSubscriptions, debug, logger)
 
 	logger.Info("ADS instance initialized",
 		"name", name,
 		"addr", addr,
 		"ams-net-id", conf.AMSNetID,
 		"pins", len(pins),
+		"max-connections", conf.MaxConnections,
+		"max-subscriptions", conf.MaxSubscriptions,
 	)
 
+	ok = true // construction succeeded — keep the HAL component
 	return &adsModule{
 		logger:  logger,
 		comp:    comp,

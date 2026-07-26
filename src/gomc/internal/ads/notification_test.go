@@ -16,8 +16,8 @@ func TestNotifyManagerAddDel(t *testing.T) {
 	st.Register("test.var1", &mockPin{data: []byte{42}, size: 1})
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},
@@ -27,8 +27,8 @@ func TestNotifyManagerAddDel(t *testing.T) {
 
 	nm := newNotifyManager(s, c1)
 
-	h1 := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeCyclic, 100*time.Millisecond)
-	h2 := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeOnChange, 200*time.Millisecond)
+	h1, _ := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeCyclic, 100*time.Millisecond)
+	h2, _ := nm.add(IdxGrpProcessImageRW, 0, 1, ADSTransModeOnChange, 200*time.Millisecond)
 
 	if h1 == h2 {
 		t.Fatalf("expected different handles, got %d and %d", h1, h2)
@@ -52,8 +52,8 @@ func TestNotifyManagerCyclicSend(t *testing.T) {
 	st.Register("test.var1", pin)
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},
@@ -125,8 +125,8 @@ func TestNotifyManagerOnChange(t *testing.T) {
 	st.Register("test.var1", pin)
 
 	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
 
 	s := &Server{
 		netID:   AMSNetID{1, 2, 3, 4, 1, 1},
@@ -175,8 +175,8 @@ func TestNotifyManagerOnChange(t *testing.T) {
 // Returns nil if timeout elapses.
 func readAMSPacket(t *testing.T, conn net.Conn, timeout time.Duration) []byte {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	defer conn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
 
 	tcpHdr := make([]byte, AMSTCPHeaderSize)
 	_, err := io.ReadFull(conn, tcpHdr)

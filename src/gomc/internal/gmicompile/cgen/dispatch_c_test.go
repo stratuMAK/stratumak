@@ -315,3 +315,119 @@ func TestGenerateDispatchCPrimitiveReturn(t *testing.T) {
 	assertContains(t, out, "int32(out)")
 	assertContains(t, out, "Version:    2")
 }
+
+// --- Fail-fast guards for unsupported type shapes (G-L4 / G-L6 residual) ---
+//
+// Both shapes are latent today (no committed IDL uses them) but previously
+// emitted silently-wrong code: cTypeForAPICgo fell through to C.int (truncating
+// a real pointer/array at the FFI boundary), and emitFieldGoToC ran a
+// fixed-array-of-string through the scalar path, emitting non-compiling C with
+// no CString alloc or free. The guards convert both into loud generator panics.
+
+func mustPanic(t *testing.T, contains string, fn func()) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic containing %q, got none", contains)
+		}
+		if msg, _ := r.(string); !bytes.Contains([]byte(msg), []byte(contains)) {
+			t.Fatalf("panic %q does not contain %q", r, contains)
+		}
+	}()
+	fn()
+}
+
+// TestGenerateDispatchCNullableScalars proves the nullable-scalar pointer idiom
+// is emitted consistently across all three conversion paths — struct field
+// C→Go (emitFieldCToGo), struct field Go→C (emitFieldGoToC), and function
+// parameter Go→C (emitParamGoToC/emitNullableScalarGoToC) — for every scalar
+// primitive, with special focus on the previously-missing i8/u8 (all paths) and
+// f32/f64 (parameter path). A nil Go pointer must survive as an absent value:
+// fields guard with `if src.X != nil`, params NULL-check before malloc.
+func TestGenerateDispatchCNullableScalars(t *testing.T) {
+	np := func(name string) ast.TypeRef {
+		return ast.TypeRef{Kind: ast.TypePrimitive, Name: name, Nullable: true}
+	}
+	api := &ast.API{
+		Name:    "nullapi",
+		Version: 1,
+		Prefix:  "nullapi",
+		Types: []ast.Type{
+			{
+				Name: "Opts",
+				Fields: []ast.Field{
+					{Name: "opt_f64", Type: np("f64")},
+					{Name: "opt_f32", Type: np("f32")},
+					{Name: "opt_i8", Type: np("i8")},
+					{Name: "opt_u8", Type: np("u8")},
+				},
+			},
+		},
+		Funcs: []ast.Func{
+			{
+				Name:   "set_opts",
+				Method: "POST",
+				Path:   "/opts",
+				Params: []ast.Param{
+					{Name: "limit", Type: np("f64")},
+					{Name: "scale", Type: np("f32")},
+					{Name: "idx", Type: np("i8")},
+					{Name: "flags", Type: np("u8")},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := GenerateDispatchC(&buf, api, "nullpkg", "nullapi_api.h"); err != nil {
+		t.Fatalf("GenerateDispatchC: %v", err)
+	}
+	out := buf.String()
+
+	// -- Go struct: nullable scalar fields are pointer-typed (with omitempty) --
+	assertContains(t, out, "OptF64 *float64 `json:\"opt_f64,omitempty\"`")
+	assertContains(t, out, "OptF32 *float32 `json:\"opt_f32,omitempty\"`")
+	assertContains(t, out, "OptI8 *int8 `json:\"opt_i8,omitempty\"`")
+	assertContains(t, out, "OptU8 *uint8 `json:\"opt_u8,omitempty\"`")
+
+	// -- Struct field C→Go: wrap the C scalar in a fresh pointer --
+	assertContains(t, out, "OptF64: func() *float64 { v := float64(src.opt_f64); return &v }(),")
+	assertContains(t, out, "OptF32: func() *float32 { v := float32(src.opt_f32); return &v }(),")
+	assertContains(t, out, "OptI8: func() *int8 { v := int8(src.opt_i8); return &v }(),")
+	assertContains(t, out, "OptU8: func() *uint8 { v := uint8(src.opt_u8); return &v }(),")
+
+	// -- Struct field Go→C: nil pointer leaves the C field at its zero value --
+	assertContains(t, out, "if src.OptF64 != nil { dst.opt_f64 = C.double(*src.OptF64) }")
+	assertContains(t, out, "if src.OptF32 != nil { dst.opt_f32 = C.float(*src.OptF32) }")
+	assertContains(t, out, "if src.OptI8 != nil { dst.opt_i8 = C.int8_t(*src.OptI8) }")
+	assertContains(t, out, "if src.OptU8 != nil { dst.opt_u8 = C.uint8_t(*src.OptU8) }")
+
+	// -- Function param Go→C: NULL when absent, C-heap malloc when present --
+	// f64 param
+	assertContains(t, out, "var cLimit *C.double")
+	assertContains(t, out, "if params.Limit != nil {")
+	assertContains(t, out, "cLimit = (*C.double)(C.malloc(C.size_t(unsafe.Sizeof(*new(C.double)))))")
+	assertContains(t, out, "*cLimit = C.double(*params.Limit)")
+	// f32 param
+	assertContains(t, out, "var cScale *C.float")
+	assertContains(t, out, "*cScale = C.float(*params.Scale)")
+	// i8 param
+	assertContains(t, out, "var cIdx *C.int8_t")
+	assertContains(t, out, "*cIdx = C.int8_t(*params.Idx)")
+	// u8 param
+	assertContains(t, out, "var cFlags *C.uint8_t")
+	assertContains(t, out, "*cFlags = C.uint8_t(*params.Flags)")
+}
+
+func TestCTypeForAPICgoRejectsUnsupportedShape(t *testing.T) {
+	// A fixed array reaches cTypeForAPICgo with no case → must panic, not C.int.
+	arr := ast.TypeRef{Kind: ast.TypeArray, ArrayLen: 4, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimString}}
+	mustPanic(t, "unsupported type shape", func() { cTypeForAPICgo("testapi", arr) })
+}
+
+func TestEmitFieldGoToCRejectsFixedArrayOfString(t *testing.T) {
+	g := &dispatchCGen{w: new(bytes.Buffer), api: &ast.API{Name: "testapi"}}
+	fixedStrArr := ast.TypeRef{Kind: ast.TypeArray, ArrayLen: 4, Elem: &ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimString}}
+	mustPanic(t, "fixed-array-of-string", func() { g.emitFieldGoToC("out.names", "in.Names", fixedStrArr) })
+}

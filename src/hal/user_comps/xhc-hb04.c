@@ -165,10 +165,23 @@ typedef struct {
 static int read_button_cfg(xhc_hb04_inst_t *inst) {
     if (!inst->button_cfg_file) return 0;
 
-    FILE *fd = fopen(inst->button_cfg_file, "r");
+    // I=<file> is a configuration path: resolved server-side and required to
+    // stay inside the config / HAL library directories (gomc_path.h).
+    const char *reserr = NULL;
+    const char *cfgpath = inst->env->path->resolve(inst->env->path->ctx,
+                                                   inst->button_cfg_file,
+                                                   GOMC_PATH_READ, &reserr);
+    if (!cfgpath) {
+        gomc_log_errorf(inst->env->log, "xhc-hb04",
+            "button config %s: %s\n", inst->button_cfg_file,
+            reserr ? reserr : "cannot be resolved");
+        return -1;
+    }
+
+    FILE *fd = fopen(cfgpath, "r");
     if (!fd) {
         gomc_log_errorf(inst->env->log, "xhc-hb04",
-            "cannot open button config: %s\n", inst->button_cfg_file);
+            "cannot open button config: %s\n", cfgpath);
         return -1;
     }
 

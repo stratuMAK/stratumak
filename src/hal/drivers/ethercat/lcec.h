@@ -45,8 +45,11 @@
 #include <ctype.h>
 #include <math.h>
 
-#include "ecrt.h"
-#include "ecrt_rt_api.h"
+// ecrt.h is included through lcec_ecrt.h, which hands the master's native
+// ECRT_RT_ATTR annotations over to gomc's GOMC_NONBLOCKING effects check
+// (see that header).  Every lcec TU reaches ecrt.h this way so the
+// override wins in any include order.
+#include "lcec_ecrt.h"
 #include "conf.h"
 
 /**

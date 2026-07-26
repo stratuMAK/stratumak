@@ -2614,11 +2614,23 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 			retval = -EINVAL;
 			goto errout;
 		}
-		if('/' != mod->mbccbs[i][0]) {
-			MSG_WARN("%s: warning: The 'mbccb' file path '%s' for instance %d in 'mbccbs' argument is not absolute\n", inst->name, mod->mbccbs[i], i);
+		// mbccbs= is a configuration path: resolved server-side against the
+		// config directory / HAL library directories and required to stay
+		// inside them (gomc_path.h).  A relative path is now first class — it
+		// used to warn, because nothing anchored it and it silently depended
+		// on the server's working directory.
+		const char *mbccberr = NULL;
+		const char *mbccbpath = mod->env->path->resolve(mod->env->path->ctx,
+		                                                mod->mbccbs[i],
+		                                                GOMC_PATH_READ, &mbccberr);
+		if(!mbccbpath) {
+			MSG_ERR("%s: error: mbccb file '%s' for instance %d: %s\n", inst->name,
+			        mod->mbccbs[i], i, mbccberr ? mbccberr : "cannot be resolved");
+			retval = -EINVAL;
+			goto errout;
 		}
 
-		if((retval = load_mbccb(inst, mod->env->rtapi, mod->mbccbs[i])) < 0) {
+		if((retval = load_mbccb(inst, mod->env->rtapi, mbccbpath)) < 0) {
 			// Messages printed in load function
 			goto errout;
 		}

@@ -68,6 +68,7 @@ func (g *serverGoGen) emitHeader() {
 
 	g.printf("import (\n")
 	g.printf("\t\"encoding/json\"\n")
+	g.printf("\t\"fmt\"\n")
 	g.printf("\t\"syscall\"\n")
 	if needsTime {
 		g.printf("\t\"time\"\n")
@@ -79,6 +80,7 @@ func (g *serverGoGen) emitHeader() {
 
 	// Suppress unused import warnings
 	g.printf("var _ = json.Marshal\n")
+	g.printf("var _ = fmt.Sprintf\n")
 	g.printf("var _ = syscall.EINVAL\n")
 	if needsTime {
 		g.printf("var _ time.Duration\n")
@@ -136,7 +138,7 @@ func (g *serverGoGen) emitTypes() {
 			if f.Type.Nullable {
 				omit = ",omitempty"
 			}
-			g.printf("\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+			g.printf("\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOpt(f.Type))
 		}
 		g.printf("}\n\n")
 	}
@@ -218,12 +220,18 @@ func (g *serverGoGen) emitDispatchFuncs() {
 				fieldName := toPascalCase(p.Name)
 				fieldType := g.toGoType(p.Type)
 				jsonTag := p.Name
-				g.printf("\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, jsonTag)
+				// A surviving 64-bit param is always a POST/PUT/PATCH *body* param:
+				// the check layer rejects 64-bit path/query params (they would reach
+				// apiserver.encodeParams as bare numbers, which a ",string" field
+				// rejects). So ",string" here is safe and symmetric with the client.
+				g.printf("\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, jsonStringOptParam(p))
 			}
 			g.printf("\t}\n")
 			g.printf("\tif len(req) > 0 {\n")
 			g.printf("\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-			g.printf("\t\t\treturn nil, syscall.EINVAL\n")
+			// Client error (400 via EINVAL) with the json detail kept — same
+			// rule as the other dispatch emitters; keep all copies identical.
+			g.printf("\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 			g.printf("\t\t}\n")
 			g.printf("\t}\n")
 		}
@@ -298,26 +306,13 @@ func (g *serverGoGen) emitRegister() {
 
 // --- Type Mapping ---
 
+// toGoType delegates to goTypeForDispatch so the provider-facing type mapping
+// exists exactly once.  This used to be its own copy that differed in one
+// clause — `string?` mapped to a plain `string` here while the dispatch and
+// client emitters produced *string — which is what made a nullable string
+// unrepresentable on the provider side.  See the note on goTypeForDispatch.
 func (g *serverGoGen) toGoType(t ast.TypeRef) string {
-	switch t.Kind {
-	case ast.TypePrimitive:
-		base := primitiveToGoType(t.Name)
-		if t.Nullable && t.Name != ast.PrimString {
-			return "*" + base
-		}
-		return base
-	case ast.TypeNamed:
-		name := toPascalCase(t.Name)
-		if t.Nullable {
-			return "*" + name
-		}
-		return name
-	case ast.TypeSlice:
-		return "[]" + g.toGoType(*t.Elem)
-	case ast.TypeArray:
-		return fmt.Sprintf("[%d]%s", t.ArrayLen, g.toGoType(*t.Elem))
-	}
-	return "interface{}"
+	return goTypeForDispatch(t)
 }
 
 func primitiveToGoType(name string) string {
@@ -410,15 +405,6 @@ func (g *serverGoGen) hasWatchOnlyFuncs() bool {
 	return false
 }
 
-func (g *serverGoGen) hasCommandFuncs() bool {
-	for _, fn := range g.api.Funcs {
-		if !fn.Watch && fn.Method == "" {
-			return true
-		}
-	}
-	return false
-}
-
 // isBinaryWatch returns true if a watch function returns []u8 (binary data).
 func (g *serverGoGen) isBinaryWatch(fn ast.Func) bool {
 	if fn.Return == nil {
@@ -458,12 +444,64 @@ func (g *serverGoGen) emitWatchCallbacksInterface() {
 
 // --- Commands Function ---
 
+// HasWatchFuncs reports whether the API has any @watch function. Used by the
+// modcompile driver to gate the WS-client generation modes.
+func HasWatchFuncs(api *ast.API) bool {
+	for _, fn := range api.Funcs {
+		if fn.Watch {
+			return true
+		}
+	}
+	return false
+}
+
+// isCommandFunc reports whether a function should be exposed as a WS command:
+// not watch-only, not @publish, no out-params (complex multi-return), and no
+// opaque-pointer params. A raw or function pointer cannot be marshaled from a
+// remote JSON request, and exposing one would accept an arbitrary client-supplied
+// pointer — such functions (e.g. callback registration) are cgo-local only.
+func (g *serverGoGen) isCommandFunc(fn ast.Func) bool {
+	return isRESTCommandFunc(fn)
+}
+
+// isRESTCommandFunc reports whether fn is dispatched over REST (a "command"):
+// not a watch-only function (@watch with no @method — those are WebSocket),
+// not a @publish producer, and with no out/opaque-ptr params (unmarshalable).
+// The server dispatch and every generated REST client must agree on this set,
+// or a client emits a method the server never serves (e.g. halcmd's watch_items
+// was mis-emitted as a broken empty-path GET returning []PinInfo).
+func isRESTCommandFunc(fn ast.Func) bool {
+	if fn.Watch && fn.Method == "" {
+		return false
+	}
+	if fn.Publish {
+		return false
+	}
+	for _, p := range fn.Params {
+		if isOpaquePtrParam(p) {
+			return false
+		}
+		// An out param is normally unmarshalable, but the @rc_error shape gives
+		// it a defined place on the wire: it is the response body, and the rc is
+		// the status. The checker guarantees exactly one for a REST-routed func.
+		if p.IsOut && !fn.RcError {
+			return false
+		}
+	}
+	if fn.RcError {
+		if _, ok := rcErrorPayload(fn); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *serverGoGen) emitCommands() {
 	// Generate XxxCommands() that wraps all dispatch functions as WS CommandMeta.
 	// This includes REST functions and WS-command-only functions.
 	hasFuncs := false
 	for _, fn := range g.api.Funcs {
-		if !(fn.Watch && fn.Method == "") && !fn.Publish {
+		if g.isCommandFunc(fn) {
 			hasFuncs = true
 			break
 		}
@@ -474,7 +512,7 @@ func (g *serverGoGen) emitCommands() {
 
 	apiPascal := toPascalCase(g.api.Name)
 	ifaceName := apiPascal + "Callbacks"
-	funcName := apiPascal + "Commands"
+	funcName := apiPascal + "Handlers"
 
 	// Same @constraint validation as the REST dispatch — but call the shared
 	// validate<Api><Fn> functions emitted once into _cgo.go (same package) rather
@@ -482,32 +520,31 @@ func (g *serverGoGen) emitCommands() {
 	// here (D8). ce is used only to generate the call expressions.
 	ce := newConstraintEmitter(g.api)
 
-	g.printf("// --- WebSocket Commands ---\n\n")
-	g.printf("// %s generates WS command metadata from the callbacks implementation.\n", funcName)
-	g.printf("func %s(impl %s) []apiserver.CommandMeta {\n", funcName, ifaceName)
-	g.printf("\treturn []apiserver.CommandMeta{\n")
+	g.printf("// --- Go-native handlers (REST + WebSocket) ---\n\n")
+	g.printf("// %s returns the dispatch set that calls the provider directly.\n", funcName)
+	g.printf("//\n")
+	g.printf("// Both REST and WS use this. Routing through the C callbacks struct instead\n")
+	g.printf("// would cost the provider's error: that ABI has no error channel, so the\n")
+	g.printf("// //export trampoline substitutes a zero value and the caller is told the\n")
+	g.printf("// call succeeded. The C path remains for in-process cmod<->gomod calls,\n")
+	g.printf("// which is the reason it exists.\n")
+	g.printf("//\n")
+	g.printf("// Funcs that are WS-commands-only carry no Method/Path; REST routing skips\n")
+	g.printf("// those, so one set serves both surfaces.\n")
+	g.printf("func %s(impl %s) []apiserver.FuncMeta {\n", funcName, ifaceName)
+	g.printf("\treturn []apiserver.FuncMeta{\n")
 	for _, fn := range g.api.Funcs {
-		if fn.Watch && fn.Method == "" {
-			continue // watch-only, not a command
-		}
-		if fn.Publish {
-			continue // @publish function — no dispatch command
-		}
-		// Skip functions with out-params — they have complex multi-return
-		// signatures that don't map cleanly to a single JSON result.
-		hasOutParams := false
-		for _, p := range fn.Params {
-			if p.IsOut {
-				hasOutParams = true
-				break
-			}
-		}
-		if hasOutParams {
+		if !g.isCommandFunc(fn) {
 			continue
 		}
+		// The handler calls the Go provider directly, so it sees the REST view:
+		// an @rc_error func's payload out-param is its return value here, and
+		// there is no rc to encode (the provider's error is the error).
+		fn = restView(fn)
 		methodName := toPascalCase(fn.Name)
 
-		g.printf("\t\t{Name: %q, Handler: func(req json.RawMessage) (json.RawMessage, error) {\n", fn.Name)
+		g.printf("\t\t{Name: %q, Method: %q, Path: %q, RTSafe: %t, Dispatch: func(_ unsafe.Pointer, req []byte) ([]byte, error) {\n",
+			fn.Name, fn.Method, fn.Path, fn.RTSafe)
 
 		// Unmarshal params if any
 		if len(fn.Params) > 0 {
@@ -515,12 +552,18 @@ func (g *serverGoGen) emitCommands() {
 			for _, p := range fn.Params {
 				fieldName := toPascalCase(p.Name)
 				fieldType := g.toGoType(p.Type)
-				g.printf("\t\t\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, p.Name)
+				// WS command params travel as JSON args (no encodeParams), so a
+				// 64-bit param is string-encoded here too. See jsonStringOpt.
+				g.printf("\t\t\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, p.Name, jsonStringOptParam(p))
 			}
 			g.printf("\t\t\t}\n")
 			g.printf("\t\t\tif len(req) > 0 {\n")
 			g.printf("\t\t\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-			g.printf("\t\t\t\t\treturn nil, err\n")
+			// Request-decode failure is a CLIENT error: wrap EINVAL so the REST
+			// layer maps it to 400 (a bare raw error reads as a 500 provider
+			// fault), keeping the json detail in the message. Same rule as the
+			// other dispatch emitters — keep all copies identical.
+			g.printf("\t\t\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 			g.printf("\t\t\t\t}\n")
 			g.printf("\t\t\t}\n")
 
@@ -554,6 +597,28 @@ func (g *serverGoGen) emitCommands() {
 		g.printf("\t\t}},\n")
 	}
 	g.printf("\t}\n")
+	g.printf("}\n\n")
+
+	// WS command metadata, derived from the same handlers rather than emitted a
+	// second time — two independently generated copies of one dispatch body is
+	// how REST and WS came to disagree about errors in the first place.
+	cmdName := apiPascal + "Commands"
+	g.printf("// %s generates WS command metadata from the callbacks implementation.\n", cmdName)
+	g.printf("// Thin view over %s — same handlers, keyed by name only.\n", funcName)
+	g.printf("func %s(impl %s) []apiserver.CommandMeta {\n", cmdName, ifaceName)
+	g.printf("\tfuncs := %s(impl)\n", funcName)
+	g.printf("\tcmds := make([]apiserver.CommandMeta, 0, len(funcs))\n")
+	g.printf("\tfor i := range funcs {\n")
+	g.printf("\t\tfn := funcs[i]\n")
+	g.printf("\t\tcmds = append(cmds, apiserver.CommandMeta{\n")
+	g.printf("\t\t\tName: fn.Name,\n")
+	g.printf("\t\t\tHandler: func(req json.RawMessage) (json.RawMessage, error) {\n")
+	g.printf("\t\t\t\tres, err := fn.Dispatch(nil, []byte(req))\n")
+	g.printf("\t\t\t\treturn json.RawMessage(res), err\n")
+	g.printf("\t\t\t},\n")
+	g.printf("\t\t})\n")
+	g.printf("\t}\n")
+	g.printf("\treturn cmds\n")
 	g.printf("}\n\n")
 }
 
@@ -603,22 +668,29 @@ func (g *serverGoGen) emitWatchRegister() {
 		methodName := toPascalCase(fn.Name)
 		rate := g.parseRate(fn.WatchDefaultRate)
 
+		// @watch_delta — per-connection diff on top-level JSON keys. Emitted
+		// only when set so every existing watch registration stays byte-identical.
+		delta := ""
+		if fn.WatchDelta {
+			delta = "Delta: true, "
+		}
+
 		if g.isBinaryWatch(fn) {
 			// Binary watch — call WatchCallbacks method directly.
 			g.printf("\t\t\t{Name: %q, DefaultRate: %s, BinaryWatch: watchImpl.%s},\n",
 				fn.Name, rate, methodName)
 		} else if fn.Method == "" {
 			// Watch-only JSON — wrap WatchCallbacks method.
-			g.printf("\t\t\t{Name: %q, DefaultRate: %s, Watch: func() (json.RawMessage, error) {\n",
-				fn.Name, rate)
+			g.printf("\t\t\t{Name: %q, DefaultRate: %s, %sWatch: func() (json.RawMessage, error) {\n",
+				fn.Name, rate, delta)
 			g.printf("\t\t\t\tresult, err := watchImpl.%s()\n", methodName)
 			g.printf("\t\t\t\tif err != nil { return nil, err }\n")
 			g.printf("\t\t\t\treturn json.Marshal(result)\n")
 			g.printf("\t\t\t}},\n")
 		} else {
 			// Dual-purpose (REST + watch) — wrap Callbacks method.
-			g.printf("\t\t\t{Name: %q, DefaultRate: %s, Watch: func() (json.RawMessage, error) {\n",
-				fn.Name, rate)
+			g.printf("\t\t\t{Name: %q, DefaultRate: %s, %sWatch: func() (json.RawMessage, error) {\n",
+				fn.Name, rate, delta)
 			g.printf("\t\t\t\tresult, err := impl.%s()\n", methodName)
 			g.printf("\t\t\t\tif err != nil { return nil, err }\n")
 			g.printf("\t\t\t\treturn json.Marshal(result)\n")

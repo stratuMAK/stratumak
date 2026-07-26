@@ -1,0 +1,59 @@
+# Motion stack + simulation wiring (based on the stock mod_core_sim.hal), with
+# a DELIBERATELY STUCK toolchanger so a tool change can be caught mid-handshake.
+
+# kinematics
+load trivkins
+# motion controller — periods + joint count from the INI
+load [EMCMOT]EMCMOT base_period_nsec=[EMCMOT]BASE_PERIOD servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES
+# differentiators for velocity/accel signals
+load ddt <ddt.0,ddt.1,ddt.2,ddt.3,ddt.4,ddt.5>
+load hypot <hypot.0,hypot.1>
+
+# motion functions on the servo thread
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf ddt.0 servo-thread
+addf ddt.1 servo-thread
+addf ddt.2 servo-thread
+addf ddt.3 servo-thread
+addf ddt.4 servo-thread
+addf ddt.5 servo-thread
+addf hypot.0 servo-thread
+addf hypot.1 servo-thread
+
+# loop position commands back to motion feedback
+net Xpos joint.0.motor-pos-cmd => joint.0.motor-pos-fb ddt.0.in
+net Ypos joint.1.motor-pos-cmd => joint.1.motor-pos-fb ddt.2.in
+net Zpos joint.2.motor-pos-cmd => joint.2.motor-pos-fb ddt.4.in
+
+net Xvel ddt.0.out => ddt.1.in hypot.0.in0
+net Xacc <= ddt.1.out
+net Yvel ddt.2.out => ddt.3.in hypot.0.in1
+net Yacc <= ddt.3.out
+net Zvel ddt.4.out => ddt.5.in hypot.1.in0
+net Zacc <= ddt.5.out
+net XYvel hypot.0.out => hypot.1.in1
+net XYZvel <= hypot.1.out
+
+# ----- estop loopback -----
+net estop-loop iocontrol.user-enable-out iocontrol.emc-enable-in
+
+# ----- tool prepare: completes immediately (output looped straight to input) -----
+net tool-prep-loop iocontrol.tool-prepare iocontrol.tool-prepared
+
+# ----- tool change: DELIBERATELY STUCK -----
+# iocontrol.tool-changed is left undriven (reads 0), so gmi_tool_load raises
+# tool-change and blocks in the change handshake forever — until an abort/estop
+# clears tool-change. Expose tool-change so the test can observe the machine
+# enter, and (after abort) leave, the change.
+net tool-change-req iocontrol.tool-change
+
+# ----- v2 abort handshake -----
+# A conforming v2 changer acks emc-abort at once; loop it so poll_inputs()
+# reaps the emc-abort -> emc-abort-ack handshake on the monitor status poll.
+net emc-abort-loop iocontrol.emc-abort iocontrol.emc-abort-ack
+
+# observability only
+net tool-number      <= iocontrol.tool-number
+net tool-prep-number <= iocontrol.tool-prep-number
+net tool-prep-pocket <= iocontrol.tool-prep-pocket

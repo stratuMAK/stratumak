@@ -78,7 +78,9 @@ func TestDirectKinsVersionMismatch(t *testing.T) {
 	defer apiserver.SetDefaultRegistry(nil)
 
 	cbs := MakeCallbacks()
-	reg.Register("kins", 1, "kinematics", CallbacksPtr(&cbs))
+	if err := reg.Register("kins", 1, "kinematics", CallbacksPtr(&cbs)); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	_, err := reg.GetAPIUntracked("kins", "kinematics", 2)
 	if err == nil {

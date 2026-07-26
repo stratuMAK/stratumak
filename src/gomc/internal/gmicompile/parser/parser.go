@@ -31,7 +31,67 @@ func Parse(filename, src string) (*ast.API, []string) {
 	}
 	p.advance()
 	api := p.parseAPI()
+	p.reclassifyForwardRefs(api)
+	// Merge lexical errors (all tokens have been scanned by now, since the
+	// parser pulls them eagerly through parseAPI), prefixed with the file name.
+	for _, e := range p.scanner.errs {
+		p.errors = append(p.errors, p.file+":"+e)
+	}
 	return api, p.errors
+}
+
+// reclassifyForwardRefs fixes up TypeNamed references that actually name a
+// callback or import declared LATER in the file. parseTypeRef classifies a name
+// against the callbacks/imports sets known at the point of use (single pass), so
+// a forward reference lands as TypeNamed; now that the whole file is parsed,
+// re-resolve against the complete sets so the emitter — which switches on
+// TypeKind (callback → function pointer, named → struct) — sees the correct kind
+// regardless of declaration order. A no-op when everything is declared before
+// use (the usual style).
+func (p *Parser) reclassifyForwardRefs(api *ast.API) {
+	for i := range api.Types {
+		for j := range api.Types[i].Fields {
+			p.reclassifyRef(&api.Types[i].Fields[j].Type)
+		}
+	}
+	for i := range api.Funcs {
+		for j := range api.Funcs[i].Params {
+			p.reclassifyRef(&api.Funcs[i].Params[j].Type)
+		}
+		p.reclassifyRef(api.Funcs[i].Return)
+	}
+	for i := range api.Callbacks {
+		for j := range api.Callbacks[i].Params {
+			p.reclassifyRef(&api.Callbacks[i].Params[j].Type)
+		}
+		p.reclassifyRef(api.Callbacks[i].Return)
+	}
+	for i := range api.StreamServers {
+		for j := range api.StreamServers[i].Funcs {
+			for k := range api.StreamServers[i].Funcs[j].Params {
+				p.reclassifyRef(&api.StreamServers[i].Funcs[j].Params[k].Type)
+			}
+			p.reclassifyRef(api.StreamServers[i].Funcs[j].Return)
+		}
+	}
+}
+
+// reclassifyRef re-resolves one type reference (recursing into array/slice
+// element types). Nil-safe so callers can pass an optional *TypeRef return type.
+func (p *Parser) reclassifyRef(t *ast.TypeRef) {
+	if t == nil {
+		return
+	}
+	switch t.Kind {
+	case ast.TypeArray, ast.TypeSlice:
+		p.reclassifyRef(t.Elem)
+	case ast.TypeNamed:
+		if p.callbacks[t.Name] {
+			t.Kind = ast.TypeCallback
+		} else if p.imports[t.Name] {
+			t.Kind = ast.TypeImport
+		}
+	}
 }
 
 func (p *Parser) advance() {
@@ -90,11 +150,8 @@ func (p *Parser) parseAPI() *ast.API {
 			}
 			api.Types = append(api.Types, p.parseType())
 		case p.cur.Type == CALLBACK:
-			if len(pendingAnns) > 0 {
-				p.errorf("annotations before callback are not supported")
-				pendingAnns = nil
-			}
-			api.Callbacks = append(api.Callbacks, p.parseCallback())
+			api.Callbacks = append(api.Callbacks, p.parseCallback(pendingAnns))
+			pendingAnns = nil
 		case p.cur.Type == STREAM_SERVER:
 			if len(pendingAnns) > 0 {
 				p.errorf("annotations before stream_server are not supported")
@@ -168,6 +225,11 @@ func (p *Parser) parseConst() ast.Const {
 		p.errorf("const value must be integer, got %q", p.cur.Text)
 	}
 	p.advance()
+	if _, dup := p.consts[name]; dup {
+		// A silent overwrite would make array sizes / @min/@max resolve to
+		// whichever const came last, and both copies emit into the C header.
+		p.errorf("duplicate const %q", name)
+	}
 	p.consts[name] = val
 	return ast.Const{Name: name, Value: val, Pos: pos}
 }
@@ -209,7 +271,12 @@ func (p *Parser) parseEnum() ast.Enum {
 		vname := p.cur.Text
 		p.advance()
 		p.expect(EQ)
-		val, _ := strconv.Atoi(p.cur.Text)
+		val, err := strconv.Atoi(p.cur.Text)
+		if err != nil {
+			// Fail loud, matching parseConst: a discarded error here would
+			// silently give the member value 0 and emit a wrong enum constant.
+			p.errorf("enum %s: value for %q must be an integer, got %q", name, vname, p.cur.Text)
+		}
 		p.advance()
 		enum.Values = append(enum.Values, ast.EnumValue{Name: vname, Value: val, Pos: vpos})
 	}
@@ -310,7 +377,7 @@ func (p *Parser) constraintStr() string {
 	return v
 }
 
-func (p *Parser) parseCallback() ast.Callback {
+func (p *Parser) parseCallback(anns []annotation) ast.Callback {
 	pos := p.pos()
 	p.advance() // skip "callback"
 	name := p.cur.Text
@@ -318,6 +385,18 @@ func (p *Parser) parseCallback() ast.Callback {
 
 	cb := ast.Callback{Name: name, Pos: pos}
 	p.callbacks[name] = true
+
+	// Apply preceding annotations. Only @rt_safe is meaningful on a callback
+	// type (it stamps the _cb typedef GOMC_API_NONBLOCKING); any other
+	// annotation before a callback stays an error, as it did before.
+	for _, ann := range anns {
+		switch ann.name {
+		case "rt_safe":
+			cb.RTSafe = ann.value == "true"
+		default:
+			p.errorf("annotation @%s before callback is not supported", ann.name)
+		}
+	}
 
 	// Parameters
 	p.expect(LPAREN)
@@ -478,6 +557,8 @@ func (p *Parser) parseFunc(anns []annotation) ast.Func {
 			fn.WatchDefaultRate = ann.value
 		case "watch_factory":
 			fn.WatchFactory = ann.value == "true"
+		case "watch_delta":
+			fn.WatchDelta = ann.value == "true"
 		case "publish":
 			fn.Publish = ann.value == "true"
 		case "publish_ring_size":
@@ -488,6 +569,14 @@ func (p *Parser) parseFunc(anns []annotation) ast.Func {
 			fn.WatchSource = ann.value
 		case "returns_value":
 			fn.ReturnsValue = true
+		case "rc_error":
+			fn.RcError = true
+		default:
+			// Fail loud on a typo'd/unknown annotation instead of silently
+			// dropping it (e.g. "@methdo" would otherwise lose the HTTP method
+			// with no diagnostic). Mirrors parseConstraints, which already
+			// errors on an unknown inline @name.
+			p.errorf("unknown annotation @%s on func %s", ann.name, fn.Name)
 		}
 	}
 
@@ -508,7 +597,16 @@ func (p *Parser) parseTypeRef() ast.TypeRef {
 		var size int
 		var sizeName string
 		if p.cur.Type == INT {
-			size, _ = strconv.Atoi(p.cur.Text)
+			var err error
+			size, err = strconv.Atoi(p.cur.Text)
+			if err != nil {
+				// A discarded error here would silently yield length 0.
+				p.errorf("invalid array size %q: %v", p.cur.Text, err)
+			} else if size <= 0 {
+				// Zero/negative would emit a broken (or 0-length) array; the
+				// only valid fixed sizes are positive.
+				p.errorf("array size must be a positive integer, got %d", size)
+			}
 			p.advance()
 		} else if p.cur.Type == IDENT {
 			sizeName = p.cur.Text
@@ -529,6 +627,20 @@ func (p *Parser) parseTypeRef() ast.TypeRef {
 
 	name := p.cur.Text
 	p.advance()
+
+	// map[string]T — JSON-object map. The key is locked to string because a
+	// JSON object key IS a string; any other key type would be a lie on the
+	// wire. The map itself cannot be nullable (absent == empty object).
+	if name == "map" && p.cur.Type == LBRACKET {
+		p.advance()
+		if p.cur.Type != IDENT || p.cur.Text != "string" {
+			p.errorf("map key type must be string (JSON object keys are strings), got %q", p.cur.Text)
+		}
+		p.advance()
+		p.expect(RBRACKET)
+		elem := p.parseTypeRef()
+		return ast.TypeRef{Kind: ast.TypeMap, Elem: &elem}
+	}
 
 	nullable := false
 	if p.cur.Type == QUESTION {

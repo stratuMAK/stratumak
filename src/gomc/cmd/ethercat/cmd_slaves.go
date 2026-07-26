@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ func init() {
 	})
 }
 
-func cmdSlaves(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSlaves(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("'slaves' takes no arguments")
 	}
@@ -32,7 +33,7 @@ func cmdSlaves(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return slavesBrief(client, masterIndex, master.SlaveCount, opts)
 }
 
-func slavesBrief(client *EthercatClient, masterIndex *uint32, slaveCount uint32, opts *GlobalOpts) error {
+func slavesBrief(client *ethercatclient.EthercatClient, masterIndex *uint32, slaveCount uint32, opts *GlobalOpts) error {
 	type slaveRow struct {
 		pos    string
 		alias  string
@@ -126,7 +127,7 @@ func slavesBrief(client *EthercatClient, masterIndex *uint32, slaveCount uint32,
 	return nil
 }
 
-func slavesVerbose(client *EthercatClient, masterIndex *uint32, slaveCount uint32, opts *GlobalOpts) error {
+func slavesVerbose(client *ethercatclient.EthercatClient, masterIndex *uint32, slaveCount uint32, opts *GlobalOpts) error {
 	mi := masterIdx(masterIndex)
 	positions := parsePositionList(opts.Positions)
 

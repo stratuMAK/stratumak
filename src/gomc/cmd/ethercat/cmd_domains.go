@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"os"
 )
 
@@ -20,7 +21,7 @@ func init() {
 	})
 }
 
-func cmdDomains(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdDomains(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -60,7 +61,7 @@ func cmdDomains(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdData(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdData(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -77,7 +78,9 @@ func cmdData(client *EthercatClient, opts *GlobalOpts, args []string) error {
 		if err != nil {
 			return err
 		}
-		os.Stdout.Write(dataStr)
+		if _, err := os.Stdout.Write(dataStr); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -106,11 +109,10 @@ func containsU32(list []uint32, v uint32) bool {
 }
 
 func parseUint32(s string) (uint32, error) {
-	v, err := fmt.Sscanf(s, "%d", new(uint32))
-	if err != nil || v == 0 {
-		return 0, fmt.Errorf("invalid")
-	}
 	var val uint32
-	fmt.Sscanf(s, "%d", &val)
+	n, err := fmt.Sscanf(s, "%d", &val)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("invalid uint32 %q", s)
+	}
 	return val, nil
 }

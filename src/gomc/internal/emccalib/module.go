@@ -10,8 +10,10 @@ package emccalib
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	"github.com/sittner/linuxcnc/src/gomc/internal/calibreg"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halcmd"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -41,18 +44,33 @@ type tunable struct {
 }
 
 type emccalib struct {
-	logger   *slog.Logger
-	ini      *inifile.IniFile
-	mu       sync.Mutex
-	tunables []tunable           // all discovered tunables
-	index    map[string]*tunable // "SECTION\x00KEY" → tunable ptr
+	logger *slog.Logger
+	ini    *inifile.IniFile
+	mu     sync.Mutex
+	// tunables holds all discovered tunables; index maps "SECTION\x00KEY" to
+	// the positions in it.  index deliberately stores positions, not *tunable:
+	// pointers taken into a slice that is still being appended to go stale the
+	// moment append reallocates, which silently split the lookup path off from
+	// the iteration path (see the aliasing note on newEmccalib).  It is a
+	// *slice* of positions because one [SECTION]KEY may feed several HAL pins
+	// (tandem/gantry configs setp two PID gains from one INI key); set_pin and
+	// revert must fan out to all of them, not just the last one registered.
+	tunables []tunable
+	index    map[string][]int
+}
+
+// lookupAll returns the positions of every tunable for a section/key (empty if
+// it is not tunable).  The caller must hold e.mu, and must keep holding it
+// while dereferencing them — SaveIni writes iniValue through the same slice.
+func (e *emccalib) lookupAll(section, key string) []int {
+	return e.index[section+"\x00"+key]
 }
 
 func newEmccalib(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
 	e := &emccalib{
 		logger: logger,
 		ini:    ini,
-		index:  make(map[string]*tunable),
+		index:  make(map[string][]int),
 	}
 
 	// Build tunable list from calibreg (populated during HAL file loading).
@@ -65,7 +83,9 @@ func newEmccalib(ini *inifile.IniFile, logger *slog.Logger, name string, args []
 			iniValue: m.IniValue,
 		}
 		// Find provenance — which file and line this entry came from.
-		for i := range ini.Sections {
+		// ini is nil in an INI-less launcher (halrun mode); the tunables
+		// themselves come from calibreg, so provenance is simply unavailable.
+		for i := 0; ini != nil && i < len(ini.Sections); i++ {
 			if ini.Sections[i].Name != m.Section {
 				continue
 			}
@@ -82,14 +102,18 @@ func newEmccalib(ini *inifile.IniFile, logger *slog.Logger, name string, args []
 			}
 		}
 		e.tunables = append(e.tunables, t)
-		e.index[m.Section+"\x00"+m.Key] = &e.tunables[len(e.tunables)-1]
+		k := m.Section + "\x00" + m.Key
+		e.index[k] = append(e.index[k], len(e.tunables)-1)
 	}
 
 	logger.Info("emccalib: discovered tunables", "count", len(e.tunables))
 
-	// Register with apiserver.
+	// Register with apiserver under the *instance* name, like every other
+	// gomod.  This used to be the literal "emccalib", so `load emccalib
+	// <mycalib>` published its API at the wrong address and a second instance
+	// collided with the first instead of getting its own.
 	reg := apiserver.DefaultRegistry()
-	if err := emccalibapi.RegisterEmccalibAPI(reg, "emccalib", e); err != nil {
+	if err := emccalibapi.RegisterEmccalibAPI(reg, name, e); err != nil {
 		return nil, fmt.Errorf("emccalib: register API: %w", err)
 	}
 
@@ -144,17 +168,31 @@ func (e *emccalib) GetTunables() ([]emccalibapi.TunableSection, error) {
 }
 
 func (e *emccalib) SetPin(section, key string, value float64) (bool, error) {
+	// The pin names are copied out under the lock rather than used through
+	// pointers: SaveIni mutates the same elements, so touching a *tunable after
+	// unlocking is a data race.
 	e.mu.Lock()
-	t := e.index[section+"\x00"+key]
+	var pins []string
+	for _, i := range e.lookupAll(section, key) {
+		pins = append(pins, e.tunables[i].pin)
+	}
 	e.mu.Unlock()
-
-	if t == nil {
-		return false, fmt.Errorf("emccalib: %s/%s not in tunable list", section, key)
+	if len(pins) == 0 {
+		return false, apiserver.Faultf(apiserver.FaultNotFound,
+			"emccalib: %s/%s not in tunable list", section, key)
 	}
 
+	// One [SECTION]KEY may feed several pins (tandem axes); a partial failure
+	// still reports every pin that could not be set.
 	valStr := strconv.FormatFloat(value, 'f', -1, 64)
-	if err := halcmd.SetP(t.pin, valStr); err != nil {
-		return false, fmt.Errorf("emccalib: setp %s %s: %w", t.pin, valStr, err)
+	var errs []error
+	for _, pin := range pins {
+		if err := halcmd.SetP(pin, valStr); err != nil {
+			errs = append(errs, fmt.Errorf("emccalib: setp %s %s: %w", pin, valStr, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -180,8 +218,11 @@ func (e *emccalib) SaveIni() (bool, error) {
 		if err != nil {
 			continue
 		}
-		// Only save if value differs from original INI value.
-		if val != t.iniValue {
+		// Only save if value differs from original INI value.  The compare is
+		// within the resolution of halcmd's "%.7g" formatting: an exact !=
+		// rewrote every INI entry with >7 significant digits to its truncated
+		// readback even though the operator never touched it.
+		if !floatsClose(val, t.iniValue) {
 			updated := *t
 			updated.iniValue = val // new value to write
 			fileUpdates[t.sourceFile] = append(fileUpdates[t.sourceFile], updated)
@@ -211,17 +252,34 @@ func (e *emccalib) SaveIni() (bool, error) {
 }
 
 func (e *emccalib) Revert(section, key string) (bool, error) {
+	// iniValue must be read under the lock: SaveIni rewrites it to the value
+	// just persisted, and "revert" means back to what is in the INI file *now*,
+	// not back to what it held at startup.
+	type target struct {
+		pin      string
+		iniValue float64
+	}
 	e.mu.Lock()
-	t := e.index[section+"\x00"+key]
+	var targets []target
+	for _, i := range e.lookupAll(section, key) {
+		t := &e.tunables[i]
+		targets = append(targets, target{pin: t.pin, iniValue: t.iniValue})
+	}
 	e.mu.Unlock()
-
-	if t == nil {
-		return false, fmt.Errorf("emccalib: %s/%s not in tunable list", section, key)
+	if len(targets) == 0 {
+		return false, apiserver.Faultf(apiserver.FaultNotFound,
+			"emccalib: %s/%s not in tunable list", section, key)
 	}
 
-	valStr := strconv.FormatFloat(t.iniValue, 'f', -1, 64)
-	if err := halcmd.SetP(t.pin, valStr); err != nil {
-		return false, fmt.Errorf("emccalib: revert setp %s %s: %w", t.pin, valStr, err)
+	var errs []error
+	for _, tg := range targets {
+		valStr := strconv.FormatFloat(tg.iniValue, 'f', -1, 64)
+		if err := halcmd.SetP(tg.pin, valStr); err != nil {
+			errs = append(errs, fmt.Errorf("emccalib: revert setp %s %s: %w", tg.pin, valStr, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -229,10 +287,27 @@ func (e *emccalib) Revert(section, key string) (bool, error) {
 // updateINIFile rewrites a single INI file, replacing values at specific lines.
 // Creates a .bak backup before modification.
 func (e *emccalib) updateINIFile(path string, updates []tunable) error {
-	// Build line→value map for O(1) lookup during scan.
-	lineUpdates := make(map[int]string, len(updates))
+	// The path comes from INI entry provenance, and this rewrites the file in
+	// place (plus a .bak alongside it), so it goes through the shared resolver
+	// in Write mode: a save must land inside the allowed roots
+	// (internal/pathres).
+	path, err := pathres.Resolve(path, pathres.Write)
+	if err != nil {
+		return err
+	}
+
+	// Build line→(key, value) map for O(1) lookup during scan.  The key is
+	// carried along so the rewrite can confirm it is still editing the entry it
+	// recorded: source lines are captured when the INI is parsed at startup and
+	// a save can happen much later, so an INI edited on disk in the meantime
+	// would otherwise have an unrelated key silently overwritten.
+	type lineUpdate struct{ key, value string }
+	lineUpdates := make(map[int]lineUpdate, len(updates))
 	for _, u := range updates {
-		lineUpdates[u.sourceLine] = strconv.FormatFloat(u.iniValue, 'f', -1, 64)
+		lineUpdates[u.sourceLine] = lineUpdate{
+			key:   u.key,
+			value: strconv.FormatFloat(u.iniValue, 'f', -1, 64),
+		}
 	}
 
 	// Read original file.
@@ -240,7 +315,7 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var lines []string
 	scanner := bufio.NewScanner(f)
@@ -250,15 +325,20 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	f.Close()
+	_ = f.Close()
 
 	// Apply updates.
-	for lineNum, newVal := range lineUpdates {
+	for lineNum, up := range lineUpdates {
 		idx := lineNum - 1 // 1-based → 0-based
 		if idx < 0 || idx >= len(lines) {
 			continue
 		}
-		lines[idx] = replaceINIValue(lines[idx], newVal)
+		if got := iniLineKey(lines[idx]); got != up.key {
+			e.logger.Warn("emccalib: skipping save, INI line no longer holds this key",
+				"file", path, "line", lineNum, "want", up.key, "got", got)
+			continue
+		}
+		lines[idx] = replaceINIValue(lines[idx], up.value)
 	}
 
 	// Create backup.
@@ -272,22 +352,44 @@ func (e *emccalib) updateINIFile(path string, updates []tunable) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
+	// bufio.Writer errors are sticky and surface at Flush; the write-file
+	// Close is checked explicitly so a failed final flush/close is not lost.
 	w := bufio.NewWriter(out)
 	for i, line := range lines {
-		w.WriteString(line)
+		_, _ = w.WriteString(line)
 		if i < len(lines)-1 {
-			w.WriteByte('\n')
+			_ = w.WriteByte('\n')
 		}
 	}
-	// Preserve trailing newline if original had one.
-	w.WriteByte('\n')
-	return w.Flush()
+	// Terminate the last line.  bufio.Scanner drops the line ending, so whether
+	// the original had a trailing newline is not recoverable here; always
+	// writing one keeps the file POSIX-well-formed.
+	_ = w.WriteByte('\n')
+	if err := w.Flush(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// iniLineKey returns the key of a "KEY = VALUE" line, or "" if the line is not
+// an assignment (a comment, a [SECTION] header, or blank).
+func iniLineKey(line string) string {
+	if s := strings.TrimSpace(line); s == "" || s[0] == '#' || s[0] == ';' || s[0] == '[' {
+		return ""
+	}
+	eqIdx := strings.Index(line, "=")
+	if eqIdx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(line[:eqIdx])
 }
 
 // replaceINIValue replaces the value portion of a "KEY = VALUE" line,
-// preserving the key name and any leading whitespace/formatting.
+// preserving the key name, any leading whitespace/formatting, and any trailing
+// inline comment (which the INI parser strips but the file still carries — a
+// save that dropped it destroyed the operator's own annotations).
 func replaceINIValue(line, newVal string) string {
 	eqIdx := strings.Index(line, "=")
 	if eqIdx < 0 {
@@ -300,7 +402,23 @@ func replaceINIValue(line, newVal string) string {
 	if len(rest) > 0 && rest[0] == ' ' {
 		prefix += " "
 	}
-	return prefix + newVal
+	// Re-attach any inline comment, split at exactly the boundary the INI
+	// parser reads at (whitespace-preceded '#'; ';' is data, not a comment).
+	// The parser splits the *trimmed* value, so trim here too — otherwise a
+	// value that merely starts with '#' (the hex colour "#ff0000") reads as an
+	// all-comment line.
+	_, comment := inifile.SplitInlineComment(strings.TrimSpace(rest))
+	return prefix + newVal + comment
+}
+
+// floatsClose reports whether two values are equal within the resolution of
+// halcmd's "%.7g" pin readback (relative error <= 5e-8; margin to 1e-6).
+func floatsClose(a, b float64) bool {
+	d := math.Abs(a - b)
+	if d <= 1e-12 {
+		return true
+	}
+	return d <= math.Max(math.Abs(a), math.Abs(b))*1e-6
 }
 
 // copyFile copies src to dst.

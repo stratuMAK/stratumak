@@ -24,6 +24,16 @@ export interface TreeNode {
 
 export type TabId = 'show' | 'watch' | 'cmd';
 
+// H-9: HAL allows a signal to share a name with a pin (separate namespaces),
+// so a bare name is ambiguous. Watch entries carry the kind the user actually
+// watched; the SET path targets exactly that kind's endpoint.
+export type WatchKind = 'pin' | 'param' | 'signal';
+
+export interface WatchEntry {
+  name: string;
+  kind: WatchKind;
+}
+
 export interface WatchValueItem {
   name: string;
   type: string;
@@ -65,8 +75,11 @@ export interface ApiInfo {
 }
 
 interface HalshowState {
-  // Connection
-  connected: boolean;
+  // Connection (H-3: REST and watch health tracked separately)
+  restOk: boolean;
+  watchOk: boolean;
+  watchStale: boolean;        // H-2: last watch values may be outdated (WS lost)
+  watchReconnecting: boolean; // H-2: reconnect loop is active
   error: string;
 
   // HAL data
@@ -89,7 +102,7 @@ interface HalshowState {
   selectedItemKind: TreeCategory | null;
 
   // Watch tab
-  watchList: string[];     // names of items being watched
+  watchList: WatchEntry[]; // items being watched, as (name, kind) tuples (H-9)
   watchValues: WatchValueItem[];  // live values from WebSocket
   watchRate: number;       // ms
 
@@ -108,7 +121,10 @@ interface HalshowState {
 }
 
 const state = reactive<HalshowState>({
-  connected: false,
+  restOk: false,
+  watchOk: false,
+  watchStale: false,
+  watchReconnecting: false,
   error: '',
 
   pins: [],
@@ -143,20 +159,52 @@ const state = reactive<HalshowState>({
 let client: HalcmdClient;
 let watchClient: HalcmdWatchClient;
 
+// H-2: watch WS reconnect loop with backoff (1s doubling to 10s cap).
+const WATCH_RECONNECT_MIN_MS = 1000;
+const WATCH_RECONNECT_MAX_MS = 10000;
+let watchReconnectDelay = WATCH_RECONNECT_MIN_MS;
+let watchReconnectActive = false; // timer pending or connect attempt in flight
+
+function scheduleWatchReconnect() {
+  if (watchReconnectActive) return; // guard against concurrent reconnect loops
+  watchReconnectActive = true;
+  state.watchReconnecting = true;
+  setTimeout(() => {
+    void halshowStore.connectWatch();
+  }, watchReconnectDelay);
+  watchReconnectDelay = Math.min(watchReconnectDelay * 2, WATCH_RECONNECT_MAX_MS);
+}
+
 const WATCH_STORAGE_KEY = 'halshow-watch-list';
 
-function saveWatchList(names: string[]) {
+const WATCH_KINDS: readonly string[] = ['pin', 'param', 'signal'];
+
+function isWatchEntry(v: unknown): v is WatchEntry {
+  return typeof v === 'object' && v !== null
+    && typeof (v as { name?: unknown }).name === 'string'
+    && WATCH_KINDS.includes((v as { kind?: unknown }).kind as string);
+}
+
+function saveWatchList(entries: WatchEntry[]) {
   try {
-    localStorage.setItem(WATCH_STORAGE_KEY, JSON.stringify(names));
+    localStorage.setItem(WATCH_STORAGE_KEY,
+      JSON.stringify(entries.map(e => ({ name: e.name, kind: e.kind }))));
   } catch { /* quota or private mode — ignore */ }
 }
 
-function loadWatchList(): string[] {
+/** H-9: accepts both the legacy format (array of bare-name strings) and the
+ *  current {name, kind} tuple format; anything else is dropped. Legacy
+ *  strings are migrated to tuples in restoreWatchList(), which has the HAL
+ *  snapshot needed to back-derive the kind. */
+function loadWatchList(): (string | WatchEntry)[] {
   try {
     const raw = localStorage.getItem(WATCH_STORAGE_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr.filter((s): s is string => typeof s === 'string');
+      if (Array.isArray(arr)) {
+        return arr.filter((v): v is string | WatchEntry =>
+          typeof v === 'string' || isWatchEntry(v));
+      }
     }
   } catch { /* corrupt data — ignore */ }
   return [];
@@ -192,6 +240,13 @@ function buildTree(items: { name: string }[], kind: TreeCategory): TreeNode[] {
         };
         map.set(path, node);
         parent.push(node);
+      } else if (isLeaf && !node.isLeaf) {
+        // H-6: item name collides with an existing interior node (a.b vs
+        // a.b.c) — mark the interior node as leaf too so the item is visible.
+        // The reverse order (leaf first, deeper item later) just gains
+        // children below. TreeNodeItem renders a self-row for such nodes.
+        node.isLeaf = true;
+        node.kind = leafKind;
       }
       parent = node.children;
     }
@@ -207,7 +262,7 @@ function filterTree(nodes: TreeNode[], filter: string): TreeNode[] {
   for (const node of nodes) {
     if (node.fullPath.toLowerCase().includes(lower)) {
       result.push(node);
-    } else if (!node.isLeaf) {
+    } else if (node.children.length > 0) {
       const filteredChildren = filterTree(node.children, filter);
       if (filteredChildren.length > 0) {
         result.push({ ...node, children: filteredChildren, expanded: true });
@@ -224,27 +279,50 @@ export const halshowStore = {
     const origin = window.location.origin;
     client = new HalcmdClient(origin);
 
-    try {
-      await this.refresh();
-      state.connected = true;
-      state.error = '';
-    } catch (e) {
-      state.error = e instanceof Error ? e.message : String(e);
-    }
+    await this.refreshSafe();
 
     // Connect WebSocket for watch
+    await this.connectWatch();
+    // Restore saved watch list (items are subscribed once the WS is up)
+    this.restoreWatchList();
+  },
+
+  /** Connect (or reconnect) the watch WebSocket. On success re-runs
+   *  updateWatch() to resubscribe — subscription state is client-side. */
+  async connectWatch() {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProto}//${window.location.host}/api/v1/watch`;
     watchClient = new HalcmdWatchClient(wsUrl);
     try {
       await watchClient.connect();
       watchClient.onClose = () => {
-        state.connected = false;
+        state.watchOk = false;
+        state.watchStale = true;
+        scheduleWatchReconnect();
       };
-      // Restore saved watch list now that WebSocket is ready
-      this.restoreWatchList();
+      watchReconnectActive = false;
+      watchReconnectDelay = WATCH_RECONNECT_MIN_MS;
+      state.watchOk = true;
+      state.watchReconnecting = false;
+      this.updateWatch();
+      state.watchStale = false;
     } catch {
-      // Watch is optional — REST still works
+      // Watch is optional — REST still works; keep retrying with backoff
+      watchReconnectActive = false;
+      state.watchOk = false;
+      scheduleWatchReconnect();
+    }
+  },
+
+  /** refresh() with transport errors routed into state (H-4). */
+  async refreshSafe() {
+    try {
+      await this.refresh();
+      state.restOk = true;
+      state.error = '';
+    } catch (e) {
+      state.restOk = false;
+      state.error = e instanceof Error ? e.message : String(e);
     }
   },
 
@@ -359,11 +437,9 @@ export const halshowStore = {
   collectLeaves(node: TreeNode): TreeNode[] {
     const leaves: TreeNode[] = [];
     const visit = (n: TreeNode) => {
-      if (n.isLeaf) {
-        leaves.push(n);
-      } else {
-        for (const child of n.children) visit(child);
-      }
+      if (n.isLeaf) leaves.push(n);
+      // H-6: a leaf may also have children (name-collision node)
+      for (const child of n.children) visit(child);
     };
     visit(node);
     return leaves;
@@ -371,20 +447,22 @@ export const halshowStore = {
 
   // --- Watch Tab ---
 
-  addToWatch(name: string) {
-    if (!state.watchList.includes(name)) {
-      state.watchList.push(name);
+  addToWatch(name: string, kind: WatchKind) {
+    // H-9: dedupe by (name, kind) — the same name may legitimately be
+    // watched twice, once as a pin and once as a same-named signal.
+    if (!state.watchList.some(e => e.name === name && e.kind === kind)) {
+      state.watchList.push({ name, kind });
       saveWatchList(state.watchList);
       this.updateWatch();
     }
   },
 
-  isWatched(name: string): boolean {
-    return state.watchList.includes(name);
+  isWatched(name: string, kind: WatchKind): boolean {
+    return state.watchList.some(e => e.name === name && e.kind === kind);
   },
 
-  removeFromWatch(name: string) {
-    const idx = state.watchList.indexOf(name);
+  removeFromWatch(name: string, kind: WatchKind) {
+    const idx = state.watchList.findIndex(e => e.name === name && e.kind === kind);
     if (idx >= 0) {
       state.watchList.splice(idx, 1);
       saveWatchList(state.watchList);
@@ -396,25 +474,48 @@ export const halshowStore = {
     state.watchList = [];
     state.watchValues = [];
     saveWatchList(state.watchList);
-    watchClient?.unsubscribeWatchItems();
+    if (state.watchOk) watchClient?.unsubscribeWatchItems();
   },
 
-  /** Restore watch list from localStorage, dropping pins/params that no longer exist. */
+  /** Restore watch list from localStorage, dropping items that no longer
+   *  exist. H-9: legacy bare-name entries are migrated to {name, kind}
+   *  tuples by back-deriving the kind from the current snapshot with the
+   *  historical pin → param → signal precedence; names that no longer
+   *  resolve are pruned (as before). The list is always re-persisted in the
+   *  tuple format. */
   restoreWatchList() {
     const saved = loadWatchList();
     if (saved.length === 0) return;
 
-    const knownNames = new Set<string>();
-    for (const p of state.pins) knownNames.add(p.name);
-    for (const p of state.params) knownNames.add(p.name);
-    for (const s of state.signals) knownNames.add(s.name);
+    const pinNames = new Set(state.pins.map(p => p.name));
+    const paramNames = new Set(state.params.map(p => p.name));
+    const sigNames = new Set(state.signals.map(s => s.name));
+    const exists = (e: WatchEntry) =>
+      e.kind === 'pin' ? pinNames.has(e.name)
+        : e.kind === 'param' ? paramNames.has(e.name)
+          : sigNames.has(e.name);
 
-    const valid = saved.filter(n => knownNames.has(n));
-    if (valid.length !== saved.length) {
-      saveWatchList(valid); // prune stale entries
+    const entries: WatchEntry[] = [];
+    for (const item of saved) {
+      let entry: WatchEntry | null;
+      if (typeof item === 'string') {
+        // Legacy string entry: the old set path resolved pin → param →
+        // signal, so migrate with the same precedence.
+        entry = pinNames.has(item) ? { name: item, kind: 'pin' }
+          : paramNames.has(item) ? { name: item, kind: 'param' }
+            : sigNames.has(item) ? { name: item, kind: 'signal' }
+              : null; // no longer resolves — prune
+      } else {
+        entry = exists(item) ? { name: item.name, kind: item.kind } : null;
+      }
+      if (entry && !entries.some(e => e.name === entry!.name && e.kind === entry!.kind)) {
+        entries.push(entry);
+      }
     }
-    if (valid.length > 0) {
-      state.watchList = valid;
+
+    saveWatchList(entries); // migrate format + prune stale entries
+    if (entries.length > 0) {
+      state.watchList = entries;
       state.activeTab = 'watch';
       this.updateWatch();
     }
@@ -422,10 +523,22 @@ export const halshowStore = {
 
   updateWatch() {
     if (state.watchList.length === 0) {
-      watchClient?.unsubscribeWatchItems();
+      if (state.watchOk) watchClient?.unsubscribeWatchItems();
       state.watchValues = [];
       return;
     }
+
+    // H-8: socket not open (CONNECTING/closed) — send would throw. Skip;
+    // connectWatch() re-runs updateWatch() once the socket is open.
+    if (!state.watchOk) return;
+
+    // H-9 residual limitation (recorded in the findings doc): the subscribe
+    // wire payload is bare names and the server-side watch resolve still
+    // matches pin-first, so the DISPLAYED live value/meta of a signal
+    // shadowed by a same-name pin is the pin's — fixing that needs the kind
+    // on the wire. Only the SET path (setWatchValue) is kind-exact. A name
+    // watched under two kinds is sent once.
+    const wireNames = [...new Set(state.watchList.map(e => e.name))];
 
     // Seed maps from existing watchValues so old items stay visible during
     // re-subscription.  The new subscription's meta response will replace
@@ -441,8 +554,12 @@ export const halshowStore = {
       const msg = data as Record<string, unknown>;
 
       if (msg.meta && Array.isArray(msg.meta)) {
-        // First message (or structure change): contains metadata + initial values
+        // First message (or structure change): contains metadata + initial values.
+        // H-5: clear valueMap too — a deleted item must not keep showing its
+        // last value as live (safe: the same message re-delivers every live
+        // item's value because the server inverts the shadows).
         metaMap.clear();
+        valueMap.clear();
         for (const m of msg.meta as Array<{ name: string; type: string; dir: string; kind: string; owner: string; linked: boolean }>) {
           metaMap.set(m.name, { type: m.type, dir: m.dir ?? '', kind: m.kind ?? '', owner: m.owner, linked: m.linked });
         }
@@ -460,7 +577,9 @@ export const halshowStore = {
       // Rebuild watchValues array from metadata + current values.
       // Items not yet in metaMap (newly added, waiting for server meta) are
       // excluded — the template shows them from watchList with '—' fallback.
-      state.watchValues = state.watchList
+      // Note: `kind` here is the SERVER-resolved kind of the bare name (see
+      // the H-9 residual-limitation note above), not the stored watch kind.
+      state.watchValues = wireNames
         .filter(n => metaMap.has(n))
         .map(n => {
           const meta = metaMap.get(n)!;
@@ -474,12 +593,12 @@ export const halshowStore = {
             linked: meta.linked,
           };
         });
-    }, state.watchRate, state.watchList);
+    }, state.watchRate, wireNames);
   },
 
   // --- Mutations ---
 
-  async setValue(name: string, value: string, kind: 'pin' | 'param' | 'signal'): Promise<CmdResult> {
+  async setValue(name: string, value: string, kind: WatchKind): Promise<CmdResult> {
     let result: CmdResult;
     switch (kind) {
       case 'pin':
@@ -503,8 +622,8 @@ export const halshowStore = {
 
   addAllNodePinsToWatch() {
     for (const pin of state.nodeOverviewPins) {
-      if (!state.watchList.includes(pin.name)) {
-        state.watchList.push(pin.name);
+      if (!state.watchList.some(e => e.name === pin.name && e.kind === 'pin')) {
+        state.watchList.push({ name: pin.name, kind: 'pin' });
       }
     }
     saveWatchList(state.watchList);
@@ -513,16 +632,12 @@ export const halshowStore = {
 
   // --- Watch: set value ---
 
-  async setWatchValue(name: string, value: string): Promise<CmdResult> {
-    // Determine if it's a pin, param, or signal
-    if (state.pins.find(p => p.name === name)) {
-      return await client.setPin(name, value);
-    } else if (state.params.find(p => p.name === name)) {
-      return await client.setParam(name, value);
-    } else if (state.signals.find(s => s.name === name)) {
-      return await client.setSignal(name, value);
-    }
-    return { success: false, error: 'Unknown item type' };
+  /** H-9: the write targets exactly the kind stored in the watch entry — no
+   *  pin → param → signal precedence guessing (a signal may share its name
+   *  with a pin). Endpoint failures surface to the caller unchanged; there
+   *  is deliberately no fallback to another kind. */
+  async setWatchValue(name: string, value: string, kind: WatchKind): Promise<CmdResult> {
+    return await this.setValue(name, value, kind);
   },
 
   // --- Halcmd console ---
@@ -598,8 +713,18 @@ export const halshowStore = {
         const name = args[0];
         if (!name) return { success: false, error: `Usage: ${cmd} <name>` };
         if (cmd === 'getp') {
-          const pin = await client.getPin(name);
-          return { success: true, output: pin.value };
+          // H-7: real halcmd getp reads pins AND params
+          try {
+            const pin = await client.getPin(name);
+            return { success: true, output: pin.value };
+          } catch (pinErr) {
+            try {
+              const param = await client.getParam(name);
+              return { success: true, output: param.value };
+            } catch {
+              throw pinErr;
+            }
+          }
         } else {
           const sig = await client.getSignal(name);
           return { success: true, output: sig.value };
@@ -648,7 +773,7 @@ export const halshowStore = {
 
       case 'loadrt': {
         if (args.length < 1) return { success: false, error: 'Usage: loadrt <module> [args...]' };
-        return await client.load(args[0], args.slice(1) as any);
+        return await client.load(args[0], args.slice(1));
       }
 
       case 'unloadrt': {

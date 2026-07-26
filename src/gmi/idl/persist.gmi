@@ -8,7 +8,9 @@
 type Entry {
     key: string
     value: string
-    updated: i64
+    updated: i64          # opaque modification stamp (unix nanoseconds);
+                          # equality-compare only — optimistic-concurrency
+                          # checks depend on two writes never sharing a stamp
 }
 
 type OpenResult {
@@ -27,42 +29,53 @@ type DeleteResult {
 # Open a namespace, returns a handle for subsequent operations.
 @method POST
 @path /{namespace}
-func open(namespace: string @regex("^[A-Za-z0-9_]+$")) -> OpenResult
+@rc_error
+func open(namespace: string @regex("^[A-Za-z0-9_]+$"), result: OpenResult out) -> i32
 
-# Close a handle (releases resources).
+# Release a caller's interest in a handle. Deliberately a no-op in the sqlite
+# provider: open() hands the same handle to every caller of a namespace, so
+# closing the database here would pull it out from under the others. It stays in
+# the API because a provider that hands out per-caller handles needs it.
 func close(handle: i32 @min(0))
 
 # Get all open namespaces.
 @method GET
 @path /
-func get_namespaces() -> []string
+@rc_error
+func get_namespaces(namespaces: []string out) -> i32
 
 # Get all entries via handle.
 @method GET
 @path /{handle}
-func get_entries(handle: i32 @min(0)) -> []Entry
+@rc_error
+func get_entries(handle: i32 @min(0), entries: []Entry out) -> i32
 
 # Get a single entry by key.
 @method GET
 @path /{handle}/{key}
-func get_entry(handle: i32 @min(0), key: string) -> Entry
+@rc_error
+func get_entry(handle: i32 @min(0), key: string, entry: Entry out) -> i32
 
 # Set a single entry.
 @method PUT
 @path /{handle}/{key}
-func set_entry(handle: i32 @min(0), key: string, value: string) -> SetResult
+@rc_error
+func set_entry(handle: i32 @min(0), key: string, value: string, result: SetResult out) -> i32
 
 # Delete a single entry.
 @method DELETE
 @path /{handle}/{key}
-func delete_entry(handle: i32 @min(0), key: string) -> DeleteResult
+@rc_error
+func delete_entry(handle: i32 @min(0), key: string, result: DeleteResult out) -> i32
 
 # Set multiple entries at once.
 @method PUT
 @path /{handle}
-func set_entries(handle: i32 @min(0), entries: []Entry) -> SetResult
+@rc_error
+func set_entries(handle: i32 @min(0), entries: []Entry, result: SetResult out) -> i32
 
 # Delete all entries (and the namespace).
 @method DELETE
 @path /{handle}
-func delete_all(handle: i32 @min(0)) -> DeleteResult
+@rc_error
+func delete_all(handle: i32 @min(0), result: DeleteResult out) -> i32

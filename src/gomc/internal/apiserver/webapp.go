@@ -47,8 +47,15 @@ func (s *Server) AddWebApps(webappDir string) {
 			}
 
 			// Check if the file exists. If not, serve index.html (SPA fallback).
+			//
+			// It has to be served directly, not by rewriting the URL to
+			// .../index.html: http.FileServer redirects any request whose path
+			// ends in "index.html" back to "./", which made every deep link
+			// (e.g. /app/hmi/settings/network on a hard refresh) bounce between
+			// the rewrite and the redirect until the client gave up.
 			if _, err := os.Stat(filepath.Join(appDir, relPath)); os.IsNotExist(err) {
-				r.URL.Path = prefix + "index.html"
+				http.ServeFile(w, r, filepath.Join(appDir, "index.html"))
+				return
 			}
 
 			http.StripPrefix(prefix, fileServer).ServeHTTP(w, r)
@@ -69,11 +76,11 @@ func (s *Server) AddWebApps(webappDir string) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte("<!doctype html><html><head><title>GOMC Web Apps</title></head><body>\n"))
-		w.Write([]byte("<h1>GOMC Web Applications</h1><ul>\n"))
+		_, _ = w.Write([]byte("<!doctype html><html><head><title>GOMC Web Apps</title></head><body>\n"))
+		_, _ = w.Write([]byte("<h1>GOMC Web Applications</h1><ul>\n"))
 		for _, name := range apps {
-			w.Write([]byte(`<li><a href="/app/` + name + `/">` + name + `</a></li>` + "\n"))
+			_, _ = w.Write([]byte(`<li><a href="/app/` + name + `/">` + name + `</a></li>` + "\n"))
 		}
-		w.Write([]byte("</ul></body></html>\n"))
+		_, _ = w.Write([]byte("</ul></body></html>\n"))
 	})
 }

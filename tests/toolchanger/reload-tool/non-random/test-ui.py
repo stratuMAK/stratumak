@@ -195,7 +195,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 0)
 
-verify_stat(0, 0, 46)  # gomc reports the prepped tool's POCKET (classic reported a tooldata array index, which has no gomc equivalent)
+verify_stat(0, 0, 6)  # ugh, non-random tc gives you tool-table-array index, not pocket
 
 
 #
@@ -212,7 +212,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 0)
 
-verify_stat(0, 0, 46)
+verify_stat(0, 0, 6)
 
 h['tool-changed'] = True
 wait_for_hal_pin('tool-change', False)
@@ -255,7 +255,7 @@ assert(h['tool-prep-number'] == 12)
 assert(h['tool-prep-pocket'] == 9)
 assert(h['tool-from-pocket'] == 46)
 
-verify_stat(2, 46, 9)
+verify_stat(2, 46, 4)
 
 
 #
@@ -273,7 +273,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-verify_stat(2, 46, 9)
+verify_stat(2, 46, 4)
 
 h['tool-prepared'] = True
 wait_for_hal_pin('tool-prepare', False)
@@ -286,7 +286,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-verify_stat(2, 46, 46)
+verify_stat(2, 46, 6)
 
 
 #
@@ -308,7 +308,7 @@ assert(h['tool-prep-number'] == 2)
 assert(h['tool-prep-pocket'] == 46)
 assert(h['tool-from-pocket'] == 46)
 
-verify_stat(2, 46, 46)
+verify_stat(2, 46, 6)
 
 # gomc: gmi joint positions are reported in millimetres (mm-everywhere
 # convention) and the field is joint_actual_position; TOOL_CHANGE_POSITION is

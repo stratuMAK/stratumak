@@ -23,6 +23,14 @@ const (
 	TypeGomod EntryType = "gomod"
 )
 
+// isValidType reports whether t is a recognised registry entry type. Only these
+// types are emitted by GenerateImports, so an unrecognised type in
+// packages.conf would otherwise be parsed but silently dropped from the
+// generated imports, making the module vanish at runtime with a green build.
+func isValidType(t EntryType) bool {
+	return t == TypeGMI || t == TypeGomod
+}
+
 // Entry is one line in packages.conf.
 type Entry struct {
 	Type       EntryType // "gmi" or "gomod"
@@ -36,68 +44,6 @@ type Registry struct {
 
 // GoModule is the Go module path for the gomc-server module.
 const GoModule = "github.com/sittner/linuxcnc/src/gomc"
-
-// ReadFile parses a packages.conf file.
-func ReadFile(path string) (*Registry, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var reg Registry
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		reg.Entries = append(reg.Entries, Entry{
-			Type:       EntryType(fields[0]),
-			ImportPath: fields[1],
-		})
-	}
-	return &reg, scanner.Err()
-}
-
-// WriteFile writes the registry back to packages.conf.
-func (r *Registry) WriteFile(path string) error {
-	var buf strings.Builder
-	buf.WriteString("# packages.conf — managed by modcompile. DO NOT EDIT MANUALLY.\n")
-	buf.WriteString("#\n")
-	buf.WriteString("# Format: TYPE IMPORT_PATH\n")
-	buf.WriteString("#\n")
-	buf.WriteString("# TYPE:\n")
-	buf.WriteString("#   gmi     — generated GMI dispatch package (compiled into gomc-server)\n")
-	buf.WriteString("#   gomod   — Go module compiled into gomc-server\n")
-	buf.WriteString("#\n")
-	buf.WriteString("# IMPORT_PATH — relative path within the gomc module for blank import\n\n")
-
-	gmi := r.entriesByType(TypeGMI)
-	gomod := r.entriesByType(TypeGomod)
-
-	if len(gmi) > 0 {
-		buf.WriteString("# Core GMI dispatch (generated, part of this module)\n")
-		for _, e := range gmi {
-			buf.WriteString(fmt.Sprintf("gmi %s\n", e.ImportPath))
-		}
-		buf.WriteString("\n")
-	}
-
-	if len(gomod) > 0 {
-		buf.WriteString("# Go modules (in-tree and installed external)\n")
-		for _, e := range gomod {
-			buf.WriteString(fmt.Sprintf("gomod %s\n", e.ImportPath))
-		}
-		buf.WriteString("\n")
-	}
-
-	return os.WriteFile(path, []byte(buf.String()), 0644)
-}
 
 func (r *Registry) entriesByType(t EntryType) []Entry {
 	var out []Entry
@@ -118,17 +64,6 @@ func (r *Registry) Add(e Entry) bool {
 	}
 	r.Entries = append(r.Entries, e)
 	return true
-}
-
-// Remove removes an entry by import path. Returns false if not found.
-func (r *Registry) Remove(importPath string) bool {
-	for i, e := range r.Entries {
-		if e.ImportPath == importPath {
-			r.Entries = append(r.Entries[:i], r.Entries[i+1:]...)
-			return true
-		}
-	}
-	return false
 }
 
 // GenerateImports generates cmd/gomc-server/imports_generated.go from the registry.
@@ -195,11 +130,13 @@ func ReadConfIn(path string, enabledFlags map[string]bool) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var reg Registry
 	scanner := bufio.NewScanner(f)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -217,17 +154,26 @@ func ReadConfIn(path string, enabledFlags map[string]bool) (*Registry, error) {
 
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
-			continue
+			return nil, fmt.Errorf("pkgreg: %s:%d: malformed entry %q (want: TYPE IMPORT_PATH)", path, lineNo, line)
+		}
+		t := EntryType(fields[0])
+		if !isValidType(t) {
+			return nil, fmt.Errorf("pkgreg: %s:%d: unknown type %q (want %q or %q)", path, lineNo, fields[0], TypeGMI, TypeGomod)
 		}
 		reg.Entries = append(reg.Entries, Entry{
-			Type:       EntryType(fields[0]),
+			Type:       t,
 			ImportPath: fields[1],
 		})
 	}
 	return &reg, scanner.Err()
 }
 
-// initFuncRe detects func init() declarations in Go source.
+// initFuncRe detects func init() declarations in Go source. Anchored at the
+// start of a line, which is what keeps it from matching a mention inside a
+// comment or an ordinary string; only a raw string literal containing a line
+// that itself begins with "func init()" could fool it, and these files are
+// gofmt'd generated code. Not worth a go/parser dependency (which would also
+// have to decide what a syntactically invalid file means for discovery).
 var initFuncRe = regexp.MustCompile(`(?m)^func init\(\)`)
 
 // DiscoverGMI scans directories for generated GMI dispatch packages that
@@ -285,7 +231,7 @@ func hasInitFunc(dir string) bool {
 		return false
 	}
 	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, f.Name()))
@@ -333,7 +279,10 @@ func hasGoFiles(dir string) bool {
 		return false
 	}
 	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(f.Name(), ".go") {
+		// Discover a package only by its buildable (non-test) sources: a dir
+		// with only *_test.go files is not a compilable package, and
+		// blank-importing it would break the build with "no non-test Go files".
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".go") && !strings.HasSuffix(f.Name(), "_test.go") {
 			return true
 		}
 	}

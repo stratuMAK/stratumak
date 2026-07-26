@@ -476,6 +476,32 @@ int New(const cmod_env_t *env, const char *name,
         return -1;
     }
 
+    // config= is a configuration path: resolved server-side against the config
+    // directory / HAL library directories and required to stay inside them
+    // (gomc_path.h).  A runtime "load" arrives over REST, where the client's
+    // working directory has no meaning.
+    {
+        const char *reserr = NULL;
+        const char *resolved = env->path->resolve(env->path->ctx, m->ini_file_path,
+                                                  GOMC_PATH_READ, &reserr);
+        if (resolved == NULL) {
+            ERR(m, m->init_dbg, "config file [%s]: %s", m->ini_file_path,
+                reserr ? reserr : "cannot be resolved");
+            free(m->ini_file_path);
+            free(m);
+            return -1;
+        }
+        char *dup = strdup(resolved);
+        if (dup == NULL) {
+            ERR(m, m->init_dbg, "out of memory resolving config file");
+            free(m->ini_file_path);
+            free(m);
+            return -1;
+        }
+        free(m->ini_file_path);
+        m->ini_file_path = dup;
+    }
+
     m->ini_file_ptr = fopen(m->ini_file_path, "r");
     if (m->ini_file_ptr == NULL) {
         ERR(m, m->init_dbg, "Unable to open INI file [%s]", m->ini_file_path);

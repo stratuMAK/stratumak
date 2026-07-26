@@ -9,6 +9,7 @@ package hal
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "hal.h"
 
 // Helper to convert hal_type_t to int for Go
@@ -31,11 +32,24 @@ static inline void go_hal_port_clear(hal_port_t* p) {
     hal_port_clear(*p);
 }
 
+// go_hal_pin_new dispatches to the typed hal_pin_*_new by hal_type_t so the Go
+// side needs one wrapper instead of five near-identical copies. ptr is a
+// pointer-sized slot in HAL shared memory; hal_pin_*_new stores the data cell
+// address in *ptr and updates it when the pin is linked to a signal via net.
+static inline int go_hal_pin_new(const char* name, hal_pin_dir_t dir, void** ptr, int comp_id, hal_type_t type) {
+    switch (type) {
+    case HAL_BIT:   return hal_pin_bit_new(name, dir, (hal_bit_t**)ptr, comp_id);
+    case HAL_FLOAT: return hal_pin_float_new(name, dir, (hal_float_t**)ptr, comp_id);
+    case HAL_S32:   return hal_pin_s32_new(name, dir, (hal_s32_t**)ptr, comp_id);
+    case HAL_U32:   return hal_pin_u32_new(name, dir, (hal_u32_t**)ptr, comp_id);
+    case HAL_PORT:  return hal_pin_port_new(name, dir, (hal_port_t**)ptr, comp_id);
+    default:        return -EINVAL;
+    }
+}
+
 */
 import "C"
 import (
-	"fmt"
-	"syscall"
 	"unsafe"
 )
 
@@ -74,134 +88,30 @@ func halMalloc(size int) unsafe.Pointer {
 	return C.hal_malloc(C.long(size))
 }
 
-// halPinBitNew wraps hal_pin_bit_new() to create a new bit (boolean) pin.
-// Returns the double-pointer (unsafe.Pointer to **hal_bit_t) so the caller
-// can dereference at access time. HAL updates *ptrPtr when the pin is linked
-// to a signal via net, so the double-pointer must be preserved.
-func halPinBitNew(name string, dir Direction, compID int) (unsafe.Pointer, error) {
+// halPinNew wraps hal_pin_*_new() (dispatched C-side by typ via go_hal_pin_new)
+// to create a new pin of the given HAL type. It returns the double-pointer
+// (unsafe.Pointer to the pointer slot HAL fills in) so the caller dereferences
+// at access time — HAL updates that slot when the pin is linked to a signal via
+// net, so the double-pointer must be preserved.
+func halPinNew(name string, dir Direction, compID int, typ PinType) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 
-	// Allocate space for the pointer in HAL shared memory
-	// hal_pin_bit_new expects hal_bit_t**, so we need sizeof(hal_bit_t *)
-	ptrPtr := (**C.hal_bit_t)(halMalloc(int(unsafe.Sizeof((*C.hal_bit_t)(nil)))))
+	// Allocate one pointer-sized slot in HAL shared memory for hal_pin_*_new to
+	// fill in (every hal_*_t* has the same size).
+	ptrPtr := halMalloc(int(unsafe.Sizeof(uintptr(0))))
 	if ptrPtr == nil {
 		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
 	}
 
-	// hal_pin_bit_new will set *ptrPtr to point to the actual data
-	ret := C.hal_pin_bit_new(cName, C.hal_pin_dir_t(dir), ptrPtr, C.int(compID))
+	ret := C.go_hal_pin_new(cName, C.hal_pin_dir_t(dir), (*unsafe.Pointer)(ptrPtr), C.int(compID), C.hal_type_t(typ))
 	if ret < 0 {
-		return nil, halError(int(ret), "hal_pin_bit_new")
+		return nil, halError(int(ret), "hal_pin_new")
 	}
 
-	// Return the double-pointer itself — the caller must dereference at access time
-	// because HAL updates *ptrPtr when the pin is linked to a signal via net.
-	return unsafe.Pointer(ptrPtr), nil
-}
-
-// halPinFloatNew wraps hal_pin_float_new() to create a new float pin.
-// Returns the double-pointer (unsafe.Pointer to **hal_float_t) so the caller
-// can dereference at access time. HAL updates *ptrPtr when the pin is linked
-// to a signal via net, so the double-pointer must be preserved.
-func halPinFloatNew(name string, dir Direction, compID int) (unsafe.Pointer, error) {
-	cName := C.CString(name)
-	defer C.free(unsafe.Pointer(cName))
-
-	// Allocate space for the pointer in HAL shared memory
-	// hal_pin_float_new expects hal_float_t**, so we need sizeof(hal_float_t *)
-	ptrPtr := (**C.hal_float_t)(halMalloc(int(unsafe.Sizeof((*C.hal_float_t)(nil)))))
-	if ptrPtr == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
-	}
-
-	// hal_pin_float_new will set *ptrPtr to point to the actual data
-	ret := C.hal_pin_float_new(cName, C.hal_pin_dir_t(dir), ptrPtr, C.int(compID))
-	if ret < 0 {
-		return nil, halError(int(ret), "hal_pin_float_new")
-	}
-
-	// Return the double-pointer itself — the caller must dereference at access time
-	// because HAL updates *ptrPtr when the pin is linked to a signal via net.
-	return unsafe.Pointer(ptrPtr), nil
-}
-
-// halPinS32New wraps hal_pin_s32_new() to create a new signed 32-bit integer pin.
-// Returns the double-pointer (unsafe.Pointer to **hal_s32_t) so the caller
-// can dereference at access time. HAL updates *ptrPtr when the pin is linked
-// to a signal via net, so the double-pointer must be preserved.
-func halPinS32New(name string, dir Direction, compID int) (unsafe.Pointer, error) {
-	cName := C.CString(name)
-	defer C.free(unsafe.Pointer(cName))
-
-	// Allocate space for the pointer in HAL shared memory
-	// hal_pin_s32_new expects hal_s32_t**, so we need sizeof(hal_s32_t *)
-	ptrPtr := (**C.hal_s32_t)(halMalloc(int(unsafe.Sizeof((*C.hal_s32_t)(nil)))))
-	if ptrPtr == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
-	}
-
-	// hal_pin_s32_new will set *ptrPtr to point to the actual data
-	ret := C.hal_pin_s32_new(cName, C.hal_pin_dir_t(dir), ptrPtr, C.int(compID))
-	if ret < 0 {
-		return nil, halError(int(ret), "hal_pin_s32_new")
-	}
-
-	// Return the double-pointer itself — the caller must dereference at access time
-	// because HAL updates *ptrPtr when the pin is linked to a signal via net.
-	return unsafe.Pointer(ptrPtr), nil
-}
-
-// halPinU32New wraps hal_pin_u32_new() to create a new unsigned 32-bit integer pin.
-// Returns the double-pointer (unsafe.Pointer to **hal_u32_t) so the caller
-// can dereference at access time. HAL updates *ptrPtr when the pin is linked
-// to a signal via net, so the double-pointer must be preserved.
-func halPinU32New(name string, dir Direction, compID int) (unsafe.Pointer, error) {
-	cName := C.CString(name)
-	defer C.free(unsafe.Pointer(cName))
-
-	// Allocate space for the pointer in HAL shared memory
-	// hal_pin_u32_new expects hal_u32_t**, so we need sizeof(hal_u32_t *)
-	ptrPtr := (**C.hal_u32_t)(halMalloc(int(unsafe.Sizeof((*C.hal_u32_t)(nil)))))
-	if ptrPtr == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
-	}
-
-	// hal_pin_u32_new will set *ptrPtr to point to the actual data
-	ret := C.hal_pin_u32_new(cName, C.hal_pin_dir_t(dir), ptrPtr, C.int(compID))
-	if ret < 0 {
-		return nil, halError(int(ret), "hal_pin_u32_new")
-	}
-
-	// Return the double-pointer itself — the caller must dereference at access time
-	// because HAL updates *ptrPtr when the pin is linked to a signal via net.
-	return unsafe.Pointer(ptrPtr), nil
-}
-
-// halPinPortNew wraps hal_pin_port_new() to create a new port pin.
-// Returns the double-pointer (unsafe.Pointer to **hal_port_t) so the caller
-// can dereference at access time. HAL updates *ptrPtr when the pin is linked
-// to a signal via net, so the double-pointer must be preserved.
-func halPinPortNew(name string, dir Direction, compID int) (unsafe.Pointer, error) {
-	cName := C.CString(name)
-	defer C.free(unsafe.Pointer(cName))
-
-	// Allocate space for the pointer in HAL shared memory
-	// hal_pin_port_new expects hal_port_t**, so we need sizeof(hal_port_t *)
-	ptrPtr := (**C.hal_port_t)(halMalloc(int(unsafe.Sizeof((*C.hal_port_t)(nil)))))
-	if ptrPtr == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
-	}
-
-	// hal_pin_port_new will set *ptrPtr to point to the actual data
-	ret := C.hal_pin_port_new(cName, C.hal_pin_dir_t(dir), ptrPtr, C.int(compID))
-	if ret < 0 {
-		return nil, halError(int(ret), "hal_pin_port_new")
-	}
-
-	// Return the double-pointer itself — the caller must dereference at access time
-	// because HAL updates *ptrPtr when the pin is linked to a signal via net.
-	return unsafe.Pointer(ptrPtr), nil
+	// Return the double-pointer itself — the caller must dereference at access
+	// time because HAL updates the slot when the pin is linked to a signal via net.
+	return ptrPtr, nil
 }
 
 // halPortWrite writes data bytes to the port referenced by portPtr.
@@ -242,55 +152,13 @@ func halPortClear(portPtr *C.hal_port_t) {
 // halError translates a HAL C error code to a Go error.
 // Returns nil if the code is 0 (success).
 // Error codes are negative errno values as returned by HAL/RTAPI functions.
+//
+// No Detail is attached here. Detailed failure reasons travel in-band through
+// the hal_*_ex(err, errlen) call signatures (see internal/halcmd); this package
+// calls the plain variants, so there is no reason string to attach. A
+// component's hal_lib failures still reach the operator: they are logged to the
+// ring, and when they happen during a module load the launcher attaches them to
+// the load error.
 func halError(code int, op string) error {
-	if code == 0 {
-		return nil
-	}
-
-	// Map HAL error codes (negative errno values) to meaningful messages.
-	// These match the verbosity of the old halcmd error output.
-	var message string
-	switch code {
-	case -1: // -EPERM
-		message = "operation not permitted (HAL may be locked)"
-	case -2: // -ENOENT
-		message = "not found (no such pin, signal, parameter, function, thread, or component)"
-	case -3: // -ESRCH
-		message = "no such process or component not running"
-	case -10: // -ECHILD
-		message = "child process error"
-	case -11: // -EAGAIN
-		message = "resource temporarily unavailable"
-	case -12: // -ENOMEM
-		message = "insufficient HAL shared memory"
-	case -13: // -EACCES
-		message = "permission denied"
-	case -14: // -EFAULT
-		message = "bad address or invalid pointer"
-	case -16: // -EBUSY
-		message = "resource busy (pin already linked to a signal, or signal has writers)"
-	case -17: // -EEXIST
-		message = "already exists (signal, pin, parameter, function, or component with this name exists)"
-	case -19: // -ENODEV
-		message = "no such device or component"
-	case -22: // -EINVAL
-		message = "invalid argument (bad value, wrong type, or malformed name)"
-	case -23: // -ENFILE
-		message = "too many open files or components"
-	case -28: // -ENOSPC
-		message = "no space left in HAL shared memory"
-	case -36: // -ENAMETOOLONG
-		message = "name too long (exceeds HAL_NAME_LEN)"
-	case -110: // -ETIMEDOUT
-		message = "operation timed out (component did not become ready)"
-	default:
-		// For unmapped codes, include both the code and the errno name if possible
-		if code < 0 && code > -256 {
-			message = fmt.Sprintf("system error %d (%s)", -code, syscall.Errno(-code).Error())
-		} else {
-			message = fmt.Sprintf("HAL error code %d", code)
-		}
-	}
-
-	return newError(op, message, code)
+	return CodeError(op, code, "")
 }

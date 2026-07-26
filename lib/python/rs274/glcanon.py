@@ -535,6 +535,17 @@ class GlCanonDraw:
 
         g = self.get_geometry().upper()
         _glhelpers.gui_respect_offsets(self.trajcoordinates,int('!' in g))
+        # Mirror the same respect/rotary-mask decision for the live-plot
+        # logger: its vertex9 runs client-side against these values, and
+        # nothing ever wired them (finding A-2/GP-17 — the backplot ignored
+        # A/B/C rotations on '!' geometries while the preview applied them).
+        self._logger_respect = int('!' in g)
+        tc = self.trajcoordinates
+        self._logger_axis_mask = 0
+        if self._logger_respect:
+            self._logger_axis_mask = ((0x08 if 'A' in tc else 0)
+                                      | (0x10 if 'B' in tc else 0)
+                                      | (0x20 if 'C' in tc else 0))
 
         geometry_chars = "XYZABCUVW-!;"
         dupchars = []; badchars = []
@@ -1191,6 +1202,17 @@ class GlCanonDraw:
         _glhelpers.gui_rot_offsets(s.g5x_offset[0] + s.g92_offset[0],
                                  s.g5x_offset[1] + s.g92_offset[1],
                                  s.g5x_offset[2] + s.g92_offset[2])
+        # Feed the same rotation offsets to the live-plot logger, in ITS
+        # coordinate space: logger points are server-mm, this stat is machine
+        # units (finding A-2/GP-17).
+        if getattr(self, 'lp', None) is not None and hasattr(self.lp, 'set_roffsets'):
+            _lu = s.linear_units or 1
+            self.lp.set_roffsets(
+                (s.g5x_offset[0] + s.g92_offset[0]) / _lu,
+                (s.g5x_offset[1] + s.g92_offset[1]) / _lu,
+                (s.g5x_offset[2] + s.g92_offset[2]) / _lu,
+                getattr(self, '_logger_respect', 0),
+                getattr(self, '_logger_axis_mask', 0))
 
         machine_limit_min, machine_limit_max = self.soft_limits()
 
@@ -1345,7 +1367,11 @@ class GlCanonDraw:
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             glEnable(GL_BLEND)
             glPushMatrix()
-            lu = 1/((s.linear_units or 1)*25.4)
+            # Logger points are server-mm by contract, independent of the
+            # machine's units — the classic machine-units divisor degenerated
+            # to 1.0 on inch configs and drew the backplot 25.4x too big
+            # (finding A-1/GP-16).
+            lu = 1/25.4
             glScalef(lu, lu, lu)
             glMatrixMode(GL_PROJECTION)
             glPushMatrix()
@@ -1362,13 +1388,18 @@ class GlCanonDraw:
 
         if self.get_show_tool():
             pos = self.lp.last(self.get_show_live_plot())
+            from_logger = pos is not None
             if pos is None:
                 # No backplot points yet — use current stat position so the
                 # tool cone shows at the actual machine position on startup.
-                p = list(s.actual_position[:3]) + list(s.actual_position[3:6])
-                pos = p
+                pos = list(s.actual_position[:3]) + list(s.actual_position[3:6])
             rx, ry, rz = pos[3:6]
-            pos = self.to_internal_units(pos[:3])
+            if from_logger:
+                # logger points are server-mm: fixed mm conversion
+                pos = self.to_internal_units(pos[:3], 1)
+            else:
+                # stat position is machine units: machine conversion
+                pos = self.to_internal_units(pos[:3])
             if self.is_foam():
                 glEnable(GL_COLOR_MATERIAL)
                 glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
@@ -1379,8 +1410,8 @@ class GlCanonDraw:
                 glColor3f(*self.colors['cone_xy'])
                 glCallList(cone)
                 glPopMatrix()
-                u = self.to_internal_linear_unit(rx)
-                v = self.to_internal_linear_unit(ry)
+                u = self.to_internal_linear_unit(rx, 1) if from_logger else self.to_internal_linear_unit(rx)
+                v = self.to_internal_linear_unit(ry, 1) if from_logger else self.to_internal_linear_unit(ry)
                 glPushMatrix()
                 glTranslatef(u, v, self.get_foam_w())
                 glColor3f(*self.colors['cone_uv'])
@@ -1935,6 +1966,21 @@ class GlCanonDraw:
         glNewList(rapids, GL_COMPILE)
         if self.canon: self.canon.draw(0, False)
         glEndList()
+
+    def clear_preview(self):
+        """Drop the previewed program: no canon, no geometry on screen.
+
+        The counterpart of load_preview, for when there is no program to show
+        (the controller has none loaded, or is unreachable). Dropping the canon
+        alone is not enough — the drawing lives in compiled display lists that
+        keep being called until they are staled, so the old program would stay
+        on screen with nothing backing it.
+        """
+        self.set_canon(None)
+        self.stale_dlist('program_rapids')
+        self.stale_dlist('program_norapids')
+        self.stale_dlist('select_rapids')
+        self.stale_dlist('select_norapids')
 
     def load_preview(self, f, canon, *args):
         self.set_canon(canon)

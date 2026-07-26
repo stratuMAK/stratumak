@@ -26,13 +26,16 @@ let dragOrigPos = 0;
  * Everything in seconds, trigger point = time 0.
  */
 function timeCoords() {
+  // Geometry comes from calcDisplayWindow, which is driven by the
+  // decode-time capture snapshot (S-2) when a capture is displayed.
   const dw = scopeStore.calcDisplayWindow();
   const sp = dw.samplePeriod;
 
   // Record boundaries relative to trigger
   const recStart = -dw.preTrig * sp;
   const recEnd = (dw.recLen - dw.preTrig) * sp;
-  const recCurr = recStart + scopeStore.state.status.samples * sp;
+  // Live fill progress, clamped to the displayed record geometry
+  const recCurr = Math.min(recStart + scopeStore.state.status.samples * sp, recEnd);
 
   // Display window from calcDisplayWindow (already trigger-relative)
   const dispStart = dw.screenStartTime;
@@ -77,8 +80,9 @@ function draw() {
   const boxL    = Math.round(scale * (tc.dispStart - tc.min));
   const boxR    = Math.round(scale * (tc.dispEnd - tc.min));
 
-  // 1) Record bar fill (captured portion)
-  if (scopeStore.state.status.samples > 0) {
+  // 1) Record bar fill (captured portion) — live progress is meaningless
+  // while a loaded file is displayed (S-10)
+  if (!scopeStore.state.fileView && scopeStore.state.status.samples > 0) {
     ctx.fillStyle = '#2a4a2a';
     ctx.fillRect(recL, midY - 2, recCurX - recL, 5);
   }
@@ -156,6 +160,8 @@ watch(
     scopeStore.state.status.samples,
     scopeStore.state.status.recLen,
     scopeStore.state.status.preTrig,
+    scopeStore.state.captureMeta,
+    scopeStore.state.fileView,
     scopeStore.state.zoomSetting,
     scopeStore.state.posSetting,
   ],

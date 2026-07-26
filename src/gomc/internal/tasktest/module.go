@@ -91,7 +91,7 @@ func (m *testModule) Start() error {
 		results := h.runAll()
 		m.done <- results.report(m.logger)
 		// Signal the launcher to shut down after tests complete.
-		syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}()
 	return nil
 }
@@ -225,10 +225,6 @@ func (h *testHarness) setBlockDelete(on bool) (int32, error) {
 	return h.callEmccmd("set_block_delete", map[string]interface{}{"on": on})
 }
 
-func (h *testHarness) lube(on bool) (int32, error) {
-	return h.callEmccmd("lube", map[string]interface{}{"on": on})
-}
-
 func (h *testHarness) mdi(command string) (int32, error) {
 	return h.callEmccmd("mdi", map[string]interface{}{"command": command})
 }
@@ -239,10 +235,6 @@ func (h *testHarness) taskPlanSynch() (int32, error) {
 
 func (h *testHarness) loadToolTable(file string) (int32, error) {
 	return h.callEmccmd("load_tool_table", map[string]interface{}{"file": file})
-}
-
-func (h *testHarness) waitComplete(timeout float64) (int32, error) {
-	return h.callEmccmd("wait_complete", map[string]interface{}{"timeout": timeout})
 }
 
 // callEmccmd dispatches an emccmd method by name.
@@ -396,31 +388,6 @@ func (h *testHarness) waitForHomed(joint int, timeout time.Duration) error {
 	return fmt.Errorf("timeout waiting for joint %d homed", joint)
 }
 
-// waitForPosition polls until position.x is within tolerance or timeout.
-func (h *testHarness) waitForPosition(axis int, target, tol float64, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		stat, err := h.getStat()
-		if err != nil {
-			return err
-		}
-		var pos float64
-		switch axis {
-		case 0:
-			pos = stat.Position.X
-		case 1:
-			pos = stat.Position.Y
-		case 2:
-			pos = stat.Position.Z
-		}
-		if pos >= target-tol && pos <= target+tol {
-			return nil
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for axis %d at %f", axis, target)
-}
-
 // waitForInPosition polls until motion.in_position is true or timeout.
 func (h *testHarness) waitForInPosition(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -435,22 +402,4 @@ func (h *testHarness) waitForInPosition(timeout time.Duration) error {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return fmt.Errorf("timeout waiting for in_position")
-}
-
-// waitForNotInPosition polls until motion.in_position is false or timeout.
-// Used to detect that motion has actually started before waiting for completion.
-func (h *testHarness) waitForNotInPosition(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		stat, err := h.getStat()
-		if err != nil {
-			return err
-		}
-		if !stat.Motion.InPosition {
-			return nil
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	// Not an error — motion may have started and finished very quickly.
-	return nil
 }

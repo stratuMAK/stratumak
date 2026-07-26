@@ -3,13 +3,25 @@ import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { scopeStore } from '../stores/scope';
-import { ScopeState } from '../generated/halscope_client';
 
 const chartEl = ref<HTMLDivElement>();
 let plot: uPlot | null = null;
 let resizeObs: ResizeObserver | null = null;
 
 const NUM_DIVS = 10; // 10 vertical divisions like original scope
+
+// uPlot inserts its legend row INSIDE chartEl, below the canvas. Give the
+// canvas the box height minus this reservation so the legend fits within the
+// (now definite-height) container instead of overflowing it.
+const LEGEND_H = 40;
+
+// Plot dimensions for the current container box.
+function plotSize(rect: { width: number; height: number }) {
+  return {
+    width: Math.max(rect.width, 200),
+    height: Math.max(rect.height - LEGEND_H, 120),
+  };
+}
 
 // --- Cursor helpers ---
 const selCh = computed(() => scopeStore.state.selectedChannel);
@@ -48,7 +60,6 @@ function timeToIdx(time: number): number {
 
 // --- Drag state (non-reactive, for mouse events) ---
 let dragging = false;
-let dragStartIdx = -1;
 let dragStartPx = { x: 0, y: 0 };
 let dragCurPx = { x: 0, y: 0 };
 let hoverPx = { x: 0, traceY: 0, active: false };
@@ -187,7 +198,6 @@ function onPlotMouseDown(e: MouseEvent) {
   const startRealY = divToReal(plot.posToVal(y, 'y'));
 
   dragging = true;
-  dragStartIdx = timeToIdx(time);
   dragStartPx = { x, y };
   dragCurPx = { ...dragStartPx };
   scopeStore.state.isDragging = true;
@@ -203,7 +213,6 @@ function onPlotMouseDown(e: MouseEvent) {
 function onPlotMouseUp(_e: MouseEvent) {
   if (dragging) {
     dragging = false;
-    dragStartIdx = -1;
     scopeStore.state.isDragging = false;
     scopeStore.state.dragStartTime = null;
     scopeStore.state.dragStartValue = null;
@@ -267,15 +276,38 @@ function formatReal(v: number): string {
   return v.toExponential(2);
 }
 
+/**
+ * The channels the chart renders, with labels from the decode-time snapshot
+ * (S-4): a trace label always names the pin whose data is on screen, never
+ * the live channel config.  In file-view mode (S-10) the series come purely
+ * from the loaded file's snapshot.
+ */
+function seriesChannels(): { channel: number; label: string }[] {
+  const st = scopeStore.state;
+  if (st.fileView) {
+    return st.samples.map(s => ({
+      channel: s.channel,
+      label: s.pinName || `Ch ${s.channel}`,
+    }));
+  }
+  return st.status.channels.filter(c => c.enabled).map(ch => {
+    const snap = st.samples.find(s => s.channel === ch.channel);
+    return {
+      channel: ch.channel,
+      label: (snap ? snap.pinName : ch.pinName) || `Ch ${ch.channel}`,
+    };
+  });
+}
+
 function buildOpts(width: number, height: number): uPlot.Options {
-  const channels = scopeStore.state.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   const selChVal = scopeStore.state.selectedChannel;
   const selUIVal = selChVal >= 0 ? scopeStore.channelUI[selChVal] : null;
 
   const series: uPlot.Series[] = [
     { label: 'Time (s)' },
     ...channels.map((ch) => ({
-      label: ch.pinName || `Ch ${ch.channel}`,
+      label: ch.label,
       stroke: scopeStore.channelUI[ch.channel]?.color ?? '#ffff00',
       width: ch.channel === selChVal ? 2 : 1,
       show: scopeStore.channelUI[ch.channel]?.visible ?? true,
@@ -339,9 +371,9 @@ function buildData(): uPlot.AlignedData {
   }
 
   const time = Array.from(st.timeBase) as unknown as number[];
-  const data: (number[] | Float64Array)[] = [time];
+  const data: (number[] | (number | null)[] | Float64Array)[] = [time];
 
-  const channels = st.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   for (const ch of channels) {
     const s = st.samples.find(s => s.channel === ch.channel);
     const ui = scopeStore.channelUI[ch.channel];
@@ -355,7 +387,9 @@ function buildData(): uPlot.AlignedData {
       }
       data.push(transformed);
     } else {
-      data.push(new Float64Array(st.timeBase.length));
+      // S-6: no captured data for this channel — render a gap (nulls),
+      // never a fabricated flat-zero trace.
+      data.push(new Array<number | null>(st.timeBase.length).fill(null));
     }
   }
 
@@ -374,9 +408,7 @@ function createPlot() {
   detachPlotEvents();
   plot?.destroy();
 
-  const rect = chartEl.value.getBoundingClientRect();
-  const w = Math.max(rect.width, 200);
-  const h = Math.max(rect.height, 150);
+  const { width: w, height: h } = plotSize(chartEl.value.getBoundingClientRect());
 
   const opts = buildOpts(w, h);
   const data = buildData();
@@ -398,7 +430,7 @@ function updateData() {
     return;
   }
 
-  const channels = scopeStore.state.status.channels.filter(c => c.enabled);
+  const channels = seriesChannels();
   const data = buildData();
 
   // If channel count changed, rebuild the plot (series config differs)
@@ -446,13 +478,26 @@ watch(
   },
 );
 
-// Watch for status changes (channel list may change)
+// S-4: rebuild the plot unconditionally whenever the rendered channel list
+// (identity, not just count) changes — labels and series config must always
+// match the channel set.
 watch(
-  () => scopeStore.state.status.channels,
+  () => seriesChannels().map(c => `${c.channel}:${c.label}`).join('\0')
+    + (scopeStore.state.fileView ? '\0file' : ''),
+  () => createPlot(),
+);
+
+// S-13: channel visibility toggles take effect immediately.
+watch(
+  () => scopeStore.channelUI.map(u => (u.visible ? '1' : '0')).join(''),
   () => {
-    if (scopeStore.state.status.state === ScopeState.DONE) {
-      createPlot();
-    }
+    if (!plot) return;
+    const channels = seriesChannels();
+    channels.forEach((ch, i) => {
+      plot!.setSeries(i + 1, {
+        show: scopeStore.channelUI[ch.channel]?.visible ?? true,
+      });
+    });
   },
 );
 
@@ -460,8 +505,7 @@ onMounted(() => {
   createPlot();
   resizeObs = new ResizeObserver(() => {
     if (chartEl.value && plot) {
-      const r = chartEl.value.getBoundingClientRect();
-      plot.setSize({ width: Math.max(r.width, 200), height: Math.max(r.height, 150) });
+      plot.setSize(plotSize(chartEl.value.getBoundingClientRect()));
     }
   });
   if (chartEl.value) resizeObs.observe(chartEl.value);
@@ -488,8 +532,12 @@ onBeforeUnmount(() => {
 .scope-chart {
   position: relative;
   width: 100%;
-  height: 100%;
-  min-height: 300px;
+  /* Definite, flex-derived height (parent .chart-stack is flex:1/min-height:0).
+   * NOT height:100% against an auto parent — that made the box content-sized,
+   * so feeding it back into uPlot.setSize grew it every frame (the Firefox
+   * Y-zoom CPU loop). min-height is only a floor and never drives the size. */
+  flex: 1 1 0;
+  min-height: 200px;
   background: #111;
   border: 1px solid #333;
   border-radius: 4px;

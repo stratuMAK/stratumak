@@ -74,6 +74,32 @@ static int hal_shim_list_comps(char *buf, int buf_size) {
 // helpers. 256 exceeds any realistic LinuxCNC machine configuration.
 #define HAL_SHIM_MAX_COMPS 256
 
+// hal_shim_report states why a shim is about to fail, to the log and into the
+// caller's buffer — the same contract as hal_lib's hal_report (see the
+// HAL_ERRLEN block in hal.h), for the refusals that happen here rather than in
+// hal_lib.  The shims below resolve names and parse values themselves, so those
+// failures never reach hal_lib and would otherwise come back as a bare errno.
+//
+// err may be NULL, in which case only the log line is produced.
+static void hal_shim_report(char *err, int errlen, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
+
+static void hal_shim_report(char *err, int errlen, const char *fmt, ...) {
+    char line[HAL_ERRLEN];
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+
+    rtapi_print_msg(RTAPI_MSG_ERR, "HAL: ERROR: %s\n", line);
+
+    if (err != NULL && errlen > 0) {
+        strncpy(err, line, (size_t)errlen - 1);
+        err[errlen - 1] = '\0';
+    }
+}
+
 // ===== RTAPI message routing through gomc_log ring =====
 // RT threads push messages into the gomc_log ring buffer.  The Go drain
 // goroutine reads them and handles stdout/stderr output + subscriber fan-out.
@@ -172,27 +198,34 @@ static void hal_shim_unlock_dl_handle(void *handle) {
 // ===== 1a. Simple wrapper shims =====
 
 // hal_shim_newsig wraps hal_signal_new(name, type)
-static int hal_shim_newsig(const char *name, int type) {
-    return hal_signal_new(name, (hal_type_t)type);
+static int hal_shim_newsig(const char *name, int type, char *err, int errlen) {
+    return hal_signal_new_ex(name, (hal_type_t)type, err, errlen);
 }
 
 // hal_shim_delsig wraps hal_signal_delete(name)
-static int hal_shim_delsig(const char *name) {
-    return hal_signal_delete(name);
+static int hal_shim_delsig(const char *name, char *err, int errlen) {
+    return hal_signal_delete_ex(name, err, errlen);
 }
 
 // hal_shim_retain sets HAL_SIGFLAG_RETAIN on a signal.
-static int hal_shim_retain(const char *name) {
+static int hal_shim_retain(const char *name, char *err, int errlen) {
     hal_sig_t *sig;
-    if (hal_data == NULL) return -EINVAL;
+    if (hal_data == NULL) {
+        hal_shim_report(err, errlen, "retain called before init");
+        return -EINVAL;
+    }
     rtapi_mutex_get(&(hal_data->mutex));
     sig = halpr_find_sig_by_name(name);
     if (sig == NULL) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen, "signal '%s' not found", name);
         return -EINVAL;
     }
     if (sig->writers > 0) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen,
+            "signal '%s' has %d writer(s); only an unwritten signal can be "
+            "retained", name, sig->writers);
         return -EINVAL;
     }
     sig->flags |= HAL_SIGFLAG_RETAIN;
@@ -201,13 +234,17 @@ static int hal_shim_retain(const char *name) {
 }
 
 // hal_shim_unretain clears HAL_SIGFLAG_RETAIN on a signal.
-static int hal_shim_unretain(const char *name) {
+static int hal_shim_unretain(const char *name, char *err, int errlen) {
     hal_sig_t *sig;
-    if (hal_data == NULL) return -EINVAL;
+    if (hal_data == NULL) {
+        hal_shim_report(err, errlen, "unretain called before init");
+        return -EINVAL;
+    }
     rtapi_mutex_get(&(hal_data->mutex));
     sig = halpr_find_sig_by_name(name);
     if (sig == NULL) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen, "signal '%s' not found", name);
         return -EINVAL;
     }
     sig->flags &= ~HAL_SIGFLAG_RETAIN;
@@ -216,28 +253,31 @@ static int hal_shim_unretain(const char *name) {
 }
 
 // hal_shim_linkps wraps hal_link(pin, sig)
-static int hal_shim_linkps(const char *pin, const char *sig) {
-    return hal_link(pin, sig);
+static int hal_shim_linkps(const char *pin, const char *sig,
+                           char *err, int errlen) {
+    return hal_link_ex(pin, sig, err, errlen);
 }
 
 // hal_shim_unlinkp wraps hal_unlink(pin)
-static int hal_shim_unlinkp(const char *pin) {
-    return hal_unlink(pin);
+static int hal_shim_unlinkp(const char *pin, char *err, int errlen) {
+    return hal_unlink_ex(pin, err, errlen);
 }
 
 // hal_shim_addf wraps hal_add_funct_to_thread(funct, thread, position)
-static int hal_shim_addf(const char *funct, const char *thread, int position) {
-    return hal_add_funct_to_thread(funct, thread, position);
+static int hal_shim_addf(const char *funct, const char *thread, int position,
+                         char *err, int errlen) {
+    return hal_add_funct_to_thread_ex(funct, thread, position, err, errlen);
 }
 
 // hal_shim_delf wraps hal_del_funct_from_thread(funct, thread)
-static int hal_shim_delf(const char *funct, const char *thread) {
-    return hal_del_funct_from_thread(funct, thread);
+static int hal_shim_delf(const char *funct, const char *thread,
+                         char *err, int errlen) {
+    return hal_del_funct_from_thread_ex(funct, thread, err, errlen);
 }
 
 // hal_shim_set_lock wraps hal_set_lock(lock_type)
-static int hal_shim_set_lock(unsigned char lock_type) {
-    return hal_set_lock(lock_type);
+static int hal_shim_set_lock(unsigned char lock_type, char *err, int errlen) {
+    return hal_set_lock_ex(lock_type, err, errlen);
 }
 
 // hal_shim_get_lock wraps hal_get_lock()
@@ -247,13 +287,15 @@ static unsigned char hal_shim_get_lock(void) {
 
 // hal_shim_pin_alias wraps hal_pin_alias(pin_name, alias).
 // alias may be NULL to remove an alias.
-static int hal_shim_pin_alias(const char *pin_name, const char *alias) {
-    return hal_pin_alias(pin_name, alias);
+static int hal_shim_pin_alias(const char *pin_name, const char *alias,
+                              char *err, int errlen) {
+    return hal_pin_alias_ex(pin_name, alias, err, errlen);
 }
 
 // hal_shim_param_alias wraps hal_param_alias(param_name, alias).
-static int hal_shim_param_alias(const char *param_name, const char *alias) {
-    return hal_param_alias(param_name, alias);
+static int hal_shim_param_alias(const char *param_name, const char *alias,
+                                char *err, int errlen) {
+    return hal_param_alias_ex(param_name, alias, err, errlen);
 }
 
 // ===== 1b. Value access helper functions =====
@@ -261,7 +303,8 @@ static int hal_shim_param_alias(const char *param_name, const char *alias) {
 // hal_shim_write_value writes a value string to a HAL data location.
 // This mirrors the set_common() logic from halcmd_commands.cc.
 // Assumes the HAL mutex is already held by the caller.
-static int hal_shim_write_value(hal_type_t type, void *d_ptr, const char *value) {
+static int hal_shim_write_value(hal_type_t type, void *d_ptr, const char *value,
+                                char *err, int errlen) {
     double fval;
     long lval;
     unsigned long ulval;
@@ -274,37 +317,57 @@ static int hal_shim_write_value(hal_type_t type, void *d_ptr, const char *value)
         } else if (strcmp("0", value) == 0 || strcasecmp("FALSE", value) == 0) {
             *(hal_bit_t *)d_ptr = 0;
         } else {
+            hal_shim_report(err, errlen,
+                "value '%s' is not a valid bit value (use 1, 0, TRUE or FALSE)",
+                value);
             return -EINVAL;
         }
         break;
     case HAL_FLOAT:
         cp = (char *)value;
         fval = strtod(value, &cp);
-        if (*cp != '\0' && !isspace((unsigned char)*cp)) return -EINVAL;
+        if (*cp != '\0' && !isspace((unsigned char)*cp)) {
+            hal_shim_report(err, errlen, "value '%s' is not a valid float", value);
+            return -EINVAL;
+        }
         *(hal_float_t *)d_ptr = (hal_float_t)fval;
         break;
     case HAL_S32:
         cp = (char *)value;
         lval = strtol(value, &cp, 0);
-        if (*cp != '\0' && !isspace((unsigned char)*cp)) return -EINVAL;
+        if (*cp != '\0' && !isspace((unsigned char)*cp)) {
+            hal_shim_report(err, errlen, "value '%s' is not a valid s32", value);
+            return -EINVAL;
+        }
         *(hal_s32_t *)d_ptr = (hal_s32_t)lval;
         break;
     case HAL_U32:
         cp = (char *)value;
         ulval = strtoul(value, &cp, 0);
-        if (*cp != '\0' && !isspace((unsigned char)*cp)) return -EINVAL;
+        if (*cp != '\0' && !isspace((unsigned char)*cp)) {
+            hal_shim_report(err, errlen, "value '%s' is not a valid u32", value);
+            return -EINVAL;
+        }
         *(hal_u32_t *)d_ptr = (hal_u32_t)ulval;
         break;
     case HAL_PORT:
         cp = (char *)value;
         ulval = strtoul(value, &cp, 0);
-        if (*cp != '\0' && !isspace((unsigned char)*cp)) return -EINVAL;
+        if (*cp != '\0' && !isspace((unsigned char)*cp)) {
+            hal_shim_report(err, errlen,
+                "value '%s' is not a valid port buffer size", value);
+            return -EINVAL;
+        }
         if ((*((hal_port_t *)d_ptr) != 0) && (hal_port_buffer_size(*((hal_port_t *)d_ptr)) > 0)) {
+            hal_shim_report(err, errlen,
+                "port buffer is already allocated; its size cannot be changed");
             return -EINVAL;
         }
         *((hal_port_t *)d_ptr) = hal_port_alloc(ulval);
         break;
     default:
+        hal_shim_report(err, errlen, "cannot write a value of HAL type %d",
+            (int)type);
         return -EINVAL;
     }
     return 0;
@@ -339,7 +402,8 @@ static int hal_shim_format_value(hal_type_t type, void *d_ptr, char *buf, int bu
 // hal_shim_setp sets the value of a pin or parameter by name.
 // Tries pin first, then parameter. Mirrors halcmd's do_setp_cmd logic.
 // Returns 0 on success, negative errno on error.
-static int hal_shim_setp(const char *name, const char *value) {
+static int hal_shim_setp(const char *name, const char *value,
+                         char *err, int errlen) {
     hal_pin_t *pin;
     hal_param_t *param;
     hal_type_t type;
@@ -354,11 +418,12 @@ static int hal_shim_setp(const char *name, const char *value) {
     if (param) {
         if (param->dir == HAL_RO) {
             rtapi_mutex_give(&(hal_data->mutex));
+            hal_shim_report(err, errlen, "parameter '%s' is read-only", name);
             return -EPERM;
         }
         type = param->type;
         d_ptr = SHMPTR(param->data_ptr);
-        retval = hal_shim_write_value(type, d_ptr, value);
+        retval = hal_shim_write_value(type, d_ptr, value, err, errlen);
         rtapi_mutex_give(&(hal_data->mutex));
         return retval;
     }
@@ -367,27 +432,36 @@ static int hal_shim_setp(const char *name, const char *value) {
     if (pin) {
         if (pin->dir == HAL_OUT) {
             rtapi_mutex_give(&(hal_data->mutex));
+            hal_shim_report(err, errlen,
+                "pin '%s' is an output pin; its value is set by its owning "
+                "component", name);
             return -EPERM;
         }
         if (pin->signal != 0) {
+            const char *signame = ((hal_sig_t *)SHMPTR(pin->signal))->name;
             rtapi_mutex_give(&(hal_data->mutex));
+            hal_shim_report(err, errlen,
+                "pin '%s' is linked to signal '%s'; set the signal with sets, "
+                "or unlink the pin first", name, signame);
             return -EBUSY;
         }
         type = pin->type;
         d_ptr = (void *)&pin->dummysig;
-        retval = hal_shim_write_value(type, d_ptr, value);
+        retval = hal_shim_write_value(type, d_ptr, value, err, errlen);
         rtapi_mutex_give(&(hal_data->mutex));
         return retval;
     }
 
     rtapi_mutex_give(&(hal_data->mutex));
+    hal_shim_report(err, errlen, "no pin or parameter named '%s'", name);
     return -ENOENT;
 }
 
 // hal_shim_getp gets the value of a pin or parameter as a string.
 // Writes the value into buf (max buf_size bytes).
 // Returns 0 on success, negative errno on error.
-static int hal_shim_getp(const char *name, char *buf, int buf_size) {
+static int hal_shim_getp(const char *name, char *buf, int buf_size,
+                         char *err, int errlen) {
     hal_pin_t *pin;
     hal_sig_t *sig;
     hal_param_t *param;
@@ -423,12 +497,14 @@ static int hal_shim_getp(const char *name, char *buf, int buf_size) {
     }
 
     rtapi_mutex_give(&(hal_data->mutex));
+    hal_shim_report(err, errlen, "no pin or parameter named '%s'", name);
     return -ENOENT;
 }
 
 // hal_shim_sets sets the value of a signal by name.
 // Returns 0 on success, negative errno on error.
-static int hal_shim_sets(const char *name, const char *value) {
+static int hal_shim_sets(const char *name, const char *value,
+                         char *err, int errlen) {
     hal_sig_t *sig;
     hal_type_t type;
     void *d_ptr;
@@ -441,17 +517,21 @@ static int hal_shim_sets(const char *name, const char *value) {
     sig = halpr_find_sig_by_name(name);
     if (sig == NULL) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen, "signal '%s' not found", name);
         return -ENOENT;
     }
 
     if (sig->type != HAL_PORT && sig->writers > 0) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen,
+            "signal '%s' is driven by %d output pin(s); its value cannot be set",
+            name, sig->writers);
         return -EBUSY;
     }
 
     type = sig->type;
     d_ptr = SHMPTR(sig->data_ptr);
-    retval = hal_shim_write_value(type, d_ptr, value);
+    retval = hal_shim_write_value(type, d_ptr, value, err, errlen);
     rtapi_mutex_give(&(hal_data->mutex));
     return retval;
 }
@@ -459,7 +539,8 @@ static int hal_shim_sets(const char *name, const char *value) {
 // hal_shim_gets gets the value of a signal as a string.
 // Writes the value into buf (max buf_size bytes).
 // Returns 0 on success, negative errno on error.
-static int hal_shim_gets(const char *name, char *buf, int buf_size) {
+static int hal_shim_gets(const char *name, char *buf, int buf_size,
+                         char *err, int errlen) {
     hal_sig_t *sig;
     hal_type_t type;
     void *d_ptr;
@@ -472,6 +553,7 @@ static int hal_shim_gets(const char *name, char *buf, int buf_size) {
     sig = halpr_find_sig_by_name(name);
     if (sig == NULL) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen, "signal '%s' not found", name);
         return -ENOENT;
     }
 
@@ -484,7 +566,7 @@ static int hal_shim_gets(const char *name, char *buf, int buf_size) {
 
 // hal_shim_ptype returns the HAL type (as int) of a pin or parameter by name.
 // Returns the hal_type_t value on success, negative errno on error.
-static int hal_shim_ptype(const char *name) {
+static int hal_shim_ptype(const char *name, char *err, int errlen) {
     hal_pin_t *pin;
     hal_param_t *param;
     int type;
@@ -508,12 +590,13 @@ static int hal_shim_ptype(const char *name) {
     }
 
     rtapi_mutex_give(&(hal_data->mutex));
+    hal_shim_report(err, errlen, "no pin or parameter named '%s'", name);
     return -ENOENT;
 }
 
 // hal_shim_stype returns the HAL type (as int) of a signal by name.
 // Returns the hal_type_t value on success, negative errno on error.
-static int hal_shim_stype(const char *name) {
+static int hal_shim_stype(const char *name, char *err, int errlen) {
     hal_sig_t *sig;
     int type;
 
@@ -524,6 +607,7 @@ static int hal_shim_stype(const char *name) {
     sig = halpr_find_sig_by_name(name);
     if (sig == NULL) {
         rtapi_mutex_give(&(hal_data->mutex));
+        hal_shim_report(err, errlen, "signal '%s' not found", name);
         return -ENOENT;
     }
 
@@ -542,7 +626,8 @@ static int hal_shim_stype(const char *name) {
 // num_pins is the number of pins.
 // Arrow tokens must be stripped by the Go caller before calling this function.
 // Returns 0 on success, negative errno on error.
-static int hal_shim_net(const char *sig_name, const char *pin_names, int num_pins) {
+static int hal_shim_net(const char *sig_name, const char *pin_names, int num_pins,
+                        char *err, int errlen) {
     hal_sig_t *sig;
     hal_type_t sig_type;
     int i, retval = 0;
@@ -550,7 +635,11 @@ static int hal_shim_net(const char *sig_name, const char *pin_names, int num_pin
     const char *p;
 
     if (hal_data == NULL) return -EINVAL;
-    if (num_pins <= 0 || num_pins > HAL_SHIM_MAX_PINS) return -EINVAL;
+    if (num_pins <= 0 || num_pins > HAL_SHIM_MAX_PINS) {
+        hal_shim_report(err, errlen, "signal '%s': %d pins given; expected 1..%d",
+            sig_name, num_pins, HAL_SHIM_MAX_PINS);
+        return -EINVAL;
+    }
 
     // Decode null-separated pin names
     p = pin_names;
@@ -567,11 +656,14 @@ static int hal_shim_net(const char *sig_name, const char *pin_names, int num_pin
         hal_pin_t *pin = halpr_find_pin_by_name(pins[0]);
         if (!pin) {
             rtapi_mutex_give(&(hal_data->mutex));
+            hal_shim_report(err, errlen,
+                "signal '%s': pin '%s' not found, and it is the pin the new "
+                "signal would take its type from", sig_name, pins[0]);
             return -ENOENT;
         }
         sig_type = pin->type;
         rtapi_mutex_give(&(hal_data->mutex));
-        retval = hal_signal_new(sig_name, sig_type);
+        retval = hal_signal_new_ex(sig_name, sig_type, err, errlen);
     } else {
         rtapi_mutex_give(&(hal_data->mutex));
     }
@@ -580,7 +672,7 @@ static int hal_shim_net(const char *sig_name, const char *pin_names, int num_pin
 
     // Link each pin to the signal
     for (i = 0; i < num_pins && retval == 0; i++) {
-        retval = hal_link(pins[i], sig_name);
+        retval = hal_link_ex(pins[i], sig_name, err, errlen);
     }
 
     return retval;
@@ -1315,32 +1407,24 @@ static int hal_shim_save(const char *type, char *buf, int buf_size) {
     return count;
 }
 
-// hal_shim_set_exact enables exact_base_period mode, mirroring the classic
-// halcmd "setexact_for_test_suite_only" command.  When set, HAL pretends the
-// requested thread base period is achievable exactly (instead of rounding to
-// the value RTAPI reports), which makes test sample counts deterministic.
-// Must be called before any thread is created.  Returns -EINVAL if a thread
-// has already established a base period, 0 on success.
+// hal_shim_set_exact implements the classic halcmd
+// "setexact_for_test_suite_only" command.  It used to ask HAL to pretend the
+// requested base period was achievable exactly instead of rounding thread
+// periods to the value RTAPI reported, which made test sample counts
+// deterministic.  Thread periods are no longer rounded at all — every period is
+// exact — so this is now a no-op, accepted (rather than removed) so the test
+// configurations that issue it keep working unchanged.
 static int hal_shim_set_exact(void) {
-    int retval = 0;
     if (hal_data == NULL) {
         return -EINVAL;
     }
-    rtapi_mutex_get(&(hal_data->mutex));
-    if (hal_data->base_period) {
-        retval = -EINVAL;
-    } else {
-        hal_data->exact_base_period = 1;
-    }
-    rtapi_mutex_give(&(hal_data->mutex));
-    return retval;
+    return 0;
 }
 */
 import "C"
 import (
 	"bytes"
 	"fmt"
-	"syscall"
 	"unsafe"
 
 	hal "github.com/sittner/linuxcnc/src/gomc/pkg/hal"
@@ -1352,103 +1436,91 @@ import (
 // already been established.
 func SetExact() error {
 	rc := int(C.hal_shim_set_exact())
-	return halError(rc, "setexact")
+	return halError(rc, "setexact", "")
 }
 
-// halError translates a HAL C error code to a Go error.
-// Returns nil if the code is 0 (success).
+// halErr is the buffer a HAL call writes the reason it failed into.
+//
+// Every wrapper below declares one and passes it to the _ex entry point, so the
+// reason comes back through the call that produced it rather than being
+// recovered afterwards from a log or a per-thread slot. That keeps the wrappers
+// free of any ordering, locking or thread-affinity requirement: the buffer
+// belongs to the call, and concurrent callers cannot see each other's.
+type halErr struct{ buf [C.HAL_ERRLEN]C.char }
+
+// ptr and length are what the _ex entry points take.
+func (e *halErr) ptr() *C.char  { return &e.buf[0] }
+func (e *halErr) length() C.int { return C.int(len(e.buf)) }
+
+// String returns the reason, or "" if the call did not set one. The buffer is
+// zeroed by Go on declaration and left untouched on success, so an empty string
+// unambiguously means "nothing reported".
+func (e *halErr) String() string { return C.GoString(&e.buf[0]) }
+
+// halError translates a HAL C error code and the reason that came back with it
+// into a Go error. Returns nil if the code is 0 (success).
 // Error codes are negative errno values as returned by HAL/RTAPI functions.
-func halError(code int, op string) error {
-	if code == 0 {
-		return nil
-	}
-
-	// Map HAL error codes (negative errno values) to meaningful messages.
-	// These match the verbosity of the old halcmd error output.
-	var message string
-	switch code {
-	case -1: // -EPERM
-		message = "operation not permitted (HAL may be locked)"
-	case -2: // -ENOENT
-		message = "not found (no such pin, signal, parameter, function, thread, or component)"
-	case -3: // -ESRCH
-		message = "no such process or component not running"
-	case -10: // -ECHILD
-		message = "child process error"
-	case -11: // -EAGAIN
-		message = "resource temporarily unavailable"
-	case -12: // -ENOMEM
-		message = "insufficient HAL shared memory"
-	case -13: // -EACCES
-		message = "permission denied"
-	case -14: // -EFAULT
-		message = "bad address or invalid pointer"
-	case -16: // -EBUSY
-		message = "resource busy (pin already linked to a signal, or signal has writers)"
-	case -17: // -EEXIST
-		message = "already exists (signal, pin, parameter, function, or component with this name exists)"
-	case -19: // -ENODEV
-		message = "no such device or component"
-	case -22: // -EINVAL
-		message = "invalid argument (bad value, wrong type, or malformed name)"
-	case -23: // -ENFILE
-		message = "too many open files or components"
-	case -28: // -ENOSPC
-		message = "no space left in HAL shared memory"
-	case -36: // -ENAMETOOLONG
-		message = "name too long (exceeds HAL_NAME_LEN)"
-	case -110: // -ETIMEDOUT
-		message = "operation timed out (component did not become ready)"
-	default:
-		// For unmapped codes, include both the code and the errno name if possible
-		if code < 0 && code > -256 {
-			message = fmt.Sprintf("system error %d (%s)", -code, syscall.Errno(-code).Error())
-		} else {
-			message = fmt.Sprintf("HAL error code %d", code)
-		}
-	}
-
-	return &hal.Error{Code: code, Message: message, Op: op}
+//
+// op names the halcmd command the caller issued — "newthread", "setp", "net" —
+// not the C function that produced the code. The error text is what an operator
+// reads, and it should name the command they typed rather than an internal
+// symbol they cannot act on. Wrappers shared by several commands (linkps and
+// linksp, alias and unalias, lock and unlock) take op as a parameter instead of
+// hardcoding one of the two. The few calls with no command behind them at all —
+// module unload cleanup, thread-cycle sync, RT app init — keep the C name,
+// because inventing a verb for them would be worse than naming the function.
+//
+// detail is hal_lib's or the shim's own explanation ("duplicate thread name
+// loop1"); it becomes Error.Detail. The generic per-code text stays in
+// Error.Message because several hal.Err* sentinels share a code and are told
+// apart by message, so replacing it would silently break errors.Is().
+func halError(code int, op string, detail string) error {
+	return hal.CodeError(op, code, detail)
 }
 
 // halCreateThreadCPU wraps hal_create_thread_cpu() to create a single HAL
 // realtime thread with explicit CPU affinity.
 // cpu=-1 means no affinity.
 func halCreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_create_thread_cpu(cName, C.ulong(periodNs), C.int(usesFP), C.int(cpu))
+	ret := C.hal_create_thread_cpu_ex(cName, C.ulong(periodNs), C.int(usesFP), C.int(cpu), e.ptr(), e.length())
 	if int(ret) < 0 {
-		return halError(int(ret), "hal_create_thread_cpu")
+		return halError(int(ret), "newthread", e.String())
 	}
 	return nil
 }
 
 // halThreadDelete wraps hal_thread_delete() to delete a HAL realtime thread by name.
 func halThreadDelete(name string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_thread_delete(cName)
-	return halError(int(ret), "hal_thread_delete")
+	ret := C.hal_thread_delete_ex(cName, e.ptr(), e.length())
+	return halError(int(ret), "delthread", e.String())
 }
 
 // halStartThreads wraps hal_start_threads() to start all HAL realtime threads.
 func halStartThreads() error {
-	ret := C.hal_start_threads()
-	return halError(int(ret), "hal_start_threads")
+	var e halErr
+	ret := C.hal_start_threads_ex(e.ptr(), e.length())
+	return halError(int(ret), "start", e.String())
 }
 
 // halStopThreads wraps hal_stop_threads() to stop all HAL realtime threads.
 func halStopThreads() error {
-	ret := C.hal_stop_threads()
-	return halError(int(ret), "hal_stop_threads")
+	var e halErr
+	ret := C.hal_stop_threads_ex(e.ptr(), e.length())
+	return halError(int(ret), "stop", e.String())
 }
 
 // halDelFunctsByComp removes all functions owned by comp_id from all threads.
 func halDelFunctsByComp(compID int) (int, error) {
-	ret := C.hal_del_functs_by_comp(C.int(compID))
+	var e halErr
+	ret := C.hal_del_functs_by_comp_ex(C.int(compID), e.ptr(), e.length())
 	if ret < 0 {
-		return 0, halError(int(ret), "hal_del_functs_by_comp")
+		return 0, halError(int(ret), "hal_del_functs_by_comp", e.String())
 	}
 	return int(ret), nil
 }
@@ -1461,7 +1533,7 @@ func halGetMaxCycleCount() uint32 {
 // halWaitCycleAdvance waits for all threads to advance past baseline.
 func halWaitCycleAdvance(baseline uint32) error {
 	ret := C.hal_wait_cycle_advance(C.uint(baseline))
-	return halError(int(ret), "hal_wait_cycle_advance")
+	return halError(int(ret), "hal_wait_cycle_advance", "")
 }
 
 // halFindCompID returns the comp_id for a named component, or 0 if not found.
@@ -1477,6 +1549,20 @@ func halFindCompID(name string) int {
 
 // halListComponents wraps hal_shim_list_comps() to return all HAL component names.
 // Returns a slice of component name strings, or an error on failure.
+// halFnmatch reports whether name matches the shell glob pattern using libc
+// fnmatch — the exact matcher the C list shims use for pin/sig/param/funct/
+// thread/comp (cgo.go: fnmatch(pattern, ->name, 0)). The `comp` list type
+// enumerates components in Go, so it routes its filtering through here to stay
+// consistent with the other list types rather than diverging on Go's path.Match
+// glob dialect (which special-cases '/' and errors on a malformed pattern).
+func halFnmatch(pattern, name string) bool {
+	cp := C.CString(pattern)
+	defer C.free(unsafe.Pointer(cp))
+	cn := C.CString(name)
+	defer C.free(unsafe.Pointer(cn))
+	return C.fnmatch(cp, cn, 0) == 0
+}
+
 func halListComponents() ([]string, error) {
 	// Allocate a buffer sized for HAL_SHIM_MAX_COMPS components, each with a
 	// name up to HAL_NAME_LEN+1 bytes (HAL_NAME_LEN is 127, defined in hal.h).
@@ -1485,7 +1571,7 @@ func halListComponents() ([]string, error) {
 
 	ret := C.hal_shim_list_comps((*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(bufSize))
 	if ret < 0 {
-		return nil, halError(int(ret), "hal_shim_list_comps")
+		return nil, halError(int(ret), "list", "")
 	}
 	if ret == 0 {
 		return []string{}, nil
@@ -1515,7 +1601,7 @@ func halListComponents() ([]string, error) {
 // the one identified by exceptID.
 func halUnloadAll(exceptID int) error {
 	ret := C.hal_shim_unload_all(C.int(exceptID))
-	return halError(int(ret), "hal_shim_unload_all")
+	return halError(int(ret), "unload", "")
 }
 
 // halLockDLHandle locks the PT_LOAD segments of a single dlopen handle
@@ -1533,78 +1619,89 @@ func halUnlockDLHandle(handle unsafe.Pointer) {
 
 // halNewSig wraps hal_shim_newsig() to create a new HAL signal.
 func halNewSig(name string, halType hal.PinType) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_newsig(cName, C.int(halType))
-	return halError(int(ret), "hal_shim_newsig")
+	ret := C.hal_shim_newsig(cName, C.int(halType), e.ptr(), e.length())
+	return halError(int(ret), "newsig", e.String())
 }
 
 // halDelSig wraps hal_shim_delsig() to delete a HAL signal.
 func halDelSig(name string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_delsig(cName)
-	return halError(int(ret), "hal_shim_delsig")
+	ret := C.hal_shim_delsig(cName, e.ptr(), e.length())
+	return halError(int(ret), "delsig", e.String())
 }
 
 // halRetain sets the HAL_SIGFLAG_RETAIN flag on a signal.
 func halRetain(name string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_retain(cName)
-	return halError(int(ret), "hal_shim_retain")
+	ret := C.hal_shim_retain(cName, e.ptr(), e.length())
+	return halError(int(ret), "retain", e.String())
 }
 
 // halUnretain clears the HAL_SIGFLAG_RETAIN flag on a signal.
 func halUnretain(name string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_unretain(cName)
-	return halError(int(ret), "hal_shim_unretain")
+	ret := C.hal_shim_unretain(cName, e.ptr(), e.length())
+	return halError(int(ret), "unretain", e.String())
 }
 
 // halLinkPS wraps hal_shim_linkps() to link a pin to a signal.
-func halLinkPS(pin, sig string) error {
+// op is the halcmd verb this call is serving ("linkps" or "linksp"), which
+// differ only in argument order and share this wrapper.
+func halLinkPS(pin, sig, op string) error {
+	var e halErr
 	cPin := C.CString(pin)
 	defer C.free(unsafe.Pointer(cPin))
 	cSig := C.CString(sig)
 	defer C.free(unsafe.Pointer(cSig))
-	ret := C.hal_shim_linkps(cPin, cSig)
-	return halError(int(ret), "hal_shim_linkps")
+	ret := C.hal_shim_linkps(cPin, cSig, e.ptr(), e.length())
+	return halError(int(ret), op, e.String())
 }
 
 // halUnlinkP wraps hal_shim_unlinkp() to unlink a pin from its signal.
 func halUnlinkP(pin string) error {
+	var e halErr
 	cPin := C.CString(pin)
 	defer C.free(unsafe.Pointer(cPin))
-	ret := C.hal_shim_unlinkp(cPin)
-	return halError(int(ret), "hal_shim_unlinkp")
+	ret := C.hal_shim_unlinkp(cPin, e.ptr(), e.length())
+	return halError(int(ret), "unlinkp", e.String())
 }
 
 // halAddF wraps hal_shim_addf() to add a function to a thread.
 func halAddF(funct, thread string, pos int) error {
+	var e halErr
 	cFunct := C.CString(funct)
 	defer C.free(unsafe.Pointer(cFunct))
 	cThread := C.CString(thread)
 	defer C.free(unsafe.Pointer(cThread))
-	ret := C.hal_shim_addf(cFunct, cThread, C.int(pos))
-	return halError(int(ret), "hal_shim_addf")
+	ret := C.hal_shim_addf(cFunct, cThread, C.int(pos), e.ptr(), e.length())
+	return halError(int(ret), "addf", e.String())
 }
 
 // halDelF wraps hal_shim_delf() to remove a function from a thread.
 func halDelF(funct, thread string) error {
+	var e halErr
 	cFunct := C.CString(funct)
 	defer C.free(unsafe.Pointer(cFunct))
 	cThread := C.CString(thread)
 	defer C.free(unsafe.Pointer(cThread))
-	ret := C.hal_shim_delf(cFunct, cThread)
-	return halError(int(ret), "hal_shim_delf")
+	ret := C.hal_shim_delf(cFunct, cThread, e.ptr(), e.length())
+	return halError(int(ret), "delf", e.String())
 }
 
 // halSetLock wraps hal_shim_set_lock() to set the HAL lock level.
-func halSetLock(lockType int) error {
-	ret := C.hal_shim_set_lock(C.uchar(lockType))
-	return halError(int(ret), "hal_shim_set_lock")
+func halSetLock(lockType int, op string) error {
+	var e halErr
+	ret := C.hal_shim_set_lock(C.uchar(lockType), e.ptr(), e.length())
+	return halError(int(ret), op, e.String())
 }
 
 // halGetLock wraps hal_shim_get_lock() to get the current HAL lock level.
@@ -1614,7 +1711,8 @@ func halGetLock() int {
 
 // halPinAlias wraps hal_shim_pin_alias() to set or clear a pin alias.
 // Pass an empty alias to remove the existing alias.
-func halPinAlias(pinName, alias string) error {
+func halPinAlias(pinName, alias, op string) error {
+	var e halErr
 	cPin := C.CString(pinName)
 	defer C.free(unsafe.Pointer(cPin))
 	var cAlias *C.char
@@ -1622,13 +1720,14 @@ func halPinAlias(pinName, alias string) error {
 		cAlias = C.CString(alias)
 		defer C.free(unsafe.Pointer(cAlias))
 	}
-	ret := C.hal_shim_pin_alias(cPin, cAlias)
-	return halError(int(ret), "hal_shim_pin_alias")
+	ret := C.hal_shim_pin_alias(cPin, cAlias, e.ptr(), e.length())
+	return halError(int(ret), op, e.String())
 }
 
 // halParamAlias wraps hal_shim_param_alias() to set or clear a parameter alias.
 // Pass an empty alias to remove the existing alias.
-func halParamAlias(paramName, alias string) error {
+func halParamAlias(paramName, alias, op string) error {
+	var e halErr
 	cParam := C.CString(paramName)
 	defer C.free(unsafe.Pointer(cParam))
 	var cAlias *C.char
@@ -1636,8 +1735,8 @@ func halParamAlias(paramName, alias string) error {
 		cAlias = C.CString(alias)
 		defer C.free(unsafe.Pointer(cAlias))
 	}
-	ret := C.hal_shim_param_alias(cParam, cAlias)
-	return halError(int(ret), "hal_shim_param_alias")
+	ret := C.hal_shim_param_alias(cParam, cAlias, e.ptr(), e.length())
+	return halError(int(ret), op, e.String())
 }
 
 // halAlias creates an alias for a pin or parameter.
@@ -1645,9 +1744,9 @@ func halParamAlias(paramName, alias string) error {
 func halAlias(kind, name, alias string) error {
 	switch kind {
 	case "pin":
-		return halPinAlias(name, alias)
+		return halPinAlias(name, alias, "alias")
 	case "param":
-		return halParamAlias(name, alias)
+		return halParamAlias(name, alias, "alias")
 	default:
 		return fmt.Errorf("alias: unknown kind %q: must be \"pin\" or \"param\"", kind)
 	}
@@ -1658,9 +1757,9 @@ func halAlias(kind, name, alias string) error {
 func halUnAlias(kind, name string) error {
 	switch kind {
 	case "pin":
-		return halPinAlias(name, "")
+		return halPinAlias(name, "", "unalias")
 	case "param":
-		return halParamAlias(name, "")
+		return halParamAlias(name, "", "unalias")
 	default:
 		return fmt.Errorf("unalias: unknown kind %q: must be \"pin\" or \"param\"", kind)
 	}
@@ -1670,66 +1769,72 @@ func halUnAlias(kind, name string) error {
 
 // halSetP wraps hal_shim_setp() to set a pin or parameter value by name.
 func halSetP(name, value string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	cValue := C.CString(value)
 	defer C.free(unsafe.Pointer(cValue))
-	ret := C.hal_shim_setp(cName, cValue)
-	return halError(int(ret), "hal_shim_setp")
+	ret := C.hal_shim_setp(cName, cValue, e.ptr(), e.length())
+	return halError(int(ret), "setp", e.String())
 }
 
 // halGetP wraps hal_shim_getp() to get a pin or parameter value as a string.
 func halGetP(name string) (string, error) {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	buf := make([]byte, 256)
-	ret := C.hal_shim_getp(cName, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(buf)))
+	ret := C.hal_shim_getp(cName, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(buf)), e.ptr(), e.length())
 	if ret < 0 {
-		return "", halError(int(ret), "hal_shim_getp")
+		return "", halError(int(ret), "getp", e.String())
 	}
 	return C.GoString((*C.char)(unsafe.Pointer(unsafe.SliceData(buf)))), nil
 }
 
 // halSetS wraps hal_shim_sets() to set a signal value by name.
 func halSetS(name, value string) error {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	cValue := C.CString(value)
 	defer C.free(unsafe.Pointer(cValue))
-	ret := C.hal_shim_sets(cName, cValue)
-	return halError(int(ret), "hal_shim_sets")
+	ret := C.hal_shim_sets(cName, cValue, e.ptr(), e.length())
+	return halError(int(ret), "sets", e.String())
 }
 
 // halGetS wraps hal_shim_gets() to get a signal value as a string.
 func halGetS(name string) (string, error) {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	buf := make([]byte, 256)
-	ret := C.hal_shim_gets(cName, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(buf)))
+	ret := C.hal_shim_gets(cName, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(buf)), e.ptr(), e.length())
 	if ret < 0 {
-		return "", halError(int(ret), "hal_shim_gets")
+		return "", halError(int(ret), "gets", e.String())
 	}
 	return C.GoString((*C.char)(unsafe.Pointer(unsafe.SliceData(buf)))), nil
 }
 
 // halPType wraps hal_shim_ptype() to get the type of a pin or parameter.
 func halPType(name string) (hal.PinType, error) {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_ptype(cName)
+	ret := C.hal_shim_ptype(cName, e.ptr(), e.length())
 	if ret < 0 {
-		return 0, halError(int(ret), "hal_shim_ptype")
+		return 0, halError(int(ret), "ptype", e.String())
 	}
 	return hal.PinType(ret), nil
 }
 
 // halSType wraps hal_shim_stype() to get the type of a signal.
 func halSType(name string) (hal.PinType, error) {
+	var e halErr
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
-	ret := C.hal_shim_stype(cName)
+	ret := C.hal_shim_stype(cName, e.ptr(), e.length())
 	if ret < 0 {
-		return 0, halError(int(ret), "hal_shim_stype")
+		return 0, halError(int(ret), "stype", e.String())
 	}
 	return hal.PinType(ret), nil
 }
@@ -1739,8 +1844,9 @@ func halSType(name string) (hal.PinType, error) {
 // halNet wraps hal_shim_net() to connect pins to a signal.
 // pinNames must not include arrow tokens (=>, <=, <=>).
 func halNet(sigName string, pinNames []string) error {
+	var e halErr
 	if len(pinNames) == 0 {
-		return halError(-22, "hal_shim_net")
+		return halError(-22, "net", e.String())
 	}
 	cSig := C.CString(sigName)
 	defer C.free(unsafe.Pointer(cSig))
@@ -1752,8 +1858,8 @@ func halNet(sigName string, pinNames []string) error {
 		buf = append(buf, 0)
 	}
 
-	ret := C.hal_shim_net(cSig, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(pinNames)))
-	return halError(int(ret), "hal_shim_net")
+	ret := C.hal_shim_net(cSig, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), C.int(len(pinNames)), e.ptr(), e.length())
+	return halError(int(ret), "net", e.String())
 }
 
 // ===== Go wrappers for 1d process management shims =====
@@ -1767,14 +1873,14 @@ func halNewInst(compType, name, arg string) error {
 	cArg := C.CString(arg)
 	defer C.free(unsafe.Pointer(cArg))
 	ret := C.hal_shim_newinst(cType, cName, cArg)
-	return halError(int(ret), "hal_shim_newinst")
+	return halError(int(ret), "newinst", "")
 }
 
 // halRtapiAppInit wraps hal_shim_rtapi_app_init() — initializes HAL shared
 // memory.  Must be called before hal_init().
 func halRtapiAppInit() error {
 	ret := C.hal_shim_rtapi_app_init()
-	return halError(int(ret), "hal_shim_rtapi_app_init")
+	return halError(int(ret), "hal_shim_rtapi_app_init", "")
 }
 
 // halSetLogRing sets the gomc_log ring for the RTAPI message handler.
@@ -1821,7 +1927,7 @@ func halListGeneric(pattern string, shimFn listShimFn) ([]string, error) {
 
 	ret := shimFn(cPattern, (*C.char)(unsafe.Pointer(unsafe.SliceData(buf))), bufSize)
 	if ret < 0 {
-		return nil, halError(int(ret), "hal_shim_list")
+		return nil, halError(int(ret), "list", "")
 	}
 	if ret == 0 {
 		return []string{}, nil
@@ -1991,7 +2097,7 @@ func halShowComps(pattern string) ([]CompInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_comps")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]CompInfo, int(n))
 		for i := range result {
@@ -2021,7 +2127,7 @@ func halShowPins(pattern string) ([]PinInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_pins")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]PinInfo, int(n))
 		for i := range result {
@@ -2055,7 +2161,7 @@ func halShowParams(pattern string) ([]ParamInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_params")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]ParamInfo, int(n))
 		for i := range result {
@@ -2087,7 +2193,7 @@ func halShowSigs(pattern string) ([]SigInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_sigs")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]SigInfo, int(n))
 		for i := range result {
@@ -2117,7 +2223,7 @@ func halShowFuncts(pattern string) ([]FunctInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_functs")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]FunctInfo, int(n))
 		for i := range result {
@@ -2149,7 +2255,7 @@ func halShowThreads(pattern string) ([]ThreadInfo, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_show_threads")
+			return nil, halError(int(n), "show", "")
 		}
 		result := make([]ThreadInfo, int(n))
 		for i := range result {
@@ -2176,7 +2282,7 @@ func halStatus() (*StatusInfo, error) {
 	var st C.hal_shim_status_t
 	ret := C.hal_shim_status(&st)
 	if ret < 0 {
-		return nil, halError(int(ret), "hal_shim_status")
+		return nil, halError(int(ret), "status", "")
 	}
 	return &StatusInfo{
 		ShmemFree: int(st.shmem_avail),
@@ -2198,7 +2304,7 @@ func halSave(saveType string) ([]string, error) {
 			if int(n) == -int(C.ENOSPC) {
 				continue
 			}
-			return nil, halError(int(n), "hal_shim_save")
+			return nil, halError(int(n), "save", "")
 		}
 		if n == 0 {
 			return []string{}, nil

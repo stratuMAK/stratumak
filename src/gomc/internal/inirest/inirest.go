@@ -6,10 +6,10 @@ package inirest
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ini"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
 
@@ -19,14 +19,16 @@ type iniImpl struct {
 
 func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error) {
 	if im.ini == nil {
-		return nil, fmt.Errorf("INI file not loaded")
+		// Permanent for this process (an INI-less launcher, halrun mode), so
+		// this is a state conflict rather than a 503 inviting a retry.
+		return nil, apiserver.Faultf(apiserver.FaultState, "INI file not loaded")
 	}
 
 	results := make([]ini.IniQueryResult, len(items))
 	for i, q := range items {
 		iniFile := im.ini
-		if q.Namespace != "" {
-			iniFile = iniFile.WithNamespace(q.Namespace)
+		if q.Namespace != nil && *q.Namespace != "" {
+			iniFile = iniFile.WithNamespace(*q.Namespace)
 		}
 		if q.All != nil && *q.All {
 			vals := iniFile.GetAll(q.Section, q.Key)
@@ -35,36 +37,48 @@ func (im *iniImpl) Query(items []ini.IniQueryItem) ([]ini.IniQueryResult, error)
 			}
 			results[i] = ini.IniQueryResult{Values: vals}
 		} else {
+			// An absent key reports a null value; a key that is present with an
+			// empty value reports "". Those are different answers — an INI may
+			// legitimately carry `LATHE =` — and until `string?` became a real
+			// pointer this branch could not express the difference: both arms
+			// produced the same zero struct.
 			v := iniFile.Get(q.Section, q.Key)
 			if v == "" && !im.keyExists(q.Section, q.Key) {
 				results[i] = ini.IniQueryResult{}
 			} else {
-				results[i] = ini.IniQueryResult{Value: v}
+				results[i] = ini.IniQueryResult{Value: &v}
 			}
 		}
 	}
 	return results, nil
 }
 
-func (im *iniImpl) GetParameterFile(namespace string) (string, error) {
+func (im *iniImpl) GetParameterFile(namespace *string) (string, error) {
 	if im.ini == nil {
-		return "", fmt.Errorf("INI file not loaded")
+		return "", apiserver.Faultf(apiserver.FaultState, "INI file not loaded")
 	}
 	ini := im.ini
-	if namespace != "" {
-		ini = ini.WithNamespace(namespace)
+	if namespace != nil && *namespace != "" {
+		ini = ini.WithNamespace(*namespace)
 	}
 	rel := ini.Get("RS274NGC", "PARAMETER_FILE")
 	if rel == "" {
-		return "", fmt.Errorf("[RS274NGC]PARAMETER_FILE not set")
+		return "", apiserver.Faultf(apiserver.FaultNotFound, "[RS274NGC]PARAMETER_FILE not set")
 	}
-	path := rel
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(im.ini.SourceFile()), rel)
+	// The file's contents are served over REST, so the path goes through the
+	// shared resolver and its containment check (internal/pathres) — an INI
+	// value must not be able to name an arbitrary file.
+	// Unset, unresolvable and unreadable are one answer to a client — there is
+	// no parameter file — and none of them is a controller failure. The reason
+	// (including a containment refusal) travels in the message, which is what
+	// an operator debugging their INI needs.
+	path, err := pathres.Resolve(rel, pathres.Read)
+	if err != nil {
+		return "", apiserver.NewFault(apiserver.FaultNotFound, fmt.Errorf("paramfile: %w", err))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("paramfile: %w", err)
+		return "", apiserver.NewFault(apiserver.FaultNotFound, fmt.Errorf("paramfile: %w", err))
 	}
 	return string(data), nil
 }

@@ -251,6 +251,19 @@ func main() {
 	var outputFile string
 	var files []string
 
+	// Known file-processing modes. Any other dashed argument is an unknown flag
+	// and must be rejected explicitly — not silently absorbed as a "mode" (which
+	// let a typo like --compil, or a stray --personalities, either error with a
+	// misleading "unknown mode" message or clobber a real mode supplied earlier).
+	validModes := map[string]bool{
+		"--parse":      true,
+		"--preprocess": true,
+		"--document":   true,
+		"--view-doc":   true,
+		"--compile":    true,
+		"--install":    true,
+	}
+
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -263,8 +276,15 @@ func main() {
 			i++
 		case strings.HasPrefix(arg, "-o"):
 			outputFile = arg[2:]
-		case strings.HasPrefix(arg, "-"):
+		case validModes[arg]:
+			if mode != "" && mode != arg {
+				fmt.Fprintf(os.Stderr, "modcompile: conflicting modes %q and %q\n", mode, arg)
+				os.Exit(1)
+			}
 			mode = arg
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(os.Stderr, "modcompile: unknown flag %q\n", arg)
+			os.Exit(1)
 		default:
 			files = append(files, arg)
 		}
@@ -327,42 +347,41 @@ func processFile(path, mode, outputFile string) error {
 		return enc.Encode(pkg)
 
 	case "--preprocess":
-		out := os.Stdout
-		if outputFile != "" {
-			f, err := os.Create(outputFile)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			out = f
+		if outputFile == "" {
+			return cgen.Generate(os.Stdout, pkg)
 		}
-		return cgen.Generate(out, pkg)
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return err
+		}
+		if err := cgen.Generate(f, pkg); err != nil {
+			_ = f.Close()
+			return err
+		}
+		// Close checks the flush: a failed close on a written file loses output.
+		return f.Close()
 
 	case "--document":
-		var out *os.File
-		if outputFile != "" {
-			f, err := os.Create(outputFile)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			out = f
-		} else {
+		outName := outputFile
+		if outName == "" {
 			// Default output filename
 			base := strings.TrimSuffix(filepath.Base(path), ".comp")
 			section := "9"
 			if pkg.Component.Options["userspace"] == "yes" {
 				section = "1"
 			}
-			outName := base + "." + section
-			f, err := os.Create(outName)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			out = f
+			outName = base + "." + section
 		}
-		return docgen.Generate(out, pkg)
+		f, err := os.Create(outName)
+		if err != nil {
+			return err
+		}
+		if err := docgen.Generate(f, pkg); err != nil {
+			_ = f.Close()
+			return err
+		}
+		// Close checks the flush: a failed close on a written file loses output.
+		return f.Close()
 
 	case "--view-doc":
 		// Generate to temp file and display with man
@@ -371,13 +390,16 @@ func processFile(path, mode, outputFile string) error {
 			return err
 		}
 		tmpName := tmpFile.Name()
-		defer os.Remove(tmpName)
+		defer func() { _ = os.Remove(tmpName) }()
 
 		if err := docgen.Generate(tmpFile, pkg); err != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			return err
 		}
-		tmpFile.Close()
+		// Flush before man reads the file back.
+		if err := tmpFile.Close(); err != nil {
+			return err
+		}
 
 		// Run man to display
 		cmd := exec.Command("man", tmpName)
@@ -452,14 +474,17 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpCPath := tmpFile.Name()
-	defer os.Remove(tmpCPath)
+	defer func() { _ = os.Remove(tmpCPath) }()
 
 	// Generate C code
 	if err := cgen.Generate(tmpFile, pkg); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("generating C: %w", err)
 	}
-	tmpFile.Close()
+	// Flush before the compiler reads the temp file back.
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("writing generated C: %w", err)
+	}
 
 	// Collect -I paths for GMI APIs referenced (gmi_provide / gmi_consume).
 	var gmiIncludes []string
@@ -905,7 +930,7 @@ func removeStaleExternals(skipName string) {
 		// Origin no longer exists — remove stale entry.
 		staleDir := filepath.Join(extBase, sub.Name())
 		fmt.Fprintf(os.Stderr, "Removing stale external/%s (origin %s no longer exists)\n", sub.Name(), origin)
-		os.RemoveAll(staleDir)
+		_ = os.RemoveAll(staleDir)
 	}
 }
 
@@ -964,7 +989,7 @@ func writeGoDeps(extGoModPath, extDir string) {
 	depsPath := filepath.Join(extDir, "go.deps")
 	if len(deps) == 0 {
 		// Remove stale go.deps if no deps needed.
-		os.Remove(depsPath)
+		_ = os.Remove(depsPath)
 		return
 	}
 
@@ -1097,10 +1122,10 @@ func dirMirror(srcDir, dstDir string, exclude map[string]bool) error {
 		}
 		if !srcSet[rel] {
 			if info.IsDir() {
-				os.RemoveAll(path)
+				_ = os.RemoveAll(path)
 				return filepath.SkipDir
 			}
-			os.Remove(path)
+			_ = os.Remove(path)
 		}
 		return nil
 	})
@@ -1111,16 +1136,19 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	// Close checks the flush: a failed close on a written file loses data.
+	return out.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,7 +1166,13 @@ Options:
     --server-c          Generate C server header only (types, callback typedefs)
     --server-meta       Generate Go META dispatch (cgo types, converters, dispatch, init)
     --server-go         Generate Go provider interface + cbridge
-    --client-c          Generate C REST client (header + source)
+    --client-c          Generate C REST client (header + source). Supports a
+                        subset of the type system: primitive scalars, []string,
+                        and one level of nested struct. Narrow scalars (u8/i16/
+                        f32/...), enum fields, non-string slices, slice-of-struct,
+                        and deeper nesting are rejected at generate time (build
+                        error, never a silently-broken client) — use --client-go/
+                        --client-python/--client-ts for APIs that need them.
     --client-go         Generate Go REST client
     --client-python     Generate Python REST client
     --client-ts         Generate TypeScript REST client
@@ -1158,7 +1192,6 @@ const (
 	gmiModeServerGo
 	gmiModeClientGo
 	gmiModeClientPython
-	gmiModeServerWS
 	gmiModeClientPythonWS
 	gmiModeClientTS
 	gmiModeClientTSWS
@@ -1197,8 +1230,6 @@ func cmdGMI(args []string) {
 			m = gmiModeClientGo
 		case "--client-python":
 			m = gmiModeClientPython
-		case "--server-ws":
-			m = gmiModeServerWS
 		case "--client-python-ws":
 			m = gmiModeClientPythonWS
 		case "--client-ts":
@@ -1289,11 +1320,6 @@ func processGMIFile(file string, m gmiMode, outputPath string) error {
 			return fmt.Errorf("%s: --client-python requires @rest_export true", file)
 		}
 		return gmiGenerateClientPython(api, outputPath)
-	case gmiModeServerWS:
-		if !gmicgen.HasWatchFuncs(api) {
-			return fmt.Errorf("%s: --server-ws requires at least one @watch function", file)
-		}
-		return gmiGenerateServerWS(api, outputPath)
 	case gmiModeClientPythonWS:
 		if !gmicgen.HasWatchFuncs(api) {
 			return fmt.Errorf("%s: --client-python-ws requires at least one @watch function", file)
@@ -1332,9 +1358,11 @@ func gmiGenerateServerC(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateServerHeader(f, api); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
@@ -1359,9 +1387,11 @@ func gmiGenerateServerMeta(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer gf.Close()
-
 	if err := gmicgen.GenerateDispatchC(gf, api, pkgName, headerFile); err != nil {
+		_ = gf.Close()
+		return err
+	}
+	if err := gf.Close(); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
@@ -1372,13 +1402,19 @@ func gmiGenerateServerMeta(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer pf.Close()
-
 	hasPub, err := gmicgen.GeneratePublishHeader(pf, api)
 	if err != nil {
+		_ = pf.Close()
 		return err
 	}
-	if hasPub {
+	if !hasPub {
+		// No publish functions — remove empty file.
+		_ = pf.Close()
+		_ = os.Remove(pubPath)
+	} else {
+		if err := pf.Close(); err != nil {
+			return err
+		}
 		fmt.Fprintf(os.Stderr, "generated %s\n", pubPath)
 
 		pubGoPath := filepath.Join(dir, api.Name+"_pub.go")
@@ -1386,9 +1422,11 @@ func gmiGenerateServerMeta(api *gmiast.API, outputPath string) error {
 		if err != nil {
 			return err
 		}
-		defer pgf.Close()
-
 		if _, err := gmicgen.GeneratePublishGo(pgf, api, pkgName); err != nil {
+			_ = pgf.Close()
+			return err
+		}
+		if err := pgf.Close(); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "generated %s\n", pubGoPath)
@@ -1399,16 +1437,14 @@ func gmiGenerateServerMeta(api *gmiast.API, outputPath string) error {
 		if err != nil {
 			return err
 		}
-		defer dhf.Close()
-
 		if _, err := gmicgen.GeneratePublishDrainHook(dhf, api, pkgName); err != nil {
+			_ = dhf.Close()
+			return err
+		}
+		if err := dhf.Close(); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "generated %s\n", drainHookPath)
-	} else {
-		// No publish functions — remove empty file.
-		pf.Close()
-		os.Remove(pubPath)
 	}
 
 	// Generate push converter if the API has @watch functions returning structs.
@@ -1417,17 +1453,19 @@ func gmiGenerateServerMeta(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer pushF.Close()
-
 	hasPush, err := gmicgen.GeneratePushConvert(pushF, api, pkgName)
 	if err != nil {
+		_ = pushF.Close()
 		return err
 	}
-	if hasPush {
-		fmt.Fprintf(os.Stderr, "generated %s\n", pushPath)
+	if !hasPush {
+		_ = pushF.Close()
+		_ = os.Remove(pushPath)
 	} else {
-		pushF.Close()
-		os.Remove(pushPath)
+		if err := pushF.Close(); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "generated %s\n", pushPath)
 	}
 
 	return nil
@@ -1448,8 +1486,11 @@ func gmiGenerateClientC(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer hf.Close()
 	if err := gmicgen.GenerateClientHeader(hf, api); err != nil {
+		_ = hf.Close()
+		return err
+	}
+	if err := hf.Close(); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", headerPath)
@@ -1458,8 +1499,11 @@ func gmiGenerateClientC(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer sf.Close()
 	if err := gmicgen.GenerateClientSource(sf, api); err != nil {
+		_ = sf.Close()
+		return err
+	}
+	if err := sf.Close(); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", sourcePath)
@@ -1481,17 +1525,20 @@ func gmiGenerateServerGo(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateBridgeGo(f, api, pkgName); err != nil {
+		_ = f.Close()
 		return err
 	}
 
 	// Append Commands and WatchRegister functions (they reference the Callbacks interface above)
 	if err := gmicgen.GenerateServerGoExtra(f, api, pkgName); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1510,12 +1557,14 @@ func gmiGenerateClientGo(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientGo(f, api, pkgName); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1529,37 +1578,14 @@ func gmiGenerateClientPython(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientPython(f, api); err != nil {
+		_ = f.Close()
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
-	return nil
-}
-
-func gmiGenerateServerWS(api *gmiast.API, outputPath string) error {
-	if outputPath == "" {
-		outputPath = api.Name + "_ws.go"
-	}
-
-	pkgName := api.Name
-	dir := filepath.Dir(outputPath)
-	if dir != "." && dir != "" {
-		pkgName = filepath.Base(dir)
-	}
-
-	f, err := os.Create(outputPath)
-	if err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
-	defer f.Close()
-
-	if err := gmicgen.GenerateServerWS(f, api, pkgName); err != nil {
-		return err
-	}
-
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1573,12 +1599,14 @@ func gmiGenerateClientPythonWS(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientPythonWS(f, api); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1592,12 +1620,14 @@ func gmiGenerateClientTS(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientTS(f, api); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1611,12 +1641,14 @@ func gmiGenerateClientTSWS(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientTSWS(f, api); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1635,12 +1667,14 @@ func gmiGenerateClientCgo(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if err := gmicgen.GenerateClientCgo(f, api, pkgName); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1654,12 +1688,14 @@ func gmiGenerateStreamServerC(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if _, err := gmicgen.GenerateStreamServerHeader(f, api); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }
@@ -1678,12 +1714,14 @@ func gmiGenerateStreamServerGo(api *gmiast.API, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	if _, err := gmicgen.GenerateStreamServerGo(f, api, pkgName); err != nil {
+		_ = f.Close()
 		return err
 	}
 
+	if err := f.Close(); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
 }

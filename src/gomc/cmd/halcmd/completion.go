@@ -4,10 +4,80 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 	"unicode"
+
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmdclient"
 )
+
+// completionTimeout bounds every REST query issued from completion. TAB
+// completion runs inside the raw-mode line editor, where ISIG is off: a query
+// against a hung server (accepted socket, no reply) would otherwise block the
+// prompt with Ctrl-C reduced to an unread byte — unkillable from the keyboard.
+// Commands keep the untimed shared client; only completion must never wedge.
+const completionTimeout = 2 * time.Second
+
+var compClient *halcmdclient.HalcmdClient
+
+// installClients builds both clients for url: the untimed shared command
+// client and the short-timeout completion client. main() and -U go through
+// here; tests that stub `client` directly leave compClient nil and completion
+// falls through to the stub.
+func installClients(url string) {
+	client = halcmdclient.NewHalcmdClient(url)
+	compClient = halcmdclient.NewHalcmdClient(url).
+		WithHTTPClient(&http.Client{Timeout: completionTimeout})
+}
+
+// completionClient returns the client completion queries go through.
+func completionClient() *halcmdclient.HalcmdClient {
+	if compClient != nil {
+		return compClient
+	}
+	return client
+}
+
+// parseCompPoint parses the bash COMP_POINT cursor offset. It mirrors C atoi:
+// consume leading digits and stop at the first non-digit, so a stray character
+// yields the digits parsed so far rather than a garbage/negative offset.
+func parseCompPoint(compPoint string) int {
+	point := 0
+	for _, ch := range compPoint {
+		if ch < '0' || ch > '9' {
+			break
+		}
+		point = point*10 + int(ch-'0')
+	}
+	return point
+}
+
+// relevantCompLine returns the portion of the command line between the end of
+// the command name (argv[0] + following whitespace) and the cursor. The cursor
+// offset is clamped on BOTH sides: bash reports it as an absolute offset, so a
+// cursor inside the command name (point < i) — e.g. a mid-line TAB — would make
+// a naive compLine[i:point] panic with a slice-bounds error. 2.9 guards the
+// same case (halcmd_main.c: `if (c<0) c=0`).
+func relevantCompLine(compLine string, point int) string {
+	// Find end of the first word (the command name "halcmd").
+	i := 0
+	for i < len(compLine) && !unicode.IsSpace(rune(compLine[i])) {
+		i++
+	}
+	// Skip whitespace after the command name.
+	for i < len(compLine) && unicode.IsSpace(rune(compLine[i])) {
+		i++
+	}
+	if point > len(compLine) {
+		point = len(compLine)
+	}
+	if point < i {
+		point = i
+	}
+	return compLine[i:point]
+}
 
 // runCompletion implements bash's "complete -C" protocol.
 // Bash sets COMP_LINE (full command line) and COMP_POINT (cursor position).
@@ -19,48 +89,32 @@ func runCompletion() {
 		return
 	}
 
-	// Parse cursor position and extract the relevant portion of the line
-	point := 0
-	for _, ch := range compPoint {
-		point = point*10 + int(ch-'0')
+	point := parseCompPoint(compPoint)
+	line := relevantCompLine(compLine, point)
+
+	_, candidates := completeHead(line)
+	for _, c := range candidates {
+		fmt.Println(c)
 	}
+}
 
-	// Strip the program name (argv[0]) from the beginning
-	// Find end of first word (the command name "halcmd")
-	i := 0
-	for i < len(compLine) && !unicode.IsSpace(rune(compLine[i])) {
-		i++
-	}
-	// Skip space after command name
-	for i < len(compLine) && unicode.IsSpace(rune(compLine[i])) {
-		i++
-	}
+// completeHead is the single completion entry point, shared by bash's
+// "complete -C" protocol and the interactive line editor's TAB key. head is the
+// halcmd command line left of the cursor (without the "halcmd" argv[0]). It
+// returns the byte offset in head at which the word being completed starts,
+// plus the candidates for that word.
+func completeHead(head string) (int, []string) {
+	// Skip any leading options (e.g. -k, -q, -s, -U <url>). skipOptions only
+	// ever trims from the front, so the length difference is the offset of the
+	// remaining text within head.
+	line := skipOptions(head)
+	offset := len(head) - len(line)
 
-	// Adjust point relative to after the command name
-	if point > len(compLine) {
-		point = len(compLine)
-	}
-	line := compLine[i:point]
+	start := lastWordStart(line)
+	fragment := line[start:]
+	words := splitWords(line[:start])
 
-	// Skip any leading options (e.g. -k, -q, -s, -U <url>)
-	line = skipOptions(line)
-
-	// Parse words from the remaining line
-	words := splitWords(line)
-
-	// Find the current fragment (word being completed)
-	var fragment string
-	if len(line) > 0 && !unicode.IsSpace(rune(line[len(line)-1])) {
-		// Currently typing a word
-		if len(words) > 0 {
-			fragment = words[len(words)-1]
-			words = words[:len(words)-1]
-		}
-	}
-
-	// Determine what to complete
 	var candidates []string
-
 	if len(words) == 0 {
 		// Completing the subcommand itself
 		candidates = completeCommand(fragment)
@@ -70,10 +124,29 @@ func runCompletion() {
 		argPos := len(words) // 1-based argument position
 		candidates = completeArg(cmd, argPos, fragment, words[1:])
 	}
+	return offset + start, candidates
+}
 
-	for _, c := range candidates {
-		fmt.Println(c)
+// lastWordStart returns the byte offset at which the last word of s begins,
+// honouring the same simple quoting rule as splitWords. A line ending in
+// whitespace has an empty last word, i.e. the offset is len(s).
+func lastWordStart(s string) int {
+	start := 0
+	inQuote := false
+	quoteChar := byte(0)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case (c == '"' || c == '\'') && !inQuote:
+			inQuote = true
+			quoteChar = c
+		case inQuote && c == quoteChar:
+			inQuote = false
+		case !inQuote && (c == ' ' || c == '\t'):
+			start = i + 1
+		}
 	}
+	return start
 }
 
 // skipOptions strips leading halcmd options from the line (e.g. -k -q -s -U url).
@@ -320,7 +393,7 @@ var (
 
 func completePins(prefix string) []string {
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -333,7 +406,7 @@ func completePins(prefix string) []string {
 
 func completeLinkedPins(prefix string) []string {
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -348,7 +421,7 @@ func completeLinkedPins(prefix string) []string {
 
 func completeParams(prefix string) []string {
 	pattern := prefix + "*"
-	params, err := client.ListParams(&pattern)
+	params, err := completionClient().ListParams(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -369,7 +442,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 	pattern := prefix + "*"
 	var results []string
 
-	params, err := client.ListParams(&pattern)
+	params, err := completionClient().ListParams(&pattern)
 	if err == nil {
 		for _, p := range params {
 			if p.Dir != "RO" {
@@ -378,7 +451,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 		}
 	}
 
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err == nil {
 		for _, p := range pins {
 			// Settable pins: not linked and not output direction
@@ -393,7 +466,7 @@ func completeWritablePinsAndParams(prefix string) []string {
 
 func completeSignals(prefix string) []string {
 	pattern := prefix + "*"
-	sigs, err := client.ListSignals(&pattern)
+	sigs, err := completionClient().ListSignals(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -406,7 +479,7 @@ func completeSignals(prefix string) []string {
 
 func completeComponents(prefix string) []string {
 	pattern := prefix + "*"
-	comps, err := client.ListComponents(&pattern)
+	comps, err := completionClient().ListComponents(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -419,7 +492,7 @@ func completeComponents(prefix string) []string {
 
 func completeThreads(prefix string) []string {
 	pattern := prefix + "*"
-	threads, err := client.ListThreads(&pattern)
+	threads, err := completionClient().ListThreads(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -432,7 +505,7 @@ func completeThreads(prefix string) []string {
 
 func completeUnusedFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -447,7 +520,7 @@ func completeUnusedFunctions(prefix string) []string {
 
 func completeUsedFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -469,7 +542,7 @@ func completeTypedPinsForSignal(prevArgs []string, prefix string) []string {
 
 	// Get signal type from first arg (signal name)
 	sigName := prevArgs[0]
-	sig, err := client.GetSignal(sigName)
+	sig, err := completionClient().GetSignal(sigName)
 	if err != nil {
 		// Signal might not exist yet (net creates it), fall back to all pins
 		return completePins(prefix)
@@ -477,7 +550,7 @@ func completeTypedPinsForSignal(prevArgs []string, prefix string) []string {
 
 	// Get pins matching prefix and filter by type compatibility
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -498,14 +571,14 @@ func completeTypedSignalsForPin(prevArgs []string, prefix string) []string {
 
 	// Get pin type from first arg (pin name)
 	pinName := prevArgs[0]
-	pin, err := client.GetPin(pinName)
+	pin, err := completionClient().GetPin(pinName)
 	if err != nil {
 		return completeSignals(prefix)
 	}
 
 	// Get signals matching prefix and filter by type
 	pattern := prefix + "*"
-	sigs, err := client.ListSignals(&pattern)
+	sigs, err := completionClient().ListSignals(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -526,13 +599,13 @@ func completeTypedPinsForPin(prevArgs []string, prefix string) []string {
 
 	// Get pin type from first arg
 	pinName := prevArgs[0]
-	pin, err := client.GetPin(pinName)
+	pin, err := completionClient().GetPin(pinName)
 	if err != nil {
 		return completePins(prefix)
 	}
 
 	pattern := prefix + "*"
-	pins, err := client.ListPins(&pattern)
+	pins, err := completionClient().ListPins(&pattern)
 	if err != nil {
 		return nil
 	}
@@ -574,7 +647,7 @@ func completeByShowType(prevArgs []string, prefix string) []string {
 
 func completeFunctions(prefix string) []string {
 	pattern := prefix + "*"
-	funcs, err := client.ListFunctions(&pattern)
+	funcs, err := completionClient().ListFunctions(&pattern)
 	if err != nil {
 		return nil
 	}

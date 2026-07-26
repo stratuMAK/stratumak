@@ -1340,9 +1340,10 @@ static double sc_get_external_tool_length_voffset(void *ctx) { return GET_EXTERN
 static double sc_get_external_tool_length_woffset(void *ctx) { return GET_EXTERNAL_TOOL_LENGTH_WOFFSET(); }
 static int32_t sc_get_external_tool_slot(void *ctx) { return GET_EXTERNAL_TOOL_SLOT(); }
 static int32_t sc_get_external_selected_tool_slot(void *ctx) { return GET_EXTERNAL_SELECTED_TOOL_SLOT(); }
-static int32_t sc_get_external_tool_table(void *ctx, int32_t pocket, int32_t *toolno, double offset[9], double *diameter, double *frontangle, double *backangle, int32_t *orientation) {
-    CANON_TOOL_TABLE t = GET_EXTERNAL_TOOL_TABLE(pocket);
+static int32_t sc_get_external_tool_table(void *ctx, int32_t idx, int32_t *toolno, int32_t *pocketno, double offset[9], double *diameter, double *frontangle, double *backangle, int32_t *orientation) {
+    CANON_TOOL_TABLE t = GET_EXTERNAL_TOOL_TABLE(idx);
     *toolno = t.toolno;
+    *pocketno = t.pocketno;
     offset[0] = t.offset.tran.x; offset[1] = t.offset.tran.y; offset[2] = t.offset.tran.z;
     offset[3] = t.offset.a; offset[4] = t.offset.b; offset[5] = t.offset.c;
     offset[6] = t.offset.u; offset[7] = t.offset.v; offset[8] = t.offset.w;
@@ -1350,7 +1351,7 @@ static int32_t sc_get_external_tool_table(void *ctx, int32_t pocket, int32_t *to
     *orientation = t.orientation;
     return 0;
 }
-static int32_t sc_get_tool_by_number(void *ctx, int32_t toolno, int32_t *pocket, double offset[9], double *diameter, double *frontangle, double *backangle, int32_t *orientation) {
+static int32_t sc_get_tool_by_number(void *ctx, int32_t toolno, int32_t *idx_out, int32_t *pocketno, double offset[9], double *diameter, double *frontangle, double *backangle, int32_t *orientation) {
     if (toolno == -1) return 1;
     int last = tooldata_last_index_get();
     int foundidx = -1;
@@ -1367,7 +1368,8 @@ static int32_t sc_get_tool_by_number(void *ctx, int32_t toolno, int32_t *pocket,
     if (foundidx < 0) return 1; /* not found */
     CANON_TOOL_TABLE t;
     tooldata_get(&t, foundidx);
-    *pocket = foundidx;
+    *idx_out = foundidx;
+    *pocketno = t.pocketno;
     offset[0] = t.offset.tran.x; offset[1] = t.offset.tran.y; offset[2] = t.offset.tran.z;
     offset[3] = t.offset.a; offset[4] = t.offset.b; offset[5] = t.offset.c;
     offset[6] = t.offset.u; offset[7] = t.offset.v; offset[8] = t.offset.w;

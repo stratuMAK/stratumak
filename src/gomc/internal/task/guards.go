@@ -17,26 +17,25 @@ var (
 	ErrNotHomed  = fmt.Errorf("not homed")
 )
 
-// requireState checks that the machine is in the required state.
-func (t *Task) requireState(required TaskState) error {
-	if t.state != required {
-		return fmt.Errorf("%w: need %s, have %s", ErrNotOn, required, t.state)
-	}
-	return nil
-}
-
-// requireOn checks that the machine is powered on.
-func (t *Task) requireOn() error {
+// requireOnQuiet checks that the machine is powered on WITHOUT surfacing an
+// operator error. Hot-path commands where a refusal must stay silent — jog,
+// which fires on key-repeat and would otherwise flood the panel — use this
+// directly; requireOn adds the operator message for the rest.
+func (t *Task) requireOnQuiet() error {
 	if t.state != StateOn {
 		return fmt.Errorf("%w: state is %s", ErrNotOn, t.state)
 	}
 	return nil
 }
 
-// requireMode checks that the machine is in the specified mode.
-func (t *Task) requireMode(required TaskMode) error {
-	if t.mode != required {
-		return fmt.Errorf("%w: need %s, have %s", ErrWrongMode, required, t.mode)
+// requireOn checks that the machine is powered on and, on failure, tells the
+// operator why. The operator-error channel is the authoritative error surface
+// (the REST status is control-flow only, logged to stderr), so a refused
+// command that returned bare would be invisible on the panel.
+func (t *Task) requireOn() error {
+	if err := t.requireOnQuiet(); err != nil {
+		t.operatorError("Machine must be ON")
+		return err
 	}
 	return nil
 }
@@ -78,17 +77,21 @@ func (t *Task) ensureMode(required TaskMode) error {
 		t.modeBeforeTx = t.mode
 		t.modeTx = true
 	}
-	// Perform the mode switch inline (same logic as SetMode but already holding mu).
+	// Perform the mode switch inline (same logic as SetMode but already holding
+	// mu). The light modeAbortLocked (2.9 emcTaskAbort) is essential here: this
+	// transactional switch runs on EVERY MDI when the resting mode differs, and
+	// the full abort's spindle/IO/coolant stop would kill a spindle the
+	// previous MDI just started.
 	switch required {
 	case ModeManual:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeManual
 		t.mu.Unlock()
 		_ = t.motion.SetFree()
 		t.waitMotionFree()
 		t.mu.Lock()
 	case ModeMDI:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeMDI
 		t.mu.Unlock()
 		_ = t.motion.SetCoord()
@@ -97,7 +100,7 @@ func (t *Task) ensureMode(required TaskMode) error {
 		}
 		t.mu.Lock()
 	case ModeAuto:
-		t.abortLocked()
+		t.modeAbortLocked()
 		t.mode = ModeAuto
 		t.mu.Unlock()
 		_ = t.motion.SetCoord()
@@ -187,6 +190,7 @@ func (t *Task) waitMotionTeleop() bool {
 // requireNotEstop checks that we are not in estop.
 func (t *Task) requireNotEstop() error {
 	if t.state == StateEstop {
+		t.operatorError("Machine is in E-STOP")
 		return ErrEstop
 	}
 	return nil
@@ -203,6 +207,7 @@ func (t *Task) requireInterpIdle() error {
 // requireProgram checks that a program file is loaded (for AUTO RUN).
 func (t *Task) requireProgram() error {
 	if !t.programOpen {
+		t.operatorError("No program loaded")
 		return ErrNoProgram
 	}
 	return nil
@@ -268,8 +273,13 @@ func (t *Task) requireHomed() error {
 
 // canJog returns true if jogging is allowed in current state.
 // Jogging is allowed in MANUAL mode, or in AUTO/MDI when interpreter is idle.
+//
+// Every reject here is intentionally SILENT (no operatorError): jog is a
+// hot-path command (key-repeat, continuous jog) and an operator message per
+// refused jog would flood the panel. The quiet requireOn variant, the bare
+// requireInterpIdle, and the bare ErrWrongMode below are all deliberate.
 func (t *Task) canJog() error {
-	if err := t.requireOn(); err != nil {
+	if err := t.requireOnQuiet(); err != nil {
 		return err
 	}
 	switch t.mode {

@@ -18,6 +18,7 @@ import (
 
 	api "github.com/sittner/linuxcnc/src/gomc/generated/gmi/classicladder"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // registerAPI registers REST + WebSocket watch endpoints using generated dispatch code.
@@ -117,7 +118,14 @@ func (m *classicladder) SetVariable(varType int32, offset int32, value int32) (i
 	return 0, nil
 }
 
+// LoadProject loads a .clp project.  The path arrives over REST, so it is
+// resolved and contained by the shared rule (internal/pathres) rather than
+// opened as given.
 func (m *classicladder) LoadProject(path string) (int32, error) {
+	path, err := pathres.Resolve(path, pathres.Read)
+	if err != nil {
+		return -1, fmt.Errorf("classicladder: load_project: %w", err)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.modbus.stop()
@@ -129,7 +137,13 @@ func (m *classicladder) LoadProject(path string) (int32, error) {
 	return 0, nil
 }
 
+// SaveProject writes a .clp project.  This is a REST-reachable *write*, so the
+// target must resolve inside the allowed roots (internal/pathres).
 func (m *classicladder) SaveProject(path string) (int32, error) {
+	path, err := pathres.Resolve(path, pathres.Write)
+	if err != nil {
+		return -1, fmt.Errorf("classicladder: save_project: %w", err)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if err := m.saveCLPFile(path); err != nil {

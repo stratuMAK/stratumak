@@ -61,7 +61,6 @@ func TestComments(t *testing.T) {
 # This is a comment
 [SECTION]
 ; also a comment
-KEY = value ; inline semicolon comment
 KEY2 = value2 # inline hash comment
 KEY3 = #notacomment
 `)
@@ -70,15 +69,91 @@ KEY3 = #notacomment
 		t.Fatalf("Parse: %v", err)
 	}
 
-	if got := ini.Get("SECTION", "KEY"); got != "value" {
-		t.Errorf("KEY = %q, want %q", got, "value")
-	}
+	// A whitespace-preceded '#' starts an inline comment (matches the C
+	// parser's strtod tolerance for numeric values).
 	if got := ini.Get("SECTION", "KEY2"); got != "value2" {
 		t.Errorf("KEY2 = %q, want %q", got, "value2")
 	}
 	// '#' not preceded by whitespace is NOT a comment.
 	if got := ini.Get("SECTION", "KEY3"); got != "#notacomment" {
 		t.Errorf("KEY3 = %q, want %q", got, "#notacomment")
+	}
+}
+
+// A ';' is data, never an inline comment — matching the LinuxCNC C parser
+// (libnml/inifile), which only treats '#'/';' as a comment when it is the first
+// non-whitespace character of a line. Regression: an earlier version stripped
+// at the first ';', silently truncating every ';'-chained MDI_COMMAND.
+func TestSemicolonIsDataNotComment(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "semicolon.ini", `
+[HALUI]
+MDI_COMMAND = G0 Z25;X0 Y0;Z0
+MDI_COMMAND = G53 G0 Z0;G53 G0 X0 Y0
+[TEST]
+; this whole line is a comment
+KEEP = a;b;c
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	cmds := ini.GetAll("HALUI", "MDI_COMMAND")
+	want := []string{"G0 Z25;X0 Y0;Z0", "G53 G0 Z0;G53 G0 X0 Y0"}
+	if len(cmds) != len(want) {
+		t.Fatalf("MDI_COMMAND count = %d, want %d (%q)", len(cmds), len(want), cmds)
+	}
+	for i, w := range want {
+		if cmds[i] != w {
+			t.Errorf("MDI_COMMAND[%d] = %q, want %q", i, cmds[i], w)
+		}
+	}
+	if got := ini.Get("TEST", "KEEP"); got != "a;b;c" {
+		t.Errorf("KEEP = %q, want %q", got, "a;b;c")
+	}
+}
+
+// Backslash line-continuation joins physical lines into one logical value, as
+// the LinuxCNC C parser does (up to MAX_EXTEND_LINES). The backslash is removed
+// and no separator is inserted; leading whitespace on continuation lines is
+// preserved, so shipped patterns like "[DISPLAY] APP = sim_pin \<newline> arg"
+// read as one value.
+func TestBackslashLineContinuation(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "cont.ini", `
+[DISPLAY]
+APP = sim_pin \
+      axis.x.jog-counts \
+      axis.y.jog-counts
+PLAIN = nocontinuation
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := ini.Get("DISPLAY", "APP")
+	want := "sim_pin       axis.x.jog-counts       axis.y.jog-counts"
+	if got != want {
+		t.Errorf("APP = %q, want %q", got, want)
+	}
+	if got := ini.Get("DISPLAY", "PLAIN"); got != "nocontinuation" {
+		t.Errorf("PLAIN = %q, want %q", got, "nocontinuation")
+	}
+}
+
+// A backslash continuation that never terminates within maxExtendLines is an
+// error, matching the C parser's ERR_OVER_EXTENDED.
+func TestBackslashContinuationLimit(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("[S]\nK = start \\\n")
+	for i := 0; i < 25; i++ {
+		b.WriteString("more \\\n")
+	}
+	b.WriteString("end\n")
+	f := writeFile(t, dir, "toolong.ini", b.String())
+	if _, err := inifile.Parse(f); err == nil {
+		t.Fatal("expected error for too many backslash continuations, got nil")
 	}
 }
 
@@ -466,13 +541,14 @@ KEY3 = no comment here
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	// '#' preceded by space comes before ';', so truncate at '#'.
+	// A whitespace-preceded '#' starts a comment; the trailing ';' is part of
+	// the comment text, so the whole "#comment ; more" is dropped.
 	if got := ini.Get("S", "KEY1"); got != "value" {
 		t.Errorf("KEY1 = %q, want %q", got, "value")
 	}
-	// ';' with no whitespace-preceded '#' — truncate at ';'.
-	if got := ini.Get("S", "KEY2"); got != "value with" {
-		t.Errorf("KEY2 = %q, want %q", got, "value with")
+	// ';' is data, not a comment (matches the C parser) — value preserved.
+	if got := ini.Get("S", "KEY2"); got != "value with;semicolon" {
+		t.Errorf("KEY2 = %q, want %q", got, "value with;semicolon")
 	}
 	// No comment markers — value preserved as-is.
 	if got := ini.Get("S", "KEY3"); got != "no comment here" {

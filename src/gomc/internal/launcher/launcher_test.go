@@ -5,10 +5,12 @@ package launcher
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -45,6 +47,40 @@ func TestCleanup_IdempotentViaSyncOnce(t *testing.T) {
 
 	if callCount != 1 {
 		t.Errorf("fn called %d times, want 1", callCount)
+	}
+}
+
+// TestShutdown_ConcurrentSafe verifies that concurrent shutdown() calls close
+// shutdownCh exactly once without panicking. Several independent goroutines race
+// to trigger shutdown (the signal handler, the REST-server death watcher via
+// fail(), the halrun signal handler); the previous select/default check-then-
+// close would panic with "close of closed channel" when two fired at once. Run
+// under -race to exercise the window.
+func TestShutdown_ConcurrentSafe(t *testing.T) {
+	l := &Launcher{
+		logger:     slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		shutdownCh: make(chan struct{}),
+	}
+
+	const n = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			<-start // release all goroutines at once to maximize the race window
+			l.shutdown()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	// Channel must be closed (drainable) exactly once, no panic reached here.
+	select {
+	case <-l.shutdownCh:
+	default:
+		t.Fatal("shutdownCh not closed after shutdown()")
 	}
 }
 
@@ -120,8 +156,8 @@ MACHINE = Test
 
 	// Ensure DISPLAY is not set so we exercise the no-display error path.
 	origDisplay := os.Getenv("DISPLAY")
-	os.Unsetenv("DISPLAY")
-	defer func() { os.Setenv("DISPLAY", origDisplay) }()
+	_ = os.Unsetenv("DISPLAY")
+	defer func() { _ = os.Setenv("DISPLAY", origDisplay) }()
 
 	err := l.checkVersion()
 	if err == nil {
@@ -223,6 +259,27 @@ MACHINE = TestMachine
 	err := l.validateDependencies()
 	if err == nil {
 		t.Fatal("config without [HAL]HALFILE should be rejected")
+	}
+	if !strings.Contains(err.Error(), "HALFILE") {
+		t.Errorf("error should mention HALFILE, got: %v", err)
+	}
+}
+
+// TestValidateDependencies_NoINI covers the nil-INI receiver. `halrun -f` /
+// `gomc-server -f` never set l.ini, and pkg/inifile's methods dereference the
+// receiver immediately — so reading the INI directly here would segfault rather
+// than report a configuration error. Only Run() calls validateDependencies and
+// RunHalFile() does not, so this is defence in depth against a future caller,
+// not a live crash; it is pinned because the raw-l.ini form used to be exactly
+// the shape that produced the nil-INI crash class.
+func TestValidateDependencies_NoINI(t *testing.T) {
+	l := New(Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if l.ini != nil {
+		t.Fatal("a launcher built without an INI path should have no INI")
+	}
+	err := l.validateDependencies()
+	if err == nil {
+		t.Fatal("a launcher with no INI has no HALFILE and must be rejected")
 	}
 	if !strings.Contains(err.Error(), "HALFILE") {
 		t.Errorf("error should mention HALFILE, got: %v", err)

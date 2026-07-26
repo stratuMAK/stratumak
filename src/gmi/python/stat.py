@@ -1,11 +1,13 @@
 """gmi.stat — Drop-in replacement for linuxcnc.stat().
 
-Subscribes to the emcstat WebSocket watch channel and maintains a local
-cache of all stat fields. Attribute access (stat.task_mode) reads from
-the cache. poll() fetches a fresh snapshot synchronously over REST —
-classic linuxcnc.stat.poll() was a synchronous NML peek, and drivers
-rely on poll() observing the effect of a command they just sent; the
-WS cache alone can be up to rate_ms stale.
+poll() fetches a stat snapshot synchronously over REST and swaps it in
+wholesale; attribute access (stat.task_mode) reads from that snapshot.
+Attributes are therefore FROZEN between poll() calls, exactly like the
+classic NML peek (which memcpy'd EMC_STAT on poll): a multi-attribute
+predicate always observes one coherent snapshot. An earlier version kept
+a WebSocket watch mutating the cache live between polls — that made
+cross-attribute reads mix epochs (review finding GP-7) while adding
+nothing once poll() became a fresh GET, so it was removed.
 
 Usage:
     s = gmi.Stat()
@@ -15,19 +17,15 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import http.client
 import json
+import sys
 import threading
+import time
 import urllib.parse
 from typing import Any, Optional
 
-try:
-    import websockets
-except ImportError:
-    websockets = None
-
-from gmi import rest_url, ws_url
+from gmi import rest_url, resolve_instance
 
 
 class _ToolEntry:
@@ -131,6 +129,16 @@ class _ToolEntry:
         return self._fields[13]
 
 
+def _empty_tool_entry():
+    """An unoccupied tool table slot: 2.9's tooldata_entry_init, whose -1 tool
+    number is what distinguishes an empty slot from a real T0 entry."""
+    return _ToolEntry(toolno=-1)
+
+
+# Floor on how often a FAILED tool table fetch is retried (seconds).
+_TOOL_TABLE_RETRY_S = 1.0
+
+
 class Stat:
     """Drop-in replacement for linuxcnc.stat().
 
@@ -138,118 +146,71 @@ class Stat:
     All attributes from the stat struct are accessible as properties.
     """
 
-    def __init__(self, instance: str = "milltask"):
-        self._instance = instance
+    def __init__(self, instance: str = None,
+                 tooltable_instance: str = None):
+        self._instance = resolve_instance(instance)
+        # tool_table is read from the raw slot store, which is its own module
+        # instance (a multi-instance config binds each milltask to its own).
+        # Resolved lazily from GET /info on first use, not here: a driver is
+        # entitled to construct a Stat before the server is up and poll until it
+        # answers, and hardcoding a default here is what made every multi-
+        # instance config 404 on the tool table ten times a second.
+        self._tooltable_instance = tooltable_instance
+        self._tool_table_retry_after = 0.0
         self._data = {}
-        self._lock = threading.Lock()
-        self._connected = threading.Event()
-        self._loop = None
-        self._thread = None
-        self._ws = None
         self._poll_conn = None
         self._poll_lock = threading.Lock()
-        self._start_watch()
-
-    def _start_watch(self):
-        """Start background thread for WebSocket watch."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self._connected.wait(timeout=10)
-
-    def _run(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        # Liveness of the cached snapshot. poll() keeps the last data on a
+        # failed fetch (drivers loop through outages), so without this flag a
+        # consumer cannot tell a live reading from a frozen one — a UI would
+        # keep presenting a dead server's last state as current.
+        self._connected = False
+        self._announced_down = False
+        # Best-effort initial snapshot: consumers read attributes right after
+        # construction (classic stat() was usable immediately). A server that
+        # is not up yet is not an error here — drivers run their own
+        # poll-until-ready loops.
         try:
-            self._loop.run_until_complete(self._connect_and_subscribe())
-        except Exception as e:
-            import sys
-            print(f"gmi.Stat: WebSocket connect failed: {e}", file=sys.stderr)
-            self._connected.set()
-            return
-        self._connected.set()
-        self._loop.run_forever()
-        self._loop.close()
-
-    async def _connect_and_subscribe(self):
-        url = ws_url()
-        # Retry connection — REST server may not be ready yet.
-        for attempt in range(20):
-            try:
-                self._ws = await websockets.connect(url)
-                break
-            except (OSError, ConnectionRefusedError):
-                await asyncio.sleep(0.25)
-        else:
-            raise ConnectionError(f"gmi.Stat: could not connect to {url} after retries")
-        # Subscribe to emcstat.get_stat at 50ms
-        msg = {
-            "action": "subscribe",
-            "api": "emcstat",
-            "instance": self._instance,
-            "func": "get_stat",
-            "rate_ms": 50,
-        }
-        await self._ws.send(json.dumps(msg))
-        # Keep a strong reference: asyncio holds tasks only weakly, so an
-        # unreferenced recv task can be garbage-collected mid-flight — the
-        # socket stays open but nothing reads it and the cache silently
-        # freezes at the last-delivered snapshot (observed as a boot-era
-        # STATE_ESTOP surfacing mid-run in gmi.Stat).
-        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
-
-    async def _recv_loop(self):
-        try:
-            async for raw in self._ws:
-                msg = json.loads(raw)
-                if msg.get("type") == "update" and msg.get("func") == "get_stat":
-                    # Delta merge: server sends only changed keys after
-                    # the initial full snapshot.
-                    self._merge_update(msg.get("data", {}))
-                elif msg.get("type") == "error":
-                    import sys
-                    print(f"gmi.Stat: watch error: {msg}", file=sys.stderr)
-        except asyncio.CancelledError:
+            self._data = self._poll_fetch()
+            self._connected = True
+        except Exception:
             pass
-        except Exception as e:
-            import sys
-            print(f"gmi.Stat: recv error: {e}", file=sys.stderr)
 
-    def _merge_update(self, data):
-        """Merge a snapshot/delta into the cache, dropping out-of-order data.
+    @property
+    def connected(self) -> bool:
+        """True while the last poll() reached the server.
 
-        Both the WS watch thread and poll() write into the same cache. The
-        server bumps stat.heartbeat once per status build, so it is present
-        in every WS delta and every poll snapshot — use it to order them: a
-        WS delta sampled BEFORE a poll's fresh GET must not overwrite the
-        newer data when it arrives a moment after poll() returns (that
-        re-introduces exactly the stale-read window poll() exists to close).
-        The wrap guard keeps a server restart (heartbeat resets to 0) or an
-        i32 rollover from freezing the cache.
+        False means the cached snapshot is stale — the server is down, still
+        starting, or unreachable. A display must not present stale values as
+        the machine's state; see the AXIS offline handling.
         """
-        hb = data.get("heartbeat")
-        with self._lock:
-            if hb is not None:
-                last = self._data.get("heartbeat")
-                if last is not None and hb < last and (last - hb) < 2**30:
-                    return  # stale out-of-order update — drop it
-            self._data.update(data)
+        return self._connected
 
     def poll(self):
-        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll()).
-
-        The WS watch keeps the cache warm between polls, but a driver that
-        polls right after issuing a command must see that command's effect —
-        the push cache alone can serve a snapshot up to rate_ms stale. On
-        fetch failure the (possibly stale) cache is kept rather than raising:
-        drivers poll in loops and the watch channel still converges.
+        """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll())
+        and swap it in wholesale — attributes are frozen until the next poll.
+        On fetch failure the previous snapshot is kept rather than raising:
+        drivers poll in loops, and classic-style except-and-retry code keeps
+        working through a transient server outage. ``connected`` reports which
+        of the two you are looking at.
         """
         try:
             data = self._poll_fetch()
         except Exception as e:
-            import sys
-            print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
+            self._connected = False
+            # Report the transition, not every failed poll: a UI polling at
+            # 10 Hz through a 30 s restart wrote 300 identical lines, which
+            # buried the one message that mattered.
+            if not self._announced_down:
+                self._announced_down = True
+                print(f"gmi.Stat: poll failed ({e}), keeping cached data",
+                      file=sys.stderr)
             return
-        self._merge_update(data)
+        if self._announced_down:
+            self._announced_down = False
+            print("gmi.Stat: reconnected", file=sys.stderr)
+        self._connected = True
+        self._data = data
 
     def _poll_fetch(self):
         """GET the stat snapshot over a persistent keep-alive connection.
@@ -296,7 +257,7 @@ class Stat:
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
         "joint_actual_position", "rotation_xy",
         # Collections
-        "joints", "joint", "spindle", "axis",
+        "joints", "joint", "spindle", "spindles", "axis",
         "gcodes", "mcodes", "settings",
         "homed", "limit",
         # Scalars
@@ -310,6 +271,8 @@ class Stat:
         "estop", "interpreter_errcode", "lube_level",
         "probe_tripped", "probe_val", "probing",
         "joint_position", "ain", "aout", "din", "dout",
+        # Server identity / liveness
+        "boot_id", "preview_seq", "heartbeat", "connected",
         # Methods
         "poll", "stop",
     }
@@ -342,8 +305,9 @@ class Stat:
         if name.startswith("_"):
             raise AttributeError(name)
 
-        with self._lock:
-            data = self._data
+        # One reference read — the snapshot is replaced atomically by poll()
+        # and never mutated, so all lookups below see one coherent epoch.
+        data = self._data
 
         # Direct top-level fields (only for non-special names)
         if name not in self._SPECIAL_NAMES and name in data:
@@ -429,6 +393,10 @@ class Stat:
         if name == "joints":
             return data.get("joints_count", 0)
 
+        # spindles (count) — classic linuxcnc.stat().spindles
+        if name == "spindles":
+            return len(data.get("spindle") or [])
+
         # joint (array of dicts) — data["joints"]. Expose the classic
         # linuxcnc.stat() joint-dict keys: the only mismatch is the wire's
         # snake_case joint_type vs the classic camelCase jointType, so alias it.
@@ -464,10 +432,11 @@ class Stat:
         if name == "limit":
             return tuple(data.get("limit") or [0] * 16)
 
-        # tool_table — not available via NML stat (uses tooldata_get shared memory).
-        # Return a minimal stub so axis.py doesn't crash.
+        # tool_table — not part of the stat snapshot (2.9 read it straight out
+        # of the tooldata mmap on every access); fetched from the tool table
+        # service instead.
         if name == "tool_table":
-            return self._stub_tool_table()
+            return self._tool_table()
 
         # Remaining scalars — (json_key, default) so we never return None
         _SCALAR_MAP = {
@@ -494,33 +463,69 @@ class Stat:
 
         raise AttributeError(f"Stat has no attribute {name!r}")
 
-    def _stub_tool_table(self):
-        """Fetch tool table via REST API (cached).
+    def _tool_table(self):
+        """Fetch the tool table as a list indexed by SLOT (cached).
 
-        Returns a list indexed by mmap index, matching the linuxcnc
-        C extension's tool_table semantics. Index 0 is the spindle tool.
-        The REST API returns all entries in mmap index order.
+        This reproduces the C extension's Stat_tool_table exactly: a sequence
+        of 14-field entries subscripted by tooldata index, 0 through the
+        highest occupied slot inclusive, where index 0 is the spindle and
+        `stat.pocket_prepped` is an index into it. Unoccupied slots in the
+        middle are present and empty (toolno -1), because the list is an
+        array, not a set of the tools that happen to exist: axis.py reads
+        tool_table[0], touchy and gscreen read tool_table[pocket_prepped].
 
-        Cached: only re-fetches when tool_in_spindle changes.
+        Slot 0 always exists server-side, so the list is never empty and
+        tool_table[0] never raises — a config with no tools at all used to
+        return [] here and crash AXIS on startup (issue #272).
+
+        Cached: re-fetches when tool_in_spindle OR the applied tool offset
+        changes. The offset in the key catches tool touch-off (G10 L10/L11 +
+        G43), which edits the current tool's geometry without a tool change —
+        keyed on tool_in_spindle alone the display stayed stale until the
+        next M6 (finding GP-8; classic read the live mmap on every access).
         """
         data = self._data
-        current_tool_in_spindle = data.get("tool_in_spindle", 0)
+        current_key = (data.get("tool_in_spindle", 0),
+                       _pos_to_tuple(data.get("tool_offset", {})))
         if (hasattr(self, '_tool_table_cache') and
-                self._tool_table_last_spindle == current_tool_in_spindle):
+                self._tool_table_key == current_key):
             return self._tool_table_cache
 
-        try:
-            from gmi.tools import ToolTable
-            tt = ToolTable()
-            tools = tt.list()
-        except Exception:
-            return getattr(self, '_tool_table_cache', [_ToolEntry()] * 56)
+        # A failed fetch is not cached (the table must not freeze on a transient
+        # blip), so without a floor on the retry interval every read reaches the
+        # server: axis.py reads tool_table[0] once per display cycle, which
+        # turned one wrong instance name into ten failed requests a second.
+        if time.monotonic() < self._tool_table_retry_after:
+            return getattr(self, '_tool_table_cache', [_empty_tool_entry()])
 
-        # The REST API returns entries in mmap index order.
-        # Index 0 = spindle slot, same as the original C extension.
-        result = [_ToolEntry.from_dict(t) for t in tools]
+        try:
+            from gmi.tools import ToolSlots
+            if self._tooltable_instance is None:
+                import gmi
+                self._tooltable_instance = gmi.tooltable_instance()
+            slots = ToolSlots(self._tooltable_instance).list()
+        except Exception:
+            # A failed fetch must still hand back a subscriptable table: an
+            # exception here is a display glitch, an IndexError in the caller
+            # is a dead GUI.
+            self._tool_table_retry_after = time.monotonic() + _TOOL_TABLE_RETRY_S
+            return getattr(self, '_tool_table_cache', [_empty_tool_entry()])
+
+        by_idx = {}
+        for slot in slots:
+            try:
+                idx = int(slot.get("idx", -1))
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0:
+                by_idx[idx] = slot
+        # Slot 0 exists server-side; falling back to 0 keeps the list
+        # subscriptable even if a future store ever answers without it.
+        last = max(by_idx) if by_idx else 0
+        result = [_ToolEntry.from_dict(by_idx[i]) if i in by_idx else _empty_tool_entry()
+                  for i in range(last + 1)]
         self._tool_table_cache = result
-        self._tool_table_last_spindle = current_tool_in_spindle
+        self._tool_table_key = current_key
         return result
 
     def invalidate_tool_table(self):
@@ -529,11 +534,12 @@ class Stat:
             del self._tool_table_cache
 
     def stop(self):
-        """Stop the background WebSocket thread."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=2)
+        """Release the keep-alive poll connection (kept for API compat with
+        the earlier WebSocket-backed Stat; there is no background thread)."""
+        with self._poll_lock:
+            if self._poll_conn is not None:
+                self._poll_conn.close()
+                self._poll_conn = None
 
 
 def _pos_to_tuple(pos):
@@ -657,5 +663,20 @@ class MachineUnitsStat:
                         ac[k] = ac[k] * f
                 out.append(ac)
             return tuple(out)
+
+        if name == "tool_table":
+            # REST tool entries are mm (server contract); classic tool_table
+            # was machine units. Convert the linear fields — XYZ/UVW offsets
+            # (indices 1-3, 7-9) and diameter (10) by lin, ABC offsets (4-6)
+            # by ang; toolno/front/backangle/orientation pass through.
+            out = []
+            for e in value:
+                f = list(e._fields)
+                for i in (1, 2, 3, 7, 8, 9, 10):
+                    f[i] = f[i] * lin
+                for i in (4, 5, 6):
+                    f[i] = f[i] * ang
+                out.append(_ToolEntry(*f))
+            return out
 
         return value

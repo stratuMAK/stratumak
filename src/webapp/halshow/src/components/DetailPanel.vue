@@ -6,34 +6,36 @@ import type { PinInfo, ParamInfo, SignalInfo } from '../generated/halcmd_client'
 const editValue = ref('');
 const editing = ref(false);
 const setResult = ref('');
+// H-1: target captured at dialog-open time — the tree stays clickable under
+// the overlay, so the selection may change while the dialog is up.
+const editName = ref('');
+const editKind = ref<'pin' | 'param' | 'signal'>('pin');
 
-function startEdit(value: string) {
+function startEdit(name: string, kind: 'pin' | 'param' | 'signal', value: string) {
+  editName.value = name;
+  editKind.value = kind;
   editValue.value = value;
   editing.value = true;
   setResult.value = '';
 }
 
 async function submitValue() {
-  const item = halshowStore.state.selectedItem;
-  const kind = halshowStore.state.selectedItemKind;
-  if (!item || !kind) return;
+  if (!editName.value) return;
 
-  let itemKind: 'pin' | 'param' | 'signal';
-  if (kind === 'pins') itemKind = 'pin';
-  else if (kind === 'params') itemKind = 'param';
-  else if (kind === 'signals') itemKind = 'signal';
-  else return;
-
-  const result = await halshowStore.setValue(item.name, editValue.value, itemKind);
-  if (result.success) {
-    setResult.value = 'OK';
-    editing.value = false;
-    // Re-fetch to update displayed value
-    if (halshowStore.state.selectedNode) {
-      halshowStore.selectNode(halshowStore.state.selectedNode);
+  try {
+    const result = await halshowStore.setValue(editName.value, editValue.value, editKind.value);
+    if (result.success) {
+      setResult.value = 'OK';
+      editing.value = false;
+      // Re-fetch to update displayed value
+      if (halshowStore.state.selectedNode) {
+        halshowStore.selectNode(halshowStore.state.selectedNode);
+      }
+    } else {
+      setResult.value = result.error ?? 'Failed';
     }
-  } else {
-    setResult.value = result.error ?? 'Failed';
+  } catch (e) {
+    setResult.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -45,23 +47,40 @@ function cancelEdit() {
 async function doUnlink() {
   const item = halshowStore.state.selectedItem as PinInfo;
   if (!item) return;
-  const result = await halshowStore.unlinkPin(item.name);
-  setResult.value = result.success ? 'Unlinked' : (result.error ?? 'Failed');
-  if (result.success && halshowStore.state.selectedNode) {
-    halshowStore.selectNode(halshowStore.state.selectedNode);
+  try {
+    const result = await halshowStore.unlinkPin(item.name);
+    setResult.value = result.success ? 'Unlinked' : (result.error ?? 'Failed');
+    if (result.success && halshowStore.state.selectedNode) {
+      halshowStore.selectNode(halshowStore.state.selectedNode);
+    }
+  } catch (e) {
+    setResult.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+// H-9: derive the watch kind from the detail panel's own category — watch
+// entries are (name, kind) tuples.
+function itemWatchKind(): 'pin' | 'param' | 'signal' | null {
+  switch (halshowStore.state.selectedItemKind) {
+    case 'pins': return 'pin';
+    case 'params': return 'param';
+    case 'signals': return 'signal';
+    default: return null;
   }
 }
 
 function addToWatch() {
   const item = halshowStore.state.selectedItem;
-  if (item) {
-    halshowStore.addToWatch(item.name);
+  const kind = itemWatchKind();
+  if (item && kind) {
+    halshowStore.addToWatch(item.name, kind);
   }
 }
 
 function isItemWatched(): boolean {
   const item = halshowStore.state.selectedItem;
-  return item ? halshowStore.isWatched(item.name) : false;
+  const kind = itemWatchKind();
+  return item && kind ? halshowStore.isWatched(item.name, kind) : false;
 }
 </script>
 
@@ -86,7 +105,7 @@ function isItemWatched(): boolean {
         <tr v-if="(halshowStore.state.selectedItem as PinInfo).alias"><td class="label">Alias</td><td class="value mono">{{ (halshowStore.state.selectedItem as PinInfo).alias }}</td></tr>
       </table>
       <div class="actions">
-        <button @click="startEdit((halshowStore.state.selectedItem as PinInfo).value)">Set Value</button>
+        <button @click="startEdit((halshowStore.state.selectedItem as PinInfo).name, 'pin', (halshowStore.state.selectedItem as PinInfo).value)">Set Value</button>
         <button v-if="(halshowStore.state.selectedItem as PinInfo).linked" @click="doUnlink">Unlink</button>
         <button :class="{ watched: isItemWatched() }" @click="addToWatch">{{ isItemWatched() ? '✓ Watched' : '+ Watch' }}</button>
       </div>
@@ -103,7 +122,7 @@ function isItemWatched(): boolean {
         <tr><td class="label">Owner</td><td class="value">{{ (halshowStore.state.selectedItem as ParamInfo).owner }}</td></tr>
       </table>
       <div class="actions">
-        <button v-if="(halshowStore.state.selectedItem as ParamInfo).dir === 'RW'" @click="startEdit((halshowStore.state.selectedItem as ParamInfo).value)">Set Value</button>
+        <button v-if="(halshowStore.state.selectedItem as ParamInfo).dir === 'RW'" @click="startEdit((halshowStore.state.selectedItem as ParamInfo).name, 'param', (halshowStore.state.selectedItem as ParamInfo).value)">Set Value</button>
         <button :class="{ watched: isItemWatched() }" @click="addToWatch">{{ isItemWatched() ? '✓ Watched' : '+ Watch' }}</button>
       </div>
     </template>
@@ -129,7 +148,7 @@ function isItemWatched(): boolean {
         </tr>
       </table>
       <div class="actions">
-        <button @click="startEdit((halshowStore.state.selectedItem as SignalInfo).value)">Set Value</button>
+        <button @click="startEdit((halshowStore.state.selectedItem as SignalInfo).name, 'signal', (halshowStore.state.selectedItem as SignalInfo).value)">Set Value</button>
         <button :class="{ watched: isItemWatched() }" @click="addToWatch">{{ isItemWatched() ? '✓ Watched' : '+ Watch' }}</button>
       </div>
     </template>
@@ -175,6 +194,7 @@ function isItemWatched(): boolean {
     <!-- Set Value dialog -->
     <div v-if="editing" class="edit-overlay">
       <div class="edit-box">
+        <div class="edit-title">Set {{ editName }}</div>
         <label>New value:</label>
         <input
           v-model="editValue"
@@ -288,6 +308,15 @@ function isItemWatched(): boolean {
   border-radius: 4px;
   padding: 12px;
   min-width: 250px;
+}
+
+.edit-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4af;
+  margin-bottom: 8px;
+  font-family: monospace;
+  word-break: break-all;
 }
 
 .edit-box label {

@@ -74,6 +74,40 @@ func (g *generator) printf(format string, args ...interface{}) {
 // toC converts a HAL-style name to a valid C identifier.
 // Strips # characters and adjacent separators, replaces -, . with _,
 // collapses multiple _.
+// cStringLiteral renders s as a C string literal, including the surrounding
+// quotes, with backslash/quote/control characters escaped. The comp scanner
+// unescapes string literals, so a modparam default like `"c:\\ttyS0"` reaches
+// cgen as the byte string `c:\ttyS0`; emitting it verbatim between quotes would
+// re-interpret `\t` as a tab (silent corruption) or, for an embedded quote,
+// produce uncompilable C. This re-escapes it faithfully before emission.
+func cStringLiteral(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if c < 0x20 || c == 0x7f {
+				fmt.Fprintf(&b, `\%03o`, c)
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 func toC(halName string) string {
 	// Strip runs of # and their adjacent separators.
 	s := stripHashMarkers(halName)
@@ -169,23 +203,6 @@ func toHALFmt(halName string) string {
 // HAL type/direction helpers
 // ---------------------------------------------------------------------------
 
-func halTypeEnum(t ast.HALType) string {
-	switch t {
-	case ast.HALBit:
-		return "GOMC_HAL_BIT"
-	case ast.HALFloat:
-		return "GOMC_HAL_FLOAT"
-	case ast.HALS32:
-		return "GOMC_HAL_S32"
-	case ast.HALU32:
-		return "GOMC_HAL_U32"
-	case ast.HALPort:
-		return "GOMC_HAL_PORT"
-	default:
-		return "GOMC_HAL_BIT"
-	}
-}
-
 func pinDirEnum(d ast.PinDir) string {
 	switch d {
 	case ast.PinIn:
@@ -262,16 +279,6 @@ func (g *generator) hasPersonality() bool {
 
 func (g *generator) isUserspace() bool {
 	return g.comp.Options["userspace"] != ""
-}
-
-func (g *generator) stringModparams() []ast.Modparam {
-	var result []ast.Modparam
-	for _, mp := range g.comp.Modparams {
-		if mp.Type == "string" {
-			result = append(result, mp)
-		}
-	}
-	return result
 }
 
 func (g *generator) hasExtraSetup() bool {
@@ -850,7 +857,7 @@ func (g *generator) emitNew() {
 			// String modparam: store pointer to argv (arena-managed).
 			g.printf("    inst->_mp_%s = ", mp.Name)
 			if mp.Default != "" {
-				g.printf("\"%s\";\n", mp.Default)
+				g.printf("%s;\n", cStringLiteral(mp.Default))
 			} else {
 				g.printf("NULL;\n")
 			}
@@ -985,7 +992,19 @@ func (g *generator) emitNew() {
 		g.printf("    if (inst->exit_fd >= 0) close(inst->exit_fd);\n")
 	}
 	g.printf("    env->hal->exit(env->hal->ctx, inst->comp_id);\n")
+	// The `_data` block is calloc'd before extra_setup/pins/params, so any
+	// failure after that point reaches err: with it live. inst_destroy frees it,
+	// but this path bypasses destroy — free it here too (mirroring inst_destroy),
+	// otherwise every failed load of an `option data` comp leaks the block.
+	if _, ok := g.comp.Options["data"]; ok {
+		g.printf("    if (inst->_data) env->rtapi->free(env->rtapi->ctx, inst->_data);\n")
+	}
 	g.printf("    env->rtapi->free(env->rtapi->ctx, inst);\n")
+	// Note: r is intentionally NOT propagated here (return -1, a defined generic
+	// failure). r is declared uninitialized and several goto-err paths (malloc,
+	// eventfd, personality bounds after a prior successful r=0) do not set it, so
+	// `return r` could return garbage or a false 0/success. The specific errno is
+	// genericized — a documented, low-severity divergence from halcompile.
 	g.printf("    return -1;\n")
 	g.printf("}\n")
 }
@@ -1105,6 +1124,13 @@ func (g *generator) emitParamCreation(param ast.Param) {
 		g.printf("                &inst->hal->%s[j], inst->comp_id,\n", cName)
 		g.printf("                \"%%s.%s\", name, j);\n", halFmt)
 		g.printf("        if (r != 0) goto err;\n")
+		// Per-element default for array params (halcompile emits this inside the
+		// loop too — `inst->NAME[j] = value;`). Params are stored by value, so no
+		// dereference (unlike the array-pin path). Without this, an array param
+		// with a `= <default>` was left memset-0.
+		if param.Default != "" {
+			g.printf("        inst->hal->%s[j] = %s;\n", cName, param.Default)
+		}
 		g.printf("    }\n")
 		if param.Personality != "" {
 			g.printf("%s", closeCond)
@@ -1137,7 +1163,11 @@ func (g *generator) emitFunctionExport(fn ast.Function) {
 	if fn.Name == "_" {
 		g.printf("        snprintf(fname, sizeof(fname), \"%%s\", name);\n")
 	} else {
-		g.printf("        snprintf(fname, sizeof(fname), \"%%s.%s\", name);\n", fn.Name)
+		// HAL-namespace names use hyphens: halcompile runs function names through
+		// to_hal (underscore→hyphen) just like pin/param names, so `function
+		// read_all;` exports `comp.read-all`. Apply the same transform (gomc had
+		// been emitting fn.Name raw, diverging from its own hyphenated pins).
+		g.printf("        snprintf(fname, sizeof(fname), \"%%s.%s\", name);\n", toHALFmt(fn.Name))
 	}
 	g.printf("        r = env->hal->export_funct(env->hal->ctx, fname,\n")
 	g.printf("                %s, inst, %d, 0, inst->comp_id);\n", cName, fp)

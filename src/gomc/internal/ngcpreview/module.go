@@ -31,8 +31,12 @@ static int preview_param_restore(void *ctx, double parameters[INTERP_PARAM_MAX])
     int k;
     for (k = 0; k < INTERP_PARAM_MAX; k++)
         parameters[k] = 0;
-    persist_get_entries_result_t res = pctx->persist->get_entries(
-        pctx->persist->ctx, pctx->handle);
+    if (!pctx->persist)
+        return 0;   // no persist service — empty parameter set
+    persist_entry_slice_t res;
+    memset(&res, 0, sizeof(res));
+    if (pctx->persist->get_entries(pctx->persist->ctx, pctx->handle, &res) != 0)
+        return -1;   // storage failure — no longer indistinguishable from "empty"
     if (res.data == NULL)
         return 0;
     for (size_t i = 0; i < res.len; i++) {
@@ -56,8 +60,22 @@ static int preview_param_save_noop(void *ctx, const double parameters[INTERP_PAR
 static interp_param_io_t preview_param_io_persist_create(const persist_callbacks_t *persist) {
     preview_param_io_ctx_t *pctx = (preview_param_io_ctx_t *)malloc(sizeof(preview_param_io_ctx_t));
     pctx->persist = persist;
-    persist_open_result_t open_res = persist->open(persist->ctx, "ngc_vars");
-    pctx->handle = open_res.handle;
+    if (!persist) {
+        // No persist service (tests / degraded start): all params read as 0.
+        pctx->handle = -1;
+        interp_param_io_t io0;
+        memset(&io0, 0, sizeof(io0));
+        io0.restore = preview_param_restore;
+        io0.save = preview_param_save_noop;
+        io0.ctx = pctx;
+        return io0;
+    }
+    persist_open_result_t open_res;
+    memset(&open_res, 0, sizeof(open_res));
+    if (persist->open(persist->ctx, "ngc_vars", &open_res) != 0)
+        pctx->handle = -1;   // invalid: later calls fail instead of hitting handle 0
+    else
+        pctx->handle = open_res.handle;
     interp_param_io_t io;
     memset(&io, 0, sizeof(io));
     io.restore = preview_param_restore;
@@ -93,6 +111,12 @@ typedef struct {
     int tc_count;
     int tc_cap;
     struct preview_tool_change *tool_changes;
+
+    // Hard segment limit (0 = unlimited) and truncation flag: set when the
+    // limit is hit OR a realloc fails — the driver loop must stop and report
+    // a truncated preview instead of growing without bound (finding N-4).
+    int seg_limit;
+    int truncated;
 
     // Current position in display units (inches) for segment starts
     double pos[9];
@@ -170,34 +194,57 @@ typedef struct preview_tool_change {
     int tool_no;
 } preview_tool_change_t;
 
-static void ctx_ensure_seg_cap(preview_ctx_t *ctx) {
+// Cap growers return 1 when a slot is available. On the segment limit or a
+// realloc failure they set ctx->truncated and return 0 — the old buffer stays
+// valid (never assign realloc's result before the NULL check).
+static int ctx_ensure_seg_cap(preview_ctx_t *ctx) {
+    if (ctx->truncated) return 0;
+    if (ctx->seg_limit > 0 && ctx->seg_count >= ctx->seg_limit) {
+        ctx->truncated = 1;
+        return 0;
+    }
     if (ctx->seg_count >= ctx->seg_cap) {
         int newcap = ctx->seg_cap == 0 ? 1024 : ctx->seg_cap * 2;
-        ctx->segments = (preview_segment_t*)realloc(ctx->segments,
+        preview_segment_t *p = (preview_segment_t*)realloc(ctx->segments,
             newcap * sizeof(preview_segment_t));
+        if (!p) { ctx->truncated = 1; return 0; }
+        ctx->segments = p;
         ctx->seg_cap = newcap;
     }
+    return 1;
 }
 
-static void ctx_ensure_dwell_cap(preview_ctx_t *ctx) {
+static int ctx_ensure_dwell_cap(preview_ctx_t *ctx) {
+    if (ctx->truncated) return 0;
     if (ctx->dwell_count >= ctx->dwell_cap) {
         int newcap = ctx->dwell_cap == 0 ? 64 : ctx->dwell_cap * 2;
-        ctx->dwells = (preview_dwell_t*)realloc(ctx->dwells,
+        preview_dwell_t *p = (preview_dwell_t*)realloc(ctx->dwells,
             newcap * sizeof(preview_dwell_t));
+        if (!p) { ctx->truncated = 1; return 0; }
+        ctx->dwells = p;
         ctx->dwell_cap = newcap;
     }
+    return 1;
 }
 
-static void ctx_ensure_tc_cap(preview_ctx_t *ctx) {
+static int ctx_ensure_tc_cap(preview_ctx_t *ctx) {
+    if (ctx->truncated) return 0;
     if (ctx->tc_count >= ctx->tc_cap) {
         int newcap = ctx->tc_cap == 0 ? 16 : ctx->tc_cap * 2;
-        ctx->tool_changes = (preview_tool_change_t*)realloc(ctx->tool_changes,
+        preview_tool_change_t *p = (preview_tool_change_t*)realloc(ctx->tool_changes,
             newcap * sizeof(preview_tool_change_t));
+        if (!p) { ctx->truncated = 1; return 0; }
+        ctx->tool_changes = p;
         ctx->tc_cap = newcap;
     }
+    return 1;
 }
 
-static void add_segment(preview_ctx_t *ctx, int type,
+// Returns 1 when a segment was recorded, 0 when recording is truncated.
+// Position tracking (prog_pos / pos) is updated either way so the
+// interpreter's position feedback stays consistent while the driver loop
+// winds down.
+static int add_segment(preview_ctx_t *ctx, int type,
     double x, double y, double z, double a, double b, double c,
     double u, double v, double w) {
     // Store program-unit position for get_external_position_* (interpreter feedback)
@@ -212,21 +259,24 @@ static void add_segment(preview_ctx_t *ctx, int type,
         x /= 25.4; y /= 25.4; z /= 25.4;
         u /= 25.4; v /= 25.4; w /= 25.4;
     }
-    ctx_ensure_seg_cap(ctx);
-    preview_segment_t *s = &ctx->segments[ctx->seg_count++];
-    memset(s, 0, sizeof(*s));
-    s->type = type;
-    s->line_no = ctx->line_no;
-    memcpy(s->start, ctx->pos, sizeof(s->start));
-    s->end[0] = x; s->end[1] = y; s->end[2] = z;
-    s->end[3] = a; s->end[4] = b; s->end[5] = c;
-    s->end[6] = u; s->end[7] = v; s->end[8] = w;
-    s->feedrate = ctx->feedrate;
-    memcpy(s->tool_offset, ctx->tool_offset, sizeof(s->tool_offset));
+    int recorded = ctx_ensure_seg_cap(ctx);
+    if (recorded) {
+        preview_segment_t *s = &ctx->segments[ctx->seg_count++];
+        memset(s, 0, sizeof(*s));
+        s->type = type;
+        s->line_no = ctx->line_no;
+        memcpy(s->start, ctx->pos, sizeof(s->start));
+        s->end[0] = x; s->end[1] = y; s->end[2] = z;
+        s->end[3] = a; s->end[4] = b; s->end[5] = c;
+        s->end[6] = u; s->end[7] = v; s->end[8] = w;
+        s->feedrate = ctx->feedrate;
+        memcpy(s->tool_offset, ctx->tool_offset, sizeof(s->tool_offset));
+    }
     // Update current position (in inches — AXIS internal unit)
     ctx->pos[0] = x; ctx->pos[1] = y; ctx->pos[2] = z;
     ctx->pos[3] = a; ctx->pos[4] = b; ctx->pos[5] = c;
     ctx->pos[6] = u; ctx->pos[7] = v; ctx->pos[8] = w;
+    return recorded;
 }
 
 // --- Canon callback implementations ---
@@ -273,7 +323,8 @@ static void pc_arc_feed(void *vctx, int32_t ln,
         x = first_end; y = second_end; z = axis_end_point;
         break;
     }
-    add_segment(ctx, 3, x, y, z, a, b, c, u, v, w);
+    if (!add_segment(ctx, 3, x, y, z, a, b, c, u, v, w))
+        return; // truncated — never touch segments[seg_count-1] (may be empty)
     // Store in-plane arc center and rotation on the last-added segment.
     // center_x = first_axis (in-plane), center_y = second_axis (in-plane).
     preview_segment_t *s = &ctx->segments[ctx->seg_count - 1];
@@ -307,7 +358,7 @@ static void pc_use_length_units(void *vctx, int32_t units) {
 
 static void pc_dwell(void *vctx, double seconds) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
-    ctx_ensure_dwell_cap(ctx);
+    if (!ctx_ensure_dwell_cap(ctx)) return;
     preview_dwell_t *d = &ctx->dwells[ctx->dwell_count++];
     d->line_no = ctx->line_no;
     memcpy(d->pos, ctx->pos, sizeof(d->pos));
@@ -317,7 +368,7 @@ static void pc_dwell(void *vctx, double seconds) {
 
 static void pc_change_tool(void *vctx, int32_t slot) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
-    ctx_ensure_tc_cap(ctx);
+    if (!ctx_ensure_tc_cap(ctx)) return;
     preview_tool_change_t *tc = &ctx->tool_changes[ctx->tc_count++];
     tc->line_no = ctx->line_no;
     tc->tool_no = slot;
@@ -415,19 +466,21 @@ static void pc_get_offsets(void *ctx, double off[9]) {
     (void)ctx;
 }
 
-static int32_t pc_get_tool_table(void *vctx, int32_t pocket,
-    int32_t *toolno, double offset[9], double *diameter,
+static int32_t pc_get_tool_table(void *vctx, int32_t idx,
+    int32_t *toolno, int32_t *pocketno, double offset[9], double *diameter,
     double *frontangle, double *backangle, int32_t *orientation) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
-    if (pocket >= 0 && pocket < CANON_POCKETS_MAX) {
-        *toolno = ctx->tools[pocket].toolno;
-        memcpy(offset, ctx->tools[pocket].offset, 9 * sizeof(double));
-        *diameter = ctx->tools[pocket].diameter;
-        *frontangle = ctx->tools[pocket].frontangle;
-        *backangle = ctx->tools[pocket].backangle;
-        *orientation = ctx->tools[pocket].orientation;
+    if (idx >= 0 && idx < CANON_POCKETS_MAX) {
+        *toolno = ctx->tools[idx].toolno;
+        *pocketno = ctx->tools[idx].pocketno;
+        memcpy(offset, ctx->tools[idx].offset, 9 * sizeof(double));
+        *diameter = ctx->tools[idx].diameter;
+        *frontangle = ctx->tools[idx].frontangle;
+        *backangle = ctx->tools[idx].backangle;
+        *orientation = ctx->tools[idx].orientation;
     } else {
         *toolno = 0;
+        *pocketno = 0;
         memset(offset, 0, 9 * sizeof(double));
         *diameter = 0; *frontangle = 0; *backangle = 0; *orientation = 0;
     }
@@ -435,12 +488,15 @@ static int32_t pc_get_tool_table(void *vctx, int32_t pocket,
 }
 
 static int32_t pc_get_tool_by_number(void *vctx, int32_t toolno,
-    int32_t *pocket, double offset[9], double *diameter,
+    int32_t *idx_out, int32_t *pocketno, double offset[9], double *diameter,
     double *frontangle, double *backangle, int32_t *orientation) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
+    // Slot 0 is the spindle's copy of a loaded tool, so it must lose to the
+    // tool's own slot — same rule as tooldata_find_index_for_tool.
     for (int i = 1; i < CANON_POCKETS_MAX; i++) {
         if (ctx->tools[i].toolno == toolno) {
-            *pocket = ctx->tools[i].pocketno;
+            *idx_out = i;
+            *pocketno = ctx->tools[i].pocketno;
             memcpy(offset, ctx->tools[i].offset, 9 * sizeof(double));
             *diameter = ctx->tools[i].diameter;
             *frontangle = ctx->tools[i].frontangle;
@@ -452,12 +508,17 @@ static int32_t pc_get_tool_by_number(void *vctx, int32_t toolno,
     return -1;  // not found
 }
 
+// ctx_set_tool fills one tool table SLOT. idx is the slot (== the interp's
+// tool_table[] subscript, 0 = spindle); pocketno is the tool's carousel
+// pocket, which is a different number on a non-random toolchanger and must
+// not be inferred from the slot.
 static void ctx_set_tool(preview_ctx_t *ctx, int32_t pocket, int32_t toolno,
+    int32_t pocketno,
     double *offset, double diameter, double frontangle, double backangle,
     int32_t orientation) {
     if (pocket < 0 || pocket >= CANON_POCKETS_MAX) return;
     ctx->tools[pocket].toolno = toolno;
-    ctx->tools[pocket].pocketno = pocket;
+    ctx->tools[pocket].pocketno = pocketno;
     memcpy(ctx->tools[pocket].offset, offset, 9 * sizeof(double));
     ctx->tools[pocket].diameter = diameter;
     ctx->tools[pocket].frontangle = frontangle;
@@ -608,7 +669,8 @@ static canon_callbacks_t make_preview_canon(preview_ctx_t *ctx) {
     cb.use_tool_length_offset = pc_use_tool_length_offset;
     cb.update_end_point = pc_update_end_point;
 
-    // Coordinate/state setters — no-ops for preview
+    // Coordinate/state setters — recorders (the ctx keeps the last value
+    // for the PreviewResult's offset/rotation/plane fields)
     cb.set_g5x_offset = pc_set_g5x_offset;
     cb.set_g92_offset = pc_set_g92_offset;
     cb.set_xy_rotation = pc_set_xy_rotation;
@@ -778,12 +840,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ngcpreview"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
-	"github.com/sittner/linuxcnc/src/gomc/internal/config"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -799,10 +863,33 @@ type ngcPreview struct {
 	linearUnits         float64 // from [TRAJ]LINEAR_UNITS: 1.0 for mm, 1/25.4 for inch
 	ttInstanceName      string  // tooltable instance to look up (default "tooltable")
 	ttClient            *tooltable.TooltableClient
-	persistInstanceName string         // persist instance name (default "persistence")
-	allowedDirs         []string       // resolved absolute paths where get_file may read
-	persistCbs          unsafe.Pointer // persist_callbacks_t* for read-only param I/O
+	persistInstanceName string           // persist instance name (default "persistence")
+	allowedDirs         []string         // resolved absolute paths where get_file may read
+	persistCbs          unsafe.Pointer   // persist_callbacks_t* for read-only param I/O
+	ini                 *inifile.IniFile // namespace view; nil in INI-less launcher
+	timeout             time.Duration    // wall-clock bound per preview run
+	segLimit            int              // segment cap (tests lower it; 0 = default)
+
+	// One interpreter run at a time: Interp has static state (prior finding
+	// NGC1), and each unserialized run is an independent unbounded interp
+	// (finding N-4). Guards GenPreview and EvalExpression.
+	interpMu sync.Mutex
 }
+
+const (
+	// Hard cap on recorded preview segments (finding N-4): an endless O-word
+	// loop with motion must truncate the preview, not OOM the controller
+	// process. Classic AXIS ran the same loop in the GUI process where the
+	// blast radius was the GUI.
+	previewMaxSegments = 1_000_000
+	// Default wall-clock bound per preview run; [DISPLAY]PREVIEW_TIMEOUT
+	// (seconds) overrides. Bounds motion-less endless loops that the segment
+	// cap never catches.
+	previewDefaultTimeout = 60 * time.Second
+	// GetFile refuses files larger than this (finding N-12) — the result is
+	// JSON-encoded into memory line-by-line.
+	getFileMaxBytes = 64 << 20
+)
 
 func parseLinearUnits(s string) float64 {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -832,13 +919,33 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 			persistInst = strings.TrimPrefix(arg, "persist_instance=")
 		}
 	}
-	nsIni := ini.WithNamespace(ns)
-	linearUnits := parseLinearUnits(nsIni.Get("TRAJ", "LINEAR_UNITS"))
-	// Build allowed directories for get_file path restriction
-	iniDir := filepath.Dir(ini.SourceFile())
-	allowedDirs := collectAllowedDirs(nsIni, iniDir)
-	m := &ngcPreview{logger: logger, name: name, linearUnits: linearUnits, ttInstanceName: ttInst, persistInstanceName: persistInst, allowedDirs: allowedDirs}
-	ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m)
+	// ini is nil in an INI-less launcher (halrun mode): keep the default units
+	// and let collectAllowedDirs fall back to the system share dir only — a
+	// narrower allow-list, never a wider one.
+	var nsIni *inifile.IniFile
+	linearUnits := parseLinearUnits("")
+	iniDir := "."
+	if ini != nil {
+		nsIni = ini.WithNamespace(ns)
+		linearUnits = parseLinearUnits(nsIni.Get("TRAJ", "LINEAR_UNITS"))
+		iniDir = filepath.Dir(ini.SourceFile())
+	}
+	// Allowed G-code directories for the get_file/gen_preview path restriction.
+	var iniGet func(string, string) string
+	if nsIni != nil {
+		iniGet = nsIni.Get
+	}
+	allowedDirs := pathres.ProgramDirs(iniGet, iniDir)
+	timeout := previewDefaultTimeout
+	if nsIni != nil {
+		if v, err := strconv.ParseFloat(strings.TrimSpace(nsIni.Get("DISPLAY", "PREVIEW_TIMEOUT")), 64); err == nil && v > 0 {
+			timeout = time.Duration(v * float64(time.Second))
+		}
+	}
+	m := &ngcPreview{logger: logger, name: name, linearUnits: linearUnits, ttInstanceName: ttInst, persistInstanceName: persistInst, allowedDirs: allowedDirs, ini: nsIni, timeout: timeout}
+	if err := ngcpreview.RegisterNgcpreviewAPI(apiserver.DefaultRegistry(), name, m); err != nil {
+		return nil, fmt.Errorf("ngcpreview: register API: %w", err)
+	}
 	logger.Info("ngcpreview module loaded and API registered", "instance", name)
 	return m, nil
 }
@@ -846,7 +953,7 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 func (m *ngcPreview) Start() error {
 	// Look up tooltable API for tool data during preview generation.
 	reg := apiserver.DefaultRegistry()
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 1)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 2)
 	if err != nil {
 		m.logger.Warn("ngcpreview: tooltable API not available, tool data will be empty", "err", err)
 	} else {
@@ -881,6 +988,23 @@ func shimErrorText(h *C.interp_handle_t, rc C.int) string {
 
 // GenPreview implements ngcpreview.NgcpreviewCallbacks.
 func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode string) (*ngcpreview.PreviewResult, error) {
+	m.interpMu.Lock()
+	defer m.interpMu.Unlock()
+
+	// Containment first (finding N-1): gen_preview hands the path to the C
+	// interpreter's fopen — it must pass the same program-dir allow-list as
+	// get_file, not just get resolved for display.
+	if filename != "" {
+		real, err := m.resolveProgramPath(filename)
+		if err != nil {
+			m.logger.Warn("gen_preview: access denied", "requested", filename, "err", err)
+			return &ngcpreview.PreviewResult{
+				Error: "access denied: file is not in an allowed directory",
+			}, nil
+		}
+		filename = real
+	}
+
 	// Create a fresh interpreter
 	h := C.interp_shim_new()
 	if h == nil {
@@ -892,14 +1016,21 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	ctx := (*C.preview_ctx_t)(C.calloc(1, C.size_t(unsafe.Sizeof(C.preview_ctx_t{}))))
 	ctx.linear_units = C.double(m.linearUnits)
 	ctx.plane = 1 // default XY plane
+	segLimit := m.segLimit
+	if segLimit <= 0 {
+		segLimit = previewMaxSegments
+	}
+	ctx.seg_limit = C.int(segLimit)
 
-	// Pre-populate tool table from tooltable API
+	// Pre-populate the tool table from the tooltable API, slot for slot —
+	// including slot 0, so a program that opens with G43 previews with the
+	// offsets of the tool actually in the spindle.
 	if m.ttClient != nil {
 		entries, err := m.ttClient.ListTools()
 		if err == nil {
 			for i := range entries {
-				pocket := entries[i].Pocketno
-				if pocket < 0 || int(pocket) >= int(C.CANON_POCKETS_MAX) {
+				idx := entries[i].Idx
+				if idx < 0 || int(idx) >= int(C.CANON_POCKETS_MAX) {
 					continue
 				}
 				off := [9]C.double{
@@ -907,7 +1038,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 					C.double(entries[i].AOffset), C.double(entries[i].BOffset), C.double(entries[i].COffset),
 					C.double(entries[i].UOffset), C.double(entries[i].VOffset), C.double(entries[i].WOffset),
 				}
-				C.ctx_set_tool(ctx, C.int32_t(pocket), C.int32_t(entries[i].Toolno),
+				C.ctx_set_tool(ctx, C.int32_t(idx), C.int32_t(entries[i].Toolno),
+					C.int32_t(entries[i].Pocketno),
 					&off[0], C.double(entries[i].Diameter),
 					C.double(entries[i].Frontangle), C.double(entries[i].Backangle),
 					C.int32_t(entries[i].Orientation))
@@ -933,6 +1065,16 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		(*C.persist_callbacks_t)(m.persistCbs))
 	defer C.preview_param_io_persist_destroy(&paramIO)
 	C.interp_shim_set_param_io(h, &paramIO)
+
+	// INI accessor before init (finding N-3): Interp::init reads REMAP,
+	// SUBROUTINE_PATH, PROGRAM_PREFIX, RANDOM_TOOLCHANGER etc. only through
+	// the accessor — without it the preview interp runs fully defaulted and
+	// diverges from what the machine executes.
+	if m.ini != nil {
+		acc, accHandle := newPreviewIniAccessor(m.ini)
+		defer freePreviewIniAccessor(accHandle)
+		C.interp_shim_set_ini_accessor(h, &acc)
+	}
 
 	// Initialize interpreter
 	rc := C.interp_shim_init(h)
@@ -974,13 +1116,15 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 			}
 			if rc > C.INTERP_SHIM_ENDFILE {
 				return &ngcpreview.PreviewResult{
-					Error: fmt.Sprintf("initcodes execution failed: %d", rc),
+					Error: fmt.Sprintf("initcodes execution failed (%q): %s",
+						line, shimErrorText(h, rc)),
 				}, nil
 			}
 		}
 	}
 
-	// Execute unitcode after initcodes
+	// Execute unitcode after initcodes. EXECUTE_FINISH/EXIT are not errors
+	// (finding N-2's constant family), only real error codes are.
 	if unitcode != "" {
 		cCode := C.CString(unitcode)
 		rc = C.interp_shim_read_string(h, cCode)
@@ -988,9 +1132,9 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		if rc == C.INTERP_SHIM_OK {
 			rc = C.interp_shim_execute(h)
 		}
-		if rc != C.INTERP_SHIM_OK {
+		if rc > C.INTERP_SHIM_ENDFILE {
 			return &ngcpreview.PreviewResult{
-				Error: fmt.Sprintf("unitcode execution failed: %d", rc),
+				Error: fmt.Sprintf("unitcode execution failed: %s", shimErrorText(h, rc)),
 			}, nil
 		}
 	}
@@ -999,11 +1143,25 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	// open file returns INTERP_FILE_NOT_OPEN, which would surface as a bogus
 	// "read error". For the empty-filename case the initcodes/unitcode above
 	// already produced any result.
-	var maxLine int32
+	var maxLine, curSeq int32
 	var readCount, execCount int
 	var lastReadRC, lastExecRC C.int
+	var boundMsg string
 	if filename != "" {
+		deadline := time.Now().Add(m.timeout)
 		for {
+			// Resource bounds (finding N-4): segment cap (set via
+			// ctx.seg_limit, flagged by the C recorder) and wall clock — an
+			// endless O-word loop must yield a truncated preview, not an
+			// OOM'd or wedged controller process.
+			if ctx.truncated != 0 {
+				boundMsg = fmt.Sprintf("preview truncated after %d segments", int(ctx.seg_count))
+				break
+			}
+			if readCount%128 == 0 && time.Now().After(deadline) {
+				boundMsg = fmt.Sprintf("preview aborted after %s (time limit; [DISPLAY]PREVIEW_TIMEOUT)", m.timeout)
+				break
+			}
 			rc = C.interp_shim_read(h)
 			lastReadRC = rc
 			if rc == C.INTERP_SHIM_ENDFILE {
@@ -1013,9 +1171,18 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				break
 			}
 			readCount++
+			// The line just read — this is where an execute error is
+			// (finding N-9: maxLine is a maximum over executed lines, wrong
+			// for O-word flow that jumps backward).
+			curSeq = int32(C.interp_shim_sequence_number(h))
 			rc = C.interp_shim_execute(h)
 			lastExecRC = rc
-			if rc != C.INTERP_SHIM_OK && rc != C.INTERP_SHIM_ENDFILE && rc != C.INTERP_SHIM_EXIT {
+			// EXECUTE_FINISH (2) is SUCCESS-with-flag (toolchange, probe,
+			// M66, user M): classic treated it as RESULT_OK and the next
+			// read clears the flag via queue-empty. Breaking here silently
+			// truncated the preview at the first M6 (finding N-2).
+			if rc != C.INTERP_SHIM_OK && rc != C.INTERP_SHIM_EXECUTE_FINISH &&
+				rc != C.INTERP_SHIM_ENDFILE && rc != C.INTERP_SHIM_EXIT {
 				break
 			}
 			if rc == C.INTERP_SHIM_EXIT {
@@ -1023,9 +1190,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				break
 			}
 			execCount++
-			seq := int32(C.interp_shim_sequence_number(h))
-			if seq > maxLine {
-				maxLine = seq
+			if curSeq > maxLine {
+				maxLine = curSeq
 			}
 		}
 	}
@@ -1036,10 +1202,12 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	var errMsg string
 	if lastExecRC > C.INTERP_SHIM_ENDFILE {
 		errText := shimErrorText(h, lastExecRC)
-		errMsg = fmt.Sprintf("line %d: execute error %d: %s", maxLine+1, lastExecRC, errText)
+		errMsg = fmt.Sprintf("line %d: execute error %d: %s", curSeq, lastExecRC, errText)
 	} else if lastReadRC != C.INTERP_SHIM_OK && lastReadRC != C.INTERP_SHIM_ENDFILE {
 		errText := shimErrorText(h, lastReadRC)
-		errMsg = fmt.Sprintf("line %d: read error %d: %s", maxLine+1, lastReadRC, errText)
+		errMsg = fmt.Sprintf("line %d: read error %d: %s", curSeq+1, lastReadRC, errText)
+	} else if boundMsg != "" {
+		errMsg = boundMsg
 	}
 	result := &ngcpreview.PreviewResult{
 		MaxLine: maxLine,
@@ -1132,65 +1300,19 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	return result, nil
 }
 
-// collectAllowedDirs builds the whitelist of directories from which get_file
-// may serve files. Directories are resolved to absolute paths.
-func collectAllowedDirs(ini *inifile.IniFile, iniDir string) []string {
-	var dirs []string
-	resolve := func(p string) string {
-		if p == "" {
-			return ""
-		}
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(iniDir, p)
-		}
-		// EvalSymlinks resolves ".." and symlinks
-		if abs, err := filepath.EvalSymlinks(p); err == nil {
-			return abs
-		}
-		// Fall back to Abs if the dir doesn't exist yet
-		abs, _ := filepath.Abs(p)
-		return abs
+// resolveProgramPath resolves a G-code path with the shared resolver
+// (internal/pathres) extended by this instance's program directories.
+//
+// G-code files are not configuration: they live under [DISPLAY]PROGRAM_PREFIX
+// and [RS274NGC]SUBROUTINE_PATH, deliberately outside the config directory.
+// So the allow-list this module already computed becomes extra roots on top of
+// the shared base rule, rather than a second, separate path check.
+func (m *ngcPreview) resolveProgramPath(filename string) (string, error) {
+	base := pathres.Default()
+	if base == nil {
+		return "", fmt.Errorf("path resolver not initialised")
 	}
-
-	// [DISPLAY] PROGRAM_PREFIX — the NC_FILES directory
-	if pp := ini.Get("DISPLAY", "PROGRAM_PREFIX"); pp != "" {
-		if d := resolve(pp); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-	// [RS274NGC] SUBROUTINE_PATH — colon-separated list
-	if sp := ini.Get("RS274NGC", "SUBROUTINE_PATH"); sp != "" {
-		for _, p := range strings.Split(sp, ":") {
-			p = strings.TrimSpace(p)
-			if d := resolve(p); d != "" {
-				dirs = append(dirs, d)
-			}
-		}
-	}
-	// [FILTER] PROGRAM_EXTENSION lines define filtered file types;
-	// the filtered output typically goes to a tempdir, but we allow
-	// the PROGRAM_PREFIX which already covers it.
-
-	// System share directory (contains splash screen NGC files, etc.)
-	if config.EMC2Home != "" {
-		shareDir := filepath.Join(config.EMC2Home, "share")
-		if d := resolve(shareDir); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-
-	return dirs
-}
-
-// isAllowedPath checks whether the resolved path resides under one of the
-// allowed directories.
-func (m *ngcPreview) isAllowedPath(resolvedPath string) bool {
-	for _, dir := range m.allowedDirs {
-		if strings.HasPrefix(resolvedPath, dir+string(filepath.Separator)) || resolvedPath == dir {
-			return true
-		}
-	}
-	return false
+	return base.WithRoots(m.allowedDirs...).Resolve(filename, pathres.Read)
 }
 
 // GetFile implements ngcpreview.NgcpreviewCallbacks — serves file contents
@@ -1200,18 +1322,18 @@ func (m *ngcPreview) GetFile(filename string) (*ngcpreview.FileResult, error) {
 		return &ngcpreview.FileResult{Error: "empty filename"}, nil
 	}
 
-	abs, err := filepath.Abs(filename)
+	real, err := m.resolveProgramPath(filename)
 	if err != nil {
-		return &ngcpreview.FileResult{Error: "invalid path"}, nil
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return &ngcpreview.FileResult{Error: "file not found"}, nil
+		m.logger.Warn("get_file: access denied", "requested", filename, "err", err)
+		return &ngcpreview.FileResult{Error: "access denied: file is not in an allowed directory"}, nil
 	}
 
-	if !m.isAllowedPath(real) {
-		m.logger.Warn("get_file: access denied", "requested", filename, "resolved", real)
-		return &ngcpreview.FileResult{Error: "access denied: file is not in an allowed directory"}, nil
+	// Size cap before reading (finding N-12): the whole file is JSON-encoded
+	// into server memory line-by-line.
+	if fi, err := os.Stat(real); err == nil && fi.Size() > getFileMaxBytes {
+		return &ngcpreview.FileResult{
+			Error: fmt.Sprintf("file too large: %d bytes (limit %d)", fi.Size(), int64(getFileMaxBytes)),
+		}, nil
 	}
 
 	data, err := os.ReadFile(real)
@@ -1219,8 +1341,9 @@ func (m *ngcPreview) GetFile(filename string) (*ngcpreview.FileResult, error) {
 		return &ngcpreview.FileResult{Error: fmt.Sprintf("read error: %v", err)}, nil
 	}
 
-	// Split into lines, preserving empty trailing line if present
-	content := string(data)
+	// Split into lines; drop CR so CRLF files render clean (finding N-12 —
+	// classic read the file in Python text mode, which normalized endings).
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	lines := strings.Split(content, "\n")
 	// Remove last empty element from trailing newline
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
@@ -1237,12 +1360,45 @@ func (m *ngcPreview) GetFile(filename string) (*ngcpreview.FileResult, error) {
 // that reads #1 still sees its prior (zero) value.
 const evalScratchParam = 1
 
+// validateEvalExpr rejects expressions that would escape the "#1=[...]"
+// template: a ']' that closes the template's own bracket (depth reaching
+// zero before the end) turns the remainder into arbitrary g-code, and a
+// newline starts a second line entirely.
+func validateEvalExpr(expr string) error {
+	if strings.ContainsAny(expr, "\n\r;") {
+		return fmt.Errorf("invalid expression: line breaks and comments are not allowed")
+	}
+	depth := 1 // the template's opening bracket
+	for _, ch := range expr {
+		switch ch {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return fmt.Errorf("invalid expression: unbalanced ']'")
+			}
+		}
+	}
+	return nil
+}
+
 // EvalExpression implements ngcpreview.NgcpreviewCallbacks — evaluates a
 // numeric G-code expression on a fresh interpreter instance (no file opened)
 // by assigning it to a scratch numbered parameter and reading the parameter
 // back. This mirrors the AXIS "M199 P[expr]" touch-off trick without needing
 // user-defined M-code handlers.
 func (m *ngcPreview) EvalExpression(expr string) (*ngcpreview.EvalResult, error) {
+	m.interpMu.Lock()
+	defer m.interpMu.Unlock()
+
+	// The expression is spliced into "#1=[<expr>]" — reject anything that
+	// would escape the bracket context and execute as g-code (finding N-11:
+	// expr "1] G0 X10" yields the legal line "#1=[1] G0 X10").
+	if err := validateEvalExpr(expr); err != nil {
+		return &ngcpreview.EvalResult{Error: err.Error()}, nil
+	}
+
 	h := C.interp_shim_new()
 	if h == nil {
 		return nil, fmt.Errorf("failed to create interpreter")

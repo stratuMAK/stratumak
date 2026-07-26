@@ -5,7 +5,7 @@ package task
 import (
 	"fmt"
 	"log/slog"
-	"os"
+	"regexp"
 	"runtime/cgo"
 	"strconv"
 	"strings"
@@ -33,13 +33,51 @@ var _ MotionConfig = (*motctl.MotctlClient)(nil)
 
 func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
 	logger = logger.With("module", name)
+	// milltask is INI-driven throughout (loadConfig reads TRAJ/KINS/JOINT_n/…),
+	// so an INI-less launcher (halrun mode, ini == nil) cannot run it.  Reject
+	// it here with a clear error instead of nil-dereferencing on the next line.
+	if ini == nil {
+		return nil, fmt.Errorf("milltask %q: requires an INI file (loaded without one)", name)
+	}
 	// Use a namespaced view of the INI so this instance reads [name:SECTION]
 	// with fallback to [SECTION].  For the default "milltask" instance name
 	// where no namespaced sections exist, all lookups fall through to global.
 	nsIni := ini.WithNamespace(name)
 	m := &milltaskModule{ini: nsIni, logger: logger, name: name}
 
-	// Parse module parameters.
+	// Parse module parameters (given on the "load milltask <name> k=v ..." line):
+	//   halui=<prefix>              export halui HAL pins under <prefix>
+	//   motion_instance=<name>      motmod instance to drive (default "motmod")
+	//   iocontrol_instance=<name>   io instance to drive (default "iocontrol")
+	//   tooltable_instance=<name>   tooltable instance (default "tooltable")
+	//   persist_instance=<name>     persist instance (default "persistence")
+	//   preview_instance=<name>     ngcpreview instance serving this task
+	//   mtc_instance=<name>         manualtoolchange instance for this task
+	//   pyvcp_instance=<name>       pyvcp panel instance for this task
+	//   error_filter=<regexp>       forward a C-module ERROR message to this
+	//                               instance's operator list only when its
+	//                               emitting component name matches <regexp>;
+	//                               unset = forward everything (see below).
+	//
+	// preview/mtc/pyvcp note: milltask never calls these three itself. It is
+	// told their names so a UI client can ask ONE endpoint (GET /info) what
+	// this machine is made of, instead of deriving names by convention
+	// ("<task>-preview") or hardcoding them ("tooltable") — the guess that made
+	// a multi-instance config answer every tool table read with a 404. Naming
+	// them here also turns a typo into a config-load failure (Start resolves
+	// each one) rather than a client-side 404 discovered much later.
+	//
+	// error_filter note: the ERROR-forwarding hook fires for EVERY milltask
+	// instance, so in a multi-instance config set a per-instance filter (e.g.
+	// error_filter=^pnp\. on pnp.task) to stop one instance's "joint N following
+	// error" from also surfacing on the others. The HAL tokenizer does NO
+	// backslash-escape processing, so the regexp is taken literally — write
+	// \. \d \w as-is, no doubling. But INI/ENV substitution runs on the line
+	// BEFORE tokenizing, so avoid regex metacharacters that collide with it:
+	// a [...] class immediately followed by a word char parses as an
+	// [SECTION]KEY INI ref (use (?:a|b) instead), and $NAME/${NAME} parses as
+	// an env ref (a trailing $ anchor is fine). Anchored prefixes like ^pnp\.
+	// dodge all of this.
 	for _, arg := range args {
 		k, v, ok := strings.Cut(arg, "=")
 		if !ok {
@@ -56,6 +94,18 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 			m.ttInstance = v
 		case "persist_instance":
 			m.persistInstance = v
+		case "preview_instance":
+			m.previewInstance = v
+		case "mtc_instance":
+			m.mtcInstance = v
+		case "pyvcp_instance":
+			m.pyvcpInstance = v
+		case "error_filter":
+			re, err := regexp.Compile(v)
+			if err != nil {
+				return nil, fmt.Errorf("milltask: invalid error_filter regexp %q: %w", v, err)
+			}
+			m.errorFilter = re
 		}
 	}
 
@@ -130,12 +180,24 @@ type milltaskModule struct {
 	halui             *halUI                     // halui HAL component (created in factory)
 	motInstance       string                     // motion module instance name (default "motmod")
 	ioInstance        string                     // io controller instance name (default "iocontrol")
+	errorFilter       *regexp.Regexp             // if set, only C-module errors whose component matches are forwarded to operator messages
 	ttInstance        string                     // tooltable instance name (default "tooltable")
 	persistInstance   string                     // persist instance name (default "persistence")
+	previewInstance   string                     // ngcpreview instance, "" = none (reported via GetInfo, never called)
+	mtcInstance       string                     // manualtoolchange instance, "" = none (reported via GetInfo, never called)
+	pyvcpInstance     string                     // pyvcp panel instance, "" = none (reported via GetInfo, never called)
 	iniAccessorHandle cgo.Handle                 // CGo handle for the INI accessor (must be freed)
 	ttClient          *tooltable.TooltableClient // tooltable GMI client
 	paramIO           *interpParamIOPersist      // persist-backed parameter I/O (default)
 	fileParamIO       *interpParamIOFile         // classic .var-file parameter I/O (opt-in)
+}
+
+// forwardsErrorFrom reports whether an ERROR-level message from the named C
+// module component should be forwarded to this instance's operator message
+// list. With no error_filter configured every component is forwarded (legacy
+// behaviour); otherwise the component name must match the filter regexp.
+func (m *milltaskModule) forwardsErrorFrom(component string) bool {
+	return m.errorFilter == nil || m.errorFilter.MatchString(component)
 }
 
 func (m *milltaskModule) Start() error {
@@ -175,10 +237,13 @@ func (m *milltaskModule) Start() error {
 	if ttInstance == "" {
 		ttInstance = "tooltable"
 	}
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 1)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 2)
 	if err != nil {
 		return fmt.Errorf("milltask: tooltable API lookup (%s): %w", ttInstance, err)
 	}
+	// Keep the RESOLVED name: GetInfo hands clients the instance that actually
+	// serves them, which for an unset tooltable_instance= is the default, not "".
+	m.ttInstance = ttInstance
 	m.ttClient = tooltable.NewTooltableClient(unsafe.Pointer(ttCbs))
 	// Publish the client for the canon tool getters NOW: the interpreter init
 	// and RS274NGC_STARTUP_CODE below already resolve tools through it (2.9
@@ -187,6 +252,20 @@ func (m *milltaskModule) Start() error {
 	// registerTools() made startup-code tool lookups (e.g. "G43 H1") fail with
 	// "tool not found".
 	pkgTTClient = m.ttClient
+
+	// Resolve the peers milltask reports but never calls (GetInfo). This is a
+	// config-sanity gate, not a dependency: a name given here must name a
+	// module of the RIGHT KIND, checked by api:instance rather than instance
+	// alone so that preview_instance=pnp.tt fails instead of quietly matching
+	// the tool table. Unset means the feature is absent, which is legal and
+	// tells the client not to probe for it.
+	//
+	// Safe to do in Start: the launcher completes every module's New() — where
+	// APIs register — before it starts any of them, so a peer loaded on a LATER
+	// line of the HAL file is already registered by now.
+	if err := m.checkReportedPeers(reg); err != nil {
+		return err
+	}
 
 	// Wrap C callback pointers in typed Go clients.
 	mc := motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
@@ -242,13 +321,35 @@ func (m *milltaskModule) Start() error {
 		t.SetErrorPublisher(&drainErrorPublisher{drain: drain})
 	}
 
-	// Forward ERROR-level log messages from motion-related modules to the
-	// operator message list. This covers motmod, per-joint homemod instances
-	// (regardless of their configured name), and any future servo-thread
-	// modules that use gomc_log_errorf.
-	gomc.OnLogError(func(component, msg string) {
+	// Forward ERROR-level log messages from C modules (motmod, per-joint
+	// homemod instances, io, etc.) to the operator message list.
+	//
+	// gomc.NotifyLogError fans out to EVERY registered hook globally, so in a
+	// multi-instance config (e.g. coat.task + pnp.task) an unfiltered hook makes
+	// each task report every OTHER instance's errors — "pnp.mot: joint N
+	// following error" would also surface on coat.task. Rather than guess which
+	// components belong to this task, routing is left to the operator via the
+	// optional "error_filter=<regexp>" module parameter, matched against the
+	// emitting component name (e.g. error_filter=^pnp\. on pnp.task). Unset =
+	// forward everything (legacy behaviour).
+	// Register the hook and chain its unregister into apiCleanup so Destroy
+	// removes it. The registry is a process-global with no owner; the log ring's
+	// final flush runs after Go modules are destroyed, so a hook left registered
+	// would forward a late error into this freed task (operatorError on a stopped
+	// task). Unregistering at Destroy closes that window.
+	unregisterLogHook := gomc.OnLogError(func(component, msg string) {
+		if !m.forwardsErrorFrom(component) {
+			return
+		}
 		t.operatorError(msg)
 	})
+	prevCleanupLog := m.apiCleanup
+	m.apiCleanup = func() {
+		unregisterLogHook()
+		if prevCleanupLog != nil {
+			prevCleanupLog()
+		}
+	}
 
 	// Create and configure the G-code interpreter.
 	if err := m.initInterpreter(); err != nil {
@@ -551,21 +652,30 @@ func (p *drainErrorPublisher) OperatorDisplay(text string) {
 }
 
 // loadDefaultProgram opens the program specified by [DISPLAY]OPEN_FILE
-// at server startup so all UI clients see the same initial file.
+// at task startup so every UI client sees the same initial file — including
+// the clients that outlive a server restart, which adopt whatever the task has
+// open and never push a program of their own.
+//
+// Resolution is left entirely to ProgramOpen (pathres, rooted at PROGRAM_PREFIX
+// and friends). An os.Stat pre-check used to run first, and because it saw the
+// raw INI string it measured the value against the server's *working
+// directory*: a name that ProgramOpen resolves fine ("part.ngc" under
+// PROGRAM_PREFIX) was rejected before it ever got there, and an identical
+// config loaded or skipped the program depending on where the server happened
+// to be started from.
 func (m *milltaskModule) loadDefaultProgram() {
 	file := m.ini.Get("DISPLAY", "OPEN_FILE")
 	if file == "" {
 		return
 	}
-	if _, err := os.Stat(file); err != nil {
-		m.logger.Warn("OPEN_FILE not found, skipping", "file", file, "error", err)
+	if err := m.task.ProgramOpen(file); err != nil {
+		// ProgramOpen has already logged the resolver detail and put a short
+		// reason on the operator channel; this names the source of the request,
+		// which the operator message deliberately does not.
+		m.logger.Warn("[DISPLAY]OPEN_FILE not loaded", "file", file, "error", err)
 		return
 	}
-	if err := m.task.ProgramOpen(file); err != nil {
-		m.logger.Warn("failed to load default program", "file", file, "error", err)
-	} else {
-		m.logger.Info("loaded default program", "file", file)
-	}
+	m.logger.Info("loaded default program", "file", file)
 }
 
 // checkConfig validates kinematics/joint/axis INI consistency.

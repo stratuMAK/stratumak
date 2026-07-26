@@ -46,13 +46,6 @@ func (m *mockIOWithStatus) setError(reason int32) {
 	m.mu.Unlock()
 }
 
-func (m *mockIOWithStatus) clearError() {
-	m.mu.Lock()
-	m.status = IOStatusDone
-	m.reason = 0
-	m.mu.Unlock()
-}
-
 // mockStatusWithError extends mockStatus with configurable error state.
 type mockStatusWithError struct {
 	mu            sync.Mutex
@@ -197,7 +190,10 @@ func newMonitorTestTask() (*Task, *trackingMotion, *mockIOWithStatus, *mockStatu
 	mot := &trackingMotion{}
 	io := &mockIOWithStatus{}
 	io.status = IOStatusDone
-	stat := &mockStatusWithError{}
+	// enabled=1: SetState(ON) settles on a published Enabled=1, so a healthy
+	// mock must reflect the enable. Self-disable tests flip it AFTER power-on
+	// (which is also the only sequence the real machine can produce).
+	stat := &mockStatusWithError{enabled: 1}
 	ep := &mockErrorPublisher{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	t := NewTask(mot, io, stat, logger)
@@ -242,7 +238,7 @@ func waitExecState(task *Task, want ExecState, d time.Duration) bool {
 // (rather than waiting ~1 s of real ticks).
 func TestMonitor_CommWatchdog_FaultsOnSustainedLoss(t *testing.T) {
 	task, mot, io, stat, ep := newMonitorTestTask()
-	bringUp(task) // estop-reset -> on
+	bringUp(t, task) // estop-reset -> on
 	task.StartSequencer()
 	t.Cleanup(task.StopSequencer)
 
@@ -306,8 +302,12 @@ func TestMonitor_ExternalEstop(t *testing.T) {
 	_ = stat
 
 	// Bring machine to ON state.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	// Start monitor.
@@ -485,7 +485,9 @@ func TestMonitor_MachineOff_EstopSilent(t *testing.T) {
 	task, mot, io, _, ep := newMonitorTestTask()
 
 	// Bring machine to EstopReset (machine off but not in estop).
-	task.SetState(int32(StateEstopReset))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
 
 	task.mu.Lock()
 	if task.state != StateEstopReset {
@@ -544,8 +546,12 @@ func TestMonitor_MotionError(t *testing.T) {
 	stat.setEnabled(1)
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
@@ -586,11 +592,19 @@ func TestMonitor_MotionError(t *testing.T) {
 // Enabled==0; it now has an intentional owner.
 func TestMonitor_MotionDisabled(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
-	stat.setEnabled(0) // motion reports itself disabled (no command error injected)
 
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
+
+	// Motion disables itself AFTER a successful power-on (following error,
+	// amp fault, watchdog) — flipped post-ON because SetState(ON) itself now
+	// refuses to commit against a status that never reports enabled.
+	stat.setEnabled(0)
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
@@ -618,8 +632,12 @@ func TestMonitor_SoftLimit(t *testing.T) {
 	task, _, io, stat, ep := newMonitorTestTask()
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
@@ -670,8 +688,12 @@ func TestMonitor_IOError(t *testing.T) {
 	stat.setEnabled(1) // keep checkMotionEnabled quiet — the abort must come from the IO fault
 
 	// Bring to ON.
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	mon := newMonitor(task, nil, nil, io)
@@ -708,8 +730,12 @@ func TestMonitor_IOSoftFault_NoAbort(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
 	stat.setEnabled(1)
 
-	task.SetState(int32(StateEstopReset))
-	task.SetState(int32(StateOn))
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("SetState(On): %v", err)
+	}
 	task.StartSequencer()
 
 	// SetState(EstopReset) legitimately aborts motion (2.9 emcTaskAbort parity);
@@ -745,7 +771,7 @@ func TestMonitor_EstopDetectionWhileCmdMuHeld(t *testing.T) {
 	task, mot, io, _, _ := newMonitorTestTask()
 	task.StartSequencer()
 	defer task.StopSequencer()
-	bringUp(task)
+	bringUp(t, task)
 
 	mon := newMonitor(task, nil, nil, io)
 	mon.start()
@@ -780,7 +806,6 @@ func TestMonitor_EstopDetectionWhileCmdMuHeld(t *testing.T) {
 // enabled sample in between resets the debounce counter.
 func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 	task, mot, io, stat, _ := newMonitorTestTask()
-	stat.setEnabled(0) // stale mirror: enable acked but not yet reflected
 
 	if err := task.SetState(int32(StateEstopReset)); err != nil {
 		t.Fatalf("SetState(EstopReset): %v", err)
@@ -789,6 +814,11 @@ func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 		t.Fatalf("SetState(On): %v", err)
 	}
 	task.StartSequencer()
+
+	// Stale mirror AFTER the settled power-on: SetState(ON) saw Enabled=1,
+	// then the mirror serves a lagging Enabled=0 sample (the flaky-remap
+	// race this debounce exists for).
+	stat.setEnabled(0)
 
 	mon := newMonitor(task, nil, nil, io)
 	// Drive checkMotionEnabled directly (no loop) to control tick count,
@@ -826,5 +856,35 @@ func TestMonitor_MotionDisabled_Debounced(t *testing.T) {
 	}
 	if mot.abortCount.Load() == 0 {
 		t.Fatal("expected Abort when motion disables itself persistently")
+	}
+}
+
+// TestSetStateOn_RefusedEnable: SetState(ON) must not commit state=ON when the
+// enable never shows up in a published motion status (motion refused or
+// instantly revoked it, e.g. a tripped hard limit without override). Before
+// the settle wait, the task committed ON immediately and the monitor knocked
+// it back off a few ticks later — a client saw wait_complete()==DONE, then
+// state flapping ON→EstopReset with the failure surfacing as an unrelated
+// status assert (the hard-limits CI flake).
+func TestSetStateOn_RefusedEnable(t *testing.T) {
+	task, _, _, stat, _ := newMonitorTestTask()
+
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("SetState(EstopReset): %v", err)
+	}
+	stat.setEnabled(0) // motion never reports the enable
+
+	saved := motionEnableSettleTimeout
+	motionEnableSettleTimeout = 20 * time.Millisecond
+	defer func() { motionEnableSettleTimeout = saved }()
+
+	if err := task.SetState(int32(StateOn)); err == nil {
+		t.Fatal("SetState(On) succeeded although motion never reported enabled")
+	}
+	task.mu.Lock()
+	gotState := task.state
+	task.mu.Unlock()
+	if gotState != StateEstopReset {
+		t.Errorf("state = %v, want StateEstopReset (a refused enable must not commit ON)", gotState)
 	}
 }

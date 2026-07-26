@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
 
@@ -50,6 +52,19 @@ type MotionConfig interface {
 // loadConfig reads INI sections and configures the motion controller.
 // Called once at startup from the factory.
 func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
+	// Resolver for G-code paths opened over REST (program_open).  G-code is
+	// user data, not configuration, so it gets the program directories as
+	// roots rather than the config directories.
+	iniDir := "."
+	if ini != nil && ini.SourceFile() != "" {
+		iniDir = filepath.Dir(ini.SourceFile())
+	}
+	var iniGet func(string, string) string
+	if ini != nil {
+		iniGet = ini.Get
+	}
+	t.programRes = pathres.ProgramResolver(iniGet, iniDir)
+
 	if err := loadTraj(ini, t, mc); err != nil {
 		return fmt.Errorf("traj config: %w", err)
 	}
@@ -448,11 +463,17 @@ func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) erro
 // (C++ stops at the first such line; skipping is a strict superset that loads
 // the same pure-triplet files identically and tolerates comments/headers).
 func loadJointComp(joint int32, file string, compType int, setComp func(joint int32, nominal, fwd, rev float64) error) error {
-	f, err := os.Open(file)
+	// [JOINT_n]COMP_FILE is a configuration path: resolved server-side and
+	// contained by the shared rule (internal/pathres).
+	path, err := pathres.Resolve(file, pathres.Read)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
 
 	n := 0
 	sc := bufio.NewScanner(f)

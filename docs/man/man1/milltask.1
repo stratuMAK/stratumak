@@ -14,6 +14,43 @@ Such commands include all codes handled by the interpreter (\fBG-code\fR program
 and NML \fBjogging\fR commands issued by a GUI (including \fBhalui\fR).
 \fBWheel jogging\fR is implemented in the realtime motion module so \fBinihal\fR pin changes (e.g., ini.*.max_velocity, ini.*.max_acceleration) may be honored as soon as altered values are propagated to the motion module.
 
+.SH MODULE PARAMETERS
+On \fBgomc\fR, \fBmilltask\fR is loaded with a HAL \fBload\fR line and accepts
+\fIkey\fB=\fIvalue\fR parameters, e.g.
+\fBload milltask <pnp.task> motion_instance=pnp.mot error_filter=^pnp\\.\fR
+.TP
+\fBhalui=\fIprefix\fR
+Export \fBhalui\fR HAL pins under \fIprefix\fR.
+.TP
+\fBmotion_instance=\fIname\fR
+Name of the motion (\fBmotmod\fR) instance to drive (default \fBmotmod\fR).
+.TP
+\fBiocontrol_instance=\fIname\fR
+Name of the IO controller instance to drive (default \fBiocontrol\fR).
+.TP
+\fBtooltable_instance=\fIname\fR
+Name of the tooltable instance (default \fBtooltable\fR).
+.TP
+\fBpersist_instance=\fIname\fR
+Name of the persistence instance (default \fBpersistence\fR).
+.TP
+\fBerror_filter=\fIregexp\fR
+Forward an ERROR-level message from a realtime C module (\fBmotmod\fR, per-joint
+\fBhomemod\fR, \fBio\fR, ...) to this instance's operator message list only when
+the emitting component name matches \fIregexp\fR. When unset, every such message
+is forwarded (legacy behaviour). The forwarding hook fires for \fIevery\fR
+\fBmilltask\fR instance, so in a multi-instance config set a per-instance filter
+(e.g. \fB^pnp\\.\fR on \fBpnp.task\fR, \fB^coat\\.\fR on \fBcoat.task\fR) to keep
+one instance's "joint N following error" from also appearing on the others.
+.IP
+The HAL tokenizer does \fIno\fR backslash-escape processing, so \fIregexp\fR is
+taken literally \(en write \fB\\.\fR \fB\\d\fR \fB\\w\fR as-is, with no doubling.
+However, INI/ENV variable substitution runs on the line \fIbefore\fR tokenizing,
+so avoid regex metacharacters that collide with it: a \fB[...]\fR character class
+immediately followed by a word character is parsed as an \fB[SECTION]KEY\fR INI
+reference (use \fB(?:a|b)\fR instead of \fB[ab]x\fR), and \fB$NAME\fR / \fB${NAME}\fR
+is parsed as an environment reference (a trailing \fB$\fR anchor is fine).
+Anchored-prefix filters such as \fB^pnp\\.\fR avoid all of these pitfalls.
 .SH PINS
 .SS Per-joint pins (N == joint number)
 .TP

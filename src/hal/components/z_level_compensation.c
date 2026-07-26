@@ -280,10 +280,24 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
 
 static int load_probe_map(inst_t *inst, const char *filename)
 {
-    FILE *f = fopen(filename, "r");
+    /* The probe-map filename arrives over the GMI load() call, i.e. straight
+       off the REST surface, so it is resolved server-side and required to stay
+       inside the config / HAL library directories (gomc_path.h). */
+    const char *reserr = NULL;
+    const char *path = inst->env->path->resolve(inst->env->path->ctx, filename,
+                                                GOMC_PATH_READ, &reserr);
+    if (!path) {
+        gomc_log_errorf(inst->env->log, COMP_NAME,
+                        "probe file %s: %s", filename,
+                        reserr ? reserr : "cannot be resolved");
+        inst->grid_valid = 0;
+        return -1;
+    }
+
+    FILE *f = fopen(path, "r");
     if (!f) {
         gomc_log_errorf(inst->env->log, COMP_NAME,
-                        "cannot open probe file: %s", filename);
+                        "cannot open probe file: %s", path);
         inst->grid_valid = 0;
         return -1;
     }

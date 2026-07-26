@@ -33,13 +33,20 @@ typedef struct motstat_ctx {
  * Helpers
  * ================================================================ */
 
-/* Read status from the triple buffer — always consistent, never retries. */
+/* Read status from the triple buffer — always consistent, never retries.
+   Swap only when the writer has published since the last read (dirty flag);
+   otherwise read_idx already holds the newest snapshot and swapping would
+   hand back the previous one, making consecutive reads non-monotonic. */
 static int read_status(motstat_ctx_t *mc, emcmot_status_t *out)
 {
     emcmot_status_buf_t *buf = &mc->mot->status_buf;
     rtapi_mutex_get(&buf->reader_mtx);
-    buf->read_idx = atomic_exchange_explicit(&buf->middle, buf->read_idx,
-                                             memory_order_acq_rel);
+    if (atomic_load_explicit(&buf->middle, memory_order_acquire)
+        & MOTSTAT_MIDDLE_DIRTY) {
+        buf->read_idx = MOTSTAT_MIDDLE_IDX(
+            atomic_exchange_explicit(&buf->middle, buf->read_idx,
+                                     memory_order_acq_rel));
+    }
     *out = buf->slots[buf->read_idx];
     rtapi_mutex_give(&buf->reader_mtx);
     return 0;

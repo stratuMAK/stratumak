@@ -18,6 +18,15 @@ import (
 // Returns EBUSY if another loaded module depends on this module's APIs.
 // Returns ENOENT if no module with the given name is found.
 func (l *Launcher) UnloadModule(name string) error {
+	// Serialize against concurrent REST load/unload and shutdown. isModuleLoaded,
+	// unloadCModule, and unloadGoModule below run with modMu held (they are
+	// caller-holds-modMu helpers — they must NOT re-lock it).
+	l.modMu.Lock()
+	defer l.modMu.Unlock()
+	if l.shuttingDown {
+		return fmt.Errorf("cannot unload %q: shutting down: %w", name, syscall.ESHUTDOWN)
+	}
+
 	// Check API dependency guard.
 	reg := apiserver.DefaultRegistry()
 	if reg != nil {
@@ -49,8 +58,40 @@ func (l *Launcher) UnloadModule(name string) error {
 	return fmt.Errorf("module %q not found: %w", name, syscall.ENOENT)
 }
 
+// unregisterModuleAPIs removes every API registration for the given instance
+// from BOTH the REST registry and the watch registry. It must run before the
+// module is destroyed: a WatchAPI's Factory/Watch closures capture the module's
+// HAL pins, so a registration left behind after Destroy frees those pins lets a
+// later WS subscribe resolve it and read freed/recycled memory (and leaks the
+// entry). The REST Registry was already unregistered here historically; the
+// watch registry had no unregister at all, so its entries survived unload.
+func unregisterModuleAPIs(name string) {
+	if reg := apiserver.DefaultRegistry(); reg != nil {
+		reg.UnregisterByInstance(name)
+	}
+	if wr := apiserver.DefaultWatchRegistry(); wr != nil {
+		wr.UnregisterByInstance(name)
+	}
+}
+
+// halCompID resolves a HAL component id by name, or 0 when HAL was never
+// initialised.
+//
+// The guard is not cosmetic: halcmd.FindCompID goes straight into
+// halpr_find_comp_by_name, which dereferences hal_data — NULL until the first
+// hal_init — so calling it without HAL is a SIGSEGV, not an error return. The
+// unload hooks are wired into halrest at the very top of Run(), before HAL
+// comes up, and no HAL also means there are no RT functions to remove.
+func (l *Launcher) halCompID(name string) int {
+	if l.halComp == nil {
+		return 0
+	}
+	return halcmd.FindCompID(name)
+}
+
 // isModuleLoaded returns true if a module with the given instance name is
 // currently loaded (either as cmod or gomod).
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) isModuleLoaded(name string) bool {
 	for _, cm := range l.cModules {
 		if cm.name == name {
@@ -66,6 +107,7 @@ func (l *Launcher) isModuleLoaded(name string) bool {
 }
 
 // unloadCModule unloads a single C plugin module.
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) unloadCModule(name string) error {
 	idx := -1
 	for i, cm := range l.cModules {
@@ -80,8 +122,9 @@ func (l *Launcher) unloadCModule(name string) error {
 
 	cm := l.cModules[idx]
 
-	// Step 1: Remove RT functions from threads.
-	compID := halcmd.FindCompID(name)
+	// Step 1: Remove RT functions from threads. Skipped when HAL was never
+	// initialised — see unloadGoModule for why the guard is needed at all.
+	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
@@ -99,10 +142,10 @@ func (l *Launcher) unloadCModule(name string) error {
 	}
 
 	// Step 4: Remove consumer records (this module as consumer).
-	// Step 5: Unregister APIs (this module as provider).
-	if reg := apiserver.DefaultRegistry(); reg != nil {
-		reg.UnregisterByInstance(name)
-	}
+	// Step 5: Unregister APIs (this module as provider) — both the REST registry
+	// and the watch registry, BEFORE Destroy frees this module's HAL pins (a
+	// registered WatchAPI captures those pins; see unregisterModuleAPIs).
+	unregisterModuleAPIs(name)
 
 	// Step 6: Destroy the module.
 	cmodDestroy(cm)
@@ -133,6 +176,7 @@ func (l *Launcher) unloadCModule(name string) error {
 }
 
 // unloadGoModule unloads a single Go module.
+// Caller must hold modMu (called only from UnloadModule).
 func (l *Launcher) unloadGoModule(name string) error {
 	idx := -1
 	for i, gm := range l.goModules {
@@ -148,7 +192,7 @@ func (l *Launcher) unloadGoModule(name string) error {
 	gm := l.goModules[idx]
 
 	// Step 1: Remove RT functions from threads.
-	compID := halcmd.FindCompID(name)
+	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
@@ -163,10 +207,9 @@ func (l *Launcher) unloadGoModule(name string) error {
 	// Step 3: Stop the module.
 	gm.mod.Stop()
 
-	// Step 4+5: Remove consumer records and unregister APIs.
-	if reg := apiserver.DefaultRegistry(); reg != nil {
-		reg.UnregisterByInstance(name)
-	}
+	// Step 4+5: Remove consumer records and unregister APIs (REST + watch),
+	// BEFORE Destroy frees this module's HAL pins.
+	unregisterModuleAPIs(name)
 
 	// Step 6: Destroy the module.
 	gm.mod.Destroy()

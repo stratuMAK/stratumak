@@ -715,20 +715,23 @@ double Interp::find_turn(double x1,      //!< X-coordinate of start point
 int Interp::find_tool_index(setup_pointer settings, int toolno, int *index)
 {
     if (toolno == 0 && !settings->random_toolchanger) {
-        // Non-random: T0/H0 refer to the spindle entry (idx 0). On a random
+        // Non-random: T0/H0 refer to the spindle slot (idx 0). On a random
         // toolchanger T0 is an ordinary table entry — look it up like any
         // tool (and error if the table has no T0).
         *index = 0;
         return INTERP_OK;
     }
 
-    // On-demand lookup via canon callback — cache result in tool_table.
+    // On-demand lookup via canon callback — cache the result in tool_table at
+    // its own SLOT. Caching it at the tool's carousel pocket instead put the
+    // record in the wrong cell on every non-random toolchanger, where the two
+    // numbers are unrelated.
     CANON_TOOL_TABLE t;
-    if (settings->canon.get_tool_by_number(toolno, &t)) {
-        int pocket = t.pocketno;
-        if (pocket >= 0 && pocket < CANON_POCKETS_MAX)
-            settings->tool_table[pocket] = t;
-        *index = pocket;
+    int idx = -1;
+    if (settings->canon.get_tool_by_number(toolno, &idx, &t)) {
+        if (idx >= 0 && idx < CANON_POCKETS_MAX)
+            settings->tool_table[idx] = t;
+        *index = idx;
         return INTERP_OK;
     }
 
@@ -746,13 +749,14 @@ int Interp::find_tool_pocket(setup_pointer settings, int toolno, int *pocket)
         return INTERP_OK;
     }
 
-    // On-demand lookup via canon callback — cache result in tool_table.
+    // The CAROUSEL pocket this time, not the slot (2.9's find_tool_pocket
+    // reads tdata.pocketno after resolving the index).
     CANON_TOOL_TABLE t;
-    if (settings->canon.get_tool_by_number(toolno, &t)) {
-        int p = t.pocketno;
-        if (p >= 0 && p < CANON_POCKETS_MAX)
-            settings->tool_table[p] = t;
-        *pocket = p;
+    int idx = -1;
+    if (settings->canon.get_tool_by_number(toolno, &idx, &t)) {
+        if (idx >= 0 && idx < CANON_POCKETS_MAX)
+            settings->tool_table[idx] = t;
+        *pocket = t.pocketno;
         return INTERP_OK;
     }
 
@@ -760,4 +764,3 @@ int Interp::find_tool_pocket(setup_pointer settings, int toolno, int *pocket)
     CHKS(true, (_("Requested tool %d not found in the tool table")), toolno);
     return INTERP_OK;
 }
-

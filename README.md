@@ -38,6 +38,87 @@ maintaining strict RT guarantees. If the servo loop crashes, the entire process
 dies and an external watchdog triggers E-stop — clean, predictable failure
 instead of ambiguous partial failures.
 
+### Why Go — a Garbage-Collected Language — for Machine Control?
+
+The short answer: **Go never runs in the real-time path.**
+
+- **All RT code is C.** The servo loop, HAL cyclic components and fieldbus
+  cycle run in plain C pthreads (SCHED_FIFO, locked memory) that are never
+  attached to the Go runtime. The garbage collector cannot pause them — its
+  stop-the-world only reaches Go-managed threads. This is not an assumption;
+  it is verified by measurement (see below).
+- **Go replaces Python, not C.** In classic LinuxCNC the non-RT layer is a mix
+  of Python, C++ and Tcl — and Python is just as garbage-collected and
+  non-deterministic as Go, without anyone objecting. Go fills exactly that
+  role, but with compile-time type checking, real concurrency, and refactoring
+  safety that an interpreted language cannot offer.
+- **A powerful standard ecosystem.** HTTP/WebSocket servers, TLS, JSON, MQTT,
+  databases — the entire modern API surface of GOMC is standard-library-grade
+  Go, with no dependency sprawl.
+- **Single static binary.** No interpreter, no virtualenv, no version drift on
+  the deployment machine.
+- **Easy to learn.** A deliberately small language keeps the entry barrier low
+  for machine integrators and new contributors alike.
+
+### Measured Real-Time Jitter
+
+Measured with the built-in `latency-test` under **full adversarial load**,
+including a dedicated Go garbage-collector stress generator running inside the
+control process — the exact scenario the single-process architecture is
+criticized for:
+
+| | |
+|---|---|
+| Hardware | Beckhoff C6030 industrial PC |
+| Kernel | Debian 13, `6.12.95+deb13-rt-amd64` (PREEMPT_RT) |
+| Boot parameters | `isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3 irqaffinity=0,1 intel_idle.max_cstate=1 processor.max_cstate=1 cpufreq.default_governor=performance nmi_watchdog=0 nosoftlockup consoleblank=0` |
+| RT thread | 1 ms servo thread, SCHED_FIFO on isolated CPU |
+| Duration | 8,000,000 cycles ≈ 2 h 13 min |
+| **Max jitter** | **34.95 µs** |
+| Min / max latency | −31.36 µs / +34.95 µs |
+| Mean \|latency\| | 1.24 µs |
+| Std deviation | 1.78 µs |
+
+The stress load ran every `latency-test --stress` vector simultaneously:
+Go GC pressure (in-process), memory bandwidth (`stress-ng --stream`),
+last-level-cache thrashing (`--cache`), TLB-shootdown IPIs
+(`--tlb-shootdown`), fork/exec churn (`--exec`), ALU load (`--cpu`),
+disk I/O (`--hdd`), network softirqs (`--sock`) and GPU load (glxgears).
+Stressors are confined to the housekeeping CPUs — exactly as real non-RT
+load is in production — and a watchdog verifies that nothing violates the
+CPU isolation during the run.
+
+A typical cycle deviates ~1.2 µs from its nominal period; the worst cycle in
+over two hours of hostile load deviated 35 µs — 3.5% of the 1 ms period.
+The garbage collector was part of the attack, not a victim of special
+treatment: the single-image concept holds under measurement, not just in
+theory.
+
+### Measured on a Real EtherCAT Machine
+
+The bench test above shows the jitter ceiling under synthetic attack on strong
+hardware. The complementary measurement is the full stack — Go process,
+RT servo thread, and a realistic EtherCAT bus — soaking on **entry-level**
+industrial hardware:
+
+| | |
+|---|---|
+| Hardware | WAGO 752-940x (Intel Atom E3845, 4 cores @ 1.91 GHz, 8 GB RAM) |
+| Fieldbus | EtherCAT, 23 slaves in OP (couplers, digital/analog I/O, DC motor stages, NC axis controllers) |
+| Clocking | Distributed clocks, master synced to the slave reference clock (`refClockSyncCycles="-1"`) |
+| NIC driver | XDP-native `r8169_xdp` ([legacy-xdp](https://github.com/sittner/legacy-xdp)) |
+| RT thread | 1 ms cycle, SCHED_FIFO |
+| Load | full `latency-test --stress-only` vector set |
+| Duration | > 15 h (54,500 jitter samples; 54.6 M bus cycles at 1 kHz) |
+| **Max jitter** | **16.94 µs** |
+| Mean \|latency\| | 0.80 µs |
+| Bus health | **0 lost frames** in 54.6 M, **0 PLL resets** |
+
+An Atom-class CPU driving a 23-slave bus at 1 kHz under full stress load:
+the worst cycle in over fifteen hours deviated 1.7% of the period, and the
+fieldbus delivered every single frame. Real-time behavior is not a property
+of expensive hardware here — it is a property of the architecture.
+
 ### Component Model (cmod + gomod)
 
 Two component types serve different needs:
@@ -222,10 +303,48 @@ See individual source file headers for per-file license and copyright details.
 
 ## Status
 
-Active development. Not yet suitable for production use.
+**Lab-prototype stage.** GOMC has completed the automated half of a structured
+production-readiness program and is moving onto supervised prototype machines.
+Not yet suitable for unattended production use.
+
+What stands behind that:
+
+- **Systematic review.** Every subsystem went through a phased, per-module
+  review: independent adversarial AI passes cross-checked against the LinuxCNC
+  2.9 sources, each finding adjudicated and fixed with mutation-verified
+  regression tests. The full record — per-module matrix, findings documents,
+  design rulings — lives in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+- **Tests.** The classic LinuxCNC runtest suite is fully ported and green
+  (240+ tests, nothing skipped or expected-to-fail) and runs on every pull
+  request, plus nightly race-detector builds. Unit coverage was raised module
+  by module against a live in-process HAL; the web UIs carry their own
+  type-check/lint/test gates in CI.
+- **Fault paths.** Abort, E-stop and error semantics are verified against 2.9
+  as written-spec tests — not just the happy paths.
+- **Real-time.** RT correctness is tracked in
+  [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md): compiler-enforced
+  non-blocking guarantees across the RT paths (including the EtherCAT master),
+  and the adversarial-load jitter measurement documented above.
+
+Known limitations — read before deploying:
+
+- **No API authentication yet.** The REST/WebSocket control surface trusts its
+  network. Keep it on loopback or an isolated machine network. The plan is an
+  external authentication gateway plus fine-grained in-process authorization —
+  designed, not yet built.
+- **Safety.** GOMC is not a safety component. Operator protection must be
+  implemented in certified external hardware, independent of this software —
+  see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
+- **Pending.** The review program's final human sign-off pass runs alongside
+  lab deployment; a 15 h on-machine EtherCAT soak is documented above, with a
+  multi-day certification soak still to come.
+- **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
+  not ported; some shipped example configurations still await migration to the
+  gomc model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been
 feasible for a small team without massive AI-assisted development (GitHub
-Copilot). This enabled rapid prototyping and refactoring at a scale that would
-otherwise require years of manual effort.
+Copilot, Claude). This enabled rapid prototyping, large-scale refactoring, and
+the adversarial review program at a scale that would otherwise require years
+of manual effort.

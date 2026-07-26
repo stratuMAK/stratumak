@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // TestWatchSubscribeReceivesUpdates verifies that subscribing to a watch function
@@ -49,7 +49,7 @@ func TestWatchSubscribeReceivesUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{
@@ -96,6 +96,102 @@ func TestWatchSubscribeReceivesUpdates(t *testing.T) {
 	}
 }
 
+// TestWatchKeepaliveClosesDeadPeer: a peer that stops processing frames (app
+// wedged, cable pulled behind a NAT that keeps ACKing) must be detected and
+// closed by the server's ping loop — otherwise change-driven watch pushes
+// appear delivered forever and the client renders frozen values as live.
+// A client that never Reads stands in for the dead peer: coder/websocket only
+// answers pings inside Read, so the pong never arrives.
+func TestWatchKeepaliveClosesDeadPeer(t *testing.T) {
+	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
+	wsPingInterval, wsPingTimeout = 30*time.Millisecond, 50*time.Millisecond
+	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
+
+	handler := NewWatchHandler(NewWatchRegistry())
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.CloseNow() }()
+
+	// Do not Read. Wait past interval+timeout, then the server must have
+	// closed the connection: our first Read fails immediately instead of
+	// blocking until the test context expires.
+	time.Sleep(200 * time.Millisecond)
+	readCtx, readCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer readCancel()
+	if _, _, err := conn.Read(readCtx); err == nil {
+		t.Fatal("server kept an unresponsive peer open; keepalive did not close it")
+	}
+}
+
+// TestWatchKeepaliveKeepsLivePeer: the inverse guard — a peer that reads (and
+// therefore pongs) must survive many ping intervals and still get service.
+func TestWatchKeepaliveKeepsLivePeer(t *testing.T) {
+	oldInterval, oldTimeout := wsPingInterval, wsPingTimeout
+	wsPingInterval, wsPingTimeout = 20*time.Millisecond, 50*time.Millisecond
+	defer func() { wsPingInterval, wsPingTimeout = oldInterval, oldTimeout }()
+
+	// The value must keep changing: pushes are change-driven, and this test
+	// needs a continuous stream to prove the connection survives the pinger.
+	var counter int32
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{
+		APIName:  "test",
+		Instance: "default",
+		Watches: []WatchFuncMeta{{
+			Name:        "get_value",
+			DefaultRate: 20 * time.Millisecond,
+			Watch: func() (json.RawMessage, error) {
+				v := atomic.AddInt32(&counter, 1)
+				return json.Marshal(map[string]int32{"value": v})
+			},
+		}},
+	})
+	handler := NewWatchHandler(reg)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	sub, _ := json.Marshal(wsSubscribe{
+		Action: "subscribe", API: "test", Instance: "default",
+		Func: "get_value", RateMS: 20,
+	})
+	if err := conn.Write(ctx, websocket.MessageText, sub); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
+
+	// Read updates across ~10 ping intervals; pongs are answered inside Read,
+	// so the connection must stay up the whole time.
+	deadline := time.Now().Add(250 * time.Millisecond)
+	reads := 0
+	for time.Now().Before(deadline) {
+		if _, _, err := conn.Read(ctx); err != nil {
+			t.Fatalf("connection died after %d reads despite a live reader: %v", reads, err)
+		}
+		reads++
+	}
+	if reads == 0 {
+		t.Fatal("no updates received")
+	}
+}
+
 // TestWatchCommandCall verifies that command calls over WebSocket work.
 func TestWatchCommandCall(t *testing.T) {
 	reg := NewWatchRegistry()
@@ -130,7 +226,7 @@ func TestWatchCommandCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Call echo
 	call := wsCall{
@@ -225,12 +321,14 @@ func TestWatchUnsubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: "fast", RateMS: 20}
 	subData, _ := json.Marshal(sub)
-	conn.Write(ctx, websocket.MessageText, subData)
+	if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
 
 	// Read one update
 	_, _, err = conn.Read(ctx)
@@ -241,7 +339,9 @@ func TestWatchUnsubscribe(t *testing.T) {
 	// Unsubscribe
 	unsub := wsUnsubscribe{Action: "unsubscribe", API: "test", Instance: "default", Func: "fast"}
 	unsubData, _ := json.Marshal(unsub)
-	conn.Write(ctx, websocket.MessageText, unsubData)
+	if err := conn.Write(ctx, websocket.MessageText, unsubData); err != nil {
+		t.Fatalf("write unsubscribe: %v", err)
+	}
 
 	// Wait a bit, then try to read — should timeout (no more updates)
 	readCtx, readCancel := context.WithTimeout(ctx, 200*time.Millisecond)
@@ -287,12 +387,14 @@ func TestWatchServerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe
 	sub := wsSubscribe{Action: "subscribe", API: "demo", Instance: "default", Func: "get_status", RateMS: 50}
 	subData, _ := json.Marshal(sub)
-	conn.Write(ctx, websocket.MessageText, subData)
+	if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
 
 	// Read one update
 	_, data, err := conn.Read(ctx)
@@ -301,7 +403,9 @@ func TestWatchServerIntegration(t *testing.T) {
 	}
 
 	var update wsUpdate
-	json.Unmarshal(data, &update)
+	if err := json.Unmarshal(data, &update); err != nil {
+		t.Fatalf("unmarshal update: %v", err)
+	}
 	if update.Type != "update" || update.Func != "get_status" {
 		t.Fatalf("unexpected update: %+v", update)
 	}
@@ -347,13 +451,15 @@ func TestWatchConcurrentSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Subscribe to both
 	for _, fn := range []string{"fast", "slow"} {
 		sub := wsSubscribe{Action: "subscribe", API: "test", Instance: "default", Func: fn, RateMS: 30}
 		subData, _ := json.Marshal(sub)
-		conn.Write(ctx, websocket.MessageText, subData)
+		if err := conn.Write(ctx, websocket.MessageText, subData); err != nil {
+			t.Fatalf("write subscribe %s: %v", fn, err)
+		}
 	}
 
 	// Collect updates for 800ms
@@ -369,7 +475,9 @@ func TestWatchConcurrentSubscriptions(t *testing.T) {
 			break
 		}
 		var update wsUpdate
-		json.Unmarshal(data, &update)
+		if err := json.Unmarshal(data, &update); err != nil {
+			t.Fatalf("unmarshal update: %v", err)
+		}
 		mu.Lock()
 		counts[update.Func]++
 		mu.Unlock()
@@ -441,7 +549,7 @@ func TestWatchResubscribeNoStaleSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Fire generations subscribes back-to-back, each with an increasing gen.
 	for gen := 1; gen <= generations; gen++ {
@@ -482,5 +590,70 @@ func TestWatchResubscribeNoStaleSnapshot(t *testing.T) {
 	if lastGen != generations {
 		t.Fatalf("last snapshot gen=%d, want %d (stale snapshot from a "+
 			"superseded subscription clobbered the newest)", lastGen, generations)
+	}
+}
+
+// TestWatchOriginCheck is the N1 regression: with the secure default (empty
+// originPatterns) a cross-origin WebSocket handshake must be rejected, so a
+// malicious page in the operator's browser cannot open the watch socket and
+// issue `call` commands. Setting originPatterns to "*" re-allows any origin.
+func TestWatchOriginCheck(t *testing.T) {
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{APIName: "test", Instance: "default"})
+
+	dialCrossOrigin := func(url string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+			HTTPHeader: map[string][]string{"Origin": {"http://evil.example"}},
+		})
+		if err == nil {
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		}
+		return err
+	}
+
+	// Secure default: cross-origin rejected.
+	h1 := NewWatchHandler(reg)
+	srv1 := httptest.NewServer(h1)
+	defer srv1.Close()
+	if err := dialCrossOrigin("ws" + strings.TrimPrefix(srv1.URL, "http")); err == nil {
+		t.Error("cross-origin handshake accepted with default (same-origin) policy; want rejection")
+	}
+
+	// Opt-in "*": cross-origin allowed.
+	h2 := NewWatchHandler(reg)
+	h2.originPatterns = []string{"*"}
+	srv2 := httptest.NewServer(h2)
+	defer srv2.Close()
+	if err := dialCrossOrigin("ws" + strings.TrimPrefix(srv2.URL, "http")); err != nil {
+		t.Errorf("cross-origin handshake rejected with wildcard policy: %v", err)
+	}
+}
+
+// UnregisterByInstance must remove every watch API for an instance (and only
+// that instance) so a module's watch registration does not survive its unload
+// and Destroy (which frees the pins the WatchAPI closures capture).
+func TestWatchRegistryUnregisterByInstance(t *testing.T) {
+	r := NewWatchRegistry()
+	r.Register(&WatchAPI{APIName: "haljson", Instance: "panel"})
+	r.Register(&WatchAPI{APIName: "other", Instance: "panel"})
+	r.Register(&WatchAPI{APIName: "haljson", Instance: "keep"})
+
+	if n := r.UnregisterByInstance("panel"); n != 2 {
+		t.Errorf("removed %d; want 2", n)
+	}
+	if r.Get("haljson", "panel") != nil || r.Get("other", "panel") != nil {
+		t.Error("panel watch APIs still resolvable after unregister")
+	}
+	if r.Get("haljson", "keep") == nil {
+		t.Error("unrelated instance was removed")
+	}
+	if got := len(r.All()); got != 1 {
+		t.Errorf("registry has %d APIs; want 1", got)
+	}
+	// Unregistering an absent instance is a no-op.
+	if n := r.UnregisterByInstance("nope"); n != 0 {
+		t.Errorf("removed %d for absent instance; want 0", n)
 	}
 }

@@ -40,7 +40,13 @@ def parse_tbl(path):
 
 want = parse_tbl(os.path.join(HERE, "test.tbl"))
 with urllib.request.urlopen(gmi.rest_url() + "/api/v1/tooltable/", timeout=5) as r:
-    got = {t["toolno"]: t for t in json.loads(r.read())}
+    slots = json.loads(r.read())
+
+# The store is slot-addressed: slot 0 is the spindle, which a non-random .tbl
+# import must leave empty (2.9's tooldata_save starts at idx 1). The tools
+# proper are the remaining slots.
+spindle = next((s for s in slots if s["idx"] == 0), None)
+got = {t["toolno"]: t for t in slots if t["idx"] != 0}
 
 fail = 0
 
@@ -52,6 +58,9 @@ def chk(cond, msg):
         fail = 1
 
 
+chk(spindle is not None, "the spindle slot (idx 0) is missing from the table")
+chk(spindle is None or spindle["toolno"] == -1,
+    "spindle slot should be empty after a non-random import, got %r" % (spindle,))
 chk(len(got) == len(want), "tool count %d != expected %d" % (len(got), len(want)))
 for tno, w in sorted(want.items()):
     g = got.get(tno)

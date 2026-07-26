@@ -136,7 +136,7 @@ func (r *ParseResult) Execute() error {
 //
 // When a LoadToken has no explicit Names, a single call is made with the default
 // name derived from the module path (basename without .so).  When Names are set
-// (via the [name1,name2,...] syntax), fn is called once per name.
+// (via the <name1,name2,...> syntax parseLoad accepts), fn is called once per name.
 func (r *ParseResult) IterLoads(fn func(path string, name string, args []string) error) error {
 	for _, tok := range r.Loads {
 		d, ok := tok.Data.(*LoadToken)

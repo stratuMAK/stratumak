@@ -233,6 +233,15 @@ func (g *clientPyWSGen) emitClient() {
 			g.printf("            if callback:\n")
 			g.printf("                callback(%s.from_dict(data) if isinstance(data, dict) else data)\n", typeName)
 			g.printf("        await self.subscribe(%q, rate_ms, _typed_cb)\n\n", fn.Name)
+		} else if fn.Return != nil && fn.Return.Kind == ast.TypeMap &&
+			fn.Return.Elem != nil && fn.Return.Elem.Kind == ast.TypeNamed {
+			// map[string]NamedType — deserialize each value. Works for delta
+			// frames too: a partial map is still a dict of the same shape.
+			typeName := toPascalCase(fn.Return.Elem.Name)
+			g.printf("        def _typed_cb(data):\n")
+			g.printf("            if callback:\n")
+			g.printf("                callback({k: %s.from_dict(v) if isinstance(v, dict) else v for k, v in data.items()} if isinstance(data, dict) else data)\n", typeName)
+			g.printf("        await self.subscribe(%q, rate_ms, _typed_cb)\n\n", fn.Name)
 		} else {
 			g.printf("        await self.subscribe(%q, rate_ms, callback)\n\n", fn.Name)
 		}
@@ -246,6 +255,8 @@ func (g *clientPyWSGen) emitCommands() {
 		if fn.Watch {
 			continue
 		}
+		// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+		fn = restView(fn)
 		methodName := toSnakeCase(fn.Name)
 		params := g.methodParams(fn)
 		retAnnot := g.methodReturnAnnotation(fn)
@@ -429,20 +440,15 @@ func (g *clientPyWSGen) methodReturnAnnotation(fn ast.Func) string {
 func (g *clientPyWSGen) toPyType(t ast.TypeRef) string {
 	switch t.Kind {
 	case ast.TypePrimitive:
-		switch t.Name {
-		case "bool":
-			return "bool"
-		case "i8", "u8", "i32", "u32", "i64", "u64":
-			return "int"
-		case "f32", "f64":
-			return "float"
-		case "string":
-			return "str"
-		}
+		// Delegate to the single Python primitive mapper (shared with client_py)
+		// so the two never drift — this is where i16/u16 previously fell to Any.
+		return primitiveToPyType(t.Name)
 	case ast.TypeNamed:
 		return toPascalCase(t.Name)
 	case ast.TypeArray, ast.TypeSlice:
 		return fmt.Sprintf("list[%s]", g.toPyType(*t.Elem))
+	case ast.TypeMap:
+		return fmt.Sprintf("dict[str, %s]", g.toPyType(*t.Elem))
 	}
 	return "Any"
 }

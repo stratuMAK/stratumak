@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path"
 	"strings"
 	"unsafe"
 
@@ -19,14 +18,11 @@ import (
 // Levels follow gomc_log_level_t: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR.
 var LogLevel slog.LevelVar
 
-// lockAll is the HAL_LOCK_ALL bitmask value.
-const lockAll = 255
-
 // SetLock sets the HAL lock level, restricting which commands are permitted.
 // This is the low-level counterpart of Lock()/Unlock() and exists so that the
 // halparse executor can set lock levels directly via an integer bitmask.
 func SetLock(level int) error {
-	return halSetLock(level)
+	return halSetLock(level, "lock")
 }
 
 // GetLock returns the current HAL lock bitmask (0-255). The bitmask is a HAL-
@@ -82,17 +78,70 @@ func StopThreads() error {
 // the pool initialized by InitCPUPool().  If the pool is exhausted the thread
 // runs without affinity (a warning is logged in POSIX RT mode).
 //
-// When cpu>=0, the value is validated against the pool of isolated physical
-// cores. An error is returned if the CPU is not available.
+// When cpu>=0, the thread is pinned to that CPU. Any online CPU is accepted —
+// pinning is the caller's explicit choice — but a non-isolated one logs a
+// warning. Only an offline/out-of-range CPU is an error.
 //
-// Threads must be created fastest-first (ascending period) for rate monotonic
-// priority scheduling.
+// HAL assigns thread priorities by creation order — each new thread one step
+// below the previous one — so threads should be created fastest-first to get
+// rate monotonic scheduling. That is a convention, not a rule: creating a
+// faster thread later succeeds and produces a warning (see ThreadOrderWarning).
 func CreateThreadCPU(name string, periodNs int64, usesFP int, cpu int) error {
-	assigned, err := acquireCPU(name, cpu)
+	if w := ThreadOrderWarning(name, periodNs); w != "" {
+		if logger := poolLogger(); logger != nil {
+			logger.Warn(w)
+		}
+	}
+	// A core popped for a thread that HAL then refuses must go back into the
+	// pool — otherwise every failed newthread permanently burns an isolated
+	// core. Only this call's own acquisition is undone: restoring a whole-pool
+	// snapshot would also resurrect cores handed to concurrent newthread calls
+	// between the snapshot and the failure.
+	lease, err := acquireCPU(name, cpu)
 	if err != nil {
 		return err
 	}
-	return halCreateThreadCPU(name, periodNs, usesFP, assigned)
+	if err := halCreateThreadCPU(name, periodNs, usesFP, lease.cpu); err != nil {
+		releaseCPU(lease)
+		return err
+	}
+	return nil
+}
+
+// ThreadOrderWarning reports whether creating a thread of the given period now
+// would break rate monotonic scheduling, and returns the message to show if so
+// (empty when the order is fine).
+//
+// HAL gives each newly created thread the next lower priority, so the thread
+// about to be created will be the lowest-priority one. That inverts rate
+// monotonic scheduling as soon as ANY existing thread has a LONGER period: the
+// slower thread would preempt the faster one. Hence a scan of all threads
+// rather than a comparison against the newest — once creation order is free and
+// threads can be deleted, the most recently created thread is not necessarily
+// the slowest one. The list is a handful of entries on a non-realtime path, so
+// scanning beats caching a "slowest" value that delthread would invalidate.
+//
+// This lives in Go, not in hal_lib, because hal_lib's diagnostics go to the RT
+// log: a warning emitted there would never reach the operator who typed the
+// command.
+func ThreadOrderWarning(name string, periodNs int64) string {
+	threads, err := halShowThreads("")
+	if err != nil {
+		return ""
+	}
+	var slower []string
+	for _, t := range threads {
+		if t.Period > periodNs {
+			slower = append(slower, fmt.Sprintf("%s (%d ns)", t.Name, t.Period))
+		}
+	}
+	if len(slower) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("thread %s (%d ns) is created after the slower thread(s) %s, "+
+		"so it gets a LOWER priority than they do and they will preempt it — "+
+		"create faster threads first for rate monotonic scheduling",
+		name, periodNs, strings.Join(slower, ", "))
 }
 
 // ThreadDelete deletes a HAL realtime thread by name.
@@ -291,13 +340,13 @@ func Net(signame string, pins ...string) error {
 // LinkPS links a pin to a signal.
 // Equivalent to "halcmd linkps <pin> <sig>".
 func LinkPS(pin, sig string) error {
-	return halLinkPS(pin, sig)
+	return halLinkPS(pin, sig, "linkps")
 }
 
 // LinkSP links a signal to a pin (argument order reversed from LinkPS).
 // Equivalent to "halcmd linksp <sig> <pin>".
 func LinkSP(sig, pin string) error {
-	return halLinkPS(pin, sig)
+	return halLinkPS(pin, sig, "linksp")
 }
 
 // UnlinkP unlinks a pin from its signal.
@@ -369,7 +418,7 @@ func Lock(level string) error {
 	if err != nil {
 		return err
 	}
-	return halSetLock(lvl)
+	return halSetLock(lvl, "lock")
 }
 
 // Unlock sets the HAL lock level to allow previously restricted commands.
@@ -383,7 +432,7 @@ func Unlock(level string) error {
 	if err != nil {
 		return err
 	}
-	return halSetLock(halGetLock() &^ lvl)
+	return halSetLock(halGetLock()&^lvl, "unlock")
 }
 
 // ===== Query commands =====
@@ -420,12 +469,13 @@ func List(halType string, patterns ...string) ([]string, error) {
 			if pat == "" {
 				return all, nil
 			}
-			// Filter by pattern using path.Match glob semantics.
-			// Note: C shims handle patterns for pin/sig/param/funct/thread
-			// via fnmatch internally; for comp we filter in Go.
+			// Filter with libc fnmatch (halFnmatch), the same matcher the C
+			// shims use for pin/sig/param/funct/thread — so `list comp` shares
+			// the glob dialect of every other list type instead of diverging on
+			// Go's path.Match semantics.
 			var filtered []string
 			for _, name := range all {
-				if matched, _ := matchPattern(pat, name); matched {
+				if halFnmatch(pat, name) {
 					filtered = append(filtered, name)
 				}
 			}
@@ -453,83 +503,82 @@ func List(halType string, patterns ...string) ([]string, error) {
 	return all, nil
 }
 
-// matchPattern does a glob-style match in Go for the "comp" list case.
-// Returns true if name matches pat using path.Match syntax (*, ?, [...] wildcards).
-func matchPattern(pat, name string) (bool, error) {
-	if pat == "" {
-		return true, nil
-	}
-	return path.Match(pat, name)
-}
-
 // ===== Structured info types =====
+//
+// These are internal, CGO-backed domain types populated by reading HAL shared
+// memory directly. They are NOT wire types: the REST provider
+// (internal/halrest) converts them field-by-field into the generated
+// halcmdapi.* types, which are the single source of truth for JSON marshaling
+// (and carry the ",string" 64-bit tags). Deliberately no json tags here — so
+// these can never be mistaken for the wire representation and silently drift
+// from it (the cmd/ethercat hand-written-client trap).
 
 // CompInfo holds the attributes of a HAL component.
 type CompInfo struct {
-	Name string `json:"name"`
-	ID   int    `json:"id"`
-	Type string `json:"type"`
+	Name string
+	ID   int
+	Type string
 }
 
 // PinInfo holds all attributes of a HAL pin.
 type PinInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Direction string `json:"direction"`
-	Value     string `json:"value"`
-	Signal    string `json:"signal,omitempty"`
-	Owner     string `json:"owner"`
-	HasWriter bool   `json:"has_writer"`
+	Name      string
+	Type      string
+	Direction string
+	Value     string
+	Signal    string
+	Owner     string
+	HasWriter bool
 }
 
 // ParamInfo holds all attributes of a HAL parameter.
 type ParamInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Direction string `json:"direction"`
-	Value     string `json:"value"`
-	Owner     string `json:"owner"`
+	Name      string
+	Type      string
+	Direction string
+	Value     string
+	Owner     string
 }
 
 // SigInfo holds all attributes of a HAL signal.
 type SigInfo struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	Name  string
+	Type  string
+	Value string
 }
 
 // FunctInfo holds all attributes of a HAL realtime function.
 type FunctInfo struct {
-	Name    string `json:"name"`
-	Owner   string `json:"owner"`
-	Users   int32  `json:"users"`
-	FP      bool   `json:"fp"`
-	MaxTime int64  `json:"maxtime_ns"`
+	Name    string
+	Owner   string
+	Users   int32
+	FP      bool
+	MaxTime int64
 }
 
 // ThreadInfo holds all attributes of a HAL thread.
 type ThreadInfo struct {
-	Name    string   `json:"name"`
-	Period  int64    `json:"period_ns"`
-	FP      bool     `json:"fp"`
-	Functs  []string `json:"functs"`
-	Running bool     `json:"running"`
+	Name    string
+	Period  int64
+	FP      bool
+	Functs  []string
+	Running bool
 }
 
 // ShowResult aggregates the results of a Show() call.
 type ShowResult struct {
-	Comps   []CompInfo   `json:"comps,omitempty"`
-	Pins    []PinInfo    `json:"pins,omitempty"`
-	Params  []ParamInfo  `json:"params,omitempty"`
-	Signals []SigInfo    `json:"signals,omitempty"`
-	Functs  []FunctInfo  `json:"functs,omitempty"`
-	Threads []ThreadInfo `json:"threads,omitempty"`
+	Comps   []CompInfo
+	Pins    []PinInfo
+	Params  []ParamInfo
+	Signals []SigInfo
+	Functs  []FunctInfo
+	Threads []ThreadInfo
 }
 
 // StatusInfo holds HAL shared-memory status information.
 type StatusInfo struct {
-	ShmemFree int    `json:"shmem_free_bytes"`
-	LockLevel string `json:"lock_level"`
+	ShmemFree int
+	LockLevel string
 }
 
 // ===== Show / Save / Status / SetDebug =====
@@ -645,11 +694,15 @@ func Save(halType string, filename string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("save: cannot open %q: %w", filename, err)
 		}
-		defer f.Close()
 		for _, line := range lines {
 			if _, err := fmt.Fprintln(f, line); err != nil {
+				_ = f.Close()
 				return nil, fmt.Errorf("save: write error: %w", err)
 			}
+		}
+		// Check the write-file Close so a deferred/flush error is not lost.
+		if err := f.Close(); err != nil {
+			return nil, fmt.Errorf("save: closing %q: %w", filename, err)
 		}
 		return nil, nil
 	}

@@ -5,14 +5,15 @@ import { latencyStore } from '../stores/latency';
 const s = computed(() => latencyStore.state.status);
 
 // Format a nanosecond value as a readable us / ms string.
-function ns(v: number | undefined): string {
+function ns(v: number | bigint | undefined): string {
   if (v === undefined || v === null) return '—';
-  const a = Math.abs(v);
-  if (a >= 1_000_000) return (v / 1_000_000).toFixed(3) + ' ms';
-  if (a >= 1_000) return (v / 1_000).toFixed(2) + ' µs';
-  return Math.round(v) + ' ns';
+  const n = Number(v);
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return (n / 1_000_000).toFixed(3) + ' ms';
+  if (a >= 1_000) return (n / 1_000).toFixed(2) + ' µs';
+  return Math.round(n) + ' ns';
 }
-function count(v: number | undefined): string {
+function count(v: number | bigint | undefined): string {
   return v === undefined || v === null ? '—' : v.toLocaleString();
 }
 </script>
@@ -29,7 +30,7 @@ function count(v: number | undefined): string {
       <div class="tile"><div class="k">min latency</div><div class="v">{{ ns(s?.minNs) }}</div></div>
       <div class="tile"><div class="k">max latency</div><div class="v">{{ ns(s?.maxNs) }}</div></div>
       <div class="tile"><div class="k">last latency</div><div class="v">{{ ns(s?.lastNs) }}</div></div>
-      <div class="tile"><div class="k">mean</div><div class="v">{{ ns(s?.meanNs) }}</div></div>
+      <div class="tile"><div class="k">mean |lat|</div><div class="v">{{ ns(s?.meanNs) }}</div></div>
       <div class="tile"><div class="k">std dev</div><div class="v">{{ ns(s?.stddevNs) }}</div></div>
       <div class="tile"><div class="k">thread period</div><div class="v">{{ ns(s?.periodNs) }}</div></div>
       <div class="tile"><div class="k">samples</div><div class="v">{{ count(s?.samples) }}</div></div>

@@ -180,13 +180,11 @@ func (g *serverGen) toCType(t ast.TypeRef) string {
 	return "void"
 }
 
-// arraySizeStr returns the C size expression for an array type.
-// Uses the #define constant name if available.
+// arraySizeStr returns the C array-size expression for a type, delegating to the
+// shared cArraySizeStr so every C emitter agrees on the #define-vs-literal
+// choice.
 func (g *serverGen) arraySizeStr(t ast.TypeRef) string {
-	if t.ArrayLenName != "" {
-		return fmt.Sprintf("%s_%s", strings.ToUpper(g.api.Name), t.ArrayLenName)
-	}
-	return fmt.Sprintf("%d", t.ArrayLen)
+	return cArraySizeStr(g.api.Name, t)
 }
 
 func primitiveToCType(name string) string {
@@ -221,6 +219,57 @@ func primitiveToCType(name string) string {
 	return "int"
 }
 
+// is64BitScalarInt reports whether t is a scalar i64 or u64 (nullable or not).
+// Such values serialize as JSON strings (see jsonStringOpt) so they survive a
+// JavaScript client, whose numbers are IEEE-754 doubles and silently truncate
+// integers above 2^53. No IDL uses a slice/array of 64-bit ints, so only the
+// scalar shape is handled; introduce that shape and this must grow to match.
+func is64BitScalarInt(t ast.TypeRef) bool {
+	return t.Is64BitInt()
+}
+
+// jsonStringOpt returns the ",string" encoding/json tag option for 64-bit scalar
+// ints (see is64BitScalarInt), else "". Append it after the field name and any
+// ",omitempty" already present in the struct tag.
+func jsonStringOpt(t ast.TypeRef) string {
+	if is64BitScalarInt(t) {
+		return ",string"
+	}
+	return ""
+}
+
+// apiNeeds64BitConv reports whether any named type field or function parameter
+// is a scalar i64/u64 — i.e. whether a client needs the JSON-string <-> integer
+// converters at its (de)serialization / send seams.
+func apiNeeds64BitConv(api *ast.API) bool {
+	for i := range api.Types {
+		for _, f := range api.Types[i].Fields {
+			if is64BitScalarInt(f.Type) {
+				return true
+			}
+		}
+	}
+	for _, fn := range api.Funcs {
+		for _, p := range fn.Params {
+			if is64BitScalarInt(p.Type) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// jsonStringOptParam is jsonStringOpt for a function parameter. It excludes
+// opaque-pointer (ptr), byref, and out params: those do not carry a plain
+// marshaled scalar i64/u64 value in the request/response body, so widening them
+// to a JSON string would desync the two sides.
+func jsonStringOptParam(p ast.Param) string {
+	if p.IsPtr || p.ByRef || p.IsOut {
+		return ""
+	}
+	return jsonStringOpt(p.Type)
+}
+
 // constType const-qualifies a C type unless it already is (string maps to
 // "const char *" — prepending another const would emit "const const").
 func constType(cType string) string {
@@ -228,16 +277,6 @@ func constType(cType string) string {
 		return cType
 	}
 	return "const " + cType
-}
-
-// isCallback returns true if name matches a declared callback type.
-func (g *serverGen) isCallback(name string) bool {
-	for _, cb := range g.api.Callbacks {
-		if cb.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // callbackCType returns the C typedef name for a callback.
@@ -268,7 +307,15 @@ func (g *serverGen) emitCallbackDecls() {
 			}
 			g.printf("    %s%s\n", p, comma)
 		}
-		g.printf(");\n\n")
+		// @rt_safe callbacks are invoked from the RT cycle — stamp the _cb
+		// typedef nonblocking so clang's function-effects analysis checks
+		// implementations and allows RT callers (mirrors the _fn precedent).
+		// Task/worker-level callbacks (the default) stay blocking-capable.
+		if cb.RTSafe {
+			g.printf(") GOMC_API_NONBLOCKING;\n\n")
+		} else {
+			g.printf(");\n\n")
+		}
 	}
 }
 
@@ -277,6 +324,16 @@ func (g *serverGen) emitCallbackTypedefs() {
 		return
 	}
 	g.printf("// --- Callback Typedefs ---\n\n")
+
+	// Emit the owning wrapper for every slice-valued out param (see
+	// sliceOutCTypeName). Keyed by element type, so it is emitted once even when
+	// several functions hand back the same element.
+	for _, t := range sliceOutParams(g.api) {
+		g.printf("typedef struct {\n")
+		g.printf("    %s *data;\n", g.toCType(*t.Elem))
+		g.printf("    size_t len;\n")
+		g.printf("} %s;\n\n", sliceOutCTypeName(g.api.Name, t))
+	}
 
 	// Emit result structs for functions that return slices (need ptr + len).
 	for _, fn := range g.api.Funcs {
@@ -296,6 +353,12 @@ func (g *serverGen) emitCallbackTypedefs() {
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
 			continue // publish functions use ring buffers, not callbacks
+		}
+		if isMapWatchFunc(fn) {
+			g.printf("// %s: watch-only, returns map[string]%s — JSON-only, no C ABI.\n",
+				toSnakeCase(fn.Name), fn.Return.Elem.String())
+			g.printf("// Servable by Go providers only (RegisterXxxWatch in the bridge).\n\n")
+			continue
 		}
 		// Direct return: function returns the declared type (or void).
 		retCType := "void"
@@ -368,6 +431,13 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s", cType, name)
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar (T?) → pointer, NULL = absent. Lets the provider
+			// distinguish an omitted optional argument from a zero value across
+			// the C ABI (a plain scalar cannot carry "absent"). Strings are
+			// excluded — they are already char* and carry nullability via NULL.
+			return fmt.Sprintf("const %s *%s", cType, name)
+		}
 		return fmt.Sprintf("%s %s", cType, name)
 
 	case ast.TypeCallback:
@@ -392,7 +462,12 @@ func (g *serverGen) paramDecl(p ast.Param) string {
 
 	case ast.TypeSlice:
 		elemType := g.toCType(*p.Type.Elem)
-		if p.ByRef || p.IsOut {
+		if p.IsOut {
+			// The callee allocates, so the caller cannot preallocate a buffer:
+			// the payload travels in an owning {data, len} struct instead.
+			return fmt.Sprintf("%s *%s", sliceOutCTypeName(g.api.Name, p.Type), name)
+		}
+		if p.ByRef {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemType, name, name)
 		}
 		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemType), name, name)
@@ -424,6 +499,11 @@ func (g *serverGen) emitCallbacksStruct() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			g.printf("    /* %s: JSON-only watch (map return) — no C ABI, Go providers only */\n",
+				toSnakeCase(fn.Name))
+			continue
+		}
 		fieldName := cSafeName(toSnakeCase(fn.Name))
 		g.printf("    %s_%s_fn %s;\n", g.api.Name, toSnakeCase(fn.Name), fieldName)
 	}
@@ -439,6 +519,9 @@ func (g *serverGen) emitCallbacksStruct() {
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
 			continue
+		}
+		if isMapWatchFunc(fn) {
+			continue // no vtable field to wire (JSON-only watch)
 		}
 		fieldName := cSafeName(toSnakeCase(fn.Name))
 		funcName := fmt.Sprintf("gmi_%s_%s", g.api.Name, toSnakeCase(fn.Name))

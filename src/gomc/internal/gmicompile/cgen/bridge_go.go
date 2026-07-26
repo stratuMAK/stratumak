@@ -125,6 +125,7 @@ func (g *bridgeGoGen) emitPreamble() {
 	g.printf("\t\"encoding/json\"\n")
 	g.printf("\t\"fmt\"\n")
 	g.printf("\t\"runtime/cgo\"\n")
+	g.printf("\t\"syscall\"\n")
 	if g.hasWatchFuncs() {
 		g.printf("\t\"time\"\n")
 	}
@@ -136,6 +137,7 @@ func (g *bridgeGoGen) emitPreamble() {
 	g.printf("var _ = unsafe.Pointer(nil) // suppress unused\n")
 	g.printf("var _ = json.Marshal // suppress unused\n")
 	g.printf("var _ = fmt.Sprintf // suppress unused\n")
+	g.printf("var _ = syscall.EINVAL // suppress unused\n")
 	if g.hasWatchFuncs() {
 		g.printf("var _ time.Duration // suppress unused\n")
 	}
@@ -201,10 +203,35 @@ func (g *bridgeGoGen) emitBuildCallbacks() {
 	// Register function — convenience wrapper that builds callbacks and registers
 	regName := "Register" + apiPascal + "API"
 	g.printf("// %s registers a Go implementation of the %s API with the apiserver registry.\n", regName, apiName)
+	g.printf("//\n")
+	g.printf("// The C callbacks struct is still built and registered: it is what lets a\n")
+	g.printf("// cmod call this gomod in-process. REST and WS, which are not part of that\n")
+	g.printf("// call matrix, are served by the Go-native handlers instead — routing them\n")
+	g.printf("// through the C ABI would discard the provider's error, since that\n")
+	g.printf("// signature has no channel to carry one.\n")
 	g.printf("func %s(registry *apiserver.Registry, instance string, impl %s) error {\n", regName, ifaceName)
 	g.printf("\tptr := %s(impl)\n", funcName)
-	g.printf("\treturn registry.Register(%q, %d, instance, ptr)\n", apiName, g.api.Version)
+	if g.hasCommandFuncs() {
+		g.printf("\treturn registry.RegisterGo(%q, %d, instance, ptr, %sHandlers(impl))\n",
+			apiName, g.api.Version, apiPascal)
+	} else {
+		g.printf("\treturn registry.Register(%q, %d, instance, ptr)\n", apiName, g.api.Version)
+	}
 	g.printf("}\n\n")
+}
+
+// hasCommandFuncs reports whether GenerateServerGoExtra emitted an XxxHandlers
+// set for this API. It must agree with serverGoGen.isCommandFunc, which is the
+// predicate that decides whether the set exists — referencing a function that
+// was never emitted would not compile.
+func (g *bridgeGoGen) hasCommandFuncs() bool {
+	sg := &serverGoGen{api: g.api}
+	for _, fn := range g.api.Funcs {
+		if sg.isCommandFunc(fn) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Trampolines ---
@@ -240,7 +267,7 @@ func (g *bridgeGoGen) emitOneTrampoline(apiName, ifaceName string, fn ast.Func) 
 
 	for _, p := range fn.Params {
 		cParams = append(cParams, g.trampolineParam(apiName, p))
-		if p.Type.Kind == ast.TypeSlice {
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			cParams = append(cParams, fmt.Sprintf("%s_len C.size_t", escapeGoKeyword(p.Name)))
 		}
 	}
@@ -293,6 +320,27 @@ func (g *bridgeGoGen) emitOneTrampoline(apiName, ifaceName string, fn ast.Func) 
 // emitTrampolineWithOutParams handles trampolines where the Go method returns
 // extra values for out-params, which must be written back to C pointers.
 func (g *bridgeGoGen) emitTrampolineWithOutParams(apiName string, fn ast.Func, methodName, callArgs string, outParams []ast.Param) {
+	// @rc_error: the rc is the error channel, so the provider never spells one
+	// out — it returns (payload..., error) and the trampoline encodes it. This
+	// is the whole point of the shape: the provider's error reaches the caller
+	// instead of being flattened into a zero-valued payload.
+	if fn.RcError {
+		lhsParts := make([]string, 0, len(outParams)+1)
+		for i := range outParams {
+			lhsParts = append(lhsParts, fmt.Sprintf("_out%d", i))
+		}
+		lhsParts = append(lhsParts, "_err")
+		g.printf("\t%s := impl.%s(%s)\n", strings.Join(lhsParts, ", "), methodName, callArgs)
+		g.printf("\tif _err != nil {\n")
+		g.printf("\t\treturn -1\n")
+		g.printf("\t}\n")
+		for i, p := range outParams {
+			g.emitOutParamWriteback(apiName, p, fmt.Sprintf("_out%d", i), escapeGoKeyword(p.Name))
+		}
+		g.printf("\treturn 0\n")
+		return
+	}
+
 	// Build the LHS of the multi-return assignment
 	var lhsParts []string
 	if fn.Return != nil {
@@ -410,7 +458,52 @@ func (g *bridgeGoGen) emitOutParamWriteback(apiName string, p ast.Param, goVar, 
 		g.printf("\t\tvar _freeList []unsafe.Pointer\n")
 		g.printf("\t\t*%s = %s(%s, &_freeList)\n", cName, converter, goVar)
 		g.printf("\t}\n")
+	case ast.TypeSlice:
+		g.emitSliceOutWriteback(apiName, p, goVar, cName)
 	}
+}
+
+// emitSliceOutWriteback fills a slice out param's {data, len} struct from a Go
+// slice. The buffer (and every string in it) is malloc'd and handed to the
+// caller, which frees it — the same ownership rule as a slice return, so the
+// consuming client code is unchanged by the conversion.
+func (g *bridgeGoGen) emitSliceOutWriteback(apiName string, p ast.Param, goVar, cName string) {
+	elem := *p.Type.Elem
+	g.printf("\tif %s != nil {\n", cName)
+	g.printf("\t\t%s.len = C.size_t(len(%s))\n", cName, goVar)
+	g.printf("\t\t%s.data = nil\n", cName)
+	g.printf("\t\tif len(%s) > 0 {\n", goVar)
+
+	switch {
+	case elem.Kind == ast.TypePrimitive && elem.Name == ast.PrimString:
+		g.printf("\t\t\t_arr := (**C.char)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof((*C.char)(nil)))))\n", goVar)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = C.CString(%s[i])\n", goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	case elem.Kind == ast.TypeNamed && !g.isEnum(elem.Name):
+		elemCType := cTypeForAPICgo(apiName, elem)
+		converter := toLowerCamelRaw(elem.Name) + "GoToC"
+		g.printf("\t\t\t_arr := (*%s)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof(%s{}))))\n", elemCType, goVar, elemCType)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tvar _retAllocs []unsafe.Pointer // not freed: caller owns return data\n")
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = %s(%s[i], &_retAllocs)\n", converter, goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	default:
+		elemCType := cTypeForAPICgo(apiName, elem)
+		g.printf("\t\t\t_arr := (*%s)(C.calloc(C.size_t(len(%s)), C.size_t(unsafe.Sizeof(%s(0)))))\n", elemCType, goVar, elemCType)
+		g.printf("\t\t\t_slice := unsafe.Slice(_arr, len(%s))\n", goVar)
+		g.printf("\t\t\tfor i := range %s {\n", goVar)
+		g.printf("\t\t\t\t_slice[i] = %s(%s[i])\n", elemCType, goVar)
+		g.printf("\t\t\t}\n")
+		g.printf("\t\t\t%s.data = _arr\n", cName)
+	}
+
+	g.printf("\t\t}\n")
+	g.printf("\t}\n")
 }
 
 // emitTrampolineStandardCall handles the original trampoline pattern (no out-params).
@@ -492,10 +585,22 @@ func (g *bridgeGoGen) emitTrampolineStandardCall(apiName string, fn ast.Func, me
 }
 
 // trampolineParam returns the Go parameter declaration for a trampoline (C types).
+// isOpaquePtrParam reports whether a param crosses the cgo bridge boundary as an
+// opaque pointer: the `ptr` keyword modifier (IsPtr), a `ptr`-typed param, or a
+// callback-typed param. All three are emitted as unsafe.Pointer in the //export
+// trampoline and void* in the extern, and surfaced to the Go provider as uint64 —
+// never truncated to C.int, which would drop the high 32 bits of a 64-bit
+// pointer / function pointer on any 64-bit target.
+func isOpaquePtrParam(p ast.Param) bool {
+	return p.IsPtr ||
+		p.Type.Kind == ast.TypeCallback ||
+		(p.Type.Kind == ast.TypePrimitive && p.Type.Name == ast.PrimPtr)
+}
+
 func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 	name := escapeGoKeyword(p.Name)
 
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		// opaque pointer — pass through as unsafe.Pointer
 		return fmt.Sprintf("%s unsafe.Pointer", name)
 	}
@@ -504,6 +609,11 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 	case ast.TypePrimitive:
 		cType := cTypeForAPICgo(apiName, p.Type)
 		if p.ByRef || p.IsOut {
+			return fmt.Sprintf("%s *%s", name, cType)
+		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar arrives as a pointer (NULL = absent). Strings are
+			// already *C.char (nullability via NULL), so are not double-pointered.
 			return fmt.Sprintf("%s *%s", name, cType)
 		}
 		return fmt.Sprintf("%s %s", name, cType)
@@ -519,6 +629,10 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 		// Structs pass by pointer (matches _api.h: const T *param)
 		return fmt.Sprintf("%s *%s", name, cType)
 	case ast.TypeSlice:
+		if p.IsOut {
+			// Callee-allocated payload: an owning {data, len} struct.
+			return fmt.Sprintf("%s *C.%s", name, sliceOutCTypeName(apiName, p.Type))
+		}
 		elemCType := cTypeForAPICgo(apiName, *p.Type.Elem)
 		return fmt.Sprintf("%s *%s", name, elemCType)
 	case ast.TypeArray:
@@ -527,6 +641,16 @@ func (g *bridgeGoGen) trampolineParam(apiName string, p ast.Param) string {
 		return fmt.Sprintf("%s *%s", name, elemCType)
 	}
 	return fmt.Sprintf("%s C.int", name)
+}
+
+// emitNullableScalarCToGo converts a nullable scalar param that arrives as a C
+// pointer (name, e.g. a `*C.int32_t`) into a nil-preserving Go `*goType`, so the
+// provider sees "absent" (nil) rather than a fabricated zero. goType is the Go
+// primitive name, e.g. "int32". Returns the Go variable to pass to the impl.
+func (g *bridgeGoGen) emitNullableScalarCToGo(goVar, goType, name string) string {
+	g.printf("\tvar %s *%s\n", goVar, goType)
+	g.printf("\tif %s != nil { _v := %s(*%s); %s = &_v }\n", name, goType, name, goVar)
+	return goVar
 }
 
 // emitParamCToGo emits conversion code for a single parameter from C to Go
@@ -540,7 +664,7 @@ func (g *bridgeGoGen) emitParamCToGo(apiName string, p ast.Param) string {
 		return ""
 	}
 
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		// opaque ptr: pass as uint64 (same as client_cgo convention)
 		g.printf("\t%s := uint64(uintptr(%s))\n", goVar, name)
 		return goVar
@@ -550,73 +674,81 @@ func (g *bridgeGoGen) emitParamCToGo(apiName string, p ast.Param) string {
 	case ast.TypePrimitive:
 		switch p.Type.Name {
 		case ast.PrimString:
+			if p.Type.Nullable {
+				// A C caller signals "not supplied" with NULL; keep that as nil
+				// rather than handing the Go provider an empty string it cannot
+				// tell apart from a supplied one.
+				g.printf("\tvar %s *string\n", goVar)
+				g.printf("\tif %s != nil { _v := C.GoString(%s); %s = &_v }\n", name, name, goVar)
+				return goVar
+			}
 			g.printf("\t%s := C.GoString(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimBool:
-			g.printf("\t%s := bool(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "bool", name)
 			}
+			g.printf("\t%s := bool(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI32:
-			g.printf("\t%s := int32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int32", name)
 			}
+			g.printf("\t%s := int32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU32:
-			g.printf("\t%s := uint32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint32", name)
 			}
+			g.printf("\t%s := uint32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI64:
-			g.printf("\t%s := int64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int64", name)
 			}
+			g.printf("\t%s := int64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU64:
-			g.printf("\t%s := uint64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint64", name)
 			}
+			g.printf("\t%s := uint64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimF32:
-			g.printf("\t%s := float32(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "float32", name)
 			}
+			g.printf("\t%s := float32(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimF64:
-			g.printf("\t%s := float64(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "float64", name)
 			}
+			g.printf("\t%s := float64(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI8:
-			g.printf("\t%s := int8(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int8", name)
 			}
+			g.printf("\t%s := int8(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU8:
-			g.printf("\t%s := uint8(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint8", name)
 			}
+			g.printf("\t%s := uint8(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimI16:
-			g.printf("\t%s := int16(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "int16", name)
 			}
+			g.printf("\t%s := int16(%s)\n", goVar, name)
 			return goVar
 		case ast.PrimU16:
-			g.printf("\t%s := uint16(%s)\n", goVar, name)
 			if p.Type.Nullable {
-				return "&" + goVar
+				return g.emitNullableScalarCToGo(goVar, "uint16", name)
 			}
+			g.printf("\t%s := uint16(%s)\n", goVar, name)
 			return goVar
 		}
 	case ast.TypeNamed:
@@ -706,7 +838,7 @@ func (g *bridgeGoGen) goMethodParams(fn ast.Func) string {
 		}
 		paramName := toLowerCamel(p.Name)
 		var paramType string
-		if p.IsPtr {
+		if isOpaquePtrParam(p) {
 			paramType = "uint64"
 		} else if p.ByRef && p.Type.Kind == ast.TypeNamed && !g.isEnum(p.Type.Name) {
 			paramType = "*" + toPascalCase(p.Type.Name)
@@ -726,7 +858,10 @@ func (g *bridgeGoGen) goMethodReturn(fn ast.Func) string {
 	// Collect return types: declared return + out-params + optional error.
 	// Error is only included if the C function returns a value (non-void).
 	var rets []string
-	if fn.Return != nil {
+	// @rc_error: the rc is generated from the error, so it is not part of the
+	// provider's signature — the implementation returns (payload..., error) and
+	// looks exactly like the value-returning method it replaced.
+	if fn.Return != nil && !fn.RcError {
 		retType := goTypeForDispatch(*fn.Return)
 		if fn.Return.Kind == ast.TypeNamed {
 			rets = append(rets, "*"+retType)
@@ -790,7 +925,9 @@ func (g *bridgeGoGen) emitExternDecl(apiName string, fn ast.Func) {
 	params := []string{"uintptr_t ctx"}
 	for _, p := range fn.Params {
 		params = append(params, g.cParamDecl(apiName, p))
-		if p.Type.Kind == ast.TypeSlice {
+		// A slice out param carries its length in the owning result struct, so
+		// it takes no _len companion (see sliceOutCTypeName).
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			params = append(params, "size_t "+p.Name+"_len")
 		}
 	}
@@ -818,7 +955,7 @@ func (g *bridgeGoGen) cReturnType(apiName string, t ast.TypeRef) string {
 // cParamDecl returns a C parameter declaration string.
 func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 	name := p.Name
-	if p.IsPtr {
+	if isOpaquePtrParam(p) {
 		return "void *" + name
 	}
 
@@ -834,6 +971,12 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return cType + " *" + name
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar → pointer. Non-const to match the cgo //export
+			// signature (the callbacks builder casts to the const typedef).
+			// Strings are excluded (handled as char* above).
+			return cType + " *" + name
+		}
 		return cType + " " + name
 	case ast.TypeNamed:
 		cType := fmt.Sprintf("%s_%s_t", apiName, toSnakeCase(p.Type.Name))
@@ -847,6 +990,9 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 		// Structs always pass by pointer (matches _api.h convention)
 		return cType + " *" + name
 	case ast.TypeSlice:
+		if p.IsOut {
+			return sliceOutCTypeName(apiName, p.Type) + " *" + name
+		}
 		elemCType := fmt.Sprintf("%s_%s_t", apiName, toSnakeCase(p.Type.Elem.Name))
 		if p.Type.Elem.Kind == ast.TypePrimitive {
 			ct := primitiveToCType(p.Type.Elem.Name)
@@ -863,7 +1009,7 @@ func (g *bridgeGoGen) cParamDecl(apiName string, p ast.Param) string {
 		if p.Type.Elem.Kind == ast.TypeNamed {
 			elemCType = fmt.Sprintf("%s_%s_t", apiName, toSnakeCase(p.Type.Elem.Name))
 		}
-		return elemCType + " " + name + fmt.Sprintf("[%d]", p.Type.ArrayLen)
+		return elemCType + " " + name + fmt.Sprintf("[%s]", cArraySizeStr(apiName, p.Type))
 	}
 	return "int " + name
 }

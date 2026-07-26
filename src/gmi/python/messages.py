@@ -1,7 +1,11 @@
 """gmi.messages — WebSocket client for the server-side message list.
 
-Subscribes to the messages/get_list watch channel. Maintains a local copy
-of the current message list. Provides methods to acknowledge messages.
+Subscribes to the messages/get_list watch channel via the shared resilient
+WatchClient (connect retry, automatic reconnect + resubscribe; a raising
+on_update callback or a dropped connection must not silently disable the
+operator-notification system for the session — review findings GP-2/GP-3).
+Maintains a local copy of the current message list. Provides methods to
+acknowledge messages; call failures are logged, never silently discarded.
 
 Usage:
     ml = gmi.MessageList()
@@ -12,17 +16,11 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import threading
 from typing import Callable, List, Optional
 
-try:
-    import websockets
-except ImportError:
-    websockets = None
-
-from gmi import ws_url
+from gmi import resolve_instance
+from gmi._watch import WatchClient
 
 # Error kind constants (matching emcerror.ErrorKind).
 NML_ERROR = 1
@@ -40,72 +38,29 @@ class MessageList:
     whenever the list changes (new message added or message acknowledged).
     """
 
-    def __init__(self, instance: str = "milltask", on_update: Optional[Callable] = None):
+    def __init__(self, instance: str = None, on_update: Optional[Callable] = None):
+        instance = resolve_instance(instance)
         self._instance = instance
         self._on_update = on_update
         self._messages: List[dict] = []
         self._lock = threading.Lock()
-        self._connected = threading.Event()
-        self._loop = None
-        self._thread = None
-        self._ws = None
-        self._next_id = 1
-        self._start()
+        self._client = WatchClient(
+            "MessageList",
+            {"api": "messages", "instance": instance,
+             "func": "get_list", "rate_ms": 100},
+            self._handle_update)
+        self._client.start(wait=5.0)
 
-    def _start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self._connected.wait(timeout=5)
-
-    def _run(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._connect())
-        self._connected.set()
-        self._loop.run_forever()
-        self._loop.close()
-
-    async def _connect(self):
-        url = ws_url()
-        self._ws = await websockets.connect(url)
-        # Subscribe to message list watch.
-        msg = {
-            "action": "subscribe",
-            "api": "messages",
-            "instance": self._instance,
-            "func": "get_list",
-            "rate_ms": 100,
-        }
-        await self._ws.send(json.dumps(msg))
-        # Keep a strong reference: asyncio holds tasks only weakly, so an
-        # unreferenced recv task can be garbage-collected mid-flight — the
-        # socket stays open but nothing reads it and the cache silently
-        # freezes at the last-delivered snapshot (observed as a boot-era
-        # STATE_ESTOP surfacing mid-run in gmi.Stat).
-        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
-
-    async def _recv_loop(self):
-        try:
-            async for raw in self._ws:
-                msg = json.loads(raw)
-                msg_type = msg.get("type")
-
-                if msg_type == "update" and msg.get("func") == "get_list":
-                    data = msg.get("data", [])
-                    with self._lock:
-                        self._messages = data
-                    if self._on_update:
-                        self._on_update(data)
-
-                elif msg_type == "result":
-                    call_id = msg.get("id")
-                    # Fire-and-forget — no pending futures tracked.
-                    pass
-
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+    def _handle_update(self, func, data):
+        if func != "get_list":
+            return
+        data = data or []
+        with self._lock:
+            self._messages = data
+        if self._on_update:
+            # WatchClient guards this call — a raising consumer callback is
+            # logged and the channel keeps running.
+            self._on_update(data)
 
     def get_list(self) -> List[dict]:
         """Return the current message list snapshot."""
@@ -137,27 +92,9 @@ class MessageList:
         self._call("publish", {"kind": kind, "text": text})
 
     def _call(self, func_name: str, args: dict):
-        """Fire-and-forget command call."""
-        if self._loop is None:
-            return
-        asyncio.run_coroutine_threadsafe(self._async_call(func_name, args), self._loop)
-
-    async def _async_call(self, func_name: str, args: dict):
-        call_id = self._next_id
-        self._next_id += 1
-        msg = {
-            "action": "call",
-            "api": "messages",
-            "instance": self._instance,
-            "func": func_name,
-            "id": call_id,
-            "args": args,
-        }
-        await self._ws.send(json.dumps(msg))
+        """Fire-and-forget command call (failures logged by WatchClient)."""
+        self._client.call("messages", self._instance, func_name, args)
 
     def stop(self):
         """Stop the background WebSocket thread."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=2)
+        self._client.stop()

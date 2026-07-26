@@ -60,7 +60,6 @@ GOMC_LDFLAGS := \
     -X '$(GOMC_LDFLAGS_PKG).EMC2WebAppDir=$(EMC2_WEBAPP_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2Version=$(EMC2VERSION)' \
     -X '$(GOMC_LDFLAGS_PKG).RunInPlace=$(RUN_IN_PLACE)' \
-    -X '$(GOMC_LDFLAGS_PKG).DefaultNmlFile=$(DEFAULT_NMLFILE)' \
     -X '$(GOMC_LDFLAGS_PKG).ModExt=$(MODULE_EXT)' \
     -X '$(GOMC_LDFLAGS_PKG).KernelVers=$(kernelvers)' \
     -X '$(GOMC_LDFLAGS_PKG).BuildFlags=$(GOMC_BUILD_FLAGS)'
@@ -251,7 +250,11 @@ TARGETS += ../bin/halcmd
 # ethercat — EtherCAT command-line tool (REST client, replaces IgH master tool)
 # ---------------------------------------------------------------------------
 
-../bin/ethercat: $(GOMC_SRC_BASE) $(wildcard gomc/cmd/ethercat/*.go) Makefile.inc | gomc/go.mod
+# cmd/ethercat imports the generated Go REST client, so it must exist before the
+# binary builds (else a clean build fails to resolve the ethercatclient package).
+GMI_ETHERCAT_CLIENT_GEN_GO := gomc/generated/gmi/ethercatclient/ethercat_client.go
+
+../bin/ethercat: $(GOMC_SRC_BASE) $(wildcard gomc/cmd/ethercat/*.go) $(GMI_ETHERCAT_CLIENT_GEN_GO) Makefile.inc | gomc/go.mod
 	$(ECHO) Building ethercat - Go REST client
 	@rm -f $@
 	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/ethercat ./cmd/ethercat

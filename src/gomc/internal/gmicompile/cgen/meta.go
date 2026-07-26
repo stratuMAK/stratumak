@@ -14,10 +14,10 @@ import (
 // comment prefix (e.g. "//" for C/Go/TS, "#" for Python).
 func EmitMeta(w io.Writer, api *ast.API, prefix string) {
 	for _, a := range api.Authors {
-		fmt.Fprintf(w, "%s Authors: %s\n", prefix, a)
+		_, _ = fmt.Fprintf(w, "%s Authors: %s\n", prefix, a)
 	}
 	if api.License != "" {
-		fmt.Fprintf(w, "%s License: %s\n", prefix, api.License)
+		_, _ = fmt.Fprintf(w, "%s License: %s\n", prefix, api.License)
 	}
 }
 

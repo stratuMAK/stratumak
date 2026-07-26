@@ -351,6 +351,7 @@ type SlaveStateRequest {
 type ModuleInfo {
     ioctl_version_magic: u32
     master_count: u32
+    version: string          # human-readable master version (e.g. "1.6")
 }
 
 # ─── Endpoints ───

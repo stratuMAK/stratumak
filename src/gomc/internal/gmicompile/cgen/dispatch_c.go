@@ -94,6 +94,9 @@ func (g *dispatchCGen) emitCgoPreamble() {
 		if fn.Publish {
 			continue // publish functions use ring buffers, not callbacks
 		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
+		}
 		g.emitCallWrapper(fn)
 	}
 
@@ -128,8 +131,9 @@ func (g *dispatchCGen) emitCallWrapper(fn ast.Func) {
 		name := p.Name
 		params = append(params, g.cgoParamDecl(apiName, p))
 		args = append(args, name)
-		// Slice params also pass a length arg
-		if p.Type.Kind == ast.TypeSlice {
+		// Slice params also pass a length arg — except a slice out param, whose
+		// length comes back inside the owning result struct.
+		if p.Type.Kind == ast.TypeSlice && !p.IsOut {
 			args = append(args, name+"_len")
 		}
 	}
@@ -164,6 +168,11 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s *%s", cType, name)
 		}
+		if p.Type.Nullable && p.Type.Name != ast.PrimString {
+			// Nullable scalar → pointer (NULL = absent); matches the api.h typedef.
+			// Strings are excluded (already char*, nullability via NULL).
+			return fmt.Sprintf("const %s *%s", cType, name)
+		}
 		return fmt.Sprintf("%s %s", cType, name)
 
 	case ast.TypeNamed:
@@ -178,14 +187,19 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 
 	case ast.TypeSlice:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
-		if p.ByRef || p.IsOut {
+		if p.IsOut {
+			// Callee-allocated payload — an owning {data, len} struct, not a
+			// caller-provided buffer (see sliceOutCTypeName).
+			return fmt.Sprintf("%s *%s", sliceOutCTypeName(apiName, p.Type), name)
+		}
+		if p.ByRef {
 			return fmt.Sprintf("%s *%s, size_t %s_len", elemCType, name, name)
 		}
 		return fmt.Sprintf("%s *%s, size_t %s_len", constType(elemCType), name, name)
 
 	case ast.TypeArray:
 		elemCType := toCTypeForAPI(apiName, *p.Type.Elem)
-		sizeStr := cgoArraySizeStr(apiName, p.Type)
+		sizeStr := cArraySizeStr(apiName, p.Type)
 		if p.ByRef || p.IsOut {
 			return fmt.Sprintf("%s %s[%s]", elemCType, name, sizeStr)
 		}
@@ -195,8 +209,14 @@ func (g *dispatchCGen) cgoParamDecl(apiName string, p ast.Param) string {
 	return fmt.Sprintf("void *%s", name)
 }
 
-// cgoArraySizeStr returns the C size expression for an array type (using #define name).
-func cgoArraySizeStr(apiName string, t ast.TypeRef) string {
+// cArraySizeStr returns the C array-size expression for a fixed-array type. It
+// is the single source of truth for C array bounds: it emits the #define symbol
+// name (e.g. MOTSTAT_MAX_JOINTS) whenever the length came from a named const, so
+// every C declaration/copy of the same array agrees — and an unresolved
+// ArrayLenName can never silently emit a "[0]" bound. Go array bounds must stay
+// numeric literals (a C #define is not visible to Go), so Go-emitting sites use
+// t.ArrayLen directly and do not call this.
+func cArraySizeStr(apiName string, t ast.TypeRef) string {
 	if t.ArrayLenName != "" {
 		return fmt.Sprintf("%s_%s", strings.ToUpper(apiName), t.ArrayLenName)
 	}
@@ -267,7 +287,7 @@ func (g *dispatchCGen) emitGoTypes() {
 				if f.Type.Nullable {
 					omit = ",omitempty"
 				}
-				g.printf("\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, omit)
+				g.printf("\t%s %s `json:\"%s%s%s\"`\n", fieldName, fieldType, jsonTag, omit, jsonStringOpt(f.Type))
 			}
 			g.printf("}\n\n")
 		}
@@ -414,7 +434,9 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 		switch t.Name {
 		case ast.PrimString:
 			if t.Nullable {
-				g.printf("\t\t%s: func() string { if %s != nil { return C.GoString(%s) }; return \"\" }(),\n", goField, cExpr, cExpr)
+				// NULL stays nil: collapsing it to "" here is what made
+				// "absent" and "present but empty" the same value in Go.
+				g.printf("\t\t%s: func() *string { if %s == nil { return nil }; v := C.GoString(%s); return &v }(),\n", goField, cExpr, cExpr)
 			} else {
 				g.printf("\t\t%s: C.GoString(%s),\n", goField, cExpr)
 			}
@@ -425,9 +447,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: bool(%s),\n", goField, cExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *int8 { v := int8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: int8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *uint8 { v := uint8(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: uint8(%s),\n", goField, cExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\t\t%s: func() *int16 { v := int16(%s); return &v }(),\n", goField, cExpr)
@@ -465,9 +495,17 @@ func (g *dispatchCGen) emitFieldCToGo(goField, cExpr string, t ast.TypeRef) {
 				g.printf("\t\t%s: uint64(%s),\n", goField, cExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float32 { v := float32(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float32(%s),\n", goField, cExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			if t.Nullable {
+				g.printf("\t\t%s: func() *float64 { v := float64(%s); return &v }(),\n", goField, cExpr)
+			} else {
+				g.printf("\t\t%s: float64(%s),\n", goField, cExpr)
+			}
 		}
 	case ast.TypeNamed:
 		// Could be enum or struct — for enums, cast; for structs, recurse
@@ -638,9 +676,20 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 		case ast.PrimString:
 			g.tmpSeq++
 			tmp := fmt.Sprintf("_cs%d", g.tmpSeq)
-			g.printf("\t%s := C.CString(%s)\n", tmp, goExpr)
-			g.printf("\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
-			g.printf("\t%s = %s\n", cField, tmp)
+			if t.Nullable {
+				// nil must reach C as NULL. Emitting C.CString("") here is what
+				// let an omitted field read as a supplied empty one on the C
+				// side, where the convention is a NULL check.
+				g.printf("\tif %s != nil {\n", goExpr)
+				g.printf("\t\t%s := C.CString(*%s)\n", tmp, goExpr)
+				g.printf("\t\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
+				g.printf("\t\t%s = %s\n", cField, tmp)
+				g.printf("\t}\n")
+			} else {
+				g.printf("\t%s := C.CString(%s)\n", tmp, goExpr)
+				g.printf("\t*freeList = append(*freeList, unsafe.Pointer(%s))\n", tmp)
+				g.printf("\t%s = %s\n", cField, tmp)
+			}
 		case ast.PrimBool:
 			if t.Nullable {
 				g.printf("\tif %s != nil { %s = C.bool(*%s) }\n", goExpr, cField, goExpr)
@@ -648,9 +697,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.bool(%s)\n", cField, goExpr)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.int8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.int8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.uint8_t(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.uint8_t(%s)\n", cField, goExpr)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
 				g.printf("\tif %s != nil { %s = C.int16_t(*%s) }\n", goExpr, cField, goExpr)
@@ -688,9 +745,17 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 				g.printf("\t%s = C.uint64_t(%s)\n", cField, goExpr)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.float(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.float(%s)\n", cField, goExpr)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			if t.Nullable {
+				g.printf("\tif %s != nil { %s = C.double(*%s) }\n", goExpr, cField, goExpr)
+			} else {
+				g.printf("\t%s = C.double(%s)\n", cField, goExpr)
+			}
 		}
 	case ast.TypeNamed:
 		if g.isEnum(t.Name) {
@@ -752,6 +817,13 @@ func (g *dispatchCGen) emitFieldGoToC(cField, goExpr string, t ast.TypeRef) {
 			arrLen := t.ArrayLen
 			switch t.Elem.Kind {
 			case ast.TypePrimitive:
+				if t.Elem.Name == ast.PrimString {
+					// A fixed array of string would need per-element C.CString
+					// alloc + freeList tracking (mirrored on the free side); the
+					// scalar-conversion path below emits non-compiling code and
+					// leaks. Reject rather than emit broken code — no IDL uses it.
+					panic(fmt.Sprintf("gmicompile: emitFieldGoToC: fixed-array-of-string field %q in api %q is not supported — use []string, or implement array-of-string alloc/free", cField, g.api.Name))
+				}
 				elemCType := cTypeForAPICgo(g.api.Name, *t.Elem)
 				g.printf("\tfor _i := 0; _i < %d; _i++ { %s[_i] = %s(%s[_i]) }\n", arrLen, cField, elemCType, goExpr)
 			case ast.TypeNamed:
@@ -779,6 +851,9 @@ func (g *dispatchCGen) emitDispatchFuncs() {
 		if fn.Publish {
 			continue
 		}
+		if isMapWatchFunc(fn) {
+			continue // JSON-only watch (map return) — no C ABI, Go providers only
+		}
 		g.emitOneDispatch(fn)
 	}
 }
@@ -795,10 +870,18 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	g.printf("\tvar _freeList []unsafe.Pointer\n")
 	g.printf("\tdefer func() { for _, p := range _freeList { C.free(p) } }()\n")
 
-	// Unmarshal JSON params
-	if len(fn.Params) > 0 {
+	// Unmarshal JSON params. Out params carry the reply, not the request — the
+	// request has no field for them and reading one would let a caller supply
+	// the value the provider is supposed to produce.
+	inParams := make([]ast.Param, 0, len(fn.Params))
+	for _, p := range fn.Params {
+		if !p.IsOut {
+			inParams = append(inParams, p)
+		}
+	}
+	if len(inParams) > 0 {
 		g.printf("\tvar params struct {\n")
-		for _, p := range fn.Params {
+		for _, p := range inParams {
 			fieldName := toPascalCase(p.Name)
 			var fieldType string
 			if p.IsPtr {
@@ -807,12 +890,16 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 				fieldType = goTypeForDispatch(p.Type)
 			}
 			jsonTag := p.Name
-			g.printf("\t\t%s %s `json:\"%s\"`\n", fieldName, fieldType, jsonTag)
+			// A surviving 64-bit param is a body param (check layer rejects 64-bit
+			// path/query params), so ",string" is safe. See jsonStringOpt.
+			g.printf("\t\t%s %s `json:\"%s%s\"`\n", fieldName, fieldType, jsonTag, jsonStringOptParam(p))
 		}
 		g.printf("\t}\n")
 		g.printf("\tif len(req) > 0 {\n")
 		g.printf("\t\tif err := json.Unmarshal(req, &params); err != nil {\n")
-		g.printf("\t\t\treturn nil, syscall.EINVAL\n")
+		// Client error (400 via EINVAL) with the json detail kept — same rule
+		// as the other dispatch emitters; keep all copies identical.
+		g.printf("\t\t\treturn nil, fmt.Errorf(\"%%w: %%v\", syscall.EINVAL, err)\n")
 		g.printf("\t\t}\n")
 		g.printf("\t}\n")
 
@@ -831,8 +918,26 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	for _, p := range fn.Params {
 		cVar := "c" + toPascalCase(p.Name)
 		goVar := "params." + toPascalCase(p.Name)
-		g.emitParamGoToC(cVar, goVar, p)
+		if p.IsOut {
+			g.emitOutParamDecl(cVar, p)
+		} else {
+			g.emitParamGoToC(cVar, goVar, p)
+		}
 		callArgs = append(callArgs, g.paramCallArg(cVar, p)...)
+	}
+
+	// @rc_error: the return is the status channel and the out param is the
+	// payload, so a provider failure becomes an error here instead of a
+	// zero-valued 200 response.
+	if payload, ok := rcErrorPayload(fn); ok {
+		g.printf("\trc := int32(%s(%s))\n", wrapperName, strings.Join(callArgs, ", "))
+		g.printf("\tif rc != 0 {\n")
+		g.printf("\t\treturn nil, fmt.Errorf(%q, rc)\n", fn.Name+": rc=%d")
+		g.printf("\t}\n")
+		g.emitOutPayloadConvert("c"+toPascalCase(payload.Name), payload)
+		g.printf("\treturn json.Marshal(result)\n")
+		g.printf("}\n\n")
+		return
 	}
 
 	// Call C wrapper — direct return (no error code, no out-param)
@@ -845,6 +950,19 @@ func (g *dispatchCGen) emitOneDispatch(fn ast.Func) {
 	}
 
 	g.printf("}\n\n")
+}
+
+// emitNullableScalarGoToC marshals a nullable scalar param (Go *T) into a
+// C-heap `*C.<ctype>` — NULL when the Go pointer is nil, so "absent" survives
+// the C ABI. The allocation is tracked in _freeList and freed after the call
+// (same lifetime as the CString params). cType is the cgo type, e.g. "C.int32_t".
+func (g *dispatchCGen) emitNullableScalarGoToC(cVar, goVar, cType string) {
+	g.printf("\tvar %s *%s\n", cVar, cType)
+	g.printf("\tif %s != nil {\n", goVar)
+	g.printf("\t\t%s = (*%s)(C.malloc(C.size_t(unsafe.Sizeof(*new(%s)))))\n", cVar, cType, cType)
+	g.printf("\t\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+	g.printf("\t\t*%s = %s(*%s)\n", cVar, cType, goVar)
+	g.printf("\t}\n")
 }
 
 func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
@@ -865,65 +983,84 @@ func (g *dispatchCGen) emitParamGoToC(cVar, goVar string, p ast.Param) {
 	case ast.TypePrimitive:
 		switch t.Name {
 		case ast.PrimString:
-			g.printf("\t%s := C.CString(%s)\n", cVar, goVar)
-			g.printf("\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+			if t.Nullable {
+				// Same rule as a nullable struct field: nil reaches C as NULL,
+				// so a callee's `if (pattern)` means what it says.
+				g.printf("\tvar %s *C.char\n", cVar)
+				g.printf("\tif %s != nil {\n", goVar)
+				g.printf("\t\t%s = C.CString(*%s)\n", cVar, goVar)
+				g.printf("\t\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+				g.printf("\t}\n")
+			} else {
+				g.printf("\t%s := C.CString(%s)\n", cVar, goVar)
+				g.printf("\t_freeList = append(_freeList, unsafe.Pointer(%s))\n", cVar)
+			}
 		case ast.PrimBool:
 			if t.Nullable {
-				g.printf("\tvar %s C.bool\n", cVar)
-				g.printf("\tif %s != nil { %s = C.bool(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.bool")
 			} else {
 				g.printf("\t%s := C.bool(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI8:
-			g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int8_t")
+			} else {
+				g.printf("\t%s := C.int8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimU8:
-			g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint8_t")
+			} else {
+				g.printf("\t%s := C.uint8_t(%s)\n", cVar, goVar)
+			}
 		case ast.PrimI16:
 			if t.Nullable {
-				g.printf("\tvar %s C.int16_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int16_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int16_t")
 			} else {
 				g.printf("\t%s := C.int16_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU16:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint16_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint16_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint16_t")
 			} else {
 				g.printf("\t%s := C.uint16_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI32:
 			if t.Nullable {
-				g.printf("\tvar %s C.int32_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int32_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int32_t")
 			} else {
 				g.printf("\t%s := C.int32_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU32:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint32_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint32_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint32_t")
 			} else {
 				g.printf("\t%s := C.uint32_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimI64:
 			if t.Nullable {
-				g.printf("\tvar %s C.int64_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.int64_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.int64_t")
 			} else {
 				g.printf("\t%s := C.int64_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimU64:
 			if t.Nullable {
-				g.printf("\tvar %s C.uint64_t\n", cVar)
-				g.printf("\tif %s != nil { %s = C.uint64_t(*%s) }\n", goVar, cVar, goVar)
+				g.emitNullableScalarGoToC(cVar, goVar, "C.uint64_t")
 			} else {
 				g.printf("\t%s := C.uint64_t(%s)\n", cVar, goVar)
 			}
 		case ast.PrimF32:
-			g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.float")
+			} else {
+				g.printf("\t%s := C.float(%s)\n", cVar, goVar)
+			}
 		case ast.PrimF64:
-			g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			if t.Nullable {
+				g.emitNullableScalarGoToC(cVar, goVar, "C.double")
+			} else {
+				g.printf("\t%s := C.double(%s)\n", cVar, goVar)
+			}
 		case ast.PrimPtr:
 			// ptr is an opaque pointer — not serializable; pass nil for non-REST stubs
 			g.printf("\tvar %s unsafe.Pointer // ptr: not serializable\n", cVar)
@@ -1021,74 +1158,107 @@ func (g *dispatchCGen) paramCallArg(cVar string, p ast.Param) []string {
 		// Arrays pass pointer to first element.
 		return []string{"&" + cVar + "[0]"}
 	case ast.TypeSlice:
+		if p.IsOut {
+			return []string{"&" + cVar}
+		}
 		return []string{cVar, cVar + "Len"}
 	}
 	return []string{cVar}
 }
 
-// emitReturnSetup is unused — kept as placeholder for slice-return APIs.
-func (g *dispatchCGen) emitReturnSetup(fn ast.Func) {
+// emitOutParamDecl declares the zeroed C variable an out parameter is written
+// into. Nothing is read from the request for it — the provider fills it.
+func (g *dispatchCGen) emitOutParamDecl(cVar string, p ast.Param) {
+	switch p.Type.Kind {
+	case ast.TypeSlice:
+		g.printf("\tvar %s C.%s\n", cVar, sliceOutCTypeName(g.api.Name, p.Type))
+	case ast.TypeArray:
+		g.printf("\tvar %s [%d]%s\n", cVar, p.Type.ArrayLen, cTypeForAPICgo(g.api.Name, *p.Type.Elem))
+	default:
+		g.printf("\tvar %s %s\n", cVar, cTypeForAPICgo(g.api.Name, p.Type))
+	}
+}
+
+// emitOutPayloadConvert converts a filled-in out parameter into the Go `result`
+// the dispatch marshals, freeing whatever the provider allocated. The
+// conversion is the same one a by-value return goes through — an @rc_error func
+// and its value-returning predecessor produce byte-identical JSON.
+func (g *dispatchCGen) emitOutPayloadConvert(cVar string, p ast.Param) {
+	g.emitPayloadConvert(cVar, p.Type)
 }
 
 func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 	ret := fn.Return
+	g.emitPayloadConvert("out", *ret)
 
-	switch ret.Kind {
+	// For []u8 (byte slices), return raw bytes without JSON encoding.
+	// This supports BinaryWatchFunc which sends data as binary WS frames.
+	if ret.Kind == ast.TypeSlice && ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == "u8" {
+		g.printf("\treturn result, nil\n")
+		return
+	}
+	g.printf("\treturn json.Marshal(result)\n")
+}
+
+// emitPayloadConvert emits `result := <Go value>` from the C value in cExpr and
+// frees the C allocations it owns. cExpr is a by-value C struct/scalar for a
+// direct return, or the local an out parameter was written into; a slice payload
+// is a {data, len} struct either way, so both share this code.
+func (g *dispatchCGen) emitPayloadConvert(cExpr string, t ast.TypeRef) {
+	switch t.Kind {
 	case ast.TypePrimitive:
-		switch ret.Name {
+		switch t.Name {
 		case ast.PrimString:
 			// Caller owns returned data: free the C string after copying.
-			g.printf("\tresult := C.GoString(out)\n")
-			g.printf("\tif out != nil {\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out))\n")
+			g.printf("\tresult := C.GoString(%s)\n", cExpr)
+			g.printf("\tif %s != nil {\n", cExpr)
+			g.printf("\t\tC.free(unsafe.Pointer(%s))\n", cExpr)
 			g.printf("\t}\n")
 		case ast.PrimBool:
-			g.printf("\tresult := bool(out)\n")
+			g.printf("\tresult := bool(%s)\n", cExpr)
 		default:
-			goType := primitiveToGoType(ret.Name)
-			g.printf("\tresult := %s(out)\n", goType)
+			goType := primitiveToGoType(t.Name)
+			g.printf("\tresult := %s(%s)\n", goType, cExpr)
 		}
-		g.printf("\treturn json.Marshal(result)\n")
 
 	case ast.TypeNamed:
-		if g.isEnum(ret.Name) {
-			goType := toPascalCase(ret.Name)
-			g.printf("\tresult := %s(out)\n", goType)
+		if g.isEnum(t.Name) {
+			goType := toPascalCase(t.Name)
+			g.printf("\tresult := %s(%s)\n", goType, cExpr)
 		} else {
-			converter := toLowerCamelRaw(ret.Name) + "CToGo"
-			g.printf("\tresult := %s(&out)\n", converter)
+			converter := toLowerCamelRaw(t.Name) + "CToGo"
+			g.printf("\tresult := %s(&%s)\n", converter, cExpr)
 			// Caller owns returned data: free the C allocations
 			// (strings, slice buffers) after converting to Go.
-			if t := g.findType(ret.Name); t != nil && g.typeHasCAllocs(ret.Name, map[string]bool{}) {
-				g.emitFreeCAllocs("out", t, 0, "\t")
+			if ty := g.findType(t.Name); ty != nil && g.typeHasCAllocs(t.Name, map[string]bool{}) {
+				g.emitFreeCAllocs(cExpr, ty, 0, "\t")
 			}
 		}
-		g.printf("\treturn json.Marshal(result)\n")
 
 	case ast.TypeSlice:
-		// out is a result struct with .data (pointer) and .len (size_t)
-		g.printf("\tn := int(out.len)\n")
-		if ret.Elem.Kind == ast.TypeNamed && !g.isEnum(ret.Elem.Name) {
-			goElemType := toPascalCase(ret.Elem.Name)
-			converter := toLowerCamelRaw(ret.Elem.Name) + "CToGo"
+		// cExpr is a result struct with .data (pointer) and .len (size_t)
+		g.printf("\tn := int(%s.len)\n", cExpr)
+		if t.Elem.Kind == ast.TypeNamed && !g.isEnum(t.Elem.Name) {
+			goElemType := toPascalCase(t.Elem.Name)
+			converter := toLowerCamelRaw(t.Elem.Name) + "CToGo"
 			g.printf("\tresult := make([]%s, n)\n", goElemType)
 			g.printf("\tif n > 0 {\n")
-			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
+			g.printf("\t\tcSlice := unsafe.Slice(%s.data, n)\n", cExpr)
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
 			g.printf("\t\t\tresult[i] = %s(&cSlice[i])\n", converter)
-			if t := g.findType(ret.Elem.Name); t != nil && g.typeHasCAllocs(ret.Elem.Name, map[string]bool{}) {
-				g.emitFreeCAllocs("cSlice[i]", t, 1, "\t\t\t")
+			if ty := g.findType(t.Elem.Name); ty != nil && g.typeHasCAllocs(t.Elem.Name, map[string]bool{}) {
+				g.emitFreeCAllocs("cSlice[i]", ty, 1, "\t\t\t")
 			}
 			g.printf("\t\t}\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
+			g.printf("\t\tC.free(unsafe.Pointer(%s.data))\n", cExpr)
 			g.printf("\t}\n")
 		} else {
-			goElemType := goTypeForDispatch(*ret.Elem)
+			goElemType := goTypeForDispatch(*t.Elem)
 			g.printf("\tresult := make([]%s, n)\n", goElemType)
 			g.printf("\tif n > 0 {\n")
-			g.printf("\t\tcSlice := unsafe.Slice(out.data, n)\n")
+			g.printf("\t\tcSlice := unsafe.Slice(%s.data, n)\n", cExpr)
 			g.printf("\t\tfor i := 0; i < n; i++ {\n")
-			if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == ast.PrimString {
+			if t.Elem.Kind == ast.TypePrimitive && t.Elem.Name == ast.PrimString {
 				g.printf("\t\t\tresult[i] = C.GoString(cSlice[i])\n")
 				g.printf("\t\t\tif cSlice[i] != nil {\n")
 				g.printf("\t\t\t\tC.free(unsafe.Pointer(cSlice[i]))\n")
@@ -1097,15 +1267,8 @@ func (g *dispatchCGen) emitReturnConvert(fn ast.Func) {
 				g.printf("\t\t\tresult[i] = %s(cSlice[i])\n", goElemType)
 			}
 			g.printf("\t\t}\n")
-			g.printf("\t\tC.free(unsafe.Pointer(out.data))\n")
+			g.printf("\t\tC.free(unsafe.Pointer(%s.data))\n", cExpr)
 			g.printf("\t}\n")
-		}
-		// For []u8 (byte slices), return raw bytes without JSON encoding.
-		// This supports BinaryWatchFunc which sends data as binary WS frames.
-		if ret.Elem.Kind == ast.TypePrimitive && ret.Elem.Name == "u8" {
-			g.printf("\treturn result, nil\n")
-		} else {
-			g.printf("\treturn json.Marshal(result)\n")
 		}
 	}
 }
@@ -1123,6 +1286,12 @@ func (g *dispatchCGen) emitMeta() {
 	g.printf("\tFuncs: []apiserver.FuncMeta{\n")
 	for _, fn := range g.api.Funcs {
 		if fn.Publish {
+			continue
+		}
+		if isMapWatchFunc(fn) {
+			// JSON-only watch (map return): a C provider cannot serve it, so
+			// it has no dispatch entry here. Go providers register it via
+			// RegisterXxxWatch in the bridge.
 			continue
 		}
 		dispatchName := g.api.Name + "Dispatch" + toPascalCase(fn.Name)
@@ -1166,7 +1335,7 @@ func toCTypeForAPI(apiName string, t ast.TypeRef) string {
 		return fmt.Sprintf("%s *", elemType)
 	case ast.TypeArray:
 		elemType := toCTypeForAPI(apiName, *t.Elem)
-		return fmt.Sprintf("%s[%d]", elemType, t.ArrayLen)
+		return fmt.Sprintf("%s[%s]", elemType, cArraySizeStr(apiName, t))
 	}
 	return "void"
 }
@@ -1200,21 +1369,32 @@ func cTypeForAPICgo(apiName string, t ast.TypeRef) string {
 			return "C.double"
 		case ast.PrimString:
 			return "*C.char"
+		case ast.PrimPtr:
+			return "unsafe.Pointer"
 		}
 	case ast.TypeNamed:
 		return fmt.Sprintf("C.%s_%s_t", apiName, toSnakeCase(t.Name))
 	case ast.TypeSlice:
 		return cTypeForAPICgo(apiName, *t.Elem)
 	}
-	return "C.int"
+	// Fail loud rather than silently emitting C.int for an unsupported shape
+	// (a fixed array, or a future primitive with no case): a wrong cgo type
+	// truncates/mismaps at the FFI boundary. No current IDL reaches here.
+	panic(fmt.Sprintf("gmicompile: cTypeForAPICgo: unsupported type shape %v (name %q) in api %q — add a case or reject in the parser", t.Kind, t.Name, apiName))
 }
 
 // goTypeForDispatch returns Go type string for use in dispatch code.
+//
+// This is the single mapping for provider-facing Go types: dispatch structs,
+// the callbacks interface (via bridge_go), and the cgo client all go through
+// it, and serverGoGen.toGoType delegates here.  It used to be one of three
+// near-copies of the same rule, which is how `string?` came to mean *string in
+// one emitter and string in another.
 func goTypeForDispatch(t ast.TypeRef) string {
 	switch t.Kind {
 	case ast.TypePrimitive:
 		base := primitiveToGoType(t.Name)
-		if t.Nullable && t.Name != ast.PrimString {
+		if t.Nullable {
 			return "*" + base
 		}
 		return base
@@ -1228,8 +1408,19 @@ func goTypeForDispatch(t ast.TypeRef) string {
 		return "[]" + goTypeForDispatch(*t.Elem)
 	case ast.TypeArray:
 		return fmt.Sprintf("[%d]%s", t.ArrayLen, goTypeForDispatch(*t.Elem))
+	case ast.TypeMap:
+		return "map[string]" + goTypeForDispatch(*t.Elem)
 	}
 	return "interface{}"
+}
+
+// isMapWatchFunc reports whether fn is a watch-only func returning a map.
+// Such a func is JSON-only: it exists for Go providers (WatchCallbacks +
+// RegisterXxxWatch) and on the WS wire, but has NO C ABI — the C header,
+// callbacks vtable, and C-provider dispatch all skip it. The checker
+// guarantees a map appears in no other position.
+func isMapWatchFunc(fn ast.Func) bool {
+	return fn.Watch && fn.Method == "" && fn.Return != nil && fn.Return.Kind == ast.TypeMap
 }
 
 // cgoFieldAccess returns the field name for accessing a C struct field from Go.

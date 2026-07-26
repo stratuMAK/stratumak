@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	halparse "github.com/sittner/linuxcnc/src/gomc/internal/halparse"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
@@ -60,6 +60,10 @@ func (m *haljsonModule) Destroy() {
 }
 
 // parseArgs extracts key=value parameters from the load command args.
+// maxRateMS caps the watch-subscription rate (1 hour) so an oversized `rate=`
+// arg can't overflow time.Duration and produce a degenerate/negative interval.
+const maxRateMS = 3600_000
+
 func parseArgs(args []string) (configPath string, rateMS int) {
 	rateMS = 50
 	for _, arg := range args {
@@ -71,7 +75,13 @@ func parseArgs(args []string) (configPath string, rateMS int) {
 		case "config":
 			configPath = v
 		case "rate":
+			// Clamp to a sane range: a huge value (13+ digits) would overflow
+			// time.Duration(rateMS)*time.Millisecond to a negative/degenerate
+			// interval, which the watch scheduler could treat as a hot-spin.
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				if n > maxRateMS {
+					n = maxRateMS
+				}
 				rateMS = n
 			}
 		}
@@ -85,14 +95,12 @@ func newHaljsonModule(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		return nil, fmt.Errorf("haljson: missing required config= parameter")
 	}
 
-	// Resolve relative paths against the INI file directory, or the current
-	// working directory when loaded without an INI (e.g. `gomc-server -f`).
-	if !filepath.IsAbs(configPath) {
-		iniDir := "."
-		if ini != nil {
-			iniDir = filepath.Dir(ini.SourceFile())
-		}
-		configPath = filepath.Join(iniDir, configPath)
+	// Configuration paths are server-side paths resolved by the shared rule
+	// (config dir, then HALLIB_PATH, contained within them) — see
+	// internal/pathres.
+	configPath, err := pathres.Resolve(configPath, pathres.Read)
+	if err != nil {
+		return nil, fmt.Errorf("haljson: config=: %w", err)
 	}
 
 	logger = logger.With("module", "haljson", "instance", name)

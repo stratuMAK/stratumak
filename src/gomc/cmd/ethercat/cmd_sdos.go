@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"math"
 	"strconv"
 	"strings"
@@ -28,7 +29,7 @@ func init() {
 	})
 }
 
-func cmdSdos(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdSdos(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -125,7 +126,7 @@ func sdoDataTypeString(dt uint16) string {
 	}
 }
 
-func cmdUpload(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdUpload(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: upload <INDEX> <SUBINDEX>")
 	}
@@ -243,7 +244,7 @@ func printRawData(data []byte) string {
 	return sb.String()
 }
 
-func cmdDownload(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdDownload(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("usage: download <INDEX> <SUBINDEX> <VALUE>")
 	}
@@ -269,7 +270,7 @@ func cmdDownload(client *EthercatClient, opts *GlobalOpts, args []string) error 
 	}
 
 	for _, pos := range positions {
-		req := SdoDownloadRequest{
+		req := ethercatclient.SdoDownloadRequest{
 			SdoIndex:         uint16(sdoIndex),
 			SdoEntrySubindex: uint8(subIndex),
 			Data:             data,

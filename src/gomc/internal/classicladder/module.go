@@ -38,6 +38,7 @@ import (
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -205,6 +206,16 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 func (m *classicladder) Start() error {
 	// Load project file if specified as module argument
 	if m.projectFile != "" {
+		// The positional project-file argument is a configuration path like any
+		// other — resolved server-side and contained (internal/pathres).  This
+		// is the argument cmd/halcmd's resolveArgPath used to rewrite
+		// client-side; the CLI now sends it verbatim.
+		projectFile, err := pathres.Resolve(m.projectFile, pathres.Read)
+		if err != nil {
+			m.logger.Error("failed to resolve project", "path", m.projectFile, "err", err)
+			return err
+		}
+		m.projectFile = projectFile
 		if err := m.loadCLPFile(m.projectFile); err != nil {
 			m.logger.Error("failed to load project", "path", m.projectFile, "err", err)
 			return err

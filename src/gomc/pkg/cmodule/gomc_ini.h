@@ -40,8 +40,13 @@ extern "C" {
 //               Both the array and the strings have arena lifetime (valid until
 //               Destroy()).  *out_count receives the number of values.
 //               Returns NULL with *out_count == 0 if the key is not present.
-// source_file:  returns the absolute path of the INI file.
-//               The returned string is valid until Destroy().
+// source_file:  returns the absolute path of the INI file, or "" when the
+//               launcher runs without one.  Never NULL; valid until Destroy().
+//
+// The launcher may run with no INI file at all (halrun mode).  In that case
+// get() returns NULL and get_all() returns NULL with *out_count == 0 for every
+// lookup — i.e. no-INI is indistinguishable from "key not found", so code
+// written against the documented contract needs no special case.
 typedef struct {
     void *ctx;
     const char*  (*get)(void *ctx, const char *section, const char *key);

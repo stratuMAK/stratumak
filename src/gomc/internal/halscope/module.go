@@ -70,6 +70,21 @@ static double get_trigger_level_real(halscope_data_t *d) {
     return (double)d->d_real;
 }
 
+static double get_trigger_level_s32(halscope_data_t *d) {
+    return (double)d->d_s32;
+}
+
+static double get_trigger_level_u32(halscope_data_t *d) {
+    return (double)d->d_u32;
+}
+
+// Acquire fence for the WatchSamples seqlock read side: keeps the
+// done_len/done_ring_start reads from being reordered past the
+// done_gen/done_buf verification loads that follow it.
+static void halscope_fence_acquire(void) {
+    atomic_thread_fence(memory_order_acquire);
+}
+
 */
 import "C"
 
@@ -106,6 +121,17 @@ type halscope struct {
 	persist         *persist.PersistClient // nil = persistence disabled
 	persistInstance string
 	persistHandle   int32
+
+	// Single coalescing state-saver. Config setters signal saveReqCh instead
+	// of each spawning a detached goroutine: that let a stale snapshot race
+	// ahead of a newer one (last-writer-by-scheduling), and left saves reading
+	// m.s in flight when Destroy() freed it. One serialized saver fixes both —
+	// it always persists the latest state and is joined before halscope_free.
+	saveReqCh     chan struct{}
+	saverStopCh   chan struct{}
+	saverDone     chan struct{}
+	saverStopOnce sync.Once
+	saverStarted  bool
 }
 
 // parseHalscopeArgs parses the halscope load-line arguments. Recognised keys:
@@ -237,11 +263,49 @@ func (m *halscope) Start() error {
 		} else {
 			m.logger.Info("halscope: restored state from persist")
 		}
+
+		// Start the single coalescing saver.
+		m.saveReqCh = make(chan struct{}, 1)
+		m.saverStopCh = make(chan struct{})
+		m.saverDone = make(chan struct{})
+		m.saverStarted = true
+		go m.saverLoop()
 	}
 	return nil
 }
 
+// saverLoop serializes all state persistence. It coalesces bursts of config
+// edits (buffered saveReqCh) and always re-reads the current state, so the
+// latest configuration is what lands in persist.
+func (m *halscope) saverLoop() {
+	defer close(m.saverDone)
+	for {
+		select {
+		case <-m.saverStopCh:
+			return
+		case <-m.saveReqCh:
+			if err := m.saveState(); err != nil {
+				m.logger.Warn("halscope: failed to save state", "err", err)
+			}
+		}
+	}
+}
+
+// stopSaver signals the saver to exit and joins it. Idempotent. After it
+// returns no saveState() is in flight, so m.s may be freed. Must NOT hold m.mu.
+func (m *halscope) stopSaver() {
+	if !m.saverStarted {
+		return
+	}
+	m.saverStopOnce.Do(func() {
+		close(m.saverStopCh)
+		<-m.saverDone
+	})
+}
+
 func (m *halscope) Stop() {
+	// Join the saver first so the final save below cannot race an in-flight one.
+	m.stopSaver()
 	if m.persist != nil {
 		if err := m.saveState(); err != nil {
 			m.logger.Warn("halscope: failed to save state on stop", "err", err)
@@ -252,6 +316,9 @@ func (m *halscope) Stop() {
 }
 
 func (m *halscope) Destroy() {
+	// Ensure the saver is stopped and joined (idempotent — Stop() normally did
+	// it) BEFORE freeing m.s: saveState() reads it under m.mu.
+	m.stopSaver()
 	// hal_exit removes the component and all its functions/pins from HAL,
 	// including any thread linkages.  No need to call hal_del_funct_from_thread
 	// explicitly — it would access thread structures that may already be torn
@@ -289,27 +356,40 @@ func (m *halscope) WatchSamples() ([]byte, uint64, error) {
 	s := m.s
 
 	db := int(C.halscope_atomic_load_int((*C.int)(unsafe.Pointer(&s.done_buf)), C.memory_order_acquire))
-	if db < 0 || s.done_len == 0 {
+	if db < 0 {
 		return nil, 0, nil
 	}
 
 	gen := uint64(C.halscope_atomic_load_uint((*C.uint)(unsafe.Pointer(&s.done_gen)), C.memory_order_acquire))
 
+	// done_len/done_ring_start describe the *latest* completed capture, which
+	// is only buffer db while done_gen has not advanced. Read them BEFORE the
+	// verification below — reading them after it re-opens the TOCTOU window
+	// where RT completes another capture and the copy linearizes buffer db
+	// with the new capture's length and ring offset (shifted/truncated trace).
+	totalLen := int(s.done_len)
+	ringStartBytes := int(s.done_ring_start) * 8 // sizeof(double)
+	if totalLen == 0 {
+		return nil, 0, nil
+	}
+
 	// Borrow the done buffer — increment refcount so RT won't reuse it.
 	C.halscope_atomic_fetch_add_int((*C.int)(unsafe.Pointer(&s.bufs[db].readers)), 1, C.memory_order_acquire)
 
-	// Verify done_buf hasn't changed — guards against TOCTOU race where
-	// RT completes a new capture between our load and refcount increment.
+	// Seqlock read side: fence, then verify neither done_buf nor done_gen
+	// moved. gen unchanged ⇒ no capture completed since the loads above, so
+	// totalLen/ringStartBytes belong to buffer db; the refcount now keeps RT
+	// out of db, so the copy below cannot race.
+	C.halscope_fence_acquire()
 	db2 := int(C.halscope_atomic_load_int((*C.int)(unsafe.Pointer(&s.done_buf)), C.memory_order_acquire))
-	if db2 != db {
+	gen2 := uint64(C.halscope_atomic_load_uint((*C.uint)(unsafe.Pointer(&s.done_gen)), C.memory_order_acquire))
+	if db2 != db || gen2 != gen {
 		C.halscope_atomic_fetch_sub_int((*C.int)(unsafe.Pointer(&s.bufs[db].readers)), 1, C.memory_order_release)
 		return nil, 0, nil
 	}
 
-	totalLen := int(s.done_len)
 	hdrSize := int(C.halscope_get_header_size())
 	dataBytes := totalLen - hdrSize
-	ringStartBytes := int(s.done_ring_start) * 8 // sizeof(double)
 
 	result := make([]byte, totalLen)
 	src := s.bufs[db].data
@@ -414,7 +494,7 @@ func (m *halscope) Configure(config halscopeapi.CaptureConfig) (int32, error) {
 	// Always center trigger at midpoint of buffer (matches original halscope)
 	s.pre_trig = s.rec_len / 2
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -427,6 +507,16 @@ func (m *halscope) SetChannel(ch halscopeapi.ChannelConfig) (int32, error) {
 	defer m.mu.Unlock()
 
 	s := m.s
+
+	// RT re-reads channels[n].data_type/data_addr every sample, so editing a
+	// channel mid-capture splices two pins into one trace (or reads through a
+	// stale address with the wrong width). Same gate as Configure/Arm, plus
+	// RESET: RT only zeroes counters there and never touches the channels
+	// (and with no thread attached the scope would otherwise be stuck busy).
+	state := C.halscope_atomic_load_state((*C.halscope_state_t)(unsafe.Pointer(&s.state)), C.memory_order_acquire)
+	if state != C.HALSCOPE_ST_IDLE && state != C.HALSCOPE_ST_DONE && state != C.HALSCOPE_ST_RESET {
+		return -int32(C.EBUSY), nil
+	}
 
 	// Enforce max_channels limit — channel index must be < max_channels.
 	if ch.Channel >= int32(s.max_channels) {
@@ -458,7 +548,7 @@ func (m *halscope) SetChannel(ch halscopeapi.ChannelConfig) (int32, error) {
 		s.trig.channel = C.int(ch.Channel)
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -470,10 +560,17 @@ func (m *halscope) ClearChannel(channel int32) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Same capture gate as SetChannel: the RT sampler reads this slot every
+	// sample, and a non-atomic memset under its feet is a torn read.
+	state := C.halscope_atomic_load_state((*C.halscope_state_t)(unsafe.Pointer(&m.s.state)), C.memory_order_acquire)
+	if state != C.HALSCOPE_ST_IDLE && state != C.HALSCOPE_ST_DONE && state != C.HALSCOPE_ST_RESET {
+		return -int32(C.EBUSY), nil
+	}
+
 	C.memset(unsafe.Pointer(&m.s.channels[channel]), 0,
 		C.size_t(unsafe.Sizeof(m.s.channels[0])))
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -513,7 +610,7 @@ func (m *halscope) SetTrigger(trig halscopeapi.TriggerConfig) (int32, error) {
 		s.trig.auto_trig = 0
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -559,7 +656,7 @@ func (m *halscope) SetContinuous(enabled bool) (int32, error) {
 		C.halscope_atomic_store_int((*C.int)(unsafe.Pointer(&m.s.continuous)), 0, C.memory_order_release)
 	}
 
-	go m.saveState()
+	go m.saveStateBg()
 	return 0, nil
 }
 
@@ -577,17 +674,22 @@ func (m *halscope) GetStatus() (*halscopeapi.ScopeStatus, error) {
 	return &st, nil
 }
 
-func (m *halscope) ListPins(pattern string, kind string) ([]string, error) {
-	match := pattern
-	if match == "" {
-		match = "*"
+func (m *halscope) ListPins(pattern *string, kind *string) ([]string, error) {
+	// Both parameters are optional: absent and empty alike mean "no filter".
+	match := "*"
+	if pattern != nil && *pattern != "" {
+		match = *pattern
 	}
 	cMatch := C.CString(match)
 	defer C.free(unsafe.Pointer(cMatch))
 
-	wantPins := kind == "" || kind == "pin"
-	wantSigs := kind == "" || kind == "sig"
-	wantParams := kind == "" || kind == "param"
+	k := ""
+	if kind != nil {
+		k = *kind
+	}
+	wantPins := k == "" || k == "pin"
+	wantSigs := k == "" || k == "sig"
+	wantParams := k == "" || k == "param"
 
 	names := make([]string, 0)
 
@@ -636,6 +738,24 @@ func (m *halscope) ListPins(pattern string, kind string) ([]string, error) {
 // halscope_state_t alias for readability in Go.
 type halscope_state_t = C.halscope_state_t
 
+// triggerLevel reads the trigger level through the union member matching the
+// trigger channel's current HAL type. SetTrigger stores it typed; an untyped
+// d_real read of an S32/U32 level is the 4-byte int reinterpreted as half a
+// double — garbage that a client would then resync into its Lvl box and write
+// back as the real trigger level.
+func (m *halscope) triggerLevel() float64 {
+	s := m.s
+	if ch := int32(s.trig.channel); ch >= 0 && ch < C.HALSCOPE_MAX_CHANNELS {
+		switch s.channels[ch].data_type {
+		case C.HAL_S32:
+			return float64(C.get_trigger_level_s32(&s.trig.level))
+		case C.HAL_U32:
+			return float64(C.get_trigger_level_u32(&s.trig.level))
+		}
+	}
+	return float64(C.get_trigger_level_real(&s.trig.level))
+}
+
 func (m *halscope) getStatus() halscopeapi.ScopeStatus {
 	s := m.s
 	numSamples := int32(s.num_samples)
@@ -648,7 +768,7 @@ func (m *halscope) getStatus() halscopeapi.ScopeStatus {
 		MaxChannels:      int32(s.max_channels),
 		SamplePeriodMult: int32(s.mult),
 		TrigChannel:      int32(s.trig.channel),
-		TrigLevel:        float64(C.get_trigger_level_real(&s.trig.level)),
+		TrigLevel:        m.triggerLevel(),
 		TrigEdge:         halscopeapi.TrigEdge(s.trig.edge),
 		TrigAutoTrig:     s.trig.auto_trig != 0,
 		Generation:       uint32(atomic.LoadUint32((*uint32)(unsafe.Pointer(&s.done_gen)))),
@@ -785,6 +905,20 @@ const persistKey = "state"
 
 // saveState writes the current scope configuration to persist.
 // Caller must NOT hold m.mu.
+// saveStateBg requests a persist of the current state. Non-blocking and
+// coalescing: the single saverLoop() does the actual write and always re-reads
+// the latest state, so bursts of edits collapse to (at most) one queued save.
+// Used from API handlers where state saving is best-effort and must not block.
+func (m *halscope) saveStateBg() {
+	if m.saveReqCh == nil {
+		return // persistence disabled
+	}
+	select {
+	case m.saveReqCh <- struct{}{}:
+	default: // a save is already queued; it will pick up the latest state
+	}
+}
+
 func (m *halscope) saveState() error {
 	m.mu.Lock()
 	s := m.s
@@ -799,7 +933,7 @@ func (m *halscope) saveState() error {
 		},
 		Trigger: stateTrigger{
 			Channel:  int(s.trig.channel),
-			Level:    float64(C.get_trigger_level_real(&s.trig.level)),
+			Level:    m.triggerLevel(),
 			Edge:     int(s.trig.edge),
 			AutoTrig: s.trig.auto_trig != 0,
 		},

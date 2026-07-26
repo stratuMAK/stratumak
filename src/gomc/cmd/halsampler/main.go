@@ -13,16 +13,13 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"math"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
+	"github.com/sittner/linuxcnc/src/gomc/internal/halstream"
 )
 
 const (
@@ -51,7 +48,7 @@ func main() {
 	}
 
 	// Convert http(s) URL to ws(s) URL
-	wsURL := httpToWS(restURL) + "/api/v1/stream/hal_sampler_stream/" + instance
+	wsURL := halstream.HTTPToWS(restURL) + "/api/v1/stream/hal_sampler_stream/" + instance
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -61,7 +58,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "halsampler: connect failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// The first message from the server is a header with pin types
 	// Format: "cfg:<types>" e.g. "cfg:uffb"
@@ -72,14 +69,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := string(headerMsg)
-	if !strings.HasPrefix(cfg, "cfg:") {
-		fmt.Fprintf(os.Stderr, "halsampler: unexpected header: %s\n", cfg)
+	pinTypes, ok := halstream.ParseHeader(headerMsg)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "halsampler: unexpected header: %s\n", string(headerMsg))
 		os.Exit(1)
 	}
-	pinTypes := cfg[4:]
 	numPins := len(pinTypes)
-	sampleSize := numPins * 8 // each value is 8 bytes
+	sampleSize := numPins * halstream.ValueSize
 
 	sampleNum := 0
 	for numSamples != 0 {
@@ -99,20 +95,22 @@ func main() {
 			}
 
 			for i := 0; i < numPins; i++ {
-				raw := binary.LittleEndian.Uint64(data[offset+i*8:])
-				switch pinTypes[i] {
-				case 'f':
-					fmt.Printf("%f ", math.Float64frombits(raw))
-				case 'b':
-					if raw != 0 {
+				val, err := halstream.Decode(pinTypes[i], halstream.ReadRaw(data[offset:], i))
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "halsampler: %v\n", err)
+					os.Exit(1)
+				}
+				switch v := val.(type) {
+				case float64:
+					fmt.Printf("%f ", v)
+				case bool:
+					if v {
 						fmt.Print("1 ")
 					} else {
 						fmt.Print("0 ")
 					}
-				case 'u':
-					fmt.Printf("%d ", uint32(raw))
-				case 's':
-					fmt.Printf("%d ", int32(raw))
+				default:
+					fmt.Printf("%d ", v)
 				}
 			}
 			fmt.Println()
@@ -121,26 +119,12 @@ func main() {
 			if numSamples > 0 {
 				numSamples--
 				if numSamples == 0 {
-					conn.Close(websocket.StatusNormalClosure, "done")
+					_ = conn.Close(websocket.StatusNormalClosure, "done")
 					return
 				}
 			}
 		}
 	}
 
-	conn.Close(websocket.StatusNormalClosure, "done")
-}
-
-func httpToWS(httpURL string) string {
-	u, err := url.Parse(httpURL)
-	if err != nil {
-		return strings.Replace(strings.Replace(httpURL, "https://", "wss://", 1), "http://", "ws://", 1)
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	default:
-		u.Scheme = "ws"
-	}
-	return u.String()
+	_ = conn.Close(websocket.StatusNormalClosure, "done")
 }

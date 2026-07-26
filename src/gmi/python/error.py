@@ -1,8 +1,10 @@
 """gmi.error — Drop-in replacement for linuxcnc.error_channel().
 
-Subscribes to the emcerror WebSocket watch channel. Queues incoming
-error/info messages. poll() returns (kind, text) or None, matching
-the linuxcnc.error_channel() API.
+Subscribes to the emcerror WebSocket watch channel via the shared resilient
+WatchClient (connect retry, automatic reconnect — a server restart must not
+silently end error delivery for the session; review finding GP-2/GP-3).
+Queues incoming error/info messages. poll() returns (kind, text) or None,
+matching the linuxcnc.error_channel() API.
 
 Usage:
     e = gmi.ErrorChannel()
@@ -13,18 +15,12 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import collections
-import json
 import threading
 from typing import Optional, Tuple
 
-try:
-    import websockets
-except ImportError:
-    websockets = None
-
-from gmi import ws_url
+from gmi import resolve_instance
+from gmi._watch import WatchClient
 
 
 class ErrorChannel:
@@ -34,64 +30,23 @@ class ErrorChannel:
     background thread and returned one at a time by poll().
     """
 
-    def __init__(self, instance: str = "milltask"):
-        self._instance = instance
+    def __init__(self, instance: str = None):
+        instance = resolve_instance(instance)
         self._queue = collections.deque()
         self._lock = threading.Lock()
-        self._connected = threading.Event()
-        self._loop = None
-        self._thread = None
-        self._ws = None
-        self._start_watch()
+        self._client = WatchClient(
+            "ErrorChannel",
+            {"api": "emcerror", "instance": instance,
+             "func": "get_errors", "rate_ms": 200},
+            self._handle_update)
+        self._client.start(wait=5.0)
 
-    def _start_watch(self):
-        """Start background thread for WebSocket watch."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self._connected.wait(timeout=5)
-
-    def _run(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._connect_and_subscribe())
-        self._connected.set()
-        self._loop.run_forever()
-        self._loop.close()
-
-    async def _connect_and_subscribe(self):
-        url = ws_url()
-        self._ws = await websockets.connect(url)
-        msg = {
-            "action": "subscribe",
-            "api": "emcerror",
-            "instance": self._instance,
-            "func": "get_errors",
-            "rate_ms": 200,
-        }
-        await self._ws.send(json.dumps(msg))
-        # Keep a strong reference: asyncio holds tasks only weakly, so an
-        # unreferenced recv task can be garbage-collected mid-flight — the
-        # socket stays open but nothing reads it and the cache silently
-        # freezes at the last-delivered snapshot (observed as a boot-era
-        # STATE_ESTOP surfacing mid-run in gmi.Stat).
-        self._recv_task = asyncio.get_event_loop().create_task(self._recv_loop())
-
-    async def _recv_loop(self):
-        try:
-            async for raw in self._ws:
-                msg = json.loads(raw)
-                if msg.get("type") == "update" and msg.get("func") == "get_errors":
-                    errors = msg.get("data", [])
-                    if errors:
-                        with self._lock:
-                            for err in errors:
-                                kind = err.get("kind", 0)
-                                text = err.get("text", "")
-                                self._queue.append((kind, text))
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+    def _handle_update(self, func, data):
+        if func != "get_errors" or not data:
+            return
+        with self._lock:
+            for err in data:
+                self._queue.append((err.get("kind", 0), err.get("text", "")))
 
     def poll(self) -> Optional[Tuple[int, str]]:
         """Return the next queued message as (kind, text), or None.
@@ -105,7 +60,4 @@ class ErrorChannel:
 
     def stop(self):
         """Stop the background WebSocket thread."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=2)
+        self._client.stop()

@@ -8,11 +8,13 @@ never raises, both read as "the test passed"). These checks are pure: no server,
 no HAL, no motion. They run anywhere runtests runs.
 """
 
+import io
 import os
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
 
 import gomc_test
 
@@ -188,20 +190,29 @@ def test_missing_file_times_out_rather_than_raising_oserror():
     raise AssertionError("a missing file must surface as Timeout, not OSError")
 
 
-def test_wait_complete_raises_on_the_silent_minus_one():
-    # The defect this whole module exists for: the server reports a timed-out
-    # wait as -1 in a normal HTTP 200 body, so a caller that ignores the return
-    # proceeds against a machine that never settled. Construction does no I/O,
-    # so stubbing the transport keeps this test serverless.
+def test_wait_complete_raises_on_a_failed_wait():
+    # A wait that did not happen used to arrive as -1 in a normal HTTP 200 body,
+    # so a caller that ignored the return proceeded against a machine that never
+    # settled. The server now reports it as an HTTP error; gomc_test turns that
+    # into a Timeout naming the deadline and the machine's reason, because
+    # urllib's "HTTP Error 500" tells a failing test nothing. Construction does
+    # no I/O, so stubbing the transport keeps this test serverless.
+    def boom(path, data=None, timeout=None):
+        raise urllib.error.HTTPError(
+            "http://x/wait-complete", 500, "Internal Server Error", {},
+            io.BytesIO(b'{"error":"task not ready"}'))
+
     c = gomc_test.Command.__new__(gomc_test.Command)
-    c._post = lambda path, data=None, timeout=None: -1
+    c._post = boom
     try:
         c.wait_complete(timeout=1)
     except gomc_test.Timeout as e:
         expect("unsynchronised" in str(e) or "settle" in str(e),
                "the failure must explain the consequence, got: %s" % e)
+        expect("not ready" in str(e),
+               "the failure must carry the machine's reason, got: %s" % e)
         return
-    raise AssertionError("wait_complete must raise on -1, not return it")
+    raise AssertionError("wait_complete must raise Timeout on a failed wait")
 
 
 def test_wait_complete_passes_through_rcs_codes():

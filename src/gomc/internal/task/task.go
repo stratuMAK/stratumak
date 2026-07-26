@@ -18,6 +18,8 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emcerror"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motctl"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // TaskState represents the machine state (estop, on, etc.)
@@ -352,18 +354,22 @@ type Task struct {
 	readLine    int32 // line the interpreter has read up to
 	currentLine int32 // line currently being executed by sequencer
 
+	// lastMotionID is the serial id of the last motion command the sequencer
+	// dispatched to the motion controller. The abort-time modal restore
+	// (abortLocked) needs the tag of the segment "the machine was on", and
+	// motion's executing id is 0 whenever the TP queue has momentarily run
+	// dry (tpHandleEmptyQueue on feed starvation — exactly where a user abort
+	// tends to land, since exact-stop corners are where starved motion sits).
+	// With an empty queue everything dispatched has executed, so the last
+	// dispatched segment IS the last executed one; its motionMap entry
+	// survives pruning (BuildStat only prunes ids below the executing id).
+	// 2.9 had no such gap: the state tag traveled inside the motion status
+	// and persisted across an empty queue. Guarded by mu.
+	lastMotionID int32
+
 	// Motion segment side table: maps serial segment id → {file, lineno}
 	// Written by canon at enqueue time; read by BuildStat for halui.program-line.
 	motionMap map[int32]motionInfo
-
-	// Memoized prepped-tool pocket for BuildStat (guarded by t.mu): the
-	// toolPocketFor lookup behind stat.pocket_prepped is a tooltable-service
-	// round-trip (SQLite read), too costly to repeat at the status publish
-	// rate for a value that only changes on prep/change/table-edit. The
-	// tool-mutating commands invalidate it.
-	prepPocketToolno int32
-	prepPocket       int32
-	prepPocketValid  bool
 
 	// Interpreter active codes (updated after each execute). These are the
 	// ONLY view of interpreter state stat consumers may use — BuildStat must
@@ -395,7 +401,17 @@ type Task struct {
 	// Program state
 	programFile string
 	programOpen bool
-	previewSeq  int32 // increments on changes that invalidate preview
+	// programRes resolves G-code paths against the program directories
+	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
+	programRes *pathres.Resolver
+	previewSeq int32 // increments on changes that invalidate preview
+	// bootID identifies THIS run of the task (start timestamp, unix ns).
+	// Reported in stat so a client can tell "the task restarted under me"
+	// from "nothing changed": every other counter we publish — previewSeq
+	// above, heartbeat — restarts at zero with the task and can land back on
+	// a value the client already saw, so none of them can carry that signal.
+	// Immutable after NewTask, hence no lock.
+	bootID int64
 
 	// Sequencer
 	interpQueue chan QueuedCmd
@@ -507,6 +523,7 @@ func NewTask(motion MotionController, io IOController, status MotionStatusReader
 		blockDelete:  true,
 		mcode:        newMcodeHandler(),
 		motionMap:    make(map[int32]motionInfo),
+		bootID:       time.Now().UnixNano(),
 	}
 	t.canon = NewCanon(t)
 	t.canonSnap = *t.canon.state

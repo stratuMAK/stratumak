@@ -1836,7 +1836,14 @@ proc update_state {args} {
         disable_group $::manualgroup
     }
 
-    if {$::task_state == $::STATE_ON && $::queued_mdi_commands < $::max_queued_mdi_commands } {
+    # Mirror python manual_ok(): MDI input is acceptable while the interpreter
+    # is idle, or while executing MDI with room in the queue — but NOT during
+    # an AUTO program run. Without the interp/mode term the widgets stayed
+    # enabled during a run while send_mdi silently dropped the command.
+    if {   $::task_state == $::STATE_ON
+        && (   $::interp_state == $::INTERP_IDLE
+            || (   $::task_mode == $::TASK_MODE_MDI
+                && $::queued_mdi_commands < $::max_queued_mdi_commands))} {
         enable_group $::mdigroup
     } else {
         disable_group $::mdigroup

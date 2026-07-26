@@ -1,10 +1,17 @@
 import { reactive } from 'vue';
-import { ToolsClient, type ToolEntry } from '../generated/tools_client';
+import { APIError, ToolsClient, type ToolEntry, type ToolUnits } from '../generated/tools_client';
 
 export interface ToolEditState {
   tools: ToolEntry[];
   loading: boolean;
   error: string | null;
+  // true when a write succeeded but the follow-up reload failed, i.e. the
+  // displayed table no longer matches the server; cleared by a successful load
+  stale: boolean;
+  // machine display units (finding T-9). The table is stored in mm; the UI
+  // renders/enters in these units. Defaults to the metric identity so a failed
+  // fetch never mis-scales — mm-in/mm-out is always correct at scale 1.
+  units: ToolUnits;
 }
 
 const instance = new URLSearchParams(window.location.search).get('instance') || 'milltask';
@@ -14,13 +21,27 @@ const state = reactive<ToolEditState>({
   tools: [],
   loading: false,
   error: null,
+  stale: false,
+  units: { linearScale: 1, metric: true },
 });
+
+// Fetch the machine's display units once. On failure keep the mm default and
+// log — the table must not be blocked, and mm-everywhere at scale 1 is a safe
+// (if unlabelled-as-inch) fallback.
+async function loadUnits() {
+  try {
+    state.units = await client.getUnits();
+  } catch (e: unknown) {
+    console.warn('tooledit: failed to load machine units, defaulting to mm:', e);
+  }
+}
 
 async function loadTools() {
   state.loading = true;
   state.error = null;
   try {
     state.tools = await client.listTools();
+    state.stale = false;
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -28,39 +49,70 @@ async function loadTools() {
   }
 }
 
-async function saveTool(tool: ToolEntry) {
+async function getTool(toolno: number): Promise<ToolEntry | null> {
+  state.error = null;
+  try {
+    return await client.getTool(toolno);
+  } catch (e: unknown) {
+    state.error = e instanceof Error ? e.message : String(e);
+    return null;
+  }
+}
+
+async function saveTool(tool: ToolEntry): Promise<boolean> {
   state.error = null;
   try {
     await client.putTool(tool.toolno, tool);
-    await loadTools();
   } catch (e: unknown) {
+    if (e instanceof APIError && e.statusCode === 409) {
+      // optimistic-concurrency conflict: the tool changed on the server
+      // (touch-off, another client) since this copy was read. Refresh the
+      // table to the new server state; the dialog keeps the operator's
+      // unsaved edits open. Set the error after the reload so loadTools()
+      // clearing state.error cannot swallow the conflict message.
+      await loadTools();
+      state.error =
+        `Tool ${tool.toolno} was changed by another client since you opened it ` +
+        `— your edits were NOT saved. Reload and re-apply.`;
+      return false;
+    }
     state.error = e instanceof Error ? e.message : String(e);
+    return false;
   }
+  state.stale = true;
+  await loadTools();
+  return true;
 }
 
 async function deleteTool(toolno: number) {
   state.error = null;
   try {
     await client.deleteTool(toolno);
-    state.tools = state.tools.filter(t => t.toolno !== toolno);
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
+    return;
   }
+  state.stale = true;
+  await loadTools();
 }
 
 async function reloadTable() {
   state.error = null;
   try {
     await client.reloadTools();
-    await loadTools();
   } catch (e: unknown) {
     state.error = e instanceof Error ? e.message : String(e);
+    return;
   }
+  state.stale = true;
+  await loadTools();
 }
 
 export const toolStore = {
   state,
+  loadUnits,
   loadTools,
+  getTool,
   saveTool,
   deleteTool,
   reloadTable,

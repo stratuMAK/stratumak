@@ -17,14 +17,14 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmdclient"
+	"github.com/sittner/linuxcnc/src/gomc/internal/lineedit"
 )
 
 const (
@@ -42,12 +42,11 @@ var (
 
 func main() {
 	// Get REST URL from environment or use default
-	restURL := os.Getenv(envRestURL)
-	if restURL == "" {
-		restURL = defaultRestURL
+	url := os.Getenv(envRestURL)
+	if url == "" {
+		url = defaultRestURL
 	}
-
-	client = halcmdclient.NewHalcmdClient(restURL)
+	installClients(url)
 
 	args := os.Args[1:]
 
@@ -92,7 +91,7 @@ func main() {
 			if len(args) < 2 {
 				fatal("-U requires a URL")
 			}
-			client = halcmdclient.NewHalcmdClient(args[1])
+			installClients(args[1])
 			args = args[2:]
 		default:
 			fatal("unknown option: " + args[0])
@@ -126,8 +125,13 @@ Options:
   -k, --keep-going  Keep going after errors
   -q, --quiet       Quiet mode (less output)
   -Q                Echo commands in -f mode
-  -s                Script mode (no prompt)
+  -s                Script mode (no prompt, no line editing)
   -U <url>          Override REST URL
+
+Interactive mode (on a terminal) offers line editing: up/down recall previous
+commands, left/right (Ctrl-arrow: by word) move within the line, TAB completes
+commands, pins and signals, Ctrl-A/E, Ctrl-W, Ctrl-U, Ctrl-K, Ctrl-Y and
+Ctrl-L work as usual, Ctrl-C abandons the line and Ctrl-D exits.
 
 Commands:
   show <type> [pattern]   List items (pin|sig|param|comp|funct|thread|all)
@@ -194,7 +198,7 @@ func runFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return runStream(f, filename)
 }
 
@@ -234,6 +238,18 @@ func runStream(r io.Reader, source string) error {
 		if echoMode {
 			fmt.Printf("%d: %s\n", lineNum, line)
 		}
+		// A stray control byte in a HAL file (a mis-saved editor buffer, a
+		// terminal escape captured into a script) is reported as such instead
+		// of travelling into an argument and failing much later with a message
+		// about a value nobody typed. Only the command part is validated —
+		// trailing comments may carry legacy non-UTF-8 bytes.
+		if err := checkInputLine(commandPart(line)); err != nil {
+			if keepGoing {
+				warn(fmt.Sprintf("%s:%d: %s", source, lineNum, err.Error()))
+				continue
+			}
+			return fmt.Errorf("%s:%d: %w", source, lineNum, err)
+		}
 		args := parseCommandLine(line)
 		if len(args) == 0 {
 			continue
@@ -249,7 +265,45 @@ func runStream(r io.Reader, source string) error {
 	return scanner.Err()
 }
 
+const interactivePrompt = "halcmd> "
+
 func runInteractive() {
+	// A tty gets real line editing (cursor keys, history, TAB completion); a
+	// pipe, a redirected file or -s script mode gets plain line-at-a-time
+	// reading. Without the editor the terminal stays in canonical mode and
+	// hands us the raw bytes of every key, so pressing Up would paste
+	// "\x1b[A" into the command — see internal/lineedit and issue #265.
+	if !scriptMode {
+		if ed, err := lineedit.New(os.Stdin, os.Stdout); err == nil {
+			ed.SetCompleter(completeHead)
+			runInteractiveEdited(ed)
+			return
+		}
+	}
+	runInteractivePlain()
+}
+
+func runInteractiveEdited(ed *lineedit.Editor) {
+	fmt.Println("halcmd: Type 'help' for help, 'quit' to exit")
+
+	for {
+		line, err := ed.ReadLine(interactivePrompt)
+		if errors.Is(err, lineedit.ErrInterrupted) {
+			// Ctrl-C abandons the line being typed, like readline does.
+			continue
+		}
+		if err != nil {
+			// EOF (Ctrl-D) or a terminal error: leave interactive mode.
+			return
+		}
+		ed.AddHistory(line)
+		if quit := runInteractiveLine(line); quit {
+			return
+		}
+	}
+}
+
+func runInteractivePlain() {
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scriptMode {
 		fmt.Println("halcmd: Type 'help' for help, 'quit' to exit")
@@ -257,26 +311,39 @@ func runInteractive() {
 
 	for {
 		if !scriptMode {
-			fmt.Print("halcmd> ")
+			fmt.Print(interactivePrompt)
 		}
 		if !scanner.Scan() {
 			break
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		args := parseCommandLine(line)
-		if len(args) == 0 {
-			continue
-		}
-		if args[0] == "quit" || args[0] == "exit" {
+		if quit := runInteractiveLine(scanner.Text()); quit {
 			break
 		}
-		if err := executeCommand(args); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		}
 	}
+}
+
+// runInteractiveLine executes one line typed at the prompt and reports whether
+// the user asked to leave.
+func runInteractiveLine(raw string) bool {
+	line := strings.TrimSpace(raw)
+	if line == "" {
+		return false
+	}
+	if err := checkInputLine(commandPart(line)); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return false
+	}
+	args := parseCommandLine(line)
+	if len(args) == 0 {
+		return false
+	}
+	if args[0] == "quit" || args[0] == "exit" {
+		return true
+	}
+	if err := executeCommand(args); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+	}
+	return false
 }
 
 // stripArrows removes direction arrows (<=, =>, <=>) from argument lists.
@@ -502,11 +569,17 @@ var commandHelp = map[string]string{
 Usage: halcmd unload <name>
 Removes the module's RT functions from threads, stops and destroys it.
 Returns EBUSY if another module depends on this module's APIs.`,
-	"newthread": `newthread <name> <period-ns> [fp] [cpu=N]
+	"newthread": `newthread <name> <period-ns> [fp|nofp] [cpu=N]
   Create a new realtime thread.
   period-ns is the period in nanoseconds.
-  fp        enable floating-point support.
-  cpu=N     pin to CPU N.`,
+  fp|nofp   enable/disable floating-point support (default: fp).
+  cpu=N     pin to CPU N (default: auto-assign an isolated core, or no
+            affinity if the machine has none). Pinning to a non-isolated
+            CPU is allowed but warns.
+  The period is used exactly as given — it need not relate to any other
+  thread's period. Priorities are handed out in creation order, each one
+  lower than the last, so create faster threads first; creating a thread
+  faster than an existing one is allowed but warns.`,
 	"delthread": `delthread <name>
   Delete a thread (must have no attached functions).`,
 	"addf": `addf <function> <thread> [position]
@@ -954,6 +1027,9 @@ func cmdNewSig(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("newsig requires: <name> <type>")
 	}
+	if err := checkHALName("signal", args[0]); err != nil {
+		return err
+	}
 	result, err := client.NewSignal(args[0], args[1])
 	if err != nil {
 		return err
@@ -979,6 +1055,14 @@ func cmdNet(args []string) error {
 	}
 	signal := args[0]
 	pins := args[1:]
+	if err := checkHALName("signal", signal); err != nil {
+		return err
+	}
+	for _, p := range pins {
+		if err := checkHALName("pin", p); err != nil {
+			return err
+		}
+	}
 
 	result, err := client.Net(signal, pins)
 	if err != nil {
@@ -1034,33 +1118,18 @@ func cmdUnlinkP(args []string) error {
 	return checkResult(result)
 }
 
-// resolveArgPath makes a relative file path absolute so the server (which may
-// have a different cwd) can find it.  Non-path args (key=value) are unchanged.
-func resolveArgPath(arg string) string {
-	if strings.Contains(arg, "=") {
-		return arg
-	}
-	if strings.Contains(arg, "/") || strings.Contains(arg, ".") {
-		if !filepath.IsAbs(arg) {
-			if abs, err := filepath.Abs(arg); err == nil {
-				return abs
-			}
-		}
-	}
-	return arg
-}
-
 func cmdLoad(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("load requires module name")
 	}
 	module := args[0]
-	var modArgs []*string
-	for _, a := range args[1:] {
-		s := resolveArgPath(a)
-		modArgs = append(modArgs, &s)
-	}
-	result, err := client.Load(module, modArgs)
+	// Module arguments are forwarded verbatim.  A path in a module argument is
+	// a *server-side* path: the server resolves it against the config
+	// directory and HALLIB_PATH and enforces containment (internal/pathres).
+	// The CLI used to guess which arguments were paths and rewrite them to its
+	// own cwd, which mangled positional values that merely looked path-like
+	// and was meaningless for a remote client (HC-2).
+	result, err := client.Load(module, args[1:])
 	if err != nil {
 		return err
 	}
@@ -1095,12 +1164,22 @@ func cmdNewThread(args []string) error {
 		return fmt.Errorf("newthread requires: <name> <period_ns> [fp] [cpu]")
 	}
 	name := args[0]
-	period, err := strconv.ParseInt(args[1], 10, 64)
+	if err := checkHALName("thread", name); err != nil {
+		return err
+	}
+	period, err := parseIntArg("period", args[1], 64, "nanoseconds")
 	if err != nil {
-		return fmt.Errorf("invalid period: %w", err)
+		return err
+	}
+	if period <= 0 {
+		return fmt.Errorf("invalid period %q: must be greater than zero", args[1])
 	}
 
 	var fp *bool
+	// cpu is optional: omitted (nil) means auto-assign — the server impl maps a
+	// nil cpu to -1. The GMI ABI now carries the nullable i32 as a pointer, so an
+	// omitted cpu correctly reaches the impl as nil (was previously flattened to
+	// 0 across the cgo boundary and rejected as a non-isolated core — issue #265).
 	var cpuId *int32
 	for _, arg := range args[2:] {
 		lower := strings.ToLower(arg)
@@ -1111,11 +1190,16 @@ func cmdNewThread(args []string) error {
 			f := false
 			fp = &f
 		} else if strings.HasPrefix(lower, "cpu=") {
-			cpu, err := strconv.ParseInt(arg[4:], 10, 32)
-			if err == nil {
-				c := int32(cpu)
-				cpuId = &c
+			// Silently ignoring a bad value used to turn a typo into an
+			// auto-assigned thread that looked like it honoured the pin.
+			cpu, err := parseIntArg("cpu", arg[4:], 32, "")
+			if err != nil {
+				return err
 			}
+			c := int32(cpu)
+			cpuId = &c
+		} else {
+			return fmt.Errorf("newthread: unknown option %q", arg)
 		}
 	}
 
@@ -1123,7 +1207,14 @@ func cmdNewThread(args []string) error {
 	if err != nil {
 		return err
 	}
-	return checkResult(result)
+	if err := checkResult(result); err != nil {
+		return err
+	}
+	// Non-fatal notice — currently the rate-monotonic ordering warning.
+	if result.Output != nil && *result.Output != "" && !quietMode {
+		fmt.Fprintln(os.Stderr, *result.Output)
+	}
+	return nil
 }
 
 func cmdDelThread(args []string) error {
@@ -1143,11 +1234,15 @@ func cmdAddF(args []string) error {
 	}
 	function := args[0]
 	thread := args[1]
+	// position is optional: omitted (nil) means append at end — the server impl
+	// maps a nil position to -1. The GMI ABI now carries the nullable i32 as a
+	// pointer, so an omitted position correctly reaches the impl as nil (was
+	// previously flattened to 0 = insert-at-front across the cgo boundary).
 	var position *int32
 	if len(args) > 2 {
-		p, err := strconv.ParseInt(args[2], 10, 32)
+		p, err := parseIntArg("position", args[2], 32, "")
 		if err != nil {
-			return fmt.Errorf("invalid position: %w", err)
+			return err
 		}
 		pos := int32(p)
 		position = &pos
@@ -1193,6 +1288,9 @@ func cmdAlias(args []string) error {
 	what := strings.ToLower(args[0])
 	name := args[1]
 	alias := args[2]
+	if err := checkHALName("alias", alias); err != nil {
+		return err
+	}
 
 	var result *halcmdclient.CmdResult
 	var err error
@@ -1261,9 +1359,9 @@ func cmdDebug(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("debug requires level")
 	}
-	level, err := strconv.ParseInt(args[0], 10, 32)
+	level, err := parseIntArg("debug level", args[0], 32, "")
 	if err != nil {
-		return fmt.Errorf("invalid debug level: %w", err)
+		return err
 	}
 	result, err := client.SetDebug(int32(level))
 	if err != nil {

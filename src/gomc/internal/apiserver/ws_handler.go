@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // WatchFunc is called periodically by the watch server to produce a snapshot.
@@ -55,11 +55,18 @@ type CommandMeta struct {
 // in the given registered API. This exposes a REST API's functions as WS
 // commands without manual per-function wiring.
 func CommandsFromAPI(api *RegisteredAPI) []CommandMeta {
-	if api == nil || api.Meta == nil {
+	if api == nil {
 		return nil
 	}
-	cmds := make([]CommandMeta, 0, len(api.Meta.Funcs))
-	for _, fn := range api.Meta.Funcs {
+	// RESTFuncs, not Meta.Funcs: for a Go provider this is the direct handler
+	// set, so a WS command reports the provider's error instead of the zero
+	// value the C trampoline would substitute.
+	funcs := api.RESTFuncs()
+	if funcs == nil {
+		return nil
+	}
+	cmds := make([]CommandMeta, 0, len(funcs))
+	for _, fn := range funcs {
 		if fn.Dispatch == nil {
 			continue
 		}
@@ -110,6 +117,25 @@ func (r *WatchRegistry) Get(apiName, instance string) *WatchAPI {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.apis[apiName+"/"+instance]
+}
+
+// UnregisterByInstance removes all watch APIs registered under the given
+// instance name, returning the number removed. This MUST be called on module
+// unload (alongside Registry.UnregisterByInstance) before the module's Destroy
+// frees its HAL pins: a WatchAPI's Factory/Watch closures capture the module's
+// pins, so leaving it registered lets a later WS subscribe resolve it and read
+// freed/recycled HAL memory (and leaks the registration entry indefinitely).
+func (r *WatchRegistry) UnregisterByInstance(instance string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	removed := 0
+	for key, api := range r.apis {
+		if api.Instance == instance {
+			delete(r.apis, key)
+			removed++
+		}
+	}
+	return removed
 }
 
 // All returns all registered watch APIs.
@@ -180,10 +206,12 @@ type wsError struct {
 
 // WatchHandler handles WebSocket connections for the watch channel.
 type WatchHandler struct {
-	registry *WatchRegistry
-	logger   *slog.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	registry       *WatchRegistry
+	logger         *slog.Logger
+	ctx            context.Context
+	cancel         context.CancelFunc
+	originPatterns []string   // WebSocket Origin allow-list; empty = same-origin only
+	wsLimit        *wsLimiter // shared with the server's stream endpoint; nil = unlimited
 }
 
 // NewWatchHandler creates a new WebSocket watch handler.
@@ -205,15 +233,29 @@ func (h *WatchHandler) SetLogger(logger *slog.Logger) {
 
 // ServeHTTP upgrades the connection to WebSocket and runs the watch loop.
 func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Refuse before upgrading: every accepted connection can subscribe to the
+	// registered watch functions, each of which runs a ticker goroutine calling
+	// into generated/cgo code (see limits.go).
+	if !h.wsLimit.acquire() {
+		h.logger.Warn("watch websocket refused: at the WebSocket connection cap",
+			"open", h.wsLimit.count())
+		writeErrorJSON(w, http.StatusServiceUnavailable, "too many WebSocket connections")
+		return
+	}
+	defer h.wsLimit.release()
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Allow any origin for now — tighten in production
-		InsecureSkipVerify: true,
+		// Empty OriginPatterns → same-origin only (secure default). This blocks
+		// cross-site WebSocket hijacking — a malicious page in the operator's
+		// browser cannot open this socket and issue `call` commands. Widen via
+		// Server.SetWSOriginPatterns for a cross-origin HMI.
+		OriginPatterns: h.originPatterns,
 	})
 	if err != nil {
 		h.logger.Warn("websocket accept failed", "error", err)
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
@@ -226,7 +268,50 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		subs:    make(map[string]context.CancelFunc),
 	}
 
+	// Liveness keepalive. Watch pushes are change-driven, so a dead peer
+	// (pulled cable, powered-off HMI, half-open NAT) keeps the TCP connection
+	// ESTABLISHED for minutes with every push "delivered" into the void while
+	// the client renders its last values as live. Pings force protocol-level
+	// round-trips; on failure the connection is torn down, which is what lets
+	// the clients' reconnect logic take over. (The stream handler deliberately
+	// has no keepalive: it pushes continuously, so a dead peer surfaces as
+	// write backpressure there.)
+	go c.keepalive()
+
 	c.readLoop()
+}
+
+// Keepalive cadence. Vars, not consts, so tests can shorten them.
+var (
+	wsPingInterval = 10 * time.Second
+	wsPingTimeout  = 5 * time.Second
+)
+
+// keepalive pings the peer until the connection dies. Ping requires a
+// concurrent Read to process the pong — readLoop provides it (browsers answer
+// pongs automatically inside the protocol). Control frames may be written
+// concurrently with data frames, so writeMu is not needed here.
+func (c *wsConn) keepalive() {
+	t := time.NewTicker(wsPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-t.C:
+			ctx, cancel := context.WithTimeout(c.ctx, wsPingTimeout)
+			err := c.conn.Ping(ctx)
+			cancel()
+			if err != nil {
+				if c.ctx.Err() == nil {
+					c.handler.logger.Warn("watch websocket peer unresponsive, closing", "error", err)
+				}
+				c.cancel()
+				_ = c.conn.CloseNow()
+				return
+			}
+		}
+	}
 }
 
 // wsConn manages one WebSocket client connection.
@@ -236,7 +321,7 @@ type wsConn struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	writeMu sync.Mutex // serializes writes (nhooyr supports concurrent writes, but we want ordered JSON)
+	writeMu sync.Mutex // serializes writes (coder/websocket supports concurrent writes, but we want ordered JSON)
 
 	mu   sync.Mutex
 	subs map[string]context.CancelFunc // key: "api/instance/func" → cancel the push goroutine
@@ -285,7 +370,7 @@ func (c *wsConn) writeUpdate(subCtx context.Context, v interface{}) error {
 }
 
 func (c *wsConn) sendError(msg string) {
-	c.writeJSON(wsError{Type: "error", Message: msg})
+	_ = c.writeJSON(wsError{Type: "error", Message: msg})
 }
 
 func (c *wsConn) readLoop() {
@@ -408,7 +493,7 @@ func (c *wsConn) handleUnsubscribe(unsub wsUnsubscribe) {
 func (c *wsConn) handleCall(call wsCall) {
 	api := c.handler.registry.Get(call.API, call.Instance)
 	if api == nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: fmt.Sprintf("unknown API: %s/%s", call.API, call.Instance),
@@ -424,7 +509,7 @@ func (c *wsConn) handleCall(call wsCall) {
 		}
 	}
 	if cmdMeta == nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: fmt.Sprintf("unknown command: %s", call.Func),
@@ -434,7 +519,7 @@ func (c *wsConn) handleCall(call wsCall) {
 
 	result, err := cmdMeta.Handler(call.Args)
 	if err != nil {
-		c.writeJSON(wsResult{
+		_ = c.writeJSON(wsResult{
 			Type:  "result",
 			ID:    call.ID,
 			Error: err.Error(),
@@ -442,7 +527,7 @@ func (c *wsConn) handleCall(call wsCall) {
 		return
 	}
 
-	c.writeJSON(wsResult{
+	_ = c.writeJSON(wsResult{
 		Type: "result",
 		ID:   call.ID,
 		Data: result,
@@ -450,6 +535,17 @@ func (c *wsConn) handleCall(call wsCall) {
 }
 
 func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName string, rate time.Duration, watch WatchFunc, delta bool) {
+	// This runs in a goroutine spawned by handleSubscribe, so net/http's
+	// per-request panic recovery does NOT cover it. watch() calls into
+	// generated/cgo code; a panic there would otherwise kill the whole
+	// controller. Recover and drop the subscription instead.
+	defer func() {
+		if r := recover(); r != nil {
+			c.handler.logger.Error("watch push goroutine panic",
+				"api", apiName, "instance", instance, "func", funcName, "panic", r)
+		}
+	}()
+
 	ticker := time.NewTicker(rate)
 	defer ticker.Stop()
 
@@ -480,6 +576,10 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 		}
 	}
 
+	// errLogged suppresses repeat logs while an error persists — this loop
+	// ticks every `rate`, so we log the first error of a streak and the
+	// recovery, not every tick. A watch error is transient (don't kill the sub).
+	errLogged := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -487,8 +587,17 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 		case <-ticker.C:
 			data, err := watch()
 			if err != nil {
-				// Log but don't kill the subscription — transient errors are normal
+				if !errLogged {
+					c.handler.logger.Warn("watch push error — retrying",
+						"api", apiName, "instance", instance, "func", funcName, "error", err)
+					errLogged = true
+				}
 				continue
+			}
+			if errLogged {
+				c.handler.logger.Info("watch push recovered",
+					"api", apiName, "instance", instance, "func", funcName)
+				errLogged = false
 			}
 			if data == nil {
 				// No data — skip this tick.
@@ -526,6 +635,13 @@ func (c *wsConn) pushLoop(ctx context.Context, apiName, instance, funcName strin
 // frames. The frame format is: funcName + '\0' + payload, so the client can
 // demux multiple binary watch subscriptions on one connection.
 func (c *wsConn) pushLoopBinary(ctx context.Context, funcName string, rate time.Duration, watch BinaryWatchFunc) {
+	// Spawned goroutine — not covered by net/http recover (see pushLoop).
+	defer func() {
+		if r := recover(); r != nil {
+			c.handler.logger.Error("binary watch push goroutine panic", "func", funcName, "panic", r)
+		}
+	}()
+
 	ticker := time.NewTicker(rate)
 	defer ticker.Stop()
 
@@ -601,6 +717,10 @@ func (c *wsConn) deltaEncode(data json.RawMessage, prevMap *map[string]json.RawM
 func (s *Server) AddWatchEndpoint(registry *WatchRegistry) {
 	handler := NewWatchHandler(registry)
 	handler.SetLogger(s.logger)
+	handler.originPatterns = s.wsOriginPatterns
+	// One limiter shared with the stream endpoint, so the cap bounds the total
+	// number of WebSocket connections rather than each endpoint separately.
+	handler.wsLimit = s.wsLimit
 	s.watchHandler = handler
 	pattern := strings.TrimSuffix(s.prefix, "/") + "/watch"
 	s.mux.Handle(pattern, handler)

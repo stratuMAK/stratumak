@@ -95,6 +95,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 		},
 		RotationXy: cs.xyRotation,
 		PreviewSeq: t.previewSeq,
+		BootId:     t.bootID,
 		Heartbeat:  heartbeat,
 		// Config-derived scalars (task-side; not a motion echo).
 		AngularUnits:    t.angularUnits,
@@ -222,10 +223,10 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	if t.io != nil {
 		if tis, pp, tfp, err := t.io.GetToolStatus(); err == nil {
 			stat.ToolInSpindle = tis
-			// io tracks the prepped tool by toolno; report its pocket
-			// (classic stat reported a tooldata array index, which has no
-			// gomc equivalent — the pocket number is the stable analog).
-			stat.PocketPrepped = t.pocketPreppedFor(pp)
+			// io already tracks the prepped tool by SLOT (idx), which is
+			// exactly what classic stat.pocket_prepped reported — a
+			// subscript into stat.tool_table. Straight through.
+			stat.PocketPrepped = pp
 			stat.ToolFromPocket = tfp
 		}
 	}

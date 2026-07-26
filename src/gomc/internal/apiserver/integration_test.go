@@ -189,7 +189,7 @@ func TestIntegrationListItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -197,7 +197,9 @@ func TestIntegrationListItems(t *testing.T) {
 	}
 
 	var items []Item
-	json.NewDecoder(resp.Body).Decode(&items)
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if len(items) != 2 {
 		t.Errorf("got %d items, want 2", len(items))
 	}
@@ -210,14 +212,16 @@ func TestIntegrationListItemsWithFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
 	var items []Item
-	json.NewDecoder(resp.Body).Decode(&items)
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if len(items) != 1 {
 		t.Errorf("got %d items, want 1", len(items))
 	}
@@ -233,7 +237,7 @@ func TestIntegrationGetItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -241,7 +245,9 @@ func TestIntegrationGetItem(t *testing.T) {
 	}
 
 	var item Item
-	json.NewDecoder(resp.Body).Decode(&item)
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if item.Name != "axis.0.pos-cmd" {
 		t.Errorf("name = %q, want axis.0.pos-cmd", item.Name)
 	}
@@ -257,7 +263,7 @@ func TestIntegrationGetItemNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -272,7 +278,7 @@ func TestIntegrationCreateItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -280,7 +286,9 @@ func TestIntegrationCreateItem(t *testing.T) {
 	}
 
 	var item Item
-	json.NewDecoder(resp.Body).Decode(&item)
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if item.Name != "new-item" {
 		t.Errorf("name = %q, want new-item", item.Name)
 	}
@@ -293,7 +301,7 @@ func TestIntegrationCreateItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET after create: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	if resp2.StatusCode != 200 {
 		t.Errorf("created item not found: status = %d", resp2.StatusCode)
 	}
@@ -307,7 +315,7 @@ func TestIntegrationCreateItemDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 409 { // EEXIST → Conflict
 		t.Errorf("status = %d, want 409", resp.StatusCode)
@@ -322,7 +330,7 @@ func TestIntegrationDeleteItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -334,7 +342,7 @@ func TestIntegrationDeleteItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET after delete: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	if resp2.StatusCode != 404 {
 		t.Errorf("deleted item still found: status = %d", resp2.StatusCode)
 	}
@@ -348,7 +356,7 @@ func TestIntegrationDeleteItemNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -362,8 +370,10 @@ func TestIntegrationCRUDSequence(t *testing.T) {
 	// 1. List → 2 items
 	resp, _ := http.Get(baseURL + "/items")
 	var items []Item
-	json.NewDecoder(resp.Body).Decode(&items)
-	resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	_ = resp.Body.Close()
 	if len(items) != 2 {
 		t.Fatalf("initial list: got %d items, want 2", len(items))
 	}
@@ -371,15 +381,17 @@ func TestIntegrationCRUDSequence(t *testing.T) {
 	// 2. Create new item
 	resp, _ = http.Post(baseURL+"/item", "application/json",
 		strings.NewReader(`{"name":"new","value":99}`))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("create: status %d", resp.StatusCode)
 	}
 
 	// 3. List → 3 items
 	resp, _ = http.Get(baseURL + "/items")
-	json.NewDecoder(resp.Body).Decode(&items)
-	resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	_ = resp.Body.Close()
 	if len(items) != 3 {
 		t.Fatalf("after create: got %d items, want 3", len(items))
 	}
@@ -387,8 +399,10 @@ func TestIntegrationCRUDSequence(t *testing.T) {
 	// 4. Get new item
 	resp, _ = http.Get(baseURL + "/item/new")
 	var item Item
-	json.NewDecoder(resp.Body).Decode(&item)
-	resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	_ = resp.Body.Close()
 	if item.Value != 99 {
 		t.Errorf("get new: value = %f, want 99", item.Value)
 	}
@@ -396,19 +410,21 @@ func TestIntegrationCRUDSequence(t *testing.T) {
 	// 5. Delete new item
 	req, _ := http.NewRequest("DELETE", baseURL+"/item/new", nil)
 	resp, _ = http.DefaultClient.Do(req)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// 6. List → 2 items again
 	resp, _ = http.Get(baseURL + "/items")
-	json.NewDecoder(resp.Body).Decode(&items)
-	resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	_ = resp.Body.Close()
 	if len(items) != 2 {
 		t.Fatalf("after delete: got %d items, want 2", len(items))
 	}
 
 	// 7. Get deleted item → 404
 	resp, _ = http.Get(baseURL + "/item/new")
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("deleted item: status %d, want 404", resp.StatusCode)
 	}
@@ -418,7 +434,9 @@ func TestIntegrationVersionMismatch(t *testing.T) {
 	reg := apiserver.NewRegistry()
 	impl := &mockImpl{items: map[string]Item{}}
 	var cb MockCallbacks = impl
-	reg.Register("v", 3, "v0", unsafe.Pointer(&cb))
+	if err := reg.Register("v", 3, "v0", unsafe.Pointer(&cb)); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	_, err := reg.GetAPIUntracked("v", "v0", 2)
 	if err != syscall.EINVAL {
@@ -452,8 +470,12 @@ func TestIntegrationMultipleAPIs(t *testing.T) {
 	apiserver.RegisterMeta(meta1)
 	apiserver.RegisterMeta(meta2)
 
-	reg.Register("api1", 1, "a1", unsafe.Pointer(&cb))
-	reg.Register("api2", 1, "a2", unsafe.Pointer(&cb))
+	if err := reg.Register("api1", 1, "a1", unsafe.Pointer(&cb)); err != nil {
+		t.Fatalf("Register api1: %v", err)
+	}
+	if err := reg.Register("api2", 1, "a2", unsafe.Pointer(&cb)); err != nil {
+		t.Fatalf("Register api2: %v", err)
+	}
 
 	srv := apiserver.NewServer(reg, "localhost:0")
 	ts := httptest.NewServer(srv.Handler())
@@ -464,7 +486,7 @@ func TestIntegrationMultipleAPIs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != 200 {
 			t.Errorf("%s: status %d, want 200", inst, resp.StatusCode)
 		}

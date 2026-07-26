@@ -4,11 +4,13 @@ package mqttbridge
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -137,6 +139,10 @@ type topicHandler struct {
 	pins []*mqttPin // single pin for ModePin, multiple for ModeJSON
 	// Shadow values for change detection (publish mode)
 	shadow []interface{}
+	// errLogged suppresses repeat publish-failure logs while a failure streak
+	// lasts: publishLoop ticks every cfg.Rate, so a disconnected broker would
+	// otherwise flood the log. Only touched by this topic's publishLoop.
+	errLogged bool
 }
 
 func (t *topicHandler) hasChanged() bool {
@@ -202,10 +208,25 @@ func (t *topicHandler) buildJSONPayload() []byte {
 
 // --- Bridge ---
 
+// mqttClient is the subset of mqtt.Client the bridge actually uses. Depending
+// on the interface rather than the concrete client lets the tests drive the
+// publish/subscribe failure paths (disconnected client, errored token) without
+// a broker; mqtt.Client satisfies it.
+type mqttClient interface {
+	Disconnect(quiesce uint)
+	IsConnected() bool
+	Publish(topic string, qos byte, retained bool, payload interface{}) mqtt.Token
+	Subscribe(topic string, qos byte, callback mqtt.MessageHandler) mqtt.Token
+}
+
+// errNotConnected marks a publish that never left the process because the
+// client is disconnected — paho would buffer or drop it.
+var errNotConnected = errors.New("MQTT client not connected")
+
 type bridge struct {
 	logger   *slog.Logger
 	cfg      *Config
-	client   mqtt.Client
+	client   mqttClient
 	handlers []*topicHandler
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
@@ -215,9 +236,23 @@ type bridge struct {
 	// offline testing/diagnostics (mirrors the classic mqtt-publisher --dryrun).
 	dryrun bool
 	// pubCount is a HAL output pin (<name>.publish-count) incremented on every
-	// publish tick that emits a payload — a liveness signal a supervisor (or a
-	// test) can watch to confirm the bridge is publishing.
+	// publish tick whose payload was actually handed to a connected client — a
+	// liveness signal a supervisor (or a test) can watch to confirm the bridge
+	// is publishing. It deliberately does NOT advance for a payload that was
+	// rejected or that never left the process (see publishPayload), so a
+	// supervisor cannot be told "still publishing" while the broker is gone.
 	pubCount *hal.Pin[uint32]
+	// pubErrCount is a HAL output pin (<name>.publish-error-count) counting the
+	// publish attempts that failed. Paired with pubCount it gives a supervisor
+	// the full picture: a stalled pubCount with a rising pubErrCount means the
+	// bridge is alive but the broker is not.
+	pubErrCount *hal.Pin[uint32]
+	// pubCounter/pubErrCounter back the two pins. Every DirOut topic runs its
+	// own publishLoop goroutine, so the old Get()+1/Set() read-modify-write on
+	// the pin lost increments (and raced). Atomic Add keeps it lossless; the pin
+	// Set is serialized by the Pin's own mutex.
+	pubCounter    atomic.Uint32
+	pubErrCounter atomic.Uint32
 }
 
 func newBridge(comp *hal.Component, compName string, cfg *Config, logger *slog.Logger, dryrun bool) (*bridge, error) {
@@ -235,6 +270,12 @@ func newBridge(comp *hal.Component, compName string, cfg *Config, logger *slog.L
 		return nil, fmt.Errorf("creating pin %q: %w", compName+".publish-count", err)
 	}
 	b.pubCount = pc
+
+	pec, err := hal.NewPin[uint32](comp, "publish-error-count", hal.Out)
+	if err != nil {
+		return nil, fmt.Errorf("creating pin %q: %w", compName+".publish-error-count", err)
+	}
+	b.pubErrCount = pec
 
 	// Create HAL pins and topic handlers.
 	for i := range cfg.Topics {
@@ -307,8 +348,9 @@ func (b *bridge) start() error {
 		b.logger.Warn("MQTT connection lost", "error", err)
 	})
 
-	b.client = mqtt.NewClient(opts)
-	token := b.client.Connect()
+	client := mqtt.NewClient(opts)
+	b.client = client
+	token := client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("MQTT connect: %w", err)
@@ -341,15 +383,31 @@ func (b *bridge) onConnect(_ mqtt.Client) {
 	for _, th := range b.handlers {
 		if th.cfg.Dir == DirIn {
 			handler := th // capture
-			b.client.Subscribe(th.cfg.Path, th.cfg.QoS, func(_ mqtt.Client, msg mqtt.Message) {
+			tok := b.client.Subscribe(th.cfg.Path, th.cfg.QoS, func(_ mqtt.Client, msg mqtt.Message) {
 				b.handleMessage(handler, msg)
 			})
-			b.logger.Debug("subscribed", "topic", th.cfg.Path)
+			// onConnect runs once per (re)connect, not in a hot path — wait so a
+			// failed subscription (input topic that would silently never deliver)
+			// is surfaced rather than dropped.
+			if tok.Wait() && tok.Error() != nil {
+				b.logger.Warn("MQTT subscribe failed", "topic", th.cfg.Path, "error", tok.Error())
+			} else {
+				b.logger.Debug("subscribed", "topic", th.cfg.Path)
+			}
 		}
 	}
 }
 
 func (b *bridge) handleMessage(th *topicHandler, msg mqtt.Message) {
+	// Runs in a paho callback goroutine, outside net/http's recover. A panic
+	// here (e.g. a future pin-shape assumption breaking on unexpected input)
+	// would otherwise kill the whole controller; drop the message instead.
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error("MQTT message handler panic", "topic", th.cfg.Path, "panic", r)
+		}
+	}()
+
 	payload := msg.Payload()
 
 	switch th.cfg.Mode {
@@ -382,6 +440,13 @@ func (b *bridge) handleMessage(th *topicHandler, msg mqtt.Message) {
 
 func (b *bridge) publishLoop(th *topicHandler) {
 	defer b.wg.Done()
+	// Spawned goroutine — not covered by net/http recover. A panic here would
+	// crash the controller; log and exit this loop instead.
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error("MQTT publish loop panic", "topic", th.cfg.Path, "panic", r)
+		}
+	}()
 	ticker := time.NewTicker(th.cfg.Rate)
 	defer ticker.Stop()
 
@@ -406,14 +471,56 @@ func (b *bridge) publishTick(th *topicHandler) {
 	}
 
 	payload := th.buildPayload()
-	th.updateShadow()
+	if payload == nil {
+		th.updateShadow()
+		return
+	}
 
-	if payload != nil {
-		if !b.dryrun && b.client != nil {
-			b.client.Publish(th.cfg.Path, th.cfg.QoS, th.cfg.Retain, payload)
+	if err := b.publishPayload(th, payload); err != nil {
+		// The shadow is deliberately NOT updated: leaving it stale makes the
+		// next tick see the same change again and retry it, instead of silently
+		// dropping the value that failed to go out.
+		b.pubErrCount.Set(b.pubErrCounter.Add(1))
+		if !th.errLogged {
+			b.logger.Warn("MQTT publish failed", "topic", th.cfg.Path, "error", err)
+			th.errLogged = true
 		}
-		// Advance the liveness counter for both real and dryrun publishes.
-		b.pubCount.Set(b.pubCount.Get() + 1)
+		return
+	}
+	if th.errLogged {
+		b.logger.Info("MQTT publish recovered", "topic", th.cfg.Path)
+		th.errLogged = false
+	}
+
+	th.updateShadow()
+	// Advance the liveness counter for both real and dryrun publishes.
+	b.pubCount.Set(b.pubCounter.Add(1))
+}
+
+// publishPayload hands one payload to the MQTT client.
+//
+// It stays fire-and-forget — blocking on a QoS>=1 token would stall publishLoop
+// for a full broker round-trip on every tick — but it does report the failures
+// that are knowable without blocking: a client that is disconnected (paho would
+// queue or drop the message, and the liveness pin must not claim otherwise) and
+// a token that has already completed with an error. A token still in flight has
+// left the client and counts as published.
+func (b *bridge) publishPayload(th *topicHandler, payload []byte) error {
+	if b.dryrun || b.client == nil {
+		return nil
+	}
+	if !b.client.IsConnected() {
+		return errNotConnected
+	}
+	tok := b.client.Publish(th.cfg.Path, th.cfg.QoS, th.cfg.Retain, payload)
+	if tok == nil {
+		return nil
+	}
+	select {
+	case <-tok.Done():
+		return tok.Error()
+	default:
+		return nil
 	}
 }
 

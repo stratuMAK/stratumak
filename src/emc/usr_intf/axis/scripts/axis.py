@@ -112,6 +112,15 @@ class AxisPreferences(cp):
 
 inifile = gmi.IniFile()
 
+# The machine description: which peer modules serve this task, and which
+# controls are wired. Fetched once, before any window exists, and deliberately
+# NOT caught: without it every peer name would fall back to a single-instance
+# default and this UI would spend the session talking to the wrong modules —
+# which is far harder to diagnose than refusing to start. A stack trace here
+# means the server is older than this AXIS, GMC_INSTANCE names a task that does
+# not exist, or the task never started.
+_machine_info = gmi.info() if server_present == 1 else None
+
 ap = AxisPreferences()
 
 os.system("xhost -SI:localuser:gdm -SI:localuser:root > /dev/null 2>&1")
@@ -173,7 +182,20 @@ jogincr_index_last = 1
 mdi_history_index= -1
 continuous_jog_in_progress = False
 cjogindices = []
-_jog_refresh_counter = 0
+_jog_refresh_last = 0.0
+# The path the task reports as its open program, as far as we know — the state
+# `loaded_file` is our view OF. The two differ for a filtered program, where the
+# task holds the filter's temp file while we keep showing the original name
+# (finding A-7), which is why the sync below compares server against server and
+# never against loaded_file.
+_server_program = None
+# Identity of the task we are showing (stat.boot_id) and whether stat is live.
+# The program shown by this UI is the server's, never ours: it is adopted from
+# stat.file, dropped when stat goes stale, and re-adopted when a (possibly
+# different) task answers again. Both start as "nothing seen yet" so the first
+# poll always runs the adoption path.
+_server_boot_id = None
+_server_online = False
 
 help1 = [
     ("F1", _("Emergency stop")),
@@ -758,7 +780,10 @@ class LivePlotter:
 
     def start(self):
         if self.running.get(): return
-        self.stat = gmi.Stat()
+        # machine_units(): the base gmi.Stat reports mm-everywhere; all the
+        # classic units math in axis/glcanon expects machine units and is
+        # 25.4x off on inch configs otherwise (review finding A-1/GP-16).
+        self.stat = gmi.Stat().machine_units()
         self.last_task_mode = self.stat.task_mode
         self.last_motion_mode  = self.stat.motion_mode
         def C(s):
@@ -784,7 +809,9 @@ class LivePlotter:
 
     def stop(self):
         if not self.running.get(): return
-        if hasattr(self, 'stat'): del self.stat
+        if hasattr(self, 'stat'):
+            self.stat.stop()
+            del self.stat
         if self.after is not None:
             self.win.after_cancel(self.after)
             self.after = None
@@ -792,7 +819,9 @@ class LivePlotter:
             self.win.after_cancel(self.error_after)
             self.error_after = None
         self.logger.stop()
-        self.running.set(True)
+        # was set(True) — a typo that made the plotter unrestartable
+        # (review finding A-3)
+        self.running.set(False)
 
     def error_task(self):
         # Message list is now driven by the WS watch callback.
@@ -810,6 +839,29 @@ class LivePlotter:
             del self.stat
             return
 
+        # Track the task we are attached to, before anything reads stat.
+        # Losing it, or finding a different one behind the same address, both
+        # invalidate everything we show about the loaded program — the task
+        # restarts its counters (preview_seq included) from zero, so no other
+        # field can tell us that our view is of a machine that no longer
+        # exists. Rescheduling continues either way: the poll loop is what
+        # notices the server coming back.
+        global _server_boot_id, _server_online
+        if server_present == 1:
+            if not self.stat.connected:
+                if _server_online:
+                    _server_online = False
+                    clear_program_display()
+                    notifications.add("error", _("Server connection lost"))
+                self.after = self.win.after(update_ms, self.update)
+                return
+            boot_id = getattr(self.stat, 'boot_id', None)
+            if not _server_online or boot_id != _server_boot_id:
+                _server_boot_id = boot_id
+                _server_online = True
+                adopt_server_program()
+                o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
+
         global continuous_jog_in_progress,cjogindices
         global jog_speed_blackout, ajog_speed_blackout
         if continuous_jog_in_progress and not manual_tab_visible():
@@ -819,18 +871,35 @@ class LivePlotter:
             continuous_jog_in_progress = 0
             cjogindices = []
 
-        # Jog refresh watchdog: re-send active continuous jogs every ~1s
-        # to keep milltask's jog watchdog from timing out.
-        global _jog_refresh_counter
-        _jog_refresh_counter += 1
-        if _jog_refresh_counter >= 10 and continuous_jog_in_progress:
-            _jog_refresh_counter = 0
-            jjogmode = get_jog_mode()
-            for idx in cjogindices:
-                if jog_cont[idx] and jogging[idx] != 0:
+        # A Tk grab (menu, combobox popdown, any nf_dialog — patient_grab
+        # retries until it wins) delivers the jog key's KeyRelease to the
+        # grabbed window, so the "."-bound jog_off never fires, and the
+        # _focusout_handler deliberately ignores in-app focus moves — the
+        # refresh below would then keep a ghost jog alive indefinitely
+        # (finding A-6). Nobody legitimately jogs THROUGH a modal grab
+        # (classic killed jogs on any FocusOut, dialogs included), so stop
+        # all jogs the moment one appears; the server dead-man remains the
+        # backstop for grab sources this misses.
+        if continuous_jog_in_progress and str(root_window.tk.call("grab", "current")):
+            jog_off_all()
+
+        # Jog refresh watchdog: re-send active continuous jogs to keep
+        # milltask's 2s jog dead-man from timing out. Time-based, NOT
+        # cycle-counted: with [DISPLAY]CYCLE_TIME up to 0.2s a 10-cycle
+        # counter reaches the 2s server timeout (finding A-5). Gated on the
+        # per-axis jogging[] state, not continuous_jog_in_progress: releasing
+        # ONE axis of a multi-axis jog cleared that flag and starved the
+        # other axis's refresh (finding A-4).
+        global _jog_refresh_last
+        now = time.time()
+        if now - _jog_refresh_last >= 0.5:
+            _jog_refresh_last = now
+            active = [idx for idx in cjogindices
+                      if jog_cont[idx] and jogging[idx] != 0]
+            if active:
+                jjogmode = get_jog_mode()
+                for idx in active:
                     c.jog(JOG_CONTINUOUS, jjogmode, idx, jogging[idx])
-        elif _jog_refresh_counter >= 10:
-            _jog_refresh_counter = 0
 
         if  (   (self.stat.motion_mode == TRAJ_MODE_COORD)
             and (self.stat.task_mode   == MODE_MANUAL)
@@ -878,10 +947,12 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 pass
 
-        # Sync jog increment from server (multi-client sync)
+        # Sync jog increment from server (multi-client sync).
+        # Wire mirror values are canonical mm / mm/s (finding A-11);
+        # convert to machine units for the UI compare.
         if time.time() > jog_incr_blackout:
             try:
-                remote_jog_incr = self.stat.jog_increment
+                remote_jog_incr = self.stat.jog_increment * (self.stat.linear_units or 1)
                 jogincr = widgets.jogincr.get()
                 if jogincr == _("Continuous"):
                     current_incr = 0.0
@@ -909,7 +980,8 @@ class LivePlotter:
         # Sync jog speed from server (multi-client sync)
         if time.time() > jog_speed_blackout:
             try:
-                remote_speed = self.stat.jog_speed
+                # mm/s on the wire -> machine units/min for vars.jog_speed
+                remote_speed = self.stat.jog_speed * (self.stat.linear_units or 1) * 60.0
                 local_speed = vars.jog_speed.get()
                 if abs(remote_speed - local_speed) > 0.01 and remote_speed > 0:
                     global _jog_speed_from_remote
@@ -922,7 +994,8 @@ class LivePlotter:
 
         if time.time() > ajog_speed_blackout:
             try:
-                remote_aspeed = self.stat.ajog_speed
+                # deg/s on the wire -> deg/min for vars.jog_aspeed
+                remote_aspeed = self.stat.ajog_speed * 60.0
                 local_aspeed = vars.jog_aspeed.get()
                 if abs(remote_aspeed - local_aspeed) > 0.01 and remote_aspeed > 0:
                     _jog_speed_from_remote = True
@@ -932,7 +1005,10 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 _jog_speed_from_remote = False
 
-        self.win.set_current_line(self.stat.motion_line)
+        # Classic fallback: motion_id (the executing segment's line tag) wins
+        # over the readahead motion_line so the highlight tracks execution
+        # during queued motion (finding A-15).
+        self.win.set_current_line(self.stat.motion_id or self.stat.motion_line)
 
         speed = self.stat.current_vel
 
@@ -945,17 +1021,27 @@ class LivePlotter:
         # (offsets, program loaded, tool table), reload the preview.
         preview_seq = getattr(self.stat, 'preview_seq', 0)
         if preview_seq != getattr(o, 'last_preview_seq', None):
+            global _pending_autofit, _server_program
             o.last_preview_seq = preview_seq
-            # Multi-client sync: if another client loaded a different file,
-            # update text editor and loaded_file (without re-sending
-            # program_open to avoid infinite seq increment loop).
+            # Multi-client sync: follow the task's program whenever it becomes
+            # a different one from the one we are showing a view of. The test
+            # is against _server_program, not loaded_file: our own open (and a
+            # filtered program, where the task holds the temp file and we show
+            # the original) must not read as somebody else's change and send us
+            # re-fetching — or worse, replace the original name in the editor.
             remote_file = self.stat.file
-            file_changed = remote_file and remote_file != loaded_file
-            if file_changed:
-                load_text_and_set_file(remote_file)
+            file_changed = False
+            if remote_file != (_server_program or ""):
+                _server_program = remote_file or None
+                if remote_file:
+                    load_text_and_set_file(remote_file)
+                    file_changed = True
+                elif loaded_file:
+                    # The task closed its program: we show what it has, so the
+                    # listing and the preview go with it.
+                    clear_program_display()
             if loaded_file:
                 if file_changed:
-                    global _pending_autofit
                     _pending_autofit = True
                 root_window.after_idle(refresh_preview_if_idle)
         if (self.logger.npts != self.lastpts
@@ -1325,6 +1411,55 @@ def load_text_and_set_file(f):
     except Exception as e:
         notifications.add("error", str(e))
 
+def clear_program_display():
+    """Drop everything this UI shows about a loaded program.
+
+    Called when stat goes stale and when the task comes back with no program
+    open. The listing, the preview and the highlighted line are views of the
+    server's program, so when the server has none — or we cannot ask it — they
+    must show none, rather than keep presenting the last thing we saw as if it
+    were still loaded and runnable.
+    """
+    global loaded_file, _server_program, _pending_autofit
+    loaded_file = None
+    _server_program = None
+    _pending_autofit = False
+    vars.taskfile.set("")
+    t.configure(state="normal")
+    t.tk.call("delete_all", t)
+    t.configure(state="disabled")
+    o.deselect(None)
+    set_first_line(0)
+    o.set_current_line(0)
+    o.clear_preview()
+    o.redraw_soon()
+
+def adopt_server_program():
+    """Make this UI show exactly the program the task has open.
+
+    The task's stat is authoritative: whatever it reports as open is what we
+    display, and we never push a program of our own to get there (a second UI
+    would then be fighting us over the task's state, and a task that came up
+    deliberately empty would be silently re-filled by whichever client
+    reconnected first).
+    """
+    global _server_program, _pending_autofit
+    # The plotter polls its own Stat instance; `s` is the module-wide snapshot
+    # the rest of the UI reads from, and right after a reconnect it still holds
+    # the pre-outage epoch until something refreshes it.
+    s.poll()
+    remote_file = s.file
+    if not remote_file:
+        clear_program_display()
+        return
+    # What we knew about the previous task's program says nothing about this
+    # one — including the filtered-program alias, whose temp file died with it.
+    _server_program = remote_file
+    load_text_and_set_file(remote_file)
+    vars.taskfile.set(remote_file)
+    _pending_autofit = True
+    root_window.after_idle(refresh_preview_if_idle)
+
 def open_file_guts(f, filtered=False, addrecent=True):
     s.poll()
     if addrecent:
@@ -1353,7 +1488,20 @@ def open_file_guts(f, filtered=False, addrecent=True):
         # Force a sync of the interpreter, which writes out the var file.
         c.task_plan_synch()
         c.wait_complete()
-        c.program_open(f)
+        if c.program_open(f) == -1:
+            # The server refused the open (bad mode, busy, or — most often here
+            # — a path outside the allowed directories). AxisCommand._post has
+            # already surfaced the reason as a notification and returned -1
+            # instead of raising. Stop here: falling through to the preview /
+            # text fetch below hits the same path-resolver guard and would log a
+            # second, redundant "access denied" for the identical root cause.
+            return
+        # Record what the task now holds. For a filtered program that is the
+        # filter's temp file while loaded_file stays the original, and the
+        # resync in update() must not mistake our own load for another
+        # client's and clobber loaded_file (finding A-7).
+        global _server_program
+        _server_program = f
         lines = _fetch_file_lines(f)
         root_window.tk.call("destroy", ".info.progress")
         progress = Progress(1, len(lines))
@@ -1556,7 +1704,8 @@ def set_hal_jogincrement():
         distance = 0
     else:
         distance = parse_increment(jogincr)
-    c.set_jog_increment(distance)
+    # Wire mirror is canonical mm (finding A-11).
+    c.set_jog_increment(distance / (s.linear_units or 1))
 
 def jogspeed_listbox_change(dummy, value):
     global jogincr_index_last
@@ -2065,8 +2214,9 @@ def _do_refresh_preview(skip_synch=False, autofit=False):
                 _("G-Code error in %s") % os.path.basename(f),
                 _("Near line %(seq)d of %(f)s:\n%(error_str)s") % {'seq': seq, 'f': f, 'error_str': error_str},
                 "error",0,_("OK"))
-    o.lp.set_depth(from_internal_linear_unit(o.get_foam_z()),
-                   from_internal_linear_unit(o.get_foam_w()))
+    # Logger points are server-mm; foam planes must be mm too (finding A-1 —
+    # from_internal_linear_unit gave machine units: wrong on inch configs).
+    o.lp.set_depth(o.get_foam_z() * 25.4, o.get_foam_w() * 25.4)
     if autofit:
         autofit_view()
     o.tkRedraw()
@@ -2278,7 +2428,9 @@ class TclCommands(nf.TclCommands):
     def set_maxvel(newval):
         newval = float(newval)
         if vars.metric.get(): newval = newval / 25.4
-        newval = from_internal_linear_unit(newval)
+        # internal inches/min -> mm/min; the client boundary is mm
+        # (finding A-1/GP-16 — from_internal_linear_unit gave machine units).
+        newval = newval * 25.4
         global maxvel_blackout
         c.maxvel(newval / 60.)
         maxvel_blackout = time.time() + 1
@@ -3022,6 +3174,12 @@ class TclCommands(nf.TclCommands):
         if s.interp_state != INTERP_IDLE: return
         if not s.joint[0]['override_limits']:
             c.override_limits()
+        else:
+            # joint < 0 resumes normal limit checking. 2.9 AXIS got the same
+            # effect by switching to AUTO mode (the coord transition clears
+            # the override mask) because its Python binding could not send a
+            # negative joint; the motion semantics are unchanged.
+            c.override_limits(-1)
 
     def cycle_view(*args):
         if str(widgets.view_x['relief']) == "sunken":
@@ -3342,7 +3500,10 @@ def jog_on(a, b):
     if not manual_ok() or not manual_tab_visible() or running(): return
     if a < 3 or a > 5:
         if vars.metric.get(): b = b / 25.4
-        b = from_internal_linear_unit(b)
+        # internal inches/s -> mm/s: the gmi client boundary is mm/s.
+        # Classic converted to MACHINE units/s here, which jogged 25.4x too
+        # slow on inch configs (finding A-1/GP-16).
+        b = b * 25.4
     if jog_after[a]:
         root_window.after_cancel(jog_after[a])
         jog_after[a] = None
@@ -3352,7 +3513,9 @@ def jog_on(a, b):
     if jogincr != _("Continuous"):
         s.poll()
         if s.state != 1: return
-        distance = parse_increment(jogincr)
+        # parse_increment returns machine units (kept for the UI compare in
+        # update()); the wire wants mm.
+        distance = parse_increment(jogincr) / (s.linear_units or 1)
         jog(JOG_INCREMENT, jjogmode, a, b, distance)
         jog_cont[a] = False
     else:
@@ -3370,10 +3533,20 @@ def jog_off(a):
 
 def jog_off_actual(a):
     global continuous_jog_in_progress
-    continuous_jog_in_progress = False
-    if not manual_ok(): return
+    if not manual_ok():
+        # Still mark this axis inactive so the dead-man refresh loop stops
+        # re-sending it (finding A-4).
+        jogging[a] = 0
+        if not any(jogging):
+            continuous_jog_in_progress = False
+        return
     jog_after[a] = None
     jogging[a] = 0
+    # Only clear the flag when NO axis is still jogging: releasing one axis
+    # of a multi-axis jog used to stop the refresh for the others, and the
+    # server dead-man killed them 2s later mid-keypress (finding A-4).
+    if not any(jogging):
+        continuous_jog_in_progress = False
     jjogmode = get_jog_mode()
     if jog_cont[a]:
         jog(JOG_STOP, jjogmode, a)
@@ -3651,7 +3824,10 @@ else:
     update_ms = int(ct)
 interpname = inifile.find("TASK", "INTERPRETER") or ""
 
-s = gmi.Stat();
+# machine_units(): base gmi.Stat is mm-everywhere; all classic units math in
+# axis/glcanon expects machine units (finding A-1/GP-16 — 25.4x off on inch
+# configs without this).
+s = gmi.Stat().machine_units();
 s.poll()
 
 statfail=0
@@ -3833,7 +4009,13 @@ if increments:
 widgets.jogincr.configure(command= jogspeed_listbox_change)
 root_window.call(widgets.jogincr._w, "select", 0)
 
-vcp = inifile.find("DISPLAY", "PYVCP")
+# Whether to show a pyvcp panel is the server's fact, not the INI's: the panel
+# lives server-side now (load pyvcp xml=...), and milltask reports it as a peer.
+# The [DISPLAY]PYVCP key named an XML file for the old in-process pyvcp and no
+# longer gates anything — gating on it would request a panel HAL never loaded
+# and 404, the exact failure /info exists to remove. A config that wants a panel
+# names it with pyvcp_instance= on the milltask load line. Empty = no panel.
+vcp = gmi.pyvcp_instance() if server_present == 1 else ""
 
 arcdivision = int(inifile.find("DISPLAY", "ARCDIVISION") or 64)
 
@@ -3906,7 +4088,38 @@ if  (       (s.axis_mask & 56 == 0)  # 56==0x38== 000111000 (ABC)
     ):
     widgets.ajogspeed.grid_forget()
 
-c = gmi.Command()
+from gmi.command import Command as _GmiCommand
+
+class AxisCommand(_GmiCommand):
+    """gmi.Command that absorbs a refused command instead of crashing.
+
+    Every command method raises urllib.error.HTTPError when the server
+    refuses (wrong mode, not homed, busy — HTTP 409/503); from a Tk callback
+    that was an uncaught traceback (finding A-3/GP-18).
+
+    Operator-facing errors are NOT rendered here. The server publishes them on
+    the message-list channel — the authoritative, cross-client error surface
+    that AXIS already displays in the notification widget. Popping a second
+    toast from the HTTP status duplicated that channel with degraded text (the
+    body was already consumed upstream, so it collapsed to a generic "command
+    refused (HTTP 409)"). So we swallow the HTTP error, log it to stderr for
+    developers (done by the base _post), and return -1 so callers can branch on
+    failure (e.g. skip a preview load). Any operator-actionable refusal is
+    expected to emit an operatorError server-side; a path that returns an error
+    without one is a developer/config issue and belongs in the log, not a toast.
+    """
+    def _post(self, path, data=None, **kw):
+        import urllib.error
+        try:
+            return super()._post(path, data, **kw)
+        except urllib.error.HTTPError:
+            return -1
+
+# Bind to THIS UI's task instance (GMC_INSTANCE), not the "milltask" default
+# baked into gmi.command.Command — otherwise every command posts to a
+# nonexistent milltask instance and 404s on a multi-instance server, while stat
+# (built via gmi.Stat) correctly followed GMC_INSTANCE.
+c = AxisCommand(instance=gmi.instance())
 
 _jog_speed_from_remote = False
 
@@ -3918,7 +4131,8 @@ def _on_jog_speed_changed(*args):
         speed = vars.jog_speed.get()
         if speed > 0:
             jog_speed_blackout = time.time() + 1
-            c.set_jog_speed(speed)
+            # machine units/min -> canonical mm/s (finding A-11)
+            c.set_jog_speed(speed / 60.0 / (s.linear_units or 1))
     except Exception:
         pass
 
@@ -3930,7 +4144,8 @@ def _on_ajog_speed_changed(*args):
         speed = vars.jog_aspeed.get()
         if speed > 0:
             ajog_speed_blackout = time.time() + 1
-            c.set_ajog_speed(speed)
+            # deg/min -> deg/s (finding A-11)
+            c.set_ajog_speed(speed / 60.0)
     except Exception:
         pass
 
@@ -3942,15 +4157,14 @@ root_window.tk.call("trace", "add", "variable", "jog_aspeed", "write",
 # Send initial jog speeds to server (traces miss the initial set that happened before registration)
 try:
     speed = vars.jog_speed.get()
-    print("note: initial jog_speed send: %.3f" % speed, file=sys.stderr)
     if speed > 0:
-        c.set_jog_speed(speed)
+        c.set_jog_speed(speed / 60.0 / (s.linear_units or 1))
 except Exception:
     pass
 try:
     speed = vars.jog_aspeed.get()
     if speed > 0:
-        c.set_ajog_speed(speed)
+        c.set_ajog_speed(speed / 60.0)
 except Exception:
     pass
 
@@ -4059,7 +4273,8 @@ if server_present == 1 :
             f.grid(row=4, column=0, columnspan=6, sticky="nw", padx=4, pady=4)
         else:
             f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
-        vcpparse.create_vcp_rest(f, compname="pyvcp")
+        # vcp is the resolved instance name from /info (gate above).
+        vcpparse.create_vcp_rest(f, compname=vcp)
         vcp_frame = f
         root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
         help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
@@ -4102,33 +4317,41 @@ set_hal_jogincrement()
 
 code = []
 addrecent = True
+# Which program to show at start up. Only an explicit instruction — a command
+# line argument or AXIS_OPEN_FILE — makes this UI load one into the controller;
+# otherwise we show what the controller already has, and nothing if it has
+# nothing. AXIS used to fall back to a stock program of its own here
+# (axis.ngc / axis-lathe.ngc), which loaded a program nobody asked for into the
+# machine, and left a fresh start looking different from a reconnect to the
+# very same controller. [DISPLAY]OPEN_FILE is how a config gets a program
+# opened at start up — the controller does it, once, for every client.
+initialfile = None
 if args:
     initialfile = args[0]
 elif "AXIS_OPEN_FILE" in os.environ:
     initialfile = os.environ["AXIS_OPEN_FILE"]
-elif s.file:
-    # Server already has a program loaded (e.g. from [DISPLAY]OPEN_FILE or
-    # another UI instance). Load its preview without calling program_open again.
-    # If the system is currently running (auto mode), avoid open_file_guts which
-    # calls task_plan_synch/wait_complete/program_open that block or timeout.
-    initialfile = s.file
-    vars.taskfile.set(s.file)
-    addrecent = False
-    if running(do_poll=False):
-        load_text_and_set_file(initialfile)
-        _pending_autofit = True
-        root_window.after_idle(refresh_preview_if_idle)
-        initialfile = None  # skip open_file_guts below
-elif lathe:
-    initialfile = os.path.join(BASE, "share", "axis", "images","axis-lathe.ngc")
-    addrecent = False
-else:
-    initialfile = os.path.join(BASE, "share", "axis", "images", "axis.ngc")
-    addrecent = False
+elif server_present == 1:
+    # The controller already has a program open (its [DISPLAY]OPEN_FILE, or
+    # another client's): adopt it, exactly as on a reconnect. No program_open —
+    # it is already open, and this path also has to work while the machine is
+    # running, where task_plan_synch/program_open would block or time out.
+    adopt_server_program()
 
 if initialfile and os.path.exists(initialfile):
     _pending_autofit = True
     open_file_guts(initialfile, False, addrecent)
+
+# Remember which task this startup state came from, so the first update() cycle
+# does not mistake it for a reconnect and re-adopt what we have just set up.
+# From here on the update loop owns these.
+if server_present == 1:
+    s.poll()
+    _server_online = s.connected
+    _server_boot_id = getattr(s, 'boot_id', None)
+    if _server_program is None:
+        # Set already if we opened a file ourselves above; this covers the
+        # branches that only adopted what the task had.
+        _server_program = s.file or None
 
 if lathe:
     if lathe_backtool:
@@ -4280,54 +4503,55 @@ commands.set_rapidrate(100)
 widgets.spinoverride.set(100)
 commands.set_spindlerate(100)
 
-def forget(widget, *pins):
+# Which controls this machine gets is decided by what is wired in HAL, as it
+# always was — but the question is now asked once, server-side, via GET /info.
+# AXIS used to probe pin names like "spindle.0.forward" itself, which are only
+# correct on a single-instance config: the real pin is "pnp.mot.spindle.0.
+# forward", and only milltask knows the "pnp.mot" part. The probes therefore
+# matched nothing on every multi-instance config and silently hid the spindle,
+# coolant and limit-override controls (~26 REST round-trips to reach the wrong
+# answer, at that).
+# With no server there is no HAL to ask, and nothing is wired as far as this UI
+# can tell — same as the old probe loop, which hid every one of these widgets
+# because gmi was not even imported.
+caps = _machine_info.caps if server_present == 1 else None
+
+def forget(widget, wired):
     if "AXIS_NO_AUTOCONFIGURE" in os.environ: return
-    if server_present == 1:
-        for p in pins:
-            if gmi.pin_has_writer(p): return
+    if wired: return
     m = widget.winfo_manager()
     if m in ("grid", "pack"):
         widget.tk.call(m, "forget", widget._w)
 
-forget(widgets.brake, "spindle.0.brake")
-forget(widgets.spindle_cw, "spindle.0.forward", "spindle.0.on",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_ccw, "spindle.0.reverse",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_stop, "spindle.0.forward", "spindle.0.reverse", "spindle.0.on",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+# The server reports wiring facts, one per pin; which widget each fact enables
+# is this UI's policy, and these groupings are the ones the pin probes encoded.
+# Note they are not uniform: clockwise counts the forward pin, counter-clockwise
+# the reverse pin, so a lathe wiring one direction still gets one button.
+_fwd = caps.spindle_forward if caps else False
+_rev = caps.spindle_reverse if caps else False
+_on = caps.spindle_on if caps else False
+_speed = caps.spindle_speed if caps else False
+_brake = caps.spindle_brake if caps else False
 
-forget(widgets.spindle_plus,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindle_minus,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.brake, _brake)
+forget(widgets.spindle_cw, _fwd or _on or _speed)
+forget(widgets.spindle_ccw, _rev or _speed)
+forget(widgets.spindle_stop, _fwd or _rev or _on or _speed)
 
-forget(widgets.spindlef,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
-forget(widgets.spindlel,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindle_plus, _speed)
+forget(widgets.spindle_minus, _speed)
 
-forget(widgets.spinoverridef,
-       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindlef, _fwd or _rev or _on or _brake or _speed)
+forget(widgets.spindlel, _fwd or _rev or _on or _brake or _speed)
 
-has_limit_switch = 0
-for j in range(MAX_JOINTS):
-    try:
-        if gmi.pin_has_writer("joint.%d.neg-lim-sw-in" % j):
-            has_limit_switch=1
-            break
-        if gmi.pin_has_writer("joint.%d.pos-lim-sw-in" % j):
-            has_limit_switch=1
-            break
-    except NameError as detail:
-        break
-if not has_limit_switch:
+forget(widgets.spinoverridef, _speed)
+
+if not (caps and caps.limit_switch_override):
     widgets.override.grid_forget()
 
-
-forget(widgets.mist, "iocontrol.coolant-mist")
-forget(widgets.flood, "iocontrol.coolant-flood")
-forget(widgets.coolant, "iocontrol.coolant-flood", "iocontrol.coolant-mist")
+forget(widgets.mist, caps.coolant_mist if caps else False)
+forget(widgets.flood, caps.coolant_flood if caps else False)
+forget(widgets.coolant, (caps.coolant_mist or caps.coolant_flood) if caps else False)
 
 rcfile = "~/.axisrc"
 user_command_file = inifile.find("DISPLAY", "USER_COMMAND_FILE") or ""
@@ -4366,6 +4590,12 @@ live_plotter.error_task()
 
 # --- Integrated manual tool change support ---
 # Detect manualtoolchange REST endpoint and poll for tool change requests.
+#
+# Still a probe rather than a straight read of info.peers.manualtoolchange: an
+# empty peer name means "not named on the milltask load line", which a config
+# loading a single `manualtoolchange` component has never had to do. Probing the
+# default name keeps those working; a multi-instance config that wants this must
+# set mtc_instance=, and then the name here is the one milltask verified.
 _mtc_poller = None
 try:
     from gmi.manualtoolchange_client import ManualtoolchangeClient
@@ -4416,8 +4646,18 @@ try:
         if r == 0:
             try:
                 _mtc_client.confirm()
-            except Exception:
-                pass
+            except Exception as e:
+                # A failed confirm must re-arm the dialog: with the latch
+                # still set the poll never re-shows it and the change wedges
+                # until abort (finding A-8).
+                global _mtc_prev_change
+                _mtc_prev_change = False
+                try:
+                    notifications.add("error",
+                        _("Tool change confirm failed: %s") % e)
+                except Exception:
+                    print("axis: tool change confirm failed: %s" % e,
+                          file=sys.stderr)
 
     def _mtc_poll():
         global _mtc_prev_change

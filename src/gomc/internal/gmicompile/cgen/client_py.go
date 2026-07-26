@@ -13,8 +13,37 @@ import (
 // GenerateClientPython writes a Python REST client module for calling the API
 // over HTTP/JSON. Uses urllib.request (stdlib only, no external dependencies).
 func GenerateClientPython(w io.Writer, api *ast.API) error {
+	if err := checkPyNested64Bit(api); err != nil {
+		return err
+	}
 	g := &clientPyGen{w: w, api: api}
 	return g.generate()
+}
+
+// checkPyNested64Bit fails loud when a 64-bit field is reachable only through a
+// nested named-type field. The Python client's from_dict converts a type's
+// *direct* 64-bit fields (JSON string -> int) but does not recurse into nested
+// named-type fields (they stay raw dicts), so a nested 64-bit value would remain
+// an unconverted string. Rather than emit a silently-wrong client, reject it —
+// the Go and TS clients handle the shape, so this is a Python-target limitation.
+func checkPyNested64Bit(api *ast.API) error {
+	set := tsReviveSet(api) // types transitively containing a 64-bit field
+	for i := range api.Types {
+		t := &api.Types[i]
+		for _, f := range t.Fields {
+			var nested string
+			switch {
+			case f.Type.Kind == ast.TypeNamed:
+				nested = f.Type.Name
+			case (f.Type.Kind == ast.TypeSlice || f.Type.Kind == ast.TypeArray) && f.Type.Elem != nil && f.Type.Elem.Kind == ast.TypeNamed:
+				nested = f.Type.Elem.Name
+			}
+			if nested != "" && set[nested] {
+				return fmt.Errorf("python client: type %s.%s references %s, which contains a 64-bit int reachable only through a nested type; the Python client cannot convert it (from_dict does not recurse into nested types)", t.Name, f.Name, nested)
+			}
+		}
+	}
+	return nil
 }
 
 type clientPyGen struct {
@@ -32,12 +61,27 @@ func (g *clientPyGen) printf(format string, args ...interface{}) {
 
 func (g *clientPyGen) generate() error {
 	g.emitHeader()
+	g.emit64BitHelpers()
 	g.emitConstants()
 	g.emitEnums()
 	g.emitTypes()
 	g.emitClient()
 	g.emitClientMethods()
 	return g.err
+}
+
+// emit64BitHelpers emits the JSON-string <-> Python-int converters used at the
+// (de)serialization seam. 64-bit ints cross the wire as JSON strings (they
+// exceed a JS client's 2^53 number range); see is64BitScalarInt and the
+// ",string" Go struct tag.
+func (g *clientPyGen) emit64BitHelpers() {
+	if !apiNeeds64BitConv(g.api) {
+		return
+	}
+	g.printf("def _gmi_to_int(v):\n")
+	g.printf("    return None if v is None else int(v)\n\n\n")
+	g.printf("def _gmi_from_int(v):\n")
+	g.printf("    return None if v is None else str(v)\n\n\n")
 }
 
 // --- Header ---
@@ -119,7 +163,11 @@ func (g *clientPyGen) emitTypes() {
 			if i == len(t.Fields)-1 {
 				comma = ","
 			}
-			g.printf("            %s=d.get(%q, %s)%s\n", fieldName, fieldName, g.pyDefault(f.Type), comma)
+			if is64BitScalarInt(f.Type) {
+				g.printf("            %s=_gmi_to_int(d.get(%q, %s))%s\n", fieldName, fieldName, g.pyDefault(f.Type), comma)
+			} else {
+				g.printf("            %s=d.get(%q, %s)%s\n", fieldName, fieldName, g.pyDefault(f.Type), comma)
+			}
 		}
 		g.printf("        )\n")
 
@@ -129,7 +177,11 @@ func (g *clientPyGen) emitTypes() {
 		g.printf("        return {\n")
 		for _, f := range t.Fields {
 			fieldName := f.Name
-			g.printf("            %q: self.%s,\n", fieldName, fieldName)
+			if is64BitScalarInt(f.Type) {
+				g.printf("            %q: _gmi_from_int(self.%s),\n", fieldName, fieldName)
+			} else {
+				g.printf("            %q: self.%s,\n", fieldName, fieldName)
+			}
 		}
 		g.printf("        }\n")
 		g.printf("\n\n")
@@ -165,8 +217,13 @@ func (g *clientPyGen) emitClient() {
 	g.printf("    \"\"\"REST client for the %s API.\"\"\"\n\n", g.api.Name)
 
 	// Constructor
-	g.printf("    def __init__(self, base_url: str, instance: str = %q):\n", g.api.Name)
-	g.printf("        self.base_url = base_url.rstrip(\"/\") + \"/api/v1/\" + instance\n\n")
+	g.printf("    # Socket timeout for every request: a stalled server must surface as an\n")
+	g.printf("    # error in the client, not a forever-blocked caller (GUIs call these on\n")
+	g.printf("    # their main thread). Override per instance for known-long calls.\n")
+	g.printf("    DEFAULT_TIMEOUT = 90.0\n\n")
+	g.printf("    def __init__(self, base_url: str, instance: str = %q, timeout: float = None):\n", g.api.Name)
+	g.printf("        self.base_url = base_url.rstrip(\"/\") + \"/api/v1/\" + instance\n")
+	g.printf("        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT\n\n")
 
 	// _do_request helper
 	g.printf("    def _do_request(self, method: str, path: str, body: Any = None, has_result: bool = False) -> Any:\n")
@@ -179,7 +236,7 @@ func (g *clientPyGen) emitClient() {
 	g.printf("        if data is not None:\n")
 	g.printf("            req.add_header(\"Content-Type\", \"application/json\")\n")
 	g.printf("        try:\n")
-	g.printf("            with urllib.request.urlopen(req) as resp:\n")
+	g.printf("            with urllib.request.urlopen(req, timeout=self.timeout) as resp:\n")
 	g.printf("                resp_body = resp.read()\n")
 	g.printf("                if has_result and resp_body:\n")
 	g.printf("                    return json.loads(resp_body)\n")
@@ -209,6 +266,8 @@ func (g *clientPyGen) emitClientMethods() {
 }
 
 func (g *clientPyGen) emitClientMethod(fn ast.Func) {
+	// See clientGoGen.emitClientMethod: the REST view is the marshaled shape.
+	fn = restView(fn)
 	methodName := toSnakeCase(fn.Name)
 
 	// Signature
@@ -263,7 +322,12 @@ func (g *clientPyGen) emitClientMethod(fn ast.Func) {
 		g.printf("        body = {\n")
 		for _, bp := range queryParams {
 			paramName := toSnakeCase(bp.Name)
-			g.printf("            %q: %s,\n", toSnakeCase(bp.Name), paramName)
+			// 64-bit ints cross the wire as JSON strings (see _gmi_from_int).
+			if is64BitScalarInt(bp.Type) {
+				g.printf("            %q: _gmi_from_int(%s),\n", toSnakeCase(bp.Name), paramName)
+			} else {
+				g.printf("            %q: %s,\n", toSnakeCase(bp.Name), paramName)
+			}
 		}
 		g.printf("        }\n")
 		bodyExpr = "body"
@@ -357,6 +421,9 @@ func (g *clientPyGen) toPyType(t ast.TypeRef) string {
 	case ast.TypeArray:
 		elem := g.toPyType(*t.Elem)
 		return "list[" + elem + "]"
+	case ast.TypeMap:
+		elem := g.toPyType(*t.Elem)
+		return "dict[str, " + elem + "]"
 	}
 	return "Any"
 }
@@ -387,7 +454,7 @@ func primitiveToPyType(name string) string {
 	switch name {
 	case "bool":
 		return "bool"
-	case "i8", "u8", "i32", "u32", "i64", "u64":
+	case "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64":
 		return "int"
 	case "f32", "f64":
 		return "float"

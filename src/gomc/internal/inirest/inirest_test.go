@@ -12,6 +12,17 @@ import (
 
 func boolPtr(v bool) *bool { return &v }
 
+// sp makes an optional string argument; derefStr reads an optional
+// string result, treating absent as empty.
+func sp(s string) *string { return &s }
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 func setupTestINI(t *testing.T) *iniImpl {
 	t.Helper()
 	parsed, err := inifile.ParseString(`
@@ -54,8 +65,8 @@ func TestQuerySingleValue(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Value != "XYZABCUVW" {
-		t.Errorf("expected XYZABCUVW, got %v", results[0].Value)
+	if derefStr(results[0].Value) != "XYZABCUVW" {
+		t.Errorf("expected XYZABCUVW, got %v", derefStr(results[0].Value))
 	}
 }
 
@@ -71,8 +82,8 @@ func TestQueryMissingKey(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Value != "" {
-		t.Errorf("expected empty value for missing key, got %v", results[0].Value)
+	if derefStr(results[0].Value) != "" {
+		t.Errorf("expected empty value for missing key, got %v", derefStr(results[0].Value))
 	}
 }
 
@@ -91,8 +102,8 @@ func TestQueryEmptyValue(t *testing.T) {
 	// Empty value — key exists but value is "".
 	// With generated types we can't distinguish via pointer,
 	// but the value should be returned as empty string.
-	if results[0].Value != "" {
-		t.Errorf("expected empty string, got %q", results[0].Value)
+	if derefStr(results[0].Value) != "" {
+		t.Errorf("expected empty string, got %q", derefStr(results[0].Value))
 	}
 }
 
@@ -156,14 +167,14 @@ func TestQueryBulk(t *testing.T) {
 		t.Fatalf("expected 6 results, got %d", len(results))
 	}
 
-	if results[0].Value != "XYZABCUVW" {
-		t.Errorf("result[0]: want XYZABCUVW, got %v", results[0].Value)
+	if derefStr(results[0].Value) != "XYZABCUVW" {
+		t.Errorf("result[0]: want XYZABCUVW, got %v", derefStr(results[0].Value))
 	}
-	if results[1].Value != "1.5" {
-		t.Errorf("result[1]: want 1.5, got %v", results[1].Value)
+	if derefStr(results[1].Value) != "1.5" {
+		t.Errorf("result[1]: want 1.5, got %v", derefStr(results[1].Value))
 	}
-	if results[4].Value != "" {
-		t.Errorf("result[4]: want empty for missing key, got %v", results[4].Value)
+	if derefStr(results[4].Value) != "" {
+		t.Errorf("result[4]: want empty for missing key, got %v", derefStr(results[4].Value))
 	}
 	if len(results[5].Values) != 3 {
 		t.Errorf("result[5]: want 3 values, got %d", len(results[5].Values))

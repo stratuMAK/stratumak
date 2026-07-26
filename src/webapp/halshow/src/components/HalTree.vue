@@ -6,7 +6,7 @@ import TreeNodeItem from './TreeNodeItem.vue';
 <template>
   <div class="hal-tree">
     <div v-if="halshowStore.state.treeNodes.length === 0" class="empty">
-      <span v-if="!halshowStore.state.connected">Connecting...</span>
+      <span v-if="!halshowStore.state.restOk">Connecting...</span>
       <span v-else-if="halshowStore.state.error">{{ halshowStore.state.error }}</span>
       <span v-else>No items</span>
     </div>

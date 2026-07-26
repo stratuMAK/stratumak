@@ -13,13 +13,11 @@ Usage:
 from __future__ import annotations
 
 import json
-import queue
 import sys
-import threading
 import urllib.request
 from typing import Optional
 
-from gmi import rest_url
+from gmi import rest_url, resolve_instance
 
 # Socket timeout for a plain command POST. Every endpoint but /wait-complete
 # returns as soon as the command is registered, so this only has to cover
@@ -39,26 +37,8 @@ class Command:
     All methods correspond to REST calls to the emccmd API.
     """
 
-    def __init__(self, instance: str = "milltask"):
-        self._base = rest_url() + "/api/v1/" + instance
-        self._async_queue = queue.Queue()
-        self._async_worker = threading.Thread(
-            target=self._async_loop, daemon=True)
-        self._async_worker.start()
-
-    def _async_loop(self):
-        """Worker thread that sends queued requests in order."""
-        while True:
-            req = self._async_queue.get()
-            try:
-                with urllib.request.urlopen(req, timeout=_SOCKET_TIMEOUT) as resp:
-                    resp.read()
-            except Exception as e:
-                # Fire-and-forget delivery still has to be *observable*: a
-                # dropped jog that fails silently here surfaces far away as an
-                # unexplained "machine never moved" timeout.
-                print(f"gmi.Command: async POST {req.full_url} failed: {e}",
-                      file=sys.stderr)
+    def __init__(self, instance: str = None):
+        self._base = rest_url() + "/api/v1/" + resolve_instance(instance)
 
     def _post(self, path: str, data: dict = None,
               timeout: float = _SOCKET_TIMEOUT) -> dict:
@@ -74,41 +54,48 @@ class Command:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
+            # The server's operator-facing error (if any) travels on the message
+            # channel, which is the authoritative surface every UI renders. Here
+            # we only need a concise developer log line and to make the parsed
+            # message available to callers — extract it now, because reading the
+            # HTTPError body is one-shot (a second .read() returns empty).
             err_body = e.read().decode("utf-8", errors="replace")
-            print(f"gmi.Command: {e.code} {url}: {err_body}", file=sys.stderr)
+            try:
+                msg = json.loads(err_body).get("error", err_body) or err_body
+            except Exception:
+                msg = err_body
+            e.gmi_error = msg  # stash for callers; the body is now consumed
+            print(f"gmi.Command: {path} refused ({e.code}): {msg}",
+                  file=sys.stderr)
             raise
-
-    def _post_async(self, path: str, data: dict = None):
-        """Queue a POST request for ordered async delivery (non-blocking)."""
-        url = self._base + path
-        body = json.dumps(data or {}).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        self._async_queue.put(req)
 
     def state(self, state: int):
         """Set task state (STATE_ESTOP, STATE_ON, etc.)."""
-        self._post("/state", {"state": state})
+        return self._post("/state", {"state": state})
 
     def mode(self, mode: int):
         """Set task mode (MODE_MANUAL, MODE_MDI, MODE_AUTO)."""
-        self._post("/mode", {"mode": mode})
+        return self._post("/mode", {"mode": mode})
 
     def auto(self, cmd: int, line: int = 0):
         """Auto program control (AUTO_RUN, AUTO_STEP, AUTO_PAUSE, etc.)."""
-        self._post("/auto", {"cmd": cmd, "line": line})
+        return self._post("/auto", {"cmd": cmd, "line": line})
 
     def mdi(self, command: str):
         """Execute MDI command string."""
-        self._post("/mdi", {"command": command})
+        return self._post("/mdi", {"command": command})
 
     def jog(self, jog_type: int, jjogmode: bool, axis_or_joint: int,
             velocity: float = 0.0, distance: float = 0.0):
-        """Jog an axis or joint (non-blocking, fire-and-forget)."""
-        self._post_async("/jog", {
+        """Jog an axis or joint.
+
+        Synchronous like every other command: an earlier version queued jogs
+        on a private async worker while abort()/state() posted directly, so a
+        queued jog could be delivered AFTER an abort the caller saw complete
+        (review finding GP-4). Classic NML serialized all commands on one
+        channel; so does this. Velocity is mm/s at this boundary.
+        """
+        return self._post("/jog", {
             "jog_type": jog_type,
             "jjogmode": bool(jjogmode),
             "axis_or_joint": axis_or_joint,
@@ -117,16 +104,24 @@ class Command:
         })
 
     def jog_stop(self, jjogmode: bool, axis_or_joint: int):
-        """Stop a jog (non-blocking, fire-and-forget)."""
-        self._post_async("/jog-stop", {
+        """Stop a jog (synchronous — ordered with all other commands)."""
+        return self._post("/jog-stop", {
             "jjogmode": bool(jjogmode),
             "axis_or_joint": axis_or_joint,
         })
 
     def spindle(self, direction: int, speed: float = 0.0,
                 spindle: int = 0, wait: int = 0):
-        """Control spindle (SPINDLE_FORWARD, SPINDLE_OFF, etc.)."""
-        self._post("/spindle", {
+        """Control spindle (SPINDLE_FORWARD, SPINDLE_OFF, etc.).
+
+        DIVERGENCE from classic linuxcnc.command().spindle() (finding GP-21):
+        classic reads the first optional positional arg as the SPINDLE NUMBER
+        for OFF/INCREASE/DECREASE/CONSTANT and as the speed for FORWARD/
+        REVERSE. This signature is fixed — a classic-style positional
+        ``spindle(SPINDLE_OFF, 1)`` would be read as speed=1, spindle 0.
+        Multi-spindle callers must pass ``spindle=`` by keyword.
+        """
+        return self._post("/spindle", {
             "cmd": direction,
             "speed": speed,
             "spindle_num": spindle,
@@ -135,90 +130,102 @@ class Command:
 
     def home(self, joint: int):
         """Home a joint (-1 = all)."""
-        self._post("/home", {"joint": joint})
+        return self._post("/home", {"joint": joint})
 
     def unhome(self, joint: int):
         """Unhome a joint (-1 = all)."""
-        self._post("/unhome", {"joint": joint})
+        return self._post("/unhome", {"joint": joint})
 
     def override_limits(self, joint: int = 0):
         """Override soft limits (joint < 0 resumes normal limit checking)."""
-        self._post("/override-limits", {"joint": joint})
+        return self._post("/override-limits", {"joint": joint})
 
     def teleop_enable(self, enable: bool):
         """Enable/disable teleop mode."""
-        self._post("/teleop", {"enable": bool(enable)})
+        return self._post("/teleop", {"enable": bool(enable)})
 
     def feedrate(self, rate: float):
         """Set feed override (0.0 - 1.0+)."""
-        self._post("/feed-override", {"rate": rate})
+        return self._post("/feed-override", {"rate": rate})
 
     def spindleoverride(self, rate: float, spindle: int = 0):
         """Set spindle speed override."""
-        self._post("/spindle-override", {"rate": rate, "spindle_num": spindle})
+        return self._post("/spindle-override", {"rate": rate, "spindle_num": spindle})
 
     def rapidrate(self, rate: float):
         """Set rapid override (0.0 - 1.0)."""
-        self._post("/rapid-override", {"rate": rate})
+        return self._post("/rapid-override", {"rate": rate})
+
+    def set_feed_override(self, enable):
+        """Enable/disable feed override (classic EMC_TRAJ_SET_FO_ENABLE)."""
+        return self._post("/feed-override-enable", {"enable": bool(enable)})
+
+    def set_feed_hold(self, enable):
+        """Enable/disable feed hold (classic EMC_TRAJ_SET_FH_ENABLE)."""
+        return self._post("/feed-hold-enable", {"enable": bool(enable)})
+
+    def set_spindle_override(self, enable, spindle: int = 0):
+        """Enable/disable spindle-speed override (EMC_TRAJ_SET_SO_ENABLE)."""
+        return self._post("/spindle-override-enable",
+                          {"enable": bool(enable), "spindle_num": spindle})
 
     def maxvel(self, velocity: float):
         """Set maximum velocity."""
-        self._post("/max-velocity", {"velocity": velocity})
+        return self._post("/max-velocity", {"velocity": velocity})
 
     def flood(self, on):
         """Flood coolant on/off."""
-        self._post("/flood", {"on": bool(on)})
+        return self._post("/flood", {"on": bool(on)})
 
     def mist(self, on):
         """Mist coolant on/off."""
-        self._post("/mist", {"on": bool(on)})
+        return self._post("/mist", {"on": bool(on)})
 
     def brake(self, on, spindle: int = 0):
         """Spindle brake engage/release."""
-        self._post("/brake", {"on": bool(on), "spindle_num": spindle})
+        return self._post("/brake", {"on": bool(on), "spindle_num": spindle})
 
     def abort(self):
         """Abort current operation."""
-        self._post("/abort")
+        return self._post("/abort")
 
     def task_plan_synch(self):
         """Synchronize task planner."""
-        self._post("/task-plan-synch")
+        return self._post("/task-plan-synch")
 
     def set_optional_stop(self, on: bool):
         """Set optional stop."""
-        self._post("/optional-stop", {"on": bool(on)})
+        return self._post("/optional-stop", {"on": bool(on)})
 
     def set_block_delete(self, on: bool):
         """Set block delete."""
-        self._post("/block-delete", {"on": bool(on)})
+        return self._post("/block-delete", {"on": bool(on)})
 
     def load_tool_table(self, file: str = ""):
         """Reload tool table from file (empty string = default table)."""
-        self._post("/load-tool-table", {"file": file})
+        return self._post("/load-tool-table", {"file": file})
 
     def program_open(self, filename: str):
         """Open a program file."""
-        self._post("/program-open", {"file": filename})
+        return self._post("/program-open", {"file": filename})
 
     def wait_complete(self, timeout: float = 5.0) -> int:
-        """Wait for the task to settle. Returns an RCS code; never raises on
-        a machine-side timeout.
+        """Wait for the task to settle. Returns RCS_DONE (1), or raises.
 
-        Returns:
-            RCS_DONE (1)   — settled
-            RCS_ERROR (3)  — the command failed
-            -1             — the wait did not complete: the task is NOT settled
-                             and any state read afterwards is unsynchronised.
-                             This covers a machine-side timeout AND the task not
-                             being ready — the cgo bridge flattens any
-                             server-side error to -1, so it is not strictly a
-                             "timed out" signal, just "the wait did not happen".
+        A wait that did not happen — a machine-side timeout, or the task not
+        being ready — raises ``urllib.error.HTTPError`` carrying the server's
+        reason. It used to arrive as -1 in a normal HTTP 200 body, because REST
+        dispatch crossed the C ABI, which has no channel for an error; a caller
+        that discarded the return could not tell it from success. A Go provider
+        now serves REST directly, so a failed wait cannot be mistaken for a
+        settled machine.
 
-        The -1 is delivered as a normal HTTP 200 body, so a caller that discards
-        the return cannot tell it from success. Callers that need the wait to
-        have actually happened must check for it — see lib/python/gomc_test.py,
-        which wraps this and raises.
+        A command that *errors on the machine* is a different thing and does not
+        raise here: those travel on the error channel and leave the task
+        settled. Read them via gmi.ErrorChannel.
+
+        See lib/python/gomc_test.py, which turns the HTTPError into a Timeout
+        naming the deadline.
 
         A negative timeout is meaningless (the IDL constrains it to >= 0); the
         socket deadline is floored so it never goes negative and raises a local
@@ -229,20 +236,20 @@ class Command:
 
     def debug(self, level: int):
         """Set debug level (bitmask of DEBUG_* flags)."""
-        self._post("/debug", {"debug": level})
+        return self._post("/debug", {"debug": level})
 
     def set_jog_axis(self, axis: int):
         """Set the active jog axis (0=X, 1=Y, ...)."""
-        self._post("/jog-axis", {"axis": axis})
+        return self._post("/jog-axis", {"axis": axis})
 
     def set_jog_increment(self, increment: float):
         """Set jog increment (0 = continuous)."""
-        self._post("/jog-increment", {"increment": increment})
+        return self._post("/jog-increment", {"increment": increment})
 
     def set_jog_speed(self, speed: float):
         """Set linear jog speed (units/sec)."""
-        self._post("/jog-speed", {"speed": speed})
+        return self._post("/jog-speed", {"speed": speed})
 
     def set_ajog_speed(self, speed: float):
         """Set angular jog speed (deg/sec)."""
-        self._post("/ajog-speed", {"speed": speed})
+        return self._post("/ajog-speed", {"speed": speed})

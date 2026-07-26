@@ -11,9 +11,13 @@ const enabledChannels = computed(() =>
   scopeStore.state.status.channels.filter(c => c.enabled)
 );
 
+// S-5: channel edits are refused (-EBUSY) by the provider while a capture is
+// running — don't offer them in the first place.
+const capturing = computed(() => scopeStore.isCapturing());
+
 const canAddChannel = computed(() => {
   const maxCh = scopeStore.state.status.maxChannels;
-  return enabledChannels.value.length < maxCh && nextFreeChannel.value >= 0;
+  return !capturing.value && enabledChannels.value.length < maxCh && nextFreeChannel.value >= 0;
 });
 
 const nextFreeChannel = computed(() => {
@@ -107,7 +111,7 @@ watch(kindFilter, () => doSearch());
             @change="scopeStore.channelUI[ch.channel].visible = ($event.target as HTMLInputElement).checked"
           />
         </label>
-        <button class="btn-icon" @click="onRemoveChannel(ch.channel)" title="Remove">✕</button>
+        <button class="btn-icon" @click="onRemoveChannel(ch.channel)" :disabled="capturing" title="Remove">✕</button>
       </div>
       <div v-if="enabledChannels.length === 0" class="empty-hint">
         No channels configured
@@ -233,6 +237,15 @@ watch(kindFilter, () => doSearch());
 
 .btn-icon:hover {
   color: #ff4444;
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-icon:disabled:hover {
+  color: #888;
 }
 
 .btn {

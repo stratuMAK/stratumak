@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { toolStore } from '../stores/tools';
 import type { ToolEntry } from '../generated/tools_client';
+import { LINEAR_KEYS, fieldUnit } from './toolform';
 import ToolEditDialog from './ToolEditDialog.vue';
 
 interface Column {
@@ -10,6 +11,8 @@ interface Column {
   type: 'int' | 'float' | 'text';
 }
 
+// Base labels; the unit suffix (mm/in/deg) is appended dynamically from the
+// machine units so a mm header becomes "(in)" on an inch machine.
 const columns: Column[] = [
   { key: 'toolno', label: 'Tool', type: 'int' },
   { key: 'pocketno', label: 'Poc', type: 'int' },
@@ -29,11 +32,26 @@ const columns: Column[] = [
   { key: 'comment', label: 'Comment', type: 'text' },
 ];
 
+// Header text with the live unit suffix appended (linear -> mm/in, angular -> deg).
+function colHeader(col: Column): string {
+  if (col.type !== 'float') return col.label;
+  const unit = fieldUnit(col.key as Exclude<keyof ToolEntry, 'updated'>, toolStore.state.units.metric);
+  return unit ? `${col.label} (${unit})` : col.label;
+}
+
+const sortedTools = computed(() =>
+  [...toolStore.state.tools].sort((a, b) => a.toolno - b.toolno)
+);
+
+const existingToolnos = computed(() => toolStore.state.tools.map(t => t.toolno));
+
 const dialogTool = ref<ToolEntry | null>(null);
 const dialogIsNew = ref(false);
 
-function editTool(tool: ToolEntry) {
-  dialogTool.value = { ...tool };
+async function editTool(tool: ToolEntry) {
+  // re-fetch fresh so a stale row copy can't silently revert concurrent edits
+  const fresh = await toolStore.getTool(tool.toolno);
+  dialogTool.value = fresh ?? { ...tool };
   dialogIsNew.value = false;
 }
 
@@ -45,13 +63,16 @@ function addTool() {
     u_offset: 0, v_offset: 0, w_offset: 0,
     diameter: 0, frontangle: 0, backangle: 0,
     orientation: 0, comment: '',
+    // no baseline stamp on a create: 0 = last-write-wins on the server
+    updated: 0n,
   };
   dialogIsNew.value = true;
 }
 
-function onDialogSave(tool: ToolEntry) {
-  toolStore.saveTool(tool);
-  dialogTool.value = null;
+async function onDialogSave(tool: ToolEntry) {
+  if (await toolStore.saveTool(tool)) {
+    dialogTool.value = null;
+  }
 }
 
 function onDialogCancel() {
@@ -65,11 +86,18 @@ function deleteTool(tool: ToolEntry, event: Event) {
   }
 }
 
-function fmtNum(val: unknown, type: string): string {
-  if (type === 'text') return String(val);
-  const n = Number(val);
+// Cell text. LINEAR columns are stored in mm and scaled to display units before
+// the existing numeric formatting is applied; angular/count columns are shown
+// as-is.
+function fmtCell(tool: ToolEntry, col: Column): string {
+  const raw = tool[col.key];
+  if (col.type === 'text') return String(raw);
+  let n = Number(raw);
+  if (LINEAR_KEYS.has(col.key as Exclude<keyof ToolEntry, 'updated'>)) {
+    n *= toolStore.state.units.linearScale;
+  }
   if (n === 0) return '0';
-  if (type === 'int') return String(n);
+  if (col.type === 'int') return String(n);
   return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
 }
 
@@ -86,18 +114,18 @@ defineExpose({ addTool });
         <thead>
           <tr>
             <th v-for="col in columns" :key="col.key" :class="col.type">
-              {{ col.label }}
+              {{ colHeader(col) }}
             </th>
             <th class="col-actions"></th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="tool in toolStore.state.tools"
+            v-for="tool in sortedTools"
             :key="tool.toolno"
           >
             <td v-for="col in columns" :key="col.key" :class="col.type">
-              {{ fmtNum(tool[col.key], col.type) }}
+              {{ fmtCell(tool, col) }}
             </td>
             <td class="col-actions">
               <button class="btn-edit" @click="editTool(tool)" title="Edit">&#x270E;</button>
@@ -107,7 +135,10 @@ defineExpose({ addTool });
         </tbody>
       </table>
     </div>
-    <div v-if="toolStore.state.tools.length === 0" class="empty">
+    <div
+      v-if="toolStore.state.tools.length === 0 && !toolStore.state.error && !toolStore.state.loading"
+      class="empty"
+    >
       No tools loaded. Click "Add Tool" to create one.
     </div>
   </div>
@@ -116,6 +147,7 @@ defineExpose({ addTool });
     v-if="dialogTool"
     :tool="dialogTool"
     :isNew="dialogIsNew"
+    :existingToolnos="existingToolnos"
     @save="onDialogSave"
     @cancel="onDialogCancel"
   />

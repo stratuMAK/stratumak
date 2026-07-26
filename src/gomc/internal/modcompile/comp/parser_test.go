@@ -309,12 +309,14 @@ func TestParseUserComps(t *testing.T) {
 		t.Skipf("user_comps directory not found at %s", baseDir)
 	}
 	var files []string
-	filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".comp") {
 			files = append(files, path)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk %s: %v", baseDir, err)
+	}
 	if len(files) == 0 {
 		t.Skip("no .comp files found in user_comps")
 	}

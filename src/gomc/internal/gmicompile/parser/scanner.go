@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"fmt"
 	"unicode"
 )
 
@@ -58,6 +59,10 @@ type Scanner struct {
 	pos  int
 	line int
 	col  int
+	// errs collects lexical errors (e.g. an unterminated string) as "line:col:
+	// message"; Parse merges them into its own error list, prefixed with the
+	// file name.
+	errs []string
 }
 
 // NewScanner creates a new scanner for the given source.
@@ -213,6 +218,11 @@ func (s *Scanner) scanString(line, col int) Token {
 	text := string(s.src[start:s.pos])
 	if s.pos < len(s.src) {
 		s.advance() // skip closing "
+	} else {
+		// Ran to EOF without a closing quote — fail loud instead of silently
+		// swallowing the rest of the file as string content. The STRING token
+		// is still returned so parsing continues to surface further errors.
+		s.errs = append(s.errs, fmt.Sprintf("%d:%d: unterminated string literal", line, col))
 	}
 	return Token{STRING, text, line, col}
 }

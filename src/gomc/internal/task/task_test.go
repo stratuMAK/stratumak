@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
+	"path/filepath"
+
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // mockMotion implements MotionController for testing.
@@ -178,19 +181,25 @@ func (m *mockIO) GetIOFullStatus() (IOFullStatus, error) {
 	return IOFullStatus{Estop: false}, nil
 }
 
-// mockStatus implements MotionStatusReader for testing.
+// mockStatus implements MotionStatusReader for testing. It reports motion as
+// enabled: SetState(ON) settles on a published Enabled=1 before committing, so
+// a healthy mock must reflect the enable or every power-on would time out.
+// Tests exercising a refused/lost enable use a mock with a settable flag
+// (mockStatusWithError) and flip it AFTER power-on.
 type mockStatus struct{}
 
-func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) { return motstat.MotionStatus{}, nil }
-func (m *mockStatus) GetPosCmd() (motstat.Pose, error)         { return motstat.Pose{}, nil }
-func (m *mockStatus) GetPosFb() (motstat.Pose, error)          { return motstat.Pose{}, nil }
-func (m *mockStatus) GetInpos() (int32, error)                 { return 1, nil }
-func (m *mockStatus) GetExecId() (int32, error)                { return 0, nil }
-func (m *mockStatus) GetQueueDepth() (int32, error)            { return 0, nil }
-func (m *mockStatus) GetCommandNumEcho() (int32, error)        { return 0, nil }
-func (m *mockStatus) GetCommandStatus() (int32, error)         { return 0, nil }
-func (m *mockStatus) GetSynchDi(int32) (int32, error)          { return 0, nil }
-func (m *mockStatus) GetAnalogInput(int32) (float64, error)    { return 0, nil }
+func (m *mockStatus) GetStatus() (motstat.MotionStatus, error) {
+	return motstat.MotionStatus{Enabled: 1}, nil
+}
+func (m *mockStatus) GetPosCmd() (motstat.Pose, error)      { return motstat.Pose{}, nil }
+func (m *mockStatus) GetPosFb() (motstat.Pose, error)       { return motstat.Pose{}, nil }
+func (m *mockStatus) GetInpos() (int32, error)              { return 1, nil }
+func (m *mockStatus) GetExecId() (int32, error)             { return 0, nil }
+func (m *mockStatus) GetQueueDepth() (int32, error)         { return 0, nil }
+func (m *mockStatus) GetCommandNumEcho() (int32, error)     { return 0, nil }
+func (m *mockStatus) GetCommandStatus() (int32, error)      { return 0, nil }
+func (m *mockStatus) GetSynchDi(int32) (int32, error)       { return 0, nil }
+func (m *mockStatus) GetAnalogInput(int32) (float64, error) { return 0, nil }
 
 func newTestTask() (*Task, *mockMotion, *mockIO) {
 	mot := &mockMotion{}
@@ -206,9 +215,14 @@ func newTestTask() (*Task, *mockMotion, *mockIO) {
 }
 
 // bringUp transitions the task from estop to ON.
-func bringUp(t *Task) {
-	t.SetState(int32(StateEstopReset))
-	t.SetState(int32(StateOn))
+func bringUp(t *testing.T, task *Task) {
+	t.Helper()
+	if err := task.SetState(int32(StateEstopReset)); err != nil {
+		t.Fatalf("bringUp SetState(EstopReset): %v", err)
+	}
+	if err := task.SetState(int32(StateOn)); err != nil {
+		t.Fatalf("bringUp SetState(On): %v", err)
+	}
 }
 
 func TestSetState_PowerOn(t *testing.T) {
@@ -254,7 +268,7 @@ func TestSetMode_AllowedInEstop(t *testing.T) {
 
 func TestSetMode_AutoSetCoord(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.SetMode(int32(ModeAuto)); err != nil {
 		t.Fatalf("set_mode auto: %v", err)
@@ -275,7 +289,7 @@ type homedStatus struct {
 }
 
 func (h *homedStatus) GetStatus() (motstat.MotionStatus, error) {
-	var ms motstat.MotionStatus
+	ms := motstat.MotionStatus{Enabled: 1} // healthy mock — see mockStatus
 	for j := 0; j < h.homed && j < len(ms.Joints); j++ {
 		ms.Joints[j].Homed = 1
 	}
@@ -289,8 +303,10 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 	t.Run("unhomed->SetFree", func(t *testing.T) {
 		task, mot, _ := newTestTask()
 		task.numJoints = 3 // mockStatus reports all joints unhomed
-		bringUp(task)
-		task.SetMode(int32(ModeAuto))
+		bringUp(t, task)
+		if err := task.SetMode(int32(ModeAuto)); err != nil {
+			t.Fatalf("SetMode(Auto): %v", err)
+		}
 
 		if err := task.SetMode(int32(ModeManual)); err != nil {
 			t.Fatalf("SetMode(Manual): %v", err)
@@ -304,8 +320,10 @@ func TestSetMode_ManualJogMode(t *testing.T) {
 		task, mot, _ := newTestTask()
 		task.status = &homedStatus{homed: 3}
 		task.numJoints = 3
-		bringUp(task)
-		task.SetMode(int32(ModeAuto))
+		bringUp(t, task)
+		if err := task.SetMode(int32(ModeAuto)); err != nil {
+			t.Fatalf("SetMode(Auto): %v", err)
+		}
 
 		if err := task.SetMode(int32(ModeManual)); err != nil {
 			t.Fatalf("SetMode(Manual): %v", err)
@@ -327,7 +345,7 @@ func TestJog_RequiresOn(t *testing.T) {
 
 func TestJog_ManualMode(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Jog(JogContinuous, true, 0, 100, 0); err != nil {
 		t.Fatalf("jog: %v", err)
@@ -339,8 +357,10 @@ func TestJog_ManualMode(t *testing.T) {
 
 func TestJog_MDIBusyRejects(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeMDI))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeMDI)); err != nil {
+		t.Fatalf("SetMode(MDI): %v", err)
+	}
 	task.interpState = InterpReading
 
 	err := task.Jog(JogContinuous, true, 0, 100, 0)
@@ -358,7 +378,7 @@ func TestJog_MDIBusyRejects(t *testing.T) {
 // happened and the run path ran), NOT ErrWrongMode (rejected in manual).
 func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	err := task.AutoCommand(AutoRun, 0)
 	if !errors.Is(err, ErrNoProgram) {
@@ -368,8 +388,10 @@ func TestAutoCommand_EnsureModeWhenIdle(t *testing.T) {
 
 func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	// Simulate interpreter busy.
 	task.mu.Lock()
@@ -385,8 +407,10 @@ func TestEnsureMode_RejectsWhenBusy(t *testing.T) {
 
 func TestAutoCommand_RunRequiresProgram(t *testing.T) {
 	task, _, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	err := task.AutoCommand(AutoRun, 0)
 	if !errors.Is(err, ErrNoProgram) {
@@ -396,8 +420,10 @@ func TestAutoCommand_RunRequiresProgram(t *testing.T) {
 
 func TestAutoCommand_PauseCallsMotion(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 	// Simulate an actively running program so pause is meaningful (C10 gates
 	// pause on the interpreter actually reading).
 	task.mu.Lock()
@@ -417,8 +443,10 @@ func TestAutoCommand_PauseCallsMotion(t *testing.T) {
 // wedging programBusy() until Abort/E-stop) and must not call motion.Pause.
 func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
-	task.SetMode(int32(ModeAuto))
+	bringUp(t, task)
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 
 	if err := task.AutoCommand(AutoPause, 0); err != nil {
 		t.Fatalf("auto pause: %v", err)
@@ -441,7 +469,7 @@ func TestAutoCommand_PauseWhileIdleIsNoop(t *testing.T) {
 
 func TestFlood_On(t *testing.T) {
 	task, _, io := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Flood(true); err != nil {
 		t.Fatalf("flood on: %v", err)
@@ -469,7 +497,7 @@ func TestAbort_AlwaysSucceeds(t *testing.T) {
 
 func TestSpindle_Forward(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, 0, 0); err != nil {
 		t.Fatalf("spindle fwd: %v", err)
@@ -484,7 +512,7 @@ func TestSpindle_Forward(t *testing.T) {
 // count is rejected by the authoritative task-layer check.
 func TestSpindle_BroadcastAndRange(t *testing.T) {
 	task, mot, _ := newTestTask() // numSpindles = 1
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Spindle(SpindleForward, 1000, -1, 0); err != nil {
 		t.Fatalf("broadcast spindle (-1) rejected: %v", err)
@@ -505,8 +533,19 @@ func TestSpindle_BroadcastAndRange(t *testing.T) {
 }
 
 func TestProgramOpen_AnyModeAnyState(t *testing.T) {
+	// program_open resolves the filename against the program directories
+	// before the interpreter sees it, so the test needs a resolver and real
+	// files (see internal/pathres).
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	for _, name := range []string{"test.ngc", "test2.ngc"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("M2\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
 	task, _, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	// Works in MANUAL mode (no mode guard)
 	if err := task.ProgramOpen("test.ngc"); err != nil {
@@ -517,9 +556,72 @@ func TestProgramOpen_AnyModeAnyState(t *testing.T) {
 	}
 
 	// Also works in AUTO
-	task.SetMode(int32(ModeAuto))
+	if err := task.SetMode(int32(ModeAuto)); err != nil {
+		t.Fatalf("SetMode(Auto): %v", err)
+	}
 	if err := task.ProgramOpen("test2.ngc"); err != nil {
 		t.Fatalf("program_open in AUTO: %v", err)
+	}
+}
+
+// The loaded program survives an estop (and the machine-off that shares its
+// teardown): 2.9 closes the interpreter's file handle on abort but keeps
+// emcStatus->task.file, and re-opens it on the next run. Clearing it here left
+// every UI without a title, without a run gate, and without a way back but
+// re-opening the file by hand.
+func TestSetState_EstopKeepsLoadedProgram(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "keep.ngc"), []byte("M2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	task, _, _ := newTestTask()
+	bringUp(t, task)
+	if err := task.ProgramOpen("keep.ngc"); err != nil {
+		t.Fatalf("ProgramOpen: %v", err)
+	}
+	want := task.programFile
+
+	if err := task.SetState(int32(StateEstop)); err != nil {
+		t.Fatalf("SetState(Estop): %v", err)
+	}
+	if task.programFile != want || !task.programOpen {
+		t.Fatalf("estop dropped the program: file=%q open=%v (want %q, true)",
+			task.programFile, task.programOpen, want)
+	}
+	// And it is still runnable after the machine comes back — requireProgram
+	// is the gate that reported "No program loaded".
+	bringUp(t, task)
+	if err := task.requireProgram(); err != nil {
+		t.Fatalf("requireProgram after estop cycle: %v", err)
+	}
+
+	// Machine off is the other half of the same teardown.
+	if err := task.SetState(int32(StateOff)); err != nil {
+		t.Fatalf("SetState(Off): %v", err)
+	}
+	if task.programFile != want || !task.programOpen {
+		t.Fatalf("machine-off dropped the program: file=%q open=%v",
+			task.programFile, task.programOpen)
+	}
+}
+
+// bootID identifies one run of the task: a client uses it to tell "the task I
+// am talking to restarted" from "nothing changed", which no other stat field
+// can express (they all restart at zero and can collide with what the client
+// last saw).
+func TestBootID_DistinctPerTaskAndReportedInStat(t *testing.T) {
+	task, _, _ := newTestTask()
+	if task.bootID == 0 {
+		t.Fatal("bootID not set")
+	}
+	if got := task.BuildStat().BootId; got != task.bootID {
+		t.Fatalf("stat.BootId = %d, want %d", got, task.bootID)
+	}
+	other, _, _ := newTestTask()
+	if other.bootID == task.bootID {
+		t.Fatal("two tasks report the same bootID — a restart would be invisible")
 	}
 }
 
@@ -534,7 +636,7 @@ func TestHome_RequiresOn(t *testing.T) {
 
 func TestHome_CallsMotion(t *testing.T) {
 	task, mot, _ := newTestTask()
-	bringUp(task)
+	bringUp(t, task)
 
 	if err := task.Home(0); err != nil {
 		t.Fatalf("home: %v", err)

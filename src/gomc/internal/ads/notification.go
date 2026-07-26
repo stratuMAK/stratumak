@@ -45,6 +45,7 @@ type notifyManager struct {
 	stopped bool
 	cNetID  AMSNetID // client AMS Net ID (set on first subscribe)
 	cPort   uint16   // client AMS port (set on first subscribe)
+	maxSubs int      // cap on active subscriptions (<= 0 = unlimited); see A7
 }
 
 // newNotifyManager creates a notification manager for a connection.
@@ -56,6 +57,7 @@ func newNotifyManager(s *Server, conn net.Conn) *notifyManager {
 		conn:    conn,
 		server:  s,
 		quit:    make(chan struct{}),
+		maxSubs: s.maxSubs,
 	}
 }
 
@@ -74,10 +76,16 @@ func (nm *notifyManager) stop() {
 	nm.wg.Wait()
 }
 
-// add creates a new subscription and returns its handle.
-func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, cycleTime time.Duration) uint32 {
+// add creates a new subscription and returns its handle and an ADS error code.
+// It returns ErrDeviceNoMemory (without creating a subscription) when the
+// per-connection subscription cap is reached — see ADS_REVIEW_FINDINGS.md A7.
+func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, cycleTime time.Duration) (uint32, uint32) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
+
+	if nm.maxSubs > 0 && len(nm.subs) >= nm.maxSubs {
+		return 0, ErrDeviceNoMemory
+	}
 
 	h := nm.nextHdl
 	nm.nextHdl++
@@ -89,7 +97,7 @@ func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, 
 		transMode:   transMode,
 		cycleTime:   cycleTime,
 	}
-	return h
+	return h, ErrNoError
 }
 
 // del removes a subscription by handle. Returns true if found.
@@ -107,6 +115,14 @@ func (nm *notifyManager) del(handle uint32) bool {
 // symbols and sends DeviceNotification packets to the client.
 func (nm *notifyManager) sendLoop() {
 	defer nm.wg.Done()
+
+	// Recover from any panic in the notification path so it drops the connection
+	// rather than killing the process. See ADS_REVIEW_FINDINGS.md A4.
+	defer func() {
+		if r := recover(); r != nil {
+			nm.server.logger.Error("ADS notification sendLoop panic", "panic", r)
+		}
+	}()
 
 	// Tick at a fixed base interval. We check each subscription's own
 	// cycleTime against the elapsed time since its last send.
@@ -239,6 +255,8 @@ func (nm *notifyManager) sendNotifications(now time.Time, items []notifySample) 
 	encodeAMSHeader(pkt[AMSTCPHeaderSize:], &hdr)
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], payload)
 
+	// Bound the write (TCP backpressure) — see ADS_REVIEW_FINDINGS.md A6.
+	_ = nm.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if _, err := nm.conn.Write(pkt); err != nil {
 		if nm.server.verbose {
 			nm.server.logger.Debug("ADS notification send error", "error", err)
@@ -247,12 +265,24 @@ func (nm *notifyManager) sendNotifications(now time.Time, items []notifySample) 
 }
 
 // clientNetID and clientPort store the client's AMS address from the first
-// AddNotification request. These are set by setClientAddr.
-func (nm *notifyManager) clientNetID() AMSNetID { return nm.cNetID }
-func (nm *notifyManager) clientPort() uint16    { return nm.cPort }
+// AddNotification request. These are set by setClientAddr (the connection
+// reader goroutine) and read by sendLoop/sendNotifications (the sender
+// goroutine), so all access is guarded by nm.mu.
+func (nm *notifyManager) clientNetID() AMSNetID {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	return nm.cNetID
+}
+func (nm *notifyManager) clientPort() uint16 {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	return nm.cPort
+}
 
 // setClientAddr records the client AMS address from the request header.
 func (nm *notifyManager) setClientAddr(hdr *AMSHeader) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
 	nm.cNetID = hdr.SourceNetID
 	nm.cPort = hdr.SourcePort
 }

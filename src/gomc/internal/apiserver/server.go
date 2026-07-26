@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,18 @@ type Server struct {
 	logger       *slog.Logger
 	watchHandler *WatchHandler
 
+	// wsOriginPatterns is the WebSocket Origin allow-list. Empty means
+	// same-origin only (the secure default): a cross-origin page — e.g. a
+	// malicious tab in the operator's browser — cannot open the watch/stream
+	// sockets and issue `call` commands to the controller. Set to the HMI's
+	// host(s), or to []string{"*"} to allow any origin (opt-in, insecure).
+	wsOriginPatterns []string
+
+	// maxConns caps concurrently accepted HTTP connections; wsLimit caps
+	// concurrent WebSocket connections. See limits.go (finding N9).
+	maxConns int
+	wsLimit  *wsLimiter
+
 	streamMu    sync.Mutex
 	streamConns map[*streamConn]struct{}
 	streamWg    sync.WaitGroup
@@ -40,39 +53,82 @@ func NewServer(registry *Registry, addr string) *Server {
 		mux:      http.NewServeMux(),
 		prefix:   "/api/v1",
 		logger:   slog.Default(),
+		maxConns: defaultMaxConnections,
+		wsLimit:  newWSLimiter(defaultMaxWSConnections),
 	}
 
 	s.mux.HandleFunc(s.prefix+"/", s.handleAPIRequest)
 	s.mux.HandleFunc(s.prefix+"/_registry", s.handleRegistryRequest)
 
-	// pprof profiling endpoints — always available for diagnostics.
-	s.mux.HandleFunc("/debug/pprof/", pprof.Index)
-	s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// pprof profiling endpoints are opt-in (GMC_REST_PPROF=1). They are
+	// unauthenticated and leak memory/argv/config plus allow a CPU-profile DoS,
+	// so they must not be mounted by default — especially when the server is
+	// bound to a non-loopback address for a remote HMI.
+	if os.Getenv("GMC_REST_PPROF") == "1" {
+		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
+		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: s.mux,
+		// ReadHeaderTimeout bounds slow-header (Slowloris) connections. We
+		// deliberately do NOT set ReadTimeout/WriteTimeout: those would also
+		// apply to the long-lived WebSocket watch/stream connections and kill
+		// them. IdleTimeout bounds idle keep-alive between plain requests.
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	return s
 }
+
+// maxRequestBodyBytes caps a REST request body so a large POST cannot OOM the
+// controller. API command bodies are small JSON; 8 MiB is generous headroom.
+const maxRequestBodyBytes = 8 << 20
+
+// readHeaderTimeout / idleTimeout harden the HTTP server against slow-header
+// and idle-keepalive resource exhaustion without affecting upgraded WebSocket
+// connections (which are hijacked and no longer governed by these).
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
 
 // SetAddr updates the listen address before ListenAndServe is called.
 func (s *Server) SetAddr(addr string) {
 	s.server.Addr = addr
 }
 
+// SetMaxConnections caps concurrently accepted HTTP connections (WebSocket
+// connections included — they are hijacked HTTP connections). Zero or negative
+// means unlimited. Must be called before ListenAndServe/Serve.
+func (s *Server) SetMaxConnections(n int) {
+	s.maxConns = n
+}
+
+// SetMaxWSConnections caps concurrent WebSocket connections across the watch
+// and stream endpoints; further upgrade attempts get 503. Zero or negative
+// means unlimited. Must be called before AddWatchEndpoint/RegisterStream.
+func (s *Server) SetMaxWSConnections(n int) {
+	s.wsLimit = newWSLimiter(n)
+}
+
 // ListenAndServe starts the HTTP server. Blocks until the server stops.
 func (s *Server) ListenAndServe() error {
-	return s.server.ListenAndServe()
+	ln, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ln)
 }
 
 // Serve accepts connections on the given listener. Useful for tests.
 func (s *Server) Serve(ln net.Listener) error {
-	return s.server.Serve(ln)
+	return s.server.Serve(limitListener(ln, s.maxConns))
 }
 
 // Shutdown gracefully shuts down the server.
@@ -102,6 +158,14 @@ func (s *Server) Handler() http.Handler {
 // SetLogger sets the logger for request and error logging.
 func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
+}
+
+// SetWSOriginPatterns sets the WebSocket Origin allow-list (see wsOriginPatterns).
+// Must be called before AddWatchEndpoint/RegisterStream so the patterns reach the
+// upgraders. Empty keeps the secure same-origin default; []string{"*"} allows any
+// origin (opt-in).
+func (s *Server) SetWSOriginPatterns(patterns []string) {
+	s.wsOriginPatterns = patterns
 }
 
 // RegisterStream registers a stream_server endpoint.
@@ -148,9 +212,10 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 		if candidate.Meta == nil || !candidate.Meta.RESTExport {
 			continue
 		}
-		idx := matchFunc(candidate.Meta, r.Method, funcPath)
+		funcs := candidate.RESTFuncs()
+		idx := matchFunc(funcs, r.Method, funcPath)
 		if idx >= 0 {
-			if isLiteralPath(candidate.Meta.Funcs[idx].Path) {
+			if isLiteralPath(funcs[idx].Path) {
 				api = candidate
 				funcIndex = idx
 				break
@@ -170,14 +235,14 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fn := &api.Meta.Funcs[funcIndex]
+	fn := &api.RESTFuncs()[funcIndex]
 	if fn.Dispatch == nil {
 		writeErrorJSON(w, http.StatusNotImplemented, "function not dispatachable: "+fn.Name)
 		return
 	}
 
-	// Read request body
-	body, err := io.ReadAll(r.Body)
+	// Read request body, bounded so a large POST cannot OOM the controller.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
 	if err != nil {
 		writeErrorJSON(w, http.StatusBadRequest, "failed to read request body")
 		return
@@ -212,26 +277,37 @@ func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 	s.logger.Debug("api request", "method", r.Method, "path", r.URL.Path, "status", 200, "dur", time.Since(start))
 }
 
 // matchFunc finds the FuncMeta index matching the given HTTP method and path.
 // Returns -1 if no match found.
-func matchFunc(meta *APIMeta, method, requestPath string) int {
-	for i := range meta.Funcs {
-		f := &meta.Funcs[i]
+func matchFunc(funcs []FuncMeta, method, requestPath string) int {
+	// Prefer a literal match over a wildcard one WITHIN an API, mirroring the
+	// cross-API preference in the dispatcher: without this a literal
+	// "GET /units" is shadowed by an earlier "GET /{toolno}" in the same API,
+	// since a bare first-match would return whichever appears first in the IDL.
+	wildcard := -1
+	for i := range funcs {
+		f := &funcs[i]
 		if f.Method == "" || f.Path == "" {
 			continue // not REST-exported
 		}
 		if f.Method != method {
 			continue
 		}
-		if matchPath(f.Path, requestPath) {
+		if !matchPath(f.Path, requestPath) {
+			continue
+		}
+		if isLiteralPath(f.Path) {
 			return i
 		}
+		if wildcard < 0 {
+			wildcard = i
+		}
 	}
-	return -1
+	return wildcard
 }
 
 // matchPath matches a pattern like "/pin/{name}" against a request path like "/pin/axis.0".
@@ -363,7 +439,7 @@ type apiError struct {
 func writeErrorJSON(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(apiError{Error: msg, Code: code})
+	_ = json.NewEncoder(w).Encode(apiError{Error: msg, Code: code})
 }
 
 func writeDispatchError(w http.ResponseWriter, err error) {
@@ -373,7 +449,7 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 	if errors.As(err, &ve) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(struct {
+		_ = json.NewEncoder(w).Encode(struct {
 			Error      string `json:"error"`
 			Code       int    `json:"code"`
 			Field      string `json:"field"`
@@ -382,23 +458,40 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 		return
 	}
 
-	// Map errno to HTTP status
+	// A classified fault knows what it is; prefer it over guessing from an
+	// errno. Without this a refusal the machine's state made ("must be in MDI
+	// mode") reached the client as a 500 — the controller reported as broken
+	// when it was working correctly and declining.
+	var f *Fault
+	if errors.As(err, &f) {
+		code := http.StatusInternalServerError
+		switch f.Kind {
+		case FaultState:
+			code = http.StatusConflict
+		case FaultNotReady, FaultCapacity:
+			code = http.StatusServiceUnavailable
+		case FaultNotFound:
+			code = http.StatusNotFound
+		}
+		writeErrorJSON(w, code, err.Error())
+		return
+	}
+
+	// Map errno to HTTP status. errors.Is, not ==: a provider that wraps its
+	// errno for context ("open %s: %w") would otherwise fall through to 500,
+	// which is the opposite of what wrapping is for.
 	code := http.StatusInternalServerError
-	switch err {
-	case syscall.EINVAL:
+	switch {
+	case errors.Is(err, syscall.EINVAL), errors.Is(err, syscall.ERANGE):
 		code = http.StatusBadRequest
-	case syscall.ENOENT:
+	case errors.Is(err, syscall.ENOENT):
 		code = http.StatusNotFound
-	case syscall.EPERM:
+	case errors.Is(err, syscall.EPERM):
 		code = http.StatusForbidden
-	case syscall.EEXIST:
+	case errors.Is(err, syscall.EEXIST), errors.Is(err, syscall.EBUSY):
 		code = http.StatusConflict
-	case syscall.ENOSYS:
+	case errors.Is(err, syscall.ENOSYS):
 		code = http.StatusNotImplemented
-	case syscall.EBUSY:
-		code = http.StatusConflict
-	case syscall.ERANGE:
-		code = http.StatusBadRequest
 	}
 	writeErrorJSON(w, code, err.Error())
 }
@@ -463,9 +556,9 @@ func (s *Server) handleRegistryRequest(w http.ResponseWriter, r *http.Request) {
 			REST:     api.Meta != nil && api.Meta.RESTExport,
 		}
 
-		// Functions from APIMeta
+		// Functions from APIMeta (or the Go-native set, when the provider is a gomod)
 		if api.Meta != nil {
-			for _, fn := range api.Meta.Funcs {
+			for _, fn := range api.RESTFuncs() {
 				path := fn.Path
 				if info.REST && path != "" {
 					path = "/api/v1/" + api.Instance + path
@@ -527,5 +620,5 @@ func (s *Server) handleRegistryRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }

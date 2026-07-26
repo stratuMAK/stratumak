@@ -1,0 +1,14 @@
+<masters>
+  <master idx="0" interface="bus.sim" transportType="sim" appTimePeriod="1000000">
+    <slave idx="0" type="generic" vid="00000E17" pid="51342808" configPdos="true" name="do">
+      <syncManager idx="2" dir="out"><pdo idx="1600"><pdoEntry idx="7000" subIdx="01" bitLen="8" halPin="out" halType="u32"/></pdo></syncManager>
+    </slave>
+    <slave idx="1" type="generic" vid="00000E17" pid="51341808" configPdos="true" name="di">
+      <syncManager idx="3" dir="in"><pdo idx="1a00"><pdoEntry idx="6000" subIdx="01" bitLen="8" halPin="in" halType="u32"/></pdo></syncManager>
+    </slave>
+    <slave idx="2" type="generic" vid="00000E17" pid="51340001" configPdos="true" name="io">
+      <syncManager idx="2" dir="out"><pdo idx="1600"><pdoEntry idx="7000" subIdx="01" bitLen="8" halPin="out" halType="u32"/></pdo></syncManager>
+      <syncManager idx="3" dir="in"><pdo idx="1a00"><pdoEntry idx="6000" subIdx="01" bitLen="8" halPin="in" halType="u32"/></pdo></syncManager>
+    </slave>
+  </master>
+</masters>

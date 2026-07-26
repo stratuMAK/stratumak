@@ -14,6 +14,10 @@ import (
 // substitutePattern matches [SECTION]KEY references used in HAL files.
 var substitutePattern = regexp.MustCompile(`\[([^\]]+)\]([A-Za-z0-9_-]+)`)
 
+// maxExtendLines caps the number of backslash line-continuations for a single
+// logical line, matching the LinuxCNC C parser's MAX_EXTEND_LINES.
+const maxExtendLines = 20
+
 // Parse reads and parses an INI file, recursively handling #INCLUDE directives.
 // Relative paths in #INCLUDE are resolved relative to the directory of the
 // file containing the directive.  Environment variables (e.g. $HOME) in
@@ -42,7 +46,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("inifile: opening %q: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	dir := filepath.Dir(filename)
 	var currentSection *Section
@@ -51,7 +55,42 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(scanner.Text())
+		startLine := lineNum
+		raw := scanner.Text()
+
+		// Honour a trailing backslash (\) as a line-continuation escape,
+		// matching the LinuxCNC C parser (libnml/inifile): when a physical
+		// line's last character is a single '\', it is joined with the
+		// following line(s) — up to maxExtendLines — with the backslash
+		// removed and no separator inserted, so a value split across lines
+		// such as
+		//	APP = sim_pin \
+		//	      axis.x.jog-counts
+		// is read as one value. The check is made on the untrimmed line so a
+		// '\' followed by trailing whitespace is not treated as continuation
+		// (mirroring the C parser, which tests the last byte before newline).
+		if strings.HasSuffix(raw, `\`) {
+			var b strings.Builder
+			b.WriteString(raw[:len(raw)-1])
+			extend := 0
+			for scanner.Scan() {
+				lineNum++
+				extend++
+				if extend > maxExtendLines {
+					return fmt.Errorf("inifile: %s:%d: too many backslash line continuations (limit %d)", filename, startLine, maxExtendLines)
+				}
+				next := scanner.Text()
+				if strings.HasSuffix(next, `\`) {
+					b.WriteString(next[:len(next)-1])
+					continue
+				}
+				b.WriteString(next)
+				break
+			}
+			raw = b.String()
+		}
+
+		line := strings.TrimSpace(raw)
 
 		// Empty line – skip.
 		if line == "" {
@@ -62,7 +101,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		if strings.HasPrefix(line, "#INCLUDE") {
 			rest := strings.TrimSpace(line[len("#INCLUDE"):])
 			if rest == "" {
-				return fmt.Errorf("inifile: %s:%d: empty #INCLUDE path", filename, lineNum)
+				return fmt.Errorf("inifile: %s:%d: empty #INCLUDE path", filename, startLine)
 			}
 			// Expand environment variables in the path.
 			rest = os.ExpandEnv(rest)
@@ -71,7 +110,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 			}
 			abs, err := filepath.Abs(rest)
 			if err != nil {
-				return fmt.Errorf("inifile: %s:%d: resolving #INCLUDE path %q: %w", filename, lineNum, rest, err)
+				return fmt.Errorf("inifile: %s:%d: resolving #INCLUDE path %q: %w", filename, startLine, rest, err)
 			}
 			// Pass a copy of visited so sibling includes don't interfere.
 			visited2 := make(map[string]bool, len(visited))
@@ -106,7 +145,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		if strings.HasPrefix(line, "[") {
 			end := strings.Index(line, "]")
 			if end < 0 {
-				return fmt.Errorf("inifile: %s:%d: malformed section header %q", filename, lineNum, line)
+				return fmt.Errorf("inifile: %s:%d: malformed section header %q", filename, startLine, line)
 			}
 			name := line[1:end]
 			ini.Sections = append(ini.Sections, Section{Name: name})
@@ -129,7 +168,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 			ini.Sections = append(ini.Sections, Section{Name: ""})
 			currentSection = &ini.Sections[len(ini.Sections)-1]
 		}
-		currentSection.Entries = append(currentSection.Entries, Entry{Key: key, Value: value, SourceFile: filename, SourceLine: lineNum})
+		currentSection.Entries = append(currentSection.Entries, Entry{Key: key, Value: value, SourceFile: filename, SourceLine: startLine})
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("inifile: reading %q: %w", filename, err)
@@ -137,32 +176,51 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 	return nil
 }
 
-// stripInlineComment removes trailing inline comments from a value string.
-// Per LinuxCNC convention:
-//   - A ';' anywhere after the value starts an inline comment.
-//   - A '#' starts an inline comment only when preceded by whitespace
-//     (to avoid misinterpreting values that legitimately start with '#').
+// stripInlineComment removes a trailing whitespace-preceded '#' inline comment
+// from a value string.
 //
-// The function finds whichever valid comment marker appears first and
-// truncates there, so mixed cases like "value #comment ; more" are handled
-// correctly (truncated at the '#', not the later ';').
+// The LinuxCNC C parser (libnml/inifile) does NOT strip inline comments at all:
+// it recognises a comment only when '#' or ';' is the FIRST non-whitespace
+// character of a line, and a value is everything after '=' (trailing whitespace
+// trimmed). Numeric lookups nonetheless tolerate a trailing "# comment" because
+// the C code converts with strtod, which stops at the first non-numeric byte.
+// gomc reproduces exactly that tolerance — and no more — by truncating a value
+// at a whitespace-preceded '#' only:
+//
+//   - '#' is honoured only when preceded by whitespace (" #" or "\t#"), so
+//     values that embed '#' as data (e.g. the hex colour "#ff0000", or a
+//     leading '#') are preserved.
+//   - ';' is NOT treated as an inline comment. ';' is legitimate data in string
+//     values — e.g. an MDI_COMMAND such as "G0 Z25;X0 Y0;Z0" chains G-code
+//     moves — and the C parser never strips it. (An earlier version stripped at
+//     the first ';', silently truncating every such MDI_COMMAND to "G0 Z25".)
+//     No shipped config uses ';' as an inline comment; ';'-separated MDI
+//     commands are common, so this matches both the C parser and real configs.
 func stripInlineComment(s string) string {
-	minIdx := len(s)
+	value, _ := SplitInlineComment(s)
+	return value
+}
 
-	// Check for ';' inline comment.
-	if idx := strings.Index(s, ";"); idx >= 0 && idx < minIdx {
-		minIdx = idx
-	}
-	// Check for '#' inline comment preceded by whitespace (" #" or "\t#").
+// SplitInlineComment splits a value string into the value proper and its
+// trailing inline comment, applying exactly the rule documented on
+// stripInlineComment. comment is "" when there is none, and otherwise starts
+// with the whitespace that preceded the '#', so value+comment reconstructs the
+// input apart from whitespace trimmed from the end of value.
+//
+// Exported so that code which *rewrites* an INI line (emccalib's save-back)
+// splits at the same boundary the parser reads at, instead of carrying a second
+// copy of the rule that can drift from this one.
+func SplitInlineComment(s string) (value, comment string) {
+	minIdx := len(s)
 	for _, prefix := range []string{" #", "\t#"} {
 		if idx := strings.Index(s, prefix); idx >= 0 && idx < minIdx {
 			minIdx = idx
 		}
 	}
 	if minIdx < len(s) {
-		s = strings.TrimRight(s[:minIdx], " \t")
+		return strings.TrimRight(s[:minIdx], " \t"), s[minIdx:]
 	}
-	return s
+	return s, ""
 }
 
 // --------------------------------------------------------------------------
@@ -344,11 +402,15 @@ func ParseString(content string) (*IniFile, error) {
 		return nil, fmt.Errorf("inifile: creating temp file: %w", err)
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if _, err := f.WriteString(content); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("inifile: writing temp file: %w", err)
 	}
-	f.Close()
+	// Close the write file before reading it back, so an unflushed-write error
+	// surfaces rather than being masked as a parse failure.
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("inifile: closing temp file: %w", err)
+	}
 	return Parse(name)
 }

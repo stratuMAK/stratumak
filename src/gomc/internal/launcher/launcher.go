@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/halfile"
 	"github.com/sittner/linuxcnc/src/gomc/internal/halrest"
 	"github.com/sittner/linuxcnc/src/gomc/internal/inirest"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/internal/realtime"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -58,15 +60,38 @@ type Launcher struct {
 	halibPath   string            // colon-separated HAL library search path
 	cleanupOnce sync.Once         // ensures cleanup runs exactly once
 	halComp     *hal.Component    // launcher's HAL component (like halcmd's hal_init)
-	goModules   []*goModule       // Go modules loaded via "load" command (compiled-in)
-	cModules    []*cModule        // C plugin modules loaded via "load" command
-	cModArena   []unsafe.Pointer  // arena-tracked C strings freed in destroyCModules
-	logRing     *gomcLogRing      // shared log ring buffer for C module FIFO logging
-	retain      *retainInstance   // integrated retain subsystem (nil if unused)
-	apiServer   *apiserver.Server // REST API server for halcmd and external tools
-	shutdownCh  chan struct{}     // closed by signal handler to unblock wait
-	fatalMu     sync.Mutex        // guards fatalErr
-	fatalErr    error             // set by fail() before closing shutdownCh; Run returns it
+	// modMu serializes runtime load/unload operations (a supported production
+	// path via the halcmd REST surface — see NETWORK_MODULES_REVIEW_FINDINGS.md
+	// N6 / launcher L-3) and guards the goModules/cModules slices and the
+	// shuttingDown flag. It may be held across the cgo cmod_call_* load calls:
+	// no //export callback ever acquires it (they touch only cModArena/ini/the
+	// apiserver registry), so the synchronous re-entry cannot self-deadlock.
+	modMu        sync.Mutex
+	shuttingDown bool        // set under modMu once shutdown begins; blocks new load/unload
+	goModules    []*goModule // Go modules loaded via "load" command (compiled-in)
+	cModules     []*cModule  // C plugin modules loaded via "load" command
+	// arenaMu guards cModArena. It is held ONLY around an individual append or
+	// the free-and-nil loop, NEVER across a cgo call — the gomc_ini_get*
+	// //export callbacks append to the arena synchronously on the loading
+	// goroutine during cmod_call_new/init, so holding it across that call would
+	// self-deadlock. Nesting only ever goes modMu ⊃ arenaMu, never the reverse.
+	arenaMu   sync.Mutex
+	cModArena []unsafe.Pointer // arena-tracked C strings freed in destroyCModules
+	logRing   *gomcLogRing     // shared log ring buffer for C module FIFO logging
+	retain    *retainInstance  // integrated retain subsystem (nil if unused)
+	// apiMu guards apiServer. Today create/start/stop all run on the startup
+	// goroutine and the serve goroutine only ever touches a captured local, so
+	// the field is ordered by construction — but "safe because of the current
+	// call order" is exactly what breaks when a runtime restart or a second
+	// stop path is added (L-5). The lock is never held across ListenAndServe
+	// or Shutdown, only around the field access.
+	apiMu        sync.Mutex
+	apiServer    *apiserver.Server // REST API server for halcmd and external tools
+	apiListener  net.Listener      // bound at startup, served later (see createAPIServer)
+	shutdownCh   chan struct{}     // closed by signal handler to unblock wait
+	shutdownOnce sync.Once         // ensures shutdownCh is closed exactly once
+	fatalMu      sync.Mutex        // guards fatalErr
+	fatalErr     error             // set by fail() before closing shutdownCh; Run returns it
 }
 
 // New creates a new Launcher with the given options and logger.
@@ -116,8 +141,12 @@ func (l *Launcher) Run() (runErr error) {
 
 	// Create the API server early so that stream_server registrations
 	// from cmod plugins (which happen during HAL file loading) can find it.
-	// The server won't start listening until startAPIServer() is called later.
-	l.createAPIServer()
+	// This also binds the listen address — before realtime starts — so a taken
+	// port fails here instead of after the machine is up (see createAPIServer).
+	// The server does not accept requests until startAPIServer() serves it.
+	if err := l.createAPIServer(); err != nil {
+		return err
+	}
 
 	// Register the halcmd REST API handler (uses internal HAL access, not liblinuxcnchal.so).
 	if err := halrest.Register(apiserver.DefaultRegistry()); err != nil {
@@ -134,7 +163,9 @@ func (l *Launcher) Run() (runErr error) {
 	// Export INI file path and config directory so that child processes
 	// (linuxcncsvr, iocontrol, task, etc.) can find the configuration.
 	// These must be set before realtime is started.
-	l.setConfigEnv()
+	if err := l.setConfigEnv(); err != nil {
+		return err
+	}
 
 	// M7: Single deferred cleanup replaces individual defers.
 	// cleanup() is idempotent (sync.Once) so it is also safe to call from
@@ -148,16 +179,7 @@ func (l *Launcher) Run() (runErr error) {
 
 	// M7: Trap SIGINT and SIGTERM so that Ctrl-C triggers an ordered shutdown
 	// instead of an abrupt process exit that leaves HAL loaded.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		l.logger.Info("received signal, shutting down", "signal", sig)
-		// Signal the main wait loop to unblock so that the deferred
-		// cleanup runs through the normal exit path.  Calling os.Exit()
-		// here would race with C plugin destructors causing segfaults.
-		l.shutdown()
-	}()
+	l.watchSignals()
 
 	l.logger.Info("parsing INI file", "path", l.opts.IniFile)
 	ini, err := inifile.Parse(l.opts.IniFile)
@@ -183,7 +205,9 @@ func (l *Launcher) Run() (runErr error) {
 	if effectiveIni != l.opts.IniFile {
 		l.logger.Info("INI file expanded", "original", l.opts.IniFile, "expanded", effectiveIni)
 		l.opts.IniFile = effectiveIni
-		l.setConfigEnv()
+		if err := l.setConfigEnv(); err != nil {
+			return err
+		}
 	}
 
 	// Change to the INI file's directory so that relative paths in the INI
@@ -193,6 +217,12 @@ func (l *Launcher) Run() (runErr error) {
 		return fmt.Errorf("chdir to INI directory %s: %w", iniDir, err)
 	}
 	l.logger.Info("changed working directory", "dir", iniDir)
+
+	// Install the path resolver now: the config directory is known and we are
+	// in it, and nothing has loaded a module yet.
+	if err := l.initPathResolver(); err != nil {
+		return err
+	}
 
 	l.logConfiguration()
 
@@ -357,11 +387,16 @@ func (l *Launcher) resolveRelativePath(path string) string {
 // so that child processes (linuxcncsvr, iocontrol, task, etc.) can find the
 // configuration.  It is called both at initial startup and again after INI
 // include expansion (which may change the effective path).
-func (l *Launcher) setConfigEnv() {
+func (l *Launcher) setConfigEnv() error {
 	if l.opts.IniFile != "" {
-		os.Setenv("INI_FILE_NAME", l.opts.IniFile)
-		os.Setenv("CONFIG_DIR", filepath.Dir(l.opts.IniFile))
+		if err := os.Setenv("INI_FILE_NAME", l.opts.IniFile); err != nil {
+			return fmt.Errorf("setting INI_FILE_NAME: %w", err)
+		}
+		if err := os.Setenv("CONFIG_DIR", filepath.Dir(l.opts.IniFile)); err != nil {
+			return fmt.Errorf("setting CONFIG_DIR: %w", err)
+		}
 	}
+	return nil
 }
 
 // initHalibPath computes the HAL library search path from the compile-time
@@ -377,6 +412,27 @@ func (l *Launcher) initHalibPath() {
 	l.halibPath = halibPath
 }
 
+// initPathResolver publishes the process-wide resolver for
+// configuration-supplied paths (module arguments, files they reference, INI
+// values).  Every module — Go via pathres.Resolve, C via env->path->resolve —
+// resolves through it, so it must be installed before the first module load.
+//
+// The base directory is the INI file's directory; Run() has already chdir'd
+// there, and with no INI (halrun) the working directory is the base.
+func (l *Launcher) initPathResolver() error {
+	configDir := ""
+	if l.ini != nil && l.ini.SourceFile() != "" {
+		configDir = filepath.Dir(l.ini.SourceFile())
+	}
+	r, err := pathres.New(configDir, l.halibPath)
+	if err != nil {
+		return fmt.Errorf("initialising the path resolver: %w", err)
+	}
+	pathres.SetDefault(r)
+	l.logger.Debug("path resolver ready", "base", r.Base(), "roots", r.Roots())
+	return nil
+}
+
 // logConfiguration logs key INI settings at debug level.
 func (l *Launcher) logConfiguration() {
 	if l.ini == nil {
@@ -388,6 +444,23 @@ func (l *Launcher) logConfiguration() {
 		"task", l.ini.Get("TASK", "TASK"),
 	}
 	l.logger.Debug("INI configuration loaded", fields...)
+}
+
+// validateDependencies checks cross-section INI dependencies, after parsing and
+// include expansion but before any process is started.
+//
+// Rules:
+//   - At least one [HAL]HALFILE is required.
+//
+// Reads through iniGetAll, so a launcher with no INI at all (halrun mode)
+// reports the missing-HALFILE error rather than dereferencing a nil INI —
+// though that path never reaches here, since only Run() calls this and
+// RunHalFile() does not.
+func (l *Launcher) validateDependencies() error {
+	if len(l.iniGetAll("HAL", "HALFILE")) == 0 {
+		return fmt.Errorf("at least one [HAL]HALFILE is required")
+	}
+	return nil
 }
 
 // startHalThreads starts all HAL realtime threads via the hal-go API.
@@ -411,13 +484,49 @@ func (l *Launcher) fail(err error) {
 	l.shutdown()
 }
 
+// watchSignals traps SIGINT/SIGTERM and triggers the ordered shutdown.
+//
+// The watcher owns its registration for its whole life: it exits on the first
+// signal OR when shutdownCh closes for any other reason (a fatal error, halrun
+// finishing its file), and deregisters sigCh on the way out. Blocking on a bare
+// <-sigCh instead would leave the goroutine parked forever with signal.Notify
+// still delivering into a channel nobody reads — harmless for a process that
+// then exits, but it leaks a goroutine plus a runtime signal registration per
+// Launcher, which matters as soon as two are constructed in one process, e.g.
+// in tests (L-6).
+//
+// The returned channel is closed once the watcher has exited and deregistered;
+// production callers ignore it, tests use it to join.
+func (l *Launcher) watchSignals() <-chan struct{} {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer signal.Stop(sigCh)
+		select {
+		case sig := <-sigCh:
+			l.logger.Info("received signal, shutting down", "signal", sig)
+			// Signal the main wait loop to unblock so that the deferred
+			// cleanup runs through the normal exit path.  Calling os.Exit()
+			// here would race with C plugin destructors causing segfaults.
+			l.shutdown()
+		case <-l.shutdownCh:
+			// Shutdown already under way — stop listening.
+		}
+	}()
+	return done
+}
+
 // shutdown signals the main wait loop to unblock.  Called from the signal
 // handler goroutine to trigger an ordered shutdown through the normal defer path.
+//
+// Safe to call concurrently and repeatedly: several independent goroutines can
+// race to trigger shutdown (the SIGINT/SIGTERM handler, the REST-server death
+// watcher via fail(), the halrun signal handler).  sync.Once makes the channel
+// close atomic — a plain select/default check-then-close would panic with
+// "close of closed channel" when two of them fire in the same instant, crashing
+// the process instead of running the ordered shutdown.
 func (l *Launcher) shutdown() {
-	select {
-	case <-l.shutdownCh:
-		// already closed
-	default:
-		close(l.shutdownCh)
-	}
+	l.shutdownOnce.Do(func() { close(l.shutdownCh) })
 }

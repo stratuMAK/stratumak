@@ -171,6 +171,10 @@ extern char* gomc_ini_get(uintptr_t ctx, char *section, char *key);
 extern char** gomc_ini_get_all(uintptr_t ctx, char *section, char *key, int *out_count);
 extern char* gomc_ini_source_file(uintptr_t ctx);
 
+// --- Path resolution (forward-declared, implemented in Go) ---
+
+extern char* gomc_path_resolve(uintptr_t ctx, char *name, int mode, char **err_out);
+
 // --- Log subscribe/unsubscribe (forward-declared, implemented in Go) ---
 
 extern gomc_log_sub_t* gomc_log_subscribe_cb(uintptr_t ctx, gomc_log_level_t min_level);
@@ -190,6 +194,11 @@ static void gomc_ini_init(gomc_ini_t *ini, void *ctx) {
     ini->get         = (const char*(*)(void*,const char*,const char*))gomc_ini_get;
     ini->get_all     = (const char**(*)(void*,const char*,const char*,int*))gomc_ini_get_all;
     ini->source_file = (const char*(*)(void*))gomc_ini_source_file;
+}
+
+static void gomc_path_init(gomc_path_t *path, void *ctx) {
+    path->ctx     = ctx;
+    path->resolve = (const char*(*)(void*,const char*,gomc_path_mode_t,const char**))gomc_path_resolve;
 }
 
 static void gomc_hal_init_struct(gomc_hal_t *hal) {
@@ -237,17 +246,19 @@ static cmod_env_t *gomc_env_create(gomc_log_ring_t *ring, uintptr_t log_ctx,
 
     gomc_log_t *log = (gomc_log_t *)calloc(1, sizeof(gomc_log_t));
     gomc_ini_t *ini = (gomc_ini_t *)calloc(1, sizeof(gomc_ini_t));
+    gomc_path_t *path = (gomc_path_t *)calloc(1, sizeof(gomc_path_t));
     gomc_hal_t *hal = (gomc_hal_t *)calloc(1, sizeof(gomc_hal_t));
     gomc_rtapi_t *rtapi = (gomc_rtapi_t *)calloc(1, sizeof(gomc_rtapi_t));
     gomc_api_t *api = (gomc_api_t *)calloc(1, sizeof(gomc_api_t));
 
-    if (!log || !ini || !hal || !rtapi || !api) {
-        free(log); free(ini); free(hal); free(rtapi); free(api); free(env);
+    if (!log || !ini || !path || !hal || !rtapi || !api) {
+        free(log); free(ini); free(path); free(hal); free(rtapi); free(api); free(env);
         return NULL;
     }
 
     gomc_log_init(log, ring, (void *)log_ctx);
     gomc_ini_init(ini, (void *)ini_ctx);
+    gomc_path_init(path, (void *)ini_ctx);
     gomc_hal_init_struct(hal);
     gomc_rtapi_init_struct(rtapi);
     gomc_api_init_struct(api);
@@ -255,6 +266,7 @@ static cmod_env_t *gomc_env_create(gomc_log_ring_t *ring, uintptr_t log_ctx,
     env->dl_handle = dl_handle;
     env->log       = log;
     env->ini       = ini;
+    env->path      = path;
     env->hal       = hal;
     env->rtapi     = rtapi;
     env->api       = api;
@@ -266,6 +278,7 @@ static void gomc_env_destroy(cmod_env_t *env) {
     if (!env) return;
     free((void *)env->log);
     free((void *)env->ini);
+    free((void *)env->path);
     free((void *)env->hal);
     free((void *)env->rtapi);
     free((void *)env->api);
@@ -307,6 +320,7 @@ import (
 	"path/filepath"
 	"runtime/cgo"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
@@ -339,6 +353,13 @@ func cModuleExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// moduleLogHint is appended to a module load/init/start failure. A cmod reports
+// why it refused through its own logging, which reaches the server log with the
+// module's name on it; the launcher only ever sees the int it returned. Rather
+// than reconstruct the reason from the log stream and risk attributing an
+// unrelated message, point the operator at where the real one already is.
+const moduleLogHint = " (the module logs the reason it refused; see the server log)"
 
 // loadCPlugin loads a C plugin .so via dlopen, looks up the "New" symbol,
 // builds the cmod_env_t with gomc sub-API callbacks, calls the factory, and
@@ -392,8 +413,11 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 
 	// Convert args to C strings.  Keep them alive for the full module
 	// lifecycle so C code can hold pointers into name/argv safely.
+	// Append arena strings under arenaMu (short critical section, released
+	// before the cgo cmod_call_new below, whose gomc_ini_get* callbacks re-take
+	// arenaMu on this same goroutine — see the arenaMu contract on Launcher).
 	cName := C.CString(name)
-	l.cModArena = append(l.cModArena, unsafe.Pointer(cName))
+	l.arenaAppend(unsafe.Pointer(cName))
 
 	argc := C.int(len(args))
 	var argv **C.char
@@ -401,7 +425,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 		cargs := make([]*C.char, len(args))
 		for i, a := range args {
 			cargs[i] = C.CString(a)
-			l.cModArena = append(l.cModArena, unsafe.Pointer(cargs[i]))
+			l.arenaAppend(unsafe.Pointer(cargs[i]))
 		}
 		argv = &cargs[0]
 	}
@@ -412,7 +436,8 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 		hCtx.Delete()
 		C.gomc_env_destroy(env)
 		C.dlclose(handle)
-		return fmt.Errorf("load C plugin %q: factory returned error code %d", path, int(rc))
+		return fmt.Errorf("load C plugin %q: factory returned error code %d"+moduleLogHint,
+			path, int(rc))
 	}
 	cm.mod = mod
 
@@ -439,6 +464,16 @@ func (l *Launcher) runtimeLoadModule(module string, args []string) error {
 // default (the module basename).  The explicit-name form supports HAL-file
 // syntax like "load abs <abs.0>", where the instance must be named "abs.0".
 func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) error {
+	// Serialize the whole load against concurrent REST load/unload and against
+	// shutdown (modMu is held across the cgo cmod_call_* calls — safe, no
+	// //export callback takes modMu). This also makes the cModules[len-1] /
+	// goModules[len-1] reads below correct under concurrency.
+	l.modMu.Lock()
+	defer l.modMu.Unlock()
+	if l.shuttingDown {
+		return fmt.Errorf("cannot load %q: shutting down: %w", module, syscall.ESHUTDOWN)
+	}
+
 	path := resolveCModulePath(module)
 	if !cModuleExists(path) {
 		// Try as a Go module — load and start immediately.
@@ -470,13 +505,15 @@ func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) e
 	// Init phase — look up other modules' APIs.
 	rc := C.cmod_call_init(cm.mod)
 	if rc != 0 {
-		return fmt.Errorf("init of C module %q returned error code %d", name, int(rc))
+		return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
+			name, int(rc))
 	}
 
 	// Start phase — begin operation.
 	rc = C.cmod_call_start(cm.mod)
 	if rc != 0 {
-		return fmt.Errorf("start of C module %q returned error code %d", name, int(rc))
+		return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
+			name, int(rc))
 	}
 	cm.started = true
 
@@ -492,7 +529,8 @@ func (l *Launcher) initCModules() error {
 	for _, cm := range l.cModules {
 		rc := C.cmod_call_init(cm.mod)
 		if rc != 0 {
-			return fmt.Errorf("init of C module %q returned error code %d", cm.name, int(rc))
+			return fmt.Errorf("init of C module %q returned error code %d"+moduleLogHint,
+				cm.name, int(rc))
 		}
 	}
 	return nil
@@ -507,7 +545,8 @@ func (l *Launcher) startCModules() error {
 		}
 		rc := C.cmod_call_start(cm.mod)
 		if rc != 0 {
-			return fmt.Errorf("start of C module %q returned error code %d", cm.name, int(rc))
+			return fmt.Errorf("start of C module %q returned error code %d"+moduleLogHint,
+				cm.name, int(rc))
 		}
 		cm.started = true
 	}
@@ -535,9 +574,32 @@ func (l *Launcher) unlockRTModules() {
 
 // stopCModules calls Stop() on all loaded C plugin modules in reverse order.
 func (l *Launcher) stopCModules() {
-	for i := len(l.cModules) - 1; i >= 0; i-- {
-		C.cmod_call_stop(l.cModules[i].mod)
+	l.modMu.Lock()
+	snapshot := l.cModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		cm := snapshot[i]
+		// Only stop modules that were actually started. On a partial-startup
+		// failure (startCModules returns mid-loop) later modules are loaded but
+		// never started; calling stop on them violates the plugin's
+		// start-before-stop contract and can crash. Mirrors unload.go's guard
+		// and startCModules's own started check.
+		if !cm.started {
+			continue
+		}
+		C.cmod_call_stop(cm.mod)
 	}
+}
+
+// arenaAppend records a C allocation in cModArena for later free in
+// destroyCModules. It takes arenaMu only for the append and MUST NOT be called
+// while holding arenaMu across a cgo call (see the arenaMu contract on
+// Launcher). Safe to call re-entrantly from the gomc_ini_get* //export
+// callbacks during a load.
+func (l *Launcher) arenaAppend(p unsafe.Pointer) {
+	l.arenaMu.Lock()
+	l.cModArena = append(l.cModArena, p)
+	l.arenaMu.Unlock()
 }
 
 // destroyCModules calls Destroy() on all loaded C plugin modules in reverse
@@ -547,8 +609,14 @@ func (l *Launcher) stopCModules() {
 // can still emit log messages.  See doCleanup() for ring teardown.
 func (l *Launcher) destroyCModules() {
 	l.unlockRTModules()
-	for i := len(l.cModules) - 1; i >= 0; i-- {
-		cm := l.cModules[i]
+	// Snapshot and clear the live slice under modMu so a straggler REST unload
+	// (should already be blocked by shuttingDown) can never double-destroy.
+	l.modMu.Lock()
+	snapshot := l.cModules
+	l.cModules = nil
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		cm := snapshot[i]
 		C.cmod_call_destroy(cm.mod)
 		if cm.env != nil {
 			C.gomc_env_destroy(cm.env)
@@ -560,10 +628,12 @@ func (l *Launcher) destroyCModules() {
 		cm.hCtx.Delete()
 	}
 	// Free arena strings after all modules have been destroyed.
+	l.arenaMu.Lock()
 	for _, p := range l.cModArena {
 		C.free(p)
 	}
 	l.cModArena = nil
+	l.arenaMu.Unlock()
 	// Free the RT handle tracking array.
 	C.rt_dl_handles_free()
 }

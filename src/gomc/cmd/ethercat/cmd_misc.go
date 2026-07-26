@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/ethercatclient"
 	"strconv"
 )
 
@@ -46,7 +47,7 @@ func init() {
 	})
 }
 
-func cmdAlias(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdAlias(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: alias <ALIAS>")
 	}
@@ -70,7 +71,7 @@ func cmdAlias(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func writeAlias(client *EthercatClient, masterIndex *uint32, pos uint16, alias uint16, force bool) error {
+func writeAlias(client *ethercatclient.EthercatClient, masterIndex *uint32, pos uint16, alias uint16, force bool) error {
 	// Read first 8 SII words.
 	result, err := client.SiiRead(masterIndex, pos, 0, 8)
 	if err != nil {
@@ -92,7 +93,7 @@ func writeAlias(client *EthercatClient, masterIndex *uint32, pos uint16, alias u
 	data[15] = 0
 
 	// Write back.
-	sii := SiiData{
+	sii := ethercatclient.SiiData{
 		Offset: 0,
 		Nwords: 8,
 		Words:  data[:16],
@@ -120,7 +121,7 @@ func siiCrc(data []byte) byte {
 	return crc
 }
 
-func cmdCrc(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdCrc(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	// Handle optional "reset" argument.
 	if len(args) > 1 {
 		return fmt.Errorf("'crc' takes either no or 'reset' argument")
@@ -152,7 +153,7 @@ func cmdCrc(client *EthercatClient, opts *GlobalOpts, args []string) error {
 		// Write 20 zero bytes to register 0x0300 on each slave.
 		zeroData := make([]byte, 20)
 		for _, pos := range positions {
-			_, err := client.RegWrite(masterIndex, pos, 0x0300, RegWriteRequest{
+			_, err := client.RegWrite(masterIndex, pos, 0x0300, ethercatclient.RegWriteRequest{
 				Address:   0x0300,
 				Emergency: false,
 				Data:      zeroData,
@@ -248,7 +249,7 @@ func cmdCrc(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdCstruct(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdCstruct(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -351,11 +352,11 @@ func cmdCstruct(client *EthercatClient, opts *GlobalOpts, args []string) error {
 			if err != nil {
 				continue
 			}
-			dirStr := "EC_DIR_INVALID"
-			switch sm.ControlRegister & 0x0C {
-			case 0x04:
-				dirStr = "EC_DIR_INPUT"
-			case 0x08:
+			// SM control-register direction bit (0x04): set = output, clear =
+			// input (CommandCStruct.cpp: EC_READ_BIT(control, 2) ?
+			// EC_DIR_OUTPUT : EC_DIR_INPUT).
+			dirStr := "EC_DIR_INPUT"
+			if sm.ControlRegister&0x04 != 0 {
 				dirStr = "EC_DIR_OUTPUT"
 			}
 			wdStr := "EC_WD_DISABLE"
@@ -376,7 +377,7 @@ func cmdCstruct(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdEoe(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdEoe(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -406,7 +407,7 @@ func cmdEoe(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdGraph(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdGraph(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -415,7 +416,7 @@ func cmdGraph(client *EthercatClient, opts *GlobalOpts, args []string) error {
 
 	// Collect all slaves.
 	type slaveNode struct {
-		info       *SlaveInfo
+		info       *ethercatclient.SlaveInfo
 		alias      uint16
 		aliasIndex uint16
 	}
@@ -503,7 +504,7 @@ func cmdGraph(client *EthercatClient, opts *GlobalOpts, args []string) error {
 	return nil
 }
 
-func cmdIp(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdIp(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	if len(args) == 0 {
 		return nil
 	}
@@ -520,7 +521,7 @@ func cmdIp(client *EthercatClient, opts *GlobalOpts, args []string) error {
 		return fmt.Errorf("'ip' requires exactly one slave")
 	}
 
-	var req EoeIpRequest
+	var req ethercatclient.EoeIpRequest
 
 	for i := 0; i < len(args); i += 2 {
 		key := args[i]
@@ -575,7 +576,7 @@ func prefixToMask(prefix string) string {
 		(mask>>24)&0xFF, (mask>>16)&0xFF, (mask>>8)&0xFF, mask&0xFF)
 }
 
-func cmdXml(client *EthercatClient, opts *GlobalOpts, args []string) error {
+func cmdXml(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []string) error {
 	masterIndex := parseMasterIndex(opts.Masters)
 	master, err := client.GetMaster(masterIndex)
 	if err != nil {
@@ -628,8 +629,10 @@ func cmdXml(client *EthercatClient, opts *GlobalOpts, args []string) error {
 			if err != nil || sm.PdoCount == 0 {
 				continue
 			}
+			// Output SM (control bit 0x04 set) -> RxPdo, input -> TxPdo
+			// (CommandXml.cpp: control_register & 0x04 ? "R" : "T").
 			pdoTag := "TxPdo"
-			if sm.ControlRegister&0x0C == 0x08 {
+			if sm.ControlRegister&0x04 != 0 {
 				pdoTag = "RxPdo"
 			}
 			for pdoIdx := uint32(0); pdoIdx < uint32(sm.PdoCount); pdoIdx++ {

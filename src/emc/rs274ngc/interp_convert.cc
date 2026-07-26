@@ -3383,10 +3383,7 @@ int Interp::convert_m(block_pointer block,       //!< pointer to a block of RS27
 	      CHP((find_tool_index(settings, toolno, &idx)));
 	      settings->current_pocket = idx;
 	      settings->toolchange_flag = true;
-	      // gomc iocontrol keys the spindle tool by TOOL NUMBER, not by
-	      // pocket index (the classic ioControl took a pocket here) — the
-	      // on-demand tool model has no shared pocket-indexed table.
-	      _setup.canon.change_tool_number(toolno);
+	      _setup.canon.change_tool_number(settings->current_pocket);
 	      set_tool_parameters();
 	  }
 	  break;

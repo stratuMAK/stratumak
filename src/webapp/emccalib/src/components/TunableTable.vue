@@ -19,8 +19,19 @@ function hasEdit(item: TunableItem): boolean {
   return calibStore.getEdit(item.section, item.key) !== undefined;
 }
 
+// The live value comes back through halcmd's "%.7g" formatting (2.9 parity),
+// so an exact compare flags every >7-significant-digit INI value as modified
+// at startup. Compare within the representable resolution instead.
 function isModified(item: TunableItem): boolean {
-  return item.value !== item.ini_value;
+  const d = Math.abs(item.value - item.ini_value);
+  if (d <= 1e-12) return false;
+  return d > Math.max(Math.abs(item.value), Math.abs(item.ini_value)) * 1e-6;
+}
+
+// v-for key: section/key alone is NOT unique — tandem/gantry configs feed two
+// HAL pins from one [SECTION]KEY, which renders as two rows.
+function rowKey(item: TunableItem): string {
+  return `${item.section}\0${item.key}\0${item.hal_pin}`;
 }
 </script>
 
@@ -37,7 +48,7 @@ function isModified(item: TunableItem): boolean {
       </tr>
     </thead>
     <tbody>
-      <tr v-for="item in section.items" :key="item.key" :class="{ modified: isModified(item) }">
+      <tr v-for="item in section.items" :key="rowKey(item)" :class="{ modified: isModified(item) }">
         <td class="col-key">{{ item.key }}</td>
         <td class="col-pin mono">{{ item.hal_pin }}</td>
         <td class="col-ini mono">{{ item.ini_value }}</td>

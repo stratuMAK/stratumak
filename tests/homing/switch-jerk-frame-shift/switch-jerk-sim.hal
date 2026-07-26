@@ -1,0 +1,29 @@
+# Kinematics + motion controller + simulated home/limit switch + watchdog.
+# linuxcnc.hal has already loaded the default homemod for joint 0, io,
+# milltask, etc.; threads.hal created servo-thread.
+
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+load wcomp <homesw.0>
+load cmd_step_watch <watch.0>
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf homesw.0 servo-thread
+addf watch.0 servo-thread
+
+# Perfect servo: the motor command loops straight back as feedback, and also
+# feeds the simulated switch and the per-cycle step watchdog.
+net j0-cmd joint.0.motor-pos-cmd => joint.0.motor-pos-fb homesw.0.in watch.0.in
+
+# Home switch at +8 mm (motor frame), active while the position is at/above it.
+setp homesw.0.min -1000000.0
+setp homesw.0.max 8.0
+# The same switch is home switch AND positive limit switch, as on machines
+# that home onto a limit switch with HOME_IGNORE_LIMITS.
+net j0-homesw homesw.0.over => joint.0.home-sw-in joint.0.pos-lim-sw-in
+
+# estop + tool-change loopbacks (as in core_sim.hal) so milltask can enable.
+net estop-loop      iocontrol.user-enable-out iocontrol.emc-enable-in
+net tool-prep-loop  iocontrol.tool-prepare    iocontrol.tool-prepared
+net tool-change-loop iocontrol.tool-change    iocontrol.tool-changed

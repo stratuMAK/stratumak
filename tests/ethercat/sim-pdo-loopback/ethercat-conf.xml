@@ -1,0 +1,23 @@
+<!--
+  gomc EtherCAT integration test: PDO value round-trip over the sim transport.
+  The slave (bus.sim) loops its output process data back into its input, so
+  writing the output HAL pin (ethercat.0.io.dout) makes the same value appear on
+  the input HAL pin (ethercat.0.io.din) after a couple of cycles — exercising
+  the full cyclic data path HAL -> domain -> frame -> slave -> frame -> HAL.
+-->
+<masters>
+  <master idx="0" interface="bus.sim" transportType="sim" appTimePeriod="1000000">
+    <slave idx="0" type="generic" vid="00000E17" pid="51340001" configPdos="true" name="io">
+      <syncManager idx="2" dir="out">
+        <pdo idx="1600">
+          <pdoEntry idx="7000" subIdx="01" bitLen="8" halPin="dout" halType="u32"/>
+        </pdo>
+      </syncManager>
+      <syncManager idx="3" dir="in">
+        <pdo idx="1a00">
+          <pdoEntry idx="6000" subIdx="01" bitLen="8" halPin="din" halType="u32"/>
+        </pdo>
+      </syncManager>
+    </slave>
+  </master>
+</masters>

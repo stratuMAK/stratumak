@@ -337,13 +337,23 @@ func (st *SymbolTable) GetByHandle(handle uint32) *Symbol {
 	return st.handles[handle]
 }
 
+// maxHandles caps the number of live name-to-symbol handles. Handles live for
+// the lifetime of the SymbolTable and are only reclaimed by an explicit
+// ReleaseHandle, so a client that never releases (buggy or hostile) would
+// otherwise grow the map without limit. See ADS_REVIEW_FINDINGS.md A14.
+const maxHandles = 1 << 16
+
 // CreateHandle allocates a new handle for the named symbol.
-// Returns the handle and ErrNoSymbol if the name is not found.
+// Returns the handle and ErrNoSymbol if the name is not found, or
+// ErrDeviceNoMemory if the live-handle cap is reached.
 // Name lookup uses findSymbolWithFallback for prefix/case-insensitive matching.
 func (st *SymbolTable) CreateHandle(name string) (uint32, uint32) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	if len(st.handles) >= maxHandles {
+		return 0, ErrDeviceNoMemory
+	}
 	sym := st.findSymbolWithFallback(name)
 	if sym == nil {
 		return 0, ErrNoSymbol
@@ -484,6 +494,14 @@ func (st *SymbolTable) ReadWriteData(indexGroup, indexOffset, readLen uint32, wr
 		// writeData = N × 12 bytes: IndexGroup(4) + IndexOffset(4) + Length(4).
 		// Response = N × 4-byte error codes, then concatenated data for successful reads.
 		numReads := indexOffset
+		// Bound the sub-request count against the write buffer before allocating:
+		// every sub-request needs a 12-byte header, so numReads can never exceed
+		// len(writeData)/12. Without this a client-controlled indexOffset (a raw
+		// uint32) sizes the slice directly and a tiny packet can force a multi-GB
+		// allocation → OOM death of the controller.
+		if numReads > uint32(len(writeData))/12 {
+			return nil, ErrInternal
+		}
 		type readResult struct {
 			errCode uint32
 			data    []byte
@@ -528,6 +546,12 @@ func (st *SymbolTable) ReadWriteData(indexGroup, indexOffset, readLen uint32, wr
 		//                   followed by concatenated write data payloads.
 		// Response: N × 4-byte error codes.
 		numWrites := indexOffset
+		// Bound the sub-request count before allocating (same OOM-guard as SumRead):
+		// the N × 12-byte headers alone must fit in writeData, so numWrites can
+		// never exceed len(writeData)/12.
+		if numWrites > uint32(len(writeData))/12 {
+			return nil, ErrInternal
+		}
 		errCodes := make([]uint32, numWrites)
 		dataOffset := numWrites * 12
 		for i := uint32(0); i < numWrites; i++ {
@@ -539,7 +563,10 @@ func (st *SymbolTable) ReadWriteData(indexGroup, indexOffset, readLen uint32, wr
 			ig := binary.LittleEndian.Uint32(writeData[hdrOff:])
 			io := binary.LittleEndian.Uint32(writeData[hdrOff+4:])
 			ln := binary.LittleEndian.Uint32(writeData[hdrOff+8:])
-			if dataOffset+ln > uint32(len(writeData)) {
+			// uint64 arithmetic so a large ln cannot wrap the comparison and let
+			// the slice below panic (dataOffset+ln overflowing uint32 previously
+			// produced a low>high slice → panic → process crash).
+			if uint64(dataOffset)+uint64(ln) > uint64(len(writeData)) {
 				errCodes[i] = ErrInternal
 				continue
 			}
@@ -565,6 +592,14 @@ func (st *SymbolTable) ReadWriteData(indexGroup, indexOffset, readLen uint32, wr
 func (st *SymbolTable) readProcessImageRange(offset, length uint32) ([]byte, uint32) {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
+
+	// A single read larger than the entire process image is always invalid;
+	// reject it before allocating so a client-controlled length (up to ~4 GB)
+	// cannot force an OOM. This also caps the notification sendLoop, which reads
+	// via this path every cycle.
+	if length > st.nextOffset {
+		return nil, ErrInvalidOffset
+	}
 
 	buf := make([]byte, length)
 	end := offset + length
@@ -606,8 +641,13 @@ func (st *SymbolTable) readProcessImageRange(offset, length uint32) ([]byte, uin
 // including partial overlaps. For partial writes the untouched bytes of the
 // symbol retain their current value (read-modify-write).
 func (st *SymbolTable) writeProcessImageRange(offset uint32, data []byte) uint32 {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	// Full write lock (not RLock): each overlapping symbol is read-modify-written
+	// below, so two concurrent overlapping process-image writes under a shared
+	// RLock could interleave and lose an update. Serializing the whole range write
+	// makes the RMW atomic against other process-image writes and reads.
+	// See ADS_REVIEW_FINDINGS.md A13.
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
 	length := uint32(len(data))
 	end := offset + length

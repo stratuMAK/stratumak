@@ -29,7 +29,10 @@
 
 #include "gomc/pkg/cmodule/gomc_hal.h"
 
-#include "ecrt.h"
+// Reach ecrt.h through the RT-annotation funnel (see lcec_ecrt.h) so the
+// ECRT_RT_ATTR -> GOMC_NONBLOCKING override is in force before the first
+// ecrt declaration, whichever of conf.h / lcec.h a TU pulls first.
+#include "lcec_ecrt.h"
 
 /** @brief Legacy module name constant.
  *  Pin and function names now use the per-instance name from cmod New(). */

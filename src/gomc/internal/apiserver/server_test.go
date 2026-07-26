@@ -110,10 +110,30 @@ func TestMatchFunc(t *testing.T) {
 		{"GET", "/unknown", -1}, // no match
 	}
 	for _, tt := range tests {
-		got := matchFunc(meta, tt.method, tt.path)
+		got := matchFunc(meta.Funcs, tt.method, tt.path)
 		if got != tt.want {
 			t.Errorf("matchFunc(%q, %q) = %d, want %d", tt.method, tt.path, got, tt.want)
 		}
+	}
+}
+
+// TestMatchFuncLiteralBeatsWildcard: a literal path must win over a same-shape
+// wildcard in the SAME API even when the wildcard is listed first — the tools
+// API relies on this so GET /units resolves to get_units, not get_tool
+// (/{toolno}). A plain first-match-wins would route /units into the wildcard.
+func TestMatchFuncLiteralBeatsWildcard(t *testing.T) {
+	// Wildcard deliberately precedes the literal, as get_tool precedes
+	// get_units in the tools IDL order.
+	funcs := []FuncMeta{
+		{Name: "get_tool", Method: "GET", Path: "/{toolno}"},
+		{Name: "get_units", Method: "GET", Path: "/units"},
+	}
+	if got := matchFunc(funcs, "GET", "/units"); got != 1 {
+		t.Errorf("GET /units matched index %d (%s), want 1 (get_units)", got, funcs[max(got, 0)].Name)
+	}
+	// A genuine tool number still falls through to the wildcard.
+	if got := matchFunc(funcs, "GET", "/5"); got != 0 {
+		t.Errorf("GET /5 matched index %d, want 0 (get_tool)", got)
 	}
 }
 
@@ -159,7 +179,9 @@ func setupTestServer(t *testing.T) (*httptest.Server, *Registry) {
 		},
 	}
 	RegisterMeta(meta)
-	reg.Register("hal", 1, "hal0", fakeCallbacks)
+	if err := reg.Register("hal", 1, "hal0", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	srv := NewServer(reg, "localhost:0")
 	ts := httptest.NewServer(srv.Handler())
@@ -174,14 +196,16 @@ func TestHTTPGetSimple(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "list_pins" {
 		t.Errorf("func = %v, want list_pins", result["func"])
 	}
@@ -194,14 +218,16 @@ func TestHTTPGetWithPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "pin_read" {
 		t.Errorf("func = %v, want pin_read", result["func"])
 	}
@@ -218,14 +244,16 @@ func TestHTTPGetWithQueryParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	params, _ := result["params"].(map[string]interface{})
 	if params["pattern"] != "axis.*" {
 		t.Errorf("params.pattern = %v, want axis.*", params["pattern"])
@@ -240,14 +268,16 @@ func TestHTTPPost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result["func"] != "signal_create" {
 		t.Errorf("func = %v, want signal_create", result["func"])
 	}
@@ -264,7 +294,7 @@ func TestHTTPNotFoundInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -278,7 +308,7 @@ func TestHTTPNotFoundPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -293,7 +323,7 @@ func TestHTTPMethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -307,14 +337,16 @@ func TestHTTPDispatchError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404 (ENOENT)", resp.StatusCode)
 	}
 
 	var result apiError
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if result.Code != 404 {
 		t.Errorf("error code = %d, want 404", result.Code)
 	}
@@ -331,7 +363,9 @@ func TestHTTPNonRESTExported(t *testing.T) {
 		},
 	}
 	RegisterMeta(meta)
-	reg.Register("internal", 1, "internal0", fakeCallbacks)
+	if err := reg.Register("internal", 1, "internal0", fakeCallbacks); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	srv := NewServer(reg, "localhost:0")
 	ts := httptest.NewServer(srv.Handler())
@@ -341,7 +375,7 @@ func TestHTTPNonRESTExported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Errorf("status = %d, want 404 (not REST-exported)", resp.StatusCode)
@@ -355,7 +389,7 @@ func TestHTTPMissingInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		body, _ := io.ReadAll(resp.Body)
@@ -370,7 +404,7 @@ func TestHTTPContentType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {

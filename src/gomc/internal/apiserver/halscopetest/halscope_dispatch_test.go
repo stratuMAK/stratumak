@@ -25,6 +25,12 @@ type mockHalscope struct {
 	sampleLen int32
 	channels  []halscope.ChannelInfo
 	thread    string
+
+	// What the last ListPins call received, so a test can assert that an
+	// omitted optional parameter arrives as nil.
+	listPinsCalled bool
+	lastPattern    *string
+	lastKind       *string
 }
 
 func newMock() *mockHalscope {
@@ -128,13 +134,25 @@ func (m *mockHalscope) GetStatus() (*halscope.ScopeStatus, error) {
 	}, nil
 }
 
-func (m *mockHalscope) ListPins(pattern string, kind string) ([]string, error) {
+// ListPins records what it was handed: both parameters are `string?`, so a
+// request that names neither must reach the provider as nil rather than as "".
+func (m *mockHalscope) ListPins(pattern *string, kind *string) ([]string, error) {
+	m.lastPattern, m.lastKind = pattern, kind
+	m.listPinsCalled = true
 	return []string{"joint.0.pos-cmd", "joint.1.pos-cmd", "joint.2.pos-cmd"}, nil
 }
 
 // --- Test helpers ---
 
 func setupTestServer(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+	ts, _, cleanup := setupTestServerWithMock(t)
+	return ts, cleanup
+}
+
+// setupTestServerWithMock also hands back the provider, for tests that assert
+// on what the dispatch layer passed it.
+func setupTestServerWithMock(t *testing.T) (*httptest.Server, *mockHalscope, func()) {
 	t.Helper()
 
 	mock := newMock()
@@ -149,7 +167,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 
 	srv := apiserver.NewServer(reg, "")
 	ts := httptest.NewServer(srv.Handler())
-	return ts, func() {
+	return ts, mock, func() {
 		ts.Close()
 	}
 }
@@ -160,7 +178,7 @@ func get(t *testing.T, ts *httptest.Server, path string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -171,7 +189,7 @@ func post(t *testing.T, ts *httptest.Server, path, jsonBody string) (int, []byte
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -186,7 +204,7 @@ func delete_(t *testing.T, ts *httptest.Server, path string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("DELETE %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -221,7 +239,7 @@ func TestGetStatus_Initial(t *testing.T) {
 }
 
 func TestListPins(t *testing.T) {
-	ts, cleanup := setupTestServer(t)
+	ts, mock, cleanup := setupTestServerWithMock(t)
 	defer cleanup()
 
 	code, body := get(t, ts, "/pins")
@@ -241,6 +259,19 @@ func TestListPins(t *testing.T) {
 	}
 	if pins[2] != "joint.2.pos-cmd" {
 		t.Errorf("expected joint.2.pos-cmd, got %s", pins[2])
+	}
+
+	// The request carried no pattern and no kind. Both are optional, so the
+	// provider must see that they were absent — not an empty string, which is
+	// what it saw while `string?` was demoted to a plain `string`.
+	if !mock.listPinsCalled {
+		t.Fatal("ListPins was not reached")
+	}
+	if mock.lastPattern != nil {
+		t.Errorf("an omitted pattern arrived as %q, want nil", *mock.lastPattern)
+	}
+	if mock.lastKind != nil {
+		t.Errorf("an omitted kind arrived as %q, want nil", *mock.lastKind)
 	}
 }
 
@@ -301,7 +332,9 @@ func TestClearChannel(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.SampleLen != 0 {
 		t.Errorf("expected sample_len=0 after clear, got %d", st.SampleLen)
 	}
@@ -318,7 +351,9 @@ func TestArmAndReset(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 1 {
 		t.Errorf("expected state=1 (ARMED), got %d", st.State)
 	}
@@ -329,7 +364,9 @@ func TestArmAndReset(t *testing.T) {
 	}
 
 	_, body = get(t, ts, "/status")
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 0 {
 		t.Errorf("expected state=0 (IDLE) after reset, got %d", st.State)
 	}
@@ -347,7 +384,9 @@ func TestConfigure(t *testing.T) {
 
 	_, body = get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.RecLen != 8000 {
 		t.Errorf("expected rec_len=8000, got %d", st.RecLen)
 	}
@@ -368,7 +407,9 @@ func TestSetTrigger(t *testing.T) {
 	}
 
 	var result int32
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if result != 0 {
 		t.Errorf("expected result=0, got %d", result)
 	}
@@ -402,7 +443,9 @@ func TestFullCaptureWorkflow(t *testing.T) {
 
 	_, body := get(t, ts, "/status")
 	var st halscope.ScopeStatus
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 1 {
 		t.Errorf("expected state=1 (ARMED), got %d", st.State)
 	}
@@ -427,7 +470,9 @@ func TestFullCaptureWorkflow(t *testing.T) {
 	}
 
 	_, body = get(t, ts, "/status")
-	json.Unmarshal(body, &st)
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, body)
+	}
 	if st.State != 0 {
 		t.Errorf("expected state=0, got %d", st.State)
 	}
