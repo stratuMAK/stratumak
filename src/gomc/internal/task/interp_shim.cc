@@ -11,6 +11,8 @@
 #include "emc/rs274ngc/interp_base.hh"
 #include "emc/rs274ngc/rs274ngc_interp.hh"  // Interp class, USER_DEFINED_FUNCTION_NUM
 #include "emc/rs274ngc/modal_state.hh"      // StateTag (restore_from_tag)
+#include "emc/rs274ngc/interp_inspection.hh"     // currentX() & co (state inspection)
+#include "emc/rs274ngc/interp_parameter_def.hh"  // RS274NGC_MAX_PARAMETERS
 
 // Include the generated canon callback table header
 #define CANON_API_CGO
@@ -265,6 +267,67 @@ void interp_set_param_io(void *handle, const interp_param_io_t *io) {
     if (ip) {
         ip->set_param_io(io);
     }
+}
+
+// --- Interpreter state inspection ---
+
+// as_interp downcasts an opaque shim handle, or returns NULL.
+static Interp *as_interp(void *handle) {
+    return dynamic_cast<Interp*>(static_cast<InterpBase*>(handle));
+}
+
+// interp_get_parameter reads a numbered parameter (#index).
+double interp_get_parameter(void *handle, int index) {
+    Interp *ip = as_interp(handle);
+    if (!ip || index < 0 ||
+        index >= interp_param_global::RS274NGC_MAX_PARAMETERS) {
+        return 0.0;
+    }
+    return ip->_setup.parameters[index];
+}
+
+// interp_length_units returns _setup.length_units as a CANON_UNITS value.
+int interp_length_units(void *handle) {
+    Interp *ip = as_interp(handle);
+    return ip ? static_cast<int>(ip->_setup.length_units) : -1;
+}
+
+// The interp_inspection.hh accessors, indexed by enum interp_axis.  Going
+// through that header rather than touching _setup fields directly is
+// deliberate: it is the documented seam, so a field rename in setup breaks
+// one shim table instead of every caller.
+typedef double &(*axis_accessor_t)(setup_pointer);
+
+static const axis_accessor_t position_accessors[INTERP_AXIS_COUNT] = {
+    currentX, currentY, currentZ, currentA, currentB, currentC};
+
+static const axis_accessor_t work_offset_accessors[INTERP_AXIS_COUNT] = {
+    currentWorkOffsetX, currentWorkOffsetY, currentWorkOffsetZ,
+    currentWorkOffsetA, currentWorkOffsetB, currentWorkOffsetC};
+
+static const axis_accessor_t axis_offset_accessors[INTERP_AXIS_COUNT] = {
+    currentAxisOffsetX, currentAxisOffsetY, currentAxisOffsetZ,
+    currentAxisOffsetA, currentAxisOffsetB, currentAxisOffsetC};
+
+static double axis_value(void *handle, int axis,
+                         const axis_accessor_t *accessors) {
+    Interp *ip = as_interp(handle);
+    if (!ip || axis < 0 || axis >= INTERP_AXIS_COUNT) {
+        return 0.0;
+    }
+    return accessors[axis](&ip->_setup);
+}
+
+double interp_current_position(void *handle, int axis) {
+    return axis_value(handle, axis, position_accessors);
+}
+
+double interp_current_work_offset(void *handle, int axis) {
+    return axis_value(handle, axis, work_offset_accessors);
+}
+
+double interp_current_axis_offset(void *handle, int axis) {
+    return axis_value(handle, axis, axis_offset_accessors);
 }
 
 } // extern "C"
