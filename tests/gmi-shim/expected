@@ -1,6 +1,7 @@
 PASS constants
 PASS instance-resolution
 PASS stat-frozen-between-polls
+PASS stat-connected-tracks-server
 PASS command-jog-abort-ordered
 PASS tools-put-envelope
 PASS tools-get-absent-none

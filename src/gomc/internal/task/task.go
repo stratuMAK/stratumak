@@ -405,6 +405,13 @@ type Task struct {
 	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
 	programRes *pathres.Resolver
 	previewSeq int32 // increments on changes that invalidate preview
+	// bootID identifies THIS run of the task (start timestamp, unix ns).
+	// Reported in stat so a client can tell "the task restarted under me"
+	// from "nothing changed": every other counter we publish — previewSeq
+	// above, heartbeat — restarts at zero with the task and can land back on
+	// a value the client already saw, so none of them can carry that signal.
+	// Immutable after NewTask, hence no lock.
+	bootID int64
 
 	// Sequencer
 	interpQueue chan QueuedCmd
@@ -516,6 +523,7 @@ func NewTask(motion MotionController, io IOController, status MotionStatusReader
 		blockDelete:  true,
 		mcode:        newMcodeHandler(),
 		motionMap:    make(map[int32]motionInfo),
+		bootID:       time.Now().UnixNano(),
 	}
 	t.canon = NewCanon(t)
 	t.canonSnap = *t.canon.state

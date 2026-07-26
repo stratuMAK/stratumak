@@ -183,7 +183,19 @@ mdi_history_index= -1
 continuous_jog_in_progress = False
 cjogindices = []
 _jog_refresh_last = 0.0
-_last_program_open_path = None
+# The path the task reports as its open program, as far as we know — the state
+# `loaded_file` is our view OF. The two differ for a filtered program, where the
+# task holds the filter's temp file while we keep showing the original name
+# (finding A-7), which is why the sync below compares server against server and
+# never against loaded_file.
+_server_program = None
+# Identity of the task we are showing (stat.boot_id) and whether stat is live.
+# The program shown by this UI is the server's, never ours: it is adopted from
+# stat.file, dropped when stat goes stale, and re-adopted when a (possibly
+# different) task answers again. Both start as "nothing seen yet" so the first
+# poll always runs the adoption path.
+_server_boot_id = None
+_server_online = False
 
 help1 = [
     ("F1", _("Emergency stop")),
@@ -827,6 +839,29 @@ class LivePlotter:
             del self.stat
             return
 
+        # Track the task we are attached to, before anything reads stat.
+        # Losing it, or finding a different one behind the same address, both
+        # invalidate everything we show about the loaded program — the task
+        # restarts its counters (preview_seq included) from zero, so no other
+        # field can tell us that our view is of a machine that no longer
+        # exists. Rescheduling continues either way: the poll loop is what
+        # notices the server coming back.
+        global _server_boot_id, _server_online
+        if server_present == 1:
+            if not self.stat.connected:
+                if _server_online:
+                    _server_online = False
+                    clear_program_display()
+                    notifications.add("error", _("Server connection lost"))
+                self.after = self.win.after(update_ms, self.update)
+                return
+            boot_id = getattr(self.stat, 'boot_id', None)
+            if not _server_online or boot_id != _server_boot_id:
+                _server_boot_id = boot_id
+                _server_online = True
+                adopt_server_program()
+                o.last_preview_seq = getattr(self.stat, 'preview_seq', 0)
+
         global continuous_jog_in_progress,cjogindices
         global jog_speed_blackout, ajog_speed_blackout
         if continuous_jog_in_progress and not manual_tab_visible():
@@ -986,18 +1021,27 @@ class LivePlotter:
         # (offsets, program loaded, tool table), reload the preview.
         preview_seq = getattr(self.stat, 'preview_seq', 0)
         if preview_seq != getattr(o, 'last_preview_seq', None):
+            global _pending_autofit, _server_program
             o.last_preview_seq = preview_seq
-            # Multi-client sync: if another client loaded a different file,
-            # update text editor and loaded_file (without re-sending
-            # program_open to avoid infinite seq increment loop).
+            # Multi-client sync: follow the task's program whenever it becomes
+            # a different one from the one we are showing a view of. The test
+            # is against _server_program, not loaded_file: our own open (and a
+            # filtered program, where the task holds the temp file and we show
+            # the original) must not read as somebody else's change and send us
+            # re-fetching — or worse, replace the original name in the editor.
             remote_file = self.stat.file
-            file_changed = (remote_file and remote_file != loaded_file
-                            and remote_file != _last_program_open_path)
-            if file_changed:
-                load_text_and_set_file(remote_file)
+            file_changed = False
+            if remote_file != (_server_program or ""):
+                _server_program = remote_file or None
+                if remote_file:
+                    load_text_and_set_file(remote_file)
+                    file_changed = True
+                elif loaded_file:
+                    # The task closed its program: we show what it has, so the
+                    # listing and the preview go with it.
+                    clear_program_display()
             if loaded_file:
                 if file_changed:
-                    global _pending_autofit
                     _pending_autofit = True
                 root_window.after_idle(refresh_preview_if_idle)
         if (self.logger.npts != self.lastpts
@@ -1367,6 +1411,55 @@ def load_text_and_set_file(f):
     except Exception as e:
         notifications.add("error", str(e))
 
+def clear_program_display():
+    """Drop everything this UI shows about a loaded program.
+
+    Called when stat goes stale and when the task comes back with no program
+    open. The listing, the preview and the highlighted line are views of the
+    server's program, so when the server has none — or we cannot ask it — they
+    must show none, rather than keep presenting the last thing we saw as if it
+    were still loaded and runnable.
+    """
+    global loaded_file, _server_program, _pending_autofit
+    loaded_file = None
+    _server_program = None
+    _pending_autofit = False
+    vars.taskfile.set("")
+    t.configure(state="normal")
+    t.tk.call("delete_all", t)
+    t.configure(state="disabled")
+    o.deselect(None)
+    set_first_line(0)
+    o.set_current_line(0)
+    o.clear_preview()
+    o.redraw_soon()
+
+def adopt_server_program():
+    """Make this UI show exactly the program the task has open.
+
+    The task's stat is authoritative: whatever it reports as open is what we
+    display, and we never push a program of our own to get there (a second UI
+    would then be fighting us over the task's state, and a task that came up
+    deliberately empty would be silently re-filled by whichever client
+    reconnected first).
+    """
+    global _server_program, _pending_autofit
+    # The plotter polls its own Stat instance; `s` is the module-wide snapshot
+    # the rest of the UI reads from, and right after a reconnect it still holds
+    # the pre-outage epoch until something refreshes it.
+    s.poll()
+    remote_file = s.file
+    if not remote_file:
+        clear_program_display()
+        return
+    # What we knew about the previous task's program says nothing about this
+    # one — including the filtered-program alias, whose temp file died with it.
+    _server_program = remote_file
+    load_text_and_set_file(remote_file)
+    vars.taskfile.set(remote_file)
+    _pending_autofit = True
+    root_window.after_idle(refresh_preview_if_idle)
+
 def open_file_guts(f, filtered=False, addrecent=True):
     s.poll()
     if addrecent:
@@ -1403,12 +1496,12 @@ def open_file_guts(f, filtered=False, addrecent=True):
             # text fetch below hits the same path-resolver guard and would log a
             # second, redundant "access denied" for the identical root cause.
             return
-        # Remember what WE sent to program_open: for filtered programs f is
-        # the filter's tempfile while loaded_file stays the original, and the
-        # preview_seq resync in update() must not mistake our own load for
-        # another client's and clobber loaded_file (finding A-7).
-        global _last_program_open_path
-        _last_program_open_path = f
+        # Record what the task now holds. For a filtered program that is the
+        # filter's temp file while loaded_file stays the original, and the
+        # resync in update() must not mistake our own load for another
+        # client's and clobber loaded_file (finding A-7).
+        global _server_program
+        _server_program = f
         lines = _fetch_file_lines(f)
         root_window.tk.call("destroy", ".info.progress")
         progress = Progress(1, len(lines))
@@ -4224,33 +4317,41 @@ set_hal_jogincrement()
 
 code = []
 addrecent = True
+# Which program to show at start up. Only an explicit instruction — a command
+# line argument or AXIS_OPEN_FILE — makes this UI load one into the controller;
+# otherwise we show what the controller already has, and nothing if it has
+# nothing. AXIS used to fall back to a stock program of its own here
+# (axis.ngc / axis-lathe.ngc), which loaded a program nobody asked for into the
+# machine, and left a fresh start looking different from a reconnect to the
+# very same controller. [DISPLAY]OPEN_FILE is how a config gets a program
+# opened at start up — the controller does it, once, for every client.
+initialfile = None
 if args:
     initialfile = args[0]
 elif "AXIS_OPEN_FILE" in os.environ:
     initialfile = os.environ["AXIS_OPEN_FILE"]
-elif s.file:
-    # Server already has a program loaded (e.g. from [DISPLAY]OPEN_FILE or
-    # another UI instance). Load its preview without calling program_open again.
-    # If the system is currently running (auto mode), avoid open_file_guts which
-    # calls task_plan_synch/wait_complete/program_open that block or timeout.
-    initialfile = s.file
-    vars.taskfile.set(s.file)
-    addrecent = False
-    if running(do_poll=False):
-        load_text_and_set_file(initialfile)
-        _pending_autofit = True
-        root_window.after_idle(refresh_preview_if_idle)
-        initialfile = None  # skip open_file_guts below
-elif lathe:
-    initialfile = os.path.join(BASE, "share", "axis", "images","axis-lathe.ngc")
-    addrecent = False
-else:
-    initialfile = os.path.join(BASE, "share", "axis", "images", "axis.ngc")
-    addrecent = False
+elif server_present == 1:
+    # The controller already has a program open (its [DISPLAY]OPEN_FILE, or
+    # another client's): adopt it, exactly as on a reconnect. No program_open —
+    # it is already open, and this path also has to work while the machine is
+    # running, where task_plan_synch/program_open would block or time out.
+    adopt_server_program()
 
 if initialfile and os.path.exists(initialfile):
     _pending_autofit = True
     open_file_guts(initialfile, False, addrecent)
+
+# Remember which task this startup state came from, so the first update() cycle
+# does not mistake it for a reconnect and re-adopt what we have just set up.
+# From here on the update loop owns these.
+if server_present == 1:
+    s.poll()
+    _server_online = s.connected
+    _server_boot_id = getattr(s, 'boot_id', None)
+    if _server_program is None:
+        # Set already if we opened a file ourselves above; this covers the
+        # branches that only adopted what the task had.
+        _server_program = s.file or None
 
 if lathe:
     if lathe_backtool:

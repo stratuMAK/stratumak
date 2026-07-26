@@ -160,27 +160,56 @@ class Stat:
         self._data = {}
         self._poll_conn = None
         self._poll_lock = threading.Lock()
+        # Liveness of the cached snapshot. poll() keeps the last data on a
+        # failed fetch (drivers loop through outages), so without this flag a
+        # consumer cannot tell a live reading from a frozen one — a UI would
+        # keep presenting a dead server's last state as current.
+        self._connected = False
+        self._announced_down = False
         # Best-effort initial snapshot: consumers read attributes right after
         # construction (classic stat() was usable immediately). A server that
         # is not up yet is not an error here — drivers run their own
         # poll-until-ready loops.
         try:
             self._data = self._poll_fetch()
+            self._connected = True
         except Exception:
             pass
+
+    @property
+    def connected(self) -> bool:
+        """True while the last poll() reached the server.
+
+        False means the cached snapshot is stale — the server is down, still
+        starting, or unreachable. A display must not present stale values as
+        the machine's state; see the AXIS offline handling.
+        """
+        return self._connected
 
     def poll(self):
         """Fetch a fresh stat snapshot synchronously (like linuxcnc.stat.poll())
         and swap it in wholesale — attributes are frozen until the next poll.
         On fetch failure the previous snapshot is kept rather than raising:
         drivers poll in loops, and classic-style except-and-retry code keeps
-        working through a transient server outage.
+        working through a transient server outage. ``connected`` reports which
+        of the two you are looking at.
         """
         try:
             data = self._poll_fetch()
         except Exception as e:
-            print(f"gmi.Stat: poll failed ({e}), keeping cached data", file=sys.stderr)
+            self._connected = False
+            # Report the transition, not every failed poll: a UI polling at
+            # 10 Hz through a 30 s restart wrote 300 identical lines, which
+            # buried the one message that mattered.
+            if not self._announced_down:
+                self._announced_down = True
+                print(f"gmi.Stat: poll failed ({e}), keeping cached data",
+                      file=sys.stderr)
             return
+        if self._announced_down:
+            self._announced_down = False
+            print("gmi.Stat: reconnected", file=sys.stderr)
+        self._connected = True
         self._data = data
 
     def _poll_fetch(self):
@@ -242,6 +271,8 @@ class Stat:
         "estop", "interpreter_errcode", "lube_level",
         "probe_tripped", "probe_val", "probing",
         "joint_position", "ain", "aout", "din", "dout",
+        # Server identity / liveness
+        "boot_id", "preview_seq", "heartbeat", "connected",
         # Methods
         "poll", "stop",
     }

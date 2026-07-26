@@ -5,7 +5,6 @@ package task
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"regexp"
 	"runtime/cgo"
 	"strconv"
@@ -653,21 +652,30 @@ func (p *drainErrorPublisher) OperatorDisplay(text string) {
 }
 
 // loadDefaultProgram opens the program specified by [DISPLAY]OPEN_FILE
-// at server startup so all UI clients see the same initial file.
+// at task startup so every UI client sees the same initial file — including
+// the clients that outlive a server restart, which adopt whatever the task has
+// open and never push a program of their own.
+//
+// Resolution is left entirely to ProgramOpen (pathres, rooted at PROGRAM_PREFIX
+// and friends). An os.Stat pre-check used to run first, and because it saw the
+// raw INI string it measured the value against the server's *working
+// directory*: a name that ProgramOpen resolves fine ("part.ngc" under
+// PROGRAM_PREFIX) was rejected before it ever got there, and an identical
+// config loaded or skipped the program depending on where the server happened
+// to be started from.
 func (m *milltaskModule) loadDefaultProgram() {
 	file := m.ini.Get("DISPLAY", "OPEN_FILE")
 	if file == "" {
 		return
 	}
-	if _, err := os.Stat(file); err != nil {
-		m.logger.Warn("OPEN_FILE not found, skipping", "file", file, "error", err)
+	if err := m.task.ProgramOpen(file); err != nil {
+		// ProgramOpen has already logged the resolver detail and put a short
+		// reason on the operator channel; this names the source of the request,
+		// which the operator message deliberately does not.
+		m.logger.Warn("[DISPLAY]OPEN_FILE not loaded", "file", file, "error", err)
 		return
 	}
-	if err := m.task.ProgramOpen(file); err != nil {
-		m.logger.Warn("failed to load default program", "file", file, "error", err)
-	} else {
-		m.logger.Info("loaded default program", "file", file)
-	}
+	m.logger.Info("loaded default program", "file", file)
 }
 
 // checkConfig validates kinematics/joint/axis INI consistency.

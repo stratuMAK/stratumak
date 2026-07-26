@@ -324,7 +324,11 @@ See <<cha:gmoccapy,GMOCCAPY>> document for GMOCCAPY details.
   Metric and imperial distances may be mixed: INCREMENTS = 1 inch, 1 mil, 1 cm, 1 mm, 1 um is a valid entry.
 * `GRIDS = 10 mm, 1 in, ...` - Defines the preset values for grid lines.
   The value is interpreted the same way as `INCREMENTS`.
-* `OPEN_FILE = /full/path/to/file.ngc` - The file to show in the preview plot when AXIS starts.
+* `OPEN_FILE = /full/path/to/file.ngc` - The program the controller opens at start up, so every
+  connected UI shows the same one — including a UI that outlives a restart of the controller,
+  which adopts whatever program the controller has open and never loads one of its own.
+  A relative path is resolved against the program directories (`PROGRAM_PREFIX` and the other
+  configured G-code locations), the same way a UI's File > Open is.
   Use a blank string "" and no file will be loaded at start up.
   GMOCCAPY will not use this setting, as it offers a corresponding entry on its settings page.
 * `EDITOR = gedit` - The editor to use when selecting File > Edit to edit the G-code from the AXIS menu.

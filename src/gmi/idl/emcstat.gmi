@@ -215,6 +215,13 @@ type StatFull {
     jog_speed: f64          # linear jog speed (units/sec)
     ajog_speed: f64         # angular jog speed (deg/sec)
     preview_seq: i32        # increments on any change that invalidates preview
+    boot_id: i64            # task start timestamp (unix ns) — an opaque identity
+                            # token for THIS run of the task. A client that sees
+                            # it change is talking to a restarted task and must
+                            # re-adopt the server's state rather than trust any
+                            # cached view: preview_seq and every other counter
+                            # restart with the task and can collide with the
+                            # value the client last saw.
     heartbeat: i32          # monotonic liveness counter (increments each status build)
     angular_units: f64      # angular units scale (machine deg per user angular unit)
     cycle_time: f64         # trajectory planner cycle time (seconds)

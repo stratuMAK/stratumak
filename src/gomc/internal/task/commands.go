@@ -500,8 +500,16 @@ func (t *Task) setState(state int32) error {
 		t.mdiQueue = t.mdiQueue[:0]
 		t.taskCommand = ""
 		t.stepping = false
-		t.programOpen = false
-		t.programFile = ""
+		// The loaded program SURVIVES estop. 2.9 closes only the interpreter's
+		// file handle on abort (emcTaskPlanClose, emctask.cc) and leaves
+		// emcStatus->task.file set, then re-opens it lazily on the next run
+		// ("if (!taskplanopen && task.file[0]) emcTaskPlanOpen(task.file)",
+		// emctaskmain.cc). We already mirror that: finishShutdown below closes
+		// and resets the interp, and the AUTO run/step paths re-open
+		// t.programFile before producing. Clearing the two fields here was the
+		// only divergence — and an operator-visible one: an estop emptied
+		// stat.task.file, so every UI lost its title, its run gate, and the
+		// program it had loaded, with no way back but re-opening the file.
 		t.mu.Unlock()
 
 		if wasOn {

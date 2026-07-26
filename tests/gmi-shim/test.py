@@ -84,7 +84,12 @@ class RestHandler(BaseHTTPRequestHandler):
             else:
                 self._send(self.server.info_payload)
         elif self.path == "/api/v1/milltask/stat":
-            self._send(self.server.stat_snapshot)
+            if self.server.stat_status != 200:
+                # Model a server that is up but cannot answer (starting,
+                # unloading, wedged) — a poll failure, like a refused connect.
+                self._send({"error": "unavailable"}, self.server.stat_status)
+            else:
+                self._send(self.server.stat_snapshot)
         elif self.path == "/api/v1/milltask/7":
             self._send(ZERO_TOOL)  # absent tool = zero entry, NOT 404
         elif self.path == "/api/v1/milltask/8":
@@ -115,6 +120,7 @@ class RestHandler(BaseHTTPRequestHandler):
 def start_rest_stub():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), RestHandler)
     srv.stat_snapshot = {}
+    srv.stat_status = 200
     srv.requests = []
     srv.info_payload = {}
     srv.info_status = 200
@@ -240,13 +246,36 @@ def main():
     s = Stat()
     if s.task_mode != 1:
         fail("stat-initial-snapshot", f"task_mode={s.task_mode}")
-    rest.stat_snapshot = {"task": {"mode": 2}, "tool_in_spindle": 3}
+    rest.stat_snapshot = {"task": {"mode": 2}, "tool_in_spindle": 3,
+                          "boot_id": "1785087147147137065"}
     if s.task_mode != 1:
         fail("stat-frozen", "attribute changed without poll()")
     s.poll()
     if s.task_mode != 2:
         fail("stat-poll-refresh", f"task_mode={s.task_mode}")
     ok("stat-frozen-between-polls")
+
+    # A server that has gone away must be visible as such: poll() keeps the
+    # last snapshot (drivers loop through outages) and reports connected=False.
+    # That flag is the only thing telling a UI that what it shows is no longer
+    # live — without it a dead controller's last state reads as current.
+    # boot_id rides along: it identifies the task behind the address, so a
+    # client can tell a restarted task from an uninterrupted one.
+    if not s.connected:
+        fail("stat-connected", "connected False after a good poll")
+    if s.boot_id != "1785087147147137065":
+        fail("stat-connected", f"boot_id={s.boot_id!r}")
+    rest.stat_status = 503
+    s.poll()
+    if s.connected:
+        fail("stat-connected", "connected still True with the server gone")
+    if s.task_mode != 2:
+        fail("stat-connected", "a failed poll discarded the cached snapshot")
+    rest.stat_status = 200
+    s.poll()
+    if not s.connected:
+        fail("stat-connected", "connected still False after the server returned")
+    ok("stat-connected-tracks-server")
 
     # GP-4: jog and abort both synchronous, server sees issue order.
     c = Command()

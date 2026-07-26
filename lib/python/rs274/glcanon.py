@@ -1967,6 +1967,21 @@ class GlCanonDraw:
         if self.canon: self.canon.draw(0, False)
         glEndList()
 
+    def clear_preview(self):
+        """Drop the previewed program: no canon, no geometry on screen.
+
+        The counterpart of load_preview, for when there is no program to show
+        (the controller has none loaded, or is unreachable). Dropping the canon
+        alone is not enough — the drawing lives in compiled display lists that
+        keep being called until they are staled, so the old program would stay
+        on screen with nothing backing it.
+        """
+        self.set_canon(None)
+        self.stale_dlist('program_rapids')
+        self.stale_dlist('program_norapids')
+        self.stale_dlist('select_rapids')
+        self.stale_dlist('select_norapids')
+
     def load_preview(self, f, canon, *args):
         self.set_canon(canon)
         result, seq = gcode.parse(f, canon, *args)
