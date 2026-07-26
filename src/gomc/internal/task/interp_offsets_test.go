@@ -24,6 +24,7 @@ package task
 // rather than re-blessed silently.
 
 import (
+	"fmt"
 	"log/slog"
 	"math"
 	"os"
@@ -38,6 +39,10 @@ type interpFixture struct {
 	interp *CInterp
 	task   *Task
 	motion *recordingMotion
+	// tools is the machine's tool table. It starts empty; a test that needs
+	// T/M6/G43 populates it with setTool before executing anything.
+	tools *fakeToolTable
+	io    *fakeToolIO
 }
 
 // Machine-native linear unit factors, as [TRAJ]LINEAR_UNITS yields them.
@@ -61,11 +66,18 @@ const (
 func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	t.Helper()
 
+	// A tool table and an IO controller that actually track state. Both are
+	// installed before Init/Synch, which read them. They stay empty unless a
+	// test populates f.tools, so this costs the offset tests nothing.
+	tools := &fakeToolTable{}
+	installFakeToolTable(t, tools)
+	io := newFakeToolIO(tools)
+
 	mot := &recordingMotion{}
 	st := &testStatus{}
 	st.inPosition.Store(true)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	task := NewTask(mot, &mockIO{}, st, logger)
+	task := NewTask(mot, io, st, logger)
 	applyBlendLimits(task) // XYZ vel/acc limits, so the sequencer has real numbers
 	task.maxAcceleration = 600
 	task.linearUnits = linearUnits // feeds GET_EXTERNAL_LENGTH_UNITS
@@ -133,14 +145,65 @@ func newInterpFixture(t *testing.T, linearUnits float64) *interpFixture {
 	setActiveCanon(task.canon)
 	t.Cleanup(clearActiveCanon)
 
-	return &interpFixture{interp: interp, task: task, motion: mot}
+	return &interpFixture{interp: interp, task: task, motion: mot, tools: tools, io: io}
 }
 
 // mdi executes one MDI line and fails the test if the interpreter rejects it.
+//
+// A line that returns INTERP_EXECUTE_FINISH (tool change, probe, dwell,
+// synchronised M-code) is driven to completion using the same handshake the
+// production MDI path uses (commands.go): queue a wait-for-motion, let the
+// sequencer drain, resync the canon end point and the interpreter, then
+// continue. Short-cutting that — just re-calling Execute — would let an M6
+// "succeed" without the tool change ever happening.
 func (f *interpFixture) mdi(t *testing.T, line string) {
 	t.Helper()
-	if _, err := f.interp.ExecuteString(line); err != nil {
+
+	rc, err := f.interp.ExecuteString(line)
+	if err != nil {
 		t.Fatalf("execute %q: %v [%q]", line, err, f.interp.ErrorText(InterpError))
+	}
+	if rc == InterpExecuteFinish {
+		f.drain(t, line)
+	}
+
+	// Continue any subroutine the line entered. The bound is CALL LEVEL, not
+	// the return code: a plain MDI line (or a single top-level queue-buster
+	// like M6) comes back EXECUTE_FINISH with call level 0 and its block is
+	// already complete — calling Execute again there re-runs it forever.
+	// finishMDI in commands.go has the same shape and the same reasoning.
+	for f.interp.CallLevel() > 0 {
+		before := f.task.canon.enqueued()
+		if _, err := f.interp.Execute(); err != nil {
+			t.Fatalf("execute %q: continuation: %v [%q]", line, err, f.interp.ErrorText(InterpError))
+		}
+		if f.task.canon.enqueued() != before {
+			f.drain(t, line) // the continuation queued work; let it run
+			continue
+		}
+		// Nothing queued — the interpreter still expects a synch per
+		// EXECUTE_FINISH before the next continuation.
+		f.task.canon.syncEndPointFromMachine()
+		if err := f.interp.Synch(); err != nil {
+			t.Fatalf("execute %q: interp synch during continuation: %v", line, err)
+		}
+	}
+}
+
+// drain runs the wait-for-motion / resync handshake the production MDI and
+// AUTO paths use after an INTERP_EXECUTE_FINISH.
+func (f *interpFixture) drain(t *testing.T, line string) {
+	t.Helper()
+
+	if err := f.task.EnqueueCmd(waitForMotionSingleton); err != nil {
+		t.Fatalf("execute %q: enqueue wait-for-motion: %v", line, err)
+	}
+	if f.task.waitSequencerDrain() {
+		t.Fatalf("execute %q: sequencer aborted while draining", line)
+	}
+	f.task.canon.syncEndPointFromMachine()
+	if err := f.interp.Synch(); err != nil {
+		t.Fatalf("execute %q: interp synch after execute_finish: %v", line, err)
 	}
 }
 
@@ -521,4 +584,158 @@ func TestInterpG10WithG92Active(t *testing.T) {
 		checkAxes(t, f.interp.CurrentPosition,
 			[6]float64{wantX, wantY, -4, -10, -11, -12}, "position")
 	})
+}
+
+// skipToolTableStaleRead marks the three G10 tool-offset tests as blocked on a
+// real gomc defect, found while porting them.
+//
+// gomc's Interp::find_tool_index (interp_find.cc) does an on-demand lookup
+// through the canon and CACHES the result back into the interpreter's own
+// table:
+//
+//	if (settings->canon.get_tool_by_number(toolno, &idx, &t)) {
+//	    settings->tool_table[idx] = t;   // <-- overwrites local edits
+//
+// The matching WRITE is asynchronous: G10 L1 calls set_tool_table_entry, which
+// enqueues SetToolTableEntryCmd, which the sequencer later hands to
+// io.ToolSetOffset. So two consecutive G10 L1/L10 blocks that each name a
+// different axis lose the earlier one — the second block's find_tool_index
+// re-reads a store the first block's write has not reached yet and clobbers
+// the accumulated offsets.
+//
+// Verified: with a full sequencer drain between the two blocks the offsets
+// accumulate correctly (1,0,0) then (1,2,0), the exact values these tests
+// expect. Without one, X is lost. AUTO reads ahead without draining unless the
+// line returns EXECUTE_FINISH, and G10 L1 does not — so a plain program doing
+//
+//	g10 l1 p1 x1
+//	g10 l1 p1 y2
+//
+// silently loses the X offset on the machine, not just here.
+//
+// 2.9 cannot hit this: its find_tool_index only RESOLVES an index
+// (tooldata_find_index_for_tool) and never writes settings->tool_table, and
+// there the interpreter's table IS the shared tooldata, coherent by
+// construction.
+//
+// Forcing a drain per line is not a workaround: it also runs
+// syncEndPointFromMachine, which resets the interpreter's position against the
+// motion double and breaks the L10 position arithmetic these tests assert.
+//
+// Delete this call to enable the tests once find_tool_index stops clobbering
+// locally-modified slots (or the tool-table write becomes write-through).
+func skipToolTableStaleRead(t *testing.T) {
+	t.Helper()
+	t.Skip("blocked: find_tool_index re-reads the async tool-table store and " +
+		"clobbers in-flight G10 L1/L10 edits — see comment above")
+}
+
+// setupToolOffsetFixture builds the shared preamble of the three tool-offset
+// tests: an inch machine with tool 1 in slot 1, zeroed G54 and zeroed tool
+// offsets, tool 1 loaded and G43 active.
+//
+// The original suite got a tool by writing settings->tool_table[0].toolno = 1
+// directly. That is the spindle slot, so what it was really doing was faking
+// the result of a tool change. Here the change actually runs: T preps, M6
+// loads (the fake IO copies the tool into slot 0, as iocontrol does), and the
+// interpreter picks the tool up through its own synch.
+func setupToolOffsetFixture(t *testing.T, rotation string) *interpFixture {
+	t.Helper()
+
+	f := newInchFixture(t)
+	f.tools.setTool(1, 1, 0, 0, 0, 0.5)
+
+	f.mdi(t, "g10 l2 p1 x0 y0 z0"+rotation)
+	f.mdi(t, "g54")
+	f.mdi(t, "g10 l1 p1 x0 y0 z0")
+	f.mdi(t, "t1 m6")
+	f.mdi(t, "g43")
+
+	checkToolOffsets(t, f, 0, 0, 0, "tool offsets after setup")
+	return f
+}
+
+func checkToolOffsets(t *testing.T, f *interpFixture, x, y, z float64, what string) {
+	t.Helper()
+	checkFuzz(t, f.interp.Parameter(ParamToolOffsetX), x, what+" X (#5401)")
+	checkFuzz(t, f.interp.Parameter(ParamToolOffsetY), y, what+" Y (#5402)")
+	checkFuzz(t, f.interp.Parameter(ParamToolOffsetZ), z, what+" Z (#5403)")
+}
+
+// TestInterpG10L1DirectOffsets ports the "G10 init" test case and its
+// "G10 L1 direct offsets" section: G10 L1 writes tool-table offsets directly,
+// one axis at a time, and the values persist across G49/G43.
+func TestInterpG10L1DirectOffsets(t *testing.T) {
+	skipToolTableStaleRead(t)
+
+	f := setupToolOffsetFixture(t, "")
+
+	// Two passes: the offsets must survive G49 (tool length compensation off)
+	// and be there again on the next pass. That is what the original loop was
+	// checking — G43/G49 state must not disturb the stored offsets.
+	for pass := 0; pass < 2; pass++ {
+		f.mdi(t, "g10 l1 p1 x0 y0 z0 ")
+		f.mdi(t, "g10 l1 p1 x1")
+		checkToolOffsets(t, f, 1, 0, 0, fmt.Sprintf("pass %d: after L1 x1", pass))
+
+		f.mdi(t, "g10 l1 p1 y2")
+		checkToolOffsets(t, f, 1, 2, 0, fmt.Sprintf("pass %d: after L1 y2", pass))
+
+		f.mdi(t, "g10 l1 p1 z3")
+		checkToolOffsets(t, f, 1, 2, 3, fmt.Sprintf("pass %d: after L1 z3", pass))
+
+		f.mdi(t, "g49")
+	}
+}
+
+// TestInterpG10L10RelativeToPosition ports the "tool offsets relative to
+// position no rotation" section: G10 L10 sets the tool offset such that the
+// CURRENT point reads as the commanded coordinate, so the stored offset is
+// (current - commanded) — negative here.
+func TestInterpG10L10RelativeToPosition(t *testing.T) {
+	skipToolTableStaleRead(t)
+
+	f := setupToolOffsetFixture(t, "")
+
+	f.mdi(t, "g0 x.1 y.2 z.3")
+
+	f.mdi(t, "g10 l10 p1 x1")
+	checkToolOffsets(t, f, -0.9, 0, 0, "after L10 x1 at x=.1")
+
+	f.mdi(t, "g10 l10 p1 y2")
+	checkToolOffsets(t, f, -0.9, -1.8, 0, "after L10 y2 at y=.2")
+
+	f.mdi(t, "g10 l10 p1 z3")
+	checkToolOffsets(t, f, -0.9, -1.8, -2.7, "after L10 z3 at z=.3")
+}
+
+// TestInterpG10L10WithRotation ports the "G10 L10 tool offsets relative to
+// position + 45 deg rotation" section: in a rotated coordinate system the
+// offset G10 L10 stores is rotated too, and re-applying G43 moves the current
+// position to the commanded coordinate.
+func TestInterpG10L10WithRotation(t *testing.T) {
+	skipToolTableStaleRead(t)
+
+	f := setupToolOffsetFixture(t, " r45")
+
+	f.mdi(t, "g0 x0 y0 z0")
+
+	f.mdi(t, "g10 l10 p1 x1")
+	f.mdi(t, "g43")
+	checkToolOffsets(t, f, -math.Sqrt2/2, -math.Sqrt2/2, 0, "after L10 x1 in R45")
+	checkFuzz(t, f.interp.CurrentPosition(AxisX), 1.0, "X reads as commanded")
+	checkFuzz(t, f.interp.CurrentPosition(AxisY), 0.0, "Y unchanged")
+
+	f.mdi(t, "g10 l10 p1 y1")
+	f.mdi(t, "g43")
+	checkToolOffsets(t, f, 0, -math.Sqrt2, 0, "after L10 y1 in R45")
+	checkFuzz(t, f.interp.CurrentPosition(AxisX), 1.0, "X still commanded")
+	checkFuzz(t, f.interp.CurrentPosition(AxisY), 1.0, "Y reads as commanded")
+
+	// G49 cancels the compensation: the stored offsets stay put, the position
+	// returns to where it was without them.
+	f.mdi(t, "g49")
+	checkToolOffsets(t, f, 0, -math.Sqrt2, 0, "offsets survive G49")
+	checkFuzz(t, f.interp.CurrentPosition(AxisX), 0.0, "X back to uncompensated")
+	checkFuzz(t, f.interp.CurrentPosition(AxisY), 0.0, "Y back to uncompensated")
 }
