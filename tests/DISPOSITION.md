@@ -22,11 +22,21 @@ First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip
 Prior composition (2026-07-15, full run): 232 run / 224 pass / 0 fail / 8 xfail / 0 skipped.
 *(historical — superseded)*
 
-**Final composition (2026-07-19, full run): 232 run / 232 successful / 0 failed / 0 xfail /
-0 skipped** (`../runtests.log`). The suite is fully migrated: every xfail from the 07-15
-snapshot is resolved (§3) and nothing is skipped (§2). Net count held at 232 — `rtapi-shmem`
-was deleted as obsolete-by-design (§2f) while two fault-path tests
-(`abort/estop-while-running`, `abort/seq-fault-recovery`) were added.
+Migration complete (2026-07-19, full run): 232 run / 232 successful / 0 failed / 0 xfail /
+0 skipped. Every xfail from the 07-15 snapshot was resolved (§3) and nothing is skipped (§2).
+Net count held at 232 — `rtapi-shmem` was deleted as obsolete-by-design (§2f) while two
+fault-path tests (`abort/estop-while-running`, `abort/seq-fault-recovery`) were added.
+*(historical — superseded)*
+
+**Current composition, from CI (2026-07-27): 247 run / 247 successful / 0 failed / 0 xfail /
+0 skipped.** The +15 over the 07-19 migration snapshot is added coverage, not re-counting:
+exactly 15 test dirs were added since and none removed (verified by git). All are net-new
+for gomc-only capability — the `ethercat/sim-*` transport suite (6), the `homing/*`
+jerk-frame-shift and CiA402 tests (4), `abort/toolchange-wedge`, and four more. Still zero
+xfail and zero skip — the governing rule holds.
+
+**CI is the authority for this count.** A `runtests.log` in the tree is an untracked local
+scratch artifact and goes stale the moment a test is added; do not cite it as the number.
 Milestones on the way there: the 07-15 tool-change/lifecycle sweep
 (`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
 RANDOM_TOOLCHANGER clusters, abort modal-state restore, statbuffer-g5x-abort; earlier passes

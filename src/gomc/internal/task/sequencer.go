@@ -945,6 +945,15 @@ func (c *SetToolTableEntryCmd) String() string {
 	return fmt.Sprintf("SetToolTableEntry(P%d T%d)", c.Pocket, c.Toolno)
 }
 
+// PostWait drops the pending copy of this entry: io.ToolSetOffset has run, so
+// the store now holds it and reads can go back to the store
+// (canon_tooltable_pending.go).
+func (c *SetToolTableEntryCmd) PostWait(t *Task) {
+	if t.canon != nil {
+		t.canon.clearPendingTool(c.Pocket)
+	}
+}
+
 // ChangeToolNumberCmd tells IO to load a tool table slot into the spindle
 // without running the changer handshake (M61 Q). Number is a SLOT.
 type ChangeToolNumberCmd struct {

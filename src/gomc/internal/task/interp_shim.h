@@ -111,6 +111,44 @@ void interp_active_settings(void *handle, double *settings, int max_len);
 struct interp_param_io_t;
 void interp_set_param_io(void *handle, const struct interp_param_io_t *io);
 
+// --- Interpreter state inspection ---
+// Read-only views of interpreter state that has no other C-callable route.
+// These mirror emc/rs274ngc/interp_inspection.hh, which exists for exactly
+// this purpose ("shim functions to access interp internal data generically
+// ... so that backend changes don't break the tests as often") and is linked
+// into librs274 already.  Used by the Go interpreter unit tests to assert on
+// offset/parameter state that is invisible from the canon stream.
+
+// Axis selector for the interp_current_* accessors below.
+enum interp_axis {
+    INTERP_AXIS_X = 0,
+    INTERP_AXIS_Y,
+    INTERP_AXIS_Z,
+    INTERP_AXIS_A,
+    INTERP_AXIS_B,
+    INTERP_AXIS_C,
+    INTERP_AXIS_COUNT
+};
+
+// Read a numbered parameter (#index), e.g. 5211 for the G92 X offset.
+// Returns 0 for an out-of-range index or a non-Interp handle.
+double interp_get_parameter(void *handle, int index);
+
+// Current length units as a CANON_UNITS value: INCHES=1, MM=2, CM=3.
+// Returns -1 for a non-Interp handle.
+int interp_length_units(void *handle);
+
+// Active coordinate system index: 1=G54, 2=G55 ... 9=G59.3.
+// Returns -1 for a non-Interp handle.
+int interp_origin_index(void *handle);
+
+// Current position, G5x work offset and G92 axis offset for one axis, in the
+// interpreter's internal units.  Return 0 for an out-of-range axis or a
+// non-Interp handle.
+double interp_current_position(void *handle, int axis);
+double interp_current_work_offset(void *handle, int axis);
+double interp_current_axis_offset(void *handle, int axis);
+
 #ifdef __cplusplus
 }
 #endif
