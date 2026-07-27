@@ -23,10 +23,13 @@ cross-cutting item below points at its §3.
 
 1. **Runtests against gomc** — DONE, full migration complete (2026-07-13 first green; sweeps
    2026-07-15 lifecycle / sync-I/O / G64-blending; **2026-07-19 the whole suite is now
-   un-xfailed and every category — incl. the Category D full-instance tests — is ported**):
-   **232 run / 232 successful / 0 failed / 0 xfail / 0 skipped** (`runtests.log`).
+   un-xfailed and every category — incl. the Category D full-instance tests — is ported**).
+   **Current, from CI (2026-07-27): 247 run / 247 successful / 0 failed / 0 xfail / 0 skipped.**
+   (Was 232 at the 2026-07-19 snapshot; the growth is added coverage — ethercat sim transport,
+   homing jerk/CiA402, the abort fault-path trio — not re-counting.)
    (10 obsolete module-loading over-limit xfails were removed, user ruling — see the ledger §3b.)
-   `tests/DISPOSITION.md` is the authoritative ledger.
+   `tests/DISPOSITION.md` is the authoritative ledger. CI is the authority for the count: any
+   local `runtests.log` in the tree is an untracked scratch artifact and goes stale immediately.
 2. **CI gates** — DONE (2026-07-13; runtests dedup 2026-07-15): `ci.yml` `gomc` job = build +
    C-warning gate (owned paths, `scripts/check-gomc-cwarnings`) + `make gomc-check` (vet, tests,
    pinned golangci-lint v2.12.2 with a no-NEW-findings merge-base gate, fmt). The full runtests
@@ -92,8 +95,9 @@ with nothing left xfailed or skipped: Category C (standalone interp), the HAL `t
 bucket, the `halrun`-in-`test.sh` and halcompile/build tests, and the full-instance
 (Category D) tests via the Python NML→`src/gmi/python` REST port. Infra added over the
 effort: `gomc-server -f` one-shot + `-f --serve` resident HAL modes, `scripts/halrun`
-shim, `tests/hal-stream-driver.sh`, `lib/python/gomc_test.py`. Final: 232/232 successful,
-0 xfail, 0 skipped (`runtests.log`).
+shim, `tests/hal-stream-driver.sh`, `lib/python/gomc_test.py`. At completion (2026-07-19):
+232/232 successful, 0 xfail, 0 skipped. (Current CI count is 247/247 — see
+Immediate next steps §1; the growth is net-new tests added since, not re-counting.)
 
 ### Component gaps surfaced by runtests re-enablement
 
