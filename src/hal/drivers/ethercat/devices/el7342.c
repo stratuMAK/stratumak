@@ -420,6 +420,10 @@ int lcec_el7342_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   lcec_el7342_chan_t *chan;
   uint8_t info1_select, info2_select;
   int err;
+  lcec_slave_modparam_t *p;
+  // per-channel info1 override from a ch<n>-info1 modparam (-1 = not set);
+  // used to enable srv-N-velo-fb export from config instead of terminal EEPROM.
+  int8_t mp_info1[LCEC_EL7342_CHANS];
 
   // initialize callbacks
   slave->proc_read = lcec_el7342_read;
@@ -439,6 +443,68 @@ int lcec_el7342_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   // initialize global data
   hal_data->last_operational = 0;
 
+  // apply per-channel module-parameter SDO configuration.  ecrt_slave_config_sdo*
+  // registers these with the master (written at activation) — RAM only, no
+  // EEPROM.  ch1 objects are at the ch0 index + 0x10 (co).
+  for (i = 0; i < LCEC_EL7342_CHANS; i++) {
+    mp_info1[i] = -1;
+  }
+  for (p = slave->modparams; p != NULL && p->id >= 0; p++) {
+    int ch = p->id & LCEC_EL7342_PARAM_CH_MASK;   // 0 or 1
+    int co = ch << 4;                             // object offset: 0x00 / 0x10
+    switch (p->id & LCEC_EL7342_PARAM_FNK_MASK) {
+      case LCEC_EL7342_PARAM_OP_MODE:
+        if (ecrt_slave_config_sdo8(slave->config, 0x8022 + co, 0x01, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d opMode", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_INFO1:
+        if (ecrt_slave_config_sdo8(slave->config, 0x8022 + co, 0x11, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d info1", master->name, slave->name, ch);
+          return -1;
+        }
+        mp_info1[ch] = (int8_t) p->value.u32;   // drives velo-fb export below
+        break;
+      case LCEC_EL7342_PARAM_MAX_CURR:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x01, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d maxCurrent", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_NOM_CURR:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x02, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d nomCurrent", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_NOM_VOLT:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x03, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d nomVoltage", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_COIL_RES:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x04, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d coilRes", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_ENC_INCR:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x07, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d encIncrements", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+      case LCEC_EL7342_PARAM_NOM_RPM:
+        if (ecrt_slave_config_sdo16(slave->config, 0x8020 + co, 0x08, p->value.u32) != 0) {
+          LCEC_ERR(master, "fail to configure slave %s.%s sdo ch%d nomRpm", master->name, slave->name, ch);
+          return -1;
+        }
+        break;
+    }
+  }
+
   // initialize pins
   for (i=0; i<LCEC_EL7342_CHANS; i++) {
     chan = &hal_data->chans[i];
@@ -451,6 +517,13 @@ int lcec_el7342_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
     // Info2 selector
     if (lcec_read_sdo(slave, 0x8022 + (i << 4), 0x19, &info2_select, 1)) {
       return -EIO;
+    }
+
+    // A ch<i>-info1 modparam overrides the read-back: the driver writes it via
+    // SDO config above, so the channel will report this at runtime.  This lets
+    // srv-N-velo-fb be enabled purely from config (no terminal EEPROM state).
+    if (mp_info1[i] >= 0) {
+      info1_select = (uint8_t) mp_info1[i];
     }
 
     // initialize POD entries
