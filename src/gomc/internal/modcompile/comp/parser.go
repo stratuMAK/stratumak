@@ -147,6 +147,8 @@ func (p *parser) parseDeclaration() error {
 		return p.parseParam()
 	case "function":
 		return p.parseFunction()
+	case "mcode":
+		return p.parseMcode()
 	case "variable":
 		return p.parseVariable()
 	case "option":
@@ -303,6 +305,35 @@ func (p *parser) parseFunction() error {
 		FP:   fp,
 		Doc:  doc,
 	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Mcode: "mcode" NUMBER ";"  — declares one M100-M199 handler (one per line).
+// The body is written as MCODE(<n>){...} in the verbatim C section.
+// ---------------------------------------------------------------------------
+
+func (p *parser) parseMcode() error {
+	pos := p.cur.Pos
+	p.next() // skip "mcode"
+
+	n, err := p.expectNumber()
+	if err != nil {
+		return err
+	}
+	if n < 100 || n > 199 {
+		return fmt.Errorf("%s: mcode %d out of range (must be 100-199)", pos, n)
+	}
+	for _, existing := range p.pkg.Component.Mcodes {
+		if existing == n {
+			return fmt.Errorf("%s: mcode %d declared more than once", pos, n)
+		}
+	}
+	if err := p.expectSemi(); err != nil {
+		return err
+	}
+
+	p.pkg.Component.Mcodes = append(p.pkg.Component.Mcodes, n)
 	return nil
 }
 

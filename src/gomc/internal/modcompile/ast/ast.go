@@ -72,6 +72,11 @@ type Component struct {
 	Modparams []Modparam
 	Includes  []string
 
+	// Mcodes lists the M-codes (100-199) this component handles via the
+	// mcode_handler API.  Each declared code gets an MCODE(<n>){...} body in
+	// the verbatim C section; modcompile emits the trampoline + registration.
+	Mcodes []int
+
 	// GMI API bindings.
 	// GMIProvide lists API names this component provides (server side).
 	// GMIConsume lists APIs this component consumes (client side).

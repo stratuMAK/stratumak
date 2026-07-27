@@ -34,6 +34,7 @@ func (g *generator) generate() error {
 	if err := g.validateArchs(); err != nil {
 		return err
 	}
+	g.ensureMcodeConsume() // auto-bind mcode_handler when M-codes are declared
 	g.emitHeader()         // portable framework prologue (both branches)
 	g.emitArchGuardOpen()  // "#if <arch cond>" — opens the real-module branch
 	g.emitModuleIncludes() // user + GMI headers (arch-specific, may be x86-only)
@@ -57,6 +58,27 @@ func (g *generator) hasUserMainloop() bool {
 
 func (g *generator) hasFunctions() bool {
 	return len(g.comp.Functions) > 0
+}
+
+func (g *generator) hasMcodes() bool {
+	return len(g.comp.Mcodes) > 0
+}
+
+// ensureMcodeConsume adds a `gmi_consume mcode_handler from milltask` binding
+// when the component declares M-codes but hasn't consumed the API explicitly.
+// The provider instance defaults to "milltask" and is overridable at load with
+// mcode_handler_instance=<inst> (e.g. a namespaced milltask like coat.task).
+func (g *generator) ensureMcodeConsume() {
+	if !g.hasMcodes() {
+		return
+	}
+	for _, e := range g.comp.GMIConsume {
+		if e.API == "mcode_handler" {
+			return
+		}
+	}
+	g.comp.GMIConsume = append(g.comp.GMIConsume,
+		ast.GMIConsumeEntry{API: "mcode_handler", From: "milltask"})
 }
 
 // printf writes formatted text, tracking any write error.
@@ -311,6 +333,11 @@ func (g *generator) emitHeader() {
 	g.printf("#include <stdint.h>\n")
 	g.printf("#include <string.h>\n")
 	g.printf("#include <stdbool.h>\n")
+	if g.hasMcodes() {
+		// M-code handlers run in a userspace worker thread: poll abort_fd, sleep.
+		g.printf("#include <poll.h>\n")
+		g.printf("#include <unistd.h>\n")
+	}
 	g.printf("\n#ifndef TRUE\n#define TRUE 1\n#endif\n")
 	g.printf("#ifndef FALSE\n#define FALSE 0\n#endif\n")
 	g.printf("\n")
@@ -553,6 +580,27 @@ func (g *generator) emitConvenienceDefines() {
 		g.printf("#define fperiod (period * 1e-9)\n\n")
 	}
 
+	// MCODE macro — M-code handler bodies.  The handler runs in milltask's
+	// worker thread (NOT realtime): pnumber/qnumber carry P/Q, the pin macros
+	// below are in scope, MCODE_ABORTED polls the abort fd, MCODE_SLEEP naps.
+	// Return 0 = ok, 32-63 -> #5399 (user_defined_result), other = error.
+	if g.hasMcodes() {
+		g.printf("/* M-code handler support (userspace worker thread) */\n")
+		g.printf("static inline int gomc_mcode_aborted(int __fd) {\n")
+		g.printf("    struct pollfd __p = { .fd = __fd, .events = POLLIN };\n")
+		g.printf("    return poll(&__p, 1, 0) > 0;\n")
+		g.printf("}\n")
+		g.printf("#undef MCODE\n")
+		g.printf("#define MCODE(num_) \\\n")
+		g.printf("    static int mcode_ ## num_ ## _body(inst_t *__comp_inst, double pnumber, double qnumber, int __mcode_abort_fd); \\\n")
+		g.printf("    static int mcode_ ## num_(const mcode_handler_mcode_call_t *__call, void *__ud) { \\\n")
+		g.printf("        return mcode_ ## num_ ## _body((inst_t *)__ud, __call->p_number, __call->q_number, __call->abort_fd); \\\n")
+		g.printf("    } \\\n")
+		g.printf("    static int mcode_ ## num_ ## _body(inst_t *__comp_inst, double pnumber, double qnumber, int __mcode_abort_fd)\n")
+		g.printf("#define MCODE_ABORTED    gomc_mcode_aborted(__mcode_abort_fd)\n")
+		g.printf("#define MCODE_SLEEP(us_) usleep(us_)\n\n")
+	}
+
 	// Pin convenience: scalar → dereference pointer.  Pins live in inst_hal_t.
 	// Array pin → function-like macro with index.
 	for _, pin := range g.comp.Pins {
@@ -744,6 +792,21 @@ func (g *generator) emitConsumeAPILookups() {
 	}
 }
 
+// emitMcodeRegistration registers each declared M-code with the mcode_handler
+// provider.  Called from inst_init after the api_get lookups (so the consumed
+// API pointer is valid).  The trampolines (mcode_<n>) are defined by the MCODE
+// macro in the user code emitted earlier in the file.
+func (g *generator) emitMcodeRegistration() {
+	if !g.hasMcodes() {
+		return
+	}
+	g.printf("    /* register M-code handlers */\n")
+	for _, n := range g.comp.Mcodes {
+		g.printf("    if (inst->__gmi_mcode_handler->register_handler(inst->__gmi_mcode_handler->ctx, %d, mcode_%d, inst) != 0)\n", n, n)
+		g.printf("        return -1;\n")
+	}
+}
+
 func (g *generator) emitInitStartStopDestroy() {
 	g.printf("/* ---------------------------------------------------------------------------\n")
 	g.printf(" * Lifecycle: Init / Start / Stop / Destroy\n")
@@ -754,6 +817,7 @@ func (g *generator) emitInitStartStopDestroy() {
 		g.printf("static int inst_init(cmod_t *self) {\n")
 		g.printf("    inst_t *inst = (inst_t *)self;\n")
 		g.emitConsumeAPILookups()
+		g.emitMcodeRegistration()
 		g.printf("    return 0;\n")
 		g.printf("}\n\n")
 	}
