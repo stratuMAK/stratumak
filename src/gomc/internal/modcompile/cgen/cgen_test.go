@@ -104,3 +104,42 @@ FUNCTION(_) { }
 		t.Errorf("option-data block not freed on the err: path; generated err region:\n%s", out[idx:])
 	}
 }
+
+// MC-N: a component that declares M-codes (and has NO rt function) must
+// auto-consume the mcode_handler API, define the MCODE macro, and register a
+// trampoline per code in inst_init.
+func TestGenerate_Mcode(t *testing.T) {
+	src := `component test "test";
+pin out bit m101_request;
+mcode 101;
+license "GPL";
+;;
+MCODE(101) {
+  m101_request = 1;
+  if (MCODE_ABORTED) return -2;
+  return 32;
+}
+`
+	out := gen(t, src)
+
+	checks := []string{
+		// auto gmi_consume mcode_handler + its worker-thread includes
+		`#include <poll.h>`,
+		`#include "mcode_handler_api.h"`,
+		`const mcode_handler_callbacks_t *__gmi_mcode_handler;`,
+		// the MCODE macro and abort helper
+		`#define MCODE(num_)`,
+		`gomc_mcode_aborted`,
+		// api lookup + per-code registration in inst_init
+		`inst->__gmi_mcode_handler = mcode_handler_api_get(`,
+		`inst->__gmi_mcode_handler->register_handler(inst->__gmi_mcode_handler->ctx, 101, mcode_101, inst)`,
+		// provider instance defaults to milltask, overridable at load
+		`inst->__gmi_mcode_handler_instance = "milltask";`,
+		`mcode_handler_instance=`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated C missing %q; generated:\n%s", want, out)
+		}
+	}
+}

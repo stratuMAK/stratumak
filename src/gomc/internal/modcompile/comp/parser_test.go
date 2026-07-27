@@ -442,6 +442,68 @@ license "GPL";
 	}
 }
 
+func TestParseMcode(t *testing.T) {
+	src := `component test "test";
+pin out bit m101_request;
+mcode 100;
+mcode 101;
+license "GPL";
+;;
+MCODE(100) { return 32; }
+MCODE(101) { return 0; }
+`
+	pkg, err := Parse("test.comp", src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if !equalInts(pkg.Component.Mcodes, []int{100, 101}) {
+		t.Errorf("Mcodes = %v, want [100 101]", pkg.Component.Mcodes)
+	}
+}
+
+func TestParseMcodeOutOfRange(t *testing.T) {
+	src := `component test "test";
+mcode 250;
+license "GPL";
+;;
+`
+	_, err := Parse("test.comp", src)
+	if err == nil {
+		t.Fatal("expected error for out-of-range mcode")
+	}
+	if !strings.Contains(err.Error(), "100-199") {
+		t.Errorf("error should mention the valid range: %v", err)
+	}
+}
+
+func TestParseMcodeDuplicate(t *testing.T) {
+	src := `component test "test";
+mcode 101;
+mcode 101;
+license "GPL";
+;;
+`
+	_, err := Parse("test.comp", src)
+	if err == nil {
+		t.Fatal("expected error for duplicate mcode")
+	}
+	if !strings.Contains(err.Error(), "more than once") {
+		t.Errorf("error should mention the duplicate: %v", err)
+	}
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
