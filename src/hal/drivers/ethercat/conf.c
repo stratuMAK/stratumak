@@ -71,6 +71,7 @@ extern ethercat_callbacks_t gmi_ethercat_callbacks(void);
 #include "devices/el1918_logic.h"
 #include "devices/el5002.h"
 #include "devices/el70x1.h"
+#include "devices/el7342.h"
 #include "devices/el7411.h"
 
 #include "classes/class_ax5.h"
@@ -144,6 +145,26 @@ static const LCEC_CONF_MODPARAM_DESC_T slaveEL70x1Params[] = {
   { "nomVoltage", LCEC_EL70x1_PARAM_NOM_VOLT, MODPARAM_TYPE_U32 } ,
   { "coilRes", LCEC_EL70x1_PARAM_COIL_RES, MODPARAM_TYPE_U32 } ,
   { "motorEMF", LCEC_EL70x1_PARAM_MOTOR_EMF, MODPARAM_TYPE_U32 } ,
+  { NULL }
+};
+
+static const LCEC_CONF_MODPARAM_DESC_T slaveEL7342Params[] = {
+  { "ch0-opMode", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_OP_MODE, MODPARAM_TYPE_STRING } ,
+  { "ch0-info1", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_INFO1, MODPARAM_TYPE_STRING } ,
+  { "ch0-maxCurrent", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_MAX_CURR, MODPARAM_TYPE_U32 } ,
+  { "ch0-nomCurrent", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_NOM_CURR, MODPARAM_TYPE_U32 } ,
+  { "ch0-nomVoltage", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_NOM_VOLT, MODPARAM_TYPE_U32 } ,
+  { "ch0-coilRes", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_COIL_RES, MODPARAM_TYPE_U32 } ,
+  { "ch0-encIncrements", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_ENC_INCR, MODPARAM_TYPE_U32 } ,
+  { "ch0-nomRpm", LCEC_EL7342_PARAM_CH_0 | LCEC_EL7342_PARAM_NOM_RPM, MODPARAM_TYPE_U32 } ,
+  { "ch1-opMode", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_OP_MODE, MODPARAM_TYPE_STRING } ,
+  { "ch1-info1", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_INFO1, MODPARAM_TYPE_STRING } ,
+  { "ch1-maxCurrent", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_MAX_CURR, MODPARAM_TYPE_U32 } ,
+  { "ch1-nomCurrent", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_NOM_CURR, MODPARAM_TYPE_U32 } ,
+  { "ch1-nomVoltage", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_NOM_VOLT, MODPARAM_TYPE_U32 } ,
+  { "ch1-coilRes", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_COIL_RES, MODPARAM_TYPE_U32 } ,
+  { "ch1-encIncrements", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_ENC_INCR, MODPARAM_TYPE_U32 } ,
+  { "ch1-nomRpm", LCEC_EL7342_PARAM_CH_1 | LCEC_EL7342_PARAM_NOM_RPM, MODPARAM_TYPE_U32 } ,
   { NULL }
 };
 
@@ -343,7 +364,7 @@ static const LCEC_CONF_TYPELIST_T slaveTypes[] = {
   { "EL7221", lcecSlaveTypeEL7221, NULL },
 
   // dc servo
-  { "EL7342", lcecSlaveTypeEL7342, NULL },
+  { "EL7342", lcecSlaveTypeEL7342, slaveEL7342Params },
 
   // BLDC
   { "EL7411", lcecSlaveTypeEL7411, slaveEL7411Params },
