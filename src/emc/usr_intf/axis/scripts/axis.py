@@ -1005,10 +1005,11 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 _jog_speed_from_remote = False
 
-        # Classic fallback: motion_id (the executing segment's line tag) wins
-        # over the readahead motion_line so the highlight tracks execution
-        # during queued motion (finding A-15).
-        self.win.set_current_line(self.stat.motion_id or self.stat.motion_line)
+        # motion_line already IS the executing segment's line: the server
+        # resolves it from the id motion echoes back through its id -> tag side
+        # table. motion_id is an opaque serial here (not classic's lineno-as-id),
+        # so it must never reach set_current_line.
+        self.win.set_current_line(self.stat.motion_line)
 
         speed = self.stat.current_vel
 

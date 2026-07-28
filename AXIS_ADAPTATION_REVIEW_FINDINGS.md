@@ -77,8 +77,18 @@ out of scope.
   (swapped in/out arrays = OOB read; pointers passed to Py_BuildValue "d") —
   fixed rather than deleted (exported helper; no in-tree callers).
 - **A-14 LOW leftover startup debug print removed.**
-- **A-15 LOW running-line highlight restored classic `motion_id or
-  motion_line` fallback** (highlight tracked readahead, not execution).
+- ~~**A-15 LOW running-line highlight restored classic `motion_id or
+  motion_line` fallback** (highlight tracked readahead, not execution).~~
+  **WITHDRAWN 2026-07-28 — invalid finding, its "fix" was the bug.** The
+  premise (that `motion_id` is the executing segment's line tag) is classic
+  LinuxCNC's, where motion segments are queued with `id = lineno`. Since
+  `f9e48850b3` the id is an opaque monotonic serial and milltask keeps an
+  `id -> {file, lineno, codes}` side table; `stat.motion_line` is already the
+  resolved *executing* line (`internal/task/stat.go`, `motionInfoAndPrune`),
+  not readahead — so the original `set_current_line(self.stat.motion_line)`
+  was correct all along. The fallback fed a serial to `set_current_line()`,
+  and because `nextSerial` is never reset it climbs across runs: every run of
+  the same program highlighted a different, drifting set of lines. Reverted.
 - **A-16 LOW gutted emcmodule GL stubs documented as non-functional** (module
   docstring) — a classic consumer (gremlin) calling them silently draws
   nothing; trap flagged for the qtvcp/gladevcp milestone.
