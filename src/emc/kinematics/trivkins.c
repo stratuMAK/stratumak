@@ -54,22 +54,22 @@ static int32_t trivkins_forward(
     uint64_t fflags,
     uint64_t *iflags)
 {
-    (void)ctx;
+    trivkins_t *tk = (trivkins_t *)ctx;
     (void)fflags;
     (void)iflags;
 
-    // Identity: each axis = its joint
-    double *wp = (double *)world;  // pose fields are contiguous doubles
+    // world[axis] = joints[axis_to_joint[axis]].  The mapping (not a straight
+    // index copy) is required for gapped coordinate strings like a lathe's
+    // "XZ", where axis Z (index 2) is joint 1.  Unmapped axes stay 0.
+    double *wp = (double *)world;  // pose fields are contiguous doubles (X..W)
     for (int i = 0; i < 9; i++) {
         wp[i] = 0.0;
     }
-    // We only fill in the axes we know about.
-    // For identity kins, axis N = joint N (via the mapping).
-    // But since forward gets raw joint values and the mapping is
-    // set up at init time, we just copy through.
-    for (int i = 0; i < 9; i++) {
-        // joints and pose positions are identity-mapped for trivkins
-        wp[i] = joints[i];
+    for (int ax = 0; ax < 9; ax++) {
+        int j = tk->axis_to_joint[ax];
+        if (j >= 0) {
+            wp[ax] = joints[j];
+        }
     }
 
     return 0;
@@ -82,16 +82,22 @@ static int32_t trivkins_inverse(
     uint64_t iflags,
     uint64_t *fflags)
 {
-    (void)ctx;
+    trivkins_t *tk = (trivkins_t *)ctx;
     (void)iflags;
     (void)fflags;
 
+    // joints[axis_to_joint[axis]] = world[axis].  Mirror of forward: for "XZ"
+    // this drives joint 1 from axis Z (index 2), not from axis Y.  Unmapped
+    // joints stay 0.
     const double *wp = (const double *)world;
     for (int i = 0; i < KINS_MAX_JOINTS; i++) {
         joints[i] = 0.0;
     }
-    for (int i = 0; i < 9; i++) {
-        joints[i] = wp[i];
+    for (int ax = 0; ax < 9; ax++) {
+        int j = tk->axis_to_joint[ax];
+        if (j >= 0) {
+            joints[j] = wp[ax];
+        }
     }
 
     return 0;

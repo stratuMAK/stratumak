@@ -94,6 +94,60 @@ func TestTrivkinsInverse(t *testing.T) {
 	}
 }
 
+// TestTrivkinsGappedCoords exercises a lathe-style coordinates=XZ config,
+// where the coordinate letters are not contiguous: axis X is Cartesian
+// index 0 -> joint 0, but axis Z is Cartesian index 2 -> joint 1.  A
+// straight index copy (the old bug) would drive joint 1 from axis Y and
+// send axis Z to a nonexistent joint 2, so world-jogging Z moved nothing.
+func TestTrivkinsGappedCoords(t *testing.T) {
+	reg := apiserver.NewRegistry()
+	apiserver.SetDefaultRegistry(reg)
+	defer apiserver.SetDefaultRegistry(nil)
+
+	mod, err := loadTrivkinsCoords("XZ")
+	if err != nil {
+		t.Fatalf("loadTrivkinsCoords: %v", err)
+	}
+	defer unloadTrivkins(mod)
+
+	cbs := getKinsCallbacks()
+	if cbs == nil {
+		t.Fatal("kins_api_get returned nil")
+	}
+
+	// inverse: axis X=5, Z=7 -> joint0=5 (X), joint1=7 (Z).  The bug would
+	// give joint1=0 (it read axis Y).
+	world := makePose(5.0, 0.0, 7.0)
+	joints, rc := callInverse(cbs, world)
+	if rc != 0 {
+		t.Fatalf("inverse returned %d", rc)
+	}
+	if joints[0] != 5.0 {
+		t.Errorf("inverse joint0 (X) = %.1f, want 5.0", joints[0])
+	}
+	if joints[1] != 7.0 {
+		t.Errorf("inverse joint1 (Z) = %.1f, want 7.0 (axis Z); 0.0 = the pre-fix bug", joints[1])
+	}
+
+	// forward: joint0=3 (X), joint1=9 (Z) -> axis X=3, Z=9, Y=0.
+	var jf [16]float64
+	jf[0] = 3.0
+	jf[1] = 9.0
+	fwd, rc := callForward(cbs, jf)
+	if rc != 0 {
+		t.Fatalf("forward returned %d", rc)
+	}
+	if float64(fwd.x) != 3.0 {
+		t.Errorf("forward axis X = %.1f, want 3.0", float64(fwd.x))
+	}
+	if float64(fwd.z) != 9.0 {
+		t.Errorf("forward axis Z = %.1f, want 9.0 (joint 1); the bug put it on Y", float64(fwd.z))
+	}
+	if float64(fwd.y) != 0.0 {
+		t.Errorf("forward axis Y = %.1f, want 0.0 (no joint maps to Y)", float64(fwd.y))
+	}
+}
+
 func TestTrivkinsType(t *testing.T) {
 	reg := apiserver.NewRegistry()
 	apiserver.SetDefaultRegistry(reg)

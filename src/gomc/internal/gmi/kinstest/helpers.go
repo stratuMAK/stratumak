@@ -209,6 +209,20 @@ package kinstest
 //     return factory(env, name, 0, NULL, out);
 // }
 //
+// // Like load_kins_module but passes a single New() argv (e.g. "coordinates=XZ").
+// static int load_kins_module_arg(const char *so_path, const char *name,
+//                                 const char *arg, cmod_t **out) {
+//     init_stub_env();
+//     void *handle = dlopen(so_path, RTLD_NOW);
+//     if (!handle) return -1;
+//     cmod_new_fn factory = (cmod_new_fn)dlsym(handle, "New");
+//     if (!factory) { dlclose(handle); return -2; }
+//     loaded_handle = handle;
+//     stub_env.dl_handle = handle;
+//     const char *argv[1] = { arg };
+//     return factory(&stub_env, name, 1, argv, out);
+// }
+//
 // static void unload_kins_module(cmod_t *mod) {
 //     if (mod) {
 //         if (mod->Stop) mod->Stop(mod);
@@ -263,6 +277,36 @@ func loadKinsModule(name string, needHAL bool) (*C.cmod_t, error) {
 // loadTrivkins loads the trivkins.so and calls New().
 func loadTrivkins() (*C.cmod_t, error) {
 	return loadKinsModule("trivkins", false)
+}
+
+// loadTrivkinsCoords loads trivkins.so with a "coordinates=<coords>" New() arg.
+func loadTrivkinsCoords(coords string) (*C.cmod_t, error) {
+	path := soPath("trivkins")
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	cname := C.CString("trivkins")
+	defer C.free(unsafe.Pointer(cname))
+	carg := C.CString("coordinates=" + coords)
+	defer C.free(unsafe.Pointer(carg))
+
+	var mod *C.cmod_t
+	if rc := C.load_kins_module_arg(cpath, cname, carg, &mod); rc != 0 {
+		return nil, os.ErrInvalid
+	}
+	return mod, nil
+}
+
+// makePose builds a kins_pose_t with the given X/Y/Z (other axes 0), so tests
+// need not name the cgo type directly.
+func makePose(x, y, z float64) C.kins_pose_t {
+	var p C.kins_pose_t
+	p.x = C.double(x)
+	p.y = C.double(y)
+	p.z = C.double(z)
+	return p
 }
 
 // unloadKinsModule cleans up any loaded kins module.
