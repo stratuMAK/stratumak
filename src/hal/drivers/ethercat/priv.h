@@ -97,7 +97,7 @@ void lcec_shutdown_master(lcec_master_t *master);
 /** @brief Allocate and export HAL pins for a master. @see master.c */
 lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, const char *pfx, int global);
 /** @brief Update master HAL output pins from the current EtherCAT master state. @see master.c */
-void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms) GOMC_NONBLOCKING;
+void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms, int all_op) GOMC_NONBLOCKING;
 
 /* RT master cycle functions (exported as HAL functs by main.c, defined in
  * master.c) — run every servo period. */

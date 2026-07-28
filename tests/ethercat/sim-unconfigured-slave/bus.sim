@@ -1,0 +1,28 @@
+# Bus description for the in-process EtherCAT sim transport (transportType=sim).
+#
+# Two slaves are physically present, but ethercat-conf.xml configures only the
+# first one. The second slave answers the bus scan and is therefore counted in
+# slaves-responding and OR-ed into the master's AL state word, but the master
+# never drives it past PRE-OP because no configuration claims it.
+slave 0
+  vendor   0x00000E17
+  product  0x51340001
+  revision 0x00010000
+  serial   1
+  mbox_out 0x1000 128
+  mbox_in  0x1080 128
+  sm2      0x1100 8
+  sm3      0x1400 8
+  od       0x1600 0 1 0
+  od       0x1a00 0 1 0
+slave 1
+  vendor   0x00000E17
+  product  0x51340002
+  revision 0x00010000
+  serial   2
+  mbox_out 0x1000 128
+  mbox_in  0x1080 128
+  sm2      0x1100 8
+  sm3      0x1400 8
+  od       0x1600 0 1 0
+  od       0x1a00 0 1 0

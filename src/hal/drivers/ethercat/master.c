@@ -102,22 +102,31 @@ lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, con
  *
  * Copies fields from the IgH @c ec_master_state_t snapshot into the HAL-visible
  * pin storage.  Each AL state bit is decomposed into individual boolean pins
- * (@c state_init, @c state_preop, @c state_safeop, @c state_op) and the
- * @c all_op pin is set only when every slave reports the OP state (al_states == 0x08).
+ * (@c state_init, @c state_preop, @c state_safeop, @c state_op); those describe
+ * the bus as a whole, so each is TRUE when @em at @em least @em one slave is in
+ * the respective state.
+ *
+ * The @c all_op pin applies the same @c al_state @c == @c OP test, but per
+ * configured slave instead of to @p ms.  The master's AL state word is the
+ * bitwise OR over every slave that answers the bus scan, including slaves that
+ * are not part of the configuration and therefore never leave PRE-OP — on such
+ * a bus it could never become TRUE.  The caller evaluates the same predicate
+ * over the configured slaves only and passes the result in.
  *
  * @param hal_data  Pointer to the HAL data block whose pins will be written.
  * @param ms        Pointer to the master state snapshot (read-only).
+ * @param all_op    Non-zero when every configured slave reports AL state OP.
  *
  * @note Called from the real-time read function; must not block or allocate.
  */
-void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms) {
+void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms, int all_op) {
   *(hal_data->slaves_responding) = ms->slaves_responding;
   *(hal_data->state_init) = (ms->al_states & 0x01) != 0;
   *(hal_data->state_preop) = (ms->al_states & 0x02) != 0;
   *(hal_data->state_safeop) = (ms->al_states & 0x04) != 0;
   *(hal_data->state_op) = (ms->al_states & 0x08) != 0;
   *(hal_data->link_up) = ms->link_up;
-  *(hal_data->all_op) = (ms->al_states == 0x08);
+  *(hal_data->all_op) = all_op != 0;
 }
 
 /**
@@ -338,9 +347,9 @@ void lcec_shutdown_master(lcec_master_t *master) {
  *     @c ecrt_master_state() and @c ecrt_slave_config_state() for each slave.
  *  -# Calls @c ecrt_master_receive() and @c ecrt_domain_process() under the
  *     master mutex to latch fresh PDO data.
- *  -# Updates master-level and global AL-state HAL pins.
  *  -# Iterates over all slaves, refreshing state pins and calling each slave's
- *     @c proc_read callback.
+ *     @c proc_read callback, accumulating @c master->all_op along the way.
+ *  -# Updates the master-level AL-state HAL pins.
  *
  * @param arg     Pointer to the @c lcec_master_t for this master.
  * @param period  Servo period in nanoseconds, as supplied by the RTAPI scheduler.
@@ -403,10 +412,12 @@ void lcec_read_master(void *arg, long period) {
   }
   rtapi_mutex_give(&master->mutex);
 
-  // update state pins
-  lcec_update_master_hal(master->hal_data, &master->ms);
-
   // process slaves
+  // all-op applies the master's own "AL state is OP" test to the configured
+  // slaves only.  A slave that has gone offline reports state UNKNOWN, so it
+  // fails the test like any slave that is not in OP.  A bus without configured
+  // slaves is never all-op.
+  master->all_op = (master->first_slave != NULL);
   for (slave = master->first_slave; slave != NULL; slave = slave->next) {
     // get slaves state
     lcec_master_rt_lock(master);
@@ -417,12 +428,18 @@ void lcec_read_master(void *arg, long period) {
     if (check_states) {
       lcec_update_slave_state_hal(slave->hal_state_data, &slave->state);
     }
+    if (slave->state.al_state != 0x08) {
+      master->all_op = 0;
+    }
 
     // process read function
     if (slave->proc_read) {
       slave->proc_read(slave, period);
     }
   }
+
+  // update state pins
+  lcec_update_master_hal(master->hal_data, &master->ms, master->all_op);
 }
 
 /**
