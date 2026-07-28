@@ -1,0 +1,4 @@
+db/
+server.log
+sim.var
+__pycache__/
