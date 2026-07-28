@@ -250,12 +250,15 @@ int interp_ini_load_accessor(void *handle, const interp_ini_accessor_t *accessor
     ip->_setup.ini_accessor.get = accessor->get;
     ip->_setup.ini_accessor.get_nth = accessor->get_nth;
 
-    // Read PARAMETER_FILE — the only thing ini_load() does
+    // PARAMETER_FILE is optional.  With the persist-backed parameter I/O
+    // backend (the gomc default) numbered parameters live in the persistence
+    // service, so no .var file name is needed.  Only the opt-in
+    // PARAMETER_FILE_MODE=file backend uses it, and that requirement is
+    // enforced separately (task/module.go).  Record the name when present so
+    // the file backend / save_parameters have it.
     const char *param_file = accessor->get(accessor->ctx, "RS274NGC", "PARAMETER_FILE");
     if (param_file && param_file[0] != '\0') {
         ip->_setup.canon.set_parameter_file_name(param_file);
-    } else {
-        return -1;  // parameter file name is required
     }
     return 0;
 }
