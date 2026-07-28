@@ -150,6 +150,13 @@ typedef struct {
     int file_cap;
     int file_idx;   // table index of the file currently executing
 
+    // Emission order. Segments, dwells and tool changes leave here as three
+    // separate lists, but they were recorded interleaved; a client that
+    // replays them must put them back in this order. Line numbers cannot do
+    // that job — an o-word loop revisits them and a called file restarts
+    // them — so every recorded item is stamped with this counter instead.
+    int next_seq;
+
     // Parameter file name (stored by set_parameter_file_name)
     char param_file[1024];
 
@@ -183,6 +190,7 @@ typedef struct preview_segment {
     int type;       // 1=traverse, 2=feed, 3=arc, 4=probe
     int line_no;
     int file_idx;   // index into preview_ctx_t.files
+    int seq;        // emission order across all three lists
     double start[9];
     double end[9];
     double feedrate;
@@ -197,6 +205,7 @@ typedef struct preview_segment {
 typedef struct preview_dwell {
     int line_no;
     int file_idx;
+    int seq;
     double pos[9];
     double seconds;
     int plane;
@@ -205,6 +214,7 @@ typedef struct preview_dwell {
 typedef struct preview_tool_change {
     int line_no;
     int file_idx;
+    int seq;
     int tool_no;
 } preview_tool_change_t;
 
@@ -323,6 +333,7 @@ static int add_segment(preview_ctx_t *ctx, int type,
         s->type = type;
         s->line_no = ctx->line_no;
         s->file_idx = ctx->file_idx;
+        s->seq = ctx->next_seq++;
         memcpy(s->start, ctx->pos, sizeof(s->start));
         s->end[0] = x; s->end[1] = y; s->end[2] = z;
         s->end[3] = a; s->end[4] = b; s->end[5] = c;
@@ -420,6 +431,7 @@ static void pc_dwell(void *vctx, double seconds) {
     preview_dwell_t *d = &ctx->dwells[ctx->dwell_count++];
     d->line_no = ctx->line_no;
     d->file_idx = ctx->file_idx;
+    d->seq = ctx->next_seq++;
     memcpy(d->pos, ctx->pos, sizeof(d->pos));
     d->seconds = seconds;
     d->plane = 0;
@@ -431,6 +443,7 @@ static void pc_change_tool(void *vctx, int32_t slot) {
     preview_tool_change_t *tc = &ctx->tool_changes[ctx->tc_count++];
     tc->line_no = ctx->line_no;
     tc->file_idx = ctx->file_idx;
+    tc->seq = ctx->next_seq++;
     tc->tool_no = slot;
 }
 
@@ -1348,6 +1361,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				Type:    ngcpreview.SegmentType(s._type),
 				LineNo:  int32(s.line_no),
 				FileIdx: int32(s.file_idx),
+				Seq:     int32(s.seq),
 				Start: ngcpreview.Position{
 					X: sanitize(float64(s.start[0])), Y: sanitize(float64(s.start[1])), Z: sanitize(float64(s.start[2])),
 					A: sanitize(float64(s.start[3])), B: sanitize(float64(s.start[4])), C: sanitize(float64(s.start[5])),
@@ -1382,6 +1396,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 			result.Dwells[i] = ngcpreview.Dwell{
 				LineNo:  int32(d.line_no),
 				FileIdx: int32(d.file_idx),
+				Seq:     int32(d.seq),
 				Seconds: float64(d.seconds),
 				Plane:   int32(d.plane),
 				Pos: ngcpreview.Position{
@@ -1403,6 +1418,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 			result.ToolChanges[i] = ngcpreview.ToolChange{
 				LineNo:  int32(tc.line_no),
 				FileIdx: int32(tc.file_idx),
+				Seq:     int32(tc.seq),
 				ToolNo: int32(tc.tool_no),
 			}
 		}

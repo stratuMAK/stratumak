@@ -4,3 +4,5 @@ PASS highlight-distinguishes-the-colliding-line
 PASS highlight-defaults-to-the-displayed-file
 PASS highlight-empty-when-the-line-is-another-files
 PASS replay-carries-file-idx-from-the-wire
+PASS replay-honours-emission-order
+PASS replay-order-independent-of-wire-list-order

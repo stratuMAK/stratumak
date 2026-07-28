@@ -126,14 +126,6 @@ def parse(filename, canon, *args):
     if hasattr(canon, 'plane'):
         canon.plane = plane
 
-    # Replay segments through canon, interleaving dwells and tool changes at
-    # their line positions. The wire carries three separate execution-ordered
-    # lists; replaying them list-after-list drew every dwell at the program's
-    # FINAL position and applied change_tool's first_move suppression after
-    # the fact (finding N-7). A line-number walk restores the interleave
-    # exactly for monotonic programs (the overwhelming case); programs whose
-    # O-word loops contain dwells/toolchanges need an ordered event stream on
-    # the wire (recorded as deferred). Leftovers replay at the end.
     def _get(item, key):
         return item[key] if isinstance(item, dict) else getattr(item, key)
 
@@ -143,32 +135,44 @@ def parse(filename, canon, *args):
     if hasattr(canon, 'set_source_files'):
         canon.set_source_files(getattr(result, 'files', None) or [])
 
-    pending_dwells = list(result.dwells or [])
-    pending_tcs = list(result.tool_changes or [])
+    # Replay everything in the order the recorder emitted it. The wire carries
+    # three lists — segments, dwells, tool changes — that were recorded
+    # interleaved, and replaying them list-after-list drew every dwell at the
+    # program's FINAL position and applied change_tool's first_move
+    # suppression after the fact (finding N-7). This used to be approximated
+    # by walking line numbers, which only holds while they increase: an O-word
+    # loop revisits a line and a call into another file restarts numbering, so
+    # a dwell inside a loop replayed against the wrong move. `seq` is the
+    # recorder's own single counter across all three lists, so ordering by it
+    # reproduces the emission order exactly.
+    events = [(_get(item, "seq"), kind, item)
+              for kind, items in (("segment", result.segments or []),
+                                  ("dwell", result.dwells or []),
+                                  ("tool_change", result.tool_changes or []))
+              for item in items]
+    events.sort(key=lambda e: e[0])
 
-    def _replay_events_up_to(line_no):
-        while pending_tcs and _get(pending_tcs[0], "line_no") <= line_no:
-            tc = pending_tcs.pop(0)
-            canon.next_line(_SequenceState(_get(tc, "line_no"),
-                                           file_index=_get(tc, "file_idx")))
+    for _seq, kind, item in events:
+        if kind == "tool_change":
+            canon.next_line(_SequenceState(_get(item, "line_no"),
+                                           file_index=_get(item, "file_idx")))
             if hasattr(canon, 'change_tool'):
-                canon.change_tool(_get(tc, "tool_no"))
-        while pending_dwells and _get(pending_dwells[0], "line_no") <= line_no:
-            dw = pending_dwells.pop(0)
-            canon.next_line(_SequenceState(_get(dw, "line_no"),
-                                           plane=_get(dw, "plane"),
-                                           file_index=_get(dw, "file_idx")))
-            canon.dwell(_get(dw, "seconds"))
+                canon.change_tool(_get(item, "tool_no"))
+            continue
+        if kind == "dwell":
+            canon.next_line(_SequenceState(_get(item, "line_no"),
+                                           plane=_get(item, "plane"),
+                                           file_index=_get(item, "file_idx")))
+            canon.dwell(_get(item, "seconds"))
+            continue
 
-    for seg in result.segments or []:
+        seg = item
         end = seg["end"] if isinstance(seg, dict) else seg.end
         start = seg["start"] if isinstance(seg, dict) else seg.start
         seg_type = seg["type"] if isinstance(seg, dict) else seg.type
         line_no = seg["line_no"] if isinstance(seg, dict) else seg.line_no
         file_idx = seg["file_idx"] if isinstance(seg, dict) else seg.file_idx
         feedrate = seg["feedrate"] if isinstance(seg, dict) else seg.feedrate
-
-        _replay_events_up_to(line_no)
 
         # Build a minimal state tag for next_line
         canon.next_line(_SequenceState(line_no, file_index=file_idx))
@@ -212,9 +216,6 @@ def parse(filename, canon, *args):
                 canon.straight_probe(ex, ey, ez, ea, eb, ec, eu, ev, ew)
             else:
                 canon.straight_feed(ex, ey, ez, ea, eb, ec, eu, ev, ew)
-
-    # Replay whatever dwells / tool changes remain (looping programs).
-    _replay_events_up_to(float("inf"))
 
     if result.error:
         return 5, result.max_line

@@ -43,6 +43,11 @@ type Segment {
     # (file_idx, line_no) — not line_no alone — identifies a program
     # location. 0 is the previewed file itself.
     file_idx: i32
+    # Position in the recorder's single emission order, across segments,
+    # dwells and tool changes alike. The three lists are recorded interleaved
+    # and must be replayed that way; line numbers cannot order them, because
+    # an o-word loop revisits a line and a called file restarts numbering.
+    seq: i32
     start: Position
     end: Position
     feedrate: f64
@@ -56,8 +61,13 @@ type Segment {
 
 # A dwell (pause) point
 type Dwell {
+    # Approximate: the canon interface passes no line number to DWELL (as in
+    # classic emccanon), so this is the line of the last motion before it.
+    # file_idx and seq ARE exact — they come from the read loop and the
+    # recorder's counter, not from the canon call.
     line_no: i32
     file_idx: i32
+    seq: i32
     pos: Position
     seconds: f64
     plane: i32
@@ -65,8 +75,10 @@ type Dwell {
 
 # Tool change event in the preview stream
 type ToolChange {
+    # Approximate, like Dwell.line_no: CHANGE_TOOL carries no line number.
     line_no: i32
     file_idx: i32
+    seq: i32
     tool_no: i32
 }
 
