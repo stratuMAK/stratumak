@@ -43,7 +43,16 @@ import (
 // previewIniHandle wraps the IniFile plus a C-heap buffer for returned
 // strings (valid until the next get/get_nth call, per the accessor contract).
 type previewIniHandle struct {
-	ini    *inifile.IniFile
+	ini *inifile.IniFile
+
+	// randomToolchanger overrides [EMCIO]RANDOM_TOOLCHANGER ("0"/"1"; ""
+	// leaves the INI to answer).  The interp asks for that key through this
+	// accessor, but the tool store — not the INI — is what decides whether an
+	// idx is a carousel pocket here, and it is told so on its load line.
+	// Letting the INI answer would let a preview disagree with the machine it
+	// previews for.
+	randomToolchanger string
+
 	cbuf   *C.char
 	cbufSz C.size_t
 }
@@ -64,8 +73,10 @@ func (h *previewIniHandle) returnStr(s string) *C.char {
 
 // newPreviewIniAccessor builds the C accessor struct; the returned handle
 // must outlive the interpreter run and be released via freePreviewIniAccessor.
-func newPreviewIniAccessor(ini *inifile.IniFile) (C.interp_shim_ini_accessor_t, cgo.Handle) {
-	h := &previewIniHandle{ini: ini}
+// randomToolchanger is the tool store's answer ("0"/"1", or "" when the store
+// could not be asked), which wins over the INI for that one key.
+func newPreviewIniAccessor(ini *inifile.IniFile, randomToolchanger string) (C.interp_shim_ini_accessor_t, cgo.Handle) {
+	h := &previewIniHandle{ini: ini, randomToolchanger: randomToolchanger}
 	handle := cgo.NewHandle(h)
 	acc := C.make_preview_ini_accessor(C.uintptr_t(handle))
 	return acc, handle
@@ -86,7 +97,14 @@ func freePreviewIniAccessor(handle cgo.Handle) {
 //export goPreviewIniGet
 func goPreviewIniGet(ctx C.uintptr_t, section *C.char, key *C.char) *C.char {
 	h := cgo.Handle(ctx).Value().(*previewIniHandle)
-	val := h.ini.Get(C.GoString(section), C.GoString(key))
+	sec, k := C.GoString(section), C.GoString(key)
+	if h.randomToolchanger != "" && sec == "EMCIO" && k == "RANDOM_TOOLCHANGER" {
+		return h.returnStr(h.randomToolchanger)
+	}
+	if h.ini == nil {
+		return nil
+	}
+	val := h.ini.Get(sec, k)
 	if val == "" {
 		return nil
 	}
@@ -96,6 +114,9 @@ func goPreviewIniGet(ctx C.uintptr_t, section *C.char, key *C.char) *C.char {
 //export goPreviewIniGetNth
 func goPreviewIniGetNth(ctx C.uintptr_t, section *C.char, key *C.char, n C.int) *C.char {
 	h := cgo.Handle(ctx).Value().(*previewIniHandle)
+	if h.ini == nil {
+		return nil
+	}
 	val := h.ini.GetN(C.GoString(section), C.GoString(key), int(n))
 	if val == "" {
 		return nil

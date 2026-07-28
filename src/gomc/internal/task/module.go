@@ -237,7 +237,7 @@ func (m *milltaskModule) Start() error {
 	if ttInstance == "" {
 		ttInstance = "tooltable"
 	}
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 2)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 3)
 	if err != nil {
 		return fmt.Errorf("milltask: tooltable API lookup (%s): %w", ttInstance, err)
 	}
@@ -285,6 +285,19 @@ func (m *milltaskModule) Start() error {
 	if err := loadConfig(m.ini, t, mc); err != nil {
 		return fmt.Errorf("milltask: %w", err)
 	}
+
+	// What an idx means — carousel pocket or synthetic slot — belongs to the
+	// tool store, which is told once on its load line. Reading
+	// [EMCIO]RANDOM_TOOLCHANGER here as well is how a task and its own store
+	// came to disagree on a multi-instance server: the store resolved the
+	// global section while the task resolved its namespaced one. GetInfo is
+	// answerable before the store's Start, so module start order does not
+	// matter here.
+	ttInfo, err := m.ttClient.GetInfo()
+	if err != nil {
+		return fmt.Errorf("milltask: tooltable get_info (%s): %w", ttInstance, err)
+	}
+	t.randomToolchanger = ttInfo.RandomToolchanger
 
 	// Create inihal HAL component for runtime INI parameter override.
 	ih, err := newIniHal(m.name+".inihal", t.numJoints)

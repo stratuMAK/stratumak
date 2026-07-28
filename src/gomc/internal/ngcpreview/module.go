@@ -870,6 +870,11 @@ type ngcPreview struct {
 	timeout             time.Duration    // wall-clock bound per preview run
 	segLimit            int              // segment cap (tests lower it; 0 = default)
 
+	// randomToolchanger is the tool store's answer, read once at Start and
+	// handed to the interp in place of [EMCIO]RANDOM_TOOLCHANGER ("" when the
+	// store could not be asked, leaving the INI to answer as before).
+	randomToolchanger string
+
 	// One interpreter run at a time: Interp has static state (prior finding
 	// NGC1), and each unserialized run is an independent unbounded interp
 	// (finding N-4). Guards GenPreview and EvalExpression.
@@ -953,11 +958,22 @@ func newNgcPreview(ini *inifile.IniFile, logger *slog.Logger, name string, args 
 func (m *ngcPreview) Start() error {
 	// Look up tooltable API for tool data during preview generation.
 	reg := apiserver.DefaultRegistry()
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 2)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", m.ttInstanceName, 3)
 	if err != nil {
 		m.logger.Warn("ngcpreview: tooltable API not available, tool data will be empty", "err", err)
 	} else {
 		m.ttClient = tooltable.NewTooltableClient(unsafe.Pointer(ttCbs))
+		// Ask the store what an idx means here rather than reading
+		// [EMCIO]RANDOM_TOOLCHANGER: the preview must agree with the machine
+		// it previews for, and only the store is told once.
+		info, err := m.ttClient.GetInfo()
+		if err != nil {
+			return fmt.Errorf("ngcpreview: tooltable get_info (%s): %w", m.ttInstanceName, err)
+		}
+		m.randomToolchanger = "0"
+		if info.RandomToolchanger {
+			m.randomToolchanger = "1"
+		}
 	}
 
 	// Look up persist API for read-only parameter loading (required).
@@ -1070,8 +1086,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	// SUBROUTINE_PATH, PROGRAM_PREFIX, RANDOM_TOOLCHANGER etc. only through
 	// the accessor — without it the preview interp runs fully defaulted and
 	// diverges from what the machine executes.
-	if m.ini != nil {
-		acc, accHandle := newPreviewIniAccessor(m.ini)
+	if m.ini != nil || m.randomToolchanger != "" {
+		acc, accHandle := newPreviewIniAccessor(m.ini, m.randomToolchanger)
 		defer freePreviewIniAccessor(accHandle)
 		C.interp_shim_set_ini_accessor(h, &acc)
 	}

@@ -229,12 +229,10 @@ func loadTraj(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 		t.startupCode = ini.Get("EMC", "RS274NGC_STARTUP_CODE")
 	}
 
-	// Random toolchanger changes the pocket semantics of the tool canon
-	// getters (spindle = pocket 0 vs the non-random idx0 toolno=-1
-	// empty-spindle convention).
-	if v := ini.Get("EMCIO", "RANDOM_TOOLCHANGER"); v != "" && v != "0" {
-		t.randomToolchanger = true
-	}
+	// Note: t.randomToolchanger is NOT read here. It changes the pocket
+	// semantics of the tool canon getters (spindle = pocket 0 vs the
+	// non-random idx0 toolno=-1 empty-spindle convention), which is the tool
+	// store's property — Start asks the store, see module.go.
 
 	// Optional move-before-tool-change position (2.9 taskclass readToolChange
 	// + emccanon CHANGE_TOOL). INI values are machine units, absolute machine

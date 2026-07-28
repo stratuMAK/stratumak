@@ -301,6 +301,14 @@ func decodeSlot(key, value string, updated int64) (tooltable.ToolEntry, error) {
 
 // --- TooltableCallbacks implementation ---
 
+// GetInfo answers what an idx means in THIS store. Deliberately readable
+// before Start: the flag comes from the load line, not from storage, and a
+// consumer resolving its store during its own Start must not race the order
+// the two modules happen to be started in.
+func (m *module) GetInfo() (tooltable.StoreInfo, error) {
+	return tooltable.StoreInfo{RandomToolchanger: m.randomToolchange}, nil
+}
+
 func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

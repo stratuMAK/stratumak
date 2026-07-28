@@ -28,8 +28,9 @@ var slotTestInstance int
 
 // newToolsImpl brings up persist_sqlite + tooltable and returns the
 // operator-facing tools API wired to them through the real C callback table.
-// The tooltable module itself is always constructed non-random (nil INI); the
-// `random` flag drives only the task-layer behaviour under test.
+// `random` is set on BOTH the store and the task: the store is what a task
+// asks about idx semantics (tooltable get_info), so a test in which the two
+// disagree is testing a state the server cannot reach.
 func newToolsImpl(t *testing.T, random bool) *toolsImpl {
 	t.Helper()
 	dir := t.TempDir()
@@ -60,7 +61,11 @@ func newToolsImpl(t *testing.T, random bool) *toolsImpl {
 	if newTT == nil {
 		t.Fatal("tooltable is not registered")
 	}
-	tt, err := newTT(nil, logger, tableName, []string{"persist_instance=" + persistName})
+	ttArgs := []string{"persist_instance=" + persistName}
+	if random {
+		ttArgs = append(ttArgs, "random_toolchanger=1")
+	}
+	tt, err := newTT(nil, logger, tableName, ttArgs)
 	if err != nil {
 		t.Fatalf("tooltable: %v", err)
 	}
@@ -69,15 +74,16 @@ func newToolsImpl(t *testing.T, random bool) *toolsImpl {
 		t.Fatalf("tooltable Start: %v", err)
 	}
 
-	cbs, err := apiserver.DefaultRegistry().GetAPIFor("slottest", "tooltable", tableName, 2)
+	cbs, err := apiserver.DefaultRegistry().GetAPIFor("slottest", "tooltable", tableName, 3)
 	if err != nil {
 		t.Fatalf("tooltable API lookup: %v", err)
 	}
 	client := gmitooltable.NewTooltableClient(unsafe.Pointer(cbs))
 	mod := &milltaskModule{ttClient: client}
 	if random {
-		// Only randomToolchanger is read off task on these paths; io stays nil
-		// so syncSpindleSlot self-disables either way.
+		// Start is bypassed here, so the flag Start would have copied off the
+		// store is set directly. io stays nil so syncSpindleSlot self-disables
+		// either way.
 		mod.task = &Task{randomToolchanger: true}
 	}
 	return &toolsImpl{module: mod}
