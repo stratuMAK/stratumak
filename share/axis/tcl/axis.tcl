@@ -322,6 +322,11 @@ setup_menu_accel .menu.view end [_ "Show program r_apids"]
 setup_menu_accel .menu.view end [_ "Alpha-_blend program"]
 
 .menu.view add checkbutton \
+	-variable follow_subfile \
+	-command toggle_follow_subfile
+setup_menu_accel .menu.view end [_ "_Follow sub-files"]
+
+.menu.view add checkbutton \
 	-variable show_live_plot \
 	-command toggle_show_live_plot
 setup_menu_accel .menu.view end [_ "Sho_w live plot"]
@@ -1355,6 +1360,14 @@ text ${pane_bottom}.t.text \
 ${pane_bottom}.t.text insert end {}
 bind ${pane_bottom}.t.text <Configure> { goto_sensible_line }
 
+# Names the file the listing is showing while that is NOT the loaded program
+# — an o-word call executing in a separate file, which numbers its lines
+# from 1 again. Shown by axis.py only for the duration of such an excursion.
+label ${pane_bottom}.subfile \
+	-anchor w \
+	-padx 4 \
+	-textvariable listing_subfile
+
 scrollbar ${pane_bottom}.t.sb \
 	-borderwidth 0 \
 	-command [list ${pane_bottom}.t.text yview] \
@@ -1686,6 +1699,12 @@ grid ${pane_bottom}.t \
 	-column 1 \
 	-row 1 \
 	-sticky nesw
+# Named-but-hidden so axis.py can show/hide it with plain grid/grid remove.
+grid ${pane_bottom}.subfile \
+	-column 1 \
+	-row 0 \
+	-sticky ew
+grid remove ${pane_bottom}.subfile
 grid rowconfigure ${pane_bottom} 1 -weight 1
 grid columnconfigure ${pane_bottom} 1 -weight 1
 
@@ -1935,6 +1954,7 @@ proc queue_update_state {args} {
 
 set rotate_mode 0
 set taskfile ""
+set listing_subfile ""
 set machine ""
 set task_state -1
 set has_editor 1

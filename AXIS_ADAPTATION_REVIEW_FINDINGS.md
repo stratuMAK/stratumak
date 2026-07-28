@@ -89,6 +89,39 @@ out of scope.
   was correct all along. The fallback fed a serial to `set_current_line()`,
   and because `nextSerial` is never reset it climbs across runs: every run of
   the same program highlighted a different, drifting set of lines. Reverted.
+- **A-18 file tracking: a line number never identified a program location.**
+  Fallout found while closing A-15. An o-word call into a separate file
+  restarts the interpreter's line numbering (`interp_o_word.cc`
+  `control_back_to`), and nothing on the wire said which file a line belonged
+  to — so the highlight pointed at an unrelated line of the loaded program for
+  the whole excursion, preview segments from a sub collided with the main
+  program's identically numbered lines, and `max_line` counted every file
+  (measured: 19 for a 6-line program). Classic 2.9 was equally file-blind
+  (`emctaskmain.cc:2199/2615`, `glcanon.py:349-372`), so this is a fix, not a
+  regression repair. **FIXED:**
+  - `motion_file` in `emcstat.gmi` — the file the executing segment came from,
+    read from the `motionInfo.File` milltask was already recording and then
+    discarding.
+  - `Segment/Dwell/ToolChange.file_idx` + `PreviewResult.files` in
+    `ngcpreview.gmi` (a file table, not a path per segment); `max_line` now
+    counts only the previewed file, and a preview error inside a sub names it.
+  - `GLCanon` keeps a source-file index parallel to each geometry list —
+    beside the tuples, not inside them, because the C drawers parse those
+    positionally and `calc_extents` branches on their length — and
+    `highlight()` matches (file, line).
+  - AXIS follows execution into the sub-file (View > Follow sub-files,
+    default on), with a banner naming it, run-from-here refused while it is
+    on screen, and no highlight at all when the executing file cannot be
+    shown.
+  - **The subtle one, caught only on a live controller:** the naive-CAM chain
+    flushes while a LATER line executes, so asking the interpreter for the
+    file at flush time filed every move at a call boundary under the wrong
+    side of it. The file is now captured into `chainedPt` with the line
+    number it belongs to, exactly as the state tag already was.
+  Tests: `internal/task/motionfile_test.go`,
+  `internal/ngcpreview/subfile_test.go`, `tests/axis-subfile-highlight/`.
+  Known residual: GL pick in the 3D view still returns a bare line number, so
+  clicking a sub-file's geometry resolves against the displayed file.
 - **A-16 LOW gutted emcmodule GL stubs documented as non-functional** (module
   docstring) — a classic consumer (gremlin) calling them silently draws
   nothing; trap flagged for the qtvcp/gladevcp milestone.

@@ -245,7 +245,8 @@ class Stat:
     _ALL_ATTRS = {
         # Task
         "task_mode", "task_state", "interp_state", "exec_state",
-        "file", "command", "motion_line", "current_line", "read_line",
+        "file", "command", "motion_line", "motion_file", "current_line",
+        "read_line",
         "queued_mdi_commands", "optional_stop", "block_delete",
         "task_paused", "g5x_index",
         # Motion
@@ -323,6 +324,9 @@ class Stat:
             "file": ("file", ""),
             "command": ("command", ""),
             "motion_line": ("motion_line", 0),
+            # File the executing segment came from; motion_line/current_line
+            # are numbered within it, not within the loaded program.
+            "motion_file": ("motion_file", ""),
             "current_line": ("current_line", 0),
             "read_line": ("read_line", 0),
             "queued_mdi_commands": ("queued_mdi_commands", 0),

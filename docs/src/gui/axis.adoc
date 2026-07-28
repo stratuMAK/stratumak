@@ -240,6 +240,15 @@ So be familiar with your machine's design and interpret the display as needed.
   But the display of rapid moves (G0) in cyan can be disabled if desired.
 * 'Alpha-blend Program' - This option makes the preview of complex programs easier to see, but
   may cause the preview to display more slowly.
+* 'Follow Sub-files' - When execution enters an O-word subroutine held in a
+  separate file, the interpreter numbers that file's lines from the start of
+  it, so the running-line highlight cannot be shown against the loaded
+  program. With this option on (the default) the program listing switches to
+  the sub-file for the duration and a banner above it names the file being
+  shown; it switches back when execution returns. With it off the listing
+  stays on the loaded program and simply shows no highlight while execution
+  is elsewhere. Either way, 'Run from here' applies only to the loaded
+  program, so it is refused while a sub-file is on screen.
 * 'Show Live Plot' - The highlighting of the feedrate paths (G1,G2,G3) as the tool moves can be disabled if desired.
 * 'Show Tool' - The display of the tool cone/cylinder can be disabled if desired.
 * 'Show Extents' - The display of the extents (maximum travel in each axis direction) of the loaded G-code program can be disabled if desired.

@@ -33,7 +33,13 @@ const naivecamMaxChain = 100
 type chainedPt struct {
 	pos    Pose
 	lineNo int32
-	tag    []byte
+	// Source file of lineNo, captured with it. It cannot be asked for at
+	// flush time: the chain flushes while a LATER line executes, and if the
+	// line in between was an o-word call into another file the interpreter
+	// has already moved on — the segment would be filed under the sub-file
+	// whose line numbering has nothing to do with lineNo.
+	file string
+	tag  []byte
 }
 
 // seeSegment buffers a straight-feed target, flushing first when it cannot
@@ -48,7 +54,8 @@ func (c *Canon) seeSegment(lineno int32, pos Pose) {
 	if len(c.chained) > 0 && !c.linkable(pos) {
 		c.flushSegments()
 	}
-	c.chained = append(c.chained, chainedPt{pos: pos, lineNo: lineno, tag: s.currentTag})
+	c.chained = append(c.chained, chainedPt{
+		pos: pos, lineNo: lineno, file: c.currentFileName(), tag: s.currentTag})
 	if changedABC || changedUVW {
 		c.flushSegments()
 	}
@@ -128,7 +135,7 @@ func (c *Canon) flushSegments() {
 			IniMaxVel:    iniMaxVel,
 			Acc:          acc,
 			MotionType:   2, // EMC_MOTION_TYPE_FEED
-			ID:           c.allocSerialPinned(last.lineNo, last.tag),
+			ID:           c.allocSerialPinned(last.lineNo, last.file, last.tag),
 			FeedMmPerMin: feed * 60,
 			IndexerJ:     -1,
 		}
@@ -199,8 +206,8 @@ func chordDeviation(sx, sy, ex, ey, cx, cy float64, rotation int32) (dev, mx, my
 // without pinning, the merged move would report readahead modal state and
 // restore the wrong state on abort. 2.9 stores the tag per chained point for
 // the same reason (tag_and_send with pos.tag).
-func (c *Canon) allocSerialPinned(lineno int32, tag []byte) int32 {
-	id := c.allocSerial(lineno)
+func (c *Canon) allocSerialPinned(lineno int32, file string, tag []byte) int32 {
+	id := c.allocSerialAt(lineno, file)
 	c.task.pinMotionState(id, tag)
 	return id
 }

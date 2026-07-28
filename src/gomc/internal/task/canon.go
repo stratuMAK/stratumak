@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -292,6 +293,12 @@ type Canon struct {
 	parameterFileName string
 	discard           bool // when true, enqueue is a no-op (used during seek)
 	nextSerial        int32
+	// Last interpreter file name seen by allocSerial and its absolutised
+	// form. The interpreter stays in one file for long runs of segments, so
+	// caching the pair keeps the normalisation off the per-segment path.
+	// Producer-owned like nextSerial — interp execution is never concurrent.
+	fileRaw string
+	fileAbs string
 	// enqueueCount counts every command enqueued to the sequencer (not just
 	// motion, unlike nextSerial). finishMDI compares it across an o-word
 	// continuation Execute to tell whether anything needs draining (E5). Plain
@@ -356,17 +363,50 @@ func (c *Canon) setDiscard(d bool) {
 func (c *Canon) serial() int32 { return c.nextSerial }
 
 func (c *Canon) allocSerial(lineno int32) int32 {
+	return c.allocSerialAt(lineno, c.currentFileName())
+}
+
+// allocSerialAt registers the segment against an explicitly supplied source
+// file instead of asking the interpreter for it now. Deferred emitters (the
+// naive-CAM chain) must use this: they flush while a LATER line is executing,
+// and if an o-word call has since switched files, asking now files the
+// segment under a program whose line numbering has nothing to do with lineno.
+func (c *Canon) allocSerialAt(lineno int32, file string) int32 {
 	if c.nextSerial == 0 {
 		c.nextSerial = 1
 	}
 	id := c.nextSerial
 	c.nextSerial++
-	file := ""
-	if c.task.interp != nil {
-		file = c.task.interp.FileName()
-	}
 	c.task.registerMotion(id, file, lineno)
 	return id
+}
+
+// currentFileName returns the file the interpreter is reading, as an absolute
+// path. It is asked per segment rather than per line because an o-word call
+// switches files in the middle of an Execute (an MDI `o<sub> call` runs the
+// whole sub inside one call), so a per-line snapshot would mis-attribute
+// everything the sub emits.
+//
+// find_ngc_file's first branch opens a cwd-relative name as-is, so the raw
+// answer can be relative. Clients resolve motion_file against the server to
+// fetch its text, and this process's cwd is the base the interpreter used —
+// absolutise here, where that is still true.
+func (c *Canon) currentFileName() string {
+	if c.task.interp == nil {
+		return ""
+	}
+	raw := c.task.interp.FileName()
+	if raw == c.fileRaw {
+		return c.fileAbs
+	}
+	abs := raw
+	if abs != "" && !filepath.IsAbs(abs) {
+		if a, err := filepath.Abs(abs); err == nil {
+			abs = a
+		}
+	}
+	c.fileRaw, c.fileAbs = raw, abs
+	return abs
 }
 
 // --- State-setting callbacks (modify canon state, no queued commands) ---

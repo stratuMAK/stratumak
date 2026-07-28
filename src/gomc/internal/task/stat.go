@@ -160,8 +160,14 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	// state tag, reused below instead of three separate map acquisitions (E2).
 	info, tagged := t.motionInfoAndPrune(ms.Id)
 	motionLine := int32(0)
+	// The file that line belongs to. An o-word call into a separate file
+	// restarts the interpreter's line numbering, so motionLine alone does not
+	// identify a program location — a UI that highlights it without checking
+	// the file lights up an unrelated line of the loaded program.
+	motionFile := ""
 	if tagged {
 		motionLine = info.LineNo
+		motionFile = info.File
 	}
 	stat.Motion.MotionLine = motionLine
 	stat.Motion.MotionType = ms.MotionType
@@ -171,6 +177,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	stat.Motion.Queue = ms.QueueDepth
 	stat.Motion.QueueFull = ms.QueueFull != 0
 	stat.Task.MotionLine = motionLine
+	stat.Task.MotionFile = motionFile
 
 	// Traj-level scalars and motion I/O (serialized from the motion status).
 	stat.CycleTime = ms.TrajCycleTime

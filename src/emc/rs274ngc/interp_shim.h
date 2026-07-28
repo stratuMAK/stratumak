@@ -53,6 +53,12 @@ int interp_shim_execute(interp_handle_t *h);
 // Get current sequence (line) number.
 int interp_shim_sequence_number(interp_handle_t *h);
 
+// Get the source file currently being read, NUL-terminated into buf. An
+// o-word call into a separate file switches this AND restarts the sequence
+// number at 0, so a sequence number only identifies a program location
+// together with the file it came from. buf is set to "" when unknown.
+void interp_shim_file_name(interp_handle_t *h, char *buf, int buf_size);
+
 // Close the file and finalize.
 int interp_shim_close(interp_handle_t *h);
 

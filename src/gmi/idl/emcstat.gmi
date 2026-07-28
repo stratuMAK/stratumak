@@ -142,6 +142,13 @@ type StatTaskInfo {
     motion_line: i32
     current_line: i32
     read_line: i32
+    # Source file the executing segment came from. An o-word call into a
+    # separate file restarts line numbering at 0 (interp_o_word.cc
+    # control_back_to), so motion_line/current_line are meaningless without
+    # it. Empty while nothing tagged is executing; equals `file` at top
+    # level. UIs must not highlight a line when this names a file they are
+    # not displaying.
+    motion_file: string
     queued_mdi_commands: i32
     optional_stop: bool
     block_delete: bool

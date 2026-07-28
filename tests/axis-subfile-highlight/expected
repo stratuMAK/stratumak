@@ -1,0 +1,6 @@
+PASS segments-carry-their-source-file
+PASS highlight-matches-the-named-file
+PASS highlight-distinguishes-the-colliding-line
+PASS highlight-defaults-to-the-displayed-file
+PASS highlight-empty-when-the-line-is-another-files
+PASS replay-carries-file-idx-from-the-wire

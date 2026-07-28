@@ -81,15 +81,32 @@ limiticon = array.array('B',
 
 class GLCanon(Translated, ArcsToSegmentsMixin):
     lineno = -1
+    # Index into self.source_files of the file the current line comes from,
+    # and the file whose lines highlight() matches. An o-word call into a
+    # separate file restarts the interpreter's line numbering, so a line
+    # number alone does not identify a program location: without the file,
+    # selecting line 5 of the main program also lights up line 5 of every
+    # sub-file it calls.
+    fileno = 0
+    highlight_fileno = 0
+    source_files = ()
     def __init__(self, colors, geometry, is_foam=0):
+        # Source-file index of each recorded element, parallel to the geometry
+        # lists below. Kept beside the tuples rather than inside them: the C
+        # drawers (draw_lines, draw_dwells) parse those tuples positionally and
+        # calc_extents branches on their length, so their shape is load-bearing.
+        self.traverse_files = []
+        self.feed_files = []
+        self.arcfeed_files = []
+        self.dwells_files = []
         # traverse list of tuples - [(line number, (start position), (end position), (tlo x, tlo y, tlo z))]
-        self.traverse = []; self.traverse_append = self.traverse.append
+        self.traverse = []; self.traverse_append = self._file_tracking_append(self.traverse, self.traverse_files)
         # feed list of tuples - [(line number, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
-        self.feed = []; self.feed_append = self.feed.append
+        self.feed = []; self.feed_append = self._file_tracking_append(self.feed, self.feed_files)
         # arcfeed list of tuples - [(line number, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
-        self.arcfeed = []; self.arcfeed_append = self.arcfeed.append
+        self.arcfeed = []; self.arcfeed_append = self._file_tracking_append(self.arcfeed, self.arcfeed_files)
         # dwell list - [line number, color, pos x, pos y, pos z, plane]
-        self.dwells = []; self.dwells_append = self.dwells.append
+        self.dwells = []; self.dwells_append = self._file_tracking_append(self.dwells, self.dwells_files)
         self.tool_list = []
         # preview list - combines the unrotated points of the lists: self.traverse, self.feed, self.arcfeed
         self.preview_zero_rxy = []
@@ -176,9 +193,29 @@ class GLCanon(Translated, ArcsToSegmentsMixin):
 
     def check_abort(self): pass
 
+    def _file_tracking_append(self, seq, files):
+        """Return an append that keeps `files` index-aligned with `seq`.
+
+        Wrapping the append rather than editing each record site makes the
+        invariant hold by construction — a desynced parallel list would
+        silently highlight the wrong geometry, with nothing to notice it.
+        """
+        seq_append = seq.append
+        files_append = files.append
+        def append(item):
+            seq_append(item)
+            files_append(self.fileno)
+        return append
+
+    def set_source_files(self, files):
+        """Record the file table preview segments index into (index 0 = the
+        previewed file). Called by the preview loader before replay."""
+        self.source_files = tuple(files or ())
+
     def next_line(self, st):
         self.state = st
         self.lineno = self.state.sequence_number
+        self.fileno = getattr(st, 'file_index', 0)
 
     def draw_lines(self, lines, for_selection, j=0, geometry=None):
         return _glhelpers.draw_lines(geometry or self.geometry, lines, for_selection)
@@ -346,30 +383,35 @@ class GLCanon(Translated, ArcsToSegmentsMixin):
         color = self.colors['dwell']
         self.dwells_append((self.lineno, color, self.lo[0], self.lo[1], self.lo[2], int(self.state.plane/10-17)))
 
-    def highlight(self, lineno, geometry):
+    def highlight(self, lineno, geometry, fileno=None):
+        # Match (file, line), not line alone: a called sub-file numbers its
+        # lines from 1 again, so its geometry collides with the main
+        # program's. fileno defaults to the file the UI is displaying.
+        if fileno is None:
+            fileno = self.highlight_fileno
         glLineWidth(3)
         c = self.colors['selected']
         glColor3f(*c)
         glBegin(GL_LINES)
         coords = []
-        for line in self.traverse:
-            if line[0] != lineno: continue
+        for i, line in enumerate(self.traverse):
+            if line[0] != lineno or self.traverse_files[i] != fileno: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
-        for line in self.arcfeed:
-            if line[0] != lineno: continue
+        for i, line in enumerate(self.arcfeed):
+            if line[0] != lineno or self.arcfeed_files[i] != fileno: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
-        for line in self.feed:
-            if line[0] != lineno: continue
+        for i, line in enumerate(self.feed):
+            if line[0] != lineno or self.feed_files[i] != fileno: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
         glEnd()
-        for line in self.dwells:
-            if line[0] != lineno: continue
+        for i, line in enumerate(self.dwells):
+            if line[0] != lineno or self.dwells_files[i] != fileno: continue
             self.draw_dwells([(line[0], c) + line[2:]], 2, 0)
             coords.append(line[2:5])
         glLineWidth(1)

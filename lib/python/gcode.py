@@ -137,19 +137,27 @@ def parse(filename, canon, *args):
     def _get(item, key):
         return item[key] if isinstance(item, dict) else getattr(item, key)
 
+    # Hand over the file table the segments' file_idx indexes into, so the
+    # canon can tell a main-program line from the same-numbered line of a
+    # sub-file it calls.
+    if hasattr(canon, 'set_source_files'):
+        canon.set_source_files(getattr(result, 'files', None) or [])
+
     pending_dwells = list(result.dwells or [])
     pending_tcs = list(result.tool_changes or [])
 
     def _replay_events_up_to(line_no):
         while pending_tcs and _get(pending_tcs[0], "line_no") <= line_no:
             tc = pending_tcs.pop(0)
-            canon.next_line(_SequenceState(_get(tc, "line_no")))
+            canon.next_line(_SequenceState(_get(tc, "line_no"),
+                                           file_index=_get(tc, "file_idx")))
             if hasattr(canon, 'change_tool'):
                 canon.change_tool(_get(tc, "tool_no"))
         while pending_dwells and _get(pending_dwells[0], "line_no") <= line_no:
             dw = pending_dwells.pop(0)
             canon.next_line(_SequenceState(_get(dw, "line_no"),
-                                           plane=_get(dw, "plane")))
+                                           plane=_get(dw, "plane"),
+                                           file_index=_get(dw, "file_idx")))
             canon.dwell(_get(dw, "seconds"))
 
     for seg in result.segments or []:
@@ -157,12 +165,13 @@ def parse(filename, canon, *args):
         start = seg["start"] if isinstance(seg, dict) else seg.start
         seg_type = seg["type"] if isinstance(seg, dict) else seg.type
         line_no = seg["line_no"] if isinstance(seg, dict) else seg.line_no
+        file_idx = seg["file_idx"] if isinstance(seg, dict) else seg.file_idx
         feedrate = seg["feedrate"] if isinstance(seg, dict) else seg.feedrate
 
         _replay_events_up_to(line_no)
 
         # Build a minimal state tag for next_line
-        canon.next_line(_SequenceState(line_no))
+        canon.next_line(_SequenceState(line_no, file_index=file_idx))
         canon.set_feed_rate(feedrate)
 
         if isinstance(end, dict):
@@ -223,8 +232,12 @@ class _SequenceState:
     # Wire plane (1=XY, 2=YZ, 3=XZ) → G-code number GLCanon expects.
     _PLANE_GCODE = {1: 170, 2: 190, 3: 180}
 
-    def __init__(self, seq, plane=1):
+    def __init__(self, seq, plane=1, file_index=0):
         self.sequence_number = seq
+        # Index into the preview's file table. An o-word call into a separate
+        # file restarts sequence_number, so the canon needs both to tell one
+        # program location from another.
+        self.file_index = file_index
         self.plane = self._PLANE_GCODE.get(plane, 170)
         self.gcodes = ()
         self.mcodes = ()

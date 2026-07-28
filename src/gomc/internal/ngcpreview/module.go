@@ -11,6 +11,7 @@ package ngcpreview
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include "emctool.h"
 #include "interp_shim.h"
 #include "interp_parameter_io.hh"
@@ -139,6 +140,16 @@ typedef struct {
     // Current line number
     int line_no;
 
+    // Source-file table. An o-word call into a separate file restarts the
+    // interpreter's line numbering (interp_o_word.cc control_back_to), so a
+    // line number alone does not identify a program location: everything
+    // recorded carries an index into this table instead. Entry 0 is the
+    // previewed file; further entries are appended as calls first reach them.
+    char **files;
+    int file_count;
+    int file_cap;
+    int file_idx;   // table index of the file currently executing
+
     // Parameter file name (stored by set_parameter_file_name)
     char param_file[1024];
 
@@ -171,6 +182,7 @@ typedef struct {
 typedef struct preview_segment {
     int type;       // 1=traverse, 2=feed, 3=arc, 4=probe
     int line_no;
+    int file_idx;   // index into preview_ctx_t.files
     double start[9];
     double end[9];
     double feedrate;
@@ -184,6 +196,7 @@ typedef struct preview_segment {
 
 typedef struct preview_dwell {
     int line_no;
+    int file_idx;
     double pos[9];
     double seconds;
     int plane;
@@ -191,8 +204,52 @@ typedef struct preview_dwell {
 
 typedef struct preview_tool_change {
     int line_no;
+    int file_idx;
     int tool_no;
 } preview_tool_change_t;
+
+// preview_ctx_set_file selects — interning if new — the source file whose line
+// numbers are being recorded. The driver calls it once per interpreter read,
+// before execute: a block is read from one file and cannot change files while
+// it executes, so every segment that block emits belongs to this file.
+//
+// On allocation failure the previous index is kept rather than dropping the
+// geometry: a preview with one mis-attributed file is worth more than a gap,
+// and the caller cannot act on the failure anyway.
+static void preview_ctx_set_file(preview_ctx_t *ctx, const char *name) {
+    if (!name) name = "";
+    for (int i = 0; i < ctx->file_count; i++) {
+        if (strcmp(ctx->files[i], name) == 0) { ctx->file_idx = i; return; }
+    }
+    if (ctx->file_count >= ctx->file_cap) {
+        int newcap = ctx->file_cap == 0 ? 8 : ctx->file_cap * 2;
+        char **p = (char**)realloc(ctx->files, newcap * sizeof(char*));
+        if (!p) return;
+        ctx->files = p;
+        ctx->file_cap = newcap;
+    }
+    char *copy = strdup(name);
+    if (!copy) return;
+    ctx->files[ctx->file_count] = copy;
+    ctx->file_idx = ctx->file_count++;
+}
+
+// preview_ctx_track_file interns the interpreter's current file into the ctx
+// table. Kept on the C side so the per-line file lookup costs no Go string
+// allocation: the answer is the same for the overwhelming majority of lines.
+static void preview_ctx_track_file(preview_ctx_t *ctx, interp_handle_t *h) {
+    char buf[PATH_MAX];
+    interp_shim_file_name(h, buf, sizeof(buf));
+    preview_ctx_set_file(ctx, buf);
+}
+
+static void preview_ctx_free_files(preview_ctx_t *ctx) {
+    for (int i = 0; i < ctx->file_count; i++) free(ctx->files[i]);
+    free(ctx->files);
+    ctx->files = NULL;
+    ctx->file_count = 0;
+    ctx->file_cap = 0;
+}
 
 // Cap growers return 1 when a slot is available. On the segment limit or a
 // realloc failure they set ctx->truncated and return 0 — the old buffer stays
@@ -265,6 +322,7 @@ static int add_segment(preview_ctx_t *ctx, int type,
         memset(s, 0, sizeof(*s));
         s->type = type;
         s->line_no = ctx->line_no;
+        s->file_idx = ctx->file_idx;
         memcpy(s->start, ctx->pos, sizeof(s->start));
         s->end[0] = x; s->end[1] = y; s->end[2] = z;
         s->end[3] = a; s->end[4] = b; s->end[5] = c;
@@ -361,6 +419,7 @@ static void pc_dwell(void *vctx, double seconds) {
     if (!ctx_ensure_dwell_cap(ctx)) return;
     preview_dwell_t *d = &ctx->dwells[ctx->dwell_count++];
     d->line_no = ctx->line_no;
+    d->file_idx = ctx->file_idx;
     memcpy(d->pos, ctx->pos, sizeof(d->pos));
     d->seconds = seconds;
     d->plane = 0;
@@ -371,6 +430,7 @@ static void pc_change_tool(void *vctx, int32_t slot) {
     if (!ctx_ensure_tc_cap(ctx)) return;
     preview_tool_change_t *tc = &ctx->tool_changes[ctx->tc_count++];
     tc->line_no = ctx->line_no;
+    tc->file_idx = ctx->file_idx;
     tc->tool_no = slot;
 }
 
@@ -987,6 +1047,33 @@ func (m *ngcPreview) Start() error {
 func (m *ngcPreview) Stop()    {}
 func (m *ngcPreview) Destroy() {}
 
+// ctxFiles copies the recorder's source-file table out to Go. Index 0 is the
+// previewed file; the rest are the sub-files o-word calls reached, in the
+// order they were first entered. Segments reference these by index rather
+// than repeating a path per segment.
+func ctxFiles(ctx *C.preview_ctx_t) []string {
+	n := int(ctx.file_count)
+	if n <= 0 {
+		return nil
+	}
+	out := make([]string, n)
+	cfiles := unsafe.Slice(ctx.files, n)
+	for i := 0; i < n; i++ {
+		f := C.GoString(cfiles[i])
+		// find_ngc_file's first branch opens a cwd-relative name as-is, so a
+		// sub can land here relative. Clients resolve these paths against the
+		// server (to fetch the text), and cwd is this process's — absolutise
+		// here, where that is still true.
+		if f != "" && !filepath.IsAbs(f) {
+			if abs, err := filepath.Abs(f); err == nil {
+				f = abs
+			}
+		}
+		out[i] = f
+	}
+	return out
+}
+
 // sanitize replaces NaN/Inf with 0 to avoid JSON serialization errors.
 func sanitize(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -1066,6 +1153,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		C.free(unsafe.Pointer(ctx.segments))
 		C.free(unsafe.Pointer(ctx.dwells))
 		C.free(unsafe.Pointer(ctx.tool_changes))
+		C.preview_ctx_free_files(ctx)
 		C.free(unsafe.Pointer(ctx))
 	}()
 
@@ -1114,6 +1202,9 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				Error: fmt.Sprintf("open failed: %d (%s)", rc, errText),
 			}, nil
 		}
+		// Seed the file table so index 0 is the previewed file even if the
+		// program emits no geometry before its first o-word call.
+		C.preview_ctx_track_file(ctx, h)
 	}
 
 	// Execute initcodes after open (matches gcodemodule behavior)
@@ -1190,6 +1281,12 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 			// (finding N-9: maxLine is a maximum over executed lines, wrong
 			// for O-word flow that jumps backward).
 			curSeq = int32(C.interp_shim_sequence_number(h))
+			// …and the file it was read from. An o-word call into another
+			// file restarts the sequence number, so the pair identifies the
+			// location; the block cannot change files while it executes, so
+			// this attributes every segment it emits correctly.
+			C.preview_ctx_track_file(ctx, h)
+			curFile := int32(ctx.file_idx)
 			rc = C.interp_shim_execute(h)
 			lastExecRC = rc
 			// EXECUTE_FINISH (2) is SUCCESS-with-flag (toolchange, probe,
@@ -1205,7 +1302,10 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				break
 			}
 			execCount++
-			if curSeq > maxLine {
+			// Only the previewed file's own lines count: a called sub-file
+			// numbers its lines independently, so folding those in produced
+			// a max_line past the end of the file being displayed.
+			if curFile == 0 && curSeq > maxLine {
 				maxLine = curSeq
 			}
 		}
@@ -1214,19 +1314,27 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	C.interp_shim_close(h)
 
 	// Convert C results to Go types
+	files := ctxFiles(ctx)
+	// A failure inside a called sub-file must name that file: its line
+	// numbers are its own, so a bare "line 18" points into the wrong program.
+	errWhere := ""
+	if fi := int(ctx.file_idx); fi > 0 && fi < len(files) {
+		errWhere = " of " + files[fi]
+	}
 	var errMsg string
 	if lastExecRC > C.INTERP_SHIM_ENDFILE {
 		errText := shimErrorText(h, lastExecRC)
-		errMsg = fmt.Sprintf("line %d: execute error %d: %s", curSeq, lastExecRC, errText)
+		errMsg = fmt.Sprintf("line %d%s: execute error %d: %s", curSeq, errWhere, lastExecRC, errText)
 	} else if lastReadRC != C.INTERP_SHIM_OK && lastReadRC != C.INTERP_SHIM_ENDFILE {
 		errText := shimErrorText(h, lastReadRC)
-		errMsg = fmt.Sprintf("line %d: read error %d: %s", curSeq+1, lastReadRC, errText)
+		errMsg = fmt.Sprintf("line %d%s: read error %d: %s", curSeq+1, errWhere, lastReadRC, errText)
 	} else if boundMsg != "" {
 		errMsg = boundMsg
 	}
 	result := &ngcpreview.PreviewResult{
 		MaxLine: maxLine,
 		Error:   errMsg,
+		Files:   files,
 	}
 
 	// Convert segments
@@ -1237,8 +1345,9 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		for i := 0; i < nSegs; i++ {
 			s := &segs[i]
 			result.Segments[i] = ngcpreview.Segment{
-				Type:   ngcpreview.SegmentType(s._type),
-				LineNo: int32(s.line_no),
+				Type:    ngcpreview.SegmentType(s._type),
+				LineNo:  int32(s.line_no),
+				FileIdx: int32(s.file_idx),
 				Start: ngcpreview.Position{
 					X: sanitize(float64(s.start[0])), Y: sanitize(float64(s.start[1])), Z: sanitize(float64(s.start[2])),
 					A: sanitize(float64(s.start[3])), B: sanitize(float64(s.start[4])), C: sanitize(float64(s.start[5])),
@@ -1272,6 +1381,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 			d := &dwells[i]
 			result.Dwells[i] = ngcpreview.Dwell{
 				LineNo:  int32(d.line_no),
+				FileIdx: int32(d.file_idx),
 				Seconds: float64(d.seconds),
 				Plane:   int32(d.plane),
 				Pos: ngcpreview.Position{
@@ -1291,7 +1401,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		for i := 0; i < nTC; i++ {
 			tc := &tcs[i]
 			result.ToolChanges[i] = ngcpreview.ToolChange{
-				LineNo: int32(tc.line_no),
+				LineNo:  int32(tc.line_no),
+				FileIdx: int32(tc.file_idx),
 				ToolNo: int32(tc.tool_no),
 			}
 		}
@@ -1429,6 +1540,7 @@ func (m *ngcPreview) EvalExpression(expr string) (*ngcpreview.EvalResult, error)
 		C.free(unsafe.Pointer(ctx.segments))
 		C.free(unsafe.Pointer(ctx.dwells))
 		C.free(unsafe.Pointer(ctx.tool_changes))
+		C.preview_ctx_free_files(ctx)
 		C.free(unsafe.Pointer(ctx))
 	}()
 
