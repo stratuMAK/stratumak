@@ -3787,8 +3787,9 @@ if db_program is not None: default_tooleditor = None
 
 tooleditor = inifile.find("DISPLAY","TOOL_EDITOR") or default_tooleditor
 
-if inifile.find("RS274NGC", "PARAMETER_FILE") is None:
-    raise SystemExit("Missing INI file setting for [RS274NGC]PARAMETER_FILE")
+# [RS274NGC]PARAMETER_FILE is optional under gomc: the default parameter I/O
+# backend is the persistence service, so numbered parameters need no .var file.
+# The preview (gremlin) already falls back to a temp default when it is absent.
 try:
     lu = units(inifile.find("TRAJ", "LINEAR_UNITS"))
 except TypeError:
