@@ -785,6 +785,11 @@ func (g *generator) emitUndefConvenience() {
 // (and thus api_register) before any consumer looks them up.
 func (g *generator) emitConsumeAPILookups() {
 	for _, entry := range g.comp.GMIConsume {
+		if entry.API == "mcode_handler" {
+			// milltask registers this API in its Start(), not New(), so it is
+			// looked up in inst_start (see emitMcodeStart), not here in Init.
+			continue
+		}
 		g.printf("    /* gmi_consume %s */\n", entry.API)
 		g.printf("    inst->__gmi_%s = %s_api_get(inst->env->api, inst->__gmi_%s_instance);\n", entry.API, entry.API, entry.API)
 		g.printf("    if (!inst->__gmi_%s) return -1;\n", entry.API)
@@ -792,15 +797,31 @@ func (g *generator) emitConsumeAPILookups() {
 	}
 }
 
-// emitMcodeRegistration registers each declared M-code with the mcode_handler
-// provider.  Called from inst_init after the api_get lookups (so the consumed
-// API pointer is valid).  The trampolines (mcode_<n>) are defined by the MCODE
-// macro in the user code emitted earlier in the file.
-func (g *generator) emitMcodeRegistration() {
+// hasInitConsume reports whether any consumed API is looked up in Init.  The
+// mcode_handler API is the exception: milltask registers it in its Start, so
+// its lookup happens in Start (emitMcodeStart), not Init.
+func (g *generator) hasInitConsume() bool {
+	for _, e := range g.comp.GMIConsume {
+		if e.API != "mcode_handler" {
+			return true
+		}
+	}
+	return false
+}
+
+// emitMcodeStart looks up the mcode_handler API and registers each declared
+// M-code.  Emitted from inst_start, NOT inst_init: milltask registers the
+// mcode_handler API in its own Start(), which runs before this module's Start()
+// (load order), so an Init-time lookup would be too early.  The trampolines
+// (mcode_<n>) are defined by the MCODE macro in the user code emitted above.
+func (g *generator) emitMcodeStart() {
 	if !g.hasMcodes() {
 		return
 	}
-	g.printf("    /* register M-code handlers */\n")
+	g.printf("    /* mcode_handler is registered by milltask in its Start(); look it up here */\n")
+	g.printf("    inst->__gmi_mcode_handler = mcode_handler_api_get(inst->env->api, inst->__gmi_mcode_handler_instance);\n")
+	g.printf("    if (!inst->__gmi_mcode_handler) return -1;\n")
+	g.printf("    inst->env->api->record_consumer(inst->env->api->ctx, inst->name, \"mcode_handler\", inst->__gmi_mcode_handler_instance);\n")
 	for _, n := range g.comp.Mcodes {
 		g.printf("    if (inst->__gmi_mcode_handler->register_handler(inst->__gmi_mcode_handler->ctx, %d, mcode_%d, inst) != 0)\n", n, n)
 		g.printf("        return -1;\n")
@@ -812,12 +833,13 @@ func (g *generator) emitInitStartStopDestroy() {
 	g.printf(" * Lifecycle: Init / Start / Stop / Destroy\n")
 	g.printf(" * ------------------------------------------------------------------------- */\n\n")
 
-	// Init: look up consumed APIs (cross-module lookups happen here).
-	if len(g.comp.GMIConsume) > 0 {
+	// Init: look up consumed APIs (cross-module lookups happen here).  The
+	// mcode_handler API is excluded (looked up in Start), so only emit inst_init
+	// when some other API is consumed.
+	if g.hasInitConsume() {
 		g.printf("static int inst_init(cmod_t *self) {\n")
 		g.printf("    inst_t *inst = (inst_t *)self;\n")
 		g.emitConsumeAPILookups()
-		g.emitMcodeRegistration()
 		g.printf("    return 0;\n")
 		g.printf("}\n\n")
 	}
@@ -828,13 +850,25 @@ func (g *generator) emitInitStartStopDestroy() {
 		g.printf("    user_mainloop((inst_t *)arg);\n")
 		g.printf("    return NULL;\n")
 		g.printf("}\n\n")
+	}
 
-		// Start: spawn the user_mainloop thread.
-		g.printf("static int inst_start(cmod_t *self) {\n")
+	// Start: register M-code handlers (looked up here, not in Init) and, for a
+	// userspace component, spawn the user_mainloop thread.
+	g.printf("static int inst_start(cmod_t *self) {\n")
+	if g.hasMcodes() || g.hasUserMainloop() {
 		g.printf("    inst_t *inst = (inst_t *)self;\n")
+	} else {
+		g.printf("    (void)self;\n")
+	}
+	g.emitMcodeStart()
+	if g.hasUserMainloop() {
 		g.printf("    return pthread_create(&inst->thread, NULL, userspace_thread, inst);\n")
-		g.printf("}\n\n")
+	} else {
+		g.printf("    return 0;\n")
+	}
+	g.printf("}\n\n")
 
+	if g.hasUserMainloop() {
 		// Stop: signal the eventfd and join the thread.
 		g.printf("static void inst_stop(cmod_t *self) {\n")
 		g.printf("    inst_t *inst = (inst_t *)self;\n")
@@ -842,11 +876,6 @@ func (g *generator) emitInitStartStopDestroy() {
 		g.printf("    pthread_join(inst->thread, NULL);\n")
 		g.printf("}\n\n")
 	} else {
-		g.printf("static int inst_start(cmod_t *self) {\n")
-		g.printf("    (void)self;\n")
-		g.printf("    return 0;\n")
-		g.printf("}\n\n")
-
 		g.printf("static void inst_stop(cmod_t *self) {\n")
 		g.printf("    (void)self;\n")
 		g.printf("}\n\n")
@@ -890,8 +919,9 @@ func (g *generator) emitNew() {
 	g.printf("                        sizeof(inst_t));\n")
 	g.printf("    if (!inst) return -1;\n\n")
 
-	// Wire vtable.
-	if len(g.comp.GMIConsume) > 0 {
+	// Wire vtable.  inst_init only exists when a non-mcode API is consumed
+	// (mcode_handler is looked up in Start).
+	if g.hasInitConsume() {
 		g.printf("    inst->base.Init    = inst_init;\n")
 	}
 	g.printf("    inst->base.Start   = inst_start;\n")

@@ -142,4 +142,15 @@ MCODE(101) {
 			t.Errorf("generated C missing %q; generated:\n%s", want, out)
 		}
 	}
+
+	// The mcode_handler API is provided by milltask in its Start(), so the
+	// lookup+register must live in inst_start, not inst_init.  A comp that only
+	// consumes mcode_handler must therefore emit no inst_init at all.
+	if strings.Contains(out, "inst_init") {
+		t.Errorf("mcode-only comp must not emit inst_init (lookup belongs in Start); generated:\n%s", out)
+	}
+	si := strings.Index(out, "inst_start")
+	if si < 0 || !strings.Contains(out[si:], "mcode_handler_api_get(") {
+		t.Errorf("mcode_handler lookup must be inside inst_start; generated:\n%s", out)
+	}
 }
