@@ -718,3 +718,26 @@ func TestToolTableWriteVisibleBeforeDrain(t *testing.T) {
 	checkFuzz(t, entry.XOffset, 1, "store slot 1 X after drain")
 	checkFuzz(t, entry.YOffset, 2, "store slot 1 Y after drain")
 }
+
+// PARAMETER_FILE is optional: with the persist-backed parameter I/O backend
+// (the gomc default) numbered parameters live in the persistence service, so
+// ini_load must succeed when [RS274NGC]PARAMETER_FILE is absent.
+func TestIniLoadAccessor_ParameterFileOptional(t *testing.T) {
+	ini, err := inifile.ParseString("[EMC]\nMACHINE=noparamfile\n" +
+		"[TRAJ]\nCOORDINATES=X Z\nLINEAR_UNITS=mm\n[EMCIO]\n")
+	if err != nil {
+		t.Fatalf("parse ini: %v", err)
+	}
+
+	interp, err := NewCInterp()
+	if err != nil {
+		t.Fatalf("NewCInterp: %v", err)
+	}
+	t.Cleanup(func() { interp.Destroy() })
+
+	accHandle, err := interp.IniLoadAccessor(ini)
+	if err != nil {
+		t.Fatalf("IniLoadAccessor without PARAMETER_FILE = %v, want success", err)
+	}
+	t.Cleanup(func() { FreeIniAccessor(accHandle) })
+}

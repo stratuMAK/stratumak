@@ -143,9 +143,10 @@ func joinContinuationLines(content string) string {
 }
 
 // iniVarPattern matches [SECTION]KEY in a HAL line.
-// Section names and keys may contain letters, digits, underscores, or hyphens
-// (e.g. [JOINT_0]MIN-LIMIT, [DISPLAY]PYVCP-PANEL).
-var iniVarPattern = regexp.MustCompile(`\[([A-Za-z0-9_-]+)\]([A-Za-z0-9_-]+)`)
+// Keys may contain letters, digits, underscores, or hyphens.  Section names
+// may additionally contain '.' and ':' so a HAL file can reference a
+// namespaced multi-instance section directly, e.g. [coat.task:JOINT_0]PGAIN.
+var iniVarPattern = regexp.MustCompile(`\[([A-Za-z0-9_.:-]+)\]([A-Za-z0-9_-]+)`)
 
 // envVarPattern matches ${VARNAME} and $VARNAME in a HAL line.
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
