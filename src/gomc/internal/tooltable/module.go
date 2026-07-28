@@ -73,12 +73,35 @@ type module struct {
 	spindleMem tooltable.ToolEntry
 }
 
+// newTooltable builds a store from the "load tooltable <name> k=v ..." line:
+//
+//	persist_instance=<name>   persist instance backing the store
+//	namespace=<name>          INI namespace for this instance's [EMCIO] keys
+//	                          (default: the instance name)
+//
+// namespace= is what makes a second store readable from the same INI: the
+// INI keys below are per-instance settings ("which .tbl seeds THIS store",
+// "is THIS changer random"), so a multi-instance config names the task's
+// namespace here and writes [mill2:EMCIO]TOOL_TABLE. Without it both stores
+// read the global [EMCIO] and a config's second tool table silently became a
+// second copy of the first. Defaulting to the instance name keeps every
+// single-instance config unchanged: WithNamespace falls back to the global
+// section when no [<name>:EMCIO] exists.
 func newTooltable(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
 	persistInst := "persistence"
+	ns := name
 	for _, arg := range args {
-		if k, v, ok := strings.Cut(arg, "="); ok && k == "persist_instance" {
-			persistInst = v
+		if k, v, ok := strings.Cut(arg, "="); ok {
+			switch k {
+			case "persist_instance":
+				persistInst = v
+			case "namespace":
+				ns = v
+			}
 		}
+	}
+	if ini != nil {
+		ini = ini.WithNamespace(ns)
 	}
 
 	m := &module{
@@ -109,7 +132,7 @@ func newTooltable(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 	}
 
 	logger.Info("tooltable: registered", "instance", name, "persistence", persistInst,
-		"random_toolchanger", m.randomToolchange)
+		"namespace", ns, "random_toolchanger", m.randomToolchange)
 	return m, nil
 }
 
