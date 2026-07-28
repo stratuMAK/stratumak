@@ -162,6 +162,17 @@ def ToolTable():
     return _ToolTable(instance=instance())
 
 
+def ToolSlots():
+    """Create a gmi.ToolSlots client for the raw slot store behind this task.
+
+    The store's instance name is milltask's tooltable_instance, resolved from
+    /info by tooltable_instance() — the same lookup every other peer gets, so
+    a UI never has to know or guess the name.
+    """
+    from gmi.tools import ToolSlots as _ToolSlots
+    return _ToolSlots(instance=tooltable_instance())
+
+
 def component_exists(name: str) -> bool:
     """Check if a HAL component exists via the halcmd REST API.
 

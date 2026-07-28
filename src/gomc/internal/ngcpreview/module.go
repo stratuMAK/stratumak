@@ -871,9 +871,11 @@ type ngcPreview struct {
 	segLimit            int              // segment cap (tests lower it; 0 = default)
 
 	// randomToolchanger is the tool store's answer, read once at Start and
-	// handed to the interp in place of [EMCIO]RANDOM_TOOLCHANGER ("" when the
-	// store could not be asked, leaving the INI to answer as before).
-	randomToolchanger string
+	// handed to the interp in place of [EMCIO]RANDOM_TOOLCHANGER. Known is
+	// false when there is no store to ask (tooltable lookup failed), which
+	// leaves the INI to answer as it did before.
+	randomToolchanger      bool
+	randomToolchangerKnown bool
 
 	// One interpreter run at a time: Interp has static state (prior finding
 	// NGC1), and each unserialized run is an independent unbounded interp
@@ -970,10 +972,7 @@ func (m *ngcPreview) Start() error {
 		if err != nil {
 			return fmt.Errorf("ngcpreview: tooltable get_info (%s): %w", m.ttInstanceName, err)
 		}
-		m.randomToolchanger = "0"
-		if info.RandomToolchanger {
-			m.randomToolchanger = "1"
-		}
+		m.randomToolchanger, m.randomToolchangerKnown = info.RandomToolchanger, true
 	}
 
 	// Look up persist API for read-only parameter loading (required).
@@ -1086,8 +1085,8 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 	// SUBROUTINE_PATH, PROGRAM_PREFIX, RANDOM_TOOLCHANGER etc. only through
 	// the accessor — without it the preview interp runs fully defaulted and
 	// diverges from what the machine executes.
-	if m.ini != nil || m.randomToolchanger != "" {
-		acc, accHandle := newPreviewIniAccessor(m.ini, m.randomToolchanger)
+	if m.ini != nil || m.randomToolchangerKnown {
+		acc, accHandle := newPreviewIniAccessor(m.ini, m.randomToolchanger, m.randomToolchangerKnown)
 		defer freePreviewIniAccessor(accHandle)
 		C.interp_shim_set_ini_accessor(h, &acc)
 	}

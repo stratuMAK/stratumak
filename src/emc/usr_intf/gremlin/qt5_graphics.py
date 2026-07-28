@@ -32,6 +32,7 @@ from rs274 import glcanon
 from rs274 import interpret
 import linuxcnc
 import gcode
+import gmi
 
 import re
 import tempfile
@@ -371,7 +372,10 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
         td = tempfile.mkdtemp()
         self._current_file = filename
         try:
-            random = int(self.inifile.find("EMCIO", "RANDOM_TOOLCHANGER") or 0)
+            # The tool store says what an idx means, not [EMCIO]: its instance
+            # is the one milltask reports through /info, so this asks the store
+            # belonging to THIS machine rather than the global INI section.
+            random = int(gmi.ToolSlots().random_toolchanger())
             arcdivision = int(self.inifile.find("DISPLAY", "ARCDIVISION") or 64)
             text = ''
             canon = StatCanon(self.colors,

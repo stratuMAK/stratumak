@@ -3620,7 +3620,11 @@ def units(s, d=1.0):
     except ValueError:
         return unit_values.get(s, d)
 
-random_toolchanger = int(inifile.find("EMCIO", "RANDOM_TOOLCHANGER") or 0)
+# What an idx means comes from the tool store, not from [EMCIO]: the store is
+# told once on its load line, and its instance is the one milltask reports
+# through /info (gmi.tooltable_instance()). Reading the INI here resolved the
+# global section, which on a multi-instance server need not be this machine's.
+random_toolchanger = int(gmi.ToolSlots().random_toolchanger())
 jointcount = int(inifile.find("KINS", "JOINTS"))
 open_directory = inifile.find("DISPLAY", "PROGRAM_PREFIX") or open_directory
 vars.machine.set(inifile.find("EMC", "MACHINE"))

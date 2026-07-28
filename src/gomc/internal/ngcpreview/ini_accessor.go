@@ -45,13 +45,15 @@ import (
 type previewIniHandle struct {
 	ini *inifile.IniFile
 
-	// randomToolchanger overrides [EMCIO]RANDOM_TOOLCHANGER ("0"/"1"; ""
-	// leaves the INI to answer).  The interp asks for that key through this
+	// randomToolchanger answers [EMCIO]RANDOM_TOOLCHANGER when known; unknown
+	// leaves the INI to answer.  The interp asks for that key through this
 	// accessor, but the tool store — not the INI — is what decides whether an
 	// idx is a carousel pocket here, and it is told so on its load line.
 	// Letting the INI answer would let a preview disagree with the machine it
-	// previews for.
-	randomToolchanger string
+	// previews for.  The C side sees INI text, so the bool is rendered as
+	// "1"/"0" at the point of return, not carried around as one.
+	randomToolchanger      bool
+	randomToolchangerKnown bool
 
 	cbuf   *C.char
 	cbufSz C.size_t
@@ -73,10 +75,10 @@ func (h *previewIniHandle) returnStr(s string) *C.char {
 
 // newPreviewIniAccessor builds the C accessor struct; the returned handle
 // must outlive the interpreter run and be released via freePreviewIniAccessor.
-// randomToolchanger is the tool store's answer ("0"/"1", or "" when the store
-// could not be asked), which wins over the INI for that one key.
-func newPreviewIniAccessor(ini *inifile.IniFile, randomToolchanger string) (C.interp_shim_ini_accessor_t, cgo.Handle) {
-	h := &previewIniHandle{ini: ini, randomToolchanger: randomToolchanger}
+// randomToolchanger is the tool store's answer and wins over the INI for that
+// one key; known == false means there was no store to ask.
+func newPreviewIniAccessor(ini *inifile.IniFile, randomToolchanger, known bool) (C.interp_shim_ini_accessor_t, cgo.Handle) {
+	h := &previewIniHandle{ini: ini, randomToolchanger: randomToolchanger, randomToolchangerKnown: known}
 	handle := cgo.NewHandle(h)
 	acc := C.make_preview_ini_accessor(C.uintptr_t(handle))
 	return acc, handle
@@ -98,8 +100,11 @@ func freePreviewIniAccessor(handle cgo.Handle) {
 func goPreviewIniGet(ctx C.uintptr_t, section *C.char, key *C.char) *C.char {
 	h := cgo.Handle(ctx).Value().(*previewIniHandle)
 	sec, k := C.GoString(section), C.GoString(key)
-	if h.randomToolchanger != "" && sec == "EMCIO" && k == "RANDOM_TOOLCHANGER" {
-		return h.returnStr(h.randomToolchanger)
+	if h.randomToolchangerKnown && sec == "EMCIO" && k == "RANDOM_TOOLCHANGER" {
+		if h.randomToolchanger {
+			return h.returnStr("1")
+		}
+		return h.returnStr("0")
 	}
 	if h.ini == nil {
 		return nil
