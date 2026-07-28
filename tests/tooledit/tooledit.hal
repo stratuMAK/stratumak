@@ -1,3 +1,3 @@
-# Tool table backed by sqlite persistence; the .tbl is imported on first run.
+# Tool table backed by sqlite persistence; the .tbl seeds it on first run.
 load persist_sqlite
-load tooltable persist_instance=persist_sqlite
+load tooltable persist_instance=persist_sqlite init_tbl=[EMCIO]TOOL_TABLE

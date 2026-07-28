@@ -24,11 +24,10 @@ load persist_sqlite <persist2> dbpath=db/mill2
 # Shared persistence for global modules (halscope, retain)
 load persist_sqlite <persistence>
 
-# Separate tool tables per instance.  namespace= picks the task's INI
-# namespace, so tt2 seeds itself from [mill2:EMCIO]TOOL_TABLE instead of the
-# global one.
-load tooltable <tt1> namespace=mill1 persist_instance=persist1
-load tooltable <tt2> namespace=mill2 persist_instance=persist2
+# Separate tool tables per instance: the INI reference on the load line is what
+# ties each store to its own task's section.
+load tooltable <tt1> init_tbl=[EMCIO]TOOL_TABLE persist_instance=persist1
+load tooltable <tt2> init_tbl=[mill2:EMCIO]TOOL_TABLE persist_instance=persist2
 
 # Preview instances
 load ngcpreview <mill1-preview> namespace=mill1 tooltable_instance=tt1 persist_instance=persist1
