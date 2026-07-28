@@ -316,9 +316,9 @@ typedef struct lcec_master_data {
   gomc_hal_bit_t *state_init;        /**< TRUE when at least one slave is in INIT state. */
   gomc_hal_bit_t *state_preop;       /**< TRUE when at least one slave is in PRE-OP state. */
   gomc_hal_bit_t *state_safeop;      /**< TRUE when at least one slave is in SAFE-OP state. */
-  gomc_hal_bit_t *state_op;          /**< TRUE when all slaves are in OP state. */
+  gomc_hal_bit_t *state_op;          /**< TRUE when at least one slave is in OP state. */
   gomc_hal_bit_t *link_up;           /**< TRUE when the EtherCAT physical link is up. */
-  gomc_hal_bit_t *all_op;            /**< TRUE when the master reports all slaves operational. */
+  gomc_hal_bit_t *all_op;            /**< TRUE when every @em configured slave is in OP state. */
 #ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
   gomc_hal_s32_t *pll_err;           /**< Current PLL phase error in nanoseconds. */
   gomc_hal_s32_t *pll_out;           /**< Current PLL correction output in nanoseconds. */
@@ -389,6 +389,7 @@ typedef struct lcec_master {
   int ref_clock_slave_idx;         /**< Bus index of the DC reference-clock slave, or -1 for default. */
   long period_last;                /**< Servo period measured during the previous cycle (ns). */
   ec_master_state_t ms;            /**< Most-recently read EtherCAT master state snapshot. */
+  int all_op;                      /**< Non-zero while every configured slave of this master reports AL state OP. */
   lcec_dcsync_callbacks_t dcsync_callbacks; /**< Optional callbacks for DC synchronisation events. */
   int ref_clock_sync_counter;               /**< Remaining cycles before the next DC ref-clock sync. */
   uint64_t app_time_ns;    /**< Application time written to the EtherCAT master each cycle (ns). */

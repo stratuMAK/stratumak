@@ -38,14 +38,17 @@ echo "OP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slav
 echo 0 > bus.sim.link
 wait_pin ethercat.0.link-up FALSE       || { echo "FAIL: link-up did not drop on link loss" >&2; fail=1; }
 wait_pin ethercat.0.io.slave-online FALSE || { echo "FAIL: slave stayed online after link loss" >&2; fail=1; }
-echo "DOWN: link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) online=$(getp ethercat.0.io.slave-online)"
+# all-op is the AND over the configured slaves, so losing one must clear it.
+wait_pin ethercat.0.all-op FALSE        || { echo "FAIL: all-op stayed TRUE after link loss" >&2; fail=1; }
+echo "DOWN: link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) online=$(getp ethercat.0.io.slave-online) all-op=$(getp ethercat.0.all-op)"
 [ "$(getp ethercat.0.slaves-responding)" = 0 ] || { echo "FAIL: slaves-responding not 0 on link loss" >&2; fail=1; }
 
 # 3. Restore the link — the master must rescan and return the slave to OP.
 echo 1 > bus.sim.link
 wait_pin ethercat.0.link-up TRUE        || { echo "FAIL: link did not recover" >&2; fail=1; }
 wait_pin ethercat.0.io.slave-oper TRUE  || { echo "FAIL: slave did not return to OP after rejoin" >&2; fail=1; }
-echo "UP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) oper=$(getp ethercat.0.io.slave-oper)"
+wait_pin ethercat.0.all-op TRUE         || { echo "FAIL: all-op did not recover after rejoin" >&2; fail=1; }
+echo "UP:   link-up=$(getp ethercat.0.link-up) responding=$(getp ethercat.0.slaves-responding) oper=$(getp ethercat.0.io.slave-oper) all-op=$(getp ethercat.0.all-op)"
 
 rm -f bus.sim.link
 halcmd stop >/dev/null 2>&1

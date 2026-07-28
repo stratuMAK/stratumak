@@ -1,0 +1,7 @@
+# Load the lcec EtherCAT driver on the in-process sim transport and cycle it on
+# a servo thread. hal_start_server runs this (no 'start'); test.sh starts the
+# thread and waits for the master/slave to reach OP.
+newthread servo-thread 1000000
+load ethercat config=ethercat-conf.xml
+addf ethercat.read-all servo-thread
+addf ethercat.write-all servo-thread
