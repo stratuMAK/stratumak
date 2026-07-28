@@ -147,6 +147,31 @@ func TestParse_MissingINIVarIsError(t *testing.T) {
 	}
 }
 
+// A HAL file may reference a namespaced multi-instance INI section directly,
+// e.g. [coat.task:JOINT_0]PGAIN — the '.' and ':' must be allowed in the
+// section name and the value substituted.
+func TestParse_NamespacedIniSection(t *testing.T) {
+	ini := &mockINI{data: map[string]map[string]string{
+		"coat.task:JOINT_0": {"PGAIN": "2.0"},
+	}}
+	files := map[string]string{"test.hal": "setp coat.pid-x.Pgain [coat.task:JOINT_0]PGAIN"}
+	sp := &SingleFileParser{
+		ini:      ini,
+		readFile: func(path string) (string, error) { return files[path], nil },
+	}
+	result, err := sp.Parse("test.hal")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HALCmd) != 1 {
+		t.Fatalf("HALCmd count = %d, want 1", len(result.HALCmd))
+	}
+	st := result.HALCmd[0].Data.(*SetPToken)
+	if st.Value != "2.0" {
+		t.Errorf("Value = %q, want %q ([coat.task:JOINT_0]PGAIN must substitute)", st.Value, "2.0")
+	}
+}
+
 // --- TestParseLoad ---
 
 func TestParseLoad(t *testing.T) {
