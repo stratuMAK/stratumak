@@ -42,6 +42,7 @@ const (
 	varPhysOutput     = C.CL_VAR_PHYS_OUTPUT
 	varStepTime       = C.CL_VAR_STEP_TIME
 	varPhysWordInput  = C.CL_VAR_PHYS_WORD_INPUT
+	varPhysWordOutput = C.CL_VAR_PHYS_WORD_OUTPUT
 	varPhysFloatIn    = C.CL_VAR_PHYS_FLOAT_INPUT
 	varPhysFloatOut   = C.CL_VAR_PHYS_FLOAT_OUTPUT
 	varTimerPreset    = C.CL_VAR_TIMER_PRESET

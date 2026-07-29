@@ -277,12 +277,14 @@ type VarsBool {
     physInputs: []bool
     physOutputs: []bool
     errorBits: []bool
+    stepActivity: []bool   # %X — indexed by step number, not by step index
 }
 
 type VarsWord {
     words: []i32
     physWordInputs: []i32
     physWordOutputs: []i32
+    stepTimes: []i32       # %X.V — seconds each step has been active
 }
 
 type VarsFloat {
@@ -375,6 +377,70 @@ func save_project(path: string) -> i32
 @method GET
 @path "/symbols"
 func get_symbols() -> []Symbol
+
+# --- Sequential Function Chart (SFC) ---
+#
+# A section whose language is SEQUENTIAL runs a state machine instead of rungs.
+# Steps are states; a transition fires when its condition variable is true and
+# every step above it is active, deactivating those and activating the ones
+# below. One transition with several steps below it starts parallel branches;
+# one with several steps above it waits for all of them.
+#
+# The chart is read-only over this API: it loads, runs and saves with the rest
+# of the project, and can be displayed, but there is no editing surface for it.
+#
+# Step activity and elapsed time reach ladder rungs as the %X and %X.V
+# variables, and are reported live in Variables rather than here — this is the
+# static structure.
+
+const MAX_STEPS = 128
+const MAX_TRANSITIONS = 256
+const MAX_SWITCHS = 10
+const MAX_SEQ_PAGES = 5
+
+type Step {
+    used: bool
+    initStep: bool     # activated when the PLC starts
+    stepNumber: i32    # the n in %Xn — chosen by the author, not the index
+    page: i32          # which chart page it is drawn on
+    posiX: i32
+    posiY: i32
+}
+
+type Transition {
+    used: bool
+    varTypeCondi: i32           # VAR_* of the condition variable
+    varNumCondi: i32            # its offset
+    stepsToActivate: [10]i32    # step indices, -1 padded (MAX_SWITCHS)
+    stepsToDeactivate: [10]i32  # step indices, -1 padded
+    transLinkedForStart: [10]i32 # sibling transitions of a parallel branch
+    transLinkedForEnd: [10]i32
+    page: i32
+    posiX: i32
+    posiY: i32
+}
+
+type SeqComment {
+    used: bool
+    page: i32
+    posiX: i32
+    posiY: i32
+    comment: string @maxlen(50)
+}
+
+# The whole chart. Steps and transitions are returned in full, including unused
+# slots, because transitions refer to steps by index — compacting the arrays
+# would break every reference in them.
+type Sequential {
+    steps: []Step
+    transitions: []Transition
+    comments: []SeqComment
+}
+
+# Get the sequential (SFC) chart.
+@method GET
+@path "/sequential"
+func get_sequential() -> Sequential
 
 # --- Modbus types ---
 

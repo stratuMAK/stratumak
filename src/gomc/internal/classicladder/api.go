@@ -185,6 +185,65 @@ func (m *classicladder) SaveProject(path string) (int32, error) {
 	return 0, nil
 }
 
+// GetSequential returns the SFC chart. Steps and transitions come back in full,
+// unused slots included: transitions name steps by index, so compacting the
+// arrays would break every reference in them. Live activity is not here — it
+// reaches clients through Variables, with the rest of the running state.
+func (m *classicladder) GetSequential() (*api.Sequential, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	seq := api.Sequential{
+		Steps:       make([]api.Step, C.CL_MAX_STEPS),
+		Transitions: make([]api.Transition, C.CL_MAX_TRANSITIONS),
+		Comments:    make([]api.SeqComment, C.CL_MAX_SEQ_COMMENTS),
+	}
+
+	for i := range seq.Steps {
+		s := &m.rt.steps[i]
+		seq.Steps[i] = api.Step{
+			Used:       s.num_page >= 0,
+			InitStep:   s.init_step != 0,
+			StepNumber: int32(s.step_number),
+			Page:       int32(s.num_page),
+			PosiX:      int32(s.posi_x),
+			PosiY:      int32(s.posi_y),
+		}
+	}
+
+	for i := range seq.Transitions {
+		tr := &m.rt.transitions[i]
+		t := api.Transition{
+			Used:         tr.num_page >= 0,
+			VarTypeCondi: int32(tr.var_type_condi),
+			VarNumCondi:  int32(tr.var_num_condi),
+			Page:         int32(tr.num_page),
+			PosiX:        int32(tr.posi_x),
+			PosiY:        int32(tr.posi_y),
+		}
+		for j := 0; j < C.CL_MAX_SWITCHS; j++ {
+			t.StepsToActivate[j] = int32(tr.num_step_to_activ[j])
+			t.StepsToDeactivate[j] = int32(tr.num_step_to_desactiv[j])
+			t.TransLinkedForStart[j] = int32(tr.num_trans_linked_for_start[j])
+			t.TransLinkedForEnd[j] = int32(tr.num_trans_linked_for_end[j])
+		}
+		seq.Transitions[i] = t
+	}
+
+	for i := range seq.Comments {
+		c := &m.rt.seq_comments[i]
+		seq.Comments[i] = api.SeqComment{
+			Used:    c.num_page >= 0,
+			Page:    int32(c.num_page),
+			PosiX:   int32(c.posi_x),
+			PosiY:   int32(c.posi_y),
+			Comment: C.GoString(&c.comment[0]),
+		}
+	}
+
+	return &seq, nil
+}
+
 func (m *classicladder) GetSymbols() ([]api.Symbol, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -573,6 +632,13 @@ func (m *classicladder) buildVariables() api.Variables {
 	for i := 0; i < nerr; i++ {
 		vars.Bools.ErrorBits[i] = rt.var_bits[nbits+nin+nout+C.CL_MAX_STEPS+i] != 0
 	}
+	// Step activity is what makes an SFC chart legible while it runs: which
+	// state the machine is in. Indexed by step number (the n in %Xn), which is
+	// the author's numbering, not the step's slot.
+	vars.Bools.StepActivity = make([]bool, C.CL_MAX_STEPS)
+	for i := 0; i < C.CL_MAX_STEPS; i++ {
+		vars.Bools.StepActivity[i] = rt.var_bits[nbits+nin+nout+i] != 0
+	}
 
 	nwords := int(rt.sizes.nbr_words)
 	ns32in := int(rt.sizes.nbr_s32_in)
@@ -588,6 +654,10 @@ func (m *classicladder) buildVariables() api.Variables {
 	vars.Words.PhysWordOutputs = make([]int32, ns32out)
 	for i := 0; i < ns32out; i++ {
 		vars.Words.PhysWordOutputs[i] = int32(rt.var_words[nwords+ns32in+i])
+	}
+	vars.Words.StepTimes = make([]int32, C.CL_MAX_STEPS)
+	for i := 0; i < C.CL_MAX_STEPS; i++ {
+		vars.Words.StepTimes[i] = int32(rt.var_words[nwords+ns32in+ns32out+i])
 	}
 
 	nfin := int(rt.sizes.nbr_float_in)
