@@ -1014,14 +1014,6 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 _jog_speed_from_remote = False
 
-        # motion_line already IS the executing segment's line: the server
-        # resolves it from the id motion echoes back through its id -> tag side
-        # table. motion_id is an opaque serial here (not classic's lineno-as-id),
-        # so it must never reach set_current_line. motion_file says which file
-        # that line is numbered within — see track_executing_line.
-        track_executing_line(self.stat.motion_file or '', self.stat.motion_line)
-        track_filtering(self.stat)
-
         speed = self.stat.current_vel
 
         limits = soft_limits()
@@ -1063,6 +1055,20 @@ class LivePlotter:
                 if file_changed:
                     _pending_autofit = True
                 root_window.after_idle(refresh_preview_if_idle)
+
+        # motion_line already IS the executing segment's line: the server
+        # resolves it from the id motion echoes back through its id -> tag side
+        # table. motion_id is an opaque serial here (not classic's lineno-as-id),
+        # so it must never reach set_current_line. motion_file says which file
+        # that line is numbered within — see track_executing_line.
+        #
+        # AFTER the program resync above, deliberately: on the poll where the
+        # server switched programs, motion_file already names the new program
+        # while _listing_source still names the old one — classified before
+        # the resync, the new program would be treated as a sub-file for one
+        # poll, flashing the wrong banner and highlight state.
+        track_executing_line(self.stat.motion_file or '', self.stat.motion_line)
+        track_filtering(self.stat)
         if (self.logger.npts != self.lastpts
                 or limits != o.last_limits
                 or self.stat.actual_position != o.last_position
@@ -1375,7 +1381,24 @@ _awaiting_program = False
 # on every entry — and the files the server would not serve us, so a refusal
 # is reported once instead of on every poll.
 _file_text_cache = {}
-_unshowable_files = set()
+# Files the server would not serve, mapped to when it is worth asking again.
+# A retry window rather than a session-long blacklist: one dropped REST call
+# during a long run must not permanently disable sub-file following for that
+# file. A genuinely unservable file (outside the allowed roots) just fails
+# again quietly on each retry — the notification below fires only once.
+_unshowable_files = {}
+_unshowable_notified = set()
+_UNSHOWABLE_RETRY = 5.0
+
+
+def _is_unshowable(f):
+    retry_at = _unshowable_files.get(f)
+    if retry_at is None:
+        return False
+    if time.time() >= retry_at:
+        del _unshowable_files[f]
+        return False
+    return True
 _FILE_TEXT_CACHE_MAX = 8
 # A file must be the executing one for this long before the listing follows
 # it. Without the dwell, a sub called once per line would refill the listing
@@ -1403,6 +1426,11 @@ def _fill_listing(lines, progress=None):
     """Replace the listing's contents with `lines`."""
     t.configure(state="normal")
     t.tk.call("delete_all", t)
+    # delete_all destroyed every tag, including "executing". Reset the memo
+    # set_current_line keys its early-return on, or a line number that
+    # happens to match across a listing swap (main line 5 -> sub line 5)
+    # would skip the re-tag and leave the fresh listing with no highlight.
+    vupdate(vars.running_line, 0)
     code = []
     for i, l in enumerate(lines):
         l = l.expandtabs()
@@ -1422,10 +1450,15 @@ def _cached_file_lines(f):
     if lines is None:
         lines = _fetch_file_lines(f)
         # Bounded: a program calling many sub-files must not grow this UI's
-        # memory without limit. Dropping the whole cache keeps it simple —
-        # the working set is one program plus the subs it is calling.
+        # memory without limit. Dropping the cache keeps it simple — but the
+        # loaded program's text stays: restore_loaded_listing needs it after
+        # EVERY sub-file excursion, and evicting it would put a REST fetch
+        # inside the poll loop each time execution returns to the top level.
         if len(_file_text_cache) >= _FILE_TEXT_CACHE_MAX:
+            keep = _file_text_cache.get(_listing_source)
             _file_text_cache.clear()
+            if keep is not None:
+                _file_text_cache[_listing_source] = keep
         _file_text_cache[f] = lines
     return lines
 
@@ -1434,6 +1467,7 @@ def forget_listing_text():
     and the ones on disk may have changed since we last read them."""
     _file_text_cache.clear()
     _unshowable_files.clear()
+    _unshowable_notified.clear()
 
 def _same_path(a, b):
     return bool(a) and bool(b) and os.path.normpath(a) == os.path.normpath(b)
@@ -1490,6 +1524,9 @@ def load_text_and_set_file(f, source=None):
         _file_text_cache[f] = lines
     except Exception as e:
         notifications.add("error", str(e))
+    # A sub-file banner from the PREVIOUS program must not survive onto the
+    # new one it no longer describes.
+    _update_subfile_banner()
 
 _filter_banner = None
 
@@ -1547,11 +1584,14 @@ def show_subfile(f):
         # Usually a sub outside PROGRAM_PREFIX/SUBROUTINE_PATH: the server
         # will not serve its text. Say so once, then stay on the loaded
         # program with no highlight rather than point at a line of it that
-        # has nothing to do with what is running.
-        _unshowable_files.add(f)
-        notifications.add("error",
-            _("Executing %(file)s, which cannot be shown: %(err)s")
-            % {'file': f, 'err': e})
+        # has nothing to do with what is running. Retried after a pause —
+        # the failure may equally be one dropped REST call.
+        _unshowable_files[f] = time.time() + _UNSHOWABLE_RETRY
+        if f not in _unshowable_notified:
+            _unshowable_notified.add(f)
+            notifications.add("error",
+                _("Executing %(file)s, which cannot be shown: %(err)s")
+                % {'file': f, 'err': e})
         return False
     o.set_highlight_line(None)   # the selection referred to the old file
     _fill_listing(lines)
@@ -1612,7 +1652,7 @@ def track_executing_line(motion_file, motion_line):
         restore_loaded_listing()
         o.set_current_line(motion_line)
         return
-    if vars.follow_subfile.get() and motion_file not in _unshowable_files:
+    if vars.follow_subfile.get() and not _is_unshowable(motion_file):
         # Dwell filter: only follow a file execution stays in, so a sub
         # called once per line does not refill the listing on every call.
         now = time.time()
@@ -1638,13 +1678,18 @@ def clear_program_display():
     """
     global loaded_file, _server_program, _pending_autofit
     global _listing_source, displayed_subfile
+    global _view_candidate, _awaiting_program
     loaded_file = None
     _server_program = None
     _listing_source = None
     displayed_subfile = None
     _pending_autofit = False
+    _view_candidate = None
+    _awaiting_program = False
     forget_listing_text()
     vars.taskfile.set("")
+    # The banner described a program that is gone; clear it with the rest.
+    _update_subfile_banner()
     t.configure(state="normal")
     t.tk.call("delete_all", t)
     t.configure(state="disabled")
