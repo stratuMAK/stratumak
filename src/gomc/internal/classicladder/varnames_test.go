@@ -20,8 +20,8 @@ var sweepTypes = []int{
 	varPhysInput, varPhysOutput, varMemWord,
 	varPhysWordInput, varPhysWordOutput,
 	varPhysFloatIn, varPhysFloatOut,
-	70,                            // %E
-	varStepTime, 30,               // %X.V, %X
+	70,              // %E
+	varStepTime, 30, // %X.V, %X
 	199, 999, -1, // not in the table
 }
 
