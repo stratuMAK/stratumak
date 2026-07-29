@@ -74,14 +74,15 @@ void enqueue_SET_FEED_RATE(setup_pointer settings, double feed) {
     qc(settings).push_back(q);
 }
 
-void enqueue_DWELL(setup_pointer settings, double time) {
+void enqueue_DWELL(setup_pointer settings, int line_number, double time) {
     if(qc(settings).empty()) {
         if(debug_qc) printf("immediate dwell %f\n", time);
-        settings->canon.dwell(time);
+        settings->canon.dwell(line_number, time);
         return;
     }
     queued_canon q;
     q.type = QDWELL;
+    q.data.dwell.line_number = line_number;
     q.data.dwell.time = time;
     if(debug_qc) printf("enqueue dwell %f\n", time);
     qc(settings).push_back(q);
@@ -485,7 +486,7 @@ void dequeue_canons(setup_pointer settings) {
             break;
         case QDWELL:
             if(debug_qc) printf("issuing dwell\n");
-            settings->canon.dwell(q.data.dwell.time);
+            settings->canon.dwell(q.data.dwell.line_number, q.data.dwell.time);
             break;
         case QSET_FEED_MODE:
             if(debug_qc) printf("issuing set feed mode\n");

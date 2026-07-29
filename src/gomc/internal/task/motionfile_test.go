@@ -129,7 +129,7 @@ func TestNaivecamMergedMoveKeepsItsOwnFile(t *testing.T) {
 	// The o-word call on the next line switches the interpreter's file, and
 	// only then does something flush the open chain.
 	fi.name = "/programs/subs/mysub.ngc"
-	c.Dwell(0)
+	c.Dwell(5, 0)
 
 	_, ids, _ := collectEvents(t, task, mot)
 	if len(ids) != 1 {

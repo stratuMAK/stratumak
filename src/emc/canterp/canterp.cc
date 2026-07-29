@@ -428,7 +428,7 @@ int Canterp::execute(const char *line) {
 	if (1 != sscanf(the_command_args, "%d", &i1)) {
 	    return INTERP_ERROR;
 	}
-	CHANGE_TOOL(i1);
+	CHANGE_TOOL(ln, i1);
 	return 0;
     }
 
@@ -436,7 +436,7 @@ int Canterp::execute(const char *line) {
 	if (1 != sscanf(the_command_args, "%lf", &d1)) {
 	    return INTERP_ERROR;
 	}
-	DWELL(d1);
+	DWELL(ln, d1);
 	return 0;
     }
 

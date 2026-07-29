@@ -425,8 +425,9 @@ static void pc_use_length_units(void *vctx, int32_t units) {
     ctx->metric = (units == 2);
 }
 
-static void pc_dwell(void *vctx, double seconds) {
+static void pc_dwell(void *vctx, int32_t ln, double seconds) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
+    ctx->line_no = ln;
     if (!ctx_ensure_dwell_cap(ctx)) return;
     preview_dwell_t *d = &ctx->dwells[ctx->dwell_count++];
     d->line_no = ctx->line_no;
@@ -437,8 +438,9 @@ static void pc_dwell(void *vctx, double seconds) {
     d->plane = 0;
 }
 
-static void pc_change_tool(void *vctx, int32_t slot) {
+static void pc_change_tool(void *vctx, int32_t ln, int32_t slot) {
     preview_ctx_t *ctx = (preview_ctx_t*)vctx;
+    ctx->line_no = ln;
     if (!ctx_ensure_tc_cap(ctx)) return;
     preview_tool_change_t *tc = &ctx->tool_changes[ctx->tc_count++];
     tc->line_no = ctx->line_no;
@@ -1072,17 +1074,11 @@ func ctxFiles(ctx *C.preview_ctx_t) []string {
 	out := make([]string, n)
 	cfiles := unsafe.Slice(ctx.files, n)
 	for i := 0; i < n; i++ {
-		f := C.GoString(cfiles[i])
-		// find_ngc_file's first branch opens a cwd-relative name as-is, so a
-		// sub can land here relative. Clients resolve these paths against the
-		// server (to fetch the text), and cwd is this process's — absolutise
-		// here, where that is still true.
-		if f != "" && !filepath.IsAbs(f) {
-			if abs, err := filepath.Abs(f); err == nil {
-				f = abs
-			}
-		}
-		out[i] = f
+		// One spelling, shared with the task's stat.file and motion_file: a
+		// client matches the file it is displaying against this table.
+		// find_ngc_file's first branch opens a cwd-relative name as-is, and
+		// cwd is this process's, so canonicalising here is still meaningful.
+		out[i] = pathres.Canonical(C.GoString(cfiles[i]))
 	}
 	return out
 }
@@ -1419,7 +1415,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				LineNo:  int32(tc.line_no),
 				FileIdx: int32(tc.file_idx),
 				Seq:     int32(tc.seq),
-				ToolNo: int32(tc.tool_no),
+				ToolNo:  int32(tc.tool_no),
 			}
 		}
 	}

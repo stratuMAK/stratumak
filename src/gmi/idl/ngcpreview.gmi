@@ -61,10 +61,6 @@ type Segment {
 
 # A dwell (pause) point
 type Dwell {
-    # Approximate: the canon interface passes no line number to DWELL (as in
-    # classic emccanon), so this is the line of the last motion before it.
-    # file_idx and seq ARE exact — they come from the read loop and the
-    # recorder's counter, not from the canon call.
     line_no: i32
     file_idx: i32
     seq: i32
@@ -75,7 +71,6 @@ type Dwell {
 
 # Tool change event in the preview stream
 type ToolChange {
-    # Approximate, like Dwell.line_no: CHANGE_TOOL carries no line number.
     line_no: i32
     file_idx: i32
     seq: i32

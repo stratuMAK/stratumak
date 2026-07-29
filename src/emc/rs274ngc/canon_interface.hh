@@ -56,7 +56,7 @@ public:
     void rigid_tap(int32_t lineno, double x, double y, double z, double scale) { cb->rigid_tap(cb->ctx, lineno, x, y, z, scale); }
     void straight_probe(int32_t lineno, double x, double y, double z, double a, double b, double c, double u, double v, double w, uint8_t probe_type) { cb->straight_probe(cb->ctx, lineno, x, y, z, a, b, c, u, v, w, probe_type); }
     void stop() { cb->stop(cb->ctx); }
-    void dwell(double seconds) { cb->dwell(cb->ctx, seconds); }
+    void dwell(int32_t lineno, double seconds) { cb->dwell(cb->ctx, lineno, seconds); }
     void finish() { cb->finish(cb->ctx); }
     void set_spindle_mode(int32_t spindle, double mode) { cb->set_spindle_mode(cb->ctx, spindle, mode); }
     void set_spindle_speed(int32_t spindle, double rpm) { cb->set_spindle_speed(cb->ctx, spindle, rpm); }
@@ -65,7 +65,7 @@ public:
     void wait_spindle_orient_complete(int32_t spindle, double timeout) { cb->wait_spindle_orient_complete(cb->ctx, spindle, timeout); }
     void select_tool(int32_t tool) { cb->select_tool(cb->ctx, tool); }
     void start_change() { cb->start_change(cb->ctx); }
-    void change_tool(int32_t slot) { cb->change_tool(cb->ctx, slot); }
+    void change_tool(int32_t lineno, int32_t slot) { cb->change_tool(cb->ctx, lineno, slot); }
     void change_tool_number(int32_t number) { cb->change_tool_number(cb->ctx, number); }
     void reload_tooldata() { cb->reload_tooldata(cb->ctx); }
     void flood_on() { cb->flood_on(cb->ctx); }

@@ -120,7 +120,7 @@ func straight_probe(lineno: i32, x: f64, y: f64, z: f64, a: f64, b: f64, c: f64,
 func stop()
 
 @doc "Dwell (pause) for given seconds"
-func dwell(seconds: f64)
+func dwell(lineno: i32, seconds: f64)
 
 @doc "Wait for all queued motion to complete"
 func finish()
@@ -157,7 +157,7 @@ func select_tool(tool: i32)
 func start_change()
 
 @doc "Execute tool change to given slot"
-func change_tool(slot: i32)
+func change_tool(lineno: i32, slot: i32)
 
 @doc "Change tool number (renumber current tool)"
 func change_tool_number(number: i32)

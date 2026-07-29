@@ -125,7 +125,9 @@ static void ctx_canon_select_tool(void *interp, int tool) {
     IP->_setup.canon.select_tool(tool);
 }
 static void ctx_canon_change_tool(void *interp, int pocket) {
-    IP->_setup.canon.change_tool(pocket);
+    // No block here (this is the remap/ext entry point), so the line the
+    // interpreter is currently on is the best answer available.
+    IP->_setup.canon.change_tool(IP->_setup.sequence_number, pocket);
 }
 static void ctx_canon_change_tool_number(void *interp, int pocket) {
     IP->_setup.canon.change_tool_number(pocket);

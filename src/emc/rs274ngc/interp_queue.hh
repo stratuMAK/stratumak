@@ -52,6 +52,7 @@ struct set_feed_mode {
 };
 
 struct dwell {
+    int line_number;
     double time;
 };
 
@@ -107,7 +108,7 @@ struct queued_canon {
 std::vector<queued_canon>& qc(setup_pointer settings);
 
 void enqueue_SET_FEED_RATE(setup_pointer settings, double feed);
-void enqueue_DWELL(setup_pointer settings, double time);
+void enqueue_DWELL(setup_pointer settings, int line_number, double time);
 void enqueue_SET_FEED_MODE(setup_pointer settings, int spindle, int mode);
 void enqueue_MIST_ON(setup_pointer settings);
 void enqueue_MIST_OFF(setup_pointer settings);

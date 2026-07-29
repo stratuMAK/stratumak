@@ -41,6 +41,7 @@ c.wait_complete()
 
 trace = []          # (basename, line) transitions, in order
 absolute = True     # every non-empty motion_file arrives as an absolute path
+main_paths = set()  # full motion_file values seen for the main program
 
 c.auto(AUTO_RUN, 0)
 
@@ -55,6 +56,8 @@ while time.time() < deadline:
         key = (os.path.basename(f), s.motion_line)
         if not trace or trace[-1] != key:
             trace.append(key)
+        if key[0] == 'main.ngc':
+            main_paths.add(f)
         started = True
     if started and s.interp_state == INTERP_IDLE and not s.motion_line:
         break
@@ -78,5 +81,49 @@ if main_lines & sub_lines:
 else:
     print("FAIL distinct-files-share-line-numbers: main=%s sub=%s — the "
           "trace no longer exercises a collision" % (sorted(main_lines), sorted(sub_lines)))
+
+
+# --- the three surfaces must name the loaded program identically ------------
+
+# A client decides whether the line it is about to highlight belongs to the
+# program it is showing by comparing these. If they disagree by so much as a
+# spelling, that test is quietly wrong — so it is asserted, not assumed.
+
+s.poll()
+loaded = s.file
+
+if main_paths == {loaded}:
+    print("PASS motion_file-matches-stat-file")
+else:
+    print("FAIL motion_file-matches-stat-file: stat.file=%r but the main "
+          "program's motion_file was %r" % (loaded, sorted(main_paths)))
+
+from gmi.ngcpreview import NgcpreviewClient
+preview = NgcpreviewClient(gmi.rest_url(), instance=gmi.preview_instance())
+res = preview.gen_preview(filename=loaded, initcodes="", unitcode="g21")
+if res.files and res.files[0] == loaded:
+    print("PASS preview-file-table-matches-stat-file")
+else:
+    print("FAIL preview-file-table-matches-stat-file: stat.file=%r, "
+          "preview files=%r" % (loaded, list(res.files or [])))
+
+# The same file reached by a different spelling must come back as one
+# identity: the interpreter composes sub-file paths from SUBROUTINE_PATH and
+# can hand back anything from a relative name to a symlinked one.
+link = os.path.join(os.path.dirname(loaded), 'link')
+try:
+    if not os.path.islink(link):
+        os.symlink('.', link)
+    c.program_open(os.path.join(link, 'main.ngc'))
+    c.wait_complete()
+    s.poll()
+    if s.file == loaded:
+        print("PASS one-identity-per-file")
+    else:
+        print("FAIL one-identity-per-file: opened through a symlink and got "
+              "%r, want %r" % (s.file, loaded))
+finally:
+    if os.path.islink(link):
+        os.remove(link)
 
 sys.exit(0)

@@ -80,33 +80,35 @@ limiticon = array.array('B',
            0,   0,    0, 0])
 
 class GLCanon(Translated, ArcsToSegmentsMixin):
-    lineno = -1
-    # Index into self.source_files of the file the current line comes from,
-    # and the file whose lines highlight() matches. An o-word call into a
-    # separate file restarts the interpreter's line numbering, so a line
-    # number alone does not identify a program location: without the file,
-    # selecting line 5 of the main program also lights up line 5 of every
-    # sub-file it calls.
-    fileno = 0
-    highlight_fileno = 0
+    # An o-word call into a separate file restarts the interpreter's line
+    # numbering, so a line number alone does not identify a program location:
+    # main.ngc line 5 and sub.ngc line 5 are different places. Every recorded
+    # element therefore carries a LOCATION ID — an index into self.locations,
+    # which holds (file index, line number) pairs — in the slot where classic
+    # put the line number.
+    #
+    # Keeping it in that slot rather than adding a field is what makes this
+    # cheap: the C drawers parse the tuples positionally, calc_extents branches
+    # on their length, and glLoadName() names element 0 for GL picking. All of
+    # them keep working, and picking becomes file-aware for free, because the
+    # name it hands back is now a location rather than a line.
+    lineno = -1          # current location id (the name is classic's)
+    fileno = 0           # source file index of the line being recorded
+    highlight_fileno = 0 # file whose lines highlight() matches
     source_files = ()
     def __init__(self, colors, geometry, is_foam=0):
-        # Source-file index of each recorded element, parallel to the geometry
-        # lists below. Kept beside the tuples rather than inside them: the C
-        # drawers (draw_lines, draw_dwells) parse those tuples positionally and
-        # calc_extents branches on their length, so their shape is load-bearing.
-        self.traverse_files = []
-        self.feed_files = []
-        self.arcfeed_files = []
-        self.dwells_files = []
-        # traverse list of tuples - [(line number, (start position), (end position), (tlo x, tlo y, tlo z))]
-        self.traverse = []; self.traverse_append = self._file_tracking_append(self.traverse, self.traverse_files)
-        # feed list of tuples - [(line number, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
-        self.feed = []; self.feed_append = self._file_tracking_append(self.feed, self.feed_files)
-        # arcfeed list of tuples - [(line number, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
-        self.arcfeed = []; self.arcfeed_append = self._file_tracking_append(self.arcfeed, self.arcfeed_files)
-        # dwell list - [line number, color, pos x, pos y, pos z, plane]
-        self.dwells = []; self.dwells_append = self._file_tracking_append(self.dwells, self.dwells_files)
+        # Location table: id -> (file index, line number), and its inverse for
+        # interning. Shared by every geometry list.
+        self.locations = []
+        self._location_ids = {}
+        # traverse list of tuples - [(location id, (start position), (end position), (tlo x, tlo y, tlo z))]
+        self.traverse = []; self.traverse_append = self.traverse.append
+        # feed list of tuples - [(location id, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
+        self.feed = []; self.feed_append = self.feed.append
+        # arcfeed list of tuples - [(location id, (start position), (end position), feedrate, (tlo x, tlo y, tlo z))]
+        self.arcfeed = []; self.arcfeed_append = self.arcfeed.append
+        # dwell list - [location id, color, pos x, pos y, pos z, plane]
+        self.dwells = []; self.dwells_append = self.dwells.append
         self.tool_list = []
         # preview list - combines the unrotated points of the lists: self.traverse, self.feed, self.arcfeed
         self.preview_zero_rxy = []
@@ -193,29 +195,31 @@ class GLCanon(Translated, ArcsToSegmentsMixin):
 
     def check_abort(self): pass
 
-    def _file_tracking_append(self, seq, files):
-        """Return an append that keeps `files` index-aligned with `seq`.
-
-        Wrapping the append rather than editing each record site makes the
-        invariant hold by construction — a desynced parallel list would
-        silently highlight the wrong geometry, with nothing to notice it.
-        """
-        seq_append = seq.append
-        files_append = files.append
-        def append(item):
-            seq_append(item)
-            files_append(self.fileno)
-        return append
-
     def set_source_files(self, files):
         """Record the file table preview segments index into (index 0 = the
         previewed file). Called by the preview loader before replay."""
         self.source_files = tuple(files or ())
 
+    def location_id(self, fileno, lineno):
+        """Intern (file, line) and return its location id."""
+        key = (fileno, lineno)
+        loc = self._location_ids.get(key)
+        if loc is None:
+            loc = len(self.locations)
+            self.locations.append(key)
+            self._location_ids[key] = loc
+        return loc
+
+    def location(self, loc_id):
+        """(file index, line number) for a location id, or None if unknown."""
+        if 0 <= loc_id < len(self.locations):
+            return self.locations[loc_id]
+        return None
+
     def next_line(self, st):
         self.state = st
-        self.lineno = self.state.sequence_number
         self.fileno = getattr(st, 'file_index', 0)
+        self.lineno = self.location_id(self.fileno, self.state.sequence_number)
 
     def draw_lines(self, lines, for_selection, j=0, geometry=None):
         return _glhelpers.draw_lines(geometry or self.geometry, lines, for_selection)
@@ -384,34 +388,37 @@ class GLCanon(Translated, ArcsToSegmentsMixin):
         self.dwells_append((self.lineno, color, self.lo[0], self.lo[1], self.lo[2], int(self.state.plane/10-17)))
 
     def highlight(self, lineno, geometry, fileno=None):
-        # Match (file, line), not line alone: a called sub-file numbers its
+        # Match the location, not the line: a called sub-file numbers its
         # lines from 1 again, so its geometry collides with the main
-        # program's. fileno defaults to the file the UI is displaying.
+        # program's. fileno defaults to the file the UI is displaying; a line
+        # never recorded from that file interns to no id and matches nothing,
+        # which is the honest answer.
         if fileno is None:
             fileno = self.highlight_fileno
+        loc = self._location_ids.get((fileno, lineno), -1)
         glLineWidth(3)
         c = self.colors['selected']
         glColor3f(*c)
         glBegin(GL_LINES)
         coords = []
-        for i, line in enumerate(self.traverse):
-            if line[0] != lineno or self.traverse_files[i] != fileno: continue
+        for line in self.traverse:
+            if line[0] != loc: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
-        for i, line in enumerate(self.arcfeed):
-            if line[0] != lineno or self.arcfeed_files[i] != fileno: continue
+        for line in self.arcfeed:
+            if line[0] != loc: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
-        for i, line in enumerate(self.feed):
-            if line[0] != lineno or self.feed_files[i] != fileno: continue
+        for line in self.feed:
+            if line[0] != loc: continue
             _glhelpers.line9(geometry, line[1], line[2])
             coords.append(line[1][:3])
             coords.append(line[2][:3])
         glEnd()
-        for i, line in enumerate(self.dwells):
-            if line[0] != lineno or self.dwells_files[i] != fileno: continue
+        for line in self.dwells:
+            if line[0] != loc: continue
             self.draw_dwells([(line[0], c) + line[2:]], 2, 0)
             coords.append(line[2:5])
         glLineWidth(1)
@@ -652,7 +659,15 @@ class GlCanonDraw:
             for x in buffer:
                 if min_depth < x.near:
                     min_depth, max_depth, names = (x.near, x.far, x.names)
-            self.set_highlight_line(names[0])
+            # The GL name is a location id, so a pick knows which FILE it
+            # landed in — clicking a called sub-file's toolpath used to come
+            # back as a bare line number and select that line of whatever was
+            # on screen.
+            loc = self.canon.location(names[0]) if self.canon is not None else None
+            if loc is None:
+                self.set_highlight_line(None)
+            else:
+                self.set_picked_location(loc[0], loc[1])
         else:
             self.set_highlight_line(None)
 
@@ -680,6 +695,17 @@ class GlCanonDraw:
         self.highlight_line = line
 
     def set_current_line(self, line): pass
+
+    def set_picked_location(self, fileno, lineno):
+        """A pick in the 3D view landed on `lineno` of source file `fileno`.
+
+        Default: highlight the line, which is right whenever the UI is showing
+        that file. A UI that can show more than one file overrides this to
+        bring the picked file up first — otherwise it would highlight the
+        right number in the wrong program.
+        """
+        self.set_highlight_line(lineno)
+
     def set_highlight_line(self, line):
         if line == self.get_highlight_line(): return
         self.update_highlight_variable(line)

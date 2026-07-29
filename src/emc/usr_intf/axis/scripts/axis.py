@@ -566,6 +566,15 @@ class MyOpengl(GlCanonDraw, Opengl):
     def get_highlight_line(self):
         return vars.highlight_line.get()
 
+    def set_picked_location(self, fileno, lineno):
+        # A pick in the 3D view can land in a called sub-file, whose line
+        # numbers are its own. Put that file on screen first; without it we
+        # would highlight its line number in whatever program is showing.
+        if not show_picked_file(fileno):
+            self.set_highlight_line(None)
+            return
+        self.set_highlight_line(lineno)
+
     def set_highlight_line(self, line):
         if line == self.get_highlight_line(): return
         GlCanonDraw.set_highlight_line(self, line)
@@ -1010,8 +1019,7 @@ class LivePlotter:
         # table. motion_id is an opaque serial here (not classic's lineno-as-id),
         # so it must never reach set_current_line. motion_file says which file
         # that line is numbered within — see track_executing_line.
-        track_executing_line(getattr(self.stat, 'motion_file', '') or '',
-                             self.stat.motion_line)
+        track_executing_line(self.stat.motion_file or '', self.stat.motion_line)
 
         speed = self.stat.current_vel
 
@@ -1455,11 +1463,15 @@ def _same_path(a, b):
     return bool(a) and bool(b) and os.path.normpath(a) == os.path.normpath(b)
 
 def _is_loaded_program(f):
-    """True when f is the program the task is running, under either of the
-    names we know it by: a filtered program is opened as the filter's temp
-    file while loaded_file keeps the original."""
-    return _same_path(f, _listing_source) or _same_path(f, loaded_file) \
-        or _same_path(f, _server_program)
+    """True when f is the program the task is running.
+
+    Compared only against paths the SERVER gave us: it canonicalises every
+    program path it hands out, so these are directly comparable with
+    motion_file. loaded_file is deliberately not consulted — it is our own
+    client-side spelling, and for a filtered program it names the original
+    while the task holds the filter's output.
+    """
+    return _same_path(f, _listing_source) or _same_path(f, _server_program)
 
 def _sync_highlight_fileno():
     """Tell the preview which file the listing's line numbers belong to, so
@@ -1473,11 +1485,12 @@ def _sync_highlight_fileno():
         if _same_path(f, shown):
             canon.highlight_fileno = i
             return
-    # Not in the preview's table. For the loaded program that only means the
-    # server named it differently from the path we opened it under — index 0
-    # IS the previewed file. For a sub-file it means the preview never reached
-    # it, and falling back to 0 would highlight the main program's identically
-    # numbered lines; match nothing instead.
+    # Not in the preview's table. While the listing shows the loaded program
+    # that is not a guess: entry 0 IS the previewed file by definition, and a
+    # filtered program legitimately previews a different path from the one the
+    # task holds. For a sub-file it means the preview never reached that file,
+    # and matching against entry 0 would light up the main program's
+    # identically numbered lines — match nothing instead.
     canon.highlight_fileno = -1 if displayed_subfile else 0
 
 def load_text_and_set_file(f):
@@ -1533,6 +1546,23 @@ def show_subfile(f):
     _sync_highlight_fileno()
     _update_subfile_banner()
     return True
+
+def show_picked_file(fileno):
+    """Bring the file a 3D pick landed in into the listing.
+
+    False when it cannot be shown — the caller must then highlight nothing,
+    since the picked line number means something else in the file on screen.
+    """
+    files = list(getattr(o.canon, 'source_files', ()) or ())
+    if fileno < 0 or fileno >= len(files):
+        return False
+    path = files[fileno]
+    if _same_path(path, displayed_subfile):
+        return True
+    if _is_loaded_program(path):
+        restore_loaded_listing()
+        return True
+    return show_subfile(path)
 
 def restore_loaded_listing():
     """Put the loaded program's text back in the listing."""
@@ -1682,16 +1712,23 @@ def open_file_guts(f, filtered=False, addrecent=True):
         # resync in update() must not mistake our own load for another
         # client's and clobber loaded_file (finding A-7).
         global _server_program, _listing_source, displayed_subfile
-        _server_program = f
-        lines = _fetch_file_lines(f)
+        # Take the program's identity from the server, not from the path we
+        # happened to send: the server canonicalises it (pathres.Canonical),
+        # and every other path we compare it against — motion_file, the
+        # preview's file table — is canonicalised the same way. Assuming our
+        # spelling matches is what makes an identity test quietly wrong.
+        s.poll()
+        server_file = s.file or f
+        _server_program = server_file
+        lines = _fetch_file_lines(server_file)
         root_window.tk.call("destroy", ".info.progress")
         progress = Progress(1, len(lines))
         _fill_listing(lines, progress)
         # The listing now shows this program: it is what a sub-file excursion
         # returns to, and what the preview's file table indexes from.
-        _listing_source = f
+        _listing_source = server_file
         displayed_subfile = None
-        _file_text_cache[f] = lines
+        _file_text_cache[server_file] = lines
 
     except Exception as e:
         notifications.add("error", str(e))

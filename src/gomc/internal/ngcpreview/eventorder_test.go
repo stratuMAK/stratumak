@@ -62,29 +62,24 @@ func TestGenPreviewSeqOrdersAllThreeLists(t *testing.T) {
 
 	sort.Slice(events, func(i, j int) bool { return events[i].seq < events[j].seq })
 
-	// Ordering by seq must reproduce the program: move, dwell, tool change,
-	// move. This asserts the ORDER, not the events' line numbers: the canon
-	// interface passes no line number to DWELL or CHANGE_TOOL (canon.gmi, as
-	// in classic emccanon), so those inherit the last motion's — which is
-	// exactly why they cannot be ordered by line number and need seq.
-	var kinds []string
-	for _, e := range events {
-		kinds = append(kinds, e.kind)
+	// Ordering by seq must reproduce the program exactly — kind AND line:
+	// the move on line 2, the dwell on 3, the tool change on 4, the move on 5.
+	// The lines are only assertable because the canon interface carries a line
+	// number into DWELL and CHANGE_TOOL; before that they inherited whatever
+	// moved last.
+	want := []event{
+		{events[0].seq, "segment", 2},
+		{events[1].seq, "dwell", 3},
+		{events[2].seq, "tool_change", 4},
+		{events[3].seq, "segment", 5},
 	}
-	want := []string{"segment", "dwell", "tool_change", "segment"}
-	if len(kinds) != len(want) {
-		t.Fatalf("seq order %v, want %v", kinds, want)
+	if len(events) != len(want) {
+		t.Fatalf("recorded %v, want %v", events, want)
 	}
 	for i := range want {
-		if kinds[i] != want[i] {
-			t.Fatalf("seq order %v, want %v", kinds, want)
+		if events[i].kind != want[i].kind || events[i].line != want[i].line {
+			t.Fatalf("in seq order got %v, want %v", events, want)
 		}
-	}
-
-	// Segments do carry their own line number, and must keep it.
-	if events[0].line != 2 || events[3].line != 5 {
-		t.Errorf("moves report lines %d and %d, want 2 and 5",
-			events[0].line, events[3].line)
 	}
 }
 

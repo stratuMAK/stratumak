@@ -274,7 +274,7 @@ func TestNaivecam_TagPinning(t *testing.T) {
 	// be line 3's tagMotionRange bracket.
 	s.currentTag = []byte{3}
 	startID := c.serial()
-	c.Dwell(0)
+	c.Dwell(3, 0)
 	task.tagMotionRange(startID, c.serial(), nil, nil, nil)
 
 	_, ids, _ := collectEvents(t, task, mot)

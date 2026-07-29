@@ -120,8 +120,26 @@ out of scope.
     number it belongs to, exactly as the state tag already was.
   Tests: `internal/task/motionfile_test.go`,
   `internal/ngcpreview/subfile_test.go`, `tests/axis-subfile-highlight/`.
-  Known residual: GL pick in the 3D view still returns a bare line number, so
-  clicking a sub-file's geometry resolves against the displayed file.
+  **Follow-up 2026-07-29 — the three compromises closed, API changed where
+  the clean answer needed it:**
+  - **Canon API:** `dwell(lineno, seconds)` and `change_tool(lineno, slot)`
+    (canon.gmi + canon_interface.hh + interp_queue's dwell op + the seven
+    canned-cycle call sites + saicanon/canterp). Before this, dwells and tool
+    changes inherited whatever moved last — and gomc's `CanonState.lineNo`
+    existed only to paper over it, so it is now deleted along with its five
+    writes. Departs from classic `emccanon`; the printed sai oracle format is
+    unchanged (it never printed line numbers), so no test churn.
+  - **Path identity:** `pathres.Canonical` — absolute, cleaned,
+    symlink-resolved — applied to the task's loaded program, motion_file and
+    the preview's file table alike, so comparing two program paths answers
+    "the same file?". AXIS now takes the program's identity from `stat.file`
+    rather than the path it happened to send.
+  - **glcanon:** geometry records a LOCATION ID (index into `canon.locations`,
+    holding (file, line)) in the slot classic used for the line number. The
+    parallel `*_files` lists are gone, and because `glLoadName()` names that
+    same slot, **GL picking became file-aware for free** — the residual noted
+    above is closed. `set_picked_location(fileno, lineno)` is the new hook;
+    its default keeps classic single-file behaviour for gremlin/qtvcp.
 - **A-16 LOW gutted emcmodule GL stubs documented as non-functional** (module
   docstring) — a classic consumer (gremlin) calling them silently draws
   nothing; trap flagged for the qtvcp/gladevcp milestone.

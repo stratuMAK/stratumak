@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/canon"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 )
 
 // Canon unit systems.
@@ -121,9 +121,6 @@ type CanonState struct {
 
 	// Rotary unlock: joint number to unlock for traverse (-1 = none)
 	rotaryUnlockForTraverse int32
-
-	// Motion line ID counter
-	lineNo int32
 
 	// Latest packed interp state tag (UPDATE_TAG canon call, one per
 	// executed block). Attached to queued motion segments so an abort can
@@ -399,12 +396,7 @@ func (c *Canon) currentFileName() string {
 	if raw == c.fileRaw {
 		return c.fileAbs
 	}
-	abs := raw
-	if abs != "" && !filepath.IsAbs(abs) {
-		if a, err := filepath.Abs(abs); err == nil {
-			abs = a
-		}
-	}
+	abs := pathres.Canonical(raw)
 	c.fileRaw, c.fileAbs = raw, abs
 	return abs
 }
@@ -633,7 +625,6 @@ func (c *Canon) StraightTraverse(lineno int32, x, y, z, a, b, _c, u, v, w float6
 	from := s.endPoint
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
 	s.endPoint = pos
-	s.lineNo = lineno
 
 	c.emitTraverse(from, pos, lineno, 1, s.rotaryUnlockForTraverse) // EMC_MOTION_TYPE_TRAVERSE
 }
@@ -676,7 +667,6 @@ func (c *Canon) emitTraverse(from, pos Pose, lineno, motionType, indexerJ int32)
 func (c *Canon) StraightFeed(lineno int32, x, y, z, a, b, _c, u, v, w float64) {
 	s := c.state
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
-	s.lineNo = lineno
 	// Buffered through the naive-CAM chain (2.9 STRAIGHT_FEED → see_segment):
 	// emission — vel/acc blend, the zero-distance drop, endPoint advance —
 	// happens in flushSegments, possibly merged with adjacent colinear feeds
@@ -712,7 +702,6 @@ func (c *Canon) ArcFeed(lineno int32, firstEnd, secondEnd, firstAxis, secondAxis
 	rotation int32, axisEndPoint, a, b, _c, u, v, w float64) {
 
 	s := c.state
-	s.lineNo = lineno
 
 	// Naive-CAM arc flattening (2.9 ARC_FEED head): in the XY plane under
 	// G64-continuous, an arc whose chord deviation is below the Q tolerance is
@@ -806,7 +795,6 @@ func (c *Canon) RigidTap(lineno int32, x, y, z, scale float64) {
 	s := c.state
 	from := s.endPoint
 	pos := s.toAbsolute(x, y, z, 0, 0, 0, 0, 0, 0)
-	s.lineNo = lineno
 
 	// Rigid-tap Z velocity is dictated by spindle synchronization, not the F
 	// word: use the per-axis straight-move max (unclamped by feed) for both vel
@@ -833,7 +821,6 @@ func (c *Canon) StraightProbe(lineno int32, x, y, z, a, b, _c, u, v, w float64, 
 	c.flushSegments()
 	s := c.state
 	pos := s.toAbsolute(x, y, z, a, b, _c, u, v, w)
-	s.lineNo = lineno
 
 	vel, iniMaxVel, acc, _ := c.feedLimits(s.endPoint, pos)
 	cmd := &ProbeCmd{
@@ -858,8 +845,11 @@ func (c *Canon) StraightProbe(lineno int32, x, y, z, a, b, _c, u, v, w float64, 
 // waitForMotionSingleton directly. (Coordinate/offset changes need no barrier —
 // they are applied canon-side to subsequent move endpoints, not sent to motion.)
 
-func (c *Canon) Dwell(seconds float64) {
+func (c *Canon) Dwell(lineno int32, seconds float64) {
 	c.flushSegments()
+	// lineno is carried for the status/preview record only — a dwell queues no
+	// motion segment of its own, so nothing here consumes it.
+	_ = lineno
 	c.enqueue(&DwellCmd{Seconds: seconds}) // G4: DwellCmd.Precondition drains first
 }
 
@@ -965,7 +955,7 @@ func (c *Canon) StartChange() {
 	c.enqueue(waitForMotionSingleton)
 }
 
-func (c *Canon) ChangeTool(slot int32) {
+func (c *Canon) ChangeTool(lineno int32, slot int32) {
 	c.flushSegments()
 	// 2.9 CHANGE_TOOL (emccanon.cc): optional traverse to
 	// [EMCIO]TOOL_CHANGE_POSITION — absolute machine coordinates, no offset
@@ -983,7 +973,10 @@ func (c *Canon) ChangeTool(slot int32) {
 		if n > 6 {
 			pos.U, pos.V, pos.W = p[6], p[7], p[8]
 		}
-		if c.emitTraverse(from, pos, s.lineNo, 4, -1) { // EMC_MOTION_TYPE_TOOLCHANGE
+		// The M6's own line, not whatever moved last: this traverse belongs
+		// to the tool change, and before the canon carried a line number here
+		// it was filed under the preceding motion's.
+		if c.emitTraverse(from, pos, lineno, 4, -1) { // EMC_MOTION_TYPE_TOOLCHANGE
 			s.endPoint = pos
 		}
 	}

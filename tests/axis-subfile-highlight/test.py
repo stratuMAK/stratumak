@@ -71,14 +71,16 @@ feed(c, 5, 0, 5.0)     # main.ngc line 5
 
 if len(c.feed) != 5:
     fail("record-count", "recorded %d feed segments, want 5" % len(c.feed))
-if len(c.feed_files) != len(c.feed):
-    fail("record-alignment",
-         "file index list has %d entries for %d segments" % (len(c.feed_files), len(c.feed)))
-if c.feed_files != [0, 0, 1, 1, 0]:
-    fail("record-attribution", "file indices %r, want [0, 0, 1, 1, 0]" % (c.feed_files,))
-if [seg[0] for seg in c.feed] != [2, 3, 2, 3, 5]:
-    fail("record-linenos", "line numbers %r, want [2, 3, 2, 3, 5]"
-         % ([seg[0] for seg in c.feed],))
+# Element 0 is a location id; resolving it must give back the (file, line) the
+# segment was recorded at.
+locs = [c.location(seg[0]) for seg in c.feed]
+want_locs = [(0, 2), (0, 3), (1, 2), (1, 3), (0, 5)]
+if locs != want_locs:
+    fail("record-attribution", "locations %r, want %r" % (locs, want_locs))
+# The colliding lines must be DIFFERENT ids: that is the whole point.
+if c.feed[0][0] == c.feed[2][0]:
+    fail("record-collision", "main line 2 and sub line 2 share location id %r"
+         % (c.feed[0][0],))
 ok("segments-carry-their-source-file")
 
 
@@ -218,9 +220,9 @@ c2, (result, seq) = replay(_WireResult())
 
 if result != 0:
     fail("replay-result", "parse returned %r" % (result,))
-if c2.feed_files != [0, 1]:
-    fail("replay-attribution",
-         "replayed file indices %r, want [0, 1]" % (c2.feed_files,))
+if [c2.location(seg[0]) for seg in c2.feed] != [(0, 2), (1, 2)]:
+    fail("replay-attribution", "replayed locations %r, want [(0, 2), (1, 2)]"
+         % ([c2.location(seg[0]) for seg in c2.feed],))
 if tuple(c2.source_files) != ("/programs/main.ngc", "/programs/subs/mysub.ngc"):
     fail("replay-file-table", "canon file table %r" % (c2.source_files,))
 ok("replay-carries-file-idx-from-the-wire")
@@ -261,3 +263,45 @@ if round(c4.dwells[0][2], 6) != 1.0:
     fail("order-dwell-reordered", "dwell at x=%r after reordering the wire lists"
          % (round(c4.dwells[0][2], 6),))
 ok("replay-order-independent-of-wire-list-order")
+
+
+# --- 5. a 3D pick reports the file it landed in ----------------------------
+
+# The GL name is element 0 of the drawn tuple, which is now a location id, so
+# a pick resolves to (file, line) instead of a bare line number. Clicking a
+# called sub-file's toolpath used to come back as "line 2" and select line 2
+# of whatever program was on screen.
+picked = []
+
+
+class _PickCanonDraw(glcanon.GlCanonDraw):
+    """Just the pick-dispatch half of GlCanonDraw, with the GL removed."""
+    def __init__(self, canon):
+        self.canon = canon
+        self._dlists = {}   # GlCanonDraw.__del__ frees display lists from it
+
+    def set_picked_location(self, fileno, lineno):
+        picked.append((fileno, lineno))
+
+    def set_highlight_line(self, line):
+        picked.append(("line-only", line))
+
+
+d = _PickCanonDraw(c)
+sub_seg_name = c.feed[2][0]      # sub.ngc line 2 — collides with main's line 2
+loc = c.location(sub_seg_name)
+if loc != (1, 2):
+    fail("pick-location", "GL name %r resolves to %r, want (1, 2)" % (sub_seg_name, loc))
+d.set_picked_location(*loc)
+if picked != [(1, 2)]:
+    fail("pick-dispatch", "pick delivered %r, want [(1, 2)]" % (picked,))
+ok("pick-resolves-to-file-and-line")
+
+# The default behaviour for a UI that shows only one file is unchanged: the
+# line is highlighted, no file switching.
+del picked[:]
+glcanon.GlCanonDraw.set_picked_location(d, 1, 2)
+if picked != [("line-only", 2)]:
+    fail("pick-default", "default pick handling gave %r, want the line alone"
+         % (picked,))
+ok("pick-default-keeps-classic-behaviour")

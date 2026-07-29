@@ -824,7 +824,9 @@ func (t *Task) ProgramOpen(file string) error {
 		}
 		return err
 	}
-	file = resolved
+	// One spelling for every program path we hand out: stat.file, motion_file
+	// and the preview's file table are compared against each other by clients.
+	file = pathres.Canonical(resolved)
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
 	t.mu.Lock()

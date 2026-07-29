@@ -95,3 +95,36 @@ func ProgramResolver(get func(section, key string) string, baseDir string) *Reso
 	}
 	return base.WithRoots(ProgramDirs(get, baseDir)...)
 }
+
+// Canonical returns the single spelling of a program path that every API
+// surface uses, so that comparing two of them for equality answers "the same
+// file?" rather than "the same characters?".
+//
+// The paths a client sees come from three places — the task's loaded program,
+// the file a motion segment came from, and the preview's file table — and they
+// have to be comparable: an AXIS deciding whether the line it is about to
+// highlight belongs to the program it is showing does exactly that comparison.
+// The interpreter reaches sub-files through find_ngc_file, which composes them
+// from SUBROUTINE_PATH and can hand back a relative name, so without one rule
+// the same file arrives spelled several ways.
+//
+// Absolute, cleaned, symlinks resolved. A path that cannot be canonicalised —
+// most often one that does not exist yet — falls back to its absolute cleaned
+// form rather than failing: an approximate identity is still better than none,
+// and the caller has no useful recovery.
+func Canonical(p string) string {
+	if p == "" {
+		return ""
+	}
+	abs := p
+	if !filepath.IsAbs(abs) {
+		if a, err := filepath.Abs(abs); err == nil {
+			abs = a
+		}
+	}
+	abs = filepath.Clean(abs)
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
+}
