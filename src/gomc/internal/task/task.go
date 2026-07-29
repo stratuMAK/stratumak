@@ -415,6 +415,15 @@ type Task struct {
 	filtering      bool
 	filterProgress int32
 	filterCancel   context.CancelFunc
+	// This instance's private filtered-output directory
+	// (pathres.FilteredInstanceDir). Set by the module at start; empty only
+	// in tasks built without one (tests), which fall back to a default.
+	filteredDir string
+	// Tracks the filter goroutine so shutdown can wait for it: destroying
+	// the interpreter or removing filteredDir under a still-running
+	// conversion must be impossible by construction, not by lock ordering
+	// luck.
+	filterWG sync.WaitGroup
 	// Bumped when a conversion starts and whenever an in-flight one is
 	// superseded: by abort, at shutdown, and by a newer program open. The
 	// filter goroutine captures it and refuses to publish a result that a

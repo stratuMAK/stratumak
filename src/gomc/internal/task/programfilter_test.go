@@ -111,10 +111,11 @@ func TestProgramOpenFiltersWithoutBlocking(t *testing.T) {
 	if string(body) != "G21\nM2\n" {
 		t.Errorf("filtered program = %q", body)
 	}
-	// It has to live somewhere get_file and the preview are allowed to read.
-	if filepath.Dir(stat.Task.File) != pathres.FilteredDir() {
+	// It has to live somewhere get_file and the preview are allowed to read:
+	// in this instance's own directory under the shared filtered root.
+	if filepath.Dir(stat.Task.File) != task.filteredDirOrDefault() {
 		t.Errorf("filtered output at %q, want it under %q so the preview may read it",
-			stat.Task.File, pathres.FilteredDir())
+			stat.Task.File, task.filteredDirOrDefault())
 	}
 }
 
@@ -153,8 +154,92 @@ func TestFilterFailureKeepsPreviousProgram(t *testing.T) {
 	if !found {
 		t.Errorf("the filter's stderr never reached the operator; messages: %v", msgs)
 	}
-	if _, err := os.Stat(filepath.Join(pathres.FilteredDir(), "broken.ngc")); err == nil {
+	if _, err := os.Stat(filepath.Join(task.filteredDirOrDefault(), "broken.ngc")); err == nil {
 		t.Error("half-converted output left behind where the preview could open it")
+	}
+}
+
+// The previously loaded program must survive a failed conversion AS A FILE,
+// not merely as a stat string: the ESTOP-recovery re-open and the preview's
+// get_file both read it back from disk. The failing source here shares the
+// previous program's base name, so this also pins the rename-on-success
+// scheme — writing the new conversion straight to its final name would
+// destroy its predecessor before the filter has succeeded.
+func TestFilterFailureKeepsPreviousFilteredOutput(t *testing.T) {
+	task, dir := filterTask(t,
+		"if grep -q bad \"$1\"; then echo 'no good' >&2; exit 3; fi\n"+
+			"echo 'G21'; echo 'M2'\n")
+	first := writeSource(t, dir, "part.tst", "ok\n")
+	if err := task.ProgramOpen(first); err != nil {
+		t.Fatalf("ProgramOpen(first): %v", err)
+	}
+	waitFilterDone(t, task)
+	loaded := task.BuildStat().Task.File
+	want, err := os.ReadFile(loaded)
+	if err != nil {
+		t.Fatalf("first conversion unreadable: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "alt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bad := writeSource(t, filepath.Join(dir, "alt"), "part.tst", "bad\n")
+	if err := task.ProgramOpen(bad); err != nil {
+		t.Fatalf("ProgramOpen(bad) rejected up front: %v", err)
+	}
+	waitFilterDone(t, task)
+
+	stat := task.BuildStat()
+	if stat.Task.File != loaded {
+		t.Errorf("loaded program became %q after a failed filter, want %q unchanged",
+			stat.Task.File, loaded)
+	}
+	got, err := os.ReadFile(loaded)
+	if err != nil {
+		t.Fatalf("the failed conversion destroyed the loaded program's file: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("loaded program's content changed: %q -> %q", want, got)
+	}
+}
+
+// Two task instances in one process must not touch each other's filtered
+// output: each converts into its own directory, and neither an open nor a
+// sweep in one may unlink what the other has loaded.
+func TestFilteredOutputIsolatedPerInstance(t *testing.T) {
+	task1, dir1 := filterTask(t, "echo 'G21'; echo 'M2'\n")
+	task2, dir2 := filterTask(t, "echo 'G20'; echo 'M2'\n")
+	task1.filteredDir = pathres.FilteredInstanceDir("mill1")
+	task2.filteredDir = pathres.FilteredInstanceDir("mill2")
+
+	src1 := writeSource(t, dir1, "shape.tst", "one\n")
+	src2 := writeSource(t, dir2, "shape.tst", "two\n")
+	if err := task1.ProgramOpen(src1); err != nil {
+		t.Fatalf("task1 open: %v", err)
+	}
+	waitFilterDone(t, task1)
+	file1 := task1.BuildStat().Task.File
+
+	// task2 converts a SAME-NAMED source; with a shared directory this open
+	// would sweep task1's loaded program away.
+	if err := task2.ProgramOpen(src2); err != nil {
+		t.Fatalf("task2 open: %v", err)
+	}
+	waitFilterDone(t, task2)
+	file2 := task2.BuildStat().Task.File
+
+	if file1 == file2 {
+		t.Fatalf("both instances published to the same path %q", file1)
+	}
+	b1, err := os.ReadFile(file1)
+	if err != nil {
+		t.Fatalf("task2's open destroyed task1's loaded program: %v", err)
+	}
+	if string(b1) != "G21\nM2\n" {
+		t.Errorf("task1's program content = %q, want its own conversion", b1)
+	}
+	if b2, err := os.ReadFile(file2); err != nil || string(b2) != "G20\nM2\n" {
+		t.Errorf("task2's program = %q, %v", b2, err)
 	}
 }
 

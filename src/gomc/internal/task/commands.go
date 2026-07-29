@@ -837,6 +837,14 @@ func (t *Task) ProgramOpen(file string) error {
 	// and the preview's file table are compared against each other by clients.
 	source := pathres.Canonical(resolved)
 
+	// A file inside the filtered-output tree already IS a filter's product;
+	// re-matching its extension against [FILTER] would convert converted
+	// G-code (a client that filtered for itself keeps the source's
+	// extension on its output — qtvcp and gladevcp still do).
+	if pathres.InFilteredDir(source) {
+		return t.openProgramFile(source, source)
+	}
+
 	// A [FILTER] file is not G-code yet. Converting it is the controller's job
 	// now — classic left it to each GUI, so a UI without filtering could not
 	// open these programs at all, and the controller's own [DISPLAY]OPEN_FILE
@@ -909,8 +917,17 @@ func (t *Task) openProgramFileLocked(gcode, source string) error {
 func (t *Task) startFiltering(source string, filter *programfilter.Filter) error {
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
-	t.mu.Lock()
 
+	// Filesystem work stays outside t.mu: every status build takes that lock,
+	// and a slow TMPDIR must not stall polling. cmdMu alone is enough here —
+	// filtering can only be started by a command, and commands serialize on it.
+	dir := t.filteredDirOrDefault()
+	if err := pathres.EnsureFilteredDir(dir); err != nil {
+		t.operatorError(fmt.Sprintf("can't prepare filtered output for %s: %v", source, err))
+		return err
+	}
+
+	t.mu.Lock()
 	if err := t.rejectIfBusyLocked("Can't open a program while one is running"); err != nil {
 		t.mu.Unlock()
 		return err
@@ -922,31 +939,49 @@ func (t *Task) startFiltering(source string, filter *programfilter.Filter) error
 		return err
 	}
 
-	dst, err := t.filteredOutputPath(source)
-	if err != nil {
-		t.mu.Unlock()
-		t.operatorError(fmt.Sprintf("can't prepare filtered output for %s: %v", source, err))
-		return err
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	t.filterGen++
 	gen := t.filterGen
+	// The conversion writes to a generation-unique temp name and is renamed
+	// over the real one only on success: the currently loaded filtered
+	// program — possibly under the SAME base name — survives a filter that
+	// fails, times out, or is superseded.
+	base := strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
+	if base == "" {
+		base = "program"
+	}
+	final := filepath.Join(dir, base+".ngc")
+	tmp := fmt.Sprintf("%s.%d.part", final, gen)
 	t.filtering = true
 	t.filterProgress = 0
 	t.filterCancel = cancel
 	t.mu.Unlock()
 
-	go t.runFilter(ctx, gen, source, dst, filter)
+	t.filterWG.Add(1)
+	go func() {
+		defer t.filterWG.Done()
+		t.runFilter(ctx, gen, source, tmp, final, filter)
+	}()
 	return nil
 }
 
-// runFilter converts source into dst and, if nothing has superseded it,
-// opens the result. Runs on its own goroutine; every touch of task state
-// takes the lock, and every one of them re-checks the generation, because an
-// abort or a newer open may have happened while the filter was running.
-func (t *Task) runFilter(ctx context.Context, gen int64, source, dst string, filter *programfilter.Filter) {
-	err := filter.Run(ctx, source, dst, func(pct int) {
+// filteredDirOrDefault is this instance's private filtered-output directory.
+// The module wires the instance name in at start; the fallback only exists
+// for tasks built without a module (tests).
+func (t *Task) filteredDirOrDefault() string {
+	if t.filteredDir != "" {
+		return t.filteredDir
+	}
+	return pathres.FilteredInstanceDir("milltask")
+}
+
+// runFilter converts source into tmp and, if nothing has superseded it,
+// renames the result over final and opens it. Runs on its own goroutine;
+// every touch of task state takes the lock, and every one of them re-checks
+// the generation, because an abort or a newer open may have happened while
+// the filter was running.
+func (t *Task) runFilter(ctx context.Context, gen int64, source, tmp, final string, filter *programfilter.Filter) {
+	err := filter.Run(ctx, source, tmp, func(pct int) {
 		t.mu.Lock()
 		if t.filterGen == gen {
 			t.filterProgress = int32(pct)
@@ -962,9 +997,9 @@ func (t *Task) runFilter(ctx context.Context, gen int64, source, dst string, fil
 		// Superseded by an abort or a newer open: this result is stale, and
 		// publishing it would replace whatever the operator asked for since.
 		t.mu.Unlock()
-		// Best effort: an output nobody will open is litter in this process's
+		// Best effort: an output nobody will open is litter in this instance's
 		// own temp dir, and the caller that superseded us has already moved on.
-		_ = os.Remove(dst)
+		_ = os.Remove(tmp)
 		return
 	}
 	t.filtering = false
@@ -975,41 +1010,54 @@ func (t *Task) runFilter(ctx context.Context, gen int64, source, dst string, fil
 		t.mu.Unlock()
 		// The filter's own stderr is the only thing that explains why a file
 		// would not convert, so it goes to the operator, not just the log.
+		// The previously loaded program is untouched: the conversion never
+		// wrote anywhere near it.
 		t.logger.Warn("program filter failed", "file", source, "err", err)
 		t.operatorError(err.Error())
 		return
 	}
 
-	openErr := t.openProgramFileLocked(dst, source)
+	// Publish. The atomic rename is what makes "the previous program stays
+	// loaded until the new one is ready" hold even when old and new share a
+	// base name.
+	if rerr := os.Rename(tmp, final); rerr != nil {
+		t.mu.Unlock()
+		_ = os.Remove(tmp)
+		t.logger.Warn("filtered program could not be published", "file", final, "err", rerr)
+		t.operatorError(fmt.Sprintf("can't publish filtered program for %s: %v", source, rerr))
+		return
+	}
+	openErr := t.openProgramFileLocked(final, source)
 	t.mu.Unlock()
 	if openErr != nil {
-		t.logger.Warn("filtered program could not be opened", "file", dst, "err", openErr)
+		t.logger.Warn("filtered program could not be opened", "file", final, "err", openErr)
+		return
 	}
+	// With the new program open, its predecessor (and any stray .part) has
+	// no reader left — and only one filtered program is loaded at a time, so
+	// get_file and the preview must not find a stale one.
+	t.sweepFilteredDir(final)
 }
 
-// filteredOutputPath names this program's filtered G-code inside the
-// controller's own output directory, and clears anything left there by a
-// previous open — only one filtered program is loaded at a time, and the
-// preview and get_file must never find a stale one.
-func (t *Task) filteredOutputPath(source string) (string, error) {
-	dir := pathres.FilteredDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
+// sweepFilteredDir removes everything in this instance's filtered-output
+// directory except keep, the just-published program. Runs under cmdMu (which
+// serializes it against the next open) but never under t.mu — status polling
+// must not wait on the filesystem.
+func (t *Task) sweepFilteredDir(keep string) {
+	dir := filepath.Dir(keep)
 	entries, err := os.ReadDir(dir)
-	if err == nil {
-		for _, e := range entries {
-			// A leftover that refuses to go is not fatal here: the new output
-			// is written under its own name, and the stale one is at worst an
-			// extra file in this process's temp dir.
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if p == keep {
+			continue
 		}
+		// A leftover that refuses to go is litter in this instance's own temp
+		// dir, not a fault to report.
+		_ = os.Remove(p)
 	}
-	base := strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
-	if base == "" {
-		base = "program"
-	}
-	return filepath.Join(dir, base+".ngc"), nil
 }
 
 // cancelFiltering stops an in-flight conversion and invalidates its result.

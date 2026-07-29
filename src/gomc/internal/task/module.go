@@ -277,6 +277,10 @@ func (m *milltaskModule) Start() error {
 
 	t := NewTask(mc, io, ms, m.logger)
 	t.SetIOStatusReader(io)
+	// Each instance filters into its own directory: on a multi-instance
+	// server, a shared one would let one task's open (or shutdown) destroy
+	// the program another task has loaded.
+	t.filteredDir = pathres.FilteredInstanceDir(m.name)
 
 	// Validate kinematics/joint/axis INI consistency before loading config.
 	if err := m.checkConfig(); err != nil {
@@ -440,13 +444,20 @@ func (m *milltaskModule) Stop() {
 		}
 	}
 	if m.task != nil {
-		// Stop any filter still converting, then drop the directory holding
-		// its output: it is this process's alone (named after the pid) and
-		// nothing outside the run should inherit it.
+		// Stop any filter still converting and wait for its goroutine: after
+		// this point the interpreter gets destroyed and the output directory
+		// removed, and a conversion still holding either would be a
+		// use-after-free, not a race to win.
 		m.task.cancelFiltering()
+		m.task.filterWG.Wait()
+		// Drop only THIS instance's output directory — another milltask in
+		// the same process may still be serving its own filtered program.
 		// Best effort: the process is going away either way, and a directory
 		// that outlives it is a stale temp dir, not a fault to report.
-		_ = os.RemoveAll(pathres.FilteredDir())
+		_ = os.RemoveAll(m.task.filteredDirOrDefault())
+		// The shared parent goes with the last instance out: Remove refuses
+		// a non-empty directory, which is exactly the point.
+		_ = os.Remove(pathres.FilteredDir())
 	}
 	m.logger.Info("milltask stopping")
 }

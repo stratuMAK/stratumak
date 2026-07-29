@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
 )
@@ -142,8 +143,76 @@ func Canonical(p string) string {
 // separate modules need the same answer: the task writes the filtered program
 // there, and ngcpreview reads it back through get_file and gen_preview. They
 // are different instances of different packages in one process, so the path
-// has to be computable, not passed around. The task creates and empties it at
-// startup and removes it at shutdown.
+// has to be computable, not passed around.
+//
+// This is only the shared parent: each task instance works exclusively inside
+// its own FilteredInstanceDir below it, so multiple milltasks in one process
+// never touch each other's output.
 func FilteredDir() string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("gomc-filtered-%d", os.Getpid()))
+}
+
+// FilteredInstanceDir is one task instance's private slice of FilteredDir.
+// The instance creates it before its first conversion and removes it at
+// shutdown; the shared parent above it is left for whichever instance stops
+// last.
+func FilteredInstanceDir(instance string) string {
+	return filepath.Join(FilteredDir(), instance)
+}
+
+// InFilteredDir reports whether path — canonical, per Canonical — lies inside
+// the filtered-output tree. The task uses it to refuse to re-filter a file
+// that already IS a filter's product: a client that converted client-side
+// hands over its result under the source's extension, and matching that
+// extension against [FILTER] a second time would convert G-code that has
+// already been converted.
+func InFilteredDir(path string) bool {
+	root := FilteredDir()
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		root = real
+	}
+	return under(path, root)
+}
+
+// EnsureFilteredDir creates dir (a FilteredInstanceDir) and its shared
+// parent, refusing to adopt anything this process does not own. The path
+// under os.TempDir() is predictable and the server may hold file
+// capabilities (cap_dac_override): silently accepting a pre-created
+// directory — or a symlink posing as one — would hand whoever planted it
+// every filtered program written there, and let them substitute the G-code
+// the interpreter then executes. Anything already present must be a real
+// directory owned by this uid, or the open fails loudly.
+func EnsureFilteredDir(dir string) error {
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := ensureOwnedDir(d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOwnedDir(d string) error {
+	err := os.Mkdir(d, 0o700)
+	if err == nil || !os.IsExist(err) {
+		return err
+	}
+	// Lstat, not Stat: a symlink planted here must be seen as the symlink it
+	// is, never followed to a legitimate-looking target.
+	fi, lerr := os.Lstat(d)
+	if lerr != nil {
+		return lerr
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s exists and is not a directory; refusing to use it", d)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("%s is not owned by this process's uid %d; refusing to use it", d, os.Getuid())
+	}
+	if fi.Mode().Perm() != 0o700 {
+		if cerr := os.Chmod(d, 0o700); cerr != nil {
+			return cerr
+		}
+	}
+	return nil
 }

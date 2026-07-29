@@ -137,6 +137,11 @@ func Lookup(get func(section, key string) string, name string) (*Filter, error) 
 // conversion never leaves a half-written program behind for something else to
 // open.
 func (f *Filter) Run(ctx context.Context, src, dst string, onProgress func(percent int)) error {
+	// Lookup never builds an empty Argv, but Filter is an exported struct: a
+	// hand-built one must fail as an error, not panic the controller.
+	if len(f.Argv) == 0 {
+		return &Error{Prog: "(filter)", Err: fmt.Errorf("empty filter command")}
+	}
 	prog := f.Argv[0]
 
 	if f.Timeout > 0 {
@@ -171,16 +176,38 @@ func (f *Filter) Run(ctx context.Context, src, dst string, onProgress func(perce
 	// would otherwise leave them running with the pipe open.
 	cmd.Cancel = func() error { return killGroup(cmd) }
 
-	stderr, err := cmd.StderrPipe()
+	// The stderr pipe is owned here, not by exec (StderrPipe would let Wait
+	// close the read end underneath a still-draining reader): the child gets
+	// the write end, the parent's copy is closed right after Start, and EOF
+	// arrives when the last writer exits.
+	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
 		return fail(&Error{Prog: prog, Err: err})
 	}
+	cmd.Stderr = stderrW
 	if err := cmd.Start(); err != nil {
+		_ = stderrR.Close()
+		_ = stderrW.Close()
 		return fail(&Error{Prog: prog, Err: err})
 	}
+	_ = stderrW.Close()
 
-	diag := readProgress(stderr, onProgress)
+	diagCh := make(chan string, 1)
+	go func() { diagCh <- readProgress(stderrR, onProgress) }()
 	waitErr := cmd.Wait()
+	// Bound the drain after the filter itself is gone. killGroup covers
+	// helpers that stayed in the process group, but one that called setsid()
+	// survives it with the write end open — without this bound the read
+	// above would never see EOF, the conversion would never finish, and
+	// `filtering` would wedge true for the life of the process.
+	var diag string
+	select {
+	case diag = <-diagCh:
+	case <-time.After(10 * time.Second):
+		_ = stderrR.Close() // unblocks the reader
+		diag = <-diagCh
+	}
+	_ = stderrR.Close()
 
 	if waitErr != nil || ctx.Err() != nil {
 		e := &Error{Prog: prog, Stderr: diag, Err: waitErr}
