@@ -31,6 +31,7 @@ const (
 	eleOutputJump    = C.CL_ELE_OUTPUT_JUMP
 	eleOutputCall    = C.CL_ELE_OUTPUT_CALL
 	eleOutputOperate = C.CL_ELE_OUTPUT_OPERATE
+	eleUnusable      = C.CL_ELE_UNUSABLE
 )
 
 // Variable types.

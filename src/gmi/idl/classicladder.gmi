@@ -24,6 +24,73 @@ const LGT_SYMBOL_COMMENT = 50
 const LGT_VAR_NAME = 10
 const ARITHM_EXPR_SIZE = 50
 
+# Element types — the `type` field of Element.
+#
+# Contacts and coils occupy one cell. The rest are blocks spanning several
+# cells; see Element below for how a block is laid out in the grid.
+const ELE_FREE = 0            # empty cell
+const ELE_INPUT = 1           # -| |-  contact, closed while its variable is true
+const ELE_INPUT_NOT = 2       # -|/|-  contact, closed while its variable is false
+const ELE_RISING_INPUT = 3    # -|P|-  one scan on the variable's 0->1 edge
+const ELE_FALLING_INPUT = 4   # -|N|-  one scan on the variable's 1->0 edge
+const ELE_CONNECTION = 9      # ---    horizontal wire
+const ELE_TIMER = 10          # old-style timer block, 2 wide x 2 high
+const ELE_MONOSTABLE = 11     # monostable block, 2 wide x 2 high
+const ELE_COUNTER = 12        # counter block, 2 wide x 4 high
+const ELE_TIMER_IEC = 13      # IEC timer block, 2 wide x 2 high
+const ELE_COMPAR = 20         # [ expr ] comparison, 3 wide x 1 high
+const ELE_OUTPUT = 50         # -( )-  coil
+const ELE_OUTPUT_NOT = 51     # -(/)-  negated coil
+const ELE_OUTPUT_SET = 52     # -(S)-  set coil, latches its variable true
+const ELE_OUTPUT_RESET = 53   # -(R)-  reset coil, latches its variable false
+const ELE_OUTPUT_JUMP = 54    # -(J)-  jump to the rung in varNum
+const ELE_OUTPUT_CALL = 55    # -(C)-  call the sub-routine numbered varNum
+const ELE_OUTPUT_OPERATE = 60 # [ expr ] assignment, 3 wide x 1 high
+const ELE_UNUSABLE = 99       # body cell of a block; carries no logic of its own
+
+# Variable types — the `varType` field of Element, and the varType argument of
+# set_variable. The number identifies a region; the offset selects within it.
+#
+# Boolean regions:
+const VAR_MEM_BIT = 0             # %B   memory bit
+const VAR_TIMER_DONE = 10         # %T.D  timer elapsed
+const VAR_TIMER_RUNNING = 11      # %T.R  timer counting
+const VAR_TIMER_IEC_DONE = 15     # %TI.Q IEC timer output
+const VAR_MONOSTABLE_RUNNING = 20 # %M.R  monostable pulse active
+const VAR_COUNTER_DONE = 25       # %C.D  counter reached its preset
+const VAR_COUNTER_EMPTY = 26      # %C.E  counter underflowed
+const VAR_COUNTER_FULL = 27       # %C.F  counter overflowed
+const VAR_STEP_ACTIVITY = 30      # %X    SFC step is active
+const VAR_PHYS_INPUT = 50         # %I    HAL bit input pin
+const VAR_PHYS_OUTPUT = 60        # %Q    HAL bit output pin
+const VAR_ERROR_BIT = 70          # %E    error bit
+#
+# Integer regions:
+const VAR_MEM_WORD = 200            # %W     memory word
+const VAR_STEP_TIME = 220           # %X.V   seconds an SFC step has been active
+const VAR_TIMER_PRESET = 230        # %T.P   timer preset, in base units
+const VAR_TIMER_VALUE = 231         # %T.V   timer remaining, in base units
+const VAR_MONOSTABLE_PRESET = 240   # %M.P   monostable preset, in base units
+const VAR_MONOSTABLE_VALUE = 241    # %M.V   monostable remaining, in base units
+const VAR_COUNTER_PRESET = 250      # %C.P   counter preset
+const VAR_COUNTER_VALUE = 251       # %C.V   counter value
+const VAR_TIMER_IEC_PRESET = 260    # %TI.P  IEC timer preset, in base units
+const VAR_TIMER_IEC_VALUE = 261     # %TI.V  IEC timer elapsed, in base units
+const VAR_PHYS_WORD_INPUT = 270     # %IW    HAL s32 input pin
+const VAR_PHYS_WORD_OUTPUT = 280    # %QW    HAL s32 output pin
+const VAR_PHYS_FLOAT_INPUT = 300    # %IF    HAL float input pin, truncated to s32
+const VAR_PHYS_FLOAT_OUTPUT = 310   # %QF    HAL float output pin, written from s32
+
+# Time bases — the `base` field of Timer, Monostable and TimerIEC.
+#
+# A block's preset and value are expressed in units of its base, not in
+# milliseconds: base BASE_SECS with preset 5 is five seconds. This is the
+# encoding the .clp file uses; the millisecond arithmetic stays inside the
+# realtime engine.
+const BASE_MINS = 0
+const BASE_SECS = 1
+const BASE_100MS = 2
+
 # --- Enums ---
 
 enum LadderState {
@@ -45,79 +112,124 @@ enum TimerIECMode {
 
 # --- Types ---
 
+# One cell of a rung.
+#
+# A block wider or taller than one cell has its head in the cell nearest the
+# right power rail; the cells it covers to the left and below are ELE_UNUSABLE
+# body cells. A 2x2 timer whose head is at column 3 row 0 therefore covers
+# columns 2..3 and rows 0..1, and its inputs are read from the left of
+# column 2. Body cells conduct nothing: power reaches the next column only
+# through the block's own outputs.
 type Element {
-    type: i32
-    connectedWithTop: i32
-    varType: i32
-    varNum: i32
+    type: i32               # ELE_* — see the constants above
+    connectedWithTop: i32    # 1 if this cell is wired to the cell above it,
+                             # forming a parallel branch. The link conducts in
+                             # both directions.
+    varType: i32             # VAR_* — the region the element reads or writes.
+                             # For ELE_TIMER/MONOSTABLE/COUNTER/TIMER_IEC and
+                             # ELE_COMPAR/OUTPUT_OPERATE it is unused: varNum
+                             # selects the block or the expression instead.
+    varNum: i32              # offset within varType, or the block number, or
+                             # the arithmetic expression index, or — for
+                             # ELE_OUTPUT_JUMP — the target rung, or — for
+                             # ELE_OUTPUT_CALL — the sub-routine number
 }
 
+# One rung: a RUNG_WIDTH x RUNG_HEIGHT grid evaluated left to right.
+#
+# Rungs are held in a fixed array but executed in the order given by the
+# per-section linked list: a section runs from its firstRung, follows nextRung,
+# and stops after its lastRung. prevRung/nextRung index that array. Editing the
+# chain by hand is a good way to hang a PLC; the server maintains it.
 type Rung {
     used: bool
     prevRung: i32
     nextRung: i32
-    label: string @maxlen(9)
+    label: string @maxlen(9)     # jump targets are named by rung index, not by
+                                 # this label; it is for the operator
     comment: string @maxlen(29)
-    elements: [60]Element   # RUNG_WIDTH * RUNG_HEIGHT, row-major
+    elements: [60]Element        # RUNG_WIDTH * RUNG_HEIGHT, row-major:
+                                 # element[row * RUNG_WIDTH + col]
 }
 
+# A section holds a run of rungs in one language.
+#
+# Main sections run once per scan, in section order. Sub-routine sections run
+# only when an ELE_OUTPUT_CALL coil names them, and may call each other; the
+# engine bounds the recursion and stops the PLC rather than overflow.
 type Section {
     used: bool
     name: string @maxlen(19)
     language: SectionLanguage
-    subRoutineNumber: i32
-    firstRung: i32
+    subRoutineNumber: i32   # -1 for a main section; otherwise the number an
+                            # ELE_OUTPUT_CALL coil uses to reach it
+    firstRung: i32          # ignored when language is SEQUENTIAL
     lastRung: i32
-    sequentialPage: i32
+    sequentialPage: i32     # SFC page, when language is SEQUENTIAL
 }
 
+# An operator-facing name for a variable: symbol "estop-ok" for varName "%Q0".
 type Symbol {
-    varName: string @maxlen(9)
+    varName: string @maxlen(9)   # the variable in its written form, e.g. "%I3"
     symbol: string @maxlen(9)
     comment: string @maxlen(49)
 }
 
+# One arithmetic expression, referenced by an ELE_COMPAR or ELE_OUTPUT_OPERATE
+# element through its index in the expression table.
+#
+# Variables are written @<varType>/<offset>@, optionally indexed by another
+# variable: "@200/0@:=@200/0@+@270/1@" adds %IW1 to %W0. A comparison yields a
+# truth value ("@270/0@>5"); an assignment uses ":=". Index positions matter —
+# elements name expressions by number, so an expression's index is part of the
+# program, not an implementation detail.
 type ArithmExpr {
     expr: string @maxlen(48)
 }
 
+# IEC timer. Unlike Timer and Monostable it counts up, from 0 to preset.
 type TimerIEC {
-    preset: i32
-    value: i32
-    base: i32
+    preset: i32          # in units of base
+    value: i32           # elapsed, in units of base
+    base: i32            # BASE_* — see the constants above
     mode: TimerIECMode
     input: bool
     output: bool
 }
 
+# Old-style timer: counts its preset down while both inputs are held, and
+# reloads the preset when the enable input opens.
 type Timer {
-    preset: i32
-    value: i32
-    base: i32
-    inputEnable: bool
-    inputControl: bool
-    outputDone: bool
-    outputRunning: bool
+    preset: i32          # in units of base
+    value: i32           # remaining, in units of base
+    base: i32            # BASE_* — see the constants above
+    inputEnable: bool    # block input row 0
+    inputControl: bool   # block input row 1; the timer only counts while held
+    outputDone: bool     # block output row 0
+    outputRunning: bool  # block output row 1
 }
 
+# Monostable: a non-retriggerable pulse of `preset` started by a rising input.
 type Monostable {
-    preset: i32
-    value: i32
-    base: i32
+    preset: i32          # in units of base
+    value: i32           # remaining, in units of base
+    base: i32            # BASE_* — see the constants above
     input: bool
     outputRunning: bool
 }
 
+# Counter. Its four inputs are read from consecutive rows of the block, and
+# reset wins over preset, which wins over the count edges.
 type Counter {
     preset: i32
     value: i32
-    inputReset: bool
-    inputPreset: bool
-    inputCountUp: bool
-    inputCountDown: bool
-    outputDone: bool
-    outputEmpty: bool
-    outputFull: bool
+    inputReset: bool      # block input row 0
+    inputPreset: bool     # block input row 1
+    inputCountUp: bool    # block input row 2
+    inputCountDown: bool  # block input row 3
+    outputDone: bool      # block output row 1 — value reached preset
+    outputEmpty: bool     # block output row 0 — wrapped below zero
+    outputFull: bool      # block output row 2 — wrapped above 9999
 }
 
 type SizeInfo {
@@ -192,6 +304,10 @@ type Variables {
 func get_status() -> Status
 
 # Set ladder state (RUN/STOP).
+#
+# A transition to RUN is a cold start: timers, monostables, counters and the
+# edge history of every contact are reset before the first scan. Setting RUN on
+# an already-running PLC does nothing rather than resetting it mid-scan.
 @method POST
 @path "/state"
 func set_state(state: LadderState) -> i32
@@ -202,6 +318,10 @@ func set_state(state: LadderState) -> i32
 func get_program() -> Program
 
 # Replace the full program (bulk upload from file load or editor).
+#
+# The expression table is compiled before anything is applied, so a program that
+# does not compile is refused whole and the running ladder is left as it was.
+# See set_expressions.
 @method PUT
 @path "/program"
 func set_program(program: Program) -> i32
@@ -232,6 +352,11 @@ func set_section(index: i32 @min(0), section: Section) -> i32
 func get_variables() -> Variables
 
 # Set a variable value (for testing/forcing).
+#
+# varType is one of the VAR_* constants; offset selects within that region. A
+# forced value holds only until the ladder writes it again, which for a coil's
+# variable is the very next scan — forcing is for probing, not for control.
+# Offsets outside the configured size of the region are ignored.
 @method POST
 @path "/variable"
 func set_variable(varType: i32, offset: i32 @min(0), value: i32) -> i32
@@ -337,6 +462,13 @@ func set_symbols(symbols: []Symbol) -> i32
 func get_expressions() -> []ArithmExpr
 
 # Update arithmetic expressions.
+#
+# Expressions are compiled before they are stored, and the whole table is
+# refused if any entry fails to compile — an expression that does not compile
+# evaluates as false forever, so accepting it would turn a typo into a silently
+# dead rung. Loading a project file is lenient by contrast: an expression this
+# implementation cannot compile is left inert with a warning rather than
+# refusing the whole project.
 @method PUT
 @path "/expressions"
 func set_expressions(exprs: []ArithmExpr) -> i32

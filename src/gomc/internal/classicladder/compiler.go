@@ -7,9 +7,11 @@ package classicladder
 */
 import "C"
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode"
 )
 
@@ -574,9 +576,64 @@ func isHexDigit(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 
-// compileAllExpressions compiles all arithmetic expressions in the RT instance.
-// Called from Go after loading a program. Returns errors for invalid expressions
-// but does not fail — invalid expressions are simply marked as invalid.
+// compileOne compiles a single expression, choosing compare or operate by
+// whether it assigns.
+func compileOne(expr string) (C.cl_compiled_expr_t, error) {
+	kind := 0 // compare
+	if strings.Contains(expr, ":=") {
+		kind = 1 // operate
+	}
+	return compileExpression(expr, kind)
+}
+
+// compileExprList compiles an expression table for a write, refusing the whole
+// batch if any entry fails.
+//
+// It compiles into a fresh array rather than into the instance, so a caller can
+// make the compile a precondition of applying anything: the realtime engine
+// evaluates bytecode, and neither storing an expression that was never
+// recompiled (the scan keeps running the old program while the API reports the
+// new one) nor applying a program that turns out not to compile (nothing to
+// roll back to) is recoverable afterwards.
+//
+// Refusing rather than storing a bad expression is deliberate: an uncompilable
+// expression evaluates as false forever, so accepting it would turn a typo into
+// a silently dead rung. Loading a .clp stays lenient by contrast — a project
+// may predate this implementation, and refusing to load it would be worse than
+// running it with one rung inert and a warning logged.
+func compileExprList(exprs []string) ([]C.cl_compiled_expr_t, error) {
+	code := make([]C.cl_compiled_expr_t, len(exprs))
+	var errs []error
+	for i, expr := range exprs {
+		if expr == "" {
+			continue // zero value: not valid, length 0 — inert
+		}
+		ce, err := compileOne(expr)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("expr[%d] %q: %w", i, expr, err))
+			continue
+		}
+		code[i] = ce
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("%w: %w", syscall.EINVAL, errors.Join(errs...))
+	}
+	return code, nil
+}
+
+// installExprCode writes a compiled table into the instance. Entries beyond the
+// configured expression count are dropped, matching how the strings are stored.
+func (cl *classicladder) installExprCode(code []C.cl_compiled_expr_t) {
+	for i := 0; i < len(code) && i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
+		cl.rt.compiled_exprs[i] = code[i]
+	}
+}
+
+// compileAllExpressions compiles all arithmetic expressions held in the RT
+// instance. Returns errors for invalid expressions but does not fail — invalid
+// expressions are simply marked as invalid, which the engine treats as false
+// (compare) or a no-op (operate). This is the lenient path, used when loading a
+// project file.
 func (cl *classicladder) compileAllExpressions() []error {
 	var errs []error
 	for i := 0; i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
@@ -586,15 +643,7 @@ func (cl *classicladder) compileAllExpressions() []error {
 			cl.rt.compiled_exprs[i].len = 0
 			continue
 		}
-
-		// Determine kind by looking at the expression content:
-		// OPERATE expressions have ":=" in them.
-		kind := 0 // compare
-		if strings.Contains(expr, ":=") {
-			kind = 1 // operate
-		}
-
-		ce, err := compileExpression(expr, kind)
+		ce, err := compileOne(expr)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("expr[%d]: %w", i, err))
 			cl.rt.compiled_exprs[i].valid = 0

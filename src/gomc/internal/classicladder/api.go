@@ -72,9 +72,29 @@ func (m *classicladder) GetProgram() (*api.Program, error) {
 func (m *classicladder) SetProgram(program api.Program) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Compile before applying anything. The realtime engine evaluates bytecode,
+	// so an expression stored without being recompiled leaves the scan running
+	// the previous program while the API reports the new one; and a program
+	// applied before it is known to compile cannot be un-applied. Both are
+	// avoided by making the compile a precondition.
+	code, err := compileExprList(exprTexts(program.ArithmExprs))
+	if err != nil {
+		return -1, err
+	}
 	m.applyProgram(&program)
+	m.installExprCode(code)
 	m.bumpGeneration()
 	return 0, nil
+}
+
+// exprTexts pulls the expression strings out of the wire type.
+func exprTexts(exprs []api.ArithmExpr) []string {
+	out := make([]string, len(exprs))
+	for i, e := range exprs {
+		out[i] = e.Expr
+	}
+	return out
 }
 
 func (m *classicladder) GetRung(index int32) (*api.Rung, error) {
@@ -219,12 +239,19 @@ func (m *classicladder) GetExpressions() ([]api.ArithmExpr, error) {
 func (m *classicladder) SetExpressions(exprs []api.ArithmExpr) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Compile first: the scan evaluates the bytecode, not the string.
+	code, err := compileExprList(exprTexts(exprs))
+	if err != nil {
+		return -1, err
+	}
 	for i, expr := range exprs {
 		if i >= int(m.rt.sizes.nbr_arithm_expr) {
 			break
 		}
 		copyStringToC(&m.rt.arithm_exprs[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
 	}
+	m.installExprCode(code)
 	m.bumpGeneration()
 	return 0, nil
 }
