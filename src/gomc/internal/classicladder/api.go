@@ -795,3 +795,11 @@ func (m *classicladder) GetModbusStatus() (*api.ModbusStatus, error) {
 		SlavePort:  int32(m.slavePort),
 	}, nil
 }
+
+// GetVarClasses serves the variable naming table, so a client can format and
+// parse names locally instead of asking per variable.
+func (m *classicladder) GetVarClasses() ([]api.VarClass, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.varClasses(), nil
+}

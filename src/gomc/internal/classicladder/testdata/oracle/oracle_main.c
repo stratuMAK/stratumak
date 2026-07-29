@@ -11,6 +11,9 @@
  *   dump                              print the whole variable state
  *   prepare                           PrepareAllDatasBeforeRun()
  *   dumpnum                           print just %Q0, %QW0, %QW1, %QF0
+ *   varname <type> <offset>           print the written variable name
+ *   varparse <text>                   parse a written name back
+ *   varrw <type> <offset>             print whether it is writable
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPL Version 2
@@ -25,6 +28,7 @@
 #include "calc.h"
 #include "files_project.h"
 #include "vars_access.h"
+#include "vars_names.h"
 #include "protocol_modbus_master.h"
 
 /* vars_names.c reports parse failures through this global, which normally
@@ -145,6 +149,29 @@ static void dump_numeric(void) {
     fflush(stdout);
 }
 
+/* Variable-name conversion, for the conformance test in varnames_test.go.
+ * CreateVarName renders a type/offset as its written form; TextParserForAVar
+ * reads one back. Both print "-" when the original refuses. */
+static void do_varname(int type, int offset) {
+    char *name = CreateVarName(type, offset);
+    printf("NAME %s\n", (name && strcmp(name, "???")) ? name : "-");
+    fflush(stdout);
+}
+
+static void do_varparse(const char *text) {
+    int type = -1, offset = -1, chars = 0;
+    if (TextParserForAVar((char *)text, &type, &offset, &chars, FALSE))
+        printf("PARSE %d %d %d\n", type, offset, chars);
+    else
+        printf("PARSE -\n");
+    fflush(stdout);
+}
+
+static void do_varrw(int type, int offset) {
+    printf("RW %d\n", TestVarIsReadWrite(type, offset) ? 1 : 0);
+    fflush(stdout);
+}
+
 /* The sizes have to be set before ClassicLadder_AllocAll(). They mirror the
  * ones the gomc side is configured with, so both engines see the same PLC. */
 static void set_sizes(void) {
@@ -182,6 +209,11 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "alloc failed\n");
         return 1;
     }
+    /* The name table carries compile-time default sizes until this patches it
+     * with the configured ones. 2.9 calls it on the shared-memory attach path,
+     * which a standalone creator never takes — without it %B99 would be
+     * reported as out of range in a 100-bit PLC. */
+    UpdateSizesOfConvVarNameTable();
     ClassicLadder_InitAllDatas();
 
     if (!LoadProjectFiles(argv[1])) {
@@ -190,6 +222,10 @@ int main(int argc, char *argv[]) {
     }
     PrepareAllDatasBeforeRun();
     InfosGene->LadderState = STATE_RUN;
+    /* CreateVarName substitutes a symbol for the variable name when this is
+     * set, which is a display choice rather than part of the name mapping. The
+     * conformance test wants the canonical names. */
+    InfosGene->DisplaySymbols = FALSE;
 
     while (fgets(line, sizeof(line), stdin)) {
         char cmd[32];
@@ -210,6 +246,16 @@ int main(int argc, char *argv[]) {
             dump_state();
         } else if (!strcmp(cmd, "dumpnum")) {
             dump_numeric();
+        } else if (!strcmp(cmd, "varname")) {
+            if (sscanf(line, "%*s %d %d", &a, &b) == 2)
+                do_varname(a, b);
+        } else if (!strcmp(cmd, "varrw")) {
+            if (sscanf(line, "%*s %d %d", &a, &b) == 2)
+                do_varrw(a, b);
+        } else if (!strcmp(cmd, "varparse")) {
+            char text[128];
+            if (sscanf(line, "%*s %127s", text) == 1)
+                do_varparse(text);
         }
     }
     return 0;

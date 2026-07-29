@@ -378,6 +378,33 @@ func save_project(path: string) -> i32
 @path "/symbols"
 func get_symbols() -> []Symbol
 
+# --- Variable names ---
+#
+# Variables are written "%I3", "%C0.D", "%X7.V" and stored as @type/offset@.
+# An editor has to convert both ways: to show what a program refers to, and to
+# read what an operator types.
+#
+# The rule is a table, so it is served as one rather than as a conversion call
+# per variable — a client formats and parses locally and only comes back here
+# for what it cannot know, which is how many of each kind this PLC was
+# configured with.
+
+type VarClass {
+    prefix: string @maxlen(4)    # written between '%' and the offset, e.g. "IW"
+    suffix: string @maxlen(4)    # written after it, e.g. ".D"; often empty
+    varType: i32                 # the VAR_* this class maps to
+    count: i32                   # configured number of offsets, 0 .. count-1
+    writable: bool               # false if a program may only read it
+}
+
+# Get the variable naming table.
+#
+# Match the longest form: "%X0.V" is a step time, not a step activity followed
+# by stray characters, and "%IW0" is a word input, not "%I0" with a leftover.
+@method GET
+@path "/var_classes"
+func get_var_classes() -> []VarClass
+
 # --- Sequential Function Chart (SFC) ---
 #
 # A section whose language is SEQUENTIAL runs a state machine instead of rungs.
