@@ -151,8 +151,10 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		return nil, fmt.Errorf("classicladder: hal_init_ex failed: %d", int(compID))
 	}
 
-	// Export the RT refresh function to HAL
-	functName := name + ".refresh"
+	// Export the RT refresh function to HAL. The instance number is part of
+	// the name, as it is for the pins and as it was in 2.9, so that existing
+	// configs keep working: addf classicladder.0.refresh <thread>
+	functName := name + ".0.refresh"
 	cFunctName := C.CString(functName)
 	defer C.free(unsafe.Pointer(cFunctName))
 	rv := C.go_hal_export_funct(cFunctName, rt, compID)
@@ -220,6 +222,7 @@ func (m *classicladder) Start() error {
 			m.logger.Error("failed to load project", "path", m.projectFile, "err", err)
 			return err
 		}
+		C.cl_prepare_all_datas_before_run(m.rt)
 		m.setState(C.CL_STATE_RUN)
 	}
 	// Start Modbus master if configured

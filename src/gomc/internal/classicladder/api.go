@@ -40,10 +40,23 @@ func (m *classicladder) GetStatus() (*api.Status, error) {
 }
 
 func (m *classicladder) SetState(state api.LadderState) (int32, error) {
-	m.setState(int(state))
 	if state == api.LadderState_RUN {
+		// A start is a cold start: timers, counters and edge history are reset
+		// before the first scan (2.9 PrepareAllDatasBeforeRun). Only on an
+		// actual transition, though — resetting while the RT function is
+		// already scanning would race it over data it reads unlocked. Because
+		// the reset happens before RUN is published with a release store, the
+		// scan cannot observe half-reset data.
+		if m.getState() == C.CL_STATE_RUN {
+			return 0, nil
+		}
+		m.mu.Lock()
+		C.cl_prepare_all_datas_before_run(m.rt)
+		m.mu.Unlock()
+		m.setState(int(state))
 		m.modbus.start()
 	} else {
+		m.setState(int(state))
 		m.modbus.stop()
 	}
 	return 0, nil
@@ -371,12 +384,16 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 		copyStringToC(&rt.arithm_exprs[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
 	}
 
+	// Base travels over the API as an id (0=mins, 1=secs, 2=100ms), as it
+	// does in the .clp file; the RT structures hold milliseconds. Old timers
+	// and monostables additionally count in milliseconds, so their preset is
+	// scaled by the base — IEC timers count in base units and are not.
 	for i, t := range prog.TimersIec {
 		if i >= int(rt.sizes.nbr_timers_iec) {
 			break
 		}
 		rt.timers_iec[i].preset = C.int(t.Preset)
-		rt.timers_iec[i].base = C.int(t.Base)
+		rt.timers_iec[i].base = C.int(baseMsFromID(int(t.Base)))
 		rt.timers_iec[i].timer_mode = C.char(t.Mode)
 	}
 
@@ -384,16 +401,18 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 		if i >= int(rt.sizes.nbr_timers) {
 			break
 		}
-		rt.timers[i].preset = C.int(t.Preset)
-		rt.timers[i].base = C.int(t.Base)
+		base := baseMsFromID(int(t.Base))
+		rt.timers[i].base = C.int(base)
+		rt.timers[i].preset = C.int(int(t.Preset) * base)
 	}
 
 	for i, mo := range prog.Monostables {
 		if i >= int(rt.sizes.nbr_monostables) {
 			break
 		}
-		rt.monostables[i].preset = C.int(mo.Preset)
-		rt.monostables[i].base = C.int(mo.Base)
+		base := baseMsFromID(int(mo.Base))
+		rt.monostables[i].base = C.int(base)
+		rt.monostables[i].preset = C.int(int(mo.Preset) * base)
 	}
 
 	for i, c := range prog.Counters {
@@ -443,7 +462,7 @@ func (m *classicladder) buildProgram() api.Program {
 		prog.TimersIec[i] = api.TimerIEC{
 			Preset: int32(t.preset),
 			Value:  int32(t.value),
-			Base:   int32(t.base),
+			Base:   int32(baseIDFromMs(int(t.base))),
 			Mode:   api.TimerIECMode(t.timer_mode),
 			Input:  t.input != 0,
 			Output: t.output != 0,
@@ -453,10 +472,14 @@ func (m *classicladder) buildProgram() api.Program {
 	prog.Timers = make([]api.Timer, int(rt.sizes.nbr_timers))
 	for i := 0; i < int(rt.sizes.nbr_timers); i++ {
 		t := &rt.timers[i]
+		base := int(t.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
 		prog.Timers[i] = api.Timer{
-			Preset:        int32(t.preset),
-			Value:         int32(t.value),
-			Base:          int32(t.base),
+			Preset:        int32(int(t.preset) / base),
+			Value:         int32(int(t.value) / base),
+			Base:          int32(baseIDFromMs(base)),
 			InputEnable:   t.input_enable != 0,
 			InputControl:  t.input_control != 0,
 			OutputDone:    t.output_done != 0,
@@ -467,10 +490,14 @@ func (m *classicladder) buildProgram() api.Program {
 	prog.Monostables = make([]api.Monostable, int(rt.sizes.nbr_monostables))
 	for i := 0; i < int(rt.sizes.nbr_monostables); i++ {
 		mo := &rt.monostables[i]
+		base := int(mo.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
 		prog.Monostables[i] = api.Monostable{
-			Preset:        int32(mo.preset),
-			Value:         int32(mo.value),
-			Base:          int32(mo.base),
+			Preset:        int32(int(mo.preset) / base),
+			Value:         int32(int(mo.value) / base),
+			Base:          int32(baseIDFromMs(base)),
 			Input:         mo.input != 0,
 			OutputRunning: mo.output_running != 0,
 		}

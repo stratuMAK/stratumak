@@ -252,17 +252,19 @@ func (m *classicladder) parseGeneral(content string) {
 }
 
 func (m *classicladder) parseSections(content string) {
-	idx := 0
 	for _, line := range strings.Split(content, "\n") {
-		if line == "" || line[0] == '#' {
+		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
 		parts := strings.Split(line, ",")
 		if len(parts) < 5 {
 			continue
 		}
-		if idx >= int(m.rt.sizes.nbr_sections) {
-			break
+		// The section index is the first field, not the line position: a
+		// project may leave earlier section slots unused.
+		idx := atoi(parts[0])
+		if idx < 0 || idx >= int(m.rt.sizes.nbr_sections) {
+			continue
 		}
 		sec := &m.rt.sections[idx]
 		sec.used = 1
@@ -273,7 +275,6 @@ func (m *classicladder) parseSections(content string) {
 		if len(parts) > 5 {
 			sec.sequential_page = C.int(atoi(parts[5]))
 		}
-		idx++
 	}
 	// Parse section names from #NAMEnnn= comments
 	for _, line := range strings.Split(content, "\n") {
@@ -353,6 +354,34 @@ func parseElement(s string, e *C.cl_element_t) {
 	}
 }
 
+// Time bases travel through the .clp file and the API as an id (0=minutes,
+// 1=seconds, 2=100ms) but are held in milliseconds in the RT structures, the
+// way 2.9 does it. baseMsFromID/baseIDFromMs convert between the two.
+
+func baseMsFromID(id int) int {
+	switch id {
+	case C.CL_BASE_MINS:
+		return C.CL_TIME_BASE_MINS
+	case C.CL_BASE_100MS:
+		return C.CL_TIME_BASE_100MS
+	default:
+		return C.CL_TIME_BASE_SECS
+	}
+}
+
+func baseIDFromMs(ms int) int {
+	switch ms {
+	case C.CL_TIME_BASE_MINS:
+		return C.CL_BASE_MINS
+	case C.CL_TIME_BASE_100MS:
+		return C.CL_BASE_100MS
+	default:
+		return C.CL_BASE_SECS
+	}
+}
+
+// timers_iec.csv holds "base_id,preset,mode"; the IEC preset counts in base
+// units, so it is stored unscaled.
 func (m *classicladder) parseTimersIEC(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
@@ -364,13 +393,15 @@ func (m *classicladder) parseTimersIEC(content string) {
 			break
 		}
 		t := &m.rt.timers_iec[idx]
-		t.timer_mode = C.char(atoi(parts[0]))
+		t.base = C.int(baseMsFromID(atoi(parts[0])))
 		t.preset = C.int(atoi(parts[1]))
-		t.base = C.int(atoi(parts[2]))
+		t.timer_mode = C.char(atoi(parts[2]))
 		idx++
 	}
 }
 
+// timers.csv holds "base_id,preset_in_base_units"; the old timer counts down
+// in milliseconds, so the preset is scaled by the base.
 func (m *classicladder) parseTimers(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
@@ -382,8 +413,9 @@ func (m *classicladder) parseTimers(content string) {
 			break
 		}
 		t := &m.rt.timers[idx]
-		t.base = C.int(atoi(parts[0]))
-		t.preset = C.int(atoi(parts[1]))
+		base := baseMsFromID(atoi(parts[0]))
+		t.base = C.int(base)
+		t.preset = C.int(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -399,8 +431,9 @@ func (m *classicladder) parseMonostables(content string) {
 			break
 		}
 		mo := &m.rt.monostables[idx]
-		mo.base = C.int(atoi(parts[0]))
-		mo.preset = C.int(atoi(parts[1]))
+		base := baseMsFromID(atoi(parts[0]))
+		mo.base = C.int(base)
+		mo.preset = C.int(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -525,7 +558,8 @@ func (m *classicladder) emitTimersIEC() string {
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_timers_iec); i++ {
 		t := &m.rt.timers_iec[i]
-		fmt.Fprintf(&b, "%d,%d,%d\n", int(t.timer_mode), int(t.preset), int(t.base))
+		fmt.Fprintf(&b, "%d,%d,%d\n",
+			baseIDFromMs(int(t.base)), int(t.preset), int(t.timer_mode))
 	}
 	return b.String()
 }
@@ -534,7 +568,11 @@ func (m *classicladder) emitTimers() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_timers); i++ {
 		t := &m.rt.timers[i]
-		fmt.Fprintf(&b, "%d,%d\n", int(t.base), int(t.preset))
+		base := int(t.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
+		fmt.Fprintf(&b, "%d,%d\n", baseIDFromMs(base), int(t.preset)/base)
 	}
 	return b.String()
 }
@@ -543,7 +581,11 @@ func (m *classicladder) emitMonostables() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_monostables); i++ {
 		mo := &m.rt.monostables[i]
-		fmt.Fprintf(&b, "%d,%d\n", int(mo.base), int(mo.preset))
+		base := int(mo.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
+		fmt.Fprintf(&b, "%d,%d\n", baseIDFromMs(base), int(mo.preset)/base)
 	}
 	return b.String()
 }

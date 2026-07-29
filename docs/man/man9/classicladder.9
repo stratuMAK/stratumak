@@ -4,21 +4,20 @@
 .SH NAME
 ClassicLadder \- realtime software plc based on ladder logic
 .SH SYNOPSIS
-\fBloadrt classicladder_rt  [numRungs=\fIN\fB] [numBits=\fIN\fB] [numWords=\fIN\fB] [numTimers=\fIN\fB] [numMonostables=\fIN\fB] [numCounters=\fIN\fB] [numPhysInputs=\fIN\fB] [numPhysOutputs=\fIN\fB] [numArithmExpr=\fIN\fB] [numSections=\fIN\fB] [numSymbols=\fIN\fB] [numS32in=\fIN\fB] [numS32out=\fIN\fB] [numFloatIn=\fIN\fB] [numFloatOut=\fIN\fB]
-
-\fBloadusr classicladder <file name> [--nogui]
+\fBload classicladder  [numRungs=\fIN\fB] [numBits=\fIN\fB] [numWords=\fIN\fB] [numTimers=\fIN\fB] [numMonostables=\fIN\fB] [numCounters=\fIN\fB] [numPhysInputs=\fIN\fB] [numPhysOutputs=\fIN\fB] [numArithmExpr=\fIN\fB] [numSections=\fIN\fB] [numSymbols=\fIN\fB] [numS32in=\fIN\fB] [numS32out=\fIN\fB] [numFloatIn=\fIN\fB] [numFloatOut=\fIN\fB] [modbus_port=\fIN\fB] [\fIfile name\fB]
 
 .SH DESCRIPTION
-This component consist of a realtime part and a non-realtime part.  The
-non-realtime part loads the programmable ladder description, while the
-realtime part provides the pins.  The file name of the configuration
-can be changed using an argument to the non-realtime part.  By default
-the non-realtime part provides a graphical visualisation of the loaded
-ladder, which can be disabled using the '--nogui' option to the
-non-realtime part.
+ClassicLadder is a single module.  It provides the HAL pins and the realtime
+scan function, loads the ladder program, and serves the editor and variable
+monitor over the web interface.  The trailing argument names the \fB.clp\fR
+project to load; when it is given, the PLC starts running as soon as the
+program is loaded.  Without it the module comes up stopped, and a project can
+be loaded later through the API.
 .P
-These pins and parameters are created by the realtime \fBclassicladder_rt\fR module.
-Each period (minimum 1000000 ns), ClassicLadder reads the inputs, evaluates the ladder logic defined in the GUI, and then writes the outputs.
+Each period (minimum 1000000 ns), ClassicLadder reads the inputs, evaluates the
+ladder logic, and then writes the outputs.  Adding the scan function to a
+faster thread does not make the ladder scan faster than once per millisecond;
+the leftover time is carried into the next scan.
 
 .SH PINS
 
@@ -54,23 +53,8 @@ These float signal pins map to \fB%QF\fINN\fR variables in ClassicLadder.
 
 .TP
 \fBclassicladder.0.hide_gui IN bit
-This bit pin hides the ClassicLadder window, while still having the non-realtime code
-run. This is usually desirable when modbus is used, as modbus requires the non-realtime
-code to run.
-
-.SH PARAMETERS
-
-.TP
-\fBclassicladder.0.refresh.time\fR RO s32
-Tells you how long the last refresh took.
-
-.TP
-\fBclassicladder.0.refresh.tmax\fR RW s32
-Tells you how long the longest refresh took.
-
-.TP
-\fBclassicladder.0.ladder\-state\fR RO s32
-Tells you if the program is running or not
+Asks the user interface to hide itself.  The ladder keeps scanning and Modbus
+keeps running either way; this only affects what a connected GUI displays.
 
 .SH FUNCTIONS
 

@@ -54,6 +54,12 @@
 #define CL_RUNG_WIDTH  10
 #define CL_RUNG_HEIGHT 6
 
+/* Runaway guards for the two ways a ladder can fail to terminate: a (J)ump
+ * coil looping forever within a section, and a (C)all coil recursing through
+ * sub-routines. Hitting either stops the PLC. */
+#define CL_MAD_LOOP_LIMIT 99999
+#define CL_MAX_SR_DEPTH   25
+
 /* Arithmetic expression max length */
 #define CL_ARITHM_EXPR_SIZE 50
 
@@ -180,6 +186,16 @@ typedef struct {
 #define CL_TIMER_IEC_TON  0
 #define CL_TIMER_IEC_TOF  1
 #define CL_TIMER_IEC_TP   2
+
+/* Time bases, in milliseconds. The .clp file and the API carry the base as an
+ * id (CL_BASE_*); the structures below hold the millisecond value. */
+#define CL_TIME_BASE_MINS  60000
+#define CL_TIME_BASE_SECS  1000
+#define CL_TIME_BASE_100MS 100
+
+#define CL_BASE_MINS  0
+#define CL_BASE_SECS  1
+#define CL_BASE_100MS 2
 
 /* --- Data structures --- */
 
@@ -335,6 +351,7 @@ typedef struct {
     /* Configuration */
     cl_sizes_t          sizes;
     int                 periodic_refresh_ms;
+    unsigned long       period_leftover_ns; /* sub-millisecond scan remainder */
     int                 first_rung;
     int                 last_rung;
     int                 current_rung;
@@ -380,6 +397,11 @@ typedef struct {
  * Reads inputs, evaluates all sections, writes outputs. */
 void classicladder_refresh(void *arg, long period);
 
+/* One PLC scan of every main section, with the given elapsed milliseconds.
+ * Does not touch HAL pins — classicladder_refresh wraps it with the pin I/O
+ * and the sub-millisecond period accounting. */
+void cl_scan(classicladder_rt_t *rt, int ms_elapsed);
+
 /* Allocate and initialize a classicladder_rt_t instance. */
 classicladder_rt_t *classicladder_rt_alloc(const cl_sizes_t *sizes);
 
@@ -388,6 +410,11 @@ void classicladder_rt_free(classicladder_rt_t *rt);
 
 /* Initialize all runtime data (vars, timers, counters). */
 void classicladder_rt_init_data(classicladder_rt_t *rt);
+
+/* Reset every piece of dynamic state before the PLC starts running: timers,
+ * monostables, counters, IEC timers, edge-contact history and the sequential
+ * init steps (2.9 PrepareAllDatasBeforeRun). Call on any transition to RUN. */
+void cl_prepare_all_datas_before_run(classicladder_rt_t *rt);
 
 /* Write a variable (for forcing from UI). Thread-safe for single-writer. */
 void write_var_ext(classicladder_rt_t *rt, int type, int offset, int value);

@@ -15,6 +15,13 @@
 
 /* --- Variable access helpers --- */
 
+/* Timer/monostable/IEC-timer time bases are held in milliseconds (2.9
+ * TIME_BASE_MINS/SECS/100MS). A zero base would divide by zero in the public
+ * variable accessors, so clamp it to 1ms. */
+static inline int cl_base_ms(int base) {
+    return base > 0 ? base : 1;
+}
+
 /* Number of valid offsets for a variable type: the configured size of the
  * region that (type, offset) indexes. Because the backing arrays are packed by
  * these runtime sizes (each <= its CL_MAX_*), an offset within the region can
@@ -30,6 +37,8 @@ static int cl_var_region_size(const classicladder_rt_t *rt, int type) {
     case CL_VAR_MEM_WORD:         return rt->sizes.nbr_words;
     case CL_VAR_PHYS_WORD_INPUT:  return rt->sizes.nbr_s32_in;
     case CL_VAR_PHYS_WORD_OUTPUT: return rt->sizes.nbr_s32_out;
+    case CL_VAR_PHYS_FLOAT_INPUT: return rt->sizes.nbr_float_in;
+    case CL_VAR_PHYS_FLOAT_OUTPUT: return rt->sizes.nbr_float_out;
     case CL_VAR_TIMER_DONE:
     case CL_VAR_TIMER_RUNNING:
     case CL_VAR_TIMER_PRESET:
@@ -85,15 +94,18 @@ static int read_var(classicladder_rt_t *rt, int type, int offset) {
     case CL_VAR_MEM_WORD:
         return rt->var_words[offset];
     case CL_VAR_STEP_TIME:
-        return rt->var_words[rt->sizes.nbr_words + offset];
+        return rt->var_words[rt->sizes.nbr_words + rt->sizes.nbr_s32_in +
+                            rt->sizes.nbr_s32_out + offset];
+    /* Timer/monostable preset and value are held in milliseconds; the public
+     * variable is expressed in base units (as in 2.9 vars_access.c). */
     case CL_VAR_TIMER_PRESET:
-        return rt->timers[offset].preset;
+        return rt->timers[offset].preset / cl_base_ms(rt->timers[offset].base);
     case CL_VAR_TIMER_VALUE:
-        return rt->timers[offset].value;
+        return rt->timers[offset].value / cl_base_ms(rt->timers[offset].base);
     case CL_VAR_MONOSTABLE_PRESET:
-        return rt->monostables[offset].preset;
+        return rt->monostables[offset].preset / cl_base_ms(rt->monostables[offset].base);
     case CL_VAR_MONOSTABLE_VALUE:
-        return rt->monostables[offset].value;
+        return rt->monostables[offset].value / cl_base_ms(rt->monostables[offset].base);
     case CL_VAR_COUNTER_PRESET:
         return rt->counters[offset].preset;
     case CL_VAR_COUNTER_VALUE:
@@ -106,6 +118,10 @@ static int read_var(classicladder_rt_t *rt, int type, int offset) {
         return rt->var_words[rt->sizes.nbr_words + offset];
     case CL_VAR_PHYS_WORD_OUTPUT:
         return rt->var_words[rt->sizes.nbr_words + rt->sizes.nbr_s32_in + offset];
+    case CL_VAR_PHYS_FLOAT_INPUT:
+        return (int)rt->var_floats[offset];
+    case CL_VAR_PHYS_FLOAT_OUTPUT:
+        return (int)rt->var_floats[rt->sizes.nbr_float_in + offset];
     default:
         return 0;
     }
@@ -134,23 +150,39 @@ static void write_var(classicladder_rt_t *rt, int type, int offset, int value) {
         rt->var_bits[rt->sizes.nbr_bits + rt->sizes.nbr_phys_inputs +
                     rt->sizes.nbr_phys_outputs + offset] = value ? 1 : 0;
         break;
+    /* Block outputs are published through the variable layer, so that a
+     * contact on %C0 or %TI0 sees what the block just computed. */
+    case CL_VAR_COUNTER_DONE:
+        rt->counters[offset].output_done = value ? 1 : 0;
+        break;
+    case CL_VAR_COUNTER_EMPTY:
+        rt->counters[offset].output_empty = value ? 1 : 0;
+        break;
+    case CL_VAR_COUNTER_FULL:
+        rt->counters[offset].output_full = value ? 1 : 0;
+        break;
+    case CL_VAR_TIMER_IEC_DONE:
+        rt->timers_iec[offset].output = value ? 1 : 0;
+        break;
     case CL_VAR_MEM_WORD:
         rt->var_words[offset] = value;
         break;
     case CL_VAR_STEP_TIME:
-        rt->var_words[rt->sizes.nbr_words + offset] = value;
+        rt->var_words[rt->sizes.nbr_words + rt->sizes.nbr_s32_in +
+                     rt->sizes.nbr_s32_out + offset] = value;
         break;
+    /* Public value is in base units, stored in milliseconds. */
     case CL_VAR_TIMER_PRESET:
-        rt->timers[offset].preset = value;
+        rt->timers[offset].preset = value * cl_base_ms(rt->timers[offset].base);
         break;
     case CL_VAR_TIMER_VALUE:
-        rt->timers[offset].value = value;
+        rt->timers[offset].value = value * cl_base_ms(rt->timers[offset].base);
         break;
     case CL_VAR_MONOSTABLE_PRESET:
-        rt->monostables[offset].preset = value;
+        rt->monostables[offset].preset = value * cl_base_ms(rt->monostables[offset].base);
         break;
     case CL_VAR_MONOSTABLE_VALUE:
-        rt->monostables[offset].value = value;
+        rt->monostables[offset].value = value * cl_base_ms(rt->monostables[offset].base);
         break;
     case CL_VAR_COUNTER_PRESET:
         rt->counters[offset].preset = value;
@@ -169,6 +201,12 @@ static void write_var(classicladder_rt_t *rt, int type, int offset, int value) {
         break;
     case CL_VAR_PHYS_WORD_OUTPUT:
         rt->var_words[rt->sizes.nbr_words + rt->sizes.nbr_s32_in + offset] = value;
+        break;
+    case CL_VAR_PHYS_FLOAT_INPUT:
+        rt->var_floats[offset] = value;
+        break;
+    case CL_VAR_PHYS_FLOAT_OUTPUT:
+        rt->var_floats[rt->sizes.nbr_float_in + offset] = value;
         break;
     default:
         break;
@@ -219,327 +257,651 @@ static void write_hal_float_outputs(classicladder_rt_t *rt) {
     }
 }
 
-/* --- Timer evaluation --- */
+/* --- Rung evaluation ---
+ *
+ * Faithful port of 2.9 calc.c. Every cell of every rung is evaluated on every
+ * scan, whether or not it carries power: an element's DynamicOutput is what
+ * feeds the cells to its right, and a de-energized coil must still be written
+ * back to 0. Blocks (timers, monostables, counters, IEC timers) are evaluated
+ * inline, when and only when the rung that contains them is executed.
+ */
 
-static void eval_timers(classicladder_rt_t *rt, int ms_elapsed) {
-    for (int i = 0; i < rt->sizes.nbr_timers; i++) {
-        cl_timer_t *t = &rt->timers[i];
-        if (t->input_enable) {
-            if (t->input_control) {
-                if (t->value < t->preset) {
-                    t->value += ms_elapsed;
-                    t->output_running = 1;
-                } else {
-                    t->output_done = 1;
-                    t->output_running = 0;
-                }
+/* State arriving on the left of (x,y): the output of the cell to the left,
+ * OR-ed with the outputs left of every cell reachable through an unbroken
+ * chain of vertical connections — upwards and downwards. */
+static char state_on_left(int x, int y, cl_rung_t *rung) {
+    char state = 0;
+    int posy;
+    char still_connected;
+
+    /* Directly connected to the left power rail? */
+    if (x == 0)
+        return 1;
+
+    /* Direct on left */
+    if (rung->elements[x - 1][y].dynamic_output)
+        state = 1;
+
+    /* Up */
+    posy = y;
+    still_connected = rung->elements[x][posy].connected_with_top;
+    while (posy > 0 && still_connected) {
+        posy--;
+        if (rung->elements[x - 1][posy].dynamic_output)
+            state = 1;
+        if (!rung->elements[x][posy].connected_with_top)
+            still_connected = 0;
+    }
+
+    /* Down */
+    if (y < CL_RUNG_HEIGHT - 1) {
+        posy = y + 1;
+        still_connected = rung->elements[x][posy].connected_with_top;
+        while (posy < CL_RUNG_HEIGHT && still_connected) {
+            if (rung->elements[x - 1][posy].dynamic_output)
+                state = 1;
+            posy++;
+            if (posy < CL_RUNG_HEIGHT) {
+                if (!rung->elements[x][posy].connected_with_top)
+                    still_connected = 0;
+            }
+        }
+    }
+    return state;
+}
+
+/* Set the dynamic output of a cell of a multi-row block, if it is on the grid. */
+static void set_block_output(cl_rung_t *rung, int x, int y, char state) {
+    if (y >= 0 && y < CL_RUNG_HEIGHT)
+        rung->elements[x][y].dynamic_output = state;
+}
+
+/* State on the left of a multi-column block whose head sits at column x and
+ * which spans `width` columns. Column 0 of the grid is always powered. */
+static char block_state_on_left(int x, int y, int width, cl_rung_t *rung) {
+    int left = x - (width - 1);
+    if (left <= 0)
+        return 1;
+    if (y < 0 || y >= CL_RUNG_HEIGHT)
+        return 0;
+    return state_on_left(left, y, rung);
+}
+
+/* Elements : -| |- -|/|- -|P|- -|N|- */
+static void calc_type_input(classicladder_rt_t *rt, int x, int y,
+                            cl_rung_t *rung, char is_not, char only_fronts) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state;
+    char state_element;
+    char state_var;
+
+    state_element = read_var(rt, ele->var_type, ele->var_num) ? 1 : 0;
+    if (is_not)
+        state_element = !state_element;
+    state_var = state_element;
+    if (only_fronts) {
+        if (state_element && ele->dynamic_var_bak)
+            state_element = 0;
+    }
+    ele->dynamic_state = state_element;
+    if (x == 0) {
+        state = state_element;
+    } else {
+        ele->dynamic_input = state_on_left(x, y, rung);
+        state = state_element && ele->dynamic_input;
+    }
+    ele->dynamic_output = state;
+    ele->dynamic_var_bak = state_var;
+}
+
+/* Element : --- */
+static void calc_type_connection(int x, int y, cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = 1;
+
+    if (x != 0) {
+        ele->dynamic_input = state_on_left(x, y, rung);
+        state = ele->dynamic_input;
+    }
+    ele->dynamic_state = state;
+    ele->dynamic_output = state;
+}
+
+/* Elements : -( )- and -(/)- */
+static void calc_type_output(classicladder_rt_t *rt, int x, int y,
+                             cl_rung_t *rung, char is_not) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = state_on_left(x, y, rung);
+
+    ele->dynamic_input = state;
+    ele->dynamic_state = state;
+    if (is_not)
+        state = !state;
+    write_var(rt, ele->var_type, ele->var_num, state);
+}
+
+/* Elements : -(S)- and -(R)- */
+static void calc_type_output_set_reset(classicladder_rt_t *rt, int x, int y,
+                                       cl_rung_t *rung, char is_reset) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = state_on_left(x, y, rung);
+
+    ele->dynamic_input = state;
+    ele->dynamic_state = state;
+    if (state)
+        write_var(rt, ele->var_type, ele->var_num, is_reset ? 0 : 1);
+}
+
+/* Element : -(J)- — returns the rung to jump to, or -1. */
+static int calc_type_output_jump(int x, int y, cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = state_on_left(x, y, rung);
+    int goto_rung = -1;
+
+    if (state)
+        goto_rung = ele->var_num;
+    ele->dynamic_input = state;
+    ele->dynamic_state = state;
+    return goto_rung;
+}
+
+/* Find the section holding the sub-routine with this number, or -1. */
+static int search_sub_routine_with_its_number(classicladder_rt_t *rt, int nbr) {
+    for (int i = 0; i < rt->sizes.nbr_sections; i++) {
+        if (rt->sections[i].used && rt->sections[i].sub_routine_number == nbr)
+            return i;
+    }
+    return -1;
+}
+
+/* Element : -(C)- — returns the section to call, or -1. */
+static int calc_type_output_call(classicladder_rt_t *rt, int x, int y,
+                                 cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = state_on_left(x, y, rung);
+    int call_sr_section = -1;
+
+    if (state)
+        call_sr_section = search_sub_routine_with_its_number(rt, ele->var_num);
+    ele->dynamic_input = state;
+    ele->dynamic_state = state;
+    return call_sr_section;
+}
+
+/* Element : Timer (2x2 block, head at the right column, inputs E and C on
+ * rows y and y+1, outputs D and R on the same two rows).
+ * LinuxCNC forces the (C) control input true when the block sits on the left
+ * rail, so that ladders written before the control input existed still run. */
+static void calc_type_timer(classicladder_rt_t *rt, int x, int y,
+                            cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    cl_timer_t *timer;
+
+    if (ele->var_num < 0 || ele->var_num >= rt->sizes.nbr_timers)
+        return;
+    timer = &rt->timers[ele->var_num];
+
+    timer->input_enable = block_state_on_left(x, y, 2, rung);
+    timer->input_control = block_state_on_left(x, y + 1, 2, rung);
+
+    if (!timer->input_enable) {
+        timer->output_running = 0;
+        timer->output_done = 0;
+        timer->value = timer->preset;
+    } else {
+        if (timer->value > 0) {
+            if (timer->input_control) {
+                timer->value -= rt->periodic_refresh_ms;
+                timer->output_running = 1;
+                timer->output_done = 0;
+            }
+        } else {
+            timer->output_running = 0;
+            timer->output_done = 1;
+        }
+    }
+    set_block_output(rung, x, y, timer->output_done);
+    set_block_output(rung, x, y + 1, timer->output_running);
+}
+
+/* Element : Monostable (2x2 block, head at the right column) */
+static void calc_type_monostable(classicladder_rt_t *rt, int x, int y,
+                                 cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    cl_monostable_t *mono;
+
+    if (ele->var_num < 0 || ele->var_num >= rt->sizes.nbr_monostables)
+        return;
+    mono = &rt->monostables[ele->var_num];
+
+    mono->input = block_state_on_left(x, y, 2, rung);
+
+    /* Rising edge on the input starts it; it is not retriggerable. */
+    if (mono->input && !mono->input_bak && mono->value == 0) {
+        mono->output_running = 1;
+        mono->value = mono->preset;
+    }
+    if (mono->value > 0)
+        mono->value -= rt->periodic_refresh_ms;
+    else
+        mono->output_running = 0;
+    mono->input_bak = mono->input;
+    set_block_output(rung, x, y, mono->output_running);
+}
+
+/* Element : Counter (2x4 block, head at the right column; inputs R/P/U/D on
+ * rows y..y+3, outputs E/D/F on rows y, y+1, y+2) */
+static void calc_type_counter(classicladder_rt_t *rt, int x, int y,
+                              cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    cl_counter_t *counter;
+    int counter_nbr = ele->var_num;
+    int current_value, preset_value;
+    char done_result, empty_result, full_result;
+
+    if (counter_nbr < 0 || counter_nbr >= rt->sizes.nbr_counters)
+        return;
+    counter = &rt->counters[counter_nbr];
+    current_value = read_var(rt, CL_VAR_COUNTER_VALUE, counter_nbr);
+    preset_value = read_var(rt, CL_VAR_COUNTER_PRESET, counter_nbr);
+
+    counter->input_reset = block_state_on_left(x, y, 2, rung);
+    counter->input_preset = block_state_on_left(x, y + 1, 2, rung);
+    counter->input_count_up = block_state_on_left(x, y + 2, 2, rung);
+    counter->input_count_down = block_state_on_left(x, y + 3, 2, rung);
+
+    if (counter->input_count_up && counter->input_count_up_bak == 0) {
+        counter->value_bak = current_value;
+        current_value++;
+        if (current_value > 9999)
+            current_value = 0;
+    }
+    if (counter->input_count_down && counter->input_count_down_bak == 0) {
+        counter->value_bak = current_value;
+        current_value--;
+        if (current_value < 0)
+            current_value = 9999;
+    }
+    if (counter->input_preset) {
+        counter->value_bak = current_value;
+        current_value = preset_value;
+    }
+    if (counter->input_reset) {
+        counter->value_bak = current_value;
+        current_value = 0;
+    }
+    counter->input_count_up_bak = counter->input_count_up;
+    counter->input_count_down_bak = counter->input_count_down;
+
+    done_result = (current_value == preset_value) ? 1 : 0;
+    empty_result = (current_value == 9999 && counter->value_bak == 0) ? 1 : 0;
+    full_result = (current_value == 0 && counter->value_bak == 9999) ? 1 : 0;
+    set_block_output(rung, x, y, empty_result);
+    set_block_output(rung, x, y + 1, done_result);
+    set_block_output(rung, x, y + 2, full_result);
+
+    write_var(rt, CL_VAR_COUNTER_DONE, counter_nbr, done_result);
+    write_var(rt, CL_VAR_COUNTER_EMPTY, counter_nbr, empty_result);
+    write_var(rt, CL_VAR_COUNTER_FULL, counter_nbr, full_result);
+    write_var(rt, CL_VAR_COUNTER_PRESET, counter_nbr, preset_value);
+    write_var(rt, CL_VAR_COUNTER_VALUE, counter_nbr, current_value);
+}
+
+/* Element : IEC timer (2x2 block, head at the right column). Its preset and
+ * value are counted in base units, not milliseconds. */
+static void calc_type_timer_iec(classicladder_rt_t *rt, int x, int y,
+                                cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    cl_timer_iec_t *timer_iec;
+    int timer_nbr = ele->var_num;
+    int current_value, preset_value;
+    char output_result;
+    char do_inc_time = 0;
+
+    if (timer_nbr < 0 || timer_nbr >= rt->sizes.nbr_timers_iec)
+        return;
+    timer_iec = &rt->timers_iec[timer_nbr];
+    current_value = read_var(rt, CL_VAR_TIMER_IEC_VALUE, timer_nbr);
+    preset_value = read_var(rt, CL_VAR_TIMER_IEC_PRESET, timer_nbr);
+    output_result = read_var(rt, CL_VAR_TIMER_IEC_DONE, timer_nbr);
+
+    timer_iec->input = block_state_on_left(x, y, 2, rung);
+
+    switch (timer_iec->timer_mode) {
+    case CL_TIMER_IEC_TON:
+        if (!timer_iec->input) {
+            output_result = 0;
+            current_value = 0;
+        } else {
+            if (current_value < preset_value)
+                do_inc_time = 1;
+            else
+                output_result = 1;
+        }
+        break;
+    case CL_TIMER_IEC_TOF:
+        if (timer_iec->input) {
+            output_result = 1;
+            current_value = 0;
+            timer_iec->timer_started = 0;
+        } else {
+            /* falling edge on the input starts the off-delay */
+            if (timer_iec->input_bak)
+                timer_iec->timer_started = 1;
+        }
+        break;
+    case CL_TIMER_IEC_TP:
+        /* rising edge on the input; the pulse is not retriggerable */
+        if (timer_iec->input && !timer_iec->input_bak &&
+            timer_iec->timer_started == 0) {
+            output_result = 1;
+            current_value = 0;
+            timer_iec->timer_started = 1;
+        }
+        break;
+    }
+
+    if (timer_iec->timer_mode == CL_TIMER_IEC_TOF ||
+        timer_iec->timer_mode == CL_TIMER_IEC_TP) {
+        if (timer_iec->timer_started) {
+            if (current_value < preset_value) {
+                do_inc_time = 1;
             } else {
-                t->value = 0;
-                t->output_done = 0;
-                t->output_running = 0;
+                output_result = 0;
+                current_value = 0;
+                timer_iec->timer_started = 0;
             }
         }
     }
+
+    if (do_inc_time) {
+        timer_iec->value_to_reach_one_base_unit += rt->periodic_refresh_ms;
+        if (timer_iec->value_to_reach_one_base_unit >= cl_base_ms(timer_iec->base)) {
+            current_value++;
+            /* keep the little too-much time part */
+            timer_iec->value_to_reach_one_base_unit -= cl_base_ms(timer_iec->base);
+        }
+    }
+    timer_iec->input_bak = timer_iec->input;
+    set_block_output(rung, x, y, output_result);
+
+    write_var(rt, CL_VAR_TIMER_IEC_DONE, timer_nbr, output_result);
+    write_var(rt, CL_VAR_TIMER_IEC_PRESET, timer_nbr, preset_value);
+    write_var(rt, CL_VAR_TIMER_IEC_VALUE, timer_nbr, current_value);
 }
 
-/* --- Monostable evaluation --- */
+/* Element : Compare (3 cells wide, head at the right column) */
+static void calc_type_compar(classicladder_rt_t *rt, int x, int y,
+                             cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state_element = cl_eval_compare(rt, ele->var_num) ? 1 : 0;
+    char state;
 
-static void eval_monostables(classicladder_rt_t *rt, int ms_elapsed) {
-    for (int i = 0; i < rt->sizes.nbr_monostables; i++) {
-        cl_monostable_t *m = &rt->monostables[i];
-        if (m->input && !m->input_bak) {
-            /* Rising edge — start */
-            m->value = m->preset;
-            m->output_running = 1;
-        }
-        m->input_bak = m->input;
-        if (m->output_running) {
-            m->value -= ms_elapsed;
-            if (m->value <= 0) {
-                m->value = 0;
-                m->output_running = 0;
-            }
-        }
-    }
+    ele->dynamic_state = state_element;
+    ele->dynamic_input = block_state_on_left(x, y, 3, rung);
+    state = state_element && ele->dynamic_input;
+    ele->dynamic_output = state;
 }
 
-/* --- IEC Timer evaluation --- */
+/* Element : Operate (3 cells wide, head at the right column) */
+static void calc_type_output_operate(classicladder_rt_t *rt, int x, int y,
+                                     cl_rung_t *rung) {
+    cl_element_t *ele = &rung->elements[x][y];
+    char state = block_state_on_left(x, y, 3, rung);
 
-static void eval_timers_iec(classicladder_rt_t *rt, int ms_elapsed) {
-    for (int i = 0; i < rt->sizes.nbr_timers_iec; i++) {
-        cl_timer_iec_t *t = &rt->timers_iec[i];
-        int base_ms;
-        switch (t->base) {
-        case 0: base_ms = 60000; break; /* minutes */
-        case 1: base_ms = 1000; break;  /* seconds */
-        case 2: base_ms = 100; break;   /* 100ms */
-        default: base_ms = 1000; break;
-        }
-
-        switch (t->timer_mode) {
-        case CL_TIMER_IEC_TON: /* ON-delay */
-            if (t->input) {
-                if (!t->timer_started) {
-                    t->timer_started = 1;
-                    t->value = 0;
-                    t->value_to_reach_one_base_unit = 0;
-                }
-                t->value_to_reach_one_base_unit += ms_elapsed;
-                while (t->value_to_reach_one_base_unit >= base_ms) {
-                    t->value_to_reach_one_base_unit -= base_ms;
-                    t->value++;
-                }
-                if (t->value >= t->preset) {
-                    t->output = 1;
-                    t->value = t->preset;
-                }
-            } else {
-                t->timer_started = 0;
-                t->output = 0;
-                t->value = 0;
-                t->value_to_reach_one_base_unit = 0;
-            }
-            break;
-
-        case CL_TIMER_IEC_TOF: /* OFF-delay */
-            if (t->input) {
-                t->output = 1;
-                t->timer_started = 0;
-                t->value = 0;
-                t->value_to_reach_one_base_unit = 0;
-            } else {
-                if (!t->timer_started && t->output) {
-                    t->timer_started = 1;
-                    t->value = 0;
-                    t->value_to_reach_one_base_unit = 0;
-                }
-                if (t->timer_started) {
-                    t->value_to_reach_one_base_unit += ms_elapsed;
-                    while (t->value_to_reach_one_base_unit >= base_ms) {
-                        t->value_to_reach_one_base_unit -= base_ms;
-                        t->value++;
-                    }
-                    if (t->value >= t->preset) {
-                        t->output = 0;
-                        t->timer_started = 0;
-                        t->value = t->preset;
-                    }
-                }
-            }
-            break;
-
-        case CL_TIMER_IEC_TP: /* Pulse */
-            if (t->input && !t->input_bak) {
-                t->timer_started = 1;
-                t->output = 1;
-                t->value = 0;
-                t->value_to_reach_one_base_unit = 0;
-            }
-            if (t->timer_started) {
-                t->value_to_reach_one_base_unit += ms_elapsed;
-                while (t->value_to_reach_one_base_unit >= base_ms) {
-                    t->value_to_reach_one_base_unit -= base_ms;
-                    t->value++;
-                }
-                if (t->value >= t->preset) {
-                    t->output = 0;
-                    t->timer_started = 0;
-                    t->value = t->preset;
-                }
-            }
-            break;
-        }
-        t->input_bak = t->input;
-    }
+    if (state)
+        cl_eval_operate(rt, ele->var_num);
+    ele->dynamic_input = state;
+    ele->dynamic_state = state;
 }
 
-/* --- Counter evaluation --- */
+/* Evaluate one rung, column by column. Sets *jump_to to the rung a taken (J)
+ * coil targets, or -1. Sub-routine (C) coils are refreshed recursively here,
+ * which is why the call depth has to be threaded through. */
+static void refresh_a_section(classicladder_rt_t *rt, cl_section_t *section,
+                              int depth);
 
-static void eval_counters(classicladder_rt_t *rt) {
-    for (int i = 0; i < rt->sizes.nbr_counters; i++) {
-        cl_counter_t *c = &rt->counters[i];
-        if (c->input_reset) {
-            c->value = 0;
-        }
-        if (c->input_preset) {
-            c->value = c->preset;
-        }
-        if (c->input_count_up && !c->input_count_up_bak) {
-            c->value++;
-        }
-        c->input_count_up_bak = c->input_count_up;
-        if (c->input_count_down && !c->input_count_down_bak) {
-            c->value--;
-        }
-        c->input_count_down_bak = c->input_count_down;
-        c->output_done = (c->value == c->preset) ? 1 : 0;
-        c->output_empty = (c->value <= 0) ? 1 : 0;
-        c->output_full = (c->value >= c->preset) ? 1 : 0;
-        c->value_bak = c->value;
-    }
-}
+static void refresh_rung(classicladder_rt_t *rt, cl_rung_t *rung, int *jump_to,
+                         int depth) {
+    int jump_to_rung = -1;
 
-/* --- Rung evaluation (core ladder logic) --- */
-
-/* Evaluate a single rung. Power flows left-to-right through the grid.
- * Returns 1 if the rung modified any outputs. */
-static void eval_rung(classicladder_rt_t *rt, cl_rung_t *rung) {
-    char coils[CL_RUNG_WIDTH][CL_RUNG_HEIGHT];
-    memset(coils, 0, sizeof(coils));
-
-    /* First column always has power */
-    for (int y = 0; y < CL_RUNG_HEIGHT; y++) {
-        coils[0][y] = 1;
-    }
-
-    /* Propagate power left to right */
-    for (int x = 0; x < CL_RUNG_WIDTH; x++) {
-        for (int y = 0; y < CL_RUNG_HEIGHT; y++) {
+    for (int x = 0; x < CL_RUNG_WIDTH && jump_to_rung == -1; x++) {
+        for (int y = 0; y < CL_RUNG_HEIGHT && jump_to_rung == -1; y++) {
             cl_element_t *ele = &rung->elements[x][y];
-
-            /* Vertical connection: inherit power from above */
-            if (ele->connected_with_top && y > 0) {
-                coils[x][y] |= coils[x][y - 1];
-            }
-
-            if (!coils[x][y] && x > 0) {
-                /* No power from left or top */
-                continue;
-            }
-
-            int input_state = (x > 0) ? coils[x][y] : 1;
-            int output_state = 0;
-
             switch (ele->type) {
             case CL_ELE_FREE:
-                output_state = 0;
-                break;
-            case CL_ELE_CONNECTION:
-                output_state = input_state;
+            case CL_ELE_UNUSABLE:
+                /* No output of their own, but the drawing wants the input. */
+                ele->dynamic_input = state_on_left(x, y, rung);
                 break;
             case CL_ELE_INPUT:
-                output_state = input_state & read_var(rt, ele->var_type, ele->var_num);
+                calc_type_input(rt, x, y, rung, 0, 0);
                 break;
             case CL_ELE_INPUT_NOT:
-                output_state = input_state & !read_var(rt, ele->var_type, ele->var_num);
+                calc_type_input(rt, x, y, rung, 1, 0);
                 break;
             case CL_ELE_RISING_INPUT:
-                {
-                    int cur = read_var(rt, ele->var_type, ele->var_num);
-                    output_state = input_state & (cur && !ele->dynamic_var_bak);
-                    ele->dynamic_var_bak = cur;
-                }
+                calc_type_input(rt, x, y, rung, 0, 1);
                 break;
             case CL_ELE_FALLING_INPUT:
-                {
-                    int cur = read_var(rt, ele->var_type, ele->var_num);
-                    output_state = input_state & (!cur && ele->dynamic_var_bak);
-                    ele->dynamic_var_bak = cur;
-                }
+                calc_type_input(rt, x, y, rung, 1, 1);
                 break;
-            case CL_ELE_OUTPUT:
-                write_var(rt, ele->var_type, ele->var_num, input_state);
-                output_state = input_state;
-                break;
-            case CL_ELE_OUTPUT_NOT:
-                write_var(rt, ele->var_type, ele->var_num, !input_state);
-                output_state = input_state;
-                break;
-            case CL_ELE_OUTPUT_SET:
-                if (input_state)
-                    write_var(rt, ele->var_type, ele->var_num, 1);
-                output_state = input_state;
-                break;
-            case CL_ELE_OUTPUT_RESET:
-                if (input_state)
-                    write_var(rt, ele->var_type, ele->var_num, 0);
-                output_state = input_state;
+            case CL_ELE_CONNECTION:
+                calc_type_connection(x, y, rung);
                 break;
             case CL_ELE_TIMER:
-                rt->timers[ele->var_num].input_enable = input_state;
-                rt->timers[ele->var_num].input_control = input_state;
-                output_state = rt->timers[ele->var_num].output_done;
+                calc_type_timer(rt, x, y, rung);
                 break;
             case CL_ELE_MONOSTABLE:
-                rt->monostables[ele->var_num].input = input_state;
-                output_state = rt->monostables[ele->var_num].output_running;
+                calc_type_monostable(rt, x, y, rung);
                 break;
             case CL_ELE_COUNTER:
-                rt->counters[ele->var_num].input_count_up = input_state;
-                output_state = rt->counters[ele->var_num].output_done;
+                calc_type_counter(rt, x, y, rung);
                 break;
             case CL_ELE_TIMER_IEC:
-                rt->timers_iec[ele->var_num].input = input_state;
-                output_state = rt->timers_iec[ele->var_num].output;
+                calc_type_timer_iec(rt, x, y, rung);
                 break;
             case CL_ELE_COMPAR:
-                output_state = cl_eval_compare(rt, ele->var_num) && input_state;
+                calc_type_compar(rt, x, y, rung);
                 break;
-            case CL_ELE_OUTPUT_OPERATE:
-                if (input_state)
-                    cl_eval_operate(rt, ele->var_num);
-                output_state = input_state;
+            case CL_ELE_OUTPUT:
+                calc_type_output(rt, x, y, rung, 0);
+                break;
+            case CL_ELE_OUTPUT_NOT:
+                calc_type_output(rt, x, y, rung, 1);
+                break;
+            case CL_ELE_OUTPUT_SET:
+                calc_type_output_set_reset(rt, x, y, rung, 0);
+                break;
+            case CL_ELE_OUTPUT_RESET:
+                calc_type_output_set_reset(rt, x, y, rung, 1);
                 break;
             case CL_ELE_OUTPUT_JUMP:
-            case CL_ELE_OUTPUT_CALL:
-                /* Handled at section level */
-                output_state = input_state;
+                /* abort the rest of the rung immediately */
+                jump_to_rung = calc_type_output_jump(x, y, rung);
                 break;
-            case CL_ELE_UNUSABLE:
-                output_state = input_state;
-                break;
-            default:
-                output_state = 0;
+            case CL_ELE_OUTPUT_CALL: {
+                int section_to_call = calc_type_output_call(rt, x, y, rung);
+                if (section_to_call != -1) {
+                    cl_section_t *sub = &rt->sections[section_to_call];
+                    if (sub->used && sub->sub_routine_number >= 0)
+                        refresh_a_section(rt, sub, depth + 1);
+                }
                 break;
             }
-
-            ele->dynamic_output = output_state;
-            ele->dynamic_input = input_state;
-            ele->dynamic_state = output_state;
-
-            /* Propagate to next column */
-            if (x + 1 < CL_RUNG_WIDTH) {
-                coils[x + 1][y] |= output_state;
+            case CL_ELE_OUTPUT_OPERATE:
+                calc_type_output_operate(rt, x, y, rung);
+                break;
+            default:
+                break;
             }
         }
     }
+
+    *jump_to = jump_to_rung;
 }
 
-/* Evaluate all ladder sections in order */
-static void eval_all_sections(classicladder_rt_t *rt) {
+/* Refresh every rung of a section, following (J)ump coils within it. */
+static void refresh_a_section(classicladder_rt_t *rt, cl_section_t *section,
+                              int depth) {
+    int num_rung = section->first_rung;
+    int mad_loop_break = 0;
+    int done = 0;
+
+    /* 2.9 recurses without a bound; in an RT thread the stack is not ours to
+     * blow, so a runaway (C)all chain stops the PLC like a runaway jump. */
+    if (depth > CL_MAX_SR_DEPTH) {
+        atomic_store_explicit(&rt->state, CL_STATE_STOP, memory_order_release);
+        return;
+    }
+    if (num_rung < 0 || num_rung >= rt->sizes.nbr_rungs)
+        return;
+
+    do {
+        int goto_rung;
+
+        /* 2.9 counts only jumps here, which leaves a corrupt next-rung chain
+         * free to spin forever; in an RT thread that is fatal, so every
+         * iteration counts against the same limit. */
+        if (++mad_loop_break > CL_MAD_LOOP_LIMIT) {
+            atomic_store_explicit(&rt->state, CL_STATE_STOP, memory_order_release);
+            return;
+        }
+
+        refresh_rung(rt, &rt->rungs[num_rung], &goto_rung, depth);
+
+        if (goto_rung != -1) {
+            if (goto_rung < 0 || goto_rung >= rt->sizes.nbr_rungs ||
+                !rt->rungs[goto_rung].used) {
+                /* jump to an undefined rung — give up on this section */
+                done = 1;
+            } else {
+                num_rung = goto_rung;
+            }
+        } else {
+            if (num_rung == section->last_rung) {
+                done = 1;
+            } else {
+                num_rung = rt->rungs[num_rung].next_rung;
+                if (num_rung < 0 || num_rung >= rt->sizes.nbr_rungs)
+                    done = 1;
+            }
+        }
+    } while (!done);
+}
+
+/* Refresh every main section, in the order they are defined. Sub-routine
+ * sections run only when a (C)all coil reaches them. */
+static void refresh_all_sections(classicladder_rt_t *rt) {
     for (int s = 0; s < rt->sizes.nbr_sections; s++) {
         cl_section_t *sec = &rt->sections[s];
+
         if (!sec->used)
             continue;
 
-        if (sec->language == CL_SECTION_LADDER) {
-            int rung_idx = sec->first_rung;
-            int safety = 0;
-            while (rung_idx >= 0 && rung_idx < rt->sizes.nbr_rungs && safety < CL_MAX_RUNGS) {
-                cl_rung_t *rung = &rt->rungs[rung_idx];
-                if (rung->used) {
-                    eval_rung(rt, rung);
-                }
-                if (rung_idx == sec->last_rung)
-                    break;
-                rung_idx = rung->next_rung;
-                safety++;
-            }
-        } else if (sec->language == CL_SECTION_SEQUENTIAL) {
+        if (sec->language == CL_SECTION_LADDER && sec->sub_routine_number == -1)
+            refresh_a_section(rt, sec, 0);
+
+        if (sec->language == CL_SECTION_SEQUENTIAL)
             cl_refresh_sequential_page(rt, sec->sequential_page);
+    }
+}
+
+/* --- Prepare all data before a run (2.9 PrepareAllDatasBeforeRun) --- */
+
+static void prepare_timers(classicladder_rt_t *rt) {
+    for (int i = 0; i < CL_MAX_TIMERS; i++) {
+        cl_timer_t *t = &rt->timers[i];
+        t->value = t->preset;
+        t->input_enable = 0;
+        t->input_control = 0;
+        t->output_done = 0;
+        t->output_running = 0;
+    }
+}
+
+static void prepare_monostables(classicladder_rt_t *rt) {
+    for (int i = 0; i < CL_MAX_MONOSTABLES; i++) {
+        cl_monostable_t *m = &rt->monostables[i];
+        m->value = 0;
+        m->input = 0;
+        m->input_bak = 0;
+        m->output_running = 0;
+    }
+}
+
+static void prepare_counters(classicladder_rt_t *rt) {
+    for (int i = 0; i < CL_MAX_COUNTERS; i++) {
+        cl_counter_t *c = &rt->counters[i];
+        c->value = 0;
+        c->value_bak = 0;
+        c->input_reset = 0;
+        c->input_preset = 0;
+        c->input_count_up = 0;
+        c->input_count_up_bak = 0;
+        c->input_count_down = 0;
+        c->input_count_down_bak = 0;
+        c->output_done = 0;
+        c->output_empty = 0;
+        c->output_full = 0;
+    }
+}
+
+static void prepare_timers_iec(classicladder_rt_t *rt) {
+    for (int i = 0; i < CL_MAX_TIMERS_IEC; i++) {
+        cl_timer_iec_t *t = &rt->timers_iec[i];
+        t->value = 0;
+        t->input = 0;
+        t->input_bak = 0;
+        t->output = 0;
+        t->timer_started = 0;
+        t->value_to_reach_one_base_unit = 0;
+    }
+}
+
+/* Seed DynamicVarBak so that an edge contact does not fire on the first scan
+ * just because its variable happens to be true already. */
+static void prepare_rungs(classicladder_rt_t *rt) {
+    for (int r = 0; r < CL_MAX_RUNGS; r++) {
+        for (int x = 0; x < CL_RUNG_WIDTH; x++) {
+            for (int y = 0; y < CL_RUNG_HEIGHT; y++) {
+                cl_element_t *ele = &rt->rungs[r].elements[x][y];
+                if (ele->type == CL_ELE_RISING_INPUT ||
+                    ele->type == CL_ELE_FALLING_INPUT) {
+                    char state = read_var(rt, ele->var_type, ele->var_num) ? 1 : 0;
+                    if (ele->type == CL_ELE_FALLING_INPUT)
+                        state = !state;
+                    ele->dynamic_var_bak = state;
+                }
+            }
         }
     }
+}
+
+void cl_prepare_all_datas_before_run(classicladder_rt_t *rt) {
+    prepare_timers(rt);
+    prepare_monostables(rt);
+    prepare_counters(rt);
+    prepare_timers_iec(rt);
+    prepare_rungs(rt);
+    cl_prepare_sequential(rt);
 }
 
 /* --- Public API --- */
 
+void cl_scan(classicladder_rt_t *rt, int ms_elapsed) {
+    rt->periodic_refresh_ms = ms_elapsed;
+    refresh_all_sections(rt);
+}
+
 void classicladder_refresh(void *arg, long period) {
     classicladder_rt_t *rt = (classicladder_rt_t *)arg;
-    static unsigned long leftover = 0;
 
-    leftover += (unsigned long)period;
-    unsigned long ms = leftover / 1000000;
-    leftover %= 1000000;
+    /* The accumulator is per instance: two classicladders in the same thread
+     * must not share the sub-millisecond remainder. */
+    rt->period_leftover_ns += (unsigned long)period;
+    unsigned long ms = rt->period_leftover_ns / 1000000;
+    rt->period_leftover_ns %= 1000000;
 
     if (ms < 1)
         return;
@@ -554,22 +916,15 @@ void classicladder_refresh(void *arg, long period) {
 
     unsigned long t0 = rtapi_get_time();
 
-    /* Update periodic refresh period from actual thread timing */
-    rt->periodic_refresh_ms = (int)ms;
-
     /* Read HAL inputs → internal variables */
     read_hal_inputs(rt);
     read_hal_s32_inputs(rt);
     read_hal_float_inputs(rt);
 
-    /* Evaluate timers/monostables/counters */
-    eval_timers(rt, (int)ms);
-    eval_monostables(rt, (int)ms);
-    eval_timers_iec(rt, (int)ms);
-    eval_counters(rt);
-
-    /* Evaluate all ladder sections */
-    eval_all_sections(rt);
+    /* Evaluate all main sections, timed by the actual thread period. Timers,
+     * monostables, counters and IEC timers are evaluated inline by the rungs
+     * that hold them. */
+    cl_scan(rt, (int)ms);
 
     /* Write internal variables → HAL outputs */
     write_hal_outputs(rt);
@@ -622,15 +977,15 @@ void classicladder_rt_init_data(classicladder_rt_t *rt) {
     for (int i = 0; i < CL_MAX_SEQ_COMMENTS; i++) {
         rt->seq_comments[i].num_page = -1;
     }
-    /* Default timer presets */
+    /* Default time bases, in milliseconds */
     for (int i = 0; i < CL_MAX_TIMERS; i++) {
-        rt->timers[i].base = 1; /* seconds */
+        rt->timers[i].base = CL_TIME_BASE_SECS;
     }
     for (int i = 0; i < CL_MAX_MONOSTABLES; i++) {
-        rt->monostables[i].base = 1;
+        rt->monostables[i].base = CL_TIME_BASE_SECS;
     }
     for (int i = 0; i < CL_MAX_TIMERS_IEC; i++) {
-        rt->timers_iec[i].base = 1;
+        rt->timers_iec[i].base = CL_TIME_BASE_SECS;
         rt->timers_iec[i].timer_mode = CL_TIMER_IEC_TON;
     }
 }
