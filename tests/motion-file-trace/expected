@@ -2,12 +2,16 @@ trace:
 main.ngc:2
 main.ngc:3
 trace_sub.ngc:2
-trace_sub.ngc:3
+trace_deep.ngc:2
+trace_deep.ngc:3
 trace_sub.ngc:4
+trace_sub.ngc:5
 main.ngc:5
 trace_sub.ngc:2
-trace_sub.ngc:3
+trace_deep.ngc:2
+trace_deep.ngc:3
 trace_sub.ngc:4
+trace_sub.ngc:5
 main.ngc:7
 PASS motion_file-absolute
 PASS distinct-files-share-line-numbers

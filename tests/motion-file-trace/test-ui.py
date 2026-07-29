@@ -3,9 +3,15 @@
 
 An o<sub> call into a separate file makes the interpreter restart line
 numbering at 0 (interp_o_word.cc control_back_to), so a line number alone
-does not identify a program location. main.ngc and trace_sub.ngc both have
-moves on lines 2 and 3: the status must say which file it means, or a UI
-highlights an unrelated line of whatever it happens to be showing.
+does not identify a program location. All three files here have a move on
+line 2: the status must say which file it means, or a UI highlights an
+unrelated line of whatever it happens to be showing.
+
+The subroutine calls a second one, so this also covers the unwind. The
+interpreter keeps filename and sequence number per call frame and restores
+them on return (interp_o_word.cc saves into previous_frame, restores and
+reopens), which is what makes nesting work at any depth — the status
+reports the file execution is actually IN, not the one it started from.
 
 This runs the real thing — server, interpreter, canon, motion — and records
 every (file, line) the status reports while the program executes. It exists
@@ -72,15 +78,18 @@ if absolute:
 else:
     print("FAIL motion_file-absolute: a relative path reached the client")
 
-# Guard against the trace becoming vacuous: if the two files ever stop
-# sharing line numbers, this test would pass without testing anything.
-main_lines = {ln for name, ln in trace if name == 'main.ngc'}
-sub_lines = {ln for name, ln in trace if name == 'trace_sub.ngc'}
-if main_lines & sub_lines:
+# Guard against the trace becoming vacuous: if the files ever stop sharing
+# line numbers, this test would pass without testing anything.
+by_file = {}
+for name, ln in trace:
+    by_file.setdefault(name, set()).add(ln)
+shared = set.intersection(*by_file.values()) if len(by_file) > 1 else set()
+if len(by_file) == 3 and shared:
     print("PASS distinct-files-share-line-numbers")
 else:
-    print("FAIL distinct-files-share-line-numbers: main=%s sub=%s — the "
-          "trace no longer exercises a collision" % (sorted(main_lines), sorted(sub_lines)))
+    print("FAIL distinct-files-share-line-numbers: %r — the trace no longer "
+          "exercises three files colliding on a line number"
+          % ({k: sorted(v) for k, v in by_file.items()},))
 
 
 # --- the three surfaces must name the loaded program identically ------------
