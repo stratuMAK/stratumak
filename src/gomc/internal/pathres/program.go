@@ -3,6 +3,8 @@
 package pathres
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -60,8 +62,12 @@ func ProgramDirs(get func(section, key string) string, baseDir string) []string 
 		}
 	}
 
-	// [FILTER]PROGRAM_EXTENSION lines define filtered file types; the filtered
-	// output typically goes to a tempdir, but PROGRAM_PREFIX already covers it.
+	// Where the controller writes filtered output. A [FILTER] program turns a
+	// source file into G-code, and the interpreter, get_file and the preview
+	// all have to be able to read the result — so the directory holding it is
+	// a program root like any other. It is server-owned: nothing but the
+	// filter runner ever writes there.
+	dirs = append(dirs, FilteredDir())
 
 	// System share directory (splash-screen NGC files and friends).
 	if config.EMC2Home != "" {
@@ -127,4 +133,17 @@ func Canonical(p string) string {
 		return real
 	}
 	return abs
+}
+
+// FilteredDir is where the controller keeps the G-code it produced from
+// filtered source files.
+//
+// Derived from the process id rather than created on demand, because two
+// separate modules need the same answer: the task writes the filtered program
+// there, and ngcpreview reads it back through get_file and gen_preview. They
+// are different instances of different packages in one process, so the path
+// has to be computable, not passed around. The task creates and empties it at
+// startup and removes it at shutdown.
+func FilteredDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("gomc-filtered-%d", os.Getpid()))
 }

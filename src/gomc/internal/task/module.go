@@ -5,6 +5,7 @@ package task
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"regexp"
 	"runtime/cgo"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -436,6 +438,13 @@ func (m *milltaskModule) Stop() {
 		if m.task.mcode != nil {
 			m.task.mcode.Stop()
 		}
+	}
+	if m.task != nil {
+		// Stop any filter still converting, then drop the directory holding
+		// its output: it is this process's alone (named after the pid) and
+		// nothing outside the run should inherit it.
+		m.task.cancelFiltering()
+		os.RemoveAll(pathres.FilteredDir())
 	}
 	m.logger.Info("milltask stopping")
 }

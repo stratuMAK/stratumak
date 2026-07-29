@@ -64,6 +64,9 @@ func loadConfig(ini *inifile.IniFile, t *Task, mc MotionConfig) error {
 		iniGet = ini.Get
 	}
 	t.programRes = pathres.ProgramResolver(iniGet, iniDir)
+	// Kept for [FILTER] lookups at program-open time: which converter turns a
+	// given extension into G-code, and how long it may take.
+	t.iniGet = iniGet
 
 	if err := loadTraj(ini, t, mc); err != nil {
 		return fmt.Errorf("traj config: %w", err)

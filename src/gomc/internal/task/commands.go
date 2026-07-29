@@ -3,11 +3,16 @@
 package task
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
+	"github.com/sittner/linuxcnc/src/gomc/internal/programfilter"
 )
 
 // mcodeAbort signals the M-code handler worker to stop.
@@ -260,6 +265,10 @@ func (t *Task) signalAbort() {
 	t.closeOnceLocked(t.seqAbort)
 	t.mu.Unlock()
 	t.mcodeAbort()
+	// An in-flight [FILTER] conversion is part of what abort means: the
+	// operator asked for everything in progress to stop, and a filter can run
+	// for minutes.
+	t.cancelFiltering()
 	_ = t.motion.Abort()
 }
 
@@ -826,12 +835,39 @@ func (t *Task) ProgramOpen(file string) error {
 	}
 	// One spelling for every program path we hand out: stat.file, motion_file
 	// and the preview's file table are compared against each other by clients.
-	file = pathres.Canonical(resolved)
+	source := pathres.Canonical(resolved)
+
+	// A [FILTER] file is not G-code yet. Converting it is the controller's job
+	// now — classic left it to each GUI, so a UI without filtering could not
+	// open these programs at all, and the controller's own [DISPLAY]OPEN_FILE
+	// handed the raw source to the interpreter.
+	filter, err := programfilter.Lookup(t.iniGet, source)
+	if err != nil {
+		t.logger.Warn("filter configuration rejected", "file", source, "err", err)
+		t.operatorError(err.Error())
+		return err
+	}
+	if filter != nil {
+		return t.startFiltering(source, filter)
+	}
+	return t.openProgramFile(source, source)
+}
+
+// openProgramFile points the interpreter at gcode and publishes it as the
+// loaded program. source is what the operator asked for — the same path
+// unless a filter produced gcode from it.
+func (t *Task) openProgramFile(gcode, source string) error {
 	t.cmdMu.Lock()
 	defer t.cmdMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.openProgramFileLocked(gcode, source)
+}
 
+// openProgramFileLocked is openProgramFile's body, for callers already
+// holding cmdMu and mu (the filter goroutine, which must take both around its
+// interpreter work).
+func (t *Task) openProgramFileLocked(gcode, source string) error {
 	// Opening a file is allowed in any machine state (incl. ESTOP) and any
 	// mode, but NOT while a program is running/paused: closing and reopening
 	// t.interp here would race the runProgram goroutine's use of it. C++
@@ -842,15 +878,142 @@ func (t *Task) ProgramOpen(file string) error {
 	if t.interp != nil {
 		// Close any previously open file before opening a new one.
 		_ = t.interp.Close()
-		if err := t.interp.Open(file); err != nil {
-			t.operatorError(fmt.Sprintf("can't open %s", file))
+		if err := t.interp.Open(gcode); err != nil {
+			t.operatorError(fmt.Sprintf("can't open %s", gcode))
 			return err
 		}
 	}
-	t.programFile = file
+	t.programFile = gcode
+	t.sourceFile = source
 	t.programOpen = true
 	t.previewSeq++
 	return nil
+}
+
+// startFiltering launches the conversion of a [FILTER] source file and
+// returns immediately.
+//
+// It cannot run inline: a real filter (image-to-gcode on a photograph) takes
+// seconds to minutes, and blocking the command would freeze every client for
+// the duration with nothing to show. Instead the status carries `filtering`
+// and the percentage the filter reports, and the previously loaded program
+// stays open and runnable until the new one is ready.
+func (t *Task) startFiltering(source string, filter *programfilter.Filter) error {
+	t.cmdMu.Lock()
+	defer t.cmdMu.Unlock()
+	t.mu.Lock()
+
+	if err := t.rejectIfBusyLocked("Can't open a program while one is running"); err != nil {
+		t.mu.Unlock()
+		return err
+	}
+	if t.filtering {
+		t.mu.Unlock()
+		err := fmt.Errorf("another program is still being filtered")
+		t.operatorError("Can't open a program while another is still being filtered")
+		return err
+	}
+
+	dst, err := t.filteredOutputPath(source)
+	if err != nil {
+		t.mu.Unlock()
+		t.operatorError(fmt.Sprintf("can't prepare filtered output for %s: %v", source, err))
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.filterGen++
+	gen := t.filterGen
+	t.filtering = true
+	t.filterProgress = 0
+	t.filterCancel = cancel
+	t.mu.Unlock()
+
+	go t.runFilter(ctx, gen, source, dst, filter)
+	return nil
+}
+
+// runFilter converts source into dst and, if nothing has superseded it,
+// opens the result. Runs on its own goroutine; every touch of task state
+// takes the lock, and every one of them re-checks the generation, because an
+// abort or a newer open may have happened while the filter was running.
+func (t *Task) runFilter(ctx context.Context, gen int64, source, dst string, filter *programfilter.Filter) {
+	err := filter.Run(ctx, source, dst, func(pct int) {
+		t.mu.Lock()
+		if t.filterGen == gen {
+			t.filterProgress = int32(pct)
+		}
+		t.mu.Unlock()
+	})
+
+	t.cmdMu.Lock()
+	defer t.cmdMu.Unlock()
+	t.mu.Lock()
+
+	if t.filterGen != gen {
+		// Superseded by an abort or a newer open: this result is stale, and
+		// publishing it would replace whatever the operator asked for since.
+		t.mu.Unlock()
+		os.Remove(dst)
+		return
+	}
+	t.filtering = false
+	t.filterProgress = 0
+	t.filterCancel = nil
+
+	if err != nil {
+		t.mu.Unlock()
+		// The filter's own stderr is the only thing that explains why a file
+		// would not convert, so it goes to the operator, not just the log.
+		t.logger.Warn("program filter failed", "file", source, "err", err)
+		t.operatorError(err.Error())
+		return
+	}
+
+	openErr := t.openProgramFileLocked(dst, source)
+	t.mu.Unlock()
+	if openErr != nil {
+		t.logger.Warn("filtered program could not be opened", "file", dst, "err", openErr)
+	}
+}
+
+// filteredOutputPath names this program's filtered G-code inside the
+// controller's own output directory, and clears anything left there by a
+// previous open — only one filtered program is loaded at a time, and the
+// preview and get_file must never find a stale one.
+func (t *Task) filteredOutputPath(source string) (string, error) {
+	dir := pathres.FilteredDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(dir)
+	if err == nil {
+		for _, e := range entries {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+	base := strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
+	if base == "" {
+		base = "program"
+	}
+	return filepath.Join(dir, base+".ngc"), nil
+}
+
+// cancelFiltering stops an in-flight conversion and invalidates its result.
+// Called by abort and at shutdown.
+func (t *Task) cancelFiltering() {
+	t.mu.Lock()
+	cancel := t.filterCancel
+	t.filterCancel = nil
+	if t.filtering {
+		t.filterGen++ // whatever it produces now is stale
+		t.filtering = false
+		t.filterProgress = 0
+	}
+	t.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // AutoCommand handles run/pause/resume/step/reverse in AUTO mode.

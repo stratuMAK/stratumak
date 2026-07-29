@@ -136,7 +136,22 @@ type StatTaskInfo {
     state: TaskState
     interp_state: InterpState
     exec_state: ExecState
+    # The G-code the interpreter is running. For a program that needed a
+    # [FILTER] converter this is the controller's filtered output, NOT what
+    # the operator opened — it is the file whose line numbers execution
+    # reports, and the one get_file and the preview must read.
     file: string
+    # What the operator opened, which a filtered program spells differently
+    # (an image, a DXF, a script). Equal to `file` when no filter applied.
+    # Display only: titles, recent-file lists, "generated from" — never an
+    # input to anything that reads or interprets G-code.
+    source_file: string
+    # A [FILTER] conversion is running, with its percentage if the filter
+    # reports one (FILTER_PROGRESS on stderr). The previously loaded program
+    # stays open and executable until the new one is ready, so a filter that
+    # fails leaves the controller as it was.
+    filtering: bool
+    filter_progress: i32
     command: string
     line: i32
     motion_line: i32
