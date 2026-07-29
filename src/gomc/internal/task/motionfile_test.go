@@ -91,7 +91,7 @@ func TestCanonFileTracksMidExecuteSwitch(t *testing.T) {
 
 	fi := &fakeFileInterp{name: "/programs/main.ngc"}
 	c.task.interp = fi
-	mainID := c.allocSerial(4)
+	c.allocSerial(4)                     // queued while the interp is still on main
 	fi.name = "/programs/subs/drill.ngc" // the call switched files
 	subID := c.allocSerial(2)
 
@@ -102,12 +102,11 @@ func TestCanonFileTracksMidExecuteSwitch(t *testing.T) {
 	// Prune drops entries below the queried id, so re-register to check the
 	// earlier one independently.
 	c.task.interp = &fakeFileInterp{name: "/programs/main.ngc"}
-	mainID = c.allocSerial(4)
+	mainID := c.allocSerial(4)
 	m, _ := task.motionInfoAndPrune(mainID)
 	if m.File != "/programs/main.ngc" {
 		t.Errorf("segment queued before the switch reports %q", m.File)
 	}
-	_ = mainID
 }
 
 // The naive-CAM chain flushes while a LATER line is executing. If that later

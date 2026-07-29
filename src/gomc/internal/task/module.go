@@ -444,7 +444,9 @@ func (m *milltaskModule) Stop() {
 		// its output: it is this process's alone (named after the pid) and
 		// nothing outside the run should inherit it.
 		m.task.cancelFiltering()
-		os.RemoveAll(pathres.FilteredDir())
+		// Best effort: the process is going away either way, and a directory
+		// that outlives it is a stale temp dir, not a fault to report.
+		_ = os.RemoveAll(pathres.FilteredDir())
 	}
 	m.logger.Info("milltask stopping")
 }

@@ -149,7 +149,16 @@ func (f *Filter) Run(ctx context.Context, src, dst string, onProgress func(perce
 	if err != nil {
 		return &Error{Prog: prog, Err: fmt.Errorf("create %s: %w", dst, err)}
 	}
-	defer out.Close()
+	// Every failure path closes the output and removes it, so a failed
+	// conversion leaves no half-written program behind. Both are cleanup ON TOP
+	// of the error being returned — their own errors would say nothing the
+	// returned one does not, which is why they are dropped here and nowhere
+	// else in this function.
+	fail := func(e *Error) error {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return e
+	}
 
 	args := append(append([]string{}, f.Argv[1:]...), src)
 	cmd := exec.CommandContext(ctx, prog, args...)
@@ -164,19 +173,16 @@ func (f *Filter) Run(ctx context.Context, src, dst string, onProgress func(perce
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		os.Remove(dst)
-		return &Error{Prog: prog, Err: err}
+		return fail(&Error{Prog: prog, Err: err})
 	}
 	if err := cmd.Start(); err != nil {
-		os.Remove(dst)
-		return &Error{Prog: prog, Err: err}
+		return fail(&Error{Prog: prog, Err: err})
 	}
 
 	diag := readProgress(stderr, onProgress)
 	waitErr := cmd.Wait()
 
 	if waitErr != nil || ctx.Err() != nil {
-		os.Remove(dst)
 		e := &Error{Prog: prog, Stderr: diag, Err: waitErr}
 		if ee, ok := waitErr.(*exec.ExitError); ok {
 			e.ExitCode = ee.ExitCode()
@@ -187,7 +193,16 @@ func (f *Filter) Run(ctx context.Context, src, dst string, onProgress func(perce
 		} else if ctx.Err() != nil {
 			e.Err = ctx.Err()
 		}
-		return e
+		return fail(e)
+	}
+
+	// The filter wrote through this file, so its Close is part of the
+	// conversion: a flush that fails here (a full disk, a dead network mount)
+	// leaves dst truncated, and reporting success would hand the interpreter a
+	// silently shortened program.
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return &Error{Prog: prog, Err: fmt.Errorf("write %s: %w", dst, err)}
 	}
 	return nil
 }

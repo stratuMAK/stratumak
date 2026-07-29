@@ -954,7 +954,9 @@ func (t *Task) runFilter(ctx context.Context, gen int64, source, dst string, fil
 		// Superseded by an abort or a newer open: this result is stale, and
 		// publishing it would replace whatever the operator asked for since.
 		t.mu.Unlock()
-		os.Remove(dst)
+		// Best effort: an output nobody will open is litter in this process's
+		// own temp dir, and the caller that superseded us has already moved on.
+		_ = os.Remove(dst)
 		return
 	}
 	t.filtering = false
@@ -989,7 +991,10 @@ func (t *Task) filteredOutputPath(source string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err == nil {
 		for _, e := range entries {
-			os.Remove(filepath.Join(dir, e.Name()))
+			// A leftover that refuses to go is not fatal here: the new output
+			// is written under its own name, and the stale one is at worst an
+			// extra file in this process's temp dir.
+			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
 	base := strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))

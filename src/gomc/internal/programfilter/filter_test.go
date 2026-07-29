@@ -109,7 +109,9 @@ echo "FILTER_PROGRESS=100" >&2
 echo "M2"
 `)
 	src := filepath.Join(dir, "in.tst")
-	os.WriteFile(src, []byte("source\n"), 0o644)
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dst := filepath.Join(dir, "out.ngc")
 
 	var pcts []int
@@ -140,7 +142,9 @@ echo "cannot read image: bad magic" >&2
 exit 3
 `)
 	src := filepath.Join(dir, "in.tst")
-	os.WriteFile(src, []byte("source\n"), 0o644)
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dst := filepath.Join(dir, "out.ngc")
 
 	err := (&Filter{Argv: []string{conv}, Timeout: 30 * time.Second}).
@@ -168,7 +172,9 @@ func TestRunTimesOut(t *testing.T) {
 	dir := t.TempDir()
 	conv := writeFilter(t, dir, "hang.sh", "sleep 30\n")
 	src := filepath.Join(dir, "in.tst")
-	os.WriteFile(src, []byte("source\n"), 0o644)
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dst := filepath.Join(dir, "out.ngc")
 
 	start := time.Now()
@@ -224,7 +230,9 @@ func TestRunCancellationStopsTheFilter(t *testing.T) {
 	dir := t.TempDir()
 	conv := writeFilter(t, dir, "hang.sh", "sleep 30\n")
 	src := filepath.Join(dir, "in.tst")
-	os.WriteFile(src, []byte("source\n"), 0o644)
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(200 * time.Millisecond); cancel() }()

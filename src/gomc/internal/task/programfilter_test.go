@@ -44,7 +44,7 @@ func filterTask(t *testing.T, script string) (*Task, string) {
 	}, dir)
 	t.Cleanup(func() {
 		task.cancelFiltering()
-		os.RemoveAll(pathres.FilteredDir())
+		_ = os.RemoveAll(pathres.FilteredDir())
 	})
 	return task, dir
 }
