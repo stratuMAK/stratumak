@@ -77,8 +77,69 @@ out of scope.
   (swapped in/out arrays = OOB read; pointers passed to Py_BuildValue "d") —
   fixed rather than deleted (exported helper; no in-tree callers).
 - **A-14 LOW leftover startup debug print removed.**
-- **A-15 LOW running-line highlight restored classic `motion_id or
-  motion_line` fallback** (highlight tracked readahead, not execution).
+- ~~**A-15 LOW running-line highlight restored classic `motion_id or
+  motion_line` fallback** (highlight tracked readahead, not execution).~~
+  **WITHDRAWN 2026-07-28 — invalid finding, its "fix" was the bug.** The
+  premise (that `motion_id` is the executing segment's line tag) is classic
+  LinuxCNC's, where motion segments are queued with `id = lineno`. Since
+  `f9e48850b3` the id is an opaque monotonic serial and milltask keeps an
+  `id -> {file, lineno, codes}` side table; `stat.motion_line` is already the
+  resolved *executing* line (`internal/task/stat.go`, `motionInfoAndPrune`),
+  not readahead — so the original `set_current_line(self.stat.motion_line)`
+  was correct all along. The fallback fed a serial to `set_current_line()`,
+  and because `nextSerial` is never reset it climbs across runs: every run of
+  the same program highlighted a different, drifting set of lines. Reverted.
+- **A-18 file tracking: a line number never identified a program location.**
+  Fallout found while closing A-15. An o-word call into a separate file
+  restarts the interpreter's line numbering (`interp_o_word.cc`
+  `control_back_to`), and nothing on the wire said which file a line belonged
+  to — so the highlight pointed at an unrelated line of the loaded program for
+  the whole excursion, preview segments from a sub collided with the main
+  program's identically numbered lines, and `max_line` counted every file
+  (measured: 19 for a 6-line program). Classic 2.9 was equally file-blind
+  (`emctaskmain.cc:2199/2615`, `glcanon.py:349-372`), so this is a fix, not a
+  regression repair. **FIXED:**
+  - `motion_file` in `emcstat.gmi` — the file the executing segment came from,
+    read from the `motionInfo.File` milltask was already recording and then
+    discarding.
+  - `Segment/Dwell/ToolChange.file_idx` + `PreviewResult.files` in
+    `ngcpreview.gmi` (a file table, not a path per segment); `max_line` now
+    counts only the previewed file, and a preview error inside a sub names it.
+  - `GLCanon` keeps a source-file index parallel to each geometry list —
+    beside the tuples, not inside them, because the C drawers parse those
+    positionally and `calc_extents` branches on their length — and
+    `highlight()` matches (file, line).
+  - AXIS follows execution into the sub-file (View > Follow sub-files,
+    default on), with a banner naming it, run-from-here refused while it is
+    on screen, and no highlight at all when the executing file cannot be
+    shown.
+  - **The subtle one, caught only on a live controller:** the naive-CAM chain
+    flushes while a LATER line executes, so asking the interpreter for the
+    file at flush time filed every move at a call boundary under the wrong
+    side of it. The file is now captured into `chainedPt` with the line
+    number it belongs to, exactly as the state tag already was.
+  Tests: `internal/task/motionfile_test.go`,
+  `internal/ngcpreview/subfile_test.go`, `tests/axis-subfile-highlight/`.
+  **Follow-up 2026-07-29 — the three compromises closed, API changed where
+  the clean answer needed it:**
+  - **Canon API:** `dwell(lineno, seconds)` and `change_tool(lineno, slot)`
+    (canon.gmi + canon_interface.hh + interp_queue's dwell op + the seven
+    canned-cycle call sites + saicanon/canterp). Before this, dwells and tool
+    changes inherited whatever moved last — and gomc's `CanonState.lineNo`
+    existed only to paper over it, so it is now deleted along with its five
+    writes. Departs from classic `emccanon`; the printed sai oracle format is
+    unchanged (it never printed line numbers), so no test churn.
+  - **Path identity:** `pathres.Canonical` — absolute, cleaned,
+    symlink-resolved — applied to the task's loaded program, motion_file and
+    the preview's file table alike, so comparing two program paths answers
+    "the same file?". AXIS now takes the program's identity from `stat.file`
+    rather than the path it happened to send.
+  - **glcanon:** geometry records a LOCATION ID (index into `canon.locations`,
+    holding (file, line)) in the slot classic used for the line number. The
+    parallel `*_files` lists are gone, and because `glLoadName()` names that
+    same slot, **GL picking became file-aware for free** — the residual noted
+    above is closed. `set_picked_location(fileno, lineno)` is the new hook;
+    its default keeps classic single-file behaviour for gremlin/qtvcp.
 - **A-16 LOW gutted emcmodule GL stubs documented as non-functional** (module
   docstring) — a classic consumer (gremlin) calling them silently draws
   nothing; trap flagged for the qtvcp/gladevcp milestone.

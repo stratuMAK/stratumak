@@ -38,6 +38,16 @@ type Position {
 type Segment {
     type: SegmentType
     line_no: i32
+    # Index into PreviewResult.files of the source file line_no belongs to.
+    # An o-word call into a separate file restarts line numbering, so
+    # (file_idx, line_no) — not line_no alone — identifies a program
+    # location. 0 is the previewed file itself.
+    file_idx: i32
+    # Position in the recorder's single emission order, across segments,
+    # dwells and tool changes alike. The three lists are recorded interleaved
+    # and must be replayed that way; line numbers cannot order them, because
+    # an o-word loop revisits a line and a called file restarts numbering.
+    seq: i32
     start: Position
     end: Position
     feedrate: f64
@@ -52,6 +62,8 @@ type Segment {
 # A dwell (pause) point
 type Dwell {
     line_no: i32
+    file_idx: i32
+    seq: i32
     pos: Position
     seconds: f64
     plane: i32
@@ -60,6 +72,8 @@ type Dwell {
 # Tool change event in the preview stream
 type ToolChange {
     line_no: i32
+    file_idx: i32
+    seq: i32
     tool_no: i32
 }
 
@@ -69,7 +83,15 @@ type PreviewResult {
     dwells: []Dwell
     tool_changes: []ToolChange
     error: string
+    # Highest line number reached in the previewed file itself. Lines
+    # executed inside called sub-files are NOT counted: they belong to a
+    # different file and their numbering is independent.
     max_line: i32
+    # Source files referenced by file_idx. Index 0 is always the previewed
+    # file; further entries are appended in the order o-word calls first
+    # reach them. A client that ignores file_idx sees exactly the classic
+    # (file-blind) behaviour.
+    files: []string
     # Active G5x offset (index + 9-axis values) for coordinate display
     g5x_index: i32
     g5x_offset: Position

@@ -106,3 +106,18 @@ class ToolSlots:
         """Return all occupied slots as a list of dicts, in idx order."""
         with urllib.request.urlopen(self._base + "/", timeout=5) as resp:
             return json.loads(resp.read())
+
+    def info(self):
+        """Return this store's properties as a dict (``random_toolchanger``)."""
+        with urllib.request.urlopen(self._base + "/info", timeout=5) as resp:
+            return json.loads(resp.read())
+
+    def random_toolchanger(self):
+        """True when an idx here IS the carousel pocket.
+
+        Ask the store, not [EMCIO]RANDOM_TOOLCHANGER: the store is the one
+        told what its idx means (on its load line), and a client reading the
+        INI resolves the global section — which on a multi-instance server is
+        not necessarily the section belonging to THIS machine's store.
+        """
+        return bool(self.info().get("random_toolchanger", False))

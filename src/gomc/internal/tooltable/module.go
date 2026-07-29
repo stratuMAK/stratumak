@@ -12,7 +12,9 @@
 // exists, idx 1..N are the tool table proper. See gmi/idl/tooltable.gmi for
 // why the key is the slot and not the tool number.
 //
-// On first run, if a legacy .tbl file exists, it is imported automatically.
+// On first run — an empty persist namespace — the store seeds itself from the
+// legacy .tbl named by init_tbl=, if any.  See newTooltable for the full set
+// of load parameters; the module reads no INI of its own.
 package tooltable
 
 import (
@@ -54,7 +56,7 @@ func init() {
 type module struct {
 	logger           *slog.Logger
 	name             string
-	ini              *inifile.IniFile
+	initTbl          string
 	persistInstance  string
 	randomToolchange bool
 	db               *persist.PersistClient
@@ -73,30 +75,50 @@ type module struct {
 	spindleMem tooltable.ToolEntry
 }
 
-func newTooltable(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
-	persistInst := "persistence"
-	for _, arg := range args {
-		if k, v, ok := strings.Cut(arg, "="); ok && k == "persist_instance" {
-			persistInst = v
-		}
-	}
-
+// newTooltable builds a store from the "load tooltable <name> k=v ..." line:
+//
+//	persist_instance=<name>   persist instance backing the store
+//	init_tbl=<path>           legacy .tbl seeding this store on FIRST RUN only
+//	                          (when the persist namespace is still empty);
+//	                          unset = start empty
+//	random_toolchanger=0|1    what an idx means here: carousel pocket (1) or
+//	                          synthetic slot (0, default)
+//
+// The store reads no INI of its own.  Both settings are per-instance — which
+// file seeds THIS store, whether THIS changer is random — and a HAL file names
+// them with an ordinary INI reference, which is also what makes a second store
+// on one INI possible at all:
+//
+//	load tooltable <tt2> init_tbl=[mill2:EMCIO]TOOL_TABLE persist_instance=persist2
+//
+// Reading [EMCIO] directly is what made a multi-instance config's second tool
+// table a silent second copy of the first: every store resolved the same
+// global section no matter which task it belonged to.
+func newTooltable(_ *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
 	m := &module{
 		logger:          logger,
 		name:            name,
-		ini:             ini,
-		persistInstance: persistInst,
+		persistInstance: "persistence",
 	}
 
-	// The random/non-random distinction decides what an idx MEANS (carousel
-	// pocket vs synthetic slot), so it belongs to the store, not only to its
-	// callers: it drives both the legacy import's slot assignment and the
-	// find_index_for_tool spindle rule. Same INI key iocontrol reads.
-	if ini != nil {
-		if v := ini.Get("EMCIO", "RANDOM_TOOLCHANGER"); v != "" {
+	for _, arg := range args {
+		k, v, ok := strings.Cut(arg, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "persist_instance":
+			m.persistInstance = v
+		case "init_tbl":
+			m.initTbl = strings.TrimSpace(v)
+		case "random_toolchanger":
+			// The random/non-random distinction decides what an idx MEANS
+			// (carousel pocket vs synthetic slot), so it drives both the
+			// legacy import's slot assignment and the find_index_for_tool
+			// spindle rule.
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil {
-				return nil, fmt.Errorf("tooltable: [EMCIO]RANDOM_TOOLCHANGER=%q is not a number", v)
+				return nil, fmt.Errorf("tooltable: random_toolchanger=%q is not a number", v)
 			}
 			m.randomToolchange = n != 0
 		}
@@ -108,8 +130,8 @@ func newTooltable(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 		return nil, fmt.Errorf("tooltable: register API: %w", err)
 	}
 
-	logger.Info("tooltable: registered", "instance", name, "persistence", persistInst,
-		"random_toolchanger", m.randomToolchange)
+	logger.Info("tooltable: registered", "instance", name, "persistence", m.persistInstance,
+		"init_tbl", m.initTbl, "random_toolchanger", m.randomToolchange)
 	return m, nil
 }
 
@@ -278,6 +300,14 @@ func decodeSlot(key, value string, updated int64) (tooltable.ToolEntry, error) {
 }
 
 // --- TooltableCallbacks implementation ---
+
+// GetInfo answers what an idx means in THIS store. Deliberately readable
+// before Start: the flag comes from the load line, not from storage, and a
+// consumer resolving its store during its own Start must not race the order
+// the two modules happen to be started in.
+func (m *module) GetInfo() (tooltable.StoreInfo, error) {
+	return tooltable.StoreInfo{RandomToolchanger: m.randomToolchange}, nil
+}
 
 func (m *module) ListTools() ([]tooltable.ToolEntry, error) {
 	m.mu.RLock()
@@ -495,22 +525,21 @@ func (m *module) NextFreeIndex() (tooltable.IndexResult, error) {
 	return tooltable.IndexResult{Idx: -1}, nil
 }
 
-// tryImportLegacy attempts to import a legacy .tbl file on first run.
+// tryImportLegacy seeds an empty store from the init_tbl= file, once.
 func (m *module) tryImportLegacy() {
-	// No INI (halrun mode) → no TOOL_TABLE to import from.
-	if m.ini == nil {
+	// No init_tbl= (halrun, or a config that keeps no legacy table) → the
+	// store simply starts empty.
+	if m.initTbl == "" {
 		return
 	}
-	v := m.ini.Get("EMCIO", "TOOL_TABLE")
-	if !strings.HasSuffix(v, ".tbl") {
-		return
-	}
-	// [EMCIO]TOOL_TABLE is a configuration path: resolved server-side and
-	// contained by the shared rule (internal/pathres).  A missing file is not
-	// an error here — the legacy import is best-effort.
-	tblPath, err := pathres.Resolve(v, pathres.Read)
+	// init_tbl= is a configuration path: resolved server-side and contained by
+	// the shared rule (internal/pathres).  A missing file is not an error — a
+	// config may name the .tbl it will eventually export — but it IS logged,
+	// because the seeding the operator asked for did not happen.
+	tblPath, err := pathres.Resolve(m.initTbl, pathres.Read)
 	if err != nil {
-		m.logger.Debug("tooltable: no legacy .tbl to import", "value", v, "err", err)
+		m.logger.Info("tooltable: init_tbl not readable, starting empty",
+			"init_tbl", m.initTbl, "err", err)
 		return
 	}
 	if err := m.importTbl(tblPath); err != nil {

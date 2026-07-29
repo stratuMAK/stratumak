@@ -180,7 +180,7 @@ func TestCanon_Dwell_Args(t *testing.T) {
 	task.seqAbort = make(chan struct{})
 	task.mu.Unlock()
 
-	task.canon.Dwell(0.25)
+	task.canon.Dwell(7, 0.25)
 
 	close(task.interpQueue)
 	var dwell *DwellCmd
@@ -378,7 +378,7 @@ func TestCanon_ToolChange(t *testing.T) {
 	c := task.canon
 	c.SelectTool(5)
 	c.StartChange()
-	c.ChangeTool(5)
+	c.ChangeTool(9, 5)
 	task.DrainQueue()
 
 	// Should see ToolPrepare then ToolChange

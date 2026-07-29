@@ -110,7 +110,9 @@ func newHaljsonModule(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 	// engine with the same INI context that HAL files receive.
 	var tmplData *halparse.HalTemplateData
 	if ini != nil {
-		tmplData = halparse.NewHalTemplateData(ini.AllSections())
+		// Same view the HAL-file templates get: identical to AllSections()
+		// until someone hands this module a namespaced INI.
+		tmplData = halparse.NewHalTemplateData(ini.AllSectionsResolved())
 	}
 	roots, err := parseConfig(configPath, tmplData)
 	if err != nil {

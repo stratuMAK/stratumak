@@ -11,7 +11,10 @@ load {{$mod}} <homemod.{{$j}}>
 {{- end}}
 load io <iocontrol>
 load persist_sqlite <persistence>
-load tooltable
+# The store reads no INI itself: a config states which legacy .tbl seeds it and
+# what an idx means here.  Both are emitted only when the config sets the key,
+# because an INI reference to a missing key is a hard error.
+load tooltable{{if ini "EMCIO" "TOOL_TABLE"}} init_tbl=[EMCIO]TOOL_TABLE{{end}}{{if ini "EMCIO" "RANDOM_TOOLCHANGER"}} random_toolchanger=[EMCIO]RANDOM_TOOLCHANGER{{end}}
 # A config with a server-side pyvcp panel names its instance via
 # [TASK]PYVCP_INSTANCE so milltask reports it over GET /info (the panel is a
 # milltask load parameter by design; this only fills it in, same as HOMEMOD

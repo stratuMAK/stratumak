@@ -1,0 +1,8 @@
+G21 G61
+G1 X5 F600
+G1 X10
+o<trace_sub> call
+G1 X15
+o<trace_sub> call
+G1 X20
+M2

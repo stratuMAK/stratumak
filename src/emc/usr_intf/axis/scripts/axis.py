@@ -34,7 +34,7 @@ sys.excepthook = sys.__excepthook__
 
 import gettext;
 
-import array, time, atexit, tempfile, shutil, errno, select, re, getopt
+import array, time, atexit, tempfile, shutil, errno, re, getopt
 import traceback
 
 import tkinter as Tkinter
@@ -566,6 +566,15 @@ class MyOpengl(GlCanonDraw, Opengl):
     def get_highlight_line(self):
         return vars.highlight_line.get()
 
+    def set_picked_location(self, fileno, lineno):
+        # A pick in the 3D view can land in a called sub-file, whose line
+        # numbers are its own. Put that file on screen first; without it we
+        # would highlight its line number in whatever program is showing.
+        if not show_picked_file(fileno):
+            self.set_highlight_line(None)
+            return
+        self.set_highlight_line(lineno)
+
     def set_highlight_line(self, line):
         if line == self.get_highlight_line(): return
         GlCanonDraw.set_highlight_line(self, line)
@@ -1005,11 +1014,6 @@ class LivePlotter:
             except (AttributeError, KeyError):
                 _jog_speed_from_remote = False
 
-        # Classic fallback: motion_id (the executing segment's line tag) wins
-        # over the readahead motion_line so the highlight tracks execution
-        # during queued motion (finding A-15).
-        self.win.set_current_line(self.stat.motion_id or self.stat.motion_line)
-
         speed = self.stat.current_vel
 
         limits = soft_limits()
@@ -1034,8 +1038,15 @@ class LivePlotter:
             if remote_file != (_server_program or ""):
                 _server_program = remote_file or None
                 if remote_file:
-                    load_text_and_set_file(remote_file)
+                    # source_file keeps the operator's own name when the task
+                    # holds a filter's output — that name, not the temp file,
+                    # is what this UI must treat as the loaded program.
+                    load_text_and_set_file(
+                        remote_file,
+                        getattr(self.stat, 'source_file', '') or None)
                     file_changed = True
+                    global _awaiting_program
+                    _awaiting_program = False
                 elif loaded_file:
                     # The task closed its program: we show what it has, so the
                     # listing and the preview go with it.
@@ -1044,6 +1055,20 @@ class LivePlotter:
                 if file_changed:
                     _pending_autofit = True
                 root_window.after_idle(refresh_preview_if_idle)
+
+        # motion_line already IS the executing segment's line: the server
+        # resolves it from the id motion echoes back through its id -> tag side
+        # table. motion_id is an opaque serial here (not classic's lineno-as-id),
+        # so it must never reach set_current_line. motion_file says which file
+        # that line is numbered within — see track_executing_line.
+        #
+        # AFTER the program resync above, deliberately: on the poll where the
+        # server switched programs, motion_file already names the new program
+        # while _listing_source still names the old one — classified before
+        # the resync, the new program would be treated as a sub-file for one
+        # poll, flashing the wrong banner and highlight state.
+        track_executing_line(self.stat.motion_file or '', self.stat.motion_line)
+        track_filtering(self.stat)
         if (self.logger.npts != self.lastpts
                 or limits != o.last_limits
                 or self.stat.actual_position != o.last_position
@@ -1089,7 +1114,10 @@ class LivePlotter:
         vupdate(vars.task_mode, self.stat.task_mode)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
-        vupdate(vars.taskfile, self.stat.file)
+        # The title names what the operator opened; for a filtered program
+        # stat.file is the converter's temp output and source_file the real one.
+        vupdate(vars.taskfile,
+                getattr(self.stat, 'source_file', '') or self.stat.file)
 
         vupdate(vars.interp_pause, self.stat.paused)
         vupdate(vars.mist, self.stat.mist)
@@ -1301,57 +1329,18 @@ class AxisCanon(GLCanon, StatMixin):
 
     def next_line(self, st):
         GLCanon.next_line(self, st)
-        self.progress.update(self.lineno)
+        # lineno is an interned location id now; the bar was sized in LINES.
+        self.progress.update(st.sequence_number)
         if self.notify:
             notifications.add("info",self.notify_message)
             self.notify = 0
 
 
-progress_re = re.compile("^FILTER_PROGRESS=(\\d*)$")
-def filter_program(program_filter, infilename, outfilename):
-    import subprocess
-    outfile = open(outfilename, "w")
-    infilename_q = infilename.replace("'", "'\\''")
-    env = dict(os.environ)
-    env['AXIS_PROGRESS_BAR'] = '1'
-    p = subprocess.Popen(["sh", "-c", "%s '%s'" % (program_filter, infilename_q)],
-                          stdin=subprocess.PIPE,
-                          stdout=outfile,
-                          stderr=subprocess.PIPE,
-                          env=env)
-    p.stdin.close()  # No input for you
-    progress = Progress(1, 100)
-    progress.set_text(_("Filtering..."))
-    stderr_text = []
-    try:
-        while p.poll() is None: # XXX add checking for abort
-            t.update()
-            r,w,x = select.select([p.stderr], [], [], 0.100)
-            if r:
-                stderr_line = p.stderr.readline().decode()
-                m = progress_re.match(stderr_line)
-                if m:
-                    progress.update(int(m.group(1)), 1)
-                else:
-                    stderr_text.append(stderr_line)
-                    sys.stderr.write(stderr_line)
-        # .. might be something left on stderr
-        for line in p.stderr:
-            stderr_line = line.decode()
-            m = progress_re.match(stderr_line)
-            if not m:
-                stderr_text.append(stderr_line)
-                sys.stderr.write(stderr_line)
-        return p.returncode, "".join(stderr_text)
-    finally:
-        progress.done()
-
-def get_filter(filename):
-    ext = os.path.splitext(filename)[1]
-    if ext:
-        return inifile.find("FILTER", ext[1:])
-    else:
-        return None
+# Filtering — turning a source file (an image, a DXF, a script) into the
+# G-code the machine runs — is the controller's job now, not this UI's.
+# It runs the [FILTER] program once, when the program is opened, and
+# reports it through stat.filtering / stat.filter_progress; every client
+# gets the result, including the ones that never implemented filtering.
 
 def update_recent_menu():
     recent = ap.getpref('recentfiles', [], repr)
@@ -1372,6 +1361,54 @@ def cancel_open(event=None):
 
 loaded_file = None
 
+# The sub-file whose text the listing is showing, or None when it shows the
+# loaded program. An o-word call into a separate file makes the interpreter
+# restart line numbering there, so while execution is inside one the loaded
+# program's text cannot say where the machine is — the listing follows it
+# instead (View > Follow sub-files). Anything scoped to the listing keys off
+# this: run-from-here and the ignored-lines tag mean nothing for a file the
+# task is not running from.
+displayed_subfile = None
+# Path whose text currently backs the loaded-program view. Not always
+# loaded_file: a filtered program shows the filter's output while loaded_file
+# stays the original (finding A-7).
+_listing_source = None
+# True between asking the controller for a filtered program and it becoming
+# available. In that window we have asked for a program but have none: nothing
+# may claim to be showing one, or the resync that adopts it when it lands sees
+# no change and never loads it.
+_awaiting_program = False
+# Listing text keyed by server path — a sub called in a loop must not refetch
+# on every entry — and the files the server would not serve us, so a refusal
+# is reported once instead of on every poll.
+_file_text_cache = {}
+# Files the server would not serve, mapped to when it is worth asking again.
+# A retry window rather than a session-long blacklist: one dropped REST call
+# during a long run must not permanently disable sub-file following for that
+# file. A genuinely unservable file (outside the allowed roots) just fails
+# again quietly on each retry — the notification below fires only once.
+_unshowable_files = {}
+_unshowable_notified = set()
+_UNSHOWABLE_RETRY = 5.0
+
+
+def _is_unshowable(f):
+    retry_at = _unshowable_files.get(f)
+    if retry_at is None:
+        return False
+    if time.time() >= retry_at:
+        del _unshowable_files[f]
+        return False
+    return True
+_FILE_TEXT_CACHE_MAX = 8
+# A file must be the executing one for this long before the listing follows
+# it. Without the dwell, a sub called once per line would refill the listing
+# on every call; instead the view settles where execution actually spends
+# time, and the highlight is absent while it is elsewhere.
+_VIEW_SWITCH_DWELL = 0.3
+_view_candidate = None
+_view_candidate_since = 0.0
+
 def _fetch_file_lines(filename):
     """Fetch file lines from the server via ngcpreview get_file API.
 
@@ -1386,30 +1423,250 @@ def _fetch_file_lines(filename):
         raise RuntimeError(result.error)
     return result.lines
 
-def load_text_and_set_file(f):
+def _fill_listing(lines, progress=None):
+    """Replace the listing's contents with `lines`."""
+    t.configure(state="normal")
+    t.tk.call("delete_all", t)
+    # delete_all destroyed every tag, including "executing". Reset the memo
+    # set_current_line keys its early-return on, or a line number that
+    # happens to match across a listing swap (main line 5 -> sub line 5)
+    # would skip the re-tag and leave the fresh listing with no highlight.
+    vupdate(vars.running_line, 0)
+    code = []
+    for i, l in enumerate(lines):
+        l = l.expandtabs()
+        code.extend(["%6d: " % (i+1), "lineno", l + "\n", ""])
+        if i % 1000 == 0:
+            t.insert("end", *code)
+            del code[:]
+            if progress is not None:
+                progress.update(i)
+    if code:
+        t.insert("end", *code)
+    t.configure(state="disabled")
+
+def _cached_file_lines(f):
+    """Listing text for a server-side path, fetched at most once."""
+    lines = _file_text_cache.get(f)
+    if lines is None:
+        lines = _fetch_file_lines(f)
+        # Bounded: a program calling many sub-files must not grow this UI's
+        # memory without limit. Dropping the cache keeps it simple — but the
+        # loaded program's text stays: restore_loaded_listing needs it after
+        # EVERY sub-file excursion, and evicting it would put a REST fetch
+        # inside the poll loop each time execution returns to the top level.
+        if len(_file_text_cache) >= _FILE_TEXT_CACHE_MAX:
+            keep = _file_text_cache.get(_listing_source)
+            _file_text_cache.clear()
+            if keep is not None:
+                _file_text_cache[_listing_source] = keep
+        _file_text_cache[f] = lines
+    return lines
+
+def forget_listing_text():
+    """Drop cached listing text. A new program brings different sub-files,
+    and the ones on disk may have changed since we last read them."""
+    _file_text_cache.clear()
+    _unshowable_files.clear()
+    _unshowable_notified.clear()
+
+def _same_path(a, b):
+    return bool(a) and bool(b) and os.path.normpath(a) == os.path.normpath(b)
+
+def _is_loaded_program(f):
+    """True when f is the program the task is running.
+
+    Compared only against paths the SERVER gave us: it canonicalises every
+    program path it hands out, so these are directly comparable with
+    motion_file. loaded_file is deliberately not consulted — it is our own
+    client-side spelling, and for a filtered program it names the original
+    while the task holds the filter's output.
+    """
+    return _same_path(f, _listing_source) or _same_path(f, _server_program)
+
+def _sync_highlight_fileno():
+    """Tell the preview which file the listing's line numbers belong to, so
+    selecting a line highlights that file's geometry and not the identically
+    numbered lines of every other file in the program."""
+    canon = getattr(o, 'canon', None)
+    if canon is None:
+        return
+    shown = displayed_subfile or _listing_source
+    for i, f in enumerate(getattr(canon, 'source_files', ()) or ()):
+        if _same_path(f, shown):
+            canon.highlight_fileno = i
+            return
+    # Not in the preview's table. While the listing shows the loaded program
+    # that is not a guess — entry 0 IS the previewed file by definition, and
+    # both come from _listing_source. For a sub-file it means the preview
+    # never reached that file, and matching against entry 0 would light up the
+    # main program's identically numbered lines — match nothing instead.
+    canon.highlight_fileno = -1 if displayed_subfile else 0
+
+def load_text_and_set_file(f, source=None):
     """Load file text into the editor and update loaded_file.
 
     Used for multi-client sync — does NOT call program_open (the server
     already has the file open from the other client's action).
+
+    f is the G-code the task holds (stat.file); source is what the operator
+    opened (stat.source_file). They differ for a filtered program: the
+    listing shows the task's G-code, but loaded_file must keep naming the
+    source — reload and edit act on loaded_file, and re-filtering the source
+    is their meaning, not reloading a throwaway temp file.
     """
-    global loaded_file
-    loaded_file = f
+    global loaded_file, _listing_source, displayed_subfile
+    loaded_file = source or f
     try:
         lines = _fetch_file_lines(f)
-        t.configure(state="normal")
-        t.tk.call("delete_all", t)
-        code = []
-        for i, l in enumerate(lines):
-            l = l.expandtabs()
-            code.extend(["%6d: " % (i+1), "lineno", l + "\n", ""])
-            if i % 1000 == 0:
-                t.insert("end", *code)
-                del code[:]
-        if code:
-            t.insert("end", *code)
-        t.configure(state="disabled")
+        _fill_listing(lines)
+        _listing_source = f
+        displayed_subfile = None
+        _file_text_cache[f] = lines
     except Exception as e:
         notifications.add("error", str(e))
+    # A sub-file banner from the PREVIOUS program must not survive onto the
+    # new one it no longer describes.
+    _update_subfile_banner()
+
+_filter_banner = None
+
+def _set_listing_banner(text):
+    """Show (or clear) the line above the listing that says what the listing
+    is currently NOT showing: a sub-file being executed, or a program still
+    being converted."""
+    if text:
+        root_window.tk.call("set", "listing_subfile", text)
+        root_window.tk.eval("grid ${pane_bottom}.subfile")
+    else:
+        root_window.tk.call("set", "listing_subfile", "")
+        root_window.tk.eval("grid remove ${pane_bottom}.subfile")
+
+def _update_subfile_banner():
+    """Name the file on screen whenever it is not the loaded program, so the
+    listing is never silently showing something other than what the title bar
+    and the run controls refer to. A conversion in progress outranks it: until
+    it finishes there is no new program to be showing at all."""
+    if _filter_banner:
+        _set_listing_banner(_filter_banner)
+    elif displayed_subfile:
+        _set_listing_banner(_("Executing %s — not the loaded program")
+                            % os.path.basename(displayed_subfile))
+    else:
+        _set_listing_banner("")
+
+def track_filtering(stat):
+    """Report a [FILTER] conversion the controller is running.
+
+    The controller converts a source file into G-code when the program is
+    opened, which for a real converter takes seconds to minutes. Any client
+    can see it happening — including one that did not ask for it — so this is
+    driven from the status, not from whoever issued program_open.
+    """
+    global _filter_banner
+    if getattr(stat, 'filtering', False):
+        pct = getattr(stat, 'filter_progress', 0) or 0
+        banner = _("Preparing program… %d%%") % pct if pct else _("Preparing program…")
+        if banner != _filter_banner:
+            _filter_banner = banner
+            _update_subfile_banner()
+    elif _filter_banner is not None:
+        _filter_banner = None
+        _update_subfile_banner()
+
+def show_subfile(f):
+    """Show sub-file f in the listing. True when it is on screen."""
+    global displayed_subfile
+    if _same_path(displayed_subfile, f):
+        return True
+    try:
+        lines = _cached_file_lines(f)
+    except Exception as e:
+        # Usually a sub outside PROGRAM_PREFIX/SUBROUTINE_PATH: the server
+        # will not serve its text. Say so once, then stay on the loaded
+        # program with no highlight rather than point at a line of it that
+        # has nothing to do with what is running. Retried after a pause —
+        # the failure may equally be one dropped REST call.
+        _unshowable_files[f] = time.time() + _UNSHOWABLE_RETRY
+        if f not in _unshowable_notified:
+            _unshowable_notified.add(f)
+            notifications.add("error",
+                _("Executing %(file)s, which cannot be shown: %(err)s")
+                % {'file': f, 'err': e})
+        return False
+    o.set_highlight_line(None)   # the selection referred to the old file
+    _fill_listing(lines)
+    displayed_subfile = f
+    _sync_highlight_fileno()
+    _update_subfile_banner()
+    return True
+
+def show_picked_file(fileno):
+    """Bring the file a 3D pick landed in into the listing.
+
+    False when it cannot be shown — the caller must then highlight nothing,
+    since the picked line number means something else in the file on screen.
+    """
+    files = list(getattr(o.canon, 'source_files', ()) or ())
+    if fileno < 0 or fileno >= len(files):
+        return False
+    path = files[fileno]
+    if _same_path(path, displayed_subfile):
+        return True
+    if _is_loaded_program(path):
+        restore_loaded_listing()
+        return True
+    return show_subfile(path)
+
+def restore_loaded_listing():
+    """Put the loaded program's text back in the listing."""
+    global displayed_subfile
+    if displayed_subfile is None:
+        return
+    displayed_subfile = None
+    o.set_highlight_line(None)
+    if _listing_source:
+        try:
+            _fill_listing(_cached_file_lines(_listing_source))
+        except Exception as e:
+            notifications.add("error", str(e))
+    else:
+        _fill_listing(())
+    # program_start_line survived the excursion untouched; its tag did not.
+    apply_first_line_tag()
+    _sync_highlight_fileno()
+    _update_subfile_banner()
+
+def track_executing_line(motion_file, motion_line):
+    """Point the listing at the line the machine is actually executing.
+
+    motion_line is numbered within motion_file, and an o-word call into a
+    separate file restarts that numbering — so the same number means a
+    different place in a different file. The listing therefore either
+    follows execution into that file or shows no highlight at all; it never
+    highlights a line against text it does not belong to.
+    """
+    global _view_candidate, _view_candidate_since
+    if not motion_file or _is_loaded_program(motion_file):
+        # Top level, or nothing tagged is executing.
+        _view_candidate = None
+        restore_loaded_listing()
+        o.set_current_line(motion_line)
+        return
+    if vars.follow_subfile.get() and not _is_unshowable(motion_file):
+        # Dwell filter: only follow a file execution stays in, so a sub
+        # called once per line does not refill the listing on every call.
+        now = time.time()
+        if not _same_path(_view_candidate, motion_file):
+            _view_candidate = motion_file
+            _view_candidate_since = now
+        if (_same_path(displayed_subfile, motion_file)
+                or now - _view_candidate_since >= _VIEW_SWITCH_DWELL):
+            if show_subfile(motion_file):
+                o.set_current_line(motion_line)
+                return
+    # Executing in a file the listing is not showing.
+    o.set_current_line(0)
 
 def clear_program_display():
     """Drop everything this UI shows about a loaded program.
@@ -1421,10 +1678,19 @@ def clear_program_display():
     were still loaded and runnable.
     """
     global loaded_file, _server_program, _pending_autofit
+    global _listing_source, displayed_subfile
+    global _view_candidate, _awaiting_program
     loaded_file = None
     _server_program = None
+    _listing_source = None
+    displayed_subfile = None
     _pending_autofit = False
+    _view_candidate = None
+    _awaiting_program = False
+    forget_listing_text()
     vars.taskfile.set("")
+    # The banner described a program that is gone; clear it with the rest.
+    _update_subfile_banner()
     t.configure(state="normal")
     t.tk.call("delete_all", t)
     t.configure(state="disabled")
@@ -1454,34 +1720,25 @@ def adopt_server_program():
         return
     # What we knew about the previous task's program says nothing about this
     # one — including the filtered-program alias, whose temp file died with it.
+    remote_source = getattr(s, 'source_file', '') or remote_file
     _server_program = remote_file
-    load_text_and_set_file(remote_file)
-    vars.taskfile.set(remote_file)
+    load_text_and_set_file(remote_file, remote_source)
+    vars.taskfile.set(remote_source)
     _pending_autofit = True
     root_window.after_idle(refresh_preview_if_idle)
 
-def open_file_guts(f, filtered=False, addrecent=True):
+def open_file_guts(f, addrecent=True):
     s.poll()
     if addrecent:
         add_recent_file(f)
-    if not filtered:
-        global loaded_file
-        loaded_file = f
-        program_filter = get_filter(f)
-        if program_filter:
-            tempfile = os.path.join(tempdir, os.path.basename(f))
-            exitcode, stderr = filter_program(program_filter, f, tempfile)
-            if exitcode:
-                root_window.tk.call("nf_dialog", (".error", "-ext", stderr),
-                        _("Filter failed"),
-                        _("The program %(program)r exited with code %(code)d.  "
-                        "Any error messages it produced are shown below:")
-                            % {'program': program_filter, 'code': exitcode},
-                        "error",0,_("OK"))
-                return
-            return open_file_guts(tempfile, True, False)
+    global loaded_file
+    loaded_file = f
 
     set_first_line(0)
+
+    # A different program means different sub-files, and the ones we cached
+    # may have changed on disk since we read them.
+    forget_listing_text()
 
     o.deselect(None) # remove highlight line from last program
     try:
@@ -1500,24 +1757,33 @@ def open_file_guts(f, filtered=False, addrecent=True):
         # filter's temp file while loaded_file stays the original, and the
         # resync in update() must not mistake our own load for another
         # client's and clobber loaded_file (finding A-7).
-        global _server_program
-        _server_program = f
-        lines = _fetch_file_lines(f)
+        global _server_program, _listing_source, displayed_subfile
+        # Take the program's identity from the server, not from the path we
+        # happened to send: the server canonicalises it (pathres.Canonical),
+        # and every other path we compare it against — motion_file, the
+        # preview's file table — is canonicalised the same way. Assuming our
+        # spelling matches is what makes an identity test quietly wrong.
+        s.poll()
+        if s.filtering:
+            # The controller is converting this source file into G-code. It
+            # is not open yet and there is nothing to show; the resync in
+            # update() adopts it when it lands, exactly as it adopts a
+            # program another client opened.
+            global _pending_autofit, _awaiting_program
+            _pending_autofit = True
+            _awaiting_program = True
+            return
+        server_file = s.file or f
+        _server_program = server_file
+        lines = _fetch_file_lines(server_file)
         root_window.tk.call("destroy", ".info.progress")
         progress = Progress(1, len(lines))
-        t.configure(state="normal")
-        t.tk.call("delete_all", t)
-        code = []
-        for i, l in enumerate(lines):
-            l = l.expandtabs()
-            code.extend(["%6d: " % (i+1), "lineno", l + "\n", ""])
-            if i % 1000 == 0:
-                t.insert("end", *code)
-                del code[:]
-                progress.update(i)
-        if code:
-            t.insert("end", *code)
-        t.configure(state="disabled")
+        _fill_listing(lines, progress)
+        # The listing now shows this program: it is what a sub-file excursion
+        # returns to, and what the preview's file table indexes from.
+        _listing_source = server_file
+        displayed_subfile = None
+        _file_text_cache[server_file] = lines
 
     except Exception as e:
         notifications.add("error", str(e))
@@ -1665,12 +1931,36 @@ def activate_ja_widget(i, force=0):
     widget.focus()
     widget.invoke()
 
+def run_from_listing_ok():
+    """Whether a line picked in the listing may be used to start the program.
+
+    Only when the listing shows the loaded program: a sub-file's line numbers
+    are its own, so handing one to the task would start the loaded program at
+    an unrelated line.
+    """
+    if displayed_subfile is None:
+        return True
+    notifications.add("error",
+        _("The listing is showing %s. Run-from-here applies to the loaded "
+          "program — turn off View > Follow sub-files, or wait until the "
+          "program returns to it.") % os.path.basename(displayed_subfile))
+    return False
+
+def apply_first_line_tag():
+    """(Re-)mark the lines a run-from-here would skip.
+
+    Pure view state describing the loaded program, so it is absent while the
+    listing shows a sub-file and restored when the listing comes back —
+    program_start_line itself is never touched by the excursion.
+    """
+    t.tag_remove("ignored", "0.0", "end")
+    if displayed_subfile is None and program_start_line > 0:
+        t.tag_add("ignored", "0.0", "%d.end" % (program_start_line-1))
+
 def set_first_line(lineno):
     global program_start_line
     program_start_line = lineno
-    t.tag_remove("ignored", "0.0", "end")
-    if lineno > 0:
-        t.tag_add("ignored", "0.0", "%d.end" % (lineno-1))
+    apply_first_line_tag()
 
 def parse_increment(jogincr):
     if jogincr.endswith("mm"):
@@ -2083,7 +2373,7 @@ def run_warn():
             1, _("Re-Check"), _("Run Anyway"), _("Cancel"))) + 1
     return 0
 
-def reload_file(refilter=True):
+def reload_file():
     if running(): return
     s.poll()
     if not loaded_file:
@@ -2092,11 +2382,10 @@ def reload_file(refilter=True):
     line = vars.highlight_line.get()
     o.set_highlight_line(None)
 
-    if refilter or not get_filter(loaded_file):
-        open_file_guts(loaded_file, False, False)
-    else:
-        tempfile = os.path.join(tempdir, os.path.basename(loaded_file))
-        open_file_guts(tempfile, True, False)
+    # Re-opening the source is enough: if it needs a [FILTER] the controller
+    # re-runs it, which is what "reload" has to mean for a filtered program —
+    # the source may have changed since it was converted.
+    open_file_guts(loaded_file, addrecent=False)
     if line:
         o.set_highlight_line(line)
 
@@ -2106,8 +2395,9 @@ def refresh_preview_if_idle():
     """Schedule refresh_preview, skipping synch if running."""
     global _pending_autofit
     s.poll()
-    if not loaded_file:
-        _pending_autofit = False
+    if not _listing_source:
+        # Nothing open yet — or still being converted. The resync calls back
+        # when the controller has a program.
         return
     do_autofit = _pending_autofit
     _pending_autofit = False
@@ -2150,7 +2440,7 @@ def refresh_preview():
     """Re-generate preview with current offsets without reloading the file."""
     if running(): return
     s.poll()
-    if not loaded_file:
+    if not _listing_source:
         return
     _do_refresh_preview(skip_synch=False)
 
@@ -2161,8 +2451,16 @@ def _do_refresh_preview(skip_synch=False, autofit=False):
         # (e.g. after G10 L20 touchoff which updates in-memory params only).
         c.task_plan_synch()
         c.wait_complete()
-    f = loaded_file
-    f = os.path.abspath(f)
+    # Preview the program the CONTROLLER has open, never the path the user
+    # picked. For a filtered program those are different files: loaded_file
+    # names the source (a .png, a DXF, a script) and only the controller's
+    # conversion of it is G-code. There is deliberately no fallback — while a
+    # conversion is still running there is no program to preview, and reaching
+    # for the source instead puts a G-code error dialog on screen naming a
+    # file that was never meant to be G-code.
+    if not _listing_source:
+        return
+    f = _listing_source
     canon = AxisCanon(o, widgets.text, DummyProgress(), arcdivision)
 
     initcodes = []
@@ -2208,6 +2506,9 @@ def _do_refresh_preview(skip_synch=False, autofit=False):
     except Exception as e:
         notifications.add("error", str(e))
         return
+    # The new canon carries its own file table; re-point the selection
+    # highlight at whichever file the listing is showing.
+    _sync_highlight_fileno()
     if result > gcode.MIN_ERROR:
         error_str = _(gcode.strerror(result))
         root_window.tk.call("nf_dialog", ".error",
@@ -2334,7 +2635,7 @@ class TclCommands(nf.TclCommands):
         c.wait_complete()
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
 
 
     def gcode_properties(event=None):
@@ -2342,17 +2643,17 @@ class TclCommands(nf.TclCommands):
         if not loaded_file:
             props['name'] = _("No file loaded")
         else:
-            ext = os.path.splitext(loaded_file)[1]
-            program_filter = None
-            if ext:
-                program_filter = inifile.find("FILTER", ext[1:])
-            name = os.path.basename(loaded_file)
-            if program_filter:
+            # The controller reports both names: source_file is what was
+            # opened, file is the G-code it runs. They differ exactly when a
+            # [FILTER] converted the program.
+            source = getattr(s, 'source_file', '') or loaded_file
+            name = os.path.basename(source)
+            if s.file and not _same_path(s.file, source):
                 props['name'] = _("generated from %s") % name
             else:
                 props['name'] = name
 
-            size = os.stat(loaded_file).st_size
+            size = os.stat(source).st_size
             lines = int(widgets.text.index("end").split(".")[0])-2
             props['size'] = _("%(size)s bytes\n%(lines)s G-code lines") % {'size': size, 'lines': lines}
 
@@ -2443,6 +2744,11 @@ class TclCommands(nf.TclCommands):
         selection.set_value(t.get("%d.8" % line, "%d.end" % line))
 
     def task_run_line(*args):
+        # Run-from-here starts the LOADED program at a line number. While the
+        # listing shows a sub-file those numbers belong to a different file,
+        # so the same number would silently start the program somewhere else
+        # entirely.
+        if not run_from_listing_ok(): return
         line = vars.highlight_line.get()
         if line != -1: set_first_line(line)
         commands.task_run()
@@ -2888,6 +3194,13 @@ class TclCommands(nf.TclCommands):
         ap.putpref("show_program", vars.show_program.get())
         o.tkRedraw()
 
+    def toggle_follow_subfile(*event):
+        ap.putpref("follow_subfile", vars.follow_subfile.get())
+        # Turning it off mid-excursion must bring the listing straight back,
+        # not leave a sub-file on screen until the program happens to return.
+        if not vars.follow_subfile.get():
+            restore_loaded_listing()
+
     def toggle_program_alpha(*event):
         ap.putpref("program_alpha", vars.program_alpha.get())
         o.tkRedraw()
@@ -3021,7 +3334,7 @@ class TclCommands(nf.TclCommands):
         c.wait_complete()
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
 
     def touch_off_system(event=None, new_axis_value = None):
         global system
@@ -3055,7 +3368,7 @@ class TclCommands(nf.TclCommands):
 
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
         o.redraw_dro()
 
     def touch_off_tool(event=None, new_axis_value = None):
@@ -3095,7 +3408,7 @@ class TclCommands(nf.TclCommands):
 
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
         o.redraw_dro()
 
     def set_axis_offset(event=None):
@@ -3124,6 +3437,7 @@ class TclCommands(nf.TclCommands):
         c.spindle(SPINDLE_CONSTANT)
     def set_first_line(lineno):
         if not manual_ok(): return
+        if not run_from_listing_ok(): return
         set_first_line(lineno)
 
     def mist_toggle(*args):
@@ -3220,13 +3534,17 @@ class TclCommands(nf.TclCommands):
         if not f: return
         f = str(f)
         open_directory = os.path.dirname(f)
-        if get_filter(loaded_file):
-            srcfile = os.path.join(tempdir, os.path.basename(loaded_file))
-        else:
-            srcfile = loaded_file
+        # Save the G-CODE, which for a filtered program is the controller's
+        # conversion, not the source the operator opened. It is fetched rather
+        # than copied: the controller holds it, and this UI may not be on the
+        # same machine.
         try:
-            shutil.copyfile(srcfile, f)
-        except (shutil.Error, os.error, IOError) as detail:
+            lines = _fetch_file_lines(_listing_source or loaded_file)
+            with open(f, "w") as out:
+                out.write("\n".join(lines))
+                if lines:
+                    out.write("\n")
+        except (shutil.Error, os.error, IOError, RuntimeError) as detail:
             tb = traceback.format_exc()
             root_window.tk.call("nf_dialog", ".error", _("Error saving file"),
                 str(detail), "error", 0, _("OK"))
@@ -3286,6 +3604,7 @@ vars = nf.Variables(root_window,
     ("dro_large_font", BooleanVar),
     ("show_pyvcppanel", BooleanVar),
     ("show_rapids", BooleanVar),
+    ("follow_subfile", BooleanVar),
     ("feedrate", IntVar),
     ("rapidrate", IntVar),
     ("spindlerate", IntVar),
@@ -3321,6 +3640,7 @@ vars.running_line.set(-1)
 vars.tto_g11.set(ap.getpref("tto_g11", "False"))
 vars.show_program.set(ap.getpref("show_program", "True"))
 vars.show_rapids.set(ap.getpref("show_rapids", "True"))
+vars.follow_subfile.set(ap.getpref("follow_subfile", "True"))
 vars.program_alpha.set(ap.getpref("program_alpha", "False"))
 vars.show_live_plot.set(ap.getpref("show_live_plot", "True"))
 vars.show_tool.set(ap.getpref("show_tool", "True"))
@@ -3620,7 +3940,19 @@ def units(s, d=1.0):
     except ValueError:
         return unit_values.get(s, d)
 
-random_toolchanger = int(inifile.find("EMCIO", "RANDOM_TOOLCHANGER") or 0)
+# What an idx means comes from the tool store, not from [EMCIO]: the store is
+# told once on its load line, and its instance is the one milltask reports
+# through /info (gmi.tooltable_instance()). Reading the INI here resolved the
+# global section, which on a multi-instance server need not be this machine's.
+try:
+    random_toolchanger = int(gmi.ToolSlots().random_toolchanger())
+except Exception as e:
+    # A store that cannot answer /info right now must not turn AXIS startup
+    # into a traceback — the classic INI read silently defaulted to 0 here.
+    # Non-random is the default the store itself falls back to; the tool
+    # display degrades, nothing else depends on it before the first poll.
+    print("axis: tool store /info unavailable, assuming non-random toolchanger:", e, file=sys.stderr)
+    random_toolchanger = 0
 jointcount = int(inifile.find("KINS", "JOINTS"))
 open_directory = inifile.find("DISPLAY", "PROGRAM_PREFIX") or open_directory
 vars.machine.set(inifile.find("EMC", "MACHINE"))
@@ -4340,7 +4672,7 @@ elif server_present == 1:
 
 if initialfile and os.path.exists(initialfile):
     _pending_autofit = True
-    open_file_guts(initialfile, False, addrecent)
+    open_file_guts(initialfile, addrecent)
 
 # Remember which task this startup state came from, so the first update() cycle
 # does not mistake it for a reconnect and re-adopt what we have just set up.
@@ -4349,9 +4681,12 @@ if server_present == 1:
     s.poll()
     _server_online = s.connected
     _server_boot_id = getattr(s, 'boot_id', None)
-    if _server_program is None:
+    if _server_program is None and not _awaiting_program:
         # Set already if we opened a file ourselves above; this covers the
-        # branches that only adopted what the task had.
+        # branches that only adopted what the task had. Not while a filter is
+        # still converting the program we asked for: claiming it here without
+        # its text on screen makes the resync see no change, and the program
+        # never appears.
         _server_program = s.file or None
 
 if lathe:

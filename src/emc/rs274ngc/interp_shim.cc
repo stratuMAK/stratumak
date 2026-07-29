@@ -71,6 +71,13 @@ int interp_shim_sequence_number(interp_handle_t *h) {
     return h->interp->sequence_number();
 }
 
+void interp_shim_file_name(interp_handle_t *h, char *buf, int buf_size) {
+    if (!buf || buf_size <= 0) return;
+    buf[0] = '\0';
+    if (!h || !h->interp) return;
+    h->interp->file_name(buf, (size_t)buf_size);
+}
+
 int interp_shim_close(interp_handle_t *h) {
     if (!h || !h->interp) return INTERP_SHIM_ERROR;
     return h->interp->close();

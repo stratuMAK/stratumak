@@ -5,6 +5,7 @@ package task
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"regexp"
 	"runtime/cgo"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/motstat"
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/tooltable"
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
+	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
@@ -237,7 +239,7 @@ func (m *milltaskModule) Start() error {
 	if ttInstance == "" {
 		ttInstance = "tooltable"
 	}
-	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 2)
+	ttCbs, err := reg.GetAPIFor(m.name, "tooltable", ttInstance, 3)
 	if err != nil {
 		return fmt.Errorf("milltask: tooltable API lookup (%s): %w", ttInstance, err)
 	}
@@ -275,6 +277,10 @@ func (m *milltaskModule) Start() error {
 
 	t := NewTask(mc, io, ms, m.logger)
 	t.SetIOStatusReader(io)
+	// Each instance filters into its own directory: on a multi-instance
+	// server, a shared one would let one task's open (or shutdown) destroy
+	// the program another task has loaded.
+	t.filteredDir = pathres.FilteredInstanceDir(m.name)
 
 	// Validate kinematics/joint/axis INI consistency before loading config.
 	if err := m.checkConfig(); err != nil {
@@ -284,6 +290,31 @@ func (m *milltaskModule) Start() error {
 	// Load configuration from INI and send to motion controller.
 	if err := loadConfig(m.ini, t, mc); err != nil {
 		return fmt.Errorf("milltask: %w", err)
+	}
+
+	// What an idx means — carousel pocket or synthetic slot — belongs to the
+	// tool store, which is told once on its load line. Reading
+	// [EMCIO]RANDOM_TOOLCHANGER here as well is how a task and its own store
+	// came to disagree on a multi-instance server: the store resolved the
+	// global section while the task resolved its namespaced one. GetInfo is
+	// answerable before the store's Start, so module start order does not
+	// matter here.
+	ttInfo, err := m.ttClient.GetInfo()
+	if err != nil {
+		return fmt.Errorf("milltask: tooltable get_info (%s): %w", ttInstance, err)
+	}
+	t.randomToolchanger = ttInfo.RandomToolchanger
+	// Migration catch: a hand-written HAL file that still loads a bare
+	// `load tooltable` under an INI that sets [EMCIO]RANDOM_TOOLCHANGER used
+	// to get random semantics from the store's own INI read. The store no
+	// longer reads the INI — silence here would flip every idx from carousel
+	// pocket to synthetic slot with nothing logged, so say it loudly.
+	if v := strings.TrimSpace(m.ini.Get("EMCIO", "RANDOM_TOOLCHANGER")); v != "" {
+		iniRandom := v != "0"
+		if iniRandom != ttInfo.RandomToolchanger {
+			m.logger.Warn("milltask: [EMCIO]RANDOM_TOOLCHANGER is set in the INI but the tool store was loaded without a matching random_toolchanger= parameter; the store's load line wins",
+				"ini", v, "store", ttInfo.RandomToolchanger, "tooltable", ttInstance)
+		}
 	}
 
 	// Create inihal HAL component for runtime INI parameter override.
@@ -423,6 +454,22 @@ func (m *milltaskModule) Stop() {
 		if m.task.mcode != nil {
 			m.task.mcode.Stop()
 		}
+	}
+	if m.task != nil {
+		// Stop any filter still converting and wait for its goroutine: after
+		// this point the interpreter gets destroyed and the output directory
+		// removed, and a conversion still holding either would be a
+		// use-after-free, not a race to win.
+		m.task.cancelFiltering()
+		m.task.filterWG.Wait()
+		// Drop only THIS instance's output directory — another milltask in
+		// the same process may still be serving its own filtered program.
+		// Best effort: the process is going away either way, and a directory
+		// that outlives it is a stale temp dir, not a fault to report.
+		_ = os.RemoveAll(m.task.filteredDirOrDefault())
+		// The shared parent goes with the last instance out: Remove refuses
+		// a non-empty directory, which is exactly the point.
+		_ = os.Remove(pathres.FilteredDir())
 	}
 	m.logger.Info("milltask stopping")
 }

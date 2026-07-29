@@ -1,0 +1,5 @@
+o<trace_deep> sub
+G1 Z-2 F600
+G1 Z0
+o<trace_deep> endsub
+M2

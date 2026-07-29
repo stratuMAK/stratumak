@@ -2204,9 +2204,11 @@ Called by: convert_g.
 
 */
 
-int Interp::convert_dwell(setup_pointer settings, double time)   //!< time in seconds to dwell  */
+int Interp::convert_dwell(setup_pointer settings,
+                          int line_number,  //!< source line the G4 is on
+                          double time)      //!< time in seconds to dwell
 {
-  enqueue_DWELL(settings, time);
+  enqueue_DWELL(settings, line_number, time);
   return INTERP_OK;
 }
 
@@ -2351,7 +2353,7 @@ int Interp::convert_g(block_pointer block,       //!< pointer to a block of RS27
     int status;
 
     if ((block->g_modes[GM_MODAL_0] == G_4) && ONCE(STEP_DWELL)) {
-      status = convert_dwell(settings, block->p_number);
+      status = convert_dwell(settings, block->line_number, block->p_number);
       CHP(status);
     }
     if ((block->g_modes[GM_SET_PLANE] != -1) && ONCE(STEP_SET_PLANE)) {
@@ -3363,7 +3365,7 @@ int Interp::convert_m(block_pointer block,       //!< pointer to a block of RS27
 	      // the code was used in its very remap procedure -
 	      // the 'recursion case'; record the fact
 	      CONTROLLING_BLOCK(*settings).builtin_used = !remapped_in_block;
-	      CHP(convert_tool_change(settings));
+	      CHP(convert_tool_change(settings, block->line_number));
 	  }
       	  break;
 
@@ -5513,7 +5515,8 @@ spindle and make new entry moves if necessary.
 
 */
 
-int Interp::convert_tool_change(setup_pointer settings)  //!< pointer to machine settings
+int Interp::convert_tool_change(setup_pointer settings,  //!< pointer to machine settings
+                                int line_number)         //!< source line of the M6
 {
 
   if (settings->selected_pocket < 0) {
@@ -5596,7 +5599,7 @@ int Interp::convert_tool_change(setup_pointer settings)  //!< pointer to machine
       settings->w_current = w_end;
   }
 
-  _setup.canon.change_tool(settings->selected_pocket);
+  _setup.canon.change_tool(line_number, settings->selected_pocket);
 
   settings->current_pocket = settings->selected_pocket;
   // tool change can move the controlled point.  reread it:

@@ -15,7 +15,6 @@ import (
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
 	"github.com/sittner/linuxcnc/src/gomc/internal/pathres"
 	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 
 	// Registers the persist_sqlite gomod so the tooltable under test can bind
 	// to a real persistence backend instead of a stand-in. That matters here:
@@ -27,9 +26,10 @@ import (
 var testInstance int
 
 // newBoundTooltable brings up a persist_sqlite instance and a tooltable bound
-// to it, both rooted in dir. Instance names are unique per call because the API
-// registry is process-global.
-func newBoundTooltable(t *testing.T, dir string, ini *inifile.IniFile) *module {
+// to it, both rooted in dir. args are extra "load tooltable" parameters (e.g.
+// init_tbl=, random_toolchanger=). Instance names are unique per call because
+// the API registry is process-global.
+func newBoundTooltable(t *testing.T, dir string, args ...string) *module {
 	t.Helper()
 	if apiserver.DefaultRegistry() == nil {
 		apiserver.SetDefaultRegistry(apiserver.NewRegistry())
@@ -44,7 +44,7 @@ func newBoundTooltable(t *testing.T, dir string, ini *inifile.IniFile) *module {
 	if newPersist == nil {
 		t.Fatal("persist_sqlite is not registered")
 	}
-	p, err := newPersist(ini, logger, persistName, []string{"dbpath=" + filepath.Join(dir, "db")})
+	p, err := newPersist(nil, logger, persistName, []string{"dbpath=" + filepath.Join(dir, "db")})
 	if err != nil {
 		t.Fatalf("persist_sqlite: %v", err)
 	}
@@ -53,7 +53,8 @@ func newBoundTooltable(t *testing.T, dir string, ini *inifile.IniFile) *module {
 		t.Fatalf("persist_sqlite Start: %v", err)
 	}
 
-	mod, err := newTooltable(ini, logger, tableName, []string{"persist_instance=" + persistName})
+	mod, err := newTooltable(nil, logger, tableName,
+		append([]string{"persist_instance=" + persistName}, args...))
 	if err != nil {
 		t.Fatalf("newTooltable: %v", err)
 	}
@@ -68,7 +69,7 @@ func newBoundTooltable(t *testing.T, dir string, ini *inifile.IniFile) *module {
 func TestNotStartedIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil) // constructed, deliberately not Started
+	m := newBoundTooltable(t, dir) // constructed, deliberately not Started
 
 	if _, err := m.ListTools(); err == nil {
 		t.Error("ListTools on an unstarted module succeeded, want an error")
@@ -94,7 +95,7 @@ func TestNotStartedIsAnError(t *testing.T) {
 func TestStorageFailureIsReported(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestStorageFailureIsReported(t *testing.T) {
 func TestSlotCRUD(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestSlotCRUD(t *testing.T) {
 func TestSpindleSlotAlwaysExists(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestSpindleSlotAlwaysExists(t *testing.T) {
 		t.Fatalf("live spindle slot = %+v, want tool 4 z -9", sp)
 	}
 
-	m2 := newBoundTooltable(t, dir, nil)
+	m2 := newBoundTooltable(t, dir)
 	if err := m2.Start(); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
@@ -242,11 +243,7 @@ func TestSpindleSlotAlwaysExists(t *testing.T) {
 func TestRandomSpindleSlotPersists(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	ini, err := inifile.ParseString("[EMCIO]\nRANDOM_TOOLCHANGER = 1\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := newBoundTooltable(t, dir, ini)
+	m := newBoundTooltable(t, dir, "random_toolchanger=1")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -254,7 +251,7 @@ func TestRandomSpindleSlotPersists(t *testing.T) {
 		t.Fatalf("PutTool(spindle): %v", err)
 	}
 
-	m2 := newBoundTooltable(t, dir, ini)
+	m2 := newBoundTooltable(t, dir, "random_toolchanger=1")
 	if err := m2.Start(); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
@@ -275,11 +272,7 @@ func TestRandomSpindleSlotPersists(t *testing.T) {
 func TestNonRandomStartPurgesPersistedSpindleRow(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	randomIni, err := inifile.ParseString("[EMCIO]\nRANDOM_TOOLCHANGER = 1\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := newBoundTooltable(t, dir, randomIni)
+	m := newBoundTooltable(t, dir, "random_toolchanger=1")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -288,7 +281,7 @@ func TestNonRandomStartPurgesPersistedSpindleRow(t *testing.T) {
 	}
 
 	// Reopen the same store non-random: slot 0 reads empty...
-	m2 := newBoundTooltable(t, dir, nil)
+	m2 := newBoundTooltable(t, dir)
 	if err := m2.Start(); err != nil {
 		t.Fatalf("non-random Start: %v", err)
 	}
@@ -298,7 +291,7 @@ func TestNonRandomStartPurgesPersistedSpindleRow(t *testing.T) {
 
 	// ...and the persisted row is genuinely gone: flipping back to random
 	// starts with an empty spindle instead of tool 7 from another era.
-	m3 := newBoundTooltable(t, dir, randomIni)
+	m3 := newBoundTooltable(t, dir, "random_toolchanger=1")
 	if err := m3.Start(); err != nil {
 		t.Fatalf("random re-Start: %v", err)
 	}
@@ -314,7 +307,7 @@ func TestNonRandomStartPurgesPersistedSpindleRow(t *testing.T) {
 func TestSpindleSlotCannotBeDeleted(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -332,7 +325,7 @@ func TestSpindleSlotCannotBeDeleted(t *testing.T) {
 func TestFindIndexForTool(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil) // non-random
+	m := newBoundTooltable(t, dir) // non-random
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -368,16 +361,12 @@ func TestFindIndexForTool(t *testing.T) {
 func TestFindIndexForToolRandom(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	ini, err := inifile.ParseString("[EMCIO]\nRANDOM_TOOLCHANGER = 1\n")
-	if err != nil {
-		t.Fatalf("ParseString: %v", err)
-	}
-	m := newBoundTooltable(t, dir, ini)
+	m := newBoundTooltable(t, dir, "random_toolchanger=1")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if !m.randomToolchange {
-		t.Fatal("[EMCIO]RANDOM_TOOLCHANGER=1 was not picked up")
+		t.Fatal("random_toolchanger=1 was not picked up")
 	}
 	if _, err := m.PutTool(3, gmitooltable.ToolEntry{Toolno: 0, Pocketno: 3}); err != nil {
 		t.Fatalf("PutTool: %v", err)
@@ -392,7 +381,7 @@ func TestFindIndexForToolRandom(t *testing.T) {
 func TestNextFreeIndex(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -415,7 +404,7 @@ func TestNextFreeIndex(t *testing.T) {
 func TestPutToolOptimisticConcurrency(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -488,17 +477,12 @@ func TestPutToolOptimisticConcurrency(t *testing.T) {
 	}
 }
 
-// writeIni builds an INI naming a tool table, plus the .tbl itself.
-func writeIni(t *testing.T, dir, tbl string) *inifile.IniFile {
+// writeTbl writes the legacy tool table an init_tbl= parameter can name.
+func writeTbl(t *testing.T, dir, tbl string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "tool.tbl"), []byte(tbl), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ini, err := inifile.ParseString("[EMCIO]\nTOOL_TABLE = tool.tbl\n")
-	if err != nil {
-		t.Fatalf("ParseString: %v", err)
-	}
-	return ini
 }
 
 // TestLegacyImport covers the one-shot migration end to end: that a malformed
@@ -508,7 +492,7 @@ func writeIni(t *testing.T, dir, tbl string) *inifile.IniFile {
 func TestLegacyImport(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	ini := writeIni(t, dir, ""+
+	writeTbl(t, dir, ""+
 		"; a comment line\n"+
 		"\n"+
 		"T1 P1 Z-1.5 D6 ;six mil\n"+
@@ -516,7 +500,7 @@ func TestLegacyImport(t *testing.T) {
 		"T3 P3 Zgarbage D10\n"+ // malformed: must be skipped entirely
 		"T4 P7 Z-4.5\n")
 
-	m := newBoundTooltable(t, dir, ini)
+	m := newBoundTooltable(t, dir, "init_tbl=tool.tbl")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -558,11 +542,7 @@ func TestLegacyImportRandom(t *testing.T) {
 		[]byte("T5 P0 Z-1\nT6 P3 Z-2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ini, err := inifile.ParseString("[EMCIO]\nTOOL_TABLE = tool.tbl\nRANDOM_TOOLCHANGER = 1\n")
-	if err != nil {
-		t.Fatalf("ParseString: %v", err)
-	}
-	m := newBoundTooltable(t, dir, ini)
+	m := newBoundTooltable(t, dir, "init_tbl=tool.tbl", "random_toolchanger=1")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -588,9 +568,9 @@ func TestLegacyImportRandom(t *testing.T) {
 func TestLegacyImportOnlyOnce(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	ini := writeIni(t, dir, "T1 P1 Z-1.5\n")
+	writeTbl(t, dir, "T1 P1 Z-1.5\n")
 
-	m := newBoundTooltable(t, dir, ini)
+	m := newBoundTooltable(t, dir, "init_tbl=tool.tbl")
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -601,7 +581,7 @@ func TestLegacyImportOnlyOnce(t *testing.T) {
 	}
 
 	// Restart against the same db directory: the .tbl still says -1.5.
-	m2 := newBoundTooltable(t, dir, ini)
+	m2 := newBoundTooltable(t, dir, "init_tbl=tool.tbl")
 	if err := m2.Start(); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
@@ -614,14 +594,15 @@ func TestLegacyImportOnlyOnce(t *testing.T) {
 	}
 }
 
-// TestNoLegacyImportWithoutIni — halrun mode passes a nil INI, so there is no
-// [EMCIO]TOOL_TABLE to import from and Start must still succeed.
-func TestNoLegacyImportWithoutIni(t *testing.T) {
+// TestNoLegacyImportWithoutInitTbl — a store loaded without init_tbl= (halrun,
+// or a config that keeps no legacy table) must still Start and still have its
+// spindle slot.
+func TestNoLegacyImportWithoutInitTbl(t *testing.T) {
 	dir := t.TempDir()
 	pathres.SetDefaultForTest(t, dir)
-	m := newBoundTooltable(t, dir, nil)
+	m := newBoundTooltable(t, dir)
 	if err := m.Start(); err != nil {
-		t.Fatalf("Start with a nil INI: %v", err)
+		t.Fatalf("Start without init_tbl=: %v", err)
 	}
 	tools, err := m.ListTools()
 	if err != nil {

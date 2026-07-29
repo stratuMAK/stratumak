@@ -465,7 +465,7 @@ void RIGID_TAP(int line_number, double x, double y, double z, double scale)
 }
 
 
-void DWELL(double seconds)
+void DWELL(int line_number, double seconds)
 {
   ECHO_WITH_ARGS("%.4f", seconds);
 }
@@ -550,7 +550,7 @@ void USE_TOOL_LENGTH_OFFSET(EmcPose offset)
          offset.tran.x, offset.tran.y, offset.tran.z, offset.a, offset.b, offset.c, offset.u, offset.v, offset.w);
 }
 
-void CHANGE_TOOL(int slot)
+void CHANGE_TOOL(int line_number, int slot)
 {
   PRINT("CHANGE_TOOL(%d)\n", slot);
   _sai._active_slot = slot;
@@ -1225,7 +1225,7 @@ static void sc_nurbs_feed(void *ctx, int32_t ln, const canon_control_point_t *pt
 static void sc_rigid_tap(void *ctx, int32_t ln, double x, double y, double z, double scale) { RIGID_TAP(ln, x, y, z, scale); }
 static void sc_straight_probe(void *ctx, int32_t ln, double x, double y, double z, double a, double b, double c, double u, double v, double w, uint8_t pt) { STRAIGHT_PROBE(ln, x, y, z, a, b, c, u, v, w, pt); }
 static void sc_stop(void *ctx) {}
-static void sc_dwell(void *ctx, double s) { DWELL(s); }
+static void sc_dwell(void *ctx, int32_t lineno, double s) { DWELL(lineno, s); }
 static void sc_finish(void *ctx) { FINISH(); }
 static void sc_set_spindle_mode(void *ctx, int32_t spindle, double m) { SET_SPINDLE_MODE(spindle, m); }
 static void sc_start_spindle_clockwise(void *ctx, int32_t spindle, int32_t wait) { START_SPINDLE_CLOCKWISE(spindle, wait); }
@@ -1236,7 +1236,7 @@ static void sc_orient_spindle(void *ctx, int32_t spindle, double d, int32_t i) {
 static void sc_wait_spindle_orient_complete(void *ctx, int32_t s, double t) { WAIT_SPINDLE_ORIENT_COMPLETE(s, t); }
 static void sc_select_tool(void *ctx, int32_t t) { SELECT_TOOL(t); }
 static void sc_start_change(void *ctx) { START_CHANGE(); }
-static void sc_change_tool(void *ctx, int32_t p) { CHANGE_TOOL(p); }
+static void sc_change_tool(void *ctx, int32_t lineno, int32_t p) { CHANGE_TOOL(lineno, p); }
 static void sc_change_tool_number(void *ctx, int32_t p) { CHANGE_TOOL_NUMBER(p); }
 static void sc_reload_tooldata(void *ctx) { RELOAD_TOOLDATA(); }
 static void sc_set_tool_table_entry(void *ctx, int32_t pocket, int32_t toolno, double ox, double oy, double oz, double oa, double ob, double oc, double ou, double ov, double ow, double diameter, double frontangle, double backangle, int32_t orient) {

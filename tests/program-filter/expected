@@ -1,0 +1,13 @@
+PASS program-open-does-not-block
+PASS conversion-visible-in-status
+PASS conversion-reports-progress
+PASS source-file-is-what-was-opened
+PASS file-is-the-converted-program
+PASS converted-program-readable
+PASS converter-was-given-the-source
+PASS converted-program-previewable
+PASS failure-keeps-the-loaded-program
+PASS failure-clears-filtering
+PASS failure-reports-the-converters-words
+PASS failure-leaves-no-partial-program
+PASS unfiltered-program-unaffected

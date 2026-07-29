@@ -2,7 +2,7 @@
 @author "Dewey Garrett (tooldata.hh)"
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 2
+@version 3
 @prefix tooltable
 @rest_export true
 
@@ -72,10 +72,33 @@ type IndexResult {
     idx: i32 @min(-1) @max(1000)
 }
 
+# Store-wide properties of THIS table, for consumers that would otherwise
+# re-derive them from the INI and be free to disagree with the store.
+type StoreInfo {
+    random_toolchanger: bool
+                          # what an idx means here: the carousel pocket (true)
+                          # or a synthetic slot (false).  See the idx notes
+                          # above — the two readings of the same number are
+                          # what a caller must not get wrong.
+}
+
 @method GET
 @path /
 @rc_error
 func list_tools(tools: []ToolEntry out) -> i32
+
+# The store is the single source of truth for what an idx means: it is told
+# once, on its load line (random_toolchanger=), and every consumer asks it
+# rather than reading [EMCIO]RANDOM_TOOLCHANGER for itself.  Three modules
+# reading the same INI key is three chances to disagree — and on a
+# multi-instance server they DID, because the store resolved the global
+# section while its task resolved the task's namespaced one.
+#
+# Literal first segment — no conflict with the /{idx} routes below.
+@method GET
+@path /info
+@rc_error
+func get_info(info: StoreInfo out) -> i32
 
 # Resolve a tool number to its storage slot, mirroring 2.9's
 # tooldata_find_index_for_tool: -1 for toolno -1 or a tool not in the table;

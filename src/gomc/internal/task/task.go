@@ -9,6 +9,7 @@ package task
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -399,8 +400,35 @@ type Task struct {
 	canon *Canon
 
 	// Program state
+	// Reads an INI value (namespaced to this instance); nil when the task runs
+	// without an INI. Used for the [FILTER] section at program-open time.
+	iniGet func(section, key string) string
+
 	programFile string
 	programOpen bool
+	// What the operator opened, when a [FILTER] converter turned it into the
+	// G-code programFile names. Equal to programFile when no filter applied.
+	sourceFile string
+	// A filter conversion in flight. The previously loaded program stays open
+	// and executable until the new one is ready, so a filter that fails or
+	// times out leaves the controller exactly as it was.
+	filtering      bool
+	filterProgress int32
+	filterCancel   context.CancelFunc
+	// This instance's private filtered-output directory
+	// (pathres.FilteredInstanceDir). Set by the module at start; empty only
+	// in tasks built without one (tests), which fall back to a default.
+	filteredDir string
+	// Tracks the filter goroutine so shutdown can wait for it: destroying
+	// the interpreter or removing filteredDir under a still-running
+	// conversion must be impossible by construction, not by lock ordering
+	// luck.
+	filterWG sync.WaitGroup
+	// Bumped when a conversion starts and whenever an in-flight one is
+	// superseded: by abort, at shutdown, and by a newer program open. The
+	// filter goroutine captures it and refuses to publish a result that a
+	// later command has superseded.
+	filterGen int64
 	// programRes resolves G-code paths against the program directories
 	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
 	programRes *pathres.Resolver

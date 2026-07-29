@@ -15,7 +15,7 @@ load homemod <homemod.2>
 load iov2 <iocontrol>
 
 load persist_sqlite <persistence>
-load tooltable
+load tooltable init_tbl=[EMCIO]TOOL_TABLE random_toolchanger=[EMCIO]RANDOM_TOOLCHANGER
 load milltask halui=halui
 
 # UI helpers (match the stock stack).

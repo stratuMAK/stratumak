@@ -99,7 +99,7 @@ int Interp::convert_cycle_g82(block_pointer block,
                               double dwell)      //!< dwell time
 {
   cycle_feed(block, plane, x, y, bottom_z);
-  _setup.canon.dwell(dwell);
+  _setup.canon.dwell(block->line_number, dwell);
   cycle_traverse(block, plane, x, y, clear_z);
 
   return INTERP_OK;
@@ -314,7 +314,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
            _setup.canon.start_spindle_counterclockwise(spindle);
        else
            _setup.canon.start_spindle_clockwise(spindle);
-       _setup.canon.dwell(dwell);
+       _setup.canon.dwell(block->line_number, dwell);
        cycle_feed(block, plane, x, y, clear_z);
        _setup.canon.stop_spindle_turning(spindle);
        if (motion == G_84)
@@ -332,7 +332,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
            _setup.canon.start_spindle_counterclockwise(spindle);
        else
            _setup.canon.start_spindle_clockwise(spindle);
-       _setup.canon.dwell(dwell);
+       _setup.canon.dwell(block->line_number, dwell);
        cycle_feed(block, plane, clear_z, x, y);
        _setup.canon.stop_spindle_turning(spindle);
        if (motion == G_84)
@@ -350,7 +350,7 @@ int Interp::convert_cycle_g74_g84(block_pointer block,
            _setup.canon.start_spindle_counterclockwise(spindle);
        else
            _setup.canon.start_spindle_clockwise(spindle);
-       _setup.canon.dwell(dwell);
+       _setup.canon.dwell(block->line_number, dwell);
        cycle_feed(block, plane, y, clear_z, x);
        _setup.canon.stop_spindle_turning(spindle);
        if (motion == G_84)
@@ -468,7 +468,7 @@ int Interp::convert_cycle_g86(block_pointer block,
       NCE_SPINDLE_NOT_TURNING_IN_G86);
 
   cycle_feed(block, plane, x, y, bottom_z);
-  _setup.canon.dwell(dwell);
+  _setup.canon.dwell(block->line_number, dwell);
   _setup.canon.stop_spindle_turning(spindle);
   cycle_traverse(block, plane, x, y, clear_z);
   if (direction == CANON_CLOCKWISE)
@@ -623,7 +623,7 @@ int Interp::convert_cycle_g88(block_pointer block,
       NCE_SPINDLE_NOT_TURNING_IN_G88);
 
   cycle_feed(block, plane, x, y, bottom_z);
-  _setup.canon.dwell(dwell);
+  _setup.canon.dwell(block->line_number, dwell);
   _setup.canon.stop_spindle_turning(spindle);
   _setup.canon.program_stop();               /* operator retracts the spindle here */
   if (direction == CANON_CLOCKWISE)
@@ -667,7 +667,7 @@ int Interp::convert_cycle_g89(block_pointer block,
                               double dwell)      //!< dwell time
 {
   cycle_feed(block, plane, x, y, bottom_z);
-  _setup.canon.dwell(dwell);
+  _setup.canon.dwell(block->line_number, dwell);
   cycle_feed(block, plane, x, y, clear_z);
 
   return INTERP_OK;

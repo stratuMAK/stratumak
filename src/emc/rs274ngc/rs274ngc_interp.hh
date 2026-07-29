@@ -325,7 +325,7 @@ public:
  int convert_distance_mode(int g_code, setup_pointer settings);
  int convert_ijk_distance_mode(int g_code, setup_pointer settings);
  int convert_lathe_diameter_mode(int g_code, block_pointer block, setup_pointer settings);
- int convert_dwell(setup_pointer settings, double time);
+ int convert_dwell(setup_pointer settings, int line_number, double time);
  int convert_feed_mode(int g_code, setup_pointer settings);
  int convert_feed_rate(block_pointer block, setup_pointer settings);
     int convert_g(block_pointer block, setup_pointer settings);
@@ -362,7 +362,7 @@ public:
                             double u_end, double v_end, double w_end);
  int convert_threading_cycle(block_pointer block, setup_pointer settings,
                              double end_x, double end_y, double end_z);
- int convert_tool_change(setup_pointer settings);
+ int convert_tool_change(setup_pointer settings, int line_number);
  int convert_tool_length_offset(int g_code, block_pointer block,
                                       setup_pointer settings);
  int convert_tool_select(block_pointer block, setup_pointer settings);

@@ -42,8 +42,9 @@ type fakeToolSlot struct {
 // real store (internal/tooltable/module.go) guards itself the same way. The
 // race detector catches this immediately without it.
 type fakeToolTable struct {
-	mu    sync.RWMutex
-	slots [fakeToolSlots]fakeToolSlot
+	mu     sync.RWMutex
+	slots  [fakeToolSlots]fakeToolSlot
+	random bool // what GetInfo reports: idx is a carousel pocket
 }
 
 // setTool places a tool in a slot. Offsets beyond Z are left zero — the tests
@@ -59,6 +60,14 @@ func (f *fakeToolTable) setTool(idx, toolno int32, x, y, z, diameter float64) {
 			Diameter: diameter,
 		},
 	}
+}
+
+// GetInfo — the store is what a task asks about idx semantics, so the fake
+// must answer too, and a test that wants a random changer sets f.random.
+func (f *fakeToolTable) GetInfo() (tooltable.StoreInfo, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return tooltable.StoreInfo{RandomToolchanger: f.random}, nil
 }
 
 func (f *fakeToolTable) ListTools() ([]tooltable.ToolEntry, error) {

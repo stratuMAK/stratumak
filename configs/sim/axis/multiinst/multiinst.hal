@@ -24,17 +24,20 @@ load persist_sqlite <persist2> dbpath=db/mill2
 # Shared persistence for global modules (halscope, retain)
 load persist_sqlite <persistence>
 
-# Separate tool tables per instance
-load tooltable <tt1> persist_instance=persist1
-load tooltable <tt2> persist_instance=persist2
-
-# Two milltask instances
-load milltask <mill1> halui=halui motion_instance=mot1 iocontrol_instance=io1 tooltable_instance=tt1 persist_instance=persist1
-load milltask <mill2> halui=halui2 motion_instance=mot2 iocontrol_instance=io2 tooltable_instance=tt2 persist_instance=persist2
+# Separate tool tables per instance: the INI reference on the load line is what
+# ties each store to its own task's section.
+load tooltable <tt1> init_tbl=[EMCIO]TOOL_TABLE persist_instance=persist1
+load tooltable <tt2> init_tbl=[mill2:EMCIO]TOOL_TABLE persist_instance=persist2
 
 # Preview instances
 load ngcpreview <mill1-preview> namespace=mill1 tooltable_instance=tt1 persist_instance=persist1
 load ngcpreview <mill2-preview> namespace=mill2 tooltable_instance=tt2 persist_instance=persist2
+
+# Two milltask instances.  preview_instance= is what a UI client reads back
+# from GET /info; without it a client falls back to the default name
+# "ngcpreview", which does not exist here (404 on every preview request).
+load milltask <mill1> halui=halui motion_instance=mot1 iocontrol_instance=io1 tooltable_instance=tt1 persist_instance=persist1 preview_instance=mill1-preview
+load milltask <mill2> halui=halui2 motion_instance=mot2 iocontrol_instance=io2 tooltable_instance=tt2 persist_instance=persist2 preview_instance=mill2-preview
 
 # RT functions for mot1
 addf mot1.motion-command-handler servo-thread

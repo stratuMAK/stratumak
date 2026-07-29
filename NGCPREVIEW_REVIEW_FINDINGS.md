@@ -74,7 +74,22 @@ modal state as initcodes after `task_plan_synch`. Wire unit space is **inches**
   first_move rapid-suppression applied after the fact. **Fix (client half):**
   the three wire lists are interleaved by line number during replay (exact
   for monotonic programs, each list keeping its own execution order).
-  **Deferred (wire change):** mid-program G5x/G92/rotation changes — the
+  **CLOSED 2026-07-29 — ordered event stream on the wire.** The line-number
+  interleave only held while line numbers increased: an O-word loop revisits
+  a line and a call into another file restarts numbering, so a dwell inside
+  a loop still replayed against the wrong move. The recorder now stamps every
+  segment, dwell and tool change with `seq` from one counter
+  (`preview_ctx_t.next_seq`), and `gcode.parse` merges the three lists by it
+  instead of walking line numbers — the emission order reproduced exactly,
+  with no assumption about line numbers at all.
+  Note recorded while doing it: `Dwell.line_no` and `ToolChange.line_no` are
+  approximate — the canon interface passes no line number to DWELL or
+  CHANGE_TOOL (as in classic emccanon), so they inherit the last motion's.
+  Their `file_idx` and `seq` are exact. Documented in the IDL; fixing the
+  line numbers means a canon API change and a departure from classic.
+  Tests: `internal/ngcpreview/eventorder_test.go`,
+  `tests/axis-subfile-highlight` (replay-honours-emission-order).
+  **Still deferred (wire change):** mid-program G5x/G92/rotation changes — the
   server records only the LAST offset, so a G54→G55 multi-fixture program
   draws both fixtures at the final offset. Needs offset-change events in the
   segment stream; same deferral class as the pyvcp watch seq marker.

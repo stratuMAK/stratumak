@@ -166,10 +166,8 @@ static int iniLoad(iocontrol_module *m)
         }
     }
 
-    val = env->ini->get(env->ini->ctx, "EMCIO", "RANDOM_TOOLCHANGER");
-    if (val) {
-        m->random_toolchanger = atoi(val);
-    }
+    // random_toolchanger is NOT read from the INI: it is the tool store's
+    // property, asked for in iocontrol_start once m->tt is bound.
 
     return 0;
 }
@@ -935,6 +933,21 @@ static int iocontrol_start(cmod_t *self)
             m->tooltable_instance);
         return -1;
     }
+
+    // What an idx means — carousel pocket or synthetic slot — belongs to the
+    // store we just bound, which is told once on its load line. Reading
+    // [EMCIO]RANDOM_TOOLCHANGER here as well would let this instance disagree
+    // with the very table it restores the spindle from: on a multi-instance
+    // server every INI reader resolved the same global section, whatever
+    // store it was wired to.
+    tooltable_store_info_t ttinfo;
+    if (m->tt->get_info(m->tt->ctx, &ttinfo) != 0) {
+        gomc_log_errorf(m->env->log, m->name,
+            "IOCONTROL: ERROR: tool table '%s' would not say whether it is a "
+            "random changer", m->tooltable_instance);
+        return -1;
+    }
+    m->random_toolchanger = ttinfo.random_toolchanger;
 
     // RANDOM_TOOLCHANGER: restore the tool physically loaded in the spindle
     // from the spindle slot — 2.9 ioControl inits toolInSpindle from tooldata
