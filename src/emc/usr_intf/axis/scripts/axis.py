@@ -3898,7 +3898,15 @@ def units(s, d=1.0):
 # told once on its load line, and its instance is the one milltask reports
 # through /info (gmi.tooltable_instance()). Reading the INI here resolved the
 # global section, which on a multi-instance server need not be this machine's.
-random_toolchanger = int(gmi.ToolSlots().random_toolchanger())
+try:
+    random_toolchanger = int(gmi.ToolSlots().random_toolchanger())
+except Exception as e:
+    # A store that cannot answer /info right now must not turn AXIS startup
+    # into a traceback — the classic INI read silently defaulted to 0 here.
+    # Non-random is the default the store itself falls back to; the tool
+    # display degrades, nothing else depends on it before the first poll.
+    print("axis: tool store /info unavailable, assuming non-random toolchanger:", e, file=sys.stderr)
+    random_toolchanger = 0
 jointcount = int(inifile.find("KINS", "JOINTS"))
 open_directory = inifile.find("DISPLAY", "PROGRAM_PREFIX") or open_directory
 vars.machine.set(inifile.find("EMC", "MACHINE"))

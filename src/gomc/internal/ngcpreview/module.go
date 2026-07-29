@@ -1045,9 +1045,15 @@ func (m *ngcPreview) Start() error {
 		// it previews for, and only the store is told once.
 		info, err := m.ttClient.GetInfo()
 		if err != nil {
-			return fmt.Errorf("ngcpreview: tooltable get_info (%s): %w", m.ttInstanceName, err)
+			// A store that cannot answer degrades the preview the same way a
+			// wholly absent store does (the warning above); a module that
+			// tolerates the stronger failure must not die on the weaker one.
+			m.logger.Warn("ngcpreview: tooltable get_info failed, tool data will be empty",
+				"instance", m.ttInstanceName, "err", err)
+			m.ttClient = nil
+		} else {
+			m.randomToolchanger, m.randomToolchangerKnown = info.RandomToolchanger, true
 		}
-		m.randomToolchanger, m.randomToolchangerKnown = info.RandomToolchanger, true
 	}
 
 	// Look up persist API for read-only parameter loading (required).

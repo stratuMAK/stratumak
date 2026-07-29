@@ -304,6 +304,18 @@ func (m *milltaskModule) Start() error {
 		return fmt.Errorf("milltask: tooltable get_info (%s): %w", ttInstance, err)
 	}
 	t.randomToolchanger = ttInfo.RandomToolchanger
+	// Migration catch: a hand-written HAL file that still loads a bare
+	// `load tooltable` under an INI that sets [EMCIO]RANDOM_TOOLCHANGER used
+	// to get random semantics from the store's own INI read. The store no
+	// longer reads the INI — silence here would flip every idx from carousel
+	// pocket to synthetic slot with nothing logged, so say it loudly.
+	if v := strings.TrimSpace(m.ini.Get("EMCIO", "RANDOM_TOOLCHANGER")); v != "" {
+		iniRandom := v != "0"
+		if iniRandom != ttInfo.RandomToolchanger {
+			m.logger.Warn("milltask: [EMCIO]RANDOM_TOOLCHANGER is set in the INI but the tool store was loaded without a matching random_toolchanger= parameter; the store's load line wins",
+				"ini", v, "store", ttInfo.RandomToolchanger, "tooltable", ttInstance)
+		}
+	}
 
 	// Create inihal HAL component for runtime INI parameter override.
 	ih, err := newIniHal(m.name+".inihal", t.numJoints)
