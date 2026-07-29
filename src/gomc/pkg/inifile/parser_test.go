@@ -844,3 +844,48 @@ COORDINATES = XYZ
 		t.Errorf("SourceFile mismatch: %q vs %q", ns.SourceFile(), ini.SourceFile())
 	}
 }
+
+func TestWithNamespace_AllSectionsResolved(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "nsall.ini", `
+[EMCIO]
+TOOL_TABLE = mill1.tbl
+
+[mill2:EMCIO]
+TOOL_TABLE = mill2.tbl
+RANDOM_TOOLCHANGER = 1
+
+[HAL]
+HALFILE = x.hal
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// Without a namespace: identical to AllSections.
+	m := ini.AllSectionsResolved()
+	if m["EMCIO"]["TOOL_TABLE"] != "mill1.tbl" || m["EMCIO"]["RANDOM_TOOLCHANGER"] != "" {
+		t.Errorf("un-namespaced view = %v, want the raw sections", m["EMCIO"])
+	}
+
+	// With one: the template's view of [EMCIO] must agree with what a
+	// [EMCIO]KEY substitution will read through Get — a guard like
+	// `{{if ini "EMCIO" "RANDOM_TOOLCHANGER"}}` judged on the raw map would
+	// silently drop the parameter for exactly the namespaced instance.
+	ns := ini.WithNamespace("mill2")
+	m = ns.AllSectionsResolved()
+	for _, key := range []string{"TOOL_TABLE", "RANDOM_TOOLCHANGER"} {
+		if got, want := m["EMCIO"][key], ns.Get("EMCIO", key); got != want {
+			t.Errorf("resolved view [EMCIO]%s = %q, Get = %q; template guard and substitution disagree",
+				key, got, want)
+		}
+	}
+	// Sections without an overlay, and the literal prefixed names, survive.
+	if m["HAL"]["HALFILE"] != "x.hal" {
+		t.Errorf("[HAL] lost in resolution: %v", m["HAL"])
+	}
+	if m["mill2:EMCIO"]["TOOL_TABLE"] != "mill2.tbl" {
+		t.Errorf("literal [mill2:EMCIO] no longer addressable: %v", m["mill2:EMCIO"])
+	}
+}

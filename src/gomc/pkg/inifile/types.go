@@ -10,6 +10,8 @@
 //   - Repeated keys (all values are preserved)
 package inifile
 
+import "strings"
+
 // Entry represents a single key-value pair within an INI section.
 type Entry struct {
 	// Key is the entry key (left side of =).
@@ -83,6 +85,37 @@ func (ini *IniFile) AllSections() map[string]map[string]string {
 		}
 		for _, entry := range sec.Entries {
 			m[sec.Name][entry.Key] = entry.Value
+		}
+	}
+	return m
+}
+
+// AllSectionsResolved is AllSections with the namespace applied: entries of
+// [ns:SECTION] overlay those of [SECTION] under the base section name,
+// exactly as Get resolves an individual key. Template rendering must see the
+// same view that the [SECTION]KEY substitutions it emits will read — a guard
+// like `{{if ini "EMCIO" "TOOL_TABLE"}}` judged on the raw map would disagree
+// with the namespaced value it guards, silently dropping the parameter for
+// exactly the instance the namespace exists to configure. The literal
+// (prefixed) section names remain present alongside the merged ones.
+func (ini *IniFile) AllSectionsResolved() map[string]map[string]string {
+	m := ini.AllSections()
+	if ini.namespace == "" {
+		return m
+	}
+	prefix := ini.namespace + ":"
+	for name, entries := range m {
+		base, ok := strings.CutPrefix(name, prefix)
+		if !ok || base == "" {
+			continue
+		}
+		dst := m[base]
+		if dst == nil {
+			dst = make(map[string]string, len(entries))
+			m[base] = dst
+		}
+		for k, v := range entries {
+			dst[k] = v
 		}
 	}
 	return m
