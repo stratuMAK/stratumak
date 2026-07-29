@@ -74,17 +74,21 @@ source = os.path.abspath("shape.tst")
 start = time.time()
 c.program_open(source)
 elapsed = time.time() - start
+saw_filtering, saw_progress = wait_filter_done()
 
-# The fixture converter takes about a second. Returning faster than it can
-# possibly have finished is the proof that the controller did not run it
-# inline — a blocking open would have taken at least as long as the converter.
-if elapsed < 0.5:
+# Non-blocking means program_open returned while the conversion was still
+# running. The wall-clock bound alone would flake on a loaded runner — the
+# REST round-trip sits in the numerator while the converter's ~1.2s floor
+# (fixture sleeps, which do NOT scale with GOMC_TEST_TIMEOUT_SCALE) sits in
+# the denominator — so a slow-but-correct open is rescued by the direct
+# observation: stat.filtering was seen true after program_open had returned.
+# An inline (blocking) open fails both arms: it takes at least the converter's
+# runtime AND completes with filtering already false.
+if elapsed < 1.0 or saw_filtering:
     ok("program-open-does-not-block")
 else:
     fail("program-open-does-not-block",
-         "program_open took %.2fs; the converter alone takes ~1s, so it ran inline" % elapsed)
-
-saw_filtering, saw_progress = wait_filter_done()
+         "program_open took %.2fs and the conversion was never seen running; it ran inline" % elapsed)
 if saw_filtering:
     ok("conversion-visible-in-status")
 else:
@@ -146,25 +150,13 @@ while e.poll():
     pass
 
 c.program_open(os.path.abspath("broken.bad"))
-wait_filter_done()
-time.sleep(0.3)
-s.poll()
 
-if s.file == converted:
-    ok("failure-keeps-the-loaded-program")
-else:
-    fail("failure-keeps-the-loaded-program",
-         "file=%r after a failed conversion, want the previous program %r" % (s.file, converted))
-if not s.filtering:
-    ok("failure-clears-filtering")
-else:
-    fail("failure-clears-filtering", "still reporting a conversion in progress")
-
-# The converter's own diagnosis is the only thing that tells an operator why
-# their file will not convert, so it has to reach the error channel rather
-# than being flattened into an exit code.
+# badfilter.sh fails in milliseconds, so the transient stat.filtering edge can
+# fall between two 20 Hz polls — waiting on that edge would burn the whole
+# timeout on a coin flip. The converter's diagnosis arriving on the error
+# channel IS the completion signal of a failed conversion, so wait on that.
 diag = ""
-deadline = time.time() + 5 * gomc_test.scale()
+deadline = time.time() + 15 * gomc_test.scale()
 while time.time() < deadline:
     msg = e.poll()
     if msg is None:
@@ -173,6 +165,27 @@ while time.time() < deadline:
     if "bad magic number" in str(msg):
         diag = str(msg)
         break
+
+s.poll()
+# "Keeps the loaded program" means more than the stat string still spelling
+# the old path: the FILE has to still exist and be servable — a failed
+# conversion that deleted it would leave get_file 404ing and a re-run
+# failing while the status looks perfectly healthy.
+res = preview.get_file(converted)
+if s.file == converted and not res.error and res.lines:
+    ok("failure-keeps-the-loaded-program")
+else:
+    fail("failure-keeps-the-loaded-program",
+         "file=%r (want %r), get_file error=%r lines=%d after a failed conversion"
+         % (s.file, converted, res.error, len(res.lines or [])))
+if not s.filtering:
+    ok("failure-clears-filtering")
+else:
+    fail("failure-clears-filtering", "still reporting a conversion in progress")
+
+# The converter's own diagnosis is the only thing that tells an operator why
+# their file will not convert, so it has to reach the error channel rather
+# than being flattened into an exit code.
 if diag:
     ok("failure-reports-the-converters-words")
 else:
@@ -181,11 +194,15 @@ else:
 
 # Nothing openable may be left behind from the half-written attempt: the
 # converter wrote a G21 before failing, and the preview would happily open it.
-stale = os.path.join(os.path.dirname(converted), "broken.ngc")
-if not os.path.exists(stale):
+# The loaded program must be the ONLY thing in the output directory — no
+# published partial, no .part temp file.
+leftovers = [f for f in os.listdir(os.path.dirname(converted))
+             if f != os.path.basename(converted)]
+if not leftovers:
     ok("failure-leaves-no-partial-program")
 else:
-    fail("failure-leaves-no-partial-program", "%s survives a failed conversion" % stale)
+    fail("failure-leaves-no-partial-program",
+         "%r survive a failed conversion" % leftovers)
 
 
 # --- an ordinary program still opens the ordinary way -----------------------

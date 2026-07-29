@@ -659,17 +659,24 @@ class GlCanonDraw:
             for x in buffer:
                 if min_depth < x.near:
                     min_depth, max_depth, names = (x.near, x.far, x.names)
-            # The GL name is a location id, so a pick knows which FILE it
-            # landed in — clicking a called sub-file's toolpath used to come
-            # back as a bare line number and select that line of whatever was
-            # on screen.
-            loc = self.canon.location(names[0]) if self.canon is not None else None
-            if loc is None:
-                self.set_highlight_line(None)
-            else:
-                self.set_picked_location(loc[0], loc[1])
+            self.dispatch_pick(names)
         else:
             self.set_highlight_line(None)
+
+    def dispatch_pick(self, names):
+        """Resolve a GL hit-buffer name list into a picked source location.
+
+        The GL name is a location id, so a pick knows which FILE it landed
+        in — clicking a called sub-file's toolpath used to come back as a
+        bare line number and select that line of whatever was on screen.
+        Split from select() so the resolution logic exists apart from the GL
+        plumbing around it.
+        """
+        loc = self.canon.location(names[0]) if self.canon is not None else None
+        if loc is None:
+            self.set_highlight_line(None)
+        else:
+            self.set_picked_location(loc[0], loc[1])
 
         glMatrixMode(GL_PROJECTION)
         glPopMatrix()

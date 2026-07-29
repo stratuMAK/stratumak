@@ -244,8 +244,14 @@ func TestFilteredOutputIsolatedPerInstance(t *testing.T) {
 }
 
 // Abort means everything in progress stops, and a filter can run for minutes.
+//
+// The fixture script must stay FAST: the nothing-published assertion below is
+// only falsifiable if an un-cancelled filter would have finished (and so
+// published) inside the observation window. With a slow script the assertion
+// passes no matter how broken the cancellation is, because the filter is
+// still mid-sleep when the check runs.
 func TestAbortCancelsFiltering(t *testing.T) {
-	task, dir := filterTask(t, "sleep 30; echo 'M2'\n")
+	task, dir := filterTask(t, "sleep 0.4; echo 'M2'\n")
 	src := writeSource(t, dir, "slow.tst", "junk\n")
 	if err := task.ProgramOpen(src); err != nil {
 		t.Fatalf("ProgramOpen: %v", err)
@@ -266,7 +272,8 @@ func TestAbortCancelsFiltering(t *testing.T) {
 		t.Errorf("abort took %v to stop the filter", elapsed)
 	}
 	// Nothing may be published afterwards: the operator asked for it to stop.
-	time.Sleep(300 * time.Millisecond)
+	// 900ms comfortably covers the script's 0.4s runtime.
+	time.Sleep(900 * time.Millisecond)
 	if stat := task.BuildStat(); contains(stat.Task.SourceFile, "slow.tst") {
 		t.Error("a cancelled filter still published its program")
 	}
@@ -327,6 +334,39 @@ func TestSecondOpenWhileFilteringRejected(t *testing.T) {
 	if err := task.ProgramOpen(second); err == nil {
 		t.Error("a second open was accepted while the first was still filtering; " +
 			"two filters would race to publish a program")
+	}
+}
+
+// A broken [FILTER] section (here: an unparseable FILTER_TIMEOUT) rejects the
+// open up front, with the reason on the operator channel, and starts nothing.
+func TestFilterConfigErrorRejectsOpen(t *testing.T) {
+	task, dir := filterTask(t, "echo 'M2'\n")
+	orig := task.iniGet
+	task.iniGet = func(section, key string) string {
+		if section == "FILTER" && key == "FILTER_TIMEOUT" {
+			return "soon"
+		}
+		return orig(section, key)
+	}
+	src := writeSource(t, dir, "x.tst", "junk\n")
+	if err := task.ProgramOpen(src); err == nil {
+		t.Fatal("an unparseable FILTER_TIMEOUT was accepted")
+	}
+	stat := task.BuildStat()
+	if stat.Task.Filtering {
+		t.Error("a rejected open still started a conversion")
+	}
+	if contains(stat.Task.SourceFile, "x.tst") {
+		t.Error("a rejected open still published the program")
+	}
+	var found bool
+	for _, m := range task.messageListSnapshot() {
+		if contains(m.Text, "FILTER_TIMEOUT") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the config error never reached the operator")
 	}
 }
 

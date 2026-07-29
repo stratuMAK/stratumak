@@ -200,6 +200,11 @@ func TestRunTimesOut(t *testing.T) {
 // argument, with no shell to interpret it.
 func TestRunPassesHostileFileNameAsOneArgument(t *testing.T) {
 	dir := t.TempDir()
+	// A shell that DID interpret the name would run `touch pwned` in the
+	// child's working directory — which the child inherits from this
+	// process. Chdir there so the canary check watches the spot a shell
+	// would actually write to; without this it could never fire.
+	t.Chdir(dir)
 	// Reports what it was actually handed, so the test sees the argument
 	// rather than trusting the mechanism.
 	conv := writeFilter(t, dir, "echoarg.sh", `printf '%s' "$1" > "$0.arg"`+"\n")
@@ -245,5 +250,72 @@ func TestRunCancellationStopsTheFilter(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("cancellation took %v", elapsed)
+	}
+}
+
+// A [FILTER] naming a converter that is not installed is the most common real
+// misconfiguration. It must surface as the filter's own error — naming the
+// program — and leave no output file behind for anything to open.
+func TestRunReportsMissingConverter(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "in.tst")
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "out.ngc")
+	missing := filepath.Join(dir, "no-such-converter")
+
+	err := (&Filter{Argv: []string{missing}, Timeout: 30 * time.Second}).
+		Run(context.Background(), src, dst, nil)
+	if err == nil {
+		t.Fatal("Run with a nonexistent converter reported success")
+	}
+	var fe *Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("error type %T, want *Error carrying the converter name", err)
+	}
+	if fe.Prog != missing {
+		t.Errorf("Error.Prog = %q, want the converter that could not start (%q)", fe.Prog, missing)
+	}
+	if !strings.Contains(err.Error(), "no such file") {
+		t.Errorf("error %q does not say the converter is missing", err)
+	}
+	if _, statErr := os.Stat(dst); statErr == nil {
+		t.Error("an output file survives a converter that never started")
+	}
+}
+
+// The output path not being creatable (missing directory, read-only target)
+// must fail up front with the path in the error, before any process starts.
+func TestRunReportsUncreatableOutput(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "in.tst")
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	conv := writeFilter(t, dir, "conv.sh", "echo G21\n")
+	dst := filepath.Join(dir, "no-such-subdir", "out.ngc")
+
+	err := (&Filter{Argv: []string{conv}, Timeout: 30 * time.Second}).
+		Run(context.Background(), src, dst, nil)
+	if err == nil {
+		t.Fatal("Run with an uncreatable output path reported success")
+	}
+	if !strings.Contains(err.Error(), dst) {
+		t.Errorf("error %q does not name the uncreatable output %q", err, dst)
+	}
+}
+
+// Filter is exported: a hand-built one with no argv must fail as an error,
+// never panic the process that hosts the controller.
+func TestRunEmptyArgvIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "in.tst")
+	if err := os.WriteFile(src, []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := (&Filter{}).Run(context.Background(), src, filepath.Join(dir, "out.ngc"), nil)
+	if err == nil {
+		t.Fatal("empty Argv reported success")
 	}
 }

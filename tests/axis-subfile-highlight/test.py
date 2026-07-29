@@ -275,7 +275,8 @@ picked = []
 
 
 class _PickCanonDraw(glcanon.GlCanonDraw):
-    """Just the pick-dispatch half of GlCanonDraw, with the GL removed."""
+    """GlCanonDraw with the GL removed; the pick handlers record instead of
+    driving a UI, so the test observes what the REAL dispatch delivers."""
     def __init__(self, canon):
         self.canon = canon
         self._dlists = {}   # GlCanonDraw.__del__ frees display lists from it
@@ -292,9 +293,21 @@ sub_seg_name = c.feed[2][0]      # sub.ngc line 2 — collides with main's line 
 loc = c.location(sub_seg_name)
 if loc != (1, 2):
     fail("pick-location", "GL name %r resolves to %r, want (1, 2)" % (sub_seg_name, loc))
-d.set_picked_location(*loc)
+# Drive the production dispatch (everything select() does below the GL
+# hit-buffer scan): it must resolve the name through the canon and deliver
+# (file, line) to set_picked_location. Calling the recorder directly here
+# would only test the test.
+d.dispatch_pick([sub_seg_name])
 if picked != [(1, 2)]:
     fail("pick-dispatch", "pick delivered %r, want [(1, 2)]" % (picked,))
+# An unknown GL name must clear the highlight, not crash or deliver a stale
+# location.
+del picked[:]
+d.dispatch_pick([999999])
+if picked != [("line-only", None)]:
+    fail("pick-unknown-name", "unknown name delivered %r, want the highlight "
+         "cleared via set_highlight_line(None)" % (picked,))
+del picked[:]
 ok("pick-resolves-to-file-and-line")
 
 # The default behaviour for a UI that shows only one file is unchanged: the
