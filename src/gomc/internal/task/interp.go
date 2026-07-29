@@ -211,8 +211,12 @@ func (i *CInterp) ErrorText(errcode int) string {
 }
 
 func (i *CInterp) FileName() string {
-	var buf [256]C.char
-	p := C.interp_file_name(i.handle, &buf[0], 256)
+	// Sized to _setup.filename (PATH_MAX): Interp::file_name answers a name
+	// that does not fit with the EMPTY string, not a truncation — an
+	// undersized buffer here would silently switch off the whole (file, line)
+	// trace for any program under a deep enough PROGRAM_PREFIX.
+	var buf [4096]C.char
+	p := C.interp_file_name(i.handle, &buf[0], C.size_t(len(buf)))
 	if p == nil {
 		return ""
 	}
