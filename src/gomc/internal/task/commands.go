@@ -875,6 +875,14 @@ func (t *Task) openProgramFileLocked(gcode, source string) error {
 	if err := t.rejectIfBusyLocked("Can't open a program while one is running"); err != nil {
 		return err
 	}
+	// A newer open supersedes an in-flight conversion: cancel it and
+	// invalidate its generation, or its result would silently replace THIS
+	// program minutes from now, when the filter finishes and the operator has
+	// long moved on. No-op when called from the filter goroutine itself,
+	// which clears the flag before publishing.
+	if cancel := t.cancelFilteringLocked(); cancel != nil {
+		defer cancel()
+	}
 	if t.interp != nil {
 		// Close any previously open file before opening a new one.
 		_ = t.interp.Close()
@@ -1008,6 +1016,17 @@ func (t *Task) filteredOutputPath(source string) (string, error) {
 // Called by abort and at shutdown.
 func (t *Task) cancelFiltering() {
 	t.mu.Lock()
+	cancel := t.cancelFilteringLocked()
+	t.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// cancelFilteringLocked invalidates an in-flight conversion and hands its
+// context-cancel function to the caller, who must invoke it (holding t.mu is
+// fine — it only signals the filter's context). Nil when nothing is in flight.
+func (t *Task) cancelFilteringLocked() context.CancelFunc {
 	cancel := t.filterCancel
 	t.filterCancel = nil
 	if t.filtering {
@@ -1015,10 +1034,7 @@ func (t *Task) cancelFiltering() {
 		t.filtering = false
 		t.filterProgress = 0
 	}
-	t.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
+	return cancel
 }
 
 // AutoCommand handles run/pause/resume/step/reverse in AUTO mode.

@@ -187,6 +187,50 @@ func TestAbortCancelsFiltering(t *testing.T) {
 	}
 }
 
+// A plain (unfiltered) open issued while a filter is in flight supersedes the
+// conversion: its result must never be published over the program the
+// operator asked for afterwards. The filter script here is fast enough to
+// finish inside the observation window, so if neither the cancellation nor
+// the generation check worked, the stale publish WOULD happen and the test
+// fails — do not slow the script down.
+func TestPlainOpenSupersedesFiltering(t *testing.T) {
+	task, dir := filterTask(t, "sleep 0.3; echo 'M2'\n")
+	src := writeSource(t, dir, "slow.tst", "junk\n")
+	if err := task.ProgramOpen(src); err != nil {
+		t.Fatalf("ProgramOpen(filtered): %v", err)
+	}
+	task.mu.Lock()
+	filtering := task.filtering
+	task.mu.Unlock()
+	if !filtering {
+		t.Fatal("filter did not start")
+	}
+
+	plain := writeSource(t, dir, "plain.ngc", "G21\nM2\n")
+	if err := task.ProgramOpen(plain); err != nil {
+		t.Fatalf("ProgramOpen(plain) while filtering: %v", err)
+	}
+	stat := task.BuildStat()
+	if stat.Task.Filtering {
+		t.Error("the plain open left the superseded filter running in the status")
+	}
+	if stat.Task.File != pathres.Canonical(plain) {
+		t.Fatalf("file = %q, want the plain program %q", stat.Task.File, plain)
+	}
+
+	// Give the superseded conversion time to reach the point where it would
+	// have published its result.
+	time.Sleep(800 * time.Millisecond)
+	stat = task.BuildStat()
+	if stat.Task.File != pathres.Canonical(plain) {
+		t.Errorf("file became %q after the superseded filter finished, want %q",
+			stat.Task.File, plain)
+	}
+	if contains(stat.Task.SourceFile, "slow.tst") {
+		t.Error("the superseded filter still published its source_file")
+	}
+}
+
 func TestSecondOpenWhileFilteringRejected(t *testing.T) {
 	task, dir := filterTask(t, "sleep 2; echo 'M2'\n")
 	first := writeSource(t, dir, "one.tst", "junk\n")

@@ -415,8 +415,10 @@ type Task struct {
 	filtering      bool
 	filterProgress int32
 	filterCancel   context.CancelFunc
-	// Bumped by every program open and by abort. The filter goroutine captures
-	// it and refuses to publish a result that a later command has superseded.
+	// Bumped when a conversion starts and whenever an in-flight one is
+	// superseded: by abort, at shutdown, and by a newer program open. The
+	// filter goroutine captures it and refuses to publish a result that a
+	// later command has superseded.
 	filterGen int64
 	// programRes resolves G-code paths against the program directories
 	// (PROGRAM_PREFIX + SUBROUTINE_PATH + share).  Built in loadConfig.
