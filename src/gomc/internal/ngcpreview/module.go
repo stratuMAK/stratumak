@@ -1084,6 +1084,12 @@ func ctxFiles(ctx *C.preview_ctx_t) []string {
 		// client matches the file it is displaying against this table.
 		// find_ngc_file's first branch opens a cwd-relative name as-is, and
 		// cwd is this process's, so canonicalising here is still meaningful.
+		//
+		// Caveat: the C recorder interns by the interpreter's RAW spelling,
+		// so one file reached under two spellings would occupy two indices
+		// that canonicalise to the same string here. Harmless for matching
+		// (both entries compare equal), but a client building a path->index
+		// map must expect duplicates and keep the first.
 		out[i] = pathres.Canonical(C.GoString(cfiles[i]))
 	}
 	return out
@@ -1289,6 +1295,13 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 				break
 			}
 			if rc != C.INTERP_SHIM_OK {
+				// Attribute the failure to where the READER was: entering a
+				// sub-file happens while the o-call executes, so on a failing
+				// first read of that sub, ctx.file_idx and curSeq still hold
+				// the caller's location. The interpreter has already counted
+				// the failing line, so no +1 below.
+				C.preview_ctx_track_file(ctx, h)
+				curSeq = int32(C.interp_shim_sequence_number(h))
 				break
 			}
 			readCount++
@@ -1342,7 +1355,7 @@ func (m *ngcPreview) GenPreview(filename string, initcodes string, unitcode stri
 		errMsg = fmt.Sprintf("line %d%s: execute error %d: %s", curSeq, errWhere, lastExecRC, errText)
 	} else if lastReadRC != C.INTERP_SHIM_OK && lastReadRC != C.INTERP_SHIM_ENDFILE {
 		errText := shimErrorText(h, lastReadRC)
-		errMsg = fmt.Sprintf("line %d%s: read error %d: %s", curSeq+1, errWhere, lastReadRC, errText)
+		errMsg = fmt.Sprintf("line %d%s: read error %d: %s", curSeq, errWhere, lastReadRC, errText)
 	} else if boundMsg != "" {
 		errMsg = boundMsg
 	}

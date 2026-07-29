@@ -86,6 +86,30 @@ func TestSplitArgs(t *testing.T) {
 	if _, err := splitArgs(`conv "unbalanced`); err == nil {
 		t.Error("unbalanced quote accepted")
 	}
+
+	// Multi-byte UTF-8 must pass through byte-identical: a converter under
+	// /opt/Zubehör must exec as spelled, not as a doubly-encoded path that
+	// LOOKS right in the error message.
+	if got, err := splitArgs("/opt/Zubehör/conv --grüße"); err != nil ||
+		len(got) != 2 || got[0] != "/opt/Zubehör/conv" || got[1] != "--grüße" {
+		t.Errorf("splitArgs(non-ASCII) = %q, %v", got, err)
+	}
+
+	// Classic ran specs through `sh -c`; passing unquoted shell syntax on as
+	// literal argv would fail at run time with the tool's own confusion.
+	// Reject it as the config error it now is — quoting keeps it literal.
+	for _, spec := range []string{
+		"conv | tee /tmp/log", "conv $HOME/x", "conv a && b", "conv (x)",
+	} {
+		if _, err := splitArgs(spec); err == nil ||
+			!strings.Contains(err.Error(), "shell syntax") {
+			t.Errorf("splitArgs(%q) = %v, want a shell-syntax rejection", spec, err)
+		}
+	}
+	if got, err := splitArgs(`conv 'a|b' "c$d"`); err != nil ||
+		len(got) != 3 || got[1] != "a|b" || got[2] != "c$d" {
+		t.Errorf("quoted metacharacters must stay literal: %q, %v", got, err)
+	}
 }
 
 // writeFilter drops an executable shell script and returns its path.

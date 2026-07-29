@@ -34,7 +34,7 @@ sys.excepthook = sys.__excepthook__
 
 import gettext;
 
-import array, time, atexit, tempfile, shutil, errno, select, re, getopt
+import array, time, atexit, tempfile, shutil, errno, re, getopt
 import traceback
 
 import tkinter as Tkinter
@@ -1329,7 +1329,8 @@ class AxisCanon(GLCanon, StatMixin):
 
     def next_line(self, st):
         GLCanon.next_line(self, st)
-        self.progress.update(self.lineno)
+        # lineno is an interned location id now; the bar was sized in LINES.
+        self.progress.update(st.sequence_number)
         if self.notify:
             notifications.add("info",self.notify_message)
             self.notify = 0
@@ -1726,7 +1727,7 @@ def adopt_server_program():
     _pending_autofit = True
     root_window.after_idle(refresh_preview_if_idle)
 
-def open_file_guts(f, filtered=False, addrecent=True):
+def open_file_guts(f, addrecent=True):
     s.poll()
     if addrecent:
         add_recent_file(f)
@@ -2372,7 +2373,7 @@ def run_warn():
             1, _("Re-Check"), _("Run Anyway"), _("Cancel"))) + 1
     return 0
 
-def reload_file(refilter=True):
+def reload_file():
     if running(): return
     s.poll()
     if not loaded_file:
@@ -2384,7 +2385,7 @@ def reload_file(refilter=True):
     # Re-opening the source is enough: if it needs a [FILTER] the controller
     # re-runs it, which is what "reload" has to mean for a filtered program —
     # the source may have changed since it was converted.
-    open_file_guts(loaded_file, False, False)
+    open_file_guts(loaded_file, addrecent=False)
     if line:
         o.set_highlight_line(line)
 
@@ -2634,7 +2635,7 @@ class TclCommands(nf.TclCommands):
         c.wait_complete()
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
 
 
     def gcode_properties(event=None):
@@ -3333,7 +3334,7 @@ class TclCommands(nf.TclCommands):
         c.wait_complete()
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
 
     def touch_off_system(event=None, new_axis_value = None):
         global system
@@ -3367,7 +3368,7 @@ class TclCommands(nf.TclCommands):
 
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
         o.redraw_dro()
 
     def touch_off_tool(event=None, new_axis_value = None):
@@ -3407,7 +3408,7 @@ class TclCommands(nf.TclCommands):
 
         s.poll()
         o.tkRedraw()
-        reload_file(False)
+        reload_file()
         o.redraw_dro()
 
     def set_axis_offset(event=None):
@@ -4671,7 +4672,7 @@ elif server_present == 1:
 
 if initialfile and os.path.exists(initialfile):
     _pending_autofit = True
-    open_file_guts(initialfile, False, addrecent)
+    open_file_guts(initialfile, addrecent)
 
 # Remember which task this startup state came from, so the first update() cycle
 # does not mistake it for a reconnect and re-adopt what we have just set up.

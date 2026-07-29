@@ -307,15 +307,23 @@ func killGroup(cmd *exec.Cmd) error {
 // splitArgs splits an INI filter spec into argv the way a shell would, minus
 // the shell: quotes group, backslash escapes the next character. Everything
 // else — pipelines, redirection, variable expansion — is deliberately not
-// supported, because supporting it means handing the file name to a shell.
+// supported, because supporting it means handing the file name to a shell;
+// an UNQUOTED shell metacharacter is rejected outright, because classic ran
+// these specs through `sh -c` and passing the characters on as literal
+// arguments would turn an old config's pipeline into a baffling runtime
+// failure instead of a clear config error.
 func splitArgs(spec string) ([]string, error) {
 	var args []string
 	var cur strings.Builder
-	var quote rune
+	var quote byte
 	started := false
 
+	// Byte-wise on purpose, byte-written on purpose: every character with
+	// syntactic meaning here is ASCII, and multi-byte UTF-8 sequences must
+	// pass through untouched — converting a lone byte to a rune would
+	// re-encode it and corrupt every non-ASCII path.
 	for i := 0; i < len(spec); i++ {
-		c := rune(spec[i])
+		c := spec[i]
 		switch {
 		case c == '\\' && quote != '\'':
 			i++
@@ -328,7 +336,7 @@ func splitArgs(spec string) ([]string, error) {
 			if c == quote {
 				quote = 0
 			} else {
-				cur.WriteRune(c)
+				cur.WriteByte(c)
 			}
 		case c == '\'' || c == '"':
 			quote = c
@@ -339,8 +347,10 @@ func splitArgs(spec string) ([]string, error) {
 				cur.Reset()
 				started = false
 			}
+		case strings.IndexByte("|&;<>$`()", c) >= 0:
+			return nil, fmt.Errorf("shell syntax (%c) is not supported in a filter command; wrap the pipeline in a script and name that", c)
 		default:
-			cur.WriteRune(c)
+			cur.WriteByte(c)
 			started = true
 		}
 	}

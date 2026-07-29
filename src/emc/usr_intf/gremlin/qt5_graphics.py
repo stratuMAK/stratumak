@@ -168,7 +168,8 @@ class StatCanon(glcanon.GLCanon, interpret.StatMixin):
 
     def next_line(self, st):
         glcanon.GLCanon.next_line(self, st)
-        self.progress.update(self.lineno)
+        # lineno is an interned location id now; the bar was sized in LINES.
+        self.progress.update(st.sequence_number)
         if self.notify:
             self.output_notify_message(self.notify_message)
             self.notify = 0

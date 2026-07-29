@@ -324,7 +324,7 @@ setup_menu_accel .menu.view end [_ "Alpha-_blend program"]
 .menu.view add checkbutton \
 	-variable follow_subfile \
 	-command toggle_follow_subfile
-setup_menu_accel .menu.view end [_ "_Follow sub-files"]
+setup_menu_accel .menu.view end [_ "Follow s_ub-files"]
 
 .menu.view add checkbutton \
 	-variable show_live_plot \

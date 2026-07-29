@@ -16,7 +16,11 @@
 @author "Thomas Kramer (canon.hh)"
 @author "Sascha Ittner <sascha.ittner@modusoft.de>"
 @license "GPL Version 2"
-@version 1
+# version 2: dwell() and change_tool() gained a leading lineno parameter —
+# the callback-table layout changed, so an implementation built against
+# version 1 must not be mixed with this header (stale objects in an
+# incremental build read lineno as half a double).
+@version 2
 @prefix canon
 @rest_export false
 
