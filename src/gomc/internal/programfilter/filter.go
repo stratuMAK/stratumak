@@ -24,6 +24,14 @@
 //   - Its own process group, killed as a group on timeout.
 //   - The real uid restored if the server ever runs with a different effective
 //     one. Under the capability model uid == euid, so this is normally a no-op.
+//   - No inherited descriptors — with a caveat. The Go runtime opens
+//     everything O_CLOEXEC, but exec only closes what is marked: a descriptor
+//     opened by linked C code WITHOUT O_CLOEXEC survives into the child. The
+//     in-tree cgo code follows the rule (the EtherCAT master's raw/XDP
+//     sockets, its tun and device handles — handles that would otherwise let
+//     a filter script inject frames onto the fieldbus). New C code that
+//     opens a long-lived descriptor must do the same, or it is handed to
+//     every filter that runs.
 //
 // Not covered: PR_SET_NO_NEW_PRIVS on the child, which Go's os/exec cannot set
 // without a helper process. A filter that execs a setuid binary can therefore
