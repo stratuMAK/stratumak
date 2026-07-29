@@ -5,6 +5,7 @@ package classicladder
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -168,6 +169,63 @@ func TestCLP_TimerSectionsUseBaseIDs(t *testing.T) {
 	gotIEC := firstDataLine(m.emitTimersIEC())
 	if gotIEC != "1,0,0" {
 		t.Errorf("emitTimersIEC first entry = %q, want \"1,0,0\"", gotIEC)
+	}
+}
+
+// arithmetic_expressions.csv numbers its entries, because COMPARE and OPERATE
+// elements refer to expressions by index. Dropping the numbers and writing only
+// the non-empty ones renumbers them, silently repointing every such element —
+// and makes any 2.9-written project unreadable, since its lines start with the
+// index.
+func TestCLP_SparseExpressionsKeepTheirIndex(t *testing.T) {
+	m := newTestModule(t)
+
+	// A sparse table: nothing at 0 or 1, expressions at 2 and 5.
+	exprs, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	exprs[2].Expr = "@200/0@>5"
+	exprs[5].Expr = "@200/1@:=@200/0@+1"
+	if _, err := m.SetExpressions(exprs); err != nil {
+		t.Fatalf("set expressions: %v", err)
+	}
+
+	emitted := m.emitArithmExprs()
+	if !strings.Contains(emitted, "0002,@200/0@>5") {
+		t.Errorf("emitted expressions lost their index:\n%s", emitted)
+	}
+
+	// Reload into a fresh instance and check the indices survived.
+	second := newTestModule(t)
+	second.parseArithmExprs(emitted)
+	got, err := second.GetExpressions()
+	if err != nil {
+		t.Fatalf("get reloaded expressions: %v", err)
+	}
+	if got[2].Expr != "@200/0@>5" {
+		t.Errorf("expression 2 = %q, want %q", got[2].Expr, "@200/0@>5")
+	}
+	if got[5].Expr != "@200/1@:=@200/0@+1" {
+		t.Errorf("expression 5 = %q, want %q", got[5].Expr, "@200/1@:=@200/0@+1")
+	}
+	if got[0].Expr != "" || got[1].Expr != "" {
+		t.Errorf("empty slots were filled: 0=%q 1=%q", got[0].Expr, got[1].Expr)
+	}
+}
+
+// The older format numbers expressions by position instead of prefixing them.
+func TestCLP_BareExpressionsNumberedByPosition(t *testing.T) {
+	m := newTestModule(t)
+	m.parseArithmExprs("#VER=2.0\n@200/0@>1\n@200/0@>2\n")
+
+	got, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	if got[0].Expr != "@200/0@>1" || got[1].Expr != "@200/0@>2" {
+		t.Errorf("positional expressions mis-numbered: 0=%q 1=%q",
+			got[0].Expr, got[1].Expr)
 	}
 }
 

@@ -10,6 +10,7 @@
  *   scan <ms>                         one PLC scan of <ms> milliseconds
  *   dump                              print the whole variable state
  *   prepare                           PrepareAllDatasBeforeRun()
+ *   dumpnum                           print just %Q0, %QW0, %QW1, %QF0
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPL Version 2
@@ -133,6 +134,17 @@ static void dump_state(void) {
     fflush(stdout);
 }
 
+/* A narrow dump for the numeric-pin test: the handful of outputs it samples,
+ * in the order the HAL test captures them. */
+static void dump_numeric(void) {
+    printf("NUM %d %d %d %d\n",
+           ReadVar(VAR_PHYS_OUTPUT, 0),
+           ReadVar(VAR_PHYS_WORD_OUTPUT, 0),
+           ReadVar(VAR_PHYS_WORD_OUTPUT, 1),
+           ReadVar(VAR_PHYS_FLOAT_OUTPUT, 0));
+    fflush(stdout);
+}
+
 /* The sizes have to be set before ClassicLadder_AllocAll(). They mirror the
  * ones the gomc side is configured with, so both engines see the same PLC. */
 static void set_sizes(void) {
@@ -196,6 +208,8 @@ int main(int argc, char *argv[]) {
             PrepareAllDatasBeforeRun();
         } else if (!strcmp(cmd, "dump")) {
             dump_state();
+        } else if (!strcmp(cmd, "dumpnum")) {
+            dump_numeric();
         }
     }
     return 0;

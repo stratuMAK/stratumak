@@ -452,16 +452,30 @@ func (m *classicladder) parseCounters(content string) {
 	}
 }
 
+// arithmetic_expressions.csv has two forms. The current one (#VER=2.0) writes
+// "NNNN,<expr>" for each non-empty expression, so that a sparse table keeps its
+// numbering — the COMPARE and OPERATE elements refer to expressions by index,
+// and renumbering them silently repoints every one of those elements. The older
+// form is a bare expression per line, numbered by position.
 func (m *classicladder) parseArithmExprs(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
-		if line == "" || line[0] == '#' {
+		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
-		if idx >= int(m.rt.sizes.nbr_arithm_expr) {
-			break
+		expr := line
+		if line[0] >= '0' && line[0] <= '9' {
+			comma := strings.IndexByte(line, ',')
+			if comma < 0 {
+				continue
+			}
+			idx = atoi(line[:comma])
+			expr = line[comma+1:]
 		}
-		copyGoStringToC(&m.rt.arithm_exprs[idx].expr[0], line, C.CL_ARITHM_EXPR_SIZE)
+		if idx < 0 || idx >= int(m.rt.sizes.nbr_arithm_expr) {
+			continue
+		}
+		copyGoStringToC(&m.rt.arithm_exprs[idx].expr[0], expr, C.CL_ARITHM_EXPR_SIZE)
 		idx++
 	}
 }
@@ -604,7 +618,9 @@ func (m *classicladder) emitArithmExprs() string {
 	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
 		expr := C.GoString(&m.rt.arithm_exprs[i].expr[0])
 		if expr != "" {
-			fmt.Fprintln(&b, expr)
+			// Index-prefixed: skipping the empty slots without saying which
+			// index each survivor had would renumber them on reload.
+			fmt.Fprintf(&b, "%04d,%s\n", i, expr)
 		}
 	}
 	return b.String()
