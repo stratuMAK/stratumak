@@ -1046,7 +1046,12 @@ class LivePlotter:
             if remote_file != (_server_program or ""):
                 _server_program = remote_file or None
                 if remote_file:
-                    load_text_and_set_file(remote_file)
+                    # source_file keeps the operator's own name when the task
+                    # holds a filter's output — that name, not the temp file,
+                    # is what this UI must treat as the loaded program.
+                    load_text_and_set_file(
+                        remote_file,
+                        getattr(self.stat, 'source_file', '') or None)
                     file_changed = True
                     global _awaiting_program
                     _awaiting_program = False
@@ -1103,7 +1108,10 @@ class LivePlotter:
         vupdate(vars.task_mode, self.stat.task_mode)
         vupdate(vars.task_state, self.stat.task_state)
         vupdate(vars.task_paused, self.stat.task_paused)
-        vupdate(vars.taskfile, self.stat.file)
+        # The title names what the operator opened; for a filtered program
+        # stat.file is the converter's temp output and source_file the real one.
+        vupdate(vars.taskfile,
+                getattr(self.stat, 'source_file', '') or self.stat.file)
 
         vupdate(vars.interp_pause, self.stat.paused)
         vupdate(vars.mist, self.stat.mist)
@@ -1460,14 +1468,20 @@ def _sync_highlight_fileno():
     # main program's identically numbered lines — match nothing instead.
     canon.highlight_fileno = -1 if displayed_subfile else 0
 
-def load_text_and_set_file(f):
+def load_text_and_set_file(f, source=None):
     """Load file text into the editor and update loaded_file.
 
     Used for multi-client sync — does NOT call program_open (the server
     already has the file open from the other client's action).
+
+    f is the G-code the task holds (stat.file); source is what the operator
+    opened (stat.source_file). They differ for a filtered program: the
+    listing shows the task's G-code, but loaded_file must keep naming the
+    source — reload and edit act on loaded_file, and re-filtering the source
+    is their meaning, not reloading a throwaway temp file.
     """
     global loaded_file, _listing_source, displayed_subfile
-    loaded_file = f
+    loaded_file = source or f
     try:
         lines = _fetch_file_lines(f)
         _fill_listing(lines)
@@ -1660,9 +1674,10 @@ def adopt_server_program():
         return
     # What we knew about the previous task's program says nothing about this
     # one — including the filtered-program alias, whose temp file died with it.
+    remote_source = getattr(s, 'source_file', '') or remote_file
     _server_program = remote_file
-    load_text_and_set_file(remote_file)
-    vars.taskfile.set(remote_file)
+    load_text_and_set_file(remote_file, remote_source)
+    vars.taskfile.set(remote_source)
     _pending_autofit = True
     root_window.after_idle(refresh_preview_if_idle)
 
