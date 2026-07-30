@@ -421,7 +421,10 @@ const selected = computed(() => {
 .rung-num { font-weight: 700; color: #89b4fa; min-width: 24px; }
 .rung-label { color: #a6e3a1; font-weight: 600; }
 .rung-comment { color: #a6adc8; font-style: italic; }
-.rung-svg { display: block; background: #181825; }
+/* The grid is ten cells wide whatever the window is, so the drawing scales to
+   the pane rather than leaving a dead strip beside it. The viewBox does the
+   work; cell coordinates, and so hit-testing, are unaffected. */
+.rung-svg { display: block; background: #181825; width: 100%; height: auto; }
 .rail { stroke: #89b4fa; stroke-width: 3; }
 .wire { stroke: #9399b2; stroke-width: 1.5; }
 .contact-bar { stroke: #a6e3a1; stroke-width: 2; }

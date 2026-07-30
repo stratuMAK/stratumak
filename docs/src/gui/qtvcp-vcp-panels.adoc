@@ -370,10 +370,9 @@ halrun -I -f my_panel.hal
 ----
 # load realtime components
 newthread thread1 1000000
-loadrt classicladder_rt
+load classicladder
 
 # load non-realtime programs
-loadusr classicladder
 loadusr -Wn my_panel qtvcp my_panel.ui  # <1>
 
 # add components to thread
