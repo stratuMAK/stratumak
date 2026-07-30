@@ -59,6 +59,9 @@ type classicladder struct {
 	modbus      *modbusMaster
 	modbusSlave *modbusSlave
 	slavePort   int
+	// Which HAL pin carries which ladder variable, recorded as the pins were
+	// created. Fixed after construction, so it needs no lock.
+	halPins []halPinRef
 }
 
 func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
@@ -165,7 +168,8 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 	}
 
 	// Create HAL pins
-	if err := createHALPins(rt, compID, name); err != nil {
+	halPins, err := createHALPins(rt, compID, name)
+	if err != nil {
 		C.hal_exit(compID)
 		C.classicladder_rt_free(rt)
 		return nil, err
@@ -183,6 +187,7 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		modbus:      newModbusMaster(rt, logger),
 		modbusSlave: newModbusSlave(rt, logger),
 		slavePort:   slavePort,
+		halPins:     halPins,
 	}
 
 	// Register REST API
@@ -245,65 +250,93 @@ func (m *classicladder) Destroy() {}
 
 // --- HAL pin creation ---
 
-func createHALPins(rt *C.classicladder_rt_t, compID C.int, name string) error {
+// halPinRef records which ladder variable a HAL pin carries. Built while the
+// pins are created rather than reconstructed later: the HAL-signal lookup needs
+// the same names, and a second place that spells them is a second place that can
+// drift (see the variable prefixes in the ladder view, which did).
+type halPinRef struct {
+	varType int
+	offset  int
+	pin     string
+	isInput bool
+}
+
+func createHALPins(rt *C.classicladder_rt_t, compID C.int, name string) ([]halPinRef, error) {
+	var refs []halPinRef
+	record := func(pin string, varType, offset int, isInput bool) {
+		refs = append(refs, halPinRef{varType: varType, offset: offset, pin: pin, isInput: isInput})
+	}
+
 	// Bit inputs
 	for i := C.int(0); i < rt.sizes.nbr_phys_inputs; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.in-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.in-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_bit_new(pinName, C.HAL_IN, &rt.hal_inputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin in-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin in-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_INPUT, int(i), true)
 	}
 
 	// Bit outputs
 	for i := C.int(0); i < rt.sizes.nbr_phys_outputs; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.out-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.out-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_bit_new(pinName, C.HAL_OUT, &rt.hal_outputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin out-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin out-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_OUTPUT, int(i), false)
 	}
 
 	// S32 inputs
 	for i := C.int(0); i < rt.sizes.nbr_s32_in; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.s32in-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.s32in-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_s32_new(pinName, C.HAL_IN, &rt.hal_s32_inputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin s32in-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin s32in-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_WORD_INPUT, int(i), true)
 	}
 
 	// S32 outputs
 	for i := C.int(0); i < rt.sizes.nbr_s32_out; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.s32out-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.s32out-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_s32_new(pinName, C.HAL_OUT, &rt.hal_s32_outputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin s32out-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin s32out-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_WORD_OUTPUT, int(i), false)
 	}
 
 	// Float inputs
 	for i := C.int(0); i < rt.sizes.nbr_float_in; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.floatin-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.floatin-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_float_new(pinName, C.HAL_IN, &rt.hal_float_inputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin floatin-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin floatin-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_FLOAT_INPUT, int(i), true)
 	}
 
 	// Float outputs
 	for i := C.int(0); i < rt.sizes.nbr_float_out; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.floatout-%02d", name, int(i)))
+		pin := fmt.Sprintf("%s.0.floatout-%02d", name, int(i))
+		pinName := C.CString(pin)
 		rv := C.hal_pin_float_new(pinName, C.HAL_OUT, &rt.hal_float_outputs[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin floatout-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin floatout-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_FLOAT_OUTPUT, int(i), false)
 	}
 
 	// hide_gui pin
@@ -311,10 +344,10 @@ func createHALPins(rt *C.classicladder_rt_t, compID C.int, name string) error {
 	rv := C.hal_pin_bit_new(pinName, C.HAL_IN, &rt.hal_hide_gui, compID)
 	C.free(unsafe.Pointer(pinName))
 	if rv != 0 {
-		return fmt.Errorf("failed to create hide_gui pin: %d", int(rv))
+		return nil, fmt.Errorf("failed to create hide_gui pin: %d", int(rv))
 	}
 
-	return nil
+	return refs, nil
 }
 
 // --- State accessors (atomic, safe from any goroutine) ---

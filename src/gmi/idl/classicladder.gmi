@@ -448,6 +448,31 @@ type VarClass {
 @path "/var_classes"
 func get_var_classes() -> []VarClass
 
+# --- HAL wiring ---
+#
+# The physical variables are HAL pins: %I3 is the pin classicladder.0.in-03. What
+# a reader of someone else's ladder wants to know about a contact is not that it
+# reads %I3 but that %I3 is wired to the estop chain — and only this side can
+# answer that, because the answer lives in HAL, not in the project file.
+
+type HalLink {
+    varType: i32       # VAR_* of the ladder variable
+    offset: i32
+    pin: string        # the HAL pin carrying it
+    signal: string     # the signal connected to that pin, empty if none
+    isInput: bool      # true if HAL drives the ladder, false if the ladder drives HAL
+}
+
+# Get the HAL wiring of every physical variable.
+#
+# Only variables backed by a pin appear: %B, %W, timers and the rest are internal
+# and have no wiring, so their absence is the answer rather than a special value.
+# The whole set comes back in one call because a rung view wants to annotate many
+# elements at once, and the set is small.
+@method GET
+@path "/hal_links"
+func get_hal_links() -> []HalLink
+
 # --- Sequential Function Chart (SFC) ---
 #
 # A section whose language is SEQUENTIAL runs a state machine instead of rungs.
