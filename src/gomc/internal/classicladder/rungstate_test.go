@@ -194,3 +194,69 @@ func TestWatchRungStates_KeyedByRungIndex(t *testing.T) {
 		t.Errorf("rung 2's contact reports no CELL_STATE (cells=%d) with %%I0 on", got)
 	}
 }
+
+// A block's input terminals arrive at its body cells, which carry no logic of
+// their own — the engine evaluates them anyway, precisely so a display can
+// colour those wires (2.9 draws E and C from the same power). This checks that
+// what the body cells report is the power the block acted on, since a client
+// has no other way to know and must not be left recomputing it.
+func TestRungStates_BlockInputTerminals(t *testing.T) {
+	m := newTestModule(t)
+	l := &ladderRT{rt: m.rt}
+
+	// %I0 --| |--+--[ Timer 0 ]--   E on row 0
+	// %I1 --| |--+                  C on row 1
+	l.put(0, 0, 0, eleInput, varPhysInput, 0)
+	l.put(0, 0, 1, eleInput, varPhysInput, 1)
+	l.putBlock(0, 2, 0, eleTimer, 0, 2, 2)
+	l.setTimer(0, 1000, 10000)
+	m.rt.rungs[0].used = 1
+	l.setMainSection(0, 0, 0)
+	l.prepareRun() // loads the preset, as a cold start does
+
+	// Enable only: the E terminal is powered, the C terminal is not, and a
+	// timer held enabled but not controlled sits still.
+	l.input(0, true)
+	l.input(1, false)
+	l.scan(1)
+
+	s := stateOf(t, mustStates(t, m), 0)
+	if got := cellAt(t, s, 1, 0); got&api.CELL_INPUT == 0 {
+		t.Errorf("the E terminal reports no CELL_INPUT (cells=%d) while %%I0 conducts", got)
+	}
+	if got := cellAt(t, s, 1, 1); got&api.CELL_INPUT != 0 {
+		t.Errorf("the C terminal reports CELL_INPUT (cells=%d) while %%I1 is open", got)
+	}
+	if got := cellAt(t, s, 2, 1); got&api.CELL_OUTPUT != 0 {
+		t.Errorf("the R output reports CELL_OUTPUT (cells=%d) while the timer is not counting", got)
+	}
+
+	// Both: the timer counts, and its R output leaves the block.
+	l.input(1, true)
+	l.scan(1)
+
+	if l.timerValue(0) >= 10000 || l.timerDone(0) {
+		t.Fatalf("the timer is not counting (value=%d done=%v) — the rung does not do what the test assumes",
+			l.timerValue(0), l.timerDone(0))
+	}
+
+	s = stateOf(t, mustStates(t, m), 0)
+	if got := cellAt(t, s, 1, 1); got&api.CELL_INPUT == 0 {
+		t.Errorf("the C terminal reports no CELL_INPUT (cells=%d) while %%I1 conducts", got)
+	}
+	if got := cellAt(t, s, 2, 1); got&api.CELL_OUTPUT == 0 {
+		t.Errorf("the R output reports no CELL_OUTPUT (cells=%d) while the timer runs", got)
+	}
+	if got := cellAt(t, s, 2, 0); got&api.CELL_OUTPUT != 0 {
+		t.Errorf("the D output reports CELL_OUTPUT (cells=%d) before the timer elapsed", got)
+	}
+}
+
+func mustStates(t *testing.T, m *classicladder) []api.RungState {
+	t.Helper()
+	states, err := m.GetRungStates()
+	if err != nil {
+		t.Fatalf("get rung states: %v", err)
+	}
+	return states
+}
