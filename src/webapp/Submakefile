@@ -155,7 +155,8 @@ $(CLASSICLADDER_NPM_STAMP): $(CLASSICLADDER_WEBAPP_SRC)/package.json
 	$(Q)cd $(CLASSICLADDER_WEBAPP_SRC) && npm install --no-audit --no-fund
 	$(Q)touch $@
 
-CLASSICLADDER_GEN_TS := $(WEBAPP_DIR)/classicladder/src/generated/classicladder_client.ts
+CLASSICLADDER_GEN_TS := $(WEBAPP_DIR)/classicladder/src/generated/classicladder_client.ts \
+	$(WEBAPP_DIR)/classicladder/src/generated/classicladder_watch_client.ts
 
 $(CLASSICLADDER_WEBAPP_STAMP): $(CLASSICLADDER_WEBAPP_SRCS) $(CLASSICLADDER_NPM_STAMP) $(CLASSICLADDER_GEN_TS)
 	$(ECHO) "Building classicladder webapp"

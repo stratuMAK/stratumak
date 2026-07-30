@@ -81,6 +81,14 @@ const VAR_PHYS_WORD_OUTPUT = 280    # %QW    HAL s32 output pin
 const VAR_PHYS_FLOAT_INPUT = 300    # %IF    HAL float input pin, truncated to s32
 const VAR_PHYS_FLOAT_OUTPUT = 310   # %QF    HAL float output pin, written from s32
 
+# Live cell state — the entries of RungState.cells, or'd together.
+const CELL_STATE = 1    # the element itself is on: a contact conducts, a coil
+                        # is energised, a block output is true
+const CELL_INPUT = 2    # power reaches the element from the left. Column 0 sits
+                        # on the power rail, so the engine never computes this
+                        # for it and leaves it clear — read column 0 as powered.
+const CELL_OUTPUT = 4   # power leaves the element to the right
+
 # Time bases — the `base` field of Timer, Monostable and TimerIEC.
 #
 # A block's preset and value are expressed in units of its base, not in
@@ -298,6 +306,21 @@ type Variables {
     floats: VarsFloat
 }
 
+# The live state of one rung's cells.
+#
+# What makes a running ladder legible is not the variable values but where the
+# power is: which contacts conduct, which wires carry it onward, which block
+# outputs are true. The engine works that out for every cell it scans — 2.9
+# calls it DynamicState/DynamicInput/DynamicOutput and its display draws from
+# it — so it is published rather than recomputed. A client that derived it
+# would be a second evaluator of the ladder, drifting from the one the machine
+# actually runs.
+type RungState {
+    rung: i32       # index into Program.rungs — also the key the watch uses
+    cells: []i32    # RUNG_WIDTH * RUNG_HEIGHT, row-major like Rung.elements;
+                    # each entry is CELL_* or'd together
+}
+
 # --- Control functions ---
 
 # Get PLC status (state, scan time, sizes).
@@ -405,6 +428,45 @@ func get_variables() -> Variables
 @method POST
 @path "/variable"
 func set_variable(varType: i32, offset: i32 @min(0), value: i32) -> i32
+
+# Get the live cell state of every used rung.
+#
+# Unused rungs are absent. The watch below returns the same states keyed by
+# RungState.rung so that it can be delta-encoded; this one is a plain list,
+# because a snapshot has nothing to diff against.
+@method GET
+@path "/rung_states"
+func get_rung_states() -> []RungState
+
+# --- Block parameters ---
+#
+# A block's number selects it; its parameters — how long a timer runs, what a
+# counter counts to — belong to the block, not to the element that names it.
+# They are set one block at a time, the way the element that uses them is, so
+# an editor never has to send back a whole program to change one preset.
+#
+# The counted-in-base-units rule from the constants above applies here: preset
+# is in units of base, not milliseconds.
+
+# Set an old-style timer's parameters.
+@method PUT
+@path "/timer/{index}"
+func set_timer(index: i32 @min(0), preset: i32 @min(0), base: i32) -> i32
+
+# Set a monostable's parameters.
+@method PUT
+@path "/monostable/{index}"
+func set_monostable(index: i32 @min(0), preset: i32 @min(0), base: i32) -> i32
+
+# Set a counter's preset.
+@method PUT
+@path "/counter/{index}"
+func set_counter(index: i32 @min(0), preset: i32 @min(0)) -> i32
+
+# Set an IEC timer's parameters.
+@method PUT
+@path "/timer_iec/{index}"
+func set_timer_iec(index: i32 @min(0), preset: i32 @min(0), base: i32, mode: TimerIECMode) -> i32
 
 # Load a .clp project file on the backend.
 @method POST
@@ -659,6 +721,19 @@ func get_expressions_text() -> []ExprText
 @path "/expressions/text"
 func set_expressions_text(texts: []ExprText) -> i32
 
+# Update one expression from written form.
+#
+# Only this entry is parsed and compiled, so an editor changing what one
+# element compares does not have to send back the rest of the table — and is
+# not refused because of an entry it never touched. That matters after a
+# lenient file load, which keeps an expression it could not compile and leaves
+# it inert: the whole-table call stands behind everything it is given, and so
+# would reject every later edit until the broken one was fixed. An empty text
+# clears the expression.
+@method PUT
+@path "/expression/{index}/text"
+func set_expression_text(index: i32 @min(0), text: string @maxlen(48)) -> i32
+
 # --- Watch functions (pushed to WS clients) ---
 
 # Live status pushed to connected clients (state + scan time).
@@ -670,3 +745,14 @@ func watch_status() -> Status
 @watch true
 @watch_default_rate 200ms
 func watch_variables() -> Variables
+
+# Live cell state pushed to clients, for animating the ladder view.
+#
+# Delta-encoded: the first message is every used rung, later ones carry only
+# the rungs whose cells changed. A rung that stops being used simply stops
+# being mentioned — deletions are not signalled, because the client renders
+# the rungs the program says exist, not the ones this call last mentioned.
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_rung_states() -> map[string]RungState

@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"fmt"
+	"strconv"
 	"syscall"
 	"unsafe"
 
@@ -212,6 +213,157 @@ func (m *classicladder) GetVariables() (*api.Variables, error) {
 	return &vars, nil
 }
 
+// GetRungStates returns where the power is in every used rung.
+func (m *classicladder) GetRungStates() ([]api.RungState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	states := make([]api.RungState, 0, int(m.rt.sizes.nbr_rungs))
+	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
+		if m.rt.rungs[i].used == 0 {
+			continue
+		}
+		states = append(states, api.RungState{Rung: int32(i), Cells: m.rungStateCells(i)})
+	}
+	return states, nil
+}
+
+// rungStateCells packs one rung's dynamic state into the wire form.
+//
+// These fields are written by the RT scan without the lock, as the variable
+// values are: what comes back is a snapshot of a running machine, which is the
+// point of it. Nothing structural is read here — the caller holds the lock for
+// that — so a scan landing mid-read can only mix cells from two consecutive
+// scans, 100ms of animation apart.
+func (m *classicladder) rungStateCells(idx int) []int32 {
+	cr := &m.rt.rungs[idx]
+	cells := make([]int32, C.CL_RUNG_WIDTH*C.CL_RUNG_HEIGHT)
+	for x := 0; x < C.CL_RUNG_WIDTH; x++ {
+		for y := 0; y < C.CL_RUNG_HEIGHT; y++ {
+			e := &cr.elements[x][y]
+			var v int32
+			if e.dynamic_state != 0 {
+				v |= api.CELL_STATE
+			}
+			if e.dynamic_input != 0 {
+				v |= api.CELL_INPUT
+			}
+			if e.dynamic_output != 0 {
+				v |= api.CELL_OUTPUT
+			}
+			cells[y*C.CL_RUNG_WIDTH+x] = v
+		}
+	}
+	return cells
+}
+
+// --- Block parameters ---
+
+// blockIndex bounds-checks the block number a setter was given.
+func blockIndex(kind string, index int32, count C.int) (int, error) {
+	if index < 0 || index >= int32(count) {
+		return 0, fmt.Errorf("%w: %s %d does not exist; %d are configured",
+			syscall.EINVAL, kind, index, int(count))
+	}
+	return int(index), nil
+}
+
+// checkBase refuses a time base this implementation does not know.
+//
+// The file parser is lenient and falls back to seconds, because a project that
+// half-loads is more use than one that does not load at all. An API write is
+// the opposite case: silently turning an unknown base into seconds would give
+// the operator a timer that runs for a length they did not ask for.
+func checkBase(base int32) (int, error) {
+	switch base {
+	case api.BASE_MINS, api.BASE_SECS, api.BASE_100MS:
+		return baseMsFromID(int(base)), nil
+	}
+	return 0, fmt.Errorf("%w: time base %d is not one of BASE_MINS(%d), BASE_SECS(%d), BASE_100MS(%d)",
+		syscall.EINVAL, base, api.BASE_MINS, api.BASE_SECS, api.BASE_100MS)
+}
+
+// SetTimer sets an old-style timer's preset and time base.
+//
+// The engine counts these in milliseconds while the API and the .clp file
+// count them in base units, so the preset is scaled on the way in — the same
+// conversion set_program does.
+func (m *classicladder) SetTimer(index int32, preset int32, base int32) (int32, error) {
+	i, err := blockIndex("timer", index, m.rt.sizes.nbr_timers)
+	if err != nil {
+		return -1, err
+	}
+	baseMs, err := checkBase(base)
+	if err != nil {
+		return -1, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rt.timers[i].base = C.int(baseMs)
+	m.rt.timers[i].preset = C.int(int(preset) * baseMs)
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// SetMonostable sets a monostable's pulse length and time base.
+func (m *classicladder) SetMonostable(index int32, preset int32, base int32) (int32, error) {
+	i, err := blockIndex("monostable", index, m.rt.sizes.nbr_monostables)
+	if err != nil {
+		return -1, err
+	}
+	baseMs, err := checkBase(base)
+	if err != nil {
+		return -1, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rt.monostables[i].base = C.int(baseMs)
+	m.rt.monostables[i].preset = C.int(int(preset) * baseMs)
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// SetCounter sets a counter's preset. Counters have no time base.
+func (m *classicladder) SetCounter(index int32, preset int32) (int32, error) {
+	i, err := blockIndex("counter", index, m.rt.sizes.nbr_counters)
+	if err != nil {
+		return -1, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rt.counters[i].preset = C.int(preset)
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// SetTimerIec sets an IEC timer's preset, time base and mode.
+//
+// Unlike the old-style timer this one counts in base units, so the preset is
+// stored as given.
+func (m *classicladder) SetTimerIec(index int32, preset int32, base int32, mode api.TimerIECMode) (int32, error) {
+	i, err := blockIndex("IEC timer", index, m.rt.sizes.nbr_timers_iec)
+	if err != nil {
+		return -1, err
+	}
+	baseMs, err := checkBase(base)
+	if err != nil {
+		return -1, err
+	}
+	switch mode {
+	case api.TimerIECMode_TON, api.TimerIECMode_TOF, api.TimerIECMode_TP:
+	default:
+		return -1, fmt.Errorf("%w: IEC timer mode %d is not TON(%d), TOF(%d) or TP(%d)",
+			syscall.EINVAL, mode, api.TimerIECMode_TON, api.TimerIECMode_TOF, api.TimerIECMode_TP)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rt.timers_iec[i].base = C.int(baseMs)
+	m.rt.timers_iec[i].preset = C.int(preset)
+	m.rt.timers_iec[i].timer_mode = C.char(mode)
+	m.bumpGeneration()
+	return 0, nil
+}
+
 func (m *classicladder) SetVariable(varType int32, offset int32, value int32) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -392,6 +544,20 @@ func (m *classicladder) WatchStatus() (*api.Status, error) {
 func (m *classicladder) WatchVariables() (*api.Variables, error) {
 	vars := m.buildVariables()
 	return &vars, nil
+}
+
+// WatchRungStates pushes the live cell state, keyed by rung index so the push
+// loop can send only the rungs that moved.
+func (m *classicladder) WatchRungStates() (map[string]api.RungState, error) {
+	states, err := m.GetRungStates()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]api.RungState, len(states))
+	for _, s := range states {
+		out[strconv.Itoa(int(s.Rung))] = s
+	}
+	return out, nil
 }
 
 // --- Data conversion helpers ---
@@ -924,6 +1090,52 @@ func (m *classicladder) SetExpressionsText(texts []api.ExprText) (int32, error) 
 		copyStringToC(&m.rt.arithm_exprs[i].expr[0], stored[i], C.CL_ARITHM_EXPR_SIZE)
 	}
 	m.installExprCode(code)
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// SetExpressionText replaces one expression from written form.
+//
+// Only this entry is parsed and compiled, and only this entry's code is
+// installed. The whole-table call cannot do that — it is given a whole table,
+// so it has to stand behind all of it — but it means a project loaded through
+// the lenient file path, which keeps an expression it could not compile and
+// leaves it inert, would refuse every later edit until that one was fixed.
+// Editing a rung's compare should not be blocked by a broken expression three
+// rungs away.
+func (m *classicladder) SetExpressionText(index int32, text string) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	n := int32(m.rt.sizes.nbr_arithm_expr)
+	if index < 0 || index >= n {
+		return -1, fmt.Errorf("%w: expression %d does not exist; %d are configured",
+			syscall.EINVAL, index, n)
+	}
+
+	if text == "" {
+		m.rt.arithm_exprs[index].expr[0] = 0
+		m.rt.compiled_exprs[index].valid = 0
+		m.rt.compiled_exprs[index].len = 0
+		m.bumpGeneration()
+		return 0, nil
+	}
+
+	stored, err := m.namesToExpr(text)
+	if err != nil {
+		return -1, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, index, text, err)
+	}
+	if len(stored) > C.CL_ARITHM_EXPR_SIZE-1 {
+		return -1, fmt.Errorf("%w: expr[%d] %q: too long once converted (%d chars)",
+			syscall.EINVAL, index, text, len(stored))
+	}
+	code, err := compileOne(stored)
+	if err != nil {
+		return -1, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, index, text, err)
+	}
+
+	copyStringToC(&m.rt.arithm_exprs[index].expr[0], stored, C.CL_ARITHM_EXPR_SIZE)
+	m.rt.compiled_exprs[index] = code
 	m.bumpGeneration()
 	return 0, nil
 }

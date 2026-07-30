@@ -118,3 +118,9 @@ func testPrepareSequential(rt *C.classicladder_rt_t) {
 func testRefreshSequentialPage(rt *C.classicladder_rt_t, page int) {
 	C.cl_refresh_sequential_page(rt, C.int(page))
 }
+
+// storedExpr reads back an expression in the form the engine holds it
+// ("@200/0@:=7"), so a test can tell a stored write from a converted one.
+func storedExpr(m *classicladder, idx int) string {
+	return C.GoString(&m.rt.arithm_exprs[idx].expr[0])
+}

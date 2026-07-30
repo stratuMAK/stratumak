@@ -552,16 +552,22 @@ $(GMI_HALSCOPE_TS_WS): $(GMI_HALSCOPE_IDL) $(GMICOMPILE_BIN)
 
 TARGETS += $(GMI_HALSCOPE_TS) $(GMI_HALSCOPE_TS_WS)
 
-# --- classicladder TypeScript client ---
+# --- classicladder TypeScript clients ---
 
 GMI_CLASSICLADDER_TS := webapp/classicladder/src/generated/classicladder_client.ts
+GMI_CLASSICLADDER_TS_WS := webapp/classicladder/src/generated/classicladder_watch_client.ts
 
 $(GMI_CLASSICLADDER_TS): $(GMI_CLASSICLADDER_IDL) $(GMICOMPILE_BIN)
 	$(ECHO) "Generating GMI classicladder TypeScript REST client"
 	@mkdir -p $(dir $(GMI_CLASSICLADDER_TS))
 	$(Q)$(GMICOMPILE) --client-ts $(GMI_CLASSICLADDER_IDL) -o $(GMI_CLASSICLADDER_TS)
 
-TARGETS += $(GMI_CLASSICLADDER_TS)
+$(GMI_CLASSICLADDER_TS_WS): $(GMI_CLASSICLADDER_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI classicladder TypeScript WebSocket client"
+	@mkdir -p $(dir $(GMI_CLASSICLADDER_TS_WS))
+	$(Q)$(GMICOMPILE) --client-ts-ws $(GMI_CLASSICLADDER_IDL) -o $(GMI_CLASSICLADDER_TS_WS)
+
+TARGETS += $(GMI_CLASSICLADDER_TS) $(GMI_CLASSICLADDER_TS_WS)
 
 # --- halshow TypeScript clients (uses halcmd IDL) ---
 
