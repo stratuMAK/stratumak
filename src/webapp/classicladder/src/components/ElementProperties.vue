@@ -50,6 +50,17 @@ import {
 const state = ladderStore.state;
 const el = computed(() => selectedElement());
 
+// The form fields re-sync off this rather than off `el` itself. Placing an
+// element mutates the cell object already in the draft, so the reference does
+// not change and a watcher on `el` would not fire — leaving the variable field
+// showing what the cell held before the tool overwrote it.
+const elKey = computed(() => {
+  const c = state.selectedCell;
+  const e = el.value;
+  if (!c || !e) return '';
+  return `${c.rungIdx}:${c.row}:${c.col}:${e.type}:${e.varType}:${e.varNum}`;
+});
+
 const BASES = [
   { id: BASE_MINS, label: 'minutes' },
   { id: BASE_SECS, label: 'seconds' },
@@ -110,7 +121,8 @@ const hasNothingToEdit = computed(() => {
 const varText = ref('');
 const varError = ref('');
 
-watch(el, (e) => {
+watch(elKey, () => {
+  const e = el.value;
   varError.value = '';
   varText.value = e && readsAVariable.value ? formatVar(e.varType, e.varNum) : '';
 }, { immediate: true });
@@ -172,7 +184,7 @@ const preset = ref(0);
 const base = ref(BASE_SECS);
 const iecMode = ref<TimerIECMode>(TimerIECMode.TON);
 
-watch([el, blockNumber], () => {
+watch(elKey, () => {
   const prog = state.program;
   const e = el.value;
   if (!prog || !e) return;
@@ -213,7 +225,8 @@ async function commitBlock() {
 
 const exprText = ref('');
 
-watch(el, (e) => {
+watch(elKey, () => {
+  const e = el.value;
   if (e && (e.type === ELE_COMPAR || e.type === ELE_OUTPUT_OPERATE)) {
     exprText.value = expressionText(e.varNum);
   }

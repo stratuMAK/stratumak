@@ -18,10 +18,18 @@ const activeSection = computed(() => state.program?.sections[state.activeSection
 const draftLabel = ref('');
 const draftComment = ref('');
 
-watch(() => state.editRung, () => {
-  draftLabel.value = state.draft?.label ?? '';
-  draftComment.value = state.draft?.comment ?? '';
+// Keyed off the draft rather than the rung index: beginEdit sets the index
+// first, so a watcher on it can run before there is a draft to read.
+watch(() => state.draft, (d) => {
+  draftLabel.value = d?.label ?? '';
+  draftComment.value = d?.comment ?? '';
 });
+
+// While a rung is being edited its header shows the draft, so the label being
+// typed is the label being displayed.
+function shownRung(index: number) {
+  return state.editRung === index && state.draft ? state.draft : state.program!.rungs[index];
+}
 
 watch(draftLabel, v => { if (state.draft) state.draft.label = v; });
 watch(draftComment, v => { if (state.draft) state.draft.comment = v; });
@@ -80,7 +88,7 @@ async function removeRung(index: number) {
     <div class="rungs-container" v-if="rungs.length > 0">
       <div v-for="entry in rungs" :key="entry.index" class="rung-slot">
         <LadderRung
-          :rung="state.editRung === entry.index && state.draft ? state.draft : entry.rung"
+          :rung="shownRung(entry.index)"
           :rung-index="entry.index"
           :symbols="state.symbolMap"
           :cells="cellsOf(entry.index)"
@@ -90,8 +98,8 @@ async function removeRung(index: number) {
           <template #header>
             <div class="rung-header">
               <span class="rung-num">{{ entry.index }}</span>
-              <span class="rung-label" v-if="entry.rung.label">{{ entry.rung.label }}</span>
-              <span class="rung-comment" v-if="entry.rung.comment">{{ entry.rung.comment }}</span>
+              <span class="rung-label" v-if="shownRung(entry.index).label">{{ shownRung(entry.index).label }}</span>
+              <span class="rung-comment" v-if="shownRung(entry.index).comment">{{ shownRung(entry.index).comment }}</span>
               <span class="rung-actions">
                 <button v-if="state.editRung !== entry.index" :disabled="state.busy"
                         @click="ladderStore.beginEdit(entry.index)">Edit</button>
