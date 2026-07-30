@@ -17,7 +17,14 @@ const statusClient = new ClassicladderClient(window.location.origin);
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 
 async function refreshStatus() {
-  try { clStatus.value = await statusClient.getStatus(); } catch {}
+  try {
+    clStatus.value = await statusClient.getStatus();
+  } catch {
+    // Drop the status rather than keeping the last one: the indicator and the
+    // Run/Stop button read from it, and a controller we cannot reach must not
+    // still be shown as running.
+    clStatus.value = null;
+  }
 }
 
 onMounted(() => {
