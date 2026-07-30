@@ -210,8 +210,8 @@ webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) \
 	done
 
 # ESLint correctness gate for the non-deferred webapps. A single shared flat
-# config (webapp/eslint.config.mjs) lints all apps' hand-written source;
-# classicladder and every src/generated/** are excluded (see the config).
+# config (webapp/eslint.config.mjs) lints all apps' hand-written source; only
+# each app's src/generated/** is excluded (see the config).
 # Its own toolchain installs from webapp/package.json.
 WEBAPP_LINT_NPM_STAMP := $(WEBAPP_DIR)/node_modules/.install-stamp
 
