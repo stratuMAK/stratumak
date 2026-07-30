@@ -271,8 +271,8 @@ than sharing one, which would silently rewrite another rung.
 
 Selecting a section whose language is Sequential draws its chart in the same
 place, with the active step and the elapsed time in it shown live, and each
-transition coloured by its condition. The chart is displayed, not edited: it
-loads, runs and saves with the rest of the project.
+transition coloured by its condition. 'Edit chart' opens it for drawing; see
+<<sec:ladder-sfc-editing>>.
 
 [[cap:cl-sfc]]
 .A sequential section, running
@@ -280,15 +280,23 @@ image::images/cl_sfc.png["A sequential section",align="center"]
 
 That is the chart in the shipped sim demo
 (`configs/sim/axis/classicladder`), which follows the lube pump the second
-ladder rung drives: it waits in its initial step until lube is requested, then
-alternates between pumping and resting for as long as the timers say. Step 2 is
-active in the picture, and its `%X2.V` is counting.
+ladder rung drives: it waits in its initial step until lube is requested, runs a
+pump-and-rest cycle, and links back to that initial step, where it starts again
+while lube is still called for. The initial step is drawn with a second box
+inside it. The step the chart is sitting in is drawn in colour with its `%X.V`
+counting under the number, and so is every transition whose condition is true.
 
-Steps there are numbered from 1 rather than 0. That is worth copying: in 2.9
-every unused step slot carries the number 0 and is republished every scan, so a
-step an author numbered 0 could never be seen from ladder through `%X0`. This
-implementation publishes only the steps that exist, so `%X0` does work here —
-but a project that has to run under both should leave 0 alone.
+The link back is not drawn as a line — across a page of any size it would run
+over everything between. Instead both ends get a chevron and the number of the
+step at the other end: the one under the last transition says it goes to step 1,
+and the one above step 1 says it comes from step 3.
+
+Steps there are numbered from 1 rather than 0, and the editor numbers new steps
+the same way. In 2.9 every unused step slot carries the number 0 and is
+republished every scan, so a step an author numbered 0 could never be seen from
+ladder through `%X0`. This implementation publishes only the steps that exist,
+so `%X0` does work here — but a project that has to run under both should leave
+0 alone, which is why nothing hands it out by default.
 
 === Sections
 
@@ -637,8 +645,6 @@ Here are the basic rules governing sequential programs:
 
 A sequential chart is displayed by selecting its section, and is made of these
 parts.
-It is shown, not edited: charts load, run and save with the rest of the
-project, and the interface has no surface for drawing one.
 
 * 'ORDINARY STEP' - has a unique number for each one
 * 'STARTING STEP' - a sequential program must have one. This is where the program will start.
@@ -656,6 +662,73 @@ The variable `%X`__xxx__`.V` (e.g., `%X5.V`) is used to see how long the step ha
 The %X and %X.v variables are use in LADDER logic. The variables assigned to the transitions (e.g., %B) control whether the logic will pass to the next step.
 After a step has become active the transition variable that caused it to become active has no control of it anymore.
 The last step has to JUMP LINK back only to the beginning step.
+
+[[sec:ladder-sfc-editing]]
+=== Drawing a chart
+
+[[cap:cl-sfc-edit]]
+.The chart editor, with a second chain being drawn
+image::images/cl_sfc_edit.png["The chart editor",align="center"]
+
+'Edit chart', above a sequential section, opens the page for editing. As with a
+rung, the editor works on a copy: 'Apply' sends the chart to the controller and
+'Cancel' (or Escape) throws the copy away. Unlike a rung, the whole chart goes
+at once — a step is named by its slot everywhere a transition refers to it, so
+one edit can rewire several elements and there is no smaller piece that leaves
+the chart consistent.
+
+The page is a grid sixteen cells square. *Steps go on odd rows and transitions
+on even ones*, so a step and the transition below it are always one row apart.
+The editor enforces that, and it is what makes the two conveniences below work.
+
+The 'Draw' tools place one element per click, and clicking what they placed
+takes it away again:
+
+* 'Step' and 'Initial step'. A new step is numbered from the step two rows above
+  it, or with the lowest number nothing else is using, and is joined to the
+  transitions immediately above and below.
+* 'Transition'. A new transition takes its condition from the transition two
+  rows above it, one variable offset on, and is joined to the steps immediately
+  above and below.
+* 'Step with a transition below it' does both in one click, which is how a chain
+  is drawn: click straight down the column.
+* 'Comment' takes four cells across, and needs all four free.
+
+The 'Branch' tools take *two clicks*: the first names one end, the second the
+other, and only then does anything change. Everything between the two, on that
+row, joins the branch.
+
+* 'Start parallel steps' / 'End parallel steps' — click the first and the last
+  step of the row. A transition on the row above (for a start) or below (for an
+  end) takes them all on at once, or waits for all of them. This is AND.
+* 'Start alternative branches' / 'End alternative branches' — click the first
+  and the last transition of the row. Whichever becomes true first is taken.
+  This is OR.
+* 'Link' — click a transition and a step. The upper half of the transition links
+  its top end, the lower half its bottom end. This is how a chart returns to its
+  beginning: the two ends are drawn as a chevron and the number of the step at
+  the other end, because a line across the page would run over everything
+  between.
+
+The eraser deletes what is clicked, and takes the deleted element out of every
+transition that referred to it — a transition left pointing at a step that is
+no longer drawn would still be evaluated by the engine.
+
+The panel beside the chart edits what the selected element holds: a step's
+number and whether the chart starts in it, a transition's condition variable
+(written as a variable or as a symbol), or a comment's text. Everything else
+about an element is decided by where it is placed.
+
+Applying a chart restarts it from its initial steps. It has to: the steps being
+replaced are named by slot, so carrying the activity across an edit would light
+whatever moved into that slot.
+
+The controller checks a chart before it applies any of it, so a refused chart
+leaves the running one alone and the reason is shown above the tools. It
+refuses a transition naming a step that is not on the chart or is on another
+page, two steps sharing a number (they would share one `%X` bit), two elements
+in one cell, a one-sided link between transitions, and a transition that both
+takes and gives the same step — that one would fire on every scan for ever.
 
 [[sec:ladder-modbus]]
 == Modbus
