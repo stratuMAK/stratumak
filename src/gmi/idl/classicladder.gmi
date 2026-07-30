@@ -338,6 +338,49 @@ func get_rung(index: i32 @min(0)) -> Rung
 @path "/rung/{index}"
 func set_rung(index: i32 @min(0), rung: Rung) -> i32
 
+# --- Structural editing ---
+#
+# Rungs live in a fixed array but run in the order of a per-section linked list.
+# Maintaining that list is the server's job: a client that got it wrong would
+# not produce a wrong answer, it would produce a chain the scan never leaves,
+# and the engine's runaway guard would stop the PLC. So inserting and deleting
+# are operations here rather than something a client assembles out of set_rung.
+
+# Insert a new, empty rung after an existing one, and return its index.
+#
+# The new rung joins the section the given rung belongs to. Pass -1 to add to
+# the end of the first section. Fails if no rung slot is free.
+@method POST
+@path "/rung/insert"
+func insert_rung(afterIndex: i32 @min(-1)) -> i32
+
+# Delete a rung, unlinking it from its section.
+#
+# A section always holds at least one rung, so deleting the only rung of a
+# section is refused — delete the section instead. Arithmetic expressions used
+# only by this rung are released with it.
+@method DELETE
+@path "/rung/{index}"
+func delete_rung(index: i32 @min(0)) -> i32
+
+# Create a section and return its index.
+#
+# A ladder section is created holding one empty rung; a sequential section is
+# given a free chart page. Names must be unique and non-empty. subRoutineNumber
+# is -1 for a main section, otherwise the number an ELE_OUTPUT_CALL coil uses
+# to reach it, which must not already be taken.
+@method POST
+@path "/section"
+func add_section(name: string @maxlen(19), language: SectionLanguage, subRoutineNumber: i32 @min(-1)) -> i32
+
+# Delete a section and free the rungs it holds.
+#
+# Refused for the last remaining section: a program with no sections has
+# nowhere to put a rung.
+@method DELETE
+@path "/section/{index}"
+func delete_section(index: i32 @min(0)) -> i32
+
 # Get a section by index.
 @method GET
 @path "/section/{index}"

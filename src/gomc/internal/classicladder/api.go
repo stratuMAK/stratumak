@@ -82,6 +82,16 @@ func (m *classicladder) SetProgram(program api.Program) (int32, error) {
 	if err != nil {
 		return -1, err
 	}
+	// Same reasoning for the rungs: check the whole upload before any of it
+	// lands, so a refused program leaves the running one untouched.
+	for i := range program.Rungs {
+		if !program.Rungs[i].Used {
+			continue
+		}
+		if err := m.validateRung(i, &program.Rungs[i]); err != nil {
+			return -1, err
+		}
+	}
 	m.applyProgram(&program)
 	m.installExprCode(code)
 	m.bumpGeneration()
@@ -113,7 +123,58 @@ func (m *classicladder) SetRung(index int32, rung api.Rung) (int32, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Validate before applying: a half-written rung cannot be taken back, and
+	// the scan may read it before the caller sees the error.
+	if err := m.validateRung(int(index), &rung); err != nil {
+		return -1, err
+	}
 	m.applyRung(int(index), &rung)
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// InsertRung adds an empty rung after the given one and returns its index.
+func (m *classicladder) InsertRung(afterIndex int32) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx, err := m.insertRungAfter(int(afterIndex))
+	if err != nil {
+		return -1, err
+	}
+	m.bumpGeneration()
+	return int32(idx), nil
+}
+
+// DeleteRung unlinks a rung from its section and frees it.
+func (m *classicladder) DeleteRung(index int32) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.deleteRung(int(index)); err != nil {
+		return -1, err
+	}
+	m.bumpGeneration()
+	return 0, nil
+}
+
+// AddSection creates a section and returns its index.
+func (m *classicladder) AddSection(name string, language api.SectionLanguage, subRoutineNumber int32) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx, err := m.addSection(name, int(language), int(subRoutineNumber))
+	if err != nil {
+		return -1, err
+	}
+	m.bumpGeneration()
+	return int32(idx), nil
+}
+
+// DeleteSection frees a section and the rungs it holds.
+func (m *classicladder) DeleteSection(index int32) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.deleteSection(int(index)); err != nil {
+		return -1, err
+	}
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -134,6 +195,12 @@ func (m *classicladder) SetSection(index int32, section api.Section) (int32, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// insert_rung and delete_rung exist so a client never has to write these
+	// links, but this call can still reach them. A chain that never arrives at
+	// lastRung is a scan that only stops when the runaway guard trips.
+	if err := m.validateSectionChain(int(index), &section); err != nil {
+		return -1, err
+	}
 	m.applySection(int(index), &section)
 	m.bumpGeneration()
 	return 0, nil
