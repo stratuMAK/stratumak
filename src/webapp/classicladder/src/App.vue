@@ -86,7 +86,7 @@ const scanText = computed(() => {
 
     <main class="content">
       <SectionView v-if="activeTab === 'program'" />
-      <SectionManager v-else-if="activeTab === 'sections'" />
+      <SectionManager v-else-if="activeTab === 'sections'" @show="activeTab = 'program'" />
       <SymbolTable v-else-if="activeTab === 'symbols'" />
       <VarSpy v-else-if="activeTab === 'variables'" />
       <ComParamsPanel v-else-if="activeTab === 'modbus-params'" />

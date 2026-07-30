@@ -8,8 +8,18 @@ import { ref, computed } from 'vue';
 import { LGT_SECTION_NAME, SectionLanguage } from '../generated/classicladder_client';
 import { ladderStore, usedSections, sectionRungs } from '../stores/ladder';
 
+// 'Show' has to leave this tab as well as choose the section, or it changes
+// something the operator cannot see and reads as a dead button. Which tab is
+// open is the app's business, so it is asked rather than reached into.
+const emit = defineEmits<{ (e: 'show'): void }>();
+
 const state = ladderStore.state;
 const sections = computed(() => usedSections());
+
+function showSection(index: number) {
+  ladderStore.setActiveSection(index);
+  emit('show');
+}
 
 const newName = ref('');
 const newLanguage = ref<SectionLanguage>(SectionLanguage.LADDER);
@@ -96,7 +106,7 @@ newSubRoutineNumber.value = 0;
           </td>
           <td class="num">{{ sec.language === SectionLanguage.LADDER ? sectionRungs(sec.index).length : '—' }}</td>
           <td class="actions">
-            <button @click="ladderStore.setActiveSection(sec.index)">Show</button>
+            <button @click="showSection(sec.index)">Show</button>
             <button class="danger" :disabled="state.busy || sections.length < 2"
                     :title="sections.length < 2 ? 'A program needs at least one section' : 'Delete this section'"
                     @click="removeSection(sec.index, sec.name)">Delete</button>
