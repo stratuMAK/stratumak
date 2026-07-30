@@ -280,19 +280,39 @@ type Program {
     counters: []Counter
 }
 
+# Every boolean a running program can be asked for.
+#
+# The block outputs are here rather than left to be read off Program's block
+# structures because those are the program: they are fetched when it is loaded
+# and after an edit, not every scan. What a spy window and an animated block
+# want is this — the state, pushed.
 type VarsBool {
     bits: []bool
     physInputs: []bool
     physOutputs: []bool
     errorBits: []bool
-    stepActivity: []bool   # %X — indexed by step number, not by step index
+    stepActivity: []bool        # %X — indexed by step number, not by step index
+    timerDone: []bool           # %T.D
+    timerRunning: []bool        # %T.R
+    monostableRunning: []bool   # %M.R
+    counterDone: []bool         # %C.D
+    counterEmpty: []bool        # %C.E
+    counterFull: []bool         # %C.F
+    timerIecDone: []bool        # %TI.Q
 }
 
+# The integer counterpart. Presets are absent on purpose: a preset is what the
+# program says, not what the machine is doing, and it lives in Program with the
+# rest of the block's configuration.
 type VarsWord {
     words: []i32
     physWordInputs: []i32
     physWordOutputs: []i32
-    stepTimes: []i32       # %X.V — seconds each step has been active
+    stepTimes: []i32            # %X.V  — seconds each step has been active
+    timerValues: []i32          # %T.V  — remaining, in units of the timer's base
+    monostableValues: []i32     # %M.V  — remaining, in units of its base
+    counterValues: []i32        # %C.V
+    timerIecValues: []i32       # %TI.V — elapsed, in units of its base
 }
 
 type VarsFloat {

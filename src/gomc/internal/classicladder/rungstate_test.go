@@ -260,3 +260,60 @@ func mustStates(t *testing.T, m *classicladder) []api.RungState {
 	}
 	return states
 }
+
+// A spy window and an animated block both need the block state pushed, not
+// read off the program: the program is fetched on load and after an edit,
+// while these change every scan.
+func TestVariables_CarriesLiveBlockState(t *testing.T) {
+	m := newTestModule(t)
+	l := &ladderRT{rt: m.rt}
+
+	// The block sits on the left rail, so both its terminals are powered and it
+	// counts from the first scan.
+	l.putBlock(0, 1, 0, eleTimer, 0, 2, 2)
+	l.setTimer(0, 1000, 3000) // 3s in a 1s base
+	m.rt.rungs[0].used = 1
+	l.setMainSection(0, 0, 0)
+	l.prepareRun()
+
+	vars, err := m.GetVariables()
+	if err != nil {
+		t.Fatalf("get variables: %v", err)
+	}
+	if len(vars.Words.TimerValues) != int(m.rt.sizes.nbr_timers) {
+		t.Fatalf("got %d timer values, want %d", len(vars.Words.TimerValues), m.rt.sizes.nbr_timers)
+	}
+	// Values travel in base units, as the presets do. Reporting the engine's
+	// milliseconds would show "3000" for a three-second timer.
+	if got := vars.Words.TimerValues[0]; got != 3 {
+		t.Errorf("timer 0 value = %d, want 3 — the value must be in units of its base", got)
+	}
+	if vars.Bools.TimerRunning[0] {
+		t.Error("timer 0 reports running before anything drove it")
+	}
+
+	// Run it down and watch the reported state follow.
+	l.scanN(2, 1000)
+	vars, _ = m.GetVariables()
+	if !vars.Bools.TimerRunning[0] {
+		t.Error("timer 0 reports not running while it counts down")
+	}
+	if got := vars.Words.TimerValues[0]; got != 1 {
+		t.Errorf("timer 0 value = %d after 2s of a 3s timer, want 1", got)
+	}
+
+	l.scanN(2, 1000)
+	vars, _ = m.GetVariables()
+	if !vars.Bools.TimerDone[0] {
+		t.Error("timer 0 reports not done after its preset elapsed")
+	}
+
+	// The counter and IEC arrays must be sized and present too — a spy window
+	// indexes them by block number.
+	if len(vars.Bools.CounterFull) != int(m.rt.sizes.nbr_counters) {
+		t.Errorf("got %d counter-full flags, want %d", len(vars.Bools.CounterFull), m.rt.sizes.nbr_counters)
+	}
+	if len(vars.Words.TimerIecValues) != int(m.rt.sizes.nbr_timers_iec) {
+		t.Errorf("got %d IEC timer values, want %d", len(vars.Words.TimerIecValues), m.rt.sizes.nbr_timers_iec)
+	}
+}

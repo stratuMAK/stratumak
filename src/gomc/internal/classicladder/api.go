@@ -874,6 +874,37 @@ func (m *classicladder) buildVariables() api.Variables {
 		vars.Bools.StepActivity[i] = rt.var_bits[nbits+nin+nout+i] != 0
 	}
 
+	// Block outputs and values. They are read off the block structures rather
+	// than the bit array because that is where the engine keeps them — the
+	// same place read_var goes for %T0.D or %C0.V.
+	ntimers := int(rt.sizes.nbr_timers)
+	nmono := int(rt.sizes.nbr_monostables)
+	ncount := int(rt.sizes.nbr_counters)
+	niec := int(rt.sizes.nbr_timers_iec)
+
+	vars.Bools.TimerDone = make([]bool, ntimers)
+	vars.Bools.TimerRunning = make([]bool, ntimers)
+	for i := 0; i < ntimers; i++ {
+		vars.Bools.TimerDone[i] = rt.timers[i].output_done != 0
+		vars.Bools.TimerRunning[i] = rt.timers[i].output_running != 0
+	}
+	vars.Bools.MonostableRunning = make([]bool, nmono)
+	for i := 0; i < nmono; i++ {
+		vars.Bools.MonostableRunning[i] = rt.monostables[i].output_running != 0
+	}
+	vars.Bools.CounterDone = make([]bool, ncount)
+	vars.Bools.CounterEmpty = make([]bool, ncount)
+	vars.Bools.CounterFull = make([]bool, ncount)
+	for i := 0; i < ncount; i++ {
+		vars.Bools.CounterDone[i] = rt.counters[i].output_done != 0
+		vars.Bools.CounterEmpty[i] = rt.counters[i].output_empty != 0
+		vars.Bools.CounterFull[i] = rt.counters[i].output_full != 0
+	}
+	vars.Bools.TimerIecDone = make([]bool, niec)
+	for i := 0; i < niec; i++ {
+		vars.Bools.TimerIecDone[i] = rt.timers_iec[i].output != 0
+	}
+
 	nwords := int(rt.sizes.nbr_words)
 	ns32in := int(rt.sizes.nbr_s32_in)
 	ns32out := int(rt.sizes.nbr_s32_out)
@@ -892,6 +923,26 @@ func (m *classicladder) buildVariables() api.Variables {
 	vars.Words.StepTimes = make([]int32, C.CL_MAX_STEPS)
 	for i := 0; i < C.CL_MAX_STEPS; i++ {
 		vars.Words.StepTimes[i] = int32(rt.var_words[nwords+ns32in+ns32out+i])
+	}
+
+	// Timer and monostable values go over the wire in units of their base, the
+	// way their presets do and the way read_var reports %T0.V. The engine counts
+	// them in milliseconds; that stays inside it.
+	vars.Words.TimerValues = make([]int32, ntimers)
+	for i := 0; i < ntimers; i++ {
+		vars.Words.TimerValues[i] = int32(C.read_var_ext(rt, C.CL_VAR_TIMER_VALUE, C.int(i)))
+	}
+	vars.Words.MonostableValues = make([]int32, nmono)
+	for i := 0; i < nmono; i++ {
+		vars.Words.MonostableValues[i] = int32(C.read_var_ext(rt, C.CL_VAR_MONOSTABLE_VALUE, C.int(i)))
+	}
+	vars.Words.CounterValues = make([]int32, ncount)
+	for i := 0; i < ncount; i++ {
+		vars.Words.CounterValues[i] = int32(rt.counters[i].value)
+	}
+	vars.Words.TimerIecValues = make([]int32, niec)
+	for i := 0; i < niec; i++ {
+		vars.Words.TimerIecValues[i] = int32(rt.timers_iec[i].value)
 	}
 
 	nfin := int(rt.sizes.nbr_float_in)
