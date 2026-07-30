@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { Rung, Element } from '../generated/classicladder_client';
-import { ladderStore, elementSize } from '../stores/ladder';
+import { ladderStore, elementSize, elementLabel } from '../stores/ladder';
 
 const props = defineProps<{
   rung: Rung;
@@ -40,20 +40,6 @@ const ELE_OUTPUT_CALL = 55;
 const ELE_OUTPUT_OPERATE = 60;
 const ELE_BLOCK_BODY = 99;
 
-// Variable type constants
-const VAR_MEM_BIT = 0;
-const VAR_TIMER_DONE = 10;
-const VAR_TIMER_RUNNING = 11;
-const VAR_TIMER_IEC_DONE = 15;
-const VAR_MONOSTABLE_RUNNING = 20;
-const VAR_COUNTER_DONE = 25;
-const VAR_COUNTER_EMPTY = 26;
-const VAR_COUNTER_FULL = 27;
-const VAR_STEP_ACTIVITY = 30;
-const VAR_PHYS_INPUT = 50;
-const VAR_PHYS_OUTPUT = 60;
-const VAR_ERROR_BIT = 70;
-
 function getElement(row: number, col: number): Element {
   const idx = row * COLS + col;
   if (props.rung.elements && idx < props.rung.elements.length) {
@@ -62,42 +48,12 @@ function getElement(row: number, col: number): Element {
   return { type: 0, connectedWithTop: 0, varType: 0, varNum: 0 };
 }
 
-// Written prefixes for each variable region. The two timer kinds are distinct
-// and easy to swap: an old-style timer is %T, an IEC timer is %TM. There is no
-// %TI. The server serves the full table — prefixes, suffixes, sizes — from
-// GET /var_classes; these are the display subset, and that endpoint is the
-// authority if they ever disagree.
-function varPrefix(varType: number): string {
-  switch (varType) {
-    case VAR_MEM_BIT: return '%B';
-    case VAR_TIMER_DONE: return '%T';
-    case VAR_TIMER_RUNNING: return '%T';
-    case VAR_TIMER_IEC_DONE: return '%TM';
-    case VAR_MONOSTABLE_RUNNING: return '%M';
-    case VAR_COUNTER_DONE: return '%C';
-    case VAR_COUNTER_EMPTY: return '%C';
-    case VAR_COUNTER_FULL: return '%C';
-    case VAR_STEP_ACTIVITY: return '%X';
-    case VAR_PHYS_INPUT: return '%I';
-    case VAR_PHYS_OUTPUT: return '%Q';
-    case VAR_ERROR_BIT: return '%E';
-    default: return '%?';
-  }
-}
-
-function varName(el: Element): string {
-  // A block's varNum selects the block, not a variable, so these are keyed by
-  // element type rather than by varType.
-  if (el.type === ELE_TIMER) return `%T${el.varNum}`;
-  if (el.type === ELE_MONOSTABLE) return `%M${el.varNum}`;
-  if (el.type === ELE_COUNTER) return `%C${el.varNum}`;
-  if (el.type === ELE_TIMER_IEC) return `%TM${el.varNum}`;
-  return `${varPrefix(el.varType)}${el.varNum}`;
-}
-
+// How a variable is written is the store's business, because the backend serves
+// the table: see elementLabel in stores/ladder.ts. This component keeps only
+// the decision of which cells carry a label at all.
 function symbolOrVar(el: Element): string {
   if (el.type === ELE_FREE || el.type === ELE_CONNECTION || el.type === ELE_BLOCK_BODY) return '';
-  const name = varName(el);
+  const name = elementLabel(el);
   if (props.symbols?.has(name)) return props.symbols.get(name)!;
   return name;
 }
