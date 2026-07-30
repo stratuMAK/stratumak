@@ -44,6 +44,10 @@ func (m *classicladder) dumpState() string {
 	region("TIMER_IEC_DONE", C.CL_VAR_TIMER_IEC_DONE, int(rt.sizes.nbr_timers_iec))
 	region("TIMER_IEC_VALUE", C.CL_VAR_TIMER_IEC_VALUE, int(rt.sizes.nbr_timers_iec))
 	region("ERROR_BITS", C.CL_VAR_ERROR_BIT, int(rt.sizes.nbr_error_bits))
+	// The SFC state. Without these a project with a sequential section
+	// compares identically whatever the two engines make of the chart.
+	region("STEP_ACTIVITY", C.CL_VAR_STEP_ACTIVITY, C.CL_MAX_STEPS)
+	region("STEP_TIME", C.CL_VAR_STEP_TIME, C.CL_MAX_STEPS)
 	b.WriteString("END\n")
 	return b.String()
 }

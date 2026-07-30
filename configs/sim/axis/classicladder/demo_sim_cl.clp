@@ -38,6 +38,9 @@ _FILE-symbols.csv
 %T1,Time-off,Time lube pump is off
 %T2,Time-warn,Time before low lube warning
 %B0,reset,reset off timer
+%X1,SFC-idle,No lube request (SFC step)
+%X2,SFC-pumping,Lube pump running (SFC step)
+%X3,SFC-resting,Lube pump resting (SFC step)
 _/FILE-symbols.csv
 _FILE-rung_2.csv
 #VER=2.0
@@ -113,7 +116,9 @@ _/FILE-counters.csv
 _FILE-sections.csv
 #VER=1.0
 #NAME000=Prog1
+#NAME001=Lube-SFC
 000,0,-1,1,2,0
+001,1,-1,0,0,0
 _/FILE-sections.csv
 _FILE-arithmetic_expressions.csv
 #VER=2.0
@@ -148,6 +153,17 @@ _FILE-monostables.csv
 _/FILE-monostables.csv
 _FILE-sequential.csv
 #VER=1.0
+S0,1,1,0,2,0
+S1,0,2,0,2,2
+S2,0,3,0,2,4
+T0,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,2,1
+T1,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,2,3
+T2,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,4,3
+C0,0,50/3
+C1,0,0/0
+C2,0,60/1
+N0,0,4,0,Lube cycle, as a state machine
+N1,0,4,2,%X2 and %X2.V are readable from ladder
 _/FILE-sequential.csv
 _FILE-general.txt
 PERIODIC_REFRESH=100

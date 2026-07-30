@@ -252,3 +252,64 @@ func firstDataLine(s string) string {
 	}
 	return ""
 }
+
+// What the saver writes for a chart, checked against the file rather than
+// against a re-load.
+//
+// A round-trip cannot see either of these. An unused slot written to the file
+// re-loads as unused, so the only symptom is 178 junk lines. And an omitted
+// condition re-loads as variable type 0 offset 0 — which is %B0, the very
+// value that was omitted — so dropping it looks like a perfect round-trip
+// while quietly rewriting the project every 2.9 would read.
+func TestCLP_SequentialFileHoldsOnlyWhatExists(t *testing.T) {
+	src, err := filepath.Abs(demoProject)
+	if err != nil {
+		t.Fatalf("resolve project: %v", err)
+	}
+	m := newTestModule(t)
+	if err := m.loadCLPFile(src); err != nil {
+		t.Fatalf("load project: %v", err)
+	}
+
+	seq := m.emitSequential()
+	lines := strings.Split(strings.TrimSpace(seq), "\n")
+
+	count := func(prefix string) int {
+		n := 0
+		for _, l := range lines {
+			if strings.HasPrefix(l, prefix) {
+				n++
+			}
+		}
+		return n
+	}
+
+	// The demo's chart is three steps, three transitions and two comments.
+	if got := count("S"); got != 3 {
+		t.Errorf("wrote %d step lines, want 3 — unplaced steps must not be saved", got)
+	}
+	if got := count("T"); got != 3 {
+		t.Errorf("wrote %d transition lines, want 3", got)
+	}
+	if got := count("N"); got != 2 {
+		t.Errorf("wrote %d comment lines, want 2 — unplaced comments must not be saved", got)
+	}
+
+	// One condition per transition, including the one on %B0, which is
+	// variable type 0 offset 0.
+	if got := count("C"); got != 3 {
+		t.Errorf("wrote %d condition lines, want one per transition (3)", got)
+	}
+	if !strings.Contains(seq, "C1,0,0/0") {
+		t.Errorf("the condition on %%B0 is missing from:\n%s", seq)
+	}
+}
+
+// A project with no chart at all must produce no chart.
+func TestCLP_NoChartWritesNoSteps(t *testing.T) {
+	m := newTestModule(t)
+	seq := strings.TrimSpace(m.emitSequential())
+	if seq != "#VER=1.0" {
+		t.Errorf("a program with no sequential section saved:\n%s", seq)
+	}
+}

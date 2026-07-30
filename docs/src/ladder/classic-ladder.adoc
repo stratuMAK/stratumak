@@ -272,6 +272,22 @@ Sequential, with the active step and the elapsed time in it shown live, and
 each transition coloured by its condition. The chart is displayed, not edited:
 it loads, runs and saves with the rest of the project.
 
+[[cap:cl-sfc]]
+.The SFC tab, running
+image::images/cl_sfc.png["The SFC tab",align="center"]
+
+That is the chart in the shipped sim demo
+(`configs/sim/axis/classicladder`), which follows the lube pump the second
+ladder rung drives: it waits in its initial step until lube is requested, then
+alternates between pumping and resting for as long as the timers say. Step 2 is
+active in the picture, and its `%X2.V` is counting.
+
+Steps there are numbered from 1 rather than 0. That is worth copying: in 2.9
+every unused step slot carries the number 0 and is republished every scan, so a
+step an author numbered 0 could never be seen from ladder through `%X0`. This
+implementation publishes only the steps that exist, so `%X0` does work here —
+but a project that has to run under both should leave 0 alone.
+
 === Sections
 
 [[cap:cl-sections]]

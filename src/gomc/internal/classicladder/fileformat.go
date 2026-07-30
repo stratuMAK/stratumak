@@ -926,10 +926,14 @@ func (m *classicladder) emitSequential() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 
-	// Steps
+	// Steps, transitions and comments are in use when they have been placed on
+	// a page. That is the flag everything else reads — GetSequential, and the
+	// engine's own init-step scan — and the one 2.9 saves by. Testing anything
+	// else wrote every unused slot to the file: 128 steps and 50 comments of
+	// nothing, for a project with no chart at all.
 	for i := 0; i < C.CL_MAX_STEPS; i++ {
 		step := &m.rt.steps[i]
-		if step.step_number == -1 && step.init_step == 0 && step.num_page == 0 {
+		if step.num_page < 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "S%d,%d,%d,%d,%d,%d\n", i,
@@ -940,15 +944,7 @@ func (m *classicladder) emitSequential() string {
 	// Transitions
 	for i := 0; i < C.CL_MAX_TRANSITIONS; i++ {
 		trans := &m.rt.transitions[i]
-		// Check if transition is used (has at least one non-negative step ref)
-		used := false
-		for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-			if trans.num_step_to_activ[j] >= 0 || trans.num_step_to_desactiv[j] >= 0 {
-				used = true
-				break
-			}
-		}
-		if !used {
+		if trans.num_page < 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "T%d", i)
@@ -966,18 +962,25 @@ func (m *classicladder) emitSequential() string {
 		}
 		fmt.Fprintf(&b, ",%d,%d,%d\n",
 			int(trans.num_page), int(trans.posi_x), int(trans.posi_y))
+	}
 
-		// Condition line
-		if trans.var_type_condi != 0 || trans.var_num_condi != 0 {
-			fmt.Fprintf(&b, "C%d,0,%d/%d\n", i,
-				int(trans.var_type_condi), int(trans.var_num_condi))
+	// Conditions, in their own pass as 2.9 writes them, and for every
+	// transition that exists rather than only those whose condition looks
+	// set: "%B0" is variable type 0 offset 0, so a test for a non-zero pair
+	// drops exactly the condition a chart is most likely to use.
+	for i := 0; i < C.CL_MAX_TRANSITIONS; i++ {
+		trans := &m.rt.transitions[i]
+		if trans.num_page < 0 {
+			continue
 		}
+		fmt.Fprintf(&b, "C%d,0,%d/%d\n", i,
+			int(trans.var_type_condi), int(trans.var_num_condi))
 	}
 
 	// Comments
 	for i := 0; i < C.CL_MAX_SEQ_COMMENTS; i++ {
 		sc := &m.rt.seq_comments[i]
-		if sc.num_page == 0 && sc.posi_x == 0 && sc.posi_y == 0 {
+		if sc.num_page < 0 {
 			continue
 		}
 		comment := C.GoStringN(&sc.comment[0], C.CL_SEQ_COMMENT_LGT)

@@ -40,6 +40,7 @@ const (
 	varMemWord        = C.CL_VAR_MEM_WORD
 	varPhysInput      = C.CL_VAR_PHYS_INPUT
 	varPhysOutput     = C.CL_VAR_PHYS_OUTPUT
+	varStepActivity   = C.CL_VAR_STEP_ACTIVITY
 	varStepTime       = C.CL_VAR_STEP_TIME
 	varPhysWordInput  = C.CL_VAR_PHYS_WORD_INPUT
 	varPhysWordOutput = C.CL_VAR_PHYS_WORD_OUTPUT

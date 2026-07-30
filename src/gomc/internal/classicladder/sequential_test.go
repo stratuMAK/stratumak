@@ -177,3 +177,46 @@ func TestSFC_StepTimeAccumulates(t *testing.T) {
 		t.Errorf("step time = %d, want 30", rt.steps[0].time_activated)
 	}
 }
+
+// A step numbered 0 must be able to report that it is active.
+//
+// This is a deliberate difference from 2.9, and the only one in the SFC engine.
+// There, InitSequential gives every unused step StepNumber 0, and
+// RefreshStepsVars walks all 128 slots writing %X[StepNumber] = Activated — so
+// the 127 unused steps write %X0 = 0 after the real one wrote its value, and a
+// step numbered 0 can never be seen from ladder. This port publishes only
+// steps that have been placed on a page, which is the same test it uses for
+// "this step exists" everywhere else.
+//
+// The behaviour is kept because nothing can depend on the 2.9 result: a chart
+// whose %X0 is stuck false is a chart whose author was silently ignored. The
+// shipped demo still numbers its steps from 1, so it does not rest on this.
+func TestSFC_StepNumberZeroIsVisible(t *testing.T) {
+	rt := newTestRT()
+	defer freeTestRT(rt)
+	l := &ladderRT{rt: rt}
+
+	rt.steps[0].num_page = 0
+	rt.steps[0].init_step = 1
+	rt.steps[0].step_number = 0
+
+	testPrepareSequential(rt)
+	testRefreshSequentialPage(rt, 0)
+
+	if rt.steps[0].activated != 1 {
+		t.Fatal("the init step is not active — the test's setup is wrong")
+	}
+	if got := l.readVar(varStepActivity, 0); got != 1 {
+		t.Errorf("%%X0 = %d, want 1: an active step numbered 0 must be visible to ladder", got)
+	}
+
+	// And an unused slot must not publish anything on top of it.
+	rt.steps[7].num_page = -1
+	rt.steps[7].step_number = 0
+	rt.steps[7].activated = 0
+	testRefreshSequentialPage(rt, 0)
+	if got := l.readVar(varStepActivity, 0); got != 1 {
+		t.Errorf("%%X0 = %d after refreshing with an unplaced step numbered 0; "+
+			"unplaced steps must not write the variable array", got)
+	}
+}

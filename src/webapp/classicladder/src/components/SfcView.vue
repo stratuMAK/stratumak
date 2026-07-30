@@ -55,8 +55,12 @@ function stepSeconds(stepNumber: number): number | null {
   return variableValue(VAR_STEP_TIME, stepNumber);
 }
 
+// A transition is labelled with its condition, through the symbol table if the
+// variable has a name — the same rule the ladder view uses, so the two do not
+// call the same signal different things.
 function conditionName(varType: number, varNum: number): string {
-  return formatVar(varType, varNum);
+  const name = formatVar(varType, varNum);
+  return state.symbolMap.get(name) ?? name;
 }
 
 function conditionTrue(varType: number, varNum: number): boolean {

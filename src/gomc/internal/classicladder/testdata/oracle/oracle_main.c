@@ -134,6 +134,18 @@ static void dump_state(void) {
         printf(" %d", ReadVar(VAR_ERROR_BIT, i));
     printf("\n");
 
+    /* The SFC state. Without these a project with a sequential section compares
+     * identically whatever the two engines make of the chart. */
+    printf("STEP_ACTIVITY");
+    for (i = 0; i < NBR_STEPS; i++)
+        printf(" %d", ReadVar(VAR_STEP_ACTIVITY, i));
+    printf("\n");
+
+    printf("STEP_TIME");
+    for (i = 0; i < NBR_STEPS; i++)
+        printf(" %d", ReadVar(VAR_STEP_TIME, i));
+    printf("\n");
+
     printf("END\n");
     fflush(stdout);
 }
