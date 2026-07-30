@@ -202,16 +202,19 @@ buttons:
 * 'Delete' - deletes this rung. A section always keeps at least one rung; to
   remove the last one, delete the section.
 
-Editing works on one rung at a time, on a copy of it. The rung being edited is
-outlined, is drawn without the running colours — it is not the rung the engine
-is scanning — and the editing tools appear above it.
+'Edit' opens the rung in a dialog holding the tools, the grid and the property
+panel — everything the edit needs, with nothing to scroll past. The rung is
+edited on a copy of itself, and is drawn without the running colours: it is not
+the rung the engine is scanning.
 
 [[cap:cl-editor]]
 .Editing a rung
 image::images/cl_editor.png["Editing a rung",align="center"]
 
 Pick a tool, then click a cell to place that element there; click a cell with
-the selector tool (↖) to select without placing. The tools are:
+the selector tool (↖) to select without placing. Clicking any cell of a block
+selects the whole block, which is outlined so it is clear what was picked. The
+tools are:
 
 * 'CONTACTS' - normally open, normally closed, rising edge, falling edge.
 * 'COILS' - coil, negated coil, set coil, reset coil, jump coil, call coil.
@@ -227,19 +230,19 @@ A comparison or an assignment is three cells wide and a timer two cells wide by
 two high, so the click marks the top-left of the footprint and the block is
 drawn to the right and below it.
 
-'Apply' writes the rung to the controller; 'Cancel' throws the draft away and
-leaves the running program untouched. If the controller refuses the rung — a
-block that runs off the grid, a coil driving a read-only variable, an
-expression that does not compile — the reason appears at the top of the page
+'Apply' writes the rung to the controller; 'Cancel', or Escape, throws the
+draft away and leaves the running program untouched. If the controller refuses
+the rung — a block that runs off the grid, a coil driving a read-only variable,
+an expression that does not compile — the reason appears at the top of the page
 and the rung stays open for editing.
 
-The Label and Comment fields beside the tools belong to the rung and are
-written with it. A label is what a jump coil offers as a target.
+The Label and Comment fields belong to the rung and are written with it. A
+label is what a jump coil offers as a target.
 
 === Element properties
 
-The panel to the right of the tools edits whatever cell is selected. What it
-offers depends on the element:
+The panel beside the grid edits whatever is selected. What it offers depends on
+the element:
 
 * 'Contacts and coils' take a variable. Type it as it is written (`%I0`, `%B3`,
   `%Q1`) or type its symbol. Below the field the panel names the symbol and the
