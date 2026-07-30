@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import LadderRung from './LadderRung.vue';
-import EditToolbar from './EditToolbar.vue';
-import ElementProperties from './ElementProperties.vue';
-import { LGT_LABEL, LGT_COMMENT, SectionLanguage } from '../generated/classicladder_client';
+import RungEditor from './RungEditor.vue';
+import { SectionLanguage } from '../generated/classicladder_client';
 import { ladderStore, sectionRungs, usedSections } from '../stores/ladder';
 import { liveStore, cellsOf } from '../stores/live';
 
@@ -12,31 +11,6 @@ const state = ladderStore.state;
 const rungs = computed(() => sectionRungs(state.activeSection));
 const sections = computed(() => usedSections());
 const activeSection = computed(() => state.program?.sections[state.activeSection] ?? null);
-
-// The label and comment belong to the rung, so they are edited with it — in
-// the header, where they are read.
-const draftLabel = ref('');
-const draftComment = ref('');
-
-// Keyed off the draft rather than the rung index: beginEdit sets the index
-// first, so a watcher on it can run before there is a draft to read.
-watch(() => state.draft, (d) => {
-  draftLabel.value = d?.label ?? '';
-  draftComment.value = d?.comment ?? '';
-});
-
-// While a rung is being edited its header shows the draft, so the label being
-// typed is the label being displayed.
-function shownRung(index: number) {
-  return state.editRung === index && state.draft ? state.draft : state.program!.rungs[index];
-}
-
-watch(draftLabel, v => { if (state.draft) state.draft.label = v; });
-watch(draftComment, v => { if (state.draft) state.draft.comment = v; });
-
-function onCellClick(rungIdx: number, row: number, col: number) {
-  ladderStore.selectCell(rungIdx, row, col);
-}
 
 async function addRungAfter(index: number) {
   await ladderStore.insertRungAfter(index);
@@ -64,45 +38,23 @@ async function removeRung(index: number) {
       </button>
     </div>
 
-    <!-- The edit session, when there is one -->
-    <template v-if="state.editRung >= 0">
-      <EditToolbar />
-      <div class="edit-pane">
-        <div class="edit-meta">
-          <div class="meta-field">
-            <label for="rung-label">Label</label>
-            <input id="rung-label" v-model="draftLabel" :maxlength="LGT_LABEL - 1"
-                   placeholder="jump target name" />
-          </div>
-          <div class="meta-field wide">
-            <label for="rung-comment">Comment</label>
-            <input id="rung-comment" v-model="draftComment" :maxlength="LGT_COMMENT - 1"
-                   placeholder="what this rung is for" />
-          </div>
-        </div>
-        <ElementProperties />
-      </div>
-    </template>
-
-    <!-- Ladder content -->
+    <!-- Ladder content. The rung being edited is shown here as the controller
+         still has it; the draft lives in the dialog. -->
     <div class="rungs-container" v-if="rungs.length > 0">
       <div v-for="entry in rungs" :key="entry.index" class="rung-slot">
         <LadderRung
-          :rung="shownRung(entry.index)"
+          :rung="entry.rung"
           :rung-index="entry.index"
           :symbols="state.symbolMap"
           :cells="cellsOf(entry.index)"
-          :editing="state.editRung === entry.index"
-          @cell-click="(r, c) => onCellClick(entry.index, r, c)"
         >
           <template #header>
             <div class="rung-header">
               <span class="rung-num">{{ entry.index }}</span>
-              <span class="rung-label" v-if="shownRung(entry.index).label">{{ shownRung(entry.index).label }}</span>
-              <span class="rung-comment" v-if="shownRung(entry.index).comment">{{ shownRung(entry.index).comment }}</span>
+              <span class="rung-label" v-if="entry.rung.label">{{ entry.rung.label }}</span>
+              <span class="rung-comment" v-if="entry.rung.comment">{{ entry.rung.comment }}</span>
               <span class="rung-actions">
-                <button v-if="state.editRung !== entry.index" :disabled="state.busy"
-                        @click="ladderStore.beginEdit(entry.index)">Edit</button>
+                <button :disabled="state.busy" @click="ladderStore.beginEdit(entry.index)">Edit</button>
                 <button :disabled="state.busy" @click="addRungAfter(entry.index)"
                         title="Insert an empty rung below this one">+ Rung</button>
                 <button class="danger" :disabled="state.busy" @click="removeRung(entry.index)"
@@ -125,6 +77,8 @@ async function removeRung(index: number) {
     <p class="stale-note" v-if="state.program && !liveStore.state.connected">
       Not connected to the controller — the ladder is shown unpowered.
     </p>
+
+    <RungEditor v-if="state.editRung >= 0 && state.draft" />
   </div>
 </template>
 
@@ -172,26 +126,6 @@ async function removeRung(index: number) {
   font-weight: 600;
 }
 .sr-badge { color: #f9e2af; }
-
-.edit-pane {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 10px;
-  margin-bottom: 10px;
-  align-items: start;
-}
-
-.edit-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
-  border-radius: 4px;
-  padding: 10px 12px;
-}
-
-.meta-field.wide { flex: 1; }
 
 .rungs-container {
   flex: 1;

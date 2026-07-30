@@ -205,10 +205,14 @@ const hoverPreview = computed(() => {
   return { x: cx(col), y: cy(row), w: sz.cols * W, h: sz.rows * H };
 });
 
+// The selection outlines the whole element, not the cell that was clicked: a
+// block covers several cells and is selected as one thing.
 const selected = computed(() => {
   const sel = ladderStore.state.selectedCell;
   if (!props.editing || !sel || sel.rungIdx !== props.rungIndex) return null;
-  return { x: cx(sel.col), y: cy(sel.row) };
+  const sz = elementSize(getElement(sel.row, sel.col).type);
+  const leftCol = sel.col - (sz.cols - 1);
+  return { x: cx(leftCol), y: cy(sel.row), w: sz.cols * W, h: sz.rows * H };
 });
 </script>
 
@@ -394,7 +398,8 @@ const selected = computed(() => {
       </template>
 
       <!-- Selected cell, while editing -->
-      <rect v-if="selected" :x="selected.x" :y="selected.y" :width="W" :height="H" class="selected-cell"/>
+      <rect v-if="selected" :x="selected.x" :y="selected.y"
+            :width="selected.w" :height="selected.h" class="selected-cell"/>
 
       <!-- Clickable grid overlay for editing -->
       <template v-for="cell in gridCells" :key="`click-${cell.row}-${cell.col}`">

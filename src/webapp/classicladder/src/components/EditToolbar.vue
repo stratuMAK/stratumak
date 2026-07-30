@@ -92,7 +92,7 @@ const state = ladderStore.state;
     </div>
     <div class="tool-group right">
       <button class="action-btn apply" :disabled="state.busy" @click="ladderStore.applyEdit()">
-        Apply rung {{ state.editRung }}
+        Apply
       </button>
       <button class="action-btn cancel" :disabled="state.busy" @click="ladderStore.cancelEdit()">
         Cancel

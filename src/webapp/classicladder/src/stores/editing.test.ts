@@ -297,3 +297,51 @@ describe('block parameters', () => {
     expect(put!.body).toEqual({ preset: 12, base: 2 });
   });
 });
+
+describe('selecting a block', () => {
+  // A block covers up to eight cells but has one set of properties, and only
+  // the cell nearest the right rail carries its type and number. Requiring a
+  // click there is requiring the operator to know how a rung is stored.
+  it('selects the whole block from any of its cells', () => {
+    const state = store.ladderStore.state;
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(12); // counter: 2 wide, 4 high
+    store.ladderStore.selectCell(0, 0, 3); // head lands at row 0, col 4
+    expect(state.selectedCell).toEqual({ rungIdx: 0, row: 0, col: 4 });
+
+    store.ladderStore.setEditTool(-1); // selector
+
+    for (const [row, col] of [[0, 3], [1, 3], [3, 3], [1, 4], [3, 4]] as const) {
+      store.ladderStore.selectCell(0, row, col);
+      expect(state.selectedCell, `clicking (${row},${col})`)
+        .toEqual({ rungIdx: 0, row: 0, col: 4 });
+      expect(store.selectedElement()!.type, `clicking (${row},${col})`).toBe(12);
+    }
+  });
+
+  it('still selects a single-cell element where it was clicked', () => {
+    const state = store.ladderStore.state;
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(1);
+    store.ladderStore.selectCell(0, 2, 5);
+    store.ladderStore.setEditTool(-1);
+    store.ladderStore.selectCell(0, 2, 5);
+    expect(state.selectedCell).toEqual({ rungIdx: 0, row: 2, col: 5 });
+    expect(store.selectedElement()!.type).toBe(1);
+  });
+
+  it('does not redirect the delete tool away from the cell that was clicked', () => {
+    // Deleting through a body cell must still take the whole block, which the
+    // erase path already does — the selector's redirect must not change it.
+    const state = store.ladderStore.state;
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(10); // timer, 2x2, head at row 0 col 3
+    store.ladderStore.selectCell(0, 0, 2);
+    store.ladderStore.setEditTool(0);  // erase
+    store.ladderStore.selectCell(0, 1, 2); // a body cell
+    const at = (r: number, c: number) => state.draft!.elements[r * 10 + c].type;
+    for (const [r, c] of [[0, 2], [0, 3], [1, 2], [1, 3]] as const) {
+      expect(at(r, c), `cell (${r},${c})`).toBe(0);
+    }
+  });
+});

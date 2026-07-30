@@ -529,8 +529,20 @@ function selectCell(rungIdx: number, row: number, col: number) {
   const rung = currentRung();
   if (!rung) return;
 
+  // Selecting: a block covers several cells but has one set of properties, so
+  // clicking any of them selects the block. Only the head carries the type and
+  // the number; a body cell has nothing to offer, and asking an operator to
+  // find the corner nearest the right rail is asking them to know how a rung
+  // is stored.
+  if (state.editTool < 0) {
+    const head = findBlockHead(rung, row, col);
+    state.selectedCell = head
+      ? { rungIdx, row: head.row, col: head.col }
+      : { rungIdx, row, col };
+    return;
+  }
+
   state.selectedCell = { rungIdx, row, col };
-  if (state.editTool < 0) return;
 
   if (state.editTool === ELE_FREE) {
     const el = getEl(rung, row, col);
