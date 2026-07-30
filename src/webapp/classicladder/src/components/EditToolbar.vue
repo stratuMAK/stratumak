@@ -1,37 +1,53 @@
 <script setup lang="ts">
+import {
+  ELE_FREE,
+  ELE_INPUT,
+  ELE_INPUT_NOT,
+  ELE_RISING_INPUT,
+  ELE_FALLING_INPUT,
+  ELE_CONNECTION,
+  ELE_TIMER,
+  ELE_MONOSTABLE,
+  ELE_COUNTER,
+  ELE_TIMER_IEC,
+  ELE_COMPAR,
+  ELE_OUTPUT,
+  ELE_OUTPUT_NOT,
+  ELE_OUTPUT_SET,
+  ELE_OUTPUT_RESET,
+  ELE_OUTPUT_JUMP,
+  ELE_OUTPUT_CALL,
+  ELE_OUTPUT_OPERATE,
+} from '../generated/classicladder_client';
 import { ladderStore } from '../stores/ladder';
 
 const contactTypes = [
-  { type: 1, label: '| |', title: 'Normally Open Contact' },
-  { type: 2, label: '|/|', title: 'Normally Closed Contact' },
-  { type: 3, label: '|P|', title: 'Rising Edge Contact' },
-  { type: 4, label: '|N|', title: 'Falling Edge Contact' },
+  { type: ELE_INPUT, label: '| |', title: 'Normally open contact' },
+  { type: ELE_INPUT_NOT, label: '|/|', title: 'Normally closed contact' },
+  { type: ELE_RISING_INPUT, label: '|P|', title: 'Rising edge contact' },
+  { type: ELE_FALLING_INPUT, label: '|N|', title: 'Falling edge contact' },
 ];
 
 const coilTypes = [
-  { type: 50, label: '( )', title: 'Normal Coil' },
-  { type: 51, label: '(/)', title: 'Negated Coil' },
-  { type: 52, label: '(S)', title: 'Set Coil' },
-  { type: 53, label: '(R)', title: 'Reset Coil' },
+  { type: ELE_OUTPUT, label: '( )', title: 'Coil' },
+  { type: ELE_OUTPUT_NOT, label: '(/)', title: 'Negated coil' },
+  { type: ELE_OUTPUT_SET, label: '(S)', title: 'Set coil' },
+  { type: ELE_OUTPUT_RESET, label: '(R)', title: 'Reset coil' },
+  { type: ELE_OUTPUT_JUMP, label: '(J)', title: 'Jump to a rung' },
+  { type: ELE_OUTPUT_CALL, label: '(C)', title: 'Call a sub-routine' },
 ];
 
 const otherTypes = [
-  { type: 9, label: '───', title: 'Connection' },
-  { type: 10, label: 'TMR', title: 'Timer' },
-  { type: 11, label: 'MON', title: 'Monostable' },
-  { type: 12, label: 'CTR', title: 'Counter' },
-  { type: 13, label: 'IEC', title: 'Timer IEC' },
-  { type: 20, label: 'CMP', title: 'Compare' },
-  { type: 60, label: 'OPR', title: 'Operate' },
+  { type: ELE_CONNECTION, label: '───', title: 'Horizontal connection' },
+  { type: ELE_TIMER, label: 'TMR', title: 'Timer' },
+  { type: ELE_MONOSTABLE, label: 'MON', title: 'Monostable' },
+  { type: ELE_COUNTER, label: 'CTR', title: 'Counter' },
+  { type: ELE_TIMER_IEC, label: 'IEC', title: 'IEC timer' },
+  { type: ELE_COMPAR, label: 'CMP', title: 'Comparison' },
+  { type: ELE_OUTPUT_OPERATE, label: 'OPR', title: 'Assignment' },
 ];
 
-function selectTool(type: number) {
-  ladderStore.setEditTool(type);
-}
-
-function deleteTool() {
-  ladderStore.setEditTool(0); // ELE_FREE
-}
+const state = ladderStore.state;
 </script>
 
 <template>
@@ -41,9 +57,9 @@ function deleteTool() {
       <button
         v-for="t in contactTypes"
         :key="t.type"
-        :class="{ active: ladderStore.state.editTool === t.type }"
+        :class="{ active: state.editTool === t.type }"
         :title="t.title"
-        @click="selectTool(t.type)"
+        @click="ladderStore.setEditTool(t.type)"
       >{{ t.label }}</button>
     </div>
     <div class="tool-group">
@@ -51,9 +67,9 @@ function deleteTool() {
       <button
         v-for="t in coilTypes"
         :key="t.type"
-        :class="{ active: ladderStore.state.editTool === t.type }"
+        :class="{ active: state.editTool === t.type }"
         :title="t.title"
-        @click="selectTool(t.type)"
+        @click="ladderStore.setEditTool(t.type)"
       >{{ t.label }}</button>
     </div>
     <div class="tool-group">
@@ -61,18 +77,25 @@ function deleteTool() {
       <button
         v-for="t in otherTypes"
         :key="t.type"
-        :class="{ active: ladderStore.state.editTool === t.type }"
+        :class="{ active: state.editTool === t.type }"
         :title="t.title"
-        @click="selectTool(t.type)"
+        @click="ladderStore.setEditTool(t.type)"
       >{{ t.label }}</button>
     </div>
     <div class="tool-group">
-      <button class="delete-btn" :class="{ active: ladderStore.state.editTool === 0 }" title="Delete" @click="deleteTool()">✕</button>
-      <button class="action-btn" title="Toggle top connection" @click="ladderStore.toggleTopConnection()">┬</button>
+      <button class="delete-btn" :class="{ active: state.editTool === ELE_FREE }"
+              title="Delete the element in the cell you click" @click="ladderStore.setEditTool(ELE_FREE)">✕</button>
+      <button class="action-btn" title="Join this cell to the one above (parallel branch)"
+              @click="ladderStore.toggleTopConnection()">┬</button>
+      <button class="action-btn" title="Stop placing; clicking only selects"
+              :class="{ active: state.editTool === -1 }" @click="ladderStore.setEditTool(-1)">↖</button>
     </div>
     <div class="tool-group right">
-      <button class="action-btn save" @click="ladderStore.saveProgram()" :disabled="!ladderStore.state.dirty">
-        Save
+      <button class="action-btn apply" :disabled="state.busy" @click="ladderStore.applyEdit()">
+        Apply rung {{ state.editRung }}
+      </button>
+      <button class="action-btn cancel" :disabled="state.busy" @click="ladderStore.cancelEdit()">
+        Cancel
       </button>
     </div>
   </div>
@@ -85,7 +108,7 @@ function deleteTool() {
   gap: 12px;
   padding: 8px;
   background: #1e1e2e;
-  border: 1px solid #45475a;
+  border: 1px solid #f9e2af;
   border-radius: 4px;
   margin-bottom: 8px;
   flex-wrap: wrap;
@@ -99,6 +122,7 @@ function deleteTool() {
 
 .tool-group.right {
   margin-left: auto;
+  gap: 6px;
 }
 
 .group-label {
@@ -142,14 +166,18 @@ function deleteTool() {
   border-color: #f38ba8 !important;
 }
 
-.action-btn.save {
+.action-btn.apply {
   background: #a6e3a1;
   color: #1e1e2e;
   border-color: #a6e3a1;
   font-family: inherit;
 }
 
-.action-btn.save:disabled {
+.action-btn.cancel {
+  font-family: inherit;
+}
+
+.action-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }

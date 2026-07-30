@@ -1,44 +1,58 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { Rung, Element } from '../generated/classicladder_client';
-import { ladderStore, elementSize, elementLabel } from '../stores/ladder';
+import {
+  RUNG_WIDTH,
+  RUNG_HEIGHT,
+  CELL_STATE,
+  CELL_INPUT,
+  CELL_OUTPUT,
+  ELE_FREE,
+  ELE_INPUT,
+  ELE_INPUT_NOT,
+  ELE_RISING_INPUT,
+  ELE_FALLING_INPUT,
+  ELE_CONNECTION,
+  ELE_TIMER,
+  ELE_MONOSTABLE,
+  ELE_COUNTER,
+  ELE_TIMER_IEC,
+  ELE_COMPAR,
+  ELE_OUTPUT,
+  ELE_OUTPUT_NOT,
+  ELE_OUTPUT_SET,
+  ELE_OUTPUT_RESET,
+  ELE_OUTPUT_JUMP,
+  ELE_OUTPUT_CALL,
+  ELE_OUTPUT_OPERATE,
+  ELE_UNUSABLE,
+} from '../generated/classicladder_client';
+import { ladderStore, elementSize, elementLabel, blockValueText } from '../stores/ladder';
 
 const props = defineProps<{
   rung: Rung;
   rungIndex: number;
   symbols?: Map<string, string>;
+  // Live cell state from the controller, RUNG_WIDTH * RUNG_HEIGHT of CELL_*
+  // bits. Null while the PLC is unreachable, which draws everything cold —
+  // showing the last known colours would claim a machine still running.
+  cells?: number[] | null;
+  // Editing draws no colours at all, as 2.9's edit mode does: a rung being
+  // rewritten is not the rung the engine is scanning.
+  editing?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'cellClick', row: number, col: number): void;
 }>();
 
-const COLS = 10;
-const ROWS = 6;
+const COLS = RUNG_WIDTH;
+const ROWS = RUNG_HEIGHT;
 const CELL_W = 80;
 const CELL_H = 40;
 const RAIL_W = 4;
 
-// Element type constants
-const ELE_FREE = 0;
-const ELE_INPUT = 1;
-const ELE_INPUT_NOT = 2;
-const ELE_RISING_INPUT = 3;
-const ELE_FALLING_INPUT = 4;
-const ELE_CONNECTION = 9;
-const ELE_TIMER = 10;
-const ELE_MONOSTABLE = 11;
-const ELE_COUNTER = 12;
-const ELE_TIMER_IEC = 13;
-const ELE_COMPAR = 20;
-const ELE_OUTPUT = 50;
-const ELE_OUTPUT_NOT = 51;
-const ELE_OUTPUT_SET = 52;
-const ELE_OUTPUT_RESET = 53;
-const ELE_OUTPUT_JUMP = 54;
-const ELE_OUTPUT_CALL = 55;
-const ELE_OUTPUT_OPERATE = 60;
-const ELE_BLOCK_BODY = 99;
+const ELE_BLOCK_BODY = ELE_UNUSABLE;
 
 function getElement(row: number, col: number): Element {
   const idx = row * COLS + col;
@@ -46,6 +60,43 @@ function getElement(row: number, col: number): Element {
     return props.rung.elements[idx];
   }
   return { type: 0, connectedWithTop: 0, varType: 0, varNum: 0 };
+}
+
+// --- Live state ---
+//
+// The engine works out, for every cell it scans, whether the element conducts
+// (CELL_STATE), whether power reaches it (CELL_INPUT) and whether power leaves
+// it (CELL_OUTPUT); this component only decides which of those colours which
+// stroke. That split is the point: 2.9 draws an element with the energized pen
+// when DynamicState is set, and its vertical branch link when DynamicInput is,
+// and matching it here means matching it exactly rather than approximately.
+
+function bitsAt(row: number, col: number): number {
+  if (props.editing || !props.cells) return 0;
+  return props.cells[row * COLS + col] ?? 0;
+}
+
+// live: the element itself carries power — its whole drawing lights up.
+function live(row: number, col: number): boolean {
+  return (bitsAt(row, col) & CELL_STATE) !== 0;
+}
+
+function livePowerIn(row: number, col: number): boolean {
+  return (bitsAt(row, col) & CELL_INPUT) !== 0;
+}
+
+function livePowerOut(row: number, col: number): boolean {
+  return (bitsAt(row, col) & CELL_OUTPUT) !== 0;
+}
+
+// A block's terminals are wired per row: input k arrives at the left column of
+// the footprint, output k leaves from the head's column.
+function blockInLive(headRow: number, headCol: number, row: number, cols: number): boolean {
+  return livePowerIn(headRow + row, headCol - (cols - 1));
+}
+
+function blockOutLive(headRow: number, headCol: number, row: number): boolean {
+  return livePowerOut(headRow + row, headCol);
 }
 
 // How a variable is written is the store's business, because the backend serves
@@ -56,6 +107,12 @@ function symbolOrVar(el: Element): string {
   const name = elementLabel(el);
   if (props.symbols?.has(name)) return props.symbols.get(name)!;
   return name;
+}
+
+// What a block shows below its name: the value while the PLC runs, the preset
+// while editing or when there is nothing live — the rule 2.9 uses.
+function blockText(el: Element): string {
+  return blockValueText(el, props.editing === true);
 }
 
 function isContact(type: number): boolean {
@@ -89,6 +146,9 @@ function blockRows(type: number): number {
 
 const svgWidth = computed(() => COLS * CELL_W + 2 * RAIL_W);
 const svgHeight = computed(() => {
+  // While editing, always offer the full grid: a rung you cannot reach the
+  // lower rows of is a rung you cannot add a branch to.
+  if (props.editing) return ROWS * CELL_H;
   let lastRow = 0;
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -100,7 +160,7 @@ const svgHeight = computed(() => {
 
 interface CellInfo { row: number; col: number; el: Element; }
 
-const cells = computed((): CellInfo[] => {
+const gridCells = computed((): CellInfo[] => {
   const result: CellInfo[] = [];
   const usedRows = svgHeight.value / CELL_H;
   for (let r = 0; r < usedRows; r++) {
@@ -135,7 +195,7 @@ function onLeave() {
 }
 
 const hoverPreview = computed(() => {
-  if (!hoverCell.value) return null;
+  if (!props.editing || !hoverCell.value) return null;
   const tool = ladderStore.state.editTool;
   if (tool < 0) return null; // no tool selected
   const sz = elementSize(tool);
@@ -144,33 +204,44 @@ const hoverPreview = computed(() => {
   if (col + sz.cols > COLS || row + sz.rows > ROWS) return null;
   return { x: cx(col), y: cy(row), w: sz.cols * W, h: sz.rows * H };
 });
+
+const selected = computed(() => {
+  const sel = ladderStore.state.selectedCell;
+  if (!props.editing || !sel || sel.rungIdx !== props.rungIndex) return null;
+  return { x: cx(sel.col), y: cy(sel.row) };
+});
 </script>
 
 <template>
-  <div class="rung">
-    <div class="rung-header">
-      <span class="rung-num">{{ rungIndex }}</span>
-      <span class="rung-label" v-if="rung.label">{{ rung.label }}</span>
-      <span class="rung-comment" v-if="rung.comment">{{ rung.comment }}</span>
-    </div>
+  <div class="rung" :class="{ editing }">
+    <slot name="header">
+      <div class="rung-header">
+        <span class="rung-num">{{ rungIndex }}</span>
+        <span class="rung-label" v-if="rung.label">{{ rung.label }}</span>
+        <span class="rung-comment" v-if="rung.comment">{{ rung.comment }}</span>
+      </div>
+    </slot>
     <svg :width="svgWidth" :height="svgHeight + 8" :viewBox="`0 -8 ${svgWidth} ${svgHeight + 8}`" class="rung-svg">
       <!-- Power rails -->
       <line :x1="RAIL_W/2" y1="-8" :x2="RAIL_W/2" :y2="svgHeight" class="rail"/>
       <line :x1="svgWidth - RAIL_W/2" y1="-8" :x2="svgWidth - RAIL_W/2" :y2="svgHeight" class="rail"/>
 
-      <template v-for="cell in cells" :key="`${cell.row}-${cell.col}`">
-        <!-- Vertical top-connection: at LEFT edge of cell, from cmy(row) up to cmy(row-1) -->
+      <template v-for="cell in gridCells" :key="`${cell.row}-${cell.col}`">
+        <!-- Vertical top-connection: at LEFT edge of cell, from cmy(row) up to cmy(row-1).
+             2.9 colours this from the lower cell's DynamicInput. -->
         <line v-if="cell.el.connectedWithTop && cell.row > 0 && cell.el.type !== ELE_BLOCK_BODY"
               :x1="cx(cell.col)" :y1="cmy(cell.row)"
-              :x2="cx(cell.col)" :y2="cmy(cell.row - 1)" class="wire"/>
+              :x2="cx(cell.col)" :y2="cmy(cell.row - 1)" class="wire"
+              :class="{ live: livePowerIn(cell.row, cell.col) }"/>
 
         <!-- Connection (horizontal wire through full cell) -->
         <line v-if="cell.el.type === ELE_CONNECTION"
               :x1="cx(cell.col)" :y1="cmy(cell.row)"
-              :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"/>
+              :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"
+              :class="{ live: live(cell.row, cell.col) }"/>
 
         <!-- Contacts: bars at W/3 and 2*W/3, wires from edges to bars -->
-        <g v-if="isContact(cell.el.type)" class="clickable">
+        <g v-if="isContact(cell.el.type)" class="clickable" :class="{ live: live(cell.row, cell.col) }">
           <!-- Horizontal wires -->
           <line :x1="cx(cell.col)" :y1="cmy(cell.row)"
                 :x2="cx(cell.col) + W3" :y2="cmy(cell.row)" class="wire"/>
@@ -203,7 +274,7 @@ const hoverPreview = computed(() => {
         </g>
 
         <!-- Coils: arcs at W/4 to 3W/4, wires from edges -->
-        <g v-else-if="isCoil(cell.el.type)" class="clickable">
+        <g v-else-if="isCoil(cell.el.type)" class="clickable" :class="{ live: live(cell.row, cell.col) }">
           <!-- Horizontal wires (stop at arc edges W/4 and 3W/4) -->
           <line :x1="cx(cell.col)" :y1="cmy(cell.row)"
                 :x2="cx(cell.col) + W4" :y2="cmy(cell.row)" class="wire"/>
@@ -224,7 +295,9 @@ const hoverPreview = computed(() => {
 
         <!-- Timer/Monostable/Counter/TimerIEC blocks
              Head element is at the RIGHT column of the 2-col block.
-             Block box extends LEFT by one cell width from the head. -->
+             Block box extends LEFT by one cell width from the head.
+             Each terminal wire is coloured on its own, as 2.9 does: the box
+             itself never lights up, only the power arriving and leaving. -->
         <g v-else-if="isBlock(cell.el.type)" class="clickable">
           <!-- Box: x from cx(col)+W/3-W, width W+W/3, height depends on block type -->
           <rect :x="cx(cell.col) + W3 - W" :y="cy(cell.row) + H3"
@@ -233,68 +306,70 @@ const hoverPreview = computed(() => {
           <text :x="cx(cell.col) + W3 - W + (W+W3)/2" :y="cy(cell.row) + H3 + (blockRows(cell.el.type) === 4 ? (3*H+H3)/2 - 8 : (H+H3)/2 - 5)" class="blk-title">{{ blockName(cell.el.type) }}</text>
           <!-- Variable/symbol name -->
           <text :x="cx(cell.col) + W3 - W + (W+W3)/2" :y="cy(cell.row) + H3 + (blockRows(cell.el.type) === 4 ? (3*H+H3)/2 + 6 : (H+H3)/2 + 7)" class="blk-var">{{ symbolOrVar(cell.el) }}</text>
+          <!-- Live value (or preset while editing), as 2.9 shows inside the box -->
+          <text :x="cx(cell.col) + W3 - W + (W+W3)/2" :y="cy(cell.row) + H3 + (blockRows(cell.el.type) === 4 ? (3*H+H3)/2 + 18 : (H+H3)/2 + 18)" class="blk-val">{{ blockText(cell.el) }}</text>
 
           <!-- Timer/Mono: E input, C input, D output, R output -->
           <template v-if="cell.el.type === ELE_TIMER || cell.el.type === ELE_MONOSTABLE">
             <!-- E input wire + label -->
             <line :x1="cx(cell.col) - W" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"/>
-            <!-- E input wire + label -->
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row)" class="term">E</text>
-            <!-- C input wire + label -->
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + 1)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + 1)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + 1)" class="term">C</text>
+                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"
+                  :class="{ live: blockInLive(cell.row, cell.col, 0, 2) }"/>
+            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row)" class="term">{{ cell.el.type === ELE_MONOSTABLE ? 'I^' : 'E' }}</text>
+            <!-- C input wire + label (timer only; a monostable has one input) -->
+            <template v-if="cell.el.type === ELE_TIMER">
+              <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + 1)"
+                    :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + 1)" class="wire"
+                    :class="{ live: blockInLive(cell.row, cell.col, 1, 2) }"/>
+              <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + 1)" class="term">C</text>
+            </template>
             <!-- D output wire + label -->
             <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"/>
-            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row)" class="term-r">D</text>
-            <!-- R output wire + label -->
-            <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row + 1)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row + 1)" class="wire"/>
-            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row + 1)" class="term-r">R</text>
+                  :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"
+                  :class="{ live: blockOutLive(cell.row, cell.col, 0) }"/>
+            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row)" class="term-r">{{ cell.el.type === ELE_MONOSTABLE ? 'R' : 'D' }}</text>
+            <!-- R output wire + label (timer only) -->
+            <template v-if="cell.el.type === ELE_TIMER">
+              <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row + 1)"
+                    :x2="cx(cell.col) + W" :y2="cmy(cell.row + 1)" class="wire"
+                    :class="{ live: blockOutLive(cell.row, cell.col, 1) }"/>
+              <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row + 1)" class="term-r">R</text>
+            </template>
           </template>
 
           <!-- Timer IEC: I input, Q output (single row of I/O) -->
           <template v-if="cell.el.type === ELE_TIMER_IEC">
             <line :x1="cx(cell.col) - W" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"/>
+                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"
+                  :class="{ live: blockInLive(cell.row, cell.col, 0, 2) }"/>
             <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row)" class="term">I</text>
             <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"/>
+                  :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"
+                  :class="{ live: blockOutLive(cell.row, cell.col, 0) }"/>
             <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row)" class="term-r">Q</text>
           </template>
 
           <!-- Counter: R/P/U/D inputs at rows 0-3, E/D/F outputs at rows 0-2 -->
           <template v-if="cell.el.type === ELE_COUNTER">
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row)" class="term">R</text>
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + 1)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + 1)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + 1)" class="term">P</text>
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + 2)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + 2)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + 2)" class="term">U</text>
-            <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + 3)"
-                  :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + 3)" class="wire"/>
-            <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + 3)" class="term">D</text>
-            <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row)" class="wire"/>
-            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row)" class="term-r">E</text>
-            <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row + 1)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row + 1)" class="wire"/>
-            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row + 1)" class="term-r">D</text>
-            <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row + 2)"
-                  :x2="cx(cell.col) + W" :y2="cmy(cell.row + 2)" class="wire"/>
-            <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row + 2)" class="term-r">F</text>
+            <template v-for="(name, row) in ['R', 'P', 'U', 'D']" :key="`cin-${row}`">
+              <line :x1="cx(cell.col) - W" :y1="cmy(cell.row + row)"
+                    :x2="cx(cell.col) - W + W3" :y2="cmy(cell.row + row)" class="wire"
+                    :class="{ live: blockInLive(cell.row, cell.col, row, 2) }"/>
+              <text :x="cx(cell.col) - W + W3 + 4" :y="cmy(cell.row + row)" class="term">{{ name }}</text>
+            </template>
+            <template v-for="(name, row) in ['E', 'D', 'F']" :key="`cout-${row}`">
+              <line :x1="cx(cell.col) + 2*W3" :y1="cmy(cell.row + row)"
+                    :x2="cx(cell.col) + W" :y2="cmy(cell.row + row)" class="wire"
+                    :class="{ live: blockOutLive(cell.row, cell.col, row) }"/>
+              <text :x="cx(cell.col) + 2*W3 - 4" :y="cmy(cell.row + row)" class="term-r">{{ name }}</text>
+            </template>
           </template>
         </g>
 
-        <!-- Compare: spans 3 cells wide (extends 2 cells LEFT from head) -->
-        <g v-else-if="cell.el.type === ELE_COMPAR" class="clickable">
+        <!-- Compare: spans 3 cells wide (extends 2 cells LEFT from head).
+             2.9 draws both its wires with the energized pen when the
+             comparison is true, and never colours the box. -->
+        <g v-else-if="cell.el.type === ELE_COMPAR" class="clickable" :class="{ live: live(cell.row, cell.col) }">
           <rect :x="cx(cell.col) + W3 - 2*W" :y="cy(cell.row) + H4"
                 :width="2*W + W3" :height="2*H4" class="block-rect"/>
           <line :x1="cx(cell.col) - 2*W" :y1="cmy(cell.row)"
@@ -306,7 +381,7 @@ const hoverPreview = computed(() => {
         </g>
 
         <!-- Operate output: spans 3 cells wide (extends 2 cells LEFT from head) -->
-        <g v-else-if="cell.el.type === ELE_OUTPUT_OPERATE" class="clickable">
+        <g v-else-if="cell.el.type === ELE_OUTPUT_OPERATE" class="clickable" :class="{ live: live(cell.row, cell.col) }">
           <rect :x="cx(cell.col) + W3 - 2*W" :y="cy(cell.row) + H4"
                 :width="2*W + W3" :height="2*H4" class="block-rect"/>
           <line :x1="cx(cell.col) - 2*W" :y1="cmy(cell.row)"
@@ -318,8 +393,11 @@ const hoverPreview = computed(() => {
         </g>
       </template>
 
+      <!-- Selected cell, while editing -->
+      <rect v-if="selected" :x="selected.x" :y="selected.y" :width="W" :height="H" class="selected-cell"/>
+
       <!-- Clickable grid overlay for editing -->
-      <template v-for="cell in cells" :key="`click-${cell.row}-${cell.col}`">
+      <template v-for="cell in gridCells" :key="`click-${cell.row}-${cell.col}`">
         <rect :x="cx(cell.col)" :y="cy(cell.row)" :width="W" :height="H"
               class="click-overlay"
               @click="emit('cellClick', cell.row, cell.col)"
@@ -338,6 +416,7 @@ const hoverPreview = computed(() => {
 
 <style scoped>
 .rung { margin-bottom: 8px; border: 1px solid #45475a; border-radius: 4px; overflow: hidden; }
+.rung.editing { border-color: #f9e2af; box-shadow: 0 0 0 1px #f9e2af inset; }
 .rung-header { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: #1e1e2e; border-bottom: 1px solid #45475a; font-size: 11px; }
 .rung-num { font-weight: 700; color: #89b4fa; min-width: 24px; }
 .rung-label { color: #a6e3a1; font-weight: 600; }
@@ -355,14 +434,26 @@ const hoverPreview = computed(() => {
 .block-rect { fill: #313244; stroke: #9399b2; stroke-width: 1; rx: 2; }
 .blk-title { fill: #cba6f7; font-size: 10px; font-weight: 700; text-anchor: middle; }
 .blk-var { fill: #a6adc8; font-size: 9px; text-anchor: middle; }
+.blk-val { fill: #f9e2af; font-size: 9px; text-anchor: middle; font-family: monospace; }
 .blk-lbl { fill: #a6adc8; font-size: 9px; text-anchor: middle; dominant-baseline: middle; }
 .term { fill: #a6adc8; font-size: 8px; text-anchor: start; dominant-baseline: middle; }
 .term-r { fill: #a6adc8; font-size: 8px; text-anchor: end; dominant-baseline: middle; }
 .clickable { cursor: pointer; }
+
+/* Energized: 2.9 draws powered elements in one bright colour and everything
+   else in the default pen. One class on the element's group carries it, so a
+   contact and its wires light together the way they do there. */
+.live .wire, line.wire.live { stroke: #f38ba8; stroke-width: 2.5; }
+.live .contact-bar { stroke: #f38ba8; }
+.live .coil-arc { stroke: #f38ba8; stroke-width: 2.5; }
+.live .coil-t { fill: #f38ba8; }
+.live .block-rect { stroke: #f38ba8; }
+
 .clickable:hover .wire { stroke: #89b4fa; }
 .clickable:hover .contact-bar { stroke: #b5f0c7; }
 .clickable:hover .coil-arc { stroke: #fce8b2; }
 .click-overlay { fill: transparent; cursor: pointer; }
 .click-overlay:hover { fill: rgba(137, 180, 250, 0.03); }
 .hover-preview { fill: rgba(137, 180, 250, 0.12); stroke: #89b4fa; stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+.selected-cell { fill: rgba(249, 226, 175, 0.10); stroke: #f9e2af; stroke-width: 1.5; pointer-events: none; }
 </style>
