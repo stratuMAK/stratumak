@@ -34,6 +34,9 @@ export interface LadderStoreState {
   // it had an old-style timer labelled with the IEC prefix and the IEC timer
   // labelled with one that does not exist.
   varClasses: VarClass[];
+  // The expression table in written form, as the backend renders it — index
+  // aligned with program.arithmExprs.
+  expressionTexts: string[];
   loading: boolean;
   error: string;
 }
@@ -50,6 +53,7 @@ const state = reactive<LadderStoreState>({
   dirty: false,
   symbolMap: new Map(),
   varClasses: [],
+  expressionTexts: [],
   loading: false,
   error: '',
 });
@@ -61,12 +65,14 @@ async function fetchProgram() {
     // The naming table describes how this PLC was sized, so it is fetched with
     // the program rather than once at start-up: loading a different project can
     // change how many of each variable exist.
-    const [program, varClasses] = await Promise.all([
+    const [program, varClasses, exprTexts] = await Promise.all([
       client.getProgram(),
       client.getVarClasses(),
+      client.getExpressionsText(),
     ]);
     state.program = program;
     state.varClasses = varClasses;
+    state.expressionTexts = exprTexts.map(e => e.text);
     buildSymbolMap();
     state.dirty = false;
     // Set active section to first used section
@@ -107,51 +113,6 @@ export function formatVar(varType: number, offset: number): string {
   return `%${c.prefix}${offset}${c.suffix}`;
 }
 
-// exprToNames rewrites a stored expression into written names for display:
-// "@200/0@>5" becomes "%W0>5". A reference the table cannot resolve is left as
-// it was rather than dropped, so an expression never silently loses a term.
-export function exprToNames(expr: string): string {
-  let out = '';
-  let i = 0;
-  while (i < expr.length) {
-    if (expr[i] !== '@') {
-      out += expr[i++];
-      continue;
-    }
-    const end = expr.indexOf('@', i + 1);
-    if (end < 0) {
-      out += expr.slice(i);
-      break;
-    }
-    const inner = expr.slice(i + 1, end);
-    const name = refToName(inner);
-    out += name ?? expr.slice(i, end + 1);
-    i = end + 1;
-  }
-  return out;
-}
-
-// refToName converts the inside of an @...@ reference, keeping any index.
-function refToName(inner: string): string | null {
-  let index = '';
-  const open = inner.indexOf('[');
-  if (open >= 0) {
-    if (!inner.endsWith(']')) return null;
-    const idx = refToName(inner.slice(open + 1, inner.length - 1));
-    if (idx === null) return null;
-    index = `[${idx}]`;
-    inner = inner.slice(0, open);
-  }
-  const slash = inner.indexOf('/');
-  if (slash < 0) return null;
-  const varType = Number(inner.slice(0, slash));
-  const offset = Number(inner.slice(slash + 1));
-  if (!Number.isInteger(varType) || !Number.isInteger(offset)) return null;
-  const c = classFor(varType);
-  if (!c) return null;
-  return `%${c.prefix}${offset}${c.suffix}${index}`;
-}
-
 // elementLabel is what a cell shows: the variable a contact or coil works on,
 // the block a timer refers to, or the expression a compare or operate holds.
 export function elementLabel(el: Element): string {
@@ -164,9 +125,13 @@ export function elementLabel(el: Element): string {
 
   // A compare or operate holds an expression index, not a variable. Showing it
   // through the variable table would label it "%B3" for expression 3.
+  //
+  // The written form comes from the backend (GET /expressions/text) rather than
+  // being rendered here: converting between "@200/0@>5" and "%W0>5" needs the
+  // naming rules, and a second implementation of them is one that can drift
+  // from the one checked against the original.
   if (el.type === ELE_COMPAR || el.type === ELE_OUTPUT_OPERATE) {
-    const expr = state.program?.arithmExprs?.[el.varNum]?.expr ?? '';
-    return expr === '' ? '' : exprToNames(expr);
+    return state.expressionTexts[el.varNum] ?? '';
   }
 
   // A jump names a rung and a call names a sub-routine; neither is a variable.

@@ -609,6 +609,31 @@ func get_expressions() -> []ArithmExpr
 @path "/expressions"
 func set_expressions(exprs: []ArithmExpr) -> i32
 
+# An expression in the form an operator reads and writes: "%W1:=%W0+1" rather
+# than the stored "@200/1@:=@200/0@+1".
+type ExprText {
+    text: string @maxlen(48)
+}
+
+# Get the expression table in written form.
+#
+# Converting between the two forms needs the variable naming rules, which live
+# on this side and are checked against the original implementation. A client
+# displays what this returns and sends back what the operator typed; it does not
+# need a parser of its own, and a second parser is what would drift.
+@method GET
+@path "/expressions/text"
+func get_expressions_text() -> []ExprText
+
+# Update the expression table from written form.
+#
+# Each entry is parsed, compiled and stored, and the whole table is refused if
+# any entry names a variable that does not exist or fails to compile. An empty
+# entry clears that expression.
+@method PUT
+@path "/expressions/text"
+func set_expressions_text(texts: []ExprText) -> i32
+
 # --- Watch functions (pushed to WS clients) ---
 
 # Live status pushed to connected clients (state + scan time).

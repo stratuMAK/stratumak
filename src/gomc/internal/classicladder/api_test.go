@@ -4,6 +4,7 @@ package classicladder
 
 import (
 	"errors"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -167,6 +168,151 @@ func TestAPI_SetProgramRefusedLeavesProgramIntact(t *testing.T) {
 	}
 	if after.ArithmExprs[2].Expr != "" {
 		t.Errorf("expression 2 = %q after a refused program, want it empty", after.ArithmExprs[2].Expr)
+	}
+}
+
+// --- Expressions in written form ---
+
+// The written and stored forms convert here so that no client needs a second
+// parser. Reading, editing and writing back must all agree.
+func TestAPI_ExpressionsTextRoundTrip(t *testing.T) {
+	m := newTestModule(t)
+
+	exprs, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	exprs[0].Expr = "@200/0@>5"
+	exprs[1].Expr = "@200/1@:=@270/2@+1"
+	if _, err := m.SetExpressions(exprs); err != nil {
+		t.Fatalf("set expressions: %v", err)
+	}
+
+	texts, err := m.GetExpressionsText()
+	if err != nil {
+		t.Fatalf("get expression text: %v", err)
+	}
+	if texts[0].Text != "%W0>5" {
+		t.Errorf("expression 0 text = %q, want %q", texts[0].Text, "%W0>5")
+	}
+	if texts[1].Text != "%W1:=%IW2+1" {
+		t.Errorf("expression 1 text = %q, want %q", texts[1].Text, "%W1:=%IW2+1")
+	}
+	if texts[2].Text != "" {
+		t.Errorf("empty expression rendered as %q, want empty", texts[2].Text)
+	}
+
+	// Writing the text back unchanged must not change the program: an editor
+	// that opens a rung and saves it without editing has to be a no-op.
+	if _, err := m.SetExpressionsText(texts); err != nil {
+		t.Fatalf("set expression text: %v", err)
+	}
+	after, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	for i := range exprs {
+		if after[i].Expr != exprs[i].Expr {
+			t.Errorf("expression %d = %q after a text round trip, want %q",
+				i, after[i].Expr, exprs[i].Expr)
+		}
+	}
+}
+
+// Editing through the text form must reach the engine, not just the store.
+func TestAPI_ExpressionsTextTakesEffect(t *testing.T) {
+	m := newTestModule(t)
+	l := &ladderRT{rt: m.rt}
+
+	texts, err := m.GetExpressionsText()
+	if err != nil {
+		t.Fatalf("get expression text: %v", err)
+	}
+	texts[0].Text = "%W0:=11"
+	if _, err := m.SetExpressionsText(texts); err != nil {
+		t.Fatalf("set expression text: %v", err)
+	}
+
+	l.putBlock(0, 2, 0, eleOutputOperate, 0, 3, 1)
+	m.rt.rungs[0].used = 1
+	m.rt.sections[0].used = 1
+	m.rt.sections[0].sub_routine_number = -1
+	m.rt.sections[0].first_rung = 0
+	m.rt.sections[0].last_rung = 0
+	l.scan(1)
+
+	if got := l.readVar(varMemWord, 0); got != 11 {
+		t.Fatalf("%%W0 = %d, want 11 — the written expression never reached the engine", got)
+	}
+}
+
+// An expression holding a reference this implementation cannot name must still
+// survive a read-and-write-back. Rendering keeps such a reference in its stored
+// form, so the text that comes out has to be text that can go back in —
+// otherwise opening a project written by another version and saving it without
+// editing anything would fail.
+func TestAPI_UnrenderableExpressionSurvivesTextRoundTrip(t *testing.T) {
+	m := newTestModule(t)
+
+	exprs, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	const stored = "@999/0@:=@200/0@"
+	exprs[0].Expr = stored
+	if _, err := m.SetExpressions(exprs); err != nil {
+		t.Fatalf("set expressions: %v", err)
+	}
+
+	texts, err := m.GetExpressionsText()
+	if err != nil {
+		t.Fatalf("get expression text: %v", err)
+	}
+	if !strings.Contains(texts[0].Text, "@999/0@") {
+		t.Fatalf("text = %q, want the unrenderable reference kept", texts[0].Text)
+	}
+
+	if _, err := m.SetExpressionsText(texts); err != nil {
+		t.Fatalf("writing back the rendered text failed: %v", err)
+	}
+	after, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	if after[0].Expr != stored {
+		t.Errorf("expression = %q after a text round trip, want %q", after[0].Expr, stored)
+	}
+}
+
+func TestAPI_ExpressionsTextRejectsUnknownNames(t *testing.T) {
+	m := newTestModule(t)
+
+	texts, err := m.GetExpressionsText()
+	if err != nil {
+		t.Fatalf("get expression text: %v", err)
+	}
+	texts[0].Text = "%W0:=1"
+	if _, err := m.SetExpressionsText(texts); err != nil {
+		t.Fatalf("a valid written expression was refused: %v", err)
+	}
+
+	texts[1].Text = "%Z9:=1"
+	if _, err := m.SetExpressionsText(texts); err == nil {
+		t.Fatal("an expression naming a variable that does not exist was accepted")
+	} else if !errors.Is(err, syscall.EINVAL) {
+		t.Errorf("error = %v, want it to wrap EINVAL", err)
+	}
+
+	// The refused batch must leave the earlier expression alone.
+	after, err := m.GetExpressions()
+	if err != nil {
+		t.Fatalf("get expressions: %v", err)
+	}
+	if after[0].Expr != "@200/0@:=1" {
+		t.Errorf("expression 0 = %q after a refused batch, want it unchanged", after[0].Expr)
+	}
+	if after[1].Expr != "" {
+		t.Errorf("expression 1 = %q, want the refused write not to have stored it", after[1].Expr)
 	}
 }
 

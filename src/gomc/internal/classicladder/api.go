@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"fmt"
+	"syscall"
 	"unsafe"
 
 	api "github.com/sittner/linuxcnc/src/gomc/generated/gmi/classicladder"
@@ -869,4 +870,60 @@ func (m *classicladder) GetVarClasses() ([]api.VarClass, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.varClasses(), nil
+}
+
+// GetExpressionsText returns the expression table in the form an operator reads.
+//
+// Converting between the written and stored forms needs the variable naming
+// rules, and those are checked against the original implementation here. Serving
+// the converted text means a client displays what it is given rather than
+// carrying a second parser that can drift from this one.
+func (m *classicladder) GetExpressionsText() ([]api.ExprText, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]api.ExprText, int(m.rt.sizes.nbr_arithm_expr))
+	for i := range out {
+		stored := C.GoString(&m.rt.arithm_exprs[i].expr[0])
+		if stored != "" {
+			out[i].Text = m.exprToNames(stored)
+		}
+	}
+	return out, nil
+}
+
+// SetExpressionsText replaces the expression table from written form.
+func (m *classicladder) SetExpressionsText(texts []api.ExprText) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Parse the whole table first: one unknown name refuses the batch, the same
+	// way one uncompilable expression does, so a rejected edit leaves the
+	// running program alone.
+	stored := make([]string, len(texts))
+	for i, t := range texts {
+		if t.Text == "" {
+			continue
+		}
+		s, err := m.namesToExpr(t.Text)
+		if err != nil {
+			return -1, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, i, t.Text, err)
+		}
+		if len(s) > C.CL_ARITHM_EXPR_SIZE-1 {
+			return -1, fmt.Errorf("%w: expr[%d] %q: too long once converted (%d chars)",
+				syscall.EINVAL, i, t.Text, len(s))
+		}
+		stored[i] = s
+	}
+
+	code, err := compileExprList(stored)
+	if err != nil {
+		return -1, err
+	}
+	for i := 0; i < len(stored) && i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+		copyStringToC(&m.rt.arithm_exprs[i].expr[0], stored[i], C.CL_ARITHM_EXPR_SIZE)
+	}
+	m.installExprCode(code)
+	m.bumpGeneration()
+	return 0, nil
 }

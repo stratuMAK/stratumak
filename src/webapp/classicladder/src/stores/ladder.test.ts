@@ -23,6 +23,16 @@ const varClasses = [
   { prefix: 'IW', suffix: '', varType: 270, count: 10, writable: false },
 ];
 
+// What the backend renders for the expression table. The conversion between
+// "@200/0@>5" and "%W0>5" happens there, so these are fixtures rather than
+// something this app computes.
+const expressionTexts = [
+  { text: '%W0>5' },
+  { text: '%W1:=%IW2+1' },
+  { text: '' },
+  { text: '@999/0@:=1' }, // a reference the backend could not render
+];
+
 const program = {
   sizes: {},
   rungs: [],
@@ -47,7 +57,10 @@ let store: typeof import('./ladder');
 
 beforeEach(async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    const body = String(url).includes('var_classes') ? varClasses : program;
+    const u = String(url);
+    const body = u.includes('var_classes') ? varClasses
+      : u.includes('expressions/text') ? expressionTexts
+      : program;
     return {
       ok: true,
       status: 200,
@@ -123,26 +136,23 @@ describe('element labels', () => {
   });
 });
 
-describe('expression rendering', () => {
-  it('converts every reference and leaves the rest alone', () => {
-    expect(store.exprToNames('@200/0@>5')).toBe('%W0>5');
-    expect(store.exprToNames('MINI(@200/0@,@200/1@)')).toBe('MINI(%W0,%W1)');
-    expect(store.exprToNames('no refs here')).toBe('no refs here');
+describe('expressions come from the backend', () => {
+  it('shows the written form the backend rendered', () => {
+    // Not rendered here: converting between the stored and written forms needs
+    // the naming rules, and a second implementation of them is one that drifts
+    // from the one checked against the original. This app displays what it is
+    // given.
+    expect(store.ladderStore.state.expressionTexts[0]).toBe('%W0>5');
+    expect(store.ladderStore.state.expressionTexts[1]).toBe('%W1:=%IW2+1');
   });
 
-  it('keeps an index on the variable it applies to', () => {
-    expect(store.exprToNames('@200/0[200/1]@:=7')).toBe('%W0[%W1]:=7');
+  it('passes through what the backend could not render', () => {
+    // An expression must never silently lose a term, so an unresolvable
+    // reference arrives as it stands and is shown that way.
+    expect(store.elementLabel(el(20, 0, 3))).toBe('@999/0@:=1');
   });
 
-  it('keeps a reference it cannot resolve rather than dropping it', () => {
-    // An expression must never silently lose a term.
-    const out = store.exprToNames('@999/0@:=@200/0@');
-    expect(out).toContain('@999/0@');
-    expect(out).toContain('%W0');
-  });
-
-  it('survives a malformed reference', () => {
-    expect(store.exprToNames('@200/0')).toBe('@200/0');
-    expect(store.exprToNames('@@')).toBe('@@');
+  it('shows nothing for an expression index past the table', () => {
+    expect(store.elementLabel(el(20, 0, 99))).toBe('');
   });
 });
