@@ -168,8 +168,8 @@ The page has a header showing the state of the PLC and its scan time, a Project
 bar for loading and saving the `.clp` file, and a row of tabs.
 
 [[cap:cl-ladder-tab]]
-.The Ladder tab, running
-image::images/cl_ladder.png["The Ladder tab",align="center"]
+.The Program tab, running
+image::images/cl_ladder.png["The Program tab",align="center"]
 
 Everything that carries power is drawn in one colour, updated as the machine
 runs: a contact that conducts, the wires that carry its output onward, a branch
@@ -191,11 +191,13 @@ Paths are resolved by the controller against the configuration directory, so a
 bare file name is usually what you want. Save writes the program as it is
 running, including edits already applied.
 
-=== Ladder — the section display and the editor
+=== Program — the section display and the editor
 
-The Ladder tab shows one section at a time, chosen with the buttons across the
-top. Each rung carries its number, its label and its comment, and three
-buttons:
+The Program tab shows one section at a time, chosen with the buttons across the
+top, and draws it in whichever language that section is written in: rungs for a
+ladder section, a chart for a sequential one.
+
+Each rung carries its number, its label and its comment, and three buttons:
 
 * 'Edit' - opens the rung for editing.
 * '+ Rung' - inserts an empty rung after this one.
@@ -265,16 +267,16 @@ A comparison or an assignment is given an arithmetic expression of its own when
 it is placed. If every expression is already in use the editor says so rather
 than sharing one, which would silently rewrite another rung.
 
-=== SFC
+=== Sequential sections
 
-The SFC tab draws the sequential chart of any section whose language is
-Sequential, with the active step and the elapsed time in it shown live, and
-each transition coloured by its condition. The chart is displayed, not edited:
-it loads, runs and saves with the rest of the project.
+Selecting a section whose language is Sequential draws its chart in the same
+place, with the active step and the elapsed time in it shown live, and each
+transition coloured by its condition. The chart is displayed, not edited: it
+loads, runs and saves with the rest of the project.
 
 [[cap:cl-sfc]]
-.The SFC tab, running
-image::images/cl_sfc.png["The SFC tab",align="center"]
+.A sequential section, running
+image::images/cl_sfc.png["A sequential section",align="center"]
 
 That is the chart in the shipped sim demo
 (`configs/sim/axis/classicladder`), which follows the lube pump the second
@@ -295,7 +297,7 @@ but a project that has to run under both should leave 0 alone.
 image::images/cl_sections.png["The Sections tab",align="center"]
 
 Lists the sections, what language each uses and how many rungs it holds. Click
-a name to rename it, 'Show' to display it in the Ladder tab, 'Delete' to remove
+a name to rename it, 'Show' to display it in the Program tab, 'Delete' to remove
 it and the rungs it holds.
 
 The form below adds one. A ladder section is created holding one empty rung; a
@@ -633,7 +635,8 @@ Here are the basic rules governing sequential programs:
 * Rule 4 : R4, Simultaneous clearing of transitions - All simultaneous cleared transitions are simultaneously cleared.
 * Rule 5 : R5, Simultaneous activation and deactivation of a step - If during operation, a step is simultaneously activated and deactivated, priority is given to the activation.
 
-A sequential chart is displayed on the SFC tab and is made of these parts.
+A sequential chart is displayed by selecting its section, and is made of these
+parts.
 It is shown, not edited: charts load, run and save with the rest of the
 project, and the interface has no surface for drawing one.
 
@@ -938,7 +941,7 @@ addf classicladder.0.refresh servo-thread
 
 Start your config and select "File/Ladder Editor", or open
 `http://localhost:5080/app/classicladder/` in a browser.
-The Ladder tab shows one empty rung of the one section a fresh program has.
+The Program tab shows one empty rung of the one section a fresh program has.
 
 Press 'Edit' on that rung. The editing tools appear above it and the rung is
 drawn as a full grid — ten cells across and six rows down. A rung is evaluated

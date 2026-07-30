@@ -1,7 +1,15 @@
 <script setup lang="ts">
+// The section display — 2.9's, which draws whichever section is selected in
+// whichever language that section is written in.
+//
+// Ladder and sequential were two top-level tabs here, so a program with a chart
+// offered the choice twice: once in the section tabs, which then said to go and
+// use the other tab, and once in the tab bar. A section's language is a
+// property of the section, not a mode of the application.
 import { computed } from 'vue';
 import LadderRung from './LadderRung.vue';
 import RungEditor from './RungEditor.vue';
+import SfcView from './SfcView.vue';
 import { SectionLanguage } from '../generated/classicladder_client';
 import { ladderStore, sectionRungs, usedSections } from '../stores/ladder';
 import { liveStore, cellsOf } from '../stores/live';
@@ -38,9 +46,13 @@ async function removeRung(index: number) {
       </button>
     </div>
 
+    <!-- A sequential section is a chart; a ladder section is its rungs. -->
+    <SfcView v-if="activeSection?.language === SectionLanguage.SEQUENTIAL"
+             :page="activeSection.sequentialPage" />
+
     <!-- Ladder content. The rung being edited is shown here as the controller
          still has it; the draft lives in the dialog. -->
-    <div class="rungs-container" v-if="rungs.length > 0">
+    <div class="rungs-container" v-else-if="rungs.length > 0">
       <div v-for="entry in rungs" :key="entry.index" class="rung-slot">
         <LadderRung
           :rung="entry.rung"
@@ -68,14 +80,11 @@ async function removeRung(index: number) {
 
     <div v-else class="empty-state">
       <p v-if="!state.program">Loading program…</p>
-      <p v-else-if="activeSection?.language === SectionLanguage.SEQUENTIAL">
-        This section is a sequential chart — see the SFC tab.
-      </p>
       <p v-else>No rungs in this section.</p>
     </div>
 
     <p class="stale-note" v-if="state.program && !liveStore.state.connected">
-      Not connected to the controller — the ladder is shown unpowered.
+      Not connected to the controller — nothing is shown live.
     </p>
 
     <RungEditor v-if="state.editRung >= 0 && state.draft" />

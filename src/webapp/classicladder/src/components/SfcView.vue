@@ -8,10 +8,17 @@
 //
 // The geometry follows 2.9: steps and transitions live on a 16x16 page grid,
 // a step is a square at its cell, a transition a horizontal bar across one.
-import { computed, ref } from 'vue';
-import { MAX_SEQ_PAGES, VAR_STEP_ACTIVITY, VAR_STEP_TIME } from '../generated/classicladder_client';
+//
+// Which page is drawn comes from the section being displayed, not from a
+// chooser of its own: a sequential section *is* one chart page, so the section
+// tabs already say which. A second selector would be a second way to answer the
+// same question, and the two could disagree.
+import { computed } from 'vue';
+import { VAR_STEP_ACTIVITY, VAR_STEP_TIME } from '../generated/classicladder_client';
 import { ladderStore, formatVar } from '../stores/ladder';
 import { liveStore, variableValue } from '../stores/live';
+
+const props = defineProps<{ page: number }>();
 
 const state = ladderStore.state;
 
@@ -19,18 +26,7 @@ const CELL = 46;
 const PAGE_W = 16;
 const PAGE_H = 16;
 
-const page = ref(0);
-
-// Only pages that hold something are worth offering.
-const usedPages = computed(() => {
-  const seq = state.sequential;
-  if (!seq) return [];
-  const pages = new Set<number>();
-  for (const s of seq.steps) if (s.used) pages.add(s.page);
-  for (const t of seq.transitions) if (t.used) pages.add(t.page);
-  for (const c of seq.comments) if (c.used) pages.add(c.page);
-  return [...pages].filter(p => p >= 0 && p < MAX_SEQ_PAGES).sort((a, b) => a - b);
-});
+const page = computed(() => props.page);
 
 const steps = computed(() =>
   (state.sequential?.steps ?? [])
@@ -44,6 +40,9 @@ const transitions = computed(() =>
 
 const comments = computed(() =>
   (state.sequential?.comments ?? []).filter(c => c.used && c.page === page.value));
+
+const isEmpty = computed(() =>
+  steps.value.length === 0 && transitions.value.length === 0 && comments.value.length === 0);
 
 // %X is indexed by the step *number* the author chose, not by the slot the step
 // occupies — the API says so, and getting it wrong would light the wrong box.
@@ -109,17 +108,10 @@ const svgHeight = PAGE_H * CELL;
 
 <template>
   <div class="sfc">
-    <div class="sfc-toolbar" v-if="usedPages.length > 1">
-      <span class="group-label">Page</span>
-      <button v-for="p in usedPages" :key="p" :class="{ active: page === p }" @click="page = p">
-        {{ p }}
-      </button>
-    </div>
-
     <p class="empty" v-if="!state.sequential">Loading chart…</p>
-    <p class="empty" v-else-if="usedPages.length === 0">
-      This program has no sequential chart. Add a section whose language is
-      Sequential to start one.
+    <p class="empty" v-else-if="isEmpty">
+      This chart has nothing on it yet. Charts are drawn here but not edited —
+      see the ClassicLadder documentation.
     </p>
 
     <div class="sfc-scroll" v-else>
@@ -177,35 +169,6 @@ const svgHeight = PAGE_H * CELL;
 
 <style scoped>
 .sfc { display: flex; flex-direction: column; }
-
-.sfc-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 10px;
-}
-
-.group-label {
-  font-size: 9px;
-  color: #a6adc8;
-  text-transform: uppercase;
-  margin-right: 4px;
-}
-
-.sfc-toolbar button {
-  background: #313244;
-  border: 1px solid #45475a;
-  color: #cdd6f4;
-  padding: 3px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.sfc-toolbar button.active {
-  background: #89b4fa;
-  color: #1e1e2e;
-  border-color: #89b4fa;
-}
 
 .sfc-scroll { overflow: auto; }
 .sfc-svg { background: #181825; display: block; }

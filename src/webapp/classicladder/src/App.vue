@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import LadderView from './components/LadderView.vue';
-import SfcView from './components/SfcView.vue';
+import SectionView from './components/SectionView.vue';
 import SectionManager from './components/SectionManager.vue';
 import SymbolTable from './components/SymbolTable.vue';
 import ProjectBar from './components/ProjectBar.vue';
@@ -14,10 +13,10 @@ import { liveStore } from './stores/live';
 import { modbusStore } from './stores/modbus';
 import { LadderState } from './generated/classicladder_client';
 
-type Tab = 'ladder' | 'sfc' | 'sections' | 'symbols' | 'variables'
+type Tab = 'program' | 'sections' | 'symbols' | 'variables'
   | 'modbus-params' | 'modbus-requests' | 'modbus-status';
 
-const activeTab = ref<Tab>('ladder');
+const activeTab = ref<Tab>('program');
 
 // The controller's status, pushed. Null when it is unreachable — a stopped PLC
 // and one that is not answering must not look the same, so the last known state
@@ -71,8 +70,7 @@ const scanText = computed(() => {
     <ProjectBar />
 
     <nav class="tabs">
-      <button :class="{ active: activeTab === 'ladder' }" @click="activeTab = 'ladder'">Ladder</button>
-      <button :class="{ active: activeTab === 'sfc' }" @click="activeTab = 'sfc'">SFC</button>
+      <button :class="{ active: activeTab === 'program' }" @click="activeTab = 'program'">Program</button>
       <button :class="{ active: activeTab === 'sections' }" @click="activeTab = 'sections'">Sections</button>
       <button :class="{ active: activeTab === 'symbols' }" @click="activeTab = 'symbols'">Symbols</button>
       <button :class="{ active: activeTab === 'variables' }" @click="activeTab = 'variables'">Variables</button>
@@ -87,8 +85,7 @@ const scanText = computed(() => {
     </div>
 
     <main class="content">
-      <LadderView v-if="activeTab === 'ladder'" />
-      <SfcView v-else-if="activeTab === 'sfc'" />
+      <SectionView v-if="activeTab === 'program'" />
       <SectionManager v-else-if="activeTab === 'sections'" />
       <SymbolTable v-else-if="activeTab === 'symbols'" />
       <VarSpy v-else-if="activeTab === 'variables'" />
