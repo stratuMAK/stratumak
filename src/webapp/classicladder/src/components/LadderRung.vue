@@ -62,12 +62,17 @@ function getElement(row: number, col: number): Element {
   return { type: 0, connectedWithTop: 0, varType: 0, varNum: 0 };
 }
 
+// Written prefixes for each variable region. The two timer kinds are distinct
+// and easy to swap: an old-style timer is %T, an IEC timer is %TM. There is no
+// %TI. The server serves the full table — prefixes, suffixes, sizes — from
+// GET /var_classes; these are the display subset, and that endpoint is the
+// authority if they ever disagree.
 function varPrefix(varType: number): string {
   switch (varType) {
     case VAR_MEM_BIT: return '%B';
-    case VAR_TIMER_DONE: return '%TM';
-    case VAR_TIMER_RUNNING: return '%TM';
-    case VAR_TIMER_IEC_DONE: return '%TI';
+    case VAR_TIMER_DONE: return '%T';
+    case VAR_TIMER_RUNNING: return '%T';
+    case VAR_TIMER_IEC_DONE: return '%TM';
     case VAR_MONOSTABLE_RUNNING: return '%M';
     case VAR_COUNTER_DONE: return '%C';
     case VAR_COUNTER_EMPTY: return '%C';
@@ -81,10 +86,12 @@ function varPrefix(varType: number): string {
 }
 
 function varName(el: Element): string {
+  // A block's varNum selects the block, not a variable, so these are keyed by
+  // element type rather than by varType.
   if (el.type === ELE_TIMER) return `%T${el.varNum}`;
   if (el.type === ELE_MONOSTABLE) return `%M${el.varNum}`;
   if (el.type === ELE_COUNTER) return `%C${el.varNum}`;
-  if (el.type === ELE_TIMER_IEC) return `%TI${el.varNum}`;
+  if (el.type === ELE_TIMER_IEC) return `%TM${el.varNum}`;
   return `${varPrefix(el.varType)}${el.varNum}`;
 }
 
