@@ -563,17 +563,30 @@ func get_hal_links() -> []HalLink
 # below. One transition with several steps below it starts parallel branches;
 # one with several steps above it waits for all of them.
 #
-# The chart is read-only over this API: it loads, runs and saves with the rest
-# of the project, and can be displayed, but there is no editing surface for it.
-#
 # Step activity and elapsed time reach ladder rungs as the %X and %X.V
 # variables, and are reported live in Variables rather than here — this is the
 # static structure.
+#
+# The chart is written whole (set_sequential) rather than element by element.
+# A step is named by its slot everywhere a transition refers to it, so moving
+# one element can rewrite the links of several others; sending the whole chart
+# is what makes such an edit atomic, and it is the shape the original editor
+# has — it works on a copy and applies it in one go.
 
 const MAX_STEPS = 128
 const MAX_TRANSITIONS = 256
 const MAX_SWITCHS = 10
 const MAX_SEQ_PAGES = 5
+const MAX_SEQ_COMMENTS = 50
+const SEQ_COMMENT_LGT = 51
+
+# A chart page is a grid this many cells across and down. Editors put steps on
+# odd rows and transitions on even ones, so that a step and the transition below
+# it are always one row apart; the engine does not read positions at all, and
+# nothing here requires that convention — it is how a chart is drawn, not what
+# it means.
+const SEQ_PAGE_WIDTH = 16
+const SEQ_PAGE_HEIGHT = 16
 
 type Step {
     used: bool
@@ -605,19 +618,34 @@ type SeqComment {
     comment: string @maxlen(50)
 }
 
-# The whole chart. Steps and transitions are returned in full, including unused
+# The whole chart. Steps and transitions are carried in full, including unused
 # slots, because transitions refer to steps by index — compacting the arrays
-# would break every reference in them.
+# would break every reference in them. The same holds writing it back: a chart
+# is sent with its slots where they were, not repacked.
 type Sequential {
-    steps: []Step
-    transitions: []Transition
-    comments: []SeqComment
+    steps: []Step @maxlen(128)
+    transitions: []Transition @maxlen(256)
+    comments: []SeqComment @maxlen(50)
 }
 
 # Get the sequential (SFC) chart.
 @method GET
 @path "/sequential"
 func get_sequential() -> Sequential
+
+# Replace the sequential (SFC) chart.
+#
+# The whole chart goes at once — see Sequential. It is checked before any of it
+# is applied, so a refused chart leaves the running one untouched: a transition
+# that names a step which is not there, or which is on another page, is a chart
+# the scan would evaluate as something nobody drew.
+#
+# Applying resets step activity to the chart's initial steps, as the original
+# editor does. It has to: the steps a client is replacing are named by slot, so
+# carrying activity across an edit would light whatever moved into that slot.
+@method PUT
+@path "/sequential"
+func set_sequential(sequential: Sequential) -> i32
 
 # --- Modbus types ---
 

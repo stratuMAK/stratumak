@@ -50,6 +50,12 @@
 #define CL_MAX_SEQ_PAGES        5
 #define CL_SEQ_COMMENT_LGT      51
 
+/* Chart page grid. Editors put steps on odd rows and transitions on even ones,
+ * so a step and the transition below it are a row apart; the engine reads no
+ * position at all, so that is a drawing convention and not a rule. */
+#define CL_SEQ_PAGE_WIDTH       16
+#define CL_SEQ_PAGE_HEIGHT      16
+
 /* Rung grid dimensions */
 #define CL_RUNG_WIDTH  10
 #define CL_RUNG_HEIGHT 6

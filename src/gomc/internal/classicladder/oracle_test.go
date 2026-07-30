@@ -3,6 +3,7 @@
 package classicladder
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,6 +203,124 @@ func TestOracle_DemoLubeSensorLost(t *testing.T) {
 		b.WriteString("dump\n")
 	}
 	runDifferential(t, demoProject, b.String())
+}
+
+// The chart the web editor authors, run through both engines.
+//
+// testdata/branched_sfc.clp is not hand-written: the editor's own click
+// sequence produces it, and the app's sfc.test.ts checks that it still does. So
+// what these tests compare is not "a chart both engines agree on" but "the
+// chart this editor draws, and whether 2.9 would run it the same way" — which
+// is the only question an editor for someone else's format has to answer.
+//
+// It holds every branch shape there is: a parallel divergence and convergence,
+// an alternative divergence and convergence, and a return to the first step.
+const branchedChart = "testdata/branched_sfc.clp"
+
+// Walk the chart once down each side of the alternative branch. %B0..%B6 are
+// the transition conditions, one per transition, so each is taken on its own.
+func TestOracle_BranchedChartWalk(t *testing.T) {
+	script := `dump
+scan 1
+dump
+set 0 0 1
+scan 1
+dump
+set 0 0 0
+set 0 1 1
+scan 1
+dump
+set 0 1 0
+set 0 2 1
+scan 1
+dump
+set 0 2 0
+set 0 3 1
+scan 1
+dump
+set 0 3 0
+set 0 4 1
+scan 1
+dump
+set 0 4 0
+scan 1
+dump
+set 0 0 1
+scan 1
+set 0 0 0
+set 0 1 1
+scan 1
+set 0 1 0
+dump
+set 0 5 1
+scan 1
+dump
+set 0 5 0
+set 0 6 1
+scan 1
+dump
+set 0 6 0
+set 0 4 1
+scan 1
+dump
+`
+	runDifferential(t, branchedChart, script)
+}
+
+// Both sides of the alternative branch true at once. Only one of them may be
+// taken, and which one is decided by the order the engine scans its transitions
+// in — exactly the kind of thing that is invisible until two engines disagree.
+func TestOracle_BranchedChartRaceBetweenBranches(t *testing.T) {
+	script := `set 0 0 1
+scan 1
+set 0 0 0
+set 0 1 1
+scan 1
+set 0 1 0
+dump
+set 0 2 1
+set 0 5 1
+scan 1
+dump
+scan 1
+dump
+`
+	runDifferential(t, branchedChart, script)
+}
+
+// Every condition true at once, held. The chart cannot settle — the last
+// transition returns to the first step and the whole lap runs again — so the
+// page hits its runaway guard on every scan. Both engines have to give up in
+// the same place.
+func TestOracle_BranchedChartAllConditionsHeld(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 7; i++ {
+		fmt.Fprintf(&b, "set 0 %d 1\n", i)
+	}
+	for i := 0; i < 20; i++ {
+		b.WriteString("scan 1\ndump\n")
+	}
+	runDifferential(t, branchedChart, b.String())
+}
+
+// Step times: %X.V counts in whole seconds while its step is active, and is
+// reset the moment the step is left.
+func TestOracle_BranchedChartStepTimes(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 5; i++ {
+		b.WriteString("scan 500\ndump\n")
+	}
+	// Into the parallel branch, where two steps time at once.
+	b.WriteString("set 0 0 1\nscan 1\nset 0 0 0\n")
+	for i := 0; i < 5; i++ {
+		b.WriteString("scan 500\ndump\n")
+	}
+	// Out of it again: both step times have to fall back to zero.
+	b.WriteString("set 0 1 1\nscan 1\nset 0 1 0\ndump\n")
+	for i := 0; i < 3; i++ {
+		b.WriteString("scan 500\ndump\n")
+	}
+	runDifferential(t, branchedChart, b.String())
 }
 
 // Scan-period sensitivity: the same wall-clock time delivered in different

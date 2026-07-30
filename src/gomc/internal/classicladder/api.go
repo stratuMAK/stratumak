@@ -464,6 +464,21 @@ func (m *classicladder) GetSequential() (*api.Sequential, error) {
 	return &seq, nil
 }
 
+// SetSequential replaces the SFC chart. The whole chart arrives at once because
+// one edit can rewrite the links of several elements — see the API notes — and
+// it is checked before any of it lands, so a refused chart leaves the running
+// one untouched.
+func (m *classicladder) SetSequential(seq api.Sequential) (int32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.validateSequential(&seq); err != nil {
+		return -1, err
+	}
+	m.applySequential(&seq)
+	m.bumpGeneration()
+	return 0, nil
+}
+
 func (m *classicladder) GetSymbols() ([]api.Symbol, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
