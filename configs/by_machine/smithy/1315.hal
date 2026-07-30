@@ -25,11 +25,9 @@ load [KINS]KINEMATICS
 # load motion controller, get name and thread periods from ini file
 loadrt [EMCMOT]EMCMOT base_period_nsec=[EMCMOT]BASE_PERIOD servo_period_nsec=[EMCMOT]SERVO_PERIOD traj_period_nsec=[EMCMOT]TRAJ_PERIOD key=[EMCMOT]SHMEM_KEY num_joints=[KINS]JOINTS
 
-# classicladder for machine logic
-# (load the realtime portion)
-loadrt classicladder_rt
-# invoke the user part of CL to silently load the program
-loadusr -w classicladder --nogui 924.clp
+# classicladder for machine logic. The trailing argument is the project
+# file; the module loads it and starts the PLC itself.
+load classicladder 924.clp
 
 # load charge pump
 load charge_pump <charge_pump.0>

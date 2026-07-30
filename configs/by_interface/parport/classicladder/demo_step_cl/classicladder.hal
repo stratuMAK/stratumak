@@ -1,5 +1,6 @@
-# first load realtime portion of classicladder, and create a 1mS thread
-loadrt classicladder_rt period=1000000
+# first load classicladder, and create a 1mS thread for it
+load classicladder
+newthread classicladder.thread 1000000
 
 # hook functions to realtime thread
 addf classicladder.0.refresh classicladder.thread 1

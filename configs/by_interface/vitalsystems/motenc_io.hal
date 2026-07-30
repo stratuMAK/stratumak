@@ -5,11 +5,10 @@
 
 # Classicladder for machine logic (load the realtime portion).
 # Just uncomment the following line if you want a Software PLC
-#loadrt classicladder_rt numRungs=4 numBits=16 numWords=4 numTimers=2 numMonostables=2 numPhysInputs=16 numPhysOutputs=8 numArithmExpr=4 numSections=1
+#load classicladder numRungs=4 numBits=16 numWords=4 numTimers=2 numMonostables=2 numPhysInputs=16 numPhysOutputs=8 numArithmExpr=4 numSections=1 ../configs/common/bridgeport.clp
 
 # Invoke the user part of CL to silently load the program.
 # Just uncomment the following line if you want a Software PLC
-#loadusr -w classicladder --nogui ../configs/common/bridgeport.clp
 
 # Add I/O to servo thread so they will be evaluated
 # every servo period.
