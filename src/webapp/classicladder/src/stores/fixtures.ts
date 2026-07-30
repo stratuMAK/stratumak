@@ -75,6 +75,29 @@ export const sequential = {
   comments: [],
 };
 
+// A chart with every slot present and none of them placed — what the controller
+// serves for a program that has a sequential section and nothing drawn on it.
+// The editor works on slots, so it needs all of them: a transition names a step
+// by its index in this array.
+export function emptySequential() {
+  return {
+    steps: Array.from({ length: 128 }, () => ({
+      used: false, initStep: false, stepNumber: 0, page: -1, posiX: 0, posiY: 0,
+    })),
+    transitions: Array.from({ length: 256 }, () => ({
+      used: false, varTypeCondi: 0, varNumCondi: 0,
+      stepsToActivate: Array(10).fill(-1),
+      stepsToDeactivate: Array(10).fill(-1),
+      transLinkedForStart: Array(10).fill(-1),
+      transLinkedForEnd: Array(10).fill(-1),
+      page: -1, posiX: 0, posiY: 0,
+    })),
+    comments: Array.from({ length: 50 }, () => ({
+      used: false, page: -1, posiX: 0, posiY: 0, comment: '',
+    })),
+  };
+}
+
 // Two rungs chained in one section, so the walk has something to walk.
 export function makeProgram() {
   return {
@@ -126,7 +149,10 @@ export interface Stub {
 }
 
 // installFetchStub answers the reads from the fixtures and records the writes.
-export function installFetchStub(program: () => unknown = makeProgram): Stub {
+export function installFetchStub(
+  program: () => unknown = makeProgram,
+  chart: () => unknown = () => sequential,
+): Stub {
   const requests: RecordedRequest[] = [];
   const failures: { fragment: string; status: number; error: string }[] = [];
 
@@ -163,7 +189,7 @@ export function installFetchStub(program: () => unknown = makeProgram): Stub {
     const body = u.includes('var_classes') ? varClasses
       : u.includes('expressions/text') ? expressionTexts
       : u.includes('hal_links') ? halLinks
-      : u.includes('sequential') ? sequential
+      : u.includes('sequential') ? chart()
       : method === 'GET' ? program()
       : 0;
 

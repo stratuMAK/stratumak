@@ -10,9 +10,11 @@ import { computed } from 'vue';
 import LadderRung from './LadderRung.vue';
 import RungEditor from './RungEditor.vue';
 import SfcView from './SfcView.vue';
+import SfcEditor from './SfcEditor.vue';
 import { SectionLanguage } from '../generated/classicladder_client';
 import { ladderStore, sectionRungs, usedSections } from '../stores/ladder';
 import { liveStore, cellsOf } from '../stores/live';
+import { sfcStore } from '../stores/sfc';
 
 const state = ladderStore.state;
 
@@ -46,9 +48,17 @@ async function removeRung(index: number) {
       </button>
     </div>
 
-    <!-- A sequential section is a chart; a ladder section is its rungs. -->
-    <SfcView v-if="activeSection?.language === SectionLanguage.SEQUENTIAL"
-             :page="activeSection.sequentialPage" />
+    <!-- A sequential section is a chart; a ladder section is its rungs. The
+         chart shown here is the one the controller is running, as with a rung:
+         the draft lives in the dialog. -->
+    <template v-if="activeSection?.language === SectionLanguage.SEQUENTIAL">
+      <div class="chart-header">
+        <span class="chart-page">Chart page {{ activeSection.sequentialPage }}</span>
+        <button :disabled="state.busy"
+                @click="sfcStore.beginEdit(activeSection.sequentialPage)">Edit chart</button>
+      </div>
+      <SfcView :page="activeSection.sequentialPage" />
+    </template>
 
     <!-- Ladder content. The rung being edited is shown here as the controller
          still has it; the draft lives in the dialog. -->
@@ -88,6 +98,7 @@ async function removeRung(index: number) {
     </p>
 
     <RungEditor v-if="state.editRung >= 0 && state.draft" />
+    <SfcEditor v-if="sfcStore.state.draft" />
   </div>
 </template>
 
@@ -135,6 +146,30 @@ async function removeRung(index: number) {
   font-weight: 600;
 }
 .sr-badge { color: #f9e2af; }
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 6px;
+  font-size: 11px;
+}
+
+.chart-page { color: #a6adc8; }
+
+.chart-header button {
+  margin-left: auto;
+  background: #313244;
+  border: 1px solid #45475a;
+  color: #cdd6f4;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.chart-header button:hover { background: #45475a; }
+.chart-header button:disabled { opacity: 0.4; cursor: default; }
 
 .rungs-container {
   flex: 1;
