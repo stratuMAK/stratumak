@@ -383,10 +383,14 @@ func (m *classicladder) setState(state int) {
 	atomic.StoreInt32((*int32)(unsafe.Pointer(&m.rt.state)), int32(state))
 }
 
-// waitScanSettled returns once no RT scan is in flight. The caller must have
-// published a non-RUN state first — see the `scanning` field's Dekker pairing
-// in classicladder_rt.h. 2.9's StopRunIfRunning polled the same way (though
-// its HAL module never set the flag, so its wait was vacuous).
+// waitScanSettled returns once no RT scan is in flight — see the `scanning`
+// field's Dekker pairing in classicladder_rt.h. After publishing a non-RUN
+// state this means no scan runs until the state is restored (2.9's
+// StopRunIfRunning polled the same way, though its HAL module never set the
+// flag, so its wait was vacuous). With the PLC left running it means only
+// that the scan which may have observed state published before the call is
+// finished — what the structural delete paths need before wiping a slot the
+// old chain could still reach.
 func (m *classicladder) waitScanSettled() {
 	for atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.scanning))) != 0 {
 		time.Sleep(100 * time.Microsecond)

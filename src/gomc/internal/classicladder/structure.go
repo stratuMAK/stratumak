@@ -68,12 +68,18 @@ func (m *classicladder) firstLadderSection() int {
 	return -1
 }
 
-// clearRung empties a rung, leaving it unused.
+// clearRung empties a rung, leaving it unused. The old chain links survive
+// the wipe: a scan that read the forward chain just before the rung was
+// unlinked may still be standing here, and following the stale successor
+// walks it out of the section, while a self-link would spin it against the
+// runaway guard — one enormous scan overrun and a stopped PLC. Callers that
+// resurrect the slot set both links explicitly.
 func (m *classicladder) clearRung(idx int) {
 	r := &rtRungs(m.rt)[idx]
+	prev, next := r.prev_rung, r.next_rung
 	*r = C.cl_rung_t{}
-	r.prev_rung = C.int(idx)
-	r.next_rung = C.int(idx)
+	r.prev_rung = prev
+	r.next_rung = next
 }
 
 // releaseRungExpressions blanks the arithmetic expressions a rung was the only
@@ -206,6 +212,10 @@ func (m *classicladder) deleteRung(idx int) error {
 		rtRungs(m.rt)[next].prev_rung = C.int(prev)
 	}
 
+	// New scans can no longer reach the rung, but one that read the old links
+	// may still be inside it — outwait the scan in flight before wiping.
+	m.waitScanSettled()
+
 	m.releaseRungExpressions(idx)
 	m.clearRung(idx)
 	return nil
@@ -283,9 +293,10 @@ func (m *classicladder) deleteSection(idx int) error {
 	}
 
 	sec := &rtSections(m.rt)[idx]
-	// Unlink first: once used is clear the scan skips the section, so the
-	// rungs can be freed without it walking a chain that is being dismantled.
+	// Unlink first: once used is clear the scan skips the section — then
+	// outwait the scan that may already be walking it before dismantling.
 	sec.used = 0
+	m.waitScanSettled()
 
 	if sec.language == C.CL_SECTION_LADDER {
 		// 2.9 frees rungs by walking the globals of whichever section is on

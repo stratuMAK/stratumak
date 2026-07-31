@@ -192,7 +192,9 @@ func (c *compiler) compileOperate() error {
 	if indexed {
 		// Push index value first (for STORE_VAR_IDX: stack = [index, value])
 		// We need to emit index load, then expression, then store_var_idx
-		c.emitVarLoad(idxType, idxOffset, false, 0, 0)
+		if err := c.emitVarLoad(idxType, idxOffset, false, 0, 0); err != nil {
+			return err
+		}
 	}
 
 	// Parse the RHS expression
@@ -201,7 +203,10 @@ func (c *compiler) compileOperate() error {
 	}
 
 	// Store result
-	packed := packVar(varType, varOffset)
+	packed, err := packVar(varType, varOffset)
+	if err != nil {
+		return err
+	}
 	if indexed {
 		c.emit(opStoreVarIdx, packed)
 	} else {
@@ -210,8 +215,15 @@ func (c *compiler) compileOperate() error {
 	return nil
 }
 
-func packVar(varType, offset int) int32 {
-	return int32((varType&0xFFFF)<<16 | (offset & 0xFFFF))
+// packVar packs a variable reference into a bytecode operand. The refusal
+// matters: the operand holds 16 bits per half, and silently masking a larger
+// hand-written reference (say @0/70000@) would alias a different variable
+// instead of failing the expression.
+func packVar(varType, offset int) (int32, error) {
+	if varType < 0 || varType > 0xFFFF || offset < 0 || offset > 0xFFFF {
+		return 0, fmt.Errorf("variable reference %d/%d out of range", varType, offset)
+	}
+	return int32(varType<<16 | offset), nil
 }
 
 // Expression parsing — recursive descent with operator precedence:
@@ -231,6 +243,12 @@ func (c *compiler) parseExprOr() error {
 	return nil
 }
 
+// parseExprXor: deliberate divergence from 2.9. Its grammar has this same
+// XOR level, but its Pow() sits below and consumes every '^' first — so in
+// 2.9 '^' always meant power, XOR was unreachable, and the power it computed
+// was pow_int's a^(2^b), not a^b. Here '^' is the XOR the grammar always
+// intended and power is spelled '**'; loadCLPFile warns when a loaded
+// project's expressions contain '^', because their value changes.
 func (c *compiler) parseExprXor() error {
 	if err := c.parseExprAnd(); err != nil {
 		return err
@@ -387,9 +405,13 @@ func (c *compiler) parseTerm() error {
 			return err
 		}
 		if indexed {
-			c.emitVarLoad(varType, varOffset, true, idxType, idxOffset)
+			if err := c.emitVarLoad(varType, varOffset, true, idxType, idxOffset); err != nil {
+				return err
+			}
 		} else {
-			c.emitVarLoad(varType, varOffset, false, 0, 0)
+			if err := c.emitVarLoad(varType, varOffset, false, 0, 0); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -561,15 +583,23 @@ func (c *compiler) parseInt() (int, error) {
 	return val, nil
 }
 
-func (c *compiler) emitVarLoad(varType, varOffset int, indexed bool, idxType, idxOffset int) {
-	packed := packVar(varType, varOffset)
+func (c *compiler) emitVarLoad(varType, varOffset int, indexed bool, idxType, idxOffset int) error {
+	packed, err := packVar(varType, varOffset)
+	if err != nil {
+		return err
+	}
 	if indexed {
 		// Push the index variable's value, then LOAD_VAR_IDX
-		c.emit(opLoadVar, packVar(idxType, idxOffset))
+		idxPacked, err := packVar(idxType, idxOffset)
+		if err != nil {
+			return err
+		}
+		c.emit(opLoadVar, idxPacked)
 		c.emit(opLoadVarIdx, packed)
 	} else {
 		c.emit(opLoadVar, packed)
 	}
+	return nil
 }
 
 func isHexDigit(b byte) bool {

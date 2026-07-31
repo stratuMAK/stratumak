@@ -224,7 +224,9 @@ typedef struct {
     int8_t  connected_with_top;
     int32_t var_type;
     int32_t var_num;
-    /* Dynamic state (RT-only, not exposed to UI) */
+    /* Dynamic state — written by the RT scan, read lock-free by
+     * GetRungStates/WatchRungStates to animate the ladder view. Single-byte
+     * flags, so a torn read cannot happen; a stale one is one frame old. */
     int8_t  dynamic_input;
     int8_t  dynamic_state;
     int8_t  dynamic_var_bak;

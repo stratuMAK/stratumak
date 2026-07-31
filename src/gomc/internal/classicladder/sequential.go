@@ -310,6 +310,10 @@ func seqRefContains(arr *[C.CL_MAX_SWITCHS]int32, v int32) bool {
 
 // applySequential writes a validated chart into the engine.
 func (m *classicladder) applySequential(seq *api.Sequential) {
+	// num_page doubles as the used flag the scan filters on, so within each
+	// slot it is published LAST for a slot coming into use — the same
+	// fields-first-flag-last order the rung chain edits keep. A scan between
+	// the stores otherwise fires the slot with the previous occupant's links.
 	for i := range seq.Steps {
 		src := &seq.Steps[i]
 		dst := &m.rt.steps[i]
@@ -319,7 +323,6 @@ func (m *classicladder) applySequential(seq *api.Sequential) {
 			dst.time_activated = 0
 			continue
 		}
-		dst.num_page = C.int8_t(src.Page)
 		dst.posi_x = C.char(src.PosiX)
 		dst.posi_y = C.char(src.PosiY)
 		if src.InitStep {
@@ -328,6 +331,7 @@ func (m *classicladder) applySequential(seq *api.Sequential) {
 			dst.init_step = 0
 		}
 		dst.step_number = C.int(src.StepNumber)
+		dst.num_page = C.int8_t(src.Page)
 	}
 
 	for i := range seq.Transitions {
@@ -338,7 +342,6 @@ func (m *classicladder) applySequential(seq *api.Sequential) {
 			dst.activated = 0
 			continue
 		}
-		dst.num_page = C.int8_t(src.Page)
 		dst.posi_x = C.char(src.PosiX)
 		dst.posi_y = C.char(src.PosiY)
 		dst.var_type_condi = C.int(src.VarTypeCondi)
@@ -349,6 +352,7 @@ func (m *classicladder) applySequential(seq *api.Sequential) {
 			dst.num_trans_linked_for_start[j] = C.int16_t(src.TransLinkedForStart[j])
 			dst.num_trans_linked_for_end[j] = C.int16_t(src.TransLinkedForEnd[j])
 		}
+		dst.num_page = C.int8_t(src.Page)
 	}
 
 	for i := range seq.Comments {
@@ -359,10 +363,10 @@ func (m *classicladder) applySequential(seq *api.Sequential) {
 			dst.comment[0] = 0
 			continue
 		}
-		dst.num_page = C.int8_t(src.Page)
 		dst.posi_x = C.char(src.PosiX)
 		dst.posi_y = C.char(src.PosiY)
 		copyGoStringToC(&dst.comment[0], src.Comment, C.CL_SEQ_COMMENT_LGT)
+		dst.num_page = C.int8_t(src.Page)
 	}
 
 	// The chart's steps are named by slot, so the activity a client is

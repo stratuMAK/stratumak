@@ -699,9 +699,10 @@ func (m *classicladder) applyRung(idx int, r *api.Rung) {
 
 func (m *classicladder) applySection(idx int, s *api.Section) {
 	sec := &rtSections(m.rt)[idx]
-	if s.Used {
-		sec.used = 1
-	} else {
+	// A section going out of use unpublishes first; one coming into use
+	// publishes `used` last — the scan filters on it, and must never see the
+	// new flag with the previous occupant's chain.
+	if !s.Used {
 		sec.used = 0
 	}
 	copyStringToC(&sec.name[0], s.Name, C.CL_LGT_SECTION_NAME)
@@ -710,6 +711,9 @@ func (m *classicladder) applySection(idx int, s *api.Section) {
 	sec.first_rung = C.int(s.FirstRung)
 	sec.last_rung = C.int(s.LastRung)
 	sec.sequential_page = C.int(s.SequentialPage)
+	if s.Used {
+		sec.used = 1
+	}
 }
 
 func (m *classicladder) applyProgram(prog *api.Program) {

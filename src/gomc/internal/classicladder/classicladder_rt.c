@@ -175,6 +175,11 @@ static void write_var(classicladder_rt_t *rt, int type, int offset, int value) {
     case CL_VAR_TIMER_PRESET:
         rt->timers[offset].preset = value * cl_base_ms(rt->timers[offset].base);
         break;
+    /* Deliberate divergence: 2.9's WriteVar has no VALUE cases — writing
+     * %T0.V or %M0.V was a logged no-op there. Accepting it lets an operator
+     * rewind or force a running timer from the variable spy, which is what a
+     * write to the value can only mean. Differential scripts must simply not
+     * write these. */
     case CL_VAR_TIMER_VALUE:
         rt->timers[offset].value = value * cl_base_ms(rt->timers[offset].base);
         break;
@@ -657,12 +662,13 @@ static void calc_type_output_operate(classicladder_rt_t *rt, int x, int y,
 
 /* Evaluate one rung, column by column. Sets *jump_to to the rung a taken (J)
  * coil targets, or -1. Sub-routine (C) coils are refreshed recursively here,
- * which is why the call depth has to be threaded through. */
+ * which is why the call depth and the iteration budget have to be threaded
+ * through. */
 static void refresh_a_section(classicladder_rt_t *rt, cl_section_t *section,
-                              int depth);
+                              int depth, int *budget);
 
 static void refresh_rung(classicladder_rt_t *rt, cl_rung_t *rung, int *jump_to,
-                         int depth) {
+                         int depth, int *budget) {
     int jump_to_rung = -1;
 
     for (int x = 0; x < CL_RUNG_WIDTH && jump_to_rung == -1; x++) {
@@ -725,7 +731,7 @@ static void refresh_rung(classicladder_rt_t *rt, cl_rung_t *rung, int *jump_to,
                 if (section_to_call != -1) {
                     cl_section_t *sub = &rt->sections[section_to_call];
                     if (sub->used && sub->sub_routine_number >= 0)
-                        refresh_a_section(rt, sub, depth + 1);
+                        refresh_a_section(rt, sub, depth + 1, budget);
                 }
                 break;
             }
@@ -743,9 +749,8 @@ static void refresh_rung(classicladder_rt_t *rt, cl_rung_t *rung, int *jump_to,
 
 /* Refresh every rung of a section, following (J)ump coils within it. */
 static void refresh_a_section(classicladder_rt_t *rt, cl_section_t *section,
-                              int depth) {
+                              int depth, int *budget) {
     int num_rung = section->first_rung;
-    int mad_loop_break = 0;
     int done = 0;
 
     /* 2.9 recurses without a bound; in an RT thread the stack is not ours to
@@ -762,13 +767,18 @@ static void refresh_a_section(classicladder_rt_t *rt, cl_section_t *section,
 
         /* 2.9 counts only jumps here, which leaves a corrupt next-rung chain
          * free to spin forever; in an RT thread that is fatal, so every
-         * iteration counts against the same limit. */
-        if (++mad_loop_break > CL_MAD_LOOP_LIMIT) {
+         * iteration counts against the limit. The budget is shared down the
+         * whole (C)all tree of one top-level section: a per-invocation
+         * counter would let each caller iteration re-run the callee's full
+         * allowance — 99999^depth rung evaluations, hours of a wedged HAL
+         * thread — and a tripped child would go unnoticed by a parent loop
+         * that never re-reads the state it stopped. */
+        if (--(*budget) < 0) {
             atomic_store_explicit(&rt->state, CL_STATE_STOP, memory_order_release);
             return;
         }
 
-        refresh_rung(rt, &rt->rungs[num_rung], &goto_rung, depth);
+        refresh_rung(rt, &rt->rungs[num_rung], &goto_rung, depth, budget);
 
         if (goto_rung != -1) {
             if (goto_rung < 0 || goto_rung >= rt->sizes.nbr_rungs ||
@@ -799,8 +809,10 @@ static void refresh_all_sections(classicladder_rt_t *rt) {
         if (!sec->used)
             continue;
 
-        if (sec->language == CL_SECTION_LADDER && sec->sub_routine_number == -1)
-            refresh_a_section(rt, sec, 0);
+        if (sec->language == CL_SECTION_LADDER && sec->sub_routine_number == -1) {
+            int budget = CL_MAD_LOOP_LIMIT;
+            refresh_a_section(rt, sec, 0, &budget);
+        }
 
         if (sec->language == CL_SECTION_SEQUENTIAL)
             cl_refresh_sequential_page(rt, sec->sequential_page);
@@ -1127,26 +1139,34 @@ static int eval_bytecode(classicladder_rt_t *rt, const cl_compiled_expr_t *ce) {
             stack[sp++] = read_var(rt, (ins->operand >> 16) & 0xFFFF,
                                    ins->operand & 0xFFFF);
             break;
-        case CL_OP_LOAD_VAR_IDX:
+        case CL_OP_LOAD_VAR_IDX: {
             if (sp < 1) return 0;
             a = stack[--sp]; /* index value */
             if (sp >= CL_EXPR_STACK_DEPTH) return 0;
-            stack[sp++] = read_var(rt, (ins->operand >> 16) & 0xFFFF,
-                                   (ins->operand & 0xFFFF) + a);
+            /* The add must not overflow int before read_var can range-check
+             * the result; a hostile index is a zero read, not UB. */
+            int64_t idx = (int64_t)(ins->operand & 0xFFFF) + a;
+            stack[sp++] = (idx < 0 || idx > INT32_MAX)
+                              ? 0
+                              : read_var(rt, (ins->operand >> 16) & 0xFFFF,
+                                         (int)idx);
             break;
+        }
         case CL_OP_STORE_VAR:
             if (sp < 1) return 0;
             a = stack[--sp];
             write_var(rt, (ins->operand >> 16) & 0xFFFF,
                       ins->operand & 0xFFFF, a);
             break;
-        case CL_OP_STORE_VAR_IDX:
+        case CL_OP_STORE_VAR_IDX: {
             if (sp < 2) return 0;
             a = stack[--sp]; /* value */
             b = stack[--sp]; /* index */
-            write_var(rt, (ins->operand >> 16) & 0xFFFF,
-                      (ins->operand & 0xFFFF) + b, a);
+            int64_t idx = (int64_t)(ins->operand & 0xFFFF) + b;
+            if (idx >= 0 && idx <= INT32_MAX)
+                write_var(rt, (ins->operand >> 16) & 0xFFFF, (int)idx, a);
             break;
+        }
         case CL_OP_ADD:
             if (sp < 2) return 0;
             sp--; stack[sp-1] = stack[sp-1] + stack[sp]; break;
@@ -1156,12 +1176,22 @@ static int eval_bytecode(classicladder_rt_t *rt, const cl_compiled_expr_t *ce) {
         case CL_OP_MUL:
             if (sp < 2) return 0;
             sp--; stack[sp-1] = stack[sp-1] * stack[sp]; break;
+        /* A zero divisor leaves the left operand as the result — 2.9 skips
+         * the operation entirely (arithm_eval.c), and only that choice keeps
+         * the differential oracle quiet. The int64 detour makes INT32_MIN
+         * / -1 defined (it wraps) instead of a SIGFPE from an expression. */
         case CL_OP_DIV:
             if (sp < 2) return 0;
-            sp--; stack[sp-1] = stack[sp] ? stack[sp-1] / stack[sp] : 0; break;
+            sp--;
+            if (stack[sp])
+                stack[sp-1] = (int32_t)(uint32_t)((int64_t)stack[sp-1] / stack[sp]);
+            break;
         case CL_OP_MOD:
             if (sp < 2) return 0;
-            sp--; stack[sp-1] = stack[sp] ? stack[sp-1] % stack[sp] : 0; break;
+            sp--;
+            if (stack[sp])
+                stack[sp-1] = (int32_t)(uint32_t)((int64_t)stack[sp-1] % stack[sp]);
+            break;
         case CL_OP_POW:
             if (sp < 2) return 0;
             sp--; stack[sp-1] = ipow(stack[sp-1], stack[sp]); break;
@@ -1252,11 +1282,20 @@ static int refresh_transition(classicladder_rt_t *rt, cl_transition_t *trans) {
     if (!trans->activated)
         return 0;
 
-    /* Check all steps to deactivate are currently active */
+    /* Check all steps to deactivate are currently active. Deliberate
+     * divergence from 2.9: a transition whose deactivate list names no valid
+     * step never fires here. 2.9 read the empty list as "all upstream steps
+     * are active", so such a transition fired on every scan, reported a state
+     * change every pass, and ran the settle loop to its full 50 iterations —
+     * measured at 20x the scan cost. The validator refuses building one
+     * through the API; this closes the same hole for entries a lenient .clp
+     * load canonicalized away. */
     int all_on = 1;
+    int valid_steps = 0;
     for (int i = 0; i < CL_MAX_SWITCHS && trans->num_step_to_desactiv[i] != -1; i++) {
         int step_idx = trans->num_step_to_desactiv[i];
         if (step_idx >= 0 && step_idx < CL_MAX_STEPS) {
+            valid_steps++;
             if (!rt->steps[step_idx].activated) {
                 all_on = 0;
                 break;
@@ -1264,7 +1303,7 @@ static int refresh_transition(classicladder_rt_t *rt, cl_transition_t *trans) {
         }
     }
 
-    if (!all_on)
+    if (!all_on || valid_steps == 0)
         return 0;
 
     /* Transition fires: deactivate upstream steps */

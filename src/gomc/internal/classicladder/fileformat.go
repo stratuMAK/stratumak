@@ -21,6 +21,7 @@ import "C"
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -125,6 +126,18 @@ func (m *classicladder) loadCLPFile(path string) error {
 	if errs := m.compileAllExpressions(); len(errs) > 0 {
 		for _, e := range errs {
 			m.logger.Warn("expression compile error", "error", e)
+		}
+	}
+
+	// '^' changed meaning against 2.9: there its (broken) power operator
+	// consumed every caret, here it is XOR and power is spelled '**'. The
+	// expression still compiles and runs, so this warning is the only trace
+	// an old project gets that its values moved.
+	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+		expr := C.GoString(&rtArithmExprs(m.rt)[i].expr[0])
+		if strings.Contains(expr, "^") {
+			m.logger.Warn("expression uses '^', which is XOR here but was power under 2.9; use '**' for power",
+				"index", i, "expr", expr)
 		}
 	}
 
@@ -428,7 +441,7 @@ func (m *classicladder) parseTimersIEC(content string) {
 		}
 		t := &rtTimersIec(m.rt)[idx]
 		t.base = C.int(baseMsFromID(atoi(parts[0])))
-		t.preset = C.int(atoi(parts[1]))
+		t.preset = clampI32(atoi(parts[1]))
 		t.timer_mode = C.char(atoi(parts[2]))
 		idx++
 	}
@@ -449,7 +462,7 @@ func (m *classicladder) parseTimers(content string) {
 		t := &rtTimers(m.rt)[idx]
 		base := baseMsFromID(atoi(parts[0]))
 		t.base = C.int(base)
-		t.preset = C.int(atoi(parts[1]) * base)
+		t.preset = clampI32(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -467,7 +480,7 @@ func (m *classicladder) parseMonostables(content string) {
 		mo := &rtMonostables(m.rt)[idx]
 		base := baseMsFromID(atoi(parts[0]))
 		mo.base = C.int(base)
-		mo.preset = C.int(atoi(parts[1]) * base)
+		mo.preset = clampI32(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -693,6 +706,20 @@ func copyGoStringToC(dst *C.char, src string, maxLen int) {
 	copyStringToC(dst, src, C.int(maxLen))
 }
 
+// clampI32 bounds a file-supplied count to what the int32 RT fields hold: a
+// corrupt preset becomes the nearest representable value, not a truncated
+// surprise (atoi already saturates instead of erroring, this finishes the
+// job for the 32-bit fields).
+func clampI32(v int) C.int {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return C.int(v)
+}
+
 func atoi(s string) int {
 	s = strings.TrimSpace(s)
 	v, _ := strconv.Atoi(s)
@@ -735,23 +762,33 @@ func (m *classicladder) parseSequential(content string) {
 				continue
 			}
 			trans := &m.rt.transitions[idx]
+			// Out-of-range references are dropped and the list compacted:
+			// -1 terminates these lists, so leaving a stray entry in place
+			// would either count as present in the all-upstream-steps check
+			// (the shape behind the fires-forever transitions) or, replaced
+			// by -1 in the middle, cut off the valid entries behind it.
+			readList := func(p int, limit int, dst *[C.CL_MAX_SWITCHS]C.int16_t) {
+				j := 0
+				for k := 0; k < C.CL_MAX_SWITCHS; k++ {
+					v := atoi(parts[p+k])
+					if v >= 0 && v < limit {
+						dst[j] = C.int16_t(v)
+						j++
+					}
+				}
+				for ; j < C.CL_MAX_SWITCHS; j++ {
+					dst[j] = -1
+				}
+			}
 			p := 1
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_step_to_activ[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_step_to_desactiv[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_trans_linked_for_start[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_trans_linked_for_end[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
+			readList(p, C.CL_MAX_STEPS, &trans.num_step_to_activ)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_STEPS, &trans.num_step_to_desactiv)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_TRANSITIONS, &trans.num_trans_linked_for_start)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_TRANSITIONS, &trans.num_trans_linked_for_end)
+			p += C.CL_MAX_SWITCHS
 			trans.num_page = C.int8_t(atoi(parts[p]))
 			p++
 			trans.posi_x = C.char(atoi(parts[p]))
