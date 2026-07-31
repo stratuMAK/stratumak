@@ -1,2 +1,13 @@
 usr/share/linuxcnc/ncfiles usr/share/doc/linuxcnc/examples/nc_files
 usr/bin/gomc-server usr/bin/linuxcnc
+
+# The gmcui web-UI front-ends are one binary that picks its app profile from
+# argv[0]; shipping them as links keeps that visible and saves seven copies.
+# (make install uses `install`, which dereferences the build tree's symlinks.)
+usr/bin/gmcui usr/bin/halshow
+usr/bin/gmcui usr/bin/halscope
+usr/bin/gmcui usr/bin/emccalib
+usr/bin/gmcui usr/bin/tooledit
+usr/bin/gmcui usr/bin/latency
+usr/bin/gmcui usr/bin/classicladder
+usr/bin/gmcui usr/bin/linuxcnctop-ui

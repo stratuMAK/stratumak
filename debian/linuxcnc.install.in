@@ -3,7 +3,6 @@ etc
 usr/bin/5axisgui
 usr/bin/axis
 usr/bin/axis-remote
-usr/bin/classicladder
 usr/bin/elbpcom
 usr/bin/genserkins
 usr/bin/gladevcp
@@ -19,8 +18,6 @@ usr/bin/halcmd
 usr/bin/halreport
 usr/bin/halrmt
 usr/bin/halsampler
-usr/bin/halscope
-usr/bin/halshow
 usr/bin/halstreamer
 usr/bin/haltcl
 usr/bin/halui
@@ -32,16 +29,13 @@ usr/bin/image-to-gcode
 usr/bin/inivar
 usr/bin/io
 usr/bin/iov2
-usr/bin/latency
 usr/bin/latency-test
 usr/bin/lineardelta
-usr/bin/linuxcnc
 usr/bin/linuxcnc_info
 usr/bin/linuxcnc_var
 usr/bin/linuxcnclcd
 usr/bin/linuxcncmkdesktop
 usr/bin/linuxcnctop
-usr/bin/linuxcnctop-ui
 usr/bin/maho600gui
 usr/bin/max5gui
 usr/bin/mb2hal
@@ -87,7 +81,6 @@ usr/bin/teach-in
 usr/bin/thermistor
 usr/bin/tool_mmap_read
 usr/bin/tool_watch
-usr/bin/tooledit
 usr/bin/touchy
 usr/bin/update_ini
 usr/bin/vfdb_vfd
@@ -130,6 +123,7 @@ usr/share/linuxcnc/pncconf/
 usr/share/linuxcnc/popupkeyboard.ui
 usr/share/linuxcnc/stepconf/
 usr/share/linuxcnc/touchy.glade
+usr/share/linuxcnc/webapp/
 
 usr/share/locale
 

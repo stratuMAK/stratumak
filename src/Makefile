@@ -663,7 +663,8 @@ install-dirs:
 		$(DESTDIR)$(datadir)/linuxcnc/stepconf \
 		$(DESTDIR)$(datadir)/linuxcnc/pncconf \
 		$(DESTDIR)$(datadir)/linuxcnc/pncconf/pncconf-help \
-		$(DESTDIR)$(datadir)/linuxcnc/hallib
+		$(DESTDIR)$(datadir)/linuxcnc/hallib \
+		$(DESTDIR)$(datadir)/linuxcnc/webapp
 
 install-kernel-indep: install-dirs
 	$(FILE) ../docs/man/man1/*.1 $(DESTDIR)$(mandir)/man1
@@ -682,6 +683,13 @@ install-kernel-indep: install-dirs
 	$(DIR) $(DESTDIR)$(sampleconfsdir)
 	((cd ../configs && tar --exclude CVS --exclude .cvsignore --exclude .gitignore -cf - .) | (cd $(DESTDIR)$(sampleconfsdir) && tar -xf -))
 
+	# install the built web applications, including subdirs. gomc-server serves
+	# these from EMC2_WEBAPP_DIR at /app/<name>/; without them every web tool
+	# (halshow, halscope, tooledit, emccalib, latency, classicladder,
+	# linuxcnctop-ui) is a 404 on an installed system. The .build-stamp files
+	# are make bookkeeping, not part of an app.
+	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
+
 	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/linuxcnc_info $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/setup_designer $(DESTDIR)$(bindir)
@@ -699,14 +707,12 @@ install-kernel-indep: install-dirs
 	$(FILE) $(filter ../lib/%.a ../lib/%.so.0,$(TARGETS)) $(DESTDIR)$(libdir)
 	cp --no-dereference $(wildcard ../lib/*.so) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
-	$(FILE) ../lib/linuxcnc/canterp.so $(DESTDIR)$(libdir)/linuxcnc
 	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
 	$(FILE) ../tcl/TkLinuxCNC $(DESTDIR)/etc/X11/app-defaults
 	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/linuxcnc
 	$(EXE) $(TCL) $(DESTDIR)$(tcldir)
-	$(FILE) ../tcl/linuxcnc.so $(DESTDIR)$(tcldir)
 	$(FILE) ../tcl/pkgIndex.tcl $(DESTDIR)$(tcldir)
 	$(EXE) $(TCL_BIN) $(DESTDIR)$(tcldir)/bin
 	$(FILE) ../tcl/scripts/balloon.tcl ../tcl/scripts/emchelp.tcl $(DESTDIR)$(tcldir)/scripts
@@ -781,7 +787,6 @@ install-python: install-dirs
 	$(EXE) ../bin/gladevcp $(DESTDIR)$(bindir)
 	$(EXE) ../bin/axis $(DESTDIR)$(bindir)
 	$(EXE) ../bin/axis-remote $(DESTDIR)$(bindir)
-	$(EXE) ../bin/debuglevel $(DESTDIR)$(bindir)
 	$(EXE) ../bin/linuxcnctop $(DESTDIR)$(bindir)
 	$(EXE) ../bin/mdi $(DESTDIR)$(bindir)
 	$(EXE) ../bin/manualtoolchange_ui $(DESTDIR)$(bindir)
