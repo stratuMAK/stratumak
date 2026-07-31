@@ -1,7 +1,7 @@
 # Build the LinuxCNC 2.9 ClassicLadder engine as a headless oracle binary.
 #
 # The gomc RT engine is a port of this code; the differential test in
-# ladder_oracle_test.go feeds both the same project and script and compares the
+# oracle_test.go feeds both the same project and script and compares the
 # resulting variable state. Test-only — nothing here is installed.
 #
 # The reference sources live in src/hal/classicladder, which is no longer part

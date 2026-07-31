@@ -13,7 +13,7 @@ newthread cl 1000000
 
 load classicladder numRungs=12 numBits=20 numWords=4 numTimers=5 numMonostables=2 numPhysInputs=10 numPhysOutputs=10 numArithmExpr=4 numSections=4 estop.clp
 
-load filestream stream_cfg=bbbbb infile=in.txt sample_cfg=bbb outfile=out.txt depth=1000 samples=28
+load filestream stream_cfg=bbbbb infile=in.txt sample_cfg=bbb outfile=out.txt depth=1000 samples=36
 
 # Inputs: gui-estop, external estop button, reset strobe, lube request, lube sensor
 net i0 filestream.stream.0 classicladder.0.in-00

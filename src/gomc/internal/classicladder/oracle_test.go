@@ -18,8 +18,12 @@ import (
 
 const demoProject = "../../../../configs/sim/axis/classicladder/demo_sim_cl.clp"
 
-// buildOracle compiles the 2.9 reference engine, skipping the test if it
-// cannot be built here (no compiler, or the reference sources are gone).
+// buildOracle compiles the 2.9 reference engine. A build failure FAILS the
+// test rather than skipping it: cgo already guarantees a C toolchain wherever
+// this package's tests compile at all, so the only way this build breaks is a
+// regression (compiler upgrade, header drift, pruned reference sources) — and
+// a skip would turn the entire differential suite green exactly when its
+// subject went missing.
 func buildOracle(t *testing.T) string {
 	t.Helper()
 
@@ -28,12 +32,13 @@ func buildOracle(t *testing.T) string {
 		t.Fatalf("resolve oracle dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "Makefile")); err != nil {
-		t.Skipf("2.9 oracle not available: %v", err)
+		t.Fatalf("2.9 oracle not available: %v (src/hal/classicladder is the "+
+			"executable specification of ladder semantics, not dead code)", err)
 	}
 	cmd := exec.Command("make", "-s")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("cannot build the 2.9 oracle: %v\n%s", err, out)
+		t.Fatalf("cannot build the 2.9 oracle: %v\n%s", err, out)
 	}
 	return filepath.Join(dir, "cl-oracle")
 }
