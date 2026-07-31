@@ -24,7 +24,11 @@ default: build-software
 
 install: install-software install-docs
 
-install-software: install-kernel-dep install-kernel-indep install-menu
+# The two halves were once kernel-dependent vs kernel-independent, back when
+# the realtime layer was RTAI kernel modules. Nothing here is kernel-related
+# any more: install-modules places the loadable HAL/motion modules (cmods) in
+# their own directory, install-common everything else. Both always run.
+install-software: install-modules install-common install-menu
 
 ifeq ($(origin KERNELRELEASE), undefined)
 #MAKEFLAGS += --warn-undefined-variables
@@ -679,7 +683,7 @@ install-dirs:
 		$(DESTDIR)$(datadir)/linuxcnc/hallib \
 		$(DESTDIR)$(datadir)/linuxcnc/webapp
 
-install-kernel-indep: install-dirs
+install-common: install-dirs
 	$(FILE) ../docs/man/man1/*.1 $(DESTDIR)$(mandir)/man1
 	$(FILE) $(filter-out %/skeleton.3hal, $(wildcard ../docs/man/man3/*.3hal)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
@@ -766,7 +770,7 @@ install-kernel-indep: install-dirs
 
 	$(FILE) ../src/hal/drivers/mesa-hostmot2/modbus/*.tmpl  $(DESTDIR)$(prefix)/share/linuxcnc/
 
-install-kernel-indep: install-python
+install-common: install-python
 install-python: install-dirs
 	$(DIR) $(DESTDIR)$(SITEPY) $(DESTDIR)$(SITEPY)/rs274
 	$(DIR) $(DESTDIR)$(SITEPY)/touchy
@@ -838,7 +842,7 @@ install-python: install-dirs
 	$(TREE) ../share/qtvcp/widgets_ui/* $(DESTDIR)$(datadir)/qtvcp/widgets_ui
 	$(TREE) ../share/gmoccapy/icons/* $(DESTDIR)$(datadir)/gmoccapy/icons
 
-install-kernel-dep:
+install-modules:
 	$(DIR)	$(DESTDIR)$(moduledir)/linuxcnc \
 		$(DESTDIR)$(bindir) \
 		$(DESTDIR)$(sysconfdir)/linuxcnc \

@@ -182,4 +182,7 @@ override_dh_fixperms:
 
 override_dh_shlibdeps:
 	cat debian/@MAIN_PACKAGE_NAME@/DEBIAN/shlibs debian/shlibs.pre > debian/shlibs.local
-	dh_shlibdeps -u--warnings=0 -l debian/@MAIN_PACKAGE_NAME@/usr/lib
+	# -l needs an absolute path: given a relative one it reaches
+	# dpkg-shlibdeps as /debian/... and silently matches nothing, so the
+	# package's own libraries were never on the search path.
+	dh_shlibdeps -u--warnings=0 -l $(CURDIR)/debian/@MAIN_PACKAGE_NAME@/usr/lib
