@@ -184,6 +184,23 @@ func (m *classicladder) validateTransitionLinks(seq *api.Sequential, index int, 
 		}
 	}
 
+	// A transition with no step above it has the same fault in a plainer form.
+	// The engine checks that every step it deactivates is active and reads an
+	// empty list as "they all are", so the transition fires whenever its
+	// condition is true and reports a state change each time — and the page's
+	// settle loop runs its full fifty iterations over every transition slot, on
+	// every scan, for as long as the condition holds. One such transition takes
+	// a page refresh from about a quarter of a microsecond to five.
+	//
+	// The link arrays have been checked for gaps by here, so an empty first
+	// slot means the whole array is empty. Both the editor placing a transition
+	// before the step above it and deleting the step that fed one leave this,
+	// which is why it is worth a message rather than a silent cost.
+	if t.StepsToDeactivate[0] == -1 {
+		return fmt.Errorf("%w: %s has no step above it, so it would fire on every scan; "+
+			"give it a step to advance from, or delete it", syscall.EINVAL, what)
+	}
+
 	// A transition that both takes and gives the same step fires on every scan
 	// it is true, for ever: the step it needs active is the one it activates
 	// again. The chart never settles, and the engine's runaway guard spins the

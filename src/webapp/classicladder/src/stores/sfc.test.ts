@@ -144,6 +144,43 @@ describe('placing steps and transitions', () => {
   });
 });
 
+describe('step numbers stay unique', () => {
+  // Two steps sharing a number share their %X bit, and the controller refuses
+  // the whole chart for it. 2.9 hands out the step above's number plus one
+  // without checking, so drawing a second column and then continuing the first
+  // produced two steps numbered 2 — a chart the editor could draw and then not
+  // apply.
+  it('does not reuse a number the column beside it already took', () => {
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(1, 1);   // 1
+    click(5, 1);   // a second column
+    click(1, 3);   // continues the first column: 2.9 would say 2 again
+
+    const numbers = draft().steps.filter(s => s.used).map(s => s.stepNumber);
+    expect(new Set(numbers).size, `numbers were ${numbers.join(', ')}`).toBe(numbers.length);
+  });
+
+  it('still hands down the number above when that one is free', () => {
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(1, 1);
+    click(1, 3);
+    click(1, 5);
+    expect(draft().steps.filter(s => s.used).map(s => s.stepNumber)).toEqual([1, 2, 3]);
+  });
+
+  it('reuses a number freed by a delete rather than counting past it', () => {
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(1, 1);
+    click(1, 3);
+    click(1, 5);
+    sfc.sfcStore.setTool(sfc.EDIT_SEQ_ERASER);
+    click(1, 3);                       // frees number 2
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(5, 1);                       // no step above it
+    expect(stepAt(5, 1).step!.stepNumber).toBe(2);
+  });
+});
+
 describe('deleting', () => {
   it('takes a deleted step out of the transitions that referred to it', () => {
     // 2.9 leaves them pointing at a slot that is no longer on the chart, which

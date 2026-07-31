@@ -194,6 +194,27 @@ function findFree<T extends { used: boolean }>(arr: T[] | undefined, limit: numb
   return -1;
 }
 
+// freeStepNumber gives a new step `preferred` when nothing else holds it, and
+// otherwise the lowest number that is free.
+//
+// 2.9 hands out the step above's number plus one without looking, and its
+// fallback scan only advances while it keeps meeting the number it is on — so
+// with numbers out of slot order both paths can return one that is taken. That
+// is harmless there and refused here: two steps sharing a number share their
+// %X bit, so the controller rejects the whole chart. Drawing a second column
+// and then continuing the first was enough to produce one.
+function freeStepNumber(steps: Step[], exceptOffset: number, preferred: number): number {
+  const taken = new Set<number>();
+  steps.forEach((s, i) => {
+    if (s.used && i !== exceptOffset) taken.add(s.stepNumber);
+  });
+  if (preferred >= 1 && preferred < MAX_STEPS && !taken.has(preferred)) return preferred;
+  for (let n = 1; n < MAX_STEPS; n++) {
+    if (!taken.has(n)) return n;
+  }
+  return -1;
+}
+
 // --- Creating and destroying ---
 
 // createStep places a step, numbers it, and joins it to the transitions
@@ -206,14 +227,10 @@ function createStep(page: number, x: number, y: number, init: boolean): number {
   if (offset === -1) return -1;
 
   const step = draft.steps[offset];
-  step.used = true;
-  step.page = page;
-  step.posiX = x;
-  step.posiY = y;
-  step.initStep = init;
 
-  // A step directly above hands down its number plus one. Otherwise take the
-  // next number nothing is using.
+  // A step directly above hands down its number plus one; otherwise start at 1.
+  // Either way the number has to be one nothing else holds — see
+  // freeStepNumber.
   //
   // Numbering starts at 1, not at 0 as 2.9 does. %X0 works here — this engine
   // publishes only the steps that are placed, where 2.9 republishes all 128 and
@@ -221,15 +238,19 @@ function createStep(page: number, x: number, y: number, init: boolean): number {
   // step 0 behaves differently under 2.9, and a number handed out by default is
   // not the place to introduce that.
   const topStep = searchStep(page, x, y - 2);
-  if (topStep !== -1) {
-    step.stepNumber = draft.steps[topStep].stepNumber + 1;
-  } else {
-    let n = 1;
-    for (const s of draft.steps) {
-      if (s.used && n === s.stepNumber) n = s.stepNumber + 1;
-    }
-    step.stepNumber = n;
+  const preferred = topStep !== -1 ? draft.steps[topStep].stepNumber + 1 : 1;
+  const number = freeStepNumber(draft.steps, offset, preferred);
+  if (number === -1) {
+    state.error = 'Every step number is taken; renumber a step before adding another.';
+    return -1;
   }
+
+  step.used = true;
+  step.page = page;
+  step.posiX = x;
+  step.posiY = y;
+  step.initStep = init;
+  step.stepNumber = number;
 
   const above = searchTransition(page, x, y - 1);
   if (above !== -1) draft.transitions[above].stepsToActivate[0] = offset;
@@ -581,7 +602,7 @@ function placeStepOrTransition(page: number, x: number, y: number, found: SeqSel
     } else {
       const offset = createStep(page, x, y, tool === EDIT_SEQ_INIT_STEP);
       if (offset === -1) {
-        state.error = 'The chart has no free step left.';
+        if (!state.error) state.error = 'The chart has no free step left.';
         return;
       }
       state.selected = { type: ELE_SEQ_STEP, offset };

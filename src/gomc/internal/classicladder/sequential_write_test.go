@@ -153,6 +153,21 @@ func TestSetSequential_Refusals(t *testing.T) {
 			"twice",
 		},
 		{
+			// The engine reads "no steps to deactivate" as "they are all
+			// active", so such a transition fires whenever its condition is
+			// true and reports a change every time — the page's settle loop
+			// then runs all fifty iterations on every scan. Placing a
+			// transition before the step above it, or deleting the step that
+			// fed one, both leave this.
+			"a transition with no step above it",
+			func(t *testing.T, seq *api.Sequential) {
+				for i := range seq.Transitions[0].StepsToDeactivate {
+					seq.Transitions[0].StepsToDeactivate[i] = -1
+				}
+			},
+			"fire on every scan",
+		},
+		{
 			"two steps sharing a number",
 			func(t *testing.T, seq *api.Sequential) {
 				seq.Steps[slotOfStepNumber(t, seq, 3)].StepNumber = 2
@@ -312,6 +327,38 @@ func TestSetSequential_AcceptsAnEmptyChart(t *testing.T) {
 	for i := range back.Steps {
 		if back.Steps[i].Used {
 			t.Fatalf("step %d survived: %+v", i, back.Steps[i])
+		}
+	}
+}
+
+// The chart the sim demo ships must survive being written back unchanged.
+//
+// Every rule in the validator is a rule some existing chart could fall foul of,
+// and a chart that runs but cannot be saved is worse than one that was never
+// accepted: the author finds out only when they try to keep their work. This is
+// the cheap guard — if a new refusal would make the shipped demo unsaveable,
+// this fails before anyone meets it.
+func TestSetSequential_TheShippedDemoChartApplies(t *testing.T) {
+	m := newTestModule(t)
+	seq := chartFrom(t, m, demoProject)
+
+	if _, err := m.SetSequential(seq); err != nil {
+		t.Fatalf("the demo's own chart was refused: %v", err)
+	}
+
+	// And it is still the same chart afterwards.
+	after, err := m.GetSequential()
+	if err != nil {
+		t.Fatalf("get sequential: %v", err)
+	}
+	for i := range seq.Steps {
+		if seq.Steps[i] != after.Steps[i] {
+			t.Fatalf("step slot %d changed: %+v -> %+v", i, seq.Steps[i], after.Steps[i])
+		}
+	}
+	for i := range seq.Transitions {
+		if seq.Transitions[i] != after.Transitions[i] {
+			t.Fatalf("transition slot %d changed: %+v -> %+v", i, seq.Transitions[i], after.Transitions[i])
 		}
 	}
 }
