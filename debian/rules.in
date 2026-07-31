@@ -53,6 +53,11 @@ export PYTHON=/usr/bin/python3
 # and removed by the clean below.
 export GOMODCACHE ?= $(CURDIR)/.gomodcache
 
+# npm does exactly the same thing: its content-addressed cache under
+# $HOME/.npm/_cacache is written read-only, so it lands in the same place with
+# the same consequence for dh_clean.
+export npm_config_cache ?= $(CURDIR)/.npmcache
+
 %:
 	dh $@ -D$(SRCDIR)
 
@@ -80,12 +85,24 @@ override_dh_auto_clean:
 	dh_auto_clean; \
 	py3clean .; \
 	fi
-	# The module cache is read-only by design, so plain rm cannot remove it;
-	# `go clean -modcache` is the supported way. Only touch a cache we placed
-	# ourselves -- an inherited GOMODCACHE belongs to the builder.
+	# These caches are read-only by design, so plain rm cannot remove them;
+	# `go clean -modcache` is the supported way for Go. Only touch caches we
+	# placed ourselves -- an inherited one belongs to the builder.
 	if [ "$(GOMODCACHE)" = "$(CURDIR)/.gomodcache" ] && [ -d "$(GOMODCACHE)" ]; then \
 		go clean -modcache || { chmod -R u+w "$(GOMODCACHE)"; rm -rf "$(GOMODCACHE)"; }; \
 	fi
+	if [ "$(npm_config_cache)" = "$(CURDIR)/.npmcache" ] && [ -d "$(npm_config_cache)" ]; then \
+		chmod -R u+w "$(npm_config_cache)"; rm -rf "$(npm_config_cache)"; \
+	fi
+
+override_dh_clean:
+	# Belt and braces for the same class: any tool that caches under
+	# debhelper's synthetic HOME (compat 13+ puts it inside debian/.debhelper)
+	# writes content-addressed entries read-only, and dh_clean then cannot
+	# delete that directory. The caches we know of are redirected above; this
+	# stops the next one from breaking the clean before anybody notices.
+	-chmod -R u+w debian/.debhelper 2>/dev/null || true
+	dh_clean
 
 override_dh_auto_install-arch:
 	# Install all architecture-dependent libraries and executables

@@ -1,4 +1,4 @@
-# The Go module cache debian/rules points GOMODCACHE at (see the comment
-# there). It is build output, not source, and is read-only by design, so it
-# must not land in the diff of a source package.
-extend-diff-ignore = "^\.gomodcache/"
+# The Go and npm caches debian/rules points GOMODCACHE and npm_config_cache at
+# (see the comments there). They are build output, not source, and are
+# read-only by design, so they must not land in the diff of a source package.
+extend-diff-ignore = "^\.(gomodcache|npmcache)/"
