@@ -378,6 +378,13 @@ typedef struct {
 typedef struct {
     /* State (atomic for RT/Go coordination) */
     _Atomic int         state;          /* CL_STATE_xxx */
+    /* 2.9's UnderCalculationPleaseWait, done for real this time (the 2.9 HAL
+     * module never actually set it, leaving StopRunIfRunning's wait vacuous).
+     * The RT function raises it BEFORE it reads `state` and clears it when the
+     * scan is done, both seq_cst, so a writer that stores a non-RUN state and
+     * then sees it low knows no scan is in flight (Dekker pairing — see
+     * waitScanSettled in api.go). */
+    _Atomic int         scanning;
     _Atomic int32_t     duration_of_last_scan_ns;
     _Atomic uint32_t    generation;     /* bumped on any program change */
 

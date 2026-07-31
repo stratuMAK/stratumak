@@ -27,6 +27,14 @@ import (
 )
 
 // loadCLPFile parses a .clp file and applies it to the RT instance.
+//
+// Invariant the callers rely on: every error return sits BEFORE the wipe
+// below, so a failed load leaves the current program untouched. The parsers
+// past that point are lenient by design (2.9's were too) — they skip what
+// they cannot read instead of erroring out of a half-wiped project.
+//
+// Callers mutate the whole program in place, so they must hold m.mu AND have
+// the scan stopped and settled (stopRunIfRunning) if the PLC was running.
 func (m *classicladder) loadCLPFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -235,6 +243,24 @@ func splitCLPArchive(f *os.File) (map[string]string, error) {
 // --- Section parsers ---
 
 func (m *classicladder) parseGeneral(content string) {
+	// Sizes bind at module creation (they decide the allocation and the HAL
+	// pin count), so the file's SIZE_NBR_* entries are not applied — but a
+	// project that wants more than the module has will load truncated, and
+	// that deserves a loud pointer at the load line.
+	sizeOf := map[string]C.int{
+		"SIZE_NBR_RUNGS":        m.rt.sizes.nbr_rungs,
+		"SIZE_NBR_BITS":         m.rt.sizes.nbr_bits,
+		"SIZE_NBR_WORDS":        m.rt.sizes.nbr_words,
+		"SIZE_NBR_TIMERS":       m.rt.sizes.nbr_timers,
+		"SIZE_NBR_MONOSTABLES":  m.rt.sizes.nbr_monostables,
+		"SIZE_NBR_COUNTERS":     m.rt.sizes.nbr_counters,
+		"SIZE_NBR_TIMERS_IEC":   m.rt.sizes.nbr_timers_iec,
+		"SIZE_NBR_PHYS_INPUTS":  m.rt.sizes.nbr_phys_inputs,
+		"SIZE_NBR_PHYS_OUTPUTS": m.rt.sizes.nbr_phys_outputs,
+		"SIZE_NBR_ARITHM_EXPR":  m.rt.sizes.nbr_arithm_expr,
+		"SIZE_NBR_SECTIONS":     m.rt.sizes.nbr_sections,
+		"SIZE_NBR_SYMBOLS":      m.rt.sizes.nbr_symbols,
+	}
 	for _, line := range strings.Split(content, "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
@@ -245,9 +271,12 @@ func (m *classicladder) parseGeneral(content string) {
 		switch key {
 		case "PERIODIC_REFRESH":
 			m.rt.periodic_refresh_ms = C.int(v)
+		default:
+			if have, ok := sizeOf[key]; ok && C.int(v) > have {
+				m.logger.Warn("project wants more than the module was configured with; loading truncated",
+					"key", key, "project", v, "configured", int(have))
+			}
 		}
-		// Size overrides are already set at module creation; we don't
-		// dynamically resize (fixed max arrays in RT struct).
 	}
 }
 
@@ -267,7 +296,6 @@ func (m *classicladder) parseSections(content string) {
 			continue
 		}
 		sec := &rtSections(m.rt)[idx]
-		sec.used = 1
 		sec.language = C.int(atoi(parts[1]))
 		sec.sub_routine_number = C.int(atoi(parts[2]))
 		sec.first_rung = C.int(atoi(parts[3]))
@@ -275,17 +303,20 @@ func (m *classicladder) parseSections(content string) {
 		if len(parts) > 5 {
 			sec.sequential_page = C.int(atoi(parts[5]))
 		}
+		// Published last, mirroring the module's publish-order contract.
+		sec.used = 1
 	}
 	// Parse section names from #NAMEnnn= comments
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "#NAME") {
-			// #NAME000=Prog1
-			numStr := line[5:8]
+			// #NAME000=Prog1 — but stay lenient about the shape: a truncated
+			// or hand-edited line must not take the loader down with it
+			// (line[5:8] here used to panic on anything shorter than 8 bytes).
 			nameStart := strings.Index(line, "=")
-			if nameStart < 0 {
+			if nameStart <= 5 {
 				continue
 			}
-			num := atoi(numStr)
+			num := atoi(line[5:nameStart])
 			if num >= 0 && num < int(m.rt.sizes.nbr_sections) {
 				name := line[nameStart+1:]
 				copyGoStringToC(&rtSections(m.rt)[num].name[0], name, C.CL_LGT_SECTION_NAME)
@@ -296,7 +327,9 @@ func (m *classicladder) parseSections(content string) {
 
 func (m *classicladder) parseRung(idx int, content string) {
 	rung := &rtRungs(m.rt)[idx]
-	rung.used = 1
+	// The used flag is published last (see the loadCLPFile invariant): loads
+	// run scan-settled today, but a half-filled rung must never be one
+	// forgotten bracket away from being walked.
 	y := 0
 	for _, line := range strings.Split(content, "\n") {
 		if line == "" {
@@ -335,6 +368,7 @@ func (m *classicladder) parseRung(idx int, content string) {
 		}
 		y++
 	}
+	rung.used = 1
 }
 
 func parseElement(s string, e *C.cl_element_t) {

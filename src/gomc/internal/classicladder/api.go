@@ -374,19 +374,39 @@ func (m *classicladder) SetVariable(varType int32, offset int32, value int32) (i
 // LoadProject loads a .clp project.  The path arrives over REST, so it is
 // resolved and contained by the shared rule (internal/pathres) rather than
 // opened as given.
+//
+// The whole-program rewrite is bracketed the way 2.9's classicladder.c
+// brackets every load (StopRunIfRunning / RunBackIfStopped): the lock-free
+// scan must not walk a program mid-teardown, and a load left in RUN must not
+// inherit the old program's timer and edge state — Start() prepares before
+// running, and so does this.
 func (m *classicladder) LoadProject(path string) (int32, error) {
 	path, err := pathres.Resolve(path, pathres.Read)
 	if err != nil {
 		return -1, fmt.Errorf("classicladder: load_project: %w", err)
 	}
+	return m.loadProjectResolved(path)
+}
+
+// loadProjectResolved is LoadProject after path containment — split out so
+// tests can drive the bracket semantics with plain file paths.
+func (m *classicladder) loadProjectResolved(path string) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	wasRun := m.stopRunIfRunning()
 	m.modbus.stop()
 	if err := m.loadCLPFile(path); err != nil {
+		// loadCLPFile fails only before it touches the program (its stated
+		// invariant), so the running project is intact — put it all back.
+		m.modbus.start()
+		m.runBackIfStopped(wasRun)
 		return -1, err
 	}
+	m.projectFile = path
+	C.cl_prepare_all_datas_before_run(m.rt)
 	m.bumpGeneration()
 	m.modbus.start()
+	m.runBackIfStopped(wasRun)
 	return 0, nil
 }
 
@@ -397,11 +417,14 @@ func (m *classicladder) SaveProject(path string) (int32, error) {
 	if err != nil {
 		return -1, fmt.Errorf("classicladder: save_project: %w", err)
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	// Full lock, not RLock: a successful save-as becomes the current project,
+	// like 2.9's save dialog, and Status reports it.
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if err := m.saveCLPFile(path); err != nil {
 		return -1, err
 	}
+	m.projectFile = path
 	return 0, nil
 }
 
@@ -578,6 +601,10 @@ func (m *classicladder) WatchRungStates() (map[string]api.RungState, error) {
 // --- Data conversion helpers ---
 
 func (m *classicladder) buildStatus() *api.Status {
+	// RLock for projectFile: LoadProject/SaveProject reassign the string, and
+	// a torn Go string header is a crash, not a glitch.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	rt := m.rt
 	return &api.Status{
 		State:             api.LadderState(m.getState()),

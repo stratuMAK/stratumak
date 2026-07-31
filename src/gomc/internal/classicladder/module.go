@@ -36,6 +36,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
@@ -380,6 +381,35 @@ func (m *classicladder) getState() int {
 
 func (m *classicladder) setState(state int) {
 	atomic.StoreInt32((*int32)(unsafe.Pointer(&m.rt.state)), int32(state))
+}
+
+// waitScanSettled returns once no RT scan is in flight. The caller must have
+// published a non-RUN state first — see the `scanning` field's Dekker pairing
+// in classicladder_rt.h. 2.9's StopRunIfRunning polled the same way (though
+// its HAL module never set the flag, so its wait was vacuous).
+func (m *classicladder) waitScanSettled() {
+	for atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.scanning))) != 0 {
+		time.Sleep(100 * time.Microsecond)
+	}
+}
+
+// stopRunIfRunning / runBackIfStopped port 2.9's bracket around whole-program
+// mutations (classicladder.c): the lock-free scan must never walk a program
+// that is being torn down and rebuilt under it. Element-level edits stay
+// bracket-free, as in 2.9 — the engine tolerates those as one-scan glitches.
+func (m *classicladder) stopRunIfRunning() bool {
+	if m.getState() != C.CL_STATE_RUN {
+		return false
+	}
+	m.setState(C.CL_STATE_STOP)
+	m.waitScanSettled()
+	return true
+}
+
+func (m *classicladder) runBackIfStopped(wasRun bool) {
+	if wasRun {
+		m.setState(C.CL_STATE_RUN)
+	}
 }
 
 func (m *classicladder) getScanTimeNs() int32 {

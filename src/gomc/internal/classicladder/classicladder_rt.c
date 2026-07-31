@@ -906,9 +906,15 @@ void classicladder_refresh(void *arg, long period) {
     if (ms < 1)
         return;
 
-    int state = atomic_load_explicit(&rt->state, memory_order_acquire);
-    if (state != CL_STATE_RUN)
+    /* Raise `scanning` before reading `state` (both seq_cst): a writer that
+     * publishes STOP and then finds `scanning` low knows no scan that saw RUN
+     * can still be in flight. */
+    atomic_store(&rt->scanning, 1);
+    int state = atomic_load(&rt->state);
+    if (state != CL_STATE_RUN) {
+        atomic_store(&rt->scanning, 0);
         return;
+    }
 
     unsigned long t0 = rtapi_get_time();
 
@@ -930,6 +936,7 @@ void classicladder_refresh(void *arg, long period) {
     unsigned long t1 = rtapi_get_time();
     atomic_store_explicit(&rt->duration_of_last_scan_ns,
                          (int32_t)(t1 - t0), memory_order_relaxed);
+    atomic_store(&rt->scanning, 0);
 }
 
 /* Region starts are aligned generously so every array type is satisfied

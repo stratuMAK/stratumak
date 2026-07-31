@@ -7,6 +7,11 @@ package classicladder
 */
 import "C"
 
+import (
+	"sync/atomic"
+	"unsafe"
+)
+
 // Helpers for the dynamic-sizing tests. Test files cannot use cgo, so the
 // sizes travel as a plain map keyed by the load-argument names.
 
@@ -81,6 +86,12 @@ func allocSizedRT(sizes map[string]int) *ladderRT {
 
 // clSizeLimit re-exports the allocator's sanity cap for the tests.
 const clSizeLimit = C.CL_SIZE_LIMIT
+
+// setScanningForTest fakes an RT scan being in flight, so tests can prove the
+// stop bracket actually waits for it.
+func (m *classicladder) setScanningForTest(v int32) {
+	atomic.StoreInt32((*int32)(unsafe.Pointer(&m.rt.scanning)), v)
+}
 
 // maxSteps re-exports the fixed step count (the two step regions are always
 // this long, whatever the configured sizes).
