@@ -59,7 +59,6 @@ static int sockInitSockaddr(sockaddr_in *name, const char *hostname, unsigned sh
   name->sin_port = htons(port);
   hostinfo = gethostbyname(hostname);
   if (hostinfo == NULL) {
-    rcs_print_error("sock_init_sockaddr: Unknown host\n");
     return -1;
     }
   name->sin_addr = *(struct in_addr *) hostinfo->h_addr;
@@ -74,7 +73,6 @@ int sockConnect(char *host, unsigned short int port)
   int sock;
   int err = 0;
 
-  rcs_print_error("sock_connect: Creating socket\n");
   sock = socket(PF_INET, SOCK_STREAM, 0);
 #ifdef WINSOCK2        
   if (sock == INVALID_SOCKET) {
@@ -84,10 +82,13 @@ int sockConnect(char *host, unsigned short int port)
     rcs_print_error("sock_connect: Error creating socket\n");
     return sock;
     }
-  rcs_print_error("sock_connect: Created socket\n");
 
-  if (sockInitSockaddr(&servername, host, port) < 0)
+  // The caller reconnects on a cadence, so a failure to reach the display is
+  // reported by the caller's logger once, not printed here on every retry.
+  if (sockInitSockaddr(&servername, host, port) < 0) {
+    close(sock);
     return -1;
+    }
 
   err = connect(sock, (struct sockaddr *) &servername, sizeof (servername));
 #ifdef WINSOCK2        
@@ -95,8 +96,9 @@ int sockConnect(char *host, unsigned short int port)
 #else
   if (err < 0) {
 #endif
-    rcs_print_error("sock_connect: connect failed\n");
-    shutdown(sock, SHUT_RDWR);
+    // close(), not shutdown(): shutdown leaves the descriptor open, and a
+    // caller that retries on a timer would run the process out of them.
+    close(sock);
     return -1;
     }
 
@@ -139,7 +141,7 @@ int sockPrintf(int fd, const char *format, .../*args*/ )
     rcs_print_error("sock_printf: vsnprintf failed\n");
     return -1;
     }
-  if (size > sizeof(buf)) {
+  if ((size_t)size >= sizeof(buf)) {
     rcs_print_error("sock_printf: vsnprintf truncated message\n");
     }
   return sockSendString(fd, buf);
@@ -183,7 +185,7 @@ int sockRecvString(int fd, char *dest, size_t maxlen)
     recvBytes++;
 
     // stop at max. bytes allowed, at NUL or at LF
-    if (recvBytes == maxlen || *ptr == '\0' || *ptr == '\n') {
+    if ((size_t)recvBytes == maxlen || *ptr == '\0' || *ptr == '\n') {
       *ptr = '\0';
       break;
       }
@@ -194,7 +196,7 @@ int sockRecvString(int fd, char *dest, size_t maxlen)
   if (recvBytes == 1 && dest[0] == '\0')
     return 0;
 
-  if (recvBytes < maxlen - 1)
+  if ((size_t)recvBytes < maxlen - 1)
     dest[recvBytes] = '\0';
 
   return recvBytes;
@@ -207,11 +209,14 @@ int sockSend(int fd, const void *src, size_t size)
 
   if (!src) return -1;
 
-  while (offset != size) {
+  while ((size_t)offset != size) {
     // write isn't guaranteed to send the entire string at once,
     // so we have to sent it in a loop like this
 #ifndef WINSOCK2
-    int sent = write(fd, ((const char *) src) + offset, size - offset);
+    // MSG_NOSIGNAL, not write(): writing to a display that has gone away
+    // raises SIGPIPE, and this code now runs inside the gomc server process,
+    // where the default disposition would take the whole controller down.
+    int sent = send(fd, ((const char *) src) + offset, size - offset, MSG_NOSIGNAL);
 #else
     int sent = send(fd, ((const char *) src) + offset, size - offset, 0);
 #endif
@@ -318,7 +323,7 @@ int sockPrintfError(int fd, const char *format, .../*args*/ )
     rcs_print_error("sock_printf_error: vsnprintf failed\n");
     return -1;
     }
-  if (size >= sizeof(buf) - (sizeof(huh)-1)) {
+  if ((size_t)size >= sizeof(buf) - (sizeof(huh)-1)) {
     rcs_print_error("sock_printf_error: vsnprintf truncated message\n");
     }
 

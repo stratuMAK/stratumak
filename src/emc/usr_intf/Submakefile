@@ -16,3 +16,36 @@ USERSRCS += $(USRMOTSRCS)
 #	@mkdir -p ../cmod
 #	@$(CXX) -shared -o $@ $^ $(LDFLAGS)
 #TARGETS += ../cmod/halui.so
+
+# ---------------------------------------------------------------------------
+# LCDproc character display UI (cmod)
+# ---------------------------------------------------------------------------
+
+LINUXCNCLCD_CMOD_SRCS := \
+    emc/usr_intf/linuxcnclcd.c \
+    emc/usr_intf/sockets.c
+
+LINUXCNCLCD_CMOD_CFLAGS := \
+    -fPIC -Os -Wall -Wextra \
+    -D_GNU_SOURCE \
+    -I. -I../include \
+    -Igomc/pkg/cmodule \
+    -Igomc/generated/gmi/emccmd \
+    -Igomc/generated/gmi/emcstat \
+    -Iemc/usr_intf
+
+LINUXCNCLCD_CMOD_DEPS := \
+    gomc/generated/gmi/emccmd/emccmd_api.h \
+    gomc/generated/gmi/emcstat/emcstat_api.h \
+    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+    emc/usr_intf/sockets.h
+
+../cmod/linuxcnclcd.so: $(LINUXCNCLCD_CMOD_SRCS) $(LINUXCNCLCD_CMOD_DEPS) | headers
+	$(ECHO) "Compiling cmod linuxcnclcd.so"
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) -shared $(LINUXCNCLCD_CMOD_CFLAGS) \
+	    -o $@ $(LINUXCNCLCD_CMOD_SRCS) \
+	    $(CMOD_LDFLAGS) -lpthread -lm
+
+TARGETS += ../cmod/linuxcnclcd.so
+modules: ../cmod/linuxcnclcd.so

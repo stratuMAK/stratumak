@@ -38,6 +38,8 @@ Removed objects:
   channel client, was loaded by AXIS via `linuxcnc.tcl`. Load line commented
   out in `linuxcnc.tcl` / `linuxcnc.tcl.in`.
 - `bin/linuxcnclcd` (`emclcd.cc`, `shcom.cc`, `sockets.c`) — dead NML LCD client.
+  Since migrated to `cmod/linuxcnclcd.so` (`emc/usr_intf/linuxcnclcd.c`, still
+  using `sockets.c`), consuming emcstat/emccmd instead of NML.
 
 **All remaining binaries are libnml-free:**
 `io.so`, `iov2.so`, `milltask.so`, `halui.so`, `rs274`, `emcmodule.so`,
