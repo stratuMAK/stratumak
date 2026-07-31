@@ -166,7 +166,7 @@ func TestStruct_DeleteRungReleasesItsExpressions(t *testing.T) {
 		r.Elements[0] = api.Element{Type: eleUnusable}
 		r.Elements[1] = api.Element{Type: eleUnusable}
 		r.Elements[2] = api.Element{Type: eleCompar, VarNum: int32(exprNum)}
-		if _, err := m.SetRung(int32(rung), *r); err != nil {
+		if _, err := m.SetRung(int32(rung), *r, nil); err != nil {
 			t.Fatalf("set rung %d: %v", rung, err)
 		}
 	}
@@ -384,7 +384,7 @@ func TestValidate_RejectsMalformedRungs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := base()
 			tc.build(r)
-			if _, err := m.SetRung(idx, *r); err == nil {
+			if _, err := m.SetRung(idx, *r, nil); err == nil {
 				t.Errorf("%s was accepted", tc.name)
 			} else if !errors.Is(err, syscall.EINVAL) {
 				t.Errorf("error = %v, want it to wrap EINVAL", err)
@@ -464,7 +464,7 @@ func TestValidate_AcceptsWellFormedRungs(t *testing.T) {
 	r.Elements[10+2] = api.Element{Type: eleUnusable}
 	r.Elements[3] = api.Element{Type: eleOutput, VarType: varPhysOutput, VarNum: 0}
 
-	if _, err := m.SetRung(idx, *r); err != nil {
+	if _, err := m.SetRung(idx, *r, nil); err != nil {
 		t.Fatalf("a well-formed rung was refused: %v", err)
 	}
 }

@@ -199,7 +199,7 @@ func (m *classicladder) GetRung(index int32) (*api.Rung, error) {
 	return &r, nil
 }
 
-func (m *classicladder) SetRung(index int32, rung api.Rung) (int32, error) {
+func (m *classicladder) SetRung(index int32, rung api.Rung, expressions []api.ExprSlot) (int32, error) {
 	if index < 0 || index >= int32(m.rt.sizes.nbr_rungs) {
 		return -1, errInvalidIndex
 	}
@@ -213,7 +213,10 @@ func (m *classicladder) SetRung(index int32, rung api.Rung) (int32, error) {
 		return -1, fmt.Errorf("%w: rung %d is not in use; insert_rung creates rungs", syscall.ENOENT, index)
 	}
 	// Validate before applying: a half-written rung cannot be taken back, and
-	// the scan may read it before the caller sees the error.
+	// the scan may read it before the caller sees the error. The carried
+	// expression slots are part of the same transaction — everything parses
+	// and compiles first, so a refusal leaves the controller exactly as it
+	// was, with nothing half-applied for a Cancel to miss.
 	if err := m.validateRung(int(index), &rung); err != nil {
 		return -1, err
 	}
@@ -223,9 +226,74 @@ func (m *classicladder) SetRung(index int32, rung api.Rung) (int32, error) {
 	if err := validateText("rung comment", rung.Comment, false); err != nil {
 		return -1, err
 	}
+	slots, err := m.prepareExprSlots(expressions)
+	if err != nil {
+		return -1, err
+	}
+	for _, s := range slots {
+		m.installExprSlot(s)
+	}
 	m.applyRungCells(int(index), &rung)
 	m.bumpGeneration()
 	return 0, nil
+}
+
+// preparedExpr is one expression-table entry validated and compiled, ready to
+// land without the possibility of failure.
+type preparedExpr struct {
+	idx    int
+	stored string
+	code   C.cl_compiled_expr_t
+	clear  bool
+}
+
+func (m *classicladder) prepareExprSlots(expressions []api.ExprSlot) ([]preparedExpr, error) {
+	n := int(m.rt.sizes.nbr_arithm_expr)
+	slots := make([]preparedExpr, 0, len(expressions))
+	seen := make(map[int]bool, len(expressions))
+	for _, e := range expressions {
+		idx := int(e.Index)
+		if idx < 0 || idx >= n {
+			return nil, fmt.Errorf("%w: expression %d does not exist; %d are configured",
+				syscall.EINVAL, idx, n)
+		}
+		if seen[idx] {
+			return nil, fmt.Errorf("%w: expression %d named twice in one write", syscall.EINVAL, idx)
+		}
+		seen[idx] = true
+		if e.Text == "" {
+			slots = append(slots, preparedExpr{idx: idx, clear: true})
+			continue
+		}
+		if err := validateText(fmt.Sprintf("expression %d", idx), e.Text, false); err != nil {
+			return nil, err
+		}
+		stored, err := m.namesToExpr(e.Text)
+		if err != nil {
+			return nil, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, idx, e.Text, err)
+		}
+		if len(stored) > C.CL_ARITHM_EXPR_SIZE-1 {
+			return nil, fmt.Errorf("%w: expr[%d] %q: too long once converted (%d chars)",
+				syscall.EINVAL, idx, e.Text, len(stored))
+		}
+		code, err := compileOne(stored)
+		if err != nil {
+			return nil, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, idx, e.Text, err)
+		}
+		slots = append(slots, preparedExpr{idx: idx, stored: stored, code: code})
+	}
+	return slots, nil
+}
+
+func (m *classicladder) installExprSlot(s preparedExpr) {
+	if s.clear {
+		rtArithmExprs(m.rt)[s.idx].expr[0] = 0
+		rtCompiledExprs(m.rt)[s.idx].valid = 0
+		rtCompiledExprs(m.rt)[s.idx].len = 0
+		return
+	}
+	copyStringToC(&rtArithmExprs(m.rt)[s.idx].expr[0], s.stored, C.CL_ARITHM_EXPR_SIZE)
+	rtCompiledExprs(m.rt)[s.idx] = s.code
 }
 
 // InsertRung adds an empty rung after the given one and returns its index.
@@ -751,6 +819,7 @@ func (m *classicladder) buildStatus() *api.Status {
 		PeriodicRefreshMs: int32(rt.periodic_refresh_ms),
 		Sizes:             m.buildSizes(),
 		ProjectFile:       m.projectFile,
+		Generation:        m.getGeneration(),
 	}
 }
 

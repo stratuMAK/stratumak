@@ -195,6 +195,15 @@ type ArithmExpr {
     expr: string @maxlen(48)
 }
 
+# One expression-table entry named by its index, in written (operator) form.
+# Carried by set_rung so a rung and the expressions its compare/operate
+# elements reference land as one validated write — see set_rung.
+type ExprSlot {
+    index: i32                  # position in the expression table
+    text: string @maxlen(48)    # written form, as in set_expression_text;
+                                # "" releases the slot
+}
+
 # IEC timer. Unlike Timer and Monostable it counts up, from 0 to preset.
 type TimerIEC {
     preset: i32          # in units of base
@@ -266,18 +275,26 @@ type Status {
     periodicRefreshMs: i32
     sizes: SizeInfo
     projectFile: string
+    generation: u32     # bumped on every program change (edits, loads, whole-
+                        # program PUTs). A client holding a rendered program
+                        # refetches when this moves — it is the only signal
+                        # that another client or a load rewrote the program
+                        # under the live rung states it keeps receiving.
 }
 
+# The array bounds are the load-line size cap (CL_SIZE_LIMIT), not the
+# defaults: the tables are sized by the module's arguments, and the provider
+# refuses anything past the configured counts with the knob named.
 type Program {
     sizes: SizeInfo
-    rungs: []Rung
-    sections: []Section
-    symbols: []Symbol
-    arithmExprs: []ArithmExpr
-    timersIec: []TimerIEC
-    timers: []Timer
-    monostables: []Monostable
-    counters: []Counter
+    rungs: []Rung @maxlen(100000)
+    sections: []Section @maxlen(100000)
+    symbols: []Symbol @maxlen(100000)
+    arithmExprs: []ArithmExpr @maxlen(100000)
+    timersIec: []TimerIEC @maxlen(100000)
+    timers: []Timer @maxlen(100000)
+    monostables: []Monostable @maxlen(100000)
+    counters: []Counter @maxlen(100000)
 }
 
 # Every boolean a running program can be asked for.
@@ -377,9 +394,24 @@ func set_program(program: Program) -> i32
 func get_rung(index: i32 @min(0)) -> Rung
 
 # Update a single rung (after edit).
+#
+# The wire rung's used flag and prevRung/nextRung are IGNORED: the chain is
+# the server's (see the structural-editing note below), and a rung must
+# already be in use — insert_rung creates rungs. Only the element grid, label
+# and comment are taken.
+#
+# `expressions` carries the written text for the expression slots this edit
+# touches, so a rung and its compare/operate expressions apply as one
+# validated transaction: everything is parsed and compiled first, and a
+# refusal leaves the controller exactly as it was. Applied separately (rung
+# first, expressions second or the reverse), a refusal midway strands the
+# other half live on the controller while the editor believes it cancelled —
+# that is how it used to work, and it was wrong. Entries with text ""
+# release their slot: an element deleted from the rung frees its expression
+# in the same write. A rung has 60 cells, so 60 entries bound any edit.
 @method PUT
 @path "/rung/{index}"
-func set_rung(index: i32 @min(0), rung: Rung) -> i32
+func set_rung(index: i32 @min(0), rung: Rung, expressions: []ExprSlot @maxlen(60)) -> i32
 
 # --- Structural editing ---
 #

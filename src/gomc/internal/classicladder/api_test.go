@@ -326,7 +326,7 @@ func TestAPI_RungIndexBounds(t *testing.T) {
 		if _, err := m.GetRung(idx); err == nil {
 			t.Errorf("GetRung(%d) succeeded, want an error", idx)
 		}
-		if _, err := m.SetRung(idx, api.Rung{}); err == nil {
+		if _, err := m.SetRung(idx, api.Rung{}, nil); err == nil {
 			t.Errorf("SetRung(%d) succeeded, want an error", idx)
 		}
 	}
@@ -415,7 +415,7 @@ func TestAPI_RungRoundTripPreservesGrid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get rung: %v", err)
 	}
-	if _, err := m.SetRung(0, *before); err != nil {
+	if _, err := m.SetRung(0, *before, nil); err != nil {
 		t.Fatalf("set rung: %v", err)
 	}
 	after, err := m.GetRung(0)
