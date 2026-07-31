@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+# Pick up the pendant rules shipped in lib/udev/rules.d (shuttle, xhc,
+# xhc-whb04b-6) without waiting for a reboot.
+#
+# Never fatal. There is no running udev in a chroot or container, and
+# policy-rc.d makes invoke-rc.d exit 101 there -- under `set -e` that would
+# abort the whole installation, including the CI job that installs the built
+# package. Reloading the rules is also all that is wanted: restarting the
+# daemon was never the point.
+if [ -d /run/udev ] && command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
+fi
+
+# Realtime needs locked memory. The marker is deliberately still EMC2: a
+# machine that has ever had LinuxCNC installed already carries this line, and
+# matching on the old marker keeps us from appending a second one.
+if [ -f /etc/security/limits.conf ]; then
+    if ! grep -q "EMC2" /etc/security/limits.conf; then
+	echo '* - memlock 20480 #EMC2' >> /etc/security/limits.conf
+    fi
+fi
