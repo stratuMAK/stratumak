@@ -82,6 +82,13 @@
 *   on the socket.  Harmless in the original standalone binary, merely untidy
 *   on a non-RT thread here, but it does burn a core mid-line on a slow link.
 *
+* TODO: with nc_files= pointing outside the controller's program search path,
+*   the File/Open menu lists files that then fail to open: the menu is filled
+*   from nc_files, but openProgram() sends a bare relative name that the
+*   controller resolves against [DISPLAY]PROGRAM_PREFIX and the allowed
+*   program directories.  Sending the resolved absolute path would fix that
+*   case, at the cost of sidestepping the controller's directory policy.
+*
 * Set Passwords and Set Language were dropped outright rather than listed
 * here: neither has anything behind it to connect to, then or now.
 *
@@ -382,6 +389,7 @@ static char   server[64] = DEFAULT_SERVER;
 static int    port = DEFAULT_PORT;
 static double delay = SOCK_DELAY;
 static int    autoStart;
+static int    autoStarted;		// autostart= has fired since Start()
 static const char *nc_dir;
 
 // LCDproc connection.
@@ -400,7 +408,7 @@ static int         screensInitialized = -1;
 static screenType  curScreen = stStartup;
 static char        menu1[20] = "";
 static char        menu2[20] = "";
-static char        programName[64] = "<none>";
+static char        programName[64];
 static char        lastProgramFile[256];
 static int         totalSteps;
 static int         programStartLine;
@@ -1067,6 +1075,13 @@ static int leaveEvent(void)
   pch = strtok_r(NULL, delims, &tokptr);
   gomc_log_debugf(the_log, mod_name, "menu leave %s", pch ? pch : "");
 
+  // Pop what enterEvent pushed.  Without this, backing out of File/Open
+  // leaves menu2 at "open", and the next sibling selection -- File/Reload --
+  // is taken for a program name.  The menus are at most two levels deep, so
+  // the one-slot stack covers every path.
+  strCopy(menu2, sizeof(menu2), menu1);
+  menu1[0] = '\0';
+
   return 0;
 }
 
@@ -1316,14 +1331,39 @@ static int stepCount(const char *fileName)
 // Display update
 // ---------------------------------------------------------------------------
 
+// The last values sent to the display, kept to suppress redundant protocol
+// traffic.  Cleared on every disconnect: a rebuilt screen starts from the
+// widget defaults, and a cache surviving the reconnect would keep the real
+// values from being repainted until they next change.
+static char oldStatusStr[8];
+static char oldXStr[12];
+static char oldYStr[12];
+static char oldZStr[12];
+static int  oldFeedOverride = -1;
+static int  oldSpindle = -1;
+static int  oldOverrideLimits = -1;
+static int  oldLineNo = -1;
+static int  oldMain2Line = -1;
+static int  oldPct = -1;
+
+static void resetDisplayCache(void)
+{
+  oldStatusStr[0] = '\0';
+  oldXStr[0] = oldYStr[0] = oldZStr[0] = '\0';
+  oldFeedOverride = -1;
+  oldSpindle = -1;
+  oldOverrideLimits = -1;
+  oldLineNo = -1;
+  oldMain2Line = -1;
+  oldPct = -1;
+  programName[0] = '\0';
+  totalSteps = 0;
+}
+
 static void slowLoop(void)
 {
   char fname[64];
   char buf[8];
-  static char status[8] = "";
-  static int oldFeedOverride = 0;
-  static int oldSpindle = -1;
-  static int oldOverrideLimits = -1;
 
   if (lcd_stat.task.file && lcd_stat.task.file[0] != '\0') {
     baseNameNoExt(lcd_stat.task.file, fname, sizeof(fname));
@@ -1369,30 +1409,30 @@ static void slowLoop(void)
   switch (lcd_stat.task.interp_state) {
       case EMCSTAT_READING:
       case EMCSTAT_WAITING:
-        strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, "  Run", status));
+        strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, "  Run", oldStatusStr));
         if (runStatus != rsRun)
           widgetSetStr(W_MAIN_JOG, "Step", "");
         runStatus = rsRun;
         break;
       case EMCSTAT_PAUSED:
-        strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, "Pause", status));
+        strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, "Pause", oldStatusStr));
         runStatus = rsPause;
         break;
       default:
         if (lcd_stat.task.state == EMCSTAT_ESTOP) {
-          strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, "EStop", status));
+          strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, "EStop", oldStatusStr));
           widgetSetStr(W_MAIN_JOG, "    ", "");
           }
         else if (lcd_stat.task.state != EMCSTAT_ON) {
-          strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, "  Off", status));
+          strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, "  Off", oldStatusStr));
           widgetSetStr(W_MAIN_JOG, "    ", "");
           }
         else if (lcd_stat.task.mode == EMCSTAT_MANUAL) {
-          strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, "  Man", status));
+          strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, "  Man", oldStatusStr));
           widgetSetStr(W_MAIN_JOG, "Jog ", "");
           }
         else {
-          strCopy(status, sizeof(status), widgetSetStr(W_MAIN_STATUS, " Idle", status));
+          strCopy(oldStatusStr, sizeof(oldStatusStr), widgetSetStr(W_MAIN_STATUS, " Idle", oldStatusStr));
           widgetSetStr(W_MAIN_JOG, "    ", "");
           }
         displayJogMode(jogMode);
@@ -1439,16 +1479,10 @@ static void displayPosition(double *ox, double *oy, double *oz)
 
 static void updatePositions(void)
 {
-  static char oldXStr[12] = "";
-  static char oldYStr[12] = "";
-  static char oldZStr[12] = "";
   char numStr[12];
   double px, py, pz;
   int lineNo;
-  static int oldLineNo;
-  static int oldMain2Line = -1;
   int stepPct;
-  static int oldPct = 0;
 
   conversion = unitConversion();
   displayPosition(&px, &py, &pz);
@@ -1526,6 +1560,7 @@ static void lcdDisconnect(int graceful)
   screensInitialized = -1;
   curScreen = stStartup;
   runStatus = rsIdle;
+  resetDisplayCache();
 }
 
 static int lcdConnect(void)
@@ -1535,11 +1570,14 @@ static int lcdConnect(void)
   // fills the log at a steady drip.
   static int failureLogged;
 
+  errno = 0;
   sockfd = sockConnect(server, (unsigned short)port);
   if (sockfd < 0) {
     if (!failureLogged) {
+      // errno stays 0 when the failure was the host lookup, which reports
+      // through h_errno instead.
       gomc_log_warnf(the_log, mod_name, "cannot reach LCDd at %s:%d (%s), retrying",
-                     server, port, strerror(errno));
+                     server, port, errno ? strerror(errno) : "host lookup failed");
       failureLogged = 1;
       }
     return -1;
@@ -1548,9 +1586,12 @@ static int lcdConnect(void)
   sockError = 0;
   gomc_log_infof(the_log, mod_name, "connected to LCDd at %s:%d", server, port);
 
-  if (autoStart) {
+  // Once per Start(), not per connect: a reconnect must not clear an E-stop
+  // the operator set while the display was away.
+  if (autoStart && !autoStarted) {
     sendTaskState(EMCSTAT_ESTOP_RESET);
     sendTaskState(EMCSTAT_ON);
+    autoStarted = 1;
     }
   sockSendStr(sockfd, "hello\n");
   return sockError ? -1 : 0;
@@ -1636,6 +1677,7 @@ static int lcd_start(cmod_t *self)
 
   updateStatus();
 
+  autoStarted = 0;
   atomic_store(&done, 0);
   atomic_store(&m->thread_started, 1);
   if (pthread_create(&m->loop_thread, NULL, lcdLoop, m) != 0) {
@@ -1742,10 +1784,9 @@ int New(const cmod_env_t *env, const char *name,
   jogMode = jtCont;
   jogging = 0;
   feedOverride = 100;
-  totalSteps = 0;
   programStartLine = 0;
   menu1[0] = menu2[0] = lastProgramFile[0] = '\0';
-  strCopy(programName, sizeof(programName), "<none>");
+  resetDisplayCache();
 
   m = calloc(1, sizeof(*m));
   if (m == NULL) return -1;

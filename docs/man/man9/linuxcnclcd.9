@@ -36,7 +36,9 @@ Pause before each protocol send, to keep from overrunning a slow display.
 Default \fB0.005\fR.
 .TP
 \fBautostart=1\fR
-Reset ESTOP and switch the machine on as soon as the display connects.
+Reset ESTOP and switch the machine on when the display first connects.
+This happens once per module start \(em a later reconnect does not repeat
+it, so a display dropping out cannot clear an ESTOP set in the meantime.
 Off by default.
 .TP
 \fBnc_files=\fIDIR\fR
