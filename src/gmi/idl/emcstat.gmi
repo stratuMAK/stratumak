@@ -314,8 +314,18 @@ type TaskInfo {
 
 # ─── Functions ───
 
-# Full machine status, pushed via WebSocket at 50ms intervals
+# Full machine status, pushed via WebSocket at 50ms intervals.
+#
+# @watch_delta: after the first push a frame carries ONLY the top-level keys
+# that changed, so a subscriber must merge onto the previous object rather than
+# replace it. milltask has always registered the watch this way
+# (internal/task/watches.go) — a full ~10 KB StatFull at 20 Hz per client is
+# what the diff exists to avoid — but until now the IDL did not say so, and a
+# generated client written against "every frame is a whole StatFull" broke on
+# the second frame. The REST GET on this same path is unaffected: it always
+# returns the complete object.
 @watch true
+@watch_delta true
 @watch_default_rate 50ms
 @method "GET"
 @path "/stat"

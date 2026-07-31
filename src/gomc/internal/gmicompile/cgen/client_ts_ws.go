@@ -32,7 +32,9 @@ func (g *clientTSWSGen) printf(format string, args ...interface{}) {
 }
 
 func (g *clientTSWSGen) generate() error {
-	g.reviveSet = tsReviveSet(g.api)
+	// The WS client serves every function: watch ones as subscribe wrappers,
+	// the rest as command methods.
+	g.reviveSet = tsReviveUsedSet(g.api, tsReviveSet(g.api), func(ast.Func) bool { return true })
 	g.emitHeader()
 	g.emitConstants()
 	g.emitEnums()
@@ -200,10 +202,31 @@ func (g *clientTSWSGen) emitClient() {
 	g.printf("    this.ws?.send(JSON.stringify(msg, (_k, v) => typeof v === 'bigint' ? String(v) : v));\n")
 	g.printf("  }\n\n")
 
+	// @watch_delta merge state — emitted only when some watch declares it, so
+	// every other generated client stays byte-identical.
+	if g.hasStructDelta() {
+		g.printf("  private deltaState = new Map<string, Record<string, unknown>>();\n\n")
+		g.printf("  /** Merge a @watch_delta frame onto the last object seen for this watch.\n")
+		g.printf("   *  The server sends the whole object on the first push of a connection and\n")
+		g.printf("   *  only the changed top-level keys after that, so a subscriber that replaced\n")
+		g.printf("   *  instead of merging would be handed an object missing most of its fields. */\n")
+		g.printf("  private mergeDelta<T>(funcName: string, raw: unknown): T {\n")
+		g.printf("    const merged = { ...(this.deltaState.get(funcName) ?? {}), ...(raw as Record<string, unknown>) };\n")
+		g.printf("    this.deltaState.set(funcName, merged);\n")
+		g.printf("    return merged as T;\n")
+		g.printf("  }\n\n")
+	}
+
 	// unsubscribe
 	g.printf("  unsubscribe(funcName: string): void {\n")
 	g.printf("    this.callbacks.delete(funcName);\n")
 	g.printf("    this.binaryCallbacks.delete(funcName);\n")
+	if g.hasStructDelta() {
+		// A resubscribe gets a fresh full frame from the server (the diff state
+		// is per-connection), so carrying the old base forward could only
+		// resurrect fields of a machine that has since changed.
+		g.printf("    this.deltaState.delete(funcName);\n")
+	}
 	g.printf("    this.ws?.send(JSON.stringify({\n")
 	g.printf("      action: 'unsubscribe',\n")
 	g.printf("      api: this.api,\n")
@@ -295,11 +318,11 @@ func (g *clientTSWSGen) emitSubscribeMethods() {
 							g.printf("    args['%s'] = %s;\n", p.Name, tsParamSend(pName, p.Type))
 						}
 					}
-					g.printf("    this.subscribe('%s', rateMs, %s, args);\n", fn.Name, g.reviveCallback(*fn.Return, retType))
+					g.printf("    this.subscribe('%s', rateMs, %s, args);\n", fn.Name, g.reviveCallback(fn, *fn.Return, retType))
 				} else {
 					g.printf("  subscribe%s(callback: (data: %s) => void, rateMs = %s): void {\n",
 						toPascalCase(fn.Name), retType, defaultRate)
-					g.printf("    this.subscribe('%s', rateMs, %s);\n", fn.Name, g.reviveCallback(*fn.Return, retType))
+					g.printf("    this.subscribe('%s', rateMs, %s);\n", fn.Name, g.reviveCallback(fn, *fn.Return, retType))
 				}
 			}
 		} else {
@@ -374,11 +397,44 @@ func (g *clientTSWSGen) emitCommandMethods() {
 
 // --- Helpers ---
 
+// structDelta reports whether fn is a @watch_delta watch whose return type is a
+// named struct — the case where a delta frame is NOT a valid value of the
+// declared type and the client must merge.
+//
+// A @watch_delta map watch (classicladder rung states, pyvcp widget state) is
+// deliberately left alone: a map of the changed keys is still a well-formed map
+// of that type, and those apps merge it into their own keyed store, which is
+// the point of diffing a map in the first place. A struct is different — a
+// StatFull carrying only `heartbeat` is not a StatFull, and the generated
+// 64-bit reviver threw outright on the missing field (BigInt(undefined)),
+// freezing the UI on its last full frame under a healthy connection.
+func structDelta(fn ast.Func) bool {
+	return fn.Watch && fn.WatchDelta && fn.Return != nil && fn.Return.Kind == ast.TypeNamed
+}
+
+// hasStructDelta reports whether any watch needs the merge helper.
+func (g *clientTSWSGen) hasStructDelta() bool {
+	for _, fn := range g.api.Funcs {
+		if structDelta(fn) {
+			return true
+		}
+	}
+	return false
+}
+
 // reviveCallback returns the watch-dispatch lambda for a subscribe method,
-// inserting an in-place 64-bit revival pass before invoking the user callback
-// when the return type contains a bigint field.
-func (g *clientTSWSGen) reviveCallback(ret ast.TypeRef, retType string) string {
+// merging a @watch_delta frame onto the previous object and inserting an
+// in-place 64-bit revival pass before invoking the user callback when the
+// return type contains a bigint field.
+func (g *clientTSWSGen) reviveCallback(fn ast.Func, ret ast.TypeRef, retType string) string {
 	revive := strings.TrimRight(tsReviveStmt("__d", ret, g.reviveSet), "\n")
+	if structDelta(fn) {
+		merge := fmt.Sprintf("const __d = this.mergeDelta<%s>('%s', raw);", retType, fn.Name)
+		if revive == "" {
+			return fmt.Sprintf("(raw) => { %s callback(__d); }", merge)
+		}
+		return fmt.Sprintf("(raw) => { %s %s callback(__d); }", merge, revive)
+	}
 	if revive == "" {
 		return fmt.Sprintf("(raw) => callback(raw as %s)", retType)
 	}
