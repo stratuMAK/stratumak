@@ -142,6 +142,28 @@ describe('placing steps and transitions', () => {
     click(1, 1);
     expect(stepAt(1, 1).index).toBe(-1);
   });
+
+  it('places neither piece when the transition has no room below the step', () => {
+    // The last odd row: a step fits, its transition would fall off the page.
+    // Both pieces need room before either is placed — a step created and then
+    // an error would be a half-succeeded gesture.
+    sfc.sfcStore.setTool(sfc.EDIT_SEQ_STEP_AND_TRANS);
+    click(1, sfc.SEQ_PAGE_HEIGHT - 1);
+    expect(sfc.sfcStore.state.error).toMatch(/no room below/);
+    expect(stepAt(1, sfc.SEQ_PAGE_HEIGHT - 1).index).toBe(-1);
+  });
+
+  it('still removes a bottom-row step, which never had a transition below', () => {
+    const y = sfc.SEQ_PAGE_HEIGHT - 1;
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(1, y);
+    expect(stepAt(1, y).index).toBeGreaterThanOrEqual(0);
+
+    sfc.sfcStore.setTool(sfc.EDIT_SEQ_STEP_AND_TRANS);
+    click(1, y);
+    expect(stepAt(1, y).index).toBe(-1);
+    expect(sfc.sfcStore.state.error).toBe('');
+  });
 });
 
 describe('step numbers stay unique', () => {
@@ -421,6 +443,23 @@ describe('applying', () => {
     sfc.sfcStore.cancelEdit();
     expect(sfc.sfcStore.state.draft).toBeNull();
     expect(stub.requests.filter(r => r.method !== 'GET')).toHaveLength(0);
+  });
+});
+
+describe('structural changes drop the draft', () => {
+  // The editor survives tab switches, so a draft kept across a Load would
+  // reopen over the freshly loaded chart — and Apply would overwrite it with
+  // the chart of the old project.
+  it('cancels the draft when a project is loaded', async () => {
+    sfc.sfcStore.setTool(sfc.ELE_SEQ_STEP);
+    click(1, 1);
+    await ladder.ladderStore.loadProject('/somewhere/else.clp');
+    expect(sfc.sfcStore.state.draft).toBeNull();
+  });
+
+  it('cancels the draft when a section is deleted', async () => {
+    await ladder.ladderStore.deleteSection(1);
+    expect(sfc.sfcStore.state.draft).toBeNull();
   });
 });
 

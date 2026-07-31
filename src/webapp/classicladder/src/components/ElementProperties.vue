@@ -162,11 +162,6 @@ const varAnnotation = computed(() => {
 
 // --- Blocks ---
 
-const blockNumber = computed({
-  get: () => el.value?.varNum ?? 0,
-  set: (v: number) => { if (el.value) el.value.varNum = Math.max(0, Math.trunc(v)); },
-});
-
 const blockCount = computed(() => {
   const prog = state.program;
   if (!prog) return 0;
@@ -177,6 +172,17 @@ const blockCount = computed(() => {
     case ELE_TIMER_IEC: return prog.timersIec.length;
     default: return 0;
   }
+});
+
+// Clamped to the blocks this PLC was configured with: typing 99 on a ten-timer
+// PLC would otherwise fire a preset write the controller refuses.
+const blockNumber = computed({
+  get: () => el.value?.varNum ?? 0,
+  set: (v: number) => {
+    if (!el.value) return;
+    const max = Math.max(0, blockCount.value - 1);
+    el.value.varNum = Math.min(max, Math.max(0, Math.trunc(v)));
+  },
 });
 
 // Block parameters come from the program, and go back one block at a time.

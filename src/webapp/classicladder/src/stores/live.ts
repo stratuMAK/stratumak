@@ -92,17 +92,28 @@ function scheduleReconnect() {
 
 async function connect(): Promise<void> {
   if (stopped) return;
-  client = new ClassicladderWatchClient(watchUrl());
+  // Kept on a local, and every late event checks it is still the current
+  // client: a socket left behind by stop() or superseded by a newer connect
+  // must not wipe the new connection's state or start a second reconnect loop.
+  const c = new ClassicladderWatchClient(watchUrl());
+  client = c;
   try {
-    await client.connect();
+    await c.connect();
   } catch {
+    if (client !== c) return;
     state.connected = false;
     dropLiveData();
     scheduleReconnect();
     return;
   }
+  if (client !== c) {
+    // stop() ran while the socket was opening.
+    c.close();
+    return;
+  }
 
-  client.onClose = () => {
+  c.onClose = () => {
+    if (client !== c) return;
     state.connected = false;
     dropLiveData();
     scheduleReconnect();
@@ -112,9 +123,9 @@ async function connect(): Promise<void> {
   state.reconnecting = false;
   reconnectDelay = RECONNECT_MIN_MS;
 
-  client.subscribeWatchStatus((s) => { state.status = s; });
-  client.subscribeWatchVariables((v) => { state.variables = v; });
-  client.subscribeWatchRungStates((delta) => {
+  c.subscribeWatchStatus((s) => { state.status = s; });
+  c.subscribeWatchVariables((v) => { state.variables = v; });
+  c.subscribeWatchRungStates((delta) => {
     // Merge: after the first message these are only the rungs that moved.
     for (const [key, rs] of Object.entries(delta)) {
       state.rungStates[key] = rs;
@@ -129,8 +140,13 @@ function start() {
 
 function stop() {
   stopped = true;
-  client?.close();
-  client = null;
+  if (client) {
+    // Disarm before closing: the close event of a socket shut on purpose must
+    // not wipe state or schedule a reconnect after a stop/start cycle.
+    client.onClose = undefined;
+    client.close();
+    client = null;
+  }
   state.connected = false;
   state.reconnecting = false;
   dropLiveData();

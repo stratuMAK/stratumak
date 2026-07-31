@@ -26,7 +26,7 @@ import {
   type Transition,
   type SeqComment,
 } from '../generated/classicladder_client';
-import { ladderStore, parseVar } from './ladder';
+import { ladderStore, parseVar, registerEditCancelHook } from './ladder';
 
 // The tool palette, numbered as sequential.h numbers it. The first three are
 // also the element types an author can click on, which is why the two share a
@@ -104,6 +104,13 @@ function cancelEdit() {
   state.tool = EDIT_SEQ_POINTER;
   state.error = '';
 }
+
+// The structural and project operations of the ladder store — load_project,
+// section add and delete, rung insert and delete — replace the program this
+// draft was copied from. The editor survives tab switches, so a draft kept
+// across a Load would reopen over the freshly loaded chart and Apply would
+// overwrite it with the old one.
+registerEditCancelHook(cancelEdit);
 
 // applyEdit writes the chart. A refusal keeps the session open with the reason
 // shown: the operator's work is in the draft, and throwing it away because the
@@ -600,6 +607,13 @@ function placeStepOrTransition(page: number, x: number, y: number, found: SeqSel
       state.error = 'There is already an element here.';
       return;
     } else {
+      // The step-and-transition tool places two pieces, and both need room
+      // before either is placed: a step created first and refused second would
+      // be a half-succeeded gesture.
+      if (tool === EDIT_SEQ_STEP_AND_TRANS && y + 1 >= SEQ_PAGE_HEIGHT) {
+        state.error = 'There is no room below for the transition.';
+        return;
+      }
       const offset = createStep(page, x, y, tool === EDIT_SEQ_INIT_STEP);
       if (offset === -1) {
         if (!state.error) state.error = 'The chart has no free step left.';
@@ -621,6 +635,9 @@ function placeStepOrTransition(page: number, x: number, y: number, found: SeqSel
     return;
   }
   if (ty >= SEQ_PAGE_HEIGHT) {
+    // Reachable only by removing a bottom-row step, which never had a
+    // transition below it to remove — placing checked the room up front.
+    if (removed) return;
     state.error = 'There is no room below for the transition.';
     return;
   }

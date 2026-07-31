@@ -86,7 +86,14 @@ interface WatchRow {
 
 const watchRows = ref<WatchRow[]>([]);
 const newName = ref('');
-const writeDrafts = ref<Record<number, string>>({});
+// Half-typed values for the Set fields, keyed by the variable itself rather
+// than by row position: removing a row above must not hand the value typed for
+// %W0 to whatever row slides into its place.
+const writeDrafts = ref<Record<string, string>>({});
+
+function draftKey(row: WatchRow): string {
+  return `${row.varType}-${row.offset}`;
+}
 
 function loadWatchList() {
   try {
@@ -141,7 +148,8 @@ function addWatch() {
 }
 
 function removeWatch(index: number) {
-  watchRows.value.splice(index, 1);
+  const [removed] = watchRows.value.splice(index, 1);
+  if (removed) delete writeDrafts.value[draftKey(removed)];
 }
 
 function render(row: WatchRow): string {
@@ -156,7 +164,7 @@ function render(row: WatchRow): string {
 
 async function writeWatch(index: number) {
   const row = watchRows.value[index];
-  const text = (writeDrafts.value[index] ?? '').trim();
+  const text = (writeDrafts.value[draftKey(row)] ?? '').trim();
   if (text === '') return;
   const value = text.startsWith('0x') ? Number.parseInt(text.slice(2), 16) : Number(text);
   if (!Number.isFinite(value)) {
@@ -168,7 +176,7 @@ async function writeWatch(index: number) {
     return;
   }
   await ladderStore.setVariable(row.varType, row.offset, Math.trunc(value));
-  writeDrafts.value = { ...writeDrafts.value, [index]: '' };
+  writeDrafts.value = { ...writeDrafts.value, [draftKey(row)]: '' };
 }
 
 const symbolFor = computed(() => (varType: number, offset: number) =>
@@ -249,7 +257,7 @@ const symbolFor = computed(() => (varType: number, offset: number) =>
           </td>
           <td>
             <div class="write-cell" v-if="varIsWritable(row.varType)">
-              <input v-model="writeDrafts[index]" :placeholder="isBoolVar(row.varType) ? '0 or 1' : 'value'"
+              <input v-model="writeDrafts[draftKey(row)]" :placeholder="isBoolVar(row.varType) ? '0 or 1' : 'value'"
                      @keyup.enter="writeWatch(index)" />
               <button @click="writeWatch(index)">Set</button>
             </div>

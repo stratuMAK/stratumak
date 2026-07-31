@@ -20,16 +20,41 @@ const state = ladderStore.state;
 // row is how a new one is added, so there is no "add" button to hunt for.
 const rows = ref<ClSymbol[]>([]);
 const filter = ref('');
+// What the last load produced, so in-progress edits can be told apart from a
+// refetch — see the program watcher below.
+const loadedRows = ref('[]');
+const changedOnServer = ref(false);
 
-function load() {
+function serverRows(): ClSymbol[] {
   const symbols = state.program?.symbols ?? [];
-  rows.value = symbols
+  const out = symbols
     .filter(s => s.varName !== '' || s.symbol !== '')
     .map(s => ({ ...s }));
-  rows.value.push({ varName: '', symbol: '', comment: '' });
+  out.push({ varName: '', symbol: '', comment: '' });
+  return out;
 }
 
-watch(() => state.program, load, { immediate: true });
+function load() {
+  rows.value = serverRows();
+  loadedRows.value = JSON.stringify(rows.value);
+  changedOnServer.value = false;
+}
+
+const dirty = computed(() => JSON.stringify(rows.value) !== loadedRows.value);
+
+// The program is refetched for many reasons that are not this table's — the
+// header Reload button, another client's edit moving the generation. A clean
+// buffer just reloads; one holding edits is kept, with a note when the table
+// really moved on the server, rather than silently discarded.
+watch(() => state.program, () => {
+  if (!dirty.value) {
+    load();
+    return;
+  }
+  if (JSON.stringify(serverRows()) !== loadedRows.value) changedOnServer.value = true;
+});
+
+load();
 
 const visible = computed(() => {
   const f = filter.value.trim().toLowerCase();
@@ -76,7 +101,7 @@ async function save() {
       symbol: r.symbol,
       comment: r.comment,
     }));
-  await ladderStore.setSymbols(symbols);
+  if (await ladderStore.setSymbols(symbols)) load();
 }
 </script>
 
@@ -90,6 +115,12 @@ async function save() {
       </button>
       <button class="btn btn-plain" :disabled="state.busy" @click="load">Revert</button>
     </div>
+
+    <p class="server-note" v-if="changedOnServer">
+      The symbol table changed on the controller while you were editing — Save
+      overwrites it with what is shown here, Revert discards your edits and
+      reloads it.
+    </p>
 
     <table class="sym-table">
       <thead>
@@ -187,4 +218,5 @@ async function save() {
 }
 
 .hint { font-size: 11px; color: #6c7086; margin-top: 10px; }
+.server-note { font-size: 11px; color: #f9e2af; margin-bottom: 10px; }
 </style>

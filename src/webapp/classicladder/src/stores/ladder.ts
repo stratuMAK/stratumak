@@ -1,4 +1,4 @@
-import { reactive } from 'vue';
+import { reactive, watch } from 'vue';
 import {
   ClassicladderClient,
   RUNG_WIDTH,
@@ -10,6 +10,7 @@ import {
   type HalLink,
   type Section,
   type Sequential,
+  type ExprSlot,
   LadderState,
   SectionLanguage,
   TimerIECMode,
@@ -111,6 +112,22 @@ const state = reactive<LadderStoreState>({
 // be shown — they name the rung, the cell and the reason.
 function reportError(e: unknown) {
   state.error = e instanceof Error ? e.message : String(e);
+}
+
+// Other stores hold edit sessions of their own — the SFC chart draft. The
+// structural operations below have to drop those sessions too, for the same
+// reason they drop the rung draft: the program they were copied from is about
+// to stop existing. They register here rather than being imported, because
+// sfc.ts already imports this store.
+const editCancelHooks: (() => void)[] = [];
+
+export function registerEditCancelHook(hook: () => void) {
+  editCancelHooks.push(hook);
+}
+
+function cancelAllEdits() {
+  cancelEdit();
+  for (const hook of editCancelHooks) hook();
 }
 
 async function fetchProgram() {
@@ -382,21 +399,57 @@ function setDraftExpression(index: number, text: string) {
   state.draftExprs[index] = text;
 }
 
-// applyEdit writes the draft. A refusal keeps the session open with the reason
-// shown: the operator's work is in the draft, and throwing it away because the
-// controller said no would be the worst possible response to a typo.
+// stagedExpressions is what rides with the rung on Apply: the texts typed this
+// session, and an empty text for every slot the edit stopped using, so a
+// deleted compare's expression is released in the same write rather than
+// leaking. A slot is only released when no element of the draft still reads it
+// and no other rung does either — the server does not check cross-references,
+// so that check lives here.
+function stagedExpressions(): ExprSlot[] {
+  const prog = state.program;
+  const draft = state.draft;
+  if (!prog || !draft) return [];
+
+  const exprRefs = (rung: Rung, into: Set<number>) => {
+    for (const el of rung.elements) {
+      if (el.type === ELE_COMPAR || el.type === ELE_OUTPUT_OPERATE) into.add(el.varNum);
+    }
+  };
+  const inDraft = new Set<number>();
+  exprRefs(draft, inDraft);
+  const elsewhere = new Set<number>();
+  prog.rungs.forEach((rung, i) => {
+    if (rung.used && i !== state.editRung) exprRefs(rung, elsewhere);
+  });
+  const original = new Set<number>();
+  if (prog.rungs[state.editRung]) exprRefs(prog.rungs[state.editRung], original);
+
+  const slots = new Map<number, string>();
+  for (const [key, text] of Object.entries(state.draftExprs)) {
+    const index = Number(key);
+    if (inDraft.has(index)) slots.set(index, text);
+    else if (!elsewhere.has(index)) slots.set(index, '');
+  }
+  for (const index of original) {
+    if (!inDraft.has(index) && !elsewhere.has(index)) slots.set(index, '');
+  }
+  return [...slots.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, text]) => ({ index, text }));
+}
+
+// applyEdit writes the draft and its expressions as one call, which the server
+// applies transactionally: everything parses and compiles first, and a refusal
+// changes nothing on the controller. A refusal keeps the session open with the
+// reason shown: the operator's work is in the draft, and throwing it away
+// because the controller said no would be the worst possible response to a
+// typo.
 async function applyEdit(): Promise<boolean> {
   if (state.editRung < 0 || !state.draft) return false;
   state.busy = true;
   state.error = '';
   try {
-    // Expressions first: an expression that does not compile is refused with a
-    // reason, and catching that before the rung lands leaves the program
-    // exactly as it was rather than half-changed.
-    for (const [index, text] of Object.entries(state.draftExprs)) {
-      await client.setExpressionText(Number(index), text);
-    }
-    await client.setRung(state.editRung, state.draft);
+    await client.setRung(state.editRung, state.draft, stagedExpressions());
     cancelEdit();
     await fetchProgram();
     return true;
@@ -646,22 +699,22 @@ async function withRefresh(fn: () => Promise<unknown>): Promise<boolean> {
 }
 
 async function insertRungAfter(afterIndex: number): Promise<boolean> {
-  cancelEdit();
+  cancelAllEdits();
   return withRefresh(() => client.insertRung(afterIndex));
 }
 
 async function deleteRung(index: number): Promise<boolean> {
-  cancelEdit();
+  cancelAllEdits();
   return withRefresh(() => client.deleteRung(index));
 }
 
 async function addSection(name: string, language: SectionLanguage, subRoutineNumber: number): Promise<boolean> {
-  cancelEdit();
+  cancelAllEdits();
   return withRefresh(() => client.addSection(name, language, subRoutineNumber));
 }
 
 async function deleteSection(index: number): Promise<boolean> {
-  cancelEdit();
+  cancelAllEdits();
   return withRefresh(() => client.deleteSection(index));
 }
 
@@ -707,7 +760,7 @@ async function setState(s: LadderState) {
 }
 
 async function loadProject(path: string): Promise<boolean> {
-  cancelEdit();
+  cancelAllEdits();
   return withRefresh(() => client.loadProject(path));
 }
 
@@ -733,6 +786,46 @@ async function setVariable(varType: number, offset: number, value: number) {
     reportError(e);
   }
 }
+
+// --- Staying current with the controller ---
+//
+// The controller bumps Status.generation on every program mutation — edits by
+// anyone, load_project, set_program — and pushes it with watch_status. When it
+// moves past the last value seen here, somebody else changed the program and
+// the view refetches. An open edit session is left alone: the draft is a copy
+// by design, and the server validates it on Apply — the ruling is that the
+// server's program is authoritative and the UI holds no state of its own.
+//
+// Synchronous flush, because these are store-level watchers with no render to
+// batch against.
+
+let lastGeneration: number | null = null;
+let hadConnection = false;
+
+watch(() => liveStore.state.connected, (connected) => {
+  if (!connected) return;
+  if (!hadConnection) {
+    // The first connection of the session; the mount already fetches.
+    hadConnection = true;
+    return;
+  }
+  // A reconnect. Anything can have happened while the watch was down — even a
+  // controller restart, whose generation counter starts over — so the program
+  // is refetched and the counter re-learned rather than compared.
+  lastGeneration = null;
+  void fetchProgram();
+}, { flush: 'sync' });
+
+watch(() => liveStore.state.status?.generation, (generation) => {
+  if (generation === undefined) return; // not connected — nothing to compare
+  if (lastGeneration === null) {
+    lastGeneration = generation;
+    return;
+  }
+  if (generation === lastGeneration) return;
+  lastGeneration = generation;
+  void fetchProgram();
+}, { flush: 'sync' });
 
 export const ladderStore = {
   state,

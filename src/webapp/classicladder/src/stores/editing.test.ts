@@ -6,6 +6,7 @@
 // so there was nothing to test.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { installFetchStub, makeProgram, type Stub } from './fixtures';
+import type { Status } from '../generated/classicladder_client';
 
 let store: typeof import('./ladder');
 let stub: Stub;
@@ -110,8 +111,13 @@ describe('the rung edit session', () => {
 
     const put = stub.requests.find(r => r.method === 'PUT' && r.url.includes('/rung/0'));
     expect(put, 'no PUT /rung/0 was sent').toBeTruthy();
-    const sent = put!.body as { rung: { elements: { type: number; varType: number; varNum: number }[] } };
+    const sent = put!.body as {
+      rung: { elements: { type: number; varType: number; varNum: number }[] };
+      expressions: unknown[];
+    };
     expect(sent.rung.elements[0]).toMatchObject({ type: 1, varType: 50, varNum: 3 });
+    // Nothing was typed into a compare, so no expression slot rides along.
+    expect(sent.expressions).toEqual([]);
     expect(store.ladderStore.state.editRung).toBe(-1);
   });
 
@@ -178,7 +184,7 @@ describe('expressions in an edit session', () => {
     expect(second, 'two compares must not share one expression').not.toBe(first);
   });
 
-  it('stages the expression and writes it before the rung', async () => {
+  it('stages the expression and sends it with the rung, in one call', async () => {
     store.ladderStore.beginEdit(0);
     store.ladderStore.setEditTool(60); // operate
     store.ladderStore.selectCell(0, 0, 0);
@@ -193,13 +199,81 @@ describe('expressions in an edit session', () => {
 
     await store.ladderStore.applyEdit();
 
-    const writes = stub.requests.filter(r => r.method === 'PUT');
-    const exprIdx = writes.findIndex(r => r.url.includes(`/expression/${exprNum}/text`));
-    const rungIdx = writes.findIndex(r => r.url.includes('/rung/0'));
-    expect(exprIdx, 'the expression was not written').toBeGreaterThanOrEqual(0);
-    expect(rungIdx, 'the rung was not written').toBeGreaterThanOrEqual(0);
-    expect(exprIdx, 'the expression must land before the rung').toBeLessThan(rungIdx);
-    expect((writes[exprIdx].body as { text: string }).text).toBe('%W3:=%W0+1');
+    // One write carrying rung and expressions: the server applies both or
+    // neither. A separate expression write before the rung would stay
+    // committed when the rung is refused.
+    const writes = stub.requests.filter(r => r.method !== 'GET');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].method).toBe('PUT');
+    expect(writes[0].url).toContain('/rung/0');
+    const body = writes[0].body as { expressions: { index: number; text: string }[] };
+    expect(body.expressions).toEqual([{ index: exprNum, text: '%W3:=%W0+1' }]);
+  });
+
+  it('leaves nothing committed when the controller refuses the whole write', async () => {
+    stub.failNext('/rung/0', 400, 'rung 0: expression does not compile');
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(20); // compare
+    store.ladderStore.selectCell(0, 0, 0);
+    const exprNum = store.ladderStore.state.draft!.elements[2].varNum;
+    store.ladderStore.setDraftExpression(exprNum, '%W0>');
+
+    expect(await store.ladderStore.applyEdit()).toBe(false);
+
+    // The refusal was of the single transactional call — no expression write
+    // went out separately, so nothing sits committed on the controller while
+    // the editor believes Cancel will undo it.
+    const writes = stub.requests.filter(r => r.method !== 'GET');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].url).toContain('/rung/0');
+    const body = writes[0].body as { expressions: { index: number; text: string }[] };
+    expect(body.expressions).toEqual([{ index: exprNum, text: '%W0>' }]);
+    // The session stays open with the typed text still staged.
+    expect(store.ladderStore.state.editRung).toBe(0);
+    expect(store.ladderStore.state.draftExprs[exprNum]).toBe('%W0>');
+    expect(store.ladderStore.state.error).toContain('compile');
+  });
+
+  it('releases the slot of a deleted compare in the same write', async () => {
+    // Rung 0 holds a compare on expression 0; the edit deletes it. Nothing
+    // else reads slot 0, so it is released with the rung — the transactional
+    // form of what 2.9 does by writing its whole expression table copy.
+    const prog = makeProgram();
+    prog.rungs[0].elements[2] = { type: 20, connectedWithTop: 0, varType: 0, varNum: 0 };
+    vi.unstubAllGlobals();
+    stub = installFetchStub(() => prog);
+    await store.ladderStore.fetchProgram();
+    stub.requests.length = 0;
+
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(0); // erase
+    store.ladderStore.selectCell(0, 0, 2);
+    await store.ladderStore.applyEdit();
+
+    const put = stub.requests.find(r => r.method === 'PUT' && r.url.includes('/rung/0'));
+    const body = put!.body as { expressions: { index: number; text: string }[] };
+    expect(body.expressions).toEqual([{ index: 0, text: '' }]);
+  });
+
+  it('does not release a slot another rung still reads', async () => {
+    // The server does not check cross-references, so the client must not
+    // release a slot a compare in some other rung is built on.
+    const prog = makeProgram();
+    prog.rungs[0].elements[2] = { type: 20, connectedWithTop: 0, varType: 0, varNum: 0 };
+    prog.rungs[1].elements[2] = { type: 20, connectedWithTop: 0, varType: 0, varNum: 0 };
+    vi.unstubAllGlobals();
+    stub = installFetchStub(() => prog);
+    await store.ladderStore.fetchProgram();
+    stub.requests.length = 0;
+
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(0); // erase
+    store.ladderStore.selectCell(0, 0, 2);
+    await store.ladderStore.applyEdit();
+
+    const put = stub.requests.find(r => r.method === 'PUT' && r.url.includes('/rung/0'));
+    const body = put!.body as { expressions: { index: number; text: string }[] };
+    expect(body.expressions).toEqual([]);
   });
 
   it('does not write a staged expression that was cancelled', () => {
@@ -343,5 +417,61 @@ describe('selecting a block', () => {
     for (const [r, c] of [[0, 2], [0, 3], [1, 2], [1, 3]] as const) {
       expect(at(r, c), `cell (${r},${c})`).toBe(0);
     }
+  });
+});
+
+describe('staying current with the controller', () => {
+  // The controller bumps Status.generation on every program mutation and
+  // pushes it with watch_status; the store refetches when it moves past the
+  // last value seen. The pushes arrive through the live store, so the tests
+  // drive that state directly, the way the watch callback does.
+  const statusWith = (generation: number) => ({
+    state: 2, scanTimeUs: 0, periodicRefreshMs: 0,
+    sizes: {}, projectFile: '', generation,
+  }) as unknown as Status;
+
+  it('refetches the program when the generation moves past the last seen', async () => {
+    const live = await import('./live');
+    live.liveStore.state.status = statusWith(7);
+    // The first sighting only records the counter; nothing has changed yet.
+    expect(stub.requests).toHaveLength(0);
+
+    live.liveStore.state.status = statusWith(7);
+    expect(stub.requests).toHaveLength(0);
+
+    // Somebody else edited the program: the view refetches.
+    live.liveStore.state.status = statusWith(8);
+    await Promise.resolve();
+    expect(stub.requests.some(r => r.method === 'GET' && r.url.endsWith('/program'))).toBe(true);
+  });
+
+  it('leaves an open draft alone when the program moves under it', async () => {
+    const live = await import('./live');
+    live.liveStore.state.status = statusWith(1);
+    store.ladderStore.beginEdit(0);
+    store.ladderStore.setEditTool(1);
+    store.ladderStore.selectCell(0, 0, 0);
+
+    live.liveStore.state.status = statusWith(2);
+    await Promise.resolve();
+
+    // The view refetched...
+    expect(stub.requests.some(r => r.method === 'GET' && r.url.endsWith('/program'))).toBe(true);
+    // ...but the draft is a copy by design, and stays open — the server
+    // validates it on Apply.
+    expect(store.ladderStore.state.editRung).toBe(0);
+    expect(store.ladderStore.state.draft!.elements[0].type).toBe(1);
+  });
+
+  it('refetches on reconnect, when anything could have happened', async () => {
+    const live = await import('./live');
+    // The first connection of the session: the mount already fetches.
+    live.liveStore.state.connected = true;
+    expect(stub.requests).toHaveLength(0);
+
+    live.liveStore.state.connected = false;
+    live.liveStore.state.connected = true;
+    await Promise.resolve();
+    expect(stub.requests.some(r => r.method === 'GET' && r.url.endsWith('/program'))).toBe(true);
   });
 });
