@@ -17,7 +17,12 @@ load motmod <mot2> num_joints=3 num_spindles=1 kins_instance=kins2 tp_instance=t
 load io <io1> tooltable_instance=tt1
 load io <io2> tooltable_instance=tt2
 
-# Per-instance persistence
+# Per-instance persistence.
+# db/ is shipped (db/.gitkeep) because the path resolver creates at most ONE
+# missing level: a dbpath= target may not exist yet, but the directory it goes
+# in must. Without the parent, both loads fail the config with
+# "db/mill1 (dir) is not a usable target". The mill1/mill2 levels are created
+# on first run.
 load persist_sqlite <persist1> dbpath=db/mill1
 load persist_sqlite <persist2> dbpath=db/mill2
 
