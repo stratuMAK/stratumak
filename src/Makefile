@@ -826,7 +826,8 @@ install-python: install-dirs
 install-kernel-dep:
 	$(DIR)	$(DESTDIR)$(moduledir)/linuxcnc \
 		$(DESTDIR)$(bindir) \
-		$(DESTDIR)$(sysconfdir)/linuxcnc
+		$(DESTDIR)$(sysconfdir)/linuxcnc \
+		$(DESTDIR)$(EMC2_GOMOD_DIR)
 	# Install the C plugin modules, but keep test-only cmods out of the
 	# package: the test_*.so handlers, mcode_coord_log.so and hm2_test.so are
 	# built into ../cmod for the regression suite only, and modcompile-*.so are
