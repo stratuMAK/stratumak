@@ -364,7 +364,14 @@ gomc-clean:
 	rm -f $(IMPORTS_GENERATED)
 
 # Install
-install: gomc-install
+#
+# Hooked onto install-software, not install: debian/rules runs
+# `make -C src install-software` (install-docs is a separate call), so hanging
+# this off `install` meant the gomc source tree, the cmodule headers and the
+# generated GMI headers were never packaged. The binaries got in regardless,
+# via install-kernel-indep's generic $(TARGETS) sweep, which is why nothing
+# looked wrong until `modcompile add-gomod` had no tree to work on.
+install-software: gomc-install
 .PHONY: gomc-install
 gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/halcmd ../bin/ethercat $(GOMC_PKG_FILES) $(HAL_GO_EXAMPLES)
 	$(DIR) $(DESTDIR)$(EMC2_BIN_DIR)
