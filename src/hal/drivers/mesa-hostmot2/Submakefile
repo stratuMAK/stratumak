@@ -64,6 +64,11 @@ HM2_CMOD_LDFLAGS = $(CMOD_LDFLAGS) -lrtapi_core -lm
 HM2_CMOD_LDFLAGS_PCI = $(HM2_CMOD_LDFLAGS) -lrtapi_pci
 HM2_CMOD_LDFLAGS_PARPORT = $(HM2_CMOD_LDFLAGS) -lrtapi_parport
 
+# Deliberately no -soname: this is a private plugin, not a shared library with a
+# stable ABI, and any SONAME makes dpkg-shlibdeps treat it as public and then
+# complain that "hostmot2.so" carries no name/version it can build a dependency
+# from.  Its consumers below link it as -l:hostmot2.so, which records the bare
+# DT_NEEDED name (no SONAME required) and resolves via the $ORIGIN rpath.
 ../cmod/hostmot2.so: $(HM2_CORE_SRCS) \
                      $(wildcard $(HM2_DIR)/*.h) \
                      $(wildcard gomc/pkg/cmodule/gomc_*.h) \
@@ -72,7 +77,7 @@ HM2_CMOD_LDFLAGS_PARPORT = $(HM2_CMOD_LDFLAGS) -lrtapi_parport
                      | headers ../lib/librtapi_core.so
 	$(ECHO) "Compiling cmod hostmot2.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) -Wl,-soname,hostmot2.so \
+	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_CORE_SRCS) \
 	    $(HM2_CMOD_LDFLAGS_PCI)
 
@@ -226,7 +231,7 @@ modules: ../cmod/hm2_spix.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/hm2_modbus.c \
-	    ../cmod/hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS)
+	    -L../cmod -l:hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS)
 
 TARGETS += ../cmod/hm2_modbus.so
 modules: ../cmod/hm2_modbus.so
@@ -244,7 +249,7 @@ modules: ../cmod/hm2_modbus.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/setsserial.c \
-	    ../cmod/hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS_PCI)
+	    -L../cmod -l:hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS_PCI)
 
 TARGETS += ../cmod/setsserial.so
 modules: ../cmod/setsserial.so

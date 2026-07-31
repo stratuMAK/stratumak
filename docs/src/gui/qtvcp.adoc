@@ -580,8 +580,8 @@ You may need to create the `plugins/python` folder.
   Open a terminal, set the environment for LinuxCNC <1>, then load Qt Designer <2> with :
 +
 ----
-. scripts/rip-environment   <1>
-designer -qt=5              <2>
+. scripts/rip-environment   \<1>
+designer -qt=5              \<2>
 ----
 
 * For a _package install_: +

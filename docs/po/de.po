@@ -1208,7 +1208,7 @@ msgstr "LinuxCNC Geschichte"
 #: src/Master_Getting_Started.adoc:7
 #, no-wrap
 msgid "Getting Started V{lversion}, {date}"
-msgstr "Erste Schritte V{lversion}, {datum}"
+msgstr "Erste Schritte V{lversion}, {date}"
 
 #. type: Plain text
 #: src/Master_Getting_Started.adoc:10
@@ -1219,7 +1219,7 @@ msgstr "Das LinuxCNC-Team"
 #: src/Master_Integrator.adoc:7
 #, no-wrap
 msgid "Integrator Information V{lversion}, {date}"
-msgstr "Integrator Information V{lversion}, {Datum}"
+msgstr "Integrator Information V{lversion}, {date}"
 
 #. type: Title =
 #: help/rtfaults.adoc:3
