@@ -225,7 +225,7 @@ A future goal is migration to CMake.
 
 ```bash
 cd linuxcnc
-./scripts/linuxcnc configs/sim/axis/axis_mm.ini
+./bin/gomc-server configs/sim/axis/axis_mm.ini
 ```
 
 **Terminal 2 — start a UI client (as many as you like):**
@@ -249,7 +249,7 @@ simultaneously — state updates are synchronized in real time.
 
 ```bash
 cd linuxcnc
-./scripts/linuxcnc configs/sim/axis/multiinst/multiinst.ini
+./bin/gomc-server configs/sim/axis/multiinst/multiinst.ini
 ```
 
 **Terminal 2 — Axis client connected to mill1:**
