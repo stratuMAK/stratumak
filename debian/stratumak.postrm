@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+	# Remove the memlock limit stratumak.postinst appended. Matched on the
+	# exact shape it writes, marker included, so a hand-written memlock
+	# line or an unrelated EMC2 comment is left alone.
+	#
+	# Purge only: on remove, configuration stays, and a realtime limit is
+	# configuration. Never fatal -- a postrm that fails leaves the package
+	# half-purged and needs manual dpkg surgery to clear.
+	if [ -f /etc/security/limits.conf ]; then
+	    sed -i '/^\*[[:space:]]\+-[[:space:]]\+memlock[[:space:]]\+[0-9]\+[[:space:]]*#EMC2[[:space:]]*$/d' \
+		/etc/security/limits.conf || true
+	fi
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0
