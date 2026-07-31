@@ -1,0 +1,10 @@
+o<qbfeed> sub
+; A real queue buster. G4 is NOT one — only probe, M66 input, M6 toolchange and
+; user-defined M-codes set the flags that make execute_block return
+; INTERP_EXECUTE_FINISH (interp_execute.cc). Interp::_execute bails out of the
+; sub here, and finishMDI resumes it once the queued motion has drained.
+m66 p0 l0
+; The tail the continuation runs, as a FEED move: this is the segment that has
+; to survive the resumed execution and reach motion.
+g1 x7 y7
+o<qbfeed> endsub
