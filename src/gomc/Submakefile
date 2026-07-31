@@ -11,14 +11,23 @@ TOP := $(shell cd ..; pwd)
 # Package path for -ldflags -X injection
 GOMC_LDFLAGS_PKG := github.com/sittner/linuxcnc/src/gomc/internal/config
 
+# The gomc source tree. Baked as the INSTALLED location in both layouts, on
+# purpose: the build needs the tree in the source directory, which the installed
+# path does not name until `make install` has run, so a compile-time branch here
+# could only ever be right for one of the two. $GOMC_DIR selects it instead —
+# set by scripts/rip-environment for a run-in-place tree and by the modcompile
+# recipes below for the build. See config.GomcDir().
+EMC2_GOMC_DIR := $(datadir)/linuxcnc/gomc
+
+# Where the gomc source actually lives while we are building it.
+GOMC_SRC_DIR := $(TOP)/src/gomc
+
 # Cmod include directory - where gomc_*.h headers are
 ifeq ($(RUN_IN_PLACE),yes)
 EMC2_CMOD_INCLUDE_DIR := $(EMC2_HOME)/src/gomc/pkg/cmodule
-EMC2_GOMC_DIR := $(EMC2_HOME)/src/gomc
 EMC2_WEBAPP_DIR := $(EMC2_HOME)/share/gomc/webapp
 else
 EMC2_CMOD_INCLUDE_DIR := $(includedir)/linuxcnc/cmod
-EMC2_GOMC_DIR := $(datadir)/linuxcnc/gomc
 # Under the directory the package already owns, not a top-level $(datadir)/gomc:
 # on a distribution install that would be /usr/share/gomc, a generic name no
 # single package should claim. The RIP tree above keeps share/gomc/webapp.
@@ -106,14 +115,14 @@ GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED), \
 
 gomc/go.mod: gomc/go.mod.in $(wildcard gomc/external/*/go.deps)
 	$(Q)if [ -n "$$(find gomc/external -name go.deps 2>/dev/null)" ] && [ -x $(TOP)/bin/modcompile ]; then \
-		cd gomc && $(TOP)/bin/modcompile regenerate-gomod; \
+		cd gomc && GOMC_DIR=$(GOMC_SRC_DIR) $(TOP)/bin/modcompile regenerate-gomod; \
 	else \
 		cp $< $@; \
 	fi
 	$(Q)cd gomc && $(GO) mod download
 
 $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
-	$(Q)cd gomc && $(TOP)/bin/modcompile regenerate-imports
+	$(Q)cd gomc && GOMC_DIR=$(GOMC_SRC_DIR) $(TOP)/bin/modcompile regenerate-imports
 
 # Environment shared by all cgo-enabled Go build/test/lint invocations.
 #

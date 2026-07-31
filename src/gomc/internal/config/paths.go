@@ -5,6 +5,8 @@
 // in the legacy linuxcnc.in bash script.
 package config
 
+import "os"
+
 // Compile-time path variables. These are set via -ldflags when building:
 //
 //	-X 'github.com/sittner/linuxcnc/src/gomc/config.EMC2Home=/usr/lib/linuxcnc'
@@ -31,9 +33,16 @@ var (
 	// For RIP this is src/gomc/pkg/cmodule, for installed it's include/linuxcnc/cmod.
 	EMC2CmodIncludeDir string
 
-	// EMC2GomcDir is the directory containing the gomc Go module source.
-	// External Go modules need this to compile against the same module.
-	// For RIP this is src/gomc, for installed it's share/linuxcnc/gomc.
+	// EMC2GomcDir is the directory containing the gomc Go module source,
+	// always baked as the INSTALLED location ($(datadir)/linuxcnc/gomc).
+	// External Go modules need it to compile against the same module.
+	//
+	// Do not read this directly — call GomcDir(), which lets $GOMC_DIR
+	// override it. The build itself needs the source tree, which does not
+	// exist at the installed path until `make install` has run, and a
+	// run-in-place tree needs its own copy; both set $GOMC_DIR
+	// (scripts/rip-environment, and the modcompile recipes in
+	// src/gomc/Submakefile).
 	EMC2GomcDir string
 
 	// GoBinary is the path to the Go compiler used to build LinuxCNC.
@@ -95,3 +104,22 @@ var (
 	// conditional entries in packages.conf.
 	BuildFlags string
 )
+
+// GomcDirEnv is the environment variable that overrides the baked-in
+// EMC2GomcDir. It names the directory outright rather than being derived from
+// a tree root, so it cannot silently resolve to the wrong place if some other
+// "where is LinuxCNC" variable is set. The same name is what modcompile hands
+// to out-of-tree cmod projects as the GOMC_DIR make variable.
+const GomcDirEnv = "GOMC_DIR"
+
+// GomcDir returns the gomc Go module source directory: $GOMC_DIR when set,
+// otherwise the installed location baked in at build time.
+//
+// The build and a run-in-place tree both set $GOMC_DIR because the baked value
+// points at a path that only exists after `make install`.
+func GomcDir() string {
+	if d := os.Getenv(GomcDirEnv); d != "" {
+		return d
+	}
+	return EMC2GomcDir
+}

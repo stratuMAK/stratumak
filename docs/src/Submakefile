@@ -332,8 +332,14 @@ docs: manpages
 clean: clean-manpages clean-mandb clean-translated
 clean-manpages:
 	-rm -f $(GENERATED_MANPAGES)
+# Ordered after clean-translated, which deletes whole $(DOC_SRCDIR)/<lang>
+# trees: run concurrently, it removes them while the find below is walking
+# them and find exits non-zero on each directory that vanishes underneath it,
+# failing the whole clean. Only reproducible under -j, which is why a serial
+# clean passes and `dpkg-buildpackage` with DEB_BUILD_OPTIONS=parallel fails.
+clean-mandb: clean-translated
 clean-mandb:
-	find $(DOC_SRCDIR) -name index*db -delete
+	find $(DOC_SRCDIR) -name 'index*db' -delete
 clean-translated:
 	-$(RM) -r $(GENERATED_TRANSLATED)
 

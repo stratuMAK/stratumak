@@ -310,7 +310,8 @@ objects/cmod/vfdb_vfd.c: hal/user_comps/vfdb_vfd/vfdb_vfd.comp ../bin/modcompile
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --preprocess $< > $@
 
-../cmod/vfdb_vfd.so: objects/cmod/vfdb_vfd.c
+../cmod/vfdb_vfd.so: objects/cmod/vfdb_vfd.c \
+                       | ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
@@ -321,7 +322,8 @@ objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcomp
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --preprocess $< > $@
 
-../cmod/vfs11_vfd.so: objects/cmod/vfs11_vfd.c
+../cmod/vfs11_vfd.so: objects/cmod/vfs11_vfd.c \
+                       | ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse

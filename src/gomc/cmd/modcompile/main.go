@@ -179,7 +179,7 @@ func main() {
 		fmt.Println(config.EMC2CmodIncludeDir)
 		return
 	case "--gomc-dir", "--launcher-dir":
-		fmt.Println(config.EMC2GomcDir)
+		fmt.Println(config.GomcDir())
 		return
 	case "--go":
 		fmt.Println(config.GoBinary)
@@ -496,7 +496,7 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 		gmiAPIs[entry.API] = true
 	}
 	for api := range gmiAPIs {
-		gmiIncludes = append(gmiIncludes, "-I"+filepath.Join(config.EMC2GomcDir, "generated", "gmi", api))
+		gmiIncludes = append(gmiIncludes, "-I"+filepath.Join(config.GomcDir(), "generated", "gmi", api))
 	}
 
 	// Add the .comp's own directory so a relative #include "local.h" resolves:
@@ -534,7 +534,7 @@ func printMakeInc() {
 		defaultLDFlags,
 		config.EMC2CmodDir,
 		config.EMC2CmodIncludeDir,
-		config.EMC2GomcDir,
+		config.GomcDir(),
 		config.GoBinary,
 		libDir,
 	)
@@ -542,7 +542,7 @@ func printMakeInc() {
 
 // regenerate writes imports_generated.go from the registry.
 func regenerate(reg *pkgreg.Registry) {
-	serverDir := config.EMC2GomcDir
+	serverDir := config.GomcDir()
 
 	if err := reg.GenerateImports(serverDir); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: generating imports: %v\n", err)
@@ -552,7 +552,7 @@ func regenerate(reg *pkgreg.Registry) {
 
 // buildServer builds the gomc-server binary.
 func buildServer() {
-	serverDir := config.EMC2GomcDir
+	serverDir := config.GomcDir()
 	binDir := config.EMC2BinDir
 	gobin := config.GoBinary
 	if gobin == "" {
@@ -691,7 +691,7 @@ func restoreFileCaps(path, caps string) {
 
 // cmdList lists all packages that would be compiled into gomc-server.
 func cmdList() {
-	gomcDir := config.EMC2GomcDir
+	gomcDir := config.GomcDir()
 	confIn := filepath.Join(gomcDir, "packages.conf")
 	enabledFlags := pkgreg.ParseBuildFlags(config.BuildFlags)
 
@@ -726,7 +726,7 @@ func cmdRebuild() {
 //
 // Then generates imports_generated.go.  No intermediate packages.conf needed.
 func cmdRegenerateImports() {
-	gomcDir := config.EMC2GomcDir
+	gomcDir := config.GomcDir()
 	confIn := filepath.Join(gomcDir, "packages.conf")
 
 	// Parse build flags from compiled-in config.
@@ -736,6 +736,7 @@ func cmdRegenerateImports() {
 	reg, err := pkgreg.ReadConfIn(confIn, enabledFlags)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: reading packages.conf: %v\n", err)
+		hintGomcDir(gomcDir)
 		os.Exit(1)
 	}
 
@@ -755,7 +756,7 @@ func cmdRegenerateImports() {
 // cmdRegenerateGomod merges go.mod.in with go.deps files from external modules
 // to produce go.mod.  Only writes if content changed.
 func cmdRegenerateGomod() {
-	gomcDir := config.EMC2GomcDir
+	gomcDir := config.GomcDir()
 	goModIn := filepath.Join(gomcDir, "go.mod.in")
 
 	base, err := os.ReadFile(goModIn)
@@ -838,7 +839,7 @@ func cmdAddGomod(dir string, force bool) {
 
 	// Package name = directory basename.
 	name := filepath.Base(absDir)
-	extDir := filepath.Join(config.EMC2GomcDir, "external", name)
+	extDir := filepath.Join(config.GomcDir(), "external", name)
 	originFile := filepath.Join(extDir, ".origin")
 
 	// Remove stale external modules whose origin no longer exists.
@@ -906,7 +907,7 @@ func cmdAddGomod(dir string, force bool) {
 // no longer exists on disk. This prevents "duplicate module registration" panics
 // when a source directory is moved/renamed and reinstalled under a new basename.
 func removeStaleExternals(skipName string) {
-	extBase := filepath.Join(config.EMC2GomcDir, "external")
+	extBase := filepath.Join(config.GomcDir(), "external")
 	subs, err := os.ReadDir(extBase)
 	if err != nil {
 		return
@@ -1004,7 +1005,7 @@ func writeGoDeps(extGoModPath, extDir string) {
 
 // cmdRmGomod removes an external Go package and rebuilds.
 func cmdRmGomod(name string) {
-	gomcDir := config.EMC2GomcDir
+	gomcDir := config.GomcDir()
 	extDir := filepath.Join(gomcDir, "external")
 
 	// Find by exact directory name or path.
@@ -1055,7 +1056,7 @@ func goModTidy() {
 		gobin = "go"
 	}
 	cmd := exec.Command(gobin, "mod", "tidy")
-	cmd.Dir = config.EMC2GomcDir
+	cmd.Dir = config.GomcDir()
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -1724,4 +1725,21 @@ func gmiGenerateStreamServerGo(api *gmiast.API, outputPath string) error {
 	}
 	fmt.Fprintf(os.Stderr, "generated %s\n", outputPath)
 	return nil
+}
+
+// hintGomcDir explains where modcompile looked for the gomc source tree and
+// which knob moves it. The baked-in default is the INSTALLED location, so a
+// build tree or a run-in-place tree that forgot to set $GOMC_DIR otherwise
+// fails with a bare "no such file" naming a path the user never chose.
+func hintGomcDir(gomcDir string) {
+	fmt.Fprintf(os.Stderr, "modcompile: looked for the gomc source tree in %s\n", gomcDir)
+	if os.Getenv(config.GomcDirEnv) == "" {
+		fmt.Fprintf(os.Stderr,
+			"modcompile: that is the installed location compiled into this binary; "+
+				"set %s to the gomc source directory to override it "+
+				"(run-in-place trees get it from scripts/rip-environment)\n",
+			config.GomcDirEnv)
+	} else {
+		fmt.Fprintf(os.Stderr, "modcompile: taken from %s in the environment\n", config.GomcDirEnv)
+	}
 }
