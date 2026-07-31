@@ -45,17 +45,19 @@ func (m *classicladder) SetState(state api.LadderState) (int32, error) {
 	if state == api.LadderState_RUN {
 		// A start is a cold start: timers, counters and edge history are reset
 		// before the first scan (2.9 PrepareAllDatasBeforeRun). Only on an
-		// actual transition, though — resetting while the RT function is
-		// already scanning would race it over data it reads unlocked. Because
-		// the reset happens before RUN is published with a release store, the
-		// scan cannot observe half-reset data.
-		if m.getState() == C.CL_STATE_RUN {
-			return 0, nil
-		}
+		// actual transition, though. The check lives under the lock — checked
+		// outside it, two concurrent set_state(RUN) could interleave so that
+		// the second one runs the reset against an engine the first already
+		// started. And a scan that loaded RUN before a rapid STOP→RUN toggle
+		// may still be mid-flight, so it is outwaited before the reset races
+		// it over data it reads unlocked.
 		m.mu.Lock()
-		C.cl_prepare_all_datas_before_run(m.rt)
+		if m.getState() != C.CL_STATE_RUN {
+			m.waitScanSettled()
+			C.cl_prepare_all_datas_before_run(m.rt)
+			m.setState(int(state))
+		}
 		m.mu.Unlock()
-		m.setState(int(state))
 		m.modbus.start()
 	} else {
 		m.setState(int(state))
@@ -75,6 +77,12 @@ func (m *classicladder) SetProgram(program api.Program) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// An upload larger than the configured tables used to be truncated with
+	// success reported; a refusal tells the client which knob to turn.
+	if err := m.checkProgramFits(&program); err != nil {
+		return -1, err
+	}
+
 	// Compile before applying anything. The realtime engine evaluates bytecode,
 	// so an expression stored without being recompiled leaves the scan running
 	// the previous program while the API reports the new one; and a program
@@ -93,11 +101,83 @@ func (m *classicladder) SetProgram(program api.Program) (int32, error) {
 		if err := m.validateRung(i, &program.Rungs[i]); err != nil {
 			return -1, err
 		}
+		if err := validateText(fmt.Sprintf("rung %d label", i), program.Rungs[i].Label, false); err != nil {
+			return -1, err
+		}
+		if err := validateText(fmt.Sprintf("rung %d comment", i), program.Rungs[i].Comment, false); err != nil {
+			return -1, err
+		}
 	}
+	if err := m.validateProgramChains(&program); err != nil {
+		return -1, err
+	}
+	for i := range program.Sections {
+		if err := validateText(fmt.Sprintf("section %d name", i), program.Sections[i].Name, false); err != nil {
+			return -1, err
+		}
+	}
+	for i := range program.Symbols {
+		if err := validateSymbolTexts(i, &program.Symbols[i]); err != nil {
+			return -1, err
+		}
+	}
+
+	// A whole-program swap is a load in REST clothing: it gets the same 2.9
+	// bracket and the same dynamic-state preparation as load_project.
+	wasRun := m.stopRunIfRunning()
 	m.applyProgram(&program)
 	m.installExprCode(code)
+	C.cl_prepare_all_datas_before_run(m.rt)
 	m.bumpGeneration()
+	m.runBackIfStopped(wasRun)
 	return 0, nil
+}
+
+// checkProgramFits refuses an upload with more entries than the module was
+// configured for, naming the table and the load-line knob that sizes it.
+func (m *classicladder) checkProgramFits(prog *api.Program) error {
+	over := func(what string, got, have int) error {
+		return fmt.Errorf("%w: %d %s uploaded, %d configured (see the numXxx= load arguments)",
+			syscall.ERANGE, got, what, have)
+	}
+	rt := m.rt
+	if len(prog.Rungs) > int(rt.sizes.nbr_rungs) {
+		return over("rungs", len(prog.Rungs), int(rt.sizes.nbr_rungs))
+	}
+	if len(prog.Sections) > int(rt.sizes.nbr_sections) {
+		return over("sections", len(prog.Sections), int(rt.sizes.nbr_sections))
+	}
+	if len(prog.Symbols) > int(rt.sizes.nbr_symbols) {
+		return over("symbols", len(prog.Symbols), int(rt.sizes.nbr_symbols))
+	}
+	if len(prog.ArithmExprs) > int(rt.sizes.nbr_arithm_expr) {
+		return over("expressions", len(prog.ArithmExprs), int(rt.sizes.nbr_arithm_expr))
+	}
+	if len(prog.Timers) > int(rt.sizes.nbr_timers) {
+		return over("timers", len(prog.Timers), int(rt.sizes.nbr_timers))
+	}
+	if len(prog.TimersIec) > int(rt.sizes.nbr_timers_iec) {
+		return over("IEC timers", len(prog.TimersIec), int(rt.sizes.nbr_timers_iec))
+	}
+	if len(prog.Monostables) > int(rt.sizes.nbr_monostables) {
+		return over("monostables", len(prog.Monostables), int(rt.sizes.nbr_monostables))
+	}
+	if len(prog.Counters) > int(rt.sizes.nbr_counters) {
+		return over("counters", len(prog.Counters), int(rt.sizes.nbr_counters))
+	}
+	return nil
+}
+
+// validateSymbolTexts: symbols.csv is comma-split on load, so a comma in any
+// field silently shifts the later columns on the next load.
+func validateSymbolTexts(i int, s *api.Symbol) error {
+	if err := validateText(fmt.Sprintf("symbol %d variable name", i), s.VarName, true); err != nil {
+		return err
+	}
+	if err := validateText(fmt.Sprintf("symbol %d name", i), s.Symbol, true); err != nil {
+		return err
+	}
+	return validateText(fmt.Sprintf("symbol %d comment", i), s.Comment, true)
 }
 
 // exprTexts pulls the expression strings out of the wire type.
@@ -125,12 +205,25 @@ func (m *classicladder) SetRung(index int32, rung api.Rung) (int32, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// The rung chain is owned by the server (insert_rung/delete_rung); the
+	// wire rung's used flag and links are ignored, not validated — accepting
+	// them would let one PUT splice the scan into a freed slot's self-era
+	// chain, the exposure validateSectionChain closed for set_section.
+	if rtRungs(m.rt)[index].used == 0 {
+		return -1, fmt.Errorf("%w: rung %d is not in use; insert_rung creates rungs", syscall.ENOENT, index)
+	}
 	// Validate before applying: a half-written rung cannot be taken back, and
 	// the scan may read it before the caller sees the error.
 	if err := m.validateRung(int(index), &rung); err != nil {
 		return -1, err
 	}
-	m.applyRung(int(index), &rung)
+	if err := validateText("rung label", rung.Label, false); err != nil {
+		return -1, err
+	}
+	if err := validateText("rung comment", rung.Comment, false); err != nil {
+		return -1, err
+	}
+	m.applyRungCells(int(index), &rung)
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -160,6 +253,9 @@ func (m *classicladder) DeleteRung(index int32) (int32, error) {
 
 // AddSection creates a section and returns its index.
 func (m *classicladder) AddSection(name string, language api.SectionLanguage, subRoutineNumber int32) (int32, error) {
+	if err := validateText("section name", name, false); err != nil {
+		return -1, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	idx, err := m.addSection(name, int(language), int(subRoutineNumber))
@@ -197,6 +293,27 @@ func (m *classicladder) SetSection(index int32, section api.Section) (int32, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Section lifecycle belongs to add_section/delete_section. Flipping a
+	// used section to unused (or another language) through this call would
+	// orphan its rungs unreclaimably: still marked used, but reachable from
+	// no section, so delete_rung refuses them and only a project reload gets
+	// them back.
+	live := &rtSections(m.rt)[index]
+	if live.used == 0 {
+		return -1, fmt.Errorf("%w: section %d is not in use; add_section creates sections",
+			syscall.ENOENT, index)
+	}
+	if !section.Used {
+		return -1, fmt.Errorf("%w: section %d is in use; delete_section removes sections",
+			syscall.EINVAL, index)
+	}
+	if int(section.Language) != int(live.language) {
+		return -1, fmt.Errorf("%w: section %d is a different language; delete it and add a new one",
+			syscall.EINVAL, index)
+	}
+	if err := validateText("section name", section.Name, false); err != nil {
+		return -1, err
+	}
 	// insert_rung and delete_rung exist so a client never has to write these
 	// links, but this call can still reach them. A chain that never arrives at
 	// lastRung is a scan that only stops when the runaway guard trips.
@@ -383,7 +500,11 @@ func (m *classicladder) SetVariable(varType int32, offset int32, value int32) (i
 func (m *classicladder) LoadProject(path string) (int32, error) {
 	path, err := pathres.Resolve(path, pathres.Read)
 	if err != nil {
-		return -1, fmt.Errorf("classicladder: load_project: %w", err)
+		// Unset, unresolvable, unreadable and contained-out are one answer —
+		// there is no such project — and none of them is a controller
+		// failure. The reason travels in the message (inirest precedent).
+		return -1, apiserver.NewFault(apiserver.FaultNotFound,
+			fmt.Errorf("classicladder: load_project: %w", err))
 	}
 	return m.loadProjectResolved(path)
 }
@@ -415,7 +536,8 @@ func (m *classicladder) loadProjectResolved(path string) (int32, error) {
 func (m *classicladder) SaveProject(path string) (int32, error) {
 	path, err := pathres.Resolve(path, pathres.Write)
 	if err != nil {
-		return -1, fmt.Errorf("classicladder: save_project: %w", err)
+		return -1, apiserver.NewFault(apiserver.FaultNotFound,
+			fmt.Errorf("classicladder: save_project: %w", err))
 	}
 	// Full lock, not RLock: a successful save-as becomes the current project,
 	// like 2.9's save dialog, and Status reports it.
@@ -524,14 +646,20 @@ func (m *classicladder) GetSymbols() ([]api.Symbol, error) {
 func (m *classicladder) SetSymbols(symbols []api.Symbol) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if len(symbols) > int(m.rt.sizes.nbr_symbols) {
+		return -1, fmt.Errorf("%w: %d symbols uploaded, %d configured (numSymbols=)",
+			syscall.ERANGE, len(symbols), int(m.rt.sizes.nbr_symbols))
+	}
+	for i := range symbols {
+		if err := validateSymbolTexts(i, &symbols[i]); err != nil {
+			return -1, err
+		}
+	}
 	// Clear existing
 	for i := 0; i < int(m.rt.sizes.nbr_symbols); i++ {
 		rtSymbols(m.rt)[i].var_name[0] = 0
 	}
 	for i, sym := range symbols {
-		if i >= int(m.rt.sizes.nbr_symbols) {
-			break
-		}
 		s := &rtSymbols(m.rt)[i]
 		copyStringToC(&s.var_name[0], sym.VarName, C.CL_LGT_VAR_NAME)
 		copyStringToC(&s.symbol[0], sym.Symbol, C.CL_LGT_SYMBOL_STRING)
@@ -557,16 +685,27 @@ func (m *classicladder) SetExpressions(exprs []api.ArithmExpr) (int32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if len(exprs) > int(m.rt.sizes.nbr_arithm_expr) {
+		return -1, fmt.Errorf("%w: %d expressions uploaded, %d configured (numArithmExpr=)",
+			syscall.ERANGE, len(exprs), int(m.rt.sizes.nbr_arithm_expr))
+	}
+	for i := range exprs {
+		if err := validateText(fmt.Sprintf("expression %d", i), exprs[i].Expr, false); err != nil {
+			return -1, err
+		}
+	}
 	// Compile first: the scan evaluates the bytecode, not the string.
 	code, err := compileExprList(exprTexts(exprs))
 	if err != nil {
 		return -1, err
 	}
+	// This call replaces the table: slots past the upload are cleared, in
+	// step with installExprCode invalidating their bytecode.
 	for i, expr := range exprs {
-		if i >= int(m.rt.sizes.nbr_arithm_expr) {
-			break
-		}
 		copyStringToC(&rtArithmExprs(m.rt)[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
+	}
+	for i := len(exprs); i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+		rtArithmExprs(m.rt)[i].expr[0] = 0
 	}
 	m.installExprCode(code)
 	m.bumpGeneration()
@@ -674,15 +813,12 @@ func (m *classicladder) sectionToAPI(idx int) api.Section {
 	}
 }
 
-func (m *classicladder) applyRung(idx int, r *api.Rung) {
+// applyRungCells writes the parts of a rung a client owns — the element grid,
+// label and comment. The chain links and the used flag stay server-owned;
+// only the whole-program path (applyProgram) writes those, after
+// validateProgramChains has stood behind them.
+func (m *classicladder) applyRungCells(idx int, r *api.Rung) {
 	cr := &rtRungs(m.rt)[idx]
-	if r.Used {
-		cr.used = 1
-	} else {
-		cr.used = 0
-	}
-	cr.prev_rung = C.int(r.PrevRung)
-	cr.next_rung = C.int(r.NextRung)
 	copyStringToC(&cr.label[0], r.Label, C.CL_LGT_LABEL)
 	copyStringToC(&cr.comment[0], r.Comment, C.CL_LGT_COMMENT)
 	for x := 0; x < C.CL_RUNG_WIDTH; x++ {
@@ -695,6 +831,18 @@ func (m *classicladder) applyRung(idx int, r *api.Rung) {
 			cr.elements[x][y].var_num = C.int32_t(e.VarNum)
 		}
 	}
+}
+
+func (m *classicladder) applyRung(idx int, r *api.Rung) {
+	cr := &rtRungs(m.rt)[idx]
+	if r.Used {
+		cr.used = 1
+	} else {
+		cr.used = 0
+	}
+	cr.prev_rung = C.int(r.PrevRung)
+	cr.next_rung = C.int(r.NextRung)
+	m.applyRungCells(idx, r)
 }
 
 func (m *classicladder) applySection(idx int, s *api.Section) {
@@ -716,38 +864,44 @@ func (m *classicladder) applySection(idx int, s *api.Section) {
 	}
 }
 
+// applyProgram replaces the program wholesale. Callers have already checked
+// the upload fits (checkProgramFits) and hold the scan stopped; every slot
+// past the upload's length is cleared, because a shorter upload used to leave
+// the old program's tail chained into the new one — a frankenprogram that
+// scanned, plus leaked used-rungs that later surfaced as spurious ENOSPC.
 func (m *classicladder) applyProgram(prog *api.Program) {
 	rt := m.rt
 
 	for i, r := range prog.Rungs {
-		if i >= int(rt.sizes.nbr_rungs) {
-			break
-		}
 		m.applyRung(i, &r)
+	}
+	for i := len(prog.Rungs); i < int(rt.sizes.nbr_rungs); i++ {
+		rtRungs(rt)[i] = C.cl_rung_t{}
 	}
 
 	for i, s := range prog.Sections {
-		if i >= int(rt.sizes.nbr_sections) {
-			break
-		}
 		m.applySection(i, &s)
+	}
+	for i := len(prog.Sections); i < int(rt.sizes.nbr_sections); i++ {
+		rtSections(rt)[i] = C.cl_section_t{}
+		rtSections(rt)[i].sub_routine_number = -1
 	}
 
 	for i, sym := range prog.Symbols {
-		if i >= int(rt.sizes.nbr_symbols) {
-			break
-		}
 		s := &rtSymbols(rt)[i]
 		copyStringToC(&s.var_name[0], sym.VarName, C.CL_LGT_VAR_NAME)
 		copyStringToC(&s.symbol[0], sym.Symbol, C.CL_LGT_SYMBOL_STRING)
 		copyStringToC(&s.comment[0], sym.Comment, C.CL_LGT_SYMBOL_COMMENT)
 	}
+	for i := len(prog.Symbols); i < int(rt.sizes.nbr_symbols); i++ {
+		rtSymbols(rt)[i].var_name[0] = 0
+	}
 
 	for i, expr := range prog.ArithmExprs {
-		if i >= int(rt.sizes.nbr_arithm_expr) {
-			break
-		}
 		copyStringToC(&rtArithmExprs(rt)[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
+	}
+	for i := len(prog.ArithmExprs); i < int(rt.sizes.nbr_arithm_expr); i++ {
+		rtArithmExprs(rt)[i].expr[0] = 0
 	}
 
 	// Base travels over the API as an id (0=mins, 1=secs, 2=100ms), as it
@@ -1015,7 +1169,10 @@ func copyStringToC(dst *C.char, src string, maxLen C.int) {
 	C.free(unsafe.Pointer(cstr))
 }
 
-var errInvalidIndex = fmt.Errorf("invalid index")
+// errInvalidIndex wraps ENOENT: an index past the configured count names a
+// slot that does not exist, which is a 404-class refusal, not a controller
+// failure (the fault-status contract; negatives are already 400 via @min).
+var errInvalidIndex = fmt.Errorf("%w: index out of range", syscall.ENOENT)
 
 // --- Modbus API handlers ---
 
@@ -1163,10 +1320,17 @@ func (m *classicladder) SetExpressionsText(texts []api.ExprText) (int32, error) 
 	// Parse the whole table first: one unknown name refuses the batch, the same
 	// way one uncompilable expression does, so a rejected edit leaves the
 	// running program alone.
+	if len(texts) > int(m.rt.sizes.nbr_arithm_expr) {
+		return -1, fmt.Errorf("%w: %d expressions uploaded, %d configured (numArithmExpr=)",
+			syscall.ERANGE, len(texts), int(m.rt.sizes.nbr_arithm_expr))
+	}
 	stored := make([]string, len(texts))
 	for i, t := range texts {
 		if t.Text == "" {
 			continue
+		}
+		if err := validateText(fmt.Sprintf("expression %d", i), t.Text, false); err != nil {
+			return -1, err
 		}
 		s, err := m.namesToExpr(t.Text)
 		if err != nil {
@@ -1183,8 +1347,13 @@ func (m *classicladder) SetExpressionsText(texts []api.ExprText) (int32, error) 
 	if err != nil {
 		return -1, err
 	}
-	for i := 0; i < len(stored) && i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+	// This call replaces the table: slots past the upload are cleared, in
+	// step with installExprCode invalidating their bytecode.
+	for i := range stored {
 		copyStringToC(&rtArithmExprs(m.rt)[i].expr[0], stored[i], C.CL_ARITHM_EXPR_SIZE)
+	}
+	for i := len(stored); i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+		rtArithmExprs(m.rt)[i].expr[0] = 0
 	}
 	m.installExprCode(code)
 	m.bumpGeneration()
@@ -1218,6 +1387,9 @@ func (m *classicladder) SetExpressionText(index int32, text string) (int32, erro
 		return 0, nil
 	}
 
+	if err := validateText(fmt.Sprintf("expression %d", index), text, false); err != nil {
+		return -1, err
+	}
 	stored, err := m.namesToExpr(text)
 	if err != nil {
 		return -1, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, index, text, err)

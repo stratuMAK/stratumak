@@ -124,6 +124,12 @@ func (m *classicladder) validateSequential(seq *api.Sequential) error {
 			continue
 		}
 		what := fmt.Sprintf("comment %d", i)
+		// Commas survive the round trip (the parser keeps the remainder of
+		// the line), control characters do not — a comment holding a newline
+		// would reload as a chart element.
+		if err := validateText(what, c.Comment, false); err != nil {
+			return err
+		}
 		if err := checkSeqPosition(what, c.Page, c.PosiX, c.PosiY); err != nil {
 			return err
 		}

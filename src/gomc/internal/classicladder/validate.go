@@ -10,6 +10,7 @@ import "C"
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 
 	api "github.com/sittner/linuxcnc/src/gomc/generated/gmi/classicladder"
@@ -211,6 +212,62 @@ func (m *classicladder) validateElementTarget(index, col, row int, e *api.Elemen
 				return fmt.Errorf("%w: rung %d (%d,%d): coil drives %s, which is read-only",
 					syscall.EINVAL, index, col, row, name)
 			}
+		}
+	}
+	return nil
+}
+
+// validateText refuses strings the line-oriented .clp format cannot carry
+// round-trip. A control character breaks the line structure on save — a label
+// holding a newline reloads as a different program, an SFC comment holding
+// "\nS0,1,99,0,0,0" reloads as a step — and in comma-split fields a comma
+// silently shifts every later column. 2.9's single-line GTK entries made
+// these unreachable; the REST surface makes them reachable, so load stays
+// lenient and the write path refuses.
+func validateText(field, s string, noComma bool) error {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%w: %s must not contain control characters", syscall.EINVAL, field)
+		}
+	}
+	if noComma && strings.Contains(s, ",") {
+		return fmt.Errorf("%w: %s must not contain ','", syscall.EINVAL, field)
+	}
+	return nil
+}
+
+// validateProgramChains is validateSectionChain for a whole-program upload:
+// every used section's chain is walked against the UPLOADED rungs, because
+// after apply those are the rungs the scan will follow. Without this,
+// set_program was the one door left open to a chain that never reaches
+// lastRung — a scan that only stops when the runaway guard trips.
+func (m *classicladder) validateProgramChains(prog *api.Program) error {
+	for si := range prog.Sections {
+		s := &prog.Sections[si]
+		if !s.Used {
+			continue
+		}
+		if s.Language == api.SectionLanguage_SEQUENTIAL {
+			if s.SequentialPage < 0 || s.SequentialPage >= C.CL_MAX_SEQ_PAGES {
+				return fmt.Errorf("%w: section %d: sequential page %d does not exist",
+					syscall.EINVAL, si, s.SequentialPage)
+			}
+			continue
+		}
+		idx := int(s.FirstRung)
+		for steps := 0; ; steps++ {
+			if idx < 0 || idx >= len(prog.Rungs) || !prog.Rungs[idx].Used {
+				return fmt.Errorf("%w: section %d: rung chain reaches rung %d, which the upload does not define",
+					syscall.EINVAL, si, idx)
+			}
+			if idx == int(s.LastRung) {
+				break
+			}
+			if steps >= len(prog.Rungs) {
+				return fmt.Errorf("%w: section %d: rung chain never reaches lastRung %d",
+					syscall.EINVAL, si, s.LastRung)
+			}
+			idx = int(prog.Rungs[idx].NextRung)
 		}
 	}
 	return nil

@@ -651,11 +651,18 @@ func compileExprList(exprs []string) ([]C.cl_compiled_expr_t, error) {
 	return code, nil
 }
 
-// installExprCode writes a compiled table into the instance. Entries beyond the
-// configured expression count are dropped, matching how the strings are stored.
+// installExprCode writes a compiled table into the instance. Slots past the
+// table's length are invalidated to match — otherwise a shorter upload left
+// stale bytecode behind cleared strings, and a rung still naming that index
+// kept evaluating an expression the API no longer showed.
 func (cl *classicladder) installExprCode(code []C.cl_compiled_expr_t) {
-	for i := 0; i < len(code) && i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
+	n := int(cl.rt.sizes.nbr_arithm_expr)
+	for i := 0; i < len(code) && i < n; i++ {
 		rtCompiledExprs(cl.rt)[i] = code[i]
+	}
+	for i := len(code); i < n; i++ {
+		rtCompiledExprs(cl.rt)[i].valid = 0
+		rtCompiledExprs(cl.rt)[i].len = 0
 	}
 }
 

@@ -979,16 +979,11 @@ func (m *classicladder) emitModbusIOConf() string {
 		if req.LogicInverted {
 			inverted = 1
 		}
-		// If address contains a dot, it's TCP (IP addr is the first field)
-		if strings.Contains(req.SlaveAddr, ".") {
-			fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
-				req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
-				req.NbrModbusElements, inverted, req.OffsetVarMapped)
-		} else {
-			fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
-				req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
-				req.NbrModbusElements, inverted, req.OffsetVarMapped)
-		}
+		// One line per request; TCP and serial differ only in what the
+		// address field holds, not in the layout.
+		fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
+			req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
+			req.NbrModbusElements, inverted, req.OffsetVarMapped)
 	}
 	return b.String()
 }
