@@ -27,12 +27,19 @@
 mdi \- Send G-code commands from the terminal to the running LinuxCNC
 instance
 .SH SYNOPSIS
-.B mdi
+.B mdi [command]
 
 .SH DESCRIPTION
-\fBmdi\fR sends G-code commands to LinuxCNC. 
-The command starts an envirmonemt in which G-code commands are sent to
-the interpreter and machine feedback is displayed. 
+\fBmdi\fR sends G-code commands to LinuxCNC.
+With arguments it sends one command and exits; with none it starts an
+interactive session in which G-code commands are sent to the interpreter and
+machine feedback is displayed.
+An empty line prints the current position instead of sending anything.
+.PP
+Operator messages the command produces — the reason a line was refused, and
+any \fB(MSG,\.\.\.)\fR or \fB(DEBUG,\.\.\.)\fR output — are printed on standard
+error.  They are read from the server's message list and are not acknowledged,
+so a running GUI still shows them too.
 
 .SH USAGE
 
@@ -43,11 +50,21 @@ the interpreter and machine feedback is displayed.
  $mdi
  MDI> m3 s1000
  MDI> G0 X100
- MDI> ^Z
- $stopped
- 
- 
- 
+ MDI> ^D
+ $
+
+.SH "EXIT STATUS"
+0 if every command was issued and executed without an error message,
+1 otherwise (the machine refused the command, reported an interpreter error,
+or could not be reached).
+
+.SH ENVIRONMENT
+.TP
+\fBGMC_REST_URL\fR
+Base URL of the gomc server (default \fBhttp://127.0.0.1:5080\fR).
+.TP
+\fBGMC_INSTANCE\fR
+Task instance to address (default \fBmilltask\fR).
 
 .SH "SEE ALSO"
 \fBLinuxCNC(1)\fR
