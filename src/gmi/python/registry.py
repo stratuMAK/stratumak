@@ -13,20 +13,24 @@ for every caller that asked about one, which is the opposite of the point.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
 
-# One fetch per process, keyed by base URL. The set of loaded modules does not
-# change while a UI runs — HAL is configured before the GUI starts — and the
-# callers are start-up gates, so re-asking would only add latency to a question
-# whose answer cannot have moved.
+# One fetch per process, keyed by base URL. Modules are usually configured
+# before the GUI starts, so the callers are start-up gates and re-asking would
+# only add latency — but modules CAN be loaded at runtime, so a caller that
+# cares (a menu about to be shown) passes refresh=True to ask again.
 _cache: dict[str, list[tuple[str, str]]] = {}
 
 
-def entries(rest_url: str, timeout: float = 2.0) -> list[tuple[str, str]]:
+def entries(rest_url: str, timeout: float = 2.0,
+            refresh: bool = False) -> list[tuple[str, str]]:
     """Return the (api_name, instance) pairs the server serves, or [] if it
-    cannot be asked."""
+    cannot be asked. refresh=True drops the cached answer and asks again."""
+    if refresh:
+        _cache.pop(rest_url, None)
     if rest_url in _cache:
         return _cache[rest_url]
 
@@ -34,8 +38,11 @@ def entries(rest_url: str, timeout: float = 2.0) -> list[tuple[str, str]]:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = json.loads(resp.read())
-    except (urllib.error.URLError, OSError, ValueError):
-        # No server, no route, or something that is not JSON. All of them mean
+    except (urllib.error.URLError, http.client.HTTPException, OSError,
+            ValueError):
+        # No server, no route, something that does not speak HTTP (a port
+        # squatter's BadStatusLine, a dying server's IncompleteRead), or
+        # something that is not JSON. All of them mean
         # the same thing to a caller asking whether a module is loaded, and
         # none of them is worth propagating. Not cached: a UI that started
         # before the server may ask again and get a real answer.

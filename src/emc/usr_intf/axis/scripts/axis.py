@@ -2942,6 +2942,15 @@ class TclCommands(nf.TclCommands):
             e.append("&")
             root_window.tk.call("exec", *e)
 
+    def refresh_has_ladder(*event):
+        # A ClassicLadder module can be loaded (or unloaded) after AXIS starts,
+        # so the File menu re-asks each time it is posted rather than trusting
+        # the startup answer. refresh=True bypasses the registry cache; an
+        # unreachable server answers "no" rather than raising (gmi.registry).
+        vars.has_ladder.set(
+            server_present == 1
+            and gmi.has_api("classicladder", "classicladder", refresh=True))
+
     def task_run(*event):
         res = 1
         while res == 1:
@@ -4113,7 +4122,9 @@ vars.has_editor.set(editor is not None)
 # The web app addresses the instance called "classicladder", so that is what is
 # asked for: a differently-named one is a PLC that is loaded and an editor that
 # cannot reach it, which is worse to offer than nothing. An unreachable server
-# answers "no" rather than raising — see gmi.registry.
+# answers "no" rather than raising — see gmi.registry. This is only the initial
+# value: the File menu's postcommand re-probes (refresh_has_ladder) so a module
+# loaded at runtime enables the entry.
 vars.has_ladder.set(
     server_present == 1 and gmi.has_api("classicladder", "classicladder"))
 
