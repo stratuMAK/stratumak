@@ -271,13 +271,23 @@ func (m *classicladder) Start() error {
 }
 
 func (m *classicladder) Stop() {
+	// Stop only stops activity. The C instance stays allocated until
+	// Destroy(): the launcher's unload sequence runs Stop before it
+	// unregisters the REST and watch APIs, so an in-flight call or a
+	// connected editor's push loop may still dereference m.rt after this
+	// returns — freeing here was a use-after-free on every runtime unload
+	// (halscope has the same split for the same reason).
+	m.setState(C.CL_STATE_STOP)
 	m.modbus.stop()
 	m.modbusSlave.stop()
+}
+
+func (m *classicladder) Destroy() {
+	// hal_exit removes the component, its pins and its thread linkage; the
+	// RT function cannot run after it, so the instance can be freed.
 	C.hal_exit(m.compID)
 	C.classicladder_rt_free(m.rt)
 }
-
-func (m *classicladder) Destroy() {}
 
 // --- HAL pin creation ---
 
