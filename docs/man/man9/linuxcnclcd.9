@@ -1,0 +1,145 @@
+.\"
+.TH LINUXCNCLCD "9" "2026-07-31" "LinuxCNC Documentation" "HAL Component"
+
+.SH NAME
+linuxcnclcd \- operator interface on an LCDproc character display
+
+.SH SYNOPSIS
+\fBload linuxcnclcd [server=\fIHOST\fB] [port=\fIN\fB] [delay=\fISECONDS\fB] [autostart=1] [nc_files=\fIDIR\fB] [milltask_instance=\fINAME\fB]\fR
+
+.SH DESCRIPTION
+\fBlinuxcnclcd\fR drives a small operator panel on a character display and
+keypad \(em originally the Matrix Orbital MX4 series, but any display an
+LCDproc server (\fBLCDd\fR) supports will do, over serial, USB or anything
+else LCDd handles.  The layout assumes 4 lines of 20 characters.
+.P
+The module talks to LCDd over TCP; it does not touch the display hardware
+itself, so LCDd must be running and configured for the display.  It exports
+no HAL pins.  Machine status comes from the \fBemcstat\fR GMI API and
+commands go out through \fBemccmd\fR, both provided by \fBmilltask\fR \(em so
+milltask must be loaded first.
+.P
+If LCDd is not reachable when the module starts, or the display goes away
+later, the module retries the connection every two seconds and rebuilds its
+screens when it gets back in.
+
+.SH PARAMETERS
+.TP
+\fBserver=\fIHOST\fR
+Host running LCDd.  Default \fBlocalhost\fR.
+.TP
+\fBport=\fIN\fR
+LCDd port.  Default \fB13666\fR.
+.TP
+\fBdelay=\fISECONDS\fR
+Pause before each protocol send, to keep from overrunning a slow display.
+Default \fB0.005\fR.
+.TP
+\fBautostart=1\fR
+Reset ESTOP and switch the machine on as soon as the display connects.
+Off by default.
+.TP
+\fBnc_files=\fIDIR\fR
+Directory whose \fB.ngc\fR files fill the File/Open menu.  Defaults to
+\fB[DISPLAY]PROGRAM_PREFIX\fR, and to the configured nc_files directory when
+that is not set.  A file whose name contains whitespace or brace characters
+is left out of the menu, because the name would not survive the LCDproc
+protocol intact.
+.TP
+\fBmilltask_instance=\fINAME\fR
+Instance name to look the \fBemcstat\fR and \fBemccmd\fR APIs up under.
+Default \fBmilltask\fR.
+
+.SH MENU
+.TP
+\fBFile\fR \(-> \fBOpen\fR
+Lists the \fB.ngc\fR files in the program directory; selecting one switches to
+auto mode and opens it.
+.TP
+\fBFile\fR \(-> \fBReload\fR
+Reopens the program the controller currently reports as open, whichever
+interface opened it.
+.TP
+\fBView\fR \(-> \fBUnits\fR
+What the position display converts to: mm, cm or inch.
+.TP
+\fBView\fR \(-> \fBCoord\fR
+\fBabs\fR shows machine position, \fBrel\fR shows it with the tool length,
+G5x, G5x rotation and G92 offsets applied \(em the same order the AXIS DRO
+uses.
+.TP
+\fBRun\fR \(-> \fBFeed Override\fR
+Feed override percentage; tracks the controller when changed elsewhere.
+.TP
+\fBJog\fR \(-> \fBSpeed\fR, \fBMode\fR
+Jog velocity in units per minute, and the increment: continuous, 1.0, 0.1,
+0.01 or 0.001 in the selected display units.
+.TP
+\fBSetup\fR \(-> \fBMain Display\fR
+Chooses between the position screen and the summary screen (program name,
+feed override, spindle speed, current line).
+.TP
+\fBUtilities\fR \(-> \fBHome\fR
+Homes all joints, or X, Y or Z individually.  These are actions rather than a
+selection ring, so nothing homes until an entry is chosen.
+.TP
+\fBUtilities\fR \(-> \fBLimits\fR
+\fBOff\fR overrides soft limit checking so a joint can be jogged off a
+tripped switch; \fBOn\fR resumes it.  The setting follows the controller,
+which clears the override on any mode change out of manual.
+
+.SH KEYS
+.TP
+\fBLeft\fR / \fBRight\fR
+Jog the first joint, continuously or by the selected increment.
+.TP
+\fBUp\fR / \fBDown\fR
+Jog the second joint.
+.TP
+\fBRun\fR
+Run the open program from the start.
+.TP
+\fBPause\fR
+Pause a running program, resume a paused one.
+.TP
+\fBStop\fR
+Abort.
+.TP
+\fBStep\fR
+Run a single line.
+.TP
+\fBTest\fR
+Toggle between manual and auto mode.
+.TP
+\fBNext\fR / \fBPrev\fR
+Step through the jog increments (continuous, 1.0, 0.1, 0.01, 0.001) while in
+manual mode on the position screen.
+.TP
+\fBEnter\fR
+Home the first three joints, on the position screen.
+.TP
+\fBEStop\fR
+Toggle ESTOP.
+.TP
+\fBPower\fR
+Toggle machine power.
+
+.SH DISPLAY UNITS
+Positions are reported by the controller in millimetres regardless of
+\fB[TRAJ]LINEAR_UNITS\fR, and the View/Units menu selects what the display
+converts them to.
+
+.SH SEE ALSO
+\fBLCDd\fR(8), \fBmilltask\fR(9)
+
+Much more information about LinuxCNC and HAL is available in the LinuxCNC
+and HAL User Manuals.
+
+.SH AUTHOR
+Eric H. Johnson wrote the original NML client; ported to the gomc module API.
+
+.SH COPYRIGHT
+Copyright \(co 2007 Eric H. Johnson.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
