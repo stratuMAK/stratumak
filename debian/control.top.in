@@ -80,7 +80,6 @@ Replaces: linuxcnc-dev, linuxcnc-uspace-dev
 Provides: linuxcnc-dev, linuxcnc-uspace-dev
 Depends:
     ${misc:Depends},
-    ${python3:Depends},
     @KERNEL_HEADERS@,
     python3-serial,
     @MAIN_PACKAGE_NAME@ (= ${binary:Version}),

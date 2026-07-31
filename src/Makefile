@@ -265,8 +265,14 @@ OPT := -Os $(INTEGER_OVERFLOW_FLAGS)
 # the same fortify diagnostics (e.g. warn_unused_result on write()) as the
 # ubuntu-24.04 CI runners.
 DEBUG := $(DEBUG) -g -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
-CFLAGS := $(INCLUDE) $(OPT) $(DEBUG) $(EXTRA_DEBUG) -D_GNU_SOURCE -std=gnu11 -Werror=implicit-function-declaration $(CFLAGS) $(CPPFLAGS)
-CXXFLAGS := $(INCLUDE) $(EXTRA_DEBUG) $(DEBUG) $(OPT) -Werror=overloaded-virtual $(CXXFLAGS) $(CPPFLAGS)
+# $(CPPFLAGS) ahead of $(DEBUG), not after it. dpkg-buildflags puts
+# -D_FORTIFY_SOURCE=2 in CPPFLAGS; trailing it meant that -D landed after the
+# -U/-D=3 pair above and won, so a Debian build silently compiled at level 2
+# while claiming 3 -- and gcc warned "redefined" on every translation unit
+# (171 lines of it). Ahead of the pair, the -U clears it and the intended
+# level 3 stands.
+CFLAGS := $(INCLUDE) $(CPPFLAGS) $(OPT) $(DEBUG) $(EXTRA_DEBUG) -D_GNU_SOURCE -std=gnu11 -Werror=implicit-function-declaration $(CFLAGS)
+CXXFLAGS := $(INCLUDE) $(CPPFLAGS) $(EXTRA_DEBUG) $(DEBUG) $(OPT) -Werror=overloaded-virtual $(CXXFLAGS)
 CXXFLAGS += -std=gnu++17
 # In Debian 11, any inclusion of <boost/python.hpp> leads to several
 # diagnostics from included headers about deprecated features. LinuxCNC does
