@@ -1,9 +1,26 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
-import { halshowStore } from '../stores/halshow';
+import { halshowStore, LOG_LEVEL_NAMES } from '../stores/halshow';
 
 const input = ref('');
 const historyRef = ref<HTMLElement>();
+
+const LOG_LEVELS = [0, 1, 2, 3];
+
+async function onLogLevelChange(e: Event) {
+  const select = e.target as HTMLSelectElement;
+  const level = Number(select.value);
+  const result = await halshowStore.setLogLevel(level);
+  if (!result.success) {
+    // Surface the refusal where the operator is already looking, and let the
+    // re-read (done by setLogLevel) put the control back where it belongs.
+    halshowStore.state.cmdHistory = [
+      ...halshowStore.state.cmdHistory,
+      { cmd: `debug ${level}`, error: result.error ?? 'Failed' },
+    ];
+    scrollToBottom();
+  }
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -34,6 +51,21 @@ async function execute() {
         <div v-if="entry.output" class="cmd-output">{{ entry.output }}</div>
         <div v-if="entry.error" class="cmd-error">{{ entry.error }}</div>
       </div>
+    </div>
+    <div class="loglevel-row">
+      <span class="loglevel-label" title="Server log verbosity (halcmd debug). Applies to the whole gomc-server process — Go and C modules alike.">Log level</span>
+      <select
+        class="loglevel-select"
+        :value="halshowStore.state.logLevel ?? ''"
+        :disabled="halshowStore.state.logLevel === null"
+        @change="onLogLevelChange"
+      >
+        <option v-if="halshowStore.state.logLevel === null" value="">unavailable</option>
+        <option v-for="lvl in LOG_LEVELS" :key="lvl" :value="lvl">
+          {{ lvl }} &ndash; {{ LOG_LEVEL_NAMES[lvl] }}
+        </option>
+      </select>
+      <span class="loglevel-hint">process-wide; also settable as <code>debug 0-3</code></span>
     </div>
     <div class="input-row">
       <span class="prompt">halcmd&gt;</span>
@@ -92,6 +124,39 @@ async function execute() {
   padding: 6px 8px;
   border-top: 1px solid #333;
   background: #1a1a1a;
+}
+
+.loglevel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-top: 1px solid #333;
+  background: #161616;
+}
+
+.loglevel-label {
+  color: #999;
+  flex-shrink: 0;
+}
+
+.loglevel-select {
+  background: #222;
+  color: #ccc;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.loglevel-select:disabled {
+  color: #666;
+}
+
+.loglevel-hint {
+  color: #666;
+  font-size: 11px;
 }
 
 .prompt {

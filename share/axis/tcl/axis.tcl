@@ -200,10 +200,6 @@ setup_menu_accel .menu.machine end [_ "Ha_l Scope"]
 	-command {exec linuxcnctop &}
 setup_menu_accel .menu.machine end [_ "Sho_w LinuxCNC Status"]
 
-.menu.machine add command \
-	-command {exec debuglevel &}
-setup_menu_accel .menu.machine end [_ "Set _Debug Level"]
-
 .menu.machine add separator
 
 .menu.machine add cascade \

@@ -109,6 +109,9 @@ function defaultRoute(url: string, init?: RequestInit): FakeResponse {
         components: 0, pins: 0, signals: 0, params: 0, threads: 0, functions: 0,
       });
     }
+    if (url.endsWith('/debug')) {
+      return res(200, 1); // INFO, the gomc-server default
+    }
     return res(200, []);
   }
   return res(200, { success: true });

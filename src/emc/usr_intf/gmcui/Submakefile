@@ -53,4 +53,11 @@ TARGETS += ../bin/classicladder
 	$(Q)ln -sf gmcui $@
 TARGETS += ../bin/latency
 
+# Symlink: linuxcnctop -> gmcui  (AXIS "Show LinuxCNC Status"; the headless
+# text dump lives in bin/linuxcnctop-dump)
+../bin/linuxcnctop: ../bin/gmcui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf gmcui $@
+TARGETS += ../bin/linuxcnctop
+
 endif

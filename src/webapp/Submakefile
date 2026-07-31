@@ -196,14 +196,46 @@ $(LATENCY_WEBAPP_STAMP): $(LATENCY_WEBAPP_SRCS) $(LATENCY_NPM_STAMP) $(LATENCY_G
 
 TARGETS += $(LATENCY_WEBAPP_STAMP)
 
+# --- linuxcnctop ---
+
+LINUXCNCTOP_WEBAPP_SRC := $(WEBAPP_DIR)/linuxcnctop
+LINUXCNCTOP_WEBAPP_DEST := $(WEBAPP_DEST)/linuxcnctop
+
+LINUXCNCTOP_WEBAPP_STAMP := $(LINUXCNCTOP_WEBAPP_DEST)/.build-stamp
+
+LINUXCNCTOP_WEBAPP_SRCS := $(shell find $(LINUXCNCTOP_WEBAPP_SRC)/src -type f 2>/dev/null) \
+	$(LINUXCNCTOP_WEBAPP_SRC)/index.html \
+	$(LINUXCNCTOP_WEBAPP_SRC)/package.json \
+	$(LINUXCNCTOP_WEBAPP_SRC)/vite.config.ts \
+	$(LINUXCNCTOP_WEBAPP_SRC)/tsconfig.json
+
+LINUXCNCTOP_NPM_STAMP := $(LINUXCNCTOP_WEBAPP_SRC)/node_modules/.install-stamp
+
+$(LINUXCNCTOP_NPM_STAMP): $(LINUXCNCTOP_WEBAPP_SRC)/package.json
+	$(ECHO) "Installing linuxcnctop webapp dependencies"
+	$(Q)cd $(LINUXCNCTOP_WEBAPP_SRC) && npm install --no-audit --no-fund
+	$(Q)touch $@
+
+LINUXCNCTOP_GEN_TS := $(WEBAPP_DIR)/linuxcnctop/src/generated/emcstat_client.ts \
+	$(WEBAPP_DIR)/linuxcnctop/src/generated/emcstat_watch_client.ts
+
+$(LINUXCNCTOP_WEBAPP_STAMP): $(LINUXCNCTOP_WEBAPP_SRCS) $(LINUXCNCTOP_NPM_STAMP) $(LINUXCNCTOP_GEN_TS)
+	$(ECHO) "Building linuxcnctop webapp"
+	$(Q)rm -rf $(LINUXCNCTOP_WEBAPP_DEST)
+	$(Q)cd $(LINUXCNCTOP_WEBAPP_SRC) && npx vite build --outDir $(abspath $(LINUXCNCTOP_WEBAPP_DEST)) --emptyOutDir
+	$(Q)touch $@
+
+TARGETS += $(LINUXCNCTOP_WEBAPP_STAMP)
+
 # Request-level write-path tests (vitest) for the apps that have them.
 # Depends on the npm stamps so a fresh checkout installs first.
 WEBAPP_TEST_APPS := $(TOOLEDIT_WEBAPP_SRC) $(EMCCALIB_WEBAPP_SRC) \
-	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC) $(CLASSICLADDER_WEBAPP_SRC)
+	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC) $(CLASSICLADDER_WEBAPP_SRC) \
+	$(LINUXCNCTOP_WEBAPP_SRC)
 
 .PHONY: webapp-test
 webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) \
-		$(HALSCOPE_NPM_STAMP) $(CLASSICLADDER_NPM_STAMP)
+		$(HALSCOPE_NPM_STAMP) $(CLASSICLADDER_NPM_STAMP) $(LINUXCNCTOP_NPM_STAMP)
 	$(Q)for app in $(WEBAPP_TEST_APPS); do \
 		echo "Testing webapp $$app"; \
 		(cd $$app && npm test) || exit 1; \
@@ -235,5 +267,6 @@ webapp-clean:
 	rm -rf $(TOOLEDIT_WEBAPP_SRC)/node_modules
 	rm -rf $(CLASSICLADDER_WEBAPP_SRC)/node_modules
 	rm -rf $(LATENCY_WEBAPP_SRC)/node_modules
+	rm -rf $(LINUXCNCTOP_WEBAPP_SRC)/node_modules
 	rm -rf $(WEBAPP_DIR)/node_modules
 

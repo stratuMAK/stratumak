@@ -22,22 +22,35 @@
 .\"
 .\"
 .\"
-.TH LINUXCNCTOP "1"  "2020-08-26" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.TH LINUXCNCTOP "1"  "2026-07-31" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-linuxcnctop \- live LinuxCNC status description
+linuxcnctop \- live LinuxCNC status display
 .SH SYNOPSIS
 .B linuxcnctop
-\fI\-ini\fR \fIINIFILE\fR
+[\fI\-\-url\fR \fIURL\fR] [\fI\-\-title\fR \fITITLE\fR] [\fI\-\-width\fR \fIW\fR] [\fI\-\-height\fR \fIH\fR]
 .SH DESCRIPTION
-\fBlinuxcnctop\fR displays much of the LinuxCNC state in a live format
-similar to the Linux "top" command.
+\fBlinuxcnctop\fR displays the LinuxCNC state in a live format similar to the
+Linux "top" command: one row per status field, with recently changed values
+highlighted.
+
+It is a web application served by the running controller, opened in a window by
+\fBgmcui\fR(1). The server is taken from the \fBGMC_REST_URL\fR environment
+variable (default http://127.0.0.1:5080) and the task instance from
+\fBGMC_INSTANCE\fR (default \fImilltask\fR); the same page can be opened in any
+browser at \fI/app/linuxcnctop/\fR.
+
+Lengths are displayed in millimetres, the unit the controller keeps internally,
+regardless of the machine's configured units.
+
+For a headless machine or for pasting into a bug report, use
+\fBlinuxcnctop\-dump\fR(1), which prints the same status as text.
 
 It is more fully documented in the AXIS GUI documentation but can be run
 standalone or with other GUIs.
 http://linuxcnc.org/docs/html/gui/axis.html
 
 .SH "SEE ALSO"
-\fBLinuxCNC(1)\fR
+\fBlinuxcnctop\-dump(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
 
 Much more information about LinuxCNC and HAL is available in the LinuxCNC
 and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.

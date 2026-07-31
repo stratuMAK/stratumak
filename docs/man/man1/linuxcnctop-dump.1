@@ -1,0 +1,95 @@
+.\" Copyright (c) 2020 andypugh
+.\" Copyright (c) 2026 Sascha Ittner
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
+.\" USA.
+.\"
+.TH LINUXCNCTOP\-DUMP "1"  "2026-07-31" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+linuxcnctop\-dump \- print the LinuxCNC machine status as text
+.SH SYNOPSIS
+.B linuxcnctop\-dump
+[\fI\-\-json\fR] [\fI\-n SEC\fR] [\fI\-\-full\fR] [\fI\-\-instance NAME\fR]
+.SH DESCRIPTION
+\fBlinuxcnctop\-dump\fR prints the current machine status to standard output and
+exits. It is the headless counterpart of \fBlinuxcnctop\fR(1), for machines
+without a display, for scripts, and for pasting state into a bug report.
+
+The default output is one \fIname value\fR line per status field, using the
+classic field names \fBlinuxcnc.stat()\fR always exposed. \fB\-\-json\fR prints
+the raw status snapshot instead, whose field paths are the ones the
+\fBlinuxcnctop\fR web application displays.
+
+If the controller cannot be reached, the command reports the failure on standard
+error and exits non\-zero rather than printing a stale or empty machine.
+.SH OPTIONS
+.TP
+\fB\-\-json\fR
+Print the raw \fIStatFull\fR snapshot from the REST API as indented JSON.
+.TP
+\fB\-n\fR, \fB\-\-interval\fR \fISEC\fR
+Repeat every \fISEC\fR seconds until interrupted. In this mode an unreachable
+controller is reported and waited out rather than being fatal, so the command
+can be started before the machine is up.
+.TP
+\fB\-\-full\fR
+Do not truncate values to 58 columns (text mode only).
+.TP
+\fB\-\-instance\fR \fINAME\fR
+Query the named task instance. Defaults to \fB$GMC_INSTANCE\fR, or
+\fImilltask\fR if that is unset.
+.SH ENVIRONMENT
+.TP
+.B GMC_REST_URL
+Base URL of the controller's REST API (default http://127.0.0.1:5080).
+.TP
+.B GMC_INSTANCE
+Default task instance name.
+.SH EXAMPLES
+Print the status once:
+.PP
+.RS
+linuxcnctop\-dump
+.RE
+.PP
+Watch the status once a second, untruncated:
+.PP
+.RS
+linuxcnctop\-dump \-n 1 \-\-full
+.RE
+.PP
+Capture the raw snapshot for a bug report:
+.PP
+.RS
+linuxcnctop\-dump \-\-json > status.json
+.RE
+.SH "SEE ALSO"
+\fBlinuxcnctop(1)\fR, \fBLinuxCNC(1)\fR
+
+Much more information about LinuxCNC and HAL is available in the LinuxCNC
+and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.
+
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+Copyright \(co 2020 andypugh, \(co 2026 Sascha Ittner.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

@@ -41,6 +41,7 @@ static const app_profile_t profiles[] = {
     { "emccalib",  "/app/emccalib/",  "EMC Calibration",   900, 700, DEFAULT_INSTANCE },
     { "tooledit",  "/app/tooledit/",  "Tool Editor",       900, 700, DEFAULT_INSTANCE },
     { "latency",   "/app/latency/",   "RT Latency",       1100, 760, DEFAULT_INSTANCE },
+    { "linuxcnctop", "/app/linuxcnctop/", "LinuxCNC Status", 900, 800, DEFAULT_INSTANCE },
     /* The classicladder app addresses the instance named "classicladder",
      * not the milltask default. */
     { "classicladder", "/app/classicladder/", "Classic Ladder", 1200, 900, "classicladder" },
