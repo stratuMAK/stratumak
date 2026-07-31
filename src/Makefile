@@ -728,6 +728,12 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/halreport $(DESTDIR)$(bindir)
 	$(FILE) $(filter ../lib/%.a ../lib/%.so.0,$(TARGETS)) $(DESTDIR)$(libdir)
 	cp --no-dereference $(wildcard ../lib/*.so) $(DESTDIR)$(libdir)
+	# Shared libraries whose soname is not .0 are in neither of the two lines
+	# above: the EtherCAT master's libethercat.so.2.x comes from the submodule,
+	# not from TARGETS. Without it the package ships ../lib/libethercat.so as a
+	# dangling symlink and the ethercat cmod cannot load. cp -a keeps the
+	# soname symlink a symlink.
+	cp -a $(wildcard ../lib/*.so.[0-9]*) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
 	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
