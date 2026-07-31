@@ -48,6 +48,7 @@ Typically ClassicLadder is loaded from the custom.hal file if you are working fr
 
 NOTE: Ladder files (.clp) must not contain any blank spaces in the name.
 
+[[sec:ladder-loading]]
 === Loading the module
 
 Loading ClassicLadder is possible from a HAL file, or directly using a halcmd instruction.
@@ -92,17 +93,17 @@ If you do not configure the number of ladder objects ClassicLadder will use the 
 |===
 |Object Name                      | Variable Name    | Default Value
 |Number of rungs                  | (numRungs)       | 100
-|Number of bits                   | (numBits)        | 20
-|Number of word variables         | (numWords)       | 20
+|Number of bits                   | (numBits)        | 100
+|Number of word variables         | (numWords)       | 100
 |Number of timers                 | (numTimers)      | 10
 |Number of timers IEC             | (numTimersIec)   | 10
 |Number of monostables            | (numMonostables) | 10
 |Number of counters               | (numCounters)    | 10
 |Number of HAL inputs bit pins    | (numPhysInputs)  | 15
 |Number of HAL output bit pins    | (numPhysOutputs) | 15
-|Number of arithmetic expressions | (numArithmExpr)  | 50
+|Number of arithmetic expressions | (numArithmExpr)  | 100
 |Number of Sections               | (numSections)    | 10
-|Number of Symbols                | (numSymbols)     | Auto
+|Number of Symbols                | (numSymbols)     | 200
 |Number of S32 inputs             | (numS32in)       | 10
 |Number of S32 outputs            | (numS32out)      | 10
 |Number of Float inputs           | (numFloatIn)     | 10
@@ -453,7 +454,7 @@ Represent up/down counters.
 There are 7 contacts:
 
 * 'R' - reset (input) will reset the count to 0.
-* 'P' - preset (input) will set the count to the preset number assigned from the edit menu.
+* 'P' - preset (input) will set the count to the preset number assigned in the property panel.
 * 'U' - up count (input) will add one to the count.
 * 'D' - down count (input) will subtract one from the count.
 * 'E' - under flow (output) will be true when the count rolls over from 0 to 9999.
@@ -746,15 +747,14 @@ Things to consider:
 * Modbus runs in the controller with the ladder; nothing has to be open for it to run.
 * Modbus is not fully finished so it does not do all modbus functions.
 
-To get MODBUS to initialize you must specify that when loading the ClassicLadder non-realtime program.
+The Modbus master needs nothing on the load line: it starts by itself whenever
+the loaded project defines I/O requests. The integrated Modbus TCP slave is
+started only when a port is named with the `modbus_port=N` load argument:
 
 .Loading Modbus
 ----
-load classicladder myprogram.clp
+load classicladder myprogram.clp modbus_port=1502
 ----
-
-The `-w` makes HAL wait until you close ClassicLadder before closing realtime session.
-ClassicLadder also loads a TCP modbus slave if you add `--modserver` on command line.
 
 .Modbus Functions
 * '1' - read coils
@@ -816,7 +816,7 @@ You can use the modbus element offset radio button to help with this.
 
 The documents for your modbus slave device will tell you how the registers are set up- there is no standard way.
 
-The SERIAL PORT, PORT SPEED, PAUSE, and DEBUG level are editable for changes (when you close the config window values are applied, though Radio buttons apply immediately).
+The SERIAL PORT, PORT SPEED, PAUSE, and DEBUG level are editable for changes; nothing takes effect until 'Apply' is pressed on the Modbus Config tab.
 
 To use the echo function select the echo function and add the slave number you wish to test.
 You don't need to specify any variables.
@@ -843,12 +843,13 @@ Serial:
 * No parity is used.
 * If no port name for serial is set, TCP/IP mode will be used...
 * The slave address is the slave address (Modbus/RTU) or the IP address.
-* The IP address can be followed per the port number to use (xx.xx.xx.xx:pppp) else the port 9502 will be used per default.
+* The IP address can be followed per the port number to use (xx.xx.xx.xx:pppp) else the port 502 will be used per default.
 * 2 products have been used for tests: a Modbus/TCP one (Adam-6051, https://www.advantech.com) and a serial Modbus/RTU one (http://www.ipac.ws).
 * See examples: adam-6051 and modbus_rtu_serial.
 * Web links: https://www.modbus.org and this interesting one: http://www.iatips.com/modbus.html
 * MODBUS TCP SERVER INCLUDED
-* ClassicLadder has a Modbus/TCP server integrated. Default port is 9502.  (the previous standard 502 requires that the application must be launched with root privileges).
+* ClassicLadder has a Modbus/TCP server integrated. It has no default port: it is started only when a port is named with the `modbus_port=N` load argument.
+  (Binding a port below 1024, including the standard 502, requires that the controller runs with the privilege to do so.)
 * List of Modbus functions code supported are: 1, 2, 3, 4, 5, 6, 15 and 16.
 * Modbus bits and words correspondence table is actually not parametric and correspond directly to the %B and %W variables.
 
@@ -894,7 +895,7 @@ Looking in the Modbus protocol reference:
 |Checksum            | (2 bytes)       | Calculated automatically
 |===
 
-Here is an example sent command as printed in the terminal (all Hex):
+Here is an example sent command, as 2.9 printed it (all Hex):
 
 ----
 INFO CLASSICLADDER-   Modbus I/O module to send: Lgt=8 <-  Slave address-1  Function code-3  Data-21 0 0 1 8E 36
@@ -931,7 +932,7 @@ Exception code meaning:
 * 3 - illegal data value
 * 4 - slave device failure
 
-Here is an example received command as printed in the terminal (all Hex):
+Here is an example received command, as 2.9 printed it (all Hex):
 
 ----
 INFO CLASSICLADDER-   Modbus I/O module received: Lgt=5 ->   (Slave address-1  Function code-83 ) 2 C0 F1
@@ -960,7 +961,7 @@ Looking in the Modbus protocol reference for Response:
 
 *N = Number of registers
 
-Here is an example received command as printed in the terminal (all Hex):
+Here is an example received command, as 2.9 printed it (all Hex):
 
 ----
 INFO CLASSICLADDER-   Modbus I/O module received: Lgt=7 ->   (Slave address-1  Function code-3 2 0 0 B8 44)
@@ -984,24 +985,18 @@ If multiple registers are requested in one read/write then the variable number a
 === MODBUS Bugs
 
 * In compare blocks the function %W=ABS(%W1-%W2) is accepted but does not compute properly. only %W0=ABS(%W1) is currently legal.
-* When loading a ladder program it will load Modbus info but will not tell ClassicLadder to initialize Modbus.
-  The Modbus master starts by itself whenever the loaded project defines I/O requests.
 * reading/writing multiple registers in Modbus has checksum errors.
 
 == Setting up ClassicLadder
 
-In this section we will cover the steps needed to add ClassicLadder to a StepConf Wizard generated config.
-On the advanced Configuration Options page of StepConf Wizard check off "Include ClassicLadder PLC".
-
-[[cap:stepconf-classicladder]]
-.StepConf ClassicLadder
-image::images/stepconf_ladder.png["Stepconf ClassicLadder",align="center"]
+In this section we will cover the steps needed to add ClassicLadder to an
+existing configuration. ClassicLadder is added by hand, with the
+`load classicladder ...` line described in <<sec:ladder-loading,Loading the
+module>> — the StepConf Wizard cannot add it for you.
 
 === Add the Module
 
-If you used the StepConf Wizard to add ClassicLadder you can skip this step.
-
-To add ClassicLadder manually, put two lines in the custom.hal file.
+To add ClassicLadder, put two lines in the custom.hal file.
 This line loads the module:
 
 [source,{hal}]
@@ -1056,8 +1051,7 @@ To have that ladder loaded at start-up, name it on the module's load line:
 load classicladder MyLadder.clp
 ----
 
-Again, if you used the StepConf Wizard to add ClassicLadder you can skip this
-step. With the file named there, the PLC comes up running your program, and
+With the file named there, the PLC comes up running your program, and
 "File/Ladder Editor" opens on it.
 
 // vim: set syntax=asciidoc:
