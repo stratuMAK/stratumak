@@ -110,6 +110,10 @@ override_dh_clean:
 	# delete that directory. The caches we know of are redirected above; this
 	# stops the next one from breaking the clean before anybody notices.
 	-chmod -R u+w debian/.debhelper 2>/dev/null || true
+	# debian/shlibs.local is no longer generated (see override_dh_shlibdeps),
+	# but a tree that once built an older revision still has one, and its mere
+	# presence brings the warnings back. Sweep it.
+	rm -f debian/shlibs.local
 	dh_clean
 
 override_dh_auto_install-arch:

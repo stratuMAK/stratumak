@@ -82,6 +82,8 @@ Depends:
     ${misc:Depends},
     @KERNEL_HEADERS@,
     python3-serial,
+    build-essential,
+    golang-go,
     @MAIN_PACKAGE_NAME@ (= ${binary:Version}),
     udev,
     @YAPPS_RUNTIME@

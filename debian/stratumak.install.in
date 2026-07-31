@@ -40,10 +40,8 @@ usr/bin/manualtoolchange_ui
 usr/bin/max5gui
 usr/bin/mdi
 usr/bin/melfagui
-usr/bin/mesa-modcompile
 usr/bin/mesambccc
 usr/bin/millturngui
-usr/bin/modcompile
 usr/bin/monitor-xhc-hb04
 usr/bin/moveoff_gui
 usr/bin/ngcgui
@@ -92,7 +90,6 @@ usr/share/applications/linuxcnc-latency.desktop
 usr/share/applications/linuxcnc-pncconf.desktop
 usr/share/applications/linuxcnc-stepconf.desktop
 
-usr/share/linuxcnc/gomc/
 usr/share/linuxcnc/gremlin_view.ui
 usr/share/linuxcnc/gscreen2.glade
 usr/share/linuxcnc/gscreen.glade
