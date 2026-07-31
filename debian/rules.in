@@ -26,9 +26,17 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export SOURCE_DATE_EPOCH ?= $(shell dpkg-parsechangelog -STimestamp)
 
 # Set time & date to the most recent release, for repeatable builds.
-TIMESTAMP=$(shell dpkg-parsechangelog -S timestamp)
-export DATE=$(shell LANG=C date --date='@$(TIMESTAMP)' '+%d\ %b\ %Y')
-export TIME=$(shell LANG=C date --date='@$(TIMESTAMP)' '+%T')
+#
+# := , not = : these are exported, so a recursive assignment is re-expanded
+# when make builds the environment for every recipe -- including the dh_auto_*
+# ones, which run from src/ because of the -D below. dpkg-parsechangelog
+# resolves debian/changelog relative to the working directory, finds none
+# there, and returns nothing, leaving `date --date='@'` to fail and DATE/TIME
+# empty in the docs build. Expanding once, at parse time, is always in the
+# source root.
+TIMESTAMP := $(shell dpkg-parsechangelog -S timestamp)
+export DATE := $(shell LANG=C date --date='@$(TIMESTAMP)' '+%d\ %b\ %Y')
+export TIME := $(shell LANG=C date --date='@$(TIMESTAMP)' '+%T')
 
 kernel_version = @KERNEL_VERSION@
 configure_realtime_arg = @CONFIGURE_REALTIME_ARG@
