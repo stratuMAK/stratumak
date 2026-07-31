@@ -197,7 +197,7 @@ setup_menu_accel .menu.machine end [_ "Show _Hal Configuration"]
 setup_menu_accel .menu.machine end [_ "Ha_l Scope"]
 
 .menu.machine add command \
-	-command {exec linuxcnctop &}
+	-command {exec linuxcnctop-ui &}
 setup_menu_accel .menu.machine end [_ "Sho_w LinuxCNC Status"]
 
 .menu.machine add separator

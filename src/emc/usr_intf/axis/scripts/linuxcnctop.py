@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-#    Headless status dump — the text half of the former Tk linuxcnctop.
+#    LinuxCNC status — window by default, text with -t.
 #
-#    The GUI ("Show LinuxCNC Status" in the AXIS Machine menu) is now the
-#    linuxcnctop web app; this keeps `linuxcnctop -t` available for scripts,
-#    bug reports and machines without a display.
+#    This keeps the CLI the Tk linuxcnctop had: bare `linuxcnctop` opens the
+#    status window, `linuxcnctop -t` prints the state for scripts, bug reports
+#    and machines without a display.
 #
-#    Two output shapes, because they answer different questions:
+#    The window is now the linuxcnctop web app, shown by `linuxcnctop-ui` (a
+#    gmcui symlink). We os.exec into it rather than spawning it, so no extra
+#    process is left behind — this script becomes the viewer. Going through the
+#    launcher also lets us absorb arguments gmcui would reject outright, such
+#    as the -ini INIFILE that callers have passed since 2.9.
+#
+#    The text mode has two output shapes, because they answer different
+#    questions:
 #      (default) the classic 2.9-named flat listing, via the gmi.Stat shim —
 #                the same names linuxcnc.stat() always exposed;
 #      --json    the raw emcstat StatFull snapshot off the REST API, whose
@@ -32,6 +39,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -200,27 +208,82 @@ def dump_json(instance):
     print(json.dumps(data, indent=2))
 
 
+UI_COMMAND = "linuxcnctop-ui"
+
+
+def run_ui(args, instance):
+    """Replace this process with the status window.
+
+    os.execvp rather than a spawn: the viewer is what the user asked for, so
+    there is no reason to keep a Python parent alive for its lifetime.
+    """
+    argv = [UI_COMMAND]
+    for flag, value in (("--url", args.url), ("--title", args.title),
+                        ("--width", args.width), ("--height", args.height)):
+        if value is not None:
+            argv += [flag, str(value)]
+
+    # gmcui takes the instance from the environment, not the command line.
+    if args.instance is not None:
+        os.environ["GMC_INSTANCE"] = instance
+
+    try:
+        os.execvp(UI_COMMAND, argv)
+    except OSError as e:
+        # Typically a build without webkit2gtk, where no gmcui symlink exists.
+        # Name the text mode rather than leaving the user with an exec error:
+        # on a headless machine that is the mode they wanted anyway.
+        raise Unreachable(
+            "cannot start %s (%s); use '%s -t' for the text status"
+            % (UI_COMMAND, e.strerror or e, os.path.basename(sys.argv[0])))
+
+
 def main():
     global s
 
     p = argparse.ArgumentParser(
-        description="Print the LinuxCNC machine status once, or repeatedly.")
-    p.add_argument("--json", action="store_true",
-                   help="dump the raw emcstat StatFull snapshot (web-app field paths)")
-    p.add_argument("-n", "--interval", type=float, metavar="SEC",
-                   help="repeat every SEC seconds until interrupted")
-    p.add_argument("--full", action="store_true",
-                   help="do not truncate values to 58 columns (text mode)")
+        description="Show the LinuxCNC machine status. Opens the status window "
+                    "unless -t is given.")
+    p.add_argument("-t", "--text", action="store_true",
+                   help="print the status as text instead of opening the window")
+
+    text = p.add_argument_group("text mode options (imply -t)")
+    text.add_argument("--json", action="store_true",
+                      help="dump the raw emcstat StatFull snapshot (web-app field paths)")
+    text.add_argument("-n", "--interval", type=float, metavar="SEC",
+                      help="repeat every SEC seconds until interrupted")
+    text.add_argument("--full", action="store_true",
+                      help="do not truncate values to 58 columns")
+
+    win = p.add_argument_group("window options (passed to " + UI_COMMAND + ")")
+    win.add_argument("--url", help="server URL (default: $GMC_REST_URL)")
+    win.add_argument("--title", help="window title")
+    win.add_argument("--width", type=int, help="window width in pixels")
+    win.add_argument("--height", type=int, help="window height in pixels")
+
     p.add_argument("--instance", default=None,
                    help="task instance to query (default: $GMC_INSTANCE or milltask)")
-    # `-t` was the GUI's text-mode switch; accept it so old invocations and
-    # scripts keep working, but it is the default here.
-    p.add_argument("-t", action="store_true", help=argparse.SUPPRESS)
-    # -ini FILE was passed by AXIS; harmless and ignored.
+    # -ini FILE has been passed by AXIS since 2.9. It carries nothing we need —
+    # the server URL and instance come from the environment — but gmcui rejects
+    # unknown flags outright, so swallowing it here is what keeps such callers
+    # working.
     p.add_argument("-ini", metavar="FILE", help=argparse.SUPPRESS)
     args = p.parse_args()
 
     instance = gmi.resolve_instance(args.instance)
+
+    # Any text-mode-only option selects text mode, so `linuxcnctop --json`
+    # means what it looks like rather than silently opening a window.
+    want_text = args.text or args.json or args.interval is not None or args.full
+
+    try:
+        if not want_text:
+            run_ui(args, instance)  # never returns on success
+            return 0
+    except Unreachable as e:
+        print("%s: %s" % (os.path.basename(sys.argv[0]), e), file=sys.stderr)
+        return 1
+
     s = Stat(instance=instance)
 
     def once():
@@ -237,7 +300,7 @@ def main():
                 try:
                     once()
                 except Unreachable as e:
-                    print("linuxcnctop-dump: %s" % e, file=sys.stderr)
+                    print("linuxcnctop: %s" % e, file=sys.stderr)
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
@@ -245,7 +308,7 @@ def main():
     except KeyboardInterrupt:
         pass
     except Unreachable as e:
-        print("linuxcnctop-dump: %s" % e, file=sys.stderr)
+        print("linuxcnctop: %s" % e, file=sys.stderr)
         return 1
     return 0
 

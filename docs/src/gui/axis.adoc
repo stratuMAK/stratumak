@@ -687,16 +687,17 @@ Above the list are:
 Lengths are shown in millimetres, which is the unit the controller keeps
 internally, regardless of the machine's configured units.
 
-For a headless machine, or to paste the state into a bug report, the same
-status is available as text:
+From a terminal, run `linuxcnctop` to open the same window. For a headless
+machine, or to paste the state into a bug report, add `-t` to print the
+status instead:
 
 ----
-linuxcnctop-dump
+linuxcnctop -t
 ----
 
-`linuxcnctop-dump --json` prints the raw snapshot instead, and
-`linuxcnctop-dump -n 1` repeats it once a second; `linuxcnctop-dump --help`
-lists the rest.
+`linuxcnctop --json` prints the raw snapshot instead, and `linuxcnctop -n 1`
+repeats it once a second; `linuxcnctop --help` lists the rest. (The menu entry
+runs `linuxcnctop-ui`, the window on its own.)
 
 == MDI interface
 

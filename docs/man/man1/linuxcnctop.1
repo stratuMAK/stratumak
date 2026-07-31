@@ -1,4 +1,5 @@
 .\" Copyright (c) 2020 andypugh
+.\" Copyright (c) 2026 Sascha Ittner
 .\"
 .\" This is free documentation; you can redistribute it and/or
 .\" modify it under the terms of the GNU General Public License as
@@ -20,50 +21,107 @@
 .\" Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
 .\" USA.
 .\"
-.\"
-.\"
 .TH LINUXCNCTOP "1"  "2026-07-31" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-linuxcnctop \- live LinuxCNC status display
+linuxcnctop \- show the LinuxCNC machine status
 .SH SYNOPSIS
 .B linuxcnctop
-[\fI\-\-url\fR \fIURL\fR] [\fI\-\-title\fR \fITITLE\fR] [\fI\-\-width\fR \fIW\fR] [\fI\-\-height\fR \fIH\fR]
+[\fI\-\-url URL\fR] [\fI\-\-title TITLE\fR] [\fI\-\-width W\fR] [\fI\-\-height H\fR] [\fI\-\-instance NAME\fR]
+.br
+.B linuxcnctop \-t
+[\fI\-\-json\fR] [\fI\-n SEC\fR] [\fI\-\-full\fR] [\fI\-\-instance NAME\fR]
 .SH DESCRIPTION
-\fBlinuxcnctop\fR displays the LinuxCNC state in a live format similar to the
-Linux "top" command: one row per status field, with recently changed values
+\fBlinuxcnctop\fR shows the LinuxCNC state in a format similar to the Linux
+"top" command: one row per status field, with recently changed values
 highlighted.
 
-It is a web application served by the running controller, opened in a window by
-\fBgmcui\fR(1). The server is taken from the \fBGMC_REST_URL\fR environment
-variable (default http://127.0.0.1:5080) and the task instance from
-\fBGMC_INSTANCE\fR (default \fImilltask\fR); the same page can be opened in any
-browser at \fI/app/linuxcnctop/\fR.
+With no arguments it opens the status window, replacing itself with
+\fBlinuxcnctop\-ui\fR(1). With \fB\-t\fR it prints the status to standard output
+instead \(em for machines without a display, for scripts, and for pasting state
+into a bug report. Any text\-mode option (\fB\-\-json\fR, \fB\-n\fR,
+\fB\-\-full\fR) implies \fB\-t\fR.
 
-Lengths are displayed in millimetres, the unit the controller keeps internally,
+The text output is one \fIname value\fR line per status field, using the classic
+field names \fBlinuxcnc.stat()\fR always exposed. \fB\-\-json\fR prints the raw
+status snapshot instead, whose field paths are the ones the window displays.
+
+Lengths are reported in millimetres, the unit the controller keeps internally,
 regardless of the machine's configured units.
 
-For a headless machine or for pasting into a bug report, use
-\fBlinuxcnctop\-dump\fR(1), which prints the same status as text.
-
+If the controller cannot be reached, \fBlinuxcnctop\fR reports the failure on
+standard error and exits non\-zero rather than printing a stale or empty
+machine.
+.SH OPTIONS
+.TP
+\fB\-t\fR, \fB\-\-text\fR
+Print the status as text instead of opening the window.
+.TP
+\fB\-\-json\fR
+Print the raw \fIStatFull\fR snapshot from the REST API as indented JSON.
+Implies \fB\-t\fR.
+.TP
+\fB\-n\fR, \fB\-\-interval\fR \fISEC\fR
+Repeat every \fISEC\fR seconds until interrupted. Implies \fB\-t\fR. In this
+mode an unreachable controller is reported and waited out rather than being
+fatal, so the command can be started before the machine is up.
+.TP
+\fB\-\-full\fR
+Do not truncate values to 58 columns. Implies \fB\-t\fR.
+.TP
+\fB\-\-url\fR \fIURL\fR, \fB\-\-title\fR \fITITLE\fR, \fB\-\-width\fR \fIW\fR, \fB\-\-height\fR \fIH\fR
+Passed through to \fBlinuxcnctop\-ui\fR(1) when opening the window.
+.TP
+\fB\-\-instance\fR \fINAME\fR
+Query the named task instance. Defaults to \fB$GMC_INSTANCE\fR, or
+\fImilltask\fR if that is unset.
+.SH ENVIRONMENT
+.TP
+.B GMC_REST_URL
+Base URL of the controller's REST API (default http://127.0.0.1:5080).
+.TP
+.B GMC_INSTANCE
+Default task instance name.
+.SH EXAMPLES
+Open the status window (what AXIS's Machine > Show LinuxCNC Status does, though
+it calls \fBlinuxcnctop\-ui\fR directly):
+.PP
+.RS
+linuxcnctop
+.RE
+.PP
+Print the status once:
+.PP
+.RS
+linuxcnctop \-t
+.RE
+.PP
+Watch the status once a second, untruncated:
+.PP
+.RS
+linuxcnctop \-n 1 \-\-full
+.RE
+.PP
+Capture the raw snapshot for a bug report:
+.PP
+.RS
+linuxcnctop \-\-json > status.json
+.RE
+.SH NOTES
 It is more fully documented in the AXIS GUI documentation but can be run
 standalone or with other GUIs.
 http://linuxcnc.org/docs/html/gui/axis.html
-
 .SH "SEE ALSO"
-\fBlinuxcnctop\-dump(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
+\fBlinuxcnctop\-ui(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
 
 Much more information about LinuxCNC and HAL is available in the LinuxCNC
 and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.
 
-.SH BUGS
-None known at this time. 
-.PP
 .SH AUTHOR
 This man page written by andypugh, as part of the LinuxCNC project.
 .SH REPORTING BUGS
 Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
 .SH COPYRIGHT
-Copyright \(co 2020 andypugh.
+Copyright \(co 2020 andypugh, \(co 2026 Sascha Ittner.
 .br
 This is free software; see the source for copying conditions.  There is NO
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
