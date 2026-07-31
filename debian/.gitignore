@@ -13,5 +13,4 @@ stratumak.install
 stratumak.manpages
 
 *.debhelper
-shlibs.local
 stratumak.lintian-overrides

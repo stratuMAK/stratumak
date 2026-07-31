@@ -189,7 +189,13 @@ override_dh_fixperms:
 	DEB_HOST_ARCH=`dpkg-architecture -qDEB_HOST_ARCH` dh_python3
 
 override_dh_shlibdeps:
-	cat debian/@MAIN_PACKAGE_NAME@/DEBIAN/shlibs debian/shlibs.pre > debian/shlibs.local
+	# No debian/shlibs.local: it was a copy of the package's own DEBIAN/shlibs
+	# (which dpkg-shlibdeps already reads via debian/*/DEBIAN/shlibs) plus two
+	# entries for libncurses5 and libpth that nothing has needed for a decade.
+	# Its only remaining effect was a warning per unsplittable SONAME --
+	# dpkg-shlibdeps probes shlibs.local for every needed library and cannot
+	# derive a name/version from plugin names like hostmot2.so or libtk8.6.so.
+	# Verified: shlibs:Depends is byte-identical with and without it.
 	# -l needs an absolute path: given a relative one it reaches
 	# dpkg-shlibdeps as /debian/... and silently matches nothing, so the
 	# package's own libraries were never on the search path.
