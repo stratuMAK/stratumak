@@ -92,6 +92,12 @@ setup_menu_accel .menu.file end [_ "Reload tool _data"]
 .menu.file add separator
 
 .menu.file add command \
+        -command {exec classicladder &}
+setup_menu_accel .menu.file end [_ "_Ladder Editor..."]
+
+.menu.file add separator
+
+.menu.file add command \
 	-command {destroy .}
 setup_menu_accel .menu.file end [_ "_Quit"]
 
@@ -1792,6 +1798,7 @@ proc update_state {args} {
         {.menu.file "_Save G-code as..."}
     state  {$interp_state == $INTERP_IDLE && $taskfile != "" && $::has_editor} \
         {.menu.file "_Edit..."}
+    state  {$::has_ladder} {.menu.file "_Ladder Editor..."}
     state  {$taskfile != ""} {.menu.file "_Properties..."}
     state  {$interp_state == $INTERP_IDLE} .toolbar.file_open \
         {.menu.file "_Open..." "_Quit" "Recent _Files"} \
@@ -1958,6 +1965,7 @@ set listing_subfile ""
 set machine ""
 set task_state -1
 set has_editor 1
+set has_ladder 0
 set last_task_state 0
 set task_mode -1
 set task_paused 0

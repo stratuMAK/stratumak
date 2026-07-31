@@ -160,7 +160,13 @@ whether or not anything is looking at it, and closing the page leaves it
 running. Several people can have it open at once, and each sees the same
 program and the same live values.
 
-In AXIS you can open it from File/Ladder Editor...
+In AXIS you can open it from File/Ladder Editor..., which is greyed out when no
+ClassicLadder is loaded. Outside a GUI, the same interface opens in a window of
+its own:
+
+----
+classicladder
+----
 
 == The ClassicLadder web interface
 

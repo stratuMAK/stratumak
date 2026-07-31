@@ -40,6 +40,7 @@ static const app_profile_t profiles[] = {
     { "emccalib",  "/app/emccalib/",  "EMC Calibration",   900, 700 },
     { "tooledit",  "/app/tooledit/",  "Tool Editor",       900, 700 },
     { "latency",   "/app/latency/",   "RT Latency",       1100, 760 },
+    { "classicladder", "/app/classicladder/", "Classic Ladder", 1200, 900 },
     { NULL, NULL, NULL, 0, 0 }
 };
 
