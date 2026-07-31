@@ -276,14 +276,20 @@ CXXFLAGS += $(TOOL_NML_FLAG)
 ifeq ($(RUN_IN_PLACE),yes)
 LDFLAGS := -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) $(LIBTIRPC_LIBS) $(LDFLAGS)
 else
-# -L../lib as well as -rpath-link: -rpath-link only tells the linker where to
-# find the transitive dependencies OF shared libraries, it is not a search path
-# for -lfoo. Without it the installed build cannot resolve any tree library
-# named by a bare -lfoo (hal_parport's -lrtapi_parport, the hostmot2 cmods'
+# A -L as well as -rpath-link: -rpath-link only tells the linker where to find
+# the transitive dependencies OF shared libraries, it is not a search path for
+# -lfoo. Without it the installed build cannot resolve any tree library named
+# by a bare -lfoo (hal_parport's -lrtapi_parport, the hostmot2 cmods'
 # -lrtapi_core/-lrtapi_pci), while the run-in-place build could. -L leaves no
 # trace in the output, so this adds no build path to a shipped binary the way
 # an -rpath would.
-LDFLAGS := -L../lib -Wl,-rpath-link,../lib $(LIBTIRPC_LIBS) $(LDFLAGS)
+#
+# Absolute, like the run-in-place branch above: LDFLAGS reaches sub-builds that
+# run from their own directory (the EtherCAT master's autotools tree), where a
+# relative ../lib names nothing and libtool refuses it outright. LIB_DIR is no
+# use here — it is the install location (/usr/lib) in this branch — so derive
+# the build tree's lib from BASEPWD, which is this src/ directory.
+LDFLAGS := -L$(abspath $(BASEPWD)/../lib) -Wl,-rpath-link,../lib $(LIBTIRPC_LIBS) $(LDFLAGS)
 endif
 
 # Rules to make .o (object) files
