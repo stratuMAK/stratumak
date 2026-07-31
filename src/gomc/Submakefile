@@ -394,9 +394,14 @@ gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/hal
 		done
 	# Install cmodule headers (needed for modcompile --compile on installed systems)
 	$(DIR) $(DESTDIR)$(datadir)/linuxcnc/gomc/pkg/cmodule
+	# `if` rather than `[ -f ] && install`: with the latter, a name that does
+	# not match (cmodule.h has never existed) makes the last iteration exit
+	# non-zero, and with it the whole recipe.
 	$(Q)for f in gomc/pkg/cmodule/gomc_*.h gomc/pkg/cmodule/cmodule.h; do \
-		[ -f "$$f" ] && $(INSTALL) -m 0644 $$f \
-			$(DESTDIR)$(datadir)/linuxcnc/gomc/pkg/cmodule/$$(basename $$f); \
+		if [ -f "$$f" ]; then \
+			$(INSTALL) -m 0644 $$f \
+				$(DESTDIR)$(datadir)/linuxcnc/gomc/pkg/cmodule/$$(basename $$f); \
+		fi; \
 	done
 	# Install generated GMI headers and Go shims
 	$(Q)cd gomc && find generated -type f \( -name '*.h' -o -name '*.go' \) \
