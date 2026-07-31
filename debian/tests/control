@@ -1,7 +1,7 @@
 Tests: linuxcnc-test
-Depends: linuxcnc-uspace
+Depends: stratumak
 Restrictions: allow-stderr
 
 Tests: rs274-test
-Depends: linuxcnc-uspace
+Depends: stratumak
 Restrictions: flaky

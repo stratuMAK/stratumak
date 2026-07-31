@@ -36,7 +36,7 @@ esac
 
 set -e
 (
-echo "linuxcnc ($NEW_DEB_VERSION) $CODENAME; urgency=low"
+echo "stratumak ($NEW_DEB_VERSION) $CODENAME; urgency=low"
 echo
 git log --pretty=format:"  * %w(72,0,6)%s" $GIT_TAG..
 echo
