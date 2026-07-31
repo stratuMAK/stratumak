@@ -54,7 +54,7 @@ func TestSFC_TransitionFires(t *testing.T) {
 	testPrepareSequential(rt)
 
 	// Condition not yet true
-	rt.var_bits[0] = 0
+	rtVarBits(rt)[0] = 0
 	testRefreshSequentialPage(rt, 0)
 
 	if rt.steps[0].activated != 1 {
@@ -65,7 +65,7 @@ func TestSFC_TransitionFires(t *testing.T) {
 	}
 
 	// Set condition true
-	rt.var_bits[0] = 1
+	rtVarBits(rt)[0] = 1
 	testRefreshSequentialPage(rt, 0)
 
 	if rt.steps[0].activated != 0 {
@@ -102,7 +102,7 @@ func TestSFC_ANDDivergence(t *testing.T) {
 	rt.transitions[0].num_step_to_activ[2] = -1
 
 	testPrepareSequential(rt)
-	rt.var_bits[0] = 1
+	rtVarBits(rt)[0] = 1
 	testRefreshSequentialPage(rt, 0)
 
 	if rt.steps[0].activated != 0 {
@@ -143,7 +143,7 @@ func TestSFC_ANDConvergence(t *testing.T) {
 	rt.transitions[0].num_step_to_activ[1] = -1
 
 	testPrepareSequential(rt)
-	rt.var_bits[0] = 1
+	rtVarBits(rt)[0] = 1
 	testRefreshSequentialPage(rt, 0)
 
 	if rt.steps[0].activated != 0 {

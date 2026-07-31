@@ -17,7 +17,7 @@ import (
 func rungChain(t *testing.T, m *classicladder, section int) []int {
 	t.Helper()
 
-	sec := &m.rt.sections[section]
+	sec := &rtSections(m.rt)[section]
 	var order []int
 	idx := int(sec.first_rung)
 	for n := 0; n <= int(m.rt.sizes.nbr_rungs)+1; n++ {
@@ -28,7 +28,7 @@ func rungChain(t *testing.T, m *classicladder, section int) []int {
 		if idx == int(sec.last_rung) {
 			return order
 		}
-		idx = int(m.rt.rungs[idx].next_rung)
+		idx = int(rtRungs(m.rt)[idx].next_rung)
 	}
 	t.Fatalf("chain of section %d never reached lastRung; order so far %v", section, order)
 	return nil
@@ -48,7 +48,7 @@ func newStructModule(t *testing.T) *classicladder {
 
 func TestStruct_InsertRungKeepsChainOrdered(t *testing.T) {
 	m := newStructModule(t)
-	first := int(m.rt.sections[0].first_rung)
+	first := int(rtSections(m.rt)[0].first_rung)
 
 	second, err := m.InsertRung(int32(first))
 	if err != nil {
@@ -69,22 +69,22 @@ func TestStruct_InsertRungKeepsChainOrdered(t *testing.T) {
 			t.Fatalf("chain = %v, want %v", got, want)
 		}
 	}
-	if int(m.rt.sections[0].last_rung) != int(second) {
-		t.Errorf("lastRung = %d, want %d", m.rt.sections[0].last_rung, second)
+	if int(rtSections(m.rt)[0].last_rung) != int(second) {
+		t.Errorf("lastRung = %d, want %d", rtSections(m.rt)[0].last_rung, second)
 	}
 	// The backward links have to agree with the forward ones, or an editor
 	// walking up from a rung goes somewhere else.
 	for i := 1; i < len(got); i++ {
-		if int(m.rt.rungs[got[i]].prev_rung) != got[i-1] {
+		if int(rtRungs(m.rt)[got[i]].prev_rung) != got[i-1] {
 			t.Errorf("rung %d prevRung = %d, want %d",
-				got[i], m.rt.rungs[got[i]].prev_rung, got[i-1])
+				got[i], rtRungs(m.rt)[got[i]].prev_rung, got[i-1])
 		}
 	}
 }
 
 func TestStruct_InsertRungAppendsWithMinusOne(t *testing.T) {
 	m := newStructModule(t)
-	first := int(m.rt.sections[0].first_rung)
+	first := int(rtSections(m.rt)[0].first_rung)
 
 	added, err := m.InsertRung(-1)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestStruct_InsertRungAppendsWithMinusOne(t *testing.T) {
 
 func TestStruct_DeleteRungRelinks(t *testing.T) {
 	m := newStructModule(t)
-	a := int(m.rt.sections[0].first_rung)
+	a := int(rtSections(m.rt)[0].first_rung)
 	b, _ := m.InsertRung(int32(a))
 	c, _ := m.InsertRung(b)
 
@@ -109,7 +109,7 @@ func TestStruct_DeleteRungRelinks(t *testing.T) {
 	if len(got) != 2 || got[0] != a || got[1] != int(c) {
 		t.Fatalf("chain after deleting the middle = %v, want [%d %d]", got, a, c)
 	}
-	if m.rt.rungs[b].used != 0 {
+	if rtRungs(m.rt)[b].used != 0 {
 		t.Error("the deleted rung is still marked used")
 	}
 
@@ -117,9 +117,9 @@ func TestStruct_DeleteRungRelinks(t *testing.T) {
 	if _, err := m.DeleteRung(int32(a)); err != nil {
 		t.Fatalf("delete the first rung: %v", err)
 	}
-	if int(m.rt.sections[0].first_rung) != int(c) {
+	if int(rtSections(m.rt)[0].first_rung) != int(c) {
 		t.Errorf("firstRung = %d after deleting the head, want %d",
-			m.rt.sections[0].first_rung, c)
+			rtSections(m.rt)[0].first_rung, c)
 	}
 	got = rungChain(t, m, 0)
 	if len(got) != 1 || got[0] != int(c) {
@@ -131,7 +131,7 @@ func TestStruct_DeleteRungRelinks(t *testing.T) {
 // checking, so an empty section would evaluate a freed slot.
 func TestStruct_DeleteLastRungOfSectionRefused(t *testing.T) {
 	m := newStructModule(t)
-	only := int(m.rt.sections[0].first_rung)
+	only := int(rtSections(m.rt)[0].first_rung)
 
 	_, err := m.DeleteRung(int32(only))
 	if err == nil {
@@ -140,14 +140,14 @@ func TestStruct_DeleteLastRungOfSectionRefused(t *testing.T) {
 	if !errors.Is(err, syscall.EINVAL) {
 		t.Errorf("error = %v, want it to wrap EINVAL", err)
 	}
-	if m.rt.rungs[only].used == 0 {
+	if rtRungs(m.rt)[only].used == 0 {
 		t.Error("the rung was freed anyway")
 	}
 }
 
 func TestStruct_DeleteRungReleasesItsExpressions(t *testing.T) {
 	m := newStructModule(t)
-	a := int(m.rt.sections[0].first_rung)
+	a := int(rtSections(m.rt)[0].first_rung)
 	b, _ := m.InsertRung(int32(a))
 
 	exprs, _ := m.GetExpressions()
@@ -206,11 +206,11 @@ func TestStruct_AddSectionGivesItARung(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add section: %v", err)
 	}
-	sec := &m.rt.sections[idx]
+	sec := &rtSections(m.rt)[idx]
 	if sec.used == 0 {
 		t.Fatal("the new section is not marked used")
 	}
-	if m.rt.rungs[sec.first_rung].used == 0 {
+	if rtRungs(m.rt)[sec.first_rung].used == 0 {
 		t.Error("the new section's rung is not marked used")
 	}
 	if sec.first_rung != sec.last_rung {
@@ -218,7 +218,7 @@ func TestStruct_AddSectionGivesItARung(t *testing.T) {
 			sec.first_rung, sec.last_rung)
 	}
 	// And it must not have taken the rung of the section that already existed.
-	if int(sec.first_rung) == int(m.rt.sections[0].first_rung) {
+	if int(sec.first_rung) == int(rtSections(m.rt)[0].first_rung) {
 		t.Error("the new section reused another section's rung")
 	}
 }
@@ -242,27 +242,27 @@ func TestStruct_AddSectionRejectsDuplicates(t *testing.T) {
 
 func TestStruct_DeleteSectionFreesItsOwnRungs(t *testing.T) {
 	m := newStructModule(t)
-	keepRung := int(m.rt.sections[0].first_rung)
+	keepRung := int(rtSections(m.rt)[0].first_rung)
 
 	idx, err := m.AddSection("Second", 0, -1)
 	if err != nil {
 		t.Fatalf("add section: %v", err)
 	}
-	r1 := int(m.rt.sections[idx].first_rung)
+	r1 := int(rtSections(m.rt)[idx].first_rung)
 	r2, _ := m.InsertRung(int32(r1))
 
 	if _, err := m.DeleteSection(idx); err != nil {
 		t.Fatalf("delete section: %v", err)
 	}
-	if m.rt.sections[idx].used != 0 {
+	if rtSections(m.rt)[idx].used != 0 {
 		t.Error("the section is still marked used")
 	}
-	if m.rt.rungs[r1].used != 0 || m.rt.rungs[int(r2)].used != 0 {
+	if rtRungs(m.rt)[r1].used != 0 || rtRungs(m.rt)[int(r2)].used != 0 {
 		t.Error("the section's rungs were not freed")
 	}
 	// 2.9 walks the on-screen section's globals here, so deleting any other
 	// section frees the wrong rungs. The surviving section must be intact.
-	if m.rt.rungs[keepRung].used == 0 {
+	if rtRungs(m.rt)[keepRung].used == 0 {
 		t.Error("deleting one section freed another section's rung")
 	}
 	if chain := rungChain(t, m, 0); len(chain) != 1 || chain[0] != keepRung {
@@ -276,7 +276,7 @@ func TestStruct_DeleteLastSectionRefused(t *testing.T) {
 	if _, err := m.DeleteSection(0); err == nil {
 		t.Fatal("deleting the only section was allowed")
 	}
-	if m.rt.sections[0].used == 0 {
+	if rtSections(m.rt)[0].used == 0 {
 		t.Error("the section was freed anyway")
 	}
 }
@@ -292,9 +292,9 @@ func TestStruct_SequentialSectionGetsAFreePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add a second sequential section: %v", err)
 	}
-	if m.rt.sections[a].sequential_page == m.rt.sections[b].sequential_page {
+	if rtSections(m.rt)[a].sequential_page == rtSections(m.rt)[b].sequential_page {
 		t.Errorf("both charts got page %d; they must not share one",
-			m.rt.sections[a].sequential_page)
+			rtSections(m.rt)[a].sequential_page)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestValidate_ShippedProjectRoundTrips(t *testing.T) {
 
 func TestValidate_RejectsMalformedRungs(t *testing.T) {
 	m := newStructModule(t)
-	idx := int32(m.rt.sections[0].first_rung)
+	idx := int32(rtSections(m.rt)[0].first_rung)
 
 	base := func() *api.Rung {
 		r, err := m.GetRung(idx)
@@ -399,7 +399,7 @@ func TestValidate_RejectsMalformedRungs(t *testing.T) {
 // trips and takes the PLC down with it.
 func TestValidate_RejectsBrokenSectionChains(t *testing.T) {
 	m := newStructModule(t)
-	a := int(m.rt.sections[0].first_rung)
+	a := int(rtSections(m.rt)[0].first_rung)
 	b, _ := m.InsertRung(int32(a))
 
 	good, err := m.GetSection(0)
@@ -416,11 +416,11 @@ func TestValidate_RejectsBrokenSectionChains(t *testing.T) {
 		{"lastRung unreachable from firstRung", func(s *api.Section) {
 			// A rung that exists but is not on this chain.
 			free := m.findFreeRung()
-			m.rt.rungs[free].used = 1
+			rtRungs(m.rt)[free].used = 1
 			s.LastRung = int32(free)
 		}},
 		{"chain includes a freed rung", func(s *api.Section) {
-			m.rt.rungs[b].used = 0
+			rtRungs(m.rt)[b].used = 0
 			s.LastRung = b
 		}},
 		{"sequential page out of range", func(s *api.Section) {
@@ -438,7 +438,7 @@ func TestValidate_RejectsBrokenSectionChains(t *testing.T) {
 			}
 		})
 		// Undo whatever the case did to the rung array.
-		m.rt.rungs[b].used = 1
+		rtRungs(m.rt)[b].used = 1
 	}
 
 	// The valid one must still go through, or the check is just refusing
@@ -450,7 +450,7 @@ func TestValidate_RejectsBrokenSectionChains(t *testing.T) {
 
 func TestValidate_AcceptsWellFormedRungs(t *testing.T) {
 	m := newStructModule(t)
-	idx := int32(m.rt.sections[0].first_rung)
+	idx := int32(rtSections(m.rt)[0].first_rung)
 
 	r, err := m.GetRung(idx)
 	if err != nil {

@@ -24,25 +24,39 @@
 #include "hal.h"
 #include "rtapi.h"
 
-/* --- Sizing constants (defaults, overridable via config) --- */
+/* --- Sizing defaults --- *
+ *
+ * The size-configurable arrays are allocated to their exact configured count
+ * by classicladder_rt_alloc (2.9 sized its shared memory the same way), so
+ * the CL_MAX_* names below are only the defaults a `load classicladder` line
+ * gets without an explicit numXxx= argument.  The sequential chart arrays
+ * (steps, transitions, comments, pages) stay compile-time fixed: they are not
+ * configurable, and the variable regions derived from CL_MAX_STEPS must mean
+ * the same thing in every project file. */
 
-#define CL_MAX_RUNGS            100
-#define CL_MAX_BITS             500
-#define CL_MAX_WORDS            100
-#define CL_MAX_TIMERS           10
-#define CL_MAX_MONOSTABLES      10
-#define CL_MAX_COUNTERS         10
-#define CL_MAX_TIMERS_IEC       10
-#define CL_MAX_PHYS_INPUTS      50
-#define CL_MAX_PHYS_OUTPUTS     50
-#define CL_MAX_ARITHM_EXPR      100
-#define CL_MAX_SECTIONS         10
-#define CL_MAX_SYMBOLS          200
-#define CL_MAX_S32_IN           10
-#define CL_MAX_S32_OUT          10
-#define CL_MAX_FLOAT_IN         10
-#define CL_MAX_FLOAT_OUT        10
-#define CL_MAX_ERROR_BITS       10
+#define CL_DEF_RUNGS            100
+#define CL_DEF_BITS             100
+#define CL_DEF_WORDS            100
+#define CL_DEF_TIMERS           10
+#define CL_DEF_MONOSTABLES      10
+#define CL_DEF_COUNTERS         10
+#define CL_DEF_TIMERS_IEC       10
+#define CL_DEF_PHYS_INPUTS      15
+#define CL_DEF_PHYS_OUTPUTS     15
+#define CL_DEF_ARITHM_EXPR      100
+#define CL_DEF_SECTIONS         10
+#define CL_DEF_SYMBOLS          200
+#define CL_DEF_S32_IN           10
+#define CL_DEF_S32_OUT          10
+#define CL_DEF_FLOAT_IN         10
+#define CL_DEF_FLOAT_OUT        10
+#define CL_DEF_ERROR_BITS       10
+
+/* Ceiling on every configured count — not a semantic limit, just a sanity
+ * cap so a typo'd load line fails at load time instead of allocating
+ * gigabytes or overflowing the offset math. */
+#define CL_SIZE_LIMIT           100000
+
 #define CL_MAX_STEPS            128
 #define CL_MAX_TRANSITIONS      256
 #define CL_MAX_SWITCHS          10
@@ -346,11 +360,24 @@ typedef struct {
     int nbr_error_bits;
 } cl_sizes_t;
 
-/* Main RT instance — allocated by Go, shared with RT function */
+/* Main RT instance.
+ *
+ * Allocated by classicladder_rt_alloc as ONE block: this header struct
+ * followed by the size-configurable arrays, with the pointer fields below
+ * aiming into that trailing region.  classicladder_rt_free is a single
+ * free().  The sequential chart arrays are compile-time fixed and stay
+ * inline.
+ *
+ * Ownership: Go mutates program data (rungs, sections, expressions, SFC
+ * structures, symbols) under the module mutex; the RT scan walks them
+ * lock-free and writes the per-element dynamic_* fields, the block and
+ * variable state, and — via the runaway guard — `state`.  Structural
+ * mutations must therefore publish in the documented order (see
+ * structure.go); everything the scan writes is glitch-tolerant for readers
+ * that hold no lock. */
 typedef struct {
     /* State (atomic for RT/Go coordination) */
     _Atomic int         state;          /* CL_STATE_xxx */
-    _Atomic int         hide_gui;
     _Atomic int32_t     duration_of_last_scan_ns;
     _Atomic uint32_t    generation;     /* bumped on any program change */
 
@@ -362,39 +389,45 @@ typedef struct {
     int                 last_rung;
     int                 current_rung;
 
-    /* Program data — protected by mutex in Go; RT reads only */
-    cl_rung_t           rungs[CL_MAX_RUNGS];
-    cl_section_t        sections[CL_MAX_SECTIONS];
-    cl_arithm_expr_t    arithm_exprs[CL_MAX_ARITHM_EXPR];
-    cl_compiled_expr_t  compiled_exprs[CL_MAX_ARITHM_EXPR];
+    /* Total lengths of the packed variable arrays, derived from `sizes` by
+     * classicladder_rt_alloc so Go and C size their views identically. */
+    int                 var_bits_count;
+    int                 var_words_count;
+    int                 var_floats_count;
 
-    /* Sequential (SFC) data */
+    /* Program data — written by Go under the module mutex, walked lock-free
+     * by the RT scan (which also writes the elements' dynamic_* fields) */
+    cl_rung_t          *rungs;           /* [sizes.nbr_rungs] */
+    cl_section_t       *sections;        /* [sizes.nbr_sections] */
+    cl_arithm_expr_t   *arithm_exprs;    /* [sizes.nbr_arithm_expr] */
+    cl_compiled_expr_t *compiled_exprs;  /* [sizes.nbr_arithm_expr] */
+
+    /* Sequential (SFC) data — fixed size, inline */
     cl_step_t           steps[CL_MAX_STEPS];
     cl_transition_t     transitions[CL_MAX_TRANSITIONS];
     cl_seq_comment_t    seq_comments[CL_MAX_SEQ_COMMENTS];
 
     /* Runtime data — written by RT, read by Go for monitoring */
-    cl_timer_t          timers[CL_MAX_TIMERS];
-    cl_monostable_t     monostables[CL_MAX_MONOSTABLES];
-    cl_counter_t        counters[CL_MAX_COUNTERS];
-    cl_timer_iec_t      timers_iec[CL_MAX_TIMERS_IEC];
+    cl_timer_t         *timers;          /* [sizes.nbr_timers] */
+    cl_monostable_t    *monostables;     /* [sizes.nbr_monostables] */
+    cl_counter_t       *counters;        /* [sizes.nbr_counters] */
+    cl_timer_iec_t     *timers_iec;      /* [sizes.nbr_timers_iec] */
 
-    /* Variable arrays — written by RT */
-    char    var_bits[CL_MAX_BITS + CL_MAX_PHYS_INPUTS + CL_MAX_PHYS_OUTPUTS + CL_MAX_STEPS + CL_MAX_ERROR_BITS];
-    int32_t var_words[CL_MAX_WORDS + CL_MAX_S32_IN + CL_MAX_S32_OUT + CL_MAX_STEPS];
-    double  var_floats[CL_MAX_FLOAT_IN + CL_MAX_FLOAT_OUT];
+    /* Variable arrays — written by RT; packed regions per cl_var_region_size */
+    char               *var_bits;        /* [var_bits_count] */
+    int32_t            *var_words;       /* [var_words_count] */
+    double             *var_floats;      /* [var_floats_count] */
 
     /* Symbol table (non-RT, for UI) */
-    cl_symbol_t         symbols[CL_MAX_SYMBOLS];
+    cl_symbol_t        *symbols;         /* [sizes.nbr_symbols] */
 
     /* HAL pin pointers (set up during init, used by RT) */
-    hal_bit_t          *hal_inputs[CL_MAX_PHYS_INPUTS];
-    hal_bit_t          *hal_outputs[CL_MAX_PHYS_OUTPUTS];
-    hal_s32_t          *hal_s32_inputs[CL_MAX_S32_IN];
-    hal_s32_t          *hal_s32_outputs[CL_MAX_S32_OUT];
-    hal_float_t        *hal_float_inputs[CL_MAX_FLOAT_IN];
-    hal_float_t        *hal_float_outputs[CL_MAX_FLOAT_OUT];
-    hal_bit_t          *hal_hide_gui;
+    hal_bit_t         **hal_inputs;        /* [sizes.nbr_phys_inputs] */
+    hal_bit_t         **hal_outputs;       /* [sizes.nbr_phys_outputs] */
+    hal_s32_t         **hal_s32_inputs;    /* [sizes.nbr_s32_in] */
+    hal_s32_t         **hal_s32_outputs;   /* [sizes.nbr_s32_out] */
+    hal_float_t       **hal_float_inputs;  /* [sizes.nbr_float_in] */
+    hal_float_t       **hal_float_outputs; /* [sizes.nbr_float_out] */
 } classicladder_rt_t;
 
 /* --- RT functions (called from HAL thread) --- */
@@ -408,7 +441,9 @@ void classicladder_refresh(void *arg, long period);
  * and the sub-millisecond period accounting. */
 void cl_scan(classicladder_rt_t *rt, int ms_elapsed);
 
-/* Allocate and initialize a classicladder_rt_t instance. */
+/* Allocate and initialize a classicladder_rt_t instance sized to *sizes.
+ * Returns NULL if any count is negative, above CL_SIZE_LIMIT, or if
+ * nbr_rungs/nbr_sections is < 1 (the scan reads both unconditionally). */
 classicladder_rt_t *classicladder_rt_alloc(const cl_sizes_t *sizes);
 
 /* Free an instance. */

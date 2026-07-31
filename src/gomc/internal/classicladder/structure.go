@@ -30,7 +30,7 @@ import (
 // findFreeRung returns the index of an unused rung slot, or -1.
 func (m *classicladder) findFreeRung() int {
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		if m.rt.rungs[i].used == 0 {
+		if rtRungs(m.rt)[i].used == 0 {
 			return i
 		}
 	}
@@ -40,7 +40,7 @@ func (m *classicladder) findFreeRung() int {
 // sectionOfRung finds the section whose chain contains this rung.
 func (m *classicladder) sectionOfRung(rung int) int {
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		sec := &m.rt.sections[s]
+		sec := &rtSections(m.rt)[s]
 		if sec.used == 0 || sec.language != C.CL_SECTION_LADDER {
 			continue
 		}
@@ -52,7 +52,7 @@ func (m *classicladder) sectionOfRung(rung int) int {
 			if idx == int(sec.last_rung) || idx < 0 || idx >= int(m.rt.sizes.nbr_rungs) {
 				break
 			}
-			idx = int(m.rt.rungs[idx].next_rung)
+			idx = int(rtRungs(m.rt)[idx].next_rung)
 		}
 	}
 	return -1
@@ -61,7 +61,7 @@ func (m *classicladder) sectionOfRung(rung int) int {
 // firstLadderSection returns the index of the first main ladder section, or -1.
 func (m *classicladder) firstLadderSection() int {
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		if m.rt.sections[s].used != 0 && m.rt.sections[s].language == C.CL_SECTION_LADDER {
+		if rtSections(m.rt)[s].used != 0 && rtSections(m.rt)[s].language == C.CL_SECTION_LADDER {
 			return s
 		}
 	}
@@ -70,7 +70,7 @@ func (m *classicladder) firstLadderSection() int {
 
 // clearRung empties a rung, leaving it unused.
 func (m *classicladder) clearRung(idx int) {
-	r := &m.rt.rungs[idx]
+	r := &rtRungs(m.rt)[idx]
 	*r = C.cl_rung_t{}
 	r.prev_rung = C.int(idx)
 	r.next_rung = C.int(idx)
@@ -83,7 +83,7 @@ func (m *classicladder) clearRung(idx int) {
 func (m *classicladder) releaseRungExpressions(idx int) {
 	for x := 0; x < C.CL_RUNG_WIDTH; x++ {
 		for y := 0; y < C.CL_RUNG_HEIGHT; y++ {
-			e := &m.rt.rungs[idx].elements[x][y]
+			e := &rtRungs(m.rt)[idx].elements[x][y]
 			if e._type != C.CL_ELE_COMPAR && e._type != C.CL_ELE_OUTPUT_OPERATE {
 				continue
 			}
@@ -94,9 +94,9 @@ func (m *classicladder) releaseRungExpressions(idx int) {
 			if m.expressionUsedElsewhere(num, idx) {
 				continue
 			}
-			m.rt.arithm_exprs[num].expr[0] = 0
-			m.rt.compiled_exprs[num].valid = 0
-			m.rt.compiled_exprs[num].len = 0
+			rtArithmExprs(m.rt)[num].expr[0] = 0
+			rtCompiledExprs(m.rt)[num].valid = 0
+			rtCompiledExprs(m.rt)[num].len = 0
 		}
 	}
 }
@@ -105,12 +105,12 @@ func (m *classicladder) releaseRungExpressions(idx int) {
 // to this expression index.
 func (m *classicladder) expressionUsedElsewhere(exprNum, exceptRung int) bool {
 	for r := 0; r < int(m.rt.sizes.nbr_rungs); r++ {
-		if r == exceptRung || m.rt.rungs[r].used == 0 {
+		if r == exceptRung || rtRungs(m.rt)[r].used == 0 {
 			continue
 		}
 		for x := 0; x < C.CL_RUNG_WIDTH; x++ {
 			for y := 0; y < C.CL_RUNG_HEIGHT; y++ {
-				e := &m.rt.rungs[r].elements[x][y]
+				e := &rtRungs(m.rt)[r].elements[x][y]
 				if (e._type == C.CL_ELE_COMPAR || e._type == C.CL_ELE_OUTPUT_OPERATE) &&
 					int(e.var_num) == exprNum {
 					return true
@@ -130,9 +130,9 @@ func (m *classicladder) insertRungAfter(afterRung int) (int, error) {
 		if sec < 0 {
 			return -1, fmt.Errorf("%w: no ladder section to add a rung to", syscall.EINVAL)
 		}
-		afterRung = int(m.rt.sections[sec].last_rung)
+		afterRung = int(rtSections(m.rt)[sec].last_rung)
 	} else {
-		if afterRung >= int(m.rt.sizes.nbr_rungs) || m.rt.rungs[afterRung].used == 0 {
+		if afterRung >= int(m.rt.sizes.nbr_rungs) || rtRungs(m.rt)[afterRung].used == 0 {
 			return -1, fmt.Errorf("%w: rung %d is not in use", syscall.EINVAL, afterRung)
 		}
 		sec = m.sectionOfRung(afterRung)
@@ -146,26 +146,26 @@ func (m *classicladder) insertRungAfter(afterRung int) (int, error) {
 		return -1, fmt.Errorf("%w: no free rung slot", syscall.ENOSPC)
 	}
 
-	section := &m.rt.sections[sec]
+	section := &rtSections(m.rt)[sec]
 	wasLast := afterRung == int(section.last_rung)
-	next := int(m.rt.rungs[afterRung].next_rung)
+	next := int(rtRungs(m.rt)[afterRung].next_rung)
 
 	// Fill the new rung in completely before anything points at it: a
 	// concurrent scan cannot reach it yet, so it sees no intermediate state.
 	m.clearRung(newRung)
-	m.rt.rungs[newRung].used = 1
-	m.rt.rungs[newRung].prev_rung = C.int(afterRung)
+	rtRungs(m.rt)[newRung].used = 1
+	rtRungs(m.rt)[newRung].prev_rung = C.int(afterRung)
 	if wasLast {
-		m.rt.rungs[newRung].next_rung = C.int(newRung)
+		rtRungs(m.rt)[newRung].next_rung = C.int(newRung)
 	} else {
-		m.rt.rungs[newRung].next_rung = C.int(next)
-		m.rt.rungs[next].prev_rung = C.int(newRung)
+		rtRungs(m.rt)[newRung].next_rung = C.int(next)
+		rtRungs(m.rt)[next].prev_rung = C.int(newRung)
 	}
 
 	// Publish. The scan follows next_rung, so this is the instant the new rung
 	// joins the program; lastRung moves after it, never before, or the scan
 	// would look for an end that nothing points to yet.
-	m.rt.rungs[afterRung].next_rung = C.int(newRung)
+	rtRungs(m.rt)[afterRung].next_rung = C.int(newRung)
 	if wasLast {
 		section.last_rung = C.int(newRung)
 	}
@@ -174,14 +174,14 @@ func (m *classicladder) insertRungAfter(afterRung int) (int, error) {
 
 // deleteRung unlinks a rung from its section and frees it.
 func (m *classicladder) deleteRung(idx int) error {
-	if idx < 0 || idx >= int(m.rt.sizes.nbr_rungs) || m.rt.rungs[idx].used == 0 {
+	if idx < 0 || idx >= int(m.rt.sizes.nbr_rungs) || rtRungs(m.rt)[idx].used == 0 {
 		return fmt.Errorf("%w: rung %d is not in use", syscall.EINVAL, idx)
 	}
 	sec := m.sectionOfRung(idx)
 	if sec < 0 {
 		return fmt.Errorf("%w: rung %d belongs to no section", syscall.EINVAL, idx)
 	}
-	section := &m.rt.sections[sec]
+	section := &rtSections(m.rt)[sec]
 
 	// A section always holds at least one rung: the scan starts at firstRung
 	// unconditionally, so an empty section would evaluate a freed slot.
@@ -190,20 +190,20 @@ func (m *classicladder) deleteRung(idx int) error {
 			syscall.EINVAL, idx)
 	}
 
-	prev := int(m.rt.rungs[idx].prev_rung)
-	next := int(m.rt.rungs[idx].next_rung)
+	prev := int(rtRungs(m.rt)[idx].prev_rung)
+	next := int(rtRungs(m.rt)[idx].next_rung)
 
 	// Take it out of the forward chain first — that is the direction the scan
 	// walks, so after this it can no longer reach the rung.
 	if int(section.first_rung) == idx {
 		section.first_rung = C.int(next)
 	} else {
-		m.rt.rungs[prev].next_rung = C.int(next)
+		rtRungs(m.rt)[prev].next_rung = C.int(next)
 	}
 	if int(section.last_rung) == idx {
 		section.last_rung = C.int(prev)
 	} else {
-		m.rt.rungs[next].prev_rung = C.int(prev)
+		rtRungs(m.rt)[next].prev_rung = C.int(prev)
 	}
 
 	m.releaseRungExpressions(idx)
@@ -226,7 +226,7 @@ func (m *classicladder) addSection(name string, language int, subRoutineNumber i
 
 	free := -1
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		if m.rt.sections[s].used == 0 {
+		if rtSections(m.rt)[s].used == 0 {
 			free = s
 			break
 		}
@@ -235,7 +235,7 @@ func (m *classicladder) addSection(name string, language int, subRoutineNumber i
 		return -1, fmt.Errorf("%w: no free section slot", syscall.ENOSPC)
 	}
 
-	sec := &m.rt.sections[free]
+	sec := &rtSections(m.rt)[free]
 	*sec = C.cl_section_t{}
 	copyStringToC(&sec.name[0], name, C.CL_LGT_SECTION_NAME)
 	sec.language = C.int(language)
@@ -251,7 +251,7 @@ func (m *classicladder) addSection(name string, language int, subRoutineNumber i
 			return -1, fmt.Errorf("%w: no free rung slot for the new section", syscall.ENOSPC)
 		}
 		m.clearRung(rung)
-		m.rt.rungs[rung].used = 1
+		rtRungs(m.rt)[rung].used = 1
 		sec.first_rung = C.int(rung)
 		sec.last_rung = C.int(rung)
 	case C.CL_SECTION_SEQUENTIAL:
@@ -274,7 +274,7 @@ func (m *classicladder) addSection(name string, language int, subRoutineNumber i
 
 // deleteSection frees a section and the rungs it holds.
 func (m *classicladder) deleteSection(idx int) error {
-	if idx < 0 || idx >= int(m.rt.sizes.nbr_sections) || m.rt.sections[idx].used == 0 {
+	if idx < 0 || idx >= int(m.rt.sizes.nbr_sections) || rtSections(m.rt)[idx].used == 0 {
 		return fmt.Errorf("%w: section %d is not in use", syscall.EINVAL, idx)
 	}
 	if m.usedSectionCount() <= 1 {
@@ -282,7 +282,7 @@ func (m *classicladder) deleteSection(idx int) error {
 			syscall.EINVAL, idx)
 	}
 
-	sec := &m.rt.sections[idx]
+	sec := &rtSections(m.rt)[idx]
 	// Unlink first: once used is clear the scan skips the section, so the
 	// rungs can be freed without it walking a chain that is being dismantled.
 	sec.used = 0
@@ -297,7 +297,7 @@ func (m *classicladder) deleteSection(idx int) error {
 				break
 			}
 			last := idxRung == int(sec.last_rung)
-			next := int(m.rt.rungs[idxRung].next_rung)
+			next := int(rtRungs(m.rt)[idxRung].next_rung)
 			m.releaseRungExpressions(idxRung)
 			m.clearRung(idxRung)
 			if last {
@@ -345,14 +345,14 @@ func (m *classicladder) validateSectionChain(index int, s *api.Section) error {
 	// within the number of rungs that exist.
 	idx := first
 	for n := 0; n <= nbr; n++ {
-		if m.rt.rungs[idx].used == 0 {
+		if rtRungs(m.rt)[idx].used == 0 {
 			return fmt.Errorf("%w: section %d: rung %d in its chain is not in use",
 				syscall.EINVAL, index, idx)
 		}
 		if idx == last {
 			return nil
 		}
-		next := int(m.rt.rungs[idx].next_rung)
+		next := int(rtRungs(m.rt)[idx].next_rung)
 		if next < 0 || next >= nbr {
 			return fmt.Errorf("%w: section %d: rung %d links to %d, which does not exist",
 				syscall.EINVAL, index, idx, next)
@@ -366,10 +366,10 @@ func (m *classicladder) validateSectionChain(index int, s *api.Section) error {
 // sectionNamed returns the index of the section with this name, or -1.
 func (m *classicladder) sectionNamed(name string) int {
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		if m.rt.sections[s].used == 0 {
+		if rtSections(m.rt)[s].used == 0 {
 			continue
 		}
-		if C.GoString(&m.rt.sections[s].name[0]) == name {
+		if C.GoString(&rtSections(m.rt)[s].name[0]) == name {
 			return s
 		}
 	}
@@ -380,7 +380,7 @@ func (m *classicladder) sectionNamed(name string) int {
 // number, or -1.
 func (m *classicladder) subRoutineSection(nbr int) int {
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		if m.rt.sections[s].used != 0 && int(m.rt.sections[s].sub_routine_number) == nbr {
+		if rtSections(m.rt)[s].used != 0 && int(rtSections(m.rt)[s].sub_routine_number) == nbr {
 			return s
 		}
 	}
@@ -390,7 +390,7 @@ func (m *classicladder) subRoutineSection(nbr int) int {
 func (m *classicladder) usedSectionCount() int {
 	n := 0
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		if m.rt.sections[s].used != 0 {
+		if rtSections(m.rt)[s].used != 0 {
 			n++
 		}
 	}
@@ -401,7 +401,7 @@ func (m *classicladder) usedSectionCount() int {
 func (m *classicladder) freeSequentialPage() int {
 	used := make([]bool, C.CL_MAX_SEQ_PAGES)
 	for s := 0; s < int(m.rt.sizes.nbr_sections); s++ {
-		sec := &m.rt.sections[s]
+		sec := &rtSections(m.rt)[s]
 		if sec.used == 0 || sec.language != C.CL_SECTION_SEQUENTIAL {
 			continue
 		}

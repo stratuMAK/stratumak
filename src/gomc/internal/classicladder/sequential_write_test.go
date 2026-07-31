@@ -83,10 +83,10 @@ func TestSetSequential_StartsFromTheInitialSteps(t *testing.T) {
 	m := newTestModule(t)
 	l := &ladderRT{rt: m.rt}
 	seq := chartFrom(t, m, branchedChart)
-	m.rt.sections[0].used = 1
-	m.rt.sections[0].language = 1 // SEQUENTIAL
-	m.rt.sections[0].sub_routine_number = -1
-	m.rt.sections[0].sequential_page = 0
+	rtSections(m.rt)[0].used = 1
+	rtSections(m.rt)[0].language = 1 // SEQUENTIAL
+	rtSections(m.rt)[0].sub_routine_number = -1
+	rtSections(m.rt)[0].sequential_page = 0
 	l.prepareRun()
 
 	// Walk off the initial step, so there is something to reset. The first

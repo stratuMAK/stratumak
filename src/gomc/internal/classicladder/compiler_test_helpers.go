@@ -38,7 +38,7 @@ func evalCompiledForTest(ce C.cl_compiled_expr_t) bool {
 	defer C.classicladder_rt_free(rt)
 
 	// Place the compiled expression at index 0
-	rt.compiled_exprs[0] = ce
+	rtCompiledExprs(rt)[0] = ce
 
 	result := C.cl_eval_compare(rt, 0)
 	return result != 0
@@ -72,10 +72,10 @@ func evalOperateForTest(ce C.cl_compiled_expr_t, offset int) int32 {
 	}
 	defer C.classicladder_rt_free(rt)
 
-	rt.compiled_exprs[0] = ce
+	rtCompiledExprs(rt)[0] = ce
 	C.cl_eval_operate(rt, 0)
 
-	return int32(rt.var_words[offset])
+	return int32(rtVarWords(rt)[offset])
 }
 
 // newTestRT allocates a minimal RT instance for tests.
@@ -122,5 +122,5 @@ func testRefreshSequentialPage(rt *C.classicladder_rt_t, page int) {
 // storedExpr reads back an expression in the form the engine holds it
 // ("@200/0@:=7"), so a test can tell a stored write from a converted one.
 func storedExpr(m *classicladder, idx int) string {
-	return C.GoString(&m.rt.arithm_exprs[idx].expr[0])
+	return C.GoString(&rtArithmExprs(m.rt)[idx].expr[0])
 }

@@ -625,7 +625,7 @@ func compileExprList(exprs []string) ([]C.cl_compiled_expr_t, error) {
 // configured expression count are dropped, matching how the strings are stored.
 func (cl *classicladder) installExprCode(code []C.cl_compiled_expr_t) {
 	for i := 0; i < len(code) && i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
-		cl.rt.compiled_exprs[i] = code[i]
+		rtCompiledExprs(cl.rt)[i] = code[i]
 	}
 }
 
@@ -637,19 +637,19 @@ func (cl *classicladder) installExprCode(code []C.cl_compiled_expr_t) {
 func (cl *classicladder) compileAllExpressions() []error {
 	var errs []error
 	for i := 0; i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
-		expr := C.GoString(&cl.rt.arithm_exprs[i].expr[0])
+		expr := C.GoString(&rtArithmExprs(cl.rt)[i].expr[0])
 		if expr == "" {
-			cl.rt.compiled_exprs[i].valid = 0
-			cl.rt.compiled_exprs[i].len = 0
+			rtCompiledExprs(cl.rt)[i].valid = 0
+			rtCompiledExprs(cl.rt)[i].len = 0
 			continue
 		}
 		ce, err := compileOne(expr)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("expr[%d]: %w", i, err))
-			cl.rt.compiled_exprs[i].valid = 0
+			rtCompiledExprs(cl.rt)[i].valid = 0
 			continue
 		}
-		cl.rt.compiled_exprs[i] = ce
+		rtCompiledExprs(cl.rt)[i] = ce
 	}
 	return errs
 }

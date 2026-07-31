@@ -21,10 +21,10 @@ func TestSetTimer_ScalesPresetByBase(t *testing.T) {
 	if _, err := m.SetTimer(2, 5, api.BASE_SECS); err != nil {
 		t.Fatalf("set timer: %v", err)
 	}
-	if got := int(m.rt.timers[2].preset); got != 5000 {
+	if got := int(rtTimers(m.rt)[2].preset); got != 5000 {
 		t.Errorf("engine preset = %dms, want 5000 — 5 units of a 1000ms base", got)
 	}
-	if got := int(m.rt.timers[2].base); got != 1000 {
+	if got := int(rtTimers(m.rt)[2].base); got != 1000 {
 		t.Errorf("engine base = %dms, want 1000", got)
 	}
 
@@ -47,7 +47,7 @@ func TestSetMonostable_ScalesPresetByBase(t *testing.T) {
 	if _, err := m.SetMonostable(0, 3, api.BASE_100MS); err != nil {
 		t.Fatalf("set monostable: %v", err)
 	}
-	if got := int(m.rt.monostables[0].preset); got != 300 {
+	if got := int(rtMonostables(m.rt)[0].preset); got != 300 {
 		t.Errorf("engine preset = %dms, want 300 — 3 units of a 100ms base", got)
 	}
 
@@ -68,10 +68,10 @@ func TestSetTimerIec_PresetIsUnscaled(t *testing.T) {
 	if _, err := m.SetTimerIec(1, 7, api.BASE_SECS, api.TimerIECMode_TOF); err != nil {
 		t.Fatalf("set IEC timer: %v", err)
 	}
-	if got := int(m.rt.timers_iec[1].preset); got != 7 {
+	if got := int(rtTimersIec(m.rt)[1].preset); got != 7 {
 		t.Errorf("engine preset = %d, want 7 — IEC presets count in base units", got)
 	}
-	if got := int(m.rt.timers_iec[1].base); got != 1000 {
+	if got := int(rtTimersIec(m.rt)[1].base); got != 1000 {
 		t.Errorf("engine base = %dms, want 1000", got)
 	}
 
@@ -90,7 +90,7 @@ func TestSetCounter_Preset(t *testing.T) {
 	if _, err := m.SetCounter(4, 25); err != nil {
 		t.Fatalf("set counter: %v", err)
 	}
-	if got := int(m.rt.counters[4].preset); got != 25 {
+	if got := int(rtCounters(m.rt)[4].preset); got != 25 {
 		t.Errorf("engine preset = %d, want 25", got)
 	}
 }
@@ -102,7 +102,7 @@ func TestSetCounter_Preset(t *testing.T) {
 func TestSetBlock_RejectsUnknownBase(t *testing.T) {
 	m := newTestModule(t)
 
-	m.rt.timers[0].preset = 1234
+	rtTimers(m.rt)[0].preset = 1234
 	rc, err := m.SetTimer(0, 5, 42)
 	if err == nil {
 		t.Fatal("set timer with base 42 succeeded; want a refusal")
@@ -113,7 +113,7 @@ func TestSetBlock_RejectsUnknownBase(t *testing.T) {
 	if rc != -1 {
 		t.Errorf("rc = %d, want -1", rc)
 	}
-	if got := int(m.rt.timers[0].preset); got != 1234 {
+	if got := int(rtTimers(m.rt)[0].preset); got != 1234 {
 		t.Errorf("timer preset changed to %d despite the refusal", got)
 	}
 
@@ -177,7 +177,7 @@ func TestSetExpressionText_CompilesTheEntry(t *testing.T) {
 
 	l := &ladderRT{rt: m.rt}
 	l.putBlock(0, 2, 0, eleOutputOperate, 0, 3, 1)
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 	l.scan(1)
 
@@ -209,7 +209,7 @@ func TestSetExpressionText_EmptyClears(t *testing.T) {
 
 	l := &ladderRT{rt: m.rt}
 	l.putBlock(0, 2, 0, eleOutputOperate, 0, 3, 1)
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 	l.writeVar(varMemWord, 0, 3)
 	l.scan(1)
@@ -232,8 +232,8 @@ func TestSetExpressionText_UnaffectedByABrokenSibling(t *testing.T) {
 	m := newTestModule(t)
 
 	// Expression 1 is what a lenient load leaves behind: stored, uncompilable.
-	copyStringToC(&m.rt.arithm_exprs[1].expr[0], "@200/0@ := (((", 50)
-	m.rt.compiled_exprs[1].valid = 0
+	copyStringToC(&rtArithmExprs(m.rt)[1].expr[0], "@200/0@ := (((", 50)
+	rtCompiledExprs(m.rt)[1].valid = 0
 
 	if _, err := m.SetExpressionText(0, "%W0:=7"); err != nil {
 		t.Fatalf("editing expression 0 was refused because expression 1 is broken: %v", err)

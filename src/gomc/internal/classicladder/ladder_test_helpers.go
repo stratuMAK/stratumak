@@ -41,6 +41,7 @@ const (
 	varPhysInput      = C.CL_VAR_PHYS_INPUT
 	varPhysOutput     = C.CL_VAR_PHYS_OUTPUT
 	varStepActivity   = C.CL_VAR_STEP_ACTIVITY
+	varErrorBit       = C.CL_VAR_ERROR_BIT
 	varStepTime       = C.CL_VAR_STEP_TIME
 	varPhysWordInput  = C.CL_VAR_PHYS_WORD_INPUT
 	varPhysWordOutput = C.CL_VAR_PHYS_WORD_OUTPUT
@@ -71,13 +72,13 @@ type ladderRT struct {
 func newLadderRT(nbrRungs int) *ladderRT {
 	rt := newTestRT()
 	for i := 0; i < nbrRungs; i++ {
-		rt.rungs[i].used = 1
-		rt.rungs[i].prev_rung = C.int(i - 1)
-		rt.rungs[i].next_rung = C.int(i + 1)
+		rtRungs(rt)[i].used = 1
+		rtRungs(rt)[i].prev_rung = C.int(i - 1)
+		rtRungs(rt)[i].next_rung = C.int(i + 1)
 	}
-	rt.rungs[nbrRungs-1].next_rung = C.int(nbrRungs - 1)
+	rtRungs(rt)[nbrRungs-1].next_rung = C.int(nbrRungs - 1)
 
-	sec := &rt.sections[0]
+	sec := &rtSections(rt)[0]
 	sec.used = 1
 	sec.language = C.CL_SECTION_LADDER
 	sec.sub_routine_number = -1
@@ -91,7 +92,7 @@ func (l *ladderRT) free() { freeTestRT(l.rt) }
 // setSubRoutine turns section `sec` into a sub-routine numbered `nbr`,
 // covering rungs [first, last].
 func (l *ladderRT) setSubRoutine(sec, nbr, first, last int) {
-	s := &l.rt.sections[sec]
+	s := &rtSections(l.rt)[sec]
 	s.used = 1
 	s.language = C.CL_SECTION_LADDER
 	s.sub_routine_number = C.int(nbr)
@@ -101,7 +102,7 @@ func (l *ladderRT) setSubRoutine(sec, nbr, first, last int) {
 
 // setMainSection makes section `sec` a main ladder section over [first, last].
 func (l *ladderRT) setMainSection(sec, first, last int) {
-	s := &l.rt.sections[sec]
+	s := &rtSections(l.rt)[sec]
 	s.used = 1
 	s.language = C.CL_SECTION_LADDER
 	s.sub_routine_number = -1
@@ -111,7 +112,7 @@ func (l *ladderRT) setMainSection(sec, first, last int) {
 
 // put places an element at (x=col, y=row) of a rung.
 func (l *ladderRT) put(rung, col, row, eleType, varType, varNum int) {
-	e := &l.rt.rungs[rung].elements[col][row]
+	e := &rtRungs(l.rt)[rung].elements[col][row]
 	e._type = C.int16_t(eleType)
 	e.var_type = C.int32_t(varType)
 	e.var_num = C.int32_t(varNum)
@@ -119,7 +120,7 @@ func (l *ladderRT) put(rung, col, row, eleType, varType, varNum int) {
 
 // connectTop marks the cell as joined to the cell above it (a vertical link).
 func (l *ladderRT) connectTop(rung, col, row int) {
-	l.rt.rungs[rung].elements[col][row].connected_with_top = 1
+	rtRungs(l.rt)[rung].elements[col][row].connected_with_top = 1
 }
 
 // putBlock places a multi-cell block whose head sits at (col, row) — the right
@@ -131,7 +132,7 @@ func (l *ladderRT) putBlock(rung, col, row, eleType, varNum, width, height int) 
 			if x == col && y == row {
 				continue
 			}
-			l.rt.rungs[rung].elements[x][y]._type = C.CL_ELE_UNUSABLE
+			rtRungs(l.rt)[rung].elements[x][y]._type = C.CL_ELE_UNUSABLE
 		}
 	}
 }
@@ -180,65 +181,65 @@ func (l *ladderRT) setState(s int) { l.rt.state = C.int(s) }
 // --- Block parameter access (the RT structures hold milliseconds) ---
 
 func (l *ladderRT) setTimer(idx, baseMs, presetMs int) {
-	l.rt.timers[idx].base = C.int(baseMs)
-	l.rt.timers[idx].preset = C.int(presetMs)
+	rtTimers(l.rt)[idx].base = C.int(baseMs)
+	rtTimers(l.rt)[idx].preset = C.int(presetMs)
 }
 
-func (l *ladderRT) timerValue(idx int) int { return int(l.rt.timers[idx].value) }
+func (l *ladderRT) timerValue(idx int) int { return int(rtTimers(l.rt)[idx].value) }
 
-func (l *ladderRT) timerDone(idx int) bool { return l.rt.timers[idx].output_done != 0 }
+func (l *ladderRT) timerDone(idx int) bool { return rtTimers(l.rt)[idx].output_done != 0 }
 
 func (l *ladderRT) setTimerRaw(idx, value int, done bool) {
-	l.rt.timers[idx].value = C.int(value)
+	rtTimers(l.rt)[idx].value = C.int(value)
 	if done {
-		l.rt.timers[idx].output_done = 1
+		rtTimers(l.rt)[idx].output_done = 1
 	} else {
-		l.rt.timers[idx].output_done = 0
+		rtTimers(l.rt)[idx].output_done = 0
 	}
 }
 
 func (l *ladderRT) setMonostable(idx, baseMs, presetMs int) {
-	l.rt.monostables[idx].base = C.int(baseMs)
-	l.rt.monostables[idx].preset = C.int(presetMs)
+	rtMonostables(l.rt)[idx].base = C.int(baseMs)
+	rtMonostables(l.rt)[idx].preset = C.int(presetMs)
 }
 
 func (l *ladderRT) setCounterPreset(idx, preset int) {
-	l.rt.counters[idx].preset = C.int(preset)
+	rtCounters(l.rt)[idx].preset = C.int(preset)
 }
 
 func (l *ladderRT) setCounterRaw(idx, value int, done bool) {
-	l.rt.counters[idx].value = C.int(value)
+	rtCounters(l.rt)[idx].value = C.int(value)
 	if done {
-		l.rt.counters[idx].output_done = 1
+		rtCounters(l.rt)[idx].output_done = 1
 	} else {
-		l.rt.counters[idx].output_done = 0
+		rtCounters(l.rt)[idx].output_done = 0
 	}
 }
 
-func (l *ladderRT) counterValue(idx int) int { return int(l.rt.counters[idx].value) }
+func (l *ladderRT) counterValue(idx int) int { return int(rtCounters(l.rt)[idx].value) }
 
-func (l *ladderRT) counterDone(idx int) bool { return l.rt.counters[idx].output_done != 0 }
+func (l *ladderRT) counterDone(idx int) bool { return rtCounters(l.rt)[idx].output_done != 0 }
 
 func (l *ladderRT) setTimerIEC(idx, baseMs, preset, mode int) {
-	l.rt.timers_iec[idx].base = C.int(baseMs)
-	l.rt.timers_iec[idx].preset = C.int(preset)
-	l.rt.timers_iec[idx].timer_mode = C.char(mode)
+	rtTimersIec(l.rt)[idx].base = C.int(baseMs)
+	rtTimersIec(l.rt)[idx].preset = C.int(preset)
+	rtTimersIec(l.rt)[idx].timer_mode = C.char(mode)
 }
 
 func (l *ladderRT) setTimerIECRaw(idx, value int, output bool) {
-	l.rt.timers_iec[idx].value = C.int(value)
+	rtTimersIec(l.rt)[idx].value = C.int(value)
 	if output {
-		l.rt.timers_iec[idx].output = 1
+		rtTimersIec(l.rt)[idx].output = 1
 	} else {
-		l.rt.timers_iec[idx].output = 0
+		rtTimersIec(l.rt)[idx].output = 0
 	}
 }
 
-func (l *ladderRT) timerIECValue(idx int) int { return int(l.rt.timers_iec[idx].value) }
+func (l *ladderRT) timerIECValue(idx int) int { return int(rtTimersIec(l.rt)[idx].value) }
 
-func (l *ladderRT) timerIECOutput(idx int) bool { return l.rt.timers_iec[idx].output != 0 }
+func (l *ladderRT) timerIECOutput(idx int) bool { return rtTimersIec(l.rt)[idx].output != 0 }
 
-func (l *ladderRT) timerPresetMs(idx int) int { return int(l.rt.timers[idx].preset) }
+func (l *ladderRT) timerPresetMs(idx int) int { return int(rtTimers(l.rt)[idx].preset) }
 
 // compileInto compiles an expression and installs it at the given index.
 // kind is 0 for a compare and 1 for an operate expression.
@@ -247,6 +248,6 @@ func (l *ladderRT) compileInto(idx int, expr string, kind int) error {
 	if err != nil {
 		return err
 	}
-	l.rt.compiled_exprs[idx] = ce
+	rtCompiledExprs(l.rt)[idx] = ce
 	return nil
 }

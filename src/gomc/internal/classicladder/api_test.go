@@ -32,11 +32,11 @@ func TestAPI_SetExpressionsRecompiles(t *testing.T) {
 	// an uncompiled expression does.
 	l := &ladderRT{rt: m.rt}
 	l.putBlock(0, 2, 0, eleOutputOperate, 0, 3, 1)
-	m.rt.rungs[0].used = 1
-	m.rt.sections[0].used = 1
-	m.rt.sections[0].sub_routine_number = -1
-	m.rt.sections[0].first_rung = 0
-	m.rt.sections[0].last_rung = 0
+	rtRungs(m.rt)[0].used = 1
+	rtSections(m.rt)[0].used = 1
+	rtSections(m.rt)[0].sub_routine_number = -1
+	rtSections(m.rt)[0].first_rung = 0
+	rtSections(m.rt)[0].last_rung = 0
 	l.scan(1)
 
 	if got := l.readVar(varMemWord, 0); got != 7 {
@@ -234,11 +234,11 @@ func TestAPI_ExpressionsTextTakesEffect(t *testing.T) {
 	}
 
 	l.putBlock(0, 2, 0, eleOutputOperate, 0, 3, 1)
-	m.rt.rungs[0].used = 1
-	m.rt.sections[0].used = 1
-	m.rt.sections[0].sub_routine_number = -1
-	m.rt.sections[0].first_rung = 0
-	m.rt.sections[0].last_rung = 0
+	rtRungs(m.rt)[0].used = 1
+	rtSections(m.rt)[0].used = 1
+	rtSections(m.rt)[0].sub_routine_number = -1
+	rtSections(m.rt)[0].first_rung = 0
+	rtSections(m.rt)[0].last_rung = 0
 	l.scan(1)
 
 	if got := l.readVar(varMemWord, 0); got != 11 {
@@ -409,7 +409,7 @@ func TestAPI_RungRoundTripPreservesGrid(t *testing.T) {
 	l.put(0, 9, 0, eleOutput, varPhysOutput, 3)
 	l.put(0, 0, 4, eleInput, varPhysInput, 4)
 	l.connectTop(0, 1, 1)
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 
 	before, err := m.GetRung(0)
 	if err != nil {
@@ -432,13 +432,13 @@ func TestAPI_RungRoundTripPreservesGrid(t *testing.T) {
 	}
 
 	// And the grid must still mean the same thing to the engine.
-	if got := m.rt.rungs[0].elements[0][0]._type; got != eleInput {
+	if got := rtRungs(m.rt)[0].elements[0][0]._type; got != eleInput {
 		t.Errorf("element [col 0][row 0] type = %d, want %d", got, eleInput)
 	}
-	if got := m.rt.rungs[0].elements[0][4].var_num; got != 4 {
+	if got := rtRungs(m.rt)[0].elements[0][4].var_num; got != 4 {
 		t.Errorf("element [col 0][row 4] varNum = %d, want 4", got)
 	}
-	if got := m.rt.rungs[0].elements[9][0]._type; got != eleOutput {
+	if got := rtRungs(m.rt)[0].elements[9][0]._type; got != eleOutput {
 		t.Errorf("element [col 9][row 0] type = %d, want %d", got, eleOutput)
 	}
 }

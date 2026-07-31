@@ -50,11 +50,11 @@ func (m *classicladder) loadCLPFile(path string) error {
 
 	// Clear all rungs
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		m.rt.rungs[i].used = 0
+		rtRungs(m.rt)[i].used = 0
 	}
 	// Clear all sections
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		m.rt.sections[i].used = 0
+		rtSections(m.rt)[i].used = 0
 	}
 
 	// Load sections
@@ -171,7 +171,7 @@ func (m *classicladder) saveCLPFile(path string) (err error) {
 
 	// rungs
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		if m.rt.rungs[i].used != 0 {
+		if rtRungs(m.rt)[i].used != 0 {
 			name := fmt.Sprintf("rung_%d.csv", i)
 			m.writeFileSection(w, name, m.emitRung(i))
 		}
@@ -266,7 +266,7 @@ func (m *classicladder) parseSections(content string) {
 		if idx < 0 || idx >= int(m.rt.sizes.nbr_sections) {
 			continue
 		}
-		sec := &m.rt.sections[idx]
+		sec := &rtSections(m.rt)[idx]
 		sec.used = 1
 		sec.language = C.int(atoi(parts[1]))
 		sec.sub_routine_number = C.int(atoi(parts[2]))
@@ -288,14 +288,14 @@ func (m *classicladder) parseSections(content string) {
 			num := atoi(numStr)
 			if num >= 0 && num < int(m.rt.sizes.nbr_sections) {
 				name := line[nameStart+1:]
-				copyGoStringToC(&m.rt.sections[num].name[0], name, C.CL_LGT_SECTION_NAME)
+				copyGoStringToC(&rtSections(m.rt)[num].name[0], name, C.CL_LGT_SECTION_NAME)
 			}
 		}
 	}
 }
 
 func (m *classicladder) parseRung(idx int, content string) {
-	rung := &m.rt.rungs[idx]
+	rung := &rtRungs(m.rt)[idx]
 	rung.used = 1
 	y := 0
 	for _, line := range strings.Split(content, "\n") {
@@ -392,7 +392,7 @@ func (m *classicladder) parseTimersIEC(content string) {
 		if len(parts) < 3 || idx >= int(m.rt.sizes.nbr_timers_iec) {
 			break
 		}
-		t := &m.rt.timers_iec[idx]
+		t := &rtTimersIec(m.rt)[idx]
 		t.base = C.int(baseMsFromID(atoi(parts[0])))
 		t.preset = C.int(atoi(parts[1]))
 		t.timer_mode = C.char(atoi(parts[2]))
@@ -412,7 +412,7 @@ func (m *classicladder) parseTimers(content string) {
 		if len(parts) < 2 || idx >= int(m.rt.sizes.nbr_timers) {
 			break
 		}
-		t := &m.rt.timers[idx]
+		t := &rtTimers(m.rt)[idx]
 		base := baseMsFromID(atoi(parts[0]))
 		t.base = C.int(base)
 		t.preset = C.int(atoi(parts[1]) * base)
@@ -430,7 +430,7 @@ func (m *classicladder) parseMonostables(content string) {
 		if len(parts) < 2 || idx >= int(m.rt.sizes.nbr_monostables) {
 			break
 		}
-		mo := &m.rt.monostables[idx]
+		mo := &rtMonostables(m.rt)[idx]
 		base := baseMsFromID(atoi(parts[0]))
 		mo.base = C.int(base)
 		mo.preset = C.int(atoi(parts[1]) * base)
@@ -447,7 +447,7 @@ func (m *classicladder) parseCounters(content string) {
 		if idx >= int(m.rt.sizes.nbr_counters) {
 			break
 		}
-		m.rt.counters[idx].preset = C.int(atoi(line))
+		rtCounters(m.rt)[idx].preset = C.int(atoi(line))
 		idx++
 	}
 }
@@ -475,7 +475,7 @@ func (m *classicladder) parseArithmExprs(content string) {
 		if idx < 0 || idx >= int(m.rt.sizes.nbr_arithm_expr) {
 			continue
 		}
-		copyGoStringToC(&m.rt.arithm_exprs[idx].expr[0], expr, C.CL_ARITHM_EXPR_SIZE)
+		copyGoStringToC(&rtArithmExprs(m.rt)[idx].expr[0], expr, C.CL_ARITHM_EXPR_SIZE)
 		idx++
 	}
 }
@@ -493,7 +493,7 @@ func (m *classicladder) parseSymbols(content string) {
 		if len(parts) < 3 {
 			continue
 		}
-		s := &m.rt.symbols[idx]
+		s := &rtSymbols(m.rt)[idx]
 		copyGoStringToC(&s.var_name[0], parts[0], C.CL_LGT_VAR_NAME)
 		copyGoStringToC(&s.symbol[0], parts[1], C.CL_LGT_SYMBOL_STRING)
 		copyGoStringToC(&s.comment[0], parts[2], C.CL_LGT_SYMBOL_COMMENT)
@@ -526,14 +526,14 @@ func (m *classicladder) emitSections() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		sec := &m.rt.sections[i]
+		sec := &rtSections(m.rt)[i]
 		if sec.used == 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "#NAME%03d=%s\n", i, C.GoString(&sec.name[0]))
 	}
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		sec := &m.rt.sections[i]
+		sec := &rtSections(m.rt)[i]
 		if sec.used == 0 {
 			continue
 		}
@@ -545,7 +545,7 @@ func (m *classicladder) emitSections() string {
 }
 
 func (m *classicladder) emitRung(idx int) string {
-	rung := &m.rt.rungs[idx]
+	rung := &rtRungs(m.rt)[idx]
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=2.0")
 	fmt.Fprintf(&b, "#LABEL=%s\n", C.GoString(&rung.label[0]))
@@ -571,7 +571,7 @@ func (m *classicladder) emitTimersIEC() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_timers_iec); i++ {
-		t := &m.rt.timers_iec[i]
+		t := &rtTimersIec(m.rt)[i]
 		fmt.Fprintf(&b, "%d,%d,%d\n",
 			baseIDFromMs(int(t.base)), int(t.preset), int(t.timer_mode))
 	}
@@ -581,7 +581,7 @@ func (m *classicladder) emitTimersIEC() string {
 func (m *classicladder) emitTimers() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_timers); i++ {
-		t := &m.rt.timers[i]
+		t := &rtTimers(m.rt)[i]
 		base := int(t.base)
 		if base <= 0 {
 			base = C.CL_TIME_BASE_SECS
@@ -594,7 +594,7 @@ func (m *classicladder) emitTimers() string {
 func (m *classicladder) emitMonostables() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_monostables); i++ {
-		mo := &m.rt.monostables[i]
+		mo := &rtMonostables(m.rt)[i]
 		base := int(mo.base)
 		if base <= 0 {
 			base = C.CL_TIME_BASE_SECS
@@ -607,7 +607,7 @@ func (m *classicladder) emitMonostables() string {
 func (m *classicladder) emitCounters() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_counters); i++ {
-		fmt.Fprintf(&b, "%d\n", int(m.rt.counters[i].preset))
+		fmt.Fprintf(&b, "%d\n", int(rtCounters(m.rt)[i].preset))
 	}
 	return b.String()
 }
@@ -616,7 +616,7 @@ func (m *classicladder) emitArithmExprs() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=2.0")
 	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
-		expr := C.GoString(&m.rt.arithm_exprs[i].expr[0])
+		expr := C.GoString(&rtArithmExprs(m.rt)[i].expr[0])
 		if expr != "" {
 			// Index-prefixed: skipping the empty slots without saying which
 			// index each survivor had would renumber them on reload.
@@ -630,7 +630,7 @@ func (m *classicladder) emitSymbols() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_symbols); i++ {
-		s := &m.rt.symbols[i]
+		s := &rtSymbols(m.rt)[i]
 		vn := C.GoString(&s.var_name[0])
 		if vn == "" {
 			continue

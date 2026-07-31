@@ -106,16 +106,12 @@ func TestHalLinks_PinNamesMatchWhatHalKnows(t *testing.T) {
 		}
 	}
 
-	// And every physical pin the component created must be accounted for, minus
-	// hide_gui which carries no ladder variable.
+	// And every physical pin the component created must be accounted for.
 	claimed := map[string]bool{}
 	for _, l := range links {
 		claimed[l.Pin] = true
 	}
 	for _, p := range res.Pins {
-		if p.Name == name+".0.hide_gui" {
-			continue
-		}
 		if !claimed[p.Name] {
 			t.Errorf("pin %q exists but no variable claims it", p.Name)
 		}

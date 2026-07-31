@@ -220,7 +220,7 @@ func (m *classicladder) GetRungStates() ([]api.RungState, error) {
 
 	states := make([]api.RungState, 0, int(m.rt.sizes.nbr_rungs))
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		if m.rt.rungs[i].used == 0 {
+		if rtRungs(m.rt)[i].used == 0 {
 			continue
 		}
 		states = append(states, api.RungState{Rung: int32(i), Cells: m.rungStateCells(i)})
@@ -236,7 +236,7 @@ func (m *classicladder) GetRungStates() ([]api.RungState, error) {
 // that — so a scan landing mid-read can only mix cells from two consecutive
 // scans, 100ms of animation apart.
 func (m *classicladder) rungStateCells(idx int) []int32 {
-	cr := &m.rt.rungs[idx]
+	cr := &rtRungs(m.rt)[idx]
 	cells := make([]int32, C.CL_RUNG_WIDTH*C.CL_RUNG_HEIGHT)
 	for x := 0; x < C.CL_RUNG_WIDTH; x++ {
 		for y := 0; y < C.CL_RUNG_HEIGHT; y++ {
@@ -299,8 +299,8 @@ func (m *classicladder) SetTimer(index int32, preset int32, base int32) (int32, 
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rt.timers[i].base = C.int(baseMs)
-	m.rt.timers[i].preset = C.int(int(preset) * baseMs)
+	rtTimers(m.rt)[i].base = C.int(baseMs)
+	rtTimers(m.rt)[i].preset = C.int(int(preset) * baseMs)
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -317,8 +317,8 @@ func (m *classicladder) SetMonostable(index int32, preset int32, base int32) (in
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rt.monostables[i].base = C.int(baseMs)
-	m.rt.monostables[i].preset = C.int(int(preset) * baseMs)
+	rtMonostables(m.rt)[i].base = C.int(baseMs)
+	rtMonostables(m.rt)[i].preset = C.int(int(preset) * baseMs)
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -331,7 +331,7 @@ func (m *classicladder) SetCounter(index int32, preset int32) (int32, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rt.counters[i].preset = C.int(preset)
+	rtCounters(m.rt)[i].preset = C.int(preset)
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -357,9 +357,9 @@ func (m *classicladder) SetTimerIec(index int32, preset int32, base int32, mode 
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rt.timers_iec[i].base = C.int(baseMs)
-	m.rt.timers_iec[i].preset = C.int(preset)
-	m.rt.timers_iec[i].timer_mode = C.char(mode)
+	rtTimersIec(m.rt)[i].base = C.int(baseMs)
+	rtTimersIec(m.rt)[i].preset = C.int(preset)
+	rtTimersIec(m.rt)[i].timer_mode = C.char(mode)
 	m.bumpGeneration()
 	return 0, nil
 }
@@ -484,7 +484,7 @@ func (m *classicladder) GetSymbols() ([]api.Symbol, error) {
 	defer m.mu.RUnlock()
 	symbols := make([]api.Symbol, 0)
 	for i := 0; i < int(m.rt.sizes.nbr_symbols); i++ {
-		s := &m.rt.symbols[i]
+		s := &rtSymbols(m.rt)[i]
 		vn := C.GoString(&s.var_name[0])
 		if vn == "" {
 			continue
@@ -503,13 +503,13 @@ func (m *classicladder) SetSymbols(symbols []api.Symbol) (int32, error) {
 	defer m.mu.Unlock()
 	// Clear existing
 	for i := 0; i < int(m.rt.sizes.nbr_symbols); i++ {
-		m.rt.symbols[i].var_name[0] = 0
+		rtSymbols(m.rt)[i].var_name[0] = 0
 	}
 	for i, sym := range symbols {
 		if i >= int(m.rt.sizes.nbr_symbols) {
 			break
 		}
-		s := &m.rt.symbols[i]
+		s := &rtSymbols(m.rt)[i]
 		copyStringToC(&s.var_name[0], sym.VarName, C.CL_LGT_VAR_NAME)
 		copyStringToC(&s.symbol[0], sym.Symbol, C.CL_LGT_SYMBOL_STRING)
 		copyStringToC(&s.comment[0], sym.Comment, C.CL_LGT_SYMBOL_COMMENT)
@@ -524,7 +524,7 @@ func (m *classicladder) GetExpressions() ([]api.ArithmExpr, error) {
 	exprs := make([]api.ArithmExpr, int(m.rt.sizes.nbr_arithm_expr))
 	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
 		exprs[i] = api.ArithmExpr{
-			Expr: C.GoString(&m.rt.arithm_exprs[i].expr[0]),
+			Expr: C.GoString(&rtArithmExprs(m.rt)[i].expr[0]),
 		}
 	}
 	return exprs, nil
@@ -543,7 +543,7 @@ func (m *classicladder) SetExpressions(exprs []api.ArithmExpr) (int32, error) {
 		if i >= int(m.rt.sizes.nbr_arithm_expr) {
 			break
 		}
-		copyStringToC(&m.rt.arithm_exprs[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
+		copyStringToC(&rtArithmExprs(m.rt)[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
 	}
 	m.installExprCode(code)
 	m.bumpGeneration()
@@ -612,7 +612,7 @@ func (m *classicladder) buildSizes() api.SizeInfo {
 }
 
 func (m *classicladder) rungToAPI(idx int) api.Rung {
-	cr := &m.rt.rungs[idx]
+	cr := &rtRungs(m.rt)[idx]
 	r := api.Rung{
 		Used:     cr.used != 0,
 		PrevRung: int32(cr.prev_rung),
@@ -635,7 +635,7 @@ func (m *classicladder) rungToAPI(idx int) api.Rung {
 }
 
 func (m *classicladder) sectionToAPI(idx int) api.Section {
-	s := &m.rt.sections[idx]
+	s := &rtSections(m.rt)[idx]
 	return api.Section{
 		Used:             s.used != 0,
 		Name:             C.GoString(&s.name[0]),
@@ -648,7 +648,7 @@ func (m *classicladder) sectionToAPI(idx int) api.Section {
 }
 
 func (m *classicladder) applyRung(idx int, r *api.Rung) {
-	cr := &m.rt.rungs[idx]
+	cr := &rtRungs(m.rt)[idx]
 	if r.Used {
 		cr.used = 1
 	} else {
@@ -671,7 +671,7 @@ func (m *classicladder) applyRung(idx int, r *api.Rung) {
 }
 
 func (m *classicladder) applySection(idx int, s *api.Section) {
-	sec := &m.rt.sections[idx]
+	sec := &rtSections(m.rt)[idx]
 	if s.Used {
 		sec.used = 1
 	} else {
@@ -706,7 +706,7 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 		if i >= int(rt.sizes.nbr_symbols) {
 			break
 		}
-		s := &rt.symbols[i]
+		s := &rtSymbols(rt)[i]
 		copyStringToC(&s.var_name[0], sym.VarName, C.CL_LGT_VAR_NAME)
 		copyStringToC(&s.symbol[0], sym.Symbol, C.CL_LGT_SYMBOL_STRING)
 		copyStringToC(&s.comment[0], sym.Comment, C.CL_LGT_SYMBOL_COMMENT)
@@ -716,7 +716,7 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 		if i >= int(rt.sizes.nbr_arithm_expr) {
 			break
 		}
-		copyStringToC(&rt.arithm_exprs[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
+		copyStringToC(&rtArithmExprs(rt)[i].expr[0], expr.Expr, C.CL_ARITHM_EXPR_SIZE)
 	}
 
 	// Base travels over the API as an id (0=mins, 1=secs, 2=100ms), as it
@@ -727,9 +727,9 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 		if i >= int(rt.sizes.nbr_timers_iec) {
 			break
 		}
-		rt.timers_iec[i].preset = C.int(t.Preset)
-		rt.timers_iec[i].base = C.int(baseMsFromID(int(t.Base)))
-		rt.timers_iec[i].timer_mode = C.char(t.Mode)
+		rtTimersIec(rt)[i].preset = C.int(t.Preset)
+		rtTimersIec(rt)[i].base = C.int(baseMsFromID(int(t.Base)))
+		rtTimersIec(rt)[i].timer_mode = C.char(t.Mode)
 	}
 
 	for i, t := range prog.Timers {
@@ -737,8 +737,8 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 			break
 		}
 		base := baseMsFromID(int(t.Base))
-		rt.timers[i].base = C.int(base)
-		rt.timers[i].preset = C.int(int(t.Preset) * base)
+		rtTimers(rt)[i].base = C.int(base)
+		rtTimers(rt)[i].preset = C.int(int(t.Preset) * base)
 	}
 
 	for i, mo := range prog.Monostables {
@@ -746,15 +746,15 @@ func (m *classicladder) applyProgram(prog *api.Program) {
 			break
 		}
 		base := baseMsFromID(int(mo.Base))
-		rt.monostables[i].base = C.int(base)
-		rt.monostables[i].preset = C.int(int(mo.Preset) * base)
+		rtMonostables(rt)[i].base = C.int(base)
+		rtMonostables(rt)[i].preset = C.int(int(mo.Preset) * base)
 	}
 
 	for i, c := range prog.Counters {
 		if i >= int(rt.sizes.nbr_counters) {
 			break
 		}
-		rt.counters[i].preset = C.int(c.Preset)
+		rtCounters(rt)[i].preset = C.int(c.Preset)
 	}
 }
 
@@ -776,7 +776,7 @@ func (m *classicladder) buildProgram() api.Program {
 
 	prog.Symbols = make([]api.Symbol, int(rt.sizes.nbr_symbols))
 	for i := 0; i < int(rt.sizes.nbr_symbols); i++ {
-		s := &rt.symbols[i]
+		s := &rtSymbols(rt)[i]
 		prog.Symbols[i] = api.Symbol{
 			VarName: C.GoString(&s.var_name[0]),
 			Symbol:  C.GoString(&s.symbol[0]),
@@ -787,13 +787,13 @@ func (m *classicladder) buildProgram() api.Program {
 	prog.ArithmExprs = make([]api.ArithmExpr, int(rt.sizes.nbr_arithm_expr))
 	for i := 0; i < int(rt.sizes.nbr_arithm_expr); i++ {
 		prog.ArithmExprs[i] = api.ArithmExpr{
-			Expr: C.GoString(&rt.arithm_exprs[i].expr[0]),
+			Expr: C.GoString(&rtArithmExprs(rt)[i].expr[0]),
 		}
 	}
 
 	prog.TimersIec = make([]api.TimerIEC, int(rt.sizes.nbr_timers_iec))
 	for i := 0; i < int(rt.sizes.nbr_timers_iec); i++ {
-		t := &rt.timers_iec[i]
+		t := &rtTimersIec(rt)[i]
 		prog.TimersIec[i] = api.TimerIEC{
 			Preset: int32(t.preset),
 			Value:  int32(t.value),
@@ -806,7 +806,7 @@ func (m *classicladder) buildProgram() api.Program {
 
 	prog.Timers = make([]api.Timer, int(rt.sizes.nbr_timers))
 	for i := 0; i < int(rt.sizes.nbr_timers); i++ {
-		t := &rt.timers[i]
+		t := &rtTimers(rt)[i]
 		base := int(t.base)
 		if base <= 0 {
 			base = C.CL_TIME_BASE_SECS
@@ -824,7 +824,7 @@ func (m *classicladder) buildProgram() api.Program {
 
 	prog.Monostables = make([]api.Monostable, int(rt.sizes.nbr_monostables))
 	for i := 0; i < int(rt.sizes.nbr_monostables); i++ {
-		mo := &rt.monostables[i]
+		mo := &rtMonostables(rt)[i]
 		base := int(mo.base)
 		if base <= 0 {
 			base = C.CL_TIME_BASE_SECS
@@ -840,7 +840,7 @@ func (m *classicladder) buildProgram() api.Program {
 
 	prog.Counters = make([]api.Counter, int(rt.sizes.nbr_counters))
 	for i := 0; i < int(rt.sizes.nbr_counters); i++ {
-		c := &rt.counters[i]
+		c := &rtCounters(rt)[i]
 		prog.Counters[i] = api.Counter{
 			Preset:         int32(c.preset),
 			Value:          int32(c.value),
@@ -867,26 +867,26 @@ func (m *classicladder) buildVariables() api.Variables {
 	var vars api.Variables
 	vars.Bools.Bits = make([]bool, nbits)
 	for i := 0; i < nbits; i++ {
-		vars.Bools.Bits[i] = rt.var_bits[i] != 0
+		vars.Bools.Bits[i] = rtVarBits(rt)[i] != 0
 	}
 	vars.Bools.PhysInputs = make([]bool, nin)
 	for i := 0; i < nin; i++ {
-		vars.Bools.PhysInputs[i] = rt.var_bits[nbits+i] != 0
+		vars.Bools.PhysInputs[i] = rtVarBits(rt)[nbits+i] != 0
 	}
 	vars.Bools.PhysOutputs = make([]bool, nout)
 	for i := 0; i < nout; i++ {
-		vars.Bools.PhysOutputs[i] = rt.var_bits[nbits+nin+i] != 0
+		vars.Bools.PhysOutputs[i] = rtVarBits(rt)[nbits+nin+i] != 0
 	}
 	vars.Bools.ErrorBits = make([]bool, nerr)
 	for i := 0; i < nerr; i++ {
-		vars.Bools.ErrorBits[i] = rt.var_bits[nbits+nin+nout+C.CL_MAX_STEPS+i] != 0
+		vars.Bools.ErrorBits[i] = rtVarBits(rt)[nbits+nin+nout+C.CL_MAX_STEPS+i] != 0
 	}
 	// Step activity is what makes an SFC chart legible while it runs: which
 	// state the machine is in. Indexed by step number (the n in %Xn), which is
 	// the author's numbering, not the step's slot.
 	vars.Bools.StepActivity = make([]bool, C.CL_MAX_STEPS)
 	for i := 0; i < C.CL_MAX_STEPS; i++ {
-		vars.Bools.StepActivity[i] = rt.var_bits[nbits+nin+nout+i] != 0
+		vars.Bools.StepActivity[i] = rtVarBits(rt)[nbits+nin+nout+i] != 0
 	}
 
 	// Block outputs and values. They are read off the block structures rather
@@ -900,24 +900,24 @@ func (m *classicladder) buildVariables() api.Variables {
 	vars.Bools.TimerDone = make([]bool, ntimers)
 	vars.Bools.TimerRunning = make([]bool, ntimers)
 	for i := 0; i < ntimers; i++ {
-		vars.Bools.TimerDone[i] = rt.timers[i].output_done != 0
-		vars.Bools.TimerRunning[i] = rt.timers[i].output_running != 0
+		vars.Bools.TimerDone[i] = rtTimers(rt)[i].output_done != 0
+		vars.Bools.TimerRunning[i] = rtTimers(rt)[i].output_running != 0
 	}
 	vars.Bools.MonostableRunning = make([]bool, nmono)
 	for i := 0; i < nmono; i++ {
-		vars.Bools.MonostableRunning[i] = rt.monostables[i].output_running != 0
+		vars.Bools.MonostableRunning[i] = rtMonostables(rt)[i].output_running != 0
 	}
 	vars.Bools.CounterDone = make([]bool, ncount)
 	vars.Bools.CounterEmpty = make([]bool, ncount)
 	vars.Bools.CounterFull = make([]bool, ncount)
 	for i := 0; i < ncount; i++ {
-		vars.Bools.CounterDone[i] = rt.counters[i].output_done != 0
-		vars.Bools.CounterEmpty[i] = rt.counters[i].output_empty != 0
-		vars.Bools.CounterFull[i] = rt.counters[i].output_full != 0
+		vars.Bools.CounterDone[i] = rtCounters(rt)[i].output_done != 0
+		vars.Bools.CounterEmpty[i] = rtCounters(rt)[i].output_empty != 0
+		vars.Bools.CounterFull[i] = rtCounters(rt)[i].output_full != 0
 	}
 	vars.Bools.TimerIecDone = make([]bool, niec)
 	for i := 0; i < niec; i++ {
-		vars.Bools.TimerIecDone[i] = rt.timers_iec[i].output != 0
+		vars.Bools.TimerIecDone[i] = rtTimersIec(rt)[i].output != 0
 	}
 
 	nwords := int(rt.sizes.nbr_words)
@@ -925,19 +925,19 @@ func (m *classicladder) buildVariables() api.Variables {
 	ns32out := int(rt.sizes.nbr_s32_out)
 	vars.Words.Words = make([]int32, nwords)
 	for i := 0; i < nwords; i++ {
-		vars.Words.Words[i] = int32(rt.var_words[i])
+		vars.Words.Words[i] = int32(rtVarWords(rt)[i])
 	}
 	vars.Words.PhysWordInputs = make([]int32, ns32in)
 	for i := 0; i < ns32in; i++ {
-		vars.Words.PhysWordInputs[i] = int32(rt.var_words[nwords+i])
+		vars.Words.PhysWordInputs[i] = int32(rtVarWords(rt)[nwords+i])
 	}
 	vars.Words.PhysWordOutputs = make([]int32, ns32out)
 	for i := 0; i < ns32out; i++ {
-		vars.Words.PhysWordOutputs[i] = int32(rt.var_words[nwords+ns32in+i])
+		vars.Words.PhysWordOutputs[i] = int32(rtVarWords(rt)[nwords+ns32in+i])
 	}
 	vars.Words.StepTimes = make([]int32, C.CL_MAX_STEPS)
 	for i := 0; i < C.CL_MAX_STEPS; i++ {
-		vars.Words.StepTimes[i] = int32(rt.var_words[nwords+ns32in+ns32out+i])
+		vars.Words.StepTimes[i] = int32(rtVarWords(rt)[nwords+ns32in+ns32out+i])
 	}
 
 	// Timer and monostable values go over the wire in units of their base, the
@@ -953,22 +953,22 @@ func (m *classicladder) buildVariables() api.Variables {
 	}
 	vars.Words.CounterValues = make([]int32, ncount)
 	for i := 0; i < ncount; i++ {
-		vars.Words.CounterValues[i] = int32(rt.counters[i].value)
+		vars.Words.CounterValues[i] = int32(rtCounters(rt)[i].value)
 	}
 	vars.Words.TimerIecValues = make([]int32, niec)
 	for i := 0; i < niec; i++ {
-		vars.Words.TimerIecValues[i] = int32(rt.timers_iec[i].value)
+		vars.Words.TimerIecValues[i] = int32(rtTimersIec(rt)[i].value)
 	}
 
 	nfin := int(rt.sizes.nbr_float_in)
 	nfout := int(rt.sizes.nbr_float_out)
 	vars.Floats.PhysFloatInputs = make([]float64, nfin)
 	for i := 0; i < nfin; i++ {
-		vars.Floats.PhysFloatInputs[i] = float64(rt.var_floats[i])
+		vars.Floats.PhysFloatInputs[i] = float64(rtVarFloats(rt)[i])
 	}
 	vars.Floats.PhysFloatOutputs = make([]float64, nfout)
 	for i := 0; i < nfout; i++ {
-		vars.Floats.PhysFloatOutputs[i] = float64(rt.var_floats[nfin+i])
+		vars.Floats.PhysFloatOutputs[i] = float64(rtVarFloats(rt)[nfin+i])
 	}
 
 	return vars
@@ -1116,7 +1116,7 @@ func (m *classicladder) GetExpressionsText() ([]api.ExprText, error) {
 
 	out := make([]api.ExprText, int(m.rt.sizes.nbr_arithm_expr))
 	for i := range out {
-		stored := C.GoString(&m.rt.arithm_exprs[i].expr[0])
+		stored := C.GoString(&rtArithmExprs(m.rt)[i].expr[0])
 		if stored != "" {
 			out[i].Text = m.exprToNames(stored)
 		}
@@ -1153,7 +1153,7 @@ func (m *classicladder) SetExpressionsText(texts []api.ExprText) (int32, error) 
 		return -1, err
 	}
 	for i := 0; i < len(stored) && i < int(m.rt.sizes.nbr_arithm_expr); i++ {
-		copyStringToC(&m.rt.arithm_exprs[i].expr[0], stored[i], C.CL_ARITHM_EXPR_SIZE)
+		copyStringToC(&rtArithmExprs(m.rt)[i].expr[0], stored[i], C.CL_ARITHM_EXPR_SIZE)
 	}
 	m.installExprCode(code)
 	m.bumpGeneration()
@@ -1180,9 +1180,9 @@ func (m *classicladder) SetExpressionText(index int32, text string) (int32, erro
 	}
 
 	if text == "" {
-		m.rt.arithm_exprs[index].expr[0] = 0
-		m.rt.compiled_exprs[index].valid = 0
-		m.rt.compiled_exprs[index].len = 0
+		rtArithmExprs(m.rt)[index].expr[0] = 0
+		rtCompiledExprs(m.rt)[index].valid = 0
+		rtCompiledExprs(m.rt)[index].len = 0
 		m.bumpGeneration()
 		return 0, nil
 	}
@@ -1200,8 +1200,8 @@ func (m *classicladder) SetExpressionText(index int32, text string) (int32, erro
 		return -1, fmt.Errorf("%w: expr[%d] %q: %w", syscall.EINVAL, index, text, err)
 	}
 
-	copyStringToC(&m.rt.arithm_exprs[index].expr[0], stored, C.CL_ARITHM_EXPR_SIZE)
-	m.rt.compiled_exprs[index] = code
+	copyStringToC(&rtArithmExprs(m.rt)[index].expr[0], stored, C.CL_ARITHM_EXPR_SIZE)
+	rtCompiledExprs(m.rt)[index] = code
 	m.bumpGeneration()
 	return 0, nil
 }

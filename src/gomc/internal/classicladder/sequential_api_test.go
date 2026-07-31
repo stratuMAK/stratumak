@@ -67,10 +67,10 @@ func TestSequentialAPI_ReportsLiveActivity(t *testing.T) {
 
 	m.parseSequential(seqFixture)
 	// A sequential section on page 0.
-	m.rt.sections[0].used = 1
-	m.rt.sections[0].language = 1 // SEQUENTIAL
-	m.rt.sections[0].sub_routine_number = -1
-	m.rt.sections[0].sequential_page = 0
+	rtSections(m.rt)[0].used = 1
+	rtSections(m.rt)[0].language = 1 // SEQUENTIAL
+	rtSections(m.rt)[0].sub_routine_number = -1
+	rtSections(m.rt)[0].sequential_page = 0
 	l.prepareRun()
 
 	l.scan(1000)

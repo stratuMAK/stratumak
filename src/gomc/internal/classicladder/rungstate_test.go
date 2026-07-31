@@ -50,7 +50,7 @@ func TestRungStates_ParallelBranch(t *testing.T) {
 	l.put(0, 0, 1, eleInput, varPhysInput, 1)
 	l.connectTop(0, 1, 1)
 
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 
 	// Lower contact closed, upper open.
@@ -109,7 +109,7 @@ func TestRungStates_NegatedContactReportsConduction(t *testing.T) {
 
 	l.put(0, 0, 0, eleInputNot, varPhysInput, 0)
 	l.put(0, 1, 0, eleOutput, varPhysOutput, 0)
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 
 	l.input(0, false)
@@ -134,11 +134,11 @@ func TestRungStates_SkipsUnusedRungs(t *testing.T) {
 	m := newTestModule(t)
 	l := &ladderRT{rt: m.rt}
 
-	m.rt.rungs[0].used = 1
-	m.rt.rungs[3].used = 1
+	rtRungs(m.rt)[0].used = 1
+	rtRungs(m.rt)[3].used = 1
 	l.setMainSection(0, 0, 3)
-	m.rt.rungs[0].next_rung = 3
-	m.rt.rungs[3].prev_rung = 0
+	rtRungs(m.rt)[0].next_rung = 3
+	rtRungs(m.rt)[3].prev_rung = 0
 
 	states, err := m.GetRungStates()
 	if err != nil {
@@ -165,11 +165,11 @@ func TestWatchRungStates_KeyedByRungIndex(t *testing.T) {
 	l := &ladderRT{rt: m.rt}
 
 	l.put(2, 0, 0, eleInput, varPhysInput, 0)
-	m.rt.rungs[2].used = 1
-	m.rt.rungs[5].used = 1
+	rtRungs(m.rt)[2].used = 1
+	rtRungs(m.rt)[5].used = 1
 	l.setMainSection(0, 2, 5)
-	m.rt.rungs[2].next_rung = 5
-	m.rt.rungs[5].prev_rung = 2
+	rtRungs(m.rt)[2].next_rung = 5
+	rtRungs(m.rt)[5].prev_rung = 2
 
 	l.input(0, true)
 	l.scan(1)
@@ -210,7 +210,7 @@ func TestRungStates_BlockInputTerminals(t *testing.T) {
 	l.put(0, 0, 1, eleInput, varPhysInput, 1)
 	l.putBlock(0, 2, 0, eleTimer, 0, 2, 2)
 	l.setTimer(0, 1000, 10000)
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 	l.prepareRun() // loads the preset, as a cold start does
 
@@ -272,7 +272,7 @@ func TestVariables_CarriesLiveBlockState(t *testing.T) {
 	// counts from the first scan.
 	l.putBlock(0, 1, 0, eleTimer, 0, 2, 2)
 	l.setTimer(0, 1000, 3000) // 3s in a 1s base
-	m.rt.rungs[0].used = 1
+	rtRungs(m.rt)[0].used = 1
 	l.setMainSection(0, 0, 0)
 	l.prepareRun()
 

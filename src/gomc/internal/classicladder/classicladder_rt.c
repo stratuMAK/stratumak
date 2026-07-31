@@ -23,9 +23,9 @@ static inline int cl_base_ms(int base) {
 }
 
 /* Number of valid offsets for a variable type: the configured size of the
- * region that (type, offset) indexes. Because the backing arrays are packed by
- * these runtime sizes (each <= its CL_MAX_*), an offset within the region can
- * never index out of the fixed allocation. Returns 0 for unknown types. */
+ * region that (type, offset) indexes. The backing arrays are allocated and
+ * packed by these same runtime sizes, so an offset within its region can
+ * never index out of the allocation. Returns 0 for unknown types. */
 static int cl_var_region_size(const classicladder_rt_t *rt, int type) {
     switch (type) {
     case CL_VAR_MEM_BIT:          return rt->sizes.nbr_bits;
@@ -810,7 +810,7 @@ static void refresh_all_sections(classicladder_rt_t *rt) {
 /* --- Prepare all data before a run (2.9 PrepareAllDatasBeforeRun) --- */
 
 static void prepare_timers(classicladder_rt_t *rt) {
-    for (int i = 0; i < CL_MAX_TIMERS; i++) {
+    for (int i = 0; i < rt->sizes.nbr_timers; i++) {
         cl_timer_t *t = &rt->timers[i];
         t->value = t->preset;
         t->input_enable = 0;
@@ -821,7 +821,7 @@ static void prepare_timers(classicladder_rt_t *rt) {
 }
 
 static void prepare_monostables(classicladder_rt_t *rt) {
-    for (int i = 0; i < CL_MAX_MONOSTABLES; i++) {
+    for (int i = 0; i < rt->sizes.nbr_monostables; i++) {
         cl_monostable_t *m = &rt->monostables[i];
         m->value = 0;
         m->input = 0;
@@ -831,7 +831,7 @@ static void prepare_monostables(classicladder_rt_t *rt) {
 }
 
 static void prepare_counters(classicladder_rt_t *rt) {
-    for (int i = 0; i < CL_MAX_COUNTERS; i++) {
+    for (int i = 0; i < rt->sizes.nbr_counters; i++) {
         cl_counter_t *c = &rt->counters[i];
         c->value = 0;
         c->value_bak = 0;
@@ -848,7 +848,7 @@ static void prepare_counters(classicladder_rt_t *rt) {
 }
 
 static void prepare_timers_iec(classicladder_rt_t *rt) {
-    for (int i = 0; i < CL_MAX_TIMERS_IEC; i++) {
+    for (int i = 0; i < rt->sizes.nbr_timers_iec; i++) {
         cl_timer_iec_t *t = &rt->timers_iec[i];
         t->value = 0;
         t->input = 0;
@@ -862,7 +862,7 @@ static void prepare_timers_iec(classicladder_rt_t *rt) {
 /* Seed DynamicVarBak so that an edge contact does not fire on the first scan
  * just because its variable happens to be true already. */
 static void prepare_rungs(classicladder_rt_t *rt) {
-    for (int r = 0; r < CL_MAX_RUNGS; r++) {
+    for (int r = 0; r < rt->sizes.nbr_rungs; r++) {
         for (int x = 0; x < CL_RUNG_WIDTH; x++) {
             for (int y = 0; y < CL_RUNG_HEIGHT; y++) {
                 cl_element_t *ele = &rt->rungs[r].elements[x][y];
@@ -910,10 +910,6 @@ void classicladder_refresh(void *arg, long period) {
     if (state != CL_STATE_RUN)
         return;
 
-    /* Read hide_gui pin */
-    if (rt->hal_hide_gui)
-        atomic_store_explicit(&rt->hide_gui, *(rt->hal_hide_gui), memory_order_relaxed);
-
     unsigned long t0 = rtapi_get_time();
 
     /* Read HAL inputs → internal variables */
@@ -936,11 +932,107 @@ void classicladder_refresh(void *arg, long period) {
                          (int32_t)(t1 - t0), memory_order_relaxed);
 }
 
+/* Region starts are aligned generously so every array type is satisfied
+ * regardless of the order the regions are laid out in. */
+static size_t cl_align_up(size_t n) {
+    return (n + 15) & ~(size_t)15;
+}
+
+static int cl_size_ok(int n) {
+    return n >= 0 && n <= CL_SIZE_LIMIT;
+}
+
 classicladder_rt_t *classicladder_rt_alloc(const cl_sizes_t *sizes) {
-    classicladder_rt_t *rt = (classicladder_rt_t *)calloc(1, sizeof(classicladder_rt_t));
-    if (!rt)
+    /* Validate every count before it enters the offset math.  The scan reads
+     * rungs[first_rung] and sections[0] unconditionally, so those two must
+     * exist even in an empty program. */
+    if (sizes->nbr_rungs < 1 || sizes->nbr_sections < 1)
         return NULL;
+    if (!cl_size_ok(sizes->nbr_rungs) || !cl_size_ok(sizes->nbr_bits) ||
+        !cl_size_ok(sizes->nbr_words) || !cl_size_ok(sizes->nbr_timers) ||
+        !cl_size_ok(sizes->nbr_monostables) || !cl_size_ok(sizes->nbr_counters) ||
+        !cl_size_ok(sizes->nbr_timers_iec) || !cl_size_ok(sizes->nbr_phys_inputs) ||
+        !cl_size_ok(sizes->nbr_phys_outputs) || !cl_size_ok(sizes->nbr_arithm_expr) ||
+        !cl_size_ok(sizes->nbr_sections) || !cl_size_ok(sizes->nbr_symbols) ||
+        !cl_size_ok(sizes->nbr_s32_in) || !cl_size_ok(sizes->nbr_s32_out) ||
+        !cl_size_ok(sizes->nbr_float_in) || !cl_size_ok(sizes->nbr_float_out) ||
+        !cl_size_ok(sizes->nbr_error_bits))
+        return NULL;
+
+    const size_t bits_count = (size_t)sizes->nbr_bits + sizes->nbr_phys_inputs +
+                              sizes->nbr_phys_outputs + CL_MAX_STEPS +
+                              sizes->nbr_error_bits;
+    const size_t words_count = (size_t)sizes->nbr_words + sizes->nbr_s32_in +
+                               sizes->nbr_s32_out + CL_MAX_STEPS;
+    const size_t floats_count = (size_t)sizes->nbr_float_in + sizes->nbr_float_out;
+
+    /* One block: the header struct followed by every sized array. */
+    size_t total = cl_align_up(sizeof(classicladder_rt_t));
+    const size_t o_rungs = total;
+    total = cl_align_up(total + sizeof(cl_rung_t) * sizes->nbr_rungs);
+    const size_t o_sections = total;
+    total = cl_align_up(total + sizeof(cl_section_t) * sizes->nbr_sections);
+    const size_t o_arithm = total;
+    total = cl_align_up(total + sizeof(cl_arithm_expr_t) * sizes->nbr_arithm_expr);
+    const size_t o_compiled = total;
+    total = cl_align_up(total + sizeof(cl_compiled_expr_t) * sizes->nbr_arithm_expr);
+    const size_t o_timers = total;
+    total = cl_align_up(total + sizeof(cl_timer_t) * sizes->nbr_timers);
+    const size_t o_monostables = total;
+    total = cl_align_up(total + sizeof(cl_monostable_t) * sizes->nbr_monostables);
+    const size_t o_counters = total;
+    total = cl_align_up(total + sizeof(cl_counter_t) * sizes->nbr_counters);
+    const size_t o_timers_iec = total;
+    total = cl_align_up(total + sizeof(cl_timer_iec_t) * sizes->nbr_timers_iec);
+    const size_t o_var_bits = total;
+    total = cl_align_up(total + sizeof(char) * bits_count);
+    const size_t o_var_words = total;
+    total = cl_align_up(total + sizeof(int32_t) * words_count);
+    const size_t o_var_floats = total;
+    total = cl_align_up(total + sizeof(double) * floats_count);
+    const size_t o_symbols = total;
+    total = cl_align_up(total + sizeof(cl_symbol_t) * sizes->nbr_symbols);
+    const size_t o_hal_in = total;
+    total = cl_align_up(total + sizeof(hal_bit_t *) * sizes->nbr_phys_inputs);
+    const size_t o_hal_out = total;
+    total = cl_align_up(total + sizeof(hal_bit_t *) * sizes->nbr_phys_outputs);
+    const size_t o_hal_s32_in = total;
+    total = cl_align_up(total + sizeof(hal_s32_t *) * sizes->nbr_s32_in);
+    const size_t o_hal_s32_out = total;
+    total = cl_align_up(total + sizeof(hal_s32_t *) * sizes->nbr_s32_out);
+    const size_t o_hal_float_in = total;
+    total = cl_align_up(total + sizeof(hal_float_t *) * sizes->nbr_float_in);
+    const size_t o_hal_float_out = total;
+    total = cl_align_up(total + sizeof(hal_float_t *) * sizes->nbr_float_out);
+
+    char *base = (char *)calloc(1, total);
+    if (!base)
+        return NULL;
+
+    classicladder_rt_t *rt = (classicladder_rt_t *)base;
     rt->sizes = *sizes;
+    rt->var_bits_count = (int)bits_count;
+    rt->var_words_count = (int)words_count;
+    rt->var_floats_count = (int)floats_count;
+    rt->rungs = (cl_rung_t *)(base + o_rungs);
+    rt->sections = (cl_section_t *)(base + o_sections);
+    rt->arithm_exprs = (cl_arithm_expr_t *)(base + o_arithm);
+    rt->compiled_exprs = (cl_compiled_expr_t *)(base + o_compiled);
+    rt->timers = (cl_timer_t *)(base + o_timers);
+    rt->monostables = (cl_monostable_t *)(base + o_monostables);
+    rt->counters = (cl_counter_t *)(base + o_counters);
+    rt->timers_iec = (cl_timer_iec_t *)(base + o_timers_iec);
+    rt->var_bits = base + o_var_bits;
+    rt->var_words = (int32_t *)(base + o_var_words);
+    rt->var_floats = (double *)(base + o_var_floats);
+    rt->symbols = (cl_symbol_t *)(base + o_symbols);
+    rt->hal_inputs = (hal_bit_t **)(base + o_hal_in);
+    rt->hal_outputs = (hal_bit_t **)(base + o_hal_out);
+    rt->hal_s32_inputs = (hal_s32_t **)(base + o_hal_s32_in);
+    rt->hal_s32_outputs = (hal_s32_t **)(base + o_hal_s32_out);
+    rt->hal_float_inputs = (hal_float_t **)(base + o_hal_float_in);
+    rt->hal_float_outputs = (hal_float_t **)(base + o_hal_float_out);
+
     atomic_store(&rt->state, CL_STATE_STOP);
     atomic_store(&rt->generation, 0);
     return rt;
@@ -952,13 +1044,13 @@ void classicladder_rt_free(classicladder_rt_t *rt) {
 }
 
 void classicladder_rt_init_data(classicladder_rt_t *rt) {
-    memset(rt->var_bits, 0, sizeof(rt->var_bits));
-    memset(rt->var_words, 0, sizeof(rt->var_words));
-    memset(rt->var_floats, 0, sizeof(rt->var_floats));
-    memset(rt->timers, 0, sizeof(rt->timers));
-    memset(rt->monostables, 0, sizeof(rt->monostables));
-    memset(rt->counters, 0, sizeof(rt->counters));
-    memset(rt->timers_iec, 0, sizeof(rt->timers_iec));
+    memset(rt->var_bits, 0, sizeof(char) * rt->var_bits_count);
+    memset(rt->var_words, 0, sizeof(int32_t) * rt->var_words_count);
+    memset(rt->var_floats, 0, sizeof(double) * rt->var_floats_count);
+    memset(rt->timers, 0, sizeof(cl_timer_t) * rt->sizes.nbr_timers);
+    memset(rt->monostables, 0, sizeof(cl_monostable_t) * rt->sizes.nbr_monostables);
+    memset(rt->counters, 0, sizeof(cl_counter_t) * rt->sizes.nbr_counters);
+    memset(rt->timers_iec, 0, sizeof(cl_timer_iec_t) * rt->sizes.nbr_timers_iec);
     /* Initialize SFC: set all steps/transitions to unused */
     for (int i = 0; i < CL_MAX_STEPS; i++) {
         rt->steps[i].num_page = -1;
@@ -978,13 +1070,13 @@ void classicladder_rt_init_data(classicladder_rt_t *rt) {
         rt->seq_comments[i].num_page = -1;
     }
     /* Default time bases, in milliseconds */
-    for (int i = 0; i < CL_MAX_TIMERS; i++) {
+    for (int i = 0; i < rt->sizes.nbr_timers; i++) {
         rt->timers[i].base = CL_TIME_BASE_SECS;
     }
-    for (int i = 0; i < CL_MAX_MONOSTABLES; i++) {
+    for (int i = 0; i < rt->sizes.nbr_monostables; i++) {
         rt->monostables[i].base = CL_TIME_BASE_SECS;
     }
-    for (int i = 0; i < CL_MAX_TIMERS_IEC; i++) {
+    for (int i = 0; i < rt->sizes.nbr_timers_iec; i++) {
         rt->timers_iec[i].base = CL_TIME_BASE_SECS;
         rt->timers_iec[i].timer_mode = CL_TIMER_IEC_TON;
     }
@@ -1116,7 +1208,7 @@ static int eval_bytecode(classicladder_rt_t *rt, const cl_compiled_expr_t *ce) {
 }
 
 int cl_eval_compare(classicladder_rt_t *rt, int expr_index) {
-    if (expr_index < 0 || expr_index >= CL_MAX_ARITHM_EXPR)
+    if (expr_index < 0 || expr_index >= rt->sizes.nbr_arithm_expr)
         return 0;
     const cl_compiled_expr_t *ce = &rt->compiled_exprs[expr_index];
     if (!ce->valid || ce->len == 0)
@@ -1125,7 +1217,7 @@ int cl_eval_compare(classicladder_rt_t *rt, int expr_index) {
 }
 
 void cl_eval_operate(classicladder_rt_t *rt, int expr_index) {
-    if (expr_index < 0 || expr_index >= CL_MAX_ARITHM_EXPR)
+    if (expr_index < 0 || expr_index >= rt->sizes.nbr_arithm_expr)
         return;
     const cl_compiled_expr_t *ce = &rt->compiled_exprs[expr_index];
     if (!ce->valid || ce->len == 0)
