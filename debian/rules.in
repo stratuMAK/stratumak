@@ -161,6 +161,15 @@ override_dh_installdocs-indep:
 	mv debian/linuxcnc-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/linuxcnc-doc-zh-cn/usr/share/doc/linuxcnc
 
 
+# dwz cannot process Go binaries: the toolchain emits compressed .debug_*
+# sections and dwz exits non-zero rather than skipping them ("Found compressed
+# .debug_abbrev section, not attempting dwz compression"). This package is
+# largely Go now -- gomc-server, halcmd, modcompile, ethercat, ads-xml-gen --
+# and dh_dwz batches every binary into a single invocation, so one Go binary
+# fails the whole step. Excluding them by name would be a list to maintain
+# forever. Disabling only changes how compactly the debug info is stored.
+override_dh_dwz:
+
 override_dh_compress:
 	dh_compress -X.pdf -X.txt -X.hal -X.ini -X.clp -X.var -X.nml -X.tbl -X.xml -Xsample-configs
 
