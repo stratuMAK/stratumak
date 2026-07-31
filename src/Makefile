@@ -703,6 +703,16 @@ install-kernel-indep: install-dirs
 	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
 
 	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	# Several bin/ entries are symlinks onto one binary that picks its app
+	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
+	# the loop above ships a full copy per link; re-create them as links.
+	$(Q)for f in $(filter ../bin/%,$(TARGETS)); do \
+		if [ -L "$$f" ]; then \
+			n=`basename "$$f"`; t=`readlink "$$f"`; \
+			rm -f "$(DESTDIR)$(bindir)/$$n"; \
+			ln -s "$$t" "$(DESTDIR)$(bindir)/$$n"; \
+		fi; \
+	done
 	$(EXE) ../scripts/linuxcnc_info $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/setup_designer $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/linuxcnc_var $(DESTDIR)$(bindir)
