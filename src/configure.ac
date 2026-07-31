@@ -690,7 +690,7 @@ AC_SUBST(GLIB_CFLAGS)
 AC_ARG_ENABLE(gtk2,
     AS_HELP_STRING(
         [--disable-gtk2],
-        [Disable the parts of LinuxCNC that depend on GTK2. Ónly needed for classicladder)]
+        [Disable the parts of LinuxCNC that depend on GTK2]
     ),
     [
 	case "$enableval" in
@@ -716,12 +716,12 @@ if test "$BUILD_GTK2" = "yes"; then
       GTK2_LIBS="$GTK2_LIBS `pkg-config --libs libgnomeprintui-2.2`"
       HAVE_GNOMEPRINT=yes
     else
-      AC_MSG_RESULT(no -- printing from classicladder will not be possible)
+      AC_MSG_RESULT(no)
       HAVE_GNOMEPRINT=
     fi
   else
     AC_MSG_RESULT(no)
-    AC_MSG_ERROR([GTK2 missing.  Install with "sudo apt install libgtk2.0-dev" or specify --disable-gtk2 to skip building classicladder])
+    AC_MSG_ERROR([GTK2 missing.  Install with "sudo apt install libgtk2.0-dev" or specify --disable-gtk2])
   fi
 fi
 

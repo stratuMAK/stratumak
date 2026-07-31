@@ -63,7 +63,7 @@ lines:
 
 [source,{hal}]
 ----
-loadrt classicladder_rt
+load classicladder
 addf classicladder.0.refresh servo-thread
 ----
 
@@ -73,15 +73,16 @@ Next we run our config and build the ladder as shown here.
 .E-Stop Section Display
 image::images/EStop_Section_Display.png["E-Stop Section Display",align="center"]
 
-After building the ladder select Save As and save the ladder as
-estop.clp
+After building the ladder, open the Project bar at the top of the page and save
+it as estop.clp.
 
-Now add the following line to your custom.hal file.
+Now name that file on the module's load line in your custom.hal file, so the
+ladder is running from start-up:
 
 [source,{hal}]
 ----
-# Load the ladder
-loadusr classicladder --nogui estop.clp
+# Load ClassicLadder and the ladder it runs
+load classicladder estop.clp
 ----
 
 I/O assignments

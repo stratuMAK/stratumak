@@ -1,0 +1,33 @@
+# ClassicLadder bit I/O through real HAL pins.
+#
+# The ladder itself is verified exhaustively in Go (see
+# src/gomc/internal/classicladder); what only a running HAL can show is the
+# layer between them: that in-NN reaches the ladder, that out-NN follows what
+# the ladder computed, and that the module loads its project and exports
+# classicladder.0.refresh under a name a config can addf.
+#
+# 1ms thread, one input row per scan, so the trace lines up with the 2.9
+# reference run that produced `expected` (see gen-expected.sh).
+
+newthread cl 1000000
+
+load classicladder numRungs=12 numBits=20 numWords=4 numTimers=5 numMonostables=2 numPhysInputs=10 numPhysOutputs=10 numArithmExpr=4 numSections=4 estop.clp
+
+load filestream stream_cfg=bbbbb infile=in.txt sample_cfg=bbb outfile=out.txt depth=1000 samples=36
+
+# Inputs: gui-estop, external estop button, reset strobe, lube request, lube sensor
+net i0 filestream.stream.0 classicladder.0.in-00
+net i1 filestream.stream.1 classicladder.0.in-01
+net i2 filestream.stream.2 classicladder.0.in-02
+net i3 filestream.stream.3 classicladder.0.in-03
+net i4 filestream.stream.4 classicladder.0.in-04
+
+# Outputs: estop-all-ok, lube-run, lube-level
+net q0 classicladder.0.out-00 filestream.sample.0
+net q1 classicladder.0.out-01 filestream.sample.1
+net q2 classicladder.0.out-02 filestream.sample.2
+
+# Apply the inputs, scan, capture the outputs — in that order, every period.
+addf filestream.write cl
+addf classicladder.0.refresh cl
+addf filestream.read cl

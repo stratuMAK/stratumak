@@ -155,7 +155,8 @@ $(CLASSICLADDER_NPM_STAMP): $(CLASSICLADDER_WEBAPP_SRC)/package.json
 	$(Q)cd $(CLASSICLADDER_WEBAPP_SRC) && npm install --no-audit --no-fund
 	$(Q)touch $@
 
-CLASSICLADDER_GEN_TS := $(WEBAPP_DIR)/classicladder/src/generated/classicladder_client.ts
+CLASSICLADDER_GEN_TS := $(WEBAPP_DIR)/classicladder/src/generated/classicladder_client.ts \
+	$(WEBAPP_DIR)/classicladder/src/generated/classicladder_watch_client.ts
 
 $(CLASSICLADDER_WEBAPP_STAMP): $(CLASSICLADDER_WEBAPP_SRCS) $(CLASSICLADDER_NPM_STAMP) $(CLASSICLADDER_GEN_TS)
 	$(ECHO) "Building classicladder webapp"
@@ -198,18 +199,19 @@ TARGETS += $(LATENCY_WEBAPP_STAMP)
 # Request-level write-path tests (vitest) for the apps that have them.
 # Depends on the npm stamps so a fresh checkout installs first.
 WEBAPP_TEST_APPS := $(TOOLEDIT_WEBAPP_SRC) $(EMCCALIB_WEBAPP_SRC) \
-	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC)
+	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC) $(CLASSICLADDER_WEBAPP_SRC)
 
 .PHONY: webapp-test
-webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) $(HALSCOPE_NPM_STAMP)
+webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) \
+		$(HALSCOPE_NPM_STAMP) $(CLASSICLADDER_NPM_STAMP)
 	$(Q)for app in $(WEBAPP_TEST_APPS); do \
 		echo "Testing webapp $$app"; \
 		(cd $$app && npm test) || exit 1; \
 	done
 
 # ESLint correctness gate for the non-deferred webapps. A single shared flat
-# config (webapp/eslint.config.mjs) lints all apps' hand-written source;
-# classicladder and every src/generated/** are excluded (see the config).
+# config (webapp/eslint.config.mjs) lints all apps' hand-written source; only
+# each app's src/generated/** is excluded (see the config).
 # Its own toolchain installs from webapp/package.json.
 WEBAPP_LINT_NPM_STAMP := $(WEBAPP_DIR)/node_modules/.install-stamp
 

@@ -688,17 +688,17 @@ func readVarGo(rt *C.classicladder_rt_t, varType C.int, offset int) C.int {
 	// Use the same read logic as the C side but from Go
 	switch varType {
 	case C.CL_VAR_MEM_BIT:
-		return C.int(rt.var_bits[offset])
+		return C.int(rtVarBits(rt)[offset])
 	case C.CL_VAR_PHYS_INPUT:
-		return C.int(rt.var_bits[rt.sizes.nbr_bits+C.int(offset)])
+		return C.int(rtVarBits(rt)[rt.sizes.nbr_bits+C.int(offset)])
 	case C.CL_VAR_PHYS_OUTPUT:
-		return C.int(rt.var_bits[rt.sizes.nbr_bits+rt.sizes.nbr_phys_inputs+C.int(offset)])
+		return C.int(rtVarBits(rt)[rt.sizes.nbr_bits+rt.sizes.nbr_phys_inputs+C.int(offset)])
 	case C.CL_VAR_MEM_WORD:
-		return C.int(rt.var_words[offset])
+		return C.int(rtVarWords(rt)[offset])
 	case C.CL_VAR_PHYS_WORD_INPUT:
-		return C.int(rt.var_words[rt.sizes.nbr_words+C.int(offset)])
+		return C.int(rtVarWords(rt)[rt.sizes.nbr_words+C.int(offset)])
 	case C.CL_VAR_PHYS_WORD_OUTPUT:
-		return C.int(rt.var_words[rt.sizes.nbr_words+rt.sizes.nbr_s32_in+C.int(offset)])
+		return C.int(rtVarWords(rt)[rt.sizes.nbr_words+rt.sizes.nbr_s32_in+C.int(offset)])
 	}
 	return 0
 }

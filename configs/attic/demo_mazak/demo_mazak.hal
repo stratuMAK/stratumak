@@ -102,12 +102,9 @@ load encoder <encoder.0>
 #
 load pid <pid.0,pid.1,pid.2,pid.3>
 
-# classicladder for machine logic
-# (load the realtime portion)
-loadrt classicladder_rt numRungs=50 numBits=50 numWords=8 numTimers=20 numMonostables=10 numPhysInputs=50 numPhysOutputs=40 numArithmExpr=4 numSections=4
-
-# invoke the user part of CL to silently load the program
-loadusr -w classicladder --nogui demo_mazak.clp
+# classicladder for machine logic. The trailing argument is the project file;
+# the module loads it and starts the PLC itself.
+load classicladder numRungs=50 numBits=50 numWords=8 numTimers=20 numMonostables=10 numPhysInputs=50 numPhysOutputs=40 numArithmExpr=4 numSections=4 demo_mazak.clp
 
 # load debounce to handle the pushbuttons on the operator panels
 load debounce <debounce.0,debounce.1,debounce.2,debounce.3,debounce.4,debounce.5,debounce.6,debounce.7>

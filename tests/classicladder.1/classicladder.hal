@@ -1,0 +1,30 @@
+# ClassicLadder s32 and float pins through real HAL.
+#
+# %IW/%QW and %IF/%QF have no other coverage: the float variables were rejected
+# outright by the variable layer until the engine port, so floatin/floatout were
+# inert, and nothing exercised the s32 path end to end.  The ladder in
+# numeric.clp doubles an s32 input, compares it to drive a bit output, adds one
+# to a float input, and accumulates a second s32 input into %W0 under the
+# control of a bit input.
+
+newthread cl 1000000
+
+load classicladder numRungs=10 numBits=20 numWords=10 numTimers=5 numMonostables=5 numCounters=5 numTimersIec=5 numPhysInputs=10 numPhysOutputs=10 numArithmExpr=10 numSections=4 numS32in=4 numS32out=4 numFloatIn=4 numFloatOut=4 numeric.clp
+
+load filestream stream_cfg=bssf infile=in.txt sample_cfg=bssf outfile=out.txt depth=1000 samples=13
+
+# Inputs: gate bit, two s32 words, one float
+net i0 filestream.stream.0 classicladder.0.in-00
+net iw0 filestream.stream.1 classicladder.0.s32in-00
+net iw1 filestream.stream.2 classicladder.0.s32in-01
+net if0 filestream.stream.3 classicladder.0.floatin-00
+
+# Outputs: compare result, doubled word, accumulator, float plus one
+net q0 classicladder.0.out-00 filestream.sample.0
+net qw0 classicladder.0.s32out-00 filestream.sample.1
+net qw1 classicladder.0.s32out-01 filestream.sample.2
+net qf0 classicladder.0.floatout-00 filestream.sample.3
+
+addf filestream.write cl
+addf classicladder.0.refresh cl
+addf filestream.read cl

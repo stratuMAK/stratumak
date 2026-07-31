@@ -1,46 +1,50 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import LadderView from './components/LadderView.vue';
-import EditToolbar from './components/EditToolbar.vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import SectionView from './components/SectionView.vue';
+import SectionManager from './components/SectionManager.vue';
+import SymbolTable from './components/SymbolTable.vue';
+import ProjectBar from './components/ProjectBar.vue';
 import VarSpy from './components/VarSpy.vue';
 import ComParamsPanel from './components/ComParamsPanel.vue';
 import RequestsPanel from './components/RequestsPanel.vue';
 import StatusPanel from './components/StatusPanel.vue';
 import { ladderStore } from './stores/ladder';
+import { liveStore } from './stores/live';
 import { modbusStore } from './stores/modbus';
-import { ClassicladderClient, LadderState, type Status } from './generated/classicladder_client';
+import { LadderState } from './generated/classicladder_client';
 
-type Tab = 'ladder' | 'variables' | 'modbus-params' | 'modbus-requests' | 'modbus-status';
-const activeTab = ref<Tab>('ladder');
-const clStatus = ref<Status | null>(null);
-const statusClient = new ClassicladderClient(window.location.origin);
-let statusTimer: ReturnType<typeof setInterval> | null = null;
+type Tab = 'program' | 'sections' | 'symbols' | 'variables'
+  | 'modbus-params' | 'modbus-requests' | 'modbus-status';
 
-async function refreshStatus() {
-  try { clStatus.value = await statusClient.getStatus(); } catch {}
-}
+const activeTab = ref<Tab>('program');
+
+// The controller's status, pushed. Null when it is unreachable — a stopped PLC
+// and one that is not answering must not look the same, so the last known state
+// is dropped rather than kept.
+const status = computed(() => liveStore.state.status);
+const running = computed(() => status.value?.state === LadderState.RUN);
 
 onMounted(() => {
+  liveStore.start();
   ladderStore.fetchProgram();
   modbusStore.fetchAll();
   modbusStore.startPolling();
-  refreshStatus();
-  statusTimer = setInterval(refreshStatus, 2000);
 });
 
 onUnmounted(() => {
+  liveStore.stop();
   modbusStore.stopPolling();
-  if (statusTimer) clearInterval(statusTimer);
 });
 
 async function toggleRun() {
-  if (clStatus.value?.state === LadderState.RUN) {
-    await ladderStore.setState(LadderState.STOP);
-  } else {
-    await ladderStore.setState(LadderState.RUN);
-  }
-  setTimeout(refreshStatus, 200);
+  await ladderStore.setState(running.value ? LadderState.STOP : LadderState.RUN);
 }
+
+const scanText = computed(() => {
+  const s = status.value;
+  if (!s) return '';
+  return `${s.scanTimeUs} µs / ${s.periodicRefreshMs} ms`;
+});
 </script>
 
 <template>
@@ -48,33 +52,31 @@ async function toggleRun() {
     <header class="header">
       <h1>Classic Ladder</h1>
       <div class="header-actions">
-        <div class="status-indicator" v-if="clStatus">
-          <span :class="clStatus.state === 2 ? 'dot-green' : 'dot-red'"></span>
-          {{ clStatus.state === 2 ? 'Running' : 'Stopped' }}
+        <span class="scan" v-if="status" :title="'scan time / thread period'">{{ scanText }}</span>
+        <div class="status-indicator">
+          <span :class="status ? (running ? 'dot-green' : 'dot-red') : 'dot-grey'"></span>
+          <template v-if="!status">
+            {{ liveStore.state.reconnecting ? 'Reconnecting…' : 'Not connected' }}
+          </template>
+          <template v-else>{{ running ? 'Running' : 'Stopped' }}</template>
         </div>
-        <button class="btn btn-sm" @click="toggleRun">
-          {{ clStatus?.state === 2 ? 'Stop' : 'Run' }}
+        <button class="btn btn-sm" :disabled="!status" @click="toggleRun">
+          {{ running ? 'Stop' : 'Run' }}
         </button>
         <button class="btn btn-sm" @click="ladderStore.fetchProgram()">Reload</button>
       </div>
     </header>
 
+    <ProjectBar />
+
     <nav class="tabs">
-      <button :class="{ active: activeTab === 'ladder' }" @click="activeTab = 'ladder'">
-        Ladder
-      </button>
-      <button :class="{ active: activeTab === 'variables' }" @click="activeTab = 'variables'">
-        Variables
-      </button>
-      <button :class="{ active: activeTab === 'modbus-params' }" @click="activeTab = 'modbus-params'">
-        Modbus Config
-      </button>
-      <button :class="{ active: activeTab === 'modbus-requests' }" @click="activeTab = 'modbus-requests'">
-        Modbus I/O
-      </button>
-      <button :class="{ active: activeTab === 'modbus-status' }" @click="activeTab = 'modbus-status'">
-        Modbus Status
-      </button>
+      <button :class="{ active: activeTab === 'program' }" @click="activeTab = 'program'">Program</button>
+      <button :class="{ active: activeTab === 'sections' }" @click="activeTab = 'sections'">Sections</button>
+      <button :class="{ active: activeTab === 'symbols' }" @click="activeTab = 'symbols'">Symbols</button>
+      <button :class="{ active: activeTab === 'variables' }" @click="activeTab = 'variables'">Variables</button>
+      <button :class="{ active: activeTab === 'modbus-params' }" @click="activeTab = 'modbus-params'">Modbus Config</button>
+      <button :class="{ active: activeTab === 'modbus-requests' }" @click="activeTab = 'modbus-requests'">Modbus I/O</button>
+      <button :class="{ active: activeTab === 'modbus-status' }" @click="activeTab = 'modbus-status'">Modbus Status</button>
     </nav>
 
     <div class="error-bar" v-if="ladderStore.state.error || modbusStore.state.error">
@@ -83,10 +85,9 @@ async function toggleRun() {
     </div>
 
     <main class="content">
-      <template v-if="activeTab === 'ladder'">
-        <EditToolbar />
-        <LadderView />
-      </template>
+      <SectionView v-if="activeTab === 'program'" />
+      <SectionManager v-else-if="activeTab === 'sections'" @show="activeTab = 'program'" />
+      <SymbolTable v-else-if="activeTab === 'symbols'" />
       <VarSpy v-else-if="activeTab === 'variables'" />
       <ComParamsPanel v-else-if="activeTab === 'modbus-params'" />
       <RequestsPanel v-else-if="activeTab === 'modbus-requests'" />
@@ -110,7 +111,7 @@ body {
 }
 
 .app {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 16px;
 }
@@ -133,10 +134,18 @@ body {
   gap: 8px;
 }
 
+.scan {
+  font-size: 11px;
+  color: #6c7086;
+  font-family: monospace;
+}
+
 .btn-sm {
   padding: 4px 10px !important;
   font-size: 12px !important;
 }
+
+.btn:disabled { opacity: 0.4; cursor: default; }
 
 .status-indicator {
   display: flex;
@@ -145,7 +154,7 @@ body {
   font-size: 13px;
 }
 
-.dot-green, .dot-red {
+.dot-green, .dot-red, .dot-grey {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -153,19 +162,21 @@ body {
 }
 .dot-green { background: #a6e3a1; }
 .dot-red { background: #f38ba8; }
+.dot-grey { background: #6c7086; }
 
 .tabs {
   display: flex;
   gap: 2px;
   margin-bottom: 16px;
   border-bottom: 1px solid #45475a;
+  flex-wrap: wrap;
 }
 
 .tabs button {
   background: none;
   border: none;
   color: #a6adc8;
-  padding: 8px 16px;
+  padding: 8px 14px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   font-size: 13px;
@@ -189,6 +200,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .error-bar button {
@@ -197,6 +209,7 @@ body {
   font-size: 16px;
   cursor: pointer;
   color: #1e1e2e;
+  flex: 0 0 auto;
 }
 
 .content {
@@ -237,6 +250,7 @@ button.btn {
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 button.btn:hover {

@@ -7,9 +7,11 @@ package classicladder
 */
 import "C"
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode"
 )
 
@@ -190,7 +192,9 @@ func (c *compiler) compileOperate() error {
 	if indexed {
 		// Push index value first (for STORE_VAR_IDX: stack = [index, value])
 		// We need to emit index load, then expression, then store_var_idx
-		c.emitVarLoad(idxType, idxOffset, false, 0, 0)
+		if err := c.emitVarLoad(idxType, idxOffset, false, 0, 0); err != nil {
+			return err
+		}
 	}
 
 	// Parse the RHS expression
@@ -199,7 +203,10 @@ func (c *compiler) compileOperate() error {
 	}
 
 	// Store result
-	packed := packVar(varType, varOffset)
+	packed, err := packVar(varType, varOffset)
+	if err != nil {
+		return err
+	}
 	if indexed {
 		c.emit(opStoreVarIdx, packed)
 	} else {
@@ -208,8 +215,15 @@ func (c *compiler) compileOperate() error {
 	return nil
 }
 
-func packVar(varType, offset int) int32 {
-	return int32((varType&0xFFFF)<<16 | (offset & 0xFFFF))
+// packVar packs a variable reference into a bytecode operand. The refusal
+// matters: the operand holds 16 bits per half, and silently masking a larger
+// hand-written reference (say @0/70000@) would alias a different variable
+// instead of failing the expression.
+func packVar(varType, offset int) (int32, error) {
+	if varType < 0 || varType > 0xFFFF || offset < 0 || offset > 0xFFFF {
+		return 0, fmt.Errorf("variable reference %d/%d out of range", varType, offset)
+	}
+	return int32(varType<<16 | offset), nil
 }
 
 // Expression parsing — recursive descent with operator precedence:
@@ -229,6 +243,12 @@ func (c *compiler) parseExprOr() error {
 	return nil
 }
 
+// parseExprXor: deliberate divergence from 2.9. Its grammar has this same
+// XOR level, but its Pow() sits below and consumes every '^' first — so in
+// 2.9 '^' always meant power, XOR was unreachable, and the power it computed
+// was pow_int's a^(2^b), not a^b. Here '^' is the XOR the grammar always
+// intended and power is spelled '**'; loadCLPFile warns when a loaded
+// project's expressions contain '^', because their value changes.
 func (c *compiler) parseExprXor() error {
 	if err := c.parseExprAnd(); err != nil {
 		return err
@@ -385,9 +405,13 @@ func (c *compiler) parseTerm() error {
 			return err
 		}
 		if indexed {
-			c.emitVarLoad(varType, varOffset, true, idxType, idxOffset)
+			if err := c.emitVarLoad(varType, varOffset, true, idxType, idxOffset); err != nil {
+				return err
+			}
 		} else {
-			c.emitVarLoad(varType, varOffset, false, 0, 0)
+			if err := c.emitVarLoad(varType, varOffset, false, 0, 0); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -559,48 +583,110 @@ func (c *compiler) parseInt() (int, error) {
 	return val, nil
 }
 
-func (c *compiler) emitVarLoad(varType, varOffset int, indexed bool, idxType, idxOffset int) {
-	packed := packVar(varType, varOffset)
+func (c *compiler) emitVarLoad(varType, varOffset int, indexed bool, idxType, idxOffset int) error {
+	packed, err := packVar(varType, varOffset)
+	if err != nil {
+		return err
+	}
 	if indexed {
 		// Push the index variable's value, then LOAD_VAR_IDX
-		c.emit(opLoadVar, packVar(idxType, idxOffset))
+		idxPacked, err := packVar(idxType, idxOffset)
+		if err != nil {
+			return err
+		}
+		c.emit(opLoadVar, idxPacked)
 		c.emit(opLoadVarIdx, packed)
 	} else {
 		c.emit(opLoadVar, packed)
 	}
+	return nil
 }
 
 func isHexDigit(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 
-// compileAllExpressions compiles all arithmetic expressions in the RT instance.
-// Called from Go after loading a program. Returns errors for invalid expressions
-// but does not fail — invalid expressions are simply marked as invalid.
+// compileOne compiles a single expression, choosing compare or operate by
+// whether it assigns.
+func compileOne(expr string) (C.cl_compiled_expr_t, error) {
+	kind := 0 // compare
+	if strings.Contains(expr, ":=") {
+		kind = 1 // operate
+	}
+	return compileExpression(expr, kind)
+}
+
+// compileExprList compiles an expression table for a write, refusing the whole
+// batch if any entry fails.
+//
+// It compiles into a fresh array rather than into the instance, so a caller can
+// make the compile a precondition of applying anything: the realtime engine
+// evaluates bytecode, and neither storing an expression that was never
+// recompiled (the scan keeps running the old program while the API reports the
+// new one) nor applying a program that turns out not to compile (nothing to
+// roll back to) is recoverable afterwards.
+//
+// Refusing rather than storing a bad expression is deliberate: an uncompilable
+// expression evaluates as false forever, so accepting it would turn a typo into
+// a silently dead rung. Loading a .clp stays lenient by contrast — a project
+// may predate this implementation, and refusing to load it would be worse than
+// running it with one rung inert and a warning logged.
+func compileExprList(exprs []string) ([]C.cl_compiled_expr_t, error) {
+	code := make([]C.cl_compiled_expr_t, len(exprs))
+	var errs []error
+	for i, expr := range exprs {
+		if expr == "" {
+			continue // zero value: not valid, length 0 — inert
+		}
+		ce, err := compileOne(expr)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("expr[%d] %q: %w", i, expr, err))
+			continue
+		}
+		code[i] = ce
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("%w: %w", syscall.EINVAL, errors.Join(errs...))
+	}
+	return code, nil
+}
+
+// installExprCode writes a compiled table into the instance. Slots past the
+// table's length are invalidated to match — otherwise a shorter upload left
+// stale bytecode behind cleared strings, and a rung still naming that index
+// kept evaluating an expression the API no longer showed.
+func (cl *classicladder) installExprCode(code []C.cl_compiled_expr_t) {
+	n := int(cl.rt.sizes.nbr_arithm_expr)
+	for i := 0; i < len(code) && i < n; i++ {
+		rtCompiledExprs(cl.rt)[i] = code[i]
+	}
+	for i := len(code); i < n; i++ {
+		rtCompiledExprs(cl.rt)[i].valid = 0
+		rtCompiledExprs(cl.rt)[i].len = 0
+	}
+}
+
+// compileAllExpressions compiles all arithmetic expressions held in the RT
+// instance. Returns errors for invalid expressions but does not fail — invalid
+// expressions are simply marked as invalid, which the engine treats as false
+// (compare) or a no-op (operate). This is the lenient path, used when loading a
+// project file.
 func (cl *classicladder) compileAllExpressions() []error {
 	var errs []error
 	for i := 0; i < int(cl.rt.sizes.nbr_arithm_expr); i++ {
-		expr := C.GoString(&cl.rt.arithm_exprs[i].expr[0])
+		expr := C.GoString(&rtArithmExprs(cl.rt)[i].expr[0])
 		if expr == "" {
-			cl.rt.compiled_exprs[i].valid = 0
-			cl.rt.compiled_exprs[i].len = 0
+			rtCompiledExprs(cl.rt)[i].valid = 0
+			rtCompiledExprs(cl.rt)[i].len = 0
 			continue
 		}
-
-		// Determine kind by looking at the expression content:
-		// OPERATE expressions have ":=" in them.
-		kind := 0 // compare
-		if strings.Contains(expr, ":=") {
-			kind = 1 // operate
-		}
-
-		ce, err := compileExpression(expr, kind)
+		ce, err := compileOne(expr)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("expr[%d]: %w", i, err))
-			cl.rt.compiled_exprs[i].valid = 0
+			rtCompiledExprs(cl.rt)[i].valid = 0
 			continue
 		}
-		cl.rt.compiled_exprs[i] = ce
+		rtCompiledExprs(cl.rt)[i] = ce
 	}
 	return errs
 }

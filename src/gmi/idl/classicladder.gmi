@@ -24,6 +24,81 @@ const LGT_SYMBOL_COMMENT = 50
 const LGT_VAR_NAME = 10
 const ARITHM_EXPR_SIZE = 50
 
+# Element types — the `type` field of Element.
+#
+# Contacts and coils occupy one cell. The rest are blocks spanning several
+# cells; see Element below for how a block is laid out in the grid.
+const ELE_FREE = 0            # empty cell
+const ELE_INPUT = 1           # -| |-  contact, closed while its variable is true
+const ELE_INPUT_NOT = 2       # -|/|-  contact, closed while its variable is false
+const ELE_RISING_INPUT = 3    # -|P|-  one scan on the variable's 0->1 edge
+const ELE_FALLING_INPUT = 4   # -|N|-  one scan on the variable's 1->0 edge
+const ELE_CONNECTION = 9      # ---    horizontal wire
+const ELE_TIMER = 10          # old-style timer block, 2 wide x 2 high
+const ELE_MONOSTABLE = 11     # monostable block, 2 wide x 2 high
+const ELE_COUNTER = 12        # counter block, 2 wide x 4 high
+const ELE_TIMER_IEC = 13      # IEC timer block, 2 wide x 2 high
+const ELE_COMPAR = 20         # [ expr ] comparison, 3 wide x 1 high
+const ELE_OUTPUT = 50         # -( )-  coil
+const ELE_OUTPUT_NOT = 51     # -(/)-  negated coil
+const ELE_OUTPUT_SET = 52     # -(S)-  set coil, latches its variable true
+const ELE_OUTPUT_RESET = 53   # -(R)-  reset coil, latches its variable false
+const ELE_OUTPUT_JUMP = 54    # -(J)-  jump to the rung in varNum
+const ELE_OUTPUT_CALL = 55    # -(C)-  call the sub-routine numbered varNum
+const ELE_OUTPUT_OPERATE = 60 # [ expr ] assignment, 3 wide x 1 high
+const ELE_UNUSABLE = 99       # body cell of a block; carries no logic of its own
+
+# Variable types — the `varType` field of Element, and the varType argument of
+# set_variable. The number identifies a region; the offset selects within it.
+#
+# Boolean regions:
+const VAR_MEM_BIT = 0             # %B   memory bit
+const VAR_TIMER_DONE = 10         # %T.D  timer elapsed
+const VAR_TIMER_RUNNING = 11      # %T.R  timer counting
+const VAR_TIMER_IEC_DONE = 15     # %TI.Q IEC timer output
+const VAR_MONOSTABLE_RUNNING = 20 # %M.R  monostable pulse active
+const VAR_COUNTER_DONE = 25       # %C.D  counter reached its preset
+const VAR_COUNTER_EMPTY = 26      # %C.E  counter underflowed
+const VAR_COUNTER_FULL = 27       # %C.F  counter overflowed
+const VAR_STEP_ACTIVITY = 30      # %X    SFC step is active
+const VAR_PHYS_INPUT = 50         # %I    HAL bit input pin
+const VAR_PHYS_OUTPUT = 60        # %Q    HAL bit output pin
+const VAR_ERROR_BIT = 70          # %E    error bit
+#
+# Integer regions:
+const VAR_MEM_WORD = 200            # %W     memory word
+const VAR_STEP_TIME = 220           # %X.V   seconds an SFC step has been active
+const VAR_TIMER_PRESET = 230        # %T.P   timer preset, in base units
+const VAR_TIMER_VALUE = 231         # %T.V   timer remaining, in base units
+const VAR_MONOSTABLE_PRESET = 240   # %M.P   monostable preset, in base units
+const VAR_MONOSTABLE_VALUE = 241    # %M.V   monostable remaining, in base units
+const VAR_COUNTER_PRESET = 250      # %C.P   counter preset
+const VAR_COUNTER_VALUE = 251       # %C.V   counter value
+const VAR_TIMER_IEC_PRESET = 260    # %TI.P  IEC timer preset, in base units
+const VAR_TIMER_IEC_VALUE = 261     # %TI.V  IEC timer elapsed, in base units
+const VAR_PHYS_WORD_INPUT = 270     # %IW    HAL s32 input pin
+const VAR_PHYS_WORD_OUTPUT = 280    # %QW    HAL s32 output pin
+const VAR_PHYS_FLOAT_INPUT = 300    # %IF    HAL float input pin, truncated to s32
+const VAR_PHYS_FLOAT_OUTPUT = 310   # %QF    HAL float output pin, written from s32
+
+# Live cell state — the entries of RungState.cells, or'd together.
+const CELL_STATE = 1    # the element itself is on: a contact conducts, a coil
+                        # is energised, a block output is true
+const CELL_INPUT = 2    # power reaches the element from the left. Column 0 sits
+                        # on the power rail, so the engine never computes this
+                        # for it and leaves it clear — read column 0 as powered.
+const CELL_OUTPUT = 4   # power leaves the element to the right
+
+# Time bases — the `base` field of Timer, Monostable and TimerIEC.
+#
+# A block's preset and value are expressed in units of its base, not in
+# milliseconds: base BASE_SECS with preset 5 is five seconds. This is the
+# encoding the .clp file uses; the millisecond arithmetic stays inside the
+# realtime engine.
+const BASE_MINS = 0
+const BASE_SECS = 1
+const BASE_100MS = 2
+
 # --- Enums ---
 
 enum LadderState {
@@ -45,79 +120,133 @@ enum TimerIECMode {
 
 # --- Types ---
 
+# One cell of a rung.
+#
+# A block wider or taller than one cell has its head in the cell nearest the
+# right power rail; the cells it covers to the left and below are ELE_UNUSABLE
+# body cells. A 2x2 timer whose head is at column 3 row 0 therefore covers
+# columns 2..3 and rows 0..1, and its inputs are read from the left of
+# column 2. Body cells conduct nothing: power reaches the next column only
+# through the block's own outputs.
 type Element {
-    type: i32
-    connectedWithTop: i32
-    varType: i32
-    varNum: i32
+    type: i32               # ELE_* — see the constants above
+    connectedWithTop: i32    # 1 if this cell is wired to the cell above it,
+                             # forming a parallel branch. The link conducts in
+                             # both directions.
+    varType: i32             # VAR_* — the region the element reads or writes.
+                             # For ELE_TIMER/MONOSTABLE/COUNTER/TIMER_IEC and
+                             # ELE_COMPAR/OUTPUT_OPERATE it is unused: varNum
+                             # selects the block or the expression instead.
+    varNum: i32              # offset within varType, or the block number, or
+                             # the arithmetic expression index, or — for
+                             # ELE_OUTPUT_JUMP — the target rung, or — for
+                             # ELE_OUTPUT_CALL — the sub-routine number
 }
 
+# One rung: a RUNG_WIDTH x RUNG_HEIGHT grid evaluated left to right.
+#
+# Rungs are held in a fixed array but executed in the order given by the
+# per-section linked list: a section runs from its firstRung, follows nextRung,
+# and stops after its lastRung. prevRung/nextRung index that array. Editing the
+# chain by hand is a good way to hang a PLC; the server maintains it.
 type Rung {
     used: bool
     prevRung: i32
     nextRung: i32
-    label: string @maxlen(9)
+    label: string @maxlen(9)     # jump targets are named by rung index, not by
+                                 # this label; it is for the operator
     comment: string @maxlen(29)
-    elements: [60]Element   # RUNG_WIDTH * RUNG_HEIGHT, row-major
+    elements: [60]Element        # RUNG_WIDTH * RUNG_HEIGHT, row-major:
+                                 # element[row * RUNG_WIDTH + col]
 }
 
+# A section holds a run of rungs in one language.
+#
+# Main sections run once per scan, in section order. Sub-routine sections run
+# only when an ELE_OUTPUT_CALL coil names them, and may call each other; the
+# engine bounds the recursion and stops the PLC rather than overflow.
 type Section {
     used: bool
     name: string @maxlen(19)
     language: SectionLanguage
-    subRoutineNumber: i32
-    firstRung: i32
+    subRoutineNumber: i32   # -1 for a main section; otherwise the number an
+                            # ELE_OUTPUT_CALL coil uses to reach it
+    firstRung: i32          # ignored when language is SEQUENTIAL
     lastRung: i32
-    sequentialPage: i32
+    sequentialPage: i32     # SFC page, when language is SEQUENTIAL
 }
 
+# An operator-facing name for a variable: symbol "estop-ok" for varName "%Q0".
 type Symbol {
-    varName: string @maxlen(9)
+    varName: string @maxlen(9)   # the variable in its written form, e.g. "%I3"
     symbol: string @maxlen(9)
     comment: string @maxlen(49)
 }
 
+# One arithmetic expression, referenced by an ELE_COMPAR or ELE_OUTPUT_OPERATE
+# element through its index in the expression table.
+#
+# Variables are written @<varType>/<offset>@, optionally indexed by another
+# variable: "@200/0@:=@200/0@+@270/1@" adds %IW1 to %W0. A comparison yields a
+# truth value ("@270/0@>5"); an assignment uses ":=". Index positions matter —
+# elements name expressions by number, so an expression's index is part of the
+# program, not an implementation detail.
 type ArithmExpr {
     expr: string @maxlen(48)
 }
 
+# One expression-table entry named by its index, in written (operator) form.
+# Carried by set_rung so a rung and the expressions its compare/operate
+# elements reference land as one validated write — see set_rung.
+type ExprSlot {
+    index: i32                  # position in the expression table
+    text: string @maxlen(48)    # written form, as in set_expression_text;
+                                # "" releases the slot
+}
+
+# IEC timer. Unlike Timer and Monostable it counts up, from 0 to preset.
 type TimerIEC {
-    preset: i32
-    value: i32
-    base: i32
+    preset: i32          # in units of base
+    value: i32           # elapsed, in units of base
+    base: i32            # BASE_* — see the constants above
     mode: TimerIECMode
     input: bool
     output: bool
 }
 
+# Old-style timer: counts its preset down while both inputs are held, and
+# reloads the preset when the enable input opens.
 type Timer {
-    preset: i32
-    value: i32
-    base: i32
-    inputEnable: bool
-    inputControl: bool
-    outputDone: bool
-    outputRunning: bool
+    preset: i32          # in units of base
+    value: i32           # remaining, in units of base
+    base: i32            # BASE_* — see the constants above
+    inputEnable: bool    # block input row 0
+    inputControl: bool   # block input row 1; the timer only counts while held
+    outputDone: bool     # block output row 0
+    outputRunning: bool  # block output row 1
 }
 
+# Monostable: a non-retriggerable pulse of `preset` started by a rising input.
 type Monostable {
-    preset: i32
-    value: i32
-    base: i32
+    preset: i32          # in units of base
+    value: i32           # remaining, in units of base
+    base: i32            # BASE_* — see the constants above
     input: bool
     outputRunning: bool
 }
 
+# Counter. Its four inputs are read from consecutive rows of the block, and
+# reset wins over preset, which wins over the count edges.
 type Counter {
     preset: i32
     value: i32
-    inputReset: bool
-    inputPreset: bool
-    inputCountUp: bool
-    inputCountDown: bool
-    outputDone: bool
-    outputEmpty: bool
-    outputFull: bool
+    inputReset: bool      # block input row 0
+    inputPreset: bool     # block input row 1
+    inputCountUp: bool    # block input row 2
+    inputCountDown: bool  # block input row 3
+    outputDone: bool      # block output row 1 — value reached preset
+    outputEmpty: bool     # block output row 0 — wrapped below zero
+    outputFull: bool      # block output row 2 — wrapped above 9999
 }
 
 type SizeInfo {
@@ -146,31 +275,61 @@ type Status {
     periodicRefreshMs: i32
     sizes: SizeInfo
     projectFile: string
+    generation: u32     # bumped on every program change (edits, loads, whole-
+                        # program PUTs). A client holding a rendered program
+                        # refetches when this moves — it is the only signal
+                        # that another client or a load rewrote the program
+                        # under the live rung states it keeps receiving.
 }
 
+# The array bounds are the load-line size cap (CL_SIZE_LIMIT), not the
+# defaults: the tables are sized by the module's arguments, and the provider
+# refuses anything past the configured counts with the knob named.
 type Program {
     sizes: SizeInfo
-    rungs: []Rung
-    sections: []Section
-    symbols: []Symbol
-    arithmExprs: []ArithmExpr
-    timersIec: []TimerIEC
-    timers: []Timer
-    monostables: []Monostable
-    counters: []Counter
+    rungs: []Rung @maxlen(100000)
+    sections: []Section @maxlen(100000)
+    symbols: []Symbol @maxlen(100000)
+    arithmExprs: []ArithmExpr @maxlen(100000)
+    timersIec: []TimerIEC @maxlen(100000)
+    timers: []Timer @maxlen(100000)
+    monostables: []Monostable @maxlen(100000)
+    counters: []Counter @maxlen(100000)
 }
 
+# Every boolean a running program can be asked for.
+#
+# The block outputs are here rather than left to be read off Program's block
+# structures because those are the program: they are fetched when it is loaded
+# and after an edit, not every scan. What a spy window and an animated block
+# want is this — the state, pushed.
 type VarsBool {
     bits: []bool
     physInputs: []bool
     physOutputs: []bool
     errorBits: []bool
+    stepActivity: []bool        # %X — indexed by step number, not by step index
+    timerDone: []bool           # %T.D
+    timerRunning: []bool        # %T.R
+    monostableRunning: []bool   # %M.R
+    counterDone: []bool         # %C.D
+    counterEmpty: []bool        # %C.E
+    counterFull: []bool         # %C.F
+    timerIecDone: []bool        # %TI.Q
 }
 
+# The integer counterpart. Presets are absent on purpose: a preset is what the
+# program says, not what the machine is doing, and it lives in Program with the
+# rest of the block's configuration.
 type VarsWord {
     words: []i32
     physWordInputs: []i32
     physWordOutputs: []i32
+    stepTimes: []i32            # %X.V  — seconds each step has been active
+    timerValues: []i32          # %T.V  — remaining, in units of the timer's base
+    monostableValues: []i32     # %M.V  — remaining, in units of its base
+    counterValues: []i32        # %C.V
+    timerIecValues: []i32       # %TI.V — elapsed, in units of its base
 }
 
 type VarsFloat {
@@ -184,6 +343,21 @@ type Variables {
     floats: VarsFloat
 }
 
+# The live state of one rung's cells.
+#
+# What makes a running ladder legible is not the variable values but where the
+# power is: which contacts conduct, which wires carry it onward, which block
+# outputs are true. The engine works that out for every cell it scans — 2.9
+# calls it DynamicState/DynamicInput/DynamicOutput and its display draws from
+# it — so it is published rather than recomputed. A client that derived it
+# would be a second evaluator of the ladder, drifting from the one the machine
+# actually runs.
+type RungState {
+    rung: i32       # index into Program.rungs — also the key the watch uses
+    cells: []i32    # RUNG_WIDTH * RUNG_HEIGHT, row-major like Rung.elements;
+                    # each entry is CELL_* or'd together
+}
+
 # --- Control functions ---
 
 # Get PLC status (state, scan time, sizes).
@@ -192,6 +366,10 @@ type Variables {
 func get_status() -> Status
 
 # Set ladder state (RUN/STOP).
+#
+# A transition to RUN is a cold start: timers, monostables, counters and the
+# edge history of every contact are reset before the first scan. Setting RUN on
+# an already-running PLC does nothing rather than resetting it mid-scan.
 @method POST
 @path "/state"
 func set_state(state: LadderState) -> i32
@@ -202,6 +380,10 @@ func set_state(state: LadderState) -> i32
 func get_program() -> Program
 
 # Replace the full program (bulk upload from file load or editor).
+#
+# The expression table is compiled before anything is applied, so a program that
+# does not compile is refused whole and the running ladder is left as it was.
+# See set_expressions.
 @method PUT
 @path "/program"
 func set_program(program: Program) -> i32
@@ -212,9 +394,67 @@ func set_program(program: Program) -> i32
 func get_rung(index: i32 @min(0)) -> Rung
 
 # Update a single rung (after edit).
+#
+# The wire rung's used flag and prevRung/nextRung are IGNORED: the chain is
+# the server's (see the structural-editing note below), and a rung must
+# already be in use — insert_rung creates rungs. Only the element grid, label
+# and comment are taken.
+#
+# `expressions` carries the written text for the expression slots this edit
+# touches, so a rung and its compare/operate expressions apply as one
+# validated transaction: everything is parsed and compiled first, and a
+# refusal leaves the controller exactly as it was. Applied separately (rung
+# first, expressions second or the reverse), a refusal midway strands the
+# other half live on the controller while the editor believes it cancelled —
+# that is how it used to work, and it was wrong. Entries with text ""
+# release their slot: an element deleted from the rung frees its expression
+# in the same write. A rung has 60 cells, so 60 entries bound any edit.
 @method PUT
 @path "/rung/{index}"
-func set_rung(index: i32 @min(0), rung: Rung) -> i32
+func set_rung(index: i32 @min(0), rung: Rung, expressions: []ExprSlot @maxlen(60)) -> i32
+
+# --- Structural editing ---
+#
+# Rungs live in a fixed array but run in the order of a per-section linked list.
+# Maintaining that list is the server's job: a client that got it wrong would
+# not produce a wrong answer, it would produce a chain the scan never leaves,
+# and the engine's runaway guard would stop the PLC. So inserting and deleting
+# are operations here rather than something a client assembles out of set_rung.
+
+# Insert a new, empty rung after an existing one, and return its index.
+#
+# The new rung joins the section the given rung belongs to. Pass -1 to add to
+# the end of the first section. Fails if no rung slot is free.
+@method POST
+@path "/rung/insert"
+func insert_rung(afterIndex: i32 @min(-1)) -> i32
+
+# Delete a rung, unlinking it from its section.
+#
+# A section always holds at least one rung, so deleting the only rung of a
+# section is refused — delete the section instead. Arithmetic expressions used
+# only by this rung are released with it.
+@method DELETE
+@path "/rung/{index}"
+func delete_rung(index: i32 @min(0)) -> i32
+
+# Create a section and return its index.
+#
+# A ladder section is created holding one empty rung; a sequential section is
+# given a free chart page. Names must be unique and non-empty. subRoutineNumber
+# is -1 for a main section, otherwise the number an ELE_OUTPUT_CALL coil uses
+# to reach it, which must not already be taken.
+@method POST
+@path "/section"
+func add_section(name: string @maxlen(19), language: SectionLanguage, subRoutineNumber: i32 @min(-1)) -> i32
+
+# Delete a section and free the rungs it holds.
+#
+# Refused for the last remaining section: a program with no sections has
+# nowhere to put a rung.
+@method DELETE
+@path "/section/{index}"
+func delete_section(index: i32 @min(0)) -> i32
 
 # Get a section by index.
 @method GET
@@ -232,9 +472,53 @@ func set_section(index: i32 @min(0), section: Section) -> i32
 func get_variables() -> Variables
 
 # Set a variable value (for testing/forcing).
+#
+# varType is one of the VAR_* constants; offset selects within that region. A
+# forced value holds only until the ladder writes it again, which for a coil's
+# variable is the very next scan — forcing is for probing, not for control.
+# Offsets outside the configured size of the region are ignored.
 @method POST
 @path "/variable"
 func set_variable(varType: i32, offset: i32 @min(0), value: i32) -> i32
+
+# Get the live cell state of every used rung.
+#
+# Unused rungs are absent. The watch below returns the same states keyed by
+# RungState.rung so that it can be delta-encoded; this one is a plain list,
+# because a snapshot has nothing to diff against.
+@method GET
+@path "/rung_states"
+func get_rung_states() -> []RungState
+
+# --- Block parameters ---
+#
+# A block's number selects it; its parameters — how long a timer runs, what a
+# counter counts to — belong to the block, not to the element that names it.
+# They are set one block at a time, the way the element that uses them is, so
+# an editor never has to send back a whole program to change one preset.
+#
+# The counted-in-base-units rule from the constants above applies here: preset
+# is in units of base, not milliseconds.
+
+# Set an old-style timer's parameters.
+@method PUT
+@path "/timer/{index}"
+func set_timer(index: i32 @min(0), preset: i32 @min(0), base: i32) -> i32
+
+# Set a monostable's parameters.
+@method PUT
+@path "/monostable/{index}"
+func set_monostable(index: i32 @min(0), preset: i32 @min(0), base: i32) -> i32
+
+# Set a counter's preset.
+@method PUT
+@path "/counter/{index}"
+func set_counter(index: i32 @min(0), preset: i32 @min(0)) -> i32
+
+# Set an IEC timer's parameters.
+@method PUT
+@path "/timer_iec/{index}"
+func set_timer_iec(index: i32 @min(0), preset: i32 @min(0), base: i32, mode: TimerIECMode) -> i32
 
 # Load a .clp project file on the backend.
 @method POST
@@ -250,6 +534,150 @@ func save_project(path: string) -> i32
 @method GET
 @path "/symbols"
 func get_symbols() -> []Symbol
+
+# --- Variable names ---
+#
+# Variables are written "%I3", "%C0.D", "%X7.V" and stored as @type/offset@.
+# An editor has to convert both ways: to show what a program refers to, and to
+# read what an operator types.
+#
+# The rule is a table, so it is served as one rather than as a conversion call
+# per variable — a client formats and parses locally and only comes back here
+# for what it cannot know, which is how many of each kind this PLC was
+# configured with.
+
+type VarClass {
+    prefix: string @maxlen(4)    # written between '%' and the offset, e.g. "IW"
+    suffix: string @maxlen(4)    # written after it, e.g. ".D"; often empty
+    varType: i32                 # the VAR_* this class maps to
+    count: i32                   # configured number of offsets, 0 .. count-1
+    writable: bool               # false if a program may only read it
+}
+
+# Get the variable naming table.
+#
+# Match the longest form: "%X0.V" is a step time, not a step activity followed
+# by stray characters, and "%IW0" is a word input, not "%I0" with a leftover.
+@method GET
+@path "/var_classes"
+func get_var_classes() -> []VarClass
+
+# --- HAL wiring ---
+#
+# The physical variables are HAL pins: %I3 is the pin classicladder.0.in-03. What
+# a reader of someone else's ladder wants to know about a contact is not that it
+# reads %I3 but that %I3 is wired to the estop chain — and only this side can
+# answer that, because the answer lives in HAL, not in the project file.
+
+type HalLink {
+    varType: i32       # VAR_* of the ladder variable
+    offset: i32
+    pin: string        # the HAL pin carrying it
+    signal: string     # the signal connected to that pin, empty if none
+    isInput: bool      # true if HAL drives the ladder, false if the ladder drives HAL
+}
+
+# Get the HAL wiring of every physical variable.
+#
+# Only variables backed by a pin appear: %B, %W, timers and the rest are internal
+# and have no wiring, so their absence is the answer rather than a special value.
+# The whole set comes back in one call because a rung view wants to annotate many
+# elements at once, and the set is small.
+@method GET
+@path "/hal_links"
+func get_hal_links() -> []HalLink
+
+# --- Sequential Function Chart (SFC) ---
+#
+# A section whose language is SEQUENTIAL runs a state machine instead of rungs.
+# Steps are states; a transition fires when its condition variable is true and
+# every step above it is active, deactivating those and activating the ones
+# below. One transition with several steps below it starts parallel branches;
+# one with several steps above it waits for all of them.
+#
+# Step activity and elapsed time reach ladder rungs as the %X and %X.V
+# variables, and are reported live in Variables rather than here — this is the
+# static structure.
+#
+# The chart is written whole (set_sequential) rather than element by element.
+# A step is named by its slot everywhere a transition refers to it, so moving
+# one element can rewrite the links of several others; sending the whole chart
+# is what makes such an edit atomic, and it is the shape the original editor
+# has — it works on a copy and applies it in one go.
+
+const MAX_STEPS = 128
+const MAX_TRANSITIONS = 256
+const MAX_SWITCHS = 10
+const MAX_SEQ_PAGES = 5
+const MAX_SEQ_COMMENTS = 50
+const SEQ_COMMENT_LGT = 51
+
+# A chart page is a grid this many cells across and down. Editors put steps on
+# odd rows and transitions on even ones, so that a step and the transition below
+# it are always one row apart; the engine does not read positions at all, and
+# nothing here requires that convention — it is how a chart is drawn, not what
+# it means.
+const SEQ_PAGE_WIDTH = 16
+const SEQ_PAGE_HEIGHT = 16
+
+type Step {
+    used: bool
+    initStep: bool     # activated when the PLC starts
+    stepNumber: i32    # the n in %Xn — chosen by the author, not the index
+    page: i32          # which chart page it is drawn on
+    posiX: i32
+    posiY: i32
+}
+
+type Transition {
+    used: bool
+    varTypeCondi: i32           # VAR_* of the condition variable
+    varNumCondi: i32            # its offset
+    stepsToActivate: [10]i32    # step indices, -1 padded (MAX_SWITCHS)
+    stepsToDeactivate: [10]i32  # step indices, -1 padded
+    transLinkedForStart: [10]i32 # sibling transitions of a parallel branch
+    transLinkedForEnd: [10]i32
+    page: i32
+    posiX: i32
+    posiY: i32
+}
+
+type SeqComment {
+    used: bool
+    page: i32
+    posiX: i32
+    posiY: i32
+    comment: string @maxlen(50)
+}
+
+# The whole chart. Steps and transitions are carried in full, including unused
+# slots, because transitions refer to steps by index — compacting the arrays
+# would break every reference in them. The same holds writing it back: a chart
+# is sent with its slots where they were, not repacked.
+type Sequential {
+    steps: []Step @maxlen(128)
+    transitions: []Transition @maxlen(256)
+    comments: []SeqComment @maxlen(50)
+}
+
+# Get the sequential (SFC) chart.
+@method GET
+@path "/sequential"
+func get_sequential() -> Sequential
+
+# Replace the sequential (SFC) chart.
+#
+# The whole chart goes at once — see Sequential. It is checked before any of it
+# is applied, so a refused chart leaves the running one untouched: a transition
+# that names a step which is not there, or which is on another page, is a chart
+# the scan would evaluate as something nobody drew.
+#
+# Applying resets step activity to the chart's initial steps, as the original
+# editor does. It has to: the steps a client is replacing are named by slot, so
+# carrying activity across an edit would light whatever moved into that slot.
+@method PUT
+@path "/sequential"
+func set_sequential(sequential: Sequential) -> i32
 
 # --- Modbus types ---
 
@@ -337,9 +765,54 @@ func set_symbols(symbols: []Symbol) -> i32
 func get_expressions() -> []ArithmExpr
 
 # Update arithmetic expressions.
+#
+# Expressions are compiled before they are stored, and the whole table is
+# refused if any entry fails to compile — an expression that does not compile
+# evaluates as false forever, so accepting it would turn a typo into a silently
+# dead rung. Loading a project file is lenient by contrast: an expression this
+# implementation cannot compile is left inert with a warning rather than
+# refusing the whole project.
 @method PUT
 @path "/expressions"
 func set_expressions(exprs: []ArithmExpr) -> i32
+
+# An expression in the form an operator reads and writes: "%W1:=%W0+1" rather
+# than the stored "@200/1@:=@200/0@+1".
+type ExprText {
+    text: string @maxlen(48)
+}
+
+# Get the expression table in written form.
+#
+# Converting between the two forms needs the variable naming rules, which live
+# on this side and are checked against the original implementation. A client
+# displays what this returns and sends back what the operator typed; it does not
+# need a parser of its own, and a second parser is what would drift.
+@method GET
+@path "/expressions/text"
+func get_expressions_text() -> []ExprText
+
+# Update the expression table from written form.
+#
+# Each entry is parsed, compiled and stored, and the whole table is refused if
+# any entry names a variable that does not exist or fails to compile. An empty
+# entry clears that expression.
+@method PUT
+@path "/expressions/text"
+func set_expressions_text(texts: []ExprText) -> i32
+
+# Update one expression from written form.
+#
+# Only this entry is parsed and compiled, so an editor changing what one
+# element compares does not have to send back the rest of the table — and is
+# not refused because of an entry it never touched. That matters after a
+# lenient file load, which keeps an expression it could not compile and leaves
+# it inert: the whole-table call stands behind everything it is given, and so
+# would reject every later edit until the broken one was fixed. An empty text
+# clears the expression.
+@method PUT
+@path "/expression/{index}/text"
+func set_expression_text(index: i32 @min(0), text: string @maxlen(48)) -> i32
 
 # --- Watch functions (pushed to WS clients) ---
 
@@ -352,3 +825,14 @@ func watch_status() -> Status
 @watch true
 @watch_default_rate 200ms
 func watch_variables() -> Variables
+
+# Live cell state pushed to clients, for animating the ladder view.
+#
+# Delta-encoded: the first message is every used rung, later ones carry only
+# the rungs whose cells changed. A rung that stops being used simply stops
+# being mentioned — deletions are not signalled, because the client renders
+# the rungs the program says exist, not the ones this call last mentioned.
+@watch true
+@watch_default_rate 100ms
+@watch_delta true
+func watch_rung_states() -> map[string]RungState

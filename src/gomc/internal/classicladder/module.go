@@ -32,9 +32,11 @@ import "C"
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/apiserver"
@@ -59,32 +61,39 @@ type classicladder struct {
 	modbus      *modbusMaster
 	modbusSlave *modbusSlave
 	slavePort   int
+	// Which HAL pin carries which ladder variable, recorded as the pins were
+	// created. Fixed after construction, so it needs no lock.
+	halPins []halPinRef
 }
 
-func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+// parseModuleArgs turns the `load classicladder ...` argument list into the
+// PLC sizes, the positional project-file path, and the modbus slave port.
+// The arrays are allocated to exactly these counts, so a bad value must
+// refuse the load here — it cannot be clamped into meaning something else.
+func parseModuleArgs(args []string) (C.cl_sizes_t, string, int, error) {
 	// Default sizes
 	sizes := C.cl_sizes_t{
-		nbr_rungs:        C.int(C.CL_MAX_RUNGS),
-		nbr_bits:         100,
-		nbr_words:        100,
-		nbr_timers:       C.int(C.CL_MAX_TIMERS),
-		nbr_monostables:  C.int(C.CL_MAX_MONOSTABLES),
-		nbr_counters:     C.int(C.CL_MAX_COUNTERS),
-		nbr_timers_iec:   C.int(C.CL_MAX_TIMERS_IEC),
-		nbr_phys_inputs:  15,
-		nbr_phys_outputs: 15,
-		nbr_arithm_expr:  C.int(C.CL_MAX_ARITHM_EXPR),
-		nbr_sections:     C.int(C.CL_MAX_SECTIONS),
-		nbr_symbols:      C.int(C.CL_MAX_SYMBOLS),
-		nbr_s32_in:       10,
-		nbr_s32_out:      10,
-		nbr_float_in:     10,
-		nbr_float_out:    10,
-		nbr_error_bits:   10,
+		nbr_rungs:        C.CL_DEF_RUNGS,
+		nbr_bits:         C.CL_DEF_BITS,
+		nbr_words:        C.CL_DEF_WORDS,
+		nbr_timers:       C.CL_DEF_TIMERS,
+		nbr_monostables:  C.CL_DEF_MONOSTABLES,
+		nbr_counters:     C.CL_DEF_COUNTERS,
+		nbr_timers_iec:   C.CL_DEF_TIMERS_IEC,
+		nbr_phys_inputs:  C.CL_DEF_PHYS_INPUTS,
+		nbr_phys_outputs: C.CL_DEF_PHYS_OUTPUTS,
+		nbr_arithm_expr:  C.CL_DEF_ARITHM_EXPR,
+		nbr_sections:     C.CL_DEF_SECTIONS,
+		nbr_symbols:      C.CL_DEF_SYMBOLS,
+		nbr_s32_in:       C.CL_DEF_S32_IN,
+		nbr_s32_out:      C.CL_DEF_S32_OUT,
+		nbr_float_in:     C.CL_DEF_FLOAT_IN,
+		nbr_float_out:    C.CL_DEF_FLOAT_OUT,
+		nbr_error_bits:   C.CL_DEF_ERROR_BITS,
 	}
 
 	// Parse args for size overrides (e.g. numRungs=200 numBits=500)
-	// and project file path (last positional arg or modbus_port=N)
+	// and project file path (last positional arg or modbus_port=N).
 	var projectFile string
 	var slavePort int
 	for _, arg := range args {
@@ -95,43 +104,68 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		}
 		parts := strings.SplitN(arg, "=", 2)
 		key, val := parts[0], parts[1]
-		v := C.int(atoi(val))
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return C.cl_sizes_t{}, "", 0, fmt.Errorf("classicladder: %s: not a number: %q", key, val)
+		}
+		var dst *C.int
 		switch key {
 		case "numRungs":
-			sizes.nbr_rungs = v
+			dst = &sizes.nbr_rungs
 		case "numBits":
-			sizes.nbr_bits = v
+			dst = &sizes.nbr_bits
 		case "numWords":
-			sizes.nbr_words = v
+			dst = &sizes.nbr_words
 		case "numTimers":
-			sizes.nbr_timers = v
+			dst = &sizes.nbr_timers
 		case "numMonostables":
-			sizes.nbr_monostables = v
+			dst = &sizes.nbr_monostables
 		case "numCounters":
-			sizes.nbr_counters = v
+			dst = &sizes.nbr_counters
 		case "numTimersIec":
-			sizes.nbr_timers_iec = v
+			dst = &sizes.nbr_timers_iec
 		case "numPhysInputs":
-			sizes.nbr_phys_inputs = v
+			dst = &sizes.nbr_phys_inputs
 		case "numPhysOutputs":
-			sizes.nbr_phys_outputs = v
+			dst = &sizes.nbr_phys_outputs
 		case "numArithmExpr":
-			sizes.nbr_arithm_expr = v
+			dst = &sizes.nbr_arithm_expr
 		case "numSections":
-			sizes.nbr_sections = v
+			dst = &sizes.nbr_sections
 		case "numSymbols":
-			sizes.nbr_symbols = v
+			dst = &sizes.nbr_symbols
 		case "numS32in":
-			sizes.nbr_s32_in = v
+			dst = &sizes.nbr_s32_in
 		case "numS32out":
-			sizes.nbr_s32_out = v
+			dst = &sizes.nbr_s32_out
 		case "numFloatIn":
-			sizes.nbr_float_in = v
+			dst = &sizes.nbr_float_in
 		case "numFloatOut":
-			sizes.nbr_float_out = v
+			dst = &sizes.nbr_float_out
 		case "modbus_port":
-			slavePort = atoi(val)
+			if n < 1 || n > 65535 {
+				return C.cl_sizes_t{}, "", 0, fmt.Errorf("classicladder: modbus_port out of range: %d", n)
+			}
+			slavePort = n
+			continue
+		default:
+			return C.cl_sizes_t{}, "", 0, fmt.Errorf("classicladder: unknown argument %q", key)
 		}
+		if n < 0 || n > C.CL_SIZE_LIMIT {
+			return C.cl_sizes_t{}, "", 0, fmt.Errorf("classicladder: %s out of range: %d (0..%d)", key, n, int(C.CL_SIZE_LIMIT))
+		}
+		*dst = C.int(n)
+	}
+	if sizes.nbr_rungs < 1 || sizes.nbr_sections < 1 {
+		return C.cl_sizes_t{}, "", 0, fmt.Errorf("classicladder: numRungs and numSections must be at least 1")
+	}
+	return sizes, projectFile, slavePort, nil
+}
+
+func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+	sizes, projectFile, slavePort, err := parseModuleArgs(args)
+	if err != nil {
+		return nil, err
 	}
 
 	rt := C.classicladder_rt_alloc(&sizes)
@@ -151,8 +185,10 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		return nil, fmt.Errorf("classicladder: hal_init_ex failed: %d", int(compID))
 	}
 
-	// Export the RT refresh function to HAL
-	functName := name + ".refresh"
+	// Export the RT refresh function to HAL. The instance number is part of
+	// the name, as it is for the pins and as it was in 2.9, so that existing
+	// configs keep working: addf classicladder.0.refresh <thread>
+	functName := name + ".0.refresh"
 	cFunctName := C.CString(functName)
 	defer C.free(unsafe.Pointer(cFunctName))
 	rv := C.go_hal_export_funct(cFunctName, rt, compID)
@@ -163,7 +199,8 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 	}
 
 	// Create HAL pins
-	if err := createHALPins(rt, compID, name); err != nil {
+	halPins, err := createHALPins(rt, compID, name)
+	if err != nil {
 		C.hal_exit(compID)
 		C.classicladder_rt_free(rt)
 		return nil, err
@@ -181,6 +218,7 @@ func newClassicLadder(ini *inifile.IniFile, logger *slog.Logger, name string, ar
 		modbus:      newModbusMaster(rt, logger),
 		modbusSlave: newModbusSlave(rt, logger),
 		slavePort:   slavePort,
+		halPins:     halPins,
 	}
 
 	// Register REST API
@@ -220,6 +258,7 @@ func (m *classicladder) Start() error {
 			m.logger.Error("failed to load project", "path", m.projectFile, "err", err)
 			return err
 		}
+		C.cl_prepare_all_datas_before_run(m.rt)
 		m.setState(C.CL_STATE_RUN)
 	}
 	// Start Modbus master if configured
@@ -232,86 +271,116 @@ func (m *classicladder) Start() error {
 }
 
 func (m *classicladder) Stop() {
+	// Stop only stops activity. The C instance stays allocated until
+	// Destroy(): the launcher's unload sequence runs Stop before it
+	// unregisters the REST and watch APIs, so an in-flight call or a
+	// connected editor's push loop may still dereference m.rt after this
+	// returns — freeing here was a use-after-free on every runtime unload
+	// (halscope has the same split for the same reason).
+	m.setState(C.CL_STATE_STOP)
 	m.modbus.stop()
 	m.modbusSlave.stop()
+}
+
+func (m *classicladder) Destroy() {
+	// hal_exit removes the component, its pins and its thread linkage; the
+	// RT function cannot run after it, so the instance can be freed.
 	C.hal_exit(m.compID)
 	C.classicladder_rt_free(m.rt)
 }
 
-func (m *classicladder) Destroy() {}
-
 // --- HAL pin creation ---
 
-func createHALPins(rt *C.classicladder_rt_t, compID C.int, name string) error {
+// halPinRef records which ladder variable a HAL pin carries. Built while the
+// pins are created rather than reconstructed later: the HAL-signal lookup needs
+// the same names, and a second place that spells them is a second place that can
+// drift (see the variable prefixes in the ladder view, which did).
+type halPinRef struct {
+	varType int
+	offset  int
+	pin     string
+	isInput bool
+}
+
+func createHALPins(rt *C.classicladder_rt_t, compID C.int, name string) ([]halPinRef, error) {
+	var refs []halPinRef
+	record := func(pin string, varType, offset int, isInput bool) {
+		refs = append(refs, halPinRef{varType: varType, offset: offset, pin: pin, isInput: isInput})
+	}
+
 	// Bit inputs
 	for i := C.int(0); i < rt.sizes.nbr_phys_inputs; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.in-%02d", name, int(i)))
-		rv := C.hal_pin_bit_new(pinName, C.HAL_IN, &rt.hal_inputs[i], compID)
+		pin := fmt.Sprintf("%s.0.in-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_bit_new(pinName, C.HAL_IN, &rtHalInputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin in-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin in-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_INPUT, int(i), true)
 	}
 
 	// Bit outputs
 	for i := C.int(0); i < rt.sizes.nbr_phys_outputs; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.out-%02d", name, int(i)))
-		rv := C.hal_pin_bit_new(pinName, C.HAL_OUT, &rt.hal_outputs[i], compID)
+		pin := fmt.Sprintf("%s.0.out-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_bit_new(pinName, C.HAL_OUT, &rtHalOutputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin out-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin out-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_OUTPUT, int(i), false)
 	}
 
 	// S32 inputs
 	for i := C.int(0); i < rt.sizes.nbr_s32_in; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.s32in-%02d", name, int(i)))
-		rv := C.hal_pin_s32_new(pinName, C.HAL_IN, &rt.hal_s32_inputs[i], compID)
+		pin := fmt.Sprintf("%s.0.s32in-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_s32_new(pinName, C.HAL_IN, &rtHalS32Inputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin s32in-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin s32in-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_WORD_INPUT, int(i), true)
 	}
 
 	// S32 outputs
 	for i := C.int(0); i < rt.sizes.nbr_s32_out; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.s32out-%02d", name, int(i)))
-		rv := C.hal_pin_s32_new(pinName, C.HAL_OUT, &rt.hal_s32_outputs[i], compID)
+		pin := fmt.Sprintf("%s.0.s32out-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_s32_new(pinName, C.HAL_OUT, &rtHalS32Outputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin s32out-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin s32out-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_WORD_OUTPUT, int(i), false)
 	}
 
 	// Float inputs
 	for i := C.int(0); i < rt.sizes.nbr_float_in; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.floatin-%02d", name, int(i)))
-		rv := C.hal_pin_float_new(pinName, C.HAL_IN, &rt.hal_float_inputs[i], compID)
+		pin := fmt.Sprintf("%s.0.floatin-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_float_new(pinName, C.HAL_IN, &rtHalFloatInputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin floatin-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin floatin-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_FLOAT_INPUT, int(i), true)
 	}
 
 	// Float outputs
 	for i := C.int(0); i < rt.sizes.nbr_float_out; i++ {
-		pinName := C.CString(fmt.Sprintf("%s.0.floatout-%02d", name, int(i)))
-		rv := C.hal_pin_float_new(pinName, C.HAL_OUT, &rt.hal_float_outputs[i], compID)
+		pin := fmt.Sprintf("%s.0.floatout-%02d", name, int(i))
+		pinName := C.CString(pin)
+		rv := C.hal_pin_float_new(pinName, C.HAL_OUT, &rtHalFloatOutputs(rt)[i], compID)
 		C.free(unsafe.Pointer(pinName))
 		if rv != 0 {
-			return fmt.Errorf("failed to create pin floatout-%02d: %d", int(i), int(rv))
+			return nil, fmt.Errorf("failed to create pin floatout-%02d: %d", int(i), int(rv))
 		}
+		record(pin, C.CL_VAR_PHYS_FLOAT_OUTPUT, int(i), false)
 	}
 
-	// hide_gui pin
-	pinName := C.CString(fmt.Sprintf("%s.0.hide_gui", name))
-	rv := C.hal_pin_bit_new(pinName, C.HAL_IN, &rt.hal_hide_gui, compID)
-	C.free(unsafe.Pointer(pinName))
-	if rv != 0 {
-		return fmt.Errorf("failed to create hide_gui pin: %d", int(rv))
-	}
-
-	return nil
+	return refs, nil
 }
 
 // --- State accessors (atomic, safe from any goroutine) ---
@@ -322,6 +391,39 @@ func (m *classicladder) getState() int {
 
 func (m *classicladder) setState(state int) {
 	atomic.StoreInt32((*int32)(unsafe.Pointer(&m.rt.state)), int32(state))
+}
+
+// waitScanSettled returns once no RT scan is in flight — see the `scanning`
+// field's Dekker pairing in classicladder_rt.h. After publishing a non-RUN
+// state this means no scan runs until the state is restored (2.9's
+// StopRunIfRunning polled the same way, though its HAL module never set the
+// flag, so its wait was vacuous). With the PLC left running it means only
+// that the scan which may have observed state published before the call is
+// finished — what the structural delete paths need before wiping a slot the
+// old chain could still reach.
+func (m *classicladder) waitScanSettled() {
+	for atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.scanning))) != 0 {
+		time.Sleep(100 * time.Microsecond)
+	}
+}
+
+// stopRunIfRunning / runBackIfStopped port 2.9's bracket around whole-program
+// mutations (classicladder.c): the lock-free scan must never walk a program
+// that is being torn down and rebuilt under it. Element-level edits stay
+// bracket-free, as in 2.9 — the engine tolerates those as one-scan glitches.
+func (m *classicladder) stopRunIfRunning() bool {
+	if m.getState() != C.CL_STATE_RUN {
+		return false
+	}
+	m.setState(C.CL_STATE_STOP)
+	m.waitScanSettled()
+	return true
+}
+
+func (m *classicladder) runBackIfStopped(wasRun bool) {
+	if wasRun {
+		m.setState(C.CL_STATE_RUN)
+	}
 }
 
 func (m *classicladder) getScanTimeNs() int32 {

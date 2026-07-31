@@ -95,13 +95,68 @@ type WatchAPI struct {
 type WatchRegistry struct {
 	mu   sync.RWMutex
 	apis map[string]*WatchAPI // key: "apiname/instance"
+
+	// Running push-loop subscriptions, tracked so UnregisterByInstance can
+	// cancel them AND wait them out. Deleting the registry entries alone only
+	// stops NEW subscribes from resolving — a connected client's loops kept
+	// calling the module's callbacks through and after Destroy, which with a
+	// module that frees C state on destroy is a use-after-free, not a leak.
+	// Guarded by the same mu as apis, so a subscribe that resolved an API
+	// before an unload cannot slip its tracking in after the sweep.
+	subSeq int
+	subs   map[string]map[int]context.CancelFunc // key: instance
+	subWGs map[string]*sync.WaitGroup            // key: instance; loops in flight
 }
 
 // NewWatchRegistry creates a new watch registry.
 func NewWatchRegistry() *WatchRegistry {
 	return &WatchRegistry{
-		apis: make(map[string]*WatchAPI),
+		apis:   make(map[string]*WatchAPI),
+		subs:   make(map[string]map[int]context.CancelFunc),
+		subWGs: make(map[string]*sync.WaitGroup),
 	}
+}
+
+// trackSub records a live subscription's cancel under the instance it
+// watches. It returns the untrack closure (bookkeeping removal — call on
+// unsubscribe/supersede/close) and loopDone, which the push GOROUTINE must
+// call when it exits: UnregisterByInstance waits on that, because a cancelled
+// loop may still be inside a module callback, and the caller is about to
+// destroy the module. If the API is no longer registered — the subscribe
+// raced an unload past Get — the subscription is refused: cancel is called
+// and ok is false.
+func (r *WatchRegistry) trackSub(apiName, instance string, cancel context.CancelFunc) (untrack, loopDone func(), ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.apis[apiName+"/"+instance] == nil {
+		cancel()
+		return nil, nil, false
+	}
+	r.subSeq++
+	id := r.subSeq
+	set := r.subs[instance]
+	if set == nil {
+		set = make(map[int]context.CancelFunc)
+		r.subs[instance] = set
+	}
+	set[id] = cancel
+	wg := r.subWGs[instance]
+	if wg == nil {
+		wg = &sync.WaitGroup{}
+		r.subWGs[instance] = wg
+	}
+	wg.Add(1)
+	untrack = func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if set := r.subs[instance]; set != nil {
+			delete(set, id)
+			if len(set) == 0 {
+				delete(r.subs, instance)
+			}
+		}
+	}
+	return untrack, wg.Done, true
 }
 
 // Register adds a watch API to the registry.
@@ -127,12 +182,33 @@ func (r *WatchRegistry) Get(apiName, instance string) *WatchAPI {
 // freed/recycled HAL memory (and leaks the registration entry indefinitely).
 func (r *WatchRegistry) UnregisterByInstance(instance string) int {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	removed := 0
 	for key, api := range r.apis {
 		if api.Instance == instance {
 			delete(r.apis, key)
 			removed++
+		}
+	}
+	// Cancel the push loops already running against this instance; the
+	// registry deletion above only starves new subscribes. trackSub refuses
+	// the race where a subscribe resolved the API before this sweep.
+	for _, cancel := range r.subs[instance] {
+		cancel()
+	}
+	delete(r.subs, instance)
+	wg := r.subWGs[instance]
+	delete(r.subWGs, instance)
+	r.mu.Unlock()
+
+	// And wait them out: a cancelled loop may still be inside a module
+	// callback, and the caller's next step is Destroy. Bounded, so a wedged
+	// callback degrades an unload instead of hanging it forever.
+	if wg != nil {
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
 		}
 	}
 	return removed
@@ -265,8 +341,9 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handler: h,
 		ctx:     ctx,
 		cancel:  cancel,
-		subs:    make(map[string]context.CancelFunc),
+		subs:    make(map[string]wsSub),
 	}
+	defer c.dropAll()
 
 	// Liveness keepalive. Watch pushes are change-driven, so a dead peer
 	// (pulled cable, powered-off HMI, half-open NAT) keeps the TCP connection
@@ -324,7 +401,28 @@ type wsConn struct {
 	writeMu sync.Mutex // serializes writes (coder/websocket supports concurrent writes, but we want ordered JSON)
 
 	mu   sync.Mutex
-	subs map[string]context.CancelFunc // key: "api/instance/func" → cancel the push goroutine
+	subs map[string]wsSub // key: "api/instance/func"
+}
+
+// wsSub is one live subscription: its push-loop cancel and the closure that
+// takes it back out of the registry's per-instance tracking.
+type wsSub struct {
+	cancel  context.CancelFunc
+	untrack func()
+}
+
+// dropAll cancels and untracks every subscription; called when the
+// connection goes away (the ctx cancel alone would leak the tracking).
+func (c *wsConn) dropAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, s := range c.subs {
+		s.cancel()
+		if s.untrack != nil {
+			s.untrack()
+		}
+		delete(c.subs, key)
+	}
 }
 
 func (c *wsConn) writeJSON(v interface{}) error {
@@ -453,29 +551,57 @@ func (c *wsConn) handleSubscribe(sub wsSubscribe) {
 
 	// Cancel existing subscription for this key
 	c.mu.Lock()
-	if cancelFn, ok := c.subs[key]; ok {
-		cancelFn()
+	if old, ok := c.subs[key]; ok {
+		old.cancel()
+		if old.untrack != nil {
+			old.untrack()
+		}
 	}
 	subCtx, cancelFn := context.WithCancel(c.ctx)
-	c.subs[key] = cancelFn
+	untrack, loopDone, ok := c.handler.registry.trackSub(sub.API, sub.Instance, cancelFn)
+	if !ok {
+		// The API was unregistered between Get and here (a racing unload).
+		delete(c.subs, key)
+		c.mu.Unlock()
+		c.sendError(fmt.Sprintf("unknown API: %s/%s", sub.API, sub.Instance))
+		return
+	}
+	c.subs[key] = wsSub{cancel: cancelFn, untrack: untrack}
 	c.mu.Unlock()
 
-	// Start push goroutine
+	// Start the push goroutine. loopDone signals the registry when the loop
+	// has actually exited — UnregisterByInstance waits on it before the
+	// module behind the callbacks is destroyed.
 	if watchMeta.BinaryWatch != nil {
-		go c.pushLoopBinary(subCtx, sub.Func, rate, watchMeta.BinaryWatch)
+		go func() {
+			defer loopDone()
+			c.pushLoopBinary(subCtx, sub.Func, rate, watchMeta.BinaryWatch)
+		}()
 	} else if watchMeta.Factory != nil {
 		watchFn, err := watchMeta.Factory(sub.Args)
 		if err != nil {
 			c.sendError(fmt.Sprintf("watch factory error: %v", err))
 			cancelFn()
+			loopDone()
 			c.mu.Lock()
-			delete(c.subs, key)
+			if s, ok := c.subs[key]; ok {
+				if s.untrack != nil {
+					s.untrack()
+				}
+				delete(c.subs, key)
+			}
 			c.mu.Unlock()
 			return
 		}
-		go c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchFn, watchMeta.Delta)
+		go func() {
+			defer loopDone()
+			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchFn, watchMeta.Delta)
+		}()
 	} else {
-		go c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchMeta.Watch, watchMeta.Delta)
+		go func() {
+			defer loopDone()
+			c.pushLoop(subCtx, sub.API, sub.Instance, sub.Func, rate, watchMeta.Watch, watchMeta.Delta)
+		}()
 	}
 }
 
@@ -483,8 +609,11 @@ func (c *wsConn) handleUnsubscribe(unsub wsUnsubscribe) {
 	key := unsub.API + "/" + unsub.Instance + "/" + unsub.Func
 
 	c.mu.Lock()
-	if cancelFn, ok := c.subs[key]; ok {
-		cancelFn()
+	if s, ok := c.subs[key]; ok {
+		s.cancel()
+		if s.untrack != nil {
+			s.untrack()
+		}
 		delete(c.subs, key)
 	}
 	c.mu.Unlock()

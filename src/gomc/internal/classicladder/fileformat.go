@@ -21,12 +21,21 @@ import "C"
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
 )
 
 // loadCLPFile parses a .clp file and applies it to the RT instance.
+//
+// Invariant the callers rely on: every error return sits BEFORE the wipe
+// below, so a failed load leaves the current program untouched. The parsers
+// past that point are lenient by design (2.9's were too) — they skip what
+// they cannot read instead of erroring out of a half-wiped project.
+//
+// Callers mutate the whole program in place, so they must hold m.mu AND have
+// the scan stopped and settled (stopRunIfRunning) if the PLC was running.
 func (m *classicladder) loadCLPFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -50,11 +59,11 @@ func (m *classicladder) loadCLPFile(path string) error {
 
 	// Clear all rungs
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		m.rt.rungs[i].used = 0
+		rtRungs(m.rt)[i].used = 0
 	}
 	// Clear all sections
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		m.rt.sections[i].used = 0
+		rtSections(m.rt)[i].used = 0
 	}
 
 	// Load sections
@@ -120,6 +129,18 @@ func (m *classicladder) loadCLPFile(path string) error {
 		}
 	}
 
+	// '^' changed meaning against 2.9: there its (broken) power operator
+	// consumed every caret, here it is XOR and power is spelled '**'. The
+	// expression still compiles and runs, so this warning is the only trace
+	// an old project gets that its values moved.
+	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
+		expr := C.GoString(&rtArithmExprs(m.rt)[i].expr[0])
+		if strings.Contains(expr, "^") {
+			m.logger.Warn("expression uses '^', which is XOR here but was power under 2.9; use '**' for power",
+				"index", i, "expr", expr)
+		}
+	}
+
 	m.logger.Info("loaded CLP project", "path", path)
 	return nil
 }
@@ -171,7 +192,7 @@ func (m *classicladder) saveCLPFile(path string) (err error) {
 
 	// rungs
 	for i := 0; i < int(m.rt.sizes.nbr_rungs); i++ {
-		if m.rt.rungs[i].used != 0 {
+		if rtRungs(m.rt)[i].used != 0 {
 			name := fmt.Sprintf("rung_%d.csv", i)
 			m.writeFileSection(w, name, m.emitRung(i))
 		}
@@ -235,6 +256,24 @@ func splitCLPArchive(f *os.File) (map[string]string, error) {
 // --- Section parsers ---
 
 func (m *classicladder) parseGeneral(content string) {
+	// Sizes bind at module creation (they decide the allocation and the HAL
+	// pin count), so the file's SIZE_NBR_* entries are not applied — but a
+	// project that wants more than the module has will load truncated, and
+	// that deserves a loud pointer at the load line.
+	sizeOf := map[string]C.int{
+		"SIZE_NBR_RUNGS":        m.rt.sizes.nbr_rungs,
+		"SIZE_NBR_BITS":         m.rt.sizes.nbr_bits,
+		"SIZE_NBR_WORDS":        m.rt.sizes.nbr_words,
+		"SIZE_NBR_TIMERS":       m.rt.sizes.nbr_timers,
+		"SIZE_NBR_MONOSTABLES":  m.rt.sizes.nbr_monostables,
+		"SIZE_NBR_COUNTERS":     m.rt.sizes.nbr_counters,
+		"SIZE_NBR_TIMERS_IEC":   m.rt.sizes.nbr_timers_iec,
+		"SIZE_NBR_PHYS_INPUTS":  m.rt.sizes.nbr_phys_inputs,
+		"SIZE_NBR_PHYS_OUTPUTS": m.rt.sizes.nbr_phys_outputs,
+		"SIZE_NBR_ARITHM_EXPR":  m.rt.sizes.nbr_arithm_expr,
+		"SIZE_NBR_SECTIONS":     m.rt.sizes.nbr_sections,
+		"SIZE_NBR_SYMBOLS":      m.rt.sizes.nbr_symbols,
+	}
 	for _, line := range strings.Split(content, "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
@@ -245,27 +284,31 @@ func (m *classicladder) parseGeneral(content string) {
 		switch key {
 		case "PERIODIC_REFRESH":
 			m.rt.periodic_refresh_ms = C.int(v)
+		default:
+			if have, ok := sizeOf[key]; ok && C.int(v) > have {
+				m.logger.Warn("project wants more than the module was configured with; loading truncated",
+					"key", key, "project", v, "configured", int(have))
+			}
 		}
-		// Size overrides are already set at module creation; we don't
-		// dynamically resize (fixed max arrays in RT struct).
 	}
 }
 
 func (m *classicladder) parseSections(content string) {
-	idx := 0
 	for _, line := range strings.Split(content, "\n") {
-		if line == "" || line[0] == '#' {
+		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
 		parts := strings.Split(line, ",")
 		if len(parts) < 5 {
 			continue
 		}
-		if idx >= int(m.rt.sizes.nbr_sections) {
-			break
+		// The section index is the first field, not the line position: a
+		// project may leave earlier section slots unused.
+		idx := atoi(parts[0])
+		if idx < 0 || idx >= int(m.rt.sizes.nbr_sections) {
+			continue
 		}
-		sec := &m.rt.sections[idx]
-		sec.used = 1
+		sec := &rtSections(m.rt)[idx]
 		sec.language = C.int(atoi(parts[1]))
 		sec.sub_routine_number = C.int(atoi(parts[2]))
 		sec.first_rung = C.int(atoi(parts[3]))
@@ -273,29 +316,33 @@ func (m *classicladder) parseSections(content string) {
 		if len(parts) > 5 {
 			sec.sequential_page = C.int(atoi(parts[5]))
 		}
-		idx++
+		// Published last, mirroring the module's publish-order contract.
+		sec.used = 1
 	}
 	// Parse section names from #NAMEnnn= comments
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "#NAME") {
-			// #NAME000=Prog1
-			numStr := line[5:8]
+			// #NAME000=Prog1 — but stay lenient about the shape: a truncated
+			// or hand-edited line must not take the loader down with it
+			// (line[5:8] here used to panic on anything shorter than 8 bytes).
 			nameStart := strings.Index(line, "=")
-			if nameStart < 0 {
+			if nameStart <= 5 {
 				continue
 			}
-			num := atoi(numStr)
+			num := atoi(line[5:nameStart])
 			if num >= 0 && num < int(m.rt.sizes.nbr_sections) {
 				name := line[nameStart+1:]
-				copyGoStringToC(&m.rt.sections[num].name[0], name, C.CL_LGT_SECTION_NAME)
+				copyGoStringToC(&rtSections(m.rt)[num].name[0], name, C.CL_LGT_SECTION_NAME)
 			}
 		}
 	}
 }
 
 func (m *classicladder) parseRung(idx int, content string) {
-	rung := &m.rt.rungs[idx]
-	rung.used = 1
+	rung := &rtRungs(m.rt)[idx]
+	// The used flag is published last (see the loadCLPFile invariant): loads
+	// run scan-settled today, but a half-filled rung must never be one
+	// forgotten bracket away from being walked.
 	y := 0
 	for _, line := range strings.Split(content, "\n") {
 		if line == "" {
@@ -334,6 +381,7 @@ func (m *classicladder) parseRung(idx int, content string) {
 		}
 		y++
 	}
+	rung.used = 1
 }
 
 func parseElement(s string, e *C.cl_element_t) {
@@ -353,6 +401,34 @@ func parseElement(s string, e *C.cl_element_t) {
 	}
 }
 
+// Time bases travel through the .clp file and the API as an id (0=minutes,
+// 1=seconds, 2=100ms) but are held in milliseconds in the RT structures, the
+// way 2.9 does it. baseMsFromID/baseIDFromMs convert between the two.
+
+func baseMsFromID(id int) int {
+	switch id {
+	case C.CL_BASE_MINS:
+		return C.CL_TIME_BASE_MINS
+	case C.CL_BASE_100MS:
+		return C.CL_TIME_BASE_100MS
+	default:
+		return C.CL_TIME_BASE_SECS
+	}
+}
+
+func baseIDFromMs(ms int) int {
+	switch ms {
+	case C.CL_TIME_BASE_MINS:
+		return C.CL_BASE_MINS
+	case C.CL_TIME_BASE_100MS:
+		return C.CL_BASE_100MS
+	default:
+		return C.CL_BASE_SECS
+	}
+}
+
+// timers_iec.csv holds "base_id,preset,mode"; the IEC preset counts in base
+// units, so it is stored unscaled.
 func (m *classicladder) parseTimersIEC(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
@@ -363,14 +439,16 @@ func (m *classicladder) parseTimersIEC(content string) {
 		if len(parts) < 3 || idx >= int(m.rt.sizes.nbr_timers_iec) {
 			break
 		}
-		t := &m.rt.timers_iec[idx]
-		t.timer_mode = C.char(atoi(parts[0]))
-		t.preset = C.int(atoi(parts[1]))
-		t.base = C.int(atoi(parts[2]))
+		t := &rtTimersIec(m.rt)[idx]
+		t.base = C.int(baseMsFromID(atoi(parts[0])))
+		t.preset = clampI32(atoi(parts[1]))
+		t.timer_mode = C.char(atoi(parts[2]))
 		idx++
 	}
 }
 
+// timers.csv holds "base_id,preset_in_base_units"; the old timer counts down
+// in milliseconds, so the preset is scaled by the base.
 func (m *classicladder) parseTimers(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
@@ -381,9 +459,10 @@ func (m *classicladder) parseTimers(content string) {
 		if len(parts) < 2 || idx >= int(m.rt.sizes.nbr_timers) {
 			break
 		}
-		t := &m.rt.timers[idx]
-		t.base = C.int(atoi(parts[0]))
-		t.preset = C.int(atoi(parts[1]))
+		t := &rtTimers(m.rt)[idx]
+		base := baseMsFromID(atoi(parts[0]))
+		t.base = C.int(base)
+		t.preset = clampI32(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -398,9 +477,10 @@ func (m *classicladder) parseMonostables(content string) {
 		if len(parts) < 2 || idx >= int(m.rt.sizes.nbr_monostables) {
 			break
 		}
-		mo := &m.rt.monostables[idx]
-		mo.base = C.int(atoi(parts[0]))
-		mo.preset = C.int(atoi(parts[1]))
+		mo := &rtMonostables(m.rt)[idx]
+		base := baseMsFromID(atoi(parts[0]))
+		mo.base = C.int(base)
+		mo.preset = clampI32(atoi(parts[1]) * base)
 		idx++
 	}
 }
@@ -414,21 +494,35 @@ func (m *classicladder) parseCounters(content string) {
 		if idx >= int(m.rt.sizes.nbr_counters) {
 			break
 		}
-		m.rt.counters[idx].preset = C.int(atoi(line))
+		rtCounters(m.rt)[idx].preset = C.int(atoi(line))
 		idx++
 	}
 }
 
+// arithmetic_expressions.csv has two forms. The current one (#VER=2.0) writes
+// "NNNN,<expr>" for each non-empty expression, so that a sparse table keeps its
+// numbering — the COMPARE and OPERATE elements refer to expressions by index,
+// and renumbering them silently repoints every one of those elements. The older
+// form is a bare expression per line, numbered by position.
 func (m *classicladder) parseArithmExprs(content string) {
 	idx := 0
 	for _, line := range strings.Split(content, "\n") {
-		if line == "" || line[0] == '#' {
+		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
-		if idx >= int(m.rt.sizes.nbr_arithm_expr) {
-			break
+		expr := line
+		if line[0] >= '0' && line[0] <= '9' {
+			comma := strings.IndexByte(line, ',')
+			if comma < 0 {
+				continue
+			}
+			idx = atoi(line[:comma])
+			expr = line[comma+1:]
 		}
-		copyGoStringToC(&m.rt.arithm_exprs[idx].expr[0], line, C.CL_ARITHM_EXPR_SIZE)
+		if idx < 0 || idx >= int(m.rt.sizes.nbr_arithm_expr) {
+			continue
+		}
+		copyGoStringToC(&rtArithmExprs(m.rt)[idx].expr[0], expr, C.CL_ARITHM_EXPR_SIZE)
 		idx++
 	}
 }
@@ -446,7 +540,7 @@ func (m *classicladder) parseSymbols(content string) {
 		if len(parts) < 3 {
 			continue
 		}
-		s := &m.rt.symbols[idx]
+		s := &rtSymbols(m.rt)[idx]
 		copyGoStringToC(&s.var_name[0], parts[0], C.CL_LGT_VAR_NAME)
 		copyGoStringToC(&s.symbol[0], parts[1], C.CL_LGT_SYMBOL_STRING)
 		copyGoStringToC(&s.comment[0], parts[2], C.CL_LGT_SYMBOL_COMMENT)
@@ -479,14 +573,14 @@ func (m *classicladder) emitSections() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		sec := &m.rt.sections[i]
+		sec := &rtSections(m.rt)[i]
 		if sec.used == 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "#NAME%03d=%s\n", i, C.GoString(&sec.name[0]))
 	}
 	for i := 0; i < int(m.rt.sizes.nbr_sections); i++ {
-		sec := &m.rt.sections[i]
+		sec := &rtSections(m.rt)[i]
 		if sec.used == 0 {
 			continue
 		}
@@ -498,7 +592,7 @@ func (m *classicladder) emitSections() string {
 }
 
 func (m *classicladder) emitRung(idx int) string {
-	rung := &m.rt.rungs[idx]
+	rung := &rtRungs(m.rt)[idx]
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=2.0")
 	fmt.Fprintf(&b, "#LABEL=%s\n", C.GoString(&rung.label[0]))
@@ -524,8 +618,9 @@ func (m *classicladder) emitTimersIEC() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_timers_iec); i++ {
-		t := &m.rt.timers_iec[i]
-		fmt.Fprintf(&b, "%d,%d,%d\n", int(t.timer_mode), int(t.preset), int(t.base))
+		t := &rtTimersIec(m.rt)[i]
+		fmt.Fprintf(&b, "%d,%d,%d\n",
+			baseIDFromMs(int(t.base)), int(t.preset), int(t.timer_mode))
 	}
 	return b.String()
 }
@@ -533,8 +628,12 @@ func (m *classicladder) emitTimersIEC() string {
 func (m *classicladder) emitTimers() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_timers); i++ {
-		t := &m.rt.timers[i]
-		fmt.Fprintf(&b, "%d,%d\n", int(t.base), int(t.preset))
+		t := &rtTimers(m.rt)[i]
+		base := int(t.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
+		fmt.Fprintf(&b, "%d,%d\n", baseIDFromMs(base), int(t.preset)/base)
 	}
 	return b.String()
 }
@@ -542,8 +641,12 @@ func (m *classicladder) emitTimers() string {
 func (m *classicladder) emitMonostables() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_monostables); i++ {
-		mo := &m.rt.monostables[i]
-		fmt.Fprintf(&b, "%d,%d\n", int(mo.base), int(mo.preset))
+		mo := &rtMonostables(m.rt)[i]
+		base := int(mo.base)
+		if base <= 0 {
+			base = C.CL_TIME_BASE_SECS
+		}
+		fmt.Fprintf(&b, "%d,%d\n", baseIDFromMs(base), int(mo.preset)/base)
 	}
 	return b.String()
 }
@@ -551,7 +654,7 @@ func (m *classicladder) emitMonostables() string {
 func (m *classicladder) emitCounters() string {
 	var b strings.Builder
 	for i := 0; i < int(m.rt.sizes.nbr_counters); i++ {
-		fmt.Fprintf(&b, "%d\n", int(m.rt.counters[i].preset))
+		fmt.Fprintf(&b, "%d\n", int(rtCounters(m.rt)[i].preset))
 	}
 	return b.String()
 }
@@ -560,9 +663,11 @@ func (m *classicladder) emitArithmExprs() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=2.0")
 	for i := 0; i < int(m.rt.sizes.nbr_arithm_expr); i++ {
-		expr := C.GoString(&m.rt.arithm_exprs[i].expr[0])
+		expr := C.GoString(&rtArithmExprs(m.rt)[i].expr[0])
 		if expr != "" {
-			fmt.Fprintln(&b, expr)
+			// Index-prefixed: skipping the empty slots without saying which
+			// index each survivor had would renumber them on reload.
+			fmt.Fprintf(&b, "%04d,%s\n", i, expr)
 		}
 	}
 	return b.String()
@@ -572,7 +677,7 @@ func (m *classicladder) emitSymbols() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 	for i := 0; i < int(m.rt.sizes.nbr_symbols); i++ {
-		s := &m.rt.symbols[i]
+		s := &rtSymbols(m.rt)[i]
 		vn := C.GoString(&s.var_name[0])
 		if vn == "" {
 			continue
@@ -599,6 +704,20 @@ func (m *classicladder) writeFileSection(w *bufio.Writer, name, content string) 
 
 func copyGoStringToC(dst *C.char, src string, maxLen int) {
 	copyStringToC(dst, src, C.int(maxLen))
+}
+
+// clampI32 bounds a file-supplied count to what the int32 RT fields hold: a
+// corrupt preset becomes the nearest representable value, not a truncated
+// surprise (atoi already saturates instead of erroring, this finishes the
+// job for the 32-bit fields).
+func clampI32(v int) C.int {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return C.int(v)
 }
 
 func atoi(s string) int {
@@ -643,23 +762,33 @@ func (m *classicladder) parseSequential(content string) {
 				continue
 			}
 			trans := &m.rt.transitions[idx]
+			// Out-of-range references are dropped and the list compacted:
+			// -1 terminates these lists, so leaving a stray entry in place
+			// would either count as present in the all-upstream-steps check
+			// (the shape behind the fires-forever transitions) or, replaced
+			// by -1 in the middle, cut off the valid entries behind it.
+			readList := func(p int, limit int, dst *[C.CL_MAX_SWITCHS]C.int16_t) {
+				j := 0
+				for k := 0; k < C.CL_MAX_SWITCHS; k++ {
+					v := atoi(parts[p+k])
+					if v >= 0 && v < limit {
+						dst[j] = C.int16_t(v)
+						j++
+					}
+				}
+				for ; j < C.CL_MAX_SWITCHS; j++ {
+					dst[j] = -1
+				}
+			}
 			p := 1
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_step_to_activ[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_step_to_desactiv[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_trans_linked_for_start[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
-			for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-				trans.num_trans_linked_for_end[j] = C.int16_t(atoi(parts[p]))
-				p++
-			}
+			readList(p, C.CL_MAX_STEPS, &trans.num_step_to_activ)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_STEPS, &trans.num_step_to_desactiv)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_TRANSITIONS, &trans.num_trans_linked_for_start)
+			p += C.CL_MAX_SWITCHS
+			readList(p, C.CL_MAX_TRANSITIONS, &trans.num_trans_linked_for_end)
+			p += C.CL_MAX_SWITCHS
 			trans.num_page = C.int8_t(atoi(parts[p]))
 			p++
 			trans.posi_x = C.char(atoi(parts[p]))
@@ -850,16 +979,11 @@ func (m *classicladder) emitModbusIOConf() string {
 		if req.LogicInverted {
 			inverted = 1
 		}
-		// If address contains a dot, it's TCP (IP addr is the first field)
-		if strings.Contains(req.SlaveAddr, ".") {
-			fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
-				req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
-				req.NbrModbusElements, inverted, req.OffsetVarMapped)
-		} else {
-			fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
-				req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
-				req.NbrModbusElements, inverted, req.OffsetVarMapped)
-		}
+		// One line per request; TCP and serial differ only in what the
+		// address field holds, not in the layout.
+		fmt.Fprintf(&b, "%s,%d,%d,%d,%d,%d\n",
+			req.SlaveAddr, req.TypeReq, req.FirstModbusElement,
+			req.NbrModbusElements, inverted, req.OffsetVarMapped)
 	}
 	return b.String()
 }
@@ -868,10 +992,14 @@ func (m *classicladder) emitSequential() string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "#VER=1.0")
 
-	// Steps
+	// Steps, transitions and comments are in use when they have been placed on
+	// a page. That is the flag everything else reads — GetSequential, and the
+	// engine's own init-step scan — and the one 2.9 saves by. Testing anything
+	// else wrote every unused slot to the file: 128 steps and 50 comments of
+	// nothing, for a project with no chart at all.
 	for i := 0; i < C.CL_MAX_STEPS; i++ {
 		step := &m.rt.steps[i]
-		if step.step_number == -1 && step.init_step == 0 && step.num_page == 0 {
+		if step.num_page < 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "S%d,%d,%d,%d,%d,%d\n", i,
@@ -882,15 +1010,7 @@ func (m *classicladder) emitSequential() string {
 	// Transitions
 	for i := 0; i < C.CL_MAX_TRANSITIONS; i++ {
 		trans := &m.rt.transitions[i]
-		// Check if transition is used (has at least one non-negative step ref)
-		used := false
-		for j := 0; j < C.CL_MAX_SWITCHS; j++ {
-			if trans.num_step_to_activ[j] >= 0 || trans.num_step_to_desactiv[j] >= 0 {
-				used = true
-				break
-			}
-		}
-		if !used {
+		if trans.num_page < 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "T%d", i)
@@ -908,18 +1028,25 @@ func (m *classicladder) emitSequential() string {
 		}
 		fmt.Fprintf(&b, ",%d,%d,%d\n",
 			int(trans.num_page), int(trans.posi_x), int(trans.posi_y))
+	}
 
-		// Condition line
-		if trans.var_type_condi != 0 || trans.var_num_condi != 0 {
-			fmt.Fprintf(&b, "C%d,0,%d/%d\n", i,
-				int(trans.var_type_condi), int(trans.var_num_condi))
+	// Conditions, in their own pass as 2.9 writes them, and for every
+	// transition that exists rather than only those whose condition looks
+	// set: "%B0" is variable type 0 offset 0, so a test for a non-zero pair
+	// drops exactly the condition a chart is most likely to use.
+	for i := 0; i < C.CL_MAX_TRANSITIONS; i++ {
+		trans := &m.rt.transitions[i]
+		if trans.num_page < 0 {
+			continue
 		}
+		fmt.Fprintf(&b, "C%d,0,%d/%d\n", i,
+			int(trans.var_type_condi), int(trans.var_num_condi))
 	}
 
 	// Comments
 	for i := 0; i < C.CL_MAX_SEQ_COMMENTS; i++ {
 		sc := &m.rt.seq_comments[i]
-		if sc.num_page == 0 && sc.posi_x == 0 && sc.posi_y == 0 {
+		if sc.num_page < 0 {
 			continue
 		}
 		comment := C.GoStringN(&sc.comment[0], C.CL_SEQ_COMMENT_LGT)
