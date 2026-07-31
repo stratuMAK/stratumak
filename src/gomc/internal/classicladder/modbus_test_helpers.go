@@ -16,8 +16,10 @@ import (
 // The RT is freed when the test completes.
 func newTestModule(t *testing.T) *classicladder {
 	t.Helper()
+	// These sizes are mirrored by the 2.9 oracle in testdata/oracle, so that a
+	// differential run compares like with like. Keep the two in step.
 	sizes := C.cl_sizes_t{
-		nbr_rungs:        10,
+		nbr_rungs:        100,
 		nbr_bits:         100,
 		nbr_words:        100,
 		nbr_timers:       10,
@@ -26,9 +28,9 @@ func newTestModule(t *testing.T) *classicladder {
 		nbr_timers_iec:   10,
 		nbr_phys_inputs:  15,
 		nbr_phys_outputs: 15,
-		nbr_arithm_expr:  10,
+		nbr_arithm_expr:  100,
 		nbr_sections:     10,
-		nbr_symbols:      10,
+		nbr_symbols:      200,
 		nbr_s32_in:       10,
 		nbr_s32_out:      10,
 		nbr_float_in:     10,

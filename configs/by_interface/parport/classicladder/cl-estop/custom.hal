@@ -1,12 +1,10 @@
 # Include your customized HAL commands here
 # This file will not be overwritten when you run stepconf again
 
-# Load ClassicLadder
-loadrt classicladder_rt
+# Load ClassicLadder and the ladder program it runs. The trailing argument
+# is the project file; the module loads it and starts the PLC itself.
+load classicladder estop.clp
 
 # Add the ClassicLadder refresh function to the servo thread
 addf classicladder.0.refresh servo-thread
-
-# Load the ladder
-loadusr classicladder --nogui estop.clp
 

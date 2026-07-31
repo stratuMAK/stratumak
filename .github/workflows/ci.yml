@@ -139,7 +139,7 @@ jobs:
         export PATH="$PATH:$HOME/go/bin"
         cd src
         make gomc-check GOMC_LINT_BASE=origin/gomc
-    # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the five
+    # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the
     # non-deferred apps. Runs HERE, after the build, because the webapps' REST
     # clients (webapp/*/src/generated/*.ts) are gitignored artifacts that the
     # `make default` above generates via modcompile — a standalone job would

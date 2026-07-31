@@ -657,3 +657,84 @@ func TestWatchRegistryUnregisterByInstance(t *testing.T) {
 		t.Errorf("removed %d for absent instance; want 0", n)
 	}
 }
+
+// Unregistering an instance must not just starve new subscribes — the push
+// loops already running against it keep calling the module's callbacks, and
+// the caller's next step is destroying that module. When
+// UnregisterByInstance returns, every loop must have exited.
+func TestWatchUnregisterByInstanceDrainsRunningLoops(t *testing.T) {
+	var calls int32
+
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{
+		APIName:  "ladder",
+		Instance: "cl",
+		Watches: []WatchFuncMeta{{
+			Name:        "watch_state",
+			DefaultRate: 10 * time.Millisecond,
+			Watch: func() (json.RawMessage, error) {
+				v := atomic.AddInt32(&calls, 1)
+				return json.Marshal(map[string]int32{"v": v})
+			},
+		}},
+	})
+
+	handler := NewWatchHandler(reg)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	subMsg, _ := json.Marshal(wsSubscribe{
+		Action: "subscribe", API: "ladder", Instance: "cl", Func: "watch_state", RateMS: 10,
+	})
+	if err := conn.Write(ctx, websocket.MessageText, subMsg); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Wait until the loop demonstrably runs.
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&calls) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("push loop never called the watch")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if n := reg.UnregisterByInstance("cl"); n != 1 {
+		t.Fatalf("unregistered %d APIs, want 1", n)
+	}
+
+	// From the moment UnregisterByInstance returned, the callback must be
+	// dead: no further calls may land, ever — the module behind it is gone.
+	after := atomic.LoadInt32(&calls)
+	time.Sleep(100 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got != after {
+		t.Errorf("watch called %d more times after UnregisterByInstance returned", got-after)
+	}
+}
+
+// A subscribe that resolved its API just before an unload swept the registry
+// must not slip a fresh loop in behind the sweep: trackSub re-checks under
+// the registry lock and refuses.
+func TestWatchTrackSubRefusesAfterUnregister(t *testing.T) {
+	reg := NewWatchRegistry()
+	reg.Register(&WatchAPI{APIName: "ladder", Instance: "cl"})
+
+	reg.UnregisterByInstance("cl")
+	cancelled := false
+	_, _, ok := reg.trackSub("ladder", "cl", func() { cancelled = true })
+	if ok {
+		t.Error("trackSub accepted a subscription for an unregistered instance")
+	}
+	if !cancelled {
+		t.Error("the refused subscription's context was not cancelled")
+	}
+}

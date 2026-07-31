@@ -67,19 +67,23 @@ GOMC_LDFLAGS := \
 # Generated imports file for compiled-in Go modules.
 IMPORTS_GENERATED := gomc/cmd/gomc-server/imports_generated.go
 
-# All hand-written Go source files in the gomc module (recursive wildcard
-# for sub-packages).  Make will rebuild when any .go file changes.  No
-# generated files here — deliberately: a parse-time wildcard over
-# gomc/generated/ would be empty on a fresh build, so the dependency graph
-# would differ between the first and second run.  Generated GMI Go files
-# reach ../bin/gomc-server as injected prerequisites from
-# gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)) instead.
-GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) \
-    $(wildcard gomc/cmd/*/*.go) \
-    $(wildcard gomc/pkg/*/*.go) \
-    $(wildcard gomc/internal/*/*.go) \
-    $(wildcard gomc/internal/*/*/*.go) \
-    $(wildcard gomc/internal/*/*/*/*.go)) \
+# All hand-written source files in the gomc module (recursive wildcard for
+# sub-packages).  Make will rebuild when any of them changes.  No generated
+# files here — deliberately: a parse-time wildcard over gomc/generated/ would
+# be empty on a fresh build, so the dependency graph would differ between the
+# first and second run.  Generated GMI Go files reach ../bin/gomc-server as
+# injected prerequisites from gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO))
+# instead.
+#
+# The .c/.h files matter as much as the .go ones: several packages carry cgo
+# sources (classicladder's RT engine, hallib, halscope, the interp shim), and
+# leaving them out let an edited engine link a stale binary with no warning.
+GOMC_SRC_DIRS := gomc gomc/cmd/* gomc/pkg/* gomc/internal/* \
+    gomc/internal/*/* gomc/internal/*/*/*
+GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED), \
+    $(wildcard $(addsuffix /*.go,$(GOMC_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.c,$(GOMC_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.h,$(GOMC_SRC_DIRS)))) \
     gomc/go.mod.in
 # NB: gomc/go.mod is deliberately NOT here — it is order-only on each Go binary
 # rule (see '| gomc/go.mod'), so a -mod=mod build rewriting it never forces a

@@ -490,6 +490,10 @@ func writeDispatchError(w http.ResponseWriter, err error) {
 		code = http.StatusForbidden
 	case errors.Is(err, syscall.EEXIST), errors.Is(err, syscall.EBUSY):
 		code = http.StatusConflict
+	case errors.Is(err, syscall.ENOSPC):
+		// A full table ("no free rung slot") is a capacity refusal, the errno
+		// twin of FaultCapacity — not a controller failure.
+		code = http.StatusServiceUnavailable
 	case errors.Is(err, syscall.ENOSYS):
 		code = http.StatusNotImplemented
 	}

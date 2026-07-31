@@ -1,6 +1,6 @@
 #!/bin/sh
 # check-webapps.sh — the gomc webapp gate: ESLint + cold vue-tsc type-check +
-# vitest, over the five non-deferred apps (classicladder is frozen/excluded).
+# vitest, over the six non-deferred apps.
 #
 # Self-contained: uses npm/npx directly, needs no RIP build or ./configure, so
 # it runs as a fast stand-alone CI job (and locally on a clean checkout). It is
@@ -10,10 +10,10 @@ set -eu
 
 cd "$(dirname "$0")/../src/webapp" || exit 1
 
-# Apps with a hand-written source tree. Type-check covers all five; only four
+# Apps with a hand-written source tree. Type-check covers all six; only five
 # carry request-level tests (latency has none — see the Phase-6 ruling).
-TYPECHECK_APPS="tooledit emccalib halshow halscope latency"
-TEST_APPS="tooledit emccalib halshow halscope"
+TYPECHECK_APPS="tooledit emccalib halshow halscope latency classicladder"
+TEST_APPS="tooledit emccalib halshow halscope classicladder"
 
 # The per-app src/generated/*.ts REST clients are gitignored build artifacts
 # produced by modcompile during `make` (gmi/codegen/Submakefile). They are
@@ -26,7 +26,7 @@ if [ ! -f tooledit/src/generated/tools_client.ts ]; then
 fi
 
 # 1. ESLint correctness gate — the shared toolchain/config lints every app at
-#    once (classicladder and src/generated/** are excluded in the config).
+#    once (only each app's src/generated/** is excluded in the config).
 echo "== webapps: eslint =="
 npm install --no-audit --no-fund
 npx eslint .

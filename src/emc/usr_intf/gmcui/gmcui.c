@@ -32,15 +32,19 @@ typedef struct {
     const char *title;      /* window title */
     int         width;
     int         height;
+    const char *instance;   /* default ?instance= value (GMC_INSTANCE overrides) */
 } app_profile_t;
 
 static const app_profile_t profiles[] = {
-    { "halscope",  "/app/halscope/",  "HAL Oscilloscope", 1280, 800 },
-    { "halshow",   "/app/halshow/",   "HAL Show",         1024, 700 },
-    { "emccalib",  "/app/emccalib/",  "EMC Calibration",   900, 700 },
-    { "tooledit",  "/app/tooledit/",  "Tool Editor",       900, 700 },
-    { "latency",   "/app/latency/",   "RT Latency",       1100, 760 },
-    { NULL, NULL, NULL, 0, 0 }
+    { "halscope",  "/app/halscope/",  "HAL Oscilloscope", 1280, 800, DEFAULT_INSTANCE },
+    { "halshow",   "/app/halshow/",   "HAL Show",         1024, 700, DEFAULT_INSTANCE },
+    { "emccalib",  "/app/emccalib/",  "EMC Calibration",   900, 700, DEFAULT_INSTANCE },
+    { "tooledit",  "/app/tooledit/",  "Tool Editor",       900, 700, DEFAULT_INSTANCE },
+    { "latency",   "/app/latency/",   "RT Latency",       1100, 760, DEFAULT_INSTANCE },
+    /* The classicladder app addresses the instance named "classicladder",
+     * not the milltask default. */
+    { "classicladder", "/app/classicladder/", "Classic Ladder", 1200, 900, "classicladder" },
+    { NULL, NULL, NULL, 0, 0, NULL }
 };
 
 static const app_profile_t *find_profile(const char *name)
@@ -113,7 +117,7 @@ int main(int argc, char *argv[])
         const char *base = get_base_url();
         const char *inst = getenv(ENV_INSTANCE);
         if (!inst || !*inst)
-            inst = DEFAULT_INSTANCE;
+            inst = profile->instance;
         snprintf(url_buf, sizeof(url_buf), "%s%s?instance=%s", base, profile->path, inst);
         url = url_buf;
     }

@@ -111,6 +111,35 @@ def tooltable_instance() -> str:
     return info().peers.tooltable
 
 
+def has_api(api_name: str, instance: str | None = None,
+            refresh: bool = False) -> bool:
+    """Report whether the server serves `api_name` — optionally under exactly
+    `instance`.
+
+    This is the gate for an optional module's UI. Naming the instance matters
+    when the thing being offered addresses one by name: the classicladder web
+    app talks to the instance called "classicladder", so a differently-named
+    one is a module that is loaded and an app that cannot reach it.
+
+    False when the server cannot be asked at all — see gmi.registry for why
+    that is an answer rather than an error.
+
+    refresh=True bypasses the per-process registry cache and asks the server
+    again — for callers gating on a module that can be loaded at runtime.
+    """
+    from gmi import registry
+    for name, inst in registry.entries(rest_url(), refresh=refresh):
+        if name == api_name and (instance is None or inst == instance):
+            return True
+    return False
+
+
+def reset_registry() -> None:
+    """Drop the cached API registry (tests; reconnect to a new server)."""
+    from gmi import registry
+    registry.reset()
+
+
 def rest_url() -> str:
     """Return the REST base URL (from GMC_REST_URL or default)."""
     return os.environ.get(_ENV_VAR, _DEFAULT_REST_URL).rstrip("/")

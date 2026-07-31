@@ -33,8 +33,16 @@ lappend auto_path $::linuxcnc::TCL_LIB_DIR
 menu .menu \
 	-cursor {}
 
+# The Ladder Editor entry is re-gated every time the menu is opened: a
+# ClassicLadder module can be loaded after AXIS starts, and the startup probe
+# alone would leave the entry grayed forever. refresh_has_ladder is a python
+# command (TclCommands); the catch covers the interval before it is registered.
 menu .menu.file \
-	-tearoff 0
+	-tearoff 0 \
+	-postcommand {
+	    catch {refresh_has_ladder}
+	    state {$::has_ladder} {.menu.file "_Ladder Editor..."}
+	}
 menu .menu.file.recent \
 	-tearoff 0
 menu .menu.machine \
@@ -88,6 +96,18 @@ setup_menu_accel .menu.file end [_ "Edit _tool data..."]
 .menu.file add command \
 	-command reload_tool_table
 setup_menu_accel .menu.file end [_ "Reload tool _data"]
+
+.menu.file add separator
+
+.menu.file add command \
+        -command {
+            if {[catch {exec classicladder &} err]} {
+                nf_dialog .error [_ "Ladder Editor"] \
+                    [format [_ "Failed to start the ladder editor:\n%s"] $err] \
+                    error 0 [_ "OK"]
+            }
+        }
+setup_menu_accel .menu.file end [_ "_Ladder Editor..."]
 
 .menu.file add separator
 
@@ -1792,6 +1812,7 @@ proc update_state {args} {
         {.menu.file "_Save G-code as..."}
     state  {$interp_state == $INTERP_IDLE && $taskfile != "" && $::has_editor} \
         {.menu.file "_Edit..."}
+    state  {$::has_ladder} {.menu.file "_Ladder Editor..."}
     state  {$taskfile != ""} {.menu.file "_Properties..."}
     state  {$interp_state == $INTERP_IDLE} .toolbar.file_open \
         {.menu.file "_Open..." "_Quit" "Recent _Files"} \
@@ -1958,6 +1979,7 @@ set listing_subfile ""
 set machine ""
 set task_state -1
 set has_editor 1
+set has_ladder 0
 set last_task_state 0
 set task_mode -1
 set task_paused 0
