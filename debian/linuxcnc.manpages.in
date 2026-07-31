@@ -13,7 +13,6 @@ usr/share/man/man1/halcmd.1
 usr/share/man/man1/hal-histogram.1
 usr/share/man/man1/hal_input.1
 usr/share/man/man1/halreport.1
-usr/share/man/man1/halrmt.1
 usr/share/man/man1/halsampler.1
 usr/share/man/man1/halscope.1
 usr/share/man/man1/halshow.1
@@ -33,7 +32,6 @@ usr/share/man/man1/latency-test.1
 usr/share/man/man1/lineardelta.1
 usr/share/man/man1/linuxcnc.1
 usr/share/man/man1/linuxcnc_info.1
-usr/share/man/man1/linuxcnclcd.1
 usr/share/man/man1/linuxcncmkdesktop.1
 usr/share/man/man1/linuxcnctop.1
 usr/share/man/man1/linuxcnctop-ui.1
@@ -53,7 +51,6 @@ usr/share/man/man1/motion-logger.1
 usr/share/man/man1/moveoff_gui.1
 usr/share/man/man1/ngcgui.1
 usr/share/man/man1/panelui.1
-usr/share/man/man1/pi500_vfd.1
 usr/share/man/man1/pmx485.1
 usr/share/man/man1/pmx485-test.1
 usr/share/man/man1/pncconf.1
@@ -82,7 +79,6 @@ usr/share/man/man1/simulate_probe.1
 usr/share/man/man1/stepconf.1
 usr/share/man/man1/svd-ps_vfd.1
 usr/share/man/man1/teach-in.1
-usr/share/man/man1/thermistor.1
 usr/share/man/man1/tooledit.1
 usr/share/man/man1/tool_mmap_read.1
 usr/share/man/man1/tool_watch.1
@@ -90,7 +86,6 @@ usr/share/man/man1/touchy.1
 usr/share/man/man1/update_ini.1
 usr/share/man/man1/vfdb_vfd.1
 usr/share/man/man1/vfs11_vfd.1
-usr/share/man/man1/wj200_vfd.1
 usr/share/man/man1/xhc-hb04.1
 usr/share/man/man1/xhc-hb04-accels.1
 usr/share/man/man1/xhc-whb04b-6.1
