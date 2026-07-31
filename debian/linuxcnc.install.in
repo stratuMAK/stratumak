@@ -92,6 +92,7 @@ usr/share/applications/linuxcnc-latency.desktop
 usr/share/applications/linuxcnc-pncconf.desktop
 usr/share/applications/linuxcnc-stepconf.desktop
 
+usr/share/linuxcnc/gomc/
 usr/share/linuxcnc/gremlin_view.ui
 usr/share/linuxcnc/gscreen2.glade
 usr/share/linuxcnc/gscreen.glade
