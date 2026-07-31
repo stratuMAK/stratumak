@@ -39,6 +39,20 @@ DEV_PACKAGE_NAME=@MAIN_PACKAGE_NAME@-dev
 
 export PYTHON=/usr/bin/python3
 
+# Give Go a module cache of our own.
+#
+# debhelper compat 13+ points HOME at debian/.debhelper/generated/_source/home
+# (Dh_Lib.pm setup_home_and_xdg_dirs), so Go's default GOPATH puts its module
+# cache inside the very directory dh_clean has to delete -- and Go marks that
+# cache read-only on purpose, so a build cannot mutate its dependencies. The
+# delete then fails with EACCES and `clean` aborts, which is why a second
+# dpkg-buildpackage in the same tree failed even after a good first one.
+#
+# ?= so a builder that already exports GOMODCACHE (a dev box or CI keeping a
+# warm cache) is left alone; otherwise the cache is self-contained in the tree
+# and removed by the clean below.
+export GOMODCACHE ?= $(CURDIR)/.gomodcache
+
 %:
 	dh $@ -D$(SRCDIR)
 
@@ -65,6 +79,12 @@ override_dh_auto_clean:
 	if [ -r src/Makefile.inc -a -r src/config.status ]; then \
 	dh_auto_clean; \
 	py3clean .; \
+	fi
+	# The module cache is read-only by design, so plain rm cannot remove it;
+	# `go clean -modcache` is the supported way. Only touch a cache we placed
+	# ourselves -- an inherited GOMODCACHE belongs to the builder.
+	if [ "$(GOMODCACHE)" = "$(CURDIR)/.gomodcache" ] && [ -d "$(GOMODCACHE)" ]; then \
+		go clean -modcache || { chmod -R u+w "$(GOMODCACHE)"; rm -rf "$(GOMODCACHE)"; }; \
 	fi
 
 override_dh_auto_install-arch:

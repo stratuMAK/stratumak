@@ -77,3 +77,5 @@ src/hal/classicladder/classicladder-standalone
 src/share/gomc/webapp/
 *.la
 share/bash-completion/
+# Go module cache for Debian builds (debian/rules GOMODCACHE)
+/.gomodcache/

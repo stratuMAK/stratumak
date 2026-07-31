@@ -44,6 +44,7 @@ usr/bin/melfagui
 usr/bin/mesambccc
 usr/bin/millturngui
 usr/bin/mitsub_vfd
+usr/bin/modcompile
 usr/bin/z_level_compensation
 usr/bin/monitor-xhc-hb04
 usr/bin/motion-logger

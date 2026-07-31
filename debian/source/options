@@ -1,0 +1,4 @@
+# The Go module cache debian/rules points GOMODCACHE at (see the comment
+# there). It is build output, not source, and is read-only by design, so it
+# must not land in the diff of a source package.
+extend-diff-ignore = "^\.gomodcache/"
