@@ -360,7 +360,12 @@ clean-mandb:
 clean-translated:
 	-$(RM) -r $(GENERATED_TRANSLATED)
 
-DOTFILES=$(shell find . -name "*.dot") $(shell find ../docs/src/ -name "*.dot")
+# The first find runs from src/ and walks the whole tree, which used to include
+# the EtherCAT master submodule: we rendered its documentation graphs and left
+# ten generated .svg files sitting in another project's checkout. Its docs are
+# its own to build. Prune it; only emc/motion/homing.dot here is ours.
+DOTFILES=$(shell find . -name "*.dot" -not -path "./hal/drivers/ethercat/master/*") \
+         $(shell find ../docs/src/ -name "*.dot")
 .PHONY: svgs_made_from_dots
 svgs_made_from_dots: $(DOTFILES:.dot=.svg)
 
