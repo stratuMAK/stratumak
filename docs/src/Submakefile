@@ -579,9 +579,13 @@ depends/%.d: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/asciideps .include-stamp
 	$(Q)$(DOC_SRCDIR)/asciideps $< > $@.tmp
 	@mv $@.tmp $@
 
-objects/%.links-stamp: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/links.xslt $(ASCIIDOC_HOME_STAMP)
+# The .conf files are prerequisites because asciidoc's output depends on them:
+# without this, editing a template leaves every stale .links-stamp in place and
+# the change silently does not apply to an incremental build.
+objects/%.links-stamp: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/links.xslt $(ASCIIDOC_HOME_STAMP) \
+	$(DOC_SRCDIR)/attribute-colon.conf $(DOC_SRCDIR)/docbook-sect5.conf
 	@mkdir -p `dirname $@`
-	$(ASCIIDOC) -f $(DOC_SRCDIR)/attribute-colon.conf -a "scriptdir=$(DOC_SRCDIR)/" -d book -o- -b docbook $< | xsltproc $(DOC_SRCDIR)/links.xslt - > $@.tmp || (X=$$?; rm -f $@; exit $$X)
+	$(ASCIIDOC) -f $(DOC_SRCDIR)/attribute-colon.conf -f $(DOC_SRCDIR)/docbook-sect5.conf -a "scriptdir=$(DOC_SRCDIR)/" -d book -o- -b docbook $< | xsltproc $(DOC_SRCDIR)/links.xslt - > $@.tmp || (X=$$?; rm -f $@; exit $$X)
 	sh move-if-change $@.tmp $(patsubst %-stamp,%,$@)
 	touch $@
 

@@ -471,9 +471,9 @@ msgstr "Lagre som .dxf til samme mappe som bildet."
 #. type: Plain text
 #: README.adoc:142
 #, fuzzy
-#| msgid "Set line thickness to 0.50&thinsp;mm."
+#| msgid "Set line thickness to 0.50 mm."
 msgid "Set line thickness to 0.50 mm."
-msgstr "Still inn linjetykkelse til 0.50&thinsp;mm."
+msgstr "Still inn linjetykkelse til 0.50 mm."
 
 #. type: Plain text
 #: README.adoc:143
