@@ -275,24 +275,33 @@ which have no user at all:
 
 | capability | what needs it |
 |---|---|
-| `cap_net_admin` | attaching the XDP program to the link (`transport_xdp.c`) |
+| `cap_net_admin` | attaching the XDP program to the link (`transport_xdp.c`); creating the EoE TAP interface (`pal_eoe.c`) |
 | `cap_net_raw` | `AF_PACKET`/`SOCK_RAW` (`transport_raw.c`), and the `AF_XDP` bind |
 | `cap_bpf` | loading the XDP program, on kernels 5.8 and later |
 | `cap_ipc_lock` | `mlockall` for realtime; the `AF_XDP` UMEM registration |
 | `cap_sys_resource` | `setrlimit` of `RLIMIT_MEMLOCK` / `RLIMIT_RTPRIO` |
 | `cap_sys_nice` | `SCHED_FIFO` (`uspace_rtapi_lib.c`, `cpupool.go`) |
-| `cap_sys_rawio` | `iopl(3)`, and `/dev/mem` in the Pi/BeagleBone GPIO and SPI drivers |
-| `cap_dac_override` | `/dev/mem` is `root:kmem 0640` and the server does not run as root; `/sys/kernel/debug/clk/*` is debugfs `0700` (`spix_rpi3.c`, `hm2_rpspi.c`) |
+| `cap_sys_rawio` | `iopl(3)`; `/dev/mem` in the Pi/BeagleBone GPIO drivers; the PCI BAR mapping in `transport_ccat.c` |
+| `cap_dac_override` | writing a root-owned file as a process that is not root, on the mainstream path: `/proc/irq/$n/smp_affinity` `root:root 0644` (`irq_pin.c`), `/dev/cpu_dma_latency` `root:root 0600` (`uspace_rtapi_lib.c`), `/sys/bus/pci/devices/*/resource0` `root:root 0600` (`transport_ccat.c`); and on the Pi, `/dev/mem` `root:kmem 0640` plus debugfs `0700` clock rates |
 | **`cap_perfmon`** | **nothing.** No `perf_event_open`, no `PERF_*`, no `rdpmc` anywhere in the tree |
 | **`cap_sys_admin`** | **nothing found.** No `mount`, `setns`, `unshare` or `pivot_root`. Most likely the pre-5.8 spelling of what `cap_bpf` now covers |
 
 So `cap_perfmon` looks removable outright, and `cap_sys_admin` removable on
 kernels from 5.8 — which is every kernel the package targets, but not every
-kernel LinuxCNC runs on. `cap_dac_override` is genuinely needed, but only by
-the Pi and BeagleBone drivers, and is granted to every installation regardless.
+kernel LinuxCNC runs on.
+
+`cap_dac_override` is not the peripheral thing a first pass made it look like.
+Every realtime EtherCAT machine needs it: pinning the NIC's interrupt writes
+`/proc/irq/$n/smp_affinity`, and holding the PM QoS floor writes
+`/dev/cpu_dma_latency`. Both are root-owned files opened for writing by a
+process that deliberately is not root, so nothing but `CAP_DAC_OVERRIDE` gets
+them open — and the symptom of removing it would be latency quietly reverting
+to whatever the housekeeping CPU does, which is precisely the class of fault
+that takes weeks to attribute.
 
 Nothing has been trimmed: the failure mode of getting this wrong is "EtherCAT
-does not start", on a machine that is not this one. The list stays verbatim
+does not start", or worse "EtherCAT starts and misses deadlines", on a machine
+that is not this one. The list stays verbatim
 until a run on real hardware says otherwise.
 
 **The unprivileged phase builds in its own copy of the tree.** §4.3 has the
