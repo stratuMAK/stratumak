@@ -269,9 +269,31 @@ The three postinst cases are as written; the startup check reports a locally
 built server older than the installed sources and names the command to fix it.
 
 **The capability list is carried across verbatim** (§5), from `make setuid`
-into postinst, `TODO: check what's actually needed` included. Auditing
-`cap_sys_admin` and `cap_dac_override` remains open, and is the one thing here
-that can only be settled against real hardware.
+into postinst, `TODO: check what's actually needed` included. The audit §5 asks
+for has since been done statically — what each capability is actually for, and
+which have no user at all:
+
+| capability | what needs it |
+|---|---|
+| `cap_net_admin` | attaching the XDP program to the link (`transport_xdp.c`) |
+| `cap_net_raw` | `AF_PACKET`/`SOCK_RAW` (`transport_raw.c`), and the `AF_XDP` bind |
+| `cap_bpf` | loading the XDP program, on kernels 5.8 and later |
+| `cap_ipc_lock` | `mlockall` for realtime; the `AF_XDP` UMEM registration |
+| `cap_sys_resource` | `setrlimit` of `RLIMIT_MEMLOCK` / `RLIMIT_RTPRIO` |
+| `cap_sys_nice` | `SCHED_FIFO` (`uspace_rtapi_lib.c`, `cpupool.go`) |
+| `cap_sys_rawio` | `iopl(3)`, and `/dev/mem` in the Pi/BeagleBone GPIO and SPI drivers |
+| `cap_dac_override` | `/dev/mem` is `root:kmem 0640` and the server does not run as root; `/sys/kernel/debug/clk/*` is debugfs `0700` (`spix_rpi3.c`, `hm2_rpspi.c`) |
+| **`cap_perfmon`** | **nothing.** No `perf_event_open`, no `PERF_*`, no `rdpmc` anywhere in the tree |
+| **`cap_sys_admin`** | **nothing found.** No `mount`, `setns`, `unshare` or `pivot_root`. Most likely the pre-5.8 spelling of what `cap_bpf` now covers |
+
+So `cap_perfmon` looks removable outright, and `cap_sys_admin` removable on
+kernels from 5.8 — which is every kernel the package targets, but not every
+kernel LinuxCNC runs on. `cap_dac_override` is genuinely needed, but only by
+the Pi and BeagleBone drivers, and is granted to every installation regardless.
+
+Nothing has been trimmed: the failure mode of getting this wrong is "EtherCAT
+does not start", on a machine that is not this one. The list stays verbatim
+until a run on real hardware says otherwise.
 
 **The unprivileged phase builds in its own copy of the tree.** §4.3 has the
 build phase read the root-owned tree directly, which does not survive contact
@@ -345,12 +367,33 @@ Verified by staging an install and building `cmd/gomc-server` from it, the way
 the unprivileged build phase would: a complete 27 MB server, from the installed
 tree alone.
 
-**Not covered: `modcompile --install` still compiles as the invoking user.**
-The relocation in step 5 is done — a locally built cmod lands in
-`/var/lib/stratumak/cmod`, not among the package's own — but the `gcc` run that
-produces it is not dropped to the build identity the way the server rebuild is.
-Under `sudo modcompile --install foo.comp` the compiler therefore runs as root
-over module-supplied source, which §3's first property says it should not.
-Fixing it needs the source staged somewhere the build identity can read, since
-the `.comp` and its local headers are typically in a home directory it cannot;
-that is a self-contained piece of work, and nothing else here depends on it.
+**What the Go tests cannot reach.** The privileged half only runs as root on a
+machine where the package is installed, so
+`src/gomc/cmd/modcompile/verify-privileged-rebuild.sh` covers it instead: run
+it with `sudo` after installing the new `.deb`. It checks that postinst left a
+usable state tree and build account, that `rebuild`, `add-gomod`, `--install`
+and `rm-gomod` all complete, that the capabilities are carried across the
+replacement, and — the point of the whole exercise — that nothing under
+`/var/cache/stratumak-build` ends up owned by anyone but the build identity,
+which is the fingerprint a compiler running as root would leave. It registers
+a module whose `init()` prints a marker, because an unreferenced Go constant
+never reaches the binary and grepping for one would prove nothing.
+
+**`modcompile --install` drops privilege too.** §6 step 5 asked only for the
+relocation, but leaving `gcc` running as root over module-supplied source
+would have been §3's first property honoured in one place and abandoned one
+directory over. It now takes the same three phases as a server rebuild: root
+stages the generated C and the source directory's headers where the build
+identity can read them, that identity compiles, root places the `.so`.
+
+Headers only, and only from the source directory, because that directory is
+exactly what the compile's include path reached before — `--install` gets run
+from wherever the source happens to sit, and copying a stranger's working
+directory into a shared cache is not a header search path. The staged C sits
+beside those headers, so a relative `#include` resolves by proximity and needs
+no `-I` at all.
+
+The condition is "am I root, on a layout that has an unprivileged identity to
+be instead", not "am I writing to the cmod directory": `sudo modcompile
+--compile` runs the same compiler over the same source and gets the same
+treatment.

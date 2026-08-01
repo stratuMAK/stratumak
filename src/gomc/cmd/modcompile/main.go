@@ -255,6 +255,9 @@ func main() {
 	case buildPhaseArg:
 		cmdBuildPhase(os.Args[2:])
 		return
+	case buildCModPhaseArg:
+		cmdCompileCModPhase(os.Args[2:])
+		return
 	}
 
 	// Parse arguments for file-processing modes
@@ -533,7 +536,27 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 		gmiIncludes = append(gmiIncludes, "-I"+d)
 	}
 
-	return compileToSO(tmpCPath, outDir, pkg.Component.Name, gmiIncludes)
+	return compileCMod(tmpCPath, filepath.Dir(compPath), outDir, pkg.Component.Name, gmiIncludes)
+}
+
+// compileCMod runs the C compiler over a cmod source and puts the .so in
+// outDir, dropping privilege first where the layout calls for it.
+//
+// One decision in one place, so that .comp and .c cannot end up on different
+// sides of it. The condition is "am I root, on a layout that has an
+// unprivileged identity to be instead" — not "am I writing to the cmod
+// directory": `sudo modcompile --compile` runs the compiler over the same
+// source with the same privileges and deserves the same treatment. A
+// run-in-place tree has no second identity, and an unprivileged caller is
+// already the answer, so both compile straight through.
+func compileCMod(cPath, srcDir, outDir, soName string, extraIncludes []string) error {
+	if soName == "" {
+		soName = strings.TrimSuffix(filepath.Base(cPath), ".c")
+	}
+	if config.LocalCModDir() == "" || os.Geteuid() != 0 {
+		return compileToSO(cPath, outDir, soName, extraIncludes)
+	}
+	return compileCModStaged(cPath, srcDir, outDir, soName, extraIncludes)
 }
 
 // compileCFile compiles a hand-written cmod .c file directly to a .so.
@@ -543,7 +566,8 @@ func compileCFile(cPath string, outDir string) error {
 		return err
 	}
 	// Add the .c's own directory so a relative #include "local.h" resolves.
-	return compileToSO(absCPath, outDir, "", []string{"-I" + filepath.Dir(absCPath)})
+	dir := filepath.Dir(absCPath)
+	return compileCMod(absCPath, dir, outDir, "", []string{"-I" + dir})
 }
 
 // cgoFlags returns the include and link flags a build of the gomc Go packages

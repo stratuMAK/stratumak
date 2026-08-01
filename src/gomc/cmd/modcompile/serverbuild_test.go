@@ -213,6 +213,56 @@ func TestNormalizeModesMakesSourcesReadable(t *testing.T) {
 	check(script, 0o755)
 }
 
+// TestStageLocalHeadersTakesHeadersOnly: the staged directory stands in for
+// the source directory on the compile's include path, so it has to carry the
+// headers a relative #include could reach — and nothing else, because
+// `--install` is routinely run from whatever directory the source happens to
+// be sitting in.
+func TestStageLocalHeadersTakesHeadersOnly(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	dst := filepath.Join(base, "stage")
+
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(src, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("writing %s: %v", p, err)
+		}
+	}
+	write("local.h", "#define LOCAL 1\n")
+	write("nested/deeper.h", "#define DEEPER 1\n")
+	write("helper.hh", "// C++ header\n")
+	write("mycomp.comp", "component mycomp;\n")
+	write("notes.txt", "not a header\n")
+	write("blob.tar.gz", "not a header either\n")
+	write(".git/config", "[core]\n")
+
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := stageLocalHeaders(src, dst); err != nil {
+		t.Fatalf("stageLocalHeaders: %v", err)
+	}
+
+	// Headers come across, keeping their layout so "nested/deeper.h" resolves.
+	for _, rel := range []string{"local.h", "nested/deeper.h", "helper.hh"} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
+			t.Errorf("%s should have been staged: %v", rel, err)
+		}
+	}
+	// Everything else stays where it is. .git especially: staging somebody's
+	// repository into a shared cache directory is not a header search path.
+	for _, rel := range []string{"mycomp.comp", "notes.txt", "blob.tar.gz", ".git/config", ".git"} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s should not have been staged (stat error: %v)", rel, err)
+		}
+	}
+}
+
 // TestRegisteredModulesIsEmptyNotAnError: a system nobody has added a module
 // to has no registry directory at all, and that is its normal state — not a
 // condition a rebuild should refuse over.
