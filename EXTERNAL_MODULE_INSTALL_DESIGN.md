@@ -268,6 +268,23 @@ rather than compiling as root.
 The three postinst cases are as written; the startup check reports a locally
 built server older than the installed sources and names the command to fix it.
 
+**§5 is wrong about `setcap` and symlinks**, and it cost a working install to
+find out. It says "`setcap` follows the symlink chain, so file capabilities
+always land on whichever real file is active" — but the reading side does not.
+`getcap` `lstat()`s its argument and silently skips anything that is not a
+regular file, exiting zero with nothing to say, which is indistinguishable
+from "this file has no capabilities". Before the first local rebuild
+`$(bindir)/gomc-server` *is* a symlink onto the package's binary, so the
+rebuild read "none" for a file carrying ten, warned that there had been
+nothing to carry over, and installed a server that could not do realtime.
+
+Fixed by resolving the path before asking, and by falling back to the
+package's own binary when the active one reports nothing — without that
+fallback the loss is permanent, since every later rebuild copies the same
+nothing forward and only a hand-written `setcap` gets realtime back. A missing
+or failing `getcap` is now reported rather than silently read as "no
+capabilities", which was the same mistake waiting in a second place.
+
 **The capability list is carried across verbatim** (§5), from `make setuid`
 into postinst, `TODO: check what's actually needed` included. The audit §5 asks
 for has since been done statically — what each capability is actually for, and

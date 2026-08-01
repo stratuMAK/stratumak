@@ -766,12 +766,38 @@ func buildServerInPlace(serverDir, outPath string) {
 }
 
 // getFileCaps returns the capability string for a file, or "" if none set.
-// getcap follows symlinks, so on a packaged system this reports the
-// capabilities of whichever real binary $(bindir)/gomc-server resolves to —
-// the package-owned one until a local rebuild replaces a link in the chain.
+//
+// The symlink resolution is the whole point. getcap lstat()s its argument and
+// silently skips anything that is not a regular file — a symlink produces no
+// output and exit status zero, indistinguishable from "this file has no
+// capabilities". On a packaged system that is exactly the case that matters:
+// before the first local rebuild, $(bindir)/gomc-server is a symlink chain
+// onto the package's binary, and reading it directly reported no capabilities
+// for a file that had ten. The rebuilt server then came out unable to do
+// realtime at all, saying only that there had been nothing to carry over.
 func getFileCaps(path string) string {
-	out, err := exec.Command("getcap", path).Output()
-	if err != nil || len(out) == 0 {
+	resolved := path
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		resolved = r
+	}
+
+	// Nothing to read from a file that is not there yet — the staging path a
+	// build writes to, most often. Not a condition worth a warning.
+	if _, err := os.Stat(resolved); err != nil {
+		return ""
+	}
+
+	out, err := exec.Command("getcap", resolved).Output()
+	if err != nil {
+		// Distinct from "no capabilities set", which is getcap exiting zero
+		// with nothing to say. This is getcap missing from PATH or failing on
+		// a file that exists, and silently treating it as "none" is how a
+		// server ends up installed without the privileges it needs.
+		fmt.Fprintf(os.Stderr,
+			"modcompile: warning: could not read the file capabilities of %s: %v\n", resolved, err)
+		return ""
+	}
+	if len(out) == 0 {
 		return ""
 	}
 	// getcap output: "/path/to/bin cap_net_raw,cap_sys_nice=eip"

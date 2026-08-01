@@ -689,6 +689,20 @@ func installServer(staged, out string, uid int) error {
 	// rebuilt yet, `out` is a symlink onto the package-owned binary and its
 	// capabilities are the ones to carry over.
 	oldCaps := getFileCaps(out)
+	if oldCaps == "" {
+		// The package's own binary is the reference for what this server is
+		// supposed to hold, so fall back to it. That covers the machine whose
+		// previous rebuild already lost them: without this the loss is
+		// permanent, since every later rebuild copies the same nothing
+		// forward and only a hand-written setcap gets realtime back.
+		if pristine := config.PristineServerPath(); pristine != "" && pristine != out {
+			oldCaps = getFileCaps(pristine)
+			if oldCaps != "" {
+				fmt.Fprintf(os.Stderr,
+					"modcompile: %s had no file capabilities; taking them from %s\n", out, pristine)
+			}
+		}
+	}
 
 	if err := installStaged(staged, out, uid, 0755); err != nil {
 		return err

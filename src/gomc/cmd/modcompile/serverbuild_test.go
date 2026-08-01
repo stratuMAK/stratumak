@@ -213,6 +213,62 @@ func TestNormalizeModesMakesSourcesReadable(t *testing.T) {
 	check(script, 0o755)
 }
 
+// TestGetFileCapsResolvesSymlinks is the regression guard for a bug that
+// reached a real machine: getcap lstat()s its argument and silently skips
+// anything that is not a regular file, so asking it about a symlink produced
+// no output and exit status zero — the same answer as "this file has no
+// capabilities". $(bindir)/gomc-server is a symlink onto the package's binary
+// until the first local rebuild, so the rebuild read "none" for a file that
+// had ten, and installed a server that could not do realtime.
+//
+// This cannot assert the capabilities themselves (setting any needs root), so
+// it asserts the thing that was actually wrong: which path gets looked at.
+func TestGetFileCapsResolvesSymlinks(t *testing.T) {
+	dir := t.TempDir()
+
+	// A stand-in for getcap, placed first on PATH. It reproduces the one
+	// behaviour that caused the bug: the real getcap lstat()s its argument and
+	// silently skips anything that is not a regular file, exiting zero. A
+	// stand-in that answered for symlinks too would make this test pass
+	// whether or not the resolution is there — which is exactly what the first
+	// version of it did.
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	fake := "#!/bin/sh\n" +
+		"[ -L \"$1\" ] && exit 0\n" +
+		"[ -f \"$1\" ] || exit 0\n" +
+		"echo \"$1 cap_probe=ep\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "getcap"), []byte(fake), 0o755); err != nil {
+		t.Fatalf("writing the getcap stand-in: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	real := filepath.Join(dir, "real-binary")
+	if err := os.WriteFile(real, []byte("ELF"), 0o755); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+	link := filepath.Join(dir, "link-to-binary")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	// Asked about the symlink, it must have looked at the real file.
+	if got, want := getFileCaps(link), "cap_probe=ep"; got != want {
+		t.Errorf("getFileCaps(symlink) = %q, want %q — the symlink was not resolved", got, want)
+	}
+	if got, want := getFileCaps(real), "cap_probe=ep"; got != want {
+		t.Errorf("getFileCaps(regular file) = %q, want %q", got, want)
+	}
+
+	// A path that does not exist yet is the staging file every build writes
+	// to, and must stay quiet rather than warn.
+	if got := getFileCaps(filepath.Join(dir, "not-here")); got != "" {
+		t.Errorf("getFileCaps(missing) = %q, want \"\"", got)
+	}
+}
+
 // TestStageLocalHeadersTakesHeadersOnly: the staged directory stands in for
 // the source directory on the compile's include path, so it has to carry the
 // headers a relative #include could reach — and nothing else, because
