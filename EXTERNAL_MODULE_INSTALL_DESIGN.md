@@ -300,12 +300,30 @@ which have no user at all:
 | `cap_sys_nice` | `SCHED_FIFO` (`uspace_rtapi_lib.c`, `cpupool.go`) |
 | `cap_sys_rawio` | `iopl(3)`; `/dev/mem` in the Pi/BeagleBone GPIO drivers; the PCI BAR mapping in `transport_ccat.c` |
 | `cap_dac_override` | writing a root-owned file as a process that is not root, on the mainstream path: `/proc/irq/$n/smp_affinity` `root:root 0644` (`irq_pin.c`), `/dev/cpu_dma_latency` `root:root 0600` (`uspace_rtapi_lib.c`), `/sys/bus/pci/devices/*/resource0` `root:root 0600` (`transport_ccat.c`); and on the Pi, `/dev/mem` `root:kmem 0640` plus debugfs `0700` clock rates |
-| **`cap_perfmon`** | **nothing.** No `perf_event_open`, no `PERF_*`, no `rdpmc` anywhere in the tree |
-| **`cap_sys_admin`** | **nothing found.** No `mount`, `setns`, `unshare` or `pivot_root`. Most likely the pre-5.8 spelling of what `cap_bpf` now covers |
+| `cap_perfmon` | the BPF verifier's pointer-leak gate, `perfmon_capable()`. Nothing calls `perf_event_open` — the requirement is not in our source at all, and no amount of grepping it would have found this |
+| `cap_sys_admin` | nothing found in the tree. No `mount`, `setns`, `unshare` or `pivot_root`. It also satisfies `perfmon_capable()`, so it can stand in for `cap_perfmon` above |
 
-So `cap_perfmon` looks removable outright, and `cap_sys_admin` removable on
-kernels from 5.8 — which is every kernel the package targets, but not every
-kernel LinuxCNC runs on.
+The last two rows are a correction, and the way they were wrong is the
+interesting part. A source audit concluded both were unused: no
+`perf_event_open`, no `PERF_*`, no `rdpmc`, no mount-family calls. On real
+hardware (6.12 RT, `xdp-native`), dropping `cap_perfmon` alone changed
+nothing — apparently confirming it. Dropping both produced:
+
+```
+libbpf: prog 'xdp_dispatcher': BPF program load failed: Permission denied
+R1 pointer comparison prohibited
+```
+
+`libxdp`'s dispatcher program contains a pointer comparison, which the
+verifier permits only to a loader satisfying `perfmon_capable()` —
+`CAP_PERFMON || CAP_SYS_ADMIN`. So the first test passed only because
+`cap_sys_admin` was covering for the capability it had just removed, and the
+capability is required by a gate inside the kernel rather than by any call
+this tree makes. Grep cannot see a requirement that lives in the verifier.
+
+What remains untested is `cap_perfmon` kept and `cap_sys_admin` dropped, which
+is the combination a trim would actually ship. Until that runs on hardware,
+both stay.
 
 `cap_dac_override` is not the peripheral thing a first pass made it look like.
 Every realtime EtherCAT machine needs it: pinning the NIC's interrupt writes
@@ -316,9 +334,10 @@ them open — and the symptom of removing it would be latency quietly reverting
 to whatever the housekeeping CPU does, which is precisely the class of fault
 that takes weeks to attribute.
 
-Nothing has been trimmed: the failure mode of getting this wrong is "EtherCAT
+Nothing has been trimmed. The failure mode of getting this wrong is "EtherCAT
 does not start", or worse "EtherCAT starts and misses deadlines", on a machine
-that is not this one. The list stays verbatim
+that is not this one — and the audit above has now been wrong once in each
+direction, understating `cap_dac_override` and overstating what could go. The list stays verbatim
 until a run on real hardware says otherwise.
 
 **The unprivileged phase builds in its own copy of the tree.** §4.3 has the
