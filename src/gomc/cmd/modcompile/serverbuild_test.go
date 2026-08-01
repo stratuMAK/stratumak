@@ -213,6 +213,31 @@ func TestNormalizeModesMakesSourcesReadable(t *testing.T) {
 	check(script, 0o755)
 }
 
+// TestLinuxcncIncludeDirFollowsLayout guards the include root every cmod
+// compile depends on. It was wrong for installed systems from the start —
+// $(EMC2Home)/include is right only for a run-in-place tree, where the headers
+// are collected flat under the tree root; an installed system puts them in
+// $(includedir)/linuxcnc. So `modcompile --install` searched /usr/include,
+// found no rtapi_math.h, and every component doing floating-point maths
+// failed to compile against a header sitting one directory further down.
+//
+// Only visible on a packaged system, which is why it survived until a real
+// component set was installed on one.
+func TestLinuxcncIncludeDirFollowsLayout(t *testing.T) {
+	oldHome, oldRIP := config.EMC2Home, config.RunInPlace
+	t.Cleanup(func() { config.EMC2Home, config.RunInPlace = oldHome, oldRIP })
+
+	config.EMC2Home, config.RunInPlace = "/usr", "no"
+	if got, want := linuxcncIncludeDir(), "/usr/include/linuxcnc"; got != want {
+		t.Errorf("installed layout: linuxcncIncludeDir() = %q, want %q", got, want)
+	}
+
+	config.EMC2Home, config.RunInPlace = "/home/dev/linuxcnc", "yes"
+	if got, want := linuxcncIncludeDir(), "/home/dev/linuxcnc/include"; got != want {
+		t.Errorf("run-in-place layout: linuxcncIncludeDir() = %q, want %q", got, want)
+	}
+}
+
 // TestGetFileCapsResolvesSymlinks is the regression guard for a bug that
 // reached a real machine: getcap lstat()s its argument and silently skips
 // anything that is not a regular file, so asking it about a symlink produced

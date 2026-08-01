@@ -168,7 +168,8 @@ func main() {
 	// Handle environment query options first (no files needed)
 	switch os.Args[1] {
 	case "--cflags":
-		fmt.Printf("-I%s %s\n", config.EMC2CmodIncludeDir, defaultCFlags)
+		// Both include roots: the cmod API headers, and LinuxCNC's own.
+		fmt.Printf("-I%s -I%s %s\n", config.EMC2CmodIncludeDir, linuxcncIncludeDir(), defaultCFlags)
 		return
 	case "--ldflags":
 		fmt.Println(defaultLDFlags)
@@ -449,6 +450,24 @@ func processFile(path, mode, outputFile string) error {
 	}
 }
 
+// linuxcncIncludeDir returns the directory holding LinuxCNC's own C headers —
+// rtapi_math.h, hal.h, the rtapi_* family — which any non-trivial cmod
+// includes.
+//
+// The two layouts put them in different places, and only the run-in-place one
+// was ever accounted for: a build tree collects them flat in <tree>/include,
+// an installed system puts them in $(includedir)/linuxcnc. Naming
+// $(EMC2Home)/include for both meant an installed system searched /usr/include
+// and found none of them, so every .comp that includes rtapi_math.h failed to
+// compile with a missing-header error that named a file sitting one directory
+// further down.
+func linuxcncIncludeDir() string {
+	if config.RunInPlace == "yes" {
+		return filepath.Join(config.EMC2Home, "include")
+	}
+	return filepath.Join(config.EMC2Home, "include", "linuxcnc")
+}
+
 // compileToSO compiles a C source file to a shared object in outDir.
 // extraIncludes provides additional -I paths (e.g. for GMI API headers).
 // soName overrides the output .so base name (without extension); if empty,
@@ -470,7 +489,7 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 	args := append([]string(nil), cc[1:]...)
 	args = append(args,
 		"-I"+config.EMC2CmodIncludeDir,
-		"-I"+filepath.Join(config.EMC2Home, "include"),
+		"-I"+linuxcncIncludeDir(),
 	)
 	args = append(args, extraIncludes...)
 	args = append(args,
@@ -618,9 +637,12 @@ func printMakeInc() {
 
 	// Each line wrapped in $(eval ...) because $(shell) converts newlines to spaces.
 	// The outer $(eval $(shell ...)) then evaluates each inner $(eval) properly.
-	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s) $(eval GOMC_CGO_CFLAGS := %s) $(eval GOMC_CGO_CPPFLAGS := %s) $(eval GOMC_CGO_LDFLAGS := %s)`,
+	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s) $(eval GOMC_CGO_CFLAGS := %s) $(eval GOMC_CGO_CPPFLAGS := %s) $(eval GOMC_CGO_LDFLAGS := %s)`,
 		cc,
-		config.EMC2CmodIncludeDir, defaultCFlags,
+		// Same two roots --cflags prints: a project compiling a cmod by hand
+		// with $(GOMC_CFLAGS) needs LinuxCNC's headers as much as modcompile
+		// does.
+		config.EMC2CmodIncludeDir, linuxcncIncludeDir(), defaultCFlags,
 		defaultLDFlags,
 		cmodInstallDir(),
 		config.EMC2CmodIncludeDir,
