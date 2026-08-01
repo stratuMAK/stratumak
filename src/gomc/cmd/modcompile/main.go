@@ -519,16 +519,41 @@ func compileCFile(cPath string, outDir string) error {
 	return compileToSO(absCPath, outDir, "", []string{"-I" + filepath.Dir(absCPath)})
 }
 
+// cgoFlags returns the CGO_CFLAGS and CGO_LDFLAGS a build of the gomc Go
+// packages needs, for whichever layout this modcompile was built for.
+//
+// The gomc packages declare their C includes relative to ${SRCDIR}, which only
+// resolves inside the source tree; from the installed tree at
+// $(datadir)/linuxcnc/gomc those paths point at directories that do not exist,
+// and gcc drops a missing -I without a word. Anything compiling those packages
+// outside the source tree -- a rebuild of gomc-server, or a third-party Go
+// module importing pkg/hal -- has to be handed the real include directory.
+//
+// One function so the two callers cannot drift: rebuildServer puts these in the
+// child environment, printMakeInc hands them to external Makefiles.
+func cgoFlags() (cflags, ldflags string) {
+	libDir := filepath.Join(config.EMC2Home, "lib")
+	if config.RunInPlace == "yes" {
+		srcDir := filepath.Join(config.EMC2Home, "src")
+		cflags = fmt.Sprintf("-I%s -I%s/hal -I%s/rtapi -I%s/../include",
+			srcDir, srcDir, srcDir, srcDir)
+	} else {
+		cflags = "-I" + filepath.Join(config.EMC2Home, "include", "linuxcnc")
+	}
+	return cflags, fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)
+}
+
 // printMakeInc outputs a Makefile snippet for external projects.
 // Each variable is wrapped in $(eval) so $(shell) newline→space conversion works.
 func printMakeInc() {
 	cc := resolveCC()
 
 	libDir := filepath.Join(config.EMC2Home, "lib")
+	cgoC, cgoLD := cgoFlags()
 
 	// Each line wrapped in $(eval ...) because $(shell) converts newlines to spaces.
 	// The outer $(eval $(shell ...)) then evaluates each inner $(eval) properly.
-	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s)`,
+	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s) $(eval GOMC_CGO_CFLAGS := %s) $(eval GOMC_CGO_LDFLAGS := %s)`,
 		cc,
 		config.EMC2CmodIncludeDir, defaultCFlags,
 		defaultLDFlags,
@@ -537,6 +562,8 @@ func printMakeInc() {
 		config.GomcDir(),
 		config.GoBinary,
 		libDir,
+		cgoC,
+		cgoLD,
 	)
 }
 
@@ -616,23 +643,8 @@ func buildServer() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// CGO needs to find headers and libraries.
-	// RIP: headers in src/, libs in lib/ under EMC2Home.
-	// Installed: headers in includedir, libs in libdir.
-	var cgoC, cgoLD string
-	if config.RunInPlace == "yes" {
-		srcDir := filepath.Join(config.EMC2Home, "src")
-		cgoC = fmt.Sprintf("-I%s -I%s/hal -I%s/rtapi -I%s/../include",
-			srcDir, srcDir, srcDir, srcDir)
-		libDir := filepath.Join(config.EMC2Home, "lib")
-		cgoLD = fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)
-	} else {
-		// Installed: use standard paths relative to EMC2Home.
-		incDir := filepath.Join(config.EMC2Home, "include", "linuxcnc")
-		libDir := filepath.Join(config.EMC2Home, "lib")
-		cgoC = "-I" + incDir
-		cgoLD = fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)
-	}
+	// CGO needs to find headers and libraries; see cgoFlags.
+	cgoC, cgoLD := cgoFlags()
 	// cgo takes the compiler from the environment (default gcc); pass the
 	// configured toolchain through so the rebuild matches the original build.
 	cmd.Env = append(os.Environ(),

@@ -27,7 +27,12 @@ ifeq ($(RUN_IN_PLACE),yes)
 EMC2_CMOD_INCLUDE_DIR := $(EMC2_HOME)/src/gomc/pkg/cmodule
 EMC2_WEBAPP_DIR := $(EMC2_HOME)/share/gomc/webapp
 else
-EMC2_CMOD_INCLUDE_DIR := $(includedir)/linuxcnc/cmod
+# Where gomc-install actually puts gomc_*.h: inside the installed gomc tree, at
+# the same offset the RIP value has inside the source tree. It used to say
+# $(includedir)/linuxcnc/cmod, which nothing ever installed -- so every
+# `modcompile <x>.comp --install` on a packaged system died on the first
+# #include, silently, because a missing -I is not an error to gcc.
+EMC2_CMOD_INCLUDE_DIR := $(datadir)/linuxcnc/gomc/pkg/cmodule
 # Under the directory the package already owns, not a top-level $(datadir)/gomc:
 # on a distribution install that would be /usr/share/gomc, a generic name no
 # single package should claim. The RIP tree above keeps share/gomc/webapp.
