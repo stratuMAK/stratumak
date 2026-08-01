@@ -590,7 +590,9 @@ depends/%.d: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/asciideps .include-stamp
 objects/%.links-stamp: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/links.xslt $(ASCIIDOC_HOME_STAMP) \
 	$(DOC_SRCDIR)/attribute-colon.conf $(DOC_SRCDIR)/docbook-sect5.conf
 	@mkdir -p `dirname $@`
-	$(ASCIIDOC) -f $(DOC_SRCDIR)/attribute-colon.conf -f $(DOC_SRCDIR)/docbook-sect5.conf -a "scriptdir=$(DOC_SRCDIR)/" -d book -o- -b docbook $< | xsltproc $(DOC_SRCDIR)/links.xslt - > $@.tmp || (X=$$?; rm -f $@; exit $$X)
+	$(ASCIIDOC) -f $(DOC_SRCDIR)/attribute-colon.conf -f $(DOC_SRCDIR)/docbook-sect5.conf \
+		-f $(LOC_HL_DIR)/emc-langs-source-highlight.conf -a "source_highlight_dir=$(LOC_HL_DIR)/local" \
+		-a "scriptdir=$(DOC_SRCDIR)/" -d book -o- -b docbook $< | xsltproc $(DOC_SRCDIR)/links.xslt - > $@.tmp || (X=$$?; rm -f $@; exit $$X)
 	sh move-if-change $@.tmp $(patsubst %-stamp,%,$@)
 	touch $@
 
