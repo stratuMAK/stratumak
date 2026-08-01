@@ -99,9 +99,19 @@ and attributable to nobody.
 /var/lib/stratumak/cmod/               root:root 0755, locally built cmods
 ```
 
-Symlink rather than copy. A 19 MB binary is not duplicated on every install; an
-upgrade is picked up automatically in the common case with **no maintainer-script
-logic at all**; and "is this server locally modified?" reduces to `test -L`.
+Symlink rather than copy. A 19 MB binary is not duplicated on every install; in
+the common case an upgrade is live the moment dpkg unpacks the new pristine
+binary, with no recovery logic; and "is this server locally modified?" reduces
+to `test -L`.
+
+Two packaging constraints follow. The `/var/lib/stratumak/bin/gomc-server`
+symlink must **not** be shipped in the deb's data archive — and not via
+`debian/stratumak.links` either, which will tempt. If dpkg owns that path,
+every upgrade unpack replaces a locally rebuilt real binary with the shipped
+symlink, silently discarding the local build — exactly the failure §4.4 exists
+to prevent. postinst creates it, only if absent. Second, dpkg does not preserve
+xattrs, so the pristine binary's file capabilities do not survive the .deb:
+postinst must apply them on every install and upgrade (§5).
 
 ### 4.2 The `/var` tree is derived, not authoritative
 
@@ -116,15 +126,36 @@ generated files, or the vector returns one directory down.
 ### 4.3 Privilege split inside `add-gomod` / `rebuild`
 
 ```
-root   record and copy THIS source directory into the tree     <- the trust decision
-drop   re-exec as SUDO_UID: regenerate imports, go build       <- compiler never root
-root   install the binary, reapply capabilities                <- irreducibly privileged
+root   record and copy THIS source directory into the tree;    <- the trust decision
+       regenerate imports and registry
+drop   re-exec unprivileged: go build -o <staging path>        <- compiler never root
+root   move the staged binary into place, reapply capabilities <- irreducibly privileged
 ```
 
-Privilege dropping in Go needs **re-exec, not `setuid`**: `setuid(2)` affects
-only the calling thread and the Go runtime is multithreaded. The supported shape
-is for `modcompile` to re-exec itself for the build phase under the invoking
-user's uid, taken from `SUDO_UID`.
+Codegen stays in the root phase, deliberately: the tree in §4.1 is `root:root
+0755`, so an unprivileged phase could not write `imports_generated.go` or
+`packages.conf` into it — and it need not. Regeneration is `modcompile`'s own
+string emission; no module-supplied code runs. What must never run as root is
+the phase that *does* run module-influenced code — `go build`, cgo, `gcc`. That
+phase only reads the root-owned tree (0755 suffices; Go builds do not write
+into the source directory) and writes to its own `GOCACHE` and a staging output
+path owned by the build identity; the final root phase moves the staged binary
+into place. `HOME` and `GOCACHE` are set explicitly for the build phase — sudo
+configurations differ on whether `HOME` is preserved, and the cache must land
+in neither root's home nor the shared tree.
+
+The build identity: `SUDO_UID` when invoked via sudo — the person who just made
+the trust decision. When there is no `SUDO_UID` (a direct root shell, or the
+systemd one-shot of §4.4), a dedicated unprivileged system user
+(`stratumak-build`, created in postinst) with its cache under
+`/var/cache/stratumak-build`. Using the dedicated user unconditionally would
+also be defensible and is simpler; either way the invariant is that the
+compiler never runs as root.
+
+Dropping is by **re-exec, not in-process `setuid`**. Not for the old
+one-thread reason — since Go 1.16 `syscall.Setuid` applies to all threads — but
+because re-exec also yields a clean environment for the build and a natural
+process boundary at the staging hand-off.
 
 Reapplying capabilities needs `CAP_SETFCAP`, i.e. root, which is an independent
 reason the install phase stays privileged even if the build does not.
@@ -137,6 +168,13 @@ tree at startup gives a "your local build is stale, run `modcompile rebuild`"
 signal almost for free, and catches the real hazard: a server built against
 gomc sources from an older release, now facing newer cmods.
 
+A warning may be too weak a floor for that hazard. The cmod ABI carries no
+version stamp today (`gomc_env.h` defines none; only the runtime API registry
+is versioned per-API), so a stale server dlopening a cmod built for a newer
+`cmod_env_t` is undefined behaviour with no detection at load time. Give the
+cmod ABI a stamp and have the launcher *refuse* a mismatched cmod; the
+staleness warning then covers the benign skew, the refusal the fatal one.
+
 On upgrade:
 
 - active server is a symlink → nothing to do, the new pristine binary is live
@@ -148,7 +186,9 @@ On upgrade:
 **Nothing is recompiled in a maintainer script.** A full server build is minutes
 long, needs `golang-go` and a warm module cache, and can fail — and a failing
 postinst leaves the package half-configured and `apt` wedged. If the rebuild
-should be automatic, a systemd one-shot after upgrade is the supportable form.
+should be automatic, a systemd one-shot after upgrade is the supportable form —
+running its build phase as the dedicated build user of §4.3, since a one-shot
+has no `SUDO_UID` to drop to.
 
 ### 4.5 Rejected
 
@@ -166,13 +206,21 @@ should be automatic, a systemd one-shot after upgrade is the supportable form.
 `/var/lib/stratumak/cmod` needs the launcher to search two, which raises an
 order question: should a local module shadow a shipped one of the same name, or
 be refused as a collision? Refusing is safer and easier to diagnose; shadowing is
-what people usually expect from a local override. Decide before implementing,
-since the same relocation covers both directories.
+what people usually expect from a local override. Recommendation: refuse, with
+an explicit per-module flag if deliberate shadowing is ever wanted — a stale
+local `.so` silently shadowing a shipped fix is miserable to diagnose. Decide
+before implementing, since the same relocation covers both directories.
 
 **Nothing grants realtime privileges on a packaged system.** `make setuid` is a
 RIP-only make target; the postinst sets `memlock` in `limits.conf` and nothing
-else. Whatever layout is adopted, the capabilities have to land on the *active*
-binary and be reapplied after every rebuild. That is unspecified today.
+else. The mechanism is now specified — postinst applies the capabilities to the
+pristine binary on every install and upgrade (§4.1), and the rebuild path
+already save/restores them across replacement (`main.go:659-671`; `setcap`
+follows the symlink chain, so file capabilities always land on whichever real
+file is active). What remains open is the capability *list* itself: the
+Makefile's own `TODO: check what's actually needed` — `cap_sys_admin` and
+`cap_dac_override` in particular want auditing before that list is enshrined in
+a postinst.
 
 **Purge.** Anything written under `/var/lib/stratumak` is untracked by dpkg and
 must be removed by `postrm purge`, alongside the `limits.conf` line already
@@ -180,14 +228,17 @@ handled there.
 
 ## 6. Implementation order
 
-1. `modcompile rebuild`: split unprivileged build from privileged install; add
-   `SUDO_UID` re-exec. Fail with *"needs root: try sudo"* rather than a raw
+1. `modcompile rebuild`: split unprivileged build from privileged install;
+   re-exec the build phase as `SUDO_UID` or the dedicated build user (§4.3).
+   Fail with *"needs root: try sudo"* rather than a raw
    `mkdir: permission denied`. **This alone unblocks `add-gomod`.**
 2. Introduce `/var/lib/stratumak/gomc`, move `external/` and the generated
    registry there, `GOMC_DIR` already exists as the override knob.
-3. Move the pristine server to `/usr/libexec/stratumak`, add the two symlinks,
+3. Move the pristine server to `/usr/libexec/stratumak`, add the two symlinks
+   (the `/var` one created by postinst, never shipped — §4.1), postinst setcap,
    teach postinst the three upgrade cases.
-4. Staleness stamp and the startup check.
+4. Staleness stamp and the startup check; cmod ABI stamp and the load-time
+   refusal (§4.4).
 5. Local cmods to `/var/lib/stratumak/cmod` plus the launcher search path, once
    the shadow-vs-collide question is settled.
 6. `postrm purge` cleanup.
