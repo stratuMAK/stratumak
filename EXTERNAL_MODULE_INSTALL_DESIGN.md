@@ -1,6 +1,7 @@
 # Installing external modules on a packaged system — design note
 
-Status: **implemented 2026-08-01**, all six steps of §6. Written the same day,
+Status: **implemented and verified on hardware, 2026-08-01**, all six steps of
+§6, plus the capability audit §5 left open. Written the same day,
 after `stratumak` and `stratumak-dev` 0.1.0 were installed on a real machine and
 an out-of-tree Go module was built against them for the first time. The text
 below is kept as written, as the record of why the layout is what it is; §7
@@ -426,6 +427,19 @@ replacement, and — the point of the whole exercise — that nothing under
 which is the fingerprint a compiler running as root would leave. It registers
 a module whose `init()` prints a marker, because an unreferenced Go constant
 never reaches the binary and grepping for one would prove nothing.
+
+It passes, on a machine installed from the built `.deb`: all six sections,
+including a `.comp` with a local header installed out of a `0700` directory,
+and `/var/cache/stratumak-build` owned end to end by the build identity. The
+first attempt did not — it caught the `getcap` bug above, which is the whole
+argument for having written it.
+
+An out-of-tree module then went through the flow it was designed for, from an
+ordinary project `Makefile`: `make install` builds as the invoking user and
+escalates only for `sudo modcompile add-gomod .`, which records the source,
+rebuilds unprivileged as `stratumak-build`, and reapplies the capabilities.
+That is §1's opening failure — `mkdir /usr/share/linuxcnc/gomc/external:
+permission denied` — closed.
 
 **`modcompile --install` drops privilege too.** §6 step 5 asked only for the
 relocation, but leaving `gcc` running as root over module-supplied source
