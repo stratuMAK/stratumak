@@ -79,6 +79,12 @@ usr/lib/linuxcnc
 usr/lib/python3
 usr/lib/tcltk
 
+# The pristine gomc-server. usr/bin/gomc-server, listed above, is only a
+# symlink onto /var/lib/stratumak/bin/gomc-server, which points here in turn
+# until an administrator rebuilds locally. This is the file dpkg owns and
+# replaces on upgrade; the /var one is deliberately not packaged at all.
+usr/libexec/stratumak
+
 usr/share/axis
 usr/share/glade
 usr/share/gmoccapy

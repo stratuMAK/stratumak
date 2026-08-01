@@ -73,10 +73,22 @@ override_dh_auto_configure:
 	cd src && ./autogen.sh
 	cd src && ./configure \
 	    --prefix=/usr --sysconfdir=/etc \
+	    --localstatedir=/var \
 	    --mandir=/usr/share/man \
 	    $(configure_realtime_arg) \
 	    $(enable_build_documentation) \
 	    --disable-check-runtime-deps
+	# debian/@MAIN_PACKAGE_NAME@.postinst and .postrm name the state directory
+	# literally -- maintainer scripts have no Makefile.inc to read. If configure
+	# ever resolves it somewhere else the two drift apart in silence: the
+	# package would create and purge one directory while the software used
+	# another. Cheaper to stop the build.
+	@state_dir=$$(sed -n 's/^EMC2_STATE_DIR=//p' src/Makefile.inc); \
+	if [ "$$state_dir" != "/var/lib/stratumak" ]; then \
+	    echo "debian/rules: configure resolved EMC2_STATE_DIR to '$$state_dir'," >&2; \
+	    echo "debian/rules: but the maintainer scripts hardcode /var/lib/stratumak." >&2; \
+	    exit 1; \
+	fi
 
 override_dh_auto_build-arch:
 	dh_auto_build -- build-software
@@ -126,6 +138,20 @@ override_dh_auto_install-arch:
 
 	# some clean-up
 	rm -f $(DESTDIR)/usr/share/doc/@MAIN_PACKAGE_NAME@/examples/sample-configs/*/*position*.txt
+
+	# Nothing under /var/lib/stratumak may be shipped in the package.
+	#
+	# The directories are harmless in themselves, but the symlink
+	# /var/lib/stratumak/bin/gomc-server is not: if dpkg owned that path,
+	# every upgrade would unpack the shipped symlink over a server the
+	# administrator had rebuilt locally, silently unregistering every external
+	# module compiled into it. postinst creates it instead, and only when it
+	# is absent. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	#
+	# `make install` still creates all of it, for installations that have no
+	# maintainer scripts to do the job; this removes it again from the staging
+	# tree, which is also what keeps it out of debian/@MAIN_PACKAGE_NAME@.install.
+	rm -rf $(DESTDIR)/var/lib/stratumak
 
 override_dh_installdocs-arch:
 	# Sample configs go in `usr/share/doc/linuxcnc` (not `.../doc/@MAIN_PACKAGE_NAME@`)

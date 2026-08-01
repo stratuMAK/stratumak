@@ -212,6 +212,10 @@ Options:
 		IniFile:         iniFile,
 	}
 
+	// Before anything is loaded: say so if this binary was built locally from
+	// gomc sources older than the installed ones.
+	launcher.WarnIfStale(logger)
+
 	l := launcher.New(opts, logger)
 
 	// One-shot HAL-file (halrun) mode: execute the file and exit.  With -serve,

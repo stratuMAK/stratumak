@@ -1,8 +1,11 @@
 # Installing external modules on a packaged system — design note
 
-Status: **proposal, nothing implemented.** Written 2026-08-01 after `stratumak`
-and `stratumak-dev` 0.1.0 were installed on a real machine and an out-of-tree Go
-module was built against them for the first time.
+Status: **implemented 2026-08-01**, all six steps of §6. Written the same day,
+after `stratumak` and `stratumak-dev` 0.1.0 were installed on a real machine and
+an out-of-tree Go module was built against them for the first time. The text
+below is kept as written, as the record of why the layout is what it is; §7
+records what the implementation decided where this note left a choice open, and
+what it does not cover.
 
 ## 1. What happens today
 
@@ -242,3 +245,97 @@ handled there.
 5. Local cmods to `/var/lib/stratumak/cmod` plus the launcher search path, once
    the shadow-vs-collide question is settled.
 6. `postrm purge` cleanup.
+
+## 7. As implemented
+
+Decisions taken where §4.3 and §5 left a choice, and the places the
+implementation went further or stopped short.
+
+**Collisions are refused** (§5). `resolveCModule` searches
+`/var/lib/stratumak/cmod` and `/usr/lib/linuxcnc/cmod`, and a bare name present
+in both fails the load naming both files. Deliberate overriding is still
+possible by loading the module by its full path, which bypasses the search
+entirely. No per-module shadowing flag was added; nothing has asked for one yet.
+
+**The build identity is always `stratumak-build`** (§4.3), never `SUDO_UID`
+when the account exists — one identity, one cache, and identical behaviour from
+a sudo shell, a root shell and automation. `SUDO_UID` survives only as a
+fallback for a tree installed with `make install` rather than from the package,
+where nothing ever created the account. With neither, the rebuild refuses
+rather than compiling as root.
+
+**Upgrades warn, they do not rebuild** (§4.4). No systemd one-shot was added.
+The three postinst cases are as written; the startup check reports a locally
+built server older than the installed sources and names the command to fix it.
+
+**The capability list is carried across verbatim** (§5), from `make setuid`
+into postinst, `TODO: check what's actually needed` included. Auditing
+`cap_sys_admin` and `cap_dac_override` remains open, and is the one thing here
+that can only be settled against real hardware.
+
+**The unprivileged phase builds in its own copy of the tree.** §4.3 has the
+build phase read the root-owned tree directly, which does not survive contact
+with `go mod tidy`: dependency resolution rewrites `go.mod` and `go.sum`, and
+the tree is root-owned 0755 precisely so that it cannot. The build phase
+therefore mirrors the tree into `/var/cache/stratumak-build/tree` first and
+resolves and compiles there. The shared tree stays root-owned and unwritten,
+the compiler still never runs as root, and root still consumes only the staged
+binary.
+
+**Two authoritative directories, not one** (§4.2). `/var/lib/stratumak/modules`
+holds the root-owned copy of each registered module's source and is the source
+of truth; `/var/lib/stratumak/gomc` is the build tree derived from the pristine
+sources plus those copies, regenerated in full on every rebuild. Deriving it
+each time is what makes an upgrade correct: the pristine sources change under
+it, and a tree that only ever had modules added would keep compiling the
+release it was first built from.
+
+**Behind all of this: the installed gomc tree did not compile, and now does.**
+The note assumes throughout that `$(datadir)/linuxcnc/gomc` can be rebuilt; it
+could not, and never could — the permission error in §1 was simply the first
+thing in the way. `gomc-install` shipped only `*.go`, so every cgo package
+arrived without its C sources, and a dozen headers the build needs were
+installed nowhere. Five separate causes, all now fixed:
+
+1. The tree ships its own `.c/.h/.cc/.hh` (26 files, previously 9).
+2. `SRCHEADERS` gained the headers nothing had installed: `config.h`,
+   `hal_priv.h`, `rtapi_task.h`, `uspace_common.h`, `canon_interface.hh`,
+   `interp_ext.h`, `interp_inspection.hh`, `interp_parameter_def.hh`,
+   `interp_parameter_io.hh`, `rs274ngc_interp.hh`, `tp_debug.h`. `saicanon.hh`
+   had moved to `emc/sai/` years ago and the stale path was being swallowed by
+   a `-cp`.
+3. Headers are installed a **second** time under their source-relative path.
+   Several gomc packages include them the way the source tree does
+   (`"hal/hal_priv.h"`, `"emc/rs274ngc/interp_parameter_io.hh"`), which
+   resolves against `-Isrc` in a build tree and against nothing at all in a
+   flat include directory. Both spellings now work under the one `-I` that
+   `cgoFlags` already passes; no new include path had to be invented.
+4. Four C *implementation* files are `#include`d textually — `emc/tp/tc.c`,
+   `blendmath.c`, `spherical_arc.c`, `emc/nml_intf/emcpose.c` — and are
+   installed alongside the headers as `SRCINCLUDED_SOURCES`. To a tree that
+   has to be rebuildable they are headers in everything but name.
+5. `cgoFlags` put its include path in `CGO_CFLAGS`, which never reaches the
+   C++ compiler, so `interp_shim.cc` could not find `config.h` while the C
+   sources beside it compiled. It is `CGO_CPPFLAGS` now, and the build tree's
+   own parent goes first so that a `"gomc/generated/..."` include resolves
+   against the sources being compiled rather than an installed copy of them.
+
+One collision had to be broken by hand: `emc/rs274ngc/interp_shim.h` and
+`gomc/internal/task/interp_shim.h` are different headers with the same name,
+and a flat copy of the first silently won over the second's own directory.
+The first is now installed only under its path (`SRCHEADERS_PATHONLY`), and
+`internal/ngcpreview` says which one it means.
+
+Verified by staging an install and building `cmd/gomc-server` from it, the way
+the unprivileged build phase would: a complete 27 MB server, from the installed
+tree alone.
+
+**Not covered: `modcompile --install` still compiles as the invoking user.**
+The relocation in step 5 is done — a locally built cmod lands in
+`/var/lib/stratumak/cmod`, not among the package's own — but the `gcc` run that
+produces it is not dropped to the build identity the way the server rebuild is.
+Under `sudo modcompile --install foo.comp` the compiler therefore runs as root
+over module-supplied source, which §3's first property says it should not.
+Fixing it needs the source staged somewhere the build identity can read, since
+the `.comp` and its local headers are typically in a home directory it cannot;
+that is a self-contained piece of work, and nothing else here depends on it.

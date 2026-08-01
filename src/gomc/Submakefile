@@ -65,6 +65,8 @@ GOMC_LDFLAGS := \
     -X '$(GOMC_LDFLAGS_PKG).EMC2CmodDir=$(EMC2_CMOD_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2CmodIncludeDir=$(EMC2_CMOD_INCLUDE_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).EMC2GomcDir=$(EMC2_GOMC_DIR)' \
+    -X '$(GOMC_LDFLAGS_PKG).EMC2StateDir=$(EMC2_STATE_DIR)' \
+    -X '$(GOMC_LDFLAGS_PKG).EMC2LibexecDir=$(EMC2_LIBEXEC_DIR)' \
     -X '$(GOMC_LDFLAGS_PKG).GoBinary=$(GO)' \
     -X '$(GOMC_LDFLAGS_PKG).CCompiler=$(CC)' \
     -X '$(GOMC_LDFLAGS_PKG).CxxCompiler=$(CXX)' \
@@ -375,11 +377,46 @@ gomc-clean:
 # generated GMI headers were never packaged. The binaries got in regardless,
 # via install-kernel-indep's generic $(TARGETS) sweep, which is why nothing
 # looked wrong until `modcompile add-gomod` had no tree to work on.
-install-software: gomc-install
+install-software: gomc-install gomc-install-state
+
+# The mutable state tree, and the one symlink that makes $(bindir)/gomc-server
+# resolve to something.
+#
+# Separate from gomc-install and never packaged: if the package owned
+# $(EMC2_STATE_DIR)/bin/gomc-server, every upgrade would unpack the shipped
+# symlink over a locally rebuilt binary and discard it without a word --
+# exactly the failure the whole layout exists to prevent (see
+# EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1). The deb's postinst creates
+# these instead, and debian/rules deletes whatever this target left in the
+# staging tree. This target is what a plain `make install` needs, where there
+# is no postinst to do it.
+#
+# The symlink is created only when absent, for the same reason: on a system
+# that has already rebuilt, the entry is a real binary and must stay one.
+.PHONY: gomc-install-state
+gomc-install-state:
+	$(DIR) $(DESTDIR)$(EMC2_STATE_DIR)/bin \
+		$(DESTDIR)$(EMC2_STATE_DIR)/cmod \
+		$(DESTDIR)$(EMC2_STATE_DIR)/modules \
+		$(DESTDIR)$(EMC2_STATE_DIR)/gomc
+	$(Q)if [ ! -e $(DESTDIR)$(EMC2_STATE_DIR)/bin/gomc-server ]; then \
+		ln -s $(EMC2_LIBEXEC_DIR)/gomc-server \
+			$(DESTDIR)$(EMC2_STATE_DIR)/bin/gomc-server; \
+	fi
+
 .PHONY: gomc-install
 gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/halcmd ../bin/ethercat $(GOMC_PKG_FILES)
 	$(DIR) $(DESTDIR)$(EMC2_BIN_DIR)
-	$(INSTALL) -m 0755 ../bin/gomc-server $(DESTDIR)$(EMC2_BIN_DIR)/gomc-server
+	# The server is installed pristine, under a directory nothing else writes,
+	# and $(bindir) only points at it. A local rebuild replaces the middle link
+	# of that chain -- $(EMC2_STATE_DIR)/bin/gomc-server, which the package
+	# deliberately does not own and postinst creates -- so an upgrade never
+	# unpacks over a locally built binary, and never has to recover from having
+	# done so. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	$(DIR) $(DESTDIR)$(EMC2_LIBEXEC_DIR)
+	$(INSTALL) -m 0755 ../bin/gomc-server $(DESTDIR)$(EMC2_LIBEXEC_DIR)/gomc-server
+	$(Q)rm -f $(DESTDIR)$(EMC2_BIN_DIR)/gomc-server
+	$(Q)ln -s $(EMC2_STATE_DIR)/bin/gomc-server $(DESTDIR)$(EMC2_BIN_DIR)/gomc-server
 	$(INSTALL) -m 0755 ../bin/ads-xml-gen $(DESTDIR)$(EMC2_BIN_DIR)/ads-xml-gen
 	$(INSTALL) -m 0755 ../bin/modcompile $(DESTDIR)$(EMC2_BIN_DIR)/modcompile
 	$(INSTALL) -m 0755 ../bin/halcmd $(DESTDIR)$(EMC2_BIN_DIR)/halcmd
@@ -387,11 +424,20 @@ gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/hal
 	# Install full gomc source tree for modcompile rebuild/add-gomod support.
 	# This allows `sudo modcompile add-gomod` to rebuild gomc-server on
 	# installed systems (requires Go toolchain).
+	#
+	# The .c/.h/.cc/.hh files are as necessary as the .go ones and used not to
+	# be here: several packages are cgo (classicladder's RT engine, halscope,
+	# halcmd, hallib, ngcpreview, the interp shim) and carry their C sources
+	# next to the Go. Without them the installed tree looks complete, `go
+	# build` gets as far as cgo, and the rebuild dies on a missing local
+	# header -- so a rebuild on a packaged system could never have worked.
 	$(DIR) $(DESTDIR)$(datadir)/linuxcnc/gomc
 	$(Q)cd gomc && find . \
 		-name '*_test.go' -prune -o \
 		-path './internal/gmi/kinstest' -prune -o \
-		-type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.mod.in' -o -name 'go.sum' -o -name 'packages.conf' \) \
+		-type f \( -name '*.go' -o -name '*.c' -o -name '*.h' \
+			-o -name '*.cc' -o -name '*.hh' \
+			-o -name 'go.mod' -o -name 'go.mod.in' -o -name 'go.sum' -o -name 'packages.conf' \) \
 		-print | while read f; do \
 			dest=$(DESTDIR)$(datadir)/linuxcnc/gomc/$$f; \
 			mkdir -p $$(dirname $$dest); \
@@ -415,4 +461,10 @@ gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/hal
 			mkdir -p $$(dirname $$dest); \
 			$(INSTALL) -m 0644 $$f $$dest; \
 		done
+	# Stamp the installed sources with the release they came from. A locally
+	# rebuilt server carries the same string baked in by ldflags, so comparing
+	# the two at startup is all it takes to notice a server still built from a
+	# previous release's gomc -- see launcher.WarnIfStale.
+	$(Q)echo '$(EMC2VERSION)' > $(DESTDIR)$(datadir)/linuxcnc/gomc/VERSION
+	$(Q)chmod 0644 $(DESTDIR)$(datadir)/linuxcnc/gomc/VERSION
 

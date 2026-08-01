@@ -14,7 +14,11 @@ package ngcpreview
 // cgo symbols are global to the final binary.
 
 /*
-#include "interp_shim.h"
+// Qualified, because two different headers are called interp_shim.h: this one
+// and internal/task's. Spelling out which resolves against -I<src> in a build
+// tree and against the installed header root in a packaged one, and stops a
+// flat include directory from deciding for us.
+#include "emc/rs274ngc/interp_shim.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>

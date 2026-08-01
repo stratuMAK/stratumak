@@ -5,7 +5,10 @@
 // in the legacy linuxcnc.in bash script.
 package config
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // Compile-time path variables. These are set via -ldflags when building:
 //
@@ -103,6 +106,23 @@ var (
 	// "ADSSERVER,CLASSICLADDER,HALSCOPE").  Used by modcompile to filter
 	// conditional entries in packages.conf.
 	BuildFlags string
+
+	// EMC2StateDir is the root of everything an administrator can change
+	// after installation ($(localstatedir)/lib/stratumak). It holds the
+	// registered external module sources, the build tree derived from them,
+	// a locally rebuilt server and locally built cmods.
+	//
+	// It exists because none of that may live under a directory the package
+	// manager owns: an upgrade would silently discard it. Empty for a
+	// run-in-place tree, which has no packaged/mutable split — see StateDir().
+	EMC2StateDir string
+
+	// EMC2LibexecDir is where the pristine, package-owned gomc-server lives
+	// ($(libexecdir)/stratumak). $(bindir)/gomc-server is a symlink chain onto
+	// it; a local rebuild replaces a link in that chain and never this file,
+	// so an upgrade of the package is live the moment dpkg unpacks it.
+	// Empty for a run-in-place tree.
+	EMC2LibexecDir string
 )
 
 // GomcDirEnv is the environment variable that overrides the baked-in
@@ -122,4 +142,77 @@ func GomcDir() string {
 		return d
 	}
 	return EMC2GomcDir
+}
+
+// StateDir returns the root of the mutable post-install state, or "" for a
+// layout that has none — a run-in-place tree, where the whole tree already
+// belongs to the developer.
+//
+// "" is the discriminator, not a fallback: callers branch on it rather than
+// substituting some other directory, because there is no other directory that
+// would be correct. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+func StateDir() string { return EMC2StateDir }
+
+// ModuleRegistryDir returns the directory holding one root-owned copy of each
+// registered external module's source, keyed by module name.
+//
+// This, not the build tree, is the source of truth: the build tree is
+// regenerated from the pristine gomc sources plus these copies, so "is the
+// build tree trustworthy" reduces to "did every entry here arrive through a
+// privileged, attributable step". Empty when StateDir is.
+func ModuleRegistryDir() string {
+	if EMC2StateDir == "" {
+		return ""
+	}
+	return filepath.Join(EMC2StateDir, "modules")
+}
+
+// LocalBinDir returns the directory holding a locally rebuilt gomc-server.
+// $(bindir)/gomc-server points here; the entry is a symlink onto the pristine
+// binary until a local rebuild replaces it with a real file. Empty when
+// StateDir is.
+func LocalBinDir() string {
+	if EMC2StateDir == "" {
+		return ""
+	}
+	return filepath.Join(EMC2StateDir, "bin")
+}
+
+// LocalCModDir returns the directory holding locally built cmods, searched by
+// the launcher in addition to EMC2CmodDir. Empty when StateDir is, in which
+// case EMC2CmodDir is the only cmod directory.
+func LocalCModDir() string {
+	if EMC2StateDir == "" {
+		return ""
+	}
+	return filepath.Join(EMC2StateDir, "cmod")
+}
+
+// PristineServerPath returns the package-owned gomc-server, or "" for a layout
+// that has no pristine copy distinct from the installed one.
+func PristineServerPath() string {
+	if EMC2LibexecDir == "" {
+		return ""
+	}
+	return filepath.Join(EMC2LibexecDir, "gomc-server")
+}
+
+// DerivedBuild reports whether a rebuild of gomc-server must go through the
+// derived build tree under StateDir rather than compiling the gomc sources
+// where they sit.
+//
+// $GOMC_DIR wins: it names a tree the caller has chosen outright — the build
+// itself does this, and so does a run-in-place tree — and in that tree the
+// sources are both authoritative and writable, so there is nothing to derive.
+func DerivedBuild() bool {
+	return EMC2StateDir != "" && os.Getenv(GomcDirEnv) == ""
+}
+
+// BuildTreeDir returns the directory a rebuild of gomc-server compiles from:
+// the derived tree under StateDir when DerivedBuild, otherwise GomcDir itself.
+func BuildTreeDir() string {
+	if DerivedBuild() {
+		return filepath.Join(EMC2StateDir, "gomc")
+	}
+	return GomcDir()
 }

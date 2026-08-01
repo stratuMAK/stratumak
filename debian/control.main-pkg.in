@@ -47,7 +47,13 @@ Depends:
     tclx,
     @QTVCP_DEPENDS@,
     procps, psmisc,
-    udev
+    udev,
+# postinst creates the stratumak-build system account with adduser, and
+# applies the server's realtime file capabilities with setcap. Neither is
+# essential, and without either the package configures into a machine that
+# cannot start realtime or rebuild a module.
+    adduser,
+    libcap2-bin
 Recommends:
     linuxcnc-doc-en | linuxcnc-doc,
     librsvg2-dev,

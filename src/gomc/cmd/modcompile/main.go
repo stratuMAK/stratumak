@@ -37,6 +37,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,7 +174,9 @@ func main() {
 		fmt.Println(defaultLDFlags)
 		return
 	case "--cmod-dir":
-		fmt.Println(config.EMC2CmodDir)
+		// The directory an out-of-tree project should install into, which on
+		// a packaged system is not the one the package's own modules live in.
+		fmt.Println(cmodInstallDir())
 		return
 	case "--include-dir":
 		fmt.Println(config.EMC2CmodIncludeDir)
@@ -244,6 +247,14 @@ func main() {
 	case "gmi":
 		cmdGMI(os.Args[2:])
 		return
+
+	// Internal: the unprivileged half of a rebuild, reached by re-exec from
+	// the privileged half. Not in the usage text — it compiles a tree the
+	// caller names into a path the caller names, with the caller's own
+	// privileges, so running it by hand gains nobody anything.
+	case buildPhaseArg:
+		cmdBuildPhase(os.Args[2:])
+		return
 	}
 
 	// Parse arguments for file-processing modes
@@ -307,6 +318,20 @@ func main() {
 	}
 }
 
+// cmodInstallDir returns the directory `--install` writes a compiled cmod to.
+//
+// On a packaged system that is the state directory's cmod directory, not the
+// package's own: a local .so dropped among the shipped ones survives upgrades
+// (dpkg removes only what it shipped) and can quietly shadow or collide with a
+// module of the same name. Keeping the two apart is what lets the launcher say
+// so — see resolveCModule.
+func cmodInstallDir() string {
+	if d := config.LocalCModDir(); d != "" {
+		return d
+	}
+	return config.EMC2CmodDir
+}
+
 func processFile(path, mode, outputFile string) error {
 	// Handle raw .c files — only --compile and --install are supported.
 	if strings.HasSuffix(path, ".c") {
@@ -314,7 +339,8 @@ func processFile(path, mode, outputFile string) error {
 		case "--compile":
 			return compileCFile(path, ".")
 		case "--install":
-			return compileCFile(path, config.EMC2CmodDir)
+			requireCModInstallPrivilege()
+			return compileCFile(path, cmodInstallDir())
 		default:
 			return fmt.Errorf("%s: .c files only support --compile and --install", path)
 		}
@@ -412,7 +438,8 @@ func processFile(path, mode, outputFile string) error {
 		return compileComp(path, pkg, ".")
 
 	case "--install":
-		return compileComp(path, pkg, config.EMC2CmodDir)
+		requireCModInstallPrivilege()
+		return compileComp(path, pkg, cmodInstallDir())
 
 	default:
 		return fmt.Errorf("unknown mode %q", mode)
@@ -519,8 +546,8 @@ func compileCFile(cPath string, outDir string) error {
 	return compileToSO(absCPath, outDir, "", []string{"-I" + filepath.Dir(absCPath)})
 }
 
-// cgoFlags returns the CGO_CFLAGS and CGO_LDFLAGS a build of the gomc Go
-// packages needs, for whichever layout this modcompile was built for.
+// cgoFlags returns the include and link flags a build of the gomc Go packages
+// needs, for whichever layout this modcompile was built for.
 //
 // The gomc packages declare their C includes relative to ${SRCDIR}, which only
 // resolves inside the source tree; from the installed tree at
@@ -529,8 +556,14 @@ func compileCFile(cPath string, outDir string) error {
 // outside the source tree -- a rebuild of gomc-server, or a third-party Go
 // module importing pkg/hal -- has to be handed the real include directory.
 //
-// One function so the two callers cannot drift: rebuildServer puts these in the
-// child environment, printMakeInc hands them to external Makefiles.
+// The include half belongs in CGO_CPPFLAGS, not CGO_CFLAGS: several gomc
+// packages carry C++ translation units (the interpreter shim above all), and
+// CGO_CFLAGS never reaches the C++ compiler. Passing it only as CGO_CFLAGS
+// left interp_shim.cc unable to find config.h while the C sources beside it
+// compiled perfectly.
+//
+// One function so the callers cannot drift: the rebuild puts these in the
+// build environment, printMakeInc hands them to external Makefiles.
 func cgoFlags() (cflags, ldflags string) {
 	libDir := filepath.Join(config.EMC2Home, "lib")
 	if config.RunInPlace == "yes" {
@@ -538,7 +571,15 @@ func cgoFlags() (cflags, ldflags string) {
 		cflags = fmt.Sprintf("-I%s -I%s/hal -I%s/rtapi -I%s/../include",
 			srcDir, srcDir, srcDir, srcDir)
 	} else {
-		cflags = "-I" + filepath.Join(config.EMC2Home, "include", "linuxcnc")
+		// Two roots. The first is where the C headers are installed. The
+		// second is the directory the gomc tree sits in, because a few
+		// headers spell their includes from the source root inwards --
+		// emc/rs274ngc/canon_interface.hh asks for
+		// "gomc/generated/gmi/canon/canon_api.h" -- and that resolves only
+		// against a directory that has a "gomc" in it. The run-in-place
+		// branch above gets the same thing from -I<src>.
+		cflags = "-I" + filepath.Join(config.EMC2Home, "include", "linuxcnc") +
+			" -I" + filepath.Dir(config.EMC2GomcDir)
 	}
 	return cflags, fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)
 }
@@ -553,15 +594,18 @@ func printMakeInc() {
 
 	// Each line wrapped in $(eval ...) because $(shell) converts newlines to spaces.
 	// The outer $(eval $(shell ...)) then evaluates each inner $(eval) properly.
-	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s) $(eval GOMC_CGO_CFLAGS := %s) $(eval GOMC_CGO_LDFLAGS := %s)`,
+	fmt.Printf(`$(eval GOMC_CC := %s) $(eval GOMC_CFLAGS := -I%s %s) $(eval GOMC_LDFLAGS := %s) $(eval GOMC_CMOD_DIR := %s) $(eval GOMC_INCLUDE_DIR := %s) $(eval GOMC_DIR := %s) $(eval GOMC_GO := %s) $(eval GOMC_LIB_DIR := %s) $(eval GOMC_CGO_CFLAGS := %s) $(eval GOMC_CGO_CPPFLAGS := %s) $(eval GOMC_CGO_LDFLAGS := %s)`,
 		cc,
 		config.EMC2CmodIncludeDir, defaultCFlags,
 		defaultLDFlags,
-		config.EMC2CmodDir,
+		cmodInstallDir(),
 		config.EMC2CmodIncludeDir,
 		config.GomcDir(),
 		config.GoBinary,
 		libDir,
+		cgoC,
+		// Same value under the name that also reaches a C++ translation unit.
+		// A project importing pkg/hal needs it as soon as it has one.
 		cgoC,
 		cgoLD,
 	)
@@ -569,7 +613,7 @@ func printMakeInc() {
 
 // regenerate writes imports_generated.go from the registry.
 func regenerate(reg *pkgreg.Registry) {
-	serverDir := config.GomcDir()
+	serverDir := config.BuildTreeDir()
 
 	if err := reg.GenerateImports(serverDir); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: generating imports: %v\n", err)
@@ -577,16 +621,19 @@ func regenerate(reg *pkgreg.Registry) {
 	}
 }
 
-// buildServer builds the gomc-server binary.
-func buildServer() {
-	serverDir := config.GomcDir()
-	binDir := config.EMC2BinDir
+// buildServerInPlace compiles the gomc-server binary from serverDir to
+// outPath, with whatever privileges the caller has.
+//
+// On a packaged system the caller is the unprivileged build phase and both
+// paths belong to the build identity; in a run-in-place or build tree it is
+// the developer, compiling their own sources. Nothing here is privileged, and
+// nothing here may become privileged: this is the phase that runs cgo and the
+// C compiler over module-supplied source.
+func buildServerInPlace(serverDir, outPath string) {
 	gobin := config.GoBinary
 	if gobin == "" {
 		gobin = "go"
 	}
-
-	outPath := filepath.Join(binDir, "gomc-server")
 
 	// Build ldflags to inject compile-time config into the new binary.
 	// modcompile already has these values baked in, so we propagate them.
@@ -600,6 +647,8 @@ func buildServer() {
 			"-X '%s.EMC2CmodDir=%s' "+
 			"-X '%s.EMC2CmodIncludeDir=%s' "+
 			"-X '%s.EMC2GomcDir=%s' "+
+			"-X '%s.EMC2StateDir=%s' "+
+			"-X '%s.EMC2LibexecDir=%s' "+
 			"-X '%s.CCompiler=%s' "+
 			"-X '%s.CxxCompiler=%s' "+
 			"-X '%s.GoBinary=%s' "+
@@ -622,6 +671,8 @@ func buildServer() {
 		pkg, config.EMC2CmodDir,
 		pkg, config.EMC2CmodIncludeDir,
 		pkg, config.EMC2GomcDir,
+		pkg, config.EMC2StateDir,
+		pkg, config.EMC2LibexecDir,
 		pkg, config.CCompiler,
 		pkg, config.CxxCompiler,
 		pkg, config.GoBinary,
@@ -638,16 +689,31 @@ func buildServer() {
 		pkg, config.KernelVers,
 	)
 
-	cmd := exec.Command(gobin, "build", "-ldflags", ldflags, "-o", outPath, "./cmd/gomc-server")
+	// -mod=mod: the build tree is a copy, and the copy is allowed to update
+	// its own go.mod/go.sum. The shared tree it was copied from stays
+	// root-owned and untouched.
+	cmd := exec.Command(gobin, "build", "-mod=mod", "-ldflags", ldflags, "-o", outPath, "./cmd/gomc-server")
 	cmd.Dir = serverDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	// CGO needs to find headers and libraries; see cgoFlags.
 	cgoC, cgoLD := cgoFlags()
+	// The tree being compiled comes first, ahead of any installed copy: its
+	// parent is what makes a "gomc/generated/..." include resolve, and it must
+	// resolve to the sources this build is actually made of. Deriving it from
+	// serverDir rather than naming a directory keeps that true wherever the
+	// build tree happens to be — a source tree, or the build identity's
+	// private copy of one.
+	cgoC = "-I" + filepath.Dir(serverDir) + " " + cgoC
 	// cgo takes the compiler from the environment (default gcc); pass the
 	// configured toolchain through so the rebuild matches the original build.
+	// Appending to os.Environ() is right in both callers: in the unprivileged
+	// build phase that environment is the deliberately minimal one runBuildPhase
+	// handed this process, not whatever the administrator's shell carried.
 	cmd.Env = append(os.Environ(),
+		// CPPFLAGS reaches the C++ translation units too; see cgoFlags.
+		"CGO_CPPFLAGS="+cgoC,
 		"CGO_CFLAGS="+cgoC,
 		"CGO_LDFLAGS="+cgoLD,
 		"CC="+resolveCC(),
@@ -656,7 +722,11 @@ func buildServer() {
 
 	fmt.Fprintf(os.Stderr, "Building gomc-server...\n")
 
-	// Save file capabilities before rebuild (setcap is lost when binary is replaced).
+	// Save file capabilities before rebuild (setcap is lost when binary is
+	// replaced).  Only meaningful when this call is the one that installs the
+	// binary — on a packaged system installServer does the save/restore around
+	// its own replacement, and outPath here is a staging path with no
+	// capabilities to lose.
 	oldCaps := getFileCaps(outPath)
 
 	if err := cmd.Run(); err != nil {
@@ -667,11 +737,14 @@ func buildServer() {
 
 	// Reapply file capabilities if they were set before.
 	if oldCaps != "" {
-		restoreFileCaps(outPath, oldCaps)
+		applyFileCaps(outPath, oldCaps)
 	}
 }
 
 // getFileCaps returns the capability string for a file, or "" if none set.
+// getcap follows symlinks, so on a packaged system this reports the
+// capabilities of whichever real binary $(bindir)/gomc-server resolves to —
+// the package-owned one until a local rebuild replaces a link in the chain.
 func getFileCaps(path string) string {
 	out, err := exec.Command("getcap", path).Output()
 	if err != nil || len(out) == 0 {
@@ -688,10 +761,30 @@ func getFileCaps(path string) string {
 	return ""
 }
 
-// restoreFileCaps reapplies file capabilities using sudo setcap.
-func restoreFileCaps(path, caps string) {
+// applyFileCaps sets file capabilities on a binary, escalating through sudo
+// only when this process is not already root.
+//
+// Setting them needs CAP_SETFCAP, which is an independent reason the install
+// phase stays privileged even though the build phase does not.
+//
+// The sudo branch is reachable from exactly one place, and it is worth being
+// precise about which, because "modcompile shells out to sudo" reads alarming
+// next to a privilege split: a run-in-place tree, where the developer rebuilds
+// their own ../bin/gomc-server and `make setuid` had granted it capabilities
+// that replacing the file drops. Nothing on the packaged path can reach it.
+// installServer is already root and calls setcap directly, and the
+// unprivileged build phase writes a staging file that never had capabilities
+// to begin with — setting them needs CAP_SETFCAP — so getFileCaps returns ""
+// there and this is not called at all.
+func applyFileCaps(path, caps string) {
 	fmt.Fprintf(os.Stderr, "Reapplying file capabilities (%s)...\n", caps)
-	cmd := exec.Command("sudo", "setcap", caps, path)
+
+	var cmd *exec.Cmd
+	if os.Geteuid() == 0 {
+		cmd = exec.Command("setcap", caps, path)
+	} else {
+		cmd = exec.Command("sudo", "setcap", caps, path)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -702,6 +795,12 @@ func restoreFileCaps(path, caps string) {
 }
 
 // cmdList lists all packages that would be compiled into gomc-server.
+//
+// The internal and GMI packages come from the pristine sources, which is what
+// a rebuild would start from; the external ones come from the registry, which
+// is what a rebuild would add. Reading the derived build tree instead would
+// report the last build rather than the next one, and would report nothing at
+// all on a system that has never rebuilt.
 func cmdList() {
 	gomcDir := config.GomcDir()
 	confIn := filepath.Join(gomcDir, "packages.conf")
@@ -715,8 +814,19 @@ func cmdList() {
 	for _, e := range pkgreg.DiscoverGMI(gomcDir) {
 		reg.Add(e)
 	}
-	for _, e := range pkgreg.DiscoverExternal(gomcDir) {
-		reg.Add(e)
+	if config.DerivedBuild() {
+		mods, err := registeredModules()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "modcompile list: %v\n", err)
+			os.Exit(1)
+		}
+		for _, name := range mods {
+			reg.Add(pkgreg.Entry{Type: pkgreg.TypeGomod, ImportPath: "external/" + name})
+		}
+	} else {
+		for _, e := range pkgreg.DiscoverExternal(gomcDir) {
+			reg.Add(e)
+		}
 	}
 	for _, e := range reg.Entries {
 		fmt.Printf("%-8s %s\n", e.Type, e.ImportPath)
@@ -724,11 +834,18 @@ func cmdList() {
 }
 
 // cmdRebuild regenerates all derived files and rebuilds the server.
+//
+// rebuildServer is the whole command on a packaged system: it owns the
+// privilege split, and regeneration happens inside its root phase, against the
+// derived tree, after that tree has been refreshed from the pristine sources.
+// Doing it here as well would regenerate a tree that is about to be
+// overwritten.
 func cmdRebuild() {
-	cmdRegenerateGomod()
-	cmdRegenerateImports()
-	goModTidy()
-	buildServer()
+	if !config.DerivedBuild() {
+		cmdRegenerateGomod()
+		cmdRegenerateImports()
+	}
+	rebuildServer()
 }
 
 // cmdRegenerateImports builds a complete Registry by:
@@ -737,8 +854,12 @@ func cmdRebuild() {
 //  3. Auto-discovering external Go modules in external/
 //
 // Then generates imports_generated.go.  No intermediate packages.conf needed.
+//
+// Operates on the build tree, which is the gomc source tree itself in an
+// in-place layout and the derived tree under the state directory on a packaged
+// system.  Either way it is the tree the compiler is about to read.
 func cmdRegenerateImports() {
-	gomcDir := config.GomcDir()
+	gomcDir := config.BuildTreeDir()
 	confIn := filepath.Join(gomcDir, "packages.conf")
 
 	// Parse build flags from compiled-in config.
@@ -768,7 +889,7 @@ func cmdRegenerateImports() {
 // cmdRegenerateGomod merges go.mod.in with go.deps files from external modules
 // to produce go.mod.  Only writes if content changed.
 func cmdRegenerateGomod() {
-	gomcDir := config.GomcDir()
+	gomcDir := config.BuildTreeDir()
 	goModIn := filepath.Join(gomcDir, "go.mod.in")
 
 	base, err := os.ReadFile(goModIn)
@@ -834,8 +955,31 @@ func cmdRegenerateGomod() {
 	}
 }
 
-// cmdAddGomod copies an external Go package into external/<name>/ and rebuilds.
+// moduleStoreDir returns the directory that records one copy of each
+// registered external module's source.
+//
+// On a packaged system that is the registry under the state directory, which
+// is the source of truth a build tree is derived from. In an in-place layout
+// there is nothing to derive, and the store is the external/ directory inside
+// the tree itself, exactly as it has always been.
+func moduleStoreDir() string {
+	if config.DerivedBuild() {
+		return config.ModuleRegistryDir()
+	}
+	return filepath.Join(config.GomcDir(), "external")
+}
+
+// cmdAddGomod records an external Go package in the module store and rebuilds.
+//
+// Recording it is the trust decision: `sudo modcompile add-gomod ~/foo` says
+// "I vouch for ~/foo", deliberately, naming its input, attributable to whoever
+// ran it. Everything downstream — a build tree derived from the store, a
+// compile that is not privileged — follows from that one step.
 func cmdAddGomod(dir string, force bool) {
+	if config.DerivedBuild() {
+		requirePrivilege("add-gomod")
+	}
+
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile add-gomod: resolving path: %v\n", err)
@@ -851,7 +995,7 @@ func cmdAddGomod(dir string, force bool) {
 
 	// Package name = directory basename.
 	name := filepath.Base(absDir)
-	extDir := filepath.Join(config.GomcDir(), "external", name)
+	extDir := filepath.Join(moduleStoreDir(), name)
 	originFile := filepath.Join(extDir, ".origin")
 
 	// Remove stale external modules whose origin no longer exists.
@@ -906,20 +1050,27 @@ func cmdAddGomod(dir string, force bool) {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "Installed %s → external/%s\n", absDir, name)
+	// The recorded copy must be readable by the identity that will compile it.
+	// A module sitting at 0600 in someone's home copies across root-owned and
+	// unreadable otherwise, and the build fails on a file the administrator
+	// can see perfectly well.
+	if config.DerivedBuild() {
+		if err := normalizeModes(extDir); err != nil {
+			fmt.Fprintf(os.Stderr, "modcompile add-gomod: setting permissions on the recorded copy: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
-	// Regenerate everything and rebuild.
-	cmdRegenerateGomod()
-	cmdRegenerateImports()
-	goModTidy()
-	buildServer()
+	fmt.Fprintf(os.Stderr, "Recorded %s → %s\n", absDir, extDir)
+
+	cmdRebuild()
 }
 
 // removeStaleExternals removes external module directories whose .origin path
 // no longer exists on disk. This prevents "duplicate module registration" panics
 // when a source directory is moved/renamed and reinstalled under a new basename.
 func removeStaleExternals(skipName string) {
-	extBase := filepath.Join(config.GomcDir(), "external")
+	extBase := moduleStoreDir()
 	subs, err := os.ReadDir(extBase)
 	if err != nil {
 		return
@@ -942,7 +1093,7 @@ func removeStaleExternals(skipName string) {
 		}
 		// Origin no longer exists — remove stale entry.
 		staleDir := filepath.Join(extBase, sub.Name())
-		fmt.Fprintf(os.Stderr, "Removing stale external/%s (origin %s no longer exists)\n", sub.Name(), origin)
+		fmt.Fprintf(os.Stderr, "Removing stale module %s (origin %s no longer exists)\n", sub.Name(), origin)
 		_ = os.RemoveAll(staleDir)
 	}
 }
@@ -1015,21 +1166,32 @@ func writeGoDeps(extGoModPath, extDir string) {
 	}
 }
 
-// cmdRmGomod removes an external Go package and rebuilds.
+// cmdRmGomod removes an external Go package from the module store and
+// rebuilds. The build tree's copy goes with the next rebuild, which derives
+// that tree afresh from what the store still holds.
 func cmdRmGomod(name string) {
-	gomcDir := config.GomcDir()
-	extDir := filepath.Join(gomcDir, "external")
+	if config.DerivedBuild() {
+		requirePrivilege("rm-gomod")
+	}
 
-	// Find by exact directory name or path.
-	var targetDir string
-	if strings.HasPrefix(name, "external/") {
-		targetDir = filepath.Join(gomcDir, name)
-	} else {
-		targetDir = filepath.Join(extDir, name)
+	extDir := moduleStoreDir()
+
+	// Accept the "external/<name>" form the listing prints as well as the
+	// bare name; anything else is a plain name under the store.
+	targetDir := filepath.Join(extDir, strings.TrimPrefix(name, "external/"))
+
+	// A module name identifies one directory directly inside the store. The
+	// command runs as root and ends in RemoveAll, so a name that resolves
+	// anywhere else — "../.." and friends — is refused rather than cleaned
+	// into something plausible.
+	if filepath.Dir(targetDir) != filepath.Clean(extDir) {
+		fmt.Fprintf(os.Stderr, "modcompile rm-gomod: %q is not a module name: it resolves to %s, outside %s\n",
+			name, targetDir, extDir)
+		os.Exit(1)
 	}
 
 	if _, err := os.Stat(targetDir); err != nil {
-		fmt.Fprintf(os.Stderr, "modcompile rm-gomod: external/%s not found\n", name)
+		fmt.Fprintf(os.Stderr, "modcompile rm-gomod: %s is not registered (looked in %s)\n", name, extDir)
 		os.Exit(1)
 	}
 
@@ -1039,11 +1201,7 @@ func cmdRmGomod(name string) {
 	}
 	fmt.Fprintf(os.Stderr, "Deleted %s\n", targetDir)
 
-	// Regenerate everything and rebuild.
-	cmdRegenerateGomod()
-	cmdRegenerateImports()
-	goModTidy()
-	buildServer()
+	cmdRebuild()
 }
 
 // cmdAddGmi adds a GMI package to the registry idempotently.
@@ -1060,15 +1218,23 @@ func cmdAddGmi(importPath string) {
 func cmdRmGmi(importPath string) {
 }
 
-// goModTidy runs "go mod tidy" in the gomc module directory to clean up
-// unused dependencies (e.g. after removing an external module).
-func goModTidy() {
+// goModTidy runs "go mod tidy" in the build tree to clean up unused
+// dependencies (e.g. after removing an external module).
+func goModTidy() { goModTidyIn(config.BuildTreeDir()) }
+
+// goModTidyIn is goModTidy against a named directory.
+//
+// Dependency resolution belongs to the unprivileged phase: it reaches the
+// network, populates a module cache and rewrites go.mod and go.sum, none of
+// which root should be doing on a shared tree. On a packaged system the
+// directory named here is therefore the build identity's own scratch copy.
+func goModTidyIn(dir string) {
 	gobin := config.GoBinary
 	if gobin == "" {
 		gobin = "go"
 	}
 	cmd := exec.Command(gobin, "mod", "tidy")
-	cmd.Dir = config.GomcDir()
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -1112,10 +1278,22 @@ func dirMirror(srcDir, dstDir string, exclude map[string]bool) error {
 			return os.MkdirAll(dst, info.Mode()|0700)
 		}
 
-		// Copy file if it doesn't exist or differs in size/modtime.
-		dstInfo, dstErr := os.Lstat(dst)
-		if dstErr == nil && dstInfo.Size() == info.Size() && !dstInfo.ModTime().Before(info.ModTime()) {
-			return nil // up to date
+		// Copy the file unless the destination already holds exactly it.
+		//
+		// Content, not size-and-modtime. What this mirror produces is
+		// compiled, so a file wrongly judged up to date is not a stale
+		// timestamp — it is the previous release's source built into the
+		// running server, with nothing to show for it. Size alone misses a
+		// same-length edit; adding modtime misses one made within a
+		// filesystem tick, and an upgrade can deliver both. Reading a few
+		// megabytes of Go source is not measurable next to the build it
+		// precedes.
+		same, err := sameContent(path, dst, info.Size())
+		if err != nil {
+			return err
+		}
+		if same {
+			return nil
 		}
 
 		return copyFile(path, dst, info.Mode())
@@ -1142,6 +1320,49 @@ func dirMirror(srcDir, dstDir string, exclude map[string]bool) error {
 		}
 		return nil
 	})
+}
+
+// sameContent reports whether dst is a regular file holding exactly the srcSize
+// bytes of src. A missing or differently sized destination answers false
+// without reading anything.
+func sameContent(src, dst string, srcSize int64) (bool, error) {
+	dstInfo, err := os.Lstat(dst)
+	if err != nil || !dstInfo.Mode().IsRegular() || dstInfo.Size() != srcSize {
+		return false, nil
+	}
+
+	a, err := os.Open(src)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = a.Close() }()
+
+	b, err := os.Open(dst)
+	if err != nil {
+		return false, nil // unreadable destination: copy over it
+	}
+	defer func() { _ = b.Close() }()
+
+	const chunk = 64 * 1024
+	bufA := make([]byte, chunk)
+	bufB := make([]byte, chunk)
+	for {
+		nA, errA := io.ReadFull(a, bufA)
+		nB, errB := io.ReadFull(b, bufB)
+		if nA != nB || !bytes.Equal(bufA[:nA], bufB[:nB]) {
+			return false, nil
+		}
+		if errA == io.EOF || errA == io.ErrUnexpectedEOF {
+			// Sizes matched going in, so both streams end together.
+			return true, nil
+		}
+		if errA != nil {
+			return false, errA
+		}
+		if errB != nil {
+			return false, errB
+		}
+	}
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

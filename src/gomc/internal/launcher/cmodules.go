@@ -337,21 +337,106 @@ type cModule struct {
 	started bool // true after Start() has been called
 }
 
-// resolveCModulePath resolves a C module name or path to an absolute .so path.
-// If the name contains a '/' it is treated as a path and used as-is.
-// Otherwise, the bare module name is resolved to $EMC2_CMOD_DIR/<name>.so.
-func resolveCModulePath(name string) string {
-	if strings.Contains(name, "/") {
-		return name
+// cModuleSearchPath returns the directories a bare C module name is looked up
+// in: the locally built modules first, then the ones the package ships.
+//
+// The order is presentational only — a name found in both is refused, not
+// resolved (see resolveCModule) — but it is the order the diagnostics list.
+func cModuleSearchPath() []string {
+	var dirs []string
+	if d := config.LocalCModDir(); d != "" {
+		dirs = append(dirs, d)
 	}
-	name = strings.TrimSuffix(name, ".so")
-	return filepath.Join(config.EMC2CmodDir, name+".so")
+	if config.EMC2CmodDir != "" {
+		dirs = append(dirs, config.EMC2CmodDir)
+	}
+	return dirs
+}
+
+// resolveCModule resolves a C module name or path to an absolute .so path.
+// If the name contains a '/' it is treated as a path and used as-is.
+// Otherwise the bare module name is looked up along cModuleSearchPath.
+//
+// found is false when no such .so exists anywhere on the search path, which is
+// not an error: the caller then tries the name as a Go module.
+//
+// A name that exists in more than one directory IS an error. The alternative —
+// letting the first directory win — means a locally built module silently
+// shadows a shipped one of the same name, and a stale local .so masking a
+// packaged fix is miserable to diagnose from the symptoms. Deliberate
+// overriding is still available, by naming the path outright.
+func resolveCModule(name string) (path string, found bool, err error) {
+	if strings.Contains(name, "/") {
+		return name, cModuleExists(name), nil
+	}
+	base := strings.TrimSuffix(name, ".so") + ".so"
+
+	var hits []string
+	for _, dir := range cModuleSearchPath() {
+		p := filepath.Join(dir, base)
+		if cModuleExists(p) {
+			hits = append(hits, p)
+		}
+	}
+
+	switch len(hits) {
+	case 0:
+		// The path is meaningless when found is false, but naming the first
+		// search directory keeps "not found" messages concrete.
+		if dirs := cModuleSearchPath(); len(dirs) > 0 {
+			return filepath.Join(dirs[0], base), false, nil
+		}
+		return base, false, nil
+	case 1:
+		return hits[0], true, nil
+	default:
+		return "", false, fmt.Errorf(
+			"C module %q is provided by more than one directory: %s. "+
+				"Remove the one you did not mean, or load the one you did by its full path",
+			name, strings.Join(hits, " and "))
+	}
 }
 
 // cModuleExists checks whether a .so file exists at the given path.
 func cModuleExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// checkCModuleABI refuses a dlopened module whose cmod ABI is not this
+// launcher's.
+//
+// The check has to happen here, between dlopen and the first call into the
+// module: from New() onwards the module is reading cmod_env_t at whatever
+// offsets its header described, and if those are not the offsets this binary
+// wrote there is nothing left to detect — the symbols resolve, the call
+// succeeds, and the module acts on the wrong memory.
+//
+// A missing symbol is a mismatch, not a pass. It means the module was compiled
+// against a header from before the stamp existed, which is exactly the skew
+// this is here to catch.
+func checkCModuleABI(handle unsafe.Pointer, path string) error {
+	symName := C.CString("cmod_abi_version")
+	defer C.free(unsafe.Pointer(symName))
+
+	// dlerror() is sticky; clear it so the lookup's own result is read.
+	C.dlerror()
+	sym := C.dlsym(handle, symName)
+	if sym == nil {
+		return fmt.Errorf(
+			"load C plugin %q: no cmod ABI version; it was built against gomc headers "+
+				"older than this server (expected ABI %d). Rebuild it with modcompile",
+			path, C.CMOD_ABI_VERSION)
+	}
+
+	got := uint32(*(*C.uint)(sym))
+	if got != uint32(C.CMOD_ABI_VERSION) {
+		return fmt.Errorf(
+			"load C plugin %q: cmod ABI %d, but this server provides %d. "+
+				"The two were built from different gomc sources; rebuild whichever is older",
+			path, got, C.CMOD_ABI_VERSION)
+	}
+	return nil
 }
 
 // moduleLogHint is appended to a module load/init/start failure. A cmod reports
@@ -379,6 +464,11 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 	handle := C.dlopen(cpath, C.RTLD_NOW)
 	if handle == nil {
 		return fmt.Errorf("load C plugin %q: dlopen: %s", path, C.GoString(C.dlerror()))
+	}
+
+	if err := checkCModuleABI(handle, path); err != nil {
+		C.dlclose(handle)
+		return err
 	}
 
 	symName := C.CString("New")
@@ -474,8 +564,11 @@ func (l *Launcher) loadModuleNamed(module, instanceName string, args []string) e
 		return fmt.Errorf("cannot load %q: shutting down: %w", module, syscall.ESHUTDOWN)
 	}
 
-	path := resolveCModulePath(module)
-	if !cModuleExists(path) {
+	path, found, err := resolveCModule(module)
+	if err != nil {
+		return err
+	}
+	if !found {
 		// Try as a Go module — load and start immediately.
 		name := instanceName
 		if name == "" {

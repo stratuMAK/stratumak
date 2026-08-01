@@ -13,7 +13,9 @@ package ngcpreview
 #include <string.h>
 #include <limits.h>
 #include "emctool.h"
-#include "interp_shim.h"
+// Qualified: see the note in ini_accessor.go — internal/task has a different
+// header of the same name.
+#include "emc/rs274ngc/interp_shim.h"
 #include "interp_parameter_io.hh"
 
 #define PERSIST_API_CGO

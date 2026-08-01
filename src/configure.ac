@@ -575,6 +575,12 @@ if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_NCFILES_DIR=$EMC2_HOME/nc_files
     EMC2_IMAGE_DIR=$EMC2_HOME
     HALLIB_DIR=$EMC2_HOME/lib/hallib
+    # A run-in-place tree has no packaged/mutable split to make: the whole tree
+    # is the developer's, writable by them, and nothing is dpkg-owned. Both
+    # directories are empty here, which is what selects the in-place behaviour
+    # in modcompile and the launcher -- see config.StateDir().
+    EMC2_STATE_DIR=
+    EMC2_LIBEXEC_DIR=
 else
     EMC2_HOME=${prefix}
     EMC2_BIN_DIR=${prefix}/bin
@@ -598,6 +604,25 @@ else
     EMC2_NCFILES_DIR=${prefix}/share/linuxcnc/ncfiles
     EMC2_IMAGE_DIR=$(fe "$datadir")/linuxcnc
     HALLIB_DIR=${prefix}/share/linuxcnc/hallib
+    # Everything an administrator can change after installation lives here, on
+    # a filesystem the package manager does not own: the registered external
+    # module sources, the build tree derived from them, a locally rebuilt
+    # server and locally built cmods. Named for the distribution package
+    # (stratumak) rather than for linuxcnc, because it is the package manager's
+    # view of the system that makes the separation necessary.
+    # Debian's build passes --localstatedir=/var, so this is /var/lib/stratumak
+    # there -- the path the maintainer scripts name literally. Left to
+    # autoconf's default it would be ${prefix}/var, which is right for a
+    # /usr/local install and wrong for a package.
+    EMC2_STATE_DIR=$(fe "$localstatedir")/lib/stratumak
+    # The pristine, package-owned server. /usr/bin/gomc-server is a symlink
+    # chain onto this; a local rebuild replaces one link in the chain and never
+    # this file. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+    #
+    # Built from ${prefix} rather than ${libexecdir}, as EMC2_BIN_DIR above is:
+    # exec_prefix is still the literal string NONE this early in configure, so
+    # expanding ${libexecdir} here yields "NONE/libexec".
+    EMC2_LIBEXEC_DIR=${prefix}/libexec/stratumak
 fi
 
 AC_DEFINE_UNQUOTED([EMC2_HOME], "$EMC2_HOME", [Prefix or RIP directory])
@@ -619,6 +644,8 @@ AC_SUBST([EMC2_HELP_DIR])
 AC_SUBST([EMC2_RTLIB_DIR])
 AC_SUBST([EMC2_GOMOD_DIR])
 AC_SUBST([EMC2_CMOD_DIR])
+AC_SUBST([EMC2_STATE_DIR])
+AC_SUBST([EMC2_LIBEXEC_DIR])
 AC_SUBST([EMC2_LANG_DIR])
 AC_SUBST([LINUXCNC_CONFIG_PATH])
 AC_SUBST([EMC2_NCFILES_DIR])

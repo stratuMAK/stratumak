@@ -23,3 +23,131 @@ if [ -f /etc/security/limits.conf ]; then
 	echo '* - memlock 20480 #EMC2' >> /etc/security/limits.conf
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# The mutable state tree
+# ---------------------------------------------------------------------------
+#
+# Everything an administrator can change after installation lives under
+# /var/lib/stratumak, on a filesystem dpkg does not own, so that an upgrade
+# cannot silently discard it. None of it is shipped in the package: see
+# EXTERNAL_MODULE_INSTALL_DESIGN.md sections 4.1 and 4.2 for why the symlink
+# in particular must not be.
+#
+# root:root 0755 throughout, and that is the point rather than an oversight.
+# The server is granted cap_sys_admin and cap_sys_rawio, so anything that can
+# write a build input a later privileged rebuild consumes is root by another
+# route. A group-writable tree here would be exactly that, merely deferred
+# until the next `sudo modcompile rebuild`.
+
+STATE_DIR=/var/lib/stratumak
+LIBEXEC_SERVER=/usr/libexec/stratumak/gomc-server
+BUILD_USER=stratumak-build
+BUILD_CACHE=/var/cache/stratumak-build
+
+for d in "$STATE_DIR" "$STATE_DIR/bin" "$STATE_DIR/cmod" \
+	 "$STATE_DIR/modules" "$STATE_DIR/gomc"; do
+    if [ ! -d "$d" ]; then
+	mkdir -p "$d"
+    fi
+    chown root:root "$d"
+    chmod 0755 "$d"
+done
+
+# /usr/bin/gomc-server points here, and this points at the package's own copy
+# --- until an administrator rebuilds, at which point it becomes a real binary
+# and must be left alone. Created only when absent, for that reason: replacing
+# a local build with the shipped symlink would unregister every external
+# module compiled into it, without saying so.
+if [ ! -e "$STATE_DIR/bin/gomc-server" ]; then
+    ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/gomc-server"
+fi
+
+# The unprivileged account the compiler runs as. It owns nothing but its own
+# cache: the trust decision is made by whoever runs `sudo modcompile
+# add-gomod`, and this account only compiles what that decision admitted.
+if ! getent passwd "$BUILD_USER" >/dev/null; then
+    adduser --system --group --no-create-home --home "$BUILD_CACHE" \
+	    --gecos "StratumAK module build" "$BUILD_USER" >/dev/null
+fi
+if [ ! -d "$BUILD_CACHE" ]; then
+    mkdir -p "$BUILD_CACHE"
+fi
+chown "$BUILD_USER":"$BUILD_USER" "$BUILD_CACHE"
+chmod 0755 "$BUILD_CACHE"
+
+# ---------------------------------------------------------------------------
+# Realtime capabilities
+# ---------------------------------------------------------------------------
+#
+# dpkg does not preserve extended attributes, so file capabilities do not
+# survive the .deb and have to be applied here on every install and upgrade.
+# Until this ran, nothing on a packaged system granted realtime privileges at
+# all --- `make setuid` is a run-in-place target.
+#
+# This list is src/Makefile's `setuid` target verbatim, including its
+# unresolved question: cap_sys_admin and cap_sys_rawio are root in all but
+# name, and cap_dac_override is not far behind. Auditing what the server
+# actually needs is open work; carrying the list across unchanged is the one
+# option that cannot break a running machine in the meantime.
+#
+#   cap_net_admin    EtherCAT: manage network interfaces and settings
+#   cap_net_raw      EtherCAT: send/receive raw Ethernet frames
+#   cap_bpf          attach BPF programs (XDP receive path)
+#   cap_ipc_lock     lock shared memory (mlock) for realtime operation
+#   cap_sys_resource raise resource limits (RLIMIT_MEMLOCK, RLIMIT_RTPRIO)
+#   cap_sys_nice     realtime scheduling priorities (SCHED_FIFO/SCHED_RR)
+#   cap_sys_rawio    direct hardware I/O access (ioperm/iopl, PCI BARs)
+#   cap_perfmon      performance counters used by the latency tooling
+#   cap_sys_admin    TODO: check what's actually needed
+#   cap_dac_override TODO: check what's actually needed
+#
+# setcap resolves symlinks, so naming the pristine binary is deliberate: a
+# locally rebuilt server is a real file at $STATE_DIR/bin/gomc-server, and
+# modcompile carries its capabilities across its own replacement. Applying
+# them through the chain would move them onto the local build and leave the
+# package's copy without any.
+GOMC_CAPS=cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep
+
+if [ -f "$LIBEXEC_SERVER" ] && command -v setcap >/dev/null 2>&1; then
+    # Not fatal. setcap fails on filesystems without xattr support and in some
+    # container builds; a package that refuses to configure there would be
+    # worse than one that runs without realtime privileges and says so.
+    if ! setcap "$GOMC_CAPS" "$LIBEXEC_SERVER" 2>/dev/null; then
+	echo "stratumak: could not set file capabilities on $LIBEXEC_SERVER;" >&2
+	echo "stratumak: realtime will not start until this succeeds:" >&2
+	echo "stratumak:   sudo setcap '$GOMC_CAPS' $LIBEXEC_SERVER" >&2
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Upgrades: what to do about a locally rebuilt server
+# ---------------------------------------------------------------------------
+#
+# Nothing is recompiled here. A full server build takes minutes, needs a Go
+# toolchain and a warm module cache, and can fail --- and a failing postinst
+# leaves the package half-configured and apt wedged.
+#
+# Three cases, distinguished by what $STATE_DIR/bin/gomc-server is:
+#
+#   a symlink                      the package's own binary is live already;
+#                                  the new one took effect when dpkg unpacked
+#                                  it, and there is nothing to do
+#   a real file, no modules        a local build nothing depends on any more;
+#                                  restore the symlink so the upgrade takes
+#   a real file, modules registered  leave it alone and say so. It is stale,
+#                                  but discarding an administrator's modules
+#                                  silently is worse than running stale.
+if [ -f "$STATE_DIR/bin/gomc-server" ] && [ ! -L "$STATE_DIR/bin/gomc-server" ]; then
+    if [ -n "$(ls -A "$STATE_DIR/modules" 2>/dev/null)" ]; then
+	echo "stratumak: $STATE_DIR/bin/gomc-server was built locally and has" >&2
+	echo "stratumak: external modules compiled into it; it is now older than the" >&2
+	echo "stratumak: installed sources. Rebuild it with:" >&2
+	echo "stratumak:   sudo modcompile rebuild" >&2
+    else
+	rm -f "$STATE_DIR/bin/gomc-server"
+	ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/gomc-server"
+	echo "stratumak: replaced a locally built gomc-server with the packaged one" >&2
+	echo "stratumak: (no external modules were registered)." >&2
+    fi
+fi

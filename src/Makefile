@@ -373,6 +373,7 @@ build-software: $(INFILES)
 # files in the source tree are the ones used when building linuxcnc.  The copy
 # in ../include is used when building external components of linuxcnc.
 SRCHEADERS := \
+    config.h \
     emc/linuxcnc.h \
     emc/kinematics/cubic.h \
     emc/kinematics/kinematics.h \
@@ -386,6 +387,7 @@ SRCHEADERS := \
     emc/tp/tp_types.h \
     emc/tp/spherical_arc.h \
     emc/tp/blendmath.h \
+    emc/tp/tp_debug.h \
     emc/motion/emcmotcfg.h \
     emc/motion/motion.h \
     emc/motion/homing.h \
@@ -405,10 +407,17 @@ SRCHEADERS := \
     emc/rs274ngc/interp_internal.hh \
     emc/rs274ngc/interp_fwd.hh \
     emc/rs274ngc/interp_base.hh \
+    emc/rs274ngc/canon_interface.hh \
+    emc/rs274ngc/interp_ext.h \
+    emc/rs274ngc/interp_inspection.hh \
+    emc/rs274ngc/interp_parameter_def.hh \
+    emc/rs274ngc/interp_parameter_io.hh \
     emc/rs274ngc/modal_state.hh \
     emc/rs274ngc/rs274ngc.hh \
-    emc/rs274ngc/saicanon.hh \
+    emc/rs274ngc/rs274ngc_interp.hh \
+    emc/sai/saicanon.hh \
     hal/hal.h \
+    hal/hal_priv.h \
     hal/drivers/mesa-hostmot2/hostmot2-serial.h \
     libnml/inifile/inifile.h \
     libnml/inifile/inifile.hh \
@@ -436,7 +445,32 @@ SRCHEADERS := \
     rtapi/rtapi_stdint.h \
     rtapi/rtapi_ctype.h \
     rtapi/rtapi_errno.h \
-    rtapi/rtapi_string.h
+    rtapi/rtapi_string.h \
+    rtapi/rtapi_task.h \
+    rtapi/uspace_common.h
+
+# Headers installed only under their source-relative path, never flattened
+# into $(includedir)/linuxcnc alongside the rest.
+#
+# For names that exist twice in the tree. emc/rs274ngc/interp_shim.h and
+# gomc/internal/task/interp_shim.h are different headers declaring different
+# types, and a flat copy of the first silently wins over the second's own
+# directory when cgo compiles it — internal/task then fails on types it can
+# see perfectly well next to itself. Whoever wants one of these says which.
+SRCHEADERS_PATHONLY := \
+    emc/rs274ngc/interp_shim.h
+
+# C files that are #included rather than compiled on their own.
+#
+# The gomc packages wrapping the trajectory planner and pose maths pull these
+# in textually (`#include "emc/tp/tc.c"`), so to a tree that has to be
+# rebuildable they are headers in everything but name, and are installed
+# alongside them. Nothing compiles them as translation units.
+SRCINCLUDED_SOURCES := \
+    emc/nml_intf/emcpose.c \
+    emc/tp/blendmath.c \
+    emc/tp/spherical_arc.c \
+    emc/tp/tc.c
 
 # the "headers" target installs all the header files in ../include
 .PHONY: headers
@@ -753,6 +787,32 @@ install-common: install-dirs
 	cp -a $(wildcard ../lib/*.so.[0-9]*) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
 	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
+	# The same headers again, keeping their source-relative path.
+	#
+	# The flat copies above are what out-of-tree cmods have always used, and
+	# stay. But the gomc packages include a good many of them the way the
+	# source tree does -- `#include "hal/hal_priv.h"`, `#include
+	# "emc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
+	# -Isrc in a build tree and against nothing at all in a flat include
+	# directory. That is why the installed gomc tree could not be rebuilt:
+	# not a missing file, a missing shape.
+	#
+	# Both spellings therefore resolve under the one -I that cgoFlags already
+	# passes ($(includedir)/linuxcnc), and no include path had to be invented.
+	#
+	# `|| exit 1` on the install, and it is load-bearing: without it a failing
+	# iteration is not the loop's exit status, so a name that no longer exists
+	# passes silently. The flat copies above reach this file through a `-cp`
+	# rule that ignores errors, which is how emc/rs274ngc/saicanon.hh stayed
+	# listed for years after moving to emc/sai/ -- installed nowhere, missed by
+	# nobody until something needed it.
+	$(Q)for h in $(SRCHEADERS) $(SRCHEADERS_PATHONLY) $(SRCINCLUDED_SOURCES); do \
+		d=$$(dirname $$h); \
+		if [ "$$d" != "." ]; then \
+			$(DIR) $(DESTDIR)$(includedir)/linuxcnc/$$d || exit 1; \
+		fi; \
+		$(FILE) $$h $(DESTDIR)$(includedir)/linuxcnc/$$h || exit 1; \
+	done
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
 	$(FILE) ../tcl/TkLinuxCNC $(DESTDIR)/etc/X11/app-defaults
@@ -975,6 +1035,26 @@ TPMOD_CMOD_DEPS := \
 
 TARGETS += ../cmod/tpmod.so
 modules: ../cmod/tpmod.so
+
+# ---------------------------------------------------------------------------
+# Every cmod depends on the cmod environment headers
+# ---------------------------------------------------------------------------
+#
+# cmods are built by a dozen Submakefiles, in pattern rules and explicit ones,
+# from .comp sources and hand-written .c alike, and almost none of them listed
+# gomc/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
+# most of ../cmod untouched -- the .comp-derived ones only rebuilt because
+# ../bin/modcompile happened to be newer.
+#
+# That was survivable while a mismatch merely meant undefined behaviour nobody
+# could detect. It is not survivable now that gomc_env.h carries an ABI stamp
+# the launcher enforces: after a bump, every cmod the build skipped would be
+# refused at load with no hint that a rebuild was all it needed.
+#
+# One line rather than a prerequisite added to each of those rules, because
+# the next cmod rule someone writes would not get one.
+CMOD_ENV_HEADERS := $(wildcard gomc/pkg/cmodule/gomc_*.h)
+$(filter ../cmod/%.so,$(TARGETS)): $(CMOD_ENV_HEADERS)
 
 # Phony so that it is always rebuilt when requested, not because it
 # shouldn't exist as a file
