@@ -687,7 +687,24 @@ pycheck: pycheck-python-files pycheck-python-script
 #   cap_sys_resource - raise resource limits (e.g. RLIMIT_MEMLOCK, RLIMIT_RTPRIO)
 #   cap_sys_nice   - set realtime scheduling priorities (SCHED_FIFO/SCHED_RR)
 #   cap_sys_rawio  - direct hardware I/O port access (ioperm/iopl for parport, PCI BARs)
-# TODO: check what's actually needed
+#   cap_perfmon    - the BPF verifier's pointer-leak gate (perfmon_capable()),
+#                    which libxdp's dispatcher program has to pass
+#   cap_sys_admin  - the ID-based BPF lookups (BPF_BTF_GET_FD_BY_ID,
+#                    BPF_PROG_GET_FD_BY_ID) libxdp uses to inspect an
+#                    already-attached dispatcher; CAP_BPF deliberately does not
+#                    cover those
+#   cap_dac_override - writing root-owned files as a process that is not root:
+#                    /proc/irq/$n/smp_affinity (IRQ pinning),
+#                    /dev/cpu_dma_latency (PM QoS floor),
+#                    /sys/bus/pci/devices/*/resource0 (CCAT BAR)
+#
+# The long-standing "TODO: check what's actually needed" here is answered: it
+# was audited in 2026-08 and every entry has a caller. Two of them are demanded
+# by the kernel on behalf of a program shipped inside libxdp rather than by any
+# call this tree makes, so reading the source is not enough to re-derive this --
+# removing cap_perfmon or cap_sys_admin fails EtherCAT startup on a real machine
+# (6.12 RT, xdp-native), each with its own error. See
+# EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
 	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/gomc-server
 

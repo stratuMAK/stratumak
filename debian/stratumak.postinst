@@ -85,22 +85,33 @@ chmod 0755 "$BUILD_CACHE"
 # Until this ran, nothing on a packaged system granted realtime privileges at
 # all --- `make setuid` is a run-in-place target.
 #
-# This list is src/Makefile's `setuid` target verbatim, including its
-# unresolved question: cap_sys_admin and cap_sys_rawio are root in all but
-# name, and cap_dac_override is not far behind. Auditing what the server
-# actually needs is open work; carrying the list across unchanged is the one
-# option that cannot break a running machine in the meantime.
+# This list is src/Makefile's `setuid` target verbatim. It was audited in
+# 2026-08 and every entry has a caller; nothing here is inherited caution.
+# cap_sys_admin and cap_sys_rawio are root in all but name, and
+# cap_dac_override is not far behind, so it is worth knowing exactly why each
+# is here:
 #
-#   cap_net_admin    EtherCAT: manage network interfaces and settings
-#   cap_net_raw      EtherCAT: send/receive raw Ethernet frames
-#   cap_bpf          attach BPF programs (XDP receive path)
-#   cap_ipc_lock     lock shared memory (mlock) for realtime operation
+#   cap_net_admin    EtherCAT: manage interfaces, attach the XDP program,
+#                    create the EoE TAP device
+#   cap_net_raw      EtherCAT: AF_PACKET frames, and the AF_XDP bind
+#   cap_bpf          load the XDP program (kernels 5.8 and later)
+#   cap_ipc_lock     mlockall for realtime; the AF_XDP UMEM registration
 #   cap_sys_resource raise resource limits (RLIMIT_MEMLOCK, RLIMIT_RTPRIO)
 #   cap_sys_nice     realtime scheduling priorities (SCHED_FIFO/SCHED_RR)
-#   cap_sys_rawio    direct hardware I/O access (ioperm/iopl, PCI BARs)
-#   cap_perfmon      performance counters used by the latency tooling
-#   cap_sys_admin    TODO: check what's actually needed
-#   cap_dac_override TODO: check what's actually needed
+#   cap_sys_rawio    iopl(3), /dev/mem on Pi/BeagleBone, PCI BAR mapping
+#   cap_perfmon      the BPF verifier's pointer-leak gate, which libxdp's
+#                    dispatcher program has to pass. Not perf counters --
+#                    nothing here calls perf_event_open
+#   cap_sys_admin    the ID-based BPF lookups libxdp uses to inspect an
+#                    already-attached dispatcher; CAP_BPF does not cover those
+#   cap_dac_override writing root-owned files as a process that is not root:
+#                    /proc/irq/$n/smp_affinity, /dev/cpu_dma_latency,
+#                    /sys/bus/pci/devices/*/resource0
+#
+# The last three are the ones to leave alone. Two of them are demanded by the
+# kernel on behalf of a program shipped inside libxdp, not by anything this
+# source tree calls, so their necessity cannot be re-derived by reading the
+# code -- only by removing them and watching EtherCAT fail to start.
 #
 # setcap resolves symlinks, so naming the pristine binary is deliberate: a
 # locally rebuilt server is a real file at $STATE_DIR/bin/gomc-server, and

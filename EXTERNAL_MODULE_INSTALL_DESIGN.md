@@ -300,30 +300,32 @@ which have no user at all:
 | `cap_sys_nice` | `SCHED_FIFO` (`uspace_rtapi_lib.c`, `cpupool.go`) |
 | `cap_sys_rawio` | `iopl(3)`; `/dev/mem` in the Pi/BeagleBone GPIO drivers; the PCI BAR mapping in `transport_ccat.c` |
 | `cap_dac_override` | writing a root-owned file as a process that is not root, on the mainstream path: `/proc/irq/$n/smp_affinity` `root:root 0644` (`irq_pin.c`), `/dev/cpu_dma_latency` `root:root 0600` (`uspace_rtapi_lib.c`), `/sys/bus/pci/devices/*/resource0` `root:root 0600` (`transport_ccat.c`); and on the Pi, `/dev/mem` `root:kmem 0640` plus debugfs `0700` clock rates |
-| `cap_perfmon` | the BPF verifier's pointer-leak gate, `perfmon_capable()`. Nothing calls `perf_event_open` — the requirement is not in our source at all, and no amount of grepping it would have found this |
-| `cap_sys_admin` | nothing found in the tree. No `mount`, `setns`, `unshare` or `pivot_root`. It also satisfies `perfmon_capable()`, so it can stand in for `cap_perfmon` above |
+| `cap_perfmon` | the BPF verifier's pointer-leak gate, `perfmon_capable()`, which `libxdp`'s dispatcher program needs to pass |
+| `cap_sys_admin` | the ID-based BPF lookups (`BPF_BTF_GET_FD_BY_ID`, `BPF_PROG_GET_FD_BY_ID`), which `libxdp` uses to inspect an already-attached dispatcher. Those are gated on `capable(CAP_SYS_ADMIN)` specifically — `CAP_BPF` was deliberately not given them, because they enumerate other processes' BPF objects |
 
-The last two rows are a correction, and the way they were wrong is the
-interesting part. A source audit concluded both were unused: no
-`perf_event_open`, no `PERF_*`, no `rdpmc`, no mount-family calls. On real
-hardware (6.12 RT, `xdp-native`), dropping `cap_perfmon` alone changed
-nothing — apparently confirming it. Dropping both produced:
+The last two rows are a correction, and the way they were wrong is the point of
+recording them. A source audit concluded both were unused: no
+`perf_event_open`, no `PERF_*`, no `rdpmc`, no mount-family calls. Three runs
+on real hardware (6.12 RT, `xdp-native`) said otherwise, and each failed
+differently:
 
-```
-libbpf: prog 'xdp_dispatcher': BPF program load failed: Permission denied
-R1 pointer comparison prohibited
-```
+| dropped | result |
+|---|---|
+| `cap_perfmon` | works — but only because `cap_sys_admin` also satisfies `perfmon_capable()` |
+| both | `BPF program load failed: Permission denied` / `R1 pointer comparison prohibited` |
+| `cap_sys_admin` | `Failed to get BTF 269 of the program` / `couldn't get program fd: Operation not permitted` |
 
-`libxdp`'s dispatcher program contains a pointer comparison, which the
-verifier permits only to a loader satisfying `perfmon_capable()` —
-`CAP_PERFMON || CAP_SYS_ADMIN`. So the first test passed only because
-`cap_sys_admin` was covering for the capability it had just removed, and the
-capability is required by a gate inside the kernel rather than by any call
-this tree makes. Grep cannot see a requirement that lives in the verifier.
+So both are load-bearing, for unrelated reasons, and **the audit is closed:
+nothing on the list can be removed.** The `TODO: check what's actually needed`
+that `make setuid` has carried for years is answered.
 
-What remains untested is `cap_perfmon` kept and `cap_sys_admin` dropped, which
-is the combination a trim would actually ship. Until that runs on hardware,
-both stay.
+Two things this cost. Neither requirement is in this tree — one lives in the
+kernel's verifier, the other in the `bpf()` syscall's permission checks, both
+demanded on behalf of a program shipped inside `libxdp`. No amount of grepping
+our own source could have found either. And removing capabilities one at a
+time is misleading when two of them satisfy the same gate: the first run
+"passed" only because the capability it removed was being covered by the next
+one on the list.
 
 `cap_dac_override` is not the peripheral thing a first pass made it look like.
 Every realtime EtherCAT machine needs it: pinning the NIC's interrupt writes
@@ -334,10 +336,11 @@ them open — and the symptom of removing it would be latency quietly reverting
 to whatever the housekeeping CPU does, which is precisely the class of fault
 that takes weeks to attribute.
 
-Nothing has been trimmed. The failure mode of getting this wrong is "EtherCAT
-does not start", or worse "EtherCAT starts and misses deadlines", on a machine
-that is not this one — and the audit above has now been wrong once in each
-direction, understating `cap_dac_override` and overstating what could go. The list stays verbatim
+Nothing is trimmed, and now for a reason rather than for caution: every
+capability on the list has a caller. The ruling to carry it across verbatim
+turned out to be the correct one twice over — the audit that would have
+justified trimming was wrong in both directions, understating
+`cap_dac_override` and overstating what could go. The list stays verbatim
 until a run on real hardware says otherwise.
 
 **The unprivileged phase builds in its own copy of the tree.** §4.3 has the
