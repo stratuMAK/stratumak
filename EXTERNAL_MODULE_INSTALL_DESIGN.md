@@ -258,11 +258,20 @@ in both fails the load naming both files. Deliberate overriding is still
 possible by loading the module by its full path, which bypasses the search
 entirely. No per-module shadowing flag was added; nothing has asked for one yet.
 
-The search half is confirmed on a real config: a set of locally built cmods
+Both halves are confirmed on a real installation. A set of locally built cmods
 installs into `/var/lib/stratumak/cmod` and the launcher resolves them there
-from bare names, at startup and through a runtime load. The refusal half has
-only ever fired in a unit test — no real installation has yet had the same
-module name in both directories, which is the point of separating them.
+from bare names, at startup and through a runtime load. Putting a copy of one
+into the package's own directory and loading it by name gives:
+
+```
+C module "galv_mixer" is provided by more than one directory:
+/var/lib/stratumak/cmod/galv_mixer.so and /usr/lib/linuxcnc/cmod/galv_mixer.so.
+Remove the one you did not mean, or load the one you did by its full path
+```
+
+and removing the copy restores the load. This is the behaviour the whole
+relocation exists for, and the only one where a bug would mean the wrong
+module loading silently rather than anything visible failing.
 
 **The build identity is always `stratumak-build`** (§4.3), never `SUDO_UID`
 when the account exists — one identity, one cache, and identical behaviour from
