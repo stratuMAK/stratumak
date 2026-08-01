@@ -502,7 +502,14 @@ distclean: clean inclean ecmaster-distclean
 
 # Override ETHERCAT flags to use locally-built master from submodule
 ETHERCAT_CFLAGS := -I$(ECMASTER_PREFIX)/include
-ETHERCAT_LIBS := -L$(ECMASTER_PREFIX)/lib -Wl,-rpath,$(ECMASTER_PREFIX)/lib -lethercat
+ETHERCAT_LIBS := -L$(ECMASTER_PREFIX)/lib -lethercat
+ifeq ($(RUN_IN_PLACE),yes)
+# RIP only. libethercat lives in the build tree, so the loader needs to be told
+# where. An installed package puts it in $(libdir), which ldconfig already
+# covers -- baking the build tree's absolute path into a shipped ethercat.so
+# would name a directory that does not exist on the target machine.
+ETHERCAT_LIBS += -Wl,-rpath,$(ECMASTER_PREFIX)/lib
+endif
 
 .PHONY: ecmaster-check ecmaster-bootstrap ecmaster-configure ecmaster-build \
         ecmaster-install ecmaster-clean ecmaster-distclean
@@ -660,7 +667,7 @@ install-docs:
 	$(FILE) emc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
 
 install-dirs:
-	$(DIR) $(DESTDIR)$(EMC2_GOMOD_DIR) \
+	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
 		$(DESTDIR)$(sysconfdir)/linuxcnc $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
 		$(DESTDIR)/lib/linuxcnc $(DESTDIR)$(includedir)/linuxcnc \
 		$(DESTDIR)$(docsdir) $(DESTDIR)$(ncfilesdir) \
@@ -852,7 +859,7 @@ install-modules:
 	$(DIR)	$(DESTDIR)$(moduledir)/linuxcnc \
 		$(DESTDIR)$(bindir) \
 		$(DESTDIR)$(sysconfdir)/linuxcnc \
-		$(DESTDIR)$(EMC2_GOMOD_DIR)
+		$(DESTDIR)$(EMC2_CMOD_DIR)
 	# Install the C plugin modules, but keep test-only cmods out of the
 	# package: the test_*.so handlers, mcode_coord_log.so and hm2_test.so are
 	# built into ../cmod for the regression suite only, and modcompile-*.so are
@@ -860,7 +867,7 @@ install-modules:
 	# (mesa_pktgyro_test.so is a real, documented component and is kept.)
 	$(FILE) $(filter-out ../cmod/test_%.so ../cmod/modcompile-%.so \
 		../cmod/mcode_coord_log.so ../cmod/hm2_test.so, \
-		$(wildcard ../cmod/*.so)) $(DESTDIR)$(EMC2_GOMOD_DIR)
+		$(wildcard ../cmod/*.so)) $(DESTDIR)$(EMC2_CMOD_DIR)
 	$(FILE) ../scripts/rtapi.conf $(DESTDIR)$(sysconfdir)/linuxcnc
 endif # RUN_IN_PLACE
 
