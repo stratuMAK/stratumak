@@ -12,14 +12,9 @@
 # Not of immediate concern - https://lintian.debian.org/tags/shared-library-lacks-prerequisites.html
 @MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/lib/linuxcnc/modules/*.so]
 
-# /usr/bin/gomc-server points into /var/lib/stratumak, which the package
-# deliberately does not ship: if dpkg owned that path, every upgrade would
-# unpack the shipped symlink over a locally rebuilt server and discard it.
-# postinst creates the target. See EXTERNAL_MODULE_INSTALL_DESIGN.md 4.1.
-@MAIN_PACKAGE_NAME@: package-contains-broken-symlink [usr/bin/gomc-server]
-@MAIN_PACKAGE_NAME@: dangling-symlink [usr/bin/gomc-server]
-@MAIN_PACKAGE_NAME@: symlink-target-in-var [usr/bin/gomc-server]
-
-# The pristine server lives in /usr/libexec rather than /usr/lib: it is a
-# program, invoked through the symlink chain above, not a library.
-@MAIN_PACKAGE_NAME@: file-in-unusual-dir [usr/libexec/stratumak/gomc-server]
+# No override for /usr/bin/gomc-server pointing into /var/lib/stratumak, nor
+# for the pristine binary living in /usr/libexec: lintian objects to neither,
+# and four overrides written on the assumption that it would were three
+# invented tag names (alien-tag, an error in its own right) and one that never
+# fires. Overrides go here after lintian has been seen to emit the tag, not
+# before.
