@@ -220,9 +220,14 @@ endif
 # if a master file is missing, and if one is merely absent from an otherwise
 # complete run the regenerated template loses every message it contributed --
 # roughly 2300 German translations for the man pages alone.
-.PHONY: pofiles
-pofiles: manpages gen_complist
+# The recipe hangs off docs-pofiles, not pofiles: src/po/Submakefile already
+# attaches a recipe to pofiles for the program catalogues, and two recipes for
+# one target means make discards one of them with a warning.  Depending on it
+# instead keeps `make pofiles` refreshing both sets.
+.PHONY: docs-pofiles
+docs-pofiles: manpages gen_complist
 	cd $(DOC_DIR); ${TIME_CMD} po4a -v --msgmerge-opt='-v' --no-translations po4a.cfg
+pofiles: docs-pofiles
 
 ifeq ($(BUILD_DOCS_TRANSLATED),yes)
 translateddocs: manpages gen_complist
