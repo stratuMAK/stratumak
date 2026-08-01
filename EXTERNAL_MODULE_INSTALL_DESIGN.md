@@ -258,6 +258,12 @@ in both fails the load naming both files. Deliberate overriding is still
 possible by loading the module by its full path, which bypasses the search
 entirely. No per-module shadowing flag was added; nothing has asked for one yet.
 
+The search half is confirmed on a real config: a set of locally built cmods
+installs into `/var/lib/stratumak/cmod` and the launcher resolves them there
+from bare names, at startup and through a runtime load. The refusal half has
+only ever fired in a unit test — no real installation has yet had the same
+module name in both directories, which is the point of separating them.
+
 **The build identity is always `stratumak-build`** (§4.3), never `SUDO_UID`
 when the account exists — one identity, one cache, and identical behaviour from
 a sudo shell, a root shell and automation. `SUDO_UID` survives only as a
