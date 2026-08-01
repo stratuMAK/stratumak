@@ -94,14 +94,18 @@ IMPORTS_GENERATED := gomc/cmd/gomc-server/imports_generated.go
 # injected prerequisites from gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO))
 # instead.
 #
-# The .c/.h files matter as much as the .go ones: several packages carry cgo
-# sources (classicladder's RT engine, hallib, halscope, the interp shim), and
-# leaving them out let an edited engine link a stale binary with no warning.
+# The .c/.cc/.h files matter as much as the .go ones: several packages carry
+# cgo sources (classicladder's RT engine, hallib, halscope, the interp shim),
+# and leaving them out let an edited engine link a stale binary with no
+# warning. .cc was missing from that list while the comment claimed otherwise,
+# so the one C++ translation unit in the tree -- the interp shim it names --
+# was exactly the file an edit to which rebuilt nothing.
 GOMC_SRC_DIRS := gomc gomc/cmd/* gomc/pkg/* gomc/internal/* \
     gomc/internal/*/* gomc/internal/*/*/*
 GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED), \
     $(wildcard $(addsuffix /*.go,$(GOMC_SRC_DIRS))) \
     $(wildcard $(addsuffix /*.c,$(GOMC_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.cc,$(GOMC_SRC_DIRS))) \
     $(wildcard $(addsuffix /*.h,$(GOMC_SRC_DIRS)))) \
     gomc/go.mod.in
 # NB: gomc/go.mod is deliberately NOT here — it is order-only on each Go binary
@@ -431,10 +435,16 @@ gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/hal
 	# next to the Go. Without them the installed tree looks complete, `go
 	# build` gets as far as cgo, and the rebuild dies on a missing local
 	# header -- so a rebuild on a packaged system could never have worked.
+	#
+	# internal/halscope/testrt is pruned for the same reason kinstest is: it
+	# is a test harness nothing imports. Shipping .h files brought its mock
+	# hal.h and rtapi.h along, which is dead weight in a runtime package under
+	# two names it would be a shame for anyone to ever pick up by accident.
 	$(DIR) $(DESTDIR)$(datadir)/linuxcnc/gomc
 	$(Q)cd gomc && find . \
 		-name '*_test.go' -prune -o \
 		-path './internal/gmi/kinstest' -prune -o \
+		-path './internal/halscope/testrt' -prune -o \
 		-type f \( -name '*.go' -o -name '*.c' -o -name '*.h' \
 			-o -name '*.cc' -o -name '*.hh' \
 			-o -name 'go.mod' -o -name 'go.mod.in' -o -name 'go.sum' -o -name 'packages.conf' \) \

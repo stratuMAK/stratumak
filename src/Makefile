@@ -412,6 +412,7 @@ SRCHEADERS := \
     emc/rs274ngc/interp_inspection.hh \
     emc/rs274ngc/interp_parameter_def.hh \
     emc/rs274ngc/interp_parameter_io.hh \
+    emc/rs274ngc/interp_shim.h \
     emc/rs274ngc/modal_state.hh \
     emc/rs274ngc/rs274ngc.hh \
     emc/rs274ngc/rs274ngc_interp.hh \
@@ -449,17 +450,6 @@ SRCHEADERS := \
     rtapi/rtapi_task.h \
     rtapi/uspace_common.h
 
-# Headers installed only under their source-relative path, never flattened
-# into $(includedir)/linuxcnc alongside the rest.
-#
-# For names that exist twice in the tree. emc/rs274ngc/interp_shim.h and
-# gomc/internal/task/interp_shim.h are different headers declaring different
-# types, and a flat copy of the first silently wins over the second's own
-# directory when cgo compiles it — internal/task then fails on types it can
-# see perfectly well next to itself. Whoever wants one of these says which.
-SRCHEADERS_PATHONLY := \
-    emc/rs274ngc/interp_shim.h
-
 # C files that are #included rather than compiled on their own.
 #
 # The gomc packages wrapping the trajectory planner and pose maths pull these
@@ -475,10 +465,66 @@ SRCINCLUDED_SOURCES := \
 # the "headers" target installs all the header files in ../include
 .PHONY: headers
 HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h)))
-headers: $(HEADERS)
+headers: $(HEADERS) check-header-collisions
 
 # install header files as part of the build
 TARGETS += headers
+
+# ---------------------------------------------------------------------------
+# No two installed headers may share a basename
+# ---------------------------------------------------------------------------
+#
+# $(includedir)/linuxcnc is a flat namespace: every SRCHEADERS entry lands in
+# it under its basename alone, and that directory is on the include path of
+# everything compiled against LinuxCNC. A gomc package whose own header shares
+# a basename with one of them does not win by being adjacent -- when cgo
+# compiles it the flat copy is found first, and the package fails on types
+# declared in the file lying next to it. emc/rs274ngc/interp_shim.h and
+# gomc/internal/task/interp_shim.h were exactly that, down to sharing an
+# include guard, and it cost an afternoon to find because every error pointed
+# at the innocent file.
+#
+# So the build refuses the situation rather than waiting for someone to hit
+# it. Cheap: two sorts over a list of names.
+GOMC_INSTALLED_HEADERS = $(shell cd gomc 2>/dev/null && find . \
+	-path './internal/gmi/kinstest' -prune -o \
+	-path './internal/halscope/testrt' -prune -o \
+	-type f \( -name '*.h' -o -name '*.hh' \) -print 2>/dev/null)
+
+.PHONY: check-header-collisions
+check-header-collisions:
+	@flat=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort -u`; \
+	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
+	if [ -n "$$dup" ]; then \
+	    echo "*** Two SRCHEADERS entries share a basename, so only one of them can" >&2; \
+	    echo "*** reach \$$(includedir)/linuxcnc:" >&2; \
+	    for d in $$dup; do \
+	        echo "***   $$d:" >&2; \
+	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
+	            case $$h in */$$d|$$d) echo "***     $$h" >&2 ;; esac; \
+	        done; \
+	    done; \
+	    exit 1; \
+	fi; \
+	gomch=`for h in $(GOMC_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
+	clash=`printf '%s\n' $$flat $$gomch | sort | uniq -d`; \
+	if [ -n "$$clash" ]; then \
+	    echo "*** A header installed into the flat \$$(includedir)/linuxcnc shares a" >&2; \
+	    echo "*** basename with one inside the gomc tree. The flat copy wins when cgo" >&2; \
+	    echo "*** compiles that package, whichever one it meant:" >&2; \
+	    for c in $$clash; do \
+	        echo "***   $$c:" >&2; \
+	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
+	            case $$h in */$$c|$$c) echo "***     $$h" >&2 ;; esac; \
+	        done; \
+	        for h in $(GOMC_INSTALLED_HEADERS); do \
+	            case $$h in */$$c|$$c) echo "***     gomc/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
+	        done; \
+	    done; \
+	    echo "*** Rename one of them. See src/gomc/internal/task/task_interp_shim.h" >&2; \
+	    echo "*** for the one that had to be renamed and why." >&2; \
+	    exit 1; \
+	fi
 
 # Add converting of %.po files
 TARGETS += $(patsubst po/%.po, ../share/locale/%/LC_MESSAGES/linuxcnc.mo, $(wildcard po/*.po))
@@ -806,7 +852,7 @@ install-common: install-dirs
 	# rule that ignores errors, which is how emc/rs274ngc/saicanon.hh stayed
 	# listed for years after moving to emc/sai/ -- installed nowhere, missed by
 	# nobody until something needed it.
-	$(Q)for h in $(SRCHEADERS) $(SRCHEADERS_PATHONLY) $(SRCINCLUDED_SOURCES); do \
+	$(Q)for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 		d=$$(dirname $$h); \
 		if [ "$$d" != "." ]; then \
 			$(DIR) $(DESTDIR)$(includedir)/linuxcnc/$$d || exit 1; \

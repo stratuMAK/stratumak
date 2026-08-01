@@ -2,11 +2,17 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPL Version 2
  */
-// interp_shim.h — C declarations for the interpreter shim functions.
+// task_interp_shim.h — C declarations for the interpreter shim functions.
 // This header is included by interp.go via cgo.
+//
+// Named for the task, not just for what it is, because emc/rs274ngc has its
+// own interp_shim.h declaring a different set of types for the preview
+// interpreter. The two used to share both a basename and an include guard: in
+// a flat include directory the wrong one wins silently, and the symptom is
+// this package failing on types that sit in the file next to it.
 
-#ifndef INTERP_SHIM_H
-#define INTERP_SHIM_H
+#ifndef TASK_INTERP_SHIM_H
+#define TASK_INTERP_SHIM_H
 
 #include <stddef.h>
 
@@ -153,4 +159,4 @@ double interp_current_axis_offset(void *handle, int axis);
 }
 #endif
 
-#endif // INTERP_SHIM_H
+#endif // TASK_INTERP_SHIM_H

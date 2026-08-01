@@ -1,4 +1,4 @@
-// interp_shim.cc — thin C++ wrapper exposing InterpBase virtual calls as plain C.
+// task_interp_shim.cc — thin C++ wrapper exposing InterpBase virtual calls as plain C.
 // This is the ONLY C++ code in the Go milltask module.
 //
 // Original interpreter: Copyright 2004-2006 Jeff Epler <jepler@unpythonic.net>
@@ -18,8 +18,8 @@
 #define CANON_API_CGO
 #include "gomc/generated/gmi/canon/canon_api.h"
 
-// Include interp_shim.h for the interp_ini_accessor_t typedef.
-#include "interp_shim.h"
+// Include task_interp_shim.h for the interp_ini_accessor_t typedef.
+#include "task_interp_shim.h"
 
 extern "C" {
 

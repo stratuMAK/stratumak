@@ -320,11 +320,26 @@ installed nowhere. Five separate causes, all now fixed:
    own parent goes first so that a `"gomc/generated/..."` include resolves
    against the sources being compiled rather than an installed copy of them.
 
-One collision had to be broken by hand: `emc/rs274ngc/interp_shim.h` and
-`gomc/internal/task/interp_shim.h` are different headers with the same name,
-and a flat copy of the first silently won over the second's own directory.
-The first is now installed only under its path (`SRCHEADERS_PATHONLY`), and
-`internal/ngcpreview` says which one it means.
+One collision had to be broken by hand. `emc/rs274ngc/interp_shim.h` and
+`gomc/internal/task/interp_shim.h` were different headers sharing a basename
+*and* an include guard, and the flat copy of the first silently won over the
+second's own directory. The gomc one is now `task_interp_shim.h`, guard and
+all — the smaller blast radius of the two, since nothing outside `internal/task`
+referred to it — so no special case remains in the install and neither
+consumer has to qualify anything.
+
+`make` now refuses the situation outright: `check-header-collisions` compares
+the basenames of everything landing in the flat `$(includedir)/linuxcnc`
+against the headers inside the gomc tree, and fails the build naming both
+files. The original cost an afternoon precisely because every error pointed at
+the innocent file.
+
+Two further build-system repairs fell out of the same work. `internal/halscope/
+testrt` is pruned from the install, as `kinstest` already was — shipping `.h`
+files had swept its mock `hal.h` and `rtapi.h` into a runtime package. And
+`GOMC_SRC_BASE` did not glob `*.cc`, although its own comment claimed the
+interp shim was covered, so the one C++ translation unit in the tree was
+exactly the file an edit to which rebuilt nothing.
 
 Verified by staging an install and building `cmd/gomc-server` from it, the way
 the unprivileged build phase would: a complete 27 MB server, from the installed
