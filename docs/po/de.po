@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: emc-developers@lists.sourceforge.net\n"
-"POT-Creation-Date: 2026-08-02 13:02+0200\n"
+"POT-Creation-Date: 2026-08-02 18:49+0200\n"
 "PO-Revision-Date: 2022-11-05 16:57+0000\n"
 "Last-Translator: Steffen Möller <steffen_moeller@gmx.de>\n"
 "Language-Team: none\n"
@@ -15153,7 +15153,7 @@ msgstr ""
 #. type: SH
 #: src/config/core-components.adoc:79 src/config/stepconf.adoc:393
 #: src/drivers/mb2hal.adoc:46 src/gui/qtvcp.adoc:104
-#: src/gui/qtvcp-widgets.adoc:2797 src/hal/comp.adoc:290 man/man1/xhc-hb04.1:43
+#: src/gui/qtvcp-widgets.adoc:2797 src/hal/comp.adoc:287 man/man1/xhc-hb04.1:43
 #, no-wrap
 msgid "Options"
 msgstr "Optionen"
@@ -16432,7 +16432,7 @@ msgstr ""
 #: src/gcode/o-code.adoc:41 src/gcode/o-code.adoc:46
 #: src/gcode/overview.adoc:158 src/gcode/overview.adoc:162
 #: src/gcode/overview.adoc:1012 src/gcode/overview.adoc:1016
-#: src/gui/pyvcp.adoc:292 src/hal/comp.adoc:406 html/gcode.html:176
+#: src/gui/pyvcp.adoc:292 src/hal/comp.adoc:401 html/gcode.html:176
 #, no-wrap
 msgid "Comments"
 msgstr "Kommentare"
@@ -31872,7 +31872,7 @@ msgstr "Ein-/ausschalten der Kühlmittel-Flut."
 #: src/config/python-interface.adoc:652 src/config/python-interface.adoc:664
 #: src/config/python-interface.adoc:693 src/gcode/overview.adoc:223
 #: src/gui/pyvcp.adoc:257 src/hal/basic-hal.adoc:370 src/hal/basic-hal.adoc:403
-#: src/hal/basic-hal.adoc:434 src/hal/basic-hal.adoc:467 src/hal/comp.adoc:177
+#: src/hal/basic-hal.adoc:434 src/hal/basic-hal.adoc:467 src/hal/comp.adoc:174
 #, no-wrap
 msgid "Syntax"
 msgstr "Syntax"
@@ -69990,7 +69990,7 @@ msgstr ""
 #. type: Table
 #: src/gcode/tool-compensation.adoc:332 src/gui/qtvcp-libraries.adoc:911
 #: src/gui/qtvcp-libraries.adoc:1171 src/hal/basic-hal.adoc:499
-#: src/hal/comp.adoc:495 src/hal/general-ref.adoc:119
+#: src/hal/comp.adoc:483 src/hal/general-ref.adoc:119
 #: src/hal/general-ref.adoc:153 src/hal/twopass.adoc:193
 #: src/motion/external-offsets.adoc:260 src/plasma/qtplasmac.adoc:393
 #: src/plasma/qtplasmac.adoc:409
@@ -143735,11 +143735,18 @@ msgstr ""
 
 #. type: Plain text
 #: src/hal/comp.adoc:22
+#, fuzzy
+#| msgid ""
+#| "Writing a HAL component can be a tedious process, most of it in setup "
+#| "calls to 'rtapi_' and 'hal_' functions and associated error checking.  "
+#| "'halcompile' will write all this code for you, automatically.  Compiling "
+#| "a HAL component is also much easier when using 'halcompile', whether the "
+#| "component is part of the LinuxCNC source tree, or outside it."
 msgid ""
 "Writing a HAL component can be a tedious process, most of it in setup calls "
 "to 'rtapi_' and 'hal_' functions and associated error checking.  "
-"'halcompile' will write all this code for you, automatically.  Compiling a "
-"HAL component is also much easier when using 'halcompile', whether the "
+"'modcompile' will write all this code for you, automatically.  Compiling a "
+"HAL component is also much easier when using 'modcompile', whether the "
 "component is part of the LinuxCNC source tree, or outside it."
 msgstr ""
 "Das Schreiben einer HAL-Komponente kann ein langwieriger Prozess sein, der "
@@ -143749,10 +143756,15 @@ msgstr ""
 
 #. type: Plain text
 #: src/hal/comp.adoc:25
+#, fuzzy
+#| msgid ""
+#| "For instance, when coded in C, a simple component such as \"ddt\" is "
+#| "around 80 lines of code.  The equivalent component is very short when "
+#| "written using the 'halcompile' preprocessor:"
 msgid ""
 "For instance, when coded in C, a simple component such as \"ddt\" is around "
 "80 lines of code.  The equivalent component is very short when written using "
-"the 'halcompile' preprocessor:"
+"the 'modcompile' preprocessor:"
 msgstr ""
 "Eine einfache Komponente wie \"ddt\", die in C kodiert ist, umfasst "
 "beispielsweise etwa 80 Zeilen Code. Die entsprechende Komponente ist sehr "
@@ -143890,7 +143902,7 @@ msgstr "Kompilieren von Echtzeitkomponenten außerhalb des Quellbaums"
 #| "single step, placing 'rtexample.ko' in the LinuxCNC realtime module "
 #| "directory:"
 msgid ""
-"'halcompile' can process, compile, and install a realtime component in a "
+"'modcompile' can process, compile, and install a realtime component in a "
 "single step, placing `rtexample.ko` in the LinuxCNC realtime module "
 "directory:"
 msgstr ""
@@ -143900,8 +143912,9 @@ msgstr ""
 
 #. type: delimited block -
 #: src/hal/comp.adoc:74
-#, no-wrap
-msgid "[sudo] halcompile --install rtexample.comp\n"
+#, fuzzy, no-wrap
+#| msgid "[sudo] halcompile --install rtexample.comp\n"
+msgid "[sudo] modcompile --install rtexample.comp\n"
 msgstr "[sudo] halcompile --install rtexample.comp\n"
 
 #. type: Plain text
@@ -143931,8 +143944,9 @@ msgstr ""
 
 #. type: delimited block -
 #: src/hal/comp.adoc:84
-#, no-wrap
-msgid "halcompile --compile rtexample.comp\n"
+#, fuzzy, no-wrap
+#| msgid "halcompile --compile rtexample.comp\n"
+msgid "modcompile --compile rtexample.comp\n"
 msgstr "halcompile --compile rtexample.comp\n"
 
 #. type: Plain text
@@ -143947,32 +143961,13 @@ msgstr ""
 
 #. type: delimited block -
 #: src/hal/comp.adoc:90
-#, no-wrap
-msgid "halcompile rtexample.comp\n"
+#, fuzzy, no-wrap
+#| msgid "halcompile rtexample.comp\n"
+msgid "modcompile rtexample.comp\n"
 msgstr "halcompile rtexample.comp\n"
 
 #. type: Plain text
 #: src/hal/comp.adoc:93
-#, fuzzy
-#| msgid ""
-#| "'halcompile' can also compile and install a component written in C, using "
-#| "the '--install' and '--compile' options shown above:"
-msgid ""
-"'halcompile' can also compile and install a component written in C, using "
-"the `--install` and `--compile` options shown above:"
-msgstr ""
-"'halcompile' kann auch eine in C geschriebene Komponente kompilieren und "
-"installieren, indem es die oben gezeigten Optionen '--install' und '--"
-"compile' verwendet:"
-
-#. type: delimited block -
-#: src/hal/comp.adoc:96
-#, no-wrap
-msgid "[sudo] halcompile --install rtexample2.c\n"
-msgstr "[sudo] halcompile --install rtexample2.c\n"
-
-#. type: Plain text
-#: src/hal/comp.adoc:99
 msgid ""
 "man-format documentation can also be created from the information in the "
 "declaration section:"
@@ -143981,44 +143976,44 @@ msgstr ""
 "Deklarationsabschnitt erstellt werden:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:102
-#, no-wrap
-msgid "halcompile --document -o example.9 rtexample.comp\n"
+#: src/hal/comp.adoc:96
+#, fuzzy, no-wrap
+#| msgid "halcompile --document -o example.9 rtexample.comp\n"
+msgid "modcompile --document -o example.9 rtexample.comp\n"
 msgstr "halcompile --document rtexample.comp\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:105
+#: src/hal/comp.adoc:99
 msgid "The resulting manpage, 'example.9' can be viewed with"
 msgstr "Die resultierende Manpage „example.9“ kann angezeigt werden mit"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:108
+#: src/hal/comp.adoc:102
 #, no-wrap
 msgid "man ./example.9\n"
 msgstr "man ./example.9\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:111
+#: src/hal/comp.adoc:105
 msgid "or copied to a standard location for manual pages."
 msgstr "oder an einen Standardspeicherort für UNIX man pages kopiert."
 
 #. type: Title ===
-#: src/hal/comp.adoc:112
+#: src/hal/comp.adoc:106
 #, no-wrap
 msgid "Non-realtime components outside the source tree"
 msgstr "Kompilieren von Echtzeitkomponenten außerhalb des Quellbaums"
 
 #. type: Plain text
-#: src/hal/comp.adoc:115
+#: src/hal/comp.adoc:110
 msgid ""
-"'halcompile' can process, compile, install, and document non-realtime "
-"components:"
+"'modcompile' can process, compile, install, and document non-realtime "
+"components.  A component is non-realtime because its `.comp` file says so, "
+"with 'option userspace yes'; there is no command-line switch for it."
 msgstr ""
-"halcompile' kann Userspace-Komponenten verarbeiten, kompilieren, "
-"installieren und dokumentieren:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:121
+#: src/hal/comp.adoc:116
 #, fuzzy, no-wrap
 #| msgid ""
 #| "halcompile usrexample.comp\n"
@@ -144026,10 +144021,10 @@ msgstr ""
 #| "[sudo] halcompile --install usrexample.comp\n"
 #| "halcompile --document usrexample.comp\n"
 msgid ""
-"halcompile non-rt-example.comp\n"
-"halcompile --compile non-rt-example.comp\n"
-"[sudo] halcompile --install non-rt-example.comp\n"
-"halcompile --document non-rt-example.comp\n"
+"modcompile non-rt-example.comp\n"
+"modcompile --compile non-rt-example.comp\n"
+"[sudo] modcompile --install non-rt-example.comp\n"
+"modcompile --document non-rt-example.comp\n"
 msgstr ""
 "halcompile usrexample.comp\n"
 "halcompile --compile usrexample.comp\n"
@@ -144037,37 +144032,32 @@ msgstr ""
 "halcompile --document usrexample.comp\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:127
+#: src/hal/comp.adoc:120
 msgid ""
-"For some libraries (for example modbus) it might be necessary to add extra "
-"compiler and linker arguments to enable the compiler to find and link the "
-"libraries.  In the case of .comp files this can be done via \"option\" "
-"statements in the `.comp` file.  For `.c` files this is not possible so the "
-"`--extra-compile-args` and `--extra-link-args` parameters can be used "
-"instead.  As an example, this command line can be used to compile the "
-"`vfdb_vfd.c` component out-of-tree."
+"'modcompile' compiles `.comp` files only.  To build a component written "
+"directly in C, drive the compiler from your own Makefile and ask "
+"'modcompile' where things live:"
 msgstr ""
 
 #. type: delimited block -
-#: src/hal/comp.adoc:129
+#: src/hal/comp.adoc:127
 #, no-wrap
-msgid "halcompile --userspace --install --extra-compile-args=\"-I/usr/include/modbus\" --extra-link-args=\"-lm -lmodbus -llinuxcncini\" vfdb_vfd.c\n"
-msgstr ""
-
-#. type: Plain text
-#: src/hal/comp.adoc:131
 msgid ""
-"The effect of using both command-line and in-file extra-args is undefined."
+"modcompile --cflags        # compiler flags for cmod components\n"
+"modcompile --ldflags       # linker flags\n"
+"modcompile --include-dir   # cmod headers\n"
+"modcompile --cmod-dir      # installation directory\n"
+"modcompile --print-make-inc  # a ready-made Makefile include\n"
 msgstr ""
 
 #. type: Title ==
-#: src/hal/comp.adoc:132
+#: src/hal/comp.adoc:129
 #, no-wrap
 msgid "Using a Component"
 msgstr "Verwendung einer Komponente"
 
 #. type: Plain text
-#: src/hal/comp.adoc:137
+#: src/hal/comp.adoc:134
 msgid ""
 "Components need to be loaded and added to a thread before it can be "
 "employed.  The provided functionality can then be invoked directly and "
@@ -144076,13 +144066,13 @@ msgid ""
 msgstr ""
 
 #. type: Block title
-#: src/hal/comp.adoc:138
+#: src/hal/comp.adoc:135
 #, no-wrap
 msgid "Example HAL script for installing a component (ddt) and executing it every millisecond."
 msgstr ""
 
 #. type: delimited block -
-#: src/hal/comp.adoc:143
+#: src/hal/comp.adoc:140
 #, fuzzy, no-wrap
 #| msgid ""
 #| "loadrt threads name1=servo-thread period1=1000000\n"
@@ -144098,7 +144088,7 @@ msgstr ""
 "addf ddt.0 servo-thread\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:147
+#: src/hal/comp.adoc:144
 #, fuzzy
 #| msgid ""
 #| "More information on 'loadrt' and 'addf' can be found in the <<cha:basic-"
@@ -144111,7 +144101,7 @@ msgstr ""
 "reference,HAL Grundlagen>>."
 
 #. type: Plain text
-#: src/hal/comp.adoc:149
+#: src/hal/comp.adoc:146
 msgid ""
 "To test your component you can follow the examples in the <<cha:hal-"
 "tutorial,HAL Tutorial>>."
@@ -144120,13 +144110,13 @@ msgstr ""
 "tutorial,HAL Tutorial>> folgen."
 
 #. type: Title ==
-#: src/hal/comp.adoc:150
+#: src/hal/comp.adoc:147
 #, no-wrap
 msgid "Definitions"
 msgstr "Definitionen"
 
 #. type: Plain text
-#: src/hal/comp.adoc:154
+#: src/hal/comp.adoc:151
 #, fuzzy
 #| msgid ""
 #| "'component' - A component is a single real-time module, which is loaded "
@@ -144142,7 +144132,7 @@ msgstr ""
 "Der Komponentenname und der Dateiname müssen übereinstimmen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:158
+#: src/hal/comp.adoc:155
 #, fuzzy
 #| msgid ""
 #| "'instance' - A component can have zero or more instances. Each instance "
@@ -144161,7 +144151,7 @@ msgstr ""
 "wenn ihre Pins, Parameter und Daten unterschiedliche Werte haben."
 
 #. type: Plain text
-#: src/hal/comp.adoc:162
+#: src/hal/comp.adoc:159
 #, fuzzy
 #| msgid ""
 #| "'singleton' - It is possible for a component to be a \"singleton\", in "
@@ -144186,13 +144176,13 @@ msgstr ""
 "Hardware-Treiber für den internen PC-Lautsprecher)"
 
 #. type: Title ==
-#: src/hal/comp.adoc:163
+#: src/hal/comp.adoc:160
 #, no-wrap
 msgid "Instance creation"
 msgstr "Erstellung einer Instanz"
 
 #. type: Plain text
-#: src/hal/comp.adoc:166
+#: src/hal/comp.adoc:163
 msgid ""
 "For a singleton, the one instance is created when the component is loaded."
 msgstr ""
@@ -144200,7 +144190,7 @@ msgstr ""
 "wird."
 
 #. type: Plain text
-#: src/hal/comp.adoc:170
+#: src/hal/comp.adoc:167
 msgid ""
 "For a non-singleton, the 'count' module parameter determines how many "
 "numbered instances are created.  If 'count' is not specified, the 'names' "
@@ -144215,13 +144205,13 @@ msgstr ""
 "nummerierte Instanz erstellt."
 
 #. type: Title ==
-#: src/hal/comp.adoc:171
+#: src/hal/comp.adoc:168
 #, no-wrap
 msgid "Implicit Parameters"
 msgstr "Implizite Parameter"
 
 #. type: Plain text
-#: src/hal/comp.adoc:176
+#: src/hal/comp.adoc:173
 msgid ""
 "Functions are implicitly passed the 'period' parameter which is the time in "
 "nanoseconds of the last period to execute the component.  Functions which "
@@ -144237,7 +144227,7 @@ msgstr ""
 "Zeitinformationen benötigen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:180
+#: src/hal/comp.adoc:177
 #, fuzzy
 #| msgid ""
 #| "A '.comp' file consists of a number of declarations, followed by ';;' on "
@@ -144251,17 +144241,17 @@ msgstr ""
 "Moduls implementiert."
 
 #. type: Plain text
-#: src/hal/comp.adoc:182
+#: src/hal/comp.adoc:179
 msgid "Declarations include:"
 msgstr "Die Erklärungen umfassen:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:184
+#: src/hal/comp.adoc:181
 msgid "'component HALNAME (DOC);'"
 msgstr "'component HALNAME (DOC);'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:185
+#: src/hal/comp.adoc:182
 msgid ""
 "'pin PINDIRECTION TYPE HALNAME ([SIZE]|[MAXSIZE: CONDSIZE]) (if CONDITION) "
 "(= STARTVALUE) (DOC) ;'"
@@ -144270,7 +144260,7 @@ msgstr ""
 "(= STARTVALUE) (DOC) ;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:186
+#: src/hal/comp.adoc:183
 msgid ""
 "'param PARAMDIRECTION TYPE HALNAME ([SIZE]|[MAXSIZE: CONDSIZE]) (if "
 "CONDITION) (= STARTVALUE) (DOC) ;'"
@@ -144279,57 +144269,57 @@ msgstr ""
 "CONDITION) (= STARTVALUE) (DOC) ;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:187
+#: src/hal/comp.adoc:184
 msgid "'function HALNAME (fp | nofp) (DOC);'"
 msgstr "'function HALNAME (fp | nofp) (DOC);'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:188
+#: src/hal/comp.adoc:185
 msgid "'option OPT (VALUE);'"
 msgstr "'option OPT (VALUE);'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:189
+#: src/hal/comp.adoc:186
 msgid "'variable CTYPE STARREDNAME ([SIZE]);'"
 msgstr "'variable CTYPE STARREDNAME ([SIZE]);'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:190
+#: src/hal/comp.adoc:187
 msgid "'description DOC;'"
 msgstr "'description DOC;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:191
+#: src/hal/comp.adoc:188
 msgid "'examples DOC;'"
 msgstr "'examples DOC;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:192
+#: src/hal/comp.adoc:189
 msgid "'notes DOC;'"
 msgstr "'notes DOC;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:193
+#: src/hal/comp.adoc:190
 msgid "'see_also DOC;'"
 msgstr "see_also DOC;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:194
+#: src/hal/comp.adoc:191
 msgid "'license LICENSE;'"
 msgstr "'license LICENSE;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:195
+#: src/hal/comp.adoc:192
 msgid "'author AUTHOR;'"
 msgstr "'author AUTHOR;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:196
+#: src/hal/comp.adoc:193
 msgid "'include HEADERFILE;'"
 msgstr "'include HEADERFILE;'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:199
+#: src/hal/comp.adoc:196
 msgid ""
 "Parentheses indicate optional items. A vertical bar indicates alternatives.  "
 "Words in 'CAPITALS' indicate variable text, as follows:"
@@ -144339,12 +144329,12 @@ msgstr ""
 "variablen Text, wie folgt:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:201
+#: src/hal/comp.adoc:198
 msgid "'NAME' - A standard C identifier"
 msgstr "'NAME' - Ein Standard-C-Bezeichner"
 
 #. type: Plain text
-#: src/hal/comp.adoc:204
+#: src/hal/comp.adoc:201
 msgid ""
 "'STARREDNAME' - A C identifier with zero or more * before it.  This syntax "
 "can be used to declare instance variables that are pointers.  Note that "
@@ -144357,7 +144347,7 @@ msgstr ""
 "dem * und dem Variablennamen stehen darf."
 
 #. type: Plain text
-#: src/hal/comp.adoc:208
+#: src/hal/comp.adoc:205
 msgid ""
 "'HALNAME' - An extended identifier.  When used to create a HAL identifier, "
 "any underscores are replaced with dashes, and any trailing dash or period is "
@@ -144375,7 +144365,7 @@ msgstr ""
 "\"Komponente. <num>.\""
 
 #. type: Plain text
-#: src/hal/comp.adoc:210
+#: src/hal/comp.adoc:207
 msgid ""
 "If present, the prefix 'hal_' is removed from the beginning of the component "
 "name when creating pins, parameters and functions."
@@ -144384,7 +144374,7 @@ msgstr ""
 "Präfix 'hal_' am Anfang des Komponentennamens entfernt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:213
+#: src/hal/comp.adoc:210
 msgid ""
 "In the HAL identifier for a pin or parameter, # denotes an array item, and "
 "must be used in conjunction with a '[SIZE]' declaration.  The hash marks are "
@@ -144397,7 +144387,7 @@ msgstr ""
 "der gleichen Länge wie die Anzahl der #-Zeichen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:215
+#: src/hal/comp.adoc:212
 msgid ""
 "When used to create a C identifier, the following changes are applied to the "
 "HALNAME:"
@@ -144406,7 +144396,7 @@ msgstr ""
 "HALNAME vorgenommen:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:217
+#: src/hal/comp.adoc:214
 msgid ""
 "Any \"#\" characters, and any \".\", \"_\" or \"-\" characters immediately "
 "before them, are removed."
@@ -144415,19 +144405,19 @@ msgstr ""
 "davor stehen, werden entfernt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:218
+#: src/hal/comp.adoc:215
 msgid "Any remaining \".\" and \"-\" characters are replaced with \"_\"."
 msgstr ""
 "Alle verbleibenden \".\"- und \"-\"-Zeichen werden durch \"_\" ersetzt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:219
+#: src/hal/comp.adoc:216
 msgid "Repeated \"\\_\" characters are changed to a single \"\\_\" character."
 msgstr ""
 "Wiederholte „\\_“-Zeichen werden in ein einzelnes „\\_“-Zeichen geändert."
 
 #. type: Plain text
-#: src/hal/comp.adoc:221
+#: src/hal/comp.adoc:218
 msgid ""
 "A trailing \"_\" is retained, so that HAL identifiers which would otherwise "
 "collide with reserved names or keywords (e.g., 'min') can be used."
@@ -144437,85 +144427,85 @@ msgstr ""
 "würden, verwendet werden können."
 
 #. type: Table
-#: src/hal/comp.adoc:224
+#: src/hal/comp.adoc:221
 #, no-wrap
 msgid "HALNAME"
 msgstr "HALNAME"
 
 #. type: Table
-#: src/hal/comp.adoc:224
+#: src/hal/comp.adoc:221
 #, no-wrap
 msgid "C Identifier"
 msgstr "C Bezeichner (engl. identifier)"
 
 #. type: Table
-#: src/hal/comp.adoc:225
+#: src/hal/comp.adoc:222
 #, no-wrap
 msgid "HAL Identifier"
 msgstr "HAL-Bezeichner (engl. identifier)"
 
 #. type: Table
-#: src/hal/comp.adoc:225 src/hal/comp.adoc:226
+#: src/hal/comp.adoc:222 src/hal/comp.adoc:223
 #, no-wrap
 msgid "x_y_z"
 msgstr "x_y_z"
 
 #. type: Table
-#: src/hal/comp.adoc:226 src/hal/comp.adoc:228
+#: src/hal/comp.adoc:223 src/hal/comp.adoc:225
 #, no-wrap
 msgid "x-y-z"
 msgstr "x-y-z"
 
 #. type: Table
-#: src/hal/comp.adoc:226 src/hal/comp.adoc:227
+#: src/hal/comp.adoc:223 src/hal/comp.adoc:224
 #, no-wrap
 msgid "x-y.z"
 msgstr "x-y.z"
 
 #. type: Table
-#: src/hal/comp.adoc:227
+#: src/hal/comp.adoc:224
 #, no-wrap
 msgid "x_y_z_"
 msgstr "x_y_z_"
 
 #. type: Table
-#: src/hal/comp.adoc:228
+#: src/hal/comp.adoc:225
 #, no-wrap
 msgid "x.##.y"
 msgstr "x.##.y"
 
 #. type: Table
-#: src/hal/comp.adoc:228
+#: src/hal/comp.adoc:225
 #, no-wrap
 msgid "x_y(MM)"
 msgstr "x_y(MM)"
 
 #. type: Table
-#: src/hal/comp.adoc:229
+#: src/hal/comp.adoc:226
 #, no-wrap
 msgid "x.MM.z"
 msgstr "x.MM.z"
 
 #. type: Table
-#: src/hal/comp.adoc:229
+#: src/hal/comp.adoc:226
 #, no-wrap
 msgid "x.##"
 msgstr "x.##"
 
 #. type: Table
-#: src/hal/comp.adoc:229
+#: src/hal/comp.adoc:226
 #, no-wrap
 msgid "x(MM)"
 msgstr "x(MM)"
 
 #. type: Table
-#: src/hal/comp.adoc:230
+#: src/hal/comp.adoc:227
 #, no-wrap
 msgid "x.MM"
 msgstr "x.MM"
 
 #. type: Plain text
-#: src/hal/comp.adoc:233
+#: src/hal/comp.adoc:230
 msgid ""
 "'if CONDITION' - An expression involving the variable 'personality' which is "
 "nonzero when the pin or parameter should be created."
@@ -144525,7 +144515,7 @@ msgstr ""
 "erstellt werden soll"
 
 #. type: Plain text
-#: src/hal/comp.adoc:235
+#: src/hal/comp.adoc:232
 msgid ""
 "'SIZE' - A number that gives the size of an array. The array items are "
 "numbered from 0 to 'SIZE'-1."
@@ -144534,7 +144524,7 @@ msgstr ""
 "sind von 0 bis 'SIZE'-1 nummeriert."
 
 #. type: Plain text
-#: src/hal/comp.adoc:239
+#: src/hal/comp.adoc:236
 msgid ""
 "'MAXSIZE : CONDSIZE' - A number that gives the maximum size of the array, "
 "followed by an expression involving the variable 'personality' and which "
@@ -144547,7 +144537,7 @@ msgstr ""
 "'CONDSIZE'."
 
 #. type: Plain text
-#: src/hal/comp.adoc:241
+#: src/hal/comp.adoc:238
 msgid ""
 "'DOC' - A string that documents the item. String can be a C-style \"double "
 "quoted\" string, like:"
@@ -144557,13 +144547,13 @@ msgstr ""
 "sein, z. B.:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:244
+#: src/hal/comp.adoc:241
 #, no-wrap
 msgid "\"Selects the desired edge: TRUE means falling, FALSE means rising\"\n"
 msgstr "\"Wählt die gewünschte Flanke aus: TRUE bedeutet fallend, FALSE bedeutet steigend\"\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:247
+#: src/hal/comp.adoc:244
 msgid ""
 "or a Python-style \"triple quoted\" string, which may include embedded "
 "newlines and quote characters, such as:"
@@ -144573,7 +144563,7 @@ msgstr ""
 "z. B.:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:251
+#: src/hal/comp.adoc:248
 #, no-wrap
 msgid ""
 "\"\"\"The effect of this parameter, also known as \"the orb of zot\",\n"
@@ -144583,7 +144573,7 @@ msgstr ""
 "ist in mindestens zwei Absätzen zu erklären.\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:254
+#: src/hal/comp.adoc:251
 #, no-wrap
 msgid ""
 "Hopefully these paragraphs have allowed you to understand \"zot\"\n"
@@ -144593,7 +144583,7 @@ msgstr ""
 "zu verstehen.\"\"\"\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:257
+#: src/hal/comp.adoc:254
 msgid ""
 "Or a string may be preceded by the literal character 'r', in which case the "
 "string is interpreted like a Python raw-string."
@@ -144603,10 +144593,16 @@ msgstr ""
 "interpretiert."
 
 #. type: Plain text
-#: src/hal/comp.adoc:261
+#: src/hal/comp.adoc:258
+#, fuzzy
+#| msgid ""
+#| "The documentation string is in \"groff -man\" format.  For more "
+#| "information on this markup format, see 'groff_man(7)'.  Remember that "
+#| "'halcompile' interprets backslash escapes in strings, so for instance to "
+#| "set the italic font for the word 'example', write:"
 msgid ""
 "The documentation string is in \"groff -man\" format.  For more information "
-"on this markup format, see 'groff_man(7)'.  Remember that 'halcompile' "
+"on this markup format, see 'groff_man(7)'.  Remember that 'modcompile' "
 "interprets backslash escapes in strings, so for instance to set the italic "
 "font for the word 'example', write:"
 msgstr ""
@@ -144617,13 +144613,13 @@ msgstr ""
 "können:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:264
+#: src/hal/comp.adoc:261
 #, no-wrap
 msgid "\"\\\\fIexample\\\\fB\"\n"
 msgstr "\"\\\\fIBeispiel\\\\fB\"\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:267
+#: src/hal/comp.adoc:264
 msgid ""
 "In this case, r-strings are particularly useful, because the backslashes in "
 "an r-string need not be doubled:"
@@ -144632,13 +144628,13 @@ msgstr ""
 "in einer r-Zeichenfolge nicht verdoppelt werden müssen:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:270
+#: src/hal/comp.adoc:267
 #, no-wrap
 msgid "r\"\\fIexample\\fB\"\n"
 msgstr "r\"\\fI-Beispiel\\fB\"\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:274
+#: src/hal/comp.adoc:271
 msgid ""
 "'TYPE' - One of the HAL types: 'bit', 'signed', 'unsigned', or 'float'.  The "
 "old names 's32' and 'u32' may also be used, but 'signed' and 'unsigned' are "
@@ -144649,7 +144645,7 @@ msgstr ""
 "\"signiert\" und \"unsigniert\" werden bevorzugt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:276
+#: src/hal/comp.adoc:273
 msgid ""
 "'PINDIRECTION' - One of the following: 'in', 'out', or 'io'.  A component "
 "sets a value for an 'out' pin, it reads a value from an 'in' pin, and it may "
@@ -144660,7 +144656,7 @@ msgstr ""
 "einem \"In\"-Pin und kann den Wert eines \"io\"-Pins lesen oder festlegen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:277
+#: src/hal/comp.adoc:274
 msgid ""
 "'PARAMDIRECTION' - One of the following: 'r' or 'rw'. A component sets a "
 "value for a 'r' parameter, and it may read or set the value of a 'rw' "
@@ -144671,7 +144667,7 @@ msgstr ""
 "Parameters lesen oder festlegen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:279
+#: src/hal/comp.adoc:276
 msgid ""
 "'STARTVALUE' - Specifies the initial value of a pin or parameter.  If it is "
 "not specified, then the default is '0' or 'FALSE', depending on the type of "
@@ -144682,7 +144678,7 @@ msgstr ""
 "vom Typ des Elements."
 
 #. type: Plain text
-#: src/hal/comp.adoc:281
+#: src/hal/comp.adoc:278
 msgid ""
 "'HEADERFILE' - The name of a header file, either in double-quotes (`include "
 "\"myfile.h\";`) or in angle brackets (`include <systemfile.h>;`).  The "
@@ -144696,22 +144692,29 @@ msgstr ""
 "eingefügt."
 
 #. type: Title ===
-#: src/hal/comp.adoc:282
+#: src/hal/comp.adoc:279
 #, no-wrap
 msgid "HAL functions"
 msgstr "HAL-Funktionen"
 
 #. type: Plain text
-#: src/hal/comp.adoc:285
+#: src/hal/comp.adoc:282
 msgid ""
 "'fp' - Indicates that the function performs floating-point calculations."
 msgstr "'fp' - Gibt an, dass die Funktion Gleitkommaberechnungen durchführt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:289
+#: src/hal/comp.adoc:286
+#, fuzzy
+#| msgid ""
+#| "'nofp' - Indicates that it only performs integer calculations.  If "
+#| "neither is specified, 'fp' is assumed.  Neither 'halcompile' nor gcc can "
+#| "detect the use of floating-point calculations in functions that are "
+#| "tagged 'nofp', but the use of such operations results in undefined "
+#| "behavior."
 msgid ""
 "'nofp' - Indicates that it only performs integer calculations.  If neither "
-"is specified, 'fp' is assumed.  Neither 'halcompile' nor gcc can detect the "
+"is specified, 'fp' is assumed.  Neither 'modcompile' nor gcc can detect the "
 "use of floating-point calculations in functions that are tagged 'nofp', but "
 "the use of such operations results in undefined behavior."
 msgstr ""
@@ -144722,12 +144725,12 @@ msgstr ""
 "Operationen führt zu undefiniertem Verhalten."
 
 #. type: Plain text
-#: src/hal/comp.adoc:293
+#: src/hal/comp.adoc:290
 msgid "The currently defined options are:"
 msgstr "Die derzeit definierten Optionen sind:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:297
+#: src/hal/comp.adoc:294
 msgid ""
 "'option singleton yes' - (default: no)  Do not create a 'count' module "
 "parameter, and always create a single instance.  With 'singleton', items are "
@@ -144741,7 +144744,7 @@ msgstr ""
 "genannt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:299
+#: src/hal/comp.adoc:296
 msgid ""
 "'option default_count number' - (default: 1)  Normally, the module parameter "
 "'count' defaults to 1. If specified, the 'count' will default to this value "
@@ -144752,7 +144755,7 @@ msgstr ""
 "'count' stattdessen auf diesen Wert gesetzt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:302
+#: src/hal/comp.adoc:299
 msgid ""
 "'option count_function yes' - (default: no)  Normally, the number of "
 "instances to create is specified in the module parameter 'count'; if "
@@ -144767,7 +144770,7 @@ msgstr ""
 "'count' ist nicht definiert."
 
 #. type: Plain text
-#: src/hal/comp.adoc:306
+#: src/hal/comp.adoc:303
 msgid ""
 "'option rtapi_app no' - (default: yes)  Normally, the functions "
 "`rtapi_app_main()` and `rtapi_app_exit()` are automatically defined.  With "
@@ -144780,19 +144783,19 @@ msgstr ""
 "bereitgestellt werden. Verwenden Sie die folgenden Prototypen:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:309
+#: src/hal/comp.adoc:306
 #, no-wrap
 msgid "`int rtapi_app_main(void);`\n"
 msgstr "`int rtapi_app_main(void);`\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:311
+#: src/hal/comp.adoc:308
 #, no-wrap
 msgid "`void rtapi_app_exit(void);`\n"
 msgstr "`void rtapi_app_exit(void);`\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:314
+#: src/hal/comp.adoc:311
 msgid ""
 "When implementing your own `rtapi_app_main()`, call the function `int "
 "export(char *prefix, long extra_arg)` to register the pins, parameters, and "
@@ -144803,7 +144806,7 @@ msgstr ""
 "Parameter und Funktionen für `prefix` zu registrieren."
 
 #. type: Plain text
-#: src/hal/comp.adoc:318
+#: src/hal/comp.adoc:315
 #, no-wrap
 msgid ""
 "'option data TYPE' - (default: none) *deprecated*\n"
@@ -144811,7 +144814,7 @@ msgid ""
 msgstr "'option data TYPE' - (Voreinstellung: none) *veraltet* Wenn angegeben, hat jede Instanz der Komponente einen zugehörigen Datenblock des Typs 'TYPE' (der ein einfacher Typ wie 'float' oder der Name eines mit 'typedef' erstellten Typs sein kann).  In neuen Komponenten sollte stattdessen 'variable' verwendet werden."
 
 #. type: Plain text
-#: src/hal/comp.adoc:322
+#: src/hal/comp.adoc:319
 #, fuzzy, no-wrap
 #| msgid "'option extra_setup yes' - (default: no)  If specified, call the function defined by 'EXTRA_SETUP' for each instance. If using the automatically defined 'rtapi_app_main', 'extra_arg' is the number of this instance."
 msgid ""
@@ -144820,7 +144823,7 @@ msgid ""
 msgstr "option extra_setup yes' - (Standard: no) Wenn angegeben, wird die durch 'EXTRA_SETUP' definierte Funktion für jede Instanz aufgerufen. Bei Verwendung der automatisch definierten 'rtapi_app_main' ist 'extra_arg' die Nummer dieser Instanz."
 
 #. type: Plain text
-#: src/hal/comp.adoc:326
+#: src/hal/comp.adoc:323
 #, fuzzy, no-wrap
 #| msgid "'option extra_cleanup yes' - (default: no)  If specified, call the function defined by 'EXTRA_CLEANUP' from the automatically defined 'rtapi_app_exit', or if an error is detected in the automatically defined 'rtapi_app_main'."
 msgid ""
@@ -144829,7 +144832,7 @@ msgid ""
 msgstr "'option extra_cleanup yes' - (Standard: nein) Falls angegeben, rufen Sie die durch 'EXTRA_CLEANUP' definierte Funktion aus dem automatisch definierten 'rtapi_app_exit' auf, oder wenn im automatisch definierten 'rtapi_app_main' ein Fehler erkannt wird."
 
 #. type: Plain text
-#: src/hal/comp.adoc:334
+#: src/hal/comp.adoc:331
 #, fuzzy, no-wrap
 #| msgid "'option userspace yes' - (default: no)  If specified, this file describes a userspace (i.e., non-realtime) component, rather than a regular (i.e., realtime) one. A userspace component may not have functions defined by the 'function' directive. Instead, after all the instances are constructed, the C function `void user_mainloop(void);` is called. When this function returns, the component exits.  Typically, 'user_mainloop()' will use 'FOR_ALL_INSTS()' to perform the update action for each instance, then sleep for a short time. Another common action in 'user_mainloop()' may be to call the event handler loop of a GUI toolkit."
 msgid ""
@@ -144838,7 +144841,7 @@ msgid ""
 msgstr "'option userspace yes' - (Voreinstellung: no) Wenn diese Datei angegeben wird, beschreibt sie eine Userspace-Komponente (d.h. eine Nicht-Echtzeit-Komponente) und keine reguläre Komponente (d.h. eine Echtzeit-Komponente). Eine Userspace-Komponente darf keine Funktionen haben, die durch die 'function'-Direktive definiert sind. Stattdessen wird, nachdem alle Instanzen konstruiert sind, die C-Funktion `void user_mainloop(void);` aufgerufen. Wenn diese Funktion zurückkehrt, wird die Komponente beendet.  Normalerweise verwendet 'user_mainloop()' 'FOR_ALL_INSTS()', um die Aktualisierungsaktion für jede Instanz durchzuführen, und schläft dann für eine kurze Zeit. Eine andere übliche Aktion in 'user_mainloop()' kann der Aufruf der Event-Handler-Schleife eines GUI-Toolkits sein."
 
 #. type: Plain text
-#: src/hal/comp.adoc:340
+#: src/hal/comp.adoc:337
 #, fuzzy, no-wrap
 #| msgid "'option userinit yes' - (default: no)  This option is ignored if the option 'userspace' (see above) is set to 'no'.  If 'userinit' is specified, the function 'userinit(argc,argv)' is called before 'rtapi_app_main()' (and thus before the call to 'hal_init()' ). This function may process the commandline arguments or take other actions. Its return type is 'void'; it may call 'exit()' if it wishes to terminate rather than create a HAL component (for instance, because the commandline arguments were invalid)."
 msgid ""
@@ -144847,12 +144850,12 @@ msgid ""
 msgstr "'option userinit yes' - (Standard: no) Diese Option wird ignoriert, wenn die Option 'userspace' (siehe oben) auf 'no' gesetzt ist.  Wenn 'userinit' angegeben ist, wird die Funktion 'userinit(argc,argv)' vor 'rtapi_app_main()' (und damit vor dem Aufruf von 'hal_init()' ) aufgerufen. Diese Funktion kann die Kommandozeilenargumente verarbeiten oder andere Aktionen ausführen. Ihr Rückgabetyp ist 'void'; sie kann 'exit()' aufrufen, wenn sie beenden will, anstatt eine HAL-Komponente zu erstellen (z.B. weil die Kommandozeilenargumente ungültig waren)."
 
 #. type: Plain text
-#: src/hal/comp.adoc:342
+#: src/hal/comp.adoc:339
 msgid "'option extra_link_args \"...\"' - (default: \"\")"
 msgstr ""
 
 #. type: Plain text
-#: src/hal/comp.adoc:348
+#: src/hal/comp.adoc:344
 #, fuzzy
 #| msgid ""
 #| "'option extra_link_args \"...\"' - (default: \"\")  This option is "
@@ -144866,10 +144869,9 @@ msgid ""
 "'no'.  When linking a non-realtime component, the arguments given are "
 "inserted in the link line.  Note that because compilation takes place in a "
 "temporary directory, \"-L.\" refers to the temporary directory and not the "
-"directory where the .comp source file resides.  This option can be set in "
-"the halcompile command-line with -extra-link-args=\"-L.....\".  This "
-"alternative provides a way to set extra flags in cases where the input file "
-"is a .c file rather than a .comp file."
+"directory where the .comp source file resides.  NOTE: 'modcompile' does not "
+"act on this option; use `modcompile --ldflags` from your own Makefile "
+"instead."
 msgstr ""
 "'option extra_link_args \"...\"' - (Standard: \"\") Diese Option wird "
 "ignoriert, wenn die Option 'userspace' (siehe oben) auf 'no' gesetzt ist.  "
@@ -144879,12 +144881,12 @@ msgstr ""
 "und nicht auf das Verzeichnis, in dem sich die .comp-Quelldatei befindet."
 
 #. type: Plain text
-#: src/hal/comp.adoc:350
+#: src/hal/comp.adoc:346
 msgid "'option extra_compile_args \"...\"' - (default: \"\")"
 msgstr ""
 
 #. type: Plain text
-#: src/hal/comp.adoc:354
+#: src/hal/comp.adoc:349
 #, fuzzy
 #| msgid ""
 #| "'option extra_link_args \"...\"' - (default: \"\")  This option is "
@@ -144896,10 +144898,8 @@ msgstr ""
 msgid ""
 "This option is ignored if the option 'userspace' (see above) is set to "
 "'no'.  When compiling a non-realtime component, the arguments given are "
-"inserted in the compiler command line.  If the input file is a .c file this "
-"option can be set in the halcompile command-line with --extra-compile-"
-"args=\"-I.....\".  This alternative provides a way to set extra flags in "
-"cases where the input file is a .c file rather than a .comp file."
+"inserted in the compiler command line.  NOTE: 'modcompile' does not act on "
+"this option; use `modcompile --cflags` from your own Makefile instead."
 msgstr ""
 "'option extra_link_args \"...\"' - (Standard: \"\") Diese Option wird "
 "ignoriert, wenn die Option 'userspace' (siehe oben) auf 'no' gesetzt ist.  "
@@ -144909,7 +144909,7 @@ msgstr ""
 "und nicht auf das Verzeichnis, in dem sich die .comp-Quelldatei befindet."
 
 #. type: Plain text
-#: src/hal/comp.adoc:357
+#: src/hal/comp.adoc:352
 #, fuzzy, no-wrap
 #| msgid "'option homemod yes' - (default: no)  Module is a custom Homing module loaded using [EMCMOT]HOMEMOD=modulename"
 msgid ""
@@ -144918,7 +144918,7 @@ msgid ""
 msgstr "'option homemod yes' - (Standard: no) Modul ist ein benutzerdefiniertes Homing-Modul, das mit [EMCMOT]HOMEMOD=modulename geladen wird"
 
 #. type: Plain text
-#: src/hal/comp.adoc:360
+#: src/hal/comp.adoc:355
 #, fuzzy, no-wrap
 #| msgid "'option tpmod yes' - (default: no)  Module is a custom Trajectory Planning (tp) module loaded using [TRAJ]TPMOD=modulename"
 msgid ""
@@ -144927,7 +144927,7 @@ msgid ""
 msgstr "'option tpmod yes' - (Standard: no) Modul ist ein benutzerdefiniertes Trajektorienplanungsmodul (tp), das mit [TRAJ]TPMOD=modulename geladen wird"
 
 #. type: Plain text
-#: src/hal/comp.adoc:364
+#: src/hal/comp.adoc:359
 #, no-wrap
 msgid ""
 "If an option's VALUE is not specified, then it is equivalent to specifying 'option … yes'.\n"
@@ -144939,13 +144939,13 @@ msgstr ""
 "Das Ergebnis der Verwendung einer anderen Option ist undefiniert. +"
 
 #. type: Title ===
-#: src/hal/comp.adoc:365
+#: src/hal/comp.adoc:360
 #, no-wrap
 msgid "License and Authorship"
 msgstr "Lizenz und Urheberschaft"
 
 #. type: Plain text
-#: src/hal/comp.adoc:369
+#: src/hal/comp.adoc:364
 #, fuzzy
 #| msgid ""
 #| "'LICENSE' - Specify the license of the module for the documentation and "
@@ -144961,14 +144961,14 @@ msgstr ""
 "Lizenz des Moduls GPL v2 oder höher ist:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:371
+#: src/hal/comp.adoc:366
 #, fuzzy, no-wrap
 #| msgid "license \"GPL\"; // indicates GPL v2 or later\n"
 msgid "`license \"GPL\"; // indicates GPL v2 or later`\n"
 msgstr "license \"GPL\"; // bedeutet GPL v2 oder höher\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:374
+#: src/hal/comp.adoc:369
 msgid ""
 "For additional information on the meaning of MODULE_LICENSE() and additional "
 "license identifiers, see '<linux/module.h>' or the manual page "
@@ -144979,25 +144979,25 @@ msgstr ""
 "Handbuchseite zu 'rtapi_module_param(3)'."
 
 #. type: Plain text
-#: src/hal/comp.adoc:376
+#: src/hal/comp.adoc:371
 msgid "This declaration is *required*."
 msgstr "Diese Erklärung ist *erforderlich*."
 
 #. type: Plain text
-#: src/hal/comp.adoc:378
+#: src/hal/comp.adoc:373
 #, fuzzy
 #| msgid "'AUTHOR' - Specify the author of the module for the documentation."
 msgid "`AUTHOR` - Specify the author of the module for the documentation."
 msgstr "'AUTHOR' - Geben Sie den Autor des Moduls für die Dokumentation an."
 
 #. type: Title ===
-#: src/hal/comp.adoc:379
+#: src/hal/comp.adoc:374
 #, no-wrap
 msgid "Per-instance data storage"
 msgstr "Datenspeicherung pro Instanz"
 
 #. type: Plain text
-#: src/hal/comp.adoc:385
+#: src/hal/comp.adoc:380
 #, no-wrap
 msgid ""
 "`variable CTYPE STARREDNAME;\n"
@@ -145011,7 +145011,7 @@ msgstr ""
 "variable CTYPE STARREDNAME[SIZE] = DEFAULT;`"
 
 #. type: Plain text
-#: src/hal/comp.adoc:391
+#: src/hal/comp.adoc:386
 #, fuzzy
 #| msgid ""
 #| "Declare a per-instance variable 'STARREDNAME' of type 'CTYPE', optionally "
@@ -145037,7 +145037,7 @@ msgstr ""
 "Der Zugriff auf Array-Variablen erfolgt über eckige Klammern."
 
 #. type: Plain text
-#: src/hal/comp.adoc:394
+#: src/hal/comp.adoc:389
 msgid ""
 "If a variable is to be of a pointer type, there may not be any space between "
 "the \"*\" and the variable name.  Therefore, the following is acceptable:"
@@ -145047,18 +145047,18 @@ msgstr ""
 "Daher ist das Folgende akzeptabel:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:397
+#: src/hal/comp.adoc:392
 #, no-wrap
 msgid "variable int *example;\n"
 msgstr "variable int *example;\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:400
+#: src/hal/comp.adoc:395
 msgid "But the following are not:"
 msgstr "Aber die folgenden sind es nicht:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:404
+#: src/hal/comp.adoc:399
 #, no-wrap
 msgid ""
 "variable int* badexample;\n"
@@ -145068,7 +145068,7 @@ msgstr ""
 "variable int * badexample;\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:411
+#: src/hal/comp.adoc:406
 msgid ""
 "C++-style one-line comments (`//...`) and C-style multi-line comments (`/"
 "* ... */`)  are both supported in the declaration section."
@@ -145077,22 +145077,26 @@ msgstr ""
 "Stil (`/* ... */`) werden beide im Deklarationsabschnitt unterstützt."
 
 #. type: Title ==
-#: src/hal/comp.adoc:412
+#: src/hal/comp.adoc:407
 #, no-wrap
 msgid "Restrictions"
 msgstr "Einschränkungen"
 
 #. type: Plain text
-#: src/hal/comp.adoc:415
+#: src/hal/comp.adoc:410
+#, fuzzy
+#| msgid ""
+#| "Though HAL permits a pin, a parameter, and a function to have the same "
+#| "name, 'halcompile' does not."
 msgid ""
 "Though HAL permits a pin, a parameter, and a function to have the same name, "
-"'halcompile' does not."
+"'modcompile' does not."
 msgstr ""
 "Obwohl HAL erlaubt, dass ein Pin, ein Parameter und eine Funktion denselben "
 "Namen haben können, ist dies bei 'halcompile' nicht der Fall."
 
 #. type: Plain text
-#: src/hal/comp.adoc:417
+#: src/hal/comp.adoc:412
 msgid ""
 "Variable and function names that can not be used or are likely to cause "
 "problems include:"
@@ -145101,54 +145105,62 @@ msgstr ""
 "zu Problemen führen können, gehören:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:419
+#: src/hal/comp.adoc:414
 msgid "Anything beginning with '__comp_'."
 msgstr "Alles, was mit '__comp_' beginnt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:420
+#: src/hal/comp.adoc:415
 msgid "'comp_id'"
 msgstr "'comp_id'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:421
+#: src/hal/comp.adoc:416
 msgid "'fperiod'"
 msgstr "'fperiod'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:422
+#: src/hal/comp.adoc:417
 msgid "'rtapi_app_main'"
 msgstr "'rtapi_app_main'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:423
+#: src/hal/comp.adoc:418
 msgid "'rtapi_app_exit'"
 msgstr "'rtapi_app_exit'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:424
+#: src/hal/comp.adoc:419
 msgid "'extra_setup'"
 msgstr "'extra_setup'"
 
 #. type: Plain text
-#: src/hal/comp.adoc:425
+#: src/hal/comp.adoc:420
 msgid "'extra_cleanup'"
 msgstr "'extra_cleanup'"
 
 #. type: Title ==
-#: src/hal/comp.adoc:426
+#: src/hal/comp.adoc:421
 #, no-wrap
 msgid "Convenience Macros"
 msgstr "Bequemlichkeits-Makros"
 
 #. type: Plain text
-#: src/hal/comp.adoc:432
+#: src/hal/comp.adoc:427
+#, fuzzy
+#| msgid ""
+#| "Based on the items in the declaration section, 'halcompile' creates a C "
+#| "structure called `struct __comp_state`.  However, instead of referring to "
+#| "the members of this structure (e.g., `*(inst->name)`), they will "
+#| "generally be referred to using the macros below.  The details of `struct "
+#| "__comp_state` and these macros may change from one version of "
+#| "'halcompile' to the next."
 msgid ""
-"Based on the items in the declaration section, 'halcompile' creates a C "
+"Based on the items in the declaration section, 'modcompile' creates a C "
 "structure called `struct __comp_state`.  However, instead of referring to "
 "the members of this structure (e.g., `*(inst->name)`), they will generally "
 "be referred to using the macros below.  The details of `struct __comp_state` "
-"and these macros may change from one version of 'halcompile' to the next."
+"and these macros may change from one version of 'modcompile' to the next."
 msgstr ""
 "Basierend auf den Elementen im Deklarationsabschnitt erzeugt 'halcompile' "
 "eine C-Struktur namens `struct __comp_state`. Anstatt jedoch auf die "
@@ -145158,7 +145170,7 @@ msgstr ""
 "'halcompile' zur nächsten ändern."
 
 #. type: Plain text
-#: src/hal/comp.adoc:435
+#: src/hal/comp.adoc:430
 #, fuzzy
 #| msgid ""
 #| "'FUNCTION(name)' - Use this macro to begin the definition of a realtime "
@@ -145177,7 +145189,7 @@ msgstr ""
 "Anzahl von Nanosekunden zwischen Aufrufen der Funktion angibt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:437
+#: src/hal/comp.adoc:432
 #, fuzzy
 #| msgid ""
 #| "'EXTRA_SETUP()' - Use this macro to begin the definition of the function "
@@ -145197,7 +145209,7 @@ msgstr ""
 "eines I/O-Ports fehlgeschlagen ist), oder 0, um einen Erfolg anzuzeigen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:440
+#: src/hal/comp.adoc:435
 #, fuzzy
 #| msgid ""
 #| "'EXTRA_CLEANUP()' - Use this macro to begin the definition of the "
@@ -145218,7 +145230,7 @@ msgstr ""
 "\"parameter_name\" und \"data\" dürfen hier nicht verwendet werden."
 
 #. type: Plain text
-#: src/hal/comp.adoc:446
+#: src/hal/comp.adoc:441
 #, fuzzy
 #| msgid ""
 #| "'pin_name' or 'parameter_name' - For each pin 'pin_name' or param "
@@ -145245,7 +145257,7 @@ msgstr ""
 "Elemente bis zu seiner 'condsize' zu verweisen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:448
+#: src/hal/comp.adoc:443
 msgid ""
 "When the item is a conditional item, it is only legal to refer to it when "
 "its 'condition' evaluated to a nonzero value."
@@ -145254,7 +145266,7 @@ msgstr ""
 "werden, wenn ihre \"Bedingung\" einen Wert ungleich Null ergibt."
 
 #. type: Plain text
-#: src/hal/comp.adoc:451
+#: src/hal/comp.adoc:446
 msgid ""
 "'variable_name' - For each variable 'variable_name' there is a macro which "
 "allows the name to be used on its own to refer to the variable.  When "
@@ -145267,7 +145279,7 @@ msgstr ""
 "'variable_name[idx]'."
 
 #. type: Plain text
-#: src/hal/comp.adoc:452
+#: src/hal/comp.adoc:447
 msgid ""
 "'data' - If \"option data\" is specified, this macro allows access to the "
 "instance data."
@@ -145276,7 +145288,7 @@ msgstr ""
 "Zugriff auf die Instanzdaten."
 
 #. type: Plain text
-#: src/hal/comp.adoc:453
+#: src/hal/comp.adoc:448
 msgid ""
 "'fperiod' - The floating-point number of seconds between calls to this "
 "realtime function."
@@ -145285,7 +145297,7 @@ msgstr ""
 "Echtzeitfunktion."
 
 #. type: Plain text
-#: src/hal/comp.adoc:456
+#: src/hal/comp.adoc:451
 #, fuzzy
 #| msgid ""
 #| "'FOR_ALL_INSTS() {...}' - For userspace components. This macro iterates "
@@ -145303,13 +145315,13 @@ msgstr ""
 "Makros 'pin_name', 'parameter_name' und 'data' wie in Echtzeitfunktionen."
 
 #. type: Title ==
-#: src/hal/comp.adoc:457
+#: src/hal/comp.adoc:452
 #, no-wrap
 msgid "Components with one function"
 msgstr "Komponenten mit einer Funktion"
 
 #. type: Plain text
-#: src/hal/comp.adoc:462
+#: src/hal/comp.adoc:457
 #, fuzzy
 #| msgid ""
 #| "If a component has only one function and the string \"FUNCTION\" does not "
@@ -145328,13 +145340,13 @@ msgstr ""
 "example,Simple Comp>> für ein Beispiel hierfür."
 
 #. type: Title ==
-#: src/hal/comp.adoc:463
+#: src/hal/comp.adoc:458
 #, no-wrap
 msgid "Component Personality"
 msgstr "Komponenten-Persönlichkeit"
 
 #. type: Plain text
-#: src/hal/comp.adoc:469
+#: src/hal/comp.adoc:464
 msgid ""
 "If a component has any pins or parameters with an \"if condition\" or "
 "\"[maxsize : condsize]\", it is called a component with 'personality'.  The "
@@ -145354,35 +145366,16 @@ msgstr ""
 "booleschen Logikfunktionen 'und', 'oder' und 'xor' zu ermöglichen."
 
 #. type: Plain text
-#: src/hal/comp.adoc:472
+#: src/hal/comp.adoc:467
 msgid ""
-"The default number of allowed 'personality' items is a compile-time setting "
-"(64).  The default applies to numerous components included in the "
-"distribution that are built using halcompile."
+"'Personality' is given per instance when the module is loaded, and instance "
+"storage is allocated at that point, so there is no compile-time ceiling on "
+"the number of items and no switch to raise one.  Hexadecimal forms work as "
+"well as decimal, for example `personality=0x102`."
 msgstr ""
-"Die Standardanzahl der erlaubten \"personality\"-Elemente ist eine "
-"Kompilierzeiteinstellung (64).  Die Vorgabe gilt für zahlreiche in der "
-"Distribution enthaltene Komponenten, die mit halcompile erstellt werden."
 
 #. type: Plain text
-#: src/hal/comp.adoc:475
-msgid ""
-"To alter the allowed number of personality items for user-built components, "
-"use the '--personality' option with halcompile.  For example, to allow up to "
-"128 personality times:"
-msgstr ""
-"Um die zulässige Anzahl von Persönlichkeitselementen für benutzerdefinierte "
-"Komponenten zu ändern, verwenden Sie die Option '--personality' mit "
-"halcompile.  Zum Beispiel, um bis zu 128 Persönlichkeitszeiten zu erlauben:"
-
-#. type: delimited block -
-#: src/hal/comp.adoc:478
-#, no-wrap
-msgid "  [sudo] halcompile --personality=128 --install ...\n"
-msgstr "  [sudo] halcompile --personality=128 --install ...\n"
-
-#. type: Plain text
-#: src/hal/comp.adoc:482
+#: src/hal/comp.adoc:470
 msgid ""
 "When using components with personality, normal usage is to specify a "
 "personality item for *each* specified component instance.  Example for 3 "
@@ -145393,13 +145386,13 @@ msgstr ""
 "Beispiel für 3 Instanzen der Logikkomponente:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:486
+#: src/hal/comp.adoc:474
 #, no-wrap
 msgid "loadrt logic names=and4,or3,nand5, personality=0x104,0x203,0x805\n"
 msgstr "loadrt logic names=and4,or3,nand5, personality=0x104,0x203,0x805\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:494
+#: src/hal/comp.adoc:482
 msgid ""
 "If a loadrt line specifies more instances than personalities, the instances "
 "with unspecified personalities are assigned a personality of 0.  If the "
@@ -145415,13 +145408,13 @@ msgstr ""
 "wird eine Meldung über solche Zuweisungen ausgegeben."
 
 #. type: Title ===
-#: src/hal/comp.adoc:497
+#: src/hal/comp.adoc:485
 #, no-wrap
 msgid "constant"
 msgstr "Konstante"
 
 #. type: Plain text
-#: src/hal/comp.adoc:501
+#: src/hal/comp.adoc:489
 msgid ""
 "Note that the declaration \"function _\" creates functions named "
 "\"constant.0\", etc.  The file name must match the component name."
@@ -145431,7 +145424,7 @@ msgstr ""
 "übereinstimmen."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:511
+#: src/hal/comp.adoc:499
 #, no-wrap
 msgid ""
 "component constant;\n"
@@ -145451,13 +145444,13 @@ msgstr ""
 "FUNCTION(_) { out = value; }\n"
 
 #. type: Title ===
-#: src/hal/comp.adoc:513
+#: src/hal/comp.adoc:501
 #, no-wrap
 msgid "sincos"
 msgstr "sincos"
 
 #. type: Plain text
-#: src/hal/comp.adoc:518
+#: src/hal/comp.adoc:506
 msgid ""
 "This component computes the sine and cosine of an input angle in radians.  "
 "It has different capabilities than the \"sine\" and \"cosine\" outputs of "
@@ -145470,7 +145463,7 @@ msgstr ""
 "Grundlage eines \"Frequenz\"-Parameters läuft."
 
 #. type: Plain text
-#: src/hal/comp.adoc:521
+#: src/hal/comp.adoc:509
 msgid ""
 "The pins are declared with the names 'sin_' and 'cos_' in the source code so "
 "that they do not interfere with the functions 'sin()' and 'cos()'.  The HAL "
@@ -145481,7 +145474,7 @@ msgstr ""
 "HAL-Pins heißen weiterhin 'sincos.<num>.sin'."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:533
+#: src/hal/comp.adoc:521
 #, no-wrap
 msgid ""
 "component sincos;\n"
@@ -145505,13 +145498,13 @@ msgstr ""
 "FUNCTION(_) { sin_ = sin(theta); cos_ = cos(theta); }\n"
 
 #. type: Title ===
-#: src/hal/comp.adoc:535
+#: src/hal/comp.adoc:523
 #, no-wrap
 msgid "out8"
 msgstr "out8"
 
 #. type: Plain text
-#: src/hal/comp.adoc:541
+#: src/hal/comp.adoc:529
 msgid ""
 "This component is a driver for a 'fictional' card called \"out8\", which has "
 "8 pins of digital output which are treated as a single 8-bit value.  There "
@@ -145532,7 +145525,7 @@ msgstr ""
 "freizugeben."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:547
+#: src/hal/comp.adoc:535
 #, no-wrap
 msgid ""
 "component out8;\n"
@@ -145544,13 +145537,13 @@ msgstr ""
 "param r unsigned ioaddr;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:549
+#: src/hal/comp.adoc:537
 #, no-wrap
 msgid "function _;\n"
 msgstr "function _;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:554
+#: src/hal/comp.adoc:542
 #, no-wrap
 msgid ""
 "option count_function;\n"
@@ -145564,7 +145557,7 @@ msgstr ""
 "option constructable no;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:558
+#: src/hal/comp.adoc:546
 #, no-wrap
 msgid ""
 "license \"GPL\"; // indicates GPL v2 or later\n"
@@ -145576,7 +145569,7 @@ msgstr ""
 "#include <asm/io.h>\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:562
+#: src/hal/comp.adoc:550
 #, no-wrap
 msgid ""
 "#define MAX 8\n"
@@ -145588,7 +145581,7 @@ msgstr ""
 "RTAPI_MP_ARRAY_INT(io, MAX, \"E/A-Adressen der out8-Karten\");\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:568
+#: src/hal/comp.adoc:556
 #, no-wrap
 msgid ""
 "int get_count(void) {\n"
@@ -145604,7 +145597,7 @@ msgstr ""
 "}\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:579
+#: src/hal/comp.adoc:567
 #, no-wrap
 msgid ""
 "EXTRA_SETUP() {\n"
@@ -145630,7 +145623,7 @@ msgstr ""
 "}\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:586
+#: src/hal/comp.adoc:574
 #, no-wrap
 msgid ""
 "EXTRA_CLEANUP() {\n"
@@ -145648,19 +145641,19 @@ msgstr ""
 "}\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:588
+#: src/hal/comp.adoc:576
 #, no-wrap
 msgid "FUNCTION(_) { outb(out_, ioaddr); }\n"
 msgstr "FUNCTION(_) { outb(out_, ioaddr); }\n"
 
 #. type: Title ===
-#: src/hal/comp.adoc:590
+#: src/hal/comp.adoc:578
 #, no-wrap
 msgid "hal_loop"
 msgstr "hal_loop"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:596
+#: src/hal/comp.adoc:584
 #, no-wrap
 msgid ""
 "component hal_loop;\n"
@@ -145670,7 +145663,7 @@ msgstr ""
 "pin out float example;\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:599
+#: src/hal/comp.adoc:587
 #, fuzzy
 #| msgid ""
 #| "sim_parport - A component to simulate the pins of the hal_parport "
@@ -145683,7 +145676,7 @@ msgstr ""
 "Komponente"
 
 #. type: Plain text
-#: src/hal/comp.adoc:601
+#: src/hal/comp.adoc:589
 msgid ""
 "`loop` is a common name, and the `hal_` prefix avoids potential name "
 "collisions with other unrelated software.  For example, on RTAI realtime "
@@ -145692,7 +145685,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/hal/comp.adoc:604
+#: src/hal/comp.adoc:592
 msgid ""
 "When loaded, 'halcmd show comp' will show a component called 'hal_loop'.  "
 "However, the pin shown by 'halcmd show pin' will be 'loop.0.example', not "
@@ -145703,20 +145696,20 @@ msgstr ""
 "und nicht \"hal-loop.0.example\"."
 
 #. type: Title ===
-#: src/hal/comp.adoc:605
+#: src/hal/comp.adoc:593
 #, no-wrap
 msgid "arraydemo"
 msgstr "arraydemo"
 
 #. type: Plain text
-#: src/hal/comp.adoc:608
+#: src/hal/comp.adoc:596
 msgid "This realtime component illustrates use of fixed-size arrays:"
 msgstr ""
 "Diese Echtzeitkomponente veranschaulicht die Verwendung von Arrays fester "
 "Größe:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:620
+#: src/hal/comp.adoc:608
 #, no-wrap
 msgid ""
 "component arraydemo \"4-bit Shift register\";\n"
@@ -145740,13 +145733,13 @@ msgstr ""
 "out(0) = in;\n"
 
 #. type: Title ===
-#: src/hal/comp.adoc:622
+#: src/hal/comp.adoc:610
 #, no-wrap
 msgid "rand"
 msgstr "rand"
 
 #. type: Plain text
-#: src/hal/comp.adoc:625
+#: src/hal/comp.adoc:613
 msgid ""
 "This non-realtime component changes the value on its output pin to a new "
 "random value in the range (0,1) about once every 1&#8239;ms."
@@ -145755,7 +145748,7 @@ msgstr ""
 "ms auf einen neuen Zufallswert im Bereich (0,1)."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:630
+#: src/hal/comp.adoc:618
 #, no-wrap
 msgid ""
 "component rand;\n"
@@ -145765,7 +145758,7 @@ msgstr ""
 "option userspace;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:635
+#: src/hal/comp.adoc:623
 #, no-wrap
 msgid ""
 "pin out float out;\n"
@@ -145779,7 +145772,7 @@ msgstr ""
 "#include <unistd.h>\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:642
+#: src/hal/comp.adoc:630
 #, no-wrap
 msgid ""
 "void user_mainloop(void) {\n"
@@ -145797,13 +145790,13 @@ msgstr ""
 "}\n"
 
 #. type: Title ===
-#: src/hal/comp.adoc:644
+#: src/hal/comp.adoc:632
 #, no-wrap
 msgid "logic (using personality)"
 msgstr ""
 
 #. type: Plain text
-#: src/hal/comp.adoc:647
+#: src/hal/comp.adoc:635
 msgid ""
 "This realtime component shows how to use \"personality\" to create variable-"
 "size arrays and optional pins."
@@ -145812,7 +145805,7 @@ msgstr ""
 "Arrays variabler Größe und optionale Pins zu erstellen."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:680
+#: src/hal/comp.adoc:668
 #, no-wrap
 msgid ""
 "component logic \"LinuxCNC HAL component providing experimental logic functions\";\n"
@@ -145872,30 +145865,30 @@ msgstr ""
 "}\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:683
+#: src/hal/comp.adoc:671
 msgid "A typical load line for this component might be"
 msgstr "Eine typische Zeile zur Belegung dieses Bauteil könnte lauten"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:687
+#: src/hal/comp.adoc:675
 #, no-wrap
 msgid "loadrt logic count=3 personality=0x102,0x305,0x503\n"
 msgstr "loadrt logic count=3 personality=0x102,0x305,0x503\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:690
+#: src/hal/comp.adoc:678
 msgid "which creates the following pins:"
 msgstr "wodurch die folgenden Pins erstellt werden:"
 
 #. type: Plain text
-#: src/hal/comp.adoc:692
+#: src/hal/comp.adoc:680
 #, fuzzy
 #| msgid "A 2-input AND gate: logic.0.and, logic.0.in-00, logic.0.in-01"
 msgid "A 2-input AND gate: `logic.0.and`, `logic.0.in-00`, `logic.0.in-01`"
 msgstr "A 2-input AND gate: logic.0.and, logic.0.in-00, logic.0.in-01"
 
 #. type: Plain text
-#: src/hal/comp.adoc:693
+#: src/hal/comp.adoc:681
 #, fuzzy
 #| msgid ""
 #| "5-input AND and OR gates: logic.1.and, logic.1.or, logic.1.in-00, "
@@ -145908,7 +145901,7 @@ msgstr ""
 "logic.1.in-01, logic.1.in-02, logic.1.in-03, logic.1.in-04,"
 
 #. type: Plain text
-#: src/hal/comp.adoc:694
+#: src/hal/comp.adoc:682
 #, fuzzy
 #| msgid ""
 #| "3-input AND and XOR gates: logic.2.and, logic.2.xor, logic.2.in-00, "
@@ -145921,13 +145914,13 @@ msgstr ""
 "logic.2.in-01, logic.2.in-02"
 
 #. type: Title ===
-#: src/hal/comp.adoc:695
+#: src/hal/comp.adoc:683
 #, no-wrap
 msgid "General Functions"
 msgstr "Allgemeine Funktionen"
 
 #. type: Plain text
-#: src/hal/comp.adoc:699
+#: src/hal/comp.adoc:687
 msgid ""
 "This example shows how to call functions from the main function.  It also "
 "shows how to pass reference of HAL pins to those functions."
@@ -145937,7 +145930,7 @@ msgstr ""
 "übergeben werden kann."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:706
+#: src/hal/comp.adoc:694
 #, no-wrap
 msgid ""
 "component example;\n"
@@ -145951,7 +145944,7 @@ msgstr ""
 "pin out bit out2;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:710
+#: src/hal/comp.adoc:698
 #, no-wrap
 msgid ""
 "function _;\n"
@@ -145963,7 +145956,7 @@ msgstr ""
 ";;\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:715
+#: src/hal/comp.adoc:703
 #, no-wrap
 msgid ""
 "// general pin set true function\n"
@@ -145977,7 +145970,7 @@ msgstr ""
 "}\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:720
+#: src/hal/comp.adoc:708
 #, no-wrap
 msgid ""
 "// general pin set false function\n"
@@ -145991,7 +145984,7 @@ msgstr ""
 "}\n"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:734
+#: src/hal/comp.adoc:722
 #, no-wrap
 msgid ""
 "//main function\n"
@@ -146023,7 +146016,7 @@ msgstr ""
 "}\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:737
+#: src/hal/comp.adoc:725
 msgid ""
 "This component uses two general function to manipulate a HAL bit pin "
 "referenced to it."
@@ -146032,34 +146025,38 @@ msgstr ""
 "zu manipulieren, auf den sie referenziert ist."
 
 #. type: Title ==
-#: src/hal/comp.adoc:738
+#: src/hal/comp.adoc:726
 #, no-wrap
 msgid "Command Line Usage"
 msgstr "Verwendung der Kommandozeile"
 
 #. type: Plain text
-#: src/hal/comp.adoc:741
+#: src/hal/comp.adoc:729
 #, fuzzy
 #| msgid "The halcompile man page gives details for invoking halcompile."
-msgid "The halcompile man page gives details for invoking `halcompile`."
+msgid "The modcompile man page gives details for invoking `modcompile`:"
 msgstr "Die Manpage halcompile enthält Details zum Aufruf von halcompile."
 
 #. type: delimited block -
-#: src/hal/comp.adoc:744
-#, no-wrap
-msgid "$ man halcompile\n"
+#: src/hal/comp.adoc:732
+#, fuzzy, no-wrap
+#| msgid "$ man halcompile\n"
+msgid "$ man modcompile\n"
 msgstr "$ man halcompile\n"
 
 #. type: Plain text
-#: src/hal/comp.adoc:747
-msgid "A brief summary of halcompile usage is given by:"
+#: src/hal/comp.adoc:735
+#, fuzzy
+#| msgid "A brief summary of halcompile usage is given by:"
+msgid "A brief summary is given by:"
 msgstr ""
 "Eine kurze Zusammenfassung der Verwendung von halcompile finden Sie hier:"
 
 #. type: delimited block -
-#: src/hal/comp.adoc:750
-#, no-wrap
-msgid "$ halcompile --help\n"
+#: src/hal/comp.adoc:738
+#, fuzzy, no-wrap
+#| msgid "$ halcompile --help\n"
+msgid "$ modcompile --help\n"
 msgstr "$ halcompile --help\n"
 
 #. type: Title =
@@ -146374,7 +146371,7 @@ msgstr "link:../man/man1/5axisgui.1.html[5axisgui]"
 #: src/hal/components.adoc:70 src/hal/components.adoc:71
 #: src/hal/components.adoc:72 src/hal/components.adoc:73
 #: src/hal/components.adoc:74 src/hal/components_gen.adoc:30
-#: src/hal/components_gen.adoc:73
+#: src/hal/components_gen.adoc:72
 #, no-wrap
 msgid "Vismach Virtual Machine GUI"
 msgstr "Vismach Virtuelle Maschine GUI"
@@ -146727,7 +146724,7 @@ msgid "Mesa and other I/O Cards (Realtime)"
 msgstr "Mesa und andere I/O-Karten (Echtzeit)"
 
 #. type: Table
-#: src/hal/components.adoc:112 src/hal/components_gen.adoc:80
+#: src/hal/components.adoc:112 src/hal/components_gen.adoc:79
 #, no-wrap
 msgid "hal_ppmc"
 msgstr "hal_ppmc"
@@ -146894,7 +146891,7 @@ msgid "Realtime driver for opto22 PCI-AC5 cards"
 msgstr "Echtzeittreiber für opto22 PCI-AC5 Karten"
 
 #. type: Table
-#: src/hal/components.adoc:126 src/hal/components_gen.adoc:81
+#: src/hal/components.adoc:126 src/hal/components_gen.adoc:80
 #, no-wrap
 msgid "pluto_servo"
 msgstr "pluto_servo"
@@ -146906,7 +146903,7 @@ msgid "Pluto-P <<cha:pluto-p-driver,driver>> and firmware for the parallel port 
 msgstr "Pluto-P <<cha:pluto-p-driver,Treiber>> und Firmware für den Parallelport FPGA, für Servos"
 
 #. type: Table
-#: src/hal/components.adoc:127 src/hal/components_gen.adoc:82
+#: src/hal/components.adoc:127 src/hal/components_gen.adoc:81
 #, no-wrap
 msgid "pluto_step"
 msgstr "pluto_step"
@@ -146961,8 +146958,9 @@ msgstr "Plottet den Wert eines HAL-Pins als Histogramm"
 
 #. type: Table
 #: src/hal/components.adoc:136
-#, no-wrap
-msgid "link:../man/man1/halcompile.1.html[halcompile]"
+#, fuzzy, no-wrap
+#| msgid "link:../man/man1/halcompile.1.html[halcompile]"
+msgid "link:../man/man1/modcompile.1.html[modcompile]"
 msgstr "link:../man/man1/halcompile.1.html[halcompile]"
 
 #. type: Table
@@ -149318,25 +149316,12 @@ msgstr "hbmgui - Vismach Virtuelle Maschine GUI"
 #. type: Table
 #: src/hal/components_gen.adoc:35
 #, fuzzy, no-wrap
-#| msgid "link:../man/man1/halcompile.1.html[halcompile]"
-msgid "link:../man/man1/modcompile.1.html[modcompile]"
-msgstr "link:../man/man1/halcompile.1.html[halcompile]"
-
-#. type: Table
-#: src/hal/components_gen.adoc:35
-#, no-wrap
-msgid "Utility for compiling Modbus driver"
-msgstr ""
-
-#. type: Table
-#: src/hal/components_gen.adoc:36
-#, fuzzy, no-wrap
 #| msgid "link:../man/man9/motion.9.html[motion]"
 msgid "link:../man/man1/motion-logger.1.html[motion-logger]"
 msgstr "link:../man/man9/motion.9.html[motion]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:37
+#: src/hal/components_gen.adoc:36
 #, no-wrap
 msgid ""
 "log motion commands sent from\n"
@@ -149346,135 +149331,135 @@ msgstr ""
 "Task-Modul von LinuxCNC"
 
 #. type: Table
-#: src/hal/components_gen.adoc:38
+#: src/hal/components_gen.adoc:37
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/moveoff_gui.1.html[moveoff_gui]"
 msgid "link:../man/man9/moveoff.9.html[moveoff]"
 msgstr "link:../man/man1/moveoff_gui.1.html[moveoff_gui]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:38
+#: src/hal/components_gen.adoc:37
 #, fuzzy, no-wrap
 #| msgid "moveoff - Component for Hal-only offsets"
 msgid "Component for HAL-only offset"
 msgstr "moveoff - Komponente für HAL-only Offsets"
 
 #. type: Table
-#: src/hal/components_gen.adoc:39
+#: src/hal/components_gen.adoc:38
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/logic.9.html[logic]"
 msgid "link:../man/man9/ohmic.9.html[ohmic]"
 msgstr "link:../man/man9/logic.9.html[logic]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:39
+#: src/hal/components_gen.adoc:38
 #, no-wrap
 msgid "LinuxCNC HAL component that uses a Mesa THCAD for ohmic sensing"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:40
+#: src/hal/components_gen.adoc:39
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/integ.9.html[integ]"
 msgid "link:../man/man9/orient.9.html[orient]"
 msgstr "link:../man/man9/integ.9.html[integ]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:40
+#: src/hal/components_gen.adoc:39
 #, no-wrap
 msgid "Provide a PID command input for orientation mode based on current spindle position, target angle and orient mod"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:41
+#: src/hal/components_gen.adoc:40
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/tp.9.html[tp]"
 msgid "link:../man/man9/pcl720.9.html[pcl720]"
 msgstr "link:../man/man9/tp.9.html[tp]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:41
+#: src/hal/components_gen.adoc:40
 #, no-wrap
 msgid "Driver for the Advantech PCL 720 card."
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:42
+#: src/hal/components_gen.adoc:41
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/abs.9.html[abs]"
 msgid "link:../man/man9/plasmac.9.html[plasmac]"
 msgstr "link:../man/man9/abs.9.html[abs]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:42
+#: src/hal/components_gen.adoc:41
 #, no-wrap
 msgid "A plasma cutter controller"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:43
+#: src/hal/components_gen.adoc:42
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/qtvcp.1.html[qtvcp]"
 msgid "link:../man/man1/qtplasmac-cfg2prefs.1.html[qtplasmac-cfg2prefs]"
 msgstr "link:../man/man1/qtvcp.1.html[qtvcp]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:43
+#: src/hal/components_gen.adoc:42
 #, no-wrap
 msgid "Convert plasma parameters."
 msgstr "Pins und Parameter erstellen"
 
 #. type: Table
-#: src/hal/components_gen.adoc:44
+#: src/hal/components_gen.adoc:43
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/latency-test.1.html[latency-test]"
 msgid "link:../man/man1/qtplasmac-materials.1.html[qtplasmac-materials]"
 msgstr "link:../man/man1/latency-test.1.html[latency-test]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:44
+#: src/hal/components_gen.adoc:43
 #, fuzzy, no-wrap
 #| msgid "B<qtplasmac-materials> - Create a plasma materials file."
 msgid "Create a plasma materials file."
 msgstr "B<qtplasmac-materials> - Erstellt eine Datei mit Plasmamaterialien."
 
 #. type: Table
-#: src/hal/components_gen.adoc:45
+#: src/hal/components_gen.adoc:44
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/latency-plot.1.html[latency-plot]"
 msgid "link:../man/man1/qtplasmac-plasmac2qt.1.html[qtplasmac-plasmac2qt]"
 msgstr "link:../man/man1/latency-plot.1.html[latency-plot]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:45
+#: src/hal/components_gen.adoc:44
 #, fuzzy, no-wrap
 #| msgid "Creating A QtPlasmaC Configuration"
 msgid "Migrate a PlasmaC configuration."
 msgstr "Erstellen einer QtPlasmaC Konfiguration"
 
 #. type: Table
-#: src/hal/components_gen.adoc:46
+#: src/hal/components_gen.adoc:45
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/qtvcp.1.html[qtvcp]"
 msgid "link:../man/man1/qtplasmac-setup.1.html[qtplasmac-setup]"
 msgstr "link:../man/man1/qtvcp.1.html[qtvcp]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:46
+#: src/hal/components_gen.adoc:45
 #, fuzzy, no-wrap
 #| msgid "B<qtplasmac-setup> - Switch a QtPlasmaC installation type."
 msgid "Switch a QtPlasmaC installation type."
 msgstr "B<qtplasmac-setup> - Wechselt einen QtPlasmaC Installationstyp."
 
 #. type: Table
-#: src/hal/components_gen.adoc:47
+#: src/hal/components_gen.adoc:46
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/qtvcp.1.html[qtvcp]"
 msgid "link:../man/man1/qtplasmac_gcode.1.html[qtplasmac_gcode]"
 msgstr "link:../man/man1/qtvcp.1.html[qtvcp]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:48
+#: src/hal/components_gen.adoc:47
 #, no-wrap
 msgid ""
 "A python script that is part of Plasmac, a Plasma\n"
@@ -149482,256 +149467,256 @@ msgid ""
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:49
+#: src/hal/components_gen.adoc:48
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/or2.9.html[or2]"
 msgid "link:../man/man1/rs274.1.html[rs274]"
 msgstr "link:../man/man9/or2.9.html[or2]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:49
+#: src/hal/components_gen.adoc:48
 #, fuzzy, no-wrap
 #| msgid "Stand Alone Interpreter"
 msgid "standalone G-code interpreter"
 msgstr "Eigenständiger Interpreter"
 
 #. type: Table
-#: src/hal/components_gen.adoc:50
+#: src/hal/components_gen.adoc:49
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/axis.1.html[axis]"
 msgid "link:../man/man1/rtapi_app.1.html[rtapi_app]"
 msgstr "link:../man/man1/axis.1.html[axis]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:50
+#: src/hal/components_gen.adoc:49
 #, fuzzy, no-wrap
 #| msgid "The real time module classicladder_rt"
 msgid "DEPRECATED - former realtime module loader"
 msgstr "Das Echtzeitmodul classicladder_rt"
 
 #. type: Table
-#: src/hal/components_gen.adoc:51
+#: src/hal/components_gen.adoc:50
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/scale.9.html[scale]"
 msgid "link:../man/man9/scaled_s32_sums.9.html[scaled_s32_sums]"
 msgstr "link:../man/man9/scale.9.html[scale]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:51
+#: src/hal/components_gen.adoc:50
 #, no-wrap
 msgid "Sum of four inputs (each with a scale)"
 msgstr "Summe aus zwei Eingängen (jeweils mit einem Verstärkungsfaktor) und einem Offset."
 
 #. type: Table
-#: src/hal/components_gen.adoc:52
+#: src/hal/components_gen.adoc:51
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/gscreen.1.html[gscreen]"
 msgid "link:../man/man1/scorbot-er-3.1.html[scorbot-er-3]"
 msgstr "link:../man/man1/gscreen.1.html[gscreen]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:52
+#: src/hal/components_gen.adoc:51
 #, no-wrap
 msgid "to link the Intellitek Scorbot educational robot to LinuxCNC"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:53
+#: src/hal/components_gen.adoc:52
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/edge.9.html[edge]"
 msgid "link:../man/man1/sendkeys.1.html[sendkeys]"
 msgstr "link:../man/man9/edge.9.html[edge]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:53
+#: src/hal/components_gen.adoc:52
 #, fuzzy, no-wrap
 #| msgid "sendkeys - send input events based on pins or scancodes from HAL"
 msgid "send input events based on pins or scancodes from HAL"
 msgstr "sendkeys - sendet Eingangsereignisse basierend auf Pins oder Scancodes von HAL"
 
 #. type: Table
-#: src/hal/components_gen.adoc:54
+#: src/hal/components_gen.adoc:53
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/panelui.1.html[panelui]"
 msgid "link:../man/man1/setup_designer.1.html[setup_designer]"
 msgstr "link:../man/man1/panelui.1.html[panelui]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:54
+#: src/hal/components_gen.adoc:53
 #, no-wrap
 msgid "A script to configure the system for use of QTdesigner"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:55
+#: src/hal/components_gen.adoc:54
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/touchy.1.html[touchy]"
 msgid "link:../man/man1/sim-torch.1.html[sim-torch]"
 msgstr "link:../man/man1/touchy.1.html[touchy]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:55
+#: src/hal/components_gen.adoc:54
 #, no-wrap
 msgid "A simulated plasma torc"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:56
+#: src/hal/components_gen.adoc:55
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/maxkins.9.html[maxkins]"
 msgid "link:../man/man9/sim_axis_hardware.9.html[sim_axis_hardware]"
 msgstr "link:../man/man9/maxkins.9.html[maxkins]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:56
+#: src/hal/components_gen.adoc:55
 #, fuzzy, no-wrap
 #| msgid "sim_axis_hardware - A component to simulate home and limit switches"
 msgid "A component to simulate home and limit switche"
 msgstr "sim_axis_hardware - Eine Komponente zur Simulation von Referenz- und Endschaltern"
 
 #. type: Table
-#: src/hal/components_gen.adoc:57
+#: src/hal/components_gen.adoc:56
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/multiswitch.9.html[multiswitch]"
 msgid "link:../man/man9/sim_home_switch.9.html[sim_home_switch]"
 msgstr "link:../man/man9/multiswitch.9.html[multiswitch]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:57
+#: src/hal/components_gen.adoc:56
 #, no-wrap
 msgid "Home switch simulator"
 msgstr "Eingang des Referenzschalters"
 
 #. type: Table
-#: src/hal/components_gen.adoc:58
+#: src/hal/components_gen.adoc:57
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/minmax.9.html[minmax]"
 msgid "link:../man/man9/sim_matrix_kb.9.html[sim_matrix_kb]"
 msgstr "link:../man/man9/minmax.9.html[minmax]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:58
+#: src/hal/components_gen.adoc:57
 #, fuzzy, no-wrap
 #| msgid "sim_matrix_kb - convert HAL pin inputs to keycodes"
 msgid "convert HAL pin inputs to keycode"
 msgstr "sim_matrix_kb - Konvertierung der HAL-Pin-Eingänge in Tastencodes"
 
 #. type: Table
-#: src/hal/components_gen.adoc:59
+#: src/hal/components_gen.adoc:58
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/serport.9.html[serport]"
 msgid "link:../man/man9/sim_parport.9.html[sim_parport]"
 msgstr "link:../man/man9/serport.9.html[serport]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:59
+#: src/hal/components_gen.adoc:58
 #, fuzzy, no-wrap
 #| msgid "sim_parport - A component to simulate the pins of the hal_parport component"
 msgid "A component to simulate the pins of the hal_parport component"
 msgstr "sim_parport - Eine Komponente zur Simulation der Pins der hal_parport Komponente"
 
 #. type: Table
-#: src/hal/components_gen.adoc:60
+#: src/hal/components_gen.adoc:59
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/sim_pin.1.html[sim_pin]"
 msgid "link:../man/man9/sim_spindle.9.html[sim_spindle]"
 msgstr "link:../man/man1/sim_pin.1.html[sim_pin]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:60
+#: src/hal/components_gen.adoc:59
 #, no-wrap
 msgid "Simulated spindle with index puls"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:61
+#: src/hal/components_gen.adoc:60
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/touchy.1.html[touchy]"
 msgid "link:../man/man9/sim_torch.9.html[sim_torch]"
 msgstr "link:../man/man1/touchy.1.html[touchy]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:61
+#: src/hal/components_gen.adoc:60
 #, no-wrap
 msgid "Simulated plasma torch arc voltag"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:62
+#: src/hal/components_gen.adoc:61
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/sampler.9.html[sampler]"
 msgid "link:../man/man9/simple_tp.9.html[simple_tp]"
 msgstr "link:../man/man9/sampler.9.html[sampler]"
 
 #. type: Plain text
-#: src/hal/components_gen.adoc:62 man/man9/simple_tp.9:13
+#: src/hal/components_gen.adoc:61 man/man9/simple_tp.9:13
 #, fuzzy, no-wrap
 #| msgid "sampler"
 msgid "simple_tp"
 msgstr "sampler"
 
 #. type: Table
-#: src/hal/components_gen.adoc:63
+#: src/hal/components_gen.adoc:62
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/sim_pin.1.html[sim_pin]"
 msgid "link:../man/man1/simulate_probe.1.html[simulate_probe]"
 msgstr "link:../man/man1/sim_pin.1.html[sim_pin]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:63
+#: src/hal/components_gen.adoc:62
 #, no-wrap
 msgid "simulate a probe input"
 msgstr "simulieren_probe Fenster"
 
 #. type: Table
-#: src/hal/components_gen.adoc:64
+#: src/hal/components_gen.adoc:63
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/sampler.9.html[sampler]"
 msgid "link:../man/man9/spindle_monitor.9.html[spindle_monitor]"
 msgstr "link:../man/man9/sampler.9.html[sampler]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:64
+#: src/hal/components_gen.adoc:63
 #, no-wrap
 msgid "spindle at-speed and underspeed detection"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:65
+#: src/hal/components_gen.adoc:64
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/stepconf.1.html[stepconf]"
 msgid "link:../man/man1/teach-in.1.html[teach-in]"
 msgstr "link:../man/man1/stepconf.1.html[stepconf]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:65
+#: src/hal/components_gen.adoc:64
 #, no-wrap
 msgid "jog the machine to a position, and record the stat"
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:66
+#: src/hal/components_gen.adoc:65
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/thc.9.html[thc]"
 msgid "link:../man/man9/thcud.9.html[thcud]"
 msgstr "link:../man/man9/thc.9.html[thc]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:66
+#: src/hal/components_gen.adoc:65
 #, fuzzy, no-wrap
 #| msgid "thcud - Torch Height Control Up/Down Input"
 msgid "Torch Height Control Up/Down Input"
 msgstr "thcud - Brennerhöhensteuerung Auf/Ab-Eingang"
 
 #. type: Table
-#: src/hal/components_gen.adoc:67
+#: src/hal/components_gen.adoc:66
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/mdi.1.html[mdi]"
 msgid "link:../man/man1/tool_mmap_read.1.html[tool_mmap_read]"
 msgstr "link:../man/man1/mdi.1.html[mdi]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:68 src/hal/components_gen.adoc:70
+#: src/hal/components_gen.adoc:67 src/hal/components_gen.adoc:69
 #, no-wrap
 msgid ""
 "A component of the tool database system (an alternative\n"
@@ -149739,70 +149724,64 @@ msgid ""
 msgstr ""
 
 #. type: Table
-#: src/hal/components_gen.adoc:69
+#: src/hal/components_gen.adoc:68
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/mdi.1.html[mdi]"
 msgid "link:../man/man1/tool_watch.1.html[tool_watch]"
 msgstr "link:../man/man1/mdi.1.html[mdi]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:71
+#: src/hal/components_gen.adoc:70
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/mdi.1.html[mdi]"
 msgid "link:../man/man1/tooledit.1.html[tooledit]"
 msgstr "link:../man/man1/mdi.1.html[mdi]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:71
+#: src/hal/components_gen.adoc:70
 #, no-wrap
 msgid "tool table editor"
 msgstr "Werkzeugtabelleneintrag festlegen"
 
 #. type: Table
-#: src/hal/components_gen.adoc:72
+#: src/hal/components_gen.adoc:71
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/panelui.1.html[panelui]"
 msgid "link:../man/man1/update_ini.1.html[update_ini]"
 msgstr "link:../man/man1/panelui.1.html[panelui]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:72
+#: src/hal/components_gen.adoc:71
 #, fuzzy, no-wrap
 #| msgid "Converts from bit to float"
 msgid "converts 2.7 format INI files to 2.8 format"
 msgstr "Konvertiert von bit in float."
 
 #. type: Table
-#: src/hal/components_gen.adoc:73
+#: src/hal/components_gen.adoc:72
 #, fuzzy, no-wrap
 #| msgid "link:../man/man1/xyzac-trt-gui.1.html[xyzac-trt-gui]"
 msgid "link:../man/man1/xyzab-tdr-gui.1.html[xyzab-tdr-gui]"
 msgstr "link:../man/man1/xyzac-trt-gui.1.html[xyzac-trt-gui]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:74
+#: src/hal/components_gen.adoc:73
 #, fuzzy, no-wrap
 #| msgid "link:../man/man9/gantrykins.9.html[gantrykins]"
 msgid "link:../man/man9/xyzab_tdr_kins.9.html[xyzab_tdr_kins]"
 msgstr "link:../man/man9/gantrykins.9.html[gantrykins]"
 
 #. type: Table
-#: src/hal/components_gen.adoc:74
+#: src/hal/components_gen.adoc:73
 #, no-wrap
 msgid "Switchable kinematics for 5 axis machine with rotary table A and B"
 msgstr "Umschaltbare Kinematik für eine Fräs-Dreh-Maschine"
 
 #. type: Title ===
-#: src/hal/components_gen.adoc:77
+#: src/hal/components_gen.adoc:76
 #, no-wrap
 msgid "Without man page or broken link (auto generated from component list)"
 msgstr ""
-
-#. type: Table
-#: src/hal/components_gen.adoc:83
-#, no-wrap
-msgid "halcompile"
-msgstr "halcompile"
 
 #. type: Title =
 #: src/hal/general-ref.adoc:5
@@ -272218,6 +272197,60 @@ msgstr ""
 "toggle_section(this);\" id=\"manExpand\"/> <input type=\"button\" "
 "value=\"Collapse Man Pages\" onclick=\"return toggle_section(this);\" "
 "id=\"manCollapse\"/>"
+
+#, fuzzy
+#~| msgid ""
+#~| "'halcompile' can also compile and install a component written in C, "
+#~| "using the '--install' and '--compile' options shown above:"
+#~ msgid ""
+#~ "'halcompile' can also compile and install a component written in C, using "
+#~ "the `--install` and `--compile` options shown above:"
+#~ msgstr ""
+#~ "'halcompile' kann auch eine in C geschriebene Komponente kompilieren und "
+#~ "installieren, indem es die oben gezeigten Optionen '--install' und '--"
+#~ "compile' verwendet:"
+
+#, no-wrap
+#~ msgid "[sudo] halcompile --install rtexample2.c\n"
+#~ msgstr "[sudo] halcompile --install rtexample2.c\n"
+
+#~ msgid ""
+#~ "'halcompile' can process, compile, install, and document non-realtime "
+#~ "components:"
+#~ msgstr ""
+#~ "halcompile' kann Userspace-Komponenten verarbeiten, kompilieren, "
+#~ "installieren und dokumentieren:"
+
+#~ msgid ""
+#~ "The default number of allowed 'personality' items is a compile-time "
+#~ "setting (64).  The default applies to numerous components included in the "
+#~ "distribution that are built using halcompile."
+#~ msgstr ""
+#~ "Die Standardanzahl der erlaubten \"personality\"-Elemente ist eine "
+#~ "Kompilierzeiteinstellung (64).  Die Vorgabe gilt für zahlreiche in der "
+#~ "Distribution enthaltene Komponenten, die mit halcompile erstellt werden."
+
+#~ msgid ""
+#~ "To alter the allowed number of personality items for user-built "
+#~ "components, use the '--personality' option with halcompile.  For example, "
+#~ "to allow up to 128 personality times:"
+#~ msgstr ""
+#~ "Um die zulässige Anzahl von Persönlichkeitselementen für "
+#~ "benutzerdefinierte Komponenten zu ändern, verwenden Sie die Option '--"
+#~ "personality' mit halcompile.  Zum Beispiel, um bis zu 128 "
+#~ "Persönlichkeitszeiten zu erlauben:"
+
+#, no-wrap
+#~ msgid "  [sudo] halcompile --personality=128 --install ...\n"
+#~ msgstr "  [sudo] halcompile --personality=128 --install ...\n"
+
+#, no-wrap
+#~ msgid "link:../man/man1/halcompile.1.html[halcompile]"
+#~ msgstr "link:../man/man1/halcompile.1.html[halcompile]"
+
+#, no-wrap
+#~ msgid "halcompile"
+#~ msgstr "halcompile"
 
 #~ msgid "```"
 #~ msgstr "```"
