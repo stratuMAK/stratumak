@@ -22,7 +22,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.14.2"
+"X-Generator: Weblate 4.14.2\n"
 
 #.  vim: set syntax=asciidoc:
 #. type: Attribute :lang:
@@ -89724,8 +89724,7 @@ msgstr ""
 #: src/gui/gmoccapy.adoc:306
 msgid "*ntb_user_tabs* (as main tab, covering the complete screen)"
 msgstr ""
-"*ntb_user_tabs* (als Hauptregisterkarte, die den gesamten Bildschirm "
-"abdeckt)"
+"*ntb_user_tabs* (als Hauptregisterkarte, die den gesamten Bildschirm abdeckt)"
 
 #. type: Plain text
 #: src/gui/gmoccapy.adoc:307
@@ -91552,8 +91551,7 @@ msgid ""
 "*gmoccapy.spc_feed.scaled-value* _(float OUT)_ - Scaled value of the "
 "widget .SPINDLE"
 msgstr ""
-"*gmoccapy.spc_feed.scaled-value* _(float OUT)_ - Skalierter Wert des "
-"Widgets"
+"*gmoccapy.spc_feed.scaled-value* _(float OUT)_ - Skalierter Wert des Widgets"
 
 #. type: Plain text
 #: src/gui/gmoccapy.adoc:698
@@ -91649,8 +91647,7 @@ msgstr "*gmoccapy.spc_rapid.value* _(float OUT)_ - Wert des Widgets"
 msgid ""
 "*gmoccapy.spc_rapid.scaled-value* _(float OUT)_ - Scaled value of the widget"
 msgstr ""
-"*gmoccapy.spc_rapid.scaled-value* _(float OUT)_ - Skalierter Wert des "
-"Widgets"
+"*gmoccapy.spc_rapid.scaled-value* _(float OUT)_ - Skalierter Wert des Widgets"
 
 #. type: Plain text
 #: src/gui/gmoccapy.adoc:710
@@ -92060,8 +92057,7 @@ msgid ""
 "the `gmoccapy.error` pin to false after the last error has been cleared."
 msgstr ""
 "*gmoccapy.delete-message* _(bit IN)_ - Löscht den ersten Fehler und setzt "
-"den Pin `gmoccapy.error` auf false, nachdem der letzte Fehler gelöscht "
-"wurde."
+"den Pin `gmoccapy.error` auf false, nachdem der letzte Fehler gelöscht wurde."
 
 #. type: Plain text
 #: src/gui/gmoccapy.adoc:814
@@ -100317,8 +100313,7 @@ msgid ""
 "the selected axis jog in the positive direction by the increment amount"
 msgstr ""
 "'halui.axis.selected.increment-plus' (Bit in) - Eine steigende Kante lässt "
-"die ausgewählte Achse um den Inkrementbetrag in die positive Richtung "
-"joggen"
+"die ausgewählte Achse um den Inkrementbetrag in die positive Richtung joggen"
 
 #. type: Plain text
 #: src/gui/halui.adoc:249
@@ -100327,8 +100322,7 @@ msgid ""
 "negative direction at the halui.axis.jog-speed velocity"
 msgstr ""
 "'halui.axis.selected.minus' (Bit in) - Pin zum Joggen der ausgewählten Achse "
-"in negativer Richtung bei der halui.axis.jog-"
-"Geschwindigkeitsgeschwindigkeit"
+"in negativer Richtung bei der halui.axis.jog-Geschwindigkeitsgeschwindigkeit"
 
 #. type: Plain text
 #: src/gui/halui.adoc:250
@@ -100337,8 +100331,7 @@ msgid ""
 "in positive direction at the halui.axis.jog-speed velocity"
 msgstr ""
 "'halui.axis.selected.plus' (pin in) - zum Joggen des ausgewählten Achsenbits "
-"in positiver Richtung bei der halui.axis.jog-"
-"Geschwindigkeitsgeschwindigkeit"
+"in positiver Richtung bei der halui.axis.jog-Geschwindigkeitsgeschwindigkeit"
 
 #. type: Plain text
 #: src/gui/halui.adoc:254
@@ -137430,8 +137423,7 @@ msgstr "`ID`"
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2308
 msgid "A unique id so we process only a dialog that we requested."
-msgstr ""
-"Eine eindeutige ID, damit wir nur den angeforderten Dialog bearbeiten."
+msgstr "Eine eindeutige ID, damit wir nur den angeforderten Dialog bearbeiten."
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2308
@@ -179456,8 +179448,7 @@ msgstr "Andere Bewegungs(engl. Motion)-HAL Pins"
 #: src/motion/external-offsets.adoc:64
 msgid "*motion.eoffset-active* Output(bit): non-zero external offsets applied"
 msgstr ""
-"*motion.eoffset-active* Output(Bit): Externe Offsets ungleich Null "
-"angewendet"
+"*motion.eoffset-active* Output(Bit): Externe Offsets ungleich Null angewendet"
 
 #. type: Plain text
 #: src/motion/external-offsets.adoc:65
@@ -196917,8 +196908,7 @@ msgstr ""
 #: src/plasma/qtplasmac.adoc:2903
 msgid "*no arc detected after __<n>__d start attempts program is paused*"
 msgstr ""
-"*kein Lichtbogen erkannt nach __<n>__d Startversuchen Programm ist "
-"pausiert*"
+"*kein Lichtbogen erkannt nach __<n>__d Startversuchen Programm ist pausiert*"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:2904

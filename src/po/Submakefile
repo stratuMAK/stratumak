@@ -73,16 +73,19 @@ pofiles: po/linuxcnc.pot po/gmoccapy/gmoccapy.pot
 	set -x; for i in po/*.po; do msgmerge -U $$i po/linuxcnc.pot; done
 	set -x; for i in po/gmoccapy/*.po; do msgmerge -U $$i po/gmoccapy/gmoccapy.pot; done
 
-po/linuxcnc.pot: emc/task/emctaskmain.cc $(LIBRS274SRCS) emc/rs274ngc/rs274ngc_return.hh
-po/linuxcnc.pot: hal/utils/meter.c \
-    hal/utils/scope.c \
-    hal/utils/scope_horiz.c \
-    hal/utils/scope_vert.c \
-    hal/utils/scope_trig.c \
-    hal/utils/scope_disp.c \
-    hal/utils/scope_files.c \
-    hal/utils/miscgtk.c
+po/linuxcnc.pot: $(LIBRS274SRCS) emc/rs274ngc/rs274ngc_return.hh
 po/linuxcnc.pot: emc/motion/control.c emc/motion/command.c emc/motion/motion.c emc/motion/homing.c
+
+# Two groups of sources were listed here until the gomc migration deleted them,
+# which left `make pofiles` failing outright with "No rule to make target
+# emc/task/emctaskmain.cc":
+#
+#   emc/task/emctaskmain.cc   -- task is now the Go milltask
+#   hal/utils/{meter,scope*,miscgtk}.c -- halmeter and halscope are now web apps
+#
+# Their translatable strings are not extracted any more.  xgettext does not
+# read Go, and the web apps keep their text in Vue/JS, so picking these up
+# again needs a separate extraction step rather than another entry here.
 
 
 po/linuxcnc.pot: $(TCLSRCS)
