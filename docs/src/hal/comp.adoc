@@ -737,6 +737,4 @@ A brief summary is given by:
 $ modcompile --help
 ----
 
-NOTE: `modcompile` is not `mesa-modcompile`(1), which builds Modbus drivers for Mesa PktUART cards from `.mod` files.
-
 // vim: set syntax=asciidoc:
