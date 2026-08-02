@@ -1,25 +1,20 @@
-# Chinese translations for PACKAGE package
-# Copyright (C) 2022 Free Software Foundation, Inc.
+# Dutch translations for PACKAGE package
+# Copyright (C) 2026 Free Software Foundation, Inc.
 # This file is distributed under the same license as the PACKAGE package.
-# Automatically generated, 2022.
+# Automatically generated, 2026.
 #
-# 大宝剑 <lixin201601@outlook.com>, 2022.
-# 陈浩 <748812963@qq.com>, 2022.
-# panming <1042253456@qq.com>, 2022.
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
-"Report-Msgid-Bugs-To: emc-developers@lists.sourceforge.net\n"
-"POT-Creation-Date: 2026-08-02 09:18+0200\n"
-"PO-Revision-Date: 2022-09-18 02:07+0000\n"
-"Last-Translator: panming <1042253456@qq.com>\n"
+"POT-Creation-Date: 2026-08-02 13:02+0200\n"
+"PO-Revision-Date: 2026-08-02 13:02+0200\n"
+"Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
-"Language: zh_CN\n"
+"Language: nl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Weblate 4.14.1\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #.  vim: set syntax=asciidoc:
 #. type: Attribute :lang:
@@ -88,63 +83,42 @@ msgstr ""
 #: src/user/starting-linuxcnc.adoc:1 src/user/user-concepts.adoc:1
 #: src/user/user-foreword.adoc:1 src/user/user-intro.adoc:1
 msgid "en"
-msgstr "zh_CN"
+msgstr ""
 
 #. type: Title =
 #: README.adoc:4
 #, no-wrap
 msgid "README for Document Writers"
-msgstr "写给文档编辑者的README"
+msgstr ""
 
 #. type: Title ==
 #: README.adoc:6
 #, no-wrap
 msgid "Adding files"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: README.adoc:10
-#, fuzzy
-#| msgid ""
-#| "The src/Submakefile, src/docs.xml and src/index.tmpl files must be "
-#| "updated to add a new document file."
 msgid ""
 "The src/Submakefile, src/docs.xml, docs/po4a.cfg and src/index.tmpl files "
 "must be updated to add a new document file."
 msgstr ""
-"必须更新 src/Submakefile、src/docs.xml 和 src/index.tmpl 文件才能添加新的文档"
-"文件。"
 
 #. type: Plain text
 #: README.adoc:14
-#, fuzzy
-#| msgid ""
-#| "The relevant pdf.adoc must be updated to include the new document in the "
-#| "pdf documentation.  e.g. if a new document belongs in the Master "
-#| "Documentation then an entry is required in src/Master_Documentation.adoc"
 msgid ""
 "The relevant pdf.adoc must be updated to include the new document in the pdf "
 "documentation. e.g. if a new document belongs in the Master Documentation "
 "then an entry is required in src/Master_Documentation.adoc."
 msgstr ""
-"The relevant pdf.adoc must be updated to include the new document in the pdf "
-"documentation.  e.g. if a new document belongs in the Master Documentation "
-"then an entry is required in src/Master_Documentation.adoc"
 
 #. type: Plain text
 #: README.adoc:18
-#, fuzzy
-#| msgid ""
-#| "docs.xml is used to create the \"previous\" and \"next\" buttons at the "
-#| "top of each individual HTML document.  it should generally match the "
-#| "order of the index.tmpl"
 msgid ""
 "docs.xml is used to create the \"previous\" and \"next\" buttons at the top "
 "of each individual HTML document. It should generally match the order of the "
 "index.tmpl."
 msgstr ""
-"‎docs.xml用于在每个单独的HTML顶部创建“上一个”和“下一个”按钮，document.it 通常"
-"应该与index的顺序相匹配"
 
 #. type: Plain text
 #: README.adoc:21
@@ -155,10 +129,9 @@ msgstr ""
 
 #. type: Title ==
 #: README.adoc:22
-#, fuzzy, no-wrap
-#| msgid "Notes on LinuxCNC documentation:"
+#, no-wrap
 msgid "Notes on LinuxCNC documentation"
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Plain text
 #: README.adoc:27
@@ -187,28 +160,9 @@ msgid ""
 "postscript (not .eps) using QCAD, which is available for many systems, see "
 "link:https://repology.org/project/qcad/[here]."
 msgstr ""
-"许多文档都包含图纸。它们中的大多数最初是使用非开源的Windows应用程序EasyCAD创"
-"建的，然后导出到.eps文件并包含在文档中。原始的“源”文件（EasyCAD .FC7 格式）在"
-"开源系统上不可用。为了解决此问题，所有源文件都已转换为.dxf文件，并添加到 "
-"Git。.dxf文件可以使用多个CAD包进行编辑，并用作将来对图纸进行更改的“源”文件。"
-"它们可以使用QCAD从.dxf转换为postscript（不是.eps），这适用于许多系统，请参阅"
-"链接：link:https://repology.org/project/qcad/[here].    "
 
 #. type: Plain text
 #: README.adoc:51
-#, fuzzy
-#| msgid ""
-#| "Unfortunately, EasyCAD (and AutoCAD) support a number of entities that "
-#| "QCAD does not import properly. Including some that were used in the "
-#| "LinuxCNC drawings: filled circles, filled arrowheads, non-zero width "
-#| "lines, and dashed lines.  Qcad renders filled circles as hollow, it "
-#| "renders all lines the same width, and it renders dashed lines as solid, "
-#| "unless you tell it to do otherwise.  All of these things make the "
-#| "drawings less attractive, but are somewhat acceptable.  However, Qcad "
-#| "doesn't import filled arrowheads at all, which seriously hurts the "
-#| "drawings.  So EasyCad was used to convert the arrowheads to hollow before "
-#| "exporting them.  Hollow arrowheads don't look as nice as solid ones, but "
-#| "at least they are visible."
 msgid ""
 "Unfortunately, EasyCAD (and AutoCAD) support a number of entities that QCAD "
 "does not import properly. Including some that were used in the LinuxCNC "
@@ -221,22 +175,9 @@ msgid ""
 "arrowheads to hollow before exporting them.  Hollow arrowheads don't look as "
 "nice as solid ones, but at least they are visible."
 msgstr ""
-"不幸的是，EasyCAD和AutoCAD支持一些QCAD不能正确导入的条目。包含一些LinuxCNC中"
-"使用的绘图功能，比如：圆形填充、箭头填充、非零线宽、点画线等。除非明确要求，"
-"否则QCAD将填充圆渲染为空，将所有的线条渲染为同样线宽，将点划线渲染为实现。这"
-"使得QCAD的绘制不那么有吸引力但是也能够接受。然而，QCAD根本就不会导入填充箭"
-"头，这极大影响画图质量。所以在导出箭头前采用EasyCAD来转换成空箭头。空箭头看起"
-"来没有实箭头那么好看，但是至少是可见的。"
 
 #. type: Plain text
 #: README.adoc:57
-#, fuzzy
-#| msgid ""
-#| "Once exported, the arrowheads lose their relationship with the line they "
-#| "are on, and need to be moved and/or rotated manually if the line is "
-#| "moved.  I believe that even if they were imported back into EasyCad, the "
-#| "line/arrow connection would remain broken. New lines with arrowheads can "
-#| "be created in Qcad with the 'leader' dimension tool."
 msgid ""
 "Once exported, the arrowheads lose their relationship with the line they are "
 "on, and need to be moved and/or rotated manually if the line is moved.  I "
@@ -244,9 +185,6 @@ msgid ""
 "connection would remain broken. New lines with arrowheads can be created in "
 "QCAD with the 'leader' dimension tool."
 msgstr ""
-"导出后，箭头将失去与所在行的关系，如果移动了线，则需要手动移动和/或旋转箭头。"
-"我相信，即使将它们导入回EasyCad，线/箭头连接也会断开。可以使用“引线”尺寸工具"
-"在 Qcad 中创建带有箭头的新线。  "
 
 #. type: Plain text
 #: README.adoc:64
@@ -257,9 +195,6 @@ msgid ""
 "because of changes in the software, we will have to edit the DXF files, "
 "generate PostScript, and use the less pretty, but factually correct images."
 msgstr ""
-"因为带有填充线和圆圈，宽线和虚线的原始EPS文件看起来要好得多，所以它们将保留在"
-"Git中，并且可能应该用于文档，但是如果它们由于软件的变化而变得不准确，我们将不"
-"得不编辑DXF文件，生成PostScript，并使用不太漂亮的， 但事实上正确的图像。"
 
 #. type: Plain text
 #: README.adoc:72
@@ -272,21 +207,16 @@ msgid ""
 "files. If/when the DXF files are edited, they have to be converted to "
 "PostScript manually as follows:"
 msgstr ""
-"由于 QCAD 本身是一个 GUI 应用程序，因此 DXF 到 PostScript 的转换涉及点击式点"
-"击，并且无法自动化并成为生成文件的一部分。此外，并非每个人都会在其系统上安装"
-"QCAD。因此，DXF 文件和生成的后脚本文件都存储在 Git 中，并且正常的文档构建过程"
-"仅使用 PostScript 文件。如果/当 DXF 文件被编辑时，必须手动将它们转换为 "
-"PostScript，如下所示："
 
 #. type: Plain text
 #: README.adoc:74
 msgid "Start QCAD"
-msgstr "启动QCAD"
+msgstr ""
 
 #. type: Plain text
 #: README.adoc:75
 msgid "File → Open → choose DXF file (the drawing appears in window)"
-msgstr "文件→打开“→选择”DXF 文件“（图形将会出现在窗口中）"
+msgstr ""
 
 #. type: Plain text
 #: README.adoc:77
@@ -876,7 +806,7 @@ msgstr ""
 #: INSTALL.adoc:124
 #, no-wrap
 msgid "`--version`"
-msgstr "`--版本`"
+msgstr ""
 
 #. type: Plain text
 #: INSTALL.adoc:126
@@ -8192,7 +8122,7 @@ msgstr ""
 #: src/drivers/motenc.adoc:108 src/drivers/pico-ppmc.adoc:233
 #: src/drivers/servo-to-go.adoc:116 src/gcode/overview.adoc:752
 #: src/gcode/overview.adoc:759 src/gui/gstat.adoc:515
-#: src/gui/qtvcp-widgets.adoc:2242 src/hal/basic-hal.adoc:375
+#: src/gui/qtvcp-widgets.adoc:2244 src/hal/basic-hal.adoc:375
 #: src/hal/basic-hal.adoc:408 src/hal/basic-hal.adoc:439
 #: src/hal/basic-hal.adoc:472 src/hal/canonical-devices.adoc:35
 #: src/hal/canonical-devices.adoc:59 src/hal/canonical-devices.adoc:88
@@ -9408,7 +9338,7 @@ msgstr ""
 
 #. type: Plain text
 #: src/common/glossary.adoc:148 src/gcode/overview.adoc:123
-#: src/gui/qtvcp-widgets.adoc:1585 src/gui/qtvcp-widgets.adoc:1726
+#: src/gui/qtvcp-widgets.adoc:1585 src/gui/qtvcp-widgets.adoc:1728
 #, no-wrap
 msgid "Feed rate"
 msgstr ""
@@ -11613,7 +11543,7 @@ msgstr ""
 #. type: SH
 #: src/config/core-components.adoc:79 src/config/stepconf.adoc:393
 #: src/drivers/mb2hal.adoc:46 src/gui/qtvcp.adoc:104
-#: src/gui/qtvcp-widgets.adoc:2795 src/hal/comp.adoc:290 man/man1/xhc-hb04.1:43
+#: src/gui/qtvcp-widgets.adoc:2797 src/hal/comp.adoc:290 man/man1/xhc-hb04.1:43
 #, no-wrap
 msgid "Options"
 msgstr ""
@@ -12417,7 +12347,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/config/core-components.adoc:328 src/config/core-components.adoc:336
-#: src/gui/axis.adoc:33 src/gui/qtvcp-widgets.adoc:2959
+#: src/gui/axis.adoc:33 src/gui/qtvcp-widgets.adoc:2961
 #, no-wrap
 msgid "INI settings"
 msgstr ""
@@ -16225,7 +16155,7 @@ msgstr ""
 #: src/gcode/overview.adoc:15 src/gcode/tool-compensation.adoc:298
 #: src/gui/gscreen.adoc:62 src/gui/gstat.adoc:15 src/gui/ngcgui.adoc:16
 #: src/gui/qtvcp.adoc:49 src/gui/qtvcp.adoc:513 src/gui/qtvcp.adoc:725
-#: src/gui/qtvcp.adoc:1077 src/gui/qtvcp-custom-widgets.adoc:7
+#: src/gui/qtvcp.adoc:1076 src/gui/qtvcp-custom-widgets.adoc:7
 #: src/gui/qtvcp-development.adoc:7 src/gui/tooledit.adoc:13
 #: src/remap/remap.adoc:587
 #, no-wrap
@@ -21019,10 +20949,9 @@ msgstr ""
 
 #. type: Title =
 #: src/config/python-hal-interface.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Notes on LinuxCNC documentation:"
+#, no-wrap
 msgid "The HAL Python module"
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Plain text
 #: src/config/python-hal-interface.adoc:13
@@ -21485,10 +21414,9 @@ msgstr ""
 
 #. type: Title =
 #: src/config/python-interface.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Notes on LinuxCNC documentation:"
+#, no-wrap
 msgid "The LinuxCNC Python module"
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Plain text
 #: src/config/python-interface.adoc:13
@@ -40268,6 +40196,12 @@ msgid ""
 "current point or the end point of the arc."
 msgstr ""
 
+#
+#
+#
+#
+#
+#
 #. FIXME Complete circles and helicoids doc
 #. === Complete Circles and Helicoids
 #. ----
@@ -48770,10 +48704,9 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/o-code.adoc:397 src/gcode/o-code.adoc:405
-#, fuzzy, no-wrap
-#| msgid "Adding files"
+#, no-wrap
 msgid "Calling Files"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/gcode/o-code.adoc:405
@@ -58789,17 +58722,14 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/axis.adoc:770
-#, fuzzy, no-wrap
-#| msgid "Notes on LinuxCNC documentation:"
+#, no-wrap
 msgid "Python modules"
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Index entry
 #: src/gui/axis.adoc:776
-#, fuzzy
-#| msgid "Notes on LinuxCNC documentation:"
 msgid "Python Modules"
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Plain text
 #: src/gui/axis.adoc:776
@@ -60698,6 +60628,7 @@ msgstr ""
 #
 #
 #
+#
 #. To run this panel as a standalone toplevel window besides AXIS, just start AXIS in the background and start GladeVCP as follows:
 #. FIXME: I'm not sure how this is supposed to work with axis in one directory and GladeVCP in a different directory.
 #. FIXME: there is a conflict for motion.N.spindle-speed-out since it is used by both
@@ -61851,7 +61782,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/gui/gladevcp.adoc:536 src/gui/pyvcp.adoc:455 src/gui/qtdragon.adoc:419
-#: src/gui/qtvcp-widgets.adoc:2985 src/man/man1/xhc-whb04b-6.1.adoc:272
+#: src/gui/qtvcp-widgets.adoc:2987 src/man/man1/xhc-whb04b-6.1.adoc:272
 #, no-wrap
 msgid "Buttons"
 msgstr ""
@@ -62126,9 +62057,9 @@ msgstr ""
 #: src/gui/gladevcp.adoc:1966 src/gui/qtvcp-libraries.adoc:886
 #: src/gui/qtvcp-libraries.adoc:968 src/gui/qtvcp-widgets.adoc:392
 #: src/gui/qtvcp-widgets.adoc:1342 src/gui/qtvcp-widgets.adoc:1588
-#: src/gui/qtvcp-widgets.adoc:1675 src/gui/qtvcp-widgets.adoc:2038
-#: src/gui/qtvcp-widgets.adoc:2208 src/gui/qtvcp-widgets.adoc:2673
-#: src/gui/qtvcp-widgets.adoc:2761
+#: src/gui/qtvcp-widgets.adoc:1675 src/gui/qtvcp-widgets.adoc:2040
+#: src/gui/qtvcp-widgets.adoc:2210 src/gui/qtvcp-widgets.adoc:2675
+#: src/gui/qtvcp-widgets.adoc:2763
 #, no-wrap
 msgid "Properties"
 msgstr ""
@@ -63129,7 +63060,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/gladevcp.adoc:983 src/gui/gladevcp.adoc:1711
-#: src/gui/qtvcp-widgets.adoc:2636
+#: src/gui/qtvcp-widgets.adoc:2638
 #, no-wrap
 msgid "Signals"
 msgstr ""
@@ -70363,10 +70294,9 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:630
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "new file"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:632
@@ -76665,10 +76595,9 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/halui.adoc:64
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "HAL file"
-msgstr "添加文件"
+msgstr ""
 
 #. type: delimited block -
 #: src/gui/halui.adoc:70
@@ -80615,7 +80544,7 @@ msgid "Creating a subroutine"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/ngcgui.adoc:900 src/gui/qtvcp-widgets.adoc:3001
+#: src/gui/ngcgui.adoc:900 src/gui/qtvcp-widgets.adoc:3003
 msgid ""
 "For creating a subroutine for use with NGCGUI, the filename and the "
 "subroutine name must be the same."
@@ -80637,12 +80566,12 @@ msgid "The subroutine must be surrounded by the `sub` and `endsub` tags."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/ngcgui.adoc:904 src/gui/qtvcp-widgets.adoc:3005
+#: src/gui/ngcgui.adoc:904 src/gui/qtvcp-widgets.adoc:3007
 msgid "The variables used must be numbered variables and must not skip number."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/ngcgui.adoc:905 src/gui/qtvcp-widgets.adoc:3006
+#: src/gui/ngcgui.adoc:905 src/gui/qtvcp-widgets.adoc:3008
 msgid "Comments and presets may be included."
 msgstr ""
 
@@ -86160,8 +86089,8 @@ msgid "QtDragon Probe"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtdragon.adoc:744 src/gui/qtvcp-widgets.adoc:2276
-#: src/gui/qtvcp-widgets.adoc:2531
+#: src/gui/qtdragon.adoc:744 src/gui/qtvcp-widgets.adoc:2278
+#: src/gui/qtvcp-widgets.adoc:2533
 #, no-wrap
 msgid "images/qtvcp_versaProbe.png"
 msgstr ""
@@ -86379,7 +86308,7 @@ msgid "QtDragon - Basic Probe Option"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtdragon.adoc:772 src/gui/qtvcp-widgets.adoc:2267
+#: src/gui/qtdragon.adoc:772 src/gui/qtvcp-widgets.adoc:2269
 #, no-wrap
 msgid "images/qtvcp_basicProbe.png"
 msgstr ""
@@ -90368,10 +90297,8 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp.adoc:991
-#, fuzzy
-#| msgid "Notes on LinuxCNC documentation:"
 msgid "status of LinuxCNC connected to functions."
-msgstr "关于 ‎‎LinuxCNC‎‎ 文档的说明:"
+msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp.adoc:992
@@ -90455,24 +90382,23 @@ msgid "*`system_shutdown_request__(self):`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1019
+#: src/gui/qtvcp.adoc:1018
 #, no-wrap
 msgid ""
 "If present, this function *overrides the normal function called for total system shutdown*.\n"
 "It could be used to do _pre-shutdown housekeeping_.\n"
-"+\n"
 "The Linux _system will not shutdown if using this function_, you will have to do that yourself.\n"
 "QtVCP/LinuxCNC will terminate without a prompt once this function returns."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp.adoc:1020
+#: src/gui/qtvcp.adoc:1019
 #, no-wrap
 msgid "*`closing_cleanup__(self):`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1023
+#: src/gui/qtvcp.adoc:1022
 msgid ""
 "This function is _called just before the screen closes_.  It can be used to "
 "do cleanup before closing."
@@ -90480,62 +90406,62 @@ msgstr ""
 
 #. TODO Are there/what are relations b/w system_shutdown_request__() and clocing_cleanup__()
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1026
+#: src/gui/qtvcp.adoc:1025
 #, no-wrap
 msgid "STATUS CALLBACKS Section"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1029
+#: src/gui/qtvcp.adoc:1028
 msgid ""
 "By convention this is where you would put functions that are *callbacks from "
 "STATUS definitions*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1030
+#: src/gui/qtvcp.adoc:1029
 #, no-wrap
 msgid "CALLBACKS FROM FORM Section"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1033
+#: src/gui/qtvcp.adoc:1032
 msgid ""
 "By convention this is where you would put functions that are *callbacks from "
 "the widgets connected to the MainWindow* in the Qt Designer editor."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1034
+#: src/gui/qtvcp.adoc:1033
 #, no-wrap
 msgid "GENERAL FUNCTIONS Section"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1037
+#: src/gui/qtvcp.adoc:1036
 msgid "By convention this is where you put your *general functions*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1038
+#: src/gui/qtvcp.adoc:1037
 #, no-wrap
 msgid "KEY BINDING Section"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1041
+#: src/gui/qtvcp.adoc:1040
 msgid ""
 "If you are _using the `keybinding` library_ this is where you place your "
 "*custom key call routines*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1043
+#: src/gui/qtvcp.adoc:1042
 msgid "The function signature is:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp.adoc:1049
+#: src/gui/qtvcp.adoc:1048
 #, no-wrap
 msgid ""
 "def on_keycall_KEY(self,event,state,shift,cntrl):\n"
@@ -90544,29 +90470,29 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1052
+#: src/gui/qtvcp.adoc:1051
 msgid ""
 "`KEY` being the code (from the keybindings library) for the desired key."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1053
+#: src/gui/qtvcp.adoc:1052
 #, no-wrap
 msgid "CLOSING EVENT Section"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1056
+#: src/gui/qtvcp.adoc:1055
 msgid "Putting the *`closeEvent` function here will catch closing events*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1058
+#: src/gui/qtvcp.adoc:1057
 msgid "This _replaces any predefined `closeEvent`_ function from QtVCP."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp.adoc:1064
+#: src/gui/qtvcp.adoc:1063
 #, no-wrap
 msgid ""
 "def closeEvent(self, event):\n"
@@ -90575,70 +90501,70 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1067
+#: src/gui/qtvcp.adoc:1066
 msgid "It is usually better to use the special `closing_cleanup__` function."
 msgstr ""
 
 #. type: Title ==
-#: src/gui/qtvcp.adoc:1068
+#: src/gui/qtvcp.adoc:1067
 #, no-wrap
 msgid "Connecting Widgets to Python Code"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1071
+#: src/gui/qtvcp.adoc:1070
 msgid ""
 "It is possible to connect widgets to Python code using *signals and slots*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1073
+#: src/gui/qtvcp.adoc:1072
 msgid "In this way you can:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1075
+#: src/gui/qtvcp.adoc:1074
 msgid "_Give new functions to LinuxCNC widgets_, or"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1076
+#: src/gui/qtvcp.adoc:1075
 msgid "_Utilize standard Qt widgets to control LinuxCNC_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1080
+#: src/gui/qtvcp.adoc:1079
 msgid "*In the Qt Designer editor*:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1082
+#: src/gui/qtvcp.adoc:1081
 msgid "You _create user function slots_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1083
+#: src/gui/qtvcp.adoc:1082
 msgid "You _connect the slots to widgets using signals_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1085
+#: src/gui/qtvcp.adoc:1084
 msgid "*In the handler file*:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1087
+#: src/gui/qtvcp.adoc:1086
 msgid "You _create the slot's functions_ defined in Qt Designer."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1089
+#: src/gui/qtvcp.adoc:1088
 #, no-wrap
 msgid "Using Qt Designer to add Slots"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1093
+#: src/gui/qtvcp.adoc:1092
 #, no-wrap
 msgid ""
 "When you have loaded your screen into Qt Designer, add a plain `PushButton` to the screen.\n"
@@ -90646,12 +90572,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1095
+#: src/gui/qtvcp.adoc:1094
 msgid "There are two ways to edit connections - This is the graphical way."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1098
+#: src/gui/qtvcp.adoc:1097
 msgid ""
 "There is a button in the top tool bar of Qt Designer for editing signals.  "
 "After pushing it, if you click-and-hold on the button it will show an arrow "
@@ -90659,114 +90585,114 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1099
+#: src/gui/qtvcp.adoc:1098
 msgid ""
 "Slide this arrow to a part of the main window that does not have widgets on "
 "it."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1100
+#: src/gui/qtvcp.adoc:1099
 msgid "A 'Configure Connections' dialog will pop up."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1101
+#: src/gui/qtvcp.adoc:1100
 msgid "The list on the left are the available signals from the widget."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1102
+#: src/gui/qtvcp.adoc:1101
 msgid ""
 "The list on the right are the available slots on the main window and you can "
 "add to it."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1103
+#: src/gui/qtvcp.adoc:1102
 msgid "Pick the signal `clicked()` - this makes the slots side available."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1104
+#: src/gui/qtvcp.adoc:1103
 msgid "Click 'Edit' on the slots list."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1105
+#: src/gui/qtvcp.adoc:1104
 msgid "A 'Slots/Signals of MainWindow' dialog will pop up."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1106
+#: src/gui/qtvcp.adoc:1105
 msgid "On the slots list at the top there is a '+' icon - click it."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1107
+#: src/gui/qtvcp.adoc:1106
 msgid "You can now edit a new slot name."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1108
+#: src/gui/qtvcp.adoc:1107
 msgid "Erase the default name `slot()` and change it to `test_button()`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1109
+#: src/gui/qtvcp.adoc:1108
 msgid "Press the 'OK' button."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1110
+#: src/gui/qtvcp.adoc:1109
 msgid "You'll be back to the 'Configure Connections' dialog."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1111
+#: src/gui/qtvcp.adoc:1110
 msgid "Now you can select your new slot in the slot list."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1112
+#: src/gui/qtvcp.adoc:1111
 msgid "Then press 'OK' and save the file."
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp.adoc:1113 src/gui/qtvcp.adoc:1114
+#: src/gui/qtvcp.adoc:1112 src/gui/qtvcp.adoc:1113
 #, no-wrap
 msgid "Qt Designer Signal/Slot Selection"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp.adoc:1114
+#: src/gui/qtvcp.adoc:1113
 #, no-wrap
 msgid "images/designer_slots.png"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1116
+#: src/gui/qtvcp.adoc:1115
 #, no-wrap
 msgid "Python Handler Changes"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1119
+#: src/gui/qtvcp.adoc:1118
 msgid "Now you must *add the function to the handler file*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1121
+#: src/gui/qtvcp.adoc:1120
 msgid "The function signature is *`def slot_name(self):`*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1123
+#: src/gui/qtvcp.adoc:1122
 msgid "For our example, we will add some code to print the widget name:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp.adoc:1129
+#: src/gui/qtvcp.adoc:1128
 #, no-wrap
 msgid ""
 "def test_button(self):\n"
@@ -90775,12 +90701,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1132
+#: src/gui/qtvcp.adoc:1131
 msgid "Add this code under the section named:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp.adoc:1138
+#: src/gui/qtvcp.adoc:1137
 #, no-wrap
 msgid ""
 "#######################\n"
@@ -90789,62 +90715,62 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1141
+#: src/gui/qtvcp.adoc:1140
 msgid ""
 "In fact it doesn't matter where in the handler class you put the commands "
 "but by convention this is where to put it."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1143
+#: src/gui/qtvcp.adoc:1142
 msgid "Save the handler file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1145
+#: src/gui/qtvcp.adoc:1144
 msgid ""
 "Now when you load your screen and press the button it should print the name "
 "of the button in the terminal."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp.adoc:1146 src/gui/qtvcp-libraries.adoc:1369
+#: src/gui/qtvcp.adoc:1145 src/gui/qtvcp-libraries.adoc:1369
 #, no-wrap
 msgid "More Information"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1149
+#: src/gui/qtvcp.adoc:1148
 msgid "<<cha:qtvcp:panels,QtVCP Builtin Virtual Control Panels>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1151
+#: src/gui/qtvcp.adoc:1150
 msgid "<<cha:qtvcp:widgets,QtVCP Widgets>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1153
+#: src/gui/qtvcp.adoc:1152
 msgid "<<cha:qtvcp:libraries,QtVCP Libraries>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1155
+#: src/gui/qtvcp.adoc:1154
 msgid "<<cha:qtvcp:vismach,Qt Vismach>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1157
+#: src/gui/qtvcp.adoc:1156
 msgid "<<cha:qtvcp:code,QtVCP Handler File Code Snippets>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1159
+#: src/gui/qtvcp.adoc:1158
 msgid "<<cha:qtvcp:devel,QtVCP Development>>"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp.adoc:1161
+#: src/gui/qtvcp.adoc:1160
 msgid "<<cha:qtvcp:custom-widgets,QtVCP Custom Qt Designer Widgets>>"
 msgstr ""
 
@@ -91133,7 +91059,7 @@ msgid "Under the `+__init__.(self, halcomp, widgets, paths)+` function:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-code-snippets.adoc:133 src/gui/qtvcp-widgets.adoc:2299
+#: src/gui/qtvcp-code-snippets.adoc:133 src/gui/qtvcp-widgets.adoc:2301
 #, no-wrap
 msgid "STATUS.connect('general',self.return_value)\n"
 msgstr ""
@@ -98769,7 +98695,7 @@ msgid "QtVCP tool_dialog - Manual Tool Change Dialog"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-vcp-panels.adoc:272 src/gui/qtvcp-widgets.adoc:2374
+#: src/gui/qtvcp-vcp-panels.adoc:272 src/gui/qtvcp-widgets.adoc:2376
 #, no-wrap
 msgid "images/qtvcp_toolChange.png"
 msgstr ""
@@ -99171,7 +99097,7 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-vcp-panels.adoc:457 src/gui/qtvcp-widgets.adoc:2910
+#: src/gui/qtvcp-vcp-panels.adoc:457 src/gui/qtvcp-widgets.adoc:2912
 #, no-wrap
 msgid "*`INSTANCE`*"
 msgstr ""
@@ -100738,7 +100664,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:71 src/gui/qtvcp-widgets.adoc:1686
-#: src/gui/qtvcp-widgets.adoc:2765
+#: src/gui/qtvcp-widgets.adoc:2767
 #, no-wrap
 msgid "*`off_color`*"
 msgstr ""
@@ -101356,31 +101282,31 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:262 src/gui/qtvcp-widgets.adoc:2680
+#: src/gui/qtvcp-widgets.adoc:262 src/gui/qtvcp-widgets.adoc:2682
 #, no-wrap
 msgid "*`left_image_path`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:263 src/gui/qtvcp-widgets.adoc:2681
+#: src/gui/qtvcp-widgets.adoc:263 src/gui/qtvcp-widgets.adoc:2683
 #, no-wrap
 msgid "*`right_image_path`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:264 src/gui/qtvcp-widgets.adoc:2682
+#: src/gui/qtvcp-widgets.adoc:264 src/gui/qtvcp-widgets.adoc:2684
 #, no-wrap
 msgid "*`center_image_path`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:265 src/gui/qtvcp-widgets.adoc:2683
+#: src/gui/qtvcp-widgets.adoc:265 src/gui/qtvcp-widgets.adoc:2685
 #, no-wrap
 msgid "*`top_image_path`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:266 src/gui/qtvcp-widgets.adoc:2684
+#: src/gui/qtvcp-widgets.adoc:266 src/gui/qtvcp-widgets.adoc:2686
 #, no-wrap
 msgid "*`bottom_image_path`*"
 msgstr ""
@@ -101394,37 +101320,37 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:269 src/gui/qtvcp-widgets.adoc:2687
+#: src/gui/qtvcp-widgets.adoc:269 src/gui/qtvcp-widgets.adoc:2689
 #, no-wrap
 msgid "*`left_text`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:270 src/gui/qtvcp-widgets.adoc:2688
+#: src/gui/qtvcp-widgets.adoc:270 src/gui/qtvcp-widgets.adoc:2690
 #, no-wrap
 msgid "*`right_text`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:271 src/gui/qtvcp-widgets.adoc:2689
+#: src/gui/qtvcp-widgets.adoc:271 src/gui/qtvcp-widgets.adoc:2691
 #, no-wrap
 msgid "*`center_text`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:272 src/gui/qtvcp-widgets.adoc:2690
+#: src/gui/qtvcp-widgets.adoc:272 src/gui/qtvcp-widgets.adoc:2692
 #, no-wrap
 msgid "*`top_text`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:273 src/gui/qtvcp-widgets.adoc:2691
+#: src/gui/qtvcp-widgets.adoc:273 src/gui/qtvcp-widgets.adoc:2693
 #, no-wrap
 msgid "*`bottom_text`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:276 src/gui/qtvcp-widgets.adoc:2694
+#: src/gui/qtvcp-widgets.adoc:276 src/gui/qtvcp-widgets.adoc:2696
 #, no-wrap
 msgid ""
 "A text string to be displayed in the described button location.\n"
@@ -101432,13 +101358,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:276 src/gui/qtvcp-widgets.adoc:2694
+#: src/gui/qtvcp-widgets.adoc:276 src/gui/qtvcp-widgets.adoc:2696
 #, no-wrap
 msgid "*`true_color`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:277 src/gui/qtvcp-widgets.adoc:2695
+#: src/gui/qtvcp-widgets.adoc:277 src/gui/qtvcp-widgets.adoc:2697
 #, no-wrap
 msgid "*`false_color`*"
 msgstr ""
@@ -101451,13 +101377,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:279 src/gui/qtvcp-widgets.adoc:2697
+#: src/gui/qtvcp-widgets.adoc:279 src/gui/qtvcp-widgets.adoc:2699
 #, no-wrap
 msgid "*`text_color`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:281 src/gui/qtvcp-widgets.adoc:2699
+#: src/gui/qtvcp-widgets.adoc:281 src/gui/qtvcp-widgets.adoc:2701
 msgid "Color selection for the button text."
 msgstr ""
 
@@ -101468,7 +101394,7 @@ msgid "*`text_font`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:283 src/gui/qtvcp-widgets.adoc:2701
+#: src/gui/qtvcp-widgets.adoc:283 src/gui/qtvcp-widgets.adoc:2703
 msgid "Font selection for the button text."
 msgstr ""
 
@@ -102729,7 +102655,7 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:624 src/gui/qtvcp-widgets.adoc:682
-#: src/gui/qtvcp-widgets.adoc:1741
+#: src/gui/qtvcp-widgets.adoc:1743
 msgid "It is based on PyQt's _QToolButton_."
 msgstr ""
 
@@ -102936,8 +102862,8 @@ msgid "Actual, relative or distance to go (0,1,2)."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:709 src/gui/qtvcp-widgets.adoc:2045
-#: src/gui/qtvcp-widgets.adoc:2215
+#: src/gui/qtvcp-widgets.adoc:709 src/gui/qtvcp-widgets.adoc:2047
+#: src/gui/qtvcp-widgets.adoc:2217
 #, no-wrap
 msgid "*`metric_template`*"
 msgstr ""
@@ -102948,8 +102874,8 @@ msgid "Format of display, e.g. `%10.3f`."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:711 src/gui/qtvcp-widgets.adoc:2047
-#: src/gui/qtvcp-widgets.adoc:2217
+#: src/gui/qtvcp-widgets.adoc:711 src/gui/qtvcp-widgets.adoc:2049
+#: src/gui/qtvcp-widgets.adoc:2219
 #, no-wrap
 msgid "*`imperial_template`*"
 msgstr ""
@@ -103266,7 +103192,7 @@ msgid "This *displays the current G-code in a graphical form*."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:845 src/gui/qtvcp-widgets.adoc:2141
+#: src/gui/qtvcp-widgets.adoc:845 src/gui/qtvcp-widgets.adoc:2143
 #, no-wrap
 msgid "Stylesheets Properties"
 msgstr ""
@@ -105758,27 +105684,27 @@ msgid "This widget allow the user to *adjust a LinuxCNC setting via a slider*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1581 src/gui/qtvcp-widgets.adoc:1722
+#: src/gui/qtvcp-widgets.adoc:1581 src/gui/qtvcp-widgets.adoc:1724
 msgid "The widget can adjust:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1583 src/gui/qtvcp-widgets.adoc:1724
+#: src/gui/qtvcp-widgets.adoc:1583 src/gui/qtvcp-widgets.adoc:1726
 msgid "Jog rate"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1584 src/gui/qtvcp-widgets.adoc:1725
+#: src/gui/qtvcp-widgets.adoc:1584 src/gui/qtvcp-widgets.adoc:1727
 msgid "Angular jog rate"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1586 src/gui/qtvcp-widgets.adoc:1727
+#: src/gui/qtvcp-widgets.adoc:1586 src/gui/qtvcp-widgets.adoc:1729
 msgid "Spindle override rate"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1587 src/gui/qtvcp-widgets.adoc:1728
+#: src/gui/qtvcp-widgets.adoc:1587 src/gui/qtvcp-widgets.adoc:1730
 msgid "Rapid override rate"
 msgstr ""
 
@@ -105893,7 +105819,7 @@ msgid "Sets the float value that signals the stylesheet for 'over' warning."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1614 src/gui/qtvcp-widgets.adoc:2053
+#: src/gui/qtvcp-widgets.adoc:1614 src/gui/qtvcp-widgets.adoc:2055
 msgid "These can be set in:"
 msgstr ""
 
@@ -106133,8 +106059,11 @@ msgid ""
 "added to the `.qss` file. +"
 msgstr ""
 
+#.  Plain listing rather than [source,{css}]: source-highlight escapes the <1>
+#.  before asciidoc's callout substitution runs, so the callout below would not
+#.  resolve.  Every other callout in these documents uses a plain listing too.
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1706
+#: src/gui/qtvcp-widgets.adoc:1708
 #, no-wrap
 msgid ""
 "State_LED #name_of_led{       <1>\n"
@@ -106145,105 +106074,105 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1709
+#: src/gui/qtvcp-widgets.adoc:1711
 msgid "`name_of_led` would be the name defined in Qt Designer's editor."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1711
+#: src/gui/qtvcp-widgets.adoc:1713
 msgid "It is based on the _LED_ widget."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1713
+#: src/gui/qtvcp-widgets.adoc:1715
 #, no-wrap
 msgid "`StatusAdjustmentBar` - Controller Value Setting Widget"
 msgstr ""
 
 #. TODO StatusAdjustmentBar widget capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1718
+#: src/gui/qtvcp-widgets.adoc:1720
 msgid ""
 "This widget allows *setting values using buttons while displaying a bar*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1720
+#: src/gui/qtvcp-widgets.adoc:1722
 msgid ""
 "It also has an _optional hi/low toggle button_ that can be held down to set "
 "the *levels*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1730
+#: src/gui/qtvcp-widgets.adoc:1732
 msgid "It is based on PyQt's _QProgressBar_."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1732
+#: src/gui/qtvcp-widgets.adoc:1734
 #, no-wrap
 msgid "`SystemToolButton` - User System Selection Widget"
 msgstr ""
 
 #. TODO SystemToolButton widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1737
+#: src/gui/qtvcp-widgets.adoc:1739
 msgid ""
 "This widget allows you to *manually select a G5x user system by pressing and "
 "holding*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1739
+#: src/gui/qtvcp-widgets.adoc:1741
 msgid ""
 "If you don't set the button text it will automatically update to the current "
 "system."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1743
+#: src/gui/qtvcp-widgets.adoc:1745
 #, no-wrap
 msgid "`MacroTab` - Special Macros Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1745
+#: src/gui/qtvcp-widgets.adoc:1747
 #, no-wrap
 msgid "QtVCP `MacroTab`: Special Macros Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:1746
+#: src/gui/qtvcp-widgets.adoc:1748
 #, no-wrap
 msgid "QtVCP MacroTab: Special Macros Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:1746
+#: src/gui/qtvcp-widgets.adoc:1748
 #, no-wrap
 msgid "images/qtvcp_macro.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1749
+#: src/gui/qtvcp-widgets.adoc:1751
 msgid ""
 "This widget allows a user to *select and adjust special macro programs* for "
 "doing small jobs."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1751
+#: src/gui/qtvcp-widgets.adoc:1753
 msgid ""
 "It uses _images for visual representation_ of the macro and for an icon."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1753
+#: src/gui/qtvcp-widgets.adoc:1755
 msgid "It searches for special macros using the _INI definition_:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1758
+#: src/gui/qtvcp-widgets.adoc:1760
 #, no-wrap
 msgid ""
 "[RS274NGC]\n"
@@ -106251,7 +106180,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1762
+#: src/gui/qtvcp-widgets.adoc:1764
 msgid ""
 "The macros are *`O-word` subroutines with special comments* to work with the "
 "launcher.  The first three lines _must_ have the keywords below, the fourth "
@@ -106259,12 +106188,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1764
+#: src/gui/qtvcp-widgets.adoc:1766
 msgid "Here is a sample for the first four lines in an _O-word file_:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1771
+#: src/gui/qtvcp-widgets.adoc:1773
 #, no-wrap
 msgid ""
 "; MACROCOMMAND = Entry1,Entry2\n"
@@ -106274,18 +106203,18 @@ msgid ""
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1773
+#: src/gui/qtvcp-widgets.adoc:1775
 #, no-wrap
 msgid "`MACROCOMMAND`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1776
+#: src/gui/qtvcp-widgets.adoc:1778
 msgid "This is the _first line_ in the O-word file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1779
+#: src/gui/qtvcp-widgets.adoc:1781
 #, no-wrap
 msgid ""
 "It is a *comma separated list of text to display above an entry*.\n"
@@ -106293,54 +106222,54 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1781
+#: src/gui/qtvcp-widgets.adoc:1783
 msgid "If the macro does not require variables, leave it empty:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1785
+#: src/gui/qtvcp-widgets.adoc:1787
 #, no-wrap
 msgid "; MACROCOMMAND=\n"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1787
+#: src/gui/qtvcp-widgets.adoc:1789
 #, no-wrap
 msgid "`MACRODEFAULTS`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1790
+#: src/gui/qtvcp-widgets.adoc:1792
 msgid "This must be the _second line_ in the O-word file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1792
+#: src/gui/qtvcp-widgets.adoc:1794
 msgid ""
 "It is a *comma separated list of the default values for each variable* in "
 "the O-word function."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1794
+#: src/gui/qtvcp-widgets.adoc:1796
 msgid ""
 "If you use the word `true` or `false` in the list, a `*checkbutton*` will be "
 "shown."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1795
+#: src/gui/qtvcp-widgets.adoc:1797
 #, no-wrap
 msgid "`MACROIMAGE`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1798
+#: src/gui/qtvcp-widgets.adoc:1800
 msgid "This must be the _third line_ in the O-word file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1801
+#: src/gui/qtvcp-widgets.adoc:1803
 #, no-wrap
 msgid ""
 "*SVG Images*\n"
@@ -106348,36 +106277,36 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1803
+#: src/gui/qtvcp-widgets.adoc:1805
 msgid ""
 "The images must be added to _SVG layers_ which are used to define the "
 "different images for macro and icon."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1805
+#: src/gui/qtvcp-widgets.adoc:1807
 msgid "Value is comma separated list of three ordered fields:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1809
+#: src/gui/qtvcp-widgets.adoc:1811
 #, no-wrap
 msgid "; MACROIMAGE=filename.svg,macro_layer_name[,icon_layer_name]\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1812 src/gui/qtvcp-widgets.adoc:1830
+#: src/gui/qtvcp-widgets.adoc:1814 src/gui/qtvcp-widgets.adoc:1832
 msgid "With:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1813
+#: src/gui/qtvcp-widgets.adoc:1815
 #, no-wrap
 msgid "*`_filename_.svg`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1816
+#: src/gui/qtvcp-widgets.adoc:1818
 #, no-wrap
 msgid ""
 "SVG image file name as first field.\n"
@@ -106385,31 +106314,31 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1816
+#: src/gui/qtvcp-widgets.adoc:1818
 #, no-wrap
 msgid "*`*macro_layer_name`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1818
+#: src/gui/qtvcp-widgets.adoc:1820
 msgid "Macro image layer name as second field."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1818
+#: src/gui/qtvcp-widgets.adoc:1820
 #, no-wrap
 msgid "*`icon_layer_name`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1821
+#: src/gui/qtvcp-widgets.adoc:1823
 msgid ""
 "Icon image layer name as optional third field.  If the third entry is "
 "missing, the same image will be used for macro and icon."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1823
+#: src/gui/qtvcp-widgets.adoc:1825
 #, no-wrap
 msgid ""
 "*PNG/JPG Images*:\n"
@@ -106417,19 +106346,19 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1827
+#: src/gui/qtvcp-widgets.adoc:1829
 #, no-wrap
 msgid "; MACROIMAGE=macro_image.(png|jpg)[,icon_image.(png|jpg)]\n"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1831
+#: src/gui/qtvcp-widgets.adoc:1833
 #, no-wrap
 msgid "*`_macro_image_.(png|jpg)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1834
+#: src/gui/qtvcp-widgets.adoc:1836
 #, no-wrap
 msgid ""
 "Macro image file name as first field.\n"
@@ -106437,13 +106366,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1834
+#: src/gui/qtvcp-widgets.adoc:1836
 #, no-wrap
 msgid "*`_icon_image_.(png|jpg)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1837
+#: src/gui/qtvcp-widgets.adoc:1839
 #, no-wrap
 msgid ""
 "*Icon image file name* as optional second field.\n"
@@ -106451,152 +106380,152 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1839
+#: src/gui/qtvcp-widgets.adoc:1841
 msgid ""
 "If the keyword is present but the entries are missing, no images will be "
 "used."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1840
+#: src/gui/qtvcp-widgets.adoc:1842
 #, no-wrap
 msgid "`MACROOPTIONS`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1843
+#: src/gui/qtvcp-widgets.adoc:1845
 msgid "This _optional line must be the fourth_ line in the O-word file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1845
+#: src/gui/qtvcp-widgets.adoc:1847
 msgid "It is a comma separated list of keyword and data:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1846
+#: src/gui/qtvcp-widgets.adoc:1848
 #, no-wrap
 msgid "*`LOAD:yes`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1848
+#: src/gui/qtvcp-widgets.adoc:1850
 msgid "Shows a load button."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1848
+#: src/gui/qtvcp-widgets.adoc:1850
 #, no-wrap
 msgid "*`SAVE:yes`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1850
+#: src/gui/qtvcp-widgets.adoc:1852
 #, no-wrap
 msgid "Shows a save button.\n"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1852
+#: src/gui/qtvcp-widgets.adoc:1854
 #, no-wrap
 msgid "`MDILine` - MDI Commands Line Entry Widget"
 msgstr ""
 
 #. TODO MDILine widget capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1857
+#: src/gui/qtvcp-widgets.adoc:1859
 msgid "One can *enter MDI commands* here."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1859
+#: src/gui/qtvcp-widgets.adoc:1861
 msgid "A popup keyboard is available."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1860
+#: src/gui/qtvcp-widgets.adoc:1862
 #, no-wrap
 msgid "Embedded Commands"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1862
+#: src/gui/qtvcp-widgets.adoc:1864
 msgid "There are also *embedded commands* available from this widget."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1864
+#: src/gui/qtvcp-widgets.adoc:1866
 msgid ""
 "Enter any of these _case sensitive_ commands to load the respective program "
 "or access the feature:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1865
+#: src/gui/qtvcp-widgets.adoc:1867
 #, no-wrap
 msgid "*`HALMETER`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1868
+#: src/gui/qtvcp-widgets.adoc:1870
 msgid "Starts LinuxCNC `halmeter` utility."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1868
+#: src/gui/qtvcp-widgets.adoc:1870
 #, no-wrap
 msgid "*`HALSHOW`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1871
+#: src/gui/qtvcp-widgets.adoc:1873
 msgid ""
 "Starts LinuxCNC link:../hal/halshow.html#cha:halshow[`halshow`] utility."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1871
+#: src/gui/qtvcp-widgets.adoc:1873
 #, no-wrap
 msgid "*`HALSCOPE`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1874
+#: src/gui/qtvcp-widgets.adoc:1876
 msgid ""
 "Starts LinuxCNC link:../hal/tutorial.html#sec:tutorial-halscope[`halscope`] "
 "utility."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1874
+#: src/gui/qtvcp-widgets.adoc:1876
 #, no-wrap
 msgid "*`STATUS`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1877
+#: src/gui/qtvcp-widgets.adoc:1879
 msgid "Starts LinuxCNC link:../man/man1/linuxcnctop.1.html[`status`] utility."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1877
+#: src/gui/qtvcp-widgets.adoc:1879
 #, no-wrap
 msgid "*`CALIBRATION`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1880
+#: src/gui/qtvcp-widgets.adoc:1882
 msgid "Starts LinuxCNC link:../man/man1/emccalib.1.html[Calibration]"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1880
+#: src/gui/qtvcp-widgets.adoc:1882
 #, no-wrap
 msgid "*`CLASSICLADDER`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1882
+#: src/gui/qtvcp-widgets.adoc:1884
 msgid ""
 "Starts the link:../ladder/classic-ladder.html[ClassicLadder GUI] if the "
 "_ClassicLadder realtime HAL component_ was loaded by the machine's config "
@@ -106604,35 +106533,35 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1882
+#: src/gui/qtvcp-widgets.adoc:1884
 #, no-wrap
 msgid "*`PREFERENCE`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1884
+#: src/gui/qtvcp-widgets.adoc:1886
 msgid "_Loads the preference file_ into the `GcodeEditor`."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1884
+#: src/gui/qtvcp-widgets.adoc:1886
 #, no-wrap
 msgid "*`CLEAR HISTORY`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1886
+#: src/gui/qtvcp-widgets.adoc:1888
 msgid "_Clears the MDI History_."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1886
+#: src/gui/qtvcp-widgets.adoc:1888
 #, no-wrap
 msgid "*`net`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1889
+#: src/gui/qtvcp-widgets.adoc:1891
 #, no-wrap
 msgid ""
 "See link:../man/man1/halcmd.1.html#COMMANDS[`halcmd net` commands].\n"
@@ -106640,23 +106569,23 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1890
+#: src/gui/qtvcp-widgets.adoc:1892
 msgid "_Syntax_: `net <signal name> <pin name>`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1891
+#: src/gui/qtvcp-widgets.adoc:1893
 msgid "__Example__: `net plasmac:jog-inhibit motion.jog-stop`"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1891
+#: src/gui/qtvcp-widgets.adoc:1893
 #, no-wrap
 msgid "*`setp`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1895
+#: src/gui/qtvcp-widgets.adoc:1897
 #, no-wrap
 msgid ""
 "_Sets the value of a pin or a parameter_.\n"
@@ -106665,23 +106594,23 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1896
+#: src/gui/qtvcp-widgets.adoc:1898
 msgid "_Syntax_: `setp <pin/parameter-name> <value>`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1897
+#: src/gui/qtvcp-widgets.adoc:1899
 msgid "_Example_: `setp plasmac.resolution 100`"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:1897
+#: src/gui/qtvcp-widgets.adoc:1899
 #, no-wrap
 msgid "*`unlinkp`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1901
+#: src/gui/qtvcp-widgets.adoc:1903
 #, no-wrap
 msgid ""
 "_Disconnects a pin from a signal_.\n"
@@ -106690,29 +106619,29 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1902
+#: src/gui/qtvcp-widgets.adoc:1904
 msgid "_Syntax_: `unlinkp <pin name>`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1903
+#: src/gui/qtvcp-widgets.adoc:1905
 msgid "__Example__: `unlinkp motion.jog-stop`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1905
+#: src/gui/qtvcp-widgets.adoc:1907
 msgid ""
 "The `MDILine` function *`spindle_inhibit`* can be used by a GUI's handler "
 "file to inhibit `M3`, `M4`, and `M5` spindle commands if necessary."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1907
+#: src/gui/qtvcp-widgets.adoc:1909
 msgid "It is based on PyQt's _QLineEdit_."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1909
+#: src/gui/qtvcp-widgets.adoc:1911
 #, no-wrap
 msgid "`MDIHistory` - MDI Commands History Widget"
 msgstr ""
@@ -106720,119 +106649,119 @@ msgstr ""
 #. TODO MDIHistory widget capture
 #. TODO Merge MDILine and MDIHistory sections ?
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1915
+#: src/gui/qtvcp-widgets.adoc:1917
 msgid "Displays a *scrollable list of past MDI command*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1918
+#: src/gui/qtvcp-widgets.adoc:1920
 msgid ""
 "An edit line is embedded for MDI commands.  The same MDILine embedded "
 "commands may be accessed from this widget."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1920
+#: src/gui/qtvcp-widgets.adoc:1922
 msgid ""
 "The history is _recorded on a file defined in the INI_ under the heading "
 "`[DISPLAY]` (this shows the default):"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1924
+#: src/gui/qtvcp-widgets.adoc:1926
 #, no-wrap
 msgid "MDI_HISTORY_FILE = '~/.axis_mdi_history'\n"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:1927
+#: src/gui/qtvcp-widgets.adoc:1929
 #, no-wrap
 msgid "`MDITouchy` - Touch Screen MDI Entry Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:1929
+#: src/gui/qtvcp-widgets.adoc:1931
 #, no-wrap
 msgid "QtVCP `MDITouchy`: Touch Screen MDI Entry Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:1930
+#: src/gui/qtvcp-widgets.adoc:1932
 #, no-wrap
 msgid "QtVCP MDITouchy: Touch Screen MDI Entry Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:1930
+#: src/gui/qtvcp-widgets.adoc:1932
 #, no-wrap
 msgid "images/qtvcp_mdiTouchy.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1933
+#: src/gui/qtvcp-widgets.adoc:1935
 msgid ""
 "This widget displays *buttons and entry lines to use for entering MDI "
 "commands*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1935
+#: src/gui/qtvcp-widgets.adoc:1937
 msgid ""
 "Based on LinuxCNC's Touchy screen's MDI entry process, its large buttons are "
 "most useful for touch screens."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1937
+#: src/gui/qtvcp-widgets.adoc:1939
 msgid "To use `MDITouchy`:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1940
+#: src/gui/qtvcp-widgets.adoc:1942
 msgid ""
 "First press one of the `G/XY`, `G/RO`, `M` or `T` button.  On the left will "
 "show the entry fields that can be filled out."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1941
+#: src/gui/qtvcp-widgets.adoc:1943
 msgid "Then press `Next` and `Back` to navigate between fields."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1942
+#: src/gui/qtvcp-widgets.adoc:1944
 msgid "`Calc` will pop up a calculator dialog."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1943
+#: src/gui/qtvcp-widgets.adoc:1945
 msgid "`Clear` clears the current entry."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1944
+#: src/gui/qtvcp-widgets.adoc:1946
 msgid "`Set Tool` will call for a tool change."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1945
+#: src/gui/qtvcp-widgets.adoc:1947
 msgid "`Set Origin` will allow setting the origin of the current G6x system."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1946
+#: src/gui/qtvcp-widgets.adoc:1948
 msgid "`Macro` will call any available macro ngc programs."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1948
+#: src/gui/qtvcp-widgets.adoc:1950
 msgid ""
 "The widget _requires an explicit call to MDITouchy Python code_ to _actually "
 "run the MDI command_:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1951
+#: src/gui/qtvcp-widgets.adoc:1953
 #, no-wrap
 msgid ""
 "*For handler file code*\n"
@@ -106840,13 +106769,13 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1955
+#: src/gui/qtvcp-widgets.adoc:1957
 #, no-wrap
 msgid "self.w.mditouchy.run_command()\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1959
+#: src/gui/qtvcp-widgets.adoc:1961
 #, no-wrap
 msgid ""
 "*For action button use*\n"
@@ -106854,43 +106783,43 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1963
+#: src/gui/qtvcp-widgets.adoc:1965
 #, no-wrap
 msgid "INSTANCE.mditouchy.run_command()\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1966
+#: src/gui/qtvcp-widgets.adoc:1968
 msgid ""
 "The macro button _cycles though macros defined in the INI [DISPLAY] heading_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1968
+#: src/gui/qtvcp-widgets.adoc:1970
 msgid "Add one or more `MACRO` lines of the following format:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1972
+#: src/gui/qtvcp-widgets.adoc:1974
 #, no-wrap
 msgid "MACRO = macro_name [param1] [... paramN]\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1975
+#: src/gui/qtvcp-widgets.adoc:1977
 msgid ""
 "In the example below, `increment` is the name of the macro, and it accepts "
 "two parameters, named `xinc` and `yinc`."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1979
+#: src/gui/qtvcp-widgets.adoc:1981
 #, no-wrap
 msgid "MACRO = incerment xinc yinc\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1983
+#: src/gui/qtvcp-widgets.adoc:1985
 msgid ""
 "Now, place the macro in a file named `macro_name.ngc` in the "
 "`PROGRAM_PREFIX` directory, or into any directory in the `SUBROUTINE_PATH` "
@@ -106898,14 +106827,14 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1985
+#: src/gui/qtvcp-widgets.adoc:1987
 msgid ""
 "Keeping on with the example above, it would be named `increment.ngc` and its "
 "content could look like:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:1992 src/gui/touchy.adoc:128
+#: src/gui/qtvcp-widgets.adoc:1994 src/gui/touchy.adoc:128
 #, no-wrap
 msgid ""
 "O<increment> sub\n"
@@ -106915,14 +106844,14 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1995
+#: src/gui/qtvcp-widgets.adoc:1997
 msgid ""
 "Notice the _name of the sub matches the file name and macro name exactly_, "
 "including case."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:1999
+#: src/gui/qtvcp-widgets.adoc:2001
 #, no-wrap
 msgid ""
 "When you invoke the macro by pressing the Macro button you can enter values for parameters (`xinc` and `yinc` in our example).\n"
@@ -106931,14 +106860,14 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2001 src/gui/touchy.adoc:140
+#: src/gui/qtvcp-widgets.adoc:2003 src/gui/touchy.adoc:140
 msgid ""
 "If there are several different macros, press the Macro button repeatedly to "
 "cycle through them."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2004
+#: src/gui/qtvcp-widgets.adoc:2006
 msgid ""
 "In this simple example, if you enter -1 for xinc and invoke the running of "
 "the MDI cycle, a rapid 'G0' move will be invoked, moving one unit to the "
@@ -106946,7 +106875,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2007 src/gui/touchy.adoc:149
+#: src/gui/qtvcp-widgets.adoc:2009 src/gui/touchy.adoc:149
 msgid ""
 "This macro capability is useful for edge/hole probing and other setup tasks, "
 "as well as perhaps hole milling or other simple operations that can be done "
@@ -106954,62 +106883,62 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2009
+#: src/gui/qtvcp-widgets.adoc:2011
 #, no-wrap
 msgid "`OriginOffsetView` - Origins View and Setting Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2011
+#: src/gui/qtvcp-widgets.adoc:2013
 #, no-wrap
 msgid "QtVCP `OriginOffsetsView`: Origins View and Setting Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2012
+#: src/gui/qtvcp-widgets.adoc:2014
 #, no-wrap
 msgid "QtVCP OriginOffsetsView: Origins View and Setting Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2012
+#: src/gui/qtvcp-widgets.adoc:2014
 #, no-wrap
 msgid "images/qtvcp_originoffsetview.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2015
+#: src/gui/qtvcp-widgets.adoc:2017
 msgid ""
 "This widget allows one to *visualize and modify User System Origin offsets* "
 "directly."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2017
+#: src/gui/qtvcp-widgets.adoc:2019
 msgid "It will _update LinuxCNC's Parameter file_ for changes made or found."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2019
+#: src/gui/qtvcp-widgets.adoc:2021
 msgid ""
 "The settings can only be changed in LinuxCNC after homing and when the "
 "motion controller is idle."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2021
+#: src/gui/qtvcp-widgets.adoc:2023
 msgid ""
 "The display and entry will change between metric and imperial, based on "
 "LinuxCNC's _current_ `G20` / `G21` setting."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2023
+#: src/gui/qtvcp-widgets.adoc:2025
 msgid "The current in-use user system will be highlighted."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2028
+#: src/gui/qtvcp-widgets.adoc:2030
 #, no-wrap
 msgid ""
 "Extra actions can be integrated to manipulate settings.\n"
@@ -107018,22 +106947,22 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2030 src/gui/qtvcp-widgets.adoc:2196
+#: src/gui/qtvcp-widgets.adoc:2032 src/gui/qtvcp-widgets.adoc:2198
 msgid "Clicking on the columns and rows allows one to adjust the settings."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2032 src/gui/qtvcp-widgets.adoc:2198
+#: src/gui/qtvcp-widgets.adoc:2034 src/gui/qtvcp-widgets.adoc:2200
 msgid "A dialog can be made to popup for data or text entry."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2034
+#: src/gui/qtvcp-widgets.adoc:2036
 msgid "The comments section will be recorded in the preference file."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2037 src/gui/qtvcp-widgets.adoc:2207
+#: src/gui/qtvcp-widgets.adoc:2039 src/gui/qtvcp-widgets.adoc:2209
 #, no-wrap
 msgid ""
 "It is based on PyQt's _QTableView_, _QAbstractTableModel_, and _ItemEditorFactory_.\n"
@@ -107041,65 +106970,65 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2040
+#: src/gui/qtvcp-widgets.adoc:2042
 msgid "`OriginOffsetView` has the following properties:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2041 src/gui/qtvcp-widgets.adoc:2211
+#: src/gui/qtvcp-widgets.adoc:2043 src/gui/qtvcp-widgets.adoc:2213
 #, no-wrap
 msgid "*`dialog_code_string`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2043 src/gui/qtvcp-widgets.adoc:2213
+#: src/gui/qtvcp-widgets.adoc:2045 src/gui/qtvcp-widgets.adoc:2215
 msgid "Sets which dialog will pop up with numerical entry."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2043 src/gui/qtvcp-widgets.adoc:2213
+#: src/gui/qtvcp-widgets.adoc:2045 src/gui/qtvcp-widgets.adoc:2215
 #, no-wrap
 msgid "*`test_dialog_code_string`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2045 src/gui/qtvcp-widgets.adoc:2215
+#: src/gui/qtvcp-widgets.adoc:2047 src/gui/qtvcp-widgets.adoc:2217
 msgid "Sets which dialog will pop up with text entry."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2047 src/gui/qtvcp-widgets.adoc:2217
+#: src/gui/qtvcp-widgets.adoc:2049 src/gui/qtvcp-widgets.adoc:2219
 msgid "Metric numerical data format."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2049 src/gui/qtvcp-widgets.adoc:2219
+#: src/gui/qtvcp-widgets.adoc:2051 src/gui/qtvcp-widgets.adoc:2221
 msgid "Imperial numerical data format."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2049 src/gui/qtvcp-widgets.adoc:2219
+#: src/gui/qtvcp-widgets.adoc:2051 src/gui/qtvcp-widgets.adoc:2221
 #, no-wrap
 msgid "*`styleCodeHighlight`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2051
+#: src/gui/qtvcp-widgets.adoc:2053
 msgid "Current in-use user system highlight color."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2055
+#: src/gui/qtvcp-widgets.adoc:2057
 msgid "Qt Designer, in"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2056
+#: src/gui/qtvcp-widgets.adoc:2058
 msgid "Python handler code"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2061
+#: src/gui/qtvcp-widgets.adoc:2063
 #, no-wrap
 msgid ""
 "self.w.originoffsetview.setProperty('dialog_code','CALCULATOR')\n"
@@ -107107,12 +107036,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2063
+#: src/gui/qtvcp-widgets.adoc:2065
 msgid "Or (if appropriate) in stylesheets"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2069
+#: src/gui/qtvcp-widgets.adoc:2071
 #, no-wrap
 msgid ""
 "OriginOffsetView{\n"
@@ -107121,176 +107050,176 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2072
+#: src/gui/qtvcp-widgets.adoc:2074
 #, no-wrap
 msgid "`StateEnableGridlayout` - Controller State Enabled Container Widget"
 msgstr ""
 
 #. TODO StateEnableGridlayout widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2077
+#: src/gui/qtvcp-widgets.adoc:2079
 #, no-wrap
 msgid " _disable the widgets inside it depending on LinuxCNC's current state_.\n"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2079
+#: src/gui/qtvcp-widgets.adoc:2081
 msgid "This is a *container that other widgets can be placed in*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2081
+#: src/gui/qtvcp-widgets.adoc:2083
 msgid ""
 "Embedded widgets are be greyed-out when the `StateEnableGridlayout` is "
 "disabled."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2083
+#: src/gui/qtvcp-widgets.adoc:2085
 msgid "It can selectably react to:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2085
+#: src/gui/qtvcp-widgets.adoc:2087
 msgid "Machine on"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2086
+#: src/gui/qtvcp-widgets.adoc:2088
 msgid "Interpreter idle"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2087
+#: src/gui/qtvcp-widgets.adoc:2089
 msgid "E-stop off"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2088
+#: src/gui/qtvcp-widgets.adoc:2090
 msgid "All-homed"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2090
+#: src/gui/qtvcp-widgets.adoc:2092
 msgid "It is based on PyQt's _QGridLayout_."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2092
+#: src/gui/qtvcp-widgets.adoc:2094
 #, no-wrap
 msgid "`MachineLog` - Machine Events Journal Display Widget"
 msgstr ""
 
 #. TODO MachineLog widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2096
+#: src/gui/qtvcp-widgets.adoc:2098
 msgid "FIXME MachineLog documentation"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2098
+#: src/gui/qtvcp-widgets.adoc:2100
 #, no-wrap
 msgid "`JointEnableWidget` - FIXME"
 msgstr ""
 
 #. TODO JointEnableWidget widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2102
+#: src/gui/qtvcp-widgets.adoc:2104
 msgid "FIXME JointEnableWidget documentation"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2104
+#: src/gui/qtvcp-widgets.adoc:2106
 #, no-wrap
 msgid "`StatusImageSwitcher` - Controller Status Image Switching Widget"
 msgstr ""
 
 #. TODO StatusImageSwitcher widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2109
+#: src/gui/qtvcp-widgets.adoc:2111
 msgid "This widget will *display images based on LinuxCNC status*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2111
+#: src/gui/qtvcp-widgets.adoc:2113
 msgid "You can watch:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2113
+#: src/gui/qtvcp-widgets.adoc:2115
 msgid "the state of the spindle,"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2114
+#: src/gui/qtvcp-widgets.adoc:2116
 msgid "the state of all homed,"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2115
+#: src/gui/qtvcp-widgets.adoc:2117
 msgid "the state of a certain axis homed,"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2116
+#: src/gui/qtvcp-widgets.adoc:2118
 msgid "the state of hard limits."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2118 src/gui/qtvcp-widgets.adoc:2168
+#: src/gui/qtvcp-widgets.adoc:2120 src/gui/qtvcp-widgets.adoc:2170
 msgid "It is based on PyQt's FIXME"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2120
+#: src/gui/qtvcp-widgets.adoc:2122
 #, no-wrap
 msgid "`FileManager` - File Loading Selector Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2122
+#: src/gui/qtvcp-widgets.adoc:2124
 #, no-wrap
 msgid "QtVCP `FileManager`: File Loading Selector Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2123
+#: src/gui/qtvcp-widgets.adoc:2125
 #, no-wrap
 msgid "QtVCP FileManager: File Loading Selector Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2123
+#: src/gui/qtvcp-widgets.adoc:2125
 #, no-wrap
 msgid "images/qtvcp_fileManager.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2126
+#: src/gui/qtvcp-widgets.adoc:2128
 msgid "This widget is used to *select files to load*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2128
+#: src/gui/qtvcp-widgets.adoc:2130
 msgid "It has a the ability to scroll the names with hardware such as a MPG."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2130
+#: src/gui/qtvcp-widgets.adoc:2132
 msgid ""
 "One can class patch the function `load(self,fname)` to customize file "
 "loading."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2132
+#: src/gui/qtvcp-widgets.adoc:2134
 msgid ""
 "The function `getCurrentSelected()` will return a Python tuple, containing "
 "the file path and whether it is a file."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2139
+#: src/gui/qtvcp-widgets.adoc:2141
 #, no-wrap
 msgid ""
 "temp = FILEMANAGER.getCurrentSelected()\n"
@@ -107300,13 +107229,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2143
+#: src/gui/qtvcp-widgets.adoc:2145
 #, no-wrap
 msgid "*`doubleClickSelection`* _(bool)_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2147
+#: src/gui/qtvcp-widgets.adoc:2149
 #, no-wrap
 msgid ""
 "Determines whether or not to _require double clicking on a folder_.\n"
@@ -107315,7 +107244,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2153
+#: src/gui/qtvcp-widgets.adoc:2155
 #, no-wrap
 msgid ""
 "#filemanager {\n"
@@ -107324,13 +107253,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2155
+#: src/gui/qtvcp-widgets.adoc:2157
 #, no-wrap
 msgid "*`showListView`* _(bool)_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2159
+#: src/gui/qtvcp-widgets.adoc:2161
 #, no-wrap
 msgid ""
 "Determines whether or not to _show the file/folder structure in list form_.\n"
@@ -107339,7 +107268,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2165
+#: src/gui/qtvcp-widgets.adoc:2167
 #, no-wrap
 msgid ""
 "#filemanager {\n"
@@ -107348,74 +107277,74 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2170
+#: src/gui/qtvcp-widgets.adoc:2172
 #, no-wrap
 msgid "`RadioAxisSelector` - FIXME"
 msgstr ""
 
 #. TODO RadioAxisSelector widget capture/example
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2174
+#: src/gui/qtvcp-widgets.adoc:2176
 msgid "FIXME RadioAxisSelector documentation"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2176
+#: src/gui/qtvcp-widgets.adoc:2178
 #, no-wrap
 msgid "`ToolOffsetView` - Tools Offsets View And Edit Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2178
+#: src/gui/qtvcp-widgets.adoc:2180
 #, no-wrap
 msgid "QtVCP `ToolOffsetView`: Tools Offsets View And Edit Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2179
+#: src/gui/qtvcp-widgets.adoc:2181
 #, no-wrap
 msgid "QtVCP ToolOffsetView: Tools Offsets View And Edit Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2179
+#: src/gui/qtvcp-widgets.adoc:2181
 #, no-wrap
 msgid "images/qtvcp_tooloffsetview.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2182
+#: src/gui/qtvcp-widgets.adoc:2184
 msgid "This widget *displays and allows one to modify tools offsets*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2184
+#: src/gui/qtvcp-widgets.adoc:2186
 msgid "It will _update LinuxCNC's tool table_ for changes made or found."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2186
+#: src/gui/qtvcp-widgets.adoc:2188
 msgid ""
 "The tool settings can only be changed in LinuxCNC after homing and when the "
 "motion controller is idle."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2188
+#: src/gui/qtvcp-widgets.adoc:2190
 msgid ""
 "The display and entry will change between metric and imperial based on "
 "LinuxCNC's _current_ `G20`/`G21` setting."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2190
+#: src/gui/qtvcp-widgets.adoc:2192
 msgid ""
 "The current in-use tool will be highlighted, and the current selected tool "
 "will be highlighted in a different color."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2194
+#: src/gui/qtvcp-widgets.adoc:2196
 #, no-wrap
 msgid ""
 "The checkbox beside each tool can be used to select too for an _action_ that depends on extra code added either to a combined widget, like the `toolOffsetView` dialog or the screens handler code.\n"
@@ -107423,55 +107352,55 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2200
+#: src/gui/qtvcp-widgets.adoc:2202
 msgid ""
 "The comments section will typically be displayed in the manual tool change "
 "dialog."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2202
+#: src/gui/qtvcp-widgets.adoc:2204
 msgid ""
 "If using a _lathe configuration_, there can be columns for X and Z wear."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2204
+#: src/gui/qtvcp-widgets.adoc:2206
 msgid ""
 "To use these columns to adjust the _tool wear_, it requires a remapped tool "
 "change routine."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2210
+#: src/gui/qtvcp-widgets.adoc:2212
 msgid ""
 "`ToolOffsetView` has properties that can be set in Qt Designer, in Python "
 "handler code or (if appropriate) in stylesheets:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2221
+#: src/gui/qtvcp-widgets.adoc:2223
 msgid "Current tool-in-use highlight color."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2221
+#: src/gui/qtvcp-widgets.adoc:2223
 #, no-wrap
 msgid "*`styleCodeSelected`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2223
+#: src/gui/qtvcp-widgets.adoc:2225
 msgid "Selected highlight color."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2225
+#: src/gui/qtvcp-widgets.adoc:2227
 msgid "In a handler file:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2230
+#: src/gui/qtvcp-widgets.adoc:2232
 #, no-wrap
 msgid ""
 "self.w.tooloffsetview.setProperty('dialog_code','CALCULATOR')\n"
@@ -107479,12 +107408,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2233
+#: src/gui/qtvcp-widgets.adoc:2235
 msgid "and in style sheets:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2240
+#: src/gui/qtvcp-widgets.adoc:2242
 #, no-wrap
 msgid ""
 "ToolOffsetView{\n"
@@ -107494,64 +107423,64 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2244
+#: src/gui/qtvcp-widgets.adoc:2246
 msgid ""
 "`ToolOffsetView` has some functions useful for screen builders to add "
 "actions:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2245
+#: src/gui/qtvcp-widgets.adoc:2247
 #, no-wrap
 msgid "*`add_tool()`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2247
+#: src/gui/qtvcp-widgets.adoc:2249
 msgid "Adds a blank dummy tool (99) that the user can edit to suit."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2247
+#: src/gui/qtvcp-widgets.adoc:2249
 #, no-wrap
 msgid "*`delete_tools()`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2249
+#: src/gui/qtvcp-widgets.adoc:2251
 msgid "Deletes the currently checkbox selected tools."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2249
+#: src/gui/qtvcp-widgets.adoc:2251
 #, no-wrap
 msgid "*`get_checked_list()`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2251
+#: src/gui/qtvcp-widgets.adoc:2253
 msgid "Returns a list of tools selected by checkboxs."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2251
+#: src/gui/qtvcp-widgets.adoc:2253
 #, no-wrap
 msgid "*`set_all_unchecked()`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2253
+#: src/gui/qtvcp-widgets.adoc:2255
 msgid "Uncheck all selected tools."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2254
+#: src/gui/qtvcp-widgets.adoc:2256
 #, no-wrap
 msgid "Example for handler file executing aforementioned functions."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2261
+#: src/gui/qtvcp-widgets.adoc:2263
 #, no-wrap
 msgid ""
 "self.w.tooloffsetview.add_tool()\n"
@@ -107561,67 +107490,67 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2264
+#: src/gui/qtvcp-widgets.adoc:2266
 #, no-wrap
 msgid "`BasicProbe` - Simple Mill Probing Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2266
+#: src/gui/qtvcp-widgets.adoc:2268
 #, no-wrap
 msgid "QtVCP `BasicProbe`: Simple Mill Probing Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2267
+#: src/gui/qtvcp-widgets.adoc:2269
 #, no-wrap
 msgid "QtVCP BasicProbe: Simple Mill Probing Widget"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2271 src/gui/qtvcp-widgets.adoc:2280
+#: src/gui/qtvcp-widgets.adoc:2273 src/gui/qtvcp-widgets.adoc:2282
 msgid "Widget for *probing on a mill*.  Used by the _QtDragon_ screen."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2273
+#: src/gui/qtvcp-widgets.adoc:2275
 #, no-wrap
 msgid "`VersaProbe` - Mill Probing Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2275
+#: src/gui/qtvcp-widgets.adoc:2277
 #, no-wrap
 msgid "QtVCP `VersaProbe`: Mill Probing Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2276
+#: src/gui/qtvcp-widgets.adoc:2278
 #, no-wrap
 msgid "QtVCP VersaProbe: Mill Probing Widget"
 msgstr ""
 
 #. type: Title ==
-#: src/gui/qtvcp-widgets.adoc:2282
+#: src/gui/qtvcp-widgets.adoc:2284
 #, no-wrap
 msgid "Dialog Widgets"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2285
+#: src/gui/qtvcp-widgets.adoc:2287
 msgid ""
 "Dialogs are used to *present or request immediately required information* in "
 "a focused way."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2287
+#: src/gui/qtvcp-widgets.adoc:2289
 msgid ""
 "The typical used dialogs can be loaded using the `ScreenOptions` _widget_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2289
+#: src/gui/qtvcp-widgets.adoc:2291
 msgid ""
 "You can also add them directly to the _UI_ - but each dialog must have a "
 "unique launch name or you will see multiple dialogs displayed, one after "
@@ -107629,13 +107558,13 @@ msgid ""
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2290
+#: src/gui/qtvcp-widgets.adoc:2292
 #, no-wrap
 msgid "Use dialogs from Python Code"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2292
+#: src/gui/qtvcp-widgets.adoc:2294
 msgid ""
 "You can show dialogs directly with _Python code_, but a safer way is to *use "
 "`STATUS` messages* to request the dialog to launch and to return the "
@@ -107643,7 +107572,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2295
+#: src/gui/qtvcp-widgets.adoc:2297
 #, no-wrap
 msgid ""
 "*Register to `STATUS` channel*:\n"
@@ -107651,7 +107580,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2306
+#: src/gui/qtvcp-widgets.adoc:2308
 #, no-wrap
 msgid ""
 "*Add a function to call a dialog*:\n"
@@ -107661,40 +107590,40 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2306
+#: src/gui/qtvcp-widgets.adoc:2308
 #, no-wrap
 msgid "`NAME`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2307
+#: src/gui/qtvcp-widgets.adoc:2309
 msgid "Launches code name of dialog to show."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2307
+#: src/gui/qtvcp-widgets.adoc:2309
 #, no-wrap
 msgid "`ID`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2308
+#: src/gui/qtvcp-widgets.adoc:2310
 msgid "A unique id so we process only a dialog that we requested."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2308
+#: src/gui/qtvcp-widgets.adoc:2310
 #, no-wrap
 msgid "`TITLE`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2309
+#: src/gui/qtvcp-widgets.adoc:2311
 msgid "The title to use on the dialog."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2317
+#: src/gui/qtvcp-widgets.adoc:2319
 #, no-wrap
 msgid ""
 "def show_dialog(self):\n"
@@ -107704,7 +107633,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2323
+#: src/gui/qtvcp-widgets.adoc:2325
 #, no-wrap
 msgid ""
 "*Add a callback function that processes the general message*:\n"
@@ -107712,17 +107641,17 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2324
+#: src/gui/qtvcp-widgets.adoc:2326
 msgid "check the name and id is the same as we sent,"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2325
+#: src/gui/qtvcp-widgets.adoc:2327
 msgid "then extract the return value and any user variables."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2336
+#: src/gui/qtvcp-widgets.adoc:2338
 #, no-wrap
 msgid ""
 "# process the STATUS return message\n"
@@ -107735,259 +107664,259 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2339
+#: src/gui/qtvcp-widgets.adoc:2341
 #, no-wrap
 msgid "`LcncDialog` - General Message Dialog Widget"
 msgstr ""
 
 #. TODO LcncDialog widget capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2344
+#: src/gui/qtvcp-widgets.adoc:2346
 msgid "This is a *general message dialog widget*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2346
+#: src/gui/qtvcp-widgets.adoc:2348
 msgid ""
 "If there is a Focus Overlay widget present, it can signal it to display."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2348
+#: src/gui/qtvcp-widgets.adoc:2350
 msgid "If the sound library is set up it can _play sounds_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2350
+#: src/gui/qtvcp-widgets.adoc:2352
 msgid ""
 "There are _options_ that can be set when requesting a dialog, these would be "
 "added to the message `dict`."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2351
+#: src/gui/qtvcp-widgets.adoc:2353
 #, no-wrap
 msgid "*`TITLE`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2352
+#: src/gui/qtvcp-widgets.adoc:2354
 msgid "Title of the dialog window."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2352
+#: src/gui/qtvcp-widgets.adoc:2354
 #, no-wrap
 msgid "*`MESSAGE`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2353
+#: src/gui/qtvcp-widgets.adoc:2355
 msgid "Title message text in bold."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2353
+#: src/gui/qtvcp-widgets.adoc:2355
 #, no-wrap
 msgid "*`MORE`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2354
+#: src/gui/qtvcp-widgets.adoc:2356
 msgid "Standard text under the heading."
-msgstr ""
-
-#. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2354
-#, no-wrap
-msgid "*`DETAILS`*"
-msgstr ""
-
-#. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2355
-msgid "Initial hidden text."
-msgstr ""
-
-#. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2355
-#, no-wrap
-msgid "*`TYPE`* _(`OK`|`YESNO`|`OKCANCEL`)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2356
 #, no-wrap
-msgid "*`ICON`* (`QUESTION`|`INFO`|`CRITICAL`|`WARNING`)"
+msgid "*`DETAILS`*"
+msgstr ""
+
+#. type: Plain text
+#: src/gui/qtvcp-widgets.adoc:2357
+msgid "Initial hidden text."
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2357
 #, no-wrap
-msgid "*`PINNAME`*"
+msgid "*`TYPE`* _(`OK`|`YESNO`|`OKCANCEL`)_"
 msgstr ""
 
-#. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2359
-msgid "Not implemented yet."
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2358
+#, no-wrap
+msgid "*`ICON`* (`QUESTION`|`INFO`|`CRITICAL`|`WARNING`)"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2359
+#, no-wrap
+msgid "*`PINNAME`*"
+msgstr ""
+
+#. type: Plain text
+#: src/gui/qtvcp-widgets.adoc:2361
+msgid "Not implemented yet."
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2361
 #, no-wrap
 msgid "*`FOCUSTEXT`* _(overlay text|`None`)_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2361
+#: src/gui/qtvcp-widgets.adoc:2363
 msgid "Text to display if focus overlay is used.  Use `None` for no text."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2361
+#: src/gui/qtvcp-widgets.adoc:2363
 #, no-wrap
 msgid "*`FOCUSCOLOR`* (`QColor(_R, G, B, A_)`)"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2363
+#: src/gui/qtvcp-widgets.adoc:2365
 msgid "Color to use if focus overlay is used."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2363
+#: src/gui/qtvcp-widgets.adoc:2365
 #, no-wrap
 msgid "*`PLAYALERT`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2365
+#: src/gui/qtvcp-widgets.adoc:2367
 msgid "Sound to play if sound is available, i.e., `SPEAK` _<spoken_message>_ ."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2367
+#: src/gui/qtvcp-widgets.adoc:2369
 msgid ""
 "When using `STATUS` 's `request-dialog` function, the _default launch name_ "
 "is *`MESSAGE`*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2369 src/gui/qtvcp-widgets.adoc:2386
-#: src/gui/qtvcp-widgets.adoc:2431
+#: src/gui/qtvcp-widgets.adoc:2371 src/gui/qtvcp-widgets.adoc:2388
+#: src/gui/qtvcp-widgets.adoc:2433
 msgid "It is based on PyQt's _QMessagebox_."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2371
+#: src/gui/qtvcp-widgets.adoc:2373
 #, no-wrap
 msgid "`ToolDialog` - Manual Tool Change Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2373
+#: src/gui/qtvcp-widgets.adoc:2375
 #, no-wrap
 msgid "QtVCP `ToolDialog`: Manual Tool Change Dialog"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2374
+#: src/gui/qtvcp-widgets.adoc:2376
 #, no-wrap
 msgid "QtVCP ToolDialog: Manual Tool Change Dialog"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2377
+#: src/gui/qtvcp-widgets.adoc:2379
 msgid "This is used as a *manual tool change prompt*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2380
+#: src/gui/qtvcp-widgets.adoc:2382
 msgid ""
 "It has _HAL pins to connect to the machine controller_.  The pins are named "
 "the same as the original AXIS manual tool prompt and works the same."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2382
+#: src/gui/qtvcp-widgets.adoc:2384
 msgid "The tool change dialog _can only be launched by HAL pins_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2384 src/gui/qtvcp-widgets.adoc:2396
-#: src/gui/qtvcp-widgets.adoc:2470
+#: src/gui/qtvcp-widgets.adoc:2386 src/gui/qtvcp-widgets.adoc:2398
+#: src/gui/qtvcp-widgets.adoc:2472
 msgid ""
 "If there is a Focus Overlay widget present, it will signal it to display."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2388
+#: src/gui/qtvcp-widgets.adoc:2390
 #, no-wrap
 msgid "`FileDialog` - Load and Save File Chooser Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2390
+#: src/gui/qtvcp-widgets.adoc:2392
 #, no-wrap
 msgid "QtVCP `FileDialog`: Load and Save File Chooser Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2391
+#: src/gui/qtvcp-widgets.adoc:2393
 #, no-wrap
 msgid "QtVCP FileDialog: Load and Save File Chooser Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2391
+#: src/gui/qtvcp-widgets.adoc:2393
 #, no-wrap
 msgid "images/qtvcp_fileDialog.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2394
+#: src/gui/qtvcp-widgets.adoc:2396
 msgid "This is used to *load G-code files*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2398
+#: src/gui/qtvcp-widgets.adoc:2400
 msgid ""
 "When using `STATUS` 's `request-dialog` function, the default launch names "
 "are *`LOAD`* or *`SAVE`*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2400
+#: src/gui/qtvcp-widgets.adoc:2402
 msgid ""
 "There are _options_ that can be set when requesting a dialog, these would be "
 "added to the message dict:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2401
+#: src/gui/qtvcp-widgets.adoc:2403
 #, no-wrap
 msgid "*`EXTENSIONS`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2402
+#: src/gui/qtvcp-widgets.adoc:2404
 #, no-wrap
 msgid "*`FILENAME`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2403
+#: src/gui/qtvcp-widgets.adoc:2405
 #, no-wrap
 msgid "*`DIRECTORY`*"
 msgstr ""
 
 #.  end definition list
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2407
+#: src/gui/qtvcp-widgets.adoc:2409
 msgid "An example Python call, for a _load dialog_:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2416
+#: src/gui/qtvcp-widgets.adoc:2418
 #, no-wrap
 msgid ""
 "mess = {'NAME':'LOAD','ID':'_MY_DIALOG_',\n"
@@ -107999,12 +107928,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2419
+#: src/gui/qtvcp-widgets.adoc:2421
 msgid "And for a _save dialog_"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2428
+#: src/gui/qtvcp-widgets.adoc:2430
 #, no-wrap
 msgid ""
 "mess = {'NAME':'SAVE','ID':'_MY_DIALOG_',\n"
@@ -108016,372 +107945,372 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2433
+#: src/gui/qtvcp-widgets.adoc:2435
 #, no-wrap
 msgid "`OriginOffsetDialog` - Origin Offset Setting Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2435 src/gui/qtvcp-widgets.adoc:2436
+#: src/gui/qtvcp-widgets.adoc:2437 src/gui/qtvcp-widgets.adoc:2438
 #, no-wrap
 msgid "QtVCP `OriginOffsetDialog`: Origin Offset Setting Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2436
+#: src/gui/qtvcp-widgets.adoc:2438
 #, no-wrap
 msgid "images/qtvcp_offsetpage.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2439
+#: src/gui/qtvcp-widgets.adoc:2441
 msgid ""
 "This widget allows one to *modify User System origin offsets directly* in a "
 "dialog form."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2441 src/gui/qtvcp-widgets.adoc:2455
+#: src/gui/qtvcp-widgets.adoc:2443 src/gui/qtvcp-widgets.adoc:2457
 msgid ""
 "If there is an Focus Overlay widget present, it will signal it to display."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2443
+#: src/gui/qtvcp-widgets.adoc:2445
 msgid ""
 "When using `STATUS` 's `request-dialog` function, the default launch name is "
 "*`ORIGINOFFSET`*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2445 src/gui/qtvcp-widgets.adoc:2459
-#: src/gui/qtvcp-widgets.adoc:2474 src/gui/qtvcp-widgets.adoc:2485
-#: src/gui/qtvcp-widgets.adoc:2500 src/gui/qtvcp-widgets.adoc:2516
-#: src/gui/qtvcp-widgets.adoc:2526 src/gui/qtvcp-widgets.adoc:2536
-#: src/gui/qtvcp-widgets.adoc:2546 src/gui/qtvcp-widgets.adoc:2563
+#: src/gui/qtvcp-widgets.adoc:2447 src/gui/qtvcp-widgets.adoc:2461
+#: src/gui/qtvcp-widgets.adoc:2476 src/gui/qtvcp-widgets.adoc:2487
+#: src/gui/qtvcp-widgets.adoc:2502 src/gui/qtvcp-widgets.adoc:2518
+#: src/gui/qtvcp-widgets.adoc:2528 src/gui/qtvcp-widgets.adoc:2538
+#: src/gui/qtvcp-widgets.adoc:2548 src/gui/qtvcp-widgets.adoc:2565
 msgid "It is based on PyQt's _QDialog_."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2447
+#: src/gui/qtvcp-widgets.adoc:2449
 #, no-wrap
 msgid "`ToolOffsetDialog` - Tool Offset Setting Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2449 src/gui/qtvcp-widgets.adoc:2450
+#: src/gui/qtvcp-widgets.adoc:2451 src/gui/qtvcp-widgets.adoc:2452
 #, no-wrap
 msgid "QtVCP `ToolOffsetDialog`: Tool Offset Setting Dialog Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2450
+#: src/gui/qtvcp-widgets.adoc:2452
 #, no-wrap
 msgid "images/qtvcp_toolOffset.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2453
+#: src/gui/qtvcp-widgets.adoc:2455
 msgid ""
 "This widget allows one to *modify Tool offsets directly* in a dialog form."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2457
+#: src/gui/qtvcp-widgets.adoc:2459
 msgid ""
 "When using `STATUS` 's `request-dialog` function, the default launch name is "
 "*`TOOLOFFSET`*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2461
+#: src/gui/qtvcp-widgets.adoc:2463
 #, no-wrap
 msgid "`MacroTabDialog` - Macro Launch Dialog Widget"
 msgstr ""
 
 #. TODO MacroTab dialog capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2466
+#: src/gui/qtvcp-widgets.adoc:2468
 msgid "This is a dialog to *display the macrotab widget*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2468
+#: src/gui/qtvcp-widgets.adoc:2470
 msgid "`MacroTab` displays a _choice of macro programs to run using icons_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2472
+#: src/gui/qtvcp-widgets.adoc:2474
 msgid ""
 "When using ``STATUS``'s `request-dialog` function, the default launch name "
 "is *`MACROTAB`*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2476
+#: src/gui/qtvcp-widgets.adoc:2478
 #, no-wrap
 msgid "`CamViewDialog` - WebCam Part Alignment Dialog Widget"
 msgstr ""
 
 #. TODO CamView dialog capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2481
+#: src/gui/qtvcp-widgets.adoc:2483
 msgid ""
 "This is a dialog to *display the CamView widget for Webcam part alignment*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2483
+#: src/gui/qtvcp-widgets.adoc:2485
 msgid ""
 "When using ``STATUS``'s `request-dialog` function, the default launch name "
 "is *`CAMVIEW`*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2487
+#: src/gui/qtvcp-widgets.adoc:2489
 #, no-wrap
 msgid "`EntryDialog` - Edit Line Dialog Widget"
 msgstr ""
 
 #. TODO EntryDialog dialog capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2492
+#: src/gui/qtvcp-widgets.adoc:2494
 msgid ""
 "This is a dialog to *display an edit line for information entry*, such as "
 "origin offset."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2494 src/gui/qtvcp-widgets.adoc:2510
+#: src/gui/qtvcp-widgets.adoc:2496 src/gui/qtvcp-widgets.adoc:2512
 msgid "It returns the entry via `STATUS` messages using a Python `DICT`."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2496 src/gui/qtvcp-widgets.adoc:2512
+#: src/gui/qtvcp-widgets.adoc:2498 src/gui/qtvcp-widgets.adoc:2514
 msgid ""
 "The `DICT` contains at minimum, the name of the dialog requested and an ID "
 "code."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2498
+#: src/gui/qtvcp-widgets.adoc:2500
 msgid ""
 "When using ``STATUS``'s `request-dialog` function, the default launch name "
 "is *`ENTRY`*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2502
+#: src/gui/qtvcp-widgets.adoc:2504
 #, no-wrap
 msgid "`CalculatorDialog` - Calculator Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2504
+#: src/gui/qtvcp-widgets.adoc:2506
 #, no-wrap
 msgid "QtVCP `CalculatorDialog`: Calculator Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2505
+#: src/gui/qtvcp-widgets.adoc:2507
 #, no-wrap
 msgid "QtVCP CalculatorDialog: Calculator Dialog Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2505
+#: src/gui/qtvcp-widgets.adoc:2507
 #, no-wrap
 msgid "images/qtvcp_calculator.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2508
+#: src/gui/qtvcp-widgets.adoc:2510
 msgid ""
 "This is a dialog to *display a calculator for numeric entry*, such as origin "
 "offset."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2514
+#: src/gui/qtvcp-widgets.adoc:2516
 msgid ""
 "When using ``STATUS``'s `request-dialog` function, the default launch name "
 "is *`CALCULATOR`*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2518
+#: src/gui/qtvcp-widgets.adoc:2520
 #, no-wrap
 msgid "`RunFromLine` - Run-From-Line Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2520
+#: src/gui/qtvcp-widgets.adoc:2522
 #, no-wrap
 msgid "QtVCP `RunFromLine`: Run-From-Line Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2521
+#: src/gui/qtvcp-widgets.adoc:2523
 #, no-wrap
 msgid "QtVCP RunFromLine: Run-From-Line Dialog Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2521
+#: src/gui/qtvcp-widgets.adoc:2523
 #, no-wrap
 msgid "images/qtvcp_runFromLine.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2524
+#: src/gui/qtvcp-widgets.adoc:2526
 msgid ""
 "Dialog to *preset spindle settings before running a program from a specific "
 "line*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2528
+#: src/gui/qtvcp-widgets.adoc:2530
 #, no-wrap
 msgid "`VersaProbeDialog` - Part Touch Probing Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2530
+#: src/gui/qtvcp-widgets.adoc:2532
 #, no-wrap
 msgid "QtVCP `VersaProbeDialog`: Part Touch Probing Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2531
+#: src/gui/qtvcp-widgets.adoc:2533
 #, no-wrap
 msgid "QtVCP VersaProbeDialog: Part Touch Probing Dialog Widget"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2534
+#: src/gui/qtvcp-widgets.adoc:2536
 msgid ""
 "This is a dialog to display a *part probing screen based on Verser Probe v2*."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2538
+#: src/gui/qtvcp-widgets.adoc:2540
 #, no-wrap
 msgid "`MachineLogDialog` - Machine and Debugging Logs Dialog Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2540
+#: src/gui/qtvcp-widgets.adoc:2542
 #, no-wrap
 msgid "QtVCP `MachineLogDialog`: Machine and Debugging Logs Dialog Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2541
+#: src/gui/qtvcp-widgets.adoc:2543
 #, no-wrap
 msgid "QtVCP MachineLogDialog: Machine and Debugging Logs Dialog Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2541
+#: src/gui/qtvcp-widgets.adoc:2543
 #, no-wrap
 msgid "images/qtvcp_machineLog.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2544
+#: src/gui/qtvcp-widgets.adoc:2546
 msgid ""
 "This is a dialog to *display the machine log and QtVCP's debugging log*."
 msgstr ""
 
 #. type: Title ==
-#: src/gui/qtvcp-widgets.adoc:2548
+#: src/gui/qtvcp-widgets.adoc:2550
 #, no-wrap
 msgid "Other Widgets"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2551
+#: src/gui/qtvcp-widgets.adoc:2553
 msgid "Other available widgets:"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2553
+#: src/gui/qtvcp-widgets.adoc:2555
 #, no-wrap
 msgid "`NurbsEditor` - NURBS Editing Widget"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2555
+#: src/gui/qtvcp-widgets.adoc:2557
 #, no-wrap
 msgid "QtVCP `NurbsEditor`: NURBS Editing Widget"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2556
+#: src/gui/qtvcp-widgets.adoc:2558
 #, no-wrap
 msgid "QtVCP NurbsEditor: NURBS Editing Widget"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2556
+#: src/gui/qtvcp-widgets.adoc:2558
 #, no-wrap
 msgid "images/qtvcp_nurbsEditor.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2559
+#: src/gui/qtvcp-widgets.adoc:2561
 msgid ""
 "The Nurbs editor allows you to *manipulate a NURBS based geometry* on screen "
 "and then *convert NURBS to G-code*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2561
+#: src/gui/qtvcp-widgets.adoc:2563
 msgid "You can edit the G-code on screen and then send it to LinuxCNC."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2565
+#: src/gui/qtvcp-widgets.adoc:2567
 #, no-wrap
 msgid "`JoyPad` - 5 button D-pad Widget"
 msgstr ""
 
 #. TODO JoyPad widget capture
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2570
+#: src/gui/qtvcp-widgets.adoc:2572
 msgid "It is the base class for the `HALPad` widget."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2572
+#: src/gui/qtvcp-widgets.adoc:2574
 msgid ""
 "This widget looks and acts like a *5 button D-pad, with a LED like "
 "indicators in a ring*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2574
+#: src/gui/qtvcp-widgets.adoc:2576
 msgid "You can put text or icons in each of the button positions."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2576
+#: src/gui/qtvcp-widgets.adoc:2578
 msgid "You can _connect to output signals_ when the buttons are pressed."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2578
+#: src/gui/qtvcp-widgets.adoc:2580
 msgid "There are also _input slots_ to change the color of the indicator(s)."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2579
+#: src/gui/qtvcp-widgets.adoc:2581
 #, no-wrap
 msgid "ENUMS"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2582
+#: src/gui/qtvcp-widgets.adoc:2584
 #, no-wrap
 msgid ""
 "There are *enumerated constants used to reference indicator positions*.\n"
@@ -108389,74 +108318,74 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2583
+#: src/gui/qtvcp-widgets.adoc:2585
 #, no-wrap
 msgid "*`NONE`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2584
+#: src/gui/qtvcp-widgets.adoc:2586
 #, no-wrap
 msgid "*`LEFT`, `L`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2585
+#: src/gui/qtvcp-widgets.adoc:2587
 #, no-wrap
 msgid "*`RIGHT`, `R`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2586
+#: src/gui/qtvcp-widgets.adoc:2588
 #, no-wrap
 msgid "*`CENTER`, `C`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2587
+#: src/gui/qtvcp-widgets.adoc:2589
 #, no-wrap
 msgid "*`TOP`, `T`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2588
+#: src/gui/qtvcp-widgets.adoc:2590
 #, no-wrap
 msgid "*`BOTTOM`, `B`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2589
+#: src/gui/qtvcp-widgets.adoc:2591
 #, no-wrap
 msgid "*`LEFTRIGHT`, `X`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2590
+#: src/gui/qtvcp-widgets.adoc:2592
 #, no-wrap
 msgid "*`TOPBOTTOM`, `A`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2593
+#: src/gui/qtvcp-widgets.adoc:2595
 msgid ""
 "For Python handler code, you use the widget name in Qt Designer plus the "
 "reference constant:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2597
+#: src/gui/qtvcp-widgets.adoc:2599
 #, no-wrap
 msgid "self.w.joypadname.set_highlight(self.w.joypadname.LEFT)\n"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2599
+#: src/gui/qtvcp-widgets.adoc:2601
 #, no-wrap
 msgid "Useful Override-able Functions"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2606
+#: src/gui/qtvcp-widgets.adoc:2608
 #, no-wrap
 msgid ""
 "def _pressedOutput(self, btncode):\n"
@@ -108465,7 +108394,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2610
+#: src/gui/qtvcp-widgets.adoc:2612
 #, no-wrap
 msgid ""
 "def _releasedOutput(self, btncode):\n"
@@ -108474,14 +108403,14 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2613
+#: src/gui/qtvcp-widgets.adoc:2615
 msgid ""
 "As coded these function _issue (emit) PyQt5 signals (joy_btn_pressed and "
 "joy_<letter>_pressed) for the any button pressed or released_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2616
+#: src/gui/qtvcp-widgets.adoc:2618
 #, no-wrap
 msgid ""
 "Signal 'joy_btn_pressed' outputs a string code for the button.\n"
@@ -108489,89 +108418,89 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2618
+#: src/gui/qtvcp-widgets.adoc:2620
 msgid ""
 "You could override the functions to do something else if making a custom "
 "widget:"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2619
+#: src/gui/qtvcp-widgets.adoc:2621
 #, no-wrap
 msgid "Callable Functions"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2620
+#: src/gui/qtvcp-widgets.adoc:2622
 #, no-wrap
 msgid "*`reset_highlight()`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2622
+#: src/gui/qtvcp-widgets.adoc:2624
 msgid "Clears the highlight indicator."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2622
+#: src/gui/qtvcp-widgets.adoc:2624
 #, no-wrap
 msgid "*`set_highlight(_button_, state=_True_)`*"
 msgstr ""
 
 #. FIXME Document "strings letters"
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2624
+#: src/gui/qtvcp-widgets.adoc:2626
 msgid "Set the highlight indicator in position `button` to state `state`. +"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2626
+#: src/gui/qtvcp-widgets.adoc:2628
 msgid ""
 "You can use _strings letters_ (`LRCTBXA`) or _position_ `ENUMS` for the "
 "button argument."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2626
+#: src/gui/qtvcp-widgets.adoc:2628
 #, no-wrap
 msgid "*`set_button_icon(_button_, _pixmap_)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2628
+#: src/gui/qtvcp-widgets.adoc:2630
 msgid "Sets the button's icon pixmap."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2628
+#: src/gui/qtvcp-widgets.adoc:2630
 #, no-wrap
 msgid "*`set_button_text(_button_, _text_)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2630
+#: src/gui/qtvcp-widgets.adoc:2632
 msgid "Sets the button's icon text."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2630
+#: src/gui/qtvcp-widgets.adoc:2632
 #, no-wrap
 msgid "*`set_tooltip(_button_, _text_)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2632
+#: src/gui/qtvcp-widgets.adoc:2634
 msgid "Sets the buttons pop-up tooltip descriptive text."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2632
+#: src/gui/qtvcp-widgets.adoc:2634
 #, no-wrap
 msgid "*`setLight(_state_)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2635
+#: src/gui/qtvcp-widgets.adoc:2637
 #, no-wrap
 msgid ""
 "Sets the highlight indicator to the `True` color or `False` color.\n"
@@ -108579,180 +108508,180 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2638
+#: src/gui/qtvcp-widgets.adoc:2640
 msgid "These signals will be *sent when buttons are pressed*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2640
+#: src/gui/qtvcp-widgets.adoc:2642
 msgid "They can be connected to in Qt Designer editor or Python code."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2642
-msgid "The first two output a string that indicates the button pressed:"
-msgstr ""
-
-#. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2643
-#, no-wrap
-msgid "*`joy_btn_pressed`* _(string)_"
-msgstr ""
-
-#. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2644
-#, no-wrap
-msgid "*`joy_btn_released`* _(string)_"
+msgid "The first two output a string that indicates the button pressed:"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2645
 #, no-wrap
-msgid "*`joy_l_pressed`* _(bool)_"
+msgid "*`joy_btn_pressed`* _(string)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2646
 #, no-wrap
-msgid "*`joy_l_released`* _(bool)_"
+msgid "*`joy_btn_released`* _(string)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2647
 #, no-wrap
-msgid "*`joy_r_pressed`* _(bool)_"
+msgid "*`joy_l_pressed`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2648
 #, no-wrap
-msgid "*`joy_r_released`* _(bool)_"
+msgid "*`joy_l_released`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2649
 #, no-wrap
-msgid "*`joy_c_pressed`* _(bool)_"
+msgid "*`joy_r_pressed`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2650
 #, no-wrap
-msgid "*`joy_c_released`* _(bool)_"
+msgid "*`joy_r_released`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2651
 #, no-wrap
-msgid "*`joy_t_pressed`* _(bool)_"
+msgid "*`joy_c_pressed`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2652
 #, no-wrap
-msgid "*`joy_t_released`* _(bool)_"
+msgid "*`joy_c_released`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2653
 #, no-wrap
-msgid "*`joy_b_pressed`* _(bool)_"
+msgid "*`joy_t_pressed`* _(bool)_"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2654
+#, no-wrap
+msgid "*`joy_t_released`* _(bool)_"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2655
+#, no-wrap
+msgid "*`joy_b_pressed`* _(bool)_"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2656
 #, no-wrap
 msgid "*`joy_b_released`* _(bool)_"
 msgstr ""
 
 #.  end definition list
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2658
+#: src/gui/qtvcp-widgets.adoc:2660
 msgid "They are based on PyQt's _Signal_ (`QtCore.pyqtSignal()`)"
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2659
+#: src/gui/qtvcp-widgets.adoc:2661
 #, no-wrap
 msgid "Slots"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2661
-msgid "Slots can be connected to in Qt Designer editor or Python code:"
-msgstr ""
-
-#. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2662
-#, no-wrap
-msgid "*`set_colorStateTrue()`*"
-msgstr ""
-
-#. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2663
-#, no-wrap
-msgid "*`set_colorStateFalse()`*"
+msgid "Slots can be connected to in Qt Designer editor or Python code:"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2664
 #, no-wrap
-msgid "*`set_colorState(_bool_)`*"
+msgid "*`set_colorStateTrue()`*"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2665
+#, no-wrap
+msgid "*`set_colorStateFalse()`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2666
 #, no-wrap
-msgid "*`set_true_color(_str_)`*"
+msgid "*`set_colorState(_bool_)`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2667
+#: src/gui/qtvcp-widgets.adoc:2668
 #, no-wrap
-msgid "*`set_true_color(_qcolor_)`*"
+msgid "*`set_true_color(_str_)`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2669
 #, no-wrap
+msgid "*`set_true_color(_qcolor_)`*"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2671
+#, no-wrap
 msgid "*`set_false_color(_str_)`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2670
+#: src/gui/qtvcp-widgets.adoc:2672
 #, no-wrap
 msgid "*`set_false_color(_qcolor_)`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2675
+#: src/gui/qtvcp-widgets.adoc:2677
 msgid "These can be set in stylesheets or Python code:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2676
+#: src/gui/qtvcp-widgets.adoc:2678
 #, no-wrap
 msgid "*`highlightPosition`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2678
+#: src/gui/qtvcp-widgets.adoc:2680
 msgid "Set the indicator position."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2678
+#: src/gui/qtvcp-widgets.adoc:2680
 #, no-wrap
 msgid "*`setColorState`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2680
+#: src/gui/qtvcp-widgets.adoc:2682
 msgid "Select the color state of the indicator."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2687
+#: src/gui/qtvcp-widgets.adoc:2689
 #, no-wrap
 msgid ""
 "A file path or resource path to an image to display in the described button location.\n"
@@ -108760,25 +108689,25 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2697
+#: src/gui/qtvcp-widgets.adoc:2699
 msgid ""
 "Color selection for the center LED ring to be displayed, when the "
 "`BASENAME.light.center` _HAL pin_ is `True` or `False`."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2699
+#: src/gui/qtvcp-widgets.adoc:2701
 #, no-wrap
 msgid "*`button_font`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2703
+#: src/gui/qtvcp-widgets.adoc:2705
 msgid "The above properties could be set in:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2707
+#: src/gui/qtvcp-widgets.adoc:2709
 #, no-wrap
 msgid ""
 "*Stylesheets*:\n"
@@ -108786,7 +108715,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2714
+#: src/gui/qtvcp-widgets.adoc:2716
 #, no-wrap
 msgid ""
 "#joypadname{\n"
@@ -108796,12 +108725,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2717
+#: src/gui/qtvcp-widgets.adoc:2719
 msgid "*In Python handler code*: +"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2722
+#: src/gui/qtvcp-widgets.adoc:2724
 #, no-wrap
 msgid ""
 "self.w.joypadename.setProperty('true_color','green')\n"
@@ -108809,13 +108738,13 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2724
+#: src/gui/qtvcp-widgets.adoc:2726
 #, no-wrap
 msgid "'WebWidget'"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2729
+#: src/gui/qtvcp-widgets.adoc:2731
 #, no-wrap
 msgid ""
 "This widget will create a html/pdf viewing page using the QtWebKit or QtWebEngine libraries. The newer QtWebEngine is preferred if both are on the system.\n"
@@ -108823,61 +108752,61 @@ msgid ""
 msgstr ""
 
 #. type: Title ==
-#: src/gui/qtvcp-widgets.adoc:2731
+#: src/gui/qtvcp-widgets.adoc:2733
 #, no-wrap
 msgid "BaseClass/Mixin Widgets"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2734
+#: src/gui/qtvcp-widgets.adoc:2736
 msgid ""
 "These widgets are used to *combine different properties and behaviours into "
 "other widgets*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2736
+#: src/gui/qtvcp-widgets.adoc:2738
 msgid ""
 "You will see them as a collapsible header in the Qt Designer properties "
 "column."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2738
+#: src/gui/qtvcp-widgets.adoc:2740
 #, no-wrap
 msgid "`IndicatedPushButtons`"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2741
+#: src/gui/qtvcp-widgets.adoc:2743
 msgid "This class *modifies `QPushButton` behaviour*."
 msgstr ""
 
 #. type: Title ====
-#: src/gui/qtvcp-widgets.adoc:2743
+#: src/gui/qtvcp-widgets.adoc:2745
 #, no-wrap
 msgid "Indicator Option"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2746
+#: src/gui/qtvcp-widgets.adoc:2748
 msgid "*`indicator_option`* _puts a 'LED' on the top of the button_."
 msgstr ""
 
 #. type: Block title
-#: src/gui/qtvcp-widgets.adoc:2747
+#: src/gui/qtvcp-widgets.adoc:2749
 #, no-wrap
 msgid "QtVCP `PushButton`: Indicated Action Button, LED Indicator Option"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2748
+#: src/gui/qtvcp-widgets.adoc:2750
 #, no-wrap
 msgid "QtVCP PushButton: Indicated Action Button, LED Indicator Option"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2748
+#: src/gui/qtvcp-widgets.adoc:2750
 #, no-wrap
 msgid "images/qtvcp_actionButton.png"
 msgstr ""
@@ -108885,7 +108814,7 @@ msgstr ""
 #. FIXME Better document IndicatedPushButton
 #.  https://github.com/LinuxCNC/linuxcnc/blob/master/lib/python/qtvcp/widgets/simple_widgets.py#L317
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2754
+#: src/gui/qtvcp-widgets.adoc:2756
 #, no-wrap
 msgid ""
 "It can be a _triangle_, _circle_, _top bar_, or _side bar_.\n"
@@ -108893,100 +108822,100 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2756
+#: src/gui/qtvcp-widgets.adoc:2758
 msgid "It will indicate:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2758
+#: src/gui/qtvcp-widgets.adoc:2760
 msgid "the *current state of the button*, or"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2759
+#: src/gui/qtvcp-widgets.adoc:2761
 msgid "the *state of a HAL pin*, or"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2760
+#: src/gui/qtvcp-widgets.adoc:2762
 msgid "*LinuxCNC status*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2763
+#: src/gui/qtvcp-widgets.adoc:2765
 msgid ""
 "These properties are available to customize the indicator (not all are "
 "applicable to every LED shape):"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2764
+#: src/gui/qtvcp-widgets.adoc:2766
 #, no-wrap
 msgid "*`on_color`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2766
+#: src/gui/qtvcp-widgets.adoc:2768
 #, no-wrap
 msgid "*`indicator_size`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2767
+#: src/gui/qtvcp-widgets.adoc:2769
 #, no-wrap
 msgid "*`circle_diameter`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2768
+#: src/gui/qtvcp-widgets.adoc:2770
 #, no-wrap
 msgid "*`shape_option`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2769
+#: src/gui/qtvcp-widgets.adoc:2771
 #, no-wrap
 msgid "*`right_edge_offset`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2770
+#: src/gui/qtvcp-widgets.adoc:2772
 #, no-wrap
 msgid "*`top_edge_offset`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2771
+#: src/gui/qtvcp-widgets.adoc:2773
 #, no-wrap
 msgid "*`height_fraction`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2772
+#: src/gui/qtvcp-widgets.adoc:2774
 #, no-wrap
 msgid "*`width_fraction`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2773
+#: src/gui/qtvcp-widgets.adoc:2775
 #, no-wrap
 msgid "*`corner_radius`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2774
+#: src/gui/qtvcp-widgets.adoc:2776
 msgid "Indicator corner radius."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2776
+#: src/gui/qtvcp-widgets.adoc:2778
 msgid ""
 "The LED indicator color can be defined in a _stylesheet_ with the following "
 "code added to the `.qss` file:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2783
+#: src/gui/qtvcp-widgets.adoc:2785
 #, no-wrap
 msgid ""
 "Indicated_PushButton{\n"
@@ -108996,12 +108925,12 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2786
+#: src/gui/qtvcp-widgets.adoc:2788
 msgid "Or for a particular button:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2793
+#: src/gui/qtvcp-widgets.adoc:2795
 #, no-wrap
 msgid ""
 "Indicated_PushButton #button_estop{\n"
@@ -109011,121 +108940,121 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2797
+#: src/gui/qtvcp-widgets.adoc:2799
 msgid "`IndicatedPushButton` have *exclusive options*:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2798
+#: src/gui/qtvcp-widgets.adoc:2800
 #, no-wrap
 msgid "*`indicator_HAL_pin_option`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2800
+#: src/gui/qtvcp-widgets.adoc:2802
 msgid ""
 "Adds a `halpin`, named `<buttonname>-led` that controls the button indicator "
 "state."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2800
+#: src/gui/qtvcp-widgets.adoc:2802
 #, no-wrap
 msgid "*`indicator_status_option`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2802
+#: src/gui/qtvcp-widgets.adoc:2804
 msgid "Makes the LED indicate the state of these selectable LinuxCNC status:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2804
+#: src/gui/qtvcp-widgets.adoc:2806
 msgid "_Is Estopped_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2805
+#: src/gui/qtvcp-widgets.adoc:2807
 msgid "_Is On_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2806
+#: src/gui/qtvcp-widgets.adoc:2808
 msgid "_All Homed_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2807
+#: src/gui/qtvcp-widgets.adoc:2809
 msgid "_Is Joint Homed_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2808
+#: src/gui/qtvcp-widgets.adoc:2810
 msgid "_Idle_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2809
+#: src/gui/qtvcp-widgets.adoc:2811
 msgid "_Paused_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2810
+#: src/gui/qtvcp-widgets.adoc:2812
 msgid "_Flood_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2811
+#: src/gui/qtvcp-widgets.adoc:2813
 msgid "_Mist_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2812
+#: src/gui/qtvcp-widgets.adoc:2814
 msgid "_Block Delete_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2813
+#: src/gui/qtvcp-widgets.adoc:2815
 msgid "_Optional Stop_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2814
+#: src/gui/qtvcp-widgets.adoc:2816
 msgid "_Manual_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2815
+#: src/gui/qtvcp-widgets.adoc:2817
 msgid "_MDI_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2816
+#: src/gui/qtvcp-widgets.adoc:2818
 msgid "_Auto_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2817
+#: src/gui/qtvcp-widgets.adoc:2819
 msgid "_Spindle Stopped_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2818
+#: src/gui/qtvcp-widgets.adoc:2820
 msgid "_Spindle Forward_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2819
+#: src/gui/qtvcp-widgets.adoc:2821
 msgid "_Spindle Reverse_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2820
+#: src/gui/qtvcp-widgets.adoc:2822
 msgid "_On Limits_"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2825
+#: src/gui/qtvcp-widgets.adoc:2827
 #, no-wrap
 msgid ""
 "Some `indicator_status_options` holds a property that can be used with a _stylesheet_ to change the color of the button based on the state of the property in LinuxCNC.\n"
@@ -109133,36 +109062,36 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2827
+#: src/gui/qtvcp-widgets.adoc:2829
 msgid "`is_estopped_status` will toggle the `isEstop` property"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2828
+#: src/gui/qtvcp-widgets.adoc:2830
 msgid "`is_on_status` will toggle the `isStateOn` property"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2829
+#: src/gui/qtvcp-widgets.adoc:2831
 msgid ""
 "`is_manual_status`, `is_mdi_status`, `is_auto_status` will toggle the "
 "`isManual`, `isMDI`, `isAuto` properties."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2830
+#: src/gui/qtvcp-widgets.adoc:2832
 msgid "`is_homed_status` will toggle the 'isAllHomed' property"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2832
+#: src/gui/qtvcp-widgets.adoc:2834
 msgid ""
 "Here is a sample stylesheet entry setting the background of mode button "
 "widgets when LinuxCNC is in that mode:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2844
+#: src/gui/qtvcp-widgets.adoc:2846
 #, no-wrap
 msgid ""
 "ActionButton[isManual=true] {\n"
@@ -109177,13 +109106,13 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2847
+#: src/gui/qtvcp-widgets.adoc:2849
 msgid ""
 "Here is how you specify a particular widget by its objectName in Qt Designer:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2853
+#: src/gui/qtvcp-widgets.adoc:2855
 #, no-wrap
 msgid ""
 "ActionButton #estop button [isEstopped=false] {\n"
@@ -109192,113 +109121,113 @@ msgid ""
 msgstr ""
 
 #. type: Title ====
-#: src/gui/qtvcp-widgets.adoc:2856
+#: src/gui/qtvcp-widgets.adoc:2858
 #, no-wrap
 msgid "Enabled by LinuxCNC State"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2859
+#: src/gui/qtvcp-widgets.adoc:2861
 msgid ""
 "Often, having the button disabled and enabled based on the state of "
 "LinuxCNC's motion controller is necessary."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2861
-msgid "There are several properties that can be selected to aid with this:"
-msgstr ""
-
-#. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2862
-#, no-wrap
-msgid "*`isAllHomedSentive`*"
-msgstr ""
-
-#. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2863
-#, no-wrap
-msgid "*`isOnSensitive`*"
+msgid "There are several properties that can be selected to aid with this:"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2864
 #, no-wrap
-msgid "*`isIdleSensitive`*"
+msgid "*`isAllHomedSentive`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2865
 #, no-wrap
-msgid "*`isRunSensitive`*"
+msgid "*`isOnSensitive`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2866
 #, no-wrap
-msgid "*`isManSensitive`*"
+msgid "*`isIdleSensitive`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2867
 #, no-wrap
-msgid "*`isMDISensitive`*"
+msgid "*`isRunSensitive`*"
 msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2868
 #, no-wrap
+msgid "*`isManSensitive`*"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2869
+#, no-wrap
+msgid "*`isMDISensitive`*"
+msgstr ""
+
+#. type: Labeled list
+#: src/gui/qtvcp-widgets.adoc:2870
+#, no-wrap
 msgid "*`isAutoSensitive`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2871
+#: src/gui/qtvcp-widgets.adoc:2873
 msgid "You can select multiple properties for combined requirements."
 msgstr ""
 
 #. type: Title ====
-#: src/gui/qtvcp-widgets.adoc:2873
+#: src/gui/qtvcp-widgets.adoc:2875
 #, no-wrap
 msgid "Text Changes On State"
 msgstr ""
 
 #. FIXME What is a 'checkable' button ? A checkbox ?
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2877
+#: src/gui/qtvcp-widgets.adoc:2879
 msgid ""
 "Choosing the *`checked_state_text_option`* allows a 'checkable' button to "
 "_change the text based on its checked state_."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2879
+#: src/gui/qtvcp-widgets.adoc:2881
 msgid "It uses the following properties to specify the text for each state:"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2880
+#: src/gui/qtvcp-widgets.adoc:2882
 #, no-wrap
 msgid "*`true_state_string`*"
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2881
+#: src/gui/qtvcp-widgets.adoc:2883
 #, no-wrap
 msgid "*`false_state_string`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2884
+#: src/gui/qtvcp-widgets.adoc:2886
 msgid "`\\\\n` will be converted to a newline."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2886
+#: src/gui/qtvcp-widgets.adoc:2888
 msgid "You can set/change these in stylesheets:"
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2893
+#: src/gui/qtvcp-widgets.adoc:2895
 #, no-wrap
 msgid ""
 "ActionButton #action_aux{\n"
@@ -109308,13 +109237,13 @@ msgid ""
 msgstr ""
 
 #. type: Title ====
-#: src/gui/qtvcp-widgets.adoc:2896
+#: src/gui/qtvcp-widgets.adoc:2898
 #, no-wrap
 msgid "Call Python Commands On State"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2900
+#: src/gui/qtvcp-widgets.adoc:2902
 msgid ""
 "The *`python_command_option`* allow small snippets of Python code to be run "
 "from the push of a button, without having to edit the handler file.  Though, "
@@ -109322,40 +109251,40 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2902
+#: src/gui/qtvcp-widgets.adoc:2904
 msgid "When using the `command_string` properties."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2903
+#: src/gui/qtvcp-widgets.adoc:2905
 #, no-wrap
 msgid "*`true_python_cmd_string`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2905
+#: src/gui/qtvcp-widgets.adoc:2907
 msgid "A Python command that will be called when the button is toggled `True`."
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2905
+#: src/gui/qtvcp-widgets.adoc:2907
 #, no-wrap
 msgid "*`false_python_cmd_string`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2907
+#: src/gui/qtvcp-widgets.adoc:2909
 msgid ""
 "A Python command that will be called when the button is toggled `False`."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2909
+#: src/gui/qtvcp-widgets.adoc:2911
 msgid "_Special capitalized words_ will give access to the following:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2913
+#: src/gui/qtvcp-widgets.adoc:2915
 #, no-wrap
 msgid ""
 "Will give access to the widgets instances and handler functions.\n"
@@ -109363,13 +109292,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2913
+#: src/gui/qtvcp-widgets.adoc:2915
 #, no-wrap
 msgid "*`ACTION`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2916
+#: src/gui/qtvcp-widgets.adoc:2918
 #, no-wrap
 msgid ""
 "Will give access to QtVCP's `ACTION` library.\n"
@@ -109377,13 +109306,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2916
+#: src/gui/qtvcp-widgets.adoc:2918
 #, no-wrap
 msgid "*`PROGRAM_LOADER`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2919
+#: src/gui/qtvcp-widgets.adoc:2921
 #, no-wrap
 msgid ""
 "Will give access to QtVCP's `PROGRAM_LOADER` library.\n"
@@ -109391,13 +109320,13 @@ msgid ""
 msgstr ""
 
 #. type: Labeled list
-#: src/gui/qtvcp-widgets.adoc:2919
+#: src/gui/qtvcp-widgets.adoc:2921
 #, no-wrap
 msgid "*`HAL`*"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2922
+#: src/gui/qtvcp-widgets.adoc:2924
 #, no-wrap
 msgid ""
 "Will give access to HAL's Python module.\n"
@@ -109405,38 +109334,38 @@ msgid ""
 msgstr ""
 
 #. type: Title ==
-#: src/gui/qtvcp-widgets.adoc:2924
+#: src/gui/qtvcp-widgets.adoc:2926
 #, no-wrap
 msgid "Import-Only Widgets"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2927
+#: src/gui/qtvcp-widgets.adoc:2929
 msgid ""
 "These widgets are usually the *base class widget for other QtVCP widgets*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2929
+#: src/gui/qtvcp-widgets.adoc:2931
 msgid ""
 "They are _not available directly from the Qt Designer editor_ but could be "
 "*imported and manually inserted*."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2931
+#: src/gui/qtvcp-widgets.adoc:2933
 msgid ""
 "They could also be *subclassed* to make a similar widget with new features."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2933
+#: src/gui/qtvcp-widgets.adoc:2935
 #, no-wrap
 msgid "Auto Height"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2937
+#: src/gui/qtvcp-widgets.adoc:2939
 #, no-wrap
 msgid ""
 "Widget for measuring two heights with a probe.\n"
@@ -109444,63 +109373,63 @@ msgid ""
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2939
+#: src/gui/qtvcp-widgets.adoc:2941
 #, no-wrap
 msgid "G-code Utility"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2942
+#: src/gui/qtvcp-widgets.adoc:2944
 msgid "Widgets for performing common machining processes."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2944
+#: src/gui/qtvcp-widgets.adoc:2946
 #, no-wrap
 msgid "Facing"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2947
+#: src/gui/qtvcp-widgets.adoc:2949
 msgid "Slab or face a definable area with different strategies."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2949
+#: src/gui/qtvcp-widgets.adoc:2951
 #, no-wrap
 msgid "Hole Circle"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2952
+#: src/gui/qtvcp-widgets.adoc:2954
 msgid "Drill multiple holes on a bolt hole circle."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:2954
+#: src/gui/qtvcp-widgets.adoc:2956
 #, no-wrap
 msgid "Qt NGCGUI"
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:2956
+#: src/gui/qtvcp-widgets.adoc:2958
 #, no-wrap
 msgid "QtVCP NGCGUI: Shown from QtDragon"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:2956
+#: src/gui/qtvcp-widgets.adoc:2958
 #, no-wrap
 msgid "images/qtvcp_ngcgui.png"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2958
+#: src/gui/qtvcp-widgets.adoc:2960
 msgid "QtVCP's version of NGC subroutine selector (Shown as used in QtDragon)."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2963
+#: src/gui/qtvcp-widgets.adoc:2965
 #, no-wrap
 msgid ""
 "LinuxCNC needs to know where to look to run the subroutines.\n"
@@ -109508,7 +109437,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2968
+#: src/gui/qtvcp-widgets.adoc:2970
 #, no-wrap
 msgid ""
 "[RS274NGC]\n"
@@ -109516,7 +109445,7 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2972
+#: src/gui/qtvcp-widgets.adoc:2974
 #, no-wrap
 msgid ""
 "QtVCP needs to know where to open subroutines from.\n"
@@ -109524,7 +109453,7 @@ msgid ""
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:2983
+#: src/gui/qtvcp-widgets.adoc:2985
 #, no-wrap
 msgid ""
 "[DISPLAY]\n"
@@ -109538,83 +109467,83 @@ msgid ""
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2988
+#: src/gui/qtvcp-widgets.adoc:2990
 msgid "'NEW TAB' - add new blank tab to NGCGUI"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2989
+#: src/gui/qtvcp-widgets.adoc:2991
 msgid "'SELECT PREAMBLE' - select a file that add preamble G-code"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2990
+#: src/gui/qtvcp-widgets.adoc:2992
 msgid "'SELECT SUBFILE' - select a NGCGUI subroutine file"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2991
+#: src/gui/qtvcp-widgets.adoc:2993
 msgid "'SELECT POST' - select a file that add post G-code"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2992
+#: src/gui/qtvcp-widgets.adoc:2994
 msgid "'REREAD FILE' - reload the subroutine file"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2993
+#: src/gui/qtvcp-widgets.adoc:2995
 msgid "'CREATE FEATURE' - add feature to the list"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2994
+#: src/gui/qtvcp-widgets.adoc:2996
 msgid "'RESTART FEATURE' - remove all features from the list"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2995
+#: src/gui/qtvcp-widgets.adoc:2997
 msgid ""
 "'FINALIZE GCODE' - create the full G-code and send it to LinuxCNC/a file"
 msgstr ""
 
 #. type: Title ====
-#: src/gui/qtvcp-widgets.adoc:2996
+#: src/gui/qtvcp-widgets.adoc:2998
 #, no-wrap
 msgid "Adding Custom Subroutines"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:2999
+#: src/gui/qtvcp-widgets.adoc:3001
 msgid ""
 "You can create your own subroutines for use with NGCGUI.  They must follow "
 "these rules:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3002
+#: src/gui/qtvcp-widgets.adoc:3004
 msgid ""
 "The subroutine must be in a folder within LinuxCNC's INI designated search "
 "path."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3003
+#: src/gui/qtvcp-widgets.adoc:3005
 msgid "On the first line there may be a comment of type info:"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3004
+#: src/gui/qtvcp-widgets.adoc:3006
 msgid "The subroutine must be surrounded by the sub and endsub tags."
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3007
+#: src/gui/qtvcp-widgets.adoc:3009
 msgid "If an image file of the same name is in the folder, it will be shown."
 msgstr ""
 
 #. type: delimited block -
-#: src/gui/qtvcp-widgets.adoc:3015
+#: src/gui/qtvcp-widgets.adoc:3017
 #, no-wrap
 msgid ""
 "(info: feedrate -- simple example for setting feedrate)\n"
@@ -109625,36 +109554,36 @@ msgid ""
 msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
-#: src/gui/qtvcp-widgets.adoc:3017
+#: src/gui/qtvcp-widgets.adoc:3019
 #, no-wrap
 msgid "QtVCP NGCGUI Custom Sub"
 msgstr ""
 
 #. type: Target for macro image
-#: src/gui/qtvcp-widgets.adoc:3017
+#: src/gui/qtvcp-widgets.adoc:3019
 #, no-wrap
 msgid "images/qtvcp_ngcgui_custom.png"
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:3020
+#: src/gui/qtvcp-widgets.adoc:3022
 #, no-wrap
 msgid "Qt PDF"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3023
+#: src/gui/qtvcp-widgets.adoc:3025
 msgid "Allows adding loadable PDFs to a screen."
 msgstr ""
 
 #. type: Title ===
-#: src/gui/qtvcp-widgets.adoc:3025
+#: src/gui/qtvcp-widgets.adoc:3027
 #, no-wrap
 msgid "Qt Vismach"
 msgstr ""
 
 #. type: Plain text
-#: src/gui/qtvcp-widgets.adoc:3028
+#: src/gui/qtvcp-widgets.adoc:3030
 msgid "Use this to build/add OpenGl simulated machines."
 msgstr ""
 
@@ -111974,10 +111903,9 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/basic-hal.adoc:328
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "HAL Files"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/basic-hal.adoc:332
@@ -118555,10 +118483,9 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/hal-examples.adoc:5 src/hal/hal-examples.adoc:17
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "HAL Examples"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/hal-examples.adoc:17
@@ -120956,10 +120883,9 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/intro.adoc:24
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "HAL Overview"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/intro.adoc:28
@@ -121867,10 +121793,8 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:325
-#, fuzzy
-#| msgid "Adding files:"
 msgid "HAL Signal"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/intro.adoc:325
@@ -121884,10 +121808,8 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:331
-#, fuzzy
-#| msgid "Adding files:"
 msgid "HAL Type"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/intro.adoc:331
@@ -125424,10 +125346,9 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/tutorial.adoc:5 src/hal/tutorial.adoc:13
-#, fuzzy, no-wrap
-#| msgid "Adding files:"
+#, no-wrap
 msgid "HAL Tutorial"
-msgstr "添加文件"
+msgstr ""
 
 #. type: Plain text
 #: src/hal/tutorial.adoc:13

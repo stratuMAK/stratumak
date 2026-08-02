@@ -1696,7 +1696,9 @@ There are properties that can be changed:
 
 The LED properties can be defined in a stylesheet with the following code added to the `.qss` file. +
 
-[source,{css}]
+// Plain listing rather than [source,{css}]: source-highlight escapes the <1>
+// before asciidoc's callout substitution runs, so the callout below would not
+// resolve.  Every other callout in these documents uses a plain listing too.
 ----
 State_LED #name_of_led{       <1>
   qproperty-color: red;

@@ -1013,7 +1013,6 @@ If QtVCP finds these it will call them, if not it will silently ignore them.
 *`system_shutdown_request__(self):`*::
   If present, this function *overrides the normal function called for total system shutdown*. +
   It could be used to do _pre-shutdown housekeeping_. +
-  +
   The Linux _system will not shutdown if using this function_, you will have to do that yourself. +
   QtVCP/LinuxCNC will terminate without a prompt once this function returns.
 

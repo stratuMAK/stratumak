@@ -259,6 +259,17 @@ DOC_SRCS_NB = $(subst $(DOC_SRCDIR)/,, \
 	$(wildcard $(DOC_SRCDIR)/nb/*.adoc) \
 	$(wildcard $(DOC_SRCDIR)/nb/*/*.adoc))
 
+# components_gen.adoc is a generated fragment meant for inclusion into
+# components.adoc, not a document of its own: it opens at level 2, so asciidoc
+# warns "section title out of sequence" whenever it is compiled standalone.
+# DOC_SRCS_EN names its files one by one and so never picked it up, but the
+# translated lists above are wildcards -- which is why only the translations
+# warned.  Drop it from them so all languages agree.
+DOC_SRCS_DE := $(filter-out %/components_gen.adoc,$(DOC_SRCS_DE))
+DOC_SRCS_ES := $(filter-out %/components_gen.adoc,$(DOC_SRCS_ES))
+DOC_SRCS_FR := $(filter-out %/components_gen.adoc,$(DOC_SRCS_FR))
+DOC_SRCS_NB := $(filter-out %/components_gen.adoc,$(DOC_SRCS_NB))
+
 DOC_SRCS = $(DOC_SRCS_EN) $(DOC_SRCS_DE) $(DOC_SRCS_ES) $(DOC_SRCS_FR) $(DOC_SRCS_NB)
 
 DOC_SRCS_EN_SMALL = $(filter-out Master_%,$(DOC_SRCS_EN))
