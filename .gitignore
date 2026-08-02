@@ -63,9 +63,7 @@ docs/man/man9/sim_torch.9
 # Ignore po4a-generated files for other languages
 docs/help/es/*
 docs/help/fr/*
-docs/help/hu/*
 docs/help/nb/*
-docs/help/vi/*
 docs/help/zh_CN/*
 configs/**/*.tbl.bak
 configs/**/halshow.preferences
