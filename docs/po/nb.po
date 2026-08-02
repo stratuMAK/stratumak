@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.14.1\n"
+"X-Generator: Weblate 4.14.1"
 
 #.  vim: set syntax=asciidoc:
 #. type: Attribute :lang:
@@ -491,8 +491,6 @@ msgstr "Lagre som .dxf til samme mappe som bildet."
 
 #. type: Plain text
 #: README.adoc:142
-#, fuzzy
-#| msgid "Set line thickness to 0.50 mm."
 msgid "Set line thickness to 0.50 mm."
 msgstr "Still inn linjetykkelse til 0.50 mm."
 
@@ -670,10 +668,8 @@ msgstr "Fra depotets topnivåkatalog:"
 
 #. type: Plain text
 #: INSTALL.adoc:11
-#, fuzzy
-#| msgid "*Build LinuxCNC* +\n"
 msgid "*Build LinuxCNC* +"
-msgstr "*Bygg LinuxCNC* +\n"
+msgstr "*Bygg LinuxCNC* +"
 
 #. type: delimited block -
 #: INSTALL.adoc:19
@@ -749,10 +745,8 @@ msgstr ""
 
 #. type: Plain text
 #: INSTALL.adoc:34
-#, fuzzy
-#| msgid "*Run LinuxCNC* +\n"
 msgid "*Run LinuxCNC* +"
-msgstr "*Kjør LinuxCNC* +\n"
+msgstr "*Kjør LinuxCNC* +"
 
 #. type: delimited block -
 #: INSTALL.adoc:39
@@ -1091,8 +1085,7 @@ msgstr "Generell informasjon for brukere"
 
 #. type: Title =
 #: src/Master_Documentation.adoc:50
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration Wizards"
 msgstr "Oppsett"
 
@@ -3544,8 +3537,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/code/building-linuxcnc.adoc:296
-#, fuzzy
-#| msgid "Provide translated documentation"
 msgid "Skip building documentation."
 msgstr "Tilby oversatt dokumenasjon"
 
@@ -8746,8 +8737,7 @@ msgstr ""
 #.  vim: set syntax=asciidoc:
 #. type: Title =
 #: src/code/writing-tests.adoc:2
-#, fuzzy, no-wrap
-#| msgid "Getting Started with LinuxCNC"
+#, no-wrap
 msgid "Writing automated LinuxCNC tests"
 msgstr "Første steg med LinuxCNC"
 
@@ -8914,8 +8904,7 @@ msgstr ""
 
 #. type: Block title
 #: src/code/writing-tests.adoc:72
-#, fuzzy, no-wrap
-#| msgid "Buttons"
+#, no-wrap
 msgid "Test evaluation"
 msgstr "Knapper"
 
@@ -8978,8 +8967,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/code/writing-tests.adoc:93
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "control"
 msgstr "Maskinoppsett"
 
@@ -9373,8 +9361,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/glossary.adoc:58
-#, fuzzy
-#| msgid "Compensation Off"
 msgid "backlash compensation"
 msgstr "Kompensering av"
 
@@ -9736,11 +9722,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/common/glossary.adoc:170
-#, fuzzy
-#| msgid ""
-#| "(((G-code))) The generic term used to refer to the most common part "
-#| "programming language. There are several dialects of G-code, LinuxCNC uses "
-#| "RS274/NGC."
 msgid ""
 "The generic term used to refer to the most common part programming language. "
 "There are several dialects of G-code, LinuxCNC uses RS274/NGC."
@@ -9902,8 +9883,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/glossary.adoc:208
-#, fuzzy
-#| msgid "Set Coordinate System"
 msgid "joint coordinates"
 msgstr "Velg koordinatsystem"
 
@@ -10000,8 +9979,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/glossary.adoc:237
-#, fuzzy
-#| msgid "Machine"
 msgid "machine units"
 msgstr "Maskin"
 
@@ -10087,8 +10064,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/glossary.adoc:267
-#, fuzzy
-#| msgid "Program"
 msgid "part Program"
 msgstr "Program"
 
@@ -10162,8 +10137,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/glossary.adoc:289
-#, fuzzy
-#| msgid "Rapid Move"
 msgid "rapid rate"
 msgstr "Rask bevegelse"
 
@@ -11370,8 +11343,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/common/linux-faq.adoc:161 src/common/linux-faq.adoc:165
-#, fuzzy, no-wrap
-#| msgid "Directories"
+#, no-wrap
 msgid "Changing Directories"
 msgstr "Mapper"
 
@@ -11783,15 +11755,12 @@ msgstr ""
 
 #. type: Title =
 #: src/config/core-components.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Contents"
+#, no-wrap
 msgid "Core Components"
 msgstr "Innhold"
 
 #. type: Index entry
 #: src/config/core-components.adoc:15
-#, fuzzy
-#| msgid "Commit contents"
 msgid "Core components"
 msgstr "Sjekk inn innhold"
 
@@ -11986,16 +11955,11 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/core-components.adoc:103
-#, fuzzy
-#| msgid "Options"
 msgid "motion"
 msgstr "Valgmuligheter"
 
 #. type: Plain text
 #: src/config/core-components.adoc:103
-#, fuzzy
-#| msgid ""
-#| "These pins and parameters are created by the realtime 'motmod' module."
 msgid ""
 ")  These pins, parameters, and functions are created by the realtime "
 "'motmod' module."
@@ -12880,15 +12844,13 @@ msgstr ""
 #. type: Title ===
 #: src/config/ini-config.adoc:5 src/config/ini-config.adoc:8
 #: src/gui/qtvcp.adoc:686
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "INI Configuration"
 msgstr "Oppsett"
 
 #. type: Title ==
 #: src/config/ini-config.adoc:15
-#, fuzzy, no-wrap
-#| msgid "Options"
+#, no-wrap
 msgid "The INI File Components"
 msgstr "Valgmuligheter"
 
@@ -13027,8 +12989,7 @@ msgstr ""
 #: src/config/ini-config.adoc:913 src/config/ini-config.adoc:964
 #: src/config/ini-config.adoc:1336 src/config/ini-config.adoc:1373
 #: src/ladder/classic-ladder.adoc:308
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "Sections"
 msgstr "Funksjoner"
 
@@ -13188,8 +13149,7 @@ msgstr ""
 
 #. type: Block title
 #: src/config/ini-config.adoc:121
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "Boolean Variables"
 msgstr "Variabel"
 
@@ -13216,8 +13176,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/config/ini-config.adoc:130
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "Custom Sections and Variables"
 msgstr "Variabel"
 
@@ -13422,8 +13381,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/config/ini-config.adoc:218
-#, fuzzy, no-wrap
-#| msgid "Options"
+#, no-wrap
 msgid "INI File Sections"
 msgstr "Valgmuligheter"
 
@@ -14191,8 +14149,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/ini-config.adoc:509
-#, fuzzy
-#| msgid "PARAMETERS"
 msgid "PARAMETER FILE"
 msgstr "PARAMETER"
 
@@ -14532,8 +14488,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/config/ini-config.adoc:626
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "[HAL] section"
 msgstr "Funksjoner"
 
@@ -15190,15 +15145,12 @@ msgstr ""
 
 #. type: Title ===
 #: src/config/ini-config.adoc:897
-#, fuzzy, no-wrap
-#| msgid "Y Direction"
+#, no-wrap
 msgid "[KINS] Section"
 msgstr "Y-retning"
 
 #. type: Index entry
 #: src/config/ini-config.adoc:900
-#, fuzzy
-#| msgid "Y Direction"
 msgid "KINS Section"
 msgstr "Y-retning"
 
@@ -15497,8 +15449,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/ini-config.adoc:1010
-#, fuzzy
-#| msgid "Compensation Off"
 msgid "Compensation"
 msgstr "Kompensering av"
 
@@ -19347,8 +19297,7 @@ msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
 #: src/config/pncconf.adoc:31
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "PnCconf Configuration Wizard"
 msgstr "Oppsett"
 
@@ -21074,15 +21023,13 @@ msgstr ""
 
 #. type: Block title
 #: src/config/pncconf.adoc:716
-#, fuzzy, no-wrap
-#| msgid "Advanced Topics"
+#, no-wrap
 msgid "PnCconf, advanced options"
 msgstr "Avanserte emner"
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
 #: src/config/pncconf.adoc:717
-#, fuzzy, no-wrap
-#| msgid "Advanced Topics"
+#, no-wrap
 msgid "PnCconf Advanced Options"
 msgstr "Avanserte emner"
 
@@ -21671,8 +21618,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/config/python-hal-interface.adoc:160
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "*get_name* "
 msgstr "*Filnavn"
 
@@ -21801,15 +21747,13 @@ msgstr ""
 
 #. type: Labeled list
 #: src/config/python-hal-interface.adoc:209
-#, fuzzy, no-wrap
-#| msgid "stream"
+#, no-wrap
 msgid "*stream_base* "
 msgstr "strøm"
 
 #. type: Labeled list
 #: src/config/python-hal-interface.adoc:212
-#, fuzzy, no-wrap
-#| msgid "stream"
+#, no-wrap
 msgid "*stream* "
 msgstr "strøm"
 
@@ -24622,8 +24566,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:5 src/config/stepconf.adoc:12
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Stepper Configuration Wizard"
 msgstr "Oppsett"
 
@@ -24758,8 +24701,6 @@ msgstr "images/stepconf-base_en.png"
 
 #. type: Index entry
 #: src/config/stepconf.adoc:63
-#, fuzzy
-#| msgid "Machine"
 msgid "Machine Name"
 msgstr "Maskin"
 
@@ -24778,8 +24719,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:70
-#, fuzzy
-#| msgid "Machine"
 msgid "Machine Units"
 msgstr "Maskin"
 
@@ -25196,8 +25135,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:218
-#, fuzzy
-#| msgid "Configuration"
 msgid "Maximum Acceleration"
 msgstr "Oppsett"
 
@@ -25212,8 +25149,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:220
-#, fuzzy
-#| msgid "Functions"
 msgid "Home Location"
 msgstr "Funksjoner"
 
@@ -25229,8 +25164,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:223
-#, fuzzy
-#| msgid "Table Example"
 msgid "Table Travel"
 msgstr "Tabelleksempel"
 
@@ -25273,8 +25206,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:229
-#, fuzzy
-#| msgid "Y Direction"
 msgid "Home Latch Direction"
 msgstr "Y-retning"
 
@@ -25498,8 +25429,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:319 src/config/stepconf.adoc:323
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "Spindle Speed Control"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -25740,8 +25670,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepconf.adoc:409 src/config/stepconf.adoc:414
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Complete Machine Configuration"
 msgstr "Maskinoppsett"
 
@@ -25967,8 +25896,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/config/stepper.adoc:5 src/config/stepper.adoc:18
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Stepper Configuration"
 msgstr "Oppsett"
 
@@ -31111,8 +31039,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/drivers/hostmot2.adoc:182
-#, fuzzy
-#| msgid "Configuration"
 msgid "An example of a 5I20 configuration:"
 msgstr "Oppsett"
 
@@ -32085,8 +32011,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/drivers/hostmot2.adoc:704
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "5I25 Configuration"
 msgstr "Oppsett"
 
@@ -32401,8 +32326,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/drivers/hal_gpio.adoc:74
-#, fuzzy
-#| msgid "'spindle fwd'"
 msgid "*pulldown*"
 msgstr "'spindel frem'"
 
@@ -32582,8 +32505,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/drivers/hal_gpio.adoc:151
-#, fuzzy
-#| msgid "None known at this time."
 msgid "None at this time."
 msgstr "Ingen kjent for øyeblikket."
 
@@ -33035,8 +32956,7 @@ msgstr ""
 
 #. type: Table
 #: src/drivers/mb2hal.adoc:94
-#, fuzzy, no-wrap
-#| msgid "NAME"
+#, no-wrap
 msgid "PIN_NAMES"
 msgstr "NAVN"
 
@@ -37847,15 +37767,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/examples/spindle.adoc:67
-#, fuzzy, no-wrap
-#| msgid "Spindle"
+#, no-wrap
 msgid "Spindle Enable"
 msgstr "Spindel"
 
 #. type: Index entry
 #: src/examples/spindle.adoc:75
-#, fuzzy
-#| msgid "Table Example"
 msgid "Spindle Enable Example"
 msgstr "Tabelleksempel"
 
@@ -37876,8 +37793,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/examples/spindle.adoc:81
-#, fuzzy, no-wrap
-#| msgid "Y Direction"
+#, no-wrap
 msgid "Spindle Direction"
 msgstr "Y-retning"
 
@@ -37915,8 +37831,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/examples/spindle.adoc:99
-#, fuzzy, no-wrap
-#| msgid "'spindle fwd'"
+#, no-wrap
 msgid "Spindle Soft Start"
 msgstr "'spindel frem'"
 
@@ -39357,8 +39272,6 @@ msgstr "LinuxCNC «G-kode» oversiktsark"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:59
-#, fuzzy
-#| msgid "G-Code Examples"
 msgid "G-Code Table"
 msgstr "G-kode-eksempler"
 
@@ -40044,8 +39957,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:123 src/gcode/g-code.adoc:136
-#, fuzzy, no-wrap
-#| msgid "Rapid Move"
+#, no-wrap
 msgid "G0 Rapid Move"
 msgstr "Rask bevegelse"
 
@@ -40165,8 +40077,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:181 src/gcode/g-code.adoc:184
-#, fuzzy, no-wrap
-#| msgid "Linear Move"
+#, no-wrap
 msgid "G1 Linear Move"
 msgstr "Bevegelse i rett linje"
 
@@ -40222,8 +40133,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:223
-#, fuzzy, no-wrap
-#| msgid "Arc Move"
+#, no-wrap
 msgid "G2, G3 Arc Move"
 msgstr "Sirkulær bevegelse"
 
@@ -40235,8 +40145,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:226
-#, fuzzy
-#| msgid "Arc Move"
 msgid "G3 Arc Move"
 msgstr "Sirkulær bevegelse"
 
@@ -40778,8 +40686,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:519 src/gcode/g-code.adoc:522
-#, fuzzy, no-wrap
-#| msgid "Dwell"
+#, no-wrap
 msgid "G4 Dwell"
 msgstr "Opphold"
 
@@ -41104,8 +41011,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:685 src/gcode/g-code.adoc:688
-#, fuzzy, no-wrap
-#| msgid "Lathe Diameter Mode"
+#, no-wrap
 msgid "G7 Lathe Diameter Mode"
 msgstr "Dreiebenk diametermodus"
 
@@ -41126,8 +41032,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:700 src/gcode/g-code.adoc:703
-#, fuzzy, no-wrap
-#| msgid "Lathe Radius Mode"
+#, no-wrap
 msgid "G8 Lathe Radius Mode"
 msgstr "Dreiebenk radiusmodus"
 
@@ -41148,8 +41053,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:715 src/gcode/g-code.adoc:718
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "G10 L0 Reload Tool Table Data"
 msgstr "Velg verktøytabell"
 
@@ -41177,15 +41081,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:736
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "G10 L1 Set Tool Table"
 msgstr "Velg verktøytabell"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:739
-#, fuzzy
-#| msgid "Set Tool Table"
 msgid "G10 L1 Tool Table"
 msgstr "Velg verktøytabell"
 
@@ -41285,15 +41186,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:775
-#, fuzzy, no-wrap
-#| msgid "Set Coordinate System"
+#, no-wrap
 msgid "G10 L2 Set Coordinate System"
 msgstr "Velg koordinatsystem"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:778
-#, fuzzy
-#| msgid "Set Coordinate System"
 msgid "G10 L2 Coordinate System"
 msgstr "Velg koordinatsystem"
 
@@ -41466,8 +41364,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:865 src/gcode/g-code.adoc:868
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "G10 L10 Set Tool Table"
 msgstr "Velg verktøytabell"
 
@@ -41513,8 +41410,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:907 src/gcode/g-code.adoc:910
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "G10 L11 Set Tool Table"
 msgstr "Velg verktøytabell"
 
@@ -41544,8 +41440,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:945 src/gcode/g-code.adoc:948
-#, fuzzy, no-wrap
-#| msgid "Set Coordinate System"
+#, no-wrap
 msgid "G10 L20 Set Coordinate System"
 msgstr "Velg koordinatsystem"
 
@@ -41663,15 +41558,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1005
-#, fuzzy, no-wrap
-#| msgid "Go/Set Predefined Position"
+#, no-wrap
 msgid "G28, G28.1 Go/Set Predefined Position"
 msgstr "Gå til/sett forhåndsdefinert posisjon"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1008
-#, fuzzy
-#| msgid "Go/Set Predefined Position"
 msgid "G28 Go/Set Predefined Position"
 msgstr "Gå til/sett forhåndsdefinert posisjon"
 
@@ -41739,15 +41631,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1041
-#, fuzzy, no-wrap
-#| msgid "Go/Set Predefined Position"
+#, no-wrap
 msgid "G30, G30.1 Go/Set Predefined Position"
 msgstr "Gå til/sett forhåndsdefinert posisjon"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1044
-#, fuzzy
-#| msgid "Go/Set Predefined Position"
 msgid "G30 Go/Set Predefined Position"
 msgstr "Gå til/sett forhåndsdefinert posisjon"
 
@@ -42318,15 +42207,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1336
-#, fuzzy, no-wrap
-#| msgid "Compensation Off"
+#, no-wrap
 msgid "G40 Compensation Off"
 msgstr "Kompensering av"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1339
-#, fuzzy
-#| msgid "Compensation Off"
 msgid "G40 Cutter Compensation Off"
 msgstr "Kompensering av"
 
@@ -42774,15 +42660,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1582
-#, fuzzy, no-wrap
-#| msgid "Cancel Tool Length Compensation"
+#, no-wrap
 msgid "G49 Cancel Tool Length Compensation"
 msgstr "Avslutt verktøylengdekompensering"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1585
-#, fuzzy
-#| msgid "Cancel Tool Length Compensation"
 msgid "G49 Cancel Tool Length Offset"
 msgstr "Avslutt verktøylengdekompensering"
 
@@ -42800,8 +42683,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1593
-#, fuzzy, no-wrap
-#| msgid "Select Coordinate System"
+#, no-wrap
 msgid "G52 Local Coordinate System Offset"
 msgstr "Velg koordinatsystem"
 
@@ -42827,15 +42709,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1608
-#, fuzzy, no-wrap
-#| msgid "G53 Machine Coordinate"
+#, no-wrap
 msgid "G53 Move in Machine Coordinates"
 msgstr "G53 Maskinkoordinat"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1611
-#, fuzzy
-#| msgid "G53 Machine Coordinate"
 msgid "G53 Machine Coordinates"
 msgstr "G53 Maskinkoordinat"
 
@@ -42892,71 +42771,52 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1640 src/gcode/g-code.adoc:1643
-#, fuzzy, no-wrap
-#| msgid "Select Coordinate System"
+#, no-wrap
 msgid "G54-G59.3 Select Coordinate System"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1645
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G54' - select coordinate system 1"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1646
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G55' - select coordinate system 2"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1647
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G56' - select coordinate system 3"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1648
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G57' - select coordinate system 4"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1649
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G58' - select coordinate system 5"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1650
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G59' - select coordinate system 6"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1651
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G59.1' - select coordinate system 7"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1652
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G59.2' - select coordinate system 8"
 msgstr "Velg koordinatsystem"
 
 #. type: Plain text
 #: src/gcode/g-code.adoc:1653
-#, fuzzy
-#| msgid "Select Coordinate System"
 msgid "'G59.3' - select coordinate system 9"
 msgstr "Velg koordinatsystem"
 
@@ -43499,8 +43359,7 @@ msgstr ""
 #: src/gcode/g-code.adoc:1684 src/gcode/g-code.adoc:1694
 #: src/gcode/g-code.adoc:1702 src/user/user-concepts.adoc:17
 #: src/user/user-concepts.adoc:20
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Trajectory Control"
 msgstr "Maskinoppsett"
 
@@ -43841,15 +43700,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:1864
-#, fuzzy, no-wrap
-#| msgid "Drilling Cycle, Chip Breaking"
+#, no-wrap
 msgid "G73 Drilling Cycle with Chip Breaking"
 msgstr "Boresyklus, sponknekkende"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1867
-#, fuzzy
-#| msgid "Drilling Cycle, Chip Breaking"
 msgid "G73 Drilling Cycle with Chip Break"
 msgstr "Boresyklus, sponknekkende"
 
@@ -44038,8 +43894,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:1936 src/gcode/g-code.adoc:1939
-#, fuzzy, no-wrap
-#| msgid "Threading Cycle"
+#, no-wrap
 msgid "G76 Threading Cycle"
 msgstr "Gjengesyklus"
 
@@ -44766,8 +44621,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2308 src/gcode/g-code.adoc:2311
-#, fuzzy, no-wrap
-#| msgid "Threading Cycle"
+#, no-wrap
 msgid "G81 Drilling Cycle"
 msgstr "Gjengesyklus"
 
@@ -45068,15 +44922,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:2446
-#, fuzzy, no-wrap
-#| msgid "Drilling Cycle, Chip Breaking"
+#, no-wrap
 msgid "G82 Drilling Cycle, Dwell"
 msgstr "Boresyklus, sponknekkende"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2449
-#, fuzzy
-#| msgid "Drilling Cycle, Chip Breaking"
 msgid "G82 Drilling Cycle Dwell"
 msgstr "Boresyklus, sponknekkende"
 
@@ -45280,8 +45131,6 @@ msgstr "Sett spindelhastighet"
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2573
-#, fuzzy
-#| msgid "Rapid Move"
 msgid "Rapid Move Out"
 msgstr "Rask bevegelse"
 
@@ -45334,8 +45183,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2607
-#, fuzzy
-#| msgid "Threading Cycle"
 msgid "G88 Boring Cycle"
 msgstr "Gjengesyklus"
 
@@ -45451,8 +45298,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2671 src/gcode/g-code.adoc:2674
-#, fuzzy, no-wrap
-#| msgid "Set Coordinate System"
+#, no-wrap
 msgid "G92 Coordinate System Offset"
 msgstr "Velg koordinatsystem"
 
@@ -45675,8 +45521,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/g-code.adoc:2788
-#, fuzzy, no-wrap
-#| msgid "Spindle Control Mode"
+#, no-wrap
 msgid "G96, G97 Spindle Control Mode"
 msgstr "Spindelkontrollmodus"
 
@@ -45688,8 +45533,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/g-code.adoc:2791
-#, fuzzy
-#| msgid "Spindle Control Mode"
 msgid "G97 Spindle Control Mode"
 msgstr "Spindelkontrollmodus"
 
@@ -45860,8 +45703,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/machining-center.adoc:16
-#, fuzzy
-#| msgid "Machine"
 msgid "Machine Overview"
 msgstr "Maskin"
 
@@ -45985,8 +45826,6 @@ msgstr "Kjøling"
 
 #. type: Index entry
 #: src/gcode/machining-center.adoc:86
-#, fuzzy
-#| msgid "Coolant"
 msgid "coolant"
 msgstr "Kjøling"
 
@@ -46000,8 +45839,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gcode/machining-center.adoc:87
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "Feed and Speed Override"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -46111,8 +45949,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/machining-center.adoc:138 src/gcode/machining-center.adoc:154
-#, fuzzy, no-wrap
-#| msgid "Control point"
+#, no-wrap
 msgid "Controlled Point"
 msgstr "Kontrollpunkt"
 
@@ -46207,8 +46044,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/machining-center.adoc:196 src/gcode/machining-center.adoc:202
-#, fuzzy, no-wrap
-#| msgid "Coolant"
+#, no-wrap
 msgid "Cooling"
 msgstr "Kjøling"
 
@@ -46221,8 +46057,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/machining-center.adoc:212
-#, fuzzy
-#| msgid "Dwell"
 msgid "dwell"
 msgstr "Opphold"
 
@@ -46413,8 +46247,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gcode/machining-center.adoc:293
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "Feed and Speed Override Switches"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -46913,8 +46746,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:45
-#, fuzzy
-#| msgid "Program"
 msgid "M1 Program Pause"
 msgstr "Program"
 
@@ -46961,8 +46792,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:63
-#, fuzzy
-#| msgid "Program"
 msgid "M2 Program End"
 msgstr "Program"
 
@@ -47072,15 +46901,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/m-code.adoc:100
-#, fuzzy, no-wrap
-#| msgid "Spindle Control Mode"
+#, no-wrap
 msgid "M3, M4, M5 Spindle Control"
 msgstr "Spindelkontrollmodus"
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:103
-#, fuzzy
-#| msgid "Spindle Control Mode"
 msgid "M5 Spindle Control"
 msgstr "Spindelkontrollmodus"
 
@@ -47170,8 +46996,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/m-code.adoc:151
-#, fuzzy, no-wrap
-#| msgid "Tool Changes"
+#, no-wrap
 msgid "M6 Tool Change"
 msgstr "Verktøybytter"
 
@@ -47183,8 +47008,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:161
-#, fuzzy
-#| msgid "Tool Changes"
 msgid "M6-Tool-Change"
 msgstr "Verktøybytter"
 
@@ -47279,8 +47102,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:202
-#, fuzzy
-#| msgid "Machine Configurations"
 msgid "M9 Coolant Control"
 msgstr "Maskinoppsett"
 
@@ -47437,15 +47258,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/m-code.adoc:264
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "M48, M49 Speed and Feed Override Control"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:267
-#, fuzzy
-#| msgid "Spindle Speed Override Control"
 msgid "M49 Speed and Feed Override Control"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -47481,8 +47299,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:281 src/gcode/m-code.adoc:284
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "M50 Feed Override Control"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -47506,15 +47323,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/m-code.adoc:293
-#, fuzzy, no-wrap
-#| msgid "Spindle Speed Override Control"
+#, no-wrap
 msgid "M51 Spindle Speed Override Control"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:296
-#, fuzzy
-#| msgid "Spindle Speed Override Control"
 msgid "M51 Spindle Speed Override"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -47540,8 +47354,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:306 src/gcode/m-code.adoc:309
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "M52 Adaptive Feed Control"
 msgstr "Maskinoppsett"
 
@@ -47576,8 +47389,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:325 src/gcode/m-code.adoc:328
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "M53 Feed Stop Control"
 msgstr "Maskinoppsett"
 
@@ -47599,8 +47411,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:337 src/gcode/m-code.adoc:340
-#, fuzzy, no-wrap
-#| msgid "Set Current Tool"
+#, no-wrap
 msgid "M61 Set Current Tool"
 msgstr "Velg gjeldende verktøy"
 
@@ -48075,8 +47886,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:543 src/gcode/m-code.adoc:548
-#, fuzzy, no-wrap
-#| msgid "Invalidate stored state"
+#, no-wrap
 msgid "M71 Invalidate Stored Modal State"
 msgstr "Gjør lagret tilstand ugyldig"
 
@@ -48342,8 +48152,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/m-code.adoc:702 src/gcode/m-code.adoc:705
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "M100-M199 User Defined Commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -48566,8 +48375,7 @@ msgstr ""
 
 #. type: Title =
 #: src/gcode/o-code.adoc:5
-#, fuzzy, no-wrap
-#| msgid "G-Code"
+#, no-wrap
 msgid "O Codes"
 msgstr "G-kode"
 
@@ -49049,8 +48857,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/o-code.adoc:248 src/gcode/o-code.adoc:256
-#, fuzzy, no-wrap
-#| msgid "Stopping"
+#, no-wrap
 msgid "Looping"
 msgstr "Avslutning"
 
@@ -49122,15 +48929,12 @@ msgstr ""
 
 #. type: Title ==
 #: src/gcode/o-code.adoc:296
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Conditional"
 msgstr "Oppsett"
 
 #. type: Index entry
 #: src/gcode/o-code.adoc:302
-#, fuzzy
-#| msgid "Optional tags:"
 msgid "Conditional loops"
 msgstr "Valgfrie merkelapper:"
 
@@ -49235,8 +49039,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/o-code.adoc:363
-#, fuzzy
-#| msgid "Repeat a loop of code"
 msgid "Repeat loop"
 msgstr "Gjenta en kodeløkke"
 
@@ -49323,8 +49125,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/o-code.adoc:397 src/gcode/o-code.adoc:405
-#, fuzzy, no-wrap
-#| msgid "Call named file"
+#, no-wrap
 msgid "Calling Files"
 msgstr "Kall opp navngitt fil"
 
@@ -49536,8 +49337,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/other-code.adoc:22 src/gcode/other-code.adoc:28
-#, fuzzy, no-wrap
-#| msgid "Set Spindle Speed"
+#, no-wrap
 msgid "S: Set Spindle Speed"
 msgstr "Sett spindelhastighet"
 
@@ -49581,8 +49381,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/other-code.adoc:48 src/gcode/other-code.adoc:52
-#, fuzzy, no-wrap
-#| msgid "Select Tool)"
+#, no-wrap
 msgid "T: Select Tool"
 msgstr "Velg verktøy"
 
@@ -49810,8 +49609,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gcode/overview.adoc:91
-#, fuzzy, no-wrap
-#| msgid "Strange numbers"
+#, no-wrap
 msgid "Line Number"
 msgstr "Undelige tall"
 
@@ -50715,8 +50513,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/overview.adoc:416 src/gcode/overview.adoc:471
-#, fuzzy
-#| msgid "*Filename"
 msgid "named"
 msgstr "*Filnavn"
 
@@ -51792,8 +51588,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/overview.adoc:759
-#, fuzzy
-#| msgid "General Information"
 msgid "Unary operations"
 msgstr "Generell informasjon"
 
@@ -52160,8 +51954,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/overview.adoc:874 src/gcode/overview.adoc:885
-#, fuzzy, no-wrap
-#| msgid "Select Coordinate System"
+#, no-wrap
 msgid "Polar Coordinates"
 msgstr "Velg koordinatsystem"
 
@@ -52805,8 +52598,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/overview.adoc:1106 src/gcode/overview.adoc:1111
-#, fuzzy, no-wrap
-#| msgid "Comments &amp; Messages"
+#, no-wrap
 msgid "Comment Parameters"
 msgstr "Kommentarer og meldinger"
 
@@ -53569,8 +53361,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/tool-compensation.adoc:5 src/gcode/tool-compensation.adoc:14
-#, fuzzy, no-wrap
-#| msgid "Compensation Off"
+#, no-wrap
 msgid "Tool Compensation"
 msgstr "Kompensering av"
 
@@ -54099,8 +53890,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/tool-compensation.adoc:148 src/gcode/tool-compensation.adoc:154
-#, fuzzy, no-wrap
-#| msgid "Path Control Mode"
+#, no-wrap
 msgid "Tool IO"
 msgstr "Stikontrollmodus"
 
@@ -54296,8 +54086,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/tool-compensation.adoc:206 src/gcode/tool-compensation.adoc:211
-#, fuzzy, no-wrap
-#| msgid "Tool Changes"
+#, no-wrap
 msgid "Tool Changers"
 msgstr "Verktøybytter"
 
@@ -54335,8 +54124,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gcode/tool-compensation.adoc:222
-#, fuzzy, no-wrap
-#| msgid "Tool Changes"
+#, no-wrap
 msgid "Fixed Location Tool Changers"
 msgstr "Verktøybytter"
 
@@ -54383,8 +54171,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gcode/tool-compensation.adoc:242 src/gcode/tool-compensation.adoc:249
-#, fuzzy, no-wrap
-#| msgid "Cancel Tool Length Compensation"
+#, no-wrap
 msgid "Tool Length Compensation"
 msgstr "Avslutt verktøylengdekompensering"
 
@@ -54794,8 +54581,7 @@ msgstr ""
 #. type: Index entry
 #: src/getting-started/about-linuxcnc.adoc:54
 #: src/getting-started/about-linuxcnc.adoc:71
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "Getting Help"
 msgstr "Makroknapper"
 
@@ -54973,8 +54759,7 @@ msgstr ""
 
 #. type: Title =
 #: src/getting-started/getting-linuxcnc.adoc:6
-#, fuzzy, no-wrap
-#| msgid "Run LinuxCNC"
+#, no-wrap
 msgid "Getting LinuxCNC"
 msgstr "Kjør LinuxCNC"
 
@@ -55484,8 +55269,7 @@ msgstr ""
 #. type: Index entry
 #: src/getting-started/getting-linuxcnc.adoc:225
 #: src/getting-started/getting-linuxcnc.adoc:232
-#, fuzzy, no-wrap
-#| msgid "Run LinuxCNC"
+#, no-wrap
 msgid "Updates to LinuxCNC"
 msgstr "Kjør LinuxCNC"
 
@@ -55507,8 +55291,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/getting-started/getting-linuxcnc.adoc:236
-#, fuzzy, no-wrap
-#| msgid "Known problems"
+#, no-wrap
 msgid "Install Problems"
 msgstr "Kjente problemer"
 
@@ -55608,8 +55391,7 @@ msgstr ""
 #. type: Table
 #: src/getting-started/getting-linuxcnc.adoc:257
 #: src/getting-started/getting-linuxcnc.adoc:260
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "machine control"
 msgstr "Maskinoppsett"
 
@@ -55671,8 +55453,7 @@ msgstr ""
 
 #. type: Table
 #: src/getting-started/getting-linuxcnc.adoc:262
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "simulation ONLY"
 msgstr "Oppsett"
 
@@ -55946,8 +55727,7 @@ msgstr ""
 #. type: Index entry
 #: src/getting-started/running-linuxcnc.adoc:15
 #: src/getting-started/running-linuxcnc.adoc:20
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration Launcher"
 msgstr "Oppsett"
 
@@ -56050,8 +55830,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/getting-started/running-linuxcnc.adoc:49
-#, fuzzy
-#| msgid "Virtual Control Panels"
 msgid "'pyvcp_demo' - Python Virtual Control Panel"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -56638,8 +56416,7 @@ msgstr ""
 
 #. type: Title =
 #: src/getting-started/updating-linuxcnc.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Run LinuxCNC"
+#, no-wrap
 msgid "Updating LinuxCNC"
 msgstr "Kjør LinuxCNC"
 
@@ -57074,8 +56851,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/getting-started/updating-linuxcnc.adoc:165
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Updating Configuration Files for 2.9"
 msgstr "Maskinoppsett"
 
@@ -59439,8 +59215,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/axis.adoc:790
-#, fuzzy, no-wrap
-#| msgid "AXIS Lathe Mode"
+#, no-wrap
 msgid "Using AXIS in Lathe Mode"
 msgstr "AXIS dreiebenkmodus"
 
@@ -59860,8 +59635,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/gui/axis.adoc:1004 src/gui/axis.adoc:1012
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Virtual Control Panel"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -59937,8 +59711,6 @@ msgstr "5Axisgui"
 
 #. type: Index entry
 #: src/gui/axis.adoc:1044
-#, fuzzy
-#| msgid "Basic Instructions"
 msgid "axisui pins"
 msgstr "Grunnleggende innføring"
 
@@ -60225,8 +59997,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/axis.adoc:1197
-#, fuzzy, no-wrap
-#| msgid "LinuxCNC Startup"
+#, no-wrap
 msgid "Read LinuxCNC Status"
 msgstr "LinuxCNC-oppstart"
 
@@ -64420,8 +64191,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gladevcp.adoc:1232
-#, fuzzy, no-wrap
-#| msgid "Detailed description"
+#, no-wrap
 msgid "show_extents_option"
 msgstr "Detaljert beskrivelse"
 
@@ -65739,8 +65509,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gladevcp.adoc:1742
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "is_editable"
 msgstr "Variabel"
 
@@ -65862,8 +65631,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/gladevcp.adoc:1792
-#, fuzzy
-#| msgid "General Information"
 msgid "Show lathe format"
 msgstr "Generell informasjon"
 
@@ -69705,8 +69472,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/gmoccapy.adoc:282
-#, fuzzy, no-wrap
-#| msgid "Table Example"
+#, no-wrap
 msgid "Embedded Tabs and Panels"
 msgstr "Tabelleksempel"
 
@@ -69728,8 +69494,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/gmoccapy.adoc:288
-#, fuzzy, no-wrap
-#| msgid "Table Example"
+#, no-wrap
 msgid "Embedded Tab Example"
 msgstr "Tabelleksempel"
 
@@ -69986,8 +69751,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/gmoccapy.adoc:376
-#, fuzzy, no-wrap
-#| msgid "Print Messages"
+#, no-wrap
 msgid "User Created Messages"
 msgstr "Skriv meldinger"
 
@@ -70111,8 +69875,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/gmoccapy.adoc:430
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "User Command File"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -70502,8 +70265,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:590
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "Auto Mode"
 msgstr "Makroknapper"
 
@@ -70673,8 +70435,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:598
-#, fuzzy, no-wrap
-#| msgid "Optional tags:"
+#, no-wrap
 msgid "optional blocks"
 msgstr "Valgfrie merkelapper:"
 
@@ -70730,8 +70491,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:606
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "Settings Mode"
 msgstr "Makroknapper"
 
@@ -70816,8 +70576,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:613
-#, fuzzy, no-wrap
-#| msgid "Returns a HAL status code."
+#, no-wrap
 msgid "open HAL status"
 msgstr "Returnerer en HAL-statuskode."
 
@@ -70872,8 +70631,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:623
-#, fuzzy, no-wrap
-#| msgid "Path Control Mode"
+#, no-wrap
 msgid "Tool Mode"
 msgstr "Stikontrollmodus"
 
@@ -70885,8 +70643,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:624
-#, fuzzy, no-wrap
-#| msgid "Select Tool)"
+#, no-wrap
 msgid "Select File"
 msgstr "Velg verktøy"
 
@@ -70898,8 +70655,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:625
-#, fuzzy, no-wrap
-#| msgid "Change to source directory"
+#, no-wrap
 msgid "go to home directory"
 msgstr "Endre til kildekatalogen"
 
@@ -70911,22 +70667,19 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:625
-#, fuzzy, no-wrap
-#| msgid "Call named file"
+#, no-wrap
 msgid "reload file"
 msgstr "Kall opp navngitt fil"
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:626
-#, fuzzy, no-wrap
-#| msgid "Y Direction"
+#, no-wrap
 msgid "one directory level up"
 msgstr "Y-retning"
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:626
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "reload tool table"
 msgstr "Velg verktøytabell"
 
@@ -70938,8 +70691,7 @@ msgstr ""
 
 #. type: Table
 #: src/gui/gmoccapy.adoc:627
-#, fuzzy, no-wrap
-#| msgid "Tool Changes"
+#, no-wrap
 msgid "apply changes"
 msgstr "Verktøybytter"
 
@@ -71935,8 +71687,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/gmoccapy.adoc:922
-#, fuzzy, no-wrap
-#| msgid "General Information"
+#, no-wrap
 msgid "Tool information area"
 msgstr "Generell informasjon"
 
@@ -72130,8 +71881,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/gmoccapy.adoc:991
-#, fuzzy, no-wrap
-#| msgid "Options"
+#, no-wrap
 msgid "INI File Modifications"
 msgstr "Valgmuligheter"
 
@@ -72787,8 +72537,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/gmoccapy.adoc:1247
-#, fuzzy, no-wrap
-#| msgid "Debug Messages"
+#, no-wrap
 msgid "Gmoccapy Messages"
 msgstr "Feilsøkingsmeldinger"
 
@@ -72923,8 +72672,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/gmoccapy.adoc:1285
-#, fuzzy, no-wrap
-#| msgid "Hardware Examples"
+#, no-wrap
 msgid "Hardware MPG Scale"
 msgstr "Maskinvareeksempler"
 
@@ -73190,8 +72938,7 @@ msgstr ""
 #.  * 4^th^ axis column in the tool editor.
 #. type: Block title
 #: src/gui/gmoccapy.adoc:1400
-#, fuzzy, no-wrap
-#| msgid "Select Tool)"
+#, no-wrap
 msgid "Reload Tool::"
 msgstr "Velg verktøy"
 
@@ -73364,8 +73111,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gmoccapy.adoc:1469
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "In Auto Mode"
 msgstr "Makroknapper"
 
@@ -73944,8 +73690,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/gmoccapy.adoc:1664
-#, fuzzy, no-wrap
-#| msgid "Known problems"
+#, no-wrap
 msgid "Known Problems"
 msgstr "Kjente problemer"
 
@@ -75123,8 +74868,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gscreen.adoc:432
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "MESSAGE_BOLDTEXT"
 msgstr "MELDING"
 
@@ -75135,8 +74879,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gscreen.adoc:433
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "MESSAGE_TEXT"
 msgstr "MELDING"
 
@@ -75147,8 +74890,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gscreen.adoc:434
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "MESSAGE_DETAILS"
 msgstr "MELDING"
 
@@ -75159,8 +74901,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/gscreen.adoc:435
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "MESSAGE_PINNAME"
 msgstr "MELDING"
 
@@ -75171,8 +74912,7 @@ msgstr "er grunnavnet for HAL-pinnene."
 
 #. type: Labeled list
 #: src/gui/gscreen.adoc:436
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "MESSAGE_TYPE"
 msgstr "MELDING"
 
@@ -75183,8 +74923,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/gscreen.adoc:438
-#, fuzzy
-#| msgid "Debug Messages"
 msgid "Status messages"
 msgstr "Feilsøkingsmeldinger"
 
@@ -75200,8 +74938,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/gscreen.adoc:441
-#, fuzzy
-#| msgid "Debug Messages"
 msgid "ok messages"
 msgstr "Feilsøkingsmeldinger"
 
@@ -75219,8 +74955,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/gscreen.adoc:444
-#, fuzzy
-#| msgid "Debug Messages"
 msgid "yes/no messages"
 msgstr "Feilsøkingsmeldinger"
 
@@ -77023,8 +76757,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/gstat.adoc:553 src/gui/gstat.adoc:563
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "record the current mode,"
 msgstr "Velg gjeldende verktøy"
 
@@ -78986,8 +78718,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/mdro.adoc:42
-#, fuzzy, no-wrap
-#| msgid "Options"
+#, no-wrap
 msgid "INI File Options"
 msgstr "Valgmuligheter"
 
@@ -79104,15 +78835,11 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/mdro.adoc:98
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "the name of the axis,"
 msgstr "Trådens navn"
 
 #. type: Plain text
 #: src/gui/mdro.adoc:99
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "the current value,"
 msgstr "Velg gjeldende verktøy"
 
@@ -79188,8 +78915,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/mdro.adoc:125
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Simulation"
 msgstr "Oppsett"
 
@@ -82413,8 +82139,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/pyvcp.adoc:103
-#, fuzzy, no-wrap
-#| msgid "Example"
+#, no-wrap
 msgid "Example Panel"
 msgstr "Eksempel"
 
@@ -85983,8 +85708,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtdragon.adoc:303
-#, fuzzy, no-wrap
-#| msgid "Detailed description"
+#, no-wrap
 msgid "Abort detection"
 msgstr "Detaljert beskrivelse"
 
@@ -86532,8 +86256,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtdragon.adoc:617
-#, fuzzy, no-wrap
-#| msgid "Compensation Off"
+#, no-wrap
 msgid "Z level compensation"
 msgstr "Kompensering av"
 
@@ -87046,8 +86769,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:764
-#, fuzzy
-#| msgid "There are some helper functions available:"
 msgid "There are three toggle buttons:"
 msgstr "Noen hjelpefunksjoner er tilgjengelig:"
 
@@ -87072,8 +86793,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtdragon.adoc:769
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "Basic probe"
 msgstr "Grunnleggende innføring"
 
@@ -87124,8 +86844,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:783
-#, fuzzy
-#| msgid "Configuration"
 msgid "Calibration"
 msgstr "Oppsett"
 
@@ -87259,8 +86977,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/gui/qtdragon.adoc:815
-#, fuzzy, no-wrap
-#| msgid "Table Code Example"
+#, no-wrap
 msgid "Corner Probe Example"
 msgstr "Tabellkodeeksempel"
 
@@ -87646,8 +87363,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtdragon.adoc:937
-#, fuzzy, no-wrap
-#| msgid "Machine"
+#, no-wrap
 msgid "Machine Probe At"
 msgstr "Maskin"
 
@@ -87943,15 +87659,11 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:1034
-#, fuzzy
-#| msgid "Basic Instructions"
 msgid "fast probe"
 msgstr "Grunnleggende innføring"
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:1035
-#, fuzzy
-#| msgid "Basic Instructions"
 msgid "slow probe"
 msgstr "Grunnleggende innføring"
 
@@ -88173,22 +87885,16 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:1153
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "Set Current Tool Position"
 msgstr "Velg gjeldende verktøy"
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:1154
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "Adjust Current Tool Position"
 msgstr "Velg gjeldende verktøy"
 
 #. type: Plain text
 #: src/gui/qtdragon.adoc:1155
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "Zero Current Tool Position"
 msgstr "Velg gjeldende verktøy"
 
@@ -88413,8 +88119,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtdragon.adoc:1230
-#, fuzzy, no-wrap
-#| msgid "User Tabs"
+#, no-wrap
 msgid "User Tab"
 msgstr "Brukerfaner"
 
@@ -90296,8 +90001,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtvcp.adoc:631
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "Add Action Buttons"
 msgstr "Makroknapper"
 
@@ -91254,8 +90958,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtvcp.adoc:1038
-#, fuzzy, no-wrap
-#| msgid "Y Direction"
+#, no-wrap
 msgid "KEY BINDING Section"
 msgstr "Y-retning"
 
@@ -91901,8 +91604,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-code-snippets.adoc:147
-#, fuzzy
-#| msgid "The function:"
 msgid "The function"
 msgstr "Funksjonen:"
 
@@ -93539,8 +93240,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-code-snippets.adoc:909
-#, fuzzy
-#| msgid "There are some helper functions available:"
 msgid "There are several options:"
 msgstr "Noen hjelpefunksjoner er tilgjengelig:"
 
@@ -94621,8 +94320,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-custom-widgets.adoc:452
-#, fuzzy
-#| msgid "Tool Changes"
 msgid "It changes:"
 msgstr "Verktøybytter"
 
@@ -95467,8 +95164,7 @@ msgstr ""
 
 #. type: Title =
 #: src/gui/qtvcp-development.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Developer Information</a>"
+#, no-wrap
 msgid "QtVCP Development"
 msgstr "Utviklerinformasjon</a>"
 
@@ -95527,8 +95223,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtvcp-development.adoc:29
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "Builtin Locations"
 msgstr "Funksjoner"
 
@@ -95703,8 +95398,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtvcp-development.adoc:79
-#, fuzzy, no-wrap
-#| msgid "General Information"
+#, no-wrap
 msgid "Path Information"
 msgstr "Generell informasjon"
 
@@ -95771,8 +95465,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-development.adoc:90
-#, fuzzy
-#| msgid "Machine Configurations"
 msgid "Path of the launched configuration"
 msgstr "Maskinoppsett"
 
@@ -95839,8 +95531,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-development.adoc:96
-#, fuzzy
-#| msgid "Dealing with translations"
 msgid "Path of translation"
 msgstr "Hvordan håndtere oversettelser"
 
@@ -96271,8 +95961,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:183
-#, fuzzy
-#| msgid "There are some 'helper functions' - mostly used for widget support"
 msgid "There are some _helper functions_ - mostly used for widget support:"
 msgstr ""
 "Det er noen hjelpefunksjoner - hovedsaklig brukt for skjermelementstøtte"
@@ -96383,8 +96071,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:240
-#, fuzzy
-#| msgid "There are some 'helper functions' - mostly used for widget support"
 msgid ""
 "There are some *helper functions*, mostly used for this library's support:"
 msgstr ""
@@ -96718,8 +96404,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:458
-#, fuzzy
-#| msgid "Machine Configurations"
 msgid "Launched configuration folder."
 msgstr "Maskinoppsett"
 
@@ -96896,8 +96580,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:493
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "Not currently used:"
 msgstr "Velg gjeldende verktøy"
 
@@ -97463,8 +97145,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtvcp-libraries.adoc:877
-#, fuzzy, no-wrap
-#| msgid "Debug Messages"
+#, no-wrap
 msgid "`Messages`"
 msgstr "Feilsøkingsmeldinger"
 
@@ -97477,8 +97158,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:882
-#, fuzzy
-#| msgid "Debug Messages"
 msgid "These messages are:"
 msgstr "Feilsøkingsmeldinger"
 
@@ -97494,8 +97173,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-libraries.adoc:888
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "*`_BOLDTEXT`*"
 msgstr "MELDING"
 
@@ -97534,8 +97212,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-libraries.adoc:892
-#, fuzzy
-#| msgid "is the basename of the HAL pins."
 msgid "Basename of the HAL pin(s)."
 msgstr "er grunnavnet for HAL-pinnene."
 
@@ -97726,8 +97402,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-libraries.adoc:973
-#, fuzzy, no-wrap
-#| msgid "Debug Messages"
+#, no-wrap
 msgid "*`message`*"
 msgstr "Feilsøkingsmeldinger"
 
@@ -98040,8 +97715,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtvcp-libraries.adoc:1104 src/gui/qtvcp-widgets.adoc:496
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "Actions"
 msgstr "Funksjoner"
 
@@ -98790,8 +98464,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtvcp-libraries.adoc:1340
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Import a simulation"
 msgstr "Oppsett"
 
@@ -98853,8 +98526,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtvcp-vcp-panels.adoc:16
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Builtin Virtual Control Panels"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -98902,8 +98574,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtvcp-vcp-panels.adoc:40
-#, fuzzy, no-wrap
-#| msgid "Spindle"
+#, no-wrap
 msgid "spindle_belts"
 msgstr "Spindel"
 
@@ -98972,8 +98643,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/gui/qtvcp-vcp-panels.adoc:57
-#, fuzzy, no-wrap
-#| msgid "Optional Features"
+#, no-wrap
 msgid "Additional Requirements"
 msgstr "Valgbare egenskaper"
 
@@ -99030,8 +98700,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/gui/qtvcp-vcp-panels.adoc:73
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "Embedding commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -99398,8 +99067,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-vcp-panels.adoc:207
-#, fuzzy
-#| msgid "Machine Configurations"
 msgid "Mouse controls:"
 msgstr "Maskinoppsett"
 
@@ -99805,8 +99472,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/gui/qtvcp-vcp-panels.adoc:357
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Custom Virtual Control Panels"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -99826,8 +99492,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtvcp-vcp-panels.adoc:400
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "Embedding Commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -101537,8 +101202,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:69
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "Diameter of the LED"
 msgstr "Trådens navn"
 
@@ -102083,8 +101746,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:229
-#, fuzzy
-#| msgid "COPYRIGHT"
 msgid "`RIGHT`"
 msgstr "ÅNDSVERKSRETTIGHETER"
 
@@ -102864,8 +102525,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:481
-#, fuzzy
-#| msgid "The Enhanced Machine Controller"
 msgid "These widgets *interact with the Machine Controller state*."
 msgstr "Den avanserte maskinkontrolleren"
 
@@ -102910,8 +102569,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:501
-#, fuzzy, no-wrap
-#| msgid "'Machine On'"
+#, no-wrap
 msgid "*`Machine On`*"
 msgstr "'Maskin på'"
 
@@ -103177,36 +102835,31 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:536
-#, fuzzy, no-wrap
-#| msgid "'spindle fwd'"
+#, no-wrap
 msgid "*`spindle fwd`*"
 msgstr "'spindel frem'"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:537
-#, fuzzy, no-wrap
-#| msgid "'spindle fwd'"
+#, no-wrap
 msgid "*`spindle backward`*"
 msgstr "'spindel frem'"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:538
-#, fuzzy, no-wrap
-#| msgid "'spindle up'"
+#, no-wrap
 msgid "*`spindle stop`*"
 msgstr "'spindel opp'"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:539
-#, fuzzy, no-wrap
-#| msgid "'spindle up'"
+#, no-wrap
 msgid "*`spindle up`*"
 msgstr "'spindel opp'"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:540
-#, fuzzy, no-wrap
-#| msgid "'spindle fwd'"
+#, no-wrap
 msgid "*`spindle down`*"
 msgstr "'spindel frem'"
 
@@ -103299,8 +102952,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:553
-#, fuzzy
-#| msgid "Run LinuxCNC"
 msgid "Closes down LinuxCNC"
 msgstr "Kjør LinuxCNC"
 
@@ -104530,8 +104181,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:1014
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "*`MouseButtonMode`* _(int)_"
 msgstr "Makroknapper"
 
@@ -104804,22 +104454,16 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1096
-#, fuzzy
-#| msgid "```"
 msgid "`P`"
 msgstr "```"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1097
-#, fuzzy
-#| msgid "```"
 msgid "`X`"
 msgstr "```"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1098
-#, fuzzy
-#| msgid "```"
 msgid "`Y`"
 msgstr "```"
 
@@ -104830,8 +104474,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1100
-#, fuzzy
-#| msgid "```"
 msgid "`Z`"
 msgstr "```"
 
@@ -105278,8 +104920,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1207
-#, fuzzy
-#| msgid "None"
 msgid "'None'"
 msgstr "Intet"
 
@@ -105300,8 +104940,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1211
-#, fuzzy
-#| msgid "Tool Changes"
 msgid "'Tool Change'"
 msgstr "Verktøybytter"
 
@@ -105371,8 +105009,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1225
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "Returns the comment text from the current loaded tool."
 msgstr "Opphold i P antall sekunder."
 
@@ -105384,8 +105020,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1227
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "Returns the diameter from the current loaded tool."
 msgstr "Opphold i P antall sekunder."
 
@@ -105397,8 +105031,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1229
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "Returns the tool number of the current loaded tool."
 msgstr "Opphold i P antall sekunder."
 
@@ -105655,8 +105287,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1295
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "Paste the image path in the entry box."
 msgstr "Opphold i P antall sekunder."
 
@@ -106575,10 +106205,9 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1529
-#, fuzzy, no-wrap
-#| msgid "Detailed description"
+#, no-wrap
 msgid "Longer descriptive string to display in dialog.\n"
-msgstr "Detaljert beskrivelse"
+msgstr "Detaljert beskrivelse\n"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:1529
@@ -106620,10 +106249,9 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1537
-#, fuzzy, no-wrap
-#| msgid "Detailed description"
+#, no-wrap
 msgid "Longer description string.\n"
-msgstr "Detaljert beskrivelse"
+msgstr "Detaljert beskrivelse\n"
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:1537
@@ -106688,8 +106316,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1572
-#, fuzzy
-#| msgid "Debug Messages"
 msgid "*`SPEAK '_my message_'`*"
 msgstr "Feilsøkingsmeldinger"
 
@@ -107064,8 +106690,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1684
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "Diameter of the LED."
 msgstr "Trådens navn"
 
@@ -107412,8 +107036,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtvcp-widgets.adoc:1840
-#, fuzzy, no-wrap
-#| msgid "OPTIONS"
+#, no-wrap
 msgid "`MACROOPTIONS`"
 msgstr "VALGMULIGHETER"
 
@@ -107469,8 +107092,7 @@ msgstr ""
 
 #. type: Block title
 #: src/gui/qtvcp-widgets.adoc:1860
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "Embedded Commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -107571,8 +107193,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:1884
-#, fuzzy, no-wrap
-#| msgid "HISTORY"
+#, no-wrap
 msgid "*`CLEAR HISTORY`*"
 msgstr "HISTORIE"
 
@@ -107629,8 +107250,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:1897
-#, fuzzy
-#| msgid "__Example__: `setp plasmac.resolution 100`"
 msgid "_Example_: `setp plasmac.resolution 100`"
 msgstr "__Eksempel__: `setp plasmac.resolution 100`"
 
@@ -108114,8 +107733,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2085
-#, fuzzy
-#| msgid "Machine"
 msgid "Machine on"
 msgstr "Maskin"
 
@@ -108160,8 +107777,6 @@ msgstr ""
 #. TODO JointEnableWidget widget capture/example
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2102
-#, fuzzy
-#| msgid "Provide translated documentation"
 msgid "FIXME JointEnableWidget documentation"
 msgstr "Tilby oversatt dokumenasjon"
 
@@ -108184,8 +107799,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2113
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "the state of the spindle,"
 msgstr "Trådens navn"
 
@@ -108196,15 +107809,11 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2115
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "the state of a certain axis homed,"
 msgstr "Trådens navn"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2116
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "the state of hard limits."
 msgstr "Trådens navn"
 
@@ -108646,8 +108255,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2306
-#, fuzzy, no-wrap
-#| msgid "NAME"
+#, no-wrap
 msgid "`NAME`"
 msgstr "NAVN"
 
@@ -108762,8 +108370,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2352
-#, fuzzy, no-wrap
-#| msgid "MESSAGE"
+#, no-wrap
 msgid "*`MESSAGE`*"
 msgstr "MELDING"
 
@@ -108956,8 +108563,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2402
-#, fuzzy, no-wrap
-#| msgid "_FILENAME_"
+#, no-wrap
 msgid "*`FILENAME`*"
 msgstr "_FILNAVN_"
 
@@ -109726,8 +109332,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2678
-#, fuzzy
-#| msgid "Go/Set Predefined Position"
 msgid "Set the indicator position."
 msgstr "Gå til/sett forhåndsdefinert posisjon"
 
@@ -109897,8 +109501,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2759
-#, fuzzy
-#| msgid "is the basename of the HAL pins."
 msgid "the *state of a HAL pin*, or"
 msgstr "er grunnavnet for HAL-pinnene."
 
@@ -110073,8 +109675,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2811
-#, fuzzy
-#| msgid "Mist"
 msgid "_Mist_"
 msgstr "Tåke"
 
@@ -110085,8 +109685,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2813
-#, fuzzy
-#| msgid "Optional tags:"
 msgid "_Optional Stop_"
 msgstr "Valgfrie merkelapper:"
 
@@ -110114,8 +109712,6 @@ msgstr "Sett spindelhastighet"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2818
-#, fuzzy
-#| msgid "'spindle fwd'"
 msgid "_Spindle Forward_"
 msgstr "'spindel frem'"
 
@@ -110198,8 +109794,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/gui/qtvcp-widgets.adoc:2856
-#, fuzzy, no-wrap
-#| msgid "LinuxCNC Startup"
+#, no-wrap
 msgid "Enabled by LinuxCNC State"
 msgstr "LinuxCNC-oppstart"
 
@@ -110370,8 +109965,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/gui/qtvcp-widgets.adoc:2913
-#, fuzzy, no-wrap
-#| msgid "FUNCTIONS"
+#, no-wrap
 msgid "*`ACTION`*"
 msgstr "FUNKSJONER"
 
@@ -110452,8 +110046,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtvcp-widgets.adoc:2939
-#, fuzzy, no-wrap
-#| msgid "G-code Functions"
+#, no-wrap
 msgid "G-code Utility"
 msgstr "G-kodefunksjoner"
 
@@ -110486,8 +110079,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/gui/qtvcp-widgets.adoc:2954
-#, fuzzy, no-wrap
-#| msgid "NGCGUI"
+#, no-wrap
 msgid "Qt NGCGUI"
 msgstr "NGCGUI"
 
@@ -112247,15 +111839,12 @@ msgstr ""
 
 #. type: Title =
 #: src/hal/basic-hal.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "HAL Basics"
 msgstr "Grunnleggende innføring"
 
 #. type: Index entry
 #: src/hal/basic-hal.adoc:15
-#, fuzzy
-#| msgid "Basic Instructions"
 msgid "Basics"
 msgstr "Grunnleggende innføring"
 
@@ -112266,8 +111855,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/basic-hal.adoc:17
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "HAL Commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -112992,8 +112580,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/basic-hal.adoc:328
-#, fuzzy, no-wrap
-#| msgid "HAL file"
+#, no-wrap
 msgid "HAL Files"
 msgstr "HAL-fil"
 
@@ -113301,8 +112888,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/basic-hal.adoc:495
-#, fuzzy, no-wrap
-#| msgid "G-Code Examples"
+#, no-wrap
 msgid "Logic Examples"
 msgstr "G-kode-eksempler"
 
@@ -113685,8 +113271,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/canonical-devices.adoc:62
-#, fuzzy
-#| msgid "Functions"
 msgid "Digital Output Functions"
 msgstr "Funksjoner"
 
@@ -115540,8 +115124,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/hal/comp.adoc:695
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "General Functions"
 msgstr "Enkoder-funksjoner"
 
@@ -115700,8 +115283,7 @@ msgstr ""
 
 #. type: Title ====
 #: src/hal/components.adoc:32
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Machine Control"
 msgstr "Maskinoppsett"
 
@@ -115713,8 +115295,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:35
-#, fuzzy, no-wrap
-#| msgid "The Enhanced Machine Controller"
+#, no-wrap
 msgid "AXIS LinuxCNC (The Enhanced Machine Controller) GUI"
 msgstr "Den avanserte maskinkontrolleren"
 
@@ -115793,8 +115374,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:42
-#, fuzzy, no-wrap
-#| msgid "Detailed description"
+#, no-wrap
 msgid "Short description"
 msgstr "Detaljert beskrivelse"
 
@@ -115825,8 +115405,7 @@ msgstr "axis - AXIS Grafisk brukergrensesnitt for LinuxCNC"
 
 #. type: Title ====
 #: src/hal/components.adoc:47
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Virtual Control Panels (VCP)"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -115898,8 +115477,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:55
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Virtual Control Panel for LinuxCNC"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -116033,8 +115611,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/hal/components.adoc:77
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Motion (non-realtime)"
 msgstr "Maskinoppsett"
 
@@ -116088,8 +115665,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:84
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "Non-realtime task controller for LinuxCNC"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -116653,8 +116229,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:146
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration wizard for Mesa cards"
 msgstr "Oppsett"
 
@@ -116693,8 +116268,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:151
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration wizard for parallel-port based machines"
 msgstr "Oppsett"
 
@@ -116814,8 +116388,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:166
-#, fuzzy, no-wrap
-#| msgid "General logic function component."
+#, no-wrap
 msgid "General logic function component"
 msgstr "Kompontent for generelle logiske funksjoner."
 
@@ -117032,8 +116605,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:189 src/hal/components.adoc:190
-#, fuzzy, no-wrap
-#| msgid "Compute the derivative of the input function."
+#, no-wrap
 msgid "Computes the absolute value and sign of the input signal"
 msgstr "Beregn den deriverte av innverdifunksjonen."
 
@@ -117111,8 +116683,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:196
-#, fuzzy, no-wrap
-#| msgid "Compute the derivative of the input function."
+#, no-wrap
 msgid "Computes the derivative of the input function."
 msgstr "Beregn den deriverte av innverdifunksjonen."
 
@@ -117124,8 +116695,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:197
-#, fuzzy, no-wrap
-#| msgid "Dwell for the P number of seconds."
+#, no-wrap
 msgid "Returns the center if within the threshold."
 msgstr "Opphold i P antall sekunder."
 
@@ -117185,8 +116755,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:202
-#, fuzzy, no-wrap
-#| msgid "Compute the derivative of the input function."
+#, no-wrap
 msgid "Computes the inverse of the input signal."
 msgstr "Beregn den deriverte av innverdifunksjonen."
 
@@ -117287,8 +116856,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components.adoc:213
-#, fuzzy, no-wrap
-#| msgid "Compute the derivative of the input function."
+#, no-wrap
 msgid "Compute the majority of 3 inputs"
 msgstr "Beregn den deriverte av innverdifunksjonen."
 
@@ -117900,8 +117468,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/hal/components.adoc:276
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "Motion control (Realtime)"
 msgstr "Maskinoppsett"
 
@@ -118573,8 +118140,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components_gen.adoc:20
-#, fuzzy, no-wrap
-#| msgid "The Enhanced Machine Controller"
+#, no-wrap
 msgid "LinuxCNC (The Enhanced Machine Controller)"
 msgstr "Den avanserte maskinkontrolleren"
 
@@ -118623,8 +118189,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components_gen.adoc:24
-#, fuzzy, no-wrap
-#| msgid "Virtual Control Panels"
+#, no-wrap
 msgid "create a desktop icon for LinuxCNC"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -118636,8 +118201,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components_gen.adoc:25
-#, fuzzy, no-wrap
-#| msgid "LinuxCNC Startup"
+#, no-wrap
 msgid "the LinuxCNC status window"
 msgstr "LinuxCNC-oppstart"
 
@@ -118851,8 +118415,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/components_gen.adoc:45
-#, fuzzy, no-wrap
-#| msgid "Getting Started & Configuration"
+#, no-wrap
 msgid "Migrate a PlasmaC configuration."
 msgstr "Første steg & oppsett"
 
@@ -119180,8 +118743,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/general-ref.adoc:8
-#, fuzzy
-#| msgid "General Information"
 msgid "General Reference"
 msgstr "Generell informasjon"
 
@@ -119255,8 +118816,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/general-ref.adoc:35
-#, fuzzy
-#| msgid "Functions"
 msgid "General Naming Conventions"
 msgstr "Enkoder-funksjoner"
 
@@ -119358,8 +118917,7 @@ msgstr ""
 
 #. type: Labeled list
 #: src/hal/general-ref.adoc:73
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "_<device-name>_"
 msgstr "*Filnavn"
 
@@ -119494,8 +119052,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/hal/general-ref.adoc:128
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "Function Names"
 msgstr "Funksjoner"
 
@@ -119624,8 +119181,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/hal-examples.adoc:5 src/hal/hal-examples.adoc:17
-#, fuzzy, no-wrap
-#| msgid "Example"
+#, no-wrap
 msgid "HAL Examples"
 msgstr "Eksempel"
 
@@ -120248,8 +119804,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/halmodule.adoc:10
-#, fuzzy, no-wrap
-#| msgid "G-Code Examples"
+#, no-wrap
 msgid "Basic usage example"
 msgstr "G-kode-eksempler"
 
@@ -121061,8 +120616,6 @@ msgstr ""
 
 #. type: delimited block *
 #: src/hal/halshow.adoc:173
-#, fuzzy
-#| msgid "Set Tool Table"
 msgid "Set a value"
 msgstr "Velg verktøytabell"
 
@@ -121161,8 +120714,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/halshow.adoc:207
-#, fuzzy, no-wrap
-#| msgid "Macro Buttons"
+#, no-wrap
 msgid "Settings"
 msgstr "Makroknapper"
 
@@ -121189,8 +120741,7 @@ msgstr "images/halscope-01.png"
 
 #. type: Title ==
 #: src/hal/halshow.adoc:223
-#, fuzzy, no-wrap
-#| msgid "Example"
+#, no-wrap
 msgid "Example/Tutorial"
 msgstr "Eksempel"
 
@@ -121836,8 +121387,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/halui-examples.adoc:5 src/hal/halui-examples.adoc:16
-#, fuzzy, no-wrap
-#| msgid "Table Example"
+#, no-wrap
 msgid "Halui Examples"
 msgstr "Tabelleksempel"
 
@@ -122007,8 +121557,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:6 src/hal/intro.adoc:19
-#, fuzzy, no-wrap
-#| msgid "Introduction"
+#, no-wrap
 msgid "HAL Introduction"
 msgstr "Innføring"
 
@@ -122036,8 +121585,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/intro.adoc:24
-#, fuzzy, no-wrap
-#| msgid "HAL file"
+#, no-wrap
 msgid "HAL Overview"
 msgstr "HAL-fil"
 
@@ -122299,8 +121847,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/hal/intro.adoc:97
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Communication"
 msgstr "Oppsett"
 
@@ -122384,8 +121931,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/hal/intro.adoc:127
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "the current state of the machine"
 msgstr "Trådens navn"
 
@@ -122653,8 +122198,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/hal/intro.adoc:221
-#, fuzzy, no-wrap
-#| msgid "Compensation Off"
+#, no-wrap
 msgid "Implementation"
 msgstr "Kompensering av"
 
@@ -122951,8 +122495,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:325
-#, fuzzy
-#| msgid "HAL file"
 msgid "HAL Signal"
 msgstr "HAL-fil"
 
@@ -122968,8 +122510,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:331
-#, fuzzy
-#| msgid "HAL file"
 msgid "HAL Type"
 msgstr "HAL-fil"
 
@@ -123009,8 +122549,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/intro.adoc:351
-#, fuzzy
-#| msgid "Functions"
 msgid "HAL:Function"
 msgstr "Funksjoner"
 
@@ -126130,8 +125668,7 @@ msgstr ""
 
 #. type: Table
 #: src/hal/tools.adoc:179 src/plasma/qtplasmac.adoc:1561
-#, fuzzy, no-wrap
-#| msgid "Options"
+#, no-wrap
 msgid "Option"
 msgstr "Valgmuligheter"
 
@@ -126392,8 +125929,7 @@ msgstr ""
 
 #. type: Block title
 #: src/hal/tools.adoc:230
-#, fuzzy, no-wrap
-#| msgid "Table Example"
+#, no-wrap
 msgid "halreport Example"
 msgstr "Tabelleksempel"
 
@@ -126541,8 +126077,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/tutorial.adoc:5 src/hal/tutorial.adoc:13
-#, fuzzy, no-wrap
-#| msgid "HAL file"
+#, no-wrap
 msgid "HAL Tutorial"
 msgstr "HAL-fil"
 
@@ -127774,8 +127309,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/hal/tutorial.adoc:741
-#, fuzzy
-#| msgid "Starting Halscope"
 msgid "Tutorial Halscope"
 msgstr "Oppstart av Halscope"
 
@@ -128566,8 +128099,7 @@ msgstr ""
 
 #. type: Block title
 #: src/hal/twopass.adoc:169
-#, fuzzy, no-wrap
-#| msgid "HAL file example:"
+#, no-wrap
 msgid "Excluded HAL file example"
 msgstr "HAL-fileksempel:"
 
@@ -129582,8 +129114,7 @@ msgstr ""
 
 #. type: Table
 #: src/integrator/stepper-timing.adoc:31
-#, fuzzy, no-wrap
-#| msgid "Y Direction"
+#, no-wrap
 msgid "Direction Hold"
 msgstr "Y-retning"
 
@@ -129966,8 +129497,7 @@ msgstr ""
 
 #. type: Table
 #: src/integrator/stepper-timing.adoc:47
-#, fuzzy, no-wrap
-#| msgid "Machine Configurations"
+#, no-wrap
 msgid "*Motion Control"
 msgstr "Maskinoppsett"
 
@@ -130127,8 +129657,7 @@ msgstr ""
 
 #. type: Table
 #: src/integrator/stepper-timing.adoc:55
-#, fuzzy, no-wrap
-#| msgid "Select Coordinate System"
+#, no-wrap
 msgid "*Intelligent Motion System"
 msgstr "Velg koordinatsystem"
 
@@ -131378,8 +130907,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/ladder/classic-ladder.adoc:5 src/ladder/classic-ladder.adoc:20
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "ClassicLadder Programming"
 msgstr "Grunnleggende innføring"
 
@@ -131859,8 +131387,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/ladder/classic-ladder.adoc:150
-#, fuzzy, no-wrap
-#| msgid "ClassicLadder"
+#, no-wrap
 msgid "Opening ClassicLadder"
 msgstr "ClassicLadder"
 
@@ -131903,8 +131430,7 @@ msgstr "ClassicLadder"
 
 #. type: Title ==
 #: src/ladder/classic-ladder.adoc:172
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "The ClassicLadder web interface"
 msgstr "Grunnleggende innføring"
 
@@ -131923,8 +131449,7 @@ msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
 #: src/ladder/classic-ladder.adoc:179
-#, fuzzy, no-wrap
-#| msgid "Program"
+#, no-wrap
 msgid "The Program tab"
 msgstr "Program"
 
@@ -132171,8 +131696,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/ladder/classic-ladder.adoc:277
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "Sequential sections"
 msgstr "Enkoder-funksjoner"
 
@@ -132238,8 +131762,7 @@ msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
 #: src/ladder/classic-ladder.adoc:311 src/ladder/classic-ladder.adoc:312
-#, fuzzy, no-wrap
-#| msgid "The function:"
+#, no-wrap
 msgid "The Sections tab"
 msgstr "Funksjonen:"
 
@@ -132303,8 +131826,7 @@ msgstr ""
 
 #. type: Positional ($1) AttributeList argument for macro 'image'
 #: src/ladder/classic-ladder.adoc:340 src/ladder/classic-ladder.adoc:341
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "The Variables tab"
 msgstr "Variabel"
 
@@ -133091,8 +132613,7 @@ msgstr ""
 
 #. type: Title ==
 #: src/ladder/classic-ladder.adoc:599
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "ClassicLadder Variables"
 msgstr "Variabel"
 
@@ -134634,8 +134155,7 @@ msgstr ""
 
 #. type: Title =
 #: src/ladder/ladder-examples.adoc:5
-#, fuzzy, no-wrap
-#| msgid "G-Code Examples"
+#, no-wrap
 msgid "ClassicLadder Examples"
 msgstr "G-kode-eksempler"
 
@@ -134960,8 +134480,7 @@ msgstr ""
 
 #. type: Title =
 #: src/ladder/ladder-intro.adoc:5
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "ClassicLadder Introduction"
 msgstr "Grunnleggende innføring"
 
@@ -135252,8 +134771,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/lathe/lathe-user.adoc:5 src/lathe/lathe-user.adoc:15
-#, fuzzy, no-wrap
-#| msgid "General Information"
+#, no-wrap
 msgid "Lathe User Information"
 msgstr "Generell informasjon"
 
@@ -135323,8 +134841,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/lathe/lathe-user.adoc:48 src/lathe/lathe-user.adoc:58
-#, fuzzy, no-wrap
-#| msgid "Set Tool Table"
+#, no-wrap
 msgid "Lathe Tool Table"
 msgstr "Velg verktøytabell"
 
@@ -135353,8 +134870,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/lathe/lathe-user.adoc:64 src/lathe/lathe-user.adoc:68
-#, fuzzy, no-wrap
-#| msgid "Dealing with translations"
+#, no-wrap
 msgid "Lathe Tool Orientation"
 msgstr "Hvordan håndtere oversettelser"
 
@@ -137980,8 +137496,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/man/man1/xhc-whb04b-6.1.adoc:26
-#, fuzzy
-#| msgid "Spindle Speed Override Control"
 msgid "Spindle Feedrate override"
 msgstr "Spindelhastighetsoverstyringskontroll"
 
@@ -139704,11 +139218,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/man/man1/xhc-whb04b-6.1.adoc:600
-#, fuzzy
-#| msgid ""
-#| "This is free software; see the source for copying conditions.  There is "
-#| "NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR "
-#| "PURPOSE."
 msgid ""
 "Copyright (C) 2018 Raoul Rubien (github.com/rubienr) Updated for Linuxcnc "
 "2020 by alkabal_free.fr.  This is free software; see the source for copying "
@@ -141075,8 +140584,6 @@ msgstr ""
 
 #. type: Index entry
 #: src/motion/dh-parameters.adoc:13
-#, fuzzy
-#| msgid "Hardware Examples"
 msgid "DH parameters Examples"
 msgstr "Maskinvareeksempler"
 
@@ -146443,8 +145950,7 @@ msgstr ""
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:124 src/plasma/qtplasmac.adoc:848
-#, fuzzy, no-wrap
-#| msgid "Arc Move"
+#, no-wrap
 msgid "Arc Voltage"
 msgstr "Sirkulær bevegelse"
 
@@ -146890,8 +146396,7 @@ msgstr ""
 
 #. type: Block title
 #: src/plasma/qtplasmac.adoc:251
-#, fuzzy, no-wrap
-#| msgid "Advanced Topics"
+#, no-wrap
 msgid "PnCConf QtPlasmaC Options"
 msgstr "Avanserte emner"
 
@@ -147757,8 +147262,7 @@ msgstr ""
 
 #. type: Block title
 #: src/plasma/qtplasmac.adoc:525
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "*Calculations:*"
 msgstr "Oppsett"
 
@@ -147917,15 +147421,13 @@ msgstr ""
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:584 src/plasma/qtplasmac.adoc:606
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "Filename"
 msgstr "*Filnavn"
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:586
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration file for the machine."
 msgstr "Oppsett"
 
@@ -148094,8 +147596,7 @@ msgstr ""
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:612
-#, fuzzy, no-wrap
-#| msgid "Dwell for the P number of seconds."
+#, no-wrap
 msgid "File storing the stylesheet for the currently loaded session of QtPlasmaC."
 msgstr "Opphold i P antall sekunder."
 
@@ -150419,8 +149920,7 @@ msgstr ""
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:1234
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "Disabled"
 msgstr "Variabel"
 
@@ -150573,8 +150073,7 @@ msgstr ""
 
 #. type: Table
 #: src/plasma/qtplasmac.adoc:1252
-#, fuzzy, no-wrap
-#| msgid "Table Example"
+#, no-wrap
 msgid "Table Zoom"
 msgstr "Tabelleksempel"
 
@@ -153469,8 +152968,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:2233
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "When the cut is complete stop the spindle."
 msgstr "Trådens navn"
 
@@ -155510,15 +155007,12 @@ msgstr ""
 
 #. type: Labeled list
 #: src/plasma/qtplasmac.adoc:2818
-#, fuzzy, no-wrap
-#| msgid "MOTION"
+#, no-wrap
 msgid "ROTATION"
 msgstr "BEVEGELSE"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:2819
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "rotate the shape within the result."
 msgstr "Opphold i P antall sekunder."
 
@@ -155842,8 +155336,7 @@ msgstr ""
 
 #. type: Title ===
 #: src/plasma/qtplasmac.adoc:2923
-#, fuzzy, no-wrap
-#| msgid "Print Messages"
+#, no-wrap
 msgid "Warning Messages"
 msgstr "Skriv meldinger"
 
@@ -156491,8 +155984,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:3148
-#, fuzzy
-#| msgid "There are some helper functions available:"
 msgid "There are three preset methods available for use:"
 msgstr "Noen hjelpefunksjoner er tilgjengelig:"
 
@@ -156808,8 +156299,7 @@ msgstr ""
 
 #. type: Block title
 #: src/plasma/qtplasmac.adoc:3258
-#, fuzzy, no-wrap
-#| msgid "User Defined Commands"
+#, no-wrap
 msgid "External Commands"
 msgstr "Brukerdefinerte kommandoer"
 
@@ -157561,8 +157051,7 @@ msgstr ""
 
 #. type: Block title
 #: src/plasma/qtplasmac.adoc:3621
-#, fuzzy, no-wrap
-#| msgid "User Tabs"
+#, no-wrap
 msgid "User Manual"
 msgstr "Brukerfaner"
 
@@ -157799,8 +157288,7 @@ msgstr ""
 #. [grid=none,frame=ends]
 #. type: Table
 #: src/plasma/qtplasmac.adoc:3699 src/plasma/qtplasmac.adoc:3750
-#, fuzzy, no-wrap
-#| msgid "Functions"
+#, no-wrap
 msgid "User Button Function"
 msgstr "Funksjoner"
 
@@ -159429,8 +158917,7 @@ msgstr ""
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:4080
-#, fuzzy, no-wrap
-#| msgid "The name of the thread"
+#, no-wrap
 msgid ""
 "When editing is complete save the file:\n"
 "`File -> Save`"
@@ -162420,8 +161907,7 @@ msgstr ""
 
 #. type: Table
 #: src/remap/remap.adoc:659
-#, fuzzy, no-wrap
-#| msgid "Control point"
+#, no-wrap
 msgid "`iocontrol.0` pin"
 msgstr "Kontrollpunkt"
 
@@ -162469,8 +161955,7 @@ msgstr ""
 
 #. type: Table
 #: src/remap/remap.adoc:663
-#, fuzzy, no-wrap
-#| msgid "Tool Changes"
+#, no-wrap
 msgid "tool-changed"
 msgstr "Verktøybytter"
 
@@ -163886,8 +163371,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1256
-#, fuzzy
-#| msgid "Set Current Tool"
 msgid "a float or int value,"
 msgstr "Velg gjeldende verktøy"
 
@@ -164305,8 +163788,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1445
-#, fuzzy
-#| msgid "MOTION"
 msgid "CAUTION:"
 msgstr "BEVEGELSE"
 
@@ -164578,12 +164059,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1556
-#, fuzzy
-#| msgid ""
-#| "While the above example isn't terribly useful, note that pretty much all "
-#| "of the interpreter internal state is accessible from Python, so arbitrary "
-#| "predicates may be defined this way. For a slightly more advanced example, "
-#| "see `tests/remap/predefined-named-params`."
 msgid ""
 "While the above example isn't terribly useful, note that pretty much all of "
 "the interpreter internal state is accessible from Python, so arbitrary "
@@ -164904,8 +164379,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1650
-#, fuzzy
-#| msgid "axis words from different groups (XYZ) (UVW) are used together,"
 msgid ""
 "Export the axis words as +<x>+, +#<y>+ etc; fail if axis words from "
 "different groups (XYZ) (UVW) are used together, or any of (ABC) is given."
@@ -164957,8 +164430,6 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1659
-#, fuzzy
-#| msgid "The following parameters are made visible to the NGC procedure:"
 msgid "Export the set of sticky parameters to the NGC procedure."
 msgstr "Følgende parameter er synlige for NGC-prosedyren:"
 
@@ -168780,8 +168251,7 @@ msgstr ""
 
 #. type: Index entry
 #: src/user/starting-linuxcnc.adoc:5 src/user/starting-linuxcnc.adoc:8
-#, fuzzy, no-wrap
-#| msgid "Run LinuxCNC"
+#, no-wrap
 msgid "Starting LinuxCNC"
 msgstr "Kjør LinuxCNC"
 
@@ -168881,15 +168351,12 @@ msgstr ""
 
 #. type: Title ===
 #: src/user/starting-linuxcnc.adoc:64
-#, fuzzy, no-wrap
-#| msgid "Configuration"
+#, no-wrap
 msgid "Configuration Selector"
 msgstr "Oppsett"
 
 #. type: Index entry
 #: src/user/starting-linuxcnc.adoc:71
-#, fuzzy
-#| msgid "Configuration"
 msgid "Configuration Selection"
 msgstr "Oppsett"
 
@@ -169655,15 +169122,12 @@ msgstr ""
 
 #. type: Index entry
 #: src/user/user-intro.adoc:5 src/user/user-intro.adoc:13
-#, fuzzy, no-wrap
-#| msgid "LinuxCNC Documentation"
+#, no-wrap
 msgid "LinuxCNC User Introduction"
 msgstr "LinuxCNC-dokumentasjon"
 
 #. type: Index entry
 #: src/user/user-intro.adoc:13
-#, fuzzy
-#| msgid "Introduction"
 msgid "User Introduction"
 msgstr "Innføring"
 
@@ -171212,8 +170676,7 @@ msgstr ""
 
 #. type: TP
 #: man/man1/gmoccapy.1:35 man/man1/touchy.1:35
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "B<INI file>"
 msgstr "*Filnavn"
 
@@ -172650,8 +172113,7 @@ msgstr ""
 
 #. type: TP
 #: man/man1/halcmd.1:353
-#, fuzzy, no-wrap
-#| msgid "Print Messages"
+#, no-wrap
 msgid "B<print> [I<message>]"
 msgstr "Skriv meldinger"
 
@@ -172771,8 +172233,7 @@ msgstr ""
 
 #. type: SS
 #: man/man1/halcmd.1:389
-#, fuzzy, no-wrap
-#| msgid "Variable"
+#, no-wrap
 msgid "INI file variables"
 msgstr "Variabel"
 
@@ -172795,8 +172256,7 @@ msgstr ""
 
 #. type: SH
 #: man/man1/halcmd.1:396
-#, fuzzy, no-wrap
-#| msgid "INTERFACE CONFIGURATION"
+#, no-wrap
 msgid "LINE CONTINUATION"
 msgstr "GRENSESNITTOPPSETT"
 
@@ -173657,8 +173117,7 @@ msgstr ""
 
 #. type: TP
 #: man/man1/haltcl.1:63
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "B<filename>"
 msgstr "*Filnavn"
 
@@ -173742,8 +173201,7 @@ msgstr ""
 
 #. type: TP
 #: man/man1/halui.1:37
-#, fuzzy, no-wrap
-#| msgid "*Filename"
+#, no-wrap
 msgid "B<-ini filename>"
 msgstr "*Filnavn"
 
@@ -174418,8 +173876,7 @@ msgstr ""
 
 #. type: SS
 #: man/man1/halui.1:243
-#, fuzzy, no-wrap
-#| msgid "Coolant"
+#, no-wrap
 msgid "Mist coolant"
 msgstr "Kjøling"
 
@@ -175288,8 +174745,7 @@ msgstr ""
 
 #. type: SS
 #: man/man1/halui.1:486
-#, fuzzy, no-wrap
-#| msgid "Coolant"
+#, no-wrap
 msgid "Flood coolant"
 msgstr "Kjøling"
 
@@ -176771,8 +176227,7 @@ msgstr ""
 
 #. type: SS
 #: man/man1/iov2.1:43
-#, fuzzy, no-wrap
-#| msgid "Basic Instructions"
+#, no-wrap
 msgid "Basic pins"
 msgstr "Grunnleggende innføring"
 
@@ -177655,8 +177110,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man1/milltask.1:4
-#, fuzzy
-#| msgid "Virtual Control Panels"
 msgid "B<milltask> - Non-realtime task controller for LinuxCNC"
 msgstr "Virtuelle kontrollpaneler"
 
@@ -177686,8 +177139,7 @@ msgstr ""
 
 #. type: SH
 #: man/man1/milltask.1:17
-#, fuzzy, no-wrap
-#| msgid "MOTION PARAMETERS"
+#, no-wrap
 msgid "MODULE PARAMETERS"
 msgstr "BEVEGELSESPARAMETER"
 
@@ -182353,8 +181805,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man3/hal_add_funct_to_thread.3hal:18
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "The name of the thread."
 msgstr "Trådens navn"
 
@@ -182740,8 +182190,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man3/hal_init.3hal:13
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "The name of this HAL module"
 msgstr "Trådens navn"
 
@@ -183291,8 +182739,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man3/hal_pin_new.3hal:44
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "name of the pin"
 msgstr "Trådens navn"
 
@@ -183914,8 +183360,7 @@ msgstr ""
 
 #. type: TH
 #: man/man3/hal_stream.3hal:1
-#, fuzzy, no-wrap
-#| msgid "stream"
+#, no-wrap
 msgid "hal_stream"
 msgstr "strøm"
 
@@ -184014,8 +183459,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man3/hal_stream.3hal:98
-#, fuzzy
-#| msgid "Dwell for the P number of seconds."
 msgid "Returns the number of pins."
 msgstr "Opphold i P antall sekunder."
 
@@ -184174,8 +183617,7 @@ msgstr ""
 
 #. type: IP
 #: man/man3/hal_stream.3hal:152
-#, fuzzy, no-wrap
-#| msgid "stream"
+#, no-wrap
 msgid "I<stream>"
 msgstr "strøm"
 
@@ -190690,8 +190132,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/carousel.9:29
-#, fuzzy
-#| msgid "The name of the thread"
 msgid "The number of sense pins to create"
 msgstr "Trådens navn"
 
@@ -194440,8 +193880,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/feedcomp.9:29
-#, fuzzy
-#| msgid "Compensation Off"
 msgid "Turn compensation on or off."
 msgstr "Kompensering av"
 
@@ -201246,8 +200684,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/kins.9:7
-#, fuzzy
-#| msgid "For additional information, see the Documents 'Advanced Topics'"
 msgid "For additional information, see the Documents 'Advanced Topics':"
 msgstr "For ytterligere informasjon, se dokuments `Avanserte emner`:"
 
@@ -204483,8 +203919,7 @@ msgstr ""
 
 #. type: TP
 #: man/man9/message.9:17
-#, fuzzy, no-wrap
-#| msgid "Debug Messages"
+#, no-wrap
 msgid "B<message>"
 msgstr "Feilsøkingsmeldinger"
 
@@ -208226,8 +207661,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/offset.9:20
-#, fuzzy
-#| msgid "Compute the derivative of the input function."
 msgid "Updated the output value by adding the offset to the input."
 msgstr "Beregn den deriverte av innverdifunksjonen."
 
@@ -217740,11 +217173,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/streamer.9:227
-#, fuzzy
-#| msgid ""
-#| "This is free software; see the source for copying conditions.  There is "
-#| "NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR "
-#| "PURPOSE."
 msgid ""
 "Copyright \\(co 2006 John Kasunich\\&. This is free software; see the source "
 "for copying conditions\\&. There is NO warranty; not even for "
@@ -219011,8 +218439,7 @@ msgstr ""
 
 #. type: TP
 #: man/man9/timedelta.9:41
-#, fuzzy, no-wrap
-#| msgid "B<timedelta.>I<N>B<.err> s32 out (default: I<0>)"
+#, no-wrap
 msgid "B<timedelta.>I<N>B<.err> s32 out (default: I<0>) "
 msgstr "B<timedelta.>I<N>B<.err> s32 ut (forvalgt: I<0>)"
 
@@ -219451,8 +218878,7 @@ msgstr ""
 
 #. type: TP
 #: man/man9/updown.9:40
-#, fuzzy, no-wrap
-#| msgid "B<updown.>I<N>B<.max> s32 rw (default: I<0x7FFFFFFF>)"
+#, no-wrap
 msgid "B<updown.>I<N>B<.max> s32 rw (default: I<0x7FFFFFFF>) "
 msgstr "B<updown.>I<N>B<.max> s32 inn/ut (forvalgt: I<0x7FFFFFFF>)"
 
@@ -219505,8 +218931,6 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/userkins.9:30
-#, fuzzy
-#| msgid "USAGE"
 msgid "B<USAGE:>"
 msgstr "BRUK"
 
@@ -220249,8 +219673,6 @@ msgstr "<a href=\"gcode/g-code.html#gcode:g2-g3\">G2, G3</a>"
 
 #. type: Content of: <html><body><table><tbody><tr><td>
 #: html/gcode.html:59
-#, fuzzy
-#| msgid "I J K or R, P"
 msgid "I J K or R P"
 msgstr "I J K eller R, P"
 
@@ -220725,8 +220147,6 @@ msgstr "<a href=\"gcode/other-code.html#sec:select-tool\">T</a>"
 
 #. type: Content of: <html><body><table><tbody><tr><td>
 #: html/gcode.html:132
-#, fuzzy
-#| msgid "Select Tool)"
 msgid "Select Tool"
 msgstr "Velg verktøy"
 
@@ -221236,8 +220656,6 @@ msgstr "LinuxCNC-logo"
 
 #. type: Content of: <html><body><h2>
 #: src/index.tmpl:93
-#, fuzzy
-#| msgid "LinuxCNC version <strong>@VERSION@</strong>"
 msgid "LinuxCNC version <strong>@VERSION@</strong> Documentation"
 msgstr "LinuxCNC versjon <strong>@VERSION@</strong>"
 
