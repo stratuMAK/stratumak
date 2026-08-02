@@ -68,10 +68,10 @@ Create a new definition file similar to analogue.mod and relayboard.mod
 Run the command:
 
 ----
-./modcompile my_file.mod
+./mesa-modcompile my_file.mod
 ----
 
-and the "modcompile" script will compile and install the module. As
+and the "mesa-modcompile" script will compile and install the module. As
 some realtime implementations of LinuxCNC realtime require that modules
 be kernel modules, and kernel modules have no access to files, the
 mesa_modbus framework compiles-in the modbus register structure and
@@ -286,23 +286,24 @@ and not omitted)
 
 == Compiling ==
 
-A simple script 'modcompile' is provided that will compile and install
+A simple script 'mesa-modcompile' is provided that will compile and install
 a new HAL module based on the mesa_modbus.c file and the pin definition
 file. The sample definition files use the .mod prefix but this is not
-necessary except in the special case of the 'modcompile all' command,
+necessary except in the special case of the 'mesa-modcompile all' command,
 which will compile and install all .mod files in the current directory.
 
 ----
-sudo modcompile my_file.mod
+sudo mesa-modcompile my_file.mod
 ----
 
 or
 
 ----
-sudo modcompile all
+sudo mesa-modcompile all
 ----
 
-"modcompile" is provided by the "linuxcnc-dev" package.
+"mesa-modcompile" is provided by the "stratumak-dev" package.
+It is named "mesa-modcompile" to distinguish it from "modcompile", which compiles HAL components from .comp sources.
 
 ----
 sudo apt-get install linuxcnc-uspace-dev

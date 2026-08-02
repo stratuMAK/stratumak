@@ -725,12 +725,18 @@ This component uses two general function to manipulate a HAL bit pin referenced 
 
 == Command Line Usage
 
-'modcompile' prints its own usage, which is the authoritative list of options:
+The modcompile man page gives details for invoking `modcompile`:
+
+----
+$ man modcompile
+----
+
+A brief summary is given by:
 
 ----
 $ modcompile --help
 ----
 
-NOTE: The installed `modcompile(1)` man page describes a different, unrelated utility for compiling Modbus drivers for Mesa PktUART cards, not the component compiler used here.
+NOTE: `modcompile` is not `mesa-modcompile`(1), which builds Modbus drivers for Mesa PktUART cards from `.mod` files.
 
 // vim: set syntax=asciidoc:

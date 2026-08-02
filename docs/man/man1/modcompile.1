@@ -1,78 +1,161 @@
-.\" Copyright (c) 2023 andypugh
-.\"
-.\" This is free documentation; you can redistribute it and/or
-.\" modify it under the terms of the GNU General Public License as
-.\" published by the Free Software Foundation; either version 2 of
-.\" the License, or (at your option) any later version.
-.\"
-.\" The GNU General Public License's references to "object code"
-.\" and "executables" are to be interpreted as the output of any
-.\" document formatting or typesetting system, including
-.\" intermediate and printed output.
-.\"
-.\" This manual is distributed in the hope that it will be useful,
-.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
-.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-.\" GNU General Public License for more details.
-.\"
-.\" You should have received a copy of the GNU General Public
-.\" License along with this manual; if not, write to the Free
-.\" Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
-.\" USA.
-.\"
-.\"
-.\"
-.TH modcompile "1"  "2023-07-13" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.TH modcompile "1" "2026-08-02" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-modcompile \- Utility for compiling Modbus drivers
+modcompile \- compile HAL components, generate GMI code, manage gomc-server packages
 
 .SH SYNOPSIS
-
-\fBmodcompile -h\fR
-
-\fBmodcompile* [\fB-k\fR] [\fB-n\fR] [\fB-v\fR] all
-
-\fBmodcompile* [\fB-k\fR] [\fB-n\fR] [\fB-v\fR] module.mod ...
+.B modcompile
+[\fIoptions\fR] \fIfile\fR.comp ...
+.br
+.B modcompile gmi
+[\fIoptions\fR] \fIfile\fR.gmi ...
+.br
+.B modcompile
+\fBlist\fR | \fBrebuild\fR | \fBadd-gomod\fR \fIdir\fR | \fBrm-gomod\fR \fIname\fR
+.br
+.B modcompile
+\fB\-\-cflags\fR | \fB\-\-ldflags\fR | \fB\-\-cmod-dir\fR | \fB\-\-include-dir\fR
 
 .SH DESCRIPTION
-The \fBmodcompile\fR utility is used to compile modbus drivers that use the PktUART
-interface of Mesa cards.
-
-See the main LinuxCNC documentation for more details. 
-
-http://linuxcnc.org/docs/stable/html/drivers/mesa_modbus.html
+.B modcompile
+builds HAL components from
+.B .comp
+sources, writing loadable cmod modules.  It replaces the
+.B halcompile
+utility of earlier LinuxCNC releases; the
+.B .comp
+language is largely unchanged, but the command line is not the same \- there
+is no
+.BR \-\-userspace ,
+.BR \-\-personality ,
+.B \-\-extra-compile-args
+or
+.BR \-\-extra-link-args ,
+and only
+.B .comp
+files are accepted, not
+.B .c
+files.
+.PP
+It also generates client and server code from
+.B .gmi
+interface definitions, and manages the Go packages compiled into
+.BR gomc-server .
 
 .SH OPTIONS
+.SS Component compilation (.comp)
 .TP
-\fB-h\fR, \fB--help\fR
-Brief help message.
+.BR \-\-help
+Show usage.
 .TP
-\fB-k\fR, \fB--keep\fR
-Keep the temporary files. The program will print a line where these are
-located. You will be responsible for deleting them.
+.BR \-\-parse
+Parse only; print the parsed AST as JSON.
 .TP
-\fB-n\fR, \fB--noinstall\fR
-Do not run the install step for the compiled module. This option is probably
-only useful if you also use the \fB--keep\fR option.
+.BR \-\-preprocess
+Preprocess only; emit the generated C code.
 .TP
-\fB-v\fR, \fB--verbose\fR
-Do a verbose build, showing all steps detailed while being performed.
+.BR \-\-document
+Generate man page documentation for the component.
+.TP
+.BR \-\-view-doc
+Generate the man page and display it in the terminal.
+.TP
+.BR \-\-compile
+Compile to a shared object in the current directory.
+.TP
+.BR \-\-install
+Compile and install into the cmod directory.
+.TP
+.BI \-o " FILE"
+Write output to
+.IR FILE ,
+for
+.B \-\-preprocess
+and
+.BR \-\-document .
+
+.SS GMI code generation (.gmi)
+.TP
+.BR \-\-server-c ", " \-\-server-go ", " \-\-server-meta
+Generate server-side bindings.
+.TP
+.BR \-\-client-c ", " \-\-client-go ", " \-\-client-python ", " \-\-client-ts
+Generate client bindings for the named language.  The
+.B \-ws
+variants generate WebSocket clients.
+
+.SS Package registry
+.TP
+.B list
+List the packages compiled into
+.BR gomc-server .
+.TP
+.B rebuild
+Regenerate imports and rebuild
+.B gomc-server
+from
+.BR packages.conf .
+.TP
+.BI add-gomod " dir"
+Copy a Go package into the gomc tree, register it, and rebuild.
+.TP
+.BI rm-gomod " name"
+Unregister a package, delete its source, and rebuild.
+
+.SS Build environment queries
+These print values for use by external Makefiles building components out of
+tree, which is how a component written directly in C is built now that
+.B .c
+input is no longer accepted.
+.TP
+.BR \-\-cflags ", " \-\-ldflags
+Compiler and linker flags for cmod components.
+.TP
+.BR \-\-cmod-dir ", " \-\-include-dir ", " \-\-gomc-dir
+Installation directory, header directory, and gomc Go module source
+directory.
+.TP
+.BR \-\-go
+Path of the Go binary used to build LinuxCNC.
+.TP
+.BR \-\-print-make-inc
+Print a Makefile include snippet for external projects.
+
+.SH EXAMPLES
+Compile and install a component:
+.PP
+.RS
+.nf
+modcompile \-\-compile mycomp.comp
+sudo modcompile \-\-install mycomp.comp
+.fi
+.RE
+.PP
+Generate its man page:
+.PP
+.RS
+.nf
+modcompile \-\-document \-o mycomp.9 mycomp.comp
+.fi
+.RE
 
 .SH "SEE ALSO"
-\fBLinuxCNC(1)\fR
-
-Much more information about LinuxCNC and HAL is available in the LinuxCNC
-and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.
-
-.SH BUGS
-None known at this time. 
+.BR mesa-modcompile (1)
 .PP
+Not to be confused with
+.BR mesa-modcompile (1),
+which builds Modbus drivers for Mesa PktUART cards from
+.B .mod
+files.
+.PP
+The HAL Component Descriptions chapter of the LinuxCNC documentation
+describes the
+.B .comp
+language in full.
+
 .SH AUTHOR
-This man page written by andypugh, as part of the LinuxCNC project.
+Part of the LinuxCNC project.
 .SH REPORTING BUGS
 Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
 .SH COPYRIGHT
-Copyright \(co 2023 andypugh.
-.br
 This is free software; see the source for copying conditions.  There is NO
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
