@@ -143,16 +143,13 @@ On each step, a state counter is incremented or decremented.
 The Two-and-Three-Phase, Four-Phase, and Five-Phase show the output patterns as a function of the state counter.
 The maximum frequency is 1,000,000,000 divided by _steplen_, and as in the other modes, _maxfreq_ will be lowered if it is above the limit.
 
-(((Two and Three Phase)))
-.Two-and-Three-Phase Step Types
+.Two-and-Three-Phase Step Types (((Two and Three Phase)))
 image::images/stepgen-type2-4.png["Step Types: Two-and-Three-Phase",align="center"]
 
-(((Four Phase)))
-.Four-Phase Step Types
+.Four-Phase Step Types (((Four Phase)))
 image::images/stepgen-type5-10.png["Step Types: Four-Phase",align="center"]
 
-(((Five Phase)))
-.Five-Phase Step Types
+.Five-Phase Step Types (((Five Phase)))
 image::images/stepgen-type11-14.png["Step Types: Five-Phase",align="center"]
 
 [[sub:stepgen-functions]]
