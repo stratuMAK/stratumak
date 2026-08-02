@@ -197,20 +197,9 @@ man9/xhc_hb04_util.9
 man9/xor2.9
 man9/xyzab_tdr_kins.9
 # Ignore po4a-generated files for other languages
-cs/*
-da/*
 de/*
 es/*
 fr/*
-hu/*
 it/*
-ka/*
 nb/*
-pt/*
-pt_BR/*
-ru/*
-sk/*
-tr/*
-uk/*
-vi/*
-zh_CN/*
+nl/*

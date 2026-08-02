@@ -64,7 +64,7 @@ docs/man/man9/sim_torch.9
 docs/help/es/*
 docs/help/fr/*
 docs/help/nb/*
-docs/help/zh_CN/*
+docs/help/nl/*
 configs/**/*.tbl.bak
 configs/**/halshow.preferences
 configs/**/halscope_state.json
