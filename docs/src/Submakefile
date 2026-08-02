@@ -230,8 +230,17 @@ docs-pofiles: manpages gen_complist
 pofiles: docs-pofiles
 
 ifeq ($(BUILD_DOCS_TRANSLATED),yes)
-translateddocs: manpages gen_complist
+# One po4a run writes every translated source, so a stamp stands for that one
+# action and the generated .adoc files are declared as its products below.
+# Without that declaration make has no rule for them: with the lists derived
+# rather than globbed the targets are known from the first pass, and make
+# would stop with "no rule to make target ../docs/src/de/hal/intro.adoc".
+.translateddocs-stamp: manpages gen_complist $(DOC_DIR)/po4a.cfg \
+		$(addprefix $(DOC_SRCDIR)/, $(DOC_SRCS_EN)) $(wildcard $(DOC_DIR)/po/*.po)
 	cd $(DOC_DIR); ${TIME_CMD} po4a -v --msgmerge-opt='-v' --no-update po4a.cfg
+	@touch $@
+translateddocs: .translateddocs-stamp
+
 else
 translateddocs:
 endif
@@ -243,32 +252,37 @@ postatus::
 	    echo -n "$$p ";  msgfmt --statistics -o /dev/null $$p; \
 	done
 
-DOC_SRCS_DE = $(subst $(DOC_SRCDIR)/,, \
-	$(wildcard $(DOC_SRCDIR)/de/*.adoc) \
-	$(wildcard $(DOC_SRCDIR)/de/*/*.adoc))
+# The translated sources are whatever po4a writes under src/$lang, so the list
+# is derived from po4a.cfg rather than globbed.  That is not a style choice:
+# $(wildcard) expands when the makefile is parsed, and on a clean tree these
+# files do not exist yet -- so every DOC_SRCS_<LANG> came out empty, no
+# translated HTML target existed at all, and `make docs` had to be run twice
+# before it produced a complete tree.
+#
+# The filters reproduce exactly what the wildcards matched (verified equal at
+# 137 files per language): only .adoc, nothing under man/ -- the wildcards
+# reached one directory deep -- and not components_gen.adoc, which is a
+# fragment for inclusion into components.adoc rather than a document.  It
+# opens at level 2, so asciidoc warns "section title out of sequence" when
+# compiled standalone; DOC_SRCS_EN names its files individually and never
+# picked it up, but the wildcards did, which is why only the translations
+# warned.
+PO4A_SRCS := $(shell sed -n 's|^\[type:[^]]*\][[:space:]]*[^[:space:]]*[[:space:]]*$$lang:src/$$lang/\(.*\)$$|\1|p' $(DOC_DIR)/po4a.cfg)
+DOC_SRCS_TRANSLATED := $(filter-out man/% %/components_gen.adoc, $(filter %.adoc, $(PO4A_SRCS)))
 
-DOC_SRCS_ES = $(subst $(DOC_SRCDIR)/,, \
-	$(wildcard $(DOC_SRCDIR)/es/*.adoc) \
-	$(wildcard $(DOC_SRCDIR)/es/*/*.adoc))
+DOC_SRCS_DE = $(addprefix de/, $(DOC_SRCS_TRANSLATED))
+DOC_SRCS_ES = $(addprefix es/, $(DOC_SRCS_TRANSLATED))
+DOC_SRCS_FR = $(addprefix fr/, $(DOC_SRCS_TRANSLATED))
+DOC_SRCS_NB = $(addprefix nb/, $(DOC_SRCS_TRANSLATED))
 
-DOC_SRCS_FR = $(subst $(DOC_SRCDIR)/,, \
-	$(wildcard $(DOC_SRCDIR)/fr/*.adoc) \
-	$(wildcard $(DOC_SRCDIR)/fr/*/*.adoc))
-
-DOC_SRCS_NB = $(subst $(DOC_SRCDIR)/,, \
-	$(wildcard $(DOC_SRCDIR)/nb/*.adoc) \
-	$(wildcard $(DOC_SRCDIR)/nb/*/*.adoc))
-
-# components_gen.adoc is a generated fragment meant for inclusion into
-# components.adoc, not a document of its own: it opens at level 2, so asciidoc
-# warns "section title out of sequence" whenever it is compiled standalone.
-# DOC_SRCS_EN names its files one by one and so never picked it up, but the
-# translated lists above are wildcards -- which is why only the translations
-# warned.  Drop it from them so all languages agree.
-DOC_SRCS_DE := $(filter-out %/components_gen.adoc,$(DOC_SRCS_DE))
-DOC_SRCS_ES := $(filter-out %/components_gen.adoc,$(DOC_SRCS_ES))
-DOC_SRCS_FR := $(filter-out %/components_gen.adoc,$(DOC_SRCS_FR))
-DOC_SRCS_NB := $(filter-out %/components_gen.adoc,$(DOC_SRCS_NB))
+# Declared here, not up with the .translateddocs-stamp rule: a rule's target
+# list is expanded the moment make reads it, so stating this before
+# DOC_SRCS_* exist expands to nothing and the rule silently covers no files --
+# make then stops with "no rule to make target ../docs/src/de/README.adoc".
+ifeq ($(BUILD_DOCS_TRANSLATED),yes)
+$(addprefix $(DOC_SRCDIR)/, $(DOC_SRCS_DE) $(DOC_SRCS_ES) $(DOC_SRCS_FR) $(DOC_SRCS_NB)): .translateddocs-stamp
+	@:
+endif
 
 DOC_SRCS = $(DOC_SRCS_EN) $(DOC_SRCS_DE) $(DOC_SRCS_ES) $(DOC_SRCS_FR) $(DOC_SRCS_NB)
 
@@ -811,7 +825,7 @@ docclean:
 	-rm -f $(DOC_DIR)/html/man/man9/*.*
 	-rm -f $(DOC_TARGETS_HTML) $(DOC_DIR)/html/xref*.html $(DOC_DIR)/html/index*.html $(DOC_DIR)/*.png $(DOC_DIR)/man/*.png
 	-rm -f .htmldoc-stamp
-	-rm -f .adoc-images-stamp
+	-rm -f .adoc-images-stamp .translateddocs-stamp
 	-rm -f .html-images-stamp
 	-rm -f .images-stamp
 	-rm -f .include-stamp
