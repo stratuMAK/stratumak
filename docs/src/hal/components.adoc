@@ -133,7 +133,7 @@ To search in the man pages, use the UNIX tool `apropos`.
 [{tab_options}]
 |===
 | link:../man/man1/hal-histogram.1.html[hal-histogram] |Plots the value of a HAL pin as a histogram ||
-| link:../man/man1/modcompile.1.html[modcompile] |Build, compile and install LinuxCNC HAL components ||
+| link:../hal/comp.html[modcompile] |Build, compile and install LinuxCNC HAL components ||
 | link:../man/man1/halcmd.1.html[halcmd] |Manipulate the LinuxCNC HAL from the command line ||
 | link:../man/man1/halreport.1.html[halreport] |Creates a report on the status of the HAL ||
 | link:../man/man1/halsampler.1.html[halsampler] |Sample data from HAL in realtime ||
