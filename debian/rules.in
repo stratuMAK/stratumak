@@ -194,9 +194,6 @@ override_dh_installdocs-indep:
 	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_fr.html
 	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-fr/usr/share/doc/linuxcnc
 
-	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-zh-cn
-	mv debian/stratumak-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_zh_CN.html
-	mv debian/stratumak-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-zh-cn/usr/share/doc/linuxcnc
 
 
 # dwz cannot process Go binaries: the toolchain emits compressed .debug_*
