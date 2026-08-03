@@ -354,7 +354,7 @@ func checkCModInstallCollision(soName string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"C module %q is already shipped by the package as %s; installing %s would make the "+
+		"the C module %q is already shipped by the package as %s; installing %s would make the "+
 			"name ambiguous, and the machine refuses ambiguous names at start. "+
 			"Rename the component, or use --compile and load your build by its full path",
 		soName, shipped, filepath.Join(local, soName+".so"))

@@ -418,7 +418,7 @@ func resolveCModule(name string) (path string, found bool, err error) {
 		return hits[0], true, nil
 	default:
 		return "", false, fmt.Errorf(
-			"C module %q is provided by more than one directory: %s. "+
+			"the C module %q is provided by more than one directory: %s. "+
 				"Remove the one you did not mean, or load the one you did by its full path",
 			name, strings.Join(hits, " and "))
 	}
