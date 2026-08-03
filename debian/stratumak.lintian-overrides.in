@@ -3,8 +3,23 @@
 # gomc-server uses Linux capabilities (setcap) for realtime
 # privileges instead of setuid.
 
-# that is intentional - for now
-@MAIN_PACKAGE_NAME@: package-name-doesnt-match-sonames liblinuxcnchal0 liblinuxcncini0 libnml0 libposemath0 libpyplugin0 librs274-0 libtooldata0
+# One package ships all project libraries; splitting per-soname packages for
+# private libraries nothing external links against would be churn for its own
+# sake. The list must match what the package actually ships or lintian
+# reports mismatched-override.
+@MAIN_PACKAGE_NAME@: package-name-doesnt-match-sonames libethercat2 libgmi0 libiniparse0 libposemath0 librs274-0 librtapi-core0 librtapi-parport0 librtapi-pci0
+
+# hm2_modbus.so/setsserial.so resolve hostmot2.so (same private cmod
+# directory, deliberately no SONAME) via an absolute DT_RPATH. The directory
+# is no loader default and must not be: these are plugins, not public
+# libraries. $ORIGIN is not usable — gomc-server runs with file capabilities
+# (AT_SECURE), where the loader ignores it.
+@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/linuxcnc/cmod [usr/lib/linuxcnc/cmod/hm2_modbus.so]
+@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/linuxcnc/cmod [usr/lib/linuxcnc/cmod/setsserial.so]
+
+# Legacy gmoccapy icon set: a handful of its fixed-size PNGs are not exactly
+# the size of their directory. Upstream artwork, cosmetic only.
+@MAIN_PACKAGE_NAME@: icon-size-and-directory-name-mismatch * [usr/share/gmoccapy/icons/*]
 
 # These are dlopened by gomc-server, which is already linked against libc.
 @MAIN_PACKAGE_NAME@: library-not-linked-against-libc [usr/lib/linuxcnc/modules/*.so]
