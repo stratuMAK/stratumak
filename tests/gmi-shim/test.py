@@ -18,7 +18,9 @@ on stderr.
 
 import asyncio
 import json
+import math
 import os
+import random
 import socket
 import struct
 import sys
@@ -216,9 +218,49 @@ def main():
     os.environ.pop("GMC_INSTANCE", None)
 
     import gmi
-    from gmi.stat import Stat
+    from gmi.stat import Stat, _relative_position
     from gmi.command import Command
     from gmi.tools import ToolTable
+
+    # The DRO "relative" position, differentially against the implementation it
+    # was ported from (rs274/glcanon.py:1699, matched by touchy's
+    # emc_interface.py:328). Four copies of this calculation existed in the
+    # tree and no two agreed — 2.9's emcsh dropped the rotation, pyngcgui
+    # dropped rotation and G92 — so the contract worth pinning is "identical to
+    # glcanon", not a handful of hand-computed values.
+    def glcanon_reference(position, g5x, g92, tool, rot):
+        p = [i - j for i, j in zip(position, tool)]
+        p = [i - j for i, j in zip(p, g5x)]
+        t = math.radians(-rot)
+        x, y = p[0], p[1]
+        p[0] = x * math.cos(t) - y * math.sin(t)
+        p[1] = x * math.sin(t) + y * math.cos(t)
+        return tuple(i - j for i, j in zip(p, g92))
+
+    rng = random.Random(20260803)
+    worst = 0.0
+    for _i in range(2000):
+        vec = lambda: [rng.uniform(-500, 500) for _ in range(9)]
+        args = (vec(), vec(), vec(), vec(),
+                rng.choice([0.0, 12.5, 30.0, 90.0, -33.3, 180.0]))
+        worst = max(worst, max(abs(a - b) for a, b in
+                               zip(_relative_position(*args),
+                                   glcanon_reference(*args))))
+    if worst > 1e-9:
+        fail("stat-relative-position", f"deviates from glcanon by {worst:g}")
+    # Order guard: G92 must come off AFTER the rotation. Subtracting it first
+    # is the plausible-looking rearrangement, and it is wrong whenever both a
+    # rotation and a G92 are active — this pins that it is not done that way.
+    pos = [10, 20, 0, 0, 0, 0, 0, 0, 0]
+    zero = [0] * 9
+    g92 = [3, 4, 0, 0, 0, 0, 0, 0, 0]
+    got = _relative_position(pos, zero, g92, zero, 45.0)
+    t = math.radians(-45.0)
+    wrong = [p - q for p, q in zip(pos, g92)]
+    wrong_x = wrong[0] * math.cos(t) - wrong[1] * math.sin(t)
+    if abs(got[0] - wrong_x) < 1e-6:
+        fail("stat-relative-position", "G92 subtracted before the rotation")
+    ok("stat-relative-position")
 
     # GP-11: module-level constants, classic names, correct values.
     if (gmi.MODE_MDI, gmi.STATE_ON, gmi.EXEC_WAITING_FOR_SYSTEM_CMD,

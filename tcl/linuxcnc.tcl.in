@@ -133,37 +133,62 @@ proc linuxcnc::_json_axis {json object axis} {
     return $value
 }
 
-# Actual position in the *relative* (program) coordinate system, for one axis
-# letter — the replacement for emcsh's emc_rel_act_pos.
+# Commanded position in the coordinate system G-code is currently working in,
+# for one axis letter — the replacement for emcsh's emc_rel_act_pos.
 #
-# Parity with 2.9 (shcom.cc convertLinearUnits / emcsh.cc emc_rel_act_pos):
-# actual position less the g5x, g92 and tool offsets, reported in the units the
-# *program* is in (G20/G21), which is what a value typed into a G-code
-# parameter field has to be. gomc's wire format is mm, so unlike 2.9 there is
-# no machine-units step first. Angular axes are degrees throughout —
-# convertAngularUnits was the identity in 2.9 too.
+# This is the DRO's "relative" position. The calculation is the one in
+# rs274/glcanon.py:1699 and touchy's emc_interface.py:328, mirrored here and in
+# gmi.Stat.relative_position (Python) so all three agree; 2.9's emc_rel_act_pos
+# dropped the rotation term, and pyngcgui had dropped rotation *and* G92.
+#
+#   ORDER MATTERS: g5x and the tool offset come off first, then XY is rotated
+#   by -rotation_xy, and only then does g92 come off.
+#
+# Units: machine units, like every other DRO — the wire format is mm, and
+# linear_units/angular_units are the mm->machine-units scales. Commanded
+# position, not feedback: it is the number the machine was told to reach, free
+# of following error.
 proc linuxcnc::rel_act_pos {axis} {
     set axis [string tolower $axis]
     if {[lsearch -exact {x y z a b c u v w} $axis] < 0} {
         error "rel_act_pos: bad coordinate letter <$axis>"
     }
     set json [linuxcnc::stat_json]
-    set v [linuxcnc::_json_axis $json actual_position $axis]
-    foreach off {g5x_offset g92_offset tool_offset} {
-        set v [expr {$v - [linuxcnc::_json_axis $json $off $axis]}]
+
+    # The rotation mixes X into Y and vice versa, so both are always needed.
+    foreach ax {x y} {
+        set p($ax) [linuxcnc::_json_axis $json position $ax]
+        foreach off {g5x_offset tool_offset} {
+            set p($ax) [expr {$p($ax) - [linuxcnc::_json_axis $json $off $ax]}]
+        }
     }
+    set rot 0.0
+    regexp {"rotation_xy"\s*:\s*(-?[0-9.eE+-]+)} $json -> rot
+    if {$rot != 0} {
+        set t [expr {-1 * $rot * acos(-1) / 180.0}]
+        set rx [expr {$p(x) * cos($t) - $p(y) * sin($t)}]
+        set ry [expr {$p(x) * sin($t) + $p(y) * cos($t)}]
+        set p(x) $rx
+        set p(y) $ry
+    }
+
+    if {$axis eq "x" || $axis eq "y"} {
+        set v [expr {$p($axis) - [linuxcnc::_json_axis $json g92_offset $axis]}]
+    } else {
+        set v [linuxcnc::_json_axis $json position $axis]
+        foreach off {g5x_offset tool_offset g92_offset} {
+            set v [expr {$v - [linuxcnc::_json_axis $json $off $axis]}]
+        }
+    }
+
     if {[lsearch -exact {a b c} $axis] >= 0} {
-        return $v
+        set scale 1.0
+        regexp {"angular_units"\s*:\s*(-?[0-9.eE+-]+)} $json -> scale
+    } else {
+        set scale 1.0
+        regexp {"linear_units"\s*:\s*(-?[0-9.eE+-]+)} $json -> scale
     }
-    # 1 = inch, 2 = mm, 3 = cm (canon length units, emcstat.gmi)
-    if {![regexp {"program_units"\s*:\s*([0-9]+)} $json -> units]} {
-        set units 2
-    }
-    switch -- $units {
-        1       {return [expr {$v / 25.4}]}
-        3       {return [expr {$v / 10.0}]}
-        default {return $v}
-    }
+    return [expr {$v * $scale}]
 }
 
 # Internationalisation (i18n)
