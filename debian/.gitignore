@@ -13,6 +13,7 @@ stratumak.install
 stratumak.manpages
 
 *.debhelper
+debhelper-build-stamp
 stratumak.lintian-overrides
 
 # dh_autoreconf build state: md5 manifests of the tree before/after
