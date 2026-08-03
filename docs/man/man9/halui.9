@@ -23,12 +23,15 @@
 .\"
 .\"
 .\"
-.TH HALUI "1"  "2006-07-22" "LinuxCNC Documentation" "HAL User Interface"
+.TH HALUI "9" "2026-08-03" "LinuxCNC Documentation" "HAL Component"
 .SH NAME
-halui \- observe HAL pins and command LinuxCNC through NML
+halui \- observe HAL pins and command the machine
 .SH SYNOPSIS
-.B halui
-[\fB\-ini <path-to-INI>\fR]
+\fBload milltask halui=\fIINSTANCE\fR
+.PP
+halui is no longer a separate program on an NML link: it is built into the
+milltask module and enabled by naming an instance on its load line. The
+pins below are exported under that instance name.
 .SH DESCRIPTION
 \fBhalui\fR is used to build a User Interface using hardware knobs
 and switches. It exports a big number of pins, and acts accordingly 

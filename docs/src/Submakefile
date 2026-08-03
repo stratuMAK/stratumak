@@ -30,7 +30,6 @@ $(ASCIIDOC_HOME_STAMP): $(ASCIIDOC_LANG_CONFS)
 		cp -f $(ASCIIDOC_LANG_CONFS) $(ASCIIDOC_HOME)/.asciidoc/; fi
 	@touch $@
 
-GENERATED_MANPAGES += ../docs/man/man1/linuxcnc.1
 GENERATED_MANPAGES += $(patsubst ../docs/src/man/%.adoc, ../docs/man/%, $(wildcard ../docs/src/man/*/*.adoc))
 
 MAN_SRCS = $(sort \
@@ -41,9 +40,6 @@ MAN_SRCS = $(sort \
 	$(wildcard $(DOC_DIR)/man/es/man3/*.3*) \
 	$(wildcard $(DOC_DIR)/man/es/man9/*.9) \
 	$(GENERATED_MANPAGES))
-
-../docs/man/man1/linuxcnc.1: $(DOC_SRCDIR)/man/man1/linuxcnc.1.in config.status
-	./config.status --file=$@:$<
 
 ifneq ($(MANDB),)
 docs: $(DOC_DIR)/man/index.db
@@ -440,7 +436,7 @@ checkref_fr: $(DOC_TARGETS_HTML_FR) $(DOC_DIR)/html/fr/gcode.html .htmldoc-stamp
 MAN_SRCS_NOSO = $(patsubst $(DOC_DIR)/man/%,%, \
 			$(shell grep -L '^\.so ' $(MAN_SRCS)))
 
-PDF_MAN_ORDER := man1/linuxcnc.1 $(filter-out %/linuxcnc.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
+PDF_MAN_ORDER := man1/gomc-server.1 $(filter-out %/gomc-server.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
 	man3/intro.3hal $(filter-out %/undocumented.3hal %/intro.3hal, $(filter man3/%.3hal, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3hal man3/intro.3rtapi $(filter-out %/undocumented.3rtapi %/intro.3rtapi, $(filter man3/%.3rtapi, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3rtapi $(filter man9/%, $(MAN_SRCS_NOSO)) 

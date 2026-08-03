@@ -36,7 +36,7 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/axis-remote.1.html[axis-remote] |AXIS Remote Interface                                            ||
 | link:../man/man1/gmoccapy.1.html[gmoccapy]       |Touchy LinuxCNC Graphical User Interface                         ||
 | link:../man/man1/gscreen.1.html[gscreen]         |Touchy LinuxCNC Graphical User Interface                         ||
-| link:../man/man1/halui.1.html[halui]             |Observe HAL pins and command LinuxCNC through NML                ||
+| link:../man/man9/halui.9.html[halui]             |Observe HAL pins and command the machine                ||
 | link:../man/man1/mdro.1.html[mdro]               |manual only Digital Read Out (DRO)                               ||
 | link:../man/man1/ngcgui.1.html[ngcgui]           |Framework for conversational G-code generation on the controller ||
 | link:../man/man1/panelui.1.html[panelui]         |Short description                                                ||
@@ -77,10 +77,10 @@ To search in the man pages, use the UNIX tool `apropos`.
 [{tab_options}]
 |===
 | link:../man/man1/io.1.html[io]               |iocontrol - interacts with HAL or G-code in non-realtime                   ||
-| link:../man/man1/iocontrol.1.html[iocontrol] |Interacts with HAL or G-code in non-realtime                               ||
+| link:../man/man9/iocontrol.9.html[iocontrol] |Interacts with HAL or G-code in non-realtime                               ||
 | link:../man/man1/iov2.1.html[iov2]           |Interacts with HAL or G-code in non-realtime                               ||
 | link:../man/man1/mdi.1.html[mdi]             |Send G-code commands from the terminal to the running LinuxCNC instance    ||
-| link:../man/man1/milltask.1.html[milltask]   |Non-realtime task controller for LinuxCNC                                  ||
+| link:../man/man9/milltask.9.html[milltask]   |Non-realtime task controller for LinuxCNC                                  ||
 |===
 
 === Hardware Drivers
