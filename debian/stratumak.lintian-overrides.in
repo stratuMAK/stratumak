@@ -21,6 +21,14 @@
 # the size of their directory. Upstream artwork, cosmetic only.
 @MAIN_PACKAGE_NAME@: icon-size-and-directory-name-mismatch * [usr/share/gmoccapy/icons/*]
 
+# docbook-xsl-era boilerplate ('.it 1 an-trap') in four legacy pages; groff
+# 1.23 renamed the internal macro. The pages render fine; regenerating them
+# from their original sources is not worth the toolchain archaeology.
+@MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man9/hm2_modbus.9.gz*]
+@MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man1/xhc-whb04b-6.1.gz*]
+@MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man1/emccalib.1.gz*]
+@MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man1/mesambccc.1.gz*]
+
 # These are dlopened by gomc-server, which is already linked against libc.
 @MAIN_PACKAGE_NAME@: library-not-linked-against-libc [usr/lib/linuxcnc/modules/*.so]
 
