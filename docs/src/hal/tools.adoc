@@ -109,7 +109,7 @@ its own pins and you connect them to the target in a HAL file, instead of naming
 the target on a command line.
 
 A ready-made example is shipped in `configs/sim/axis/pin_control` -- panel,
-loader and POSTGUI wiring, with one widget per sim_pin mode.
+loader and wiring, with one widget per sim_pin mode.
 
 == HAL Histogram
 

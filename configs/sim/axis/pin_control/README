@@ -12,9 +12,11 @@ to the target in a HAL file, rather than naming the target on a command line.
 
 Files:
   pin_control.xml       the panel — one widget per sim_pin mode
-  pin_control_load.hal  `load pyvcp <pyvcp> xml=pin_control.xml`, a HALFILE so
-                        the pins exist before the GUI starts
-  pin_control.hal       POSTGUI_HALFILE — connects the panel pins to signals
+  pin_control_load.hal  `load pyvcp <pyvcp> xml=pin_control.xml` — the module
+                        creates the panel pins at load time
+  pin_control.hal       the next HALFILE — connects the panel pins to signals
+                        (a plain HALFILE, not POSTGUI: AXIS does not execute
+                        postgui files, and the pins already exist)
   pin_control.ini       [TASK]PYVCP_INSTANCE names the instance to milltask so
                         /info reports the panel to AXIS
 
