@@ -1,0 +1,5 @@
+# Load the pin_control pyvcp panel. Runs before the GUI starts, so the panel's
+# pins exist by the time POSTGUI_HALFILE (pin_control.hal) wires them up.
+# [TASK]PYVCP_INSTANCE names this instance to milltask, so /info reports the
+# panel to AXIS.
+load pyvcp <pyvcp> xml=pin_control.xml

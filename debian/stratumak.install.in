@@ -60,7 +60,6 @@ usr/bin/rotarydelta
 usr/bin/rs274
 usr/bin/scaragui
 usr/bin/setup_designer
-usr/bin/sim_pin
 usr/bin/stepconf
 usr/bin/teach-in
 usr/bin/tooledit

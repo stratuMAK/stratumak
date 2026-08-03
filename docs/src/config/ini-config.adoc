@@ -109,13 +109,9 @@ Section identifiers may not be extended to multiple lines.
 .Variable with Line extends Example
 [source,{ini}]
 ----
-APP = sim_pin \
-ini.0.max_acceleration \
-ini.1.max_acceleration \
-ini.2.max_acceleration \
-ini.0.max_velocity \
-ini.1.max_velocity \
-ini.2.max_velocity
+APP = halscope \
+-i myscope.halscope \
+2000
 ----
 
 .Boolean Variables
@@ -719,12 +715,10 @@ The applications can be started after a specified delay to allow for GUI-depende
   a relative filename (first characters of filename are ./), or as a file in the INI file directory.
   If no executable file is found using these names, then the user search PATH is used to find the application. +
   Examples:
-** Simulate inputs to HAL pins for testing (using sim_pin -- a simple GUI to set inputs to parameters, unconnected pins, or signals with no writers):
-+
-[source,{ini}]
-----
-APP = sim_pin motion.probe-input halui.abort motion.analog-in-00
-----
+** Simulate inputs to HAL pins for testing: load a pyvcp panel with widgets for
+   the pins and connect them in a POSTGUI_HALFILE. See
+   `configs/sim/axis/pin_control` for a ready-made example (it replaces the
+   removed `sim_pin` utility).
 ** Invoke halshow with a previuosly saved watchlist.
    Since LinuxCNC sets the working directory to the directory for the INI file, you can refer to files in that directory (example: my.halshow):
 +

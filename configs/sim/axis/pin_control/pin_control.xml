@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  pyvcp replacement for the removed `sim_pin` utility.
+
+  sim_pin attached DIRECTLY to a pin you named on its command line:
+      APP = sim_pin  mv.power-on  mv.apply-offsets/mode=pulse
+  A pyvcp panel cannot do that; it owns its own pins (pyvcp.<halpin>) and you
+  wire them to the target in pin_control.hal. That is the one behavioural
+  difference. Everything sim_pin could drive has an equivalent below:
+
+      /mode=toggle, /mode=hold  -> checkbutton  (latched)
+      /mode=pulse               -> button       (true only while held)
+      numeric Entry + Set       -> spinbox      (or scale for a bounded range)
+-->
+<pyvcp>
+  <vbox>
+    <label>
+      <text>"Pin Control (sim_pin replacement)"</text>
+      <font>"bold"</font>
+    </label>
+
+    <!-- bit, latched -->
+    <checkbutton>
+      <halpin>"bit-toggle"</halpin>
+      <text>"bit-toggle (mode=toggle/hold)"</text>
+      <initval>0</initval>
+    </checkbutton>
+
+    <!-- bit, true only while pressed -->
+    <button>
+      <halpin>"bit-pulse"</halpin>
+      <text>"bit-pulse (mode=pulse)"</text>
+    </button>
+
+    <!-- numeric entry -->
+    <label><text>"float-value"</text></label>
+    <spinbox>
+      <halpin>"float-value"</halpin>
+      <min_>-100</min_>
+      <max_>100</max_>
+      <initval>0</initval>
+      <resolution>0.001</resolution>
+      <format>"3.3f"</format>
+    </spinbox>
+
+    <!-- read-back: what actually reached the signal -->
+    <label><text>"read-back"</text></label>
+    <hbox>
+      <led><halpin>"bit-state"</halpin><size>16</size></led>
+      <number><halpin>"float-state"</halpin><format>"3.3f"</format></number>
+    </hbox>
+  </vbox>
+</pyvcp>
