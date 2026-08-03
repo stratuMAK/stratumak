@@ -14,7 +14,7 @@ $(call TOOBJSDEPS, $(STDGLUE_SRCS)): gomc/generated/gmi/interp_ctx/interp_ctx_ap
 ../cmod/stdglue.so: $(call TOOBJS, $(STDGLUE_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/stdglue.so
 
 # test_mcode_handler.so — test cmod for M-code handler API
@@ -29,7 +29,7 @@ $(call TOOBJSDEPS, $(TEST_MCODE_SRCS)): gomc/generated/gmi/mcode_handler/mcode_h
 ../cmod/test_mcode_handler.so: $(call TOOBJS, $(TEST_MCODE_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_mcode_handler.so
 
 # test_interp_ext.so — test cmod for the interp_ext API (register_oword)
@@ -44,7 +44,7 @@ $(call TOOBJSDEPS, $(TEST_INTERP_EXT_SRCS)): gomc/generated/gmi/interp_ext/inter
 ../cmod/test_interp_ext.so: $(call TOOBJS, $(TEST_INTERP_EXT_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_interp_ext.so
 
 # test_spindle_remap.so — test cmod for remap spindle introspection (M500 prolog)
@@ -59,7 +59,7 @@ $(call TOOBJSDEPS, $(TEST_SPINDLE_REMAP_SRCS)): gomc/generated/gmi/interp_ext/in
 ../cmod/test_spindle_remap.so: $(call TOOBJS, $(TEST_SPINDLE_REMAP_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_spindle_remap.so
 
 # test_interp_ext_finish.so — test cmod for a C remap prolog returning
@@ -75,7 +75,7 @@ $(call TOOBJSDEPS, $(TEST_INTERP_EXT_FINISH_SRCS)): gomc/generated/gmi/interp_ex
 ../cmod/test_interp_ext_finish.so: $(call TOOBJS, $(TEST_INTERP_EXT_FINISH_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_interp_ext_finish.so
 
 # test_remap_fail.so — test cmod for remap prolog/epilog failure handling
@@ -90,7 +90,7 @@ $(call TOOBJSDEPS, $(TEST_REMAP_FAIL_SRCS)): gomc/generated/gmi/interp_ext/inter
 ../cmod/test_remap_fail.so: $(call TOOBJS, $(TEST_REMAP_FAIL_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_remap_fail.so
 
 # test_oword_math.so — test cmod for C O-word subs (param passing + return value)
@@ -105,7 +105,7 @@ $(call TOOBJSDEPS, $(TEST_OWORD_MATH_SRCS)): gomc/generated/gmi/interp_ext/inter
 ../cmod/test_oword_math.so: $(call TOOBJS, $(TEST_OWORD_MATH_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_oword_math.so
 
 # test_introspect.so — test cmod for O-word introspection of interpreter state
@@ -120,7 +120,7 @@ $(call TOOBJSDEPS, $(TEST_INTROSPECT_SRCS)): gomc/generated/gmi/interp_ext/inter
 ../cmod/test_introspect.so: $(call TOOBJS, $(TEST_INTROSPECT_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_introspect.so
 
 # test_var_inject.so — test cmod for remap variable injection/retrieval
@@ -135,7 +135,7 @@ $(call TOOBJSDEPS, $(TEST_VAR_INJECT_SRCS)): gomc/generated/gmi/interp_ext/inter
 ../cmod/test_var_inject.so: $(call TOOBJS, $(TEST_VAR_INJECT_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/test_var_inject.so
 
 # mcode_coord_log.so — cmod that logs M100 coord/tool introspection to a file,
@@ -151,5 +151,5 @@ $(call TOOBJSDEPS, $(MCODE_COORD_LOG_SRCS)): gomc/generated/gmi/mcode_handler/mc
 ../cmod/mcode_coord_log.so: $(call TOOBJS, $(MCODE_COORD_LOG_SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 TARGETS += ../cmod/mcode_coord_log.so

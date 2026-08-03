@@ -7,13 +7,13 @@ $(call TOOBJSDEPS, $(IOSRCS)): gomc/generated/gmi/emcio/emcio_api.h gomc/generat
 ../cmod/io.so: $(call TOOBJS, $(IOSRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 
 $(call TOOBJS, $(IOV2SRCS)): EXTRAFLAGS += -fPIC -Igomc/generated/gmi/emcio -Igomc/generated/gmi/tooltable -Igomc/pkg/cmodule -Iemc/iotask
 $(call TOOBJSDEPS, $(IOV2SRCS)): gomc/generated/gmi/emcio/emcio_api.h gomc/generated/gmi/tooltable/tooltable_api.h
 ../cmod/iov2.so: $(call TOOBJS, $(IOV2SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS)
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 
 TARGETS += ../cmod/io.so ../cmod/iov2.so

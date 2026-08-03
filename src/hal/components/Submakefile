@@ -347,7 +347,7 @@ objects/cmod/hy_comm.o: hal/user_comps/huanyang-vfd/hy_comm.c
 ../cmod/hy_vfd.so: objects/cmod/hy_vfd.o objects/cmod/hy_comm.o
 	$(ECHO) "Linking cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS) -lm -lpthread
+	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS) -lm -lpthread
 
 TARGETS += $(CMOD_USER_TARGETS)
 modules: $(CMOD_USER_TARGETS)
