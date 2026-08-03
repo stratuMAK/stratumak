@@ -5889,9 +5889,11 @@ if __name__ == "__main__":
     if postgui_halfile is not None:
         for f in postgui_halfile:
             if f.lower().endswith('.tcl'):
-                res = os.spawnvp(os.P_WAIT, "haltcl", ["haltcl", "-i", inifile, f])
-            else:
-                res = os.spawnvp(os.P_WAIT, "halcmd", ["halcmd", "-i", inifile, "-f", f])
+                # haltcl went with the Tcl HAL binding; same rule as HALFILE
+                # (see internal/halfile): .tcl HAL files are a hard error.
+                LOG.error("POSTGUI_HALFILE {0}: TCL HAL files (.tcl) are not supported".format(f))
+                raise SystemExit(1)
+            res = os.spawnvp(os.P_WAIT, "halcmd", ["halcmd", "-i", inifile, "-f", f])
             if res: raise SystemExit(res)
 
     # start the event loop
