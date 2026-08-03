@@ -529,7 +529,7 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 	)
 	args = append(args, extraIncludes...)
 	args = append(args,
-		"-fPIC", "-Os", "-Wall",
+		"-fPIC", "-g", "-Os", "-Wall",
 		// Fortify 3 to match the rest of the build (src/Makefile DEBUG) and
 		// the Ubuntu CI runners' builtin default; -U first because Ubuntu's
 		// gcc predefines it.
@@ -611,6 +611,10 @@ func compileCMod(cPath, srcDir, outDir, soName string, extraIncludes []string) e
 	if config.LocalCModDir() == "" || os.Geteuid() != 0 {
 		return compileToSO(cPath, outDir, soName, extraIncludes)
 	}
+	// The staged path shares the build cache with every other privileged
+	// operation; two concurrent compiles would tear each other's staging.
+	// Idempotent, so an --install that already holds the lock is unaffected.
+	acquireBuildLock("--compile")
 	return compileCModStaged(cPath, srcDir, outDir, soName, extraIncludes)
 }
 
