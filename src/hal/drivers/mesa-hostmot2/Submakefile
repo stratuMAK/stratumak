@@ -220,6 +220,9 @@ modules: ../cmod/hm2_spix.so
 # ═══════════════════════════════════════════════════════════════════════════════
 # hm2_modbus.so — Modbus over PktUART
 # ═══════════════════════════════════════════════════════════════════════════════
+# hostmot2.so is resolved via DT_RPATH (--disable-new-dtags) with the absolute
+# cmod directory: gomc-server runs with file capabilities (AT_SECURE), where
+# the loader ignores $ORIGIN and RUNPATH entries.
 
 ../cmod/hm2_modbus.so: $(HM2_DIR)/hm2_modbus.c \
                        $(wildcard $(HM2_DIR)/*.h) \
@@ -231,7 +234,8 @@ modules: ../cmod/hm2_spix.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/hm2_modbus.c \
-	    -L../cmod -l:hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS)
+	    -L../cmod -l:hostmot2.so \
+	    -Wl,--disable-new-dtags -Wl,-rpath,$(EMC2_CMOD_DIR) $(HM2_CMOD_LDFLAGS)
 
 TARGETS += ../cmod/hm2_modbus.so
 modules: ../cmod/hm2_modbus.so
@@ -249,7 +253,8 @@ modules: ../cmod/hm2_modbus.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/setsserial.c \
-	    -L../cmod -l:hostmot2.so -Wl,-rpath,'$$ORIGIN' $(HM2_CMOD_LDFLAGS_PCI)
+	    -L../cmod -l:hostmot2.so \
+	    -Wl,--disable-new-dtags -Wl,-rpath,$(EMC2_CMOD_DIR) $(HM2_CMOD_LDFLAGS_PCI)
 
 TARGETS += ../cmod/setsserial.so
 modules: ../cmod/setsserial.so
