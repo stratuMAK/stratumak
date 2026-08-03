@@ -19,11 +19,14 @@ TEST_APPS="tooledit emccalib halshow halscope classicladder linuxcnctop"
 # produced by modcompile during `make` (gmi/codegen/Submakefile). They are
 # absent on a clean checkout, so this gate must run AFTER the build. Fail with
 # a pointer rather than a wall of cryptic "Cannot find module" type errors.
-if [ ! -f tooledit/src/generated/tools_client.ts ]; then
-	echo "check-webapps: generated TS clients are missing." >&2
-	echo "  Run 'make' first (they are built by the gmi codegen targets)." >&2
-	exit 1
-fi
+for gen in tooledit/src/generated/tools_client.ts \
+		linuxcnctop/src/generated/emcstat_client.ts; do
+	if [ ! -f "$gen" ]; then
+		echo "check-webapps: generated TS client $gen is missing." >&2
+		echo "  Run 'make' first (they are built by the gmi codegen targets)." >&2
+		exit 1
+	fi
+done
 
 # 1. ESLint correctness gate — the shared toolchain/config lints every app at
 #    once (only each app's src/generated/** is excluded in the config).

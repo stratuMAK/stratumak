@@ -13,8 +13,32 @@ import (
 // Uses the `websockets` library (asyncio) for the connection, with a
 // threaded wrapper for use from synchronous code (e.g. Tkinter mainloop).
 func GenerateClientPythonWS(w io.Writer, api *ast.API) error {
+	if err := checkPyWSNested64Bit(api); err != nil {
+		return err
+	}
 	g := &clientPyWSGen{w: w, api: api}
 	return g.generate()
+}
+
+// checkPyWSNested64Bit fails loud when a 64-bit field is reachable only through
+// a collection (slice/array/map) of named types. Unlike the REST client (see
+// checkPyNested64Bit), this client's from_dict DOES recurse into a direct
+// named-type field, so that shape converts fine — but collection elements stay
+// raw dicts, so a 64-bit value inside them would remain an unconverted wire
+// string. Rather than emit a silently-wrong client, reject it — the Go and TS
+// clients handle the shape, so this is a Python-target limitation.
+func checkPyWSNested64Bit(api *ast.API) error {
+	set := tsReviveSet(api) // types transitively containing a 64-bit field
+	for i := range api.Types {
+		t := &api.Types[i]
+		for _, f := range t.Fields {
+			collection := f.Type.Kind == ast.TypeSlice || f.Type.Kind == ast.TypeArray || f.Type.Kind == ast.TypeMap
+			if collection && f.Type.Elem != nil && f.Type.Elem.Kind == ast.TypeNamed && set[f.Type.Elem.Name] {
+				return fmt.Errorf("python-ws client: type %s.%s references %s inside a collection; %s contains a 64-bit int, which the Python WS client cannot convert there (from_dict does not recurse into collection elements)", t.Name, f.Name, f.Type.Elem.Name, f.Type.Elem.Name)
+			}
+		}
+	}
+	return nil
 }
 
 type clientPyWSGen struct {
@@ -43,6 +67,7 @@ func (g *clientPyWSGen) hasStructDelta() bool {
 
 func (g *clientPyWSGen) generate() error {
 	g.emitHeader()
+	g.emit64BitHelpers()
 	g.emitConstants()
 	g.emitEnums()
 	g.emitTypes()
@@ -65,6 +90,20 @@ func (g *clientPyWSGen) emitHeader() {
 	g.printf("from enum import IntEnum\n")
 	g.printf("from typing import Any, Callable, Optional\n\n")
 	g.printf("import websockets\n\n\n")
+}
+
+// emit64BitHelpers mirrors clientPyGen.emit64BitHelpers: 64-bit ints cross the
+// wire as JSON strings (they exceed a JS client's 2^53 number range; see
+// is64BitScalarInt and the ",string" Go struct tag), so the client converts at
+// the (de)serialization seam.
+func (g *clientPyWSGen) emit64BitHelpers() {
+	if !apiNeeds64BitConv(g.api) {
+		return
+	}
+	g.printf("def _gmi_to_int(v):\n")
+	g.printf("    return None if v is None else int(v)\n\n\n")
+	g.printf("def _gmi_from_int(v):\n")
+	g.printf("    return None if v is None else str(v)\n\n\n")
 }
 
 func (g *clientPyWSGen) emitConstants() {
@@ -156,10 +195,15 @@ func (g *clientPyWSGen) emitClient() {
 		g.printf("        the caller an object missing most of its fields.\n")
 		g.printf("        \"\"\"\n")
 		g.printf("        if not isinstance(data, dict):\n")
+		g.printf("            # A non-dict frame has nothing to merge onto: drop the base and\n")
+		g.printf("            # pass it through (a later dict frame starts a fresh base).\n")
+		g.printf("            self._delta_state.pop(func_name, None)\n")
 		g.printf("            return data\n")
 		g.printf("        merged = dict(self._delta_state.get(func_name, {}))\n")
 		g.printf("        merged.update(data)\n")
 		g.printf("        self._delta_state[func_name] = merged\n")
+		g.printf("        # The returned dict IS the stored merge base: callers must not\n")
+		g.printf("        # mutate it, or later frames merge onto corrupted state.\n")
 		g.printf("        return merged\n\n")
 	}
 
@@ -194,6 +238,12 @@ func (g *clientPyWSGen) emitClient() {
 	g.printf("    async def unsubscribe(self, func_name: str):\n")
 	g.printf("        \"\"\"Unsubscribe from a watch function.\"\"\"\n")
 	g.printf("        self._callbacks.pop(func_name, None)\n")
+	if g.hasStructDelta() {
+		// Same rule as the TS WS client: a resubscribe gets a fresh full
+		// frame from the server (the diff state is per-subscription), so
+		// carrying the old base forward could only resurrect stale fields.
+		g.printf("        self._delta_state.pop(func_name, None)\n")
+	}
 	g.printf("        msg = {\n")
 	g.printf("            \"action\": \"unsubscribe\",\n")
 	g.printf("            \"api\": self.api,\n")
@@ -302,8 +352,7 @@ func (g *clientPyWSGen) emitCommands() {
 		if len(fn.Params) > 0 {
 			g.printf("        args = {\n")
 			for _, p := range fn.Params {
-				pName := p.Name
-				g.printf("            %q: %s,\n", pName, pName)
+				g.printf("            %q: %s,\n", p.Name, g.pyArgSend(p))
 			}
 			g.printf("        }\n")
 			g.printf("        return await self._call(%q, args)\n\n", fn.Name)
@@ -390,7 +439,18 @@ func (g *clientPyWSGen) emitThreadedWrapper() {
 			typeName := toPascalCase(fn.Return.Name)
 			g.printf("        def _typed_cb(data):\n")
 			if structDelta(fn) {
-				g.printf("            data = self._merge_delta(%q, data)\n", fn.Name)
+				// The merge base lives on the wrapped async client
+				// (_merge_delta/_delta_state are class members there, not
+				// here). _client is assigned in _connect_and_subscribe
+				// before connect(), and this callback only runs from that
+				// client's _recv_loop — so _client always exists by then.
+				// This is also the ONLY merge on the wrapper path: the
+				// queued subscription goes through the client's generic
+				// subscribe(), never its typed subscribe_* (which merges
+				// for direct async users), so each frame merges once.
+				g.printf("            # Merge on the wrapped client: the delta base lives there, and\n")
+				g.printf("            # _client is always set before a frame can arrive.\n")
+				g.printf("            data = self._client._merge_delta(%q, data)\n", fn.Name)
 			}
 			g.printf("            if callback:\n")
 			g.printf("                callback(%s.from_dict(data) if isinstance(data, dict) else data)\n", typeName)
@@ -412,8 +472,7 @@ func (g *clientPyWSGen) emitThreadedWrapper() {
 		if len(fn.Params) > 0 {
 			g.printf("        args = {\n")
 			for _, p := range fn.Params {
-				pName := p.Name
-				g.printf("            %q: %s,\n", pName, pName)
+				g.printf("            %q: %s,\n", p.Name, g.pyArgSend(p))
 			}
 			g.printf("        }\n")
 			g.printf("        asyncio.run_coroutine_threadsafe(\n")
@@ -428,6 +487,16 @@ func (g *clientPyWSGen) emitThreadedWrapper() {
 }
 
 // --- Helpers ---
+
+// pyArgSend returns the expression to place a command argument into the JSON
+// args dict. 64-bit ints go out as JSON strings — the server's ",string"
+// struct fields reject a JSON number (see _gmi_from_int / is64BitScalarInt).
+func (g *clientPyWSGen) pyArgSend(p ast.Param) string {
+	if is64BitScalarInt(p.Type) {
+		return fmt.Sprintf("_gmi_from_int(%s)", p.Name)
+	}
+	return p.Name
+}
 
 func (g *clientPyWSGen) defaultRateMS(fn ast.Func) string {
 	if fn.WatchDefaultRate != "" {
@@ -515,11 +584,14 @@ func (g *clientPyWSGen) pyDefault(t ast.TypeRef) string {
 
 func (g *clientPyWSGen) pyFromDict(f ast.Field) string {
 	fieldName := f.Name
-	switch f.Type.Kind {
-	case ast.TypeNamed:
+	switch {
+	case f.Type.Kind == ast.TypeNamed:
 		typeName := toPascalCase(f.Type.Name)
 		return fmt.Sprintf("%s.from_dict(d[%q]) if %q in d else %s()",
 			typeName, fieldName, fieldName, typeName)
+	case is64BitScalarInt(f.Type):
+		// 64-bit ints arrive as JSON strings (see _gmi_to_int).
+		return fmt.Sprintf("_gmi_to_int(d.get(%q, %s))", fieldName, g.pyDefault(f.Type))
 	default:
 		return fmt.Sprintf("d.get(%q, %s)", fieldName, g.pyDefault(f.Type))
 	}

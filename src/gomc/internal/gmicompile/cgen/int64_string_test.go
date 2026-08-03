@@ -199,6 +199,117 @@ func TestClientPyIntConversion(t *testing.T) {
 	}
 }
 
+// TestClientPyWSIntConversion covers the py-ws cell of the 64-bit matrix in
+// both directions: struct fields arriving as wire strings must become Python
+// ints in from_dict, and i64 command args must go out as JSON strings — on the
+// async client AND the threaded wrapper command path.
+func TestClientPyWSIntConversion(t *testing.T) {
+	api := flat64API()
+	// Make get_stats a watch so the API is the shape --client-python-ws
+	// actually serves (at least one @watch function).
+	api.Funcs[0].Watch = true
+
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	checks := []string{
+		"def _gmi_to_int(v):",
+		"def _gmi_from_int(v):",
+		// Incoming: wire string -> int at the from_dict seam.
+		"tx_bytes=_gmi_to_int(d.get(\"tx_bytes\", 0)),",
+		// Outgoing: i64 command arg -> JSON string.
+		"\"period_ns\": _gmi_from_int(period_ns),",
+	}
+	for _, c := range checks {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+	// The conversion must exist on both command paths: the async client's
+	// set_period and the threaded wrapper's fire-and-forget set_period.
+	if n := strings.Count(out, "\"period_ns\": _gmi_from_int(period_ns),"); n != 2 {
+		t.Errorf("outgoing i64 conversion appears %d times; want 2 (async + threaded wrapper):\n%s", n, out)
+	}
+	// The i32 field must stay untouched.
+	if strings.Contains(out, "bucket_ms=_gmi_to_int") {
+		t.Errorf("i32 field must not get the 64-bit conversion:\n%s", out)
+	}
+}
+
+// TestClientPyWSNo64BitNoHelpers: an API without 64-bit scalars must not gain
+// the helper functions (byte-stability for every other generated client).
+func TestClientPyWSNo64BitNoHelpers(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	if !strings.Contains(buf.String(), "_gmi_to_int") {
+		t.Errorf("watch API with i64 field should emit converters")
+	}
+
+	// Strip the 64-bit field: no helpers may be emitted.
+	api := watchOnly64API()
+	api.Types[0].Fields = api.Types[0].Fields[1:] // drop boot_id (i64)
+	buf.Reset()
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	if strings.Contains(buf.String(), "_gmi_") {
+		t.Errorf("64-bit-free API gained conversion helpers:\n%s", buf.String())
+	}
+}
+
+// TestClientPyWSCollection64BitRejected: a 64-bit int reachable only through a
+// collection of named types (int64StringAPI: Stats.points -> []Point.t_ms) is a
+// shape the WS client's from_dict cannot convert (collection elements stay raw
+// dicts) — it must fail loud rather than emit a silently-wrong client.
+func TestClientPyWSCollection64BitRejected(t *testing.T) {
+	var buf bytes.Buffer
+	err := GenerateClientPythonWS(&buf, int64StringAPI())
+	if err == nil {
+		t.Fatalf("expected error for 64-bit field inside a collection, got none")
+	}
+	if !strings.Contains(err.Error(), "collection") {
+		t.Errorf("error should mention the collection shape, got: %v", err)
+	}
+}
+
+// TestClientPyWSDirectNested64BitAccepted: unlike the REST Python client, the
+// WS client's from_dict recurses into a DIRECT named-type field, so a 64-bit
+// int there converts fine and must be accepted.
+func TestClientPyWSDirectNested64BitAccepted(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	point := ast.TypeRef{Kind: ast.TypeNamed, Name: "Point"}
+	outer := ast.TypeRef{Kind: ast.TypeNamed, Name: "Outer"}
+	api := &ast.API{
+		Name: "nested", Version: 1, Prefix: "nested", RestExport: true,
+		Types: []ast.Type{
+			{Name: "Point", Fields: []ast.Field{{Name: "t_ms", Type: i64}}},
+			{Name: "Outer", Fields: []ast.Field{{Name: "p", Type: point}}},
+		},
+		Funcs: []ast.Func{
+			{Name: "get_outer", Method: "GET", Path: "/outer", Watch: true, Return: &outer},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("direct nested 64-bit should be accepted (from_dict recurses): %v", err)
+	}
+	out := buf.String()
+	// The recursion carries the conversion: Outer.from_dict delegates to
+	// Point.from_dict, which converts t_ms.
+	for _, c := range []string{
+		"p=Point.from_dict(d[\"p\"]) if \"p\" in d else Point(),",
+		"t_ms=_gmi_to_int(d.get(\"t_ms\", 0)),",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+}
+
 // TestPyNested64BitRejected verifies the Python client fails loud on a 64-bit
 // field reachable only through a nested type (int64StringAPI: Stats.points ->
 // Point.t_ms), which from_dict cannot convert.

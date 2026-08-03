@@ -233,9 +233,15 @@ WEBAPP_TEST_APPS := $(TOOLEDIT_WEBAPP_SRC) $(EMCCALIB_WEBAPP_SRC) \
 	$(HALSHOW_WEBAPP_SRC) $(HALSCOPE_WEBAPP_SRC) $(CLASSICLADDER_WEBAPP_SRC) \
 	$(LINUXCNCTOP_WEBAPP_SRC)
 
+# ...and on the generated TS clients (built by gmi/codegen/Submakefile — all
+# Submakefiles share the one src/Makefile namespace, so the webapp/... paths in
+# the *_GEN_TS variables name those targets directly): the tests import them,
+# so a fresh checkout running only webapp-test must trigger the codegen.
 .PHONY: webapp-test
 webapp-test: $(TOOLEDIT_NPM_STAMP) $(EMCCALIB_NPM_STAMP) $(HALSHOW_NPM_STAMP) \
-		$(HALSCOPE_NPM_STAMP) $(CLASSICLADDER_NPM_STAMP) $(LINUXCNCTOP_NPM_STAMP)
+		$(HALSCOPE_NPM_STAMP) $(CLASSICLADDER_NPM_STAMP) $(LINUXCNCTOP_NPM_STAMP) \
+		$(TOOLEDIT_GEN_TS) $(EMCCALIB_GEN_TS) $(HALSHOW_GEN_TS) \
+		$(HALSCOPE_GEN_TS) $(CLASSICLADDER_GEN_TS) $(LINUXCNCTOP_GEN_TS)
 	$(Q)for app in $(WEBAPP_TEST_APPS); do \
 		echo "Testing webapp $$app"; \
 		(cd $$app && npm test) || exit 1; \

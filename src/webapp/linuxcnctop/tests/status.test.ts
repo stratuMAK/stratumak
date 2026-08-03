@@ -189,9 +189,10 @@ describe('connection loss', () => {
     expect(store.state.rows.length).toBeGreaterThan(0);
   });
 
-  it('clears stale once a reconnect succeeds', async () => {
+  it('keeps stale after a reconnect until the first frame arrives', async () => {
     vi.useFakeTimers();
     const { store, ws } = await connectStore();
+    ws.pushStat(makeStat());
     ws.serverClose();
     expect(store.state.watchStale).toBe(true);
 
@@ -201,10 +202,34 @@ describe('connection loss', () => {
     next.open();
     await flushMicrotasks();
 
+    // Socket up and resubscribed — but the values on screen are still the
+    // pre-disconnect ones. They must not read as live until a frame proves
+    // the server is actually delivering.
     expect(store.state.watchOk).toBe(true);
-    expect(store.state.watchStale).toBe(false);
-    // The resubscription is what makes values live again.
     expect(next.sentJson().filter(m => m.action === 'subscribe')).toHaveLength(1);
+    expect(store.state.watchStale).toBe(true);
+
+    next.pushStat(makeStat({ heartbeat: 1 }));
+    expect(store.state.watchStale).toBe(false);
+  });
+
+  it('clears stale on the first frame even while frozen', async () => {
+    vi.useFakeTimers();
+    const { store, ws } = await connectStore();
+    ws.pushStat(makeStat());
+    store.toggleFrozen();
+    ws.serverClose();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const next = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    next.open();
+    await flushMicrotasks();
+    expect(store.state.watchStale).toBe(true);
+
+    // Frozen suppresses the display update, not the liveness signal.
+    next.pushStat(makeStat({ heartbeat: 7 }));
+    expect(store.state.watchStale).toBe(false);
+    expect(store.state.rows.find(r => r.key === 'heartbeat')?.value).toBe('0');
   });
 });
 
