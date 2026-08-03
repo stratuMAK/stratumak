@@ -441,9 +441,12 @@ func (l *Launcher) logConfiguration() {
 	if l.ini == nil {
 		return
 	}
+	// [DISPLAY]DISPLAY is deliberately NOT logged: the controller and the GUI
+	// are separate processes now, so nothing here reads that key to start
+	// anything. Echoing it made the server look like it had a GUI opinion, and
+	// left configs naming a removed GUI (tklinuxcnc) looking load-bearing.
 	fields := []any{
 		"machine", l.ini.Get("EMC", "MACHINE"),
-		"display", l.ini.Get("DISPLAY", "DISPLAY"),
 		"task", l.ini.Get("TASK", "TASK"),
 	}
 	l.logger.Debug("INI configuration loaded", fields...)
