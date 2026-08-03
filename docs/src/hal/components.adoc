@@ -50,7 +50,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/gladevcp.1.html[gladevcp]           |Virtual Control Panel for LinuxCNC based on Glade, Gtk and HAL widgets ||
 | link:../man/man1/gladevcp_demo.1.html[gladevcp_demo] |GladeVCP - used by sample configs to deonstrate Glade Virtual_demo     ||
 | link:../man/man1/gremlin_view.1.html[gremlin_view]   |G-code graphical preview                                               ||
-| link:../man/man1/moveoff_gui.1.html[moveoff_gui]     |GUI for the moveoff component                                          ||
 | link:../man/man1/pyui.1.html[pyui]                   |Utility for panelui                                                    ||
 | link:../man/man1/pyvcp.1.html[pyvcp]                 |Virtual Control Panel for LinuxCNC                                     ||
 | link:../man/man1/pyvcp_demo.1.html[pyvcp_demo]       |Python Virtual Control Panel demonstration component                   ||
@@ -139,14 +138,12 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/halscope.1.html[halscope] |Software oscilloscope for viewing real time waveforms of HAL pins and signals ||
 | link:../man/man1/halshow.1.html[halshow]  |Show HAL parameters, pins and signals ||
 | link:../man/man1/halstreamer.1.html[halstreamer] |Stream file data into HAL in real time ||
-| link:../man/man1/haltcl.1.html[haltcl] |Manipulates the LinuxCNC HAL from the command line using Tcl ||
 | link:../man/man1/image-to-gcode.1.html[image-to-gcode] |Converts bitmap images to G-code ||
 | link:../man/man1/latency-test.1.html[latency-test] |Tests the realtime system latency ||
 | link:../man/man1/pncconf.1.html[pncconf] |Configuration wizard for Mesa cards ||
 | link:../man/man9/setsserial.9.html[setsserial] |Utility for setting Smart Serial NVRAM parameters.
 NOTE: This rather clunky utility is no longer needed except for flashing new smart-serial remote firmware.
 Smart-serial remote parameters can now be set in the HAL file in the normal way. ||
-| link:../man/man1/sim_pin.1.html[sim_pin] |GUI for displaying and setting one or more HAL inputs ||
 | link:../man/man1/stepconf.1.html[stepconf] |Configuration wizard for parallel-port based machines ||
 |===
 
