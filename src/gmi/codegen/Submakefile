@@ -586,6 +586,23 @@ $(GMI_HALSHOW_TS_WS): $(GMI_HALCMD_IDL) $(GMICOMPILE_BIN)
 
 TARGETS += $(GMI_HALSHOW_TS) $(GMI_HALSHOW_TS_WS)
 
+# --- linuxcnctop TypeScript clients (uses emcstat IDL) ---
+
+GMI_LINUXCNCTOP_TS := webapp/linuxcnctop/src/generated/emcstat_client.ts
+GMI_LINUXCNCTOP_TS_WS := webapp/linuxcnctop/src/generated/emcstat_watch_client.ts
+
+$(GMI_LINUXCNCTOP_TS): $(GMI_EMCSTAT_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI emcstat TypeScript REST client"
+	@mkdir -p $(dir $(GMI_LINUXCNCTOP_TS))
+	$(Q)$(GMICOMPILE) --client-ts $(GMI_EMCSTAT_IDL) -o $(GMI_LINUXCNCTOP_TS)
+
+$(GMI_LINUXCNCTOP_TS_WS): $(GMI_EMCSTAT_IDL) $(GMICOMPILE_BIN)
+	$(ECHO) "Generating GMI emcstat TypeScript WebSocket client"
+	@mkdir -p $(dir $(GMI_LINUXCNCTOP_TS_WS))
+	$(Q)$(GMICOMPILE) --client-ts-ws $(GMI_EMCSTAT_IDL) -o $(GMI_LINUXCNCTOP_TS_WS)
+
+TARGETS += $(GMI_LINUXCNCTOP_TS) $(GMI_LINUXCNCTOP_TS_WS)
+
 # --- emccalib TypeScript client ---
 
 GMI_EMCCALIB_TS := webapp/emccalib/src/generated/emccalib_client.ts

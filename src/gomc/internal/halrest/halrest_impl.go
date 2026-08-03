@@ -468,6 +468,10 @@ func (h *halcmdImpl) SetDebug(level int32) (*halcmdapi.CmdResult, error) {
 	return okCmd(), nil
 }
 
+func (h *halcmdImpl) GetDebug() (int32, error) {
+	return int32(halcmd.GetDebug()), nil
+}
+
 func (h *halcmdImpl) Save(type_ *string) (*halcmdapi.CmdResult, error) {
 	lines, err := halcmd.Save(optStr(type_, "all"), "")
 	if err != nil {

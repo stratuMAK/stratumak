@@ -30,6 +30,17 @@ func (g *clientPyWSGen) printf(format string, args ...interface{}) {
 	_, g.err = fmt.Fprintf(g.w, format, args...)
 }
 
+// hasStructDelta reports whether any watch needs the delta-merge helper.
+// See structDelta (client_ts_ws.go) for why only struct returns get it.
+func (g *clientPyWSGen) hasStructDelta() bool {
+	for _, fn := range g.api.Funcs {
+		if structDelta(fn) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *clientPyWSGen) generate() error {
 	g.emitHeader()
 	g.emitConstants()
@@ -129,7 +140,28 @@ func (g *clientPyWSGen) emitClient() {
 	g.printf("        self._callbacks: dict[str, Callable] = {}\n")
 	g.printf("        self._pending: dict[int, asyncio.Future] = {}\n")
 	g.printf("        self._next_id = 1\n")
-	g.printf("        self._recv_task = None\n\n")
+	g.printf("        self._recv_task = None\n")
+	if g.hasStructDelta() {
+		// @watch_delta on a struct return: see _merge_delta below.
+		g.printf("        self._delta_state: dict[str, dict] = {}\n")
+	}
+	g.printf("\n")
+
+	if g.hasStructDelta() {
+		g.printf("    def _merge_delta(self, func_name: str, data):\n")
+		g.printf("        \"\"\"Merge a @watch_delta frame onto the last object seen for this watch.\n\n")
+		g.printf("        The server sends the whole object on the first push of a connection and\n")
+		g.printf("        only the changed top-level keys after that. A partial struct is not a\n")
+		g.printf("        valid value of the declared type, so replacing instead of merging hands\n")
+		g.printf("        the caller an object missing most of its fields.\n")
+		g.printf("        \"\"\"\n")
+		g.printf("        if not isinstance(data, dict):\n")
+		g.printf("            return data\n")
+		g.printf("        merged = dict(self._delta_state.get(func_name, {}))\n")
+		g.printf("        merged.update(data)\n")
+		g.printf("        self._delta_state[func_name] = merged\n")
+		g.printf("        return merged\n\n")
+	}
 
 	// connect
 	g.printf("    async def connect(self):\n")
@@ -230,6 +262,9 @@ func (g *clientPyWSGen) emitClient() {
 		if fn.Return != nil && fn.Return.Kind == ast.TypeNamed {
 			typeName := toPascalCase(fn.Return.Name)
 			g.printf("        def _typed_cb(data):\n")
+			if structDelta(fn) {
+				g.printf("            data = self._merge_delta(%q, data)\n", fn.Name)
+			}
 			g.printf("            if callback:\n")
 			g.printf("                callback(%s.from_dict(data) if isinstance(data, dict) else data)\n", typeName)
 			g.printf("        await self.subscribe(%q, rate_ms, _typed_cb)\n\n", fn.Name)
@@ -354,6 +389,9 @@ func (g *clientPyWSGen) emitThreadedWrapper() {
 		if fn.Return != nil && fn.Return.Kind == ast.TypeNamed {
 			typeName := toPascalCase(fn.Return.Name)
 			g.printf("        def _typed_cb(data):\n")
+			if structDelta(fn) {
+				g.printf("            data = self._merge_delta(%q, data)\n", fn.Name)
+			}
 			g.printf("            if callback:\n")
 			g.printf("                callback(%s.from_dict(data) if isinstance(data, dict) else data)\n", typeName)
 			g.printf("        self._pending_subs.append((%q, rate_ms, _typed_cb))\n\n", fn.Name)

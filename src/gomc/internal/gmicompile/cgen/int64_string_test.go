@@ -260,3 +260,58 @@ func TestTSReviveSetTransitive(t *testing.T) {
 		t.Errorf("Stats (direct u64 + slice of revivable Point) should need revive")
 	}
 }
+
+// watchOnly64API returns its bigint-carrying type from a WATCH function only —
+// the emcstat shape. The REST client emits no method for it, so it must emit no
+// reviver for it either: an uncalled function is a hard error under the
+// webapps' noUnusedLocals.
+func watchOnly64API() *ast.API {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	i32 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI32}
+	stat := ast.TypeRef{Kind: ast.TypeNamed, Name: "Stat"}
+	info := ast.TypeRef{Kind: ast.TypeNamed, Name: "Info"}
+	return &ast.API{
+		Name: "livestat", Version: 1, Prefix: "livestat", RestExport: true,
+		Types: []ast.Type{
+			{Name: "Stat", Fields: []ast.Field{
+				{Name: "boot_id", Type: i64},
+				{Name: "heartbeat", Type: i32},
+			}},
+			{Name: "Info", Fields: []ast.Field{{Name: "joints", Type: i32}}},
+		},
+		Funcs: []ast.Func{
+			{Name: "get_stat", Method: "GET", Path: "/stat", Watch: true, Return: &stat},
+			{Name: "get_info", Method: "GET", Path: "/info", Return: &info},
+		},
+	}
+}
+
+func TestClientTSOmitsReviverForWatchOnlyType(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientTS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientTS: %v", err)
+	}
+	out := buf.String()
+	// The type and its bigint field still have to be declared — the WS client
+	// imports nothing, but application code refers to the interface.
+	if !strings.Contains(out, "boot_id: bigint;") {
+		t.Errorf("REST client should still declare the bigint field:\n%s", out)
+	}
+	if strings.Contains(out, "function __reviveStat") {
+		t.Errorf("REST client emitted a reviver for a watch-only type (nothing calls it):\n%s", out)
+	}
+}
+
+func TestClientTSWSKeepsReviverForWatchOnlyType(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientTSWS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientTSWS: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "function __reviveStat") {
+		t.Errorf("WS client must emit the reviver for the type it subscribes to:\n%s", out)
+	}
+	if !strings.Contains(out, "__reviveStat(__d)") {
+		t.Errorf("WS subscribe callback must revive before invoking the caller:\n%s", out)
+	}
+}

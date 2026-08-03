@@ -1,7 +1,6 @@
 usr/share/man/man1/5axisgui.1
 usr/share/man/man1/axis.1
 usr/share/man/man1/axis-remote.1
-usr/share/man/man1/debuglevel.1
 usr/share/man/man1/elbpcom.1
 usr/share/man/man1/emccalib.1
 usr/share/man/man1/gladevcp.1
@@ -37,6 +36,7 @@ usr/share/man/man1/linuxcnc_info.1
 usr/share/man/man1/linuxcnclcd.1
 usr/share/man/man1/linuxcncmkdesktop.1
 usr/share/man/man1/linuxcnctop.1
+usr/share/man/man1/linuxcnctop-ui.1
 usr/share/man/man1/linuxcnc_var.1
 usr/share/man/man1/maho600gui.1
 usr/share/man/man1/max5gui.1

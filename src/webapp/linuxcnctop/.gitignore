@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src/generated/*.ts
+!src/generated/.gitkeep
+*.tsbuildinfo
+src/**/*.vue.js
+src/**/*.js

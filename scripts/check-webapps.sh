@@ -1,6 +1,6 @@
 #!/bin/sh
 # check-webapps.sh — the gomc webapp gate: ESLint + cold vue-tsc type-check +
-# vitest, over the six non-deferred apps.
+# vitest, over the seven non-deferred apps.
 #
 # Self-contained: uses npm/npx directly, needs no RIP build or ./configure, so
 # it runs as a fast stand-alone CI job (and locally on a clean checkout). It is
@@ -10,10 +10,10 @@ set -eu
 
 cd "$(dirname "$0")/../src/webapp" || exit 1
 
-# Apps with a hand-written source tree. Type-check covers all six; only five
+# Apps with a hand-written source tree. Type-check covers all seven; only six
 # carry request-level tests (latency has none — see the Phase-6 ruling).
-TYPECHECK_APPS="tooledit emccalib halshow halscope latency classicladder"
-TEST_APPS="tooledit emccalib halshow halscope classicladder"
+TYPECHECK_APPS="tooledit emccalib halshow halscope latency classicladder linuxcnctop"
+TEST_APPS="tooledit emccalib halshow halscope classicladder linuxcnctop"
 
 # The per-app src/generated/*.ts REST clients are gitignored build artifacts
 # produced by modcompile during `make` (gmi/codegen/Submakefile). They are

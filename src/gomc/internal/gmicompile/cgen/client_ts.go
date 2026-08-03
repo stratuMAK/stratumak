@@ -32,7 +32,8 @@ func (g *clientTSGen) printf(format string, args ...interface{}) {
 }
 
 func (g *clientTSGen) generate() error {
-	g.reviveSet = tsReviveSet(g.api)
+	// The REST client serves everything but the watch functions.
+	g.reviveSet = tsReviveUsedSet(g.api, tsReviveSet(g.api), func(fn ast.Func) bool { return !fn.Watch })
 	g.emitHeader()
 	g.emitConstants()
 	g.emitEnums()
@@ -447,6 +448,57 @@ func tsReviveSet(api *ast.API) map[string]bool {
 			return set
 		}
 	}
+}
+
+// tsReviveUsedSet narrows a revive set to the types whose reviver the client
+// being emitted actually calls, plus the types those revivers call into.
+//
+// tsReviveSet ranges over every type in the API, but a generator emits a method
+// only for the functions it serves — the REST client skips watch functions —
+// so a type reachable only through a skipped function would get a reviver that
+// nothing calls. Under the webapps' `noUnusedLocals` that is a compile error,
+// which is how this surfaced: emcstat's only StatFull-returning function is
+// watch-only, leaving __reviveStatFull dead in the REST client.
+func tsReviveUsedSet(api *ast.API, set map[string]bool, serves func(ast.Func) bool) map[string]bool {
+	byName := make(map[string]*ast.Type, len(api.Types))
+	for i := range api.Types {
+		byName[api.Types[i].Name] = &api.Types[i]
+	}
+
+	used := make(map[string]bool)
+	var markName func(name string)
+	markType := func(t ast.TypeRef) {
+		switch {
+		case t.Kind == ast.TypeNamed && set[t.Name]:
+			markName(t.Name)
+		case (t.Kind == ast.TypeSlice || t.Kind == ast.TypeArray || t.Kind == ast.TypeMap) &&
+			t.Elem != nil && t.Elem.Kind == ast.TypeNamed && set[t.Elem.Name]:
+			markName(t.Elem.Name)
+		}
+	}
+	// A reviver body calls the revivers of its revivable named fields, so the
+	// closure has to follow them or the emitted body loses its callee.
+	markName = func(name string) {
+		if used[name] {
+			return
+		}
+		used[name] = true
+		t := byName[name]
+		if t == nil {
+			return
+		}
+		for _, f := range t.Fields {
+			markType(f.Type)
+		}
+	}
+
+	for _, fn := range api.Funcs {
+		if fn.Return == nil || !serves(fn) {
+			continue
+		}
+		markType(*fn.Return)
+	}
+	return used
 }
 
 // emitTSRevivers writes an in-place reviver function for every type in the set.
