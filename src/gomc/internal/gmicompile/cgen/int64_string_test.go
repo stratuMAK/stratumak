@@ -426,3 +426,83 @@ func TestClientTSWSKeepsReviverForWatchOnlyType(t *testing.T) {
 		t.Errorf("WS subscribe callback must revive before invoking the caller:\n%s", out)
 	}
 }
+
+// Command RETURN values: scalar i64 arrives as the wire string and must be
+// converted; named types go through from_dict. Both Python generators share
+// the semantics (the REST client had the named case but returned scalar i64
+// raw; the WS client returned everything raw).
+func TestClientPyReturnConversion(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	api := flat64API()
+	api.Funcs = append(api.Funcs, ast.Func{
+		Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64,
+	})
+
+	var buf bytes.Buffer
+	if err := GenerateClientPython(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPython: %v", err)
+	}
+	out := buf.String()
+	for _, c := range []string{
+		"return _gmi_to_int(result)",
+		"return Stats.from_dict(result) if result else None",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python REST client missing %q:\n%s", c, out)
+		}
+	}
+}
+
+func TestClientPyWSReturnConversion(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	stats := ast.TypeRef{Kind: ast.TypeNamed, Name: "Stats"}
+	api := flat64API()
+	api.Funcs[0].Watch = true
+	api.Funcs = append(api.Funcs,
+		ast.Func{Name: "fetch_stats", Method: "GET", Path: "/fstats", Return: &stats},
+		ast.Func{Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64},
+	)
+
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	for _, c := range []string{
+		"return Stats.from_dict(_r) if _r else None",
+		"return _gmi_to_int(_r)",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+}
+
+// An API whose ONLY 64-bit value is a command return still needs the
+// converters emitted: apiNeeds64BitConv must scan return types.
+func TestClientPyWSReturnOnly64BitEmitsHelpers(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	i32 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI32}
+	api := &ast.API{
+		Name: "ret", Version: 1, Prefix: "ret", RestExport: true,
+		Types: []ast.Type{{Name: "Small", Fields: []ast.Field{
+			{Name: "n", Type: i32},
+		}}},
+		Funcs: []ast.Func{
+			{Name: "watch_small", Method: "GET", Path: "/small", Watch: true,
+				Return: &ast.TypeRef{Kind: ast.TypeNamed, Name: "Small"}},
+			{Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "def _gmi_to_int(v):") {
+		t.Errorf("helpers missing although a command returns i64:\n%s", out)
+	}
+	if !strings.Contains(out, "return _gmi_to_int(_r)") {
+		t.Errorf("i64 return not converted:\n%s", out)
+	}
+}

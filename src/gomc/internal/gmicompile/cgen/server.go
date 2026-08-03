@@ -255,6 +255,9 @@ func apiNeeds64BitConv(api *ast.API) bool {
 				return true
 			}
 		}
+		if fn.Return != nil && is64BitScalarInt(*fn.Return) {
+			return true
+		}
 	}
 	return false
 }

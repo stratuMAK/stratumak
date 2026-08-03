@@ -355,10 +355,32 @@ func (g *clientPyWSGen) emitCommands() {
 				g.printf("            %q: %s,\n", p.Name, g.pyArgSend(p))
 			}
 			g.printf("        }\n")
-			g.printf("        return await self._call(%q, args)\n\n", fn.Name)
+			g.printf("        _r = await self._call(%q, args)\n", fn.Name)
 		} else {
-			g.printf("        return await self._call(%q)\n\n", fn.Name)
+			g.printf("        _r = await self._call(%q)\n", fn.Name)
 		}
+		g.printf("        return %s\n\n", g.pyRetRecv(fn))
+	}
+}
+
+// pyRetRecv returns the expression converting a command result _r to its
+// declared shape, mirroring the REST client: named types through from_dict,
+// scalar i64/u64 from the wire string (the server's ,string tag), everything
+// else raw. Collections of 64-bit ints do not exist on the wire (see
+// is64BitScalarInt), so no deeper shape needs handling here.
+func (g *clientPyWSGen) pyRetRecv(fn ast.Func) string {
+	r := fn.Return
+	switch {
+	case r == nil:
+		return "_r"
+	case r.Kind == ast.TypeSlice && r.Elem != nil && r.Elem.Kind == ast.TypeNamed:
+		return fmt.Sprintf("[%s.from_dict(item) for item in (_r or [])]", toPascalCase(r.Elem.Name))
+	case r.Kind == ast.TypeNamed:
+		return fmt.Sprintf("%s.from_dict(_r) if _r else None", toPascalCase(r.Name))
+	case is64BitScalarInt(*r):
+		return "_gmi_to_int(_r)"
+	default:
+		return "_r"
 	}
 }
 
