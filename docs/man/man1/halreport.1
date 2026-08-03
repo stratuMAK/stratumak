@@ -28,7 +28,7 @@ halreport \- collect one diagnostic bundle for a support question
 .SH SYNOPSIS
 .B halreport
 [\fB\-o\fR \fIOUTPUT\fR] [\fB\-\-ini\fR \fIFILE\fR] [\fB\-\-stdout\fR]
-[\fB\-\-journal\-lines\fR \fIN\fR]
+[\fB\-\-no\-program\fR] [\fB\-\-journal\-lines\fR \fIN\fR]
 .SH DESCRIPTION
 \fBhalreport\fR gathers, in one command, what is needed to answer a support
 question about a machine: versions, the host and real\-time environment, the
@@ -42,8 +42,9 @@ host\-only sections when none is reachable \(em a machine that will not start is
 exactly when a report is wanted.
 .PP
 The bundle contains the text report, the INI file and the local files it names
-(HAL files, tool table, panel XML), the \fBgomc\-server\fR journal and the tail
-of \fBdmesg\fR.
+(HAL files, tool table, panel XML, and the loaded part program \(em see
+\fB\-\-no\-program\fR), the \fBgomc\-server\fR journal and the tail of
+\fBdmesg\fR. Files over 10\ MB are listed but not attached.
 .SH OPTIONS
 .TP
 \fB\-o\fR \fIOUTPUT\fR
@@ -54,6 +55,10 @@ INI file to record. Default \fB$INI_FILE_NAME\fR.
 .TP
 \fB\-\-stdout\fR
 Write the text report to standard output and create no bundle.
+.TP
+\fB\-\-no\-program\fR
+Do not attach the loaded part program (\fBOPEN_FILE\fR). Use this when the
+G\-code is not yours to share.
 .TP
 \fB\-\-journal\-lines\fR \fIN\fR
 Journal lines to capture. Default 2000.
@@ -74,7 +79,7 @@ Task instance to address (default \fBmilltask\fR).
 \fBINI_FILE_NAME\fR
 INI file recorded when \fB\-\-ini\fR is not given.
 .SH "SEE ALSO"
-\fBhalcmd(1)\fR, \fBlinuxcnc(1)\fR
+\fBhalcmd(1)\fR, \fBgomc\-server(1)\fR
 .SH AUTHOR
 This man page is part of the LinuxCNC project.
 .SH COPYRIGHT

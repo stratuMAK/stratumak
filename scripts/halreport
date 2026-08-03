@@ -15,11 +15,13 @@ server is up -- a machine that will not start is exactly when a report is
 wanted.
 
 Usage:
-    halreport [-o OUTPUT] [--ini FILE] [--stdout] [--journal-lines N]
+    halreport [-o OUTPUT] [--ini FILE] [--stdout] [--no-program]
+              [--journal-lines N]
 
     -o OUTPUT         bundle path (default: ./halreport-<host>-<stamp>.tar.gz)
     --ini FILE        INI file to record; default $INI_FILE_NAME
     --stdout          write the text report to stdout, make no bundle
+    --no-program      do not attach the loaded part program (OPEN_FILE)
     --journal-lines N journal lines to capture (default 2000)
 
 Environment: GMC_REST_URL (default http://127.0.0.1:5080), GMC_INSTANCE.
@@ -30,39 +32,63 @@ import datetime
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 REST_TIMEOUT = 5.0
 SEP = "=" * 78
+MAX_ATTACH = 10 << 20     # per-file cap; a bundle is an email attachment
 
 
 # ─── plumbing ───
 
-def run(cmd, timeout=15):
-    """Run a host command, returning its output or a readable failure line.
+def run_rc(cmd, timeout=15):
+    """Run a host command, returning (exit status, merged output).
 
     Never raises: a missing tool on a customer machine must cost one line of
-    the report, not the report.
+    the report, not the report. Spawn failures return None for the status and
+    a readable sentinel as the output.
     """
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
-        return "<not installed: %s>" % cmd[0]
+        return None, "<not installed: %s>" % cmd[0]
     except subprocess.TimeoutExpired:
-        return "<timed out: %s>" % " ".join(cmd)
+        return None, "<timed out: %s>" % " ".join(cmd)
     except Exception as e:                                    # noqa: BLE001
-        return "<failed: %s: %s>" % (" ".join(cmd), e)
+        return None, "<failed: %s: %s>" % (" ".join(cmd), e)
     out = (p.stdout or "") + (p.stderr or "")
-    return out.strip() or "<no output>"
+    return p.returncode, out.strip()
+
+
+def run(cmd, timeout=15):
+    """run_rc as one line of report text. A nonzero exit is marked as such --
+    without the marker a failing command's stderr reads like its answer."""
+    rc, out = run_rc(cmd, timeout)
+    if rc not in (0, None):
+        return "<exit %d: %s> %s" % (rc, cmd[0], out) if out else \
+               "<exit %d: %s>" % (rc, cmd[0])
+    return out or "<no output>"
 
 
 def rest_url():
     return os.environ.get("GMC_REST_URL", "http://127.0.0.1:5080").rstrip("/")
+
+
+def display_url():
+    """rest_url() with any userinfo removed -- the report ships to a stranger,
+    credentials embedded in the URL must not ship with it."""
+    parts = urllib.parse.urlsplit(rest_url())
+    if "@" not in parts.netloc:
+        return rest_url()
+    host = parts.netloc.rsplit("@", 1)[1]
+    return urllib.parse.urlunsplit(parts._replace(netloc="<redacted>@" + host))
 
 
 def instance():
@@ -122,6 +148,13 @@ class Report:
         self.lines.append("  (%s)" % body)
 
     def attach(self, name, path):
+        """Register a file under its bundle name, keeping same-named files from
+        different directories apart instead of silently keeping only one."""
+        if self.files.get(name) == path:
+            return
+        base, i = name, 2
+        while name in self.files:
+            name, i = "%s.%d" % (base, i), i + 1
         self.files[name] = path
 
     def render(self):
@@ -133,11 +166,11 @@ class Report:
 def sec_report(rep):
     rep.section("REPORT")
     rep.kv("Generated", datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
-    rep.kv("Host", run(["hostname"]))
+    rep.kv("Host", socket.gethostname() or "unknown")
     rep.kv("User", "%s (uid %d)" % (run(["id", "-un"]), os.getuid()))
     rep.kv("Groups", run(["id", "-Gn"]))
     rep.kv("Command", " ".join(sys.argv))
-    rep.kv("REST URL", rest_url())
+    rep.kv("REST URL", display_url())
     rep.kv("Instance", instance())
 
 
@@ -154,10 +187,21 @@ def sec_version(rep):
     if os.path.isdir(os.path.join(top, ".git")):
         rep.note("run-in-place tree: %s" % top)
         rep.kv("git commit", run(["git", "-C", top, "rev-parse", "--short", "HEAD"]))
-        dirty = run(["git", "-C", top, "status", "--porcelain"])
-        rep.kv("git worktree", "clean" if dirty == "<no output>" else "MODIFIED")
-        if dirty != "<no output>":
+        rc, dirty = run_rc(["git", "-C", top, "status", "--porcelain"])
+        if rc != 0:
+            # git itself failed (dubious ownership, no git, ...) -- its stderr
+            # is not a dirty-file list and must not be reported as one.
+            rep.kv("git worktree", "<git status failed>")
             rep.text(dirty)
+        elif dirty:
+            rep.kv("git worktree", "MODIFIED")
+            rep.text(dirty)
+        else:
+            rep.kv("git worktree", "clean")
+    else:
+        # A packaged install: the deb version is the one datum support needs
+        # first, and nothing else in this section carries it.
+        rep.kv("package", run(["dpkg-query", "-W", "stratumak*"]))
 
 
 def sec_host(rep):
@@ -176,9 +220,26 @@ def sec_host(rep):
     rep.kv("cores", run(["nproc"]))
     rep.kv("memory", run(["sh", "-c", "free -h | sed -n 2p"]))
     rep.kv("uptime", run(["uptime"]))
-    # memlock matters: the RT path prefaults and locks its memory.
-    rep.text("\nProcess limits (ulimit -a):")
-    rep.text(run(["sh", "-c", "ulimit -a"]))
+    # memlock matters: the RT path prefaults and locks its memory. The limits
+    # that count are the server process's own -- under systemd they routinely
+    # differ from any interactive shell's.
+    rc, pids = run_rc(["pgrep", "-x", "gomc-server"])
+    if rc == 0 and pids.split():
+        pid = pids.split()[0]
+        label = "\ngomc-server limits (/proc/%s/limits%s):" % (
+            pid, "" if len(pids.split()) == 1
+            else ", first of %d processes" % len(pids.split()))
+        try:
+            with open("/proc/%s/limits" % pid) as f:
+                rep.text(label)
+                rep.text(f.read().rstrip())
+        except OSError as e:
+            rep.text(label)
+            rep.text("<unreadable: %s>" % e)
+    else:
+        rep.text("\nProcess limits (ulimit -a of this shell; no running "
+                 "gomc-server to read /proc/<pid>/limits from):")
+        rep.text(run(["sh", "-c", "ulimit -a"]))
 
 
 def sec_server(rep):
@@ -206,8 +267,8 @@ def sec_config(rep, args):
                  "record the config")
         return
     rep.kv("INI file", ini)
-    if not os.path.exists(ini):
-        rep.note("that path does not exist on this host")
+    if not os.path.isfile(ini):
+        rep.note("that path is not a file on this host")
         return
     rep.attach("config/" + os.path.basename(ini), ini)
     cfgdir = os.path.dirname(os.path.abspath(ini))
@@ -216,8 +277,12 @@ def sec_config(rep, args):
     # Attach the files the INI names, so the bundle explains itself without a
     # follow-up round trip. LIB: files are skipped: they are system files,
     # identical on every host, and shipping them buries the local ones.
-    wanted = ("HALFILE", "POSTGUI_HALFILE", "TOOL_TABLE", "PARAMETER_FILE",
-              "PYVCP", "GLADEVCP", "OPEN_FILE")
+    # OPEN_FILE is the loaded part program -- often the customer's own work, so
+    # --no-program leaves it out of the bundle.
+    wanted = ["HALFILE", "POSTGUI_HALFILE", "TOOL_TABLE", "PARAMETER_FILE",
+              "PYVCP", "GLADEVCP", "OPEN_FILE"]
+    if args.no_program:
+        wanted.remove("OPEN_FILE")
     attached = []
     try:
         with open(ini, errors="replace") as f:
@@ -228,19 +293,25 @@ def sec_config(rep, args):
                 key, val = (s.strip() for s in line.split("=", 1))
                 if key not in wanted or not val:
                     continue
-                name = val.split()[0]
+                name = os.path.expanduser(val.split()[0])
                 if name.startswith("LIB:"):
                     attached.append("%s = %s   (system file, not attached)" % (key, name))
                     continue
                 cand = name if os.path.isabs(name) else os.path.join(cfgdir, name)
-                if os.path.isfile(cand):
-                    rep.attach("config/" + os.path.basename(cand), cand)
-                    attached.append("%s = %s" % (key, name))
-                else:
+                if not os.path.isfile(cand):
                     attached.append("%s = %s   (not in the config dir; resolved from the library path, or created at run time)"
                                     % (key, name))
+                elif os.path.getsize(cand) > MAX_ATTACH:
+                    attached.append("%s = %s   (not attached: %d MB, over the %d MB cap)"
+                                    % (key, name, os.path.getsize(cand) >> 20,
+                                       MAX_ATTACH >> 20))
+                else:
+                    rep.attach("config/" + os.path.basename(cand), cand)
+                    attached.append("%s = %s" % (key, name))
     except OSError as e:
         rep.note("could not scan the INI: %s" % e)
+    if args.no_program:
+        attached.append("OPEN_FILE skipped (--no-program)")
     rep.text("\nFiles named by the INI:")
     rep.text(["  " + a for a in attached] or ["  <none>"])
 
@@ -256,7 +327,7 @@ def sec_machine(rep):
     for k in ("state", "mode", "interp_state", "exec_state", "file"):
         if k in task:
             rep.kv("task." + k, task[k])
-    for k in ("in_position", "motion_mode", "queue", "queue_full"):
+    for k in ("in_position", "mode", "queue", "queue_full"):
         if k in motion:
             rep.kv("motion." + k, motion[k])
     for k in ("estop", "homed", "limit", "probe_tripped", "linear_units",
@@ -367,17 +438,23 @@ def sec_logs(rep, args, tmpdir):
     # A daemonised gomc-server logs to syslog with the identifier "gomc-server"
     # (internal/daemon/syslog.go). In the foreground it writes to stdout/stderr,
     # wherever the operator redirected them, which this tool cannot know.
-    out = run(["journalctl", "-t", "gomc-server", "-n", str(args.journal_lines),
-               "--no-pager"], timeout=60)
-    path = os.path.join(tmpdir, "gomc-server.journal")
-    with open(path, "w") as f:
-        f.write(out + "\n")
-    rep.attach("logs/gomc-server.journal", path)
-    rep.kv("journal -t gomc-server", "%d lines" % out.count("\n"))
-    rep.note("empty means the server was not started with -D; in the foreground "
-             "its output goes wherever the operator redirected it")
+    rc, out = run_rc(["journalctl", "-t", "gomc-server",
+                      "-n", str(args.journal_lines), "--no-pager"], timeout=60)
+    if rc is None:
+        rep.kv("journal -t gomc-server", out)
+    else:
+        path = os.path.join(tmpdir, "gomc-server.journal")
+        with open(path, "w") as f:
+            f.write(out + "\n")
+        rep.attach("logs/gomc-server.journal", path)
+        lines = out.count("\n") + 1 if out else 0
+        rep.kv("journal -t gomc-server",
+               "%d lines" % lines + ("" if rc == 0 else "  (journalctl exit %d)" % rc))
+        rep.note("empty can mean the server was not started with -D (foreground "
+                 "output goes wherever the operator redirected it), or that this "
+                 "user cannot read the journal (systemd-journal/adm group)")
 
-    dmesg = run(["sh", "-c", "dmesg --ctime 2>/dev/null | tail -400"], timeout=30)
+    dmesg = run(["sh", "-c", "dmesg --ctime 2>&1 | tail -400"], timeout=30)
     path = os.path.join(tmpdir, "dmesg.txt")
     with open(path, "w") as f:
         f.write(dmesg + "\n")
@@ -413,8 +490,13 @@ def main():
     ap.add_argument("--ini", help="INI file to record (default $INI_FILE_NAME)")
     ap.add_argument("--stdout", action="store_true",
                     help="write the report to stdout, make no bundle")
-    ap.add_argument("--journal-lines", type=int, default=2000)
+    ap.add_argument("--no-program", action="store_true",
+                    help="do not attach the loaded part program (OPEN_FILE)")
+    ap.add_argument("--journal-lines", type=int, default=2000,
+                    help="journal lines to capture (default 2000)")
     args = ap.parse_args()
+    if args.stdout and args.output:
+        ap.error("--stdout writes no bundle; it cannot be combined with -o")
 
     with tempfile.TemporaryDirectory(prefix="halreport-") as tmpdir:
         rep = build(args, tmpdir)
@@ -424,7 +506,7 @@ def main():
             return 0
 
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        host = run(["hostname"]).strip() or "unknown"
+        host = socket.gethostname() or "unknown"
         out = args.output or "halreport-%s-%s.tar.gz" % (host, stamp)
         base = os.path.basename(out)
         for suffix in (".tar.gz", ".tgz"):
@@ -434,7 +516,14 @@ def main():
         rpath = os.path.join(tmpdir, "report.txt")
         with open(rpath, "w") as f:
             f.write(text)
-        with tarfile.open(out, "w:gz") as tar:
+        try:
+            # dereference: a config file that is a symlink must arrive as its
+            # content -- a bundle full of dangling links answers nothing.
+            tar = tarfile.open(out, "w:gz", dereference=True)
+        except OSError as e:
+            print("halreport: cannot write %s: %s" % (out, e), file=sys.stderr)
+            return 1
+        with tar:
             tar.add(rpath, arcname=base + "/report.txt")
             for name, path in sorted(rep.files.items()):
                 try:
