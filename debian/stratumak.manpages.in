@@ -1,11 +1,15 @@
 usr/share/man/man1/5axisgui.1
+usr/share/man/man1/ads-xml-gen.1
 usr/share/man/man1/axis.1
 usr/share/man/man1/axis-remote.1
 usr/share/man/man1/elbpcom.1
 usr/share/man/man1/emccalib.1
+usr/share/man/man1/ethercat.1
 usr/share/man/man1/gladevcp.1
 usr/share/man/man1/gladevcp_demo.1
+usr/share/man/man1/gmcui.1
 usr/share/man/man1/gmoccapy.1
+usr/share/man/man1/gomc-server.1
 usr/share/man/man1/gremlin_view.1
 usr/share/man/man1/gs2_vfd.1
 usr/share/man/man1/gscreen.1
@@ -28,6 +32,7 @@ usr/share/man/man1/inivar.1
 usr/share/man/man1/io.1
 usr/share/man/man1/iocontrol.1
 usr/share/man/man1/iov2.1
+usr/share/man/man1/latency.1
 usr/share/man/man1/latency-test.1
 usr/share/man/man1/lineardelta.1
 usr/share/man/man1/linuxcnc.1
@@ -37,6 +42,7 @@ usr/share/man/man1/linuxcnctop.1
 usr/share/man/man1/linuxcnctop-ui.1
 usr/share/man/man1/linuxcnc_var.1
 usr/share/man/man1/maho600gui.1
+usr/share/man/man1/manualtoolchange_ui.1
 usr/share/man/man1/max5gui.1
 usr/share/man/man1/mb2hal.1
 usr/share/man/man1/mdi.1
@@ -44,7 +50,7 @@ usr/share/man/man1/mdro.1
 usr/share/man/man1/mesambccc.1
 usr/share/man/man1/melfagui.1
 usr/share/man/man1/milltask.1
-usr/share/man/man1/millturn.1
+usr/share/man/man1/millturngui.1
 usr/share/man/man1/mitsub_vfd.1
 usr/share/man/man1/monitor-xhc-hb04.1
 usr/share/man/man1/motion-logger.1
