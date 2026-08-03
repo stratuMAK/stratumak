@@ -643,7 +643,7 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 
 # Copy all images used by translated adoc files into the directories
 # with translated adoc files.
-.adoc-images-stamp: translateddocs $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
+.adoc-images-stamp: translateddocs svgs_made_from_dots $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
 	set -e; for ADOC_FILE in $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS))); do \
 		ADOC_DIR=$$(echo $$(dirname $$ADOC_FILE) | sed s%$(DOC_SRCDIR)/%% ); \
 		echo Processing $$ADOC_FILE, dir $$ADOC_DIR; \
