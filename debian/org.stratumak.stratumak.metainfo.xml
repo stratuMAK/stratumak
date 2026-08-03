@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component>
-  <id>de.modusoft.stratumak</id>
+  <id>org.stratumak.stratumak</id>
   <metadata_license>MIT</metadata_license>
-  <name>LinuxCNC</name>
-  <summary>LinuxCNC Machine Controller</summary>
+  <name>Stratumak</name>
+  <summary>Stratumak Machine Controller</summary>
   <description>
-    <p>LinuxCNC controls CNC machines. It can drive milling machines,
-      lathes, 3D printers, laser cutters, plasma cutters, robot arms,
-      hexapods, and more.</p>
+    <p>Stratumak controls CNC machines. Based on LinuxCNC, it can drive
+      milling machines, lathes, 3D printers, laser cutters, plasma
+      cutters, robot arms, hexapods, and more.</p>
   </description>
+  <developer id="org.stratumak">
+    <name>Sascha Ittner</name>
+  </developer>
+  <url type="homepage">https://stratumak.org</url>
   <launchable type="desktop-id">linuxcnc.desktop</launchable>
   <provides>
     <modalias>usb:v05F3p0240d*</modalias>
