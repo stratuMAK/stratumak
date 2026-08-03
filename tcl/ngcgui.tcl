@@ -258,7 +258,7 @@
 
 #   8. entry boxes for positional parameters include key bindings
 #      for keys x,y,z,a,b,c,u,v,w, and d.  When embedded in axis, typing these keys
-#      cause the current value (emc_rel_act_pos) to be entered into the
+#      cause the current value (linuxcnc::rel_act_pos) to be entered into the
 #      entry box.  This function makes it simple to enter current coordinate
 #      values. The d key will enter the 2*x for the diameter on a lathe)
 #
@@ -2831,7 +2831,7 @@ proc ::ngcgui::entrykeybinding {ax w v} {
   if {![info exists coord]} return ;# silently
   # ignore errors (standalone for example)
   if [catch {
-    set value [emc_rel_act_pos $coord]
+    set value [linuxcnc::rel_act_pos $coord]
     switch $axis {
       D       {set value [expr 2.0*$value] ;# diameter}
       default {}
@@ -2840,7 +2840,8 @@ proc ::ngcgui::entrykeybinding {ax w v} {
     after 0 [list set $v $value]
     after 0 [list $w configure -fg $::ngc(any,color,override)]
   } msg] {
-    # silently ignore, emc_rel_act_pos will fail in standalone
+    # silently ignore: rel_act_pos fails when no controller is reachable
+    # (standalone, or the machine not running) — the binding just does nothing
     # puts stdout "entrykeybinding:<$msg>"
   }
 } ;# entrykeybinding
@@ -3755,10 +3756,13 @@ proc ::ngcgui::embed_in_axis_tab {f args} {
   } else  {
     pack $w -side top -fill none -expand 1 -anchor nw
   }
-  # package require Linuxcnc ;# needs linuxcnc v2.5.x, segfaults linuxcnc v2.4.x
-  # just invoking emc_init works with v2.4 and v2.5
-  if  [catch {emc_init} msg] {
-    puts "embed_in_axis_tab: [_ "entrykeybindings not available"] <$msg>"
+  # emc_init is gone with the NML Tcl extension, and there is nothing to
+  # initialise in its place: linuxcnc::rel_act_pos (what the entry key bindings
+  # use) is a stateless one-shot GET against the controller. The package that
+  # carries it is required at the top of this file; test for the proc itself,
+  # which is the actual precondition for the bindings.
+  if {[info commands ::linuxcnc::rel_act_pos] eq ""} {
+    puts "embed_in_axis_tab: [_ "entrykeybindings not available"]"
   }
   lappend ::ngc(embed,pages) $page
   updatepage

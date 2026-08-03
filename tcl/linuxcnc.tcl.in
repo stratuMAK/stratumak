@@ -61,10 +61,109 @@ proc linuxcnc::image_search i {
 # NML Tcl extension removed — commands now handled via gomc-server
 # load [file join [file dirname [info script]] linuxcnc[info sharedlibextension]]
 
+# The removed extension was what satisfied `package require Linuxcnc`: emcsh.cc
+# called Tcl_PkgProvide, and nothing in this file ever did. Commenting out the
+# load therefore made every `package require Linuxcnc` fail — quietly, because
+# the ifneeded script has already sourced this file by then, so the namespace
+# and procs below exist and only callers that check the require notice (ngcgui
+# reports "Internationalization not available" and runs on without msgcat).
+package provide Linuxcnc 1.0
+
 # Arrange to load hal.so when the 'hal' command is requested
 proc hal {args} {
     load $::linuxcnc::TCL_LIB_DIR/hal.so
     eval hal $args
+}
+
+# ---------------------------------------------------------------------------
+# Controller status over REST
+#
+# Replaces the handful of emcsh commands Tcl code still wanted after the NML
+# removal. One-shot GET /stat over Tcl's core http package — no tcllib: the
+# json package is not a dependency of this project and is absent on the
+# reference system, so the few fields needed are pulled out directly. That is
+# only safe because they are *flat* objects at the top level of the snapshot;
+# do not grow this into a general JSON reader, use a real parser instead.
+# ---------------------------------------------------------------------------
+
+proc linuxcnc::rest_url {} {
+    if {[info exists ::env(GMC_REST_URL)] && $::env(GMC_REST_URL) ne ""} {
+        return [string trimright $::env(GMC_REST_URL) /]
+    }
+    return "http://127.0.0.1:5080"
+}
+
+proc linuxcnc::instance {} {
+    if {[info exists ::env(GMC_INSTANCE)] && $::env(GMC_INSTANCE) ne ""} {
+        return $::env(GMC_INSTANCE)
+    }
+    return "milltask"
+}
+
+# Fetch the status snapshot as raw JSON text. Errors if the controller is not
+# reachable or answers anything but 200 — callers decide whether that is fatal.
+proc linuxcnc::stat_json {} {
+    package require http
+    set url "[linuxcnc::rest_url]/api/v1/[linuxcnc::instance]/stat"
+    set tok [http::geturl $url -timeout 2000]
+    try {
+        if {[http::status $tok] ne "ok"} {
+            error "GET $url: [http::status $tok] [http::error $tok]"
+        }
+        if {[http::ncode $tok] != 200} {
+            error "GET $url: HTTP [http::ncode $tok]"
+        }
+        return [http::data $tok]
+    } finally {
+        http::cleanup $tok
+    }
+}
+
+# Numeric field of a flat top-level JSON object, e.g. the "x" of
+# "actual_position": {"x": 1.5, "y": ...}. The leading quote in the pattern is
+# what keeps "actual_position" from also matching inside
+# "joint_actual_position".
+proc linuxcnc::_json_axis {json object axis} {
+    if {![regexp "\"$object\"\\s*:\\s*(\{\[^\{\}\]*\})" $json -> obj]} {
+        error "status field $object not found"
+    }
+    if {![regexp "\"$axis\"\\s*:\\s*(-?\[0-9.eE+-\]+)" $obj -> value]} {
+        error "status field $object.$axis not found"
+    }
+    return $value
+}
+
+# Actual position in the *relative* (program) coordinate system, for one axis
+# letter — the replacement for emcsh's emc_rel_act_pos.
+#
+# Parity with 2.9 (shcom.cc convertLinearUnits / emcsh.cc emc_rel_act_pos):
+# actual position less the g5x, g92 and tool offsets, reported in the units the
+# *program* is in (G20/G21), which is what a value typed into a G-code
+# parameter field has to be. gomc's wire format is mm, so unlike 2.9 there is
+# no machine-units step first. Angular axes are degrees throughout —
+# convertAngularUnits was the identity in 2.9 too.
+proc linuxcnc::rel_act_pos {axis} {
+    set axis [string tolower $axis]
+    if {[lsearch -exact {x y z a b c u v w} $axis] < 0} {
+        error "rel_act_pos: bad coordinate letter <$axis>"
+    }
+    set json [linuxcnc::stat_json]
+    set v [linuxcnc::_json_axis $json actual_position $axis]
+    foreach off {g5x_offset g92_offset tool_offset} {
+        set v [expr {$v - [linuxcnc::_json_axis $json $off $axis]}]
+    }
+    if {[lsearch -exact {a b c} $axis] >= 0} {
+        return $v
+    }
+    # 1 = inch, 2 = mm, 3 = cm (canon length units, emcstat.gmi)
+    if {![regexp {"program_units"\s*:\s*([0-9]+)} $json -> units]} {
+        set units 2
+    }
+    switch -- $units {
+        1       {return [expr {$v / 25.4}]}
+        3       {return [expr {$v / 10.0}]}
+        default {return $v}
+    }
 }
 
 # Internationalisation (i18n)
