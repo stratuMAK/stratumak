@@ -22,49 +22,61 @@
 .\"
 .\"
 .\"
-.TH HALREPORT "1"  "2020-08-26" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.TH HALREPORT "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-halreport \- creates a report on the status of the HAL
+halreport \- collect one diagnostic bundle for a support question
 .SH SYNOPSIS
-.B  halreport [outfilename]
-
+.B halreport
+[\fB\-o\fR \fIOUTPUT\fR] [\fB\-\-ini\fR \fIFILE\fR] [\fB\-\-stdout\fR]
+[\fB\-\-journal\-lines\fR \fIN\fR]
 .SH DESCRIPTION
-\fBhalreport\fR
-
- 1) supports components made by halcompile and numerous
-    legacy components
- 2) Known unhandled components:
-    at_pid   -- naming conflicts with pid, seldom used
-    boss_plc -- no manpage or docs (any users?)
-    watchdog -- seldom used (no users in-tree)
- 3) deprecated/obsolete components
-    counter
-    supply
-
- Identificaion of functions used according to pin name.
- Default handling works for components that:
- 1) use names=|count= (.comp components created with halcompile)
- 2) have a *single* function
-
-Full docs: 
-
-.nf http://linuxcnc.org/docs/html/hal/tools.html#_halreport
-
-.SH "SEE ALSO"
-\fBLinuxCNC(1)\fR
-
-Much more information about LinuxCNC and HAL is available in the LinuxCNC
-and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.
-
-.SH BUGS
-None known at this time. 
+\fBhalreport\fR gathers, in one command, what is needed to answer a support
+question about a machine: versions, the host and real\-time environment, the
+configuration that was actually loaded, live HAL topology and thread timing,
+machine state, and logs.
 .PP
+It runs on the machine, because much of what matters (kernel, distro, INI and
+HAL files, journal) is not reachable over the REST API. It contacts a running
+\fBgomc\-server\fR for the HAL and machine sections and falls back to the
+host\-only sections when none is reachable \(em a machine that will not start is
+exactly when a report is wanted.
+.PP
+The bundle contains the text report, the INI file and the local files it names
+(HAL files, tool table, panel XML), the \fBgomc\-server\fR journal and the tail
+of \fBdmesg\fR.
+.SH OPTIONS
+.TP
+\fB\-o\fR \fIOUTPUT\fR
+Bundle path. Default \fB./halreport\-<host>\-<timestamp>.tar.gz\fR.
+.TP
+\fB\-\-ini\fR \fIFILE\fR
+INI file to record. Default \fB$INI_FILE_NAME\fR.
+.TP
+\fB\-\-stdout\fR
+Write the text report to standard output and create no bundle.
+.TP
+\fB\-\-journal\-lines\fR \fIN\fR
+Journal lines to capture. Default 2000.
+.SH "SIGNAL UPDATE ORDER"
+The most diagnostic section lists, for each signal, the pins on it and the
+thread slot servicing each one. A reader with a lower slot number than its
+writer sees the previous cycle's value. The servicing function is resolved from
+the component that owns the pin, as published by HAL, so a component exporting
+several functions has all of them listed.
+.SH ENVIRONMENT
+.TP
+\fBGMC_REST_URL\fR
+Base URL of the gomc server (default \fBhttp://127.0.0.1:5080\fR).
+.TP
+\fBGMC_INSTANCE\fR
+Task instance to address (default \fBmilltask\fR).
+.TP
+\fBINI_FILE_NAME\fR
+INI file recorded when \fB\-\-ini\fR is not given.
+.SH "SEE ALSO"
+\fBhalcmd(1)\fR, \fBlinuxcnc(1)\fR
 .SH AUTHOR
-This man page written by andypugh, as part of the LinuxCNC project.
-.SH REPORTING BUGS
-Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+This man page is part of the LinuxCNC project.
 .SH COPYRIGHT
-Copyright \(co 2020 andypugh.
-.br
 This is free software; see the source for copying conditions.  There is NO
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
