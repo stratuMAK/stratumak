@@ -12,10 +12,12 @@ $(call TOOBJSDEPS, $(TOGLMODULESRCS)) : EXTRAFLAGS = $(ULFLAGS) $(TCL_CFLAGS)
 
 $(call TOOBJSDEPS, $(EMCMODULESRCS)) : Makefile.inc
 
+# libiniparse linked -l-style, not as a .so.0 path in $^ — see mb2hal's
+# Submakefile for the clang driver trap behind this shape.
 $(EMCMODULE): $(call TOOBJS, $(EMCMODULESRCS)) \
               ../lib/libiniparse.so.0
 	$(ECHO) Linking python module $(notdir $@)
-	$(Q)$(CXX) $(LDFLAGS) -shared -o $@ $^ -lm -lepoxy
+	$(Q)$(CXX) $(LDFLAGS) -shared -o $@ $(filter %.o,$^) -L../lib -l:libiniparse.so.0 -lm -lepoxy
 
 $(TOGLMODULE): $(call TOOBJS, $(TOGLMODULESRCS))
 	$(ECHO) Linking python module $(notdir $@)

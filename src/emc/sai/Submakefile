@@ -11,10 +11,12 @@ $(call TOOBJSDEPS, $(SAISRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h g
 
 INCLUDES += emc/sai
 
+# Libraries linked -l-style, not as .so.0 paths in $^ — see mb2hal's
+# Submakefile for the clang driver trap behind this shape.
 ../bin/rs274: $(call TOOBJS, $(SAISRCS)) ../lib/librs274.so.0 \
 	../lib/libiniparse.so.0
 	$(ECHO) Linking $(notdir $@)
-	$(Q)$(CXX) -rdynamic -o $@ $^ $(ULFLAGS) $(READLINE_LIBS) $(LDFLAGS)
+	$(Q)$(CXX) -rdynamic -o $@ $(filter %.o,$^) -L../lib -l:librs274.so.0 -l:libiniparse.so.0 $(ULFLAGS) $(READLINE_LIBS) $(LDFLAGS)
 
 $(patsubst ./emc/sai/%,../include/%,$(wildcard ./emc/sai/*.h)): ../include/%.h: ./emc/sai/%.h
 	cp $^ $@

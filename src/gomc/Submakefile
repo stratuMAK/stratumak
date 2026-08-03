@@ -172,7 +172,12 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 # All Go binaries build as PIE: the cgo ones pick up full RELRO through the
 # linker flags above, the pure-Go ones stop being statically-linked oddities
 # the tooling (lintian, gdb) treats as suspect. Negligible runtime cost.
-GOMC_BUILDMODE := -buildmode=pie
+#
+# -buildvcs=false: VCS stamping shells out to git, which fails with "dubious
+# ownership" (exit 128) inside the deb build — debhelper redirects HOME, so
+# git never sees the safe.directory config the CI job set. The stamp would
+# also break build reproducibility; nothing reads it.
+GOMC_BUILDMODE := -buildmode=pie -buildvcs=false
 
 # Build the gomc-server binary.  Generated GMI Go prerequisites are injected
 # by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).

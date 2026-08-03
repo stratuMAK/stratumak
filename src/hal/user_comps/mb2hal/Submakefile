@@ -15,10 +15,15 @@ $(call TOOBJS, $(MB2HAL_SRCS)): Makefile.inc
 
 USERSRCS += $(MB2HAL_SRCS)
 
+# libiniparse is linked -l-style, not by feeding the versioned .so.0 path to
+# the driver: clang's classification of the unknown ".0" suffix varies across
+# builds, and one that treats it as a compilable input dies with "cannot
+# specify -o when generating multiple output files". DT_NEEDED is the SONAME
+# either way, so runtime resolution is unchanged.
 ../cmod/mb2hal.so: $(call TOOBJS, $(MB2HAL_SRCS)) ../lib/libiniparse.so.0
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
-	@$(CC) -shared -o $@ $^ $(CMOD_LDFLAGS) $(MB2HAL_LDFLAGS)
+	@$(CC) -shared -o $@ $(filter %.o,$^) -L../lib -l:libiniparse.so.0 $(CMOD_LDFLAGS) $(MB2HAL_LDFLAGS)
 
 TARGETS += ../cmod/mb2hal.so
 
