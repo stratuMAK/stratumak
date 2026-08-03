@@ -21,7 +21,6 @@ usr/share/man/man1/halsampler.1
 usr/share/man/man1/halscope.1
 usr/share/man/man1/halshow.1
 usr/share/man/man1/halstreamer.1
-usr/share/man/man1/haltcl.1
 usr/share/man/man1/halui.1
 usr/share/man/man1/hbmgui.1
 usr/share/man/man1/hexagui.1
@@ -52,7 +51,6 @@ usr/share/man/man1/melfagui.1
 usr/share/man/man1/milltask.1
 usr/share/man/man1/millturngui.1
 usr/share/man/man1/mitsub_vfd.1
-usr/share/man/man1/monitor-xhc-hb04.1
 usr/share/man/man1/motion-logger.1
 usr/share/man/man1/moveoff_gui.1
 usr/share/man/man1/ngcgui.1
@@ -82,7 +80,6 @@ usr/share/man/man1/setup_designer.1
 usr/share/man/man1/shuttle.1
 usr/share/man/man1/sim_pin.1
 usr/share/man/man1/sim-torch.1
-usr/share/man/man1/simulate_probe.1
 usr/share/man/man1/stepconf.1
 usr/share/man/man1/svd-ps_vfd.1
 usr/share/man/man1/teach-in.1

@@ -94,7 +94,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/hy_vfd.1.html[hy_vfd] |HAL non-realtime component for Huanyang VFDs                                                                                             ||
 | link:../man/man1/mb2hal.1.html[mb2hal] | MB2HAL is a generic non-realtime HAL component to communicate with one or more Modbus devices. Modbus RTU and Modbus TCP are supported. ||
 | link:../man/man1/mitsub_vfd.1.html[mitsub_vfd] |HAL non-realtime component for Mitsubishi A500 F500 E500 A500 D700 E700 F700-series VFDs (others may work)                       ||
-| link:../man/man1/monitor-xhc-hb04.1.html[monitor-xhc-hb04] |Monitors the XHC-HB04 pendant and warns of disconnection                                                             ||
 | link:../man/man1/pmx485.1.html[pmx485] |Modbus communications with a Powermax Plasma Cutter                                                                                      ||
 | link:../man/man1/pmx485-test.1.html[pmx485-test] |Modbus communications testing with a Powermax Plasma Cutter                                                                    ||
 | link:../man/man1/shuttle.1.html[shuttle] |control HAL pins with the ShuttleXpress, ShuttlePRO, and ShuttlePRO2 device made by Contour Design                                     ||

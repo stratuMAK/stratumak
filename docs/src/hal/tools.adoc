@@ -150,18 +150,6 @@ sim_pin example.sel example.in1 sig_example &
 .sim_pin Window
 image::images/sim_pin.png["sim_pin Window"]
 
-== Simulate Probe
-
-`simulate_probe` is a simple GUI to simulate activation of the pin motion.probe-input.
-Usage:
-
-----
-simulate_probe &
-----
-
-.simulate_probe Window
-image::images/simulate_probe.png["simulate_probe Window"]
-
 == HAL Histogram
 
 `hal-histogram` is a command line utility to display histograms for HAL pins.

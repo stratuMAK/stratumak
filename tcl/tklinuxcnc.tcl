@@ -128,12 +128,6 @@ if { $windows == 0 } {
     # load the EMC data logger
 #    source $linuxcnc::TCL_BIN_DIR/emclog.tcl
 
-    # load the EMC performance tester
-    source $linuxcnc::TCL_BIN_DIR/emctesting.tcl
-
-    # load the EMC debug level setter
-    source $linuxcnc::TCL_BIN_DIR/emcdebug.tcl
-
     # load the backplotter
     source $linuxcnc::TCL_BIN_DIR/tkbackplot.tcl
 
@@ -774,8 +768,6 @@ $viewmenu add command -label [msgcat::mc "Backplot..."] -command {popupPlot} -un
 set settingsmenu [menu $menubar.settings -tearoff 0]
 $menubar add cascade -label [msgcat::mc "Settings"] -menu $settingsmenu -underline 0
 $settingsmenu add command -label [msgcat::mc "Calibration..."] -command {exec emccalib &}
-$settingsmenu add command -label [msgcat::mc "Testing..."] -command {popupTesting} -underline 0 -state disabled
-$settingsmenu add command -label [msgcat::mc "Debug..."] -command {popupDebug} -underline 0
 $settingsmenu add command -label [msgcat::mc "Font..."] -command {popupFont} -underline 0
 
 # add the Units menu
@@ -808,11 +800,6 @@ if { $windows == 0 } {
 	}
     }
 }
-
-# add halconfig, to help for HAL setup, it's under Scripts, but it's in the TCL_BIN_DIR
-$scriptsmenu add separator
-$scriptsmenu add command -label [msgcat::mc "HAL Show"] -command "exec $linuxcnc::TCL_BIN_DIR/halshow.tcl &"
-$scriptsmenu add command -label [msgcat::mc "HAL Config"] -command "exec $linuxcnc::TCL_BIN_DIR/halconfig.tcl -- -ini $EMC_INIFILE &"
 
 # add the help menu
 set helpmenu [menu $menubar.help -tearoff 0]

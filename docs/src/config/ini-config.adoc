@@ -644,12 +644,11 @@ The "`-H` _dirname_" option may be specified more than once, directories are pre
 A HALFILE may also be specified as an absolute path (when the name starts with a '/' character).
 Absolute paths are not recommended as their use may limit relocation of configurations.
 --
-* `HALFILE = texample.tcl` [_arg1_ [_arg2_] ...] - Execute the tcl file 'texample.tcl' at start up with arg1, arg2, etc. as argv list.
-  Files with a .tcl suffix are processed as above but use haltcl for processing.
-  See the <<cha:haltcl,HALTCL Chapter>> for more information.
+* `HALFILE = texample.tcl` - *No longer supported.* Tcl HAL files are rejected
+  at startup with a hard error. The `haltcl` interpreter that processed them was
+  removed together with the Tcl HAL binding; convert the file to plain `.hal`
+  syntax.
 * `HALFILE = LIB:sys_example.hal` - Execute the system library file _sys_example.hal_ at start up.
-  Explicit use of the LIB: prefix causes use of the system library HALFILE without searching the INI file directory.
-* `HALFILE = LIB:sys_texample.tcl` [_arg1_ [_arg2_ ...]] - Execute the system library file _sys_texample.tcl_ at start up.
   Explicit use of the LIB: prefix causes use of the system library HALFILE without searching the INI file directory.
 
 HALFILE items specify files that loadrt HAL components and make signal connections between component pins.
