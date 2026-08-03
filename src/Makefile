@@ -773,8 +773,8 @@ install-docs:
 
 install-dirs:
 	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
-		$(DESTDIR)$(sysconfdir)/linuxcnc $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
-		$(DESTDIR)/lib/linuxcnc $(DESTDIR)$(includedir)/linuxcnc \
+		$(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
+		$(DESTDIR)$(includedir)/linuxcnc \
 		$(DESTDIR)$(docsdir) $(DESTDIR)$(ncfilesdir) \
 		$(DESTDIR)/etc/X11/app-defaults $(DESTDIR)$(tcldir)/bin \
 		$(DESTDIR)$(tcldir)/scripts \
@@ -989,9 +989,7 @@ install-python: install-dirs
 	$(TREE) ../share/gmoccapy/icons/* $(DESTDIR)$(datadir)/gmoccapy/icons
 
 install-modules:
-	$(DIR)	$(DESTDIR)$(moduledir)/linuxcnc \
-		$(DESTDIR)$(bindir) \
-		$(DESTDIR)$(sysconfdir)/linuxcnc \
+	$(DIR)	$(DESTDIR)$(bindir) \
 		$(DESTDIR)$(EMC2_CMOD_DIR)
 	# Install the C plugin modules, but keep test-only cmods out of the
 	# package: the test_*.so handlers, mcode_coord_log.so and hm2_test.so are
@@ -1001,7 +999,6 @@ install-modules:
 	$(FILE) $(filter-out ../cmod/test_%.so ../cmod/modcompile-%.so \
 		../cmod/mcode_coord_log.so ../cmod/hm2_test.so, \
 		$(wildcard ../cmod/*.so)) $(DESTDIR)$(EMC2_CMOD_DIR)
-	$(FILE) ../scripts/rtapi.conf $(DESTDIR)$(sysconfdir)/linuxcnc
 endif # RUN_IN_PLACE
 
 CONF=../configs
