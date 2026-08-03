@@ -18,6 +18,7 @@ package launcher
 #cgo LDFLAGS: -ldl
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -48,14 +49,19 @@ static void **rt_dl_handles = NULL;
 static int    rt_dl_count   = 0;
 static int    rt_dl_cap     = 0;
 
-static void rt_dl_handles_add(void *handle) {
+static int rt_dl_handles_add(void *handle) {
     for (int i = 0; i < rt_dl_count; i++)
-        if (rt_dl_handles[i] == handle) return;  // deduplicate
+        if (rt_dl_handles[i] == handle) return 0;  // deduplicate
     if (rt_dl_count >= rt_dl_cap) {
-        rt_dl_cap = rt_dl_cap ? rt_dl_cap * 2 : 8;
-        rt_dl_handles = realloc(rt_dl_handles, rt_dl_cap * sizeof(void *));
+        int new_cap = rt_dl_cap ? rt_dl_cap * 2 : 8;
+        void **grown = realloc(rt_dl_handles, new_cap * sizeof(void *));
+        if (!grown)
+            return -1;  // keep the old array intact; the caller reports it
+        rt_dl_handles = grown;
+        rt_dl_cap = new_cap;
     }
     rt_dl_handles[rt_dl_count++] = handle;
+    return 0;
 }
 
 static void rt_dl_handles_remove(void *handle) {
@@ -80,8 +86,13 @@ static void *rt_dl_handles_get(int i) { return rt_dl_handles[i]; }
 // --- Pass-through HAL callbacks (delegate to liblinuxcnchal.so) ---
 
 static int gomc_hal_init_cb(void *ctx, const char *name, void *dl_handle, int type) {
-    if (type == GOMC_HAL_COMP_REALTIME && dl_handle)
-        rt_dl_handles_add(dl_handle);
+    if (type == GOMC_HAL_COMP_REALTIME && dl_handle) {
+        // An RT module whose handle cannot be tracked would never have its
+        // PT_LOAD segments locked; refuse the init rather than silently
+        // degrade realtime.
+        if (rt_dl_handles_add(dl_handle) != 0)
+            return -ENOMEM;
+    }
     return hal_init_ex(name, dl_handle, (component_type_t)type);
 }
 
@@ -325,6 +336,7 @@ import (
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
 	halcmd "github.com/sittner/linuxcnc/src/gomc/internal/halcmd"
+	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
 )
 
 // cModule holds a loaded C plugin module.
@@ -365,6 +377,10 @@ func cModuleSearchPath() []string {
 // shadows a shipped one of the same name, and a stale local .so masking a
 // packaged fix is miserable to diagnose from the symptoms. Deliberate
 // overriding is still available, by naming the path outright.
+//
+// The same reasoning covers a cmod whose name a compiled-in Go module also
+// answers to: resolveCModule is consulted before the Go registry on every
+// bare-name load path, so without the refusal the .so would win silently.
 func resolveCModule(name string) (path string, found bool, err error) {
 	if strings.Contains(name, "/") {
 		return name, cModuleExists(name), nil
@@ -388,6 +404,17 @@ func resolveCModule(name string) (path string, found bool, err error) {
 		}
 		return base, false, nil
 	case 1:
+		// A cmod may not shadow a Go module compiled into this server: both
+		// load paths (boot and runtime) try the cmod resolution first, so the
+		// .so would win and the compiled-in module would sit there unreached —
+		// diagnosable only by knowing to look. Deliberate overriding stays
+		// available, by naming the path outright.
+		if gomc.HasModule(strings.TrimSuffix(name, ".so")) {
+			return "", false, fmt.Errorf(
+				"module %q is provided by both the C module %s and a Go module compiled into this server. "+
+					"Remove the C module you did not mean, or load it deliberately by its full path",
+				name, hits[0])
+		}
 		return hits[0], true, nil
 	default:
 		return "", false, fmt.Errorf(

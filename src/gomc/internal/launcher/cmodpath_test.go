@@ -3,12 +3,15 @@
 package launcher
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sittner/linuxcnc/src/gomc/internal/config"
+	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
+	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
 )
 
 // withCModDirs points the config package at temporary cmod directories for one
@@ -132,6 +135,46 @@ func TestResolveCModuleExplicitPathBypassesSearch(t *testing.T) {
 	}
 	if !found || got != explicit {
 		t.Errorf("resolveCModule(%q) = (%q, %v), want the path itself", explicit, got, found)
+	}
+}
+
+// TestResolveCModuleRefusesGoModuleShadow: resolveCModule is consulted before
+// the Go registry on both bare-name load paths (the boot IterLoads loop and
+// loadModuleNamed), so without this refusal a local cmod would silently win
+// over a same-named module compiled into the server. The refusal must name
+// both providers so it can be acted on; the explicit-path form stays the
+// deliberate override.
+func TestResolveCModuleRefusesGoModuleShadow(t *testing.T) {
+	base := t.TempDir()
+	withCModDirs(t, filepath.Join(base, "usr", "cmod"), filepath.Join(base, "var"))
+
+	// Registered once per test process (there is no unregister); the name is
+	// unique to this test.
+	gomc.RegisterModule("shadowprobe", func(*inifile.IniFile, *slog.Logger, string, []string) (gomc.Module, error) {
+		return nil, nil
+	})
+	localPath := touchSO(t, config.LocalCModDir(), "shadowprobe")
+
+	for _, load := range []string{"shadowprobe", "shadowprobe.so"} {
+		got, found, err := resolveCModule(load)
+		if err == nil {
+			t.Fatalf("resolveCModule(%q) = %q: a cmod shadowing a compiled-in Go module must be refused", load, got)
+		}
+		if found {
+			t.Error("a refused resolution must not also report found")
+		}
+		for _, want := range []string{localPath, "compiled into this server"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal must name %q so it can be acted on; got: %v", want, err)
+			}
+		}
+	}
+
+	// Naming the path outright is the documented deliberate override, and must
+	// keep resolving even while the bare name is refused.
+	got, found, err := resolveCModule(localPath)
+	if err != nil || !found || got != localPath {
+		t.Errorf("resolveCModule(%q) = (%q, %v, %v), want the path itself", localPath, got, found, err)
 	}
 }
 

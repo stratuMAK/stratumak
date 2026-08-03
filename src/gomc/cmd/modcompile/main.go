@@ -336,6 +336,30 @@ func cmodInstallDir() string {
 	return config.EMC2CmodDir
 }
 
+// checkCModInstallCollision refuses `--install` when the packaged cmod
+// directory already ships a module of the same name. The launcher refuses to
+// resolve a name found in both cmod directories (see resolveCModule in the
+// launcher), so installing the .so would not shadow the shipped module — it
+// would stop the machine from loading that name at its next start. Refusing
+// here, with the same reasoning, moves the discovery to the moment somebody
+// is standing at the command that caused it.
+func checkCModInstallCollision(soName string) error {
+	local := config.LocalCModDir()
+	if local == "" || config.EMC2CmodDir == "" {
+		// One cmod directory only (run-in-place): nothing to collide with.
+		return nil
+	}
+	shipped := filepath.Join(config.EMC2CmodDir, soName+".so")
+	if _, err := os.Stat(shipped); err != nil {
+		return nil
+	}
+	return fmt.Errorf(
+		"C module %q is already shipped by the package as %s; installing %s would make the "+
+			"name ambiguous, and the machine refuses ambiguous names at start. "+
+			"Rename the component, or use --compile and load your build by its full path",
+		soName, shipped, filepath.Join(local, soName+".so"))
+}
+
 func processFile(path, mode, outputFile string) error {
 	// Handle raw .c files — only --compile and --install are supported.
 	if strings.HasSuffix(path, ".c") {
@@ -344,6 +368,12 @@ func processFile(path, mode, outputFile string) error {
 			return compileCFile(path, ".")
 		case "--install":
 			requireCModInstallPrivilege()
+			if config.LocalCModDir() != "" {
+				acquireBuildLock("--install")
+			}
+			if err := checkCModInstallCollision(strings.TrimSuffix(filepath.Base(path), ".c")); err != nil {
+				return err
+			}
 			return compileCFile(path, cmodInstallDir())
 		default:
 			return fmt.Errorf("%s: .c files only support --compile and --install", path)
@@ -443,6 +473,12 @@ func processFile(path, mode, outputFile string) error {
 
 	case "--install":
 		requireCModInstallPrivilege()
+		if config.LocalCModDir() != "" {
+			acquireBuildLock("--install")
+		}
+		if err := checkCModInstallCollision(pkg.Component.Name); err != nil {
+			return err
+		}
 		return compileComp(path, pkg, cmodInstallDir())
 
 	default:
@@ -683,6 +719,11 @@ func buildServerInPlace(serverDir, outPath string) {
 
 	// Build ldflags to inject compile-time config into the new binary.
 	// modcompile already has these values baked in, so we propagate them.
+	//
+	// EMC2Version included: the rebuilt server is stamped with modcompile's
+	// own version. That is correct only because stratumak-dev depends on
+	// stratumak (= ${binary:Version}), so the modcompile doing the stamping
+	// and the server sources it compiles cannot skew.
 	pkg := "github.com/sittner/linuxcnc/src/gomc/internal/config"
 	ldflags := fmt.Sprintf(
 		"-X '%s.EMC2Home=%s' "+
@@ -781,9 +822,16 @@ func buildServerInPlace(serverDir, outPath string) {
 	}
 	fmt.Fprintf(os.Stderr, "gomc-server built successfully: %s\n", outPath)
 
-	// Reapply file capabilities if they were set before.
+	// Reapply file capabilities if they were set before. The binary is already
+	// replaced at this point (this is the in-place path, with no staged temp
+	// to abort on), so all that is left to get right is the exit status: a
+	// server without its capabilities cannot do realtime, and exiting zero
+	// would call that a successful build.
 	if oldCaps != "" {
-		applyFileCaps(outPath, oldCaps)
+		if err := applyFileCaps(outPath, oldCaps); err != nil {
+			fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -834,7 +882,11 @@ func getFileCaps(path string) string {
 }
 
 // applyFileCaps sets file capabilities on a binary, escalating through sudo
-// only when this process is not already root.
+// only when this process is not already root. A failure is the caller's to
+// act on, and every caller treats it as fatal: on the packaged path it aborts
+// the install before the old binary is replaced (installServer setcaps the
+// staged temp file and only then renames), in a run-in-place tree it exits
+// non-zero instead of leaving a silently capability-less server behind.
 //
 // Setting them needs CAP_SETFCAP, which is an independent reason the install
 // phase stays privileged even though the build phase does not.
@@ -848,7 +900,7 @@ func getFileCaps(path string) string {
 // unprivileged build phase writes a staging file that never had capabilities
 // to begin with — setting them needs CAP_SETFCAP — so getFileCaps returns ""
 // there and this is not called at all.
-func applyFileCaps(path, caps string) {
+func applyFileCaps(path, caps string) error {
 	fmt.Fprintf(os.Stderr, "Reapplying file capabilities (%s)...\n", caps)
 
 	var cmd *exec.Cmd
@@ -861,9 +913,10 @@ func applyFileCaps(path, caps string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "modcompile: warning: failed to restore capabilities: %v\n", err)
-		fmt.Fprintf(os.Stderr, "  Run manually: sudo setcap '%s' %s\n", caps, path)
+		return fmt.Errorf("restoring file capabilities on %s: %v; set them by hand with `sudo setcap '%s' %s`",
+			path, err, caps, path)
 	}
+	return nil
 }
 
 // cmdList lists all packages that would be compiled into gomc-server.
@@ -1050,6 +1103,7 @@ func moduleStoreDir() string {
 func cmdAddGomod(dir string, force bool) {
 	if config.DerivedBuild() {
 		requirePrivilege("add-gomod")
+		acquireBuildLock("add-gomod")
 	}
 
 	absDir, err := filepath.Abs(dir)
@@ -1244,21 +1298,14 @@ func writeGoDeps(extGoModPath, extDir string) {
 func cmdRmGomod(name string) {
 	if config.DerivedBuild() {
 		requirePrivilege("rm-gomod")
+		acquireBuildLock("rm-gomod")
 	}
 
 	extDir := moduleStoreDir()
 
-	// Accept the "external/<name>" form the listing prints as well as the
-	// bare name; anything else is a plain name under the store.
-	targetDir := filepath.Join(extDir, strings.TrimPrefix(name, "external/"))
-
-	// A module name identifies one directory directly inside the store. The
-	// command runs as root and ends in RemoveAll, so a name that resolves
-	// anywhere else — "../.." and friends — is refused rather than cleaned
-	// into something plausible.
-	if filepath.Dir(targetDir) != filepath.Clean(extDir) {
-		fmt.Fprintf(os.Stderr, "modcompile rm-gomod: %q is not a module name: it resolves to %s, outside %s\n",
-			name, targetDir, extDir)
+	targetDir, err := rmGomodTarget(name, extDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile rm-gomod: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -1274,6 +1321,24 @@ func cmdRmGomod(name string) {
 	fmt.Fprintf(os.Stderr, "Deleted %s\n", targetDir)
 
 	cmdRebuild()
+}
+
+// rmGomodTarget resolves a module name to the store directory rm-gomod
+// removes. It accepts the "external/<name>" form the listing prints as well
+// as the bare name.
+//
+// A module name identifies one directory directly inside the store. The
+// command runs as root and ends in RemoveAll, so a name that resolves
+// anywhere else — "../.." and friends — is refused rather than cleaned into
+// something plausible; on refusal nothing has been touched, because nothing
+// is removed until this has answered.
+func rmGomodTarget(name, extDir string) (string, error) {
+	targetDir := filepath.Join(extDir, strings.TrimPrefix(name, "external/"))
+	if filepath.Dir(targetDir) != filepath.Clean(extDir) {
+		return "", fmt.Errorf("%q is not a module name: it resolves to %s, outside %s",
+			name, targetDir, extDir)
+	}
+	return targetDir, nil
 }
 
 // cmdAddGmi adds a GMI package to the registry idempotently.
@@ -1292,7 +1357,7 @@ func cmdRmGmi(importPath string) {
 
 // goModTidy runs "go mod tidy" in the build tree to clean up unused
 // dependencies (e.g. after removing an external module).
-func goModTidy() { goModTidyIn(config.BuildTreeDir()) }
+func goModTidy() error { return goModTidyIn(config.BuildTreeDir()) }
 
 // goModTidyIn is goModTidy against a named directory.
 //
@@ -1300,7 +1365,11 @@ func goModTidy() { goModTidyIn(config.BuildTreeDir()) }
 // network, populates a module cache and rewrites go.mod and go.sum, none of
 // which root should be doing on a shared tree. On a packaged system the
 // directory named here is therefore the build identity's own scratch copy.
-func goModTidyIn(dir string) {
+//
+// A tidy failure fails the phase in its own words. Warning and building anyway
+// used to turn one network hiccup into a `go build` failure naming a missing
+// module — one resolution step away from the command that actually failed.
+func goModTidyIn(dir string) error {
 	gobin := config.GoBinary
 	if gobin == "" {
 		gobin = "go"
@@ -1311,8 +1380,9 @@ func goModTidyIn(dir string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "modcompile: go mod tidy warning: %v\n", err)
+		return fmt.Errorf("go mod tidy in %s: %v (its output is above; the build was not attempted)", dir, err)
 	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

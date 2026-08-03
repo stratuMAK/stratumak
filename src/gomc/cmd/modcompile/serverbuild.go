@@ -27,6 +27,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -105,6 +106,56 @@ func requirePrivilege(op string) {
 	os.Exit(1)
 }
 
+// buildLock, once acquired, is held for the life of the process; the OS
+// releases it at exit. Held in a package variable so a command that reaches
+// the lock twice — add-gomod runs the rebuild — does not contend with itself.
+var buildLock *os.File
+
+// acquireBuildLock serializes the privileged operations that share the build
+// cache, the module registry and the installed binary: rebuild, add-gomod,
+// rm-gomod and --install. Fail-fast rather than blocking: a queued operation
+// would run against a registry the earlier one is still changing, and the
+// administrator is right there to retry. Exits the process on contention —
+// every caller is a top-level command.
+//
+// The lock file lives under the build cache and is created, root-owned, if
+// absent; callers gate on the layouts where these operations are privileged,
+// so this only ever runs as root.
+func acquireBuildLock(op string) {
+	if buildLock != nil {
+		return
+	}
+	if err := os.MkdirAll(buildCacheDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile %s: creating %s: %v\n", op, buildCacheDir, err)
+		os.Exit(1)
+	}
+	f, err := lockFile(filepath.Join(buildCacheDir, ".lock"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile %s: %v\n", op, err)
+		os.Exit(1)
+	}
+	buildLock = f
+}
+
+// lockFile opens (creating if absent) and exclusively flocks path, without
+// blocking. The file is never removed: flock serializes on the inode, and
+// deleting it would hand the next two callers two different inodes to "lock".
+func lockFile(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("opening the lock file %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if err == syscall.EWOULDBLOCK {
+			return nil, fmt.Errorf(
+				"another stratumak-build operation is running (%s is locked); wait for it to finish and retry", path)
+		}
+		return nil, fmt.Errorf("locking %s: %w", path, err)
+	}
+	return f, nil
+}
+
 // requireCModInstallPrivilege fails early when `--install` cannot write the
 // cmod directory, rather than after a successful compile.
 //
@@ -149,6 +200,11 @@ func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []str
 	// A directory per module name, wiped each time: two installs of different
 	// modules must not see each other's headers, and a header deleted from the
 	// source since last time must not linger here.
+	//
+	// Its parent, staging/cmod, is root-owned (prepareBuildCache above), which
+	// is what makes everything root does in here sound: the build identity
+	// cannot rename this leaf out from under root's writes, and does not own
+	// it either until chownTree hands it over below — after root's last write.
 	stage := filepath.Join(buildStagingDir(), "cmod", soName)
 	if err := os.RemoveAll(stage); err != nil {
 		return fmt.Errorf("clearing %s: %w", stage, err)
@@ -178,6 +234,11 @@ func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []str
 	if err := normalizeModes(stage); err != nil {
 		return fmt.Errorf("making the staged sources readable: %w", err)
 	}
+	// Handing over is the last thing root does inside the staged tree: every
+	// write and chmod above ran while stage and its contents were still
+	// root-owned, so the build identity never had a window to swap anything
+	// root was about to touch. From here root only reads the result back,
+	// through installStaged's O_NOFOLLOW + owner check.
 	if err := chownTree(stage, uid, gid); err != nil {
 		return fmt.Errorf("handing the staged sources to %s: %w", who, err)
 	}
@@ -241,13 +302,43 @@ func stageLocalHeaders(srcDir, dst string) error {
 // chownTree hands a whole staged tree to the build identity, which has to own
 // what it is about to compile into: the compiler writes its output beside the
 // sources.
+//
+// Children before parents. The moment a directory is handed over, its new
+// owner can swap the entries under it for symlinks, and a chown that followed
+// such a swap would land on whatever the link points at. Chowning bottom-up
+// means every path is still inside root-owned directories when it is visited,
+// so that window never opens; os.Lchown for the same reason — nothing root
+// staged is a symlink, and one that appeared would be somebody's redirect.
 func chownTree(root string, uid, gid int) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	var paths []string
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		return os.Chown(path, uid, gid)
-	})
+		paths = append(paths, path)
+		return nil
+	}); err != nil {
+		return err
+	}
+	// Walk is pre-order (parents first); reversed, every child precedes its
+	// parent.
+	for i := len(paths) - 1; i >= 0; i-- {
+		if err := os.Lchown(paths[i], uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// phaseMustNotBeRoot is the refusal the unprivileged phases make when invoked
+// with euid 0: they exist precisely so that the compiler does not run as root.
+// The euid is a parameter so the decision is testable without being root.
+func phaseMustNotBeRoot(phase string, euid int) error {
+	if euid != 0 {
+		return nil
+	}
+	return fmt.Errorf("modcompile %s: refusing to compile as root; "+
+		"this phase exists precisely so that the compiler does not", phase)
 }
 
 // cmdCompileCModPhase is the unprivileged half of a cmod install, reached only
@@ -260,10 +351,8 @@ func cmdCompileCModPhase(args []string) {
 	}
 	cPath, outDir, soName := args[0], args[1], args[2]
 
-	if os.Geteuid() == 0 {
-		fmt.Fprintln(os.Stderr,
-			"modcompile "+buildCModPhaseArg+": refusing to compile as root; "+
-				"this phase exists precisely so that the compiler does not")
+	if err := phaseMustNotBeRoot(buildCModPhaseArg, os.Geteuid()); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 
@@ -330,21 +419,35 @@ func buildIdentity() (uid, gid int, name string, err error) {
 		buildUser, buildCacheDir, buildUser)
 }
 
-// prepareBuildCache creates the build identity's cache tree and hands it over.
-// Only directories this call creates are chowned: an existing cache belongs to
-// the build identity already, and walking it on every rebuild would be pure
-// cost.
+// prepareBuildCache creates the build identity's cache tree.
+//
+// Two kinds of directory come out of it, and the difference is a security
+// boundary. The cache root and the staging directories stay root-owned: root
+// later writes, chmods and renames inside them, and no component of a path a
+// privileged process operates on may be owned by the build identity — an
+// owner can swap a directory for a symlink between any two of root's calls
+// and redirect a write, chmod or chown wherever it likes (os.OpenFile,
+// os.Chmod and os.Chown all follow symlinks). These are re-asserted on every
+// run, top-down, so a cache laid out by an older modcompile is taken back
+// before anything trusts it.
+//
+// The build identity gets the leaves it actually works in: its HOME, the Go
+// caches, the scratch tree, plus the per-build staging leaves created and
+// handed over (empty, or fully written) elsewhere. Root never writes below
+// those, and reads results back only through installStaged's O_NOFOLLOW +
+// owner check.
 func prepareBuildCache(uid, gid int) error {
-	for _, d := range []string{
-		buildCacheDir,
-		buildHomeDir(), buildGoCacheDir(), buildGoModDir(),
-		buildScratchDir(), buildStagingDir(),
-		// The per-module cmod staging directories live under here. Handed
-		// over as well, so that "anything root-owned under the cache means
-		// something privileged wrote there" stays a true statement — it is
-		// the cheapest check there is that the compiler was not root.
-		filepath.Join(buildStagingDir(), "cmod"),
-	} {
+	// Top-down: each directory is root-owned before the one inside it is
+	// touched, so a hostile rename in a still-unfixed parent has no window.
+	for _, d := range rootOwnedCacheDirs() {
+		if err := ensureOwnedDir(d, 0, 0); err != nil {
+			return err
+		}
+	}
+	// Only directories this call creates are chowned: an existing cache
+	// belongs to the build identity already, and walking it on every rebuild
+	// would be pure cost.
+	for _, d := range buildIdentityCacheDirs() {
 		if _, err := os.Stat(d); err == nil {
 			continue
 		}
@@ -354,6 +457,68 @@ func prepareBuildCache(uid, gid int) error {
 		if err := os.Chown(d, uid, gid); err != nil {
 			return fmt.Errorf("handing %s to the build identity: %w", d, err)
 		}
+	}
+	return nil
+}
+
+// rootOwnedCacheDirs lists the directories under the build cache that must
+// belong to root, in the order they are taken back: parents strictly before
+// children, so that by the time a directory is fixed its parent can no longer
+// be renamed out from under it.
+func rootOwnedCacheDirs() []string {
+	return []string{
+		buildCacheDir,
+		buildStagingDir(),
+		filepath.Join(buildStagingDir(), "cmod"),
+	}
+}
+
+// buildIdentityCacheDirs lists the directories the build identity owns
+// outright — the ones root never writes into.
+func buildIdentityCacheDirs() []string {
+	return []string{
+		buildHomeDir(), buildGoCacheDir(), buildGoModDir(), buildScratchDir(),
+	}
+}
+
+// ensureOwnedDir makes d a directory owned by uid:gid with mode 0755,
+// replacing whatever else sits at that path. A symlink is removed, never
+// followed: these are the directories privileged code writes into, and
+// following a link somebody else planted is exactly the redirect this
+// prevents. (prepareBuildCache always passes uid 0; the parameters exist so
+// the decision logic is testable without being root.)
+func ensureOwnedDir(d string, uid, gid int) error {
+	fi, err := os.Lstat(d)
+	switch {
+	case err == nil && fi.IsDir():
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok &&
+			int(st.Uid) == uid && int(st.Gid) == gid && fi.Mode().Perm() == 0o755 {
+			return nil
+		}
+		if err := os.Chmod(d, 0o755); err != nil {
+			return fmt.Errorf("setting the mode of %s: %w", d, err)
+		}
+		if err := os.Chown(d, uid, gid); err != nil {
+			return fmt.Errorf("taking ownership of %s: %w", d, err)
+		}
+		return nil
+	case err == nil:
+		// A file or a symlink where a directory belongs.
+		if err := os.Remove(d); err != nil {
+			return fmt.Errorf("removing %s, which should be a directory: %w", d, err)
+		}
+	case !os.IsNotExist(err):
+		return fmt.Errorf("inspecting %s: %w", d, err)
+	}
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", d, err)
+	}
+	// MkdirAll is subject to the umask; the mode must hold regardless.
+	if err := os.Chmod(d, 0o755); err != nil {
+		return fmt.Errorf("setting the mode of %s: %w", d, err)
+	}
+	if err := os.Chown(d, uid, gid); err != nil {
+		return fmt.Errorf("taking ownership of %s: %w", d, err)
 	}
 	return nil
 }
@@ -461,12 +626,16 @@ func rebuildServer() {
 	if !config.DerivedBuild() {
 		// In-place layout: the sources are the caller's own and the output
 		// goes where the caller can already write. Nothing to split.
-		goModTidy()
+		if err := goModTidy(); err != nil {
+			fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
+			os.Exit(1)
+		}
 		buildServerInPlace(config.BuildTreeDir(), serverOutputPath())
 		return
 	}
 
 	requirePrivilege("rebuild")
+	acquireBuildLock("rebuild")
 
 	if err := syncBuildTree(); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
@@ -488,12 +657,39 @@ func rebuildServer() {
 		os.Exit(1)
 	}
 
-	staged := filepath.Join(buildStagingDir(), "gomc-server")
-	_ = os.Remove(staged)
+	// The staged binary lands in a leaf directory the build identity owns —
+	// created fresh by root inside the root-owned staging directory and handed
+	// over empty. Root never writes below it, and reads the result back only
+	// through installStaged's O_NOFOLLOW + owner check.
+	serverStage := filepath.Join(buildStagingDir(), "server")
+	if err := os.RemoveAll(serverStage); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: clearing %s: %v\n", serverStage, err)
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(serverStage, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: creating %s: %v\n", serverStage, err)
+		os.Exit(1)
+	}
+	if err := os.Chown(serverStage, uid, gid); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: handing %s to the build identity: %v\n", serverStage, err)
+		os.Exit(1)
+	}
+	staged := filepath.Join(serverStage, "gomc-server")
 
 	fmt.Fprintf(os.Stderr, "Building gomc-server as %s...\n", who)
 	if err := runBuildPhase(uid, gid, config.BuildTreeDir(), staged); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: building gomc-server: %v\n", err)
+		os.Exit(1)
+	}
+
+	// A binary that cannot even print its usage must not reach the installed
+	// path: `-h` runs every compiled-in module's init(), which is where a
+	// broken external module — one whose name collides with a compiled-in
+	// module, above all — panics. Discovering that here costs a re-run;
+	// discovering it at the machine's next start costs the controller.
+	fmt.Fprintf(os.Stderr, "Smoke-testing gomc-server as %s...\n", who)
+	if err := smokeTestServer(uid, gid, staged); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -529,7 +725,17 @@ func runAsBuildIdentity(uid, gid int, args []string) error {
 		return fmt.Errorf("locating this binary to re-exec: %w", err)
 	}
 
-	cmd := exec.Command(self, args...)
+	cmd := buildIdentityCmd(uid, gid, self, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// buildIdentityCmd prepares a command running bin as the unprivileged build
+// identity, with an environment stated in full rather than inherited. The
+// caller wires up stdout/stderr and runs it.
+func buildIdentityCmd(uid, gid int, bin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Credential: &syscall.Credential{
 			Uid: uint32(uid),
@@ -561,9 +767,32 @@ func runAsBuildIdentity(uid, gid int, args []string) error {
 	// $GOMC_DIR is absent by construction, and must stay so: it would send the
 	// server build phase back to the pristine tree, silently dropping every
 	// external module.
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return cmd
+}
+
+// smokeTestServer runs the staged binary once, as the build identity, before
+// it is allowed anywhere near the installed path. `-h` is enough to be
+// decisive: printing the usage still runs every compiled-in module's init(),
+// which is where a broken external module fails (the verify script relies on
+// the same property). The same re-exec mechanism as the build phases, so
+// "unprivileged" cannot mean two different things.
+func smokeTestServer(uid, gid int, staged string) error {
+	return runSmokeCmd(buildIdentityCmd(uid, gid, staged, "-h"), staged)
+}
+
+// runSmokeCmd runs a prepared smoke-test command with its output captured,
+// and folds that output into the error: the whole point of the test is the
+// message the broken binary died with.
+func runSmokeCmd(cmd *exec.Cmd, staged string) error {
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf(
+			"the freshly built gomc-server failed its smoke test and was not installed (%s -h: %v). Its output:\n%s",
+			staged, err, strings.TrimRight(out.String(), "\n"))
+	}
+	return nil
 }
 
 // cmdBuildPhase is the unprivileged phase, reached only through the re-exec
@@ -584,10 +813,8 @@ func cmdBuildPhase(args []string) {
 	}
 	tree, scratch, out := args[0], args[1], args[2]
 
-	if os.Geteuid() == 0 {
-		fmt.Fprintln(os.Stderr,
-			"modcompile "+buildPhaseArg+": refusing to compile as root; "+
-				"this phase exists precisely so that the compiler does not")
+	if err := phaseMustNotBeRoot(buildPhaseArg, os.Geteuid()); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 
@@ -606,9 +833,17 @@ func cmdBuildPhase(args []string) {
 		os.Exit(1)
 	}
 
-	goModTidyIn(treeCopy)
+	if err := goModTidyIn(treeCopy); err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
+		os.Exit(1)
+	}
 	buildServerInPlace(treeCopy, out)
 }
+
+// installChown is os.Chown, indirected only so the unprivileged tests can
+// drive installStagedPrep through its stage→prepare→rename ordering (chowning
+// the temp file to root needs CAP_CHOWN). Everything else chowns directly.
+var installChown = os.Chown
 
 // installStaged copies a file the unprivileged build identity produced into a
 // root-owned location, as root.
@@ -623,6 +858,17 @@ func cmdBuildPhase(args []string) {
 // The destination is written beside itself and renamed, so a failure part-way
 // through leaves whatever was already there intact and running.
 func installStaged(staged, out string, uid int, mode os.FileMode) error {
+	return installStagedPrep(staged, out, uid, mode, nil)
+}
+
+// installStagedPrep is installStaged with a hook that runs on the fully
+// written temp file, after its mode and ownership are settled and before the
+// atomic rename. installServer uses it to setcap the temp file: a rename
+// carries the security.capability xattr along, so the binary that appears at
+// out is complete — contents and capabilities — in one atomic step, and a
+// failure in the hook aborts with the temp removed and the old binary
+// untouched.
+func installStagedPrep(staged, out string, uid int, mode os.FileMode, prepare func(tmp string) error) error {
 	f, err := os.OpenFile(staged, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return fmt.Errorf("opening the staged file %s: %w", staged, err)
@@ -670,9 +916,15 @@ func installStaged(staged, out string, uid int, mode os.FileMode) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Chown(tmp, 0, 0); err != nil {
+	if err := installChown(tmp, 0, 0); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("taking ownership of %s: %w", tmp, err)
+	}
+	if prepare != nil {
+		if err := prepare(tmp); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
 	}
 	if err := os.Rename(tmp, out); err != nil {
 		_ = os.Remove(tmp)
@@ -704,17 +956,21 @@ func installServer(staged, out string, uid int) error {
 		}
 	}
 
-	if err := installStaged(staged, out, uid, 0755); err != nil {
-		return err
-	}
-
+	// The capabilities go onto the staged temp file, before the rename: the
+	// rename carries the security.capability xattr along, so there is no
+	// moment when the installed path holds a server without its capabilities
+	// — and no moment after which a failed setcap has already destroyed the
+	// old binary. A setcap failure aborts the install outright, temp removed,
+	// old binary still in place.
+	var prepare func(string) error
 	if oldCaps != "" {
-		applyFileCaps(out, oldCaps)
+		caps := oldCaps
+		prepare = func(tmp string) error { return applyFileCaps(tmp, caps) }
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"modcompile: warning: %s carried no file capabilities, so none were applied.\n"+
 				"  Realtime will not start until they are; on a packaged system they are\n"+
 				"  applied by the package's postinst.\n", out)
 	}
-	return nil
+	return installStagedPrep(staged, out, uid, 0755, prepare)
 }
