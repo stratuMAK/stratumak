@@ -403,7 +403,7 @@ Files: src/emc/rs274ngc/array1.hh
 Copyright: 2004 Roman Yakovenko.
 License: Boost-1.0
 
-Files: debian/linuxcnc-uspace.metainfo.xml
+Files: debian/de.modusoft.stratumak.metainfo.xml
 Copyright: 2021 Petter Reinholdtsen <pere@debian.org>
 License: MIT
 

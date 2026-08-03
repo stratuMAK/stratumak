@@ -119,7 +119,7 @@ usr/share/qtvcp
 src/emc/usr_intf/axis/etc    usr/share/doc/@MAIN_PACKAGE_NAME@/axis
 src/emc/usr_intf/axis/README usr/share/doc/@MAIN_PACKAGE_NAME@/axis
 
-debian/@MAIN_PACKAGE_NAME@.metainfo.xml usr/share/metainfo
+debian/de.modusoft.stratumak.metainfo.xml usr/share/metainfo
 
 debian/extras/etc /
 debian/extras/lib /usr

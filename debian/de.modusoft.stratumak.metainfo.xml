@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component>
-  <id>org.linuxcnc.linuxcnc</id>
+  <id>de.modusoft.stratumak</id>
   <metadata_license>MIT</metadata_license>
   <name>LinuxCNC</name>
   <summary>LinuxCNC Machine Controller</summary>
