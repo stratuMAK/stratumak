@@ -29,11 +29,14 @@
 @MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man1/emccalib.1.gz*]
 @MAIN_PACKAGE_NAME@: groff-message *an-trap* [usr/share/man/man1/mesambccc.1.gz*]
 
-# These are dlopened by gomc-server, which is already linked against libc.
-@MAIN_PACKAGE_NAME@: library-not-linked-against-libc [usr/lib/linuxcnc/modules/*.so]
-
-# Not of immediate concern - https://lintian.debian.org/tags/shared-library-lacks-prerequisites.html
-@MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/lib/linuxcnc/modules/*.so]
+# The pure-Go binaries build as -buildmode=pie with Go's internal linker:
+# ET_DYN with no DT_NEEDED, which lintian reads as a shared library missing
+# its prerequisites. They are executables, and Go PIE carries no dynamic
+# dependencies by design.
+@MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/ads-xml-gen]
+@MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/ethercat]
+@MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/halsampler]
+@MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/halstreamer]
 
 # No override for /usr/bin/gomc-server pointing into /var/lib/stratumak, nor
 # for the pristine binary living in /usr/libexec: lintian objects to neither,
