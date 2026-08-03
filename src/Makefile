@@ -578,8 +578,11 @@ inclean:
 	$(RM) $(INFILES)
 headersclean:
 	$(RM) $(HEADERS)
-clean: docclean pythonclean cscopeclean headersclean
+clean: docclean pythonclean cscopeclean headersclean genclean depclean
 distclean: clean inclean ecmaster-distclean
+
+depclean:
+	rm -rf depends
 
 # =========================================================================
 # EtherCAT Master (submodule: src/hal/drivers/ethercat/master)
