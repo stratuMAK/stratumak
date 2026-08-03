@@ -24,7 +24,10 @@ ASCIIDOC := HOME=$(ASCIIDOC_HOME) asciidoc
 
 $(ASCIIDOC_HOME_STAMP): $(ASCIIDOC_LANG_CONFS)
 	@mkdir -p $(ASCIIDOC_HOME)/.asciidoc
-	cp -f $(ASCIIDOC_LANG_CONFS) $(ASCIIDOC_HOME)/.asciidoc/
+	@# The conf list may be empty (every current language has an upstream
+	@# conf); cp with no source operand is an error, not a no-op.
+	@if [ -n "$(ASCIIDOC_LANG_CONFS)" ]; then \
+		cp -f $(ASCIIDOC_LANG_CONFS) $(ASCIIDOC_HOME)/.asciidoc/; fi
 	@touch $@
 
 GENERATED_MANPAGES += ../docs/man/man1/linuxcnc.1
