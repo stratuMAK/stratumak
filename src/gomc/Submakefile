@@ -381,7 +381,13 @@ gomc-clean:
 # generated GMI headers were never packaged. The binaries got in regardless,
 # via install-kernel-indep's generic $(TARGETS) sweep, which is why nothing
 # looked wrong until `modcompile add-gomod` had no tree to work on.
+#
+# Hooked only when EMC2_STATE_DIR is set (non-RIP): in a run-in-place tree the
+# state/libexec dirs are deliberately empty, and an unguarded run would
+# install to / and replace the tree's own bin/gomc-server with a symlink.
+ifneq ($(EMC2_STATE_DIR),)
 install-software: gomc-install gomc-install-state
+endif
 
 # The mutable state tree, and the one symlink that makes $(bindir)/gomc-server
 # resolve to something.
@@ -399,6 +405,9 @@ install-software: gomc-install gomc-install-state
 # that has already rebuilt, the entry is a real binary and must stay one.
 .PHONY: gomc-install-state
 gomc-install-state:
+	$(Q)test -n "$(EMC2_STATE_DIR)" || { \
+		echo "gomc-install-state: EMC2_STATE_DIR is empty (run-in-place tree); refusing" >&2; \
+		exit 1; }
 	$(DIR) $(DESTDIR)$(EMC2_STATE_DIR)/bin \
 		$(DESTDIR)$(EMC2_STATE_DIR)/cmod \
 		$(DESTDIR)$(EMC2_STATE_DIR)/modules \
@@ -410,6 +419,9 @@ gomc-install-state:
 
 .PHONY: gomc-install
 gomc-install: ../bin/gomc-server ../bin/ads-xml-gen ../bin/modcompile ../bin/halcmd ../bin/ethercat $(GOMC_PKG_FILES)
+	$(Q)test -n "$(EMC2_STATE_DIR)" -a -n "$(EMC2_LIBEXEC_DIR)" || { \
+		echo "gomc-install: EMC2_STATE_DIR/EMC2_LIBEXEC_DIR empty (run-in-place tree); refusing" >&2; \
+		exit 1; }
 	$(DIR) $(DESTDIR)$(EMC2_BIN_DIR)
 	# The server is installed pristine, under a directory nothing else writes,
 	# and $(bindir) only points at it. A local rebuild replaces the middle link

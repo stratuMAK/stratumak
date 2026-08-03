@@ -492,6 +492,11 @@ GOMC_INSTALLED_HEADERS = $(shell cd gomc 2>/dev/null && find . \
 	-type f \( -name '*.h' -o -name '*.hh' \) -print 2>/dev/null)
 
 .PHONY: check-header-collisions
+# Order-only on the generated GMI headers: GOMC_INSTALLED_HEADERS finds
+# whatever exists when the recipe runs, so on a fresh tree the check must not
+# run before codegen has produced them (a collision involving a generated
+# header would pass once and only fail on the rebuild).
+check-header-collisions: | $(filter gomc/generated/%,$(TARGETS))
 check-header-collisions:
 	@flat=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort -u`; \
 	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
@@ -816,7 +821,10 @@ install-common: install-dirs
 	# are make bookkeeping, not part of an app.
 	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
 
-	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	# gomc-server is excluded: gomc-install owns it entirely (libexec copy +
+	# bindir symlink); installing a flat copy here would race that symlink
+	# under a parallel install.
+	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/gomc-server, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
 	# Several bin/ entries are symlinks onto one binary that picks its app
 	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
 	# the loop above ships a full copy per link; re-create them as links.
@@ -846,8 +854,9 @@ install-common: install-dirs
 	# above: the EtherCAT master's libethercat.so.2.x comes from the submodule,
 	# not from TARGETS. Without it the package ships ../lib/libethercat.so as a
 	# dangling symlink and the ethercat cmod cannot load. cp -a keeps the
-	# soname symlink a symlink.
-	cp -a $(wildcard ../lib/*.so.[0-9]*) $(DESTDIR)$(libdir)
+	# soname symlink a symlink. The .so.0 libraries are filtered out: the
+	# $(FILE) line above already installed them with install(1) semantics.
+	cp -a $(filter-out %.so.0,$(wildcard ../lib/*.so.[0-9]*)) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
 	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
 	# The same headers again, keeping their source-relative path.
