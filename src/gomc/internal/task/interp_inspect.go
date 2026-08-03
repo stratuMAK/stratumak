@@ -5,11 +5,11 @@ package task
 // interp_inspect.go — read-only views of interpreter state that the canon
 // stream does not surface (numbered parameters, length units, current
 // position and the two offset families).  Backed by the interp_inspection.hh
-// seam in librs274; see the matching block in interp_shim.h.
+// seam in librs274; see the matching block in task_interp_shim.h.
 //
 // The #cgo build flags come from interp.go — cgo applies them package-wide.
 
-// #include "interp_shim.h"
+// #include "task_interp_shim.h"
 import "C"
 
 // Axis selectors for the CInterp position/offset accessors.

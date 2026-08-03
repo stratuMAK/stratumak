@@ -1,2 +1,5 @@
 node_modules/
-package-lock.json
+# The shared lint toolchain pins exact versions in package.json instead of
+# carrying a lock (see the Phase-6 note); the leading slash keeps this to the
+# toolchain, so each app's own package-lock.json stays tracked.
+/package-lock.json

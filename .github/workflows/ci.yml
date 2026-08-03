@@ -19,6 +19,10 @@ on:
 # Job gating policy for this fork (upstream runs everything on every push):
 #   - gomc + rip-and-test + static-checks: every push and PR — the merge gates.
 #   - rip-and-test-clang, htmldocs: post-merge pushes to gomc only.
+#   - package-gate: post-merge pushes to gomc + dispatch — builds the deb,
+#     asserts package contents, requires lintian-clean, installs the result
+#     and boots a config. This is the job that catches install-layout rot:
+#     runtests exercises the RIP tree, where the layout differs.
 #   - package-*: releases/tags (feeds the release job) or manual dispatch.
 
 permissions:
@@ -198,6 +202,68 @@ jobs:
         eatmydata make -O -j$((1+$(nproc))) docs
         # Note that the package build covers html docs
 
+  package-gate:
+    runs-on: ubuntu-24.04
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/gomc') ||
+      github.event_name == 'workflow_dispatch'
+    container:
+      image: debian:trixie
+      # IPC_OWNER/SYS_ADMIN for shm during the boot smoke; SETFCAP so the
+      # postinst can apply the realtime file capabilities.
+      options: --cpus=2 --cap-add=IPC_OWNER --cap-add=SYS_ADMIN --cap-add=SETFCAP
+    steps:
+    - name: Install pre-dependencies
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -e
+        set -x
+        apt-get --quiet update
+        apt-get --yes --quiet install eatmydata
+        eatmydata apt-get --yes --quiet install --no-install-suggests \
+            git lsb-release python3 devscripts lintian
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Build Debian packages
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -e
+        set -x
+        eatmydata git config --global --add safe.directory "${PWD}"
+        eatmydata git submodule update --init
+        eatmydata debian/configure
+        eatmydata apt-get --yes --quiet build-dep .
+        eatmydata debuild -us -uc -b
+    - name: Assert package contents
+      run: |
+        set -e
+        bash scripts/check-deb-contents.sh ..
+    - name: Lintian
+      run: |
+        set -e
+        set -x
+        lintian --fail-on error,warning --no-tag-display-limit ../*.changes
+    - name: Install the packages and boot a config
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -e
+        set -x
+        eatmydata apt-get --yes --quiet install ../*.deb
+        eatmydata adduser --disabled-password --gecos "" testrunner
+        chmod 0777 debian/tests
+        su -c "cd debian/tests && ./linuxcnc-test" testrunner
+    - name: Install an external component on the packaged system
+      run: |
+        set -e
+        set -x
+        printf 'component cigate "CI gate scratch component";\npin in bit a;\npin out bit out;\nfunction _;\nlicense "GPL";\n;;\nFUNCTION(_) { out = a; }\n' > /tmp/cigate.comp
+        modcompile --install /tmp/cigate.comp
+        test -f /var/lib/stratumak/cmod/cigate.so
+
   package-arch:
     runs-on: ${{ matrix.runner }}
     if: >-
@@ -207,7 +273,7 @@ jobs:
     strategy:
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
-        image: ["debian:bullseye", "debian:bookworm", "debian:trixie", "debian:sid"]
+        image: ["debian:trixie", "debian:sid"]
     container:
       image: ${{ matrix.image }}
       # IPC_OWNER is needed for shmget IPC_CREAT
@@ -236,25 +302,6 @@ jobs:
         # our build system to determine the version from tags
         fetch-depth: 0
 
-    - name: Add linuxcnc.org deb archive
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        case "${{matrix.image}}" in
-            debian:sid|debian:bookworm|debian:trixie)
-                exit 0
-                ;;
-            *)
-                ;;
-        esac
-        set -e
-        set -x
-        eatmydata apt-get --yes --quiet install --no-install-recommends gpg software-properties-common
-        eatmydata gpg --homedir="${PWD}/gnupg" --output /etc/apt/trusted.gpg.d/linuxcnc-deb-archive.gpg --export 3CB9FD148F374FEF
-        DIST=$(echo ${{matrix.image}} | cut -d : -f 2)
-        eatmydata add-apt-repository "deb http://linuxcnc.org $DIST base"
-        eatmydata apt-get --quiet update
-
     - name: Build architecture-specific Debian packages
       env:
         DEBEMAIL: emc-developers@lists.sourceforge.net
@@ -264,9 +311,9 @@ jobs:
         set -e
         set -x
         eatmydata git config --global --add safe.directory "${PWD}"
+        eatmydata git submodule update --init
         eatmydata debian/configure
         eatmydata debian/update-dch-from-git
-        eatmydata scripts/get-version-from-git | sed -re 's/^v(.*)$/\1/' >| VERSION; cat VERSION
         eatmydata git diff
         eatmydata apt-get --yes --quiet build-dep --arch-only .
         eatmydata debuild -us -uc --build=any
@@ -317,7 +364,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
-        image: ["debian:bullseye", "debian:bookworm", "debian:trixie", "debian:sid"]
+        image: ["debian:trixie", "debian:sid"]
     container:
       image: ${{ matrix.image }}
       # IPC_OWNER is needed for shmget IPC_CREAT
@@ -347,25 +394,6 @@ jobs:
         # our build system to determine the version from tags
         fetch-depth: 0
 
-    - name: Add linuxcnc.org deb archive
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        case "${{matrix.image}}" in
-            debian:sid|debian:bookworm|debian:trixie)
-                exit 0
-                ;;
-            *)
-                ;;
-        esac
-        set -e
-        set -x
-        eatmydata apt-get --yes --quiet install gpg software-properties-common
-        eatmydata gpg --homedir="${PWD}/gnupg" --output /etc/apt/trusted.gpg.d/linuxcnc-deb-archive.gpg --export 3CB9FD148F374FEF
-        DIST=$(echo ${{matrix.image}} | cut -d : -f 2)
-        eatmydata add-apt-repository "deb http://linuxcnc.org $DIST base"
-        eatmydata apt-get --quiet update
-
     - name: Build architecture-independent Debian packages
       env:
         DEBEMAIL: emc-developers@lists.sourceforge.net
@@ -375,9 +403,9 @@ jobs:
         set -e
         set -x
         eatmydata git config --global --add safe.directory "${PWD}"
+        eatmydata git submodule update --init
         eatmydata debian/configure
         eatmydata debian/update-dch-from-git
-        eatmydata scripts/get-version-from-git | sed -re 's/^v(.*)$/\1/' >| VERSION; cat VERSION
         eatmydata git diff
         eatmydata apt-get --yes --quiet build-dep --indep-only .
         eatmydata debuild -us -uc --build=all

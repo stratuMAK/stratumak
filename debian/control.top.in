@@ -1,4 +1,4 @@
-Source: linuxcnc
+Source: stratumak
 Section: misc
 Priority: optional
 Maintainer: LinuxCNC Developers <emc-developers@lists.sourceforge.net>
@@ -75,12 +75,17 @@ Rules-Requires-Root: binary-targets
 
 Package: @MAIN_PACKAGE_NAME@-dev
 Architecture: any
-Conflicts: linuxcnc-sim-dev, @OTHER_MAIN_PACKAGE_NAME@-dev
+Conflicts: linuxcnc-dev, linuxcnc-sim-dev, linuxcnc-uspace-dev, @OTHER_MAIN_PACKAGE_NAME@-dev
+Replaces: linuxcnc-dev, linuxcnc-uspace-dev
+Provides: linuxcnc-dev, linuxcnc-uspace-dev
 Depends:
     ${misc:Depends},
+    ${shlibs:Depends},
     ${python3:Depends},
     @KERNEL_HEADERS@,
     python3-serial,
+    build-essential,
+    golang-go,
     @MAIN_PACKAGE_NAME@ (= ${binary:Version}),
     udev,
     @YAPPS_RUNTIME@

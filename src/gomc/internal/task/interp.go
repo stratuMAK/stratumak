@@ -5,7 +5,7 @@ package task
 // #cgo CXXFLAGS: -I${SRCDIR}/../../.. -I${SRCDIR}/../../../../include -I${SRCDIR}/../../../emc/rs274ngc -I${SRCDIR}/../../../emc/tooldata -I${SRCDIR}/../../generated/gmi/interp_ext -I${SRCDIR}/../../generated/gmi/interp_ctx -I${SRCDIR}/../../generated/gmi/mcode_handler -I${SRCDIR}/../../pkg/cmodule -std=c++17
 // #cgo CFLAGS: -I${SRCDIR}/../../.. -I${SRCDIR}/../../../../include
 // #cgo LDFLAGS: -L${SRCDIR}/../../../../lib -lrs274 -lstdc++ -ldl
-// #include "interp_shim.h"
+// #include "task_interp_shim.h"
 // #include <stdlib.h>
 import "C"
 import (

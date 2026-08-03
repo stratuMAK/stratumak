@@ -44,6 +44,8 @@ func currentValues() map[string]string {
 		"ModExt":             config.ModExt,
 		"KernelVers":         config.KernelVers,
 		"BuildFlags":         config.BuildFlags,
+		"EMC2StateDir":       config.EMC2StateDir,
+		"EMC2LibexecDir":     config.EMC2LibexecDir,
 	}
 }
 

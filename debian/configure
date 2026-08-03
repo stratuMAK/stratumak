@@ -125,12 +125,12 @@ KERNEL_HEADERS=
 KERNEL_VERSION=uspace
 MODUTILS_DEPENDS=
 if false; then
-MAIN_PACKAGE_NAME=linuxcnc
-OTHER_MAIN_PACKAGE_NAME=linuxcnc-uspace
+MAIN_PACKAGE_NAME=stratumak
+OTHER_MAIN_PACKAGE_NAME=stratumak-uspace
 else
 DISTRIB_NAME=uspace-$DISTRIB_NAME
-MAIN_PACKAGE_NAME=linuxcnc-uspace
-OTHER_MAIN_PACKAGE_NAME=linuxcnc
+MAIN_PACKAGE_NAME=stratumak
+OTHER_MAIN_PACKAGE_NAME=stratumak-rtai
 fi
 
 EXTRA_RECOMMENDS="$EXTRA_RECOMMENDS, linux-image-rt-amd64 [linux-amd64], linux-image-rt-686-pae [linux-i386]"
@@ -182,9 +182,9 @@ subst control.top.in > control
 echo >> control
 subst control.main-pkg.in >> control
 
-subst linuxcnc.install.in > ${MAIN_PACKAGE_NAME}.install
-subst linuxcnc.lintian-overrides.in > ${MAIN_PACKAGE_NAME}.lintian-overrides
-subst linuxcnc.manpages.in > ${MAIN_PACKAGE_NAME}.manpages
+subst stratumak.install.in > ${MAIN_PACKAGE_NAME}.install
+subst stratumak.lintian-overrides.in > ${MAIN_PACKAGE_NAME}.lintian-overrides
+subst stratumak.manpages.in > ${MAIN_PACKAGE_NAME}.manpages
 
 subst rules.in > rules
 chmod +x rules

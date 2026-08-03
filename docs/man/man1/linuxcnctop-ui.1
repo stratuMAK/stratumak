@@ -1,0 +1,77 @@
+.\" Copyright (c) 2026 Sascha Ittner
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
+.\" USA.
+.\"
+.TH LINUXCNCTOP\-UI "1"  "2026-07-31" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+linuxcnctop\-ui \- the LinuxCNC status window
+.SH SYNOPSIS
+.B linuxcnctop\-ui
+[\fI\-\-url URL\fR] [\fI\-\-title TITLE\fR] [\fI\-\-width W\fR] [\fI\-\-height H\fR]
+.SH DESCRIPTION
+\fBlinuxcnctop\-ui\fR opens the LinuxCNC status window: one row per status
+field, with recently changed values highlighted. Above the list are a filter
+box (matching both field names and values), the update rate, a Freeze button, a
+raw\-JSON view and Copy All.
+
+It is a \fBgmcui\fR(1) symlink onto the \fIlinuxcnctop\fR web application, which
+the running controller serves at \fI/app/linuxcnctop/\fR \(em the same page can
+be opened in any browser. The server comes from \fB$GMC_REST_URL\fR (default
+http://127.0.0.1:5080) and the task instance from \fB$GMC_INSTANCE\fR (default
+\fImilltask\fR).
+
+Lengths are displayed in millimetres, the unit the controller keeps internally,
+regardless of the machine's configured units.
+
+This is the command AXIS runs for Machine > Show LinuxCNC Status. From a
+terminal, prefer \fBlinuxcnctop\fR(1): it opens this window by default and adds
+a text mode for headless use. Unlike \fBlinuxcnctop\fR, this command rejects
+arguments it does not recognise, including the legacy \fB\-ini\fR \fIINIFILE\fR.
+.SH OPTIONS
+.TP
+\fB\-\-url\fR \fIURL\fR
+Server URL, overriding \fB$GMC_REST_URL\fR.
+.TP
+\fB\-\-title\fR \fITITLE\fR
+Window title.
+.TP
+\fB\-\-width\fR \fIW\fR, \fB\-\-height\fR \fIH\fR
+Initial window size in pixels.
+.SH ENVIRONMENT
+.TP
+.B GMC_REST_URL
+Base URL of the controller's REST API.
+.TP
+.B GMC_INSTANCE
+Task instance to display.
+.SH "SEE ALSO"
+\fBlinuxcnctop(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
+
+Much more information about LinuxCNC and HAL is available in the LinuxCNC
+and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.
+
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+Copyright \(co 2026 Sascha Ittner.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

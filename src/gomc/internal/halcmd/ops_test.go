@@ -765,3 +765,27 @@ func TestSetDebugLevels(t *testing.T) {
 		}
 	}
 }
+
+// TestGetDebugRoundTrips covers the read side a UI control needs: the level is
+// process-global, so a client that could only write would drift out of step
+// with the server whenever anything else changed it.
+func TestGetDebugRoundTrips(t *testing.T) {
+	t.Cleanup(func() { _ = halcmd.SetDebug(1) })
+	for _, lvl := range []int{0, 1, 2, 3} {
+		if err := halcmd.SetDebug(lvl); err != nil {
+			t.Fatalf("SetDebug(%d): %v", lvl, err)
+		}
+		if got := halcmd.GetDebug(); got != lvl {
+			t.Errorf("GetDebug() after SetDebug(%d) = %d; want %d", lvl, got, lvl)
+		}
+	}
+
+	// A rejected write must not move the level.
+	if err := halcmd.SetDebug(2); err != nil {
+		t.Fatalf("SetDebug(2): %v", err)
+	}
+	_ = halcmd.SetDebug(9)
+	if got := halcmd.GetDebug(); got != 2 {
+		t.Errorf("GetDebug() after a rejected SetDebug(9) = %d; want 2", got)
+	}
+}

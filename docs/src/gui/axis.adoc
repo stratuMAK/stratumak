@@ -176,7 +176,6 @@ Do not use 'Run From Selected Line' if your G-code program contains subroutines.
 * 'HAL Meter' - Opens a window where you can monitor a single HAL Pin, Signal, or Parameter.
 * 'HAL Scope' - Opens a virtual oscilloscope that allows plotting HAL values vs. time.
 * 'Show LinuxCNC Status' - Opens a window showing LinuxCNC's status.
-* 'Set Debug Level' - Opens a window where debug levels can be viewed and some can be set.
 * 'Homing' - Home one or all axes.
 * 'Unhoming' - Unhome one or all axes.
 * 'Zero Coordinate System' - Set all offsets to zero in the coordinate system chosen.
@@ -663,8 +662,8 @@ The most frequently used keyboard shortcuts are shown in the following table:
 
 == Show LinuxCNC Status (`linuxcnctop`)
 
-AXIS includes a program called 'linuxcnctop' which shows some of the
-details of LinuxCNC's state. You can run this program by invoking Machine >
+AXIS includes a program called 'linuxcnctop' which shows the details of
+LinuxCNC's state. You can run this program by invoking Machine >
 Show LinuxCNC Status
 
 .LinuxCNC Status Window
@@ -673,6 +672,32 @@ image::images/axis-emc-status.png["LinuxCNC Status Window",align="center"]
 The name of each item is shown in the left column. The current value
 is shown in the right column. If the value has recently changed, it is
 shown on a red background.
+
+Above the list are:
+
+* a filter box, which matches both field names and values, so typing
+  `estop` finds the field and typing `ESTOP` finds the machine state that
+  holds it;
+* the update rate;
+* 'Freeze', which holds the display still so a fast-changing value can be
+  read (the status bar says so while it is held);
+* 'JSON', which shows the raw status snapshot;
+* 'Copy All', which copies the current (filtered) view to the clipboard.
+
+Lengths are shown in millimetres, which is the unit the controller keeps
+internally, regardless of the machine's configured units.
+
+From a terminal, run `linuxcnctop` to open the same window. For a headless
+machine, or to paste the state into a bug report, add `-t` to print the
+status instead:
+
+----
+linuxcnctop -t
+----
+
+`linuxcnctop --json` prints the raw snapshot instead, and `linuxcnctop -n 1`
+repeats it once a second; `linuxcnctop --help` lists the rest. (The menu entry
+runs `linuxcnctop-ui`, the window on its own.)
 
 == MDI interface
 

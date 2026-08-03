@@ -115,6 +115,7 @@ In this case we need access to:
     HAL pin setup_ and to _disable/enable the widget_ (also known as
     input sensitivity). +
     There is also `_HalToggleBase`, and `_HalScaleBase` functions available in the library.`_HalToggleBase`, and `_HalScaleBase`.
+
 //TODO explain `_HalToggleBase` and `_HalScaleBase` too
 
 .In the 'WIDGET' section

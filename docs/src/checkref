@@ -20,9 +20,28 @@ fi
 
 BAD_LINKS=0
 for F in $FILES; do
+    # The make rules pass $^, which carries the .htmldoc-stamp prerequisite
+    # along with the documents; checklink then complains that its Content-Type
+    # is text/plain.  Only HTML is a document here.
+    case $F in
+        *.html) ;;
+        *) continue ;;
+    esac
     OUT=.checklink.$LANGUAGE.$(basename $F).tmp
     rm -f $OUT
-    linuxcnc-checklink --quiet --exclude "(http|https|irc)://" $F  2>&1 | tee $OUT
+    # --follow-file-links is what makes this check do anything at all.  Without
+    # it checklink refuses every file: URI -- which is every link between two
+    # local documents, i.e. all this pass exists to verify -- prints "Error:
+    # 500 Access to 'file' URIs has been disabled" and does not count the
+    # refusal as a broken link.  The result was "all links are good" reported
+    # over a run that had validated nothing: a page linking to a nonexistent
+    # file passed silently.
+    #
+    # The grep drops a Perl warning checklink itself emits from an
+    # uninitialized match while following file: URIs; it is noise from the
+    # tool, not a finding, and would otherwise replace one flood with another.
+    linuxcnc-checklink --quiet --follow-file-links --exclude "(http|https|irc)://" $F 2>&1 \
+        | grep -v 'Use of uninitialized value' | tee $OUT
     egrep -q 'List of (broken links and other issues|duplicate and empty anchors)' $OUT
     if [ $? -ne 1 ]; then
         BAD_LINKS=1

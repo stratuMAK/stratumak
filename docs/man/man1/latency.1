@@ -1,0 +1,31 @@
+.TH latency "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+latency \- window for the RT Latency web application
+
+.SH SYNOPSIS
+.B latency
+
+.SH DESCRIPTION
+.B latency
+opens the RT Latency test web application of
+.BR gomc-server (1)
+in a native window.  It is a symlink to
+.BR gmcui (1),
+which selects the application by its invocation name; see that page
+for the accepted options and environment variables.
+.PP
+The latency test itself is normally started with
+.BR latency-test (1).
+
+.SH "SEE ALSO"
+.BR gmcui (1),
+.BR latency-test (1),
+.BR gomc-server (1)
+
+.SH AUTHOR
+Part of the LinuxCNC project.
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

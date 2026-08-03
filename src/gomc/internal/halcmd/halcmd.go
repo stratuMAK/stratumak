@@ -733,3 +733,21 @@ func SetDebug(level int) error {
 	}
 	return nil
 }
+
+// GetDebug returns the current log output verbosity level, in the same
+// 0=DEBUG..3=ERROR encoding SetDebug takes. A UI offering the level as a
+// control needs this: the level is process-global and any halcmd client can
+// change it, so a control that could only write would drift out of step with
+// the server it claims to show.
+func GetDebug() int {
+	switch l := LogLevel.Level(); {
+	case l <= slog.LevelDebug:
+		return 0
+	case l <= slog.LevelInfo:
+		return 1
+	case l <= slog.LevelWarn:
+		return 2
+	default:
+		return 3
+	}
+}

@@ -27,8 +27,12 @@ $(GLHELPERSMODULE): $(call TOOBJS, $(GLHELPERSSRCS))
 
 PYTARGETS += $(EMCMODULE) $(TOGLMODULE) $(GLHELPERSMODULE)
 
+# linuxcnctop keeps its 2.9 CLI: a launcher that prints the status with -t and
+# otherwise execs bin/linuxcnctop-ui (a gmcui symlink onto the web app).
+# debuglevel is gone: the EMC_DEBUG_* bitmask it set is inert on gomc — the live
+# verbosity knob is the halcmd log level, exposed in halshow.
 PYSCRIPTS := axis.py axis-remote.py linuxcnctop.py manualtoolchange_ui.py \
-	mdi.py image-to-gcode.py lintini.py debuglevel.py teach-in.py tracking-test.py
+	mdi.py image-to-gcode.py lintini.py teach-in.py tracking-test.py
 PYBIN := $(patsubst %.py,../bin/%,$(PYSCRIPTS))
 PYTARGETS += $(PYBIN)
 

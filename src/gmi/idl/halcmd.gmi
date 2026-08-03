@@ -306,6 +306,14 @@ func unlock(level: string?) -> CmdResult
 @rt_safe "false"
 func set_debug(level: i32 @min(0) @max(3)) -> CmdResult
 
+# Current log output verbosity (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR).
+# The level is process-global and any halcmd client can change it, so a UI
+# exposing it has to be able to read it back rather than track its own writes.
+@method "GET"
+@path "/debug"
+@rt_safe "true"
+func get_debug() -> i32
+
 # ─── Save/Restore Commands ───
 
 # Save HAL configuration

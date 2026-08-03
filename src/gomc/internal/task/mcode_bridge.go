@@ -7,7 +7,7 @@ package task
 // calls when it encounters M100-M199 during execution.
 
 /*
-#include "interp_shim.h"
+#include "task_interp_shim.h"
 
 // Forward declaration of the Go callback.
 extern void goMcodeCallback(int num, double arg1, double arg2);

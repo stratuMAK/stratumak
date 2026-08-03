@@ -1,0 +1,5 @@
+# config.h is autoconf's, shipped on purpose: out-of-tree cmod and gomod
+# builds compile against the installed headers, and several of them include
+# config.h for the feature macros. The PACKAGE_* defines ride along; scrubbing
+# them would fork the header from what the tree itself built with.
+stratumak-dev: package-name-defined-in-config-h usr/include/linuxcnc/config.h

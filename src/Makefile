@@ -24,7 +24,11 @@ default: build-software
 
 install: install-software install-docs
 
-install-software: install-kernel-dep install-kernel-indep install-menu
+# The two halves were once kernel-dependent vs kernel-independent, back when
+# the realtime layer was RTAI kernel modules. Nothing here is kernel-related
+# any more: install-modules places the loadable HAL/motion modules (cmods) in
+# their own directory, install-common everything else. Both always run.
+install-software: install-modules install-common install-menu
 
 ifeq ($(origin KERNELRELEASE), undefined)
 #MAKEFLAGS += --warn-undefined-variables
@@ -261,8 +265,14 @@ OPT := -Os $(INTEGER_OVERFLOW_FLAGS)
 # the same fortify diagnostics (e.g. warn_unused_result on write()) as the
 # ubuntu-24.04 CI runners.
 DEBUG := $(DEBUG) -g -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
-CFLAGS := $(INCLUDE) $(OPT) $(DEBUG) $(EXTRA_DEBUG) -D_GNU_SOURCE -std=gnu11 -Werror=implicit-function-declaration $(CFLAGS) $(CPPFLAGS)
-CXXFLAGS := $(INCLUDE) $(EXTRA_DEBUG) $(DEBUG) $(OPT) -Werror=overloaded-virtual $(CXXFLAGS) $(CPPFLAGS)
+# $(CPPFLAGS) ahead of $(DEBUG), not after it. dpkg-buildflags puts
+# -D_FORTIFY_SOURCE=2 in CPPFLAGS; trailing it meant that -D landed after the
+# -U/-D=3 pair above and won, so a Debian build silently compiled at level 2
+# while claiming 3 -- and gcc warned "redefined" on every translation unit
+# (171 lines of it). Ahead of the pair, the -U clears it and the intended
+# level 3 stands.
+CFLAGS := $(INCLUDE) $(CPPFLAGS) $(OPT) $(DEBUG) $(EXTRA_DEBUG) -D_GNU_SOURCE -std=gnu11 -Werror=implicit-function-declaration $(CFLAGS)
+CXXFLAGS := $(INCLUDE) $(CPPFLAGS) $(EXTRA_DEBUG) $(DEBUG) $(OPT) -Werror=overloaded-virtual $(CXXFLAGS)
 CXXFLAGS += -std=gnu++17
 # In Debian 11, any inclusion of <boost/python.hpp> leads to several
 # diagnostics from included headers about deprecated features. LinuxCNC does
@@ -276,7 +286,20 @@ CXXFLAGS += $(TOOL_NML_FLAG)
 ifeq ($(RUN_IN_PLACE),yes)
 LDFLAGS := -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) $(LIBTIRPC_LIBS) $(LDFLAGS)
 else
-LDFLAGS := -Wl,-rpath-link,../lib $(LIBTIRPC_LIBS) $(LDFLAGS)
+# A -L as well as -rpath-link: -rpath-link only tells the linker where to find
+# the transitive dependencies OF shared libraries, it is not a search path for
+# -lfoo. Without it the installed build cannot resolve any tree library named
+# by a bare -lfoo (hal_parport's -lrtapi_parport, the hostmot2 cmods'
+# -lrtapi_core/-lrtapi_pci), while the run-in-place build could. -L leaves no
+# trace in the output, so this adds no build path to a shipped binary the way
+# an -rpath would.
+#
+# Absolute, like the run-in-place branch above: LDFLAGS reaches sub-builds that
+# run from their own directory (the EtherCAT master's autotools tree), where a
+# relative ../lib names nothing and libtool refuses it outright. LIB_DIR is no
+# use here — it is the install location (/usr/lib) in this branch — so derive
+# the build tree's lib from BASEPWD, which is this src/ directory.
+LDFLAGS := -L$(abspath $(BASEPWD)/../lib) -Wl,-rpath-link,../lib $(LIBTIRPC_LIBS) $(LDFLAGS)
 endif
 
 # Rules to make .o (object) files
@@ -350,6 +373,7 @@ build-software: $(INFILES)
 # files in the source tree are the ones used when building linuxcnc.  The copy
 # in ../include is used when building external components of linuxcnc.
 SRCHEADERS := \
+    config.h \
     emc/linuxcnc.h \
     emc/kinematics/cubic.h \
     emc/kinematics/kinematics.h \
@@ -363,6 +387,7 @@ SRCHEADERS := \
     emc/tp/tp_types.h \
     emc/tp/spherical_arc.h \
     emc/tp/blendmath.h \
+    emc/tp/tp_debug.h \
     emc/motion/emcmotcfg.h \
     emc/motion/motion.h \
     emc/motion/homing.h \
@@ -382,10 +407,18 @@ SRCHEADERS := \
     emc/rs274ngc/interp_internal.hh \
     emc/rs274ngc/interp_fwd.hh \
     emc/rs274ngc/interp_base.hh \
+    emc/rs274ngc/canon_interface.hh \
+    emc/rs274ngc/interp_ext.h \
+    emc/rs274ngc/interp_inspection.hh \
+    emc/rs274ngc/interp_parameter_def.hh \
+    emc/rs274ngc/interp_parameter_io.hh \
+    emc/rs274ngc/interp_shim.h \
     emc/rs274ngc/modal_state.hh \
     emc/rs274ngc/rs274ngc.hh \
-    emc/rs274ngc/saicanon.hh \
+    emc/rs274ngc/rs274ngc_interp.hh \
+    emc/sai/saicanon.hh \
     hal/hal.h \
+    hal/hal_priv.h \
     hal/drivers/mesa-hostmot2/hostmot2-serial.h \
     libnml/inifile/inifile.h \
     libnml/inifile/inifile.hh \
@@ -413,15 +446,90 @@ SRCHEADERS := \
     rtapi/rtapi_stdint.h \
     rtapi/rtapi_ctype.h \
     rtapi/rtapi_errno.h \
-    rtapi/rtapi_string.h
+    rtapi/rtapi_string.h \
+    rtapi/rtapi_task.h \
+    rtapi/uspace_common.h
+
+# C files that are #included rather than compiled on their own.
+#
+# The gomc packages wrapping the trajectory planner and pose maths pull these
+# in textually (`#include "emc/tp/tc.c"`), so to a tree that has to be
+# rebuildable they are headers in everything but name, and are installed
+# alongside them. Nothing compiles them as translation units.
+SRCINCLUDED_SOURCES := \
+    emc/nml_intf/emcpose.c \
+    emc/tp/blendmath.c \
+    emc/tp/spherical_arc.c \
+    emc/tp/tc.c
 
 # the "headers" target installs all the header files in ../include
 .PHONY: headers
 HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h)))
-headers: $(HEADERS)
+headers: $(HEADERS) check-header-collisions
 
 # install header files as part of the build
 TARGETS += headers
+
+# ---------------------------------------------------------------------------
+# No two installed headers may share a basename
+# ---------------------------------------------------------------------------
+#
+# $(includedir)/linuxcnc is a flat namespace: every SRCHEADERS entry lands in
+# it under its basename alone, and that directory is on the include path of
+# everything compiled against LinuxCNC. A gomc package whose own header shares
+# a basename with one of them does not win by being adjacent -- when cgo
+# compiles it the flat copy is found first, and the package fails on types
+# declared in the file lying next to it. emc/rs274ngc/interp_shim.h and
+# gomc/internal/task/interp_shim.h were exactly that, down to sharing an
+# include guard, and it cost an afternoon to find because every error pointed
+# at the innocent file.
+#
+# So the build refuses the situation rather than waiting for someone to hit
+# it. Cheap: two sorts over a list of names.
+GOMC_INSTALLED_HEADERS = $(shell cd gomc 2>/dev/null && find . \
+	-path './internal/gmi/kinstest' -prune -o \
+	-path './internal/halscope/testrt' -prune -o \
+	-type f \( -name '*.h' -o -name '*.hh' \) -print 2>/dev/null)
+
+.PHONY: check-header-collisions
+# Order-only on the generated GMI headers: GOMC_INSTALLED_HEADERS finds
+# whatever exists when the recipe runs, so on a fresh tree the check must not
+# run before codegen has produced them (a collision involving a generated
+# header would pass once and only fail on the rebuild).
+check-header-collisions: | $(filter gomc/generated/%,$(TARGETS))
+check-header-collisions:
+	@flat=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort -u`; \
+	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
+	if [ -n "$$dup" ]; then \
+	    echo "*** Two SRCHEADERS entries share a basename, so only one of them can" >&2; \
+	    echo "*** reach \$$(includedir)/linuxcnc:" >&2; \
+	    for d in $$dup; do \
+	        echo "***   $$d:" >&2; \
+	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
+	            case $$h in */$$d|$$d) echo "***     $$h" >&2 ;; esac; \
+	        done; \
+	    done; \
+	    exit 1; \
+	fi; \
+	gomch=`for h in $(GOMC_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
+	clash=`printf '%s\n' $$flat $$gomch | sort | uniq -d`; \
+	if [ -n "$$clash" ]; then \
+	    echo "*** A header installed into the flat \$$(includedir)/linuxcnc shares a" >&2; \
+	    echo "*** basename with one inside the gomc tree. The flat copy wins when cgo" >&2; \
+	    echo "*** compiles that package, whichever one it meant:" >&2; \
+	    for c in $$clash; do \
+	        echo "***   $$c:" >&2; \
+	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
+	            case $$h in */$$c|$$c) echo "***     $$h" >&2 ;; esac; \
+	        done; \
+	        for h in $(GOMC_INSTALLED_HEADERS); do \
+	            case $$h in */$$c|$$c) echo "***     gomc/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
+	        done; \
+	    done; \
+	    echo "*** Rename one of them. See src/gomc/internal/task/task_interp_shim.h" >&2; \
+	    echo "*** for the one that had to be renamed and why." >&2; \
+	    exit 1; \
+	fi
 
 # Add converting of %.po files
 TARGETS += $(patsubst po/%.po, ../share/locale/%/LC_MESSAGES/linuxcnc.mo, $(wildcard po/*.po))
@@ -470,8 +578,11 @@ inclean:
 	$(RM) $(INFILES)
 headersclean:
 	$(RM) $(HEADERS)
-clean: docclean pythonclean cscopeclean headersclean
+clean: docclean pythonclean cscopeclean headersclean genclean depclean
 distclean: clean inclean ecmaster-distclean
+
+depclean:
+	rm -rf depends
 
 # =========================================================================
 # EtherCAT Master (submodule: src/hal/drivers/ethercat/master)
@@ -479,7 +590,14 @@ distclean: clean inclean ecmaster-distclean
 
 # Override ETHERCAT flags to use locally-built master from submodule
 ETHERCAT_CFLAGS := -I$(ECMASTER_PREFIX)/include
-ETHERCAT_LIBS := -L$(ECMASTER_PREFIX)/lib -Wl,-rpath,$(ECMASTER_PREFIX)/lib -lethercat
+ETHERCAT_LIBS := -L$(ECMASTER_PREFIX)/lib -lethercat
+ifeq ($(RUN_IN_PLACE),yes)
+# RIP only. libethercat lives in the build tree, so the loader needs to be told
+# where. An installed package puts it in $(libdir), which ldconfig already
+# covers -- baking the build tree's absolute path into a shipped ethercat.so
+# would name a directory that does not exist on the target machine.
+ETHERCAT_LIBS += -Wl,-rpath,$(ECMASTER_PREFIX)/lib
+endif
 
 .PHONY: ecmaster-check ecmaster-bootstrap ecmaster-configure ecmaster-build \
         ecmaster-install ecmaster-clean ecmaster-distclean
@@ -577,7 +695,24 @@ pycheck: pycheck-python-files pycheck-python-script
 #   cap_sys_resource - raise resource limits (e.g. RLIMIT_MEMLOCK, RLIMIT_RTPRIO)
 #   cap_sys_nice   - set realtime scheduling priorities (SCHED_FIFO/SCHED_RR)
 #   cap_sys_rawio  - direct hardware I/O port access (ioperm/iopl for parport, PCI BARs)
-# TODO: check what's actually needed
+#   cap_perfmon    - the BPF verifier's pointer-leak gate (perfmon_capable()),
+#                    which libxdp's dispatcher program has to pass
+#   cap_sys_admin  - the ID-based BPF lookups (BPF_BTF_GET_FD_BY_ID,
+#                    BPF_PROG_GET_FD_BY_ID) libxdp uses to inspect an
+#                    already-attached dispatcher; CAP_BPF deliberately does not
+#                    cover those
+#   cap_dac_override - writing root-owned files as a process that is not root:
+#                    /proc/irq/$n/smp_affinity (IRQ pinning),
+#                    /dev/cpu_dma_latency (PM QoS floor),
+#                    /sys/bus/pci/devices/*/resource0 (CCAT BAR)
+#
+# The long-standing "TODO: check what's actually needed" here is answered: it
+# was audited in 2026-08 and every entry has a caller. Two of them are demanded
+# by the kernel on behalf of a program shipped inside libxdp rather than by any
+# call this tree makes, so reading the source is not enough to re-derive this --
+# removing cap_perfmon or cap_sys_admin fails EtherCAT startup on a real machine
+# (6.12 RT, xdp-native), each with its own error. See
+# EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
 	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/gomc-server
 
@@ -637,9 +772,9 @@ install-docs:
 	$(FILE) emc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
 
 install-dirs:
-	$(DIR) $(DESTDIR)$(EMC2_GOMOD_DIR) \
-		$(DESTDIR)$(sysconfdir)/linuxcnc $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
-		$(DESTDIR)/lib/linuxcnc $(DESTDIR)$(includedir)/linuxcnc \
+	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
+		$(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
+		$(DESTDIR)$(includedir)/linuxcnc \
 		$(DESTDIR)$(docsdir) $(DESTDIR)$(ncfilesdir) \
 		$(DESTDIR)/etc/X11/app-defaults $(DESTDIR)$(tcldir)/bin \
 		$(DESTDIR)$(tcldir)/scripts \
@@ -663,9 +798,10 @@ install-dirs:
 		$(DESTDIR)$(datadir)/linuxcnc/stepconf \
 		$(DESTDIR)$(datadir)/linuxcnc/pncconf \
 		$(DESTDIR)$(datadir)/linuxcnc/pncconf/pncconf-help \
-		$(DESTDIR)$(datadir)/linuxcnc/hallib
+		$(DESTDIR)$(datadir)/linuxcnc/hallib \
+		$(DESTDIR)$(datadir)/linuxcnc/webapp
 
-install-kernel-indep: install-dirs
+install-common: install-dirs
 	$(FILE) ../docs/man/man1/*.1 $(DESTDIR)$(mandir)/man1
 	$(FILE) $(filter-out %/skeleton.3hal, $(wildcard ../docs/man/man3/*.3hal)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
@@ -676,13 +812,32 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/sim_pin $(DESTDIR)$(bindir)
 	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/linuxcnc
 	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/linuxcnc/hallib
-	$(FILE) ../tcl/*.png $(DESTDIR)$(tcldir)
 
 	# install all the sample configs, including subdirs (tar is required on debian systems, and common on others)
 	$(DIR) $(DESTDIR)$(sampleconfsdir)
 	((cd ../configs && tar --exclude CVS --exclude .cvsignore --exclude .gitignore -cf - .) | (cd $(DESTDIR)$(sampleconfsdir) && tar -xf -))
 
-	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	# install the built web applications, including subdirs. gomc-server serves
+	# these from EMC2_WEBAPP_DIR at /app/<name>/; without them every web tool
+	# (halshow, halscope, tooledit, emccalib, latency, classicladder,
+	# linuxcnctop-ui) is a 404 on an installed system. The .build-stamp files
+	# are make bookkeeping, not part of an app.
+	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
+
+	# gomc-server is excluded: gomc-install owns it entirely (libexec copy +
+	# bindir symlink); installing a flat copy here would race that symlink
+	# under a parallel install.
+	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/gomc-server, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	# Several bin/ entries are symlinks onto one binary that picks its app
+	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
+	# the loop above ships a full copy per link; re-create them as links.
+	$(Q)for f in $(filter ../bin/%,$(TARGETS)); do \
+		if [ -L "$$f" ]; then \
+			n=`basename "$$f"`; t=`readlink "$$f"`; \
+			rm -f "$(DESTDIR)$(bindir)/$$n"; \
+			ln -s "$$t" "$(DESTDIR)$(bindir)/$$n"; \
+		fi; \
+	done
 	$(EXE) ../scripts/linuxcnc_info $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/setup_designer $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/linuxcnc_var $(DESTDIR)$(bindir)
@@ -698,9 +853,41 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/halreport $(DESTDIR)$(bindir)
 	$(FILE) $(filter ../lib/%.a ../lib/%.so.0,$(TARGETS)) $(DESTDIR)$(libdir)
 	cp --no-dereference $(wildcard ../lib/*.so) $(DESTDIR)$(libdir)
+	# Shared libraries whose soname is not .0 are in neither of the two lines
+	# above: the EtherCAT master's libethercat.so.2.x comes from the submodule,
+	# not from TARGETS. Without it the package ships ../lib/libethercat.so as a
+	# dangling symlink and the ethercat cmod cannot load. cp -a keeps the
+	# soname symlink a symlink. The .so.0 libraries are filtered out: the
+	# $(FILE) line above already installed them with install(1) semantics.
+	cp -a $(filter-out %.so.0,$(wildcard ../lib/*.so.[0-9]*)) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
-	$(FILE) ../lib/linuxcnc/canterp.so $(DESTDIR)$(libdir)/linuxcnc
 	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
+	# The same headers again, keeping their source-relative path.
+	#
+	# The flat copies above are what out-of-tree cmods have always used, and
+	# stay. But the gomc packages include a good many of them the way the
+	# source tree does -- `#include "hal/hal_priv.h"`, `#include
+	# "emc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
+	# -Isrc in a build tree and against nothing at all in a flat include
+	# directory. That is why the installed gomc tree could not be rebuilt:
+	# not a missing file, a missing shape.
+	#
+	# Both spellings therefore resolve under the one -I that cgoFlags already
+	# passes ($(includedir)/linuxcnc), and no include path had to be invented.
+	#
+	# `|| exit 1` on the install, and it is load-bearing: without it a failing
+	# iteration is not the loop's exit status, so a name that no longer exists
+	# passes silently. The flat copies above reach this file through a `-cp`
+	# rule that ignores errors, which is how emc/rs274ngc/saicanon.hh stayed
+	# listed for years after moving to emc/sai/ -- installed nowhere, missed by
+	# nobody until something needed it.
+	$(Q)for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
+		d=$$(dirname $$h); \
+		if [ "$$d" != "." ]; then \
+			$(DIR) $(DESTDIR)$(includedir)/linuxcnc/$$d || exit 1; \
+		fi; \
+		$(FILE) $$h $(DESTDIR)$(includedir)/linuxcnc/$$h || exit 1; \
+	done
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
 	$(FILE) ../tcl/TkLinuxCNC $(DESTDIR)/etc/X11/app-defaults
@@ -729,9 +916,7 @@ install-kernel-indep: install-dirs
 
 	$(FILE) ../share/gtksourceview-4/language-specs/*.lang  $(DESTDIR)$(datadir)/gtksourceview-4/language-specs/
 
-	$(FILE) ../src/hal/drivers/mesa-hostmot2/modbus/*.tmpl  $(DESTDIR)$(prefix)/share/linuxcnc/
-
-install-kernel-indep: install-python
+install-common: install-python
 install-python: install-dirs
 	$(DIR) $(DESTDIR)$(SITEPY) $(DESTDIR)$(SITEPY)/rs274
 	$(DIR) $(DESTDIR)$(SITEPY)/touchy
@@ -780,7 +965,6 @@ install-python: install-dirs
 	$(EXE) ../bin/gladevcp $(DESTDIR)$(bindir)
 	$(EXE) ../bin/axis $(DESTDIR)$(bindir)
 	$(EXE) ../bin/axis-remote $(DESTDIR)$(bindir)
-	$(EXE) ../bin/debuglevel $(DESTDIR)$(bindir)
 	$(EXE) ../bin/linuxcnctop $(DESTDIR)$(bindir)
 	$(EXE) ../bin/mdi $(DESTDIR)$(bindir)
 	$(EXE) ../bin/manualtoolchange_ui $(DESTDIR)$(bindir)
@@ -804,10 +988,9 @@ install-python: install-dirs
 	$(TREE) ../share/qtvcp/widgets_ui/* $(DESTDIR)$(datadir)/qtvcp/widgets_ui
 	$(TREE) ../share/gmoccapy/icons/* $(DESTDIR)$(datadir)/gmoccapy/icons
 
-install-kernel-dep:
-	$(DIR)	$(DESTDIR)$(moduledir)/linuxcnc \
-		$(DESTDIR)$(bindir) \
-		$(DESTDIR)$(sysconfdir)/linuxcnc
+install-modules:
+	$(DIR)	$(DESTDIR)$(bindir) \
+		$(DESTDIR)$(EMC2_CMOD_DIR)
 	# Install the C plugin modules, but keep test-only cmods out of the
 	# package: the test_*.so handlers, mcode_coord_log.so and hm2_test.so are
 	# built into ../cmod for the regression suite only, and modcompile-*.so are
@@ -815,8 +998,7 @@ install-kernel-dep:
 	# (mesa_pktgyro_test.so is a real, documented component and is kept.)
 	$(FILE) $(filter-out ../cmod/test_%.so ../cmod/modcompile-%.so \
 		../cmod/mcode_coord_log.so ../cmod/hm2_test.so, \
-		$(wildcard ../cmod/*.so)) $(DESTDIR)$(EMC2_GOMOD_DIR)
-	$(FILE) ../scripts/rtapi.conf $(DESTDIR)$(sysconfdir)/linuxcnc
+		$(wildcard ../cmod/*.so)) $(DESTDIR)$(EMC2_CMOD_DIR)
 endif # RUN_IN_PLACE
 
 CONF=../configs
@@ -839,7 +1021,7 @@ HOMEMOD_CMOD_SRCS := \
     emc/motion/homing.c
 
 HOMEMOD_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
@@ -895,7 +1077,7 @@ TPMOD_CMOD_SRCS := \
     emc/nml_intf/emcpose.c
 
 TPMOD_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \
     -fno-strict-aliasing -fwrapv \
@@ -923,6 +1105,26 @@ TPMOD_CMOD_DEPS := \
 
 TARGETS += ../cmod/tpmod.so
 modules: ../cmod/tpmod.so
+
+# ---------------------------------------------------------------------------
+# Every cmod depends on the cmod environment headers
+# ---------------------------------------------------------------------------
+#
+# cmods are built by a dozen Submakefiles, in pattern rules and explicit ones,
+# from .comp sources and hand-written .c alike, and almost none of them listed
+# gomc/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
+# most of ../cmod untouched -- the .comp-derived ones only rebuilt because
+# ../bin/modcompile happened to be newer.
+#
+# That was survivable while a mismatch merely meant undefined behaviour nobody
+# could detect. It is not survivable now that gomc_env.h carries an ABI stamp
+# the launcher enforces: after a bump, every cmod the build skipped would be
+# refused at load with no hint that a rebuild was all it needed.
+#
+# One line rather than a prerequisite added to each of those rules, because
+# the next cmod rule someone writes would not get one.
+CMOD_ENV_HEADERS := $(wildcard gomc/pkg/cmodule/gomc_*.h)
+$(filter ../cmod/%.so,$(TARGETS)): $(CMOD_ENV_HEADERS)
 
 # Phony so that it is always rebuilt when requested, not because it
 # shouldn't exist as a file

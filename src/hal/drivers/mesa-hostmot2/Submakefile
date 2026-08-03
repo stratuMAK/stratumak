@@ -49,7 +49,7 @@ HM2_CORE_SRCS := \
     $(HM2_DIR)/xy2mod.c
 
 HM2_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -Irtapi/pci \
@@ -64,6 +64,11 @@ HM2_CMOD_LDFLAGS = $(CMOD_LDFLAGS) -lrtapi_core -lm
 HM2_CMOD_LDFLAGS_PCI = $(HM2_CMOD_LDFLAGS) -lrtapi_pci
 HM2_CMOD_LDFLAGS_PARPORT = $(HM2_CMOD_LDFLAGS) -lrtapi_parport
 
+# Deliberately no -soname: this is a private plugin, not a shared library with a
+# stable ABI, and any SONAME makes dpkg-shlibdeps treat it as public and then
+# complain that "hostmot2.so" carries no name/version it can build a dependency
+# from.  Its consumers below link it as -l:hostmot2.so, which records the bare
+# DT_NEEDED name (no SONAME required) and resolves via the $ORIGIN rpath.
 ../cmod/hostmot2.so: $(HM2_CORE_SRCS) \
                      $(wildcard $(HM2_DIR)/*.h) \
                      $(wildcard gomc/pkg/cmodule/gomc_*.h) \
@@ -215,6 +220,9 @@ modules: ../cmod/hm2_spix.so
 # ═══════════════════════════════════════════════════════════════════════════════
 # hm2_modbus.so — Modbus over PktUART
 # ═══════════════════════════════════════════════════════════════════════════════
+# hostmot2.so is resolved via DT_RPATH (--disable-new-dtags) with the absolute
+# cmod directory: gomc-server runs with file capabilities (AT_SECURE), where
+# the loader ignores $ORIGIN and RUNPATH entries.
 
 ../cmod/hm2_modbus.so: $(HM2_DIR)/hm2_modbus.c \
                        $(wildcard $(HM2_DIR)/*.h) \
@@ -226,7 +234,8 @@ modules: ../cmod/hm2_spix.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/hm2_modbus.c \
-	    ../cmod/hostmot2.so $(HM2_CMOD_LDFLAGS)
+	    -L../cmod -l:hostmot2.so \
+	    -Wl,--disable-new-dtags -Wl,-rpath,$(EMC2_CMOD_DIR) $(HM2_CMOD_LDFLAGS)
 
 TARGETS += ../cmod/hm2_modbus.so
 modules: ../cmod/hm2_modbus.so
@@ -244,7 +253,8 @@ modules: ../cmod/hm2_modbus.so
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -shared $(HM2_CMOD_CFLAGS) \
 	    -o $@ $(HM2_DIR)/setsserial.c \
-	    ../cmod/hostmot2.so $(HM2_CMOD_LDFLAGS_PCI)
+	    -L../cmod -l:hostmot2.so \
+	    -Wl,--disable-new-dtags -Wl,-rpath,$(EMC2_CMOD_DIR) $(HM2_CMOD_LDFLAGS_PCI)
 
 TARGETS += ../cmod/setsserial.so
 modules: ../cmod/setsserial.so

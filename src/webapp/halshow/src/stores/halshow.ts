@@ -52,6 +52,12 @@ export interface CmdHistoryEntry {
 
 export type TreeCategory = 'pins' | 'params' | 'signals' | 'components' | 'functions' | 'threads' | 'api';
 
+/** Server log verbosity levels, in the gomc_log_level_t encoding that
+ *  halcmd's set_debug/get_debug take (0=DEBUG .. 3=ERROR). */
+export const LOG_LEVEL_NAMES: Record<number, string> = {
+  0: 'DEBUG', 1: 'INFO', 2: 'WARN', 3: 'ERROR',
+};
+
 export interface ApiFuncInfo {
   name: string;
   method?: string;
@@ -108,6 +114,10 @@ interface HalshowState {
 
   // Halcmd tab
   cmdHistory: CmdHistoryEntry[];
+  // Server log verbosity (0=DEBUG..3=ERROR); null while unread. Read back from
+  // the server rather than tracked locally — it is process-global and any
+  // halcmd client can change it.
+  logLevel: number | null;
 
   // Node overview
   nodeOverviewPins: PinInfo[];
@@ -148,6 +158,7 @@ const state = reactive<HalshowState>({
   watchRate: 100,
 
   cmdHistory: [],
+  logLevel: null,
   nodeOverviewPins: [],
 
   apiRegistry: [],
@@ -344,6 +355,9 @@ export const halshowStore = {
     state.threads = threads;
     state.status = status;
     this.rebuildTree();
+    // Not in the Promise.all above: the log level is a side control, and an
+    // older server without GET /debug must not fail the whole HAL refresh.
+    void this.refreshLogLevel();
   },
 
   rebuildTree() {
@@ -661,6 +675,37 @@ export const halshowStore = {
     state.cmdHistory = [];
   },
 
+  /** Read the server's current log level into state. Returns it, or null if
+   *  the server could not be asked. */
+  async refreshLogLevel(): Promise<number | null> {
+    try {
+      state.logLevel = await client.getDebug();
+    } catch {
+      state.logLevel = null;
+    }
+    return state.logLevel;
+  },
+
+  /** Set the server's log level, then read it back — the server is the
+   *  authority on what took effect, and a refused write must not leave the
+   *  control showing the value the user picked. */
+  async setLogLevel(level: number): Promise<CmdResult> {
+    try {
+      const result = await client.setDebug(level);
+      await this.refreshLogLevel();
+      if (!result.success) {
+        return { success: false, error: result.error ?? 'Failed' };
+      }
+      return {
+        success: true,
+        output: `debug level ${state.logLevel}  (${LOG_LEVEL_NAMES[state.logLevel ?? -1] ?? '?'})`,
+      };
+    } catch (e) {
+      await this.refreshLogLevel();
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+
   async parseAndExecute(cmdLine: string): Promise<CmdResult> {
     const tokens = cmdLine.trim().split(/\s+/);
     if (tokens.length === 0) return { success: true };
@@ -795,6 +840,23 @@ export const halshowStore = {
         };
       }
 
+      // The server's log verbosity, as classic "halcmd debug [level]". Bare
+      // `debug` reports; `debug <n>` sets. This is the one live verbosity knob
+      // on gomc — it governs both the Go logging and the C modules' (their
+      // messages drain through the same slog handler).
+      case 'debug': {
+        if (args.length === 0) {
+          const level = await this.refreshLogLevel();
+          if (level === null) return { success: false, error: 'cannot read debug level' };
+          return { success: true, output: `${level}  (${LOG_LEVEL_NAMES[level] ?? '?'})` };
+        }
+        const level = Number(args[0]);
+        if (!Number.isInteger(level) || level < 0 || level > 3) {
+          return { success: false, error: `invalid debug level ${args[0]} (valid: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)` };
+        }
+        return await this.setLogLevel(level);
+      }
+
       case 'help':
         return {
           success: true,
@@ -806,6 +868,7 @@ export const halshowStore = {
             'linkps <pin> <signal>  unlinkp <pin>',
             'newsig <name> <type>   delsig <name>',
             'loadrt <module> [args...]  unloadrt <module>',
+            'debug [0-3]          server log verbosity',
             'start  stop  status',
           ].join('\n'),
         };

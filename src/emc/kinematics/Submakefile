@@ -34,7 +34,7 @@ GMI_KINS_INCLUDE := gomc/pkg/cmodule
 GMI_KINS_API_INCLUDE := gomc/generated/gmi/kins
 GMI_KINS_COMMON := emc/kinematics
 
-GMI_KINS_CFLAGS = -fPIC -Os -Wall -Wextra -shared \
+GMI_KINS_CFLAGS = -fPIC -g -Os -Wall -Wextra -shared \
     -I $(GMI_KINS_INCLUDE) \
     -I $(GMI_KINS_API_INCLUDE) \
     -I $(GMI_KINS_COMMON)

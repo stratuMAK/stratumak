@@ -1,0 +1,6 @@
+# The Go and npm caches debian/rules points GOMODCACHE and npm_config_cache at
+# (see the comments there). They are build output, not source, and must not
+# land in the source tarball. The format is 3.0 (native), which builds a
+# tarball and consults only tar-ignore (extend-diff-ignore is inert here).
+tar-ignore = ".gomodcache"
+tar-ignore = ".npmcache"

@@ -14,6 +14,10 @@
 /objects
 /depends
 /autom4te.cache
+# autoconf scratch file: created and removed during configure, so it only
+# ever appears in a tree caught mid-run -- which is exactly when a sweeping
+# `git add` picks it up.
+/confdefs.h
 /Module.symvers
 /config.status.lineno
 /tags

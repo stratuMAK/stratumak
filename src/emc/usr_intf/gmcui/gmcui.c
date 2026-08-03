@@ -41,6 +41,11 @@ static const app_profile_t profiles[] = {
     { "emccalib",  "/app/emccalib/",  "EMC Calibration",   900, 700, DEFAULT_INSTANCE },
     { "tooledit",  "/app/tooledit/",  "Tool Editor",       900, 700, DEFAULT_INSTANCE },
     { "latency",   "/app/latency/",   "RT Latency",       1100, 760, DEFAULT_INSTANCE },
+    /* The only profile whose name is not the app directory: bare "linuxcnctop"
+     * is the python launcher (window by default, text with -t), so the viewer
+     * it execs into carries the -ui suffix. The app, and its URL, keep the
+     * plain name. */
+    { "linuxcnctop-ui", "/app/linuxcnctop/", "LinuxCNC Status", 900, 800, DEFAULT_INSTANCE },
     /* The classicladder app addresses the instance named "classicladder",
      * not the milltask default. */
     { "classicladder", "/app/classicladder/", "Classic Ladder", 1200, 900, "classicladder" },

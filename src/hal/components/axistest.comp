@@ -1,5 +1,4 @@
-component axistest """\
-Used to allow testing of an axis. Used IN PnCconf.""";
+component axistest """Used to allow testing of an axis. Used IN PnCconf.""";
 pin in bit jog-minus "Drive TRUE to jog the axis in its negative ('minus') direction.";
 pin in bit jog-plus "Drive TRUE to jog the axis in its positive direction.";
 pin in bit run "Drive TRUE to run the axis near its current position_fb with a trapezoidal velocity profile.";

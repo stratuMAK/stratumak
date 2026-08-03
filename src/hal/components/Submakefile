@@ -123,8 +123,8 @@ CMOD_INCLUDE := gomc/pkg/cmodule
 # Shared compile flags for the hand-rolled cmod rules below. Fortify 3 keeps
 # these units at parity with the rest of the build (src/Makefile DEBUG) and
 # the Ubuntu CI runners' builtin default; -U first: Ubuntu's gcc predefines it.
-CMOD_COMP_CFLAGS := -fPIC -Os -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
-CMOD_CFLAGS  := -fPIC -Os -Wall -shared -o
+CMOD_COMP_CFLAGS := -fPIC -g -Os -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
+CMOD_CFLAGS  := -fPIC -g -Os -Wall -shared -o
 
 # Step 1: .comp → .c via modcompile.  Two pattern rules with the same target
 # stem — one per source directory.  GNU make tries each and uses the one whose
@@ -148,7 +148,7 @@ objects/cmod/%.c: hal/drivers/%.comp ../bin/modcompile
 # Step 2b: kinematics comps need the GMI kins API header path.
 # These override the generic pattern rule above for kins modules.
 CMOD_GMI_KINS_API := gomc/generated/gmi/kins
-CMOD_KINS_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_KINS_API)
+CMOD_KINS_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_KINS_API)
 
 ../cmod/userkins.so: objects/cmod/userkins.c $(CMOD_GMI_KINS_API)/kins_api.h
 	$(ECHO) "Compiling cmod (kins) $(notdir $@)"
@@ -168,7 +168,7 @@ CMOD_KINS_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_KIN
 # Step 2c: homecomp needs the GMI home + mot API header paths.
 CMOD_GMI_HOME_API := gomc/generated/gmi/home
 CMOD_GMI_MOT_API := gomc/generated/gmi/mot
-CMOD_HOME_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HOME_API) -I $(CMOD_GMI_MOT_API)
+CMOD_HOME_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HOME_API) -I $(CMOD_GMI_MOT_API)
 
 ../cmod/homecomp.so: objects/cmod/homecomp.c $(CMOD_GMI_HOME_API)/home_api.h $(CMOD_GMI_MOT_API)/mot_api.h
 	$(ECHO) "Compiling cmod (home) $(notdir $@)"
@@ -177,7 +177,7 @@ CMOD_HOME_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HOM
 
 # Step 2d: manualtoolchange needs the GMI manualtoolchange API header path.
 CMOD_GMI_MTC_API := gomc/generated/gmi/manualtoolchange
-CMOD_MTC_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_MTC_API)
+CMOD_MTC_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_MTC_API)
 
 ../cmod/manualtoolchange.so: objects/cmod/manualtoolchange.c $(CMOD_GMI_MTC_API)/manualtoolchange_api.h
 	$(ECHO) "Compiling cmod (manualtoolchange) $(notdir $@)"
@@ -187,7 +187,7 @@ CMOD_MTC_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_MTC_
 # Step 2e: hm2_serial consumers need the GMI hm2_serial API header path.
 CMOD_GMI_HM2_SERIAL_API := gomc/generated/gmi/hm2_serial
 
-CMOD_HM2_SERIAL_CFLAGS := -fPIC -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HM2_SERIAL_API)
+CMOD_HM2_SERIAL_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HM2_SERIAL_API)
 
 # mesa_pktgyro_test (hal/components/)
 ../cmod/mesa_pktgyro_test.so: objects/cmod/mesa_pktgyro_test.c $(CMOD_GMI_HM2_SERIAL_API)/hm2_serial_api.h
@@ -310,7 +310,8 @@ objects/cmod/vfdb_vfd.c: hal/user_comps/vfdb_vfd/vfdb_vfd.comp ../bin/modcompile
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --preprocess $< > $@
 
-../cmod/vfdb_vfd.so: objects/cmod/vfdb_vfd.c
+../cmod/vfdb_vfd.so: objects/cmod/vfdb_vfd.c \
+                       ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
@@ -321,7 +322,8 @@ objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcomp
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --preprocess $< > $@
 
-../cmod/vfs11_vfd.so: objects/cmod/vfs11_vfd.c
+../cmod/vfs11_vfd.so: objects/cmod/vfs11_vfd.c \
+                       ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse

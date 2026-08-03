@@ -53,4 +53,12 @@ TARGETS += ../bin/classicladder
 	$(Q)ln -sf gmcui $@
 TARGETS += ../bin/latency
 
+# Symlink: linuxcnctop-ui -> gmcui  (AXIS "Show LinuxCNC Status"). Bare
+# linuxcnctop is the python launcher that execs into this one; it is what
+# provides the text mode.
+../bin/linuxcnctop-ui: ../bin/gmcui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf gmcui $@
+TARGETS += ../bin/linuxcnctop-ui
+
 endif

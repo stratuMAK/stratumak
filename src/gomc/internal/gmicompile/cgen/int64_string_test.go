@@ -199,6 +199,117 @@ func TestClientPyIntConversion(t *testing.T) {
 	}
 }
 
+// TestClientPyWSIntConversion covers the py-ws cell of the 64-bit matrix in
+// both directions: struct fields arriving as wire strings must become Python
+// ints in from_dict, and i64 command args must go out as JSON strings — on the
+// async client AND the threaded wrapper command path.
+func TestClientPyWSIntConversion(t *testing.T) {
+	api := flat64API()
+	// Make get_stats a watch so the API is the shape --client-python-ws
+	// actually serves (at least one @watch function).
+	api.Funcs[0].Watch = true
+
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	checks := []string{
+		"def _gmi_to_int(v):",
+		"def _gmi_from_int(v):",
+		// Incoming: wire string -> int at the from_dict seam.
+		"tx_bytes=_gmi_to_int(d.get(\"tx_bytes\", 0)),",
+		// Outgoing: i64 command arg -> JSON string.
+		"\"period_ns\": _gmi_from_int(period_ns),",
+	}
+	for _, c := range checks {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+	// The conversion must exist on both command paths: the async client's
+	// set_period and the threaded wrapper's fire-and-forget set_period.
+	if n := strings.Count(out, "\"period_ns\": _gmi_from_int(period_ns),"); n != 2 {
+		t.Errorf("outgoing i64 conversion appears %d times; want 2 (async + threaded wrapper):\n%s", n, out)
+	}
+	// The i32 field must stay untouched.
+	if strings.Contains(out, "bucket_ms=_gmi_to_int") {
+		t.Errorf("i32 field must not get the 64-bit conversion:\n%s", out)
+	}
+}
+
+// TestClientPyWSNo64BitNoHelpers: an API without 64-bit scalars must not gain
+// the helper functions (byte-stability for every other generated client).
+func TestClientPyWSNo64BitNoHelpers(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	if !strings.Contains(buf.String(), "_gmi_to_int") {
+		t.Errorf("watch API with i64 field should emit converters")
+	}
+
+	// Strip the 64-bit field: no helpers may be emitted.
+	api := watchOnly64API()
+	api.Types[0].Fields = api.Types[0].Fields[1:] // drop boot_id (i64)
+	buf.Reset()
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	if strings.Contains(buf.String(), "_gmi_") {
+		t.Errorf("64-bit-free API gained conversion helpers:\n%s", buf.String())
+	}
+}
+
+// TestClientPyWSCollection64BitRejected: a 64-bit int reachable only through a
+// collection of named types (int64StringAPI: Stats.points -> []Point.t_ms) is a
+// shape the WS client's from_dict cannot convert (collection elements stay raw
+// dicts) — it must fail loud rather than emit a silently-wrong client.
+func TestClientPyWSCollection64BitRejected(t *testing.T) {
+	var buf bytes.Buffer
+	err := GenerateClientPythonWS(&buf, int64StringAPI())
+	if err == nil {
+		t.Fatalf("expected error for 64-bit field inside a collection, got none")
+	}
+	if !strings.Contains(err.Error(), "collection") {
+		t.Errorf("error should mention the collection shape, got: %v", err)
+	}
+}
+
+// TestClientPyWSDirectNested64BitAccepted: unlike the REST Python client, the
+// WS client's from_dict recurses into a DIRECT named-type field, so a 64-bit
+// int there converts fine and must be accepted.
+func TestClientPyWSDirectNested64BitAccepted(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	point := ast.TypeRef{Kind: ast.TypeNamed, Name: "Point"}
+	outer := ast.TypeRef{Kind: ast.TypeNamed, Name: "Outer"}
+	api := &ast.API{
+		Name: "nested", Version: 1, Prefix: "nested", RestExport: true,
+		Types: []ast.Type{
+			{Name: "Point", Fields: []ast.Field{{Name: "t_ms", Type: i64}}},
+			{Name: "Outer", Fields: []ast.Field{{Name: "p", Type: point}}},
+		},
+		Funcs: []ast.Func{
+			{Name: "get_outer", Method: "GET", Path: "/outer", Watch: true, Return: &outer},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("direct nested 64-bit should be accepted (from_dict recurses): %v", err)
+	}
+	out := buf.String()
+	// The recursion carries the conversion: Outer.from_dict delegates to
+	// Point.from_dict, which converts t_ms.
+	for _, c := range []string{
+		"p=Point.from_dict(d[\"p\"]) if \"p\" in d else Point(),",
+		"t_ms=_gmi_to_int(d.get(\"t_ms\", 0)),",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+}
+
 // TestPyNested64BitRejected verifies the Python client fails loud on a 64-bit
 // field reachable only through a nested type (int64StringAPI: Stats.points ->
 // Point.t_ms), which from_dict cannot convert.
@@ -258,5 +369,140 @@ func TestTSReviveSetTransitive(t *testing.T) {
 	}
 	if !set["Stats"] {
 		t.Errorf("Stats (direct u64 + slice of revivable Point) should need revive")
+	}
+}
+
+// watchOnly64API returns its bigint-carrying type from a WATCH function only —
+// the emcstat shape. The REST client emits no method for it, so it must emit no
+// reviver for it either: an uncalled function is a hard error under the
+// webapps' noUnusedLocals.
+func watchOnly64API() *ast.API {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	i32 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI32}
+	stat := ast.TypeRef{Kind: ast.TypeNamed, Name: "Stat"}
+	info := ast.TypeRef{Kind: ast.TypeNamed, Name: "Info"}
+	return &ast.API{
+		Name: "livestat", Version: 1, Prefix: "livestat", RestExport: true,
+		Types: []ast.Type{
+			{Name: "Stat", Fields: []ast.Field{
+				{Name: "boot_id", Type: i64},
+				{Name: "heartbeat", Type: i32},
+			}},
+			{Name: "Info", Fields: []ast.Field{{Name: "joints", Type: i32}}},
+		},
+		Funcs: []ast.Func{
+			{Name: "get_stat", Method: "GET", Path: "/stat", Watch: true, Return: &stat},
+			{Name: "get_info", Method: "GET", Path: "/info", Return: &info},
+		},
+	}
+}
+
+func TestClientTSOmitsReviverForWatchOnlyType(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientTS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientTS: %v", err)
+	}
+	out := buf.String()
+	// The type and its bigint field still have to be declared — the WS client
+	// imports nothing, but application code refers to the interface.
+	if !strings.Contains(out, "boot_id: bigint;") {
+		t.Errorf("REST client should still declare the bigint field:\n%s", out)
+	}
+	if strings.Contains(out, "function __reviveStat") {
+		t.Errorf("REST client emitted a reviver for a watch-only type (nothing calls it):\n%s", out)
+	}
+}
+
+func TestClientTSWSKeepsReviverForWatchOnlyType(t *testing.T) {
+	var buf bytes.Buffer
+	if err := GenerateClientTSWS(&buf, watchOnly64API()); err != nil {
+		t.Fatalf("GenerateClientTSWS: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "function __reviveStat") {
+		t.Errorf("WS client must emit the reviver for the type it subscribes to:\n%s", out)
+	}
+	if !strings.Contains(out, "__reviveStat(__d)") {
+		t.Errorf("WS subscribe callback must revive before invoking the caller:\n%s", out)
+	}
+}
+
+// Command RETURN values: scalar i64 arrives as the wire string and must be
+// converted; named types go through from_dict. Both Python generators share
+// the semantics (the REST client had the named case but returned scalar i64
+// raw; the WS client returned everything raw).
+func TestClientPyReturnConversion(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	api := flat64API()
+	api.Funcs = append(api.Funcs, ast.Func{
+		Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64,
+	})
+
+	var buf bytes.Buffer
+	if err := GenerateClientPython(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPython: %v", err)
+	}
+	out := buf.String()
+	for _, c := range []string{
+		"return _gmi_to_int(result)",
+		"return Stats.from_dict(result) if result else None",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python REST client missing %q:\n%s", c, out)
+		}
+	}
+}
+
+func TestClientPyWSReturnConversion(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	stats := ast.TypeRef{Kind: ast.TypeNamed, Name: "Stats"}
+	api := flat64API()
+	api.Funcs[0].Watch = true
+	api.Funcs = append(api.Funcs,
+		ast.Func{Name: "fetch_stats", Method: "GET", Path: "/fstats", Return: &stats},
+		ast.Func{Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64},
+	)
+
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	for _, c := range []string{
+		"return Stats.from_dict(_r) if _r else None",
+		"return _gmi_to_int(_r)",
+	} {
+		if !strings.Contains(out, c) {
+			t.Errorf("Python WS client missing %q:\n%s", c, out)
+		}
+	}
+}
+
+// An API whose ONLY 64-bit value is a command return still needs the
+// converters emitted: apiNeeds64BitConv must scan return types.
+func TestClientPyWSReturnOnly64BitEmitsHelpers(t *testing.T) {
+	i64 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI64}
+	i32 := ast.TypeRef{Kind: ast.TypePrimitive, Name: ast.PrimI32}
+	api := &ast.API{
+		Name: "ret", Version: 1, Prefix: "ret", RestExport: true,
+		Types: []ast.Type{{Name: "Small", Fields: []ast.Field{
+			{Name: "n", Type: i32},
+		}}},
+		Funcs: []ast.Func{
+			{Name: "watch_small", Method: "GET", Path: "/small", Watch: true,
+				Return: &ast.TypeRef{Kind: ast.TypeNamed, Name: "Small"}},
+			{Name: "get_uptime", Method: "GET", Path: "/uptime", Return: &i64},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateClientPythonWS(&buf, api); err != nil {
+		t.Fatalf("GenerateClientPythonWS: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "def _gmi_to_int(v):") {
+		t.Errorf("helpers missing although a command returns i64:\n%s", out)
+	}
+	if !strings.Contains(out, "return _gmi_to_int(_r)") {
+		t.Errorf("i64 return not converted:\n%s", out)
 	}
 }

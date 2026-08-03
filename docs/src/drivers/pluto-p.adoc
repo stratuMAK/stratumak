@@ -155,8 +155,7 @@ This driver features:
 * 'GND' - Ground
 * 'VCC' - +3.3V regulated DC
 
-(((pluto-servo pinout)))
-.Pluto-Servo Pinout
+.Pluto-Servo Pinout (((pluto-servo pinout)))
 image::images/pluto-pinout.png["Pluto-Servo Pinout",align="center"]
 
 .Pluto-Servo Alternate Pin Functions
