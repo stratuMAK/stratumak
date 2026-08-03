@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+	# Remove the memlock limit stratumak.postinst appended. Matched on the
+	# exact shape it writes, marker included, so a hand-written memlock
+	# line or an unrelated EMC2 comment is left alone.
+	#
+	# Purge only: on remove, configuration stays, and a realtime limit is
+	# configuration. Never fatal -- a postrm that fails leaves the package
+	# half-purged and needs manual dpkg surgery to clear.
+	if [ -f /etc/security/limits.conf ]; then
+	    sed -i '/^\*[[:space:]]\+-[[:space:]]\+memlock[[:space:]]\+[0-9]\+[[:space:]]*#EMC2[[:space:]]*$/d' \
+		/etc/security/limits.conf || true
+	fi
+
+	# Nothing under these two directories is tracked by dpkg -- the whole
+	# point of putting them outside /usr is that dpkg does not own them --
+	# so nothing else will ever remove them. A purge that left behind a
+	# locally rebuilt server, the registered module sources and a Go build
+	# cache would not be a purge.
+	#
+	# Purge only, deliberately: on remove the administrator's registered
+	# modules and locally built cmods survive, so reinstalling brings back a
+	# working system with one `modcompile rebuild`.
+	#
+	# Never fatal, like the limits.conf edit above: a postrm that fails
+	# leaves the package half-purged and needs manual dpkg surgery to clear.
+	rm -rf /var/lib/stratumak /var/cache/stratumak-build || true
+
+	# The build account exists only to compile those sources. Removed last,
+	# and only if deluser is around to do it; a leftover system account is
+	# untidy but harmless, whereas failing here is not.
+	if getent passwd stratumak-build >/dev/null 2>&1 \
+	   && command -v deluser >/dev/null 2>&1; then
+	    deluser --system stratumak-build >/dev/null 2>&1 || true
+	fi
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0

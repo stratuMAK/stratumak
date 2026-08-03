@@ -139,7 +139,9 @@ export const statusStore = {
       state.watchReconnecting = false;
       state.error = '';
       this.subscribe();
-      state.watchStale = false;
+      // watchStale stays set until the first frame of this connection arrives
+      // (see subscribe): a reconnected-but-silent socket must not relabel the
+      // pre-disconnect values as live.
     } catch (e) {
       watchReconnectActive = false;
       state.watchOk = false;
@@ -150,6 +152,9 @@ export const statusStore = {
 
   subscribe() {
     watchClient?.subscribeGetStat((stat) => {
+      // A frame is the proof of liveness — only here does stale clear, so a
+      // reconnect that never delivers keeps the stale banner up.
+      state.watchStale = false;
       if (state.frozen) return;
       applySnapshot(stat, Date.now());
     }, state.rateMs);

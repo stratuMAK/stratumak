@@ -354,6 +354,10 @@ func (g *clientPyGen) emitClientMethod(fn ast.Func) {
 		} else if fn.Return.Kind == ast.TypeNamed {
 			retClass := toPascalCase(fn.Return.Name)
 			g.printf("        return %s.from_dict(result) if result else None\n", retClass)
+		} else if is64BitScalarInt(*fn.Return) {
+			// Scalar i64/u64 arrives as a JSON string (the server's ,string
+			// tag); convert like from_dict does for struct fields.
+			g.printf("        return _gmi_to_int(result)\n")
 		} else {
 			g.printf("        return result\n")
 		}

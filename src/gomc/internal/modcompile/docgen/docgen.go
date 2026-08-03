@@ -20,8 +20,13 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 		section = "1"
 	}
 
-	// Header comment
-	_, _ = fmt.Fprintf(w, `.\" -*- mode: troff; coding: utf-8 -*-
+	// Header comment. The '\" t first line is man(1)'s preprocessor hint:
+	// pages with pin/param tables go through tbl, and without the hint the
+	// tables render as raw rows (groff: "TE macro called with TW register
+	// undefined"). Emitted unconditionally -- it is inert without tables --
+	// and it must stay the first line to be honoured.
+	_, _ = fmt.Fprintf(w, `'\" t
+.\" -*- mode: troff; coding: utf-8 -*-
 .\"*******************************************************************
 .\"
 .\" This file was generated from %s using modcompile.

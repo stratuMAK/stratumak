@@ -304,9 +304,11 @@ type PrintToken struct {
 
 func (*PrintToken) tokenData() {}
 
-// LoadToken represents the "load" command for Go plugin modules.
-// The launcher resolves bare module names against EMC2_GOMOD_DIR and
-// loads them via plugin.Open.  C RT modules use "loadrt" instead.
+// LoadToken represents the "load" command for plugin modules.
+// The launcher resolves a bare module name against EMC2_CMOD_DIR first and
+// dlopens it if a .so is there; otherwise it looks the name up in the gomc
+// registry of Go modules compiled into gomc-server.  C RT modules use "loadrt"
+// instead.
 type LoadToken struct {
 	Path  string   // module name or absolute path to .so
 	Names []string // explicit instance names from <name1,name2,...>; nil for default
@@ -334,8 +336,8 @@ type INILookup interface {
 }
 
 // ParseResult holds the execution buckets produced by MultiFileParser.
-// Loads tokens are from the "load" command; they are exclusively for Go
-// plugins and resolved against EMC2_GOMOD_DIR by the launcher.
+// Loads tokens are from the "load" command; the launcher resolves each against
+// EMC2_CMOD_DIR and falls back to the compiled-in Go module registry.
 // HALCmd tokens are everything else, executed in order after components start.
 type ParseResult struct {
 	Loads  []Token // "load" command tokens (*LoadToken) — Go plugins only

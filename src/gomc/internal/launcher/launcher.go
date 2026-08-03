@@ -299,8 +299,11 @@ func (l *Launcher) Run() (runErr error) {
 
 	// Load plugin modules (cmod or Go).
 	if err := halResult.IterLoads(func(path string, name string, args []string) error {
-		cmodPath := resolveCModulePath(path)
-		if cModuleExists(cmodPath) {
+		cmodPath, found, err := resolveCModule(path)
+		if err != nil {
+			return err
+		}
+		if found {
 			return l.loadCPlugin(cmodPath, name, args)
 		}
 		return l.loadGoModule(path, name, args)

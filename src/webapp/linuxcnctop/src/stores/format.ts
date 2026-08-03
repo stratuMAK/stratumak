@@ -65,9 +65,13 @@ function showPosition(p: Position, ctx: FormatContext): string {
 }
 
 /** Per-joint arrays are declared [MAX_JOINTS] on the wire; only the configured
- *  joints carry meaning. */
+ *  joints carry meaning. Numbers follow formatGeneric's rule — integers render
+ *  integrally (limit is i32; "0.0000" for a limit switch state is noise),
+ *  fractional values get the fixed 4 decimals. */
 function showJointArray(a: unknown[], ctx: FormatContext): string {
-  return a.slice(0, ctx.joints).map(v => typeof v === 'number' ? fixed(v) : String(v)).join(' ');
+  return a.slice(0, ctx.joints)
+    .map(v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : fixed(v)) : String(v))
+    .join(' ');
 }
 
 /** active_gcodes[0] / active_mcodes[0] are the interpreter's sequence number,

@@ -1,0 +1,5 @@
+stratumak-doc-en: desktop-command-not-in-package xdg-open [usr/share/applications/linuxcnc-documentation.desktop]
+stratumak-doc-en: desktop-command-not-in-package x-www-browser [usr/share/applications/linuxcnc-gcoderef.desktop]
+stratumak-doc-en: desktop-command-not-in-package xdg-open [usr/share/applications/linuxcnc-gettingstarted.desktop]
+stratumak-doc-en: desktop-command-not-in-package xdg-open [usr/share/applications/linuxcnc-integratorinfo.desktop]
+stratumak-doc-en: desktop-command-not-in-package xdg-open [usr/share/applications/linuxcnc-manualpages.desktop]

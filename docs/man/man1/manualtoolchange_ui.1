@@ -1,0 +1,46 @@
+.TH manualtoolchange_ui "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+manualtoolchange_ui \- manual tool change prompt window
+
+.SH SYNOPSIS
+.B manualtoolchange_ui
+
+.SH DESCRIPTION
+.B manualtoolchange_ui
+shows the operator prompt for manual tool changes.  It connects to the
+.B manualtoolchange
+component in
+.BR gomc-server (1)
+over the REST API, polls for a pending tool change request, and pops up
+a dialog asking the operator to insert (or remove) the tool and click
+Continue, which confirms the change to the controller.  It replaces the
+.B hal_manualtoolchange
+user interface of earlier LinuxCNC releases, which used HAL pins
+directly.
+.PP
+It takes no command-line arguments and is normally started by the
+machine configuration, not by hand.  The window withdraws itself after
+a few seconds and reappears when a tool change is requested; it is safe
+to close or iconify it.
+
+.SH ENVIRONMENT
+.TP
+.B GMC_REST_URL
+Base URL of the gomc-server REST interface (default
+.BR http://127.0.0.1:5080 ).
+.TP
+.B GMC_MTC_INSTANCE
+Name of the manualtoolchange component instance to talk to (default
+.BR manualtoolchange ).
+
+.SH "SEE ALSO"
+.BR gomc-server (1),
+.BR axis (1)
+
+.SH AUTHOR
+Part of the LinuxCNC project.
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

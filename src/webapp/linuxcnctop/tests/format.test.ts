@@ -63,6 +63,18 @@ describe('per-joint arrays', () => {
     const rows = rowMap(makeStat({ joints_count: 0 }));
     expect(rows.get('homed')).toBe('-');
   });
+
+  // limit is i32 on the wire: "0.0000" for a limit switch state is noise.
+  // Same integer rule formatGeneric applies to the per-joint record values.
+  it('renders integer arrays (limit) integrally, fractional values with 4 decimals', () => {
+    const limit = new Array(16).fill(0);
+    limit[1] = 3;
+    const jp = new Array(16).fill(0);
+    jp[0] = 1.5;
+    const rows = rowMap(makeStat({ limit, joint_position: jp, joints_count: 3 }));
+    expect(rows.get('limit')).toBe('0 3 0');
+    expect(rows.get('joint_position')).toBe('1.5000 0 0');
+  });
 });
 
 describe('enums', () => {

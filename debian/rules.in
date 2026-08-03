@@ -26,9 +26,17 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export SOURCE_DATE_EPOCH ?= $(shell dpkg-parsechangelog -STimestamp)
 
 # Set time & date to the most recent release, for repeatable builds.
-TIMESTAMP=$(shell dpkg-parsechangelog -S timestamp)
-export DATE=$(shell LANG=C date --date='@$(TIMESTAMP)' '+%d\ %b\ %Y')
-export TIME=$(shell LANG=C date --date='@$(TIMESTAMP)' '+%T')
+#
+# := , not = : these are exported, so a recursive assignment is re-expanded
+# when make builds the environment for every recipe -- including the dh_auto_*
+# ones, which run from src/ because of the -D below. dpkg-parsechangelog
+# resolves debian/changelog relative to the working directory, finds none
+# there, and returns nothing, leaving `date --date='@'` to fail and DATE/TIME
+# empty in the docs build. Expanding once, at parse time, is always in the
+# source root.
+TIMESTAMP := $(shell dpkg-parsechangelog -S timestamp)
+export DATE := $(shell LANG=C date --date='@$(TIMESTAMP)' '+%d\ %b\ %Y')
+export TIME := $(shell LANG=C date --date='@$(TIMESTAMP)' '+%T')
 
 kernel_version = @KERNEL_VERSION@
 configure_realtime_arg = @CONFIGURE_REALTIME_ARG@
@@ -39,6 +47,25 @@ DEV_PACKAGE_NAME=@MAIN_PACKAGE_NAME@-dev
 
 export PYTHON=/usr/bin/python3
 
+# Give Go a module cache of our own.
+#
+# debhelper compat 13+ points HOME at debian/.debhelper/generated/_source/home
+# (Dh_Lib.pm setup_home_and_xdg_dirs), so Go's default GOPATH puts its module
+# cache inside the very directory dh_clean has to delete -- and Go marks that
+# cache read-only on purpose, so a build cannot mutate its dependencies. The
+# delete then fails with EACCES and `clean` aborts, which is why a second
+# dpkg-buildpackage in the same tree failed even after a good first one.
+#
+# ?= so a builder that already exports GOMODCACHE (a dev box or CI keeping a
+# warm cache) is left alone; otherwise the cache is self-contained in the tree
+# and removed by the clean below.
+export GOMODCACHE ?= $(CURDIR)/.gomodcache
+
+# npm does exactly the same thing: its content-addressed cache under
+# $HOME/.npm/_cacache is written read-only, so it lands in the same place with
+# the same consequence for dh_clean.
+export npm_config_cache ?= $(CURDIR)/.npmcache
+
 %:
 	dh $@ -D$(SRCDIR)
 
@@ -46,10 +73,22 @@ override_dh_auto_configure:
 	cd src && ./autogen.sh
 	cd src && ./configure \
 	    --prefix=/usr --sysconfdir=/etc \
+	    --localstatedir=/var \
 	    --mandir=/usr/share/man \
 	    $(configure_realtime_arg) \
 	    $(enable_build_documentation) \
 	    --disable-check-runtime-deps
+	# debian/@MAIN_PACKAGE_NAME@.postinst and .postrm name the state directory
+	# literally -- maintainer scripts have no Makefile.inc to read. If configure
+	# ever resolves it somewhere else the two drift apart in silence: the
+	# package would create and purge one directory while the software used
+	# another. Cheaper to stop the build.
+	@state_dir=$$(sed -n 's/^EMC2_STATE_DIR=//p' src/Makefile.inc); \
+	if [ "$$state_dir" != "/var/lib/stratumak" ]; then \
+	    echo "debian/rules: configure resolved EMC2_STATE_DIR to '$$state_dir'," >&2; \
+	    echo "debian/rules: but the maintainer scripts hardcode /var/lib/stratumak." >&2; \
+	    exit 1; \
+	fi
 
 override_dh_auto_build-arch:
 	dh_auto_build -- build-software
@@ -66,6 +105,28 @@ override_dh_auto_clean:
 	dh_auto_clean; \
 	py3clean .; \
 	fi
+	# These caches are read-only by design, so plain rm cannot remove them;
+	# `go clean -modcache` is the supported way for Go. Only touch caches we
+	# placed ourselves -- an inherited one belongs to the builder.
+	if [ "$(GOMODCACHE)" = "$(CURDIR)/.gomodcache" ] && [ -d "$(GOMODCACHE)" ]; then \
+		go clean -modcache || { chmod -R u+w "$(GOMODCACHE)"; rm -rf "$(GOMODCACHE)"; }; \
+	fi
+	if [ "$(npm_config_cache)" = "$(CURDIR)/.npmcache" ] && [ -d "$(npm_config_cache)" ]; then \
+		chmod -R u+w "$(npm_config_cache)"; rm -rf "$(npm_config_cache)"; \
+	fi
+
+override_dh_clean:
+	# Belt and braces for the same class: any tool that caches under
+	# debhelper's synthetic HOME (compat 13+ puts it inside debian/.debhelper)
+	# writes content-addressed entries read-only, and dh_clean then cannot
+	# delete that directory. The caches we know of are redirected above; this
+	# stops the next one from breaking the clean before anybody notices.
+	-chmod -R u+w debian/.debhelper 2>/dev/null || true
+	# debian/shlibs.local is no longer generated (see override_dh_shlibdeps),
+	# but a tree that once built an older revision still has one, and its mere
+	# presence brings the warnings back. Sweep it.
+	rm -f debian/shlibs.local
+	dh_clean
 
 override_dh_auto_install-arch:
 	# Install all architecture-dependent libraries and executables
@@ -76,7 +137,21 @@ override_dh_auto_install-arch:
 	desktop-file-validate $(shell find debian/extras/ share/applications/ -name *.desktop);
 
 	# some clean-up
-	rm -f $(DESTDIR)/usr/share/doc/@MAIN_PACKAGE_NAME@/examples/sample-configs/*/*position*.txt
+	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/examples/sample-configs/*/*position*.txt
+
+	# Nothing under /var/lib/stratumak may be shipped in the package.
+	#
+	# The directories are harmless in themselves, but the symlink
+	# /var/lib/stratumak/bin/gomc-server is not: if dpkg owned that path,
+	# every upgrade would unpack the shipped symlink over a server the
+	# administrator had rebuilt locally, silently unregistering every external
+	# module compiled into it. postinst creates it instead, and only when it
+	# is absent. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	#
+	# `make install` still creates all of it, for installations that have no
+	# maintainer scripts to do the job; this removes it again from the staging
+	# tree, which is also what keeps it out of debian/@MAIN_PACKAGE_NAME@.install.
+	rm -rf $(DESTDIR)/var/lib/stratumak
 
 override_dh_installdocs-arch:
 	# Sample configs go in `usr/share/doc/linuxcnc` (not `.../doc/@MAIN_PACKAGE_NAME@`)
@@ -91,38 +166,42 @@ override_dh_installdocs-arch:
 
 override_dh_auto_install-indep:
 	DESTDIR=$(DESTDIR) $(MAKE) -C src install-docs install-doc
-	# Remove the docs we just built that we don't have debs for yet...
-	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/*_nb.pdf
 
 override_dh_installdocs-indep:
 	# The G-code quick reference html docs are built as `docs/html/${LANG}/gcode.html`.
 	# We install them into `/usr/share/doc/@MAIN_PACKAGE_NAME@/` in each
-	# linuxcnc-doc-${LANG} package, then rename them there (except
+	# stratumak-doc-${LANG} package, then rename them there (except
 	# for the English one) to include the language in the filename,
 	# so they don't collide when we install all the doc debs.
 	#
 	# Rename the "main" doc directories from
 	# `usr/share/doc/@MAIN_PACKAGE_NAME@` to `usr/share/doc/linuxcnc`,
 	# because that's where the `.desktop` files look for the docs.
-	dh_installdocs --doc-main-package=linuxcnc-uspace --package=linuxcnc-doc-de
-	mv debian/linuxcnc-doc-de/usr/share/doc/linuxcnc-uspace/gcode.html debian/linuxcnc-doc-de/usr/share/doc/linuxcnc-uspace/gcode_de.html
-	mv debian/linuxcnc-doc-de/usr/share/doc/linuxcnc-uspace debian/linuxcnc-doc-de/usr/share/doc/linuxcnc
+	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-de
+	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_de.html
+	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-de/usr/share/doc/linuxcnc
 
-	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=linuxcnc-doc-en
-	mv debian/linuxcnc-doc-en/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/linuxcnc-doc-en/usr/share/doc/linuxcnc
+	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-en
+	mv debian/stratumak-doc-en/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-en/usr/share/doc/linuxcnc
 
-	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=linuxcnc-doc-es
-	mv debian/linuxcnc-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/linuxcnc-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_es.html
-	mv debian/linuxcnc-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/linuxcnc-doc-es/usr/share/doc/linuxcnc
+	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-es
+	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_es.html
+	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-es/usr/share/doc/linuxcnc
 
-	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=linuxcnc-doc-fr
-	mv debian/linuxcnc-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/linuxcnc-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_fr.html
-	mv debian/linuxcnc-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/linuxcnc-doc-fr/usr/share/doc/linuxcnc
+	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-fr
+	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_fr.html
+	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-fr/usr/share/doc/linuxcnc
 
-	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=linuxcnc-doc-zh-cn
-	mv debian/linuxcnc-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/linuxcnc-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_zh_CN.html
-	mv debian/linuxcnc-doc-zh-cn/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/linuxcnc-doc-zh-cn/usr/share/doc/linuxcnc
 
+
+# dwz cannot process Go binaries: the toolchain emits compressed .debug_*
+# sections and dwz exits non-zero rather than skipping them ("Found compressed
+# .debug_abbrev section, not attempting dwz compression"). This package is
+# largely Go now -- gomc-server, halcmd, modcompile, ethercat, ads-xml-gen --
+# and dh_dwz batches every binary into a single invocation, so one Go binary
+# fails the whole step. Excluding them by name would be a list to maintain
+# forever. Disabling only changes how compactly the debug info is stored.
+override_dh_dwz:
 
 override_dh_compress:
 	dh_compress -X.pdf -X.txt -X.hal -X.ini -X.clp -X.var -X.nml -X.tbl -X.xml -Xsample-configs
@@ -135,5 +214,14 @@ override_dh_fixperms:
 	DEB_HOST_ARCH=`dpkg-architecture -qDEB_HOST_ARCH` dh_python3
 
 override_dh_shlibdeps:
-	cat debian/@MAIN_PACKAGE_NAME@/DEBIAN/shlibs debian/shlibs.pre > debian/shlibs.local
-	dh_shlibdeps -u--warnings=0 -l debian/@MAIN_PACKAGE_NAME@/usr/lib
+	# No debian/shlibs.local: it was a copy of the package's own DEBIAN/shlibs
+	# (which dpkg-shlibdeps already reads via debian/*/DEBIAN/shlibs) plus two
+	# entries for libncurses5 and libpth that nothing has needed for a decade.
+	# Its only remaining effect was a warning per unsplittable SONAME --
+	# dpkg-shlibdeps probes shlibs.local for every needed library and cannot
+	# derive a name/version from plugin names like hostmot2.so or libtk8.6.so.
+	# Verified: shlibs:Depends is byte-identical with and without it.
+	# -l needs an absolute path: given a relative one it reaches
+	# dpkg-shlibdeps as /debian/... and silently matches nothing, so the
+	# package's own libraries were never on the search path.
+	dh_shlibdeps -u--warnings=0 -l $(CURDIR)/debian/@MAIN_PACKAGE_NAME@/usr/lib

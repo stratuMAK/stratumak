@@ -1,0 +1,109 @@
+.TH gmcui "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+gmcui \- WebKit container for the LinuxCNC web user interfaces
+
+.SH SYNOPSIS
+.B gmcui
+.BI \-\-url " URL"
+[\fB\-\-title\fR \fITITLE\fR] [\fB\-\-width\fR \fIW\fR] [\fB\-\-height\fR \fIH\fR]
+.br
+.I front-end-name
+(via symlink)
+
+.SH DESCRIPTION
+.B gmcui
+opens a single GTK/WebKit window and loads a LinuxCNC web application
+served by
+.BR gomc-server (1).
+It is the native-window front end for the web-based HAL and machine
+utilities.
+.PP
+When invoked as
+.B gmcui
+directly, the page to load must be given with
+.BR \-\-url .
+When invoked through a symlink, the basename of the link selects a
+built-in application profile that supplies the URL path, window title
+and window size.  The following profile names are built in:
+.TP
+.B halscope
+HAL Oscilloscope
+.TP
+.B halshow
+HAL Show
+.TP
+.B emccalib
+EMC Calibration
+.TP
+.B tooledit
+Tool Editor
+.TP
+.B latency
+RT Latency test application
+.TP
+.B linuxcnctop-ui
+LinuxCNC Status window (the viewer that bare
+.B linuxcnctop
+execs into)
+.TP
+.B classicladder
+Classic Ladder editor (addresses the
+.B classicladder
+instance instead of the
+.B milltask
+default)
+.PP
+The server base URL is taken from the
+.B GMC_REST_URL
+environment variable (default
+.BR http://127.0.0.1:5080 ).
+Positional arguments are ignored, so callers that pass a file path
+(e.g. AXIS embedding hooks) work unchanged.
+
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-url " \fIURL\fR"
+Load
+.I URL
+instead of a built-in profile.
+.TP
+.BR \-t ", " \-\-title " \fITITLE\fR"
+Window title.
+.TP
+.BR \-W ", " \-\-width " \fIW\fR"
+Window width in pixels.
+.TP
+.BR \-H ", " \-\-height " \fIH\fR"
+Window height in pixels.
+.TP
+.BR \-h ", " \-\-help
+Show usage and the list of known application profiles.
+
+.SH ENVIRONMENT
+.TP
+.B GMC_REST_URL
+Base URL of the gomc-server REST interface (default
+.BR http://127.0.0.1:5080 ).
+.TP
+.B GMC_INSTANCE
+Instance name appended as
+.B ?instance=
+to profile URLs; overrides the profile default (usually
+.BR milltask ).
+
+.SH "SEE ALSO"
+.BR gomc-server (1),
+.BR halscope (1),
+.BR halshow (1),
+.BR emccalib (1),
+.BR tooledit (1),
+.BR latency (1),
+.BR linuxcnctop (1)
+
+.SH AUTHOR
+Part of the LinuxCNC project.
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

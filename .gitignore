@@ -26,7 +26,6 @@ share/menus/CNC.menu
 share/desktop-directories/linuxcnc-cnc.directory
 share/desktop-directories/linuxcnc-ref.directory
 share/desktop-directories/linuxcnc-doc.directory
-share/linuxcnc/mesa_modbus.c.tmpl
 share/linuxcnc/launcher/
 src/modules.order
 /configs/*/emc.nml
@@ -60,13 +59,6 @@ docs/man/man9/sim_torch.9
 *.*-stamp
 # Ignore VSCode settings
 .vscode/settings.json
-# Ignore po4a-generated files for other languages
-docs/help/es/*
-docs/help/fr/*
-docs/help/hu/*
-docs/help/nb/*
-docs/help/vi/*
-docs/help/zh_CN/*
 configs/**/*.tbl.bak
 configs/**/halshow.preferences
 configs/**/halscope_state.json
@@ -77,3 +69,6 @@ src/hal/classicladder/classicladder-standalone
 src/share/gomc/webapp/
 *.la
 share/bash-completion/
+# Go and npm caches for Debian builds (see debian/rules)
+/.gomodcache/
+/.npmcache/

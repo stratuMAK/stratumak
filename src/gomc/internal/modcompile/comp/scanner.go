@@ -410,6 +410,15 @@ func (s *Scanner) scanString(pos ast.Pos) Token {
 	for s.pos < len(s.src) && s.cur() != '"' {
 		if s.cur() == '\\' && s.pos+1 < len(s.src) {
 			s.advance()
+			// Backslash-newline is a line continuation (halcompile
+			// semantics): both characters vanish and the lines join.
+			if s.cur() == '\n' || (s.cur() == '\r' && s.peek(1) == '\n') {
+				if s.cur() == '\r' {
+					s.advance()
+				}
+				s.advance()
+				continue
+			}
 			b.WriteByte(unescapeChar(s.cur()))
 			s.advance()
 			continue
@@ -440,6 +449,14 @@ func (s *Scanner) scanTripleString(pos ast.Pos, raw bool) Token {
 		}
 		if !raw && s.cur() == '\\' && s.pos+1 < len(s.src) {
 			s.advance()
+			// Line continuation, as in the plain-string scanner above.
+			if s.cur() == '\n' || (s.cur() == '\r' && s.peek(1) == '\n') {
+				if s.cur() == '\r' {
+					s.advance()
+				}
+				s.advance()
+				continue
+			}
 			b.WriteByte(unescapeChar(s.cur()))
 			s.advance()
 			continue

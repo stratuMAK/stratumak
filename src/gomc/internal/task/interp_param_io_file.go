@@ -10,7 +10,7 @@ package task
 // #cgo CFLAGS: -I${SRCDIR}/../../.. -I${SRCDIR}/../../../../include
 // #include <stdlib.h>
 // #include "emc/rs274ngc/interp_parameter_io.hh"
-// #include "interp_shim.h"
+// #include "task_interp_shim.h"
 // extern interp_param_io_t interp_param_io_file_create(const char *filename);
 // extern void interp_param_io_file_destroy(interp_param_io_t *io);
 import "C"

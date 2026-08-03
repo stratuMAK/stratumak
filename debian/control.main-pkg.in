@@ -1,7 +1,20 @@
 Package: @MAIN_PACKAGE_NAME@
+# This package was called linuxcnc-uspace and owns the same paths as the
+# LinuxCNC packages it descends from (/usr/bin/linuxcnc, /usr/share/linuxcnc),
+# so the two cannot be co-installed. Replaces lets an existing install be
+# taken over in one step instead of demanding a manual removal first, and
+# Provides keeps anything that depends on the old names satisfied.
 Conflicts:
+    linuxcnc,
     linuxcnc-sim,
+    linuxcnc-uspace,
     @OTHER_MAIN_PACKAGE_NAME@
+Replaces:
+    linuxcnc,
+    linuxcnc-uspace
+Provides:
+    linuxcnc,
+    linuxcnc-uspace
 Breaks:
     linuxcnc-doc-en (<= 2.9.0~pre0+git20220402.2500863908-4),
     linuxcnc-doc-es (<= 2.9.0~pre0+git20220402.2500863908-4),
@@ -34,9 +47,15 @@ Depends:
     tclx,
     @QTVCP_DEPENDS@,
     procps, psmisc,
-    udev
+    udev,
+# postinst creates the stratumak-build system account with adduser, and
+# applies the server's realtime file capabilities with setcap. Neither is
+# essential, and without either the package configures into a machine that
+# cannot start realtime or rebuild a module.
+    adduser,
+    libcap2-bin
 Recommends:
-    linuxcnc-doc-en | linuxcnc-doc,
+    @MAIN_PACKAGE_NAME@-doc-en | linuxcnc-doc,
     librsvg2-dev,
     x11-xserver-utils,
     @EXTRA_RECOMMENDS@,

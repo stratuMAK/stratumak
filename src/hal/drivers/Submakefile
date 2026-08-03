@@ -6,7 +6,7 @@
 GPIO_DIR := hal/drivers
 
 GPIO_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
@@ -85,7 +85,7 @@ endif
                    | headers ../lib/librtapi_pci.so
 	$(ECHO) "Compiling cmod hal_gm.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -Wextra -shared \
+	$(Q)$(CC) -fPIC -g -Os -Wall -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
 	    -fno-strict-aliasing -fwrapv \
 	    -I. -I../include -Igomc/pkg/cmodule -Irtapi/pci \
@@ -104,7 +104,7 @@ ifeq ($(X86ARCH),true)
                     | headers ../lib/librtapi_parport.so
 	$(ECHO) "Compiling cmod hal_ppmc.so"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -fPIC -Os -Wall -Wextra -shared \
+	$(Q)$(CC) -fPIC -g -Os -Wall -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
 	    -fno-strict-aliasing -fwrapv \
 	    -I. -I../include -Igomc/pkg/cmodule -Irtapi/parport -Ihal \

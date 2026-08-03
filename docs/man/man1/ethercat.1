@@ -1,0 +1,142 @@
+.TH ethercat "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.SH NAME
+ethercat \- EtherCAT master command-line tool
+
+.SH SYNOPSIS
+.B ethercat
+.I COMMAND
+[\fIOPTIONS\fR] [\fIARGUMENTS\fR]
+
+.SH DESCRIPTION
+.B ethercat
+is the command-line tool of the EtherCAT master built into LinuxCNC.
+It inspects and configures the running bus: it lists slaves and their
+configurations, reads and writes SDO entries, registers and SII/EEPROM
+contents, transfers files via FoE, requests application-layer state
+changes and rescans the bus.  This is the EtherLab
+.B ethercat
+tool adapted to talk to the master inside
+.BR gomc-server (1)
+through its REST interface instead of a character device.
+.PP
+Commands can be abbreviated as long as they stay unambiguous.
+
+.SH COMMANDS
+.TP
+.B alias
+Write alias addresses.
+.TP
+.B config
+Show slave configurations.
+.TP
+.B crc
+CRC error register diagnosis.
+.TP
+.B cstruct
+Generate slave PDO information as C code.
+.TP
+.B data
+Output binary domain process data.
+.TP
+.B debug
+Set the master's debug level.
+.TP
+.B domains
+Show configured domains.
+.TP
+.B download
+Write an SDO entry.
+.TP
+.B eoe
+Display Ethernet over EtherCAT statistics.
+.TP
+.BR foe_read ", " foe_write
+Read a file from, or store a file on, a slave via FoE.
+.TP
+.B graph
+Output the bus topology as a graph.
+.TP
+.B ip
+Set EoE IP parameters.
+.TP
+.B master
+Show master and Ethernet device information.
+.TP
+.B pdos
+List Sync Manager PDO assignment.
+.TP
+.BR reg_read ", " reg_write
+Output, or write data to, a slave's register contents.
+.TP
+.B rescan
+Rescan the bus.
+.TP
+.B sdos
+List SDO dictionaries.
+.TP
+.BR sii_read ", " sii_write
+Output, or write, a slave's SII contents.
+.TP
+.B slaves
+Display slaves on the bus.
+.TP
+.BR soe_read ", " soe_write
+Read, or write, an SoE IDN of a slave.
+.TP
+.B states
+Request application-layer states.
+.TP
+.B upload
+Read an SDO entry.
+.TP
+.B version
+Show version information.
+.TP
+.B xml
+Generate slave information XML.
+
+.SH "GLOBAL OPTIONS"
+.TP
+.BR \-m ", " \-\-master " \fILIST\fR"
+Comma separated list of masters to select; ranges are allowed
+(e.g. '1,3', '5\-7,9', '\-3').  Default: '\-' (all).
+.TP
+.BR \-f ", " \-\-force
+Force a command.
+.TP
+.BR \-q ", " \-\-quiet
+Output less information.
+.TP
+.BR \-v ", " \-\-verbose
+Output more information.
+.TP
+.BR \-h ", " \-\-help
+Show help.  Use
+.B ethercat
+.I COMMAND
+.B \-\-help
+for command-specific help.
+
+.SH ENVIRONMENT
+.TP
+.B EC_INST
+EtherCAT instance name (default:
+.BR ethercat ).
+.TP
+.B GMC_REST_URL
+REST server URL (default:
+.BR http://localhost:5080/ ).
+
+.SH "SEE ALSO"
+.BR gomc-server (1)
+.PP
+The IgH EtherLab EtherCAT master documentation describes the master
+architecture and the command set in full: https://etherlab.org/
+
+.SH AUTHOR
+Part of the LinuxCNC project, based on the IgH EtherLab EtherCAT master.
+.SH REPORTING BUGS
+Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+.SH COPYRIGHT
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
