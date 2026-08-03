@@ -1,3 +1,4 @@
+PASS stat-relative-position
 PASS constants
 PASS instance-resolution
 PASS stat-frozen-between-polls

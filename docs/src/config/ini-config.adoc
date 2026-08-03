@@ -109,13 +109,9 @@ Section identifiers may not be extended to multiple lines.
 .Variable with Line extends Example
 [source,{ini}]
 ----
-APP = sim_pin \
-ini.0.max_acceleration \
-ini.1.max_acceleration \
-ini.2.max_acceleration \
-ini.0.max_velocity \
-ini.1.max_velocity \
-ini.2.max_velocity
+APP = halscope \
+-i myscope.halscope \
+2000
 ----
 
 .Boolean Variables
@@ -241,7 +237,7 @@ GMOCCAPY can be used both ways and offers also many connections for hardware con
 Descriptions of the interfaces are in the Interfaces section of the User Manual.
 
 * `DISPLAY = axis` - The file name of the executable providing the user interface to use.
-  Prominent valid options are (all in lower case): `axis`, `touchy`, `gmoccapy`, `gscreen`, `tklinuxcnc`, `qtvcp`, `qtvcp-qtdragon` or `qtvcp-qtplasmac`.
+  Prominent valid options are (all in lower case): `axis`, `touchy`, `gmoccapy`, `gscreen`, `qtvcp`, `qtvcp-qtdragon` or `qtvcp-qtplasmac`.
 * `POSITION_OFFSET = RELATIVE` - The coordinate system (`RELATIVE` or `MACHINE`) to show on the DRO when the user interface starts.
   The RELATIVE coordinate system reflects the G92 and G5__x__ coordinate offsets currently in effect.
 * `POSITION_FEEDBACK = COMMANDED` - The coordinate value (`COMMANDED` or `ACTUAL`) to show on the DRO when the user interface starts.
@@ -644,12 +640,11 @@ The "`-H` _dirname_" option may be specified more than once, directories are pre
 A HALFILE may also be specified as an absolute path (when the name starts with a '/' character).
 Absolute paths are not recommended as their use may limit relocation of configurations.
 --
-* `HALFILE = texample.tcl` [_arg1_ [_arg2_] ...] - Execute the tcl file 'texample.tcl' at start up with arg1, arg2, etc. as argv list.
-  Files with a .tcl suffix are processed as above but use haltcl for processing.
-  See the <<cha:haltcl,HALTCL Chapter>> for more information.
+* `HALFILE = texample.tcl` - *No longer supported.* Tcl HAL files are rejected
+  at startup with a hard error. The `haltcl` interpreter that processed them was
+  removed together with the Tcl HAL binding; convert the file to plain `.hal`
+  syntax.
 * `HALFILE = LIB:sys_example.hal` - Execute the system library file _sys_example.hal_ at start up.
-  Explicit use of the LIB: prefix causes use of the system library HALFILE without searching the INI file directory.
-* `HALFILE = LIB:sys_texample.tcl` [_arg1_ [_arg2_ ...]] - Execute the system library file _sys_texample.tcl_ at start up.
   Explicit use of the LIB: prefix causes use of the system library HALFILE without searching the INI file directory.
 
 HALFILE items specify files that loadrt HAL components and make signal connections between component pins.
@@ -720,12 +715,10 @@ The applications can be started after a specified delay to allow for GUI-depende
   a relative filename (first characters of filename are ./), or as a file in the INI file directory.
   If no executable file is found using these names, then the user search PATH is used to find the application. +
   Examples:
-** Simulate inputs to HAL pins for testing (using sim_pin -- a simple GUI to set inputs to parameters, unconnected pins, or signals with no writers):
-+
-[source,{ini}]
-----
-APP = sim_pin motion.probe-input halui.abort motion.analog-in-00
-----
+** Simulate inputs to HAL pins for testing: load a pyvcp panel with widgets for
+   the pins and connect them in a POSTGUI_HALFILE. See
+   `configs/sim/axis/pin_control` for a ready-made example (it replaces the
+   removed `sim_pin` utility).
 ** Invoke halshow with a previuosly saved watchlist.
    Since LinuxCNC sets the working directory to the directory for the INI file, you can refer to files in that directory (example: my.halshow):
 +

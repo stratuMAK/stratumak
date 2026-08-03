@@ -1452,6 +1452,19 @@ func (t *Task) finishMDI(gen uint64) {
 			setActiveCanon(t.canon)
 			before := t.canon.enqueued()
 			_, err := t.interp.Execute()
+			if err == nil {
+				// Same open-chain close as executeMDI, for the same reason: a
+				// feed move in the sub's tail leaves the naive-CAM chain open,
+				// and the next finishMDI round resyncs the endpoint and drops
+				// it. Interp::_execute does reach its own canon.finish() here
+				// (mdi_interrupt makes it take the o-word branch with MDImode
+				// back on) — but only once the sub has fully unwound; a tail
+				// that queues motion and re-enters this loop is drained, and
+				// re-entered, before that. Must run before the enqueued()
+				// comparison, or a tail whose only output is the flushed feed
+				// move looks like an empty level and is never drained.
+				t.canon.flushSegments()
+			}
 			t.updateActiveCodes(t.interp)
 			if err != nil {
 				// Same as executeMDI: a fault mid-continuation must stop the
@@ -1561,6 +1574,22 @@ func (t *Task) executeMDI(command string) error {
 	// motion commands to the sequencer.
 	startSerial := t.canon.serial()
 	rc, err := interp.ExecuteString(command)
+	if err == nil && rc != InterpError {
+		// Emit whatever the naive-CAM detector is still holding. A feed move
+		// leaves see_segment with an OPEN chain (2.9 see_segment buffers every
+		// STRAIGHT_FEED and only flushes when the next point cannot link onto
+		// it), and nothing else closes it at the end of an MDI line:
+		// Interp::_execute calls canon.finish() only on its o-word branch
+		// (rs274ngc_pre.cc), which a plain block never reaches. In 2.9 that is
+		// survivable — the chain simply waits for the next command's first canon
+		// call. Here it is not: executeMDI resyncs the endpoint from the machine
+		// on entry, and that resync *drops* the chain (2.9
+		// GET_EXTERNAL_POSITION -> drop_segments), so the buffered move was
+		// silently discarded and an MDI feed move never reached motion at all.
+		// Flushing here also makes it execute immediately, rather than one
+		// command late as the 2.9 sequence would.
+		t.canon.flushSegments()
+	}
 	gc, mc, st := t.updateActiveCodes(interp)
 	// Tag the segments this MDI just queued with its active codes, exactly as the
 	// AUTO read loop does. Without this an MDI move's segment carries no state

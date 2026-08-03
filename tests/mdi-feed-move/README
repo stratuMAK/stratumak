@@ -1,0 +1,12 @@
+An MDI feed move (G1) must actually reach motion.
+
+Regression test for a silent motion loss: a feed move leaves the naive-CAM
+detector holding an open chain, nothing closed that chain at the end of an MDI
+line, and the next MDI line's endpoint resync dropped it. G1 from MDI moved
+nothing and reported success; G0 was unaffected because STRAIGHT_TRAVERSE
+flushes the chain first.
+
+Covers both MDI execution paths: a plain block (executeMDI) and the tail of an
+o-word subroutine resumed after a queue buster (finishMDI's continuation loop,
+which runs Interp::execute() with MDImode 0 and so never reaches the
+interpreter's own canon.finish()).

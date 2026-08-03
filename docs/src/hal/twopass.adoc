@@ -150,7 +150,7 @@ POSTGUI_HALFILE = the_postgui_file.hal
 
 == Excluding .hal files
 
-TWOPASS processing converts '.hal' files to equivalent '.tcl' files and uses haltcl to find loadrt and addf commands in order to accumulate and consolidate their usage.
+TWOPASS processing converted '.hal' files to equivalent '.tcl' files and used haltcl to find loadrt and addf commands in order to accumulate and consolidate their usage. NOTE: twopass is no longer implemented -- it went with the Tcl HAL binding, along with haltcl and halcmd_twopass.
 Loadrt parameters that conform to the simple `names=` (or `count=`) parameters accepted by the HAL Component Generator (`halcompile`) are expected.
 More complex parameter items included in specialized LinuxCNC components may not be handled properly.
 

@@ -26,17 +26,29 @@
 .SH NAME
 teach-in \- jog the machine to a position, and record the state
 .SH SYNOPSIS
-.B teach-in [> outfile]
+.B teach-in [outfile]
 
 .SH DESCRIPTION
 \fBteach-in\fR is a script to learn set positions for later use by a
 script.
 
-A dialog box is shown with options to choose the coordinate system. 
-each press of the "Learn" button outputs a line of text to stdout or the 
-file chosen at load time. 
+A dialog box is shown with options to choose the coordinate system.
+each press of the "Learn" button outputs a line of text to stdout or the
+file named on the command line (shell redirection works too).
 line format:
 line-no X Y Z flood mist lube spindle
+.PP
+Positions are reported in the machine's configured units.
+While the server is unreachable both labels read \fB(not connected)\fR and
+"Learn" records nothing, so a stale reading is never taught as a position.
+
+.SH ENVIRONMENT
+.TP
+\fBGMC_REST_URL\fR
+Base URL of the gomc server (default \fBhttp://127.0.0.1:5080\fR).
+.TP
+\fBGMC_INSTANCE\fR
+Task instance to address (default \fBmilltask\fR).
 
 .SH "SEE ALSO"
 \fBLinuxCNC(1)\fR

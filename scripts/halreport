@@ -1,971 +1,538 @@
-#!/usr/bin/tclsh
-
-#-----------------------------------------------------------------------
-# Copyright: 2018
-# Author:    Dewey Garrett <dgarrett@panix.com>
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#-----------------------------------------------------------------------
-
-set hallib_dir [exec linuxcnc_var HALLIB_DIR]
-source [file join $hallib_dir hal_procs_lib.tcl]
-package require Hal
-
-#-----------------------------------------------------------------------
-# Notes:
-#   1) supports components made by halcompile and numerous
-#      legacy components
-#   2) Known unhandled components:
-#        at_pid   -- naming conflicts with pid, seldom used
-#        boss_plc -- no manpage or docs (any users?)
-#        watchdog -- seldom used (no users in-tree)
-#   3) deprecated/obsolete components
-#        counter
-#        supply
-
-set ::HR(separator) \
-"-----------------------------------------------------------------------"
-
-#-----------------------------------------------------------------------
-# Identificaion of functions used according to pin name.
-# Default handling works for components that:
-#   1) use names=|count= (.comp components created with halcompile)
-#   2) have a *single* function
-
-# Lists of other known components by category:
-
-# motion module
-set ::HR(comps,motion)       [list motion axis joint spindle]
-
-# kinematics modules that export hal pins:
-# (kinematics are invoked by motion module (motmod))
-set ::HR(comps,kinematics)   [list tripodkins scarakins rotatekins maxkins \
-                                   genserkins genhexkins \
-                                   xyzbc-trt-kins xyzac-trt-kins \
-                                   rosekins 5axiskins pumakins \
-                                   rotarydeltakins lineardeltakins \
-                             ]
-# Legacy components that:
-#  1) do not use names=|count=
-#  2) support multiple numbered instances
-#  3) have a single,fixed function name numbered per instance
-set ::HR(comps,legacy_comp) [list debounce mux-gen sampler streamer]
-
-# userspace components including vismach guis
-set ::HR(comps,userspace)    [list ini iocontrol halui hal_manualtoolchange \
-                                   axisui touchy gscreen gmoccapy panelui \
-                                   pyvcp gladevcp \
-                                   xhc-hb04 \
-                                   pumagui puma560gui scaragui hexagui \
-                                   5axisgui max5gui maho600gui hbmgui\
-                                   xyzac-trt-gui xyzbc-trt-gui \
-                                   lineardelta rotarydelta \
-                                   3axis-tutorial \
-                             ]
-
-
-# components marked deprecated/obsolete in docs
-set ::HR(comps,deprecated)   [list counter supply]
-
-#-----------------------------------------------------------------------
-# The following ::HR(COMPONENT_NAME,pins,FUNCT) identify
-# component pins that are handled by different functions
-# usually requiring multiple thread types (typ: base,servo)
-set ::HR(encoder,pins,update-counters) [list \
-  phase-A \
-  phase-B \
-  phase-Z \
-  rawcounts \
-  x4-mode \
-  latch-input \
-  latch-rising \
-  latch-falling \
-  counter-mode \
-]
-set ::HR(encoder,pins,capture-position) [list \
-  reset \
-  min-speed-estimate \
-  velocity \
-  counts \
-  counts-latched \
-  position \
-  position-interpolated \
-  position-latched \
-  position-scale \
-  index-enable \
-]
-
-set ::HR(sim-encoder,pins,make-pulses) [list \
-  phase-A \
-  phase-B \
-  phase-Z \
-  rawcounts \
-  ppr \
-]
-set ::HR(sim-encoder,pins,update-speed) [list \
-  scale \
-  speed \
-]
-
-set ::HR(pwmgen,pins,make-pulses) [list \
-  pwm \
-  up \
-  down \
-]
-set ::HR(pwmgen,pins,update) [list \
-  curr-dc \
-  dither-pwm \
-  enable \
-  max-dc \
-  min-dc \
-  offset \
-  pwm-freq \
-  scale \
-  value \
-]
-
-set ::HR(stepgen,pins,make-pulses) [list \
-  counts \
-  dir \
-  step \
-]
-# slow: stepgen.update-freq & stepgen.capture-position
-set ::HR(stepgen,pins,slow) [list \
-  enable \
-  position-cmd \
-  position-fb \
-]
-
-# all output pins, slow
-set ::HR(encoder-ratio,pins,update) [list \
-  error \
-]
-# all input pins, fast:
-set ::HR(encoder-ratio,pins,sample) [list \
-  master-ppr \
-  master-teeth \
-  slave-ppr \
-  slave-teeth \
-  master-A \
-  master-B \
-  slave-A \
-  slave-B \
-]
-
-#-----------------------------------------------------------------------
-proc unadded_functs {} {
-  set header_len 2
-  set ans [hal show funct]
-  set lines [split $ans \n]
-  set lines [lreplace $lines 0 [expr $header_len -1]]
-  set lines [lreplace $lines end end]
-  set ct 0
-  set not_added {}
-  foreach line $lines {
-    if {"$line" == ""} continue
-      set users [lindex $line 4]
-      set fname [lindex $line 5]
-      if {$users == 0} {lappend not_added $fname}
-  }
-  return $not_added
-} ;# unadded_functs
-
-proc make_addf_list {} {
-  set ::HR(pin_list) [hal list pin]
-  set ::HR(threads) [hal list thread]
-  set ::HR(addf) {}
-  foreach thd $::HR(threads) {
-    set header_len 3
-    set ans [hal show thread $thd]
-    set lines [split $ans \n]
-    set lines [lreplace $lines 0 [expr $header_len -1]]
-    set lines [lreplace $lines end end]
-    set ct 0
-    foreach line $lines {
-      if {"$line" == ""} continue
-      lappend ::HR(addf) "[lindex $line 1] $thd"
-    }
-  }
-} ;# make_addf_list
-
-proc make_pin_alias_list {a_to_pin_name pin_to_a_name} {
-  upvar $a_to_pin_name a_to_pin
-  upvar $pin_to_a_name pin_to_a
-  set header_len 2
-  set ans [hal show alias]
-  set lines [split $ans \n]
-  set lines [lreplace $lines 0 [expr $header_len -1]]
-  set lines [lreplace $lines end end]
-  set ct 0
-  foreach line $lines {
-    if {"$line" == ""} continue
-    if {[string first Parameter $line] == 0} break
-    set line [string trim $line]
-    set a_to_pin([lindex $line 0]) [lindex $line 1]
-    set pin_to_a([lindex $line 1]) [lindex $line 0]
-  }
-} ;# make_pin_alias_list
-
-proc find_pin {p} {
-  if {[lsearch $::HR(pin_list) $p] >= 0} {return 1}
-  return 0
-} ;# find_pin
-
-proc find_standard_pin {pin_prefix instance candidate} {
-  foreach try [list "${pin_prefix}.${candidate}" \
-                    "${pin_prefix}.${instance}.${candidate}"] {
-    if [find_pin "$try"] {return 1}
-  }
-  return 0
-} ;# find_standard_pin
-
-proc form_for_pin {pin_prefix instance psuffix} {
-  if {[find_pin ${pin_prefix}.$psuffix]              } {return names}
-  if {[find_pin ${pin_prefix}.${instance}.${psuffix}]} {return count}
-  return ""
-} ;#form_for_pin
-
-proc find_funct {pin_prefix instance args} {
-  set DOT "."
-  if {$args == "{}" } {
-    set DOT ""
-  }
-  foreach candidate $args {
-    foreach try [list "${pin_prefix}${DOT}${candidate}" \
-                      "${pin_prefix}.${instance}${DOT}${candidate}"] {
-      if {[lsearch $::HR(functs) "$try"] >= 0} {return $try}
-    }
-  }
-  return ""
-} ;# find_funct
-
-#-----------------------------------------------------------------------
-proc funct_for_userspace_comps {pname} {
-  # known userspace components that export pins
-  foreach prefix $::HR(comps,userspace) {
-    if {[string first ${prefix}. $pname] == 0} {
-      lappend ans [list "notRT" "---" "$prefix"]
-      return $ans
-    }
-  }
-  return ""
-} ;# funct_for_userspace_comps
-
-proc funct_for_motion {pname dir pin_prefix instance pin_suffix} {
-  # 1) find by assumed unique pin_prefix per list
-  # 3) fixed-name functions: motion-command-handler,motion-controller
-  foreach prefix $::HR(comps,motion) {
-    if {[string first ${prefix}. $pname] == 0} {
-      return [list motion-command-handler motion-controller]
-    }
-  }
-  return ""
-} ;# funct_for_motion
-
-proc funct_for_kinematics {pname dir pin_prefix pin_suffix nstance} {
-  if {[lsearch $::HR(comps,kinematics) ${pin_prefix}] >= 0} {
-    return [list motion-command-handler motion-controller]
-  }
-  return ""
-} ;#funct_for_kinematics
-
-proc funct_for_pid {pname dir pin_prefix instance pin_suffix} {
-  # 1) num_chan=|count=
-  # 2) find by unique pin name: *.do-pid-calcs.time
-  # 3) fixed funct name: .do-pid-calcs
-  # NB: pid name clash/ambiguous with at_pid (seldom used)
-  set lidx   [string last . $pname]
-  set fnames [string range $pname 0 [expr $lidx -1]]
-  if {[hal list pin ${fnames}.do-pid-calcs.time] != ""} {
-    return ${fnames}.do-pid-calcs
-  }
-  return ""
-} ;# funct_for_pid
-
-proc funct_for_legacy_comp {pname dir pin_prefix instance pin_suffix} {
-  # 1) fixed pin name prefix per list
-  # 2) funct by rule: pin==xxx.N.yyy.zzz, funct=xxx.N
-  foreach prefix $::HR(comps,legacy_comp) {
-    if {[string first ${prefix}. $pname] < 0} {continue}
-    set p_list [split $pname .]
-    return "[lindex $p_list 0].[lindex $p_list 1]"
-  }
-  return ""
-} ;# funct_for_legacy_comp
-
-proc funct_for_weighted_sum {pname dir pin_prefix instance pin_suffix} {
-  # 1) wsum_sizes=size[,size,...]
-  # 2) find by unique pin_prefix: wsum.
-  # 3) fixed funct name: process_wsums
-  if {[string first wsum. $pname] == 0} {
-    return process_wsums
-  }
-  return ""
-} ;# funct_for_weighted_sum
-
-proc funct_for_offset {pname dir pin_prefix instance pin_suffix} {
-  # NB: the offset component reads the offset pin on *both* functs
-  # 1) count=|names=
-  # 2) find by reqd_pin
-  # 3) funct names by rules for form and pin_suffix
-  set reqd_pin   fb-out
-  set form [form_for_pin $pin_prefix $instance $reqd_pin]
-  switch $form {
-       names   {set fprefix $pin_prefix}
-       count   {set fprefix ${pin_prefix}.${instance}}
-       default {return ""}
-  }
-  set fnames ""
-  switch "$pin_suffix" {
-    fb-out -
-    fb-in    {set fnames "${fprefix}.update-feedback"}
-    out    -
-    in       {set fnames "${fprefix}.update-output"}
-    offset   {set fnames [list ${fprefix}.update-feedback \
-                               ${fprefix}.update-output]}
-  }
-  return "$fnames"
-} ;# funct_for_offset
-
-proc funct_for_ppmc {pname dir pin_prefix instance pin_suffix} {
-  # 1) find by unique pin name prefix: ppmc.
-  # 2) funct names by rule for dir
-  if {[string first "ppmc." $pname] >= 0} {
-    set fidx [string first . $pname]
-    set fprefix [string range $pname 0 [expr $fidx +1]]
-    switch $dir {
-      IN  {set fnames ${fprefix}.write}
-      OUT {set fnames ${fprefix}.read}
-      *   {return -code error "funct_for_ppmc: unexpected $dir $pname"}
-    }
-    return $fnames
-  }
-  return ""
-} ;# funct_for_ppmc
-
-proc funct_for_stepgen {pname dir pin_prefix instance pin_suffix} {
-  # 1) step_type-type0[,type1 ...]
-  # 2) funct names by rule for pin name
-  if {"$pin_prefix" != "stepgen"} return
-  if {[lsearch $::HR(stepgen,pins,make-pulses) $pin_suffix] >= 0} {
-    return "stepgen.make-pulses"
-  }
-  if {[lsearch $::HR(stepgen,pins,slow) $pin_suffix] >= 0} {
-    return [list stepgen.update-freq stepgen.capture-position]
-  }
-  return ""
-} ;# funct_for_stepgen
-
-proc funct_for_pwmgen {pname dir pin_prefix instance pin_suffix} {
-  # 1) output_type=type0[,type1 ...]
-  # 2) funct by rule per pin name suffix
-  if {"$pin_prefix" != "pwmgen"} return
-  if {[lsearch $::HR(pwmgen,pins,make-pulses) $pin_suffix] >= 0} {
-    return "pwmgen.make-pulses"
-  }
-  if {[lsearch $::HR(pwmgen,pins,update) $pin_suffix] >= 0} {
-    return "pwmgen.update"
-  }
-  return ""
-} ;# funct_for_pwmgen
-
-proc funct_for_matrix_kb {pname dir pin_prefix instance pin_suffix} {
-  # 1) config= [names=]  (no num_chan= or count=)
-  # 2) find by unique reqd_pin
-  # 3) funct names per form
-  set reqd_pin   keycode
-  if {[find_pin ${pin_prefix}.$reqd_pin]} {
-    return ${pin_prefix} ;# form: names
-  } elseif {[find_pin ${pin_prefix}.${instance}.$reqd_pin]} {
-    return ${pin_prefix}.${instance} ;# form: num_chan
-  }
-  return ""
-} ;# funct_for_matrix_kb
-
-proc funct_for_encoder {pname dir pin_prefix instance pin_suffix} {
-  # 0) encoder or sim_encoder
-  # 1) num_chan=|names=
-  # 2) find by unique reqd_pin
-  # 3) funct names per pin_suffix
-  if {[string first counter $pname] == 0} {return ""} ;# reject counter
-  set reqd_pin phase-B ;# encoder,sim_encoder,counter(deprecated)
-  if ![find_standard_pin $pin_prefix $instance $reqd_pin] {return ""}
-
-  set is_sim 0
-  if {   [find_pin ${pin_prefix}.ppr] \
-      || [find_pin ${pin_prefix}.${instance}.ppr] } {
-    set is_sim 1
-  }
-  if $is_sim {
-    if {[lsearch $::HR(sim-encoder,pins,make-pulses) $pin_suffix] >= 0} {
-      return "sim-encoder.make-pulses"
-    }
-    if {[lsearch $::HR(sim-encoder,pins,update-speed) $pin_suffix] >= 0} {
-      return "sim-encoder.update-speed"
-    }
-  } else {
-    if {[lsearch $::HR(encoder,pins,update-counters) $pin_suffix] >= 0} {
-      return "encoder.update-counters"
-    }
-    if {[lsearch $::HR(encoder,pins,capture-position) $pin_suffix] >= 0} {
-      return "encoder.capture-position"
-    }
-  }
-  return ""
-} ;# funct_for_encoder
-
-proc funct_for_encoder_ratio {pname dir pin_prefix instance pin_suffix} {
-  # 0) encoder or sim_encoder
-  # 1) num_chan=|names=
-  # 2) find by unique reqd_pin
-  # 3) funct names per pin_suffix
-  if {[string first counter $pname] == 0} {return ""}
-  set reqd_pin master-A
-  if ![find_standard_pin $pin_prefix $instance $reqd_pin] {return ""}
-
-  if {[lsearch $::HR(encoder-ratio,pins,sample) $pin_suffix] >= 0} {
-    return "encoder-ratio.sample"
-  }
-  if {[lsearch $::HR(encoder-ratio,pins,update) $pin_suffix] >= 0} {
-    return "encoder-ratio.update"
-  }
-  return ""
-} ;# funct_for_encoder_ratio
-
-proc funct_for_parport {pname dir pin_prefix instance pin_suffix} {
-  # 1) cfg=
-  # 2) find by reqd_pin
-  # 3) funct names by dir and rule
-  set reqd_pin pin-16-out
-  if ![find_standard_pin $pin_prefix $instance $reqd_pin] {return ""}
-
-  switch $dir {
-    IN  { set fnames [find_funct $pin_prefix $instance write write-all]
-          if {"$fnames" == ""} {
-            return -code error "funct_for_parport: problem $dir $pname"
-          }
-        }
-    OUT { set fnames [find_funct $pin_prefix $instance read read-all]
-          if {"$fnames" == ""} {
-            return -code error "funct_for_parport: problem $dir $pname"
-          }
-        }
-  }
-  return $fnames
-} ;# funct_for_parport
-
-proc funct_for_hm2 {pname dir pin_prefix instance pin_suffix} {
-  # 1) config=
-  # 2) find by unique pin name prefix: hm2_*
-  # 3) funct names by rule for dir and gpio in pin name
-  # NB: not handled funct_name == read-request
-  # NB: not handled funct_name == trigger-encoders
-  # pin   names: hm2_<BoardType>.<BoardNum>.*
-  # funct names: hm2_<BoardType>.<BoardNum>.function_name
-  set fnames ""
-  if {[string first hm2_ $pname] == 0} {
-    set pname_parse [string map {. " "} $pname]
-    set BoardType    [lindex "$pname_parse" 0]
-    set BoardNum     [lindex "$pname_parse" 1]
-    set funct_prefix "${BoardType}.${BoardNum}"
-    switch $dir {
-       IN {
-            if {   ([string first .gpio. $pname] >=0 ) \
-                && ([lsearch $::HR(functs) "${funct_prefix}.read_gpio"] >= 0)} {
-              return ${funct_prefix}.write_gpio
-            } elseif {[lsearch $::HR(functs) "${funct_prefix}.read"] >= 0} {
-              return ${funct_prefix}.write
-            } else {
-              return -code error "funct_for_hm2 $dir $pname"
-            }
-          }
-      OUT {
-            if {   ([string first .gpio. $pname] >=0 ) \
-                && ([lsearch $::HR(functs) "${funct_prefix}.write_gpio"] >= 0)} {
-              return ${funct_prefix}.read_gpio
-            } elseif {[lsearch $::HR(functs) "${funct_prefix}.write"] >= 0} {
-              return ${funct_prefix}.read
-            } else {
-              return -code error "funct_for_hm2 $dir $pname"
-            }
-          }
-        * {return -code error "funct_for_hm2: $dir $pname" }
-    }
-  }
-  return ""
-} ;# funct_for_hm2
-
-proc funct_for_deprecated {pname dir pin_prefix instance pin_suffix} {
- # 1) marked obsolete or deprecated:
- # 2) return "" and warn message
- foreach prefix $::HR(comps,deprecated) {
-   if {[string first "${prefix}." $pname] >= 0} {
-     if ![info exists ::HR(warnings,$prefix)] {
-       lappend ::HR(warnings,$prefix) \
-           "$prefix component is deprecated/obsolete ($ man $prefix)"
-     }
-     return ""
-   }
- }
-} ;# funct_for_deprecated
-
-proc funct_for_std_forms {pname dir pin_prefix instance pin_suffix} {
-  # typical for halcompile with names= or count= option
-  set fnames [find_funct $pin_prefix $instance ""]
-  if {"$fnames" != ""} {return $fnames}
-
-  # alternate function name: update
-  set fnames [find_funct $pin_prefix $instance update]
-  if {"$fnames" != ""} {return $fnames}
-  return ""
-} ;# funct_for_std_forms
-
-proc funct_for_pin {pname dir} {
-  # find funct name based on pin name and direction using
-  # a search of known component categories
-
-  # use real pin name when aliased:
-  if [info exists ::ALIAS_TO_PIN($pname)] {set pname $::ALIAS_TO_PIN($pname)}
-
-  set ans [funct_for_userspace_comps $pname]
-  if {"$ans" != ""} {return $ans}
-
-  set p_list     [split  $pname    .]
-  set pin_prefix [lindex $p_list   0]
-  set instance   [lindex $p_list   1]
-  set pin_suffix [lindex $p_list end]
-
-  # try to find function for pname by categories
-  # break when fnames found, else fnames == ""
-  foreach funct [list funct_for_motion \
-                      funct_for_deprecated \
-                      funct_for_pid \
-                      funct_for_hm2 \
-                      funct_for_ppmc \
-                      funct_for_matrix_kb \
-                      funct_for_encoder \
-                      funct_for_encoder_ratio \
-                      funct_for_pwmgen \
-                      funct_for_stepgen \
-                      funct_for_parport \
-                      funct_for_offset \
-                      funct_for_legacy_comp \
-                      funct_for_weighted_sum \
-                      funct_for_kinematics \
-                      funct_for_std_forms \
-                ] {
-    set fnames [$funct $pname $dir $pin_prefix $instance $pin_suffix]
-    if {"$fnames" != ""} break
-  }
-
-  if {"$fnames" == ""} {
-    # fnames not found, make guess by looking for loaded functions
-    # on all threads # that match pin_prefix:
-    #     pin=xxx.yyy.zzz,  funct candidate(s): xxx.yyy.*
-    foreach tname $::HR(thread_names) {
-      foreach f_candidate $::HR(funct_list,$tname) {
-        if {[string first $pin_prefix $f_candidate] == 0} {
-          lappend guess $f_candidate
-        }
-      }
-    } ;# for tname
-
-    set ufmt "%-30s funct: %s"
-    if [info exists guess] {
-      set fnames $guess
-      foreach fname $fnames {
-        set ftag "?-$fname"
-        lappend ::HR(pins,unknown_funct) \
-                    [format "$ufmt" $pname $ftag]
-      }
-    } else {
-      # fnames not found and no guess
-      # some guis create userspace pins (no ordered function)
-      # but are not readily distinguished by name
-      if [info exists ::HR(ini,gui)] {
-        set ftag "?-gui:$::HR(ini,gui)"
-        lappend ans [list "notRT" "---" "$ftag"]
-        lappend ::HR(pins,unknown_funct) \
-                    [format "$ufmt" $pname $ftag]
-      } else {
-        set ftag "Unknown"
-        lappend ans [list "" "" "$ftag"] ;# unhandled component
-        lappend ::HR(pins,unknown_funct) \
-                    [format "$ufmt" $pname $ftag]
-      }
-      return $ans
-    }
-  }
-
-  # found fnames: find thread and position
-  foreach fname $fnames {
-    if {[lsearch $::HR(functs) "$fname"] < 0} {
-      lappend ans [list "???" "???" "!!$fname"]
-    } else {
-      foreach tname $::HR(thread_names) {
-        set pos [array names ::HR pos,$tname,$fname]
-        if {"$pos" != ""} {
-          set tag ""
-          if [info exists guess] {set tag "?-"}
-          lappend ans [list $tname $::HR($pos) $tag${fname}]
-        }
-      }
-    }
-  }
-
-  # no fname found and signal created using pin but no thread started
-  if ![info exists ans] {
-    foreach tname $::HR(thread_names) {
-      if {[lsearch $::HR(addf) {$fname $tname}] >= 0} {
-        set found_t
-        break
-      }
-    }
-    if [info exists found_t] {
-      lappend ans [list "!!Unexpected" "---" "$fname"]
-    } else {
-      lappend ans [list "!!NO_Thread"  "---" "$fname"]
-    }
-    return $ans
-  }
-  return $ans ;# {threadname order functname} {...}
-} ;# funct_for_pin
-
-proc which_exe {name} {
-  # replaces /usr/bin/which deprecated in debian/unstable
-  foreach dir [split $::env(PATH) :] {
-    set f [file join $dir $name]
-    if [file executable $f] { return $f }
-  }
-  return -code error "$name: executable not found"
-} ;# which_exe
-
-proc make_report {fd} {
-  make_addf_list
-  make_pin_alias_list ::ALIAS_TO_PIN ::PIN_TO_ALIAS
-  #parray ::ALIAS_TO_PIN
-  #parray ::PIN_TO_ALIAS
-  set ::HR(date) [clock format [clock seconds] -format "%d%b%y %H:%M:%S"]
-  set found_linuxcnc "linuxcnc"
-  catch { set found_linuxcnc [which_exe linuxcnc] }
-  set this_script [info script]
-
-  set linuxcncversion ""
-  catch {set linuxcncversion [exec linuxcnc_var LINUXCNCVERSION]}
-
-  puts $fd "$::HR(date)  $this_script\n"
-  puts $fd "This report:      $::HR(report_file)"
-  puts $fd "LinuxCNC:         $found_linuxcnc"
-  puts $fd "LinuxCNC Version: $linuxcncversion"
-  if {[string first /usr/bin $found_linuxcnc] < 0} {
-    set restore_dir [pwd]
-    cd [file dirname $this_script]
-    catch {puts $fd "git commit (RIP): [exec git rev-parse --short HEAD]" }
-    cd $restore_dir
-  }
-  puts $fd "uname -r:         [exec uname -r]"
-  puts $fd "lsb_release -d:   [exec lsb_release -d]"
-  if [info exists ::HR(INI_FILE_NAME)] {
-    puts $fd "INI_FILE_NAME:    $::HR(INI_FILE_NAME)"
-  }
-  if [info exists ::HR(ini,gui)] {
-    puts $fd "INI gui:          $::HR(ini,gui)"
-  }
-  puts $fd $::HR(separator)
-  puts $fd "
-The following report shows each signal (SIG:) and its
-output, input, and io pins (OUT:,IN:,IO:) followed by
-the function name, thread_name, and the addf-order for
-the function.
-
-For critical signal paths (e.g., pid loops), the signal OUT
-pin should be numerically lower in order than the order of
-any timing-critical IN pins for the signal."
-
-  set ::HR(thread_names) [hal list thread]
-  set ::HR(functs)       [hal list funct]
-  foreach tname $::HR(thread_names) {
-    lappend ::HR(funct_list,$tname) {}
-    set ct 1
-    foreach item $::HR(addf) {
-      set position ""
-      set function [lindex $item 0]
-      set thread   [lindex $item 1]
-      if {"$thread" != "$tname"} continue
-      if {"$position" != ""} {
-        puts $fd "UNHANDLED addf position for $thread $function $position"
-      }
-      set ::HR(pos,$thread,$function) [format %03d $ct]
-      lappend ::HR(funct_list,$thread) "$function"
-      incr ct
-    }
-  }
-  set maxlenp 0
-  foreach pname [hal list pin] {
-    set lenp [string len $pname]
-    set lena 0
-    if [info exists ::PIN_TO_ALIAS($pname)] {
-      set lena [string len $::PIN_TO_ALIAS($pname)
-    }
-    if {$lenp > $maxlenp} {set maxlenp $lenp;set maxp $pname}
-    set lena [expr $lena +3] ;# (=)
-    if {$lena > $maxlenp} {set maxlenp $lena;set maxp $pname}
-    # the pin with max len might not be displayed
-  }
-  set maxlenf 0
-  foreach f [hal list funct] {
-    set lenf [string len $f]
-    if {$lenf > $maxlenf} {set maxlenf $lenf; set maxf $f}
-  }
-  set maxlenf [expr $maxlenf +2]  ;# allow for tag
-  set fmt_lbl   "%-7s"
-  set fmt_pin   "%-${maxlenp}s"
-  set fmt_funct "%-${maxlenf}s"
-  set fmt_thd   "%-12s"
-  set fmt_pos   "%-3s"
-  set fmt "%-6s %-30s %-13s %-3s %-20s"
-  set fmt "${fmt_lbl} ${fmt_pin} ${fmt_funct} ${fmt_thd} ${fmt_pos}"
-  set X1 " ";set X2 "  ";set X4 "    "
-  set again_char "."
-
-  foreach sname [hal list signal] {
-    set out_ct 0;set in_ct 0; set io_ct 0
-    puts $fd ""
-    puts $fd [format   "$fmt" "SIG:" "$sname" "" "" ""]
-    get_netlist i o io $sname
-    if {"$o" != ""} {
-      set pname $o
-      set first_funct 1
-      foreach ans [funct_for_pin $pname OUT] {
-        set tname    [lindex $ans 0]
-        set position [lindex $ans 1]
-        set funct    [lindex $ans 2]
-        if $first_funct {
-          set first_funct 0
-          puts $fd   [format "$fmt" "${X2}OUT:" \
-                             "${X2}$pname" "$funct" "$tname" "$position"]
-        } else {
-          set again [string repeat $again_char [string len $pname]]
-          puts $fd  [format "$fmt" "" "${X2}$again" \
-                            "$funct" "$tname" "$position"]
-        }
-      }
-      if [info exists ::ALIAS_TO_PIN($pname)] {
-        set pname $::ALIAS_TO_PIN($pname)
-        puts $fd     [format "$fmt" "" "${X2}(=$pname)" "" "" ""]
-      }
-      incr out_ct
-    }
-    if {"$io" != ""} {
-      foreach pname $io {
-        set first_funct 1
-        foreach ans [funct_for_pin $pname IO] {
-          set tname    [lindex $ans 0]
-          set position [lindex $ans 1]
-          set funct    [lindex $ans 2]
-          if $first_funct {
-            set first_funct 0
-            puts $fd     [format "$fmt" "${X2}IO:" \
-                          "${X2}$pname" "$funct" "$tname" "$position"]
-          } else {
-            set again [string repeat $again_char [string len $pname]]
-            puts $fd     [format "$fmt" "" "${X2}$again" \
-                          "$funct" "$tname" "$position"]
-          }
-        }
-        if [info exists ::ALIAS_TO_PIN($pname)] {
-          set pname $::ALIAS_TO_PIN($pname)
-          puts $fd     [format "$fmt" "" "${X1}(=$pname)" \
-                        "$funct" "$tname" "$position"]
-        }
-        incr io_ct
-      }
-    }
-    if {"$i" != ""} {
-      foreach pname $i {
-        set first_funct 1
-        foreach ans [funct_for_pin $pname IN] {
-          set tname    [lindex $ans 0]
-          set position [lindex $ans 1]
-          set funct    [lindex $ans 2]
-          if $first_funct {
-            set first_funct 0
-            puts $fd     [format "$fmt" "${X4}IN:" "${X4}$pname" \
-                          "$funct" "$tname" "$position"]
-          } else {
-            set again [string repeat $again_char [string len $pname]]
-            puts $fd     [format "$fmt" "" "${X4}$again" \
-                          "$funct" "$tname" "$position"]
-          }
-        }
-        if [info exists ::ALIAS_TO_PIN($pname)] {
-          set pname $::ALIAS_TO_PIN($pname)
-          puts $fd     [format "$fmt" "" "${X4}(=$pname)" "" "" ""]
-        }
-        incr in_ct
-      }
-    }
-    if {$out_ct == 0 && $io_ct == 0} {lappend no_out_list $sname}
-    if {$in_ct  == 0 && $io_ct == 0} {lappend no_in_list  $sname}
-  }
-
-  if [info exists no_out_list] {
-    puts $fd $::HR(separator)
-    puts $fd "Signals with no outputs (no out pin, no io pins):"
-    foreach s $no_out_list {
-      puts $fd "   $s"
-    }
-  }
-  if [info exists no_in_list] {
-    puts $fd $::HR(separator)
-    puts $fd "Signals with no inputs (no in pins, no io pins):"
-    foreach s $no_in_list {
-      puts $fd "   $s"
-    }
-  }
-
-  set thread_list [hal list thread]
-  if {"$thread_list" != ""} {
-    puts $fd $::HR(separator)
-    puts $fd "Function ordering by thread:"
-    foreach tname $thread_list {
-      puts $fd "\n$tname"
-      if {$::HR(funct_list,$tname) == "{}" } {
-        puts $fd "   None"
-      } else {
-        foreach fnames $::HR(funct_list,$tname) {
-          if ![info exists ::HR(pos,$tname,$fnames)] {continue}
-          puts $fd [format "   %3s %s" $::HR(pos,$tname,$fnames) $fnames]
-        }
-      }
-    }
-  }
-
-  set noaddf_list [unadded_functs]
-  if {$noaddf_list != ""} {
-    puts $fd $::HR(separator)
-    set msg "! Functions with no addf:"
-    puts $fd $msg
-    foreach fname $noaddf_list {
-      puts $fd "   $fname"
-    }
-  }
-
-  puts $fd $::HR(separator)
-  if [info exists ::HR(pins,unknown_funct)] {
-    set msg "?-Uncertain function determination for pins: "
-    puts $fd          "$msg"
-    foreach pname $::HR(pins,unknown_funct) {
-      puts $fd "   $pname"
-    }
-    puts $fd $::HR(separator)
-  }
-
-  set warn_names [array names ::HR warnings,*]
-  if {$warn_names != ""} {
-    puts $fd Warning:
-    foreach warn $warn_names {
-      puts $fd "   [string trim  $::HR($warn) \{\}]"
-    }
-    puts $fd $::HR(separator)
-  }
-
-  set guess_names [array names ::HR guess,*]
-  if {$guess_names != ""} {
-    puts $fd "Guessed function names:"
-    foreach guess $guess_names {
-      puts $fd "   [string trim  $::HR($guess) \{\}]"
-    }
-    puts $fd $::HR(separator)
-  }
-
-  puts $fd "Notes:
-1) Userspace functions are not ordered and are marked \"notRT\".
-2) Most in-tree components important for timing-critical signal
-   paths are handled.  When a component is not handled explicitly,
-   a function may be tagged as ?-function_name.
-3) When alias pin names are used, the actual pin name is shown
-   below the aliased name and marked as (=real_pin_name).
-"
-#"
-} ;# make_report
-
-proc usage {} {
-  puts "\nUsage:
-  $::HR(prog,short) -h | --help (this help)
-or
-  $::HR(prog,short) \[outfilename\]
-"
-  exit 0
-} ;# usage
-
-proc config_options {} {
-  set ::HR(prog)        $::argv0
-  set ::HR(prog,short)  [file tail $::argv0]
-  set ::HR(report_file) stdout
-  set currentarg [lindex  $::argv 0]
-  while {[llength $::argv] >0} {
-    # beware wish handling of reserved cmdline arguments
-    # to use -h: use -- -h,
-    # lreplace shifts argv for no. of items for each iteration
-    set currentarg [lindex $::argv 0]
-    switch -glob -- $currentarg {
-      -h - --help {usage}
-      -*          {usage}
-      default     {set ::HR(report_file) $currentarg}
-    }
-    set ::argv [lreplace $::argv 0 0]
-  } ;# while
-} ;# config_options
-
-proc ini_file_items {} {
-  if [info exists ::env(INI_FILE_NAME)] {
-    set ::HR(INI_FILE_NAME) $::env(INI_FILE_NAME)
-  }
-  if [info exists ::HR(INI_FILE_NAME)] {
-    set ::HR(INI_FILE_NAME) [file normalize $::HR(INI_FILE_NAME)]
-    set ::HR(ini,gui) "unknown"
-    if [catch {set ::HR(ini,gui) [exec inivar -var DISPLAY \
-                                              -sec DISPLAY \
-                                              -ini $::HR(INI_FILE_NAME)] \
-              } msg] {
-      puts msg=$msg
-    }
-  }
-} ;# ini_file_items
-#-----------------------------------------------------------------------
-# begin
-config_options
-if {[llength [hal list comp]] <3} {
-  puts stdout "\n$::HR(prog,short): No components are loaded"
-  puts stdout   "$::HR(prog,short): is LinuxCNC or another hal app running?\n"
-  exit 1
-}
-ini_file_items
-
-set fd stdout ;# default
-if {"$::HR(report_file)" != "stdout"} {
-  set ::HR(report_file) [file normalize $::HR(report_file)]
-  puts stdout "$::HR(prog,short): file=$::HR(report_file)\n"
-  if [catch {set fd [open $::HR(report_file) w]} msg] {
-    puts "$::HR(prog): $msg"
-    exit 1
-  }
-}
-if [catch {make_report $fd} msg] {
-  puts $fd "\n$::argv0: make_report_msg=\n$msg\n"
-}
-close $fd
-exit 0
+#!/usr/bin/env python3
+"""halreport — collect one diagnostic bundle for a support question.
+
+The old halreport was a Tcl HAL-topology printer built on the Tcl HAL binding,
+which no longer exists. This is deliberately not a port of it: the goal is the
+"short access path" item in PRODUCTION_READINESS.md -- one command that gathers
+what is needed to answer a support question from a machine in the field.
+Versions, host and RT environment, the config that was actually loaded, live
+HAL topology and thread timing, machine state, and logs.
+
+It runs ON the machine, because half of what matters (kernel, distro, INI and
+HAL files, journal) is not reachable over REST. It talks to a running
+gomc-server for the other half, and degrades to the host-only sections when no
+server is up -- a machine that will not start is exactly when a report is
+wanted.
+
+Usage:
+    halreport [-o OUTPUT] [--ini FILE] [--stdout] [--no-program]
+              [--journal-lines N]
+
+    -o OUTPUT         bundle path (default: ./halreport-<host>-<stamp>.tar.gz)
+    --ini FILE        INI file to record; default $INI_FILE_NAME
+    --stdout          write the text report to stdout, make no bundle
+    --no-program      do not attach the loaded part program (OPEN_FILE)
+    --journal-lines N journal lines to capture (default 2000)
+
+Environment: GMC_REST_URL (default http://127.0.0.1:5080), GMC_INSTANCE.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+
+REST_TIMEOUT = 5.0
+SEP = "=" * 78
+MAX_ATTACH = 10 << 20     # per-file cap; a bundle is an email attachment
+
+
+# ─── plumbing ───
+
+def run_rc(cmd, timeout=15):
+    """Run a host command, returning (exit status, merged output).
+
+    Never raises: a missing tool on a customer machine must cost one line of
+    the report, not the report. Spawn failures return None for the status and
+    a readable sentinel as the output.
+    """
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return None, "<not installed: %s>" % cmd[0]
+    except subprocess.TimeoutExpired:
+        return None, "<timed out: %s>" % " ".join(cmd)
+    except Exception as e:                                    # noqa: BLE001
+        return None, "<failed: %s: %s>" % (" ".join(cmd), e)
+    out = (p.stdout or "") + (p.stderr or "")
+    return p.returncode, out.strip()
+
+
+def run(cmd, timeout=15):
+    """run_rc as one line of report text. A nonzero exit is marked as such --
+    without the marker a failing command's stderr reads like its answer."""
+    rc, out = run_rc(cmd, timeout)
+    if rc not in (0, None):
+        return "<exit %d: %s> %s" % (rc, cmd[0], out) if out else \
+               "<exit %d: %s>" % (rc, cmd[0])
+    return out or "<no output>"
+
+
+def rest_url():
+    return os.environ.get("GMC_REST_URL", "http://127.0.0.1:5080").rstrip("/")
+
+
+def display_url():
+    """rest_url() with any userinfo removed -- the report ships to a stranger,
+    credentials embedded in the URL must not ship with it."""
+    parts = urllib.parse.urlsplit(rest_url())
+    if "@" not in parts.netloc:
+        return rest_url()
+    host = parts.netloc.rsplit("@", 1)[1]
+    return urllib.parse.urlunsplit(parts._replace(netloc="<redacted>@" + host))
+
+
+def instance():
+    return os.environ.get("GMC_INSTANCE", "milltask")
+
+
+def get_json(path):
+    """GET one REST path. Returns (data, None) or (None, reason)."""
+    url = rest_url() + path
+    try:
+        with urllib.request.urlopen(url, timeout=REST_TIMEOUT) as r:
+            return json.loads(r.read()), None
+    except urllib.error.HTTPError as e:
+        return None, "HTTP %s" % e.code
+    except Exception as e:                                    # noqa: BLE001
+        return None, str(e)
+
+
+def as_int(v):
+    """Coerce a JSON number that may be a string.
+
+    64-bit fields cross the wire as strings (they would lose precision as
+    JavaScript numbers), so period and runtime arrive quoted.
+    """
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def as_list(data):
+    """REST collections arrive either as a list or wrapped in a single key."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, list):
+                return v
+    return []
+
+
+class Report:
+    def __init__(self):
+        self.lines = []
+        self.files = {}      # name inside the bundle -> path on disk
+
+    def section(self, title):
+        self.lines += ["", SEP, title, SEP]
+
+    def kv(self, key, value):
+        self.lines.append("%-24s %s" % (key + ":", value))
+
+    def text(self, body):
+        self.lines.append(body if isinstance(body, str) else "\n".join(body))
+
+    def note(self, body):
+        self.lines.append("  (%s)" % body)
+
+    def attach(self, name, path):
+        """Register a file under its bundle name, keeping same-named files from
+        different directories apart instead of silently keeping only one."""
+        if self.files.get(name) == path:
+            return
+        base, i = name, 2
+        while name in self.files:
+            name, i = "%s.%d" % (base, i), i + 1
+        self.files[name] = path
+
+    def render(self):
+        return "\n".join(self.lines) + "\n"
+
+
+# ─── sections ───
+
+def sec_report(rep):
+    rep.section("REPORT")
+    rep.kv("Generated", datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+    rep.kv("Host", socket.gethostname() or "unknown")
+    rep.kv("User", "%s (uid %d)" % (run(["id", "-un"]), os.getuid()))
+    rep.kv("Groups", run(["id", "-Gn"]))
+    rep.kv("Command", " ".join(sys.argv))
+    rep.kv("REST URL", display_url())
+    rep.kv("Instance", instance())
+
+
+def sec_version(rep):
+    rep.section("VERSION")
+    rep.kv("LINUXCNCVERSION", os.environ.get("LINUXCNCVERSION", "<unset>"))
+    exe = shutil.which("gomc-server")
+    rep.kv("gomc-server", exe or "<not on PATH>")
+    top = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    vfile = os.path.join(top, "VERSION")
+    if os.path.exists(vfile):
+        with open(vfile) as f:
+            rep.kv("VERSION file", f.read().strip())
+    if os.path.isdir(os.path.join(top, ".git")):
+        rep.note("run-in-place tree: %s" % top)
+        rep.kv("git commit", run(["git", "-C", top, "rev-parse", "--short", "HEAD"]))
+        rc, dirty = run_rc(["git", "-C", top, "status", "--porcelain"])
+        if rc != 0:
+            # git itself failed (dubious ownership, no git, ...) -- its stderr
+            # is not a dirty-file list and must not be reported as one.
+            rep.kv("git worktree", "<git status failed>")
+            rep.text(dirty)
+        elif dirty:
+            rep.kv("git worktree", "MODIFIED")
+            rep.text(dirty)
+        else:
+            rep.kv("git worktree", "clean")
+    else:
+        # A packaged install: the deb version is the one datum support needs
+        # first, and nothing else in this section carries it.
+        rep.kv("package", run(["dpkg-query", "-W", "stratumak*"]))
+
+
+def sec_host(rep):
+    rep.section("HOST / REAL-TIME ENVIRONMENT")
+    rep.kv("uname -a", run(["uname", "-a"]))
+    rep.kv("distro", run(["lsb_release", "-d"]))
+    for label, path in (("kernel cmdline", "/proc/cmdline"),
+                        ("isolated cpus", "/sys/devices/system/cpu/isolated")):
+        try:
+            with open(path) as f:
+                rep.kv(label, f.read().strip() or "<none>")
+        except OSError as e:
+            rep.kv(label, "<unreadable: %s>" % e)
+    rep.kv("cpu", run(["sh", "-c",
+                       "grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-"]))
+    rep.kv("cores", run(["nproc"]))
+    rep.kv("memory", run(["sh", "-c", "free -h | sed -n 2p"]))
+    rep.kv("uptime", run(["uptime"]))
+    # memlock matters: the RT path prefaults and locks its memory. The limits
+    # that count are the server process's own -- under systemd they routinely
+    # differ from any interactive shell's.
+    rc, pids = run_rc(["pgrep", "-x", "gomc-server"])
+    if rc == 0 and pids.split():
+        pid = pids.split()[0]
+        label = "\ngomc-server limits (/proc/%s/limits%s):" % (
+            pid, "" if len(pids.split()) == 1
+            else ", first of %d processes" % len(pids.split()))
+        try:
+            with open("/proc/%s/limits" % pid) as f:
+                rep.text(label)
+                rep.text(f.read().rstrip())
+        except OSError as e:
+            rep.text(label)
+            rep.text("<unreadable: %s>" % e)
+    else:
+        rep.text("\nProcess limits (ulimit -a of this shell; no running "
+                 "gomc-server to read /proc/<pid>/limits from):")
+        rep.text(run(["sh", "-c", "ulimit -a"]))
+
+
+def sec_server(rep):
+    rep.section("SERVER")
+    status, err = get_json("/api/v1/halcmd/status")
+    if err:
+        rep.kv("state", "NOT REACHABLE (%s)" % err)
+        rep.note("the host sections are still valid; every section below needs "
+                 "a running gomc-server")
+        return False
+    rep.kv("state", "reachable")
+    rep.text(json.dumps(status, indent=2))
+
+    info, err = get_json("/api/v1/%s/info" % instance())
+    rep.text("\nTask peers and capabilities (%s):" % instance())
+    rep.text(json.dumps(info, indent=2) if not err else "  <unavailable: %s>" % err)
+    return True
+
+
+def sec_config(rep, args):
+    rep.section("CONFIGURATION")
+    ini = args.ini or os.environ.get("INI_FILE_NAME")
+    if not ini:
+        rep.note("no INI file known: $INI_FILE_NAME is unset -- pass --ini to "
+                 "record the config")
+        return
+    rep.kv("INI file", ini)
+    if not os.path.isfile(ini):
+        rep.note("that path is not a file on this host")
+        return
+    rep.attach("config/" + os.path.basename(ini), ini)
+    cfgdir = os.path.dirname(os.path.abspath(ini))
+    rep.kv("config dir", cfgdir)
+
+    # Attach the files the INI names, so the bundle explains itself without a
+    # follow-up round trip. LIB: files are skipped: they are system files,
+    # identical on every host, and shipping them buries the local ones.
+    # OPEN_FILE is the loaded part program -- often the customer's own work, so
+    # --no-program leaves it out of the bundle.
+    wanted = ["HALFILE", "POSTGUI_HALFILE", "TOOL_TABLE", "PARAMETER_FILE",
+              "PYVCP", "GLADEVCP", "OPEN_FILE"]
+    if args.no_program:
+        wanted.remove("OPEN_FILE")
+    attached = []
+    try:
+        with open(ini, errors="replace") as f:
+            for raw in f:
+                line = raw.split("#", 1)[0].strip()
+                if "=" not in line:
+                    continue
+                key, val = (s.strip() for s in line.split("=", 1))
+                if key not in wanted or not val:
+                    continue
+                name = os.path.expanduser(val.split()[0])
+                if name.startswith("LIB:"):
+                    attached.append("%s = %s   (system file, not attached)" % (key, name))
+                    continue
+                cand = name if os.path.isabs(name) else os.path.join(cfgdir, name)
+                if not os.path.isfile(cand):
+                    attached.append("%s = %s   (not in the config dir; resolved from the library path, or created at run time)"
+                                    % (key, name))
+                elif os.path.getsize(cand) > MAX_ATTACH:
+                    attached.append("%s = %s   (not attached: %d MB, over the %d MB cap)"
+                                    % (key, name, os.path.getsize(cand) >> 20,
+                                       MAX_ATTACH >> 20))
+                else:
+                    rep.attach("config/" + os.path.basename(cand), cand)
+                    attached.append("%s = %s" % (key, name))
+    except OSError as e:
+        rep.note("could not scan the INI: %s" % e)
+    if args.no_program:
+        attached.append("OPEN_FILE skipped (--no-program)")
+    rep.text("\nFiles named by the INI:")
+    rep.text(["  " + a for a in attached] or ["  <none>"])
+
+
+def sec_machine(rep):
+    rep.section("MACHINE STATE")
+    stat, err = get_json("/api/v1/%s/stat" % instance())
+    if err:
+        rep.note("unavailable (%s)" % err)
+        return
+    task = (stat or {}).get("task", {})
+    motion = (stat or {}).get("motion", {})
+    for k in ("state", "mode", "interp_state", "exec_state", "file"):
+        if k in task:
+            rep.kv("task." + k, task[k])
+    for k in ("in_position", "mode", "queue", "queue_full"):
+        if k in motion:
+            rep.kv("motion." + k, motion[k])
+    for k in ("estop", "homed", "limit", "probe_tripped", "linear_units",
+              "angular_units", "axis_mask", "joints_count", "tool_in_spindle"):
+        if k in stat:
+            rep.kv(k, stat[k])
+    rep.text("\nFull status snapshot:")
+    rep.text(json.dumps(stat, indent=2))
+
+
+def sec_timing(rep):
+    """Thread headroom -- the first thing to look at for a latency complaint."""
+    rep.section("THREAD TIMING")
+    threads, e1 = get_json("/api/v1/halcmd/threads")
+    functions, e2 = get_json("/api/v1/halcmd/functions")
+    if e1 or e2:
+        rep.note("unavailable (%s)" % (e1 or e2))
+        return
+    fmap = {f.get("name"): f for f in as_list(functions)}
+    for t in as_list(threads):
+        period = as_int(t.get("period"))
+        rep.text("\n%s  period=%d ns  fp=%s" % (t.get("name"), period, t.get("fp")))
+        total = 0
+        for i, fname in enumerate(t.get("functions") or [], 1):
+            f = fmap.get(fname, {})
+            rt = as_int(f.get("runtime"))
+            total += rt
+            rep.text("  %2d  %-36s %9d ns  owner=%s"
+                     % (i, fname, rt, f.get("owner", "?")))
+        if period:
+            # Each runtime is that function's own maximum, so the sum is a
+            # worst case (every function peaking in the same cycle), not an
+            # observed cycle time. Labelled as such: presenting it as "% of
+            # period" invites the reader to conclude the thread is overrunning
+            # when it may never have.
+            rep.text("  %-40s %9d ns  = %.0f%% of period if they all peaked "
+                     "in one cycle"
+                     % ("sum of per-function maxima", total,
+                        100.0 * total / period))
+
+
+def sec_update_order(rep):
+    """Per signal: which thread slot services each pin on it.
+
+    This is the one genuinely diagnostic thing the old halreport did -- it
+    catches a signal read earlier in a thread than it is written, which yields
+    last cycle's value. That version guessed the pin-to-function mapping from a
+    hand-maintained table of pin-name patterns (funct_for_pid, funct_for_stepgen,
+    funct_for_hm2, funct_for_ppmc, ... ~500 lines, with a funct_for_deprecated
+    catch-all and an "UNHANDLED addf position" fallback). None of it is needed:
+    HAL publishes the owning component of every pin and every function, and the
+    ordered function list of every thread, so the answer is a join. Where a
+    component exports several functions all of them are listed, rather than
+    guessing one as the table did.
+    """
+    rep.section("SIGNAL UPDATE ORDER")
+    pins, e1 = get_json("/api/v1/halcmd/pins")
+    functions, e2 = get_json("/api/v1/halcmd/functions")
+    threads, e3 = get_json("/api/v1/halcmd/threads")
+    if e1 or e2 or e3:
+        rep.note("unavailable (%s)" % (e1 or e2 or e3))
+        return
+
+    fowner = {f.get("name"): f.get("owner") for f in as_list(functions)}
+    owner_slots = {}                    # component -> [(thread, position, funct)]
+    for t in as_list(threads):
+        for pos, fname in enumerate(t.get("functions") or [], 1):
+            owner = fowner.get(fname)
+            if owner:
+                owner_slots.setdefault(owner, []).append((t.get("name"), pos, fname))
+
+    bysig = {}
+    for p in as_list(pins):
+        if p.get("signal"):
+            bysig.setdefault(p["signal"], []).append(p)
+    if not bysig:
+        rep.note("no connected signals")
+        return
+
+    rep.text("Each signal, the pins on it, and the thread slot that services "
+             "each pin (via\nthe pin's owning component). A reader with a lower "
+             "slot number than its writer\nsees last cycle's value.\n")
+    for sig in sorted(bysig):
+        rep.text("SIG %s" % sig)
+        for p in sorted(bysig[sig], key=lambda x: (x.get("dir") or "", x.get("name") or "")):
+            slots = owner_slots.get(p.get("owner"), [])
+            where = (", ".join("%s[%d] %s" % s for s in slots) if slots
+                     else "not in any thread (userspace, or function not added)")
+            rep.text("    %-4s %-44s %s" % (p.get("dir"), p.get("name"), where))
+
+
+def sec_hal(rep):
+    """Raw HAL dump, last: verbose, and the sections above are the readable view."""
+    rep.section("HAL (RAW)")
+    for label, path in (("Components", "/api/v1/halcmd/components"),
+                        ("Threads", "/api/v1/halcmd/threads"),
+                        ("Functions", "/api/v1/halcmd/functions"),
+                        ("Signals", "/api/v1/halcmd/signals"),
+                        ("Pins", "/api/v1/halcmd/pins"),
+                        ("Parameters", "/api/v1/halcmd/params")):
+        data, e = get_json(path)
+        rep.text("\n%s:" % label)
+        rep.text(json.dumps(data, indent=2) if not e else "  <unavailable: %s>" % e)
+
+
+def sec_logs(rep, args, tmpdir):
+    rep.section("LOGS")
+    # A daemonised gomc-server logs to syslog with the identifier "gomc-server"
+    # (internal/daemon/syslog.go). In the foreground it writes to stdout/stderr,
+    # wherever the operator redirected them, which this tool cannot know.
+    rc, out = run_rc(["journalctl", "-t", "gomc-server",
+                      "-n", str(args.journal_lines), "--no-pager"], timeout=60)
+    if rc is None:
+        rep.kv("journal -t gomc-server", out)
+    else:
+        path = os.path.join(tmpdir, "gomc-server.journal")
+        with open(path, "w") as f:
+            f.write(out + "\n")
+        rep.attach("logs/gomc-server.journal", path)
+        lines = out.count("\n") + 1 if out else 0
+        rep.kv("journal -t gomc-server",
+               "%d lines" % lines + ("" if rc == 0 else "  (journalctl exit %d)" % rc))
+        rep.note("empty can mean the server was not started with -D (foreground "
+                 "output goes wherever the operator redirected it), or that this "
+                 "user cannot read the journal (systemd-journal/adm group)")
+
+    dmesg = run(["sh", "-c", "dmesg --ctime 2>&1 | tail -400"], timeout=30)
+    path = os.path.join(tmpdir, "dmesg.txt")
+    with open(path, "w") as f:
+        f.write(dmesg + "\n")
+    rep.attach("logs/dmesg.txt", path)
+    rep.kv("dmesg", "last 400 lines")
+    rep.note("operator messages are logged here too: the server logs every "
+             "operator error/message, and the live message list is WebSocket-only")
+
+
+# ─── main ───
+
+def build(args, tmpdir):
+    rep = Report()
+    sec_report(rep)
+    sec_version(rep)
+    sec_host(rep)
+    up = sec_server(rep)
+    sec_config(rep, args)
+    if up:
+        sec_machine(rep)
+        sec_timing(rep)
+        sec_update_order(rep)
+        sec_hal(rep)
+    sec_logs(rep, args, tmpdir)
+    return rep
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="halreport",
+        description="collect one diagnostic bundle for a support question")
+    ap.add_argument("-o", "--output", help="bundle path")
+    ap.add_argument("--ini", help="INI file to record (default $INI_FILE_NAME)")
+    ap.add_argument("--stdout", action="store_true",
+                    help="write the report to stdout, make no bundle")
+    ap.add_argument("--no-program", action="store_true",
+                    help="do not attach the loaded part program (OPEN_FILE)")
+    ap.add_argument("--journal-lines", type=int, default=2000,
+                    help="journal lines to capture (default 2000)")
+    args = ap.parse_args()
+    if args.stdout and args.output:
+        ap.error("--stdout writes no bundle; it cannot be combined with -o")
+
+    with tempfile.TemporaryDirectory(prefix="halreport-") as tmpdir:
+        rep = build(args, tmpdir)
+        text = rep.render()
+        if args.stdout:
+            sys.stdout.write(text)
+            return 0
+
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        host = socket.gethostname() or "unknown"
+        out = args.output or "halreport-%s-%s.tar.gz" % (host, stamp)
+        base = os.path.basename(out)
+        for suffix in (".tar.gz", ".tgz"):
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+                break
+        rpath = os.path.join(tmpdir, "report.txt")
+        with open(rpath, "w") as f:
+            f.write(text)
+        try:
+            # dereference: a config file that is a symlink must arrive as its
+            # content -- a bundle full of dangling links answers nothing.
+            tar = tarfile.open(out, "w:gz", dereference=True)
+        except OSError as e:
+            print("halreport: cannot write %s: %s" % (out, e), file=sys.stderr)
+            return 1
+        with tar:
+            tar.add(rpath, arcname=base + "/report.txt")
+            for name, path in sorted(rep.files.items()):
+                try:
+                    tar.add(path, arcname=base + "/" + name)
+                except OSError as e:
+                    print("halreport: skipping %s: %s" % (path, e), file=sys.stderr)
+        print(out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

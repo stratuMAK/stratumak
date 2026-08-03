@@ -61,10 +61,134 @@ proc linuxcnc::image_search i {
 # NML Tcl extension removed — commands now handled via gomc-server
 # load [file join [file dirname [info script]] linuxcnc[info sharedlibextension]]
 
+# The removed extension was what satisfied `package require Linuxcnc`: emcsh.cc
+# called Tcl_PkgProvide, and nothing in this file ever did. Commenting out the
+# load therefore made every `package require Linuxcnc` fail — quietly, because
+# the ifneeded script has already sourced this file by then, so the namespace
+# and procs below exist and only callers that check the require notice (ngcgui
+# reports "Internationalization not available" and runs on without msgcat).
+package provide Linuxcnc 1.0
+
 # Arrange to load hal.so when the 'hal' command is requested
 proc hal {args} {
     load $::linuxcnc::TCL_LIB_DIR/hal.so
     eval hal $args
+}
+
+# ---------------------------------------------------------------------------
+# Controller status over REST
+#
+# Replaces the handful of emcsh commands Tcl code still wanted after the NML
+# removal. One-shot GET /stat over Tcl's core http package — no tcllib: the
+# json package is not a dependency of this project and is absent on the
+# reference system, so the few fields needed are pulled out directly. That is
+# only safe because they are *flat* objects at the top level of the snapshot;
+# do not grow this into a general JSON reader, use a real parser instead.
+# ---------------------------------------------------------------------------
+
+proc linuxcnc::rest_url {} {
+    if {[info exists ::env(GMC_REST_URL)] && $::env(GMC_REST_URL) ne ""} {
+        return [string trimright $::env(GMC_REST_URL) /]
+    }
+    return "http://127.0.0.1:5080"
+}
+
+proc linuxcnc::instance {} {
+    if {[info exists ::env(GMC_INSTANCE)] && $::env(GMC_INSTANCE) ne ""} {
+        return $::env(GMC_INSTANCE)
+    }
+    return "milltask"
+}
+
+# Fetch the status snapshot as raw JSON text. Errors if the controller is not
+# reachable or answers anything but 200 — callers decide whether that is fatal.
+proc linuxcnc::stat_json {} {
+    package require http
+    set url "[linuxcnc::rest_url]/api/v1/[linuxcnc::instance]/stat"
+    set tok [http::geturl $url -timeout 2000]
+    try {
+        if {[http::status $tok] ne "ok"} {
+            error "GET $url: [http::status $tok] [http::error $tok]"
+        }
+        if {[http::ncode $tok] != 200} {
+            error "GET $url: HTTP [http::ncode $tok]"
+        }
+        return [http::data $tok]
+    } finally {
+        http::cleanup $tok
+    }
+}
+
+# Numeric field of a flat top-level JSON object, e.g. the "x" of
+# "actual_position": {"x": 1.5, "y": ...}. The leading quote in the pattern is
+# what keeps "actual_position" from also matching inside
+# "joint_actual_position".
+proc linuxcnc::_json_axis {json object axis} {
+    if {![regexp "\"$object\"\\s*:\\s*(\{\[^\{\}\]*\})" $json -> obj]} {
+        error "status field $object not found"
+    }
+    if {![regexp "\"$axis\"\\s*:\\s*(-?\[0-9.eE+-\]+)" $obj -> value]} {
+        error "status field $object.$axis not found"
+    }
+    return $value
+}
+
+# Commanded position in the coordinate system G-code is currently working in,
+# for one axis letter — the replacement for emcsh's emc_rel_act_pos.
+#
+# This is the DRO's "relative" position. The calculation is the one in
+# rs274/glcanon.py:1699 and touchy's emc_interface.py:328, mirrored here and in
+# gmi.Stat.relative_position (Python) so all three agree; 2.9's emc_rel_act_pos
+# dropped the rotation term, and pyngcgui had dropped rotation *and* G92.
+#
+#   ORDER MATTERS: g5x and the tool offset come off first, then XY is rotated
+#   by -rotation_xy, and only then does g92 come off.
+#
+# Units: machine units, like every other DRO — the wire format is mm, and
+# linear_units/angular_units are the mm->machine-units scales. Commanded
+# position, not feedback: it is the number the machine was told to reach, free
+# of following error.
+proc linuxcnc::rel_act_pos {axis} {
+    set axis [string tolower $axis]
+    if {[lsearch -exact {x y z a b c u v w} $axis] < 0} {
+        error "rel_act_pos: bad coordinate letter <$axis>"
+    }
+    set json [linuxcnc::stat_json]
+
+    # The rotation mixes X into Y and vice versa, so both are always needed.
+    foreach ax {x y} {
+        set p($ax) [linuxcnc::_json_axis $json position $ax]
+        foreach off {g5x_offset tool_offset} {
+            set p($ax) [expr {$p($ax) - [linuxcnc::_json_axis $json $off $ax]}]
+        }
+    }
+    set rot 0.0
+    regexp {"rotation_xy"\s*:\s*(-?[0-9.eE+-]+)} $json -> rot
+    if {$rot != 0} {
+        set t [expr {-1 * $rot * acos(-1) / 180.0}]
+        set rx [expr {$p(x) * cos($t) - $p(y) * sin($t)}]
+        set ry [expr {$p(x) * sin($t) + $p(y) * cos($t)}]
+        set p(x) $rx
+        set p(y) $ry
+    }
+
+    if {$axis eq "x" || $axis eq "y"} {
+        set v [expr {$p($axis) - [linuxcnc::_json_axis $json g92_offset $axis]}]
+    } else {
+        set v [linuxcnc::_json_axis $json position $axis]
+        foreach off {g5x_offset tool_offset g92_offset} {
+            set v [expr {$v - [linuxcnc::_json_axis $json $off $axis]}]
+        }
+    }
+
+    if {[lsearch -exact {a b c} $axis] >= 0} {
+        set scale 1.0
+        regexp {"angular_units"\s*:\s*(-?[0-9.eE+-]+)} $json -> scale
+    } else {
+        set scale 1.0
+        regexp {"linear_units"\s*:\s*(-?[0-9.eE+-]+)} $json -> scale
+    }
+    return [expr {$v * $scale}]
 }
 
 # Internationalisation (i18n)

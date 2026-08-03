@@ -234,9 +234,10 @@ func (e *Executor) ExecuteShutdown() error {
 // executes them via the native Go HAL file parser.
 //
 // POSTGUI_HALFILE files are typically executed after the GUI has created its
-// HAL pins. GUIs that manage this themselves (AXIS, QtVCP, gmoccapy, etc.)
-// do not need to call this method. It is provided for configurations that
-// delegate post-GUI HAL setup to the launcher.
+// HAL pins. Only the GUIs that run them themselves (touchy, gscreen, qtvcp,
+// mdro) honor the key; AXIS does not, and nothing calls this method today --
+// a config that must work under AXIS wires panel pins in a plain HALFILE
+// instead (pyvcp pins exist at module load, see configs/sim/axis/pin_control).
 //
 // This method does NOT run as part of the normal ParseAll() startup path.
 // Call it explicitly after the display is ready.

@@ -167,6 +167,25 @@ WAYPOINT_SAMPLE_SECS =
 WAYPOINT_THRESHOLD =
 ----
 
+[NOTE]
+====
+`moveoff_gui` has been *removed* -- it was a Tk panel on the deleted Tcl HAL
+binding. Replacing it is config work only; the moveoff component already has
+every pin required and no new component is needed:
+
+* the two connections it made at startup (`mv.power-on` to
+  `motion.motion-enabled`, `mv.apply-offsets` to `halui.program.is-paused`)
+  belong in a HAL file;
+* its `-autoresume -delay N` behaviour composes from `not`, `and2`, `timedelay`
+  and `oneshot`;
+* the display is covered by an existing pyvcp panel
+  (`configs/sim/axis/moveoff/moveoff_display_7.xml`) or the gladevcp one.
+
+See `configs/sim/axis/moveoff/README` for the exact connections and sequence.
+The description below is kept because it documents what those connections have
+to reproduce.
+====
+
 The moveoff_gui is used to make additional required connections and provide
 a popup GUI to:
 
@@ -196,18 +215,6 @@ motion.motion-enabled pin (a new signal is automatically created if necessary).
 The mv.apply-offsets is connected to halui.program.is-paused or set to 1
 depending upon the command line option -mode [ onpause | always ].  A new signal
 is automatically created if necessary.
-
-To use the moveoff_gui, add an entry in the INI file [APPLICATIONS]
-section as follows:
-
-[source,{ini}]
-----
-[APPLICATIONS]
-# Note: a delay (specified in seconds) may be required if connections
-# are made using postgui HAL files ([HAL]POSTGUI_HALFILE=)
-DELAY = 0
-APP = moveoff_gui option1 option2 ...
-----
 
 When the HAL file LIB:hookup_moveoff.tcl is used to load and connect the
 moveoff component, the mv.move-enable pin will not be connected and

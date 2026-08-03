@@ -2,7 +2,6 @@ linuxcnc
 linuxcnc-checklink
 linuxcnc_info
 rip-environment
-haltcl
 realtime
 rtapi.conf
 runtests

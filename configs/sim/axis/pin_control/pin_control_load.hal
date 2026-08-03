@@ -1,0 +1,5 @@
+# Load the pin_control pyvcp panel. The module creates the panel's pins right
+# here, so the next HALFILE (pin_control.hal) can wire them up.
+# [TASK]PYVCP_INSTANCE names this instance to milltask, so /info reports the
+# panel to AXIS.
+load pyvcp <pyvcp> xml=pin_control.xml

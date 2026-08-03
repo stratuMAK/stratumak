@@ -1,0 +1,24 @@
+# Wiring for the pin_control pyvcp panel — the sim_pin replacement.
+# POSTGUI: runs after the panel's pins exist.
+#
+# sim_pin took the target pin name on its command line and drove it directly:
+#     APP = sim_pin  mv.power-on  mv.apply-offsets/mode=pulse
+# A pyvcp panel owns its own pins instead, so the connection is made here. To
+# drive your own machine, point the right-hand side of each net at the pin you
+# want; the panel itself needs no editing unless you want different widgets.
+#
+# Netted to plain signals here so the config runs standalone and the wiring is
+# visible in halshow.
+
+# bit, latched by the checkbutton  (sim_pin /mode=toggle, and /mode=hold)
+net pc-bit-toggle <= pyvcp.bit-toggle
+
+# bit, true only while the button is held  (sim_pin /mode=pulse)
+net pc-bit-pulse  <= pyvcp.bit-pulse
+
+# numeric value from the spinbox  (sim_pin's Entry + Set)
+net pc-float      <= pyvcp.float-value
+
+# read-back, so the panel shows what actually reached the signal
+net pc-bit-toggle => pyvcp.bit-state
+net pc-float      => pyvcp.float-state

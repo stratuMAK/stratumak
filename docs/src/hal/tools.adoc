@@ -100,67 +100,16 @@ Usage:
   halscope [-h] [-i infile] [-o outfile] [num_samples]
 ----
 
-== Sim Pin
+== Setting Pins from a Panel
 
-sim_pin is a command line utility to display and update any number of writable pins, parameters or signals.
+The `sim_pin` utility was removed with the Tcl HAL binding. A pyvcp panel does
+the same job: a checkbutton for a latched bit, a button for a pulsed bit, and a
+spinbox or scale for a numeric value. The difference is that a pyvcp panel owns
+its own pins and you connect them to the target in a HAL file, instead of naming
+the target on a command line.
 
-.sim_pin Usage
-----
-Usage:
-        sim_pin [Options] name1 [name2 ...] &
-
-Options:
-        --help                (this text)
-        --title title_string  (window title, default: sim_pin)
-
-Note:  LinuxCNC (or a standalone HAL application) must be running
-        A named item can specify a pin, param, or signal
-        The item must be writable, e.g.:
-          pin:    IN or I/O (and not connected to a signal with a writer)
-          param:  RW
-          signal: connected to a writable pin
-
-        HAL item types bit,s32,u32,float are supported.
-
-        When a bit item is specified, a pushbutton is created
-        to manage the item in one of three manners specified
-        by radio buttons:
-            toggle: Toggle value when button pressed
-            pulse:  Pulse item to 1 once when button pressed
-            hold:   Set to 1 while button pressed
-        The bit pushbutton mode can be specified on the command
-        line by formatting the item name:
-            namei/mode=[toggle | pulse | hold]
-        If the mode begins with an uppercase letter, the radio
-        buttons for selecting other modes are not shown
-----
-
-For complete information, see the man page:
-
-----
-man sim_pin
-----
-
-.sim_pin Example (with LinuxCNC running)
-----
-halcmd loadrt mux2 names=example; halcmd net sig_example example.in0
-sim_pin example.sel example.in1 sig_example &
-----
-
-.sim_pin Window
-image::images/sim_pin.png["sim_pin Window"]
-
-== Simulate Probe
-
-`simulate_probe` is a simple GUI to simulate activation of the pin motion.probe-input.
-Usage:
-
-----
-simulate_probe &
-----
-
-.simulate_probe Window
-image::images/simulate_probe.png["simulate_probe Window"]
+A ready-made example is shipped in `configs/sim/axis/pin_control` -- panel,
+loader and wiring, with one widget per sim_pin mode.
 
 == HAL Histogram
 
@@ -200,97 +149,61 @@ image::images/hal-histogram.png["hal-histogram Window"]
 
 == Halreport
 
-`halreport` is a command-line utility that generates a report about HAL connections for a running LinuxCNC (or other HAL) application.
-The report shows all signal connections and flags potential problems.
-Information included:
-
-. System description and kernel version.
-. Signals and all connected output, io, and input pins.
-. Each pin's component_function, thread, and addf-order.
-. Non-realtime component pins having non-ordered functions.
-. Identification of unknown functions for unhandled components.
-. Signals   with no output.
-. Signals   with no inputs.
-. Functions with no addf.
-. Warning tags for components marked as deprecated/obsolete in docs.
-. Real names for pins that use alias names.
-
-The report can be generated from the command line and directed to an output file (or stdout if no outfilename is specified):
+`halreport` collects one diagnostic bundle for a support question. It runs on
+the machine and gathers, in a single command, what is otherwise several rounds
+of asking: versions, the host and real-time environment, the configuration that
+was actually loaded, live HAL topology and thread timing, machine state, and
+logs.
 
 .halreport Usage
 ----
 Usage:
-  halreport -h | --help (this help)
-or
-  halreport [outfilename]
+  halreport [-o OUTPUT] [--ini FILE] [--stdout] [--journal-lines N]
+
+  -o OUTPUT          bundle path (default ./halreport-<host>-<stamp>.tar.gz)
+  --ini FILE         INI file to record (default $INI_FILE_NAME)
+  --stdout           write the report to stdout, make no bundle
+  --journal-lines N  journal lines to capture (default 2000)
 ----
 
-To generate the report for every LinuxCNC startup, include halreport and an output filename as an [APPLICATIONS]APP entry in the INI file.
+The bundle contains the text report, the INI file and the local files it names
+(HAL files, tool table, panel XML), the `gomc-server` journal and the tail of
+`dmesg`.
 
-.halreport Example
-[source,{ini}]
+It talks to a running server for the HAL and machine sections, using
+`GMC_REST_URL` and `GMC_INSTANCE`, and falls back to the host-only sections
+when no server is reachable -- a machine that will not start is exactly when a
+report is wanted.
+
+=== Signal update order
+
+The most diagnostic section lists, for every signal, the pins connected to it
+and the thread slot that services each one. A reader with a lower slot number
+than its writer sees the previous cycle's value:
+
 ----
-[APPLICATIONS]
-APP = halreport /tmp/halreport.txt
+SIG XZhomesw
+    IN   joint.0.home-sw-in     servo-thread[1] motion-command-handler, servo-thread[2] motion-controller
+    IN   joint.2.home-sw-in     servo-thread[1] motion-command-handler, servo-thread[2] motion-controller
+    OUT  or2_0.out              servo-thread[20] or2_0
 ----
 
-The function addf-ordering can be important for servo loops where the sequence of the functions computed at each servo period is important.
-Typically, the order is:
+The addf-ordering matters for servo loops, where the sequence of functions
+computed each servo period is significant. Typically the order is:
 
 . Read input pins,
 . do the motion command-handler and motion-controller functions,
 . perform pid calculations, and finally
 . write output pins.
 
-For each signal in a critical path, the addf-order of the output pin should be numerically lower than the addf-order of the critical input pins that it connects to.
+For each signal in a critical path, the slot of the output pin should be
+numerically lower than the slots of the critical input pins it feeds.
 
-For routine signal paths that handle switch inputs, non-realtime pins, etc., the addf-ordering is often not critical.
-Moreover, the timing of non-realtime pin value changes cannot be controlled or guaranteed at the intervals typically employed for HAL threads.
+For routine signal paths that handle switch inputs, non-realtime pins, etc.,
+the ordering is often not critical. The timing of non-realtime pin value
+changes cannot be controlled or guaranteed at the intervals typically employed
+for HAL threads, and those pins are reported as not being in any thread.
 
-Example report file excerpts showing a pid loop for a hostmot2 stepgen operated in velocity mode on a trivkins machine with `joint.0` corresponding to the X axis coordinate:
-
-----
-SIG:    pos-fb-0
-  OUT:    h.00.position-fb                     hm2_7i92.0.read        servo-thread 001
-          (=hm2_7i92.0.stepgen.00.position-fb)
-    IN:     X_pid.feedback                     X_pid.do-pid-calcs     servo-thread 004
-    IN:     joint.0.motor-pos-fb               motion-command-handler servo-thread 002
-            ....................               motion-controller      servo-thread 003
-...
-SIG:    pos-cmd-0
-  OUT:    joint.0.motor-pos-cmd                motion-command-handler servo-thread 002
-          .....................                motion-controller      servo-thread 003
-    IN:     X_pid.command                      X_pid.do-pid-calcs     servo-thread 004
-...
-SIG:    motor-cmd-0
-  OUT:    X_pid.output                         X_pid.do-pid-calcs     servo-thread 004
-    IN:     h.00.velocity-cmd                  hm2_7i92.0.write       servo-thread 008
-            (=hm2_7i92.0.stepgen.00.velocity-cmd)
-----
-
-In the example above, the HALFILE uses halcmd aliases to simplify pin names for an hostmot2 FPGA board with commands like:
-
-[source,{hal}]
-----
-alias pin hm2_7i92.0.stepgen.00.position-fb h.00.position-fb
-----
-
-[NOTE]
-====
-Questionable component function detection may occur for
-
-. unsupported (deprecated) components,
-. user-created components that use multiple functions or unconventional function naming, or
-. GUI-created non-realtime components that lack distinguishing characteristics such as a prefix based on the GUI program name.
-
-Questionable functions are tagged with a question mark "?".
-====
-
-[NOTE]
-Component pins that cannot be associated with a known thread function report the function as "Unknown".
-
-`halreport` generates a connections report (without pin types, and current values) for a running HAL application to aid in designing and verifying connections.
-This helps with the understanding what the source of a pin value is.
-Use this information with applications like `halshow`, `halmeter`, `halscope` or the  `halcmd  show` command in a terminal.
-
-// vim: set syntax=asciidoc:
+The servicing function of a pin is resolved from the component that owns it, as
+published by HAL, so no per-component knowledge is involved and a component
+that exports several functions has all of them listed.

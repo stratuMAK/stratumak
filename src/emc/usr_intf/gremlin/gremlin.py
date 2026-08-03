@@ -62,7 +62,6 @@ import glnav
 
 import rs274.glcanon
 import rs274.interpret
-import linuxcnc
 import gcode
 import gmi
 
@@ -136,7 +135,7 @@ class Gremlin(Gtk.DrawingArea,rs274.glcanon.GlCanonDraw,glnav.GlNavBase):
             s = self.colors[s]
             return [int(x * 255) for x in s + (a,)]
         self.inifile = inifile
-        self.logger = linuxcnc.positionlogger(linuxcnc.stat(),
+        self.logger = gmi.positionlogger(None,
             C('backplotjog'),
             C('backplottraverse'),
             C('backplotfeed'),
@@ -147,7 +146,7 @@ class Gremlin(Gtk.DrawingArea,rs274.glcanon.GlCanonDraw,glnav.GlNavBase):
         )
         _thread.start_new_thread(self.logger.start, (.01,))
 
-        rs274.glcanon.GlCanonDraw.__init__(self, linuxcnc.stat(), self.logger)
+        rs274.glcanon.GlCanonDraw.__init__(self, gmi.Stat(), self.logger)
 
         self.current_view = 'z'
 
@@ -497,8 +496,8 @@ class Gremlin(Gtk.DrawingArea,rs274.glcanon.GlCanonDraw,glnav.GlNavBase):
         # if program is running, do not update the line:
         # if the user clicks in the preview, 
         # Highlighting the line can cause an error with buffer OverflowError
-        #print("DEBUG NORBERT",self.stat.state, linuxcnc.RCS_EXEC)
-        if self.stat.state == linuxcnc.RCS_EXEC:
+        #print("DEBUG NORBERT",self.stat.state, gmi.RCS_EXEC)
+        if self.stat.state == gmi.RCS_EXEC:
             return
  
         if not self.select_primed: return

@@ -64,7 +64,8 @@ import re
 import getopt
 import datetime
 import subprocess
-import linuxcnc
+import linuxcnc   # still used for linuxcnc.ini and linuxcnc.SHARE
+import gmi
 import hashlib
 import glob
 import shutil
@@ -110,7 +111,7 @@ g_label_id          = 0 # subroutine labels modifier when expanding in place
 g_progname          = os.path.splitext(os.path.basename(__file__))[0]
 g_dtfmt             = "%y%m%d:%H.%M.%S"
 
-g_stat              = None # linuxcnc.stat  object
+g_stat              = None # gmi.Stat machine-units view
 g_popkbd            = None # PopupKeyboard  object
 g_candidate_files   = None # CandidateFiles object
 g_send_function     = None # function object f(fname) return True for success
@@ -197,9 +198,12 @@ def dummy_send(filename):
 
 def default_send(filename):
     import gladevcp.hal_filechooser
-    try:
-        s = linuxcnc.stat().poll()
-    except:
+    # gmi.Stat does not raise when the controller is unreachable — it keeps the
+    # last snapshot and reports it through `connected`, so that is what has to
+    # be tested here (the old linuxcnc.stat().poll() raised).
+    s = gmi.Stat()
+    s.poll()
+    if not s.connected:
         user_message(mtype=Gtk.MessageType.ERROR
             ,title=_('linuxcnc not running')
             ,msg = _('cannot send, linuxcnc not running'))
@@ -615,41 +619,32 @@ def show_position():
     print('POSITION-----------------------------------------------------')
     print('       ap',all_coords(g_stat.actual_position))
     print('        p',all_coords(g_stat.position))
-    l = []
-    p = g_stat.actual_position
-    for i in range(9): l.append(p[i]
-                               - g_stat.g5x_offset[i]
-                               - g_stat.tool_offset[i]
-                               )
-    print('offset ap',all_coords(l))
-
-    l = []
-    p = g_stat.position
-    for i in range(9): l.append(p[i]
-                               - g_stat.g5x_offset[i]
-                               - g_stat.tool_offset[i]
-                               )
-    print('offset  p',all_coords(l))
+    print('relative p',all_coords(g_stat.relative_position))
     print('POSITION=====================================================')
 
 def coord_value(char):
-    # offset calc from emc_interface.py (touchy et al)
     # char = 'x' | 'y' | ...
     # 'd' is for diameter
+    #
+    # The offset arithmetic this used to inline claimed to come from
+    # emc_interface.py (touchy et al) but had dropped two of its steps: the
+    # XY rotation and the G92 term. With a G92 active it inserted a value the
+    # machine was not standing at. It now uses gmi.Stat.relative_position,
+    # which is the full glcanon/touchy calculation in one place; g_stat is a
+    # machine-units view, matching every other DRO in the system.
     c = char.lower()
     g_stat.poll()
-    p = g_stat.position # tuple: (xvalue, yvalue, ...
+    p = g_stat.relative_position
     if (c == 'd'):
         if (1 & g_stat.axis_mask):
-            # diam = 2 * x
-            return (p[0] - g_stat.g5x_offset[0] - g_stat.tool_offset[0])* 2
+            return p[0] * 2 # diam = 2 * x
         else:
             return 'xxx' # return a string that will convert with float()
 
     axno = 'xyzabcuvw'.find(c)
     if not ( (1 << axno) & g_stat.axis_mask ):
         return 'xxx' # return a string that will convert with float()
-    return p[axno] - g_stat.g5x_offset[axno] - g_stat.tool_offset[axno]
+    return p[axno]
 
 def make_g_styles():
 
@@ -970,18 +965,18 @@ class LinuxcncInterface():
         use_ini_file = None
 
         l_ini_file = ''
-        stat = linuxcnc.stat()
 
-
-        try:
-            global g_stat
-            g_stat = linuxcnc.stat()
-            g_stat.poll() # poll faults if linuxcnc not running
+        global g_stat
+        # Machine units, like every other DRO in the system — the gmi wire
+        # format is mm. A failed poll does not raise here (unlike the old
+        # linuxcnc.stat()), it leaves `connected` false, so that is the test.
+        g_stat = gmi.Stat().machine_units()
+        g_stat.poll()
+        if g_stat.connected:
             self.lrunning = True
             l_ini_file = get_linuxcnc_ini_file()
-        except linuxcnc.error as msg:
+        else:
             g_stat = None
-            print('INTFC:err:',msg)
             print('INTFC:' + _('Warning: linuxcnc not running'))
 
         print('%s:INTFC:linuxcnc running=%d' % (g_progname,self.lrunning))

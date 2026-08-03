@@ -103,7 +103,6 @@ include::hal/rtcomps.adoc[]
 
 include::hal/comp.adoc[]
 
-include::hal/haltcl.adoc[]
 
 include::gui/halui.adoc[]
 
@@ -224,7 +223,6 @@ include::gui/qtdragon.adoc[]
 
 include::gui/ngcgui.adoc[]
 
-include::gui/tklinuxcnc.adoc[]
 
 include::plasma/qtplasmac.adoc[]
 

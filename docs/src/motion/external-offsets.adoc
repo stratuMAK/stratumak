@@ -213,12 +213,10 @@ an '[AXIS_L]' setting for each candidate axis.  For example:
 OFFSET_AV_RATIO = 0.2
 ----
 
-For testing, it is convenient to simulate a jog wheel interface using the
-*sim_pin* GUI.  For example, in a terminal:
-
-----
-$ sim_pin axis.z.eoffset-enable axis.z.eoffset-scale axis.z.eoffset-counts
-----
+For testing, it is convenient to simulate a jog wheel interface from a panel
+that drives the eoffset pins (axis.z.eoffset-enable, -scale, -counts).
+A pyvcp panel replaces the removed `sim_pin` utility for this -- see
+`configs/sim/axis/pin_control` for a ready-made example.
 
 The use of external offsets is aided by displaying information
 related to the current offsets: the current eoffset value and the
@@ -236,12 +234,11 @@ z axis (for identity kinematics with z==joint2):
 
 [source,{ini}]
 ----
-[APPLICATIONS]
-APP = sim_pin \
-      axis.z.eoffset-enable \
-      axis.z.eoffset-scale \
-      axis.z.eoffset-counts \
-      axis.z.eoffset-clear
+[HAL]
+# load a pyvcp panel with widgets for the eoffset pins, and connect them
+# in a POSTGUI_HALFILE -- see configs/sim/axis/pin_control
+HALFILE = pin_control_load.hal
+POSTGUI_HALFILE = pin_control.hal
 
 APP = halshow --fformat "%0.5f" ./z.halshow
 ----
@@ -282,7 +279,7 @@ offsets on any axis.
 Displays are provided to show all important position and offset
 values.
 
-A sim_pin GUI provides controls for the axis offset pins: eoffset-scale
+The panel provides controls for the axis offset pins: eoffset-scale
 & eoffset-counts (via signal e:<L>counts), eoffset-clear
 (via signal e:clearall)
 

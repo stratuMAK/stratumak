@@ -9,7 +9,9 @@ See the manpage for more information:
 The demonstration configs show:
 
   o moveoff_gui
-    a simple gui
+    REMOVED. It was a Tk panel on the deleted Tcl HAL binding, and it also
+    did two things that were not display -- see the note at the end of this
+    file.
 
   o hookup_moveoff.tcl
     a script to connect a moveoff component
@@ -30,3 +32,49 @@ Demonstration configs:
 6 zretract         onpause pyvcp panel
 7 pyvcp            onpause pyvcp panel
 8 gladevcp         onpause gladevcp panel
+
+
+moveoff_gui removal
+-------------------
+
+moveoff_gui is gone with the rest of the Tcl HAL tooling. Replacing it is
+config work only -- the moveoff component already does everything needed, and
+no new component is required. It has NOT been done here because every config
+in this directory loads a .tcl HALFILE (LIB:basic_sim.tcl,
+LIB:hookup_moveoff.tcl) and those are rejected at startup, so none of them run
+and a replacement could not be verified. Do this as part of the .tcl HALFILE
+conversion, when these configs can start again:
+
+1. The startup wiring. moveoff_gui made these connections from Tcl at run time
+   (connect_pin_to_sig) rather than from a HAL file, which is why 7_pyvcp had
+   to keep running it with -no_display. The component's own pin documentation
+   says where power-on belongs:
+
+     net mvoff_gui:power_on      motion.motion-enabled   => mv.power-on
+     net mvoff_gui:apply_offsets halui.program.is-paused => mv.apply-offsets
+
+   Keep those signal names: moveoff_display_7.hal and moveoff_display_8.hal
+   reference mvoff_gui:apply_offsets.
+
+2. Auto-resume (`-autoresume -delay N`). moveoff_gui polled the pins from a Tcl
+   timer; in HAL it composes from shipped components -- not, and2, timedelay,
+   oneshot. The sequence it implemented (see request_resume_after_delay in the
+   old script) was:
+
+     move-enable released while apply-offsets is TRUE
+       -> wait for offset-applied to go FALSE (component has returned to the
+          un-offsetted position)
+       -> wait `delay` seconds
+       -> pulse halui.program.resume
+
+   Both cancel conditions -- move-enable coming back, or something else
+   resuming the program (is-paused dropping) -- fall out of the AND chain,
+   because timedelay restarts its on-delay whenever its input goes false. No
+   separate cancel path is needed.
+
+   Watch pin directions when wiring this: move-enable is an IN pin driven by
+   the panel, so the auto-resume chain reads the signal that drives it, not the
+   pin itself.
+
+3. The display half needs nothing new: moveoff_display_7.xml is an existing
+   pyvcp panel covering the same controls, and 8_gladevcp has a gladevcp one.

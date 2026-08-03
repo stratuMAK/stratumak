@@ -202,10 +202,12 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
 
         # if status is not available then we are probably
         # displaying in designer so fake it
-        stat = linuxcnc.stat()
+        stat = gmi.Stat()
         try:
             stat.poll()
-        except:
+            if not stat.connected:
+                raise RuntimeError("no controller")
+        except Exception:
             #LOG.warning('linuxcnc status failed, Assuming linuxcnc is not running so using fake status for a XYZ machine')
             stat = fakeStatus()
 
@@ -218,7 +220,7 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
             #raise SystemExit("Missing [TRAJ]COORDINATES")
         kinsmodule = self.inifile.find("KINS", "KINEMATICS")
 
-        self.logger = linuxcnc.positionlogger(linuxcnc.stat(),
+        self.logger = gmi.positionlogger(None,
             C('backplotjog'),
             C('backplottraverse'),
             C('backplotfeed'),

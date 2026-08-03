@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import sys
 import threading
 import time
@@ -257,6 +258,7 @@ class Stat:
         # Positions
         "position", "actual_position", "probed_position",
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
+        "relative_position",
         "joint_actual_position", "rotation_xy",
         # Collections
         "joints", "joint", "spindle", "spindles", "axis",
@@ -288,7 +290,7 @@ class Stat:
     _SPECIAL_NAMES = {
         "joints", "joint", "spindle", "axis", "dtg",
         "position", "actual_position", "probed_position",
-        "g5x_offset", "g92_offset", "tool_offset",
+        "g5x_offset", "g92_offset", "tool_offset", "relative_position",
         "joint_actual_position", "joint_position",
         "gcodes", "mcodes", "settings",
         "homed", "limit",
@@ -379,6 +381,17 @@ class Stat:
         }
         if name in _POS_FIELDS:
             return _pos_to_tuple(data.get(name, {}))
+
+        # relative_position — the commanded position in the coordinate system
+        # G-code is currently working in. See the property below for why this
+        # lives in one place.
+        if name == "relative_position":
+            return _relative_position(
+                _pos_to_tuple(data.get("position", {})),
+                _pos_to_tuple(data.get("g5x_offset", {})),
+                _pos_to_tuple(data.get("g92_offset", {})),
+                _pos_to_tuple(data.get("tool_offset", {})),
+                data.get("rotation_xy", 0.0))
 
         # dtg — position inside motion struct
         if name == "dtg":
@@ -550,6 +563,34 @@ class Stat:
                 self._poll_conn = None
 
 
+def _relative_position(position, g5x, g92, tool, rotation_xy):
+    """The DRO's "relative" position: where the machine is in the coordinate
+    system G-code is currently working in.
+
+    This is the one calculation every UI re-implements, and in this tree no two
+    copies agreed — AXIS (rs274/glcanon.py:1699) and touchy
+    (emc_interface.py:328) do it in full, 2.9's emcsh `emc_rel_act_pos` dropped
+    the rotation, and pyngcgui dropped both the rotation and G92 (while citing
+    touchy as its source). Ported here from glcanon so there is one answer.
+
+    **The order matters**: G5x and the tool offset come off first, then XY is
+    rotated by -rotation_xy, and only then does G92 come off. Subtracting G92
+    before the rotation gives a wrong number on any machine that uses a rotated
+    coordinate system (G10 L2 P<n> R<angle>) with a G92 active.
+
+    Millimetres in, millimetres out — `Stat.machine_units()` converts it like
+    any other position tuple (rotation is uniform in XY, so scaling before or
+    after is the same value).
+    """
+    out = [p - g - t for p, g, t in zip(position, g5x, tool)]
+    if rotation_xy:
+        t = math.radians(-rotation_xy)
+        x, y = out[0], out[1]
+        out[0] = x * math.cos(t) - y * math.sin(t)
+        out[1] = x * math.sin(t) + y * math.cos(t)
+    return tuple(o - g for o, g in zip(out, g92))
+
+
 def _pos_to_tuple(pos):
     """Convert a position dict to a 9-tuple (x, y, z, a, b, c, u, v, w)."""
     if isinstance(pos, dict):
@@ -586,6 +627,10 @@ class MachineUnitsStat:
     _POS_FIELDS = frozenset((
         "position", "actual_position", "probed_position",
         "g5x_offset", "g92_offset", "tool_offset", "dtg",
+        # relative_position is a position 9-tuple with the same axis layout, so
+        # it converts the same way. Rotation is uniform in XY (both scaled by
+        # `lin`), so computing it in mm and scaling here is the same value.
+        "relative_position",
     ))
     _JOINT_ARRAYS = frozenset(("joint_actual_position", "joint_position"))
     # Flat linear scalars (length or length/time).
