@@ -1021,7 +1021,7 @@ HOMEMOD_CMOD_SRCS := \
     emc/motion/homing.c
 
 HOMEMOD_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
@@ -1077,7 +1077,7 @@ TPMOD_CMOD_SRCS := \
     emc/nml_intf/emcpose.c
 
 TPMOD_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \
     -fno-strict-aliasing -fwrapv \

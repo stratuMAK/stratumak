@@ -143,9 +143,11 @@ $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
 # bridges) is built with the same toolchain as the rest of the tree
 # (e.g. the clang CI job).
 # CGO_LDFLAGS adds -Wl,-rpath so the dynamic linker finds libposemath.so
-# and librs274.so at runtime (RIP and installed builds alike).
+# and librs274.so at runtime.
 # --disable-new-dtags forces DT_RPATH instead of DT_RUNPATH; RUNPATH is
 # ignored by the dynamic linker when the binary has file capabilities (setcap).
+# -z relro -z now: full RELRO for the cgo-linked binaries; dpkg's hardening
+# LDFLAGS never reach the Go external link on their own.
 # LIB_DIR is $(EMC2_HOME)/lib, defined in Makefile.inc.
 # CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
 # gets the same diagnostics as Ubuntu CI runners (builtin fortify).
@@ -159,13 +161,24 @@ $(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
 # mtime advanced.  This matters most for modcompile, which every generated cmod
 # .c and every GMI header depend on — a spurious modcompile rebuild used to
 # cascade a rebuild through all modules and GMI headers.
-GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="-Wl,-rpath,$(LIB_DIR) -Wl,--disable-new-dtags" GOFLAGS=-mod=mod
+# The rpath is RIP-only: the tree's lib/ is no loader default, but an
+# installed build's libraries land in $(libdir), which ldconfig covers — a
+# /usr/lib RPATH there is redundant (and lintian-flagged E).
+ifeq ($(RUN_IN_PLACE),yes)
+GOMC_CGO_RPATH := -Wl,-rpath,$(LIB_DIR)
+endif
+GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="$(GOMC_CGO_RPATH) -Wl,--disable-new-dtags -Wl,-z,relro -Wl,-z,now" GOFLAGS=-mod=mod
+
+# All Go binaries build as PIE: the cgo ones pick up full RELRO through the
+# linker flags above, the pure-Go ones stop being statically-linked oddities
+# the tooling (lintian, gdb) treats as suspect. Negligible runtime cost.
+GOMC_BUILDMODE := -buildmode=pie
 
 # Build the gomc-server binary.  Generated GMI Go prerequisites are injected
 # by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
 ../bin/gomc-server: $(GOMC_SRC_BASE) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | gomc/go.mod
 	$(ECHO) Building gomc-server
-	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
+	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build $(GOMC_BUILDMODE) -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/gomc-server ./cmd/gomc-server
 
 # ---------------------------------------------------------------------------
 # ADS XML generator tool — built from cmd/ads-xml-gen within the gomc module
@@ -173,7 +186,7 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 
 ../bin/ads-xml-gen: $(GOMC_SRC_BASE) | gomc/go.mod
 	$(ECHO) Building ads-xml-gen
-	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build -o $(TOP)/bin/ads-xml-gen ./cmd/ads-xml-gen
+	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build $(GOMC_BUILDMODE) -o $(TOP)/bin/ads-xml-gen ./cmd/ads-xml-gen
 
 # ---------------------------------------------------------------------------
 # halsampler / halstreamer — WebSocket stream clients
@@ -181,11 +194,11 @@ GOMC_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_F
 
 ../bin/halsampler: $(GOMC_SRC_BASE) gomc/cmd/halsampler/main.go | gomc/go.mod
 	$(ECHO) Building halsampler
-	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build -o $(TOP)/bin/halsampler ./cmd/halsampler
+	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build $(GOMC_BUILDMODE) -o $(TOP)/bin/halsampler ./cmd/halsampler
 
 ../bin/halstreamer: $(GOMC_SRC_BASE) gomc/cmd/halstreamer/main.go | gomc/go.mod
 	$(ECHO) Building halstreamer
-	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build -o $(TOP)/bin/halstreamer ./cmd/halstreamer
+	$(Q)cd gomc && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build $(GOMC_BUILDMODE) -o $(TOP)/bin/halstreamer ./cmd/halstreamer
 
 TARGETS += ../bin/halsampler ../bin/halstreamer
 
@@ -255,7 +268,7 @@ MODCOMPILE_SRC := $(wildcard gomc/cmd/modcompile/*.go) \
 # reliable.
 ../bin/modcompile: $(MODCOMPILE_SRC) Makefile.inc | gomc/go.mod
 	$(ECHO) Building modcompile
-	$(Q)cd gomc && GOFLAGS=-mod=mod $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/modcompile.tmp ./cmd/modcompile
+	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build $(GOMC_BUILDMODE) -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/modcompile.tmp ./cmd/modcompile
 	$(Q)sh move-if-change $@.tmp $@
 
 TARGETS += ../bin/modcompile
@@ -269,7 +282,7 @@ GMI_HALCMD_GEN_GO := gomc/generated/gmi/halcmdclient/halcmd_client.go
 ../bin/halcmd: $(GOMC_SRC_BASE) $(GMI_HALCMD_GEN_GO) Makefile.inc | gomc/go.mod
 	$(ECHO) Building halcmd - Go REST client
 	@rm -f $@
-	$(Q)cd gomc && $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/halcmd ./cmd/halcmd
+	$(Q)cd gomc && $(GOMC_CGOENV) $(GO) build $(GOMC_BUILDMODE) -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/halcmd ./cmd/halcmd
 
 TARGETS += ../bin/halcmd
 
@@ -284,7 +297,7 @@ GMI_ETHERCAT_CLIENT_GEN_GO := gomc/generated/gmi/ethercatclient/ethercat_client.
 ../bin/ethercat: $(GOMC_SRC_BASE) $(wildcard gomc/cmd/ethercat/*.go) $(GMI_ETHERCAT_CLIENT_GEN_GO) Makefile.inc | gomc/go.mod
 	$(ECHO) Building ethercat - Go REST client
 	@rm -f $@
-	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/ethercat ./cmd/ethercat
+	$(Q)cd gomc && CGO_ENABLED=0 $(GO) build $(GOMC_BUILDMODE) -ldflags "$(GOMC_LDFLAGS)" -o $(TOP)/bin/ethercat ./cmd/ethercat
 
 TARGETS += ../bin/ethercat
 

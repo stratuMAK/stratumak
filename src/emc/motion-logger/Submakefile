@@ -10,7 +10,7 @@
 MOTION_LOGGER_CMOD_SRCS := emc/motion-logger/motion_logger_cmod.c
 
 MOTION_LOGGER_CMOD_CFLAGS := \
-	-fPIC -Os -Wall -Wextra -D_GNU_SOURCE \
+	-fPIC -g -Os -Wall -Wextra -D_GNU_SOURCE \
 	-I. -I../include -Igomc/pkg/cmodule \
 	-Igomc/generated/gmi/motctl -Igomc/generated/gmi/motstat
 

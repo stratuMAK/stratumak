@@ -129,7 +129,7 @@ Examples:
 const (
 	defaultCC      = "gcc"
 	defaultCXX     = "g++"
-	defaultCFlags  = "-fPIC -Os -Wall"
+	defaultCFlags  = "-fPIC -g -Os -Wall"
 	defaultLDFlags = "-shared -lm"
 )
 

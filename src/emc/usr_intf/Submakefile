@@ -26,7 +26,7 @@ LINUXCNCLCD_CMOD_SRCS := \
     emc/usr_intf/sockets.c
 
 LINUXCNCLCD_CMOD_CFLAGS := \
-    -fPIC -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra \
     -D_GNU_SOURCE \
     -I. -I../include \
     -Igomc/pkg/cmodule \
