@@ -55,7 +55,7 @@ Depends:
     adduser,
     libcap2-bin
 Recommends:
-    linuxcnc-doc-en | linuxcnc-doc,
+    @MAIN_PACKAGE_NAME@-doc-en | linuxcnc-doc,
     librsvg2-dev,
     x11-xserver-utils,
     @EXTRA_RECOMMENDS@,

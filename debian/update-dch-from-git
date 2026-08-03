@@ -5,25 +5,28 @@ if [ ! -d debian -o ! -d src ]; then
     exit 1
 fi
 
+# stratumak versions itself from debian/changelog (0.1.x, no epoch), not from
+# the LinuxCNC v2.9 tag lineage this script used before the rename. Snapshot
+# versions append +git<commit-count>.g<sha>: the count keeps them monotonic
+# along the branch, the sha identifies the build.
+DEB_VERSION=$(git show HEAD:debian/changelog | head -1 | sed 's/.*(\(.*\)).*/\1/')
+BASE_VERSION=${DEB_VERSION%%+git*}
 
-source scripts/githelper.sh
-githelper $1
-
-GIT_VERSION=$(scripts/get-version-from-git $GIT_BRANCH)
-if [ $? -ne 0 ]; then
-    echo "error determining version!"
-    exit 1
-fi
-
-DEB_VERSION=`git show HEAD:debian/changelog | head -1 | sed 's/.*(\(.*\)).*/\1/'`
-
-NEW_DEB_VERSION=$(echo $GIT_VERSION | sed -r 's/-pre/~pre/; s/-/./g')
-NEW_DEB_VERSION="1:${NEW_DEB_VERSION/v/}"
+GIT_COUNT=$(git rev-list --count HEAD)
+GIT_SHA=$(git rev-parse --short=12 HEAD)
+NEW_DEB_VERSION="${BASE_VERSION}+git${GIT_COUNT}.g${GIT_SHA}"
 
 if [ "$NEW_DEB_VERSION" = "$DEB_VERSION" ]; then
     echo "no changes since the version at the top of the debian/changelog file"
     echo "not modifying debian/changelog"
     exit 0
+fi
+
+# List the commits since the previous snapshot if its sha is recoverable from
+# the version string, otherwise since the changelog itself was last touched.
+PREV_SHA=$(echo "$DEB_VERSION" | sed -n 's/.*\.g\([0-9a-f]\{7,\}\)$/\1/p')
+if [ -z "$PREV_SHA" ] || ! git rev-parse --verify --quiet "$PREV_SHA^{commit}" > /dev/null; then
+    PREV_SHA=$(git log -1 --format=%H HEAD -- debian/changelog)
 fi
 
 # Workaround until <URL: https://bugs.debian.org/1008735 > in lsb_release is fixed.
@@ -38,7 +41,7 @@ set -e
 (
 echo "stratumak ($NEW_DEB_VERSION) $CODENAME; urgency=low"
 echo
-git log --pretty=format:"  * %w(72,0,6)%s" $GIT_TAG..
+git log --pretty=format:"  * %w(72,0,6)%s" $PREV_SHA..
 echo
 echo
 echo " -- buildbot <buildbot@example.com>  $(date -R)"
