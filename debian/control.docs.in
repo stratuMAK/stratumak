@@ -3,6 +3,8 @@ Provides: linuxcnc-doc
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}
+Conflicts: linuxcnc-doc-de
+Replaces: linuxcnc-doc-de
 Recommends: xdg-utils
 Suggests: pdf-viewer
 Description: motion controller for CNC machines and robots (German documentation)
@@ -17,8 +19,9 @@ Provides: linuxcnc-doc
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}
-Breaks: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4),
-Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
+Breaks: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
+Conflicts: linuxcnc-doc-en
+Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4), linuxcnc-doc-en
 Recommends: xdg-utils
 Suggests: pdf-viewer
 Description: motion controller for CNC machines and robots (English documentation)
@@ -34,7 +37,8 @@ Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}
 Breaks: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
-Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
+Conflicts: linuxcnc-doc-fr
+Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4), linuxcnc-doc-fr
 Recommends: xdg-utils
 Suggests: pdf-viewer
 Description: motion controller for CNC machines and robots (French documentation)
@@ -50,7 +54,8 @@ Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}
 Breaks: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
-Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4)
+Conflicts: linuxcnc-doc-es
+Replaces: linuxcnc-uspace (<= 2.9.0~pre0+git20220402.2500863908-4), linuxcnc-doc-es
 Recommends: xdg-utils
 Suggests: pdf-viewer
 Description: motion controller for CNC machines and robots (Spanish documentation)

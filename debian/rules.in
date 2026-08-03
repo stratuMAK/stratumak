@@ -137,7 +137,7 @@ override_dh_auto_install-arch:
 	desktop-file-validate $(shell find debian/extras/ share/applications/ -name *.desktop);
 
 	# some clean-up
-	rm -f $(DESTDIR)/usr/share/doc/@MAIN_PACKAGE_NAME@/examples/sample-configs/*/*position*.txt
+	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/examples/sample-configs/*/*position*.txt
 
 	# Nothing under /var/lib/stratumak may be shipped in the package.
 	#
@@ -166,8 +166,6 @@ override_dh_installdocs-arch:
 
 override_dh_auto_install-indep:
 	DESTDIR=$(DESTDIR) $(MAKE) -C src install-docs install-doc
-	# Remove the docs we just built that we don't have debs for yet...
-	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/*_nb.pdf
 
 override_dh_installdocs-indep:
 	# The G-code quick reference html docs are built as `docs/html/${LANG}/gcode.html`.

@@ -59,11 +59,6 @@ docs/man/man9/sim_torch.9
 *.*-stamp
 # Ignore VSCode settings
 .vscode/settings.json
-# Ignore po4a-generated files for other languages
-docs/help/es/*
-docs/help/fr/*
-docs/help/nb/*
-docs/help/nl/*
 configs/**/*.tbl.bak
 configs/**/halshow.preferences
 configs/**/halscope_state.json
