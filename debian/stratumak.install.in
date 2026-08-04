@@ -94,10 +94,8 @@ usr/share/linuxcnc/gremlin_view.ui
 usr/share/linuxcnc/gscreen2.glade
 usr/share/linuxcnc/gscreen.glade
 usr/share/linuxcnc/hallib/
-usr/share/linuxcnc/linuxcnc_big.nml
 usr/share/linuxcnc/linuxcnc.gif
 usr/share/linuxcnc/linuxcncicon.png
-usr/share/linuxcnc/linuxcnc.nml
 usr/share/linuxcnc/linuxcnc-wizard.gif
 usr/share/linuxcnc/ncfiles/
 usr/share/linuxcnc/pncconf/

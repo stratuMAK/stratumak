@@ -514,17 +514,9 @@ void WAIT_SPINDLE_ORIENT_COMPLETE(int spindle, double timeout)
 void SET_TOOL_TABLE_ENTRY(int idx, int toolno, EmcPose offset, double diameter,
                           double frontangle, double backangle, int orientation) {
 
-#ifdef TOOL_NML //{
-    _sai._tools[idx].toolno = toolno;
-    _sai._tools[idx].offset = offset;
-    _sai._tools[idx].diameter = diameter;
-    _sai._tools[idx].frontangle = frontangle;
-    _sai._tools[idx].backangle = backangle;
-    _sai._tools[idx].orientation = orientation;
-#else //}{
     CANON_TOOL_TABLE tdata;
     if (tooldata_get(&tdata,idx) != IDX_OK) {
-        UNEXPECTED_MSG; 
+        UNEXPECTED_MSG;
     }
     tdata.toolno = toolno;
     tdata.offset = offset;
@@ -535,7 +527,6 @@ void SET_TOOL_TABLE_ENTRY(int idx, int toolno, EmcPose offset, double diameter,
     if (tooldata_put(tdata,idx) == IDX_FAIL) {
         fprintf(stderr,"UNEXPECTED idx %s %d\n",__FILE__,__LINE__);
     }
-#endif //}
 
     ECHO_WITH_ARGS("%d, %d, %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f, %.4f, %.4f, %d",
             idx, toolno,
@@ -554,9 +545,6 @@ void CHANGE_TOOL(int line_number, int slot)
 {
   PRINT("CHANGE_TOOL(%d)\n", slot);
   _sai._active_slot = slot;
-#ifdef TOOL_NML //{
-  _sai._tools[0] = _sai._tools[slot];
-#else //}{
     CANON_TOOL_TABLE tdata;
     if (tooldata_get(&tdata,slot) != IDX_OK) {
         UNEXPECTED_MSG;
@@ -565,7 +553,6 @@ void CHANGE_TOOL(int line_number, int slot)
     if (tooldata_put(tdata,0) == IDX_FAIL) {
         fprintf(stderr,"UNEXPECTED idx %s %d\n",__FILE__,__LINE__);
     }
-#endif //}
 }
 
 void SELECT_TOOL(int tool)//TODO: fix slot number
@@ -955,15 +942,11 @@ extern int GET_EXTERNAL_TOOL_SLOT()
    in the given pocket */
 extern CANON_TOOL_TABLE GET_EXTERNAL_TOOL_TABLE(int idx)
 {
-#ifdef TOOL_NML //{
-  return _sai._tools[idx];
-#else //}{
     CANON_TOOL_TABLE tdata;
     if (tooldata_get(&tdata,idx) != IDX_OK) {
         UNEXPECTED_MSG;
     }
-  return tdata;
-#endif //}
+    return tdata;
 }
 
 /* Returns the system traverse rate */
