@@ -79,7 +79,7 @@ Run the sample GladeVCP panel integrated into AXIS like PyVCP as follows:
 
 ----
 $ cd configs/sim/axis/gladevcp
-$ linuxcnc gladevcp_panel.ini
+$ stmakd gladevcp_panel.ini
 ----
 
 image::images/example-panel-small.png[]
@@ -88,7 +88,7 @@ Run the same panel, but as a tab inside AXIS:
 
 ----
 $ cd configs/sim/axis/gladevcp
-$ linuxcnc gladevcp_tab.ini
+$ stmakd gladevcp_tab.ini
 ----
 
 image::images/example-tabbed-small.png[]
@@ -108,7 +108,7 @@ probably after creation of manual-example.ui
 
 ----
 $ cd configs/sim/axis
-$ linuxcnc axis.ini &
+$ stmakd axis.ini &
 $ cd gladevcp
 $ gladevcp -c gladevcp -u ./hitcounter.py -H ./manual-example.hal ./manual-example.ui
 ----
@@ -120,7 +120,7 @@ To run this panel inside 'Touchy':
 
 ----
 $ cd configs/sim/touchy/gladevcp
-$ linuxcnc gladevcp_touchy.ini
+$ stmakd gladevcp_touchy.ini
 ----
 
 image::images/touchy-tab-33.png[]

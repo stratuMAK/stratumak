@@ -1,5 +1,5 @@
 #!/bin/bash
-# Classic LinuxCNC ran `exec linuxcnc -r interp.ini` and captured the
+# Classic LinuxCNC ran `exec stmakd -r interp.ini` and captured the
 # interpreter's stdout into `result`; the sub's `(print, test RAN)` is a plain
 # fprintf(stdout), not an operator message. Under stmak the interp runs inside
 # stmakd, so that stdout lands in the server log -- cat it into our own

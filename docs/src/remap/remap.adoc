@@ -579,7 +579,7 @@ Now verify that LinuxCNC comes up with no error messages - from a terminal windo
 [source,sh]
 ---------------------------------------------------------------------
 $ cd /home/user/xxx
-$ linuxcnc xxx.ini
+$ stmakd xxx.ini
 ---------------------------------------------------------------------
 
 == Remapping tool change-related codes: T, M6, M61

@@ -19,7 +19,7 @@ linuxcnc [options] [<INI-file>]
 linuxcnc: Run LinuxCNC
 
 Usage:
-  $ linuxcnc -h
+  $ stmakd -h
     This help
 
   $ linuxcnc [Options]

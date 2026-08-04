@@ -11,5 +11,5 @@ swept the whole circle.
 The other files in this directory (profile-run.sh, build-*.sh, machine_setup.py,
 run_all_tests.py, octave/, *.tcl configs, nc_files/, ...) are the original
 developer profiling / tuning harness (operf + octave plots + interactive prompts).
-They are classic-LinuxCNC tooling (linuxcnc -r, TCL GUI) and are NOT part of the
+They are classic-LinuxCNC tooling (stmakd -r, TCL GUI) and are NOT part of the
 automated suite; kept for reference only.

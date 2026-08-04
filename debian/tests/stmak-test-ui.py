@@ -4,7 +4,7 @@
 # it uses the `gmi` client package instead of the removed NML `linuxcnc` python
 # module. Positions come from gmi.Stat; the custom `motion.analog-out-00`
 # counter is read with `halcmd getp` (there is no userspace HAL component
-# anymore, so the old test-ui comp and its linuxcnc-test.hal net are gone).
+# anymore, so the old test-ui comp and its stmak-test.hal net are gone).
 #
 # The .ngc and the machine are the same as tests/single-step/, and so is this
 # driver — keep the two in step when either changes.
@@ -77,7 +77,7 @@ stmak_test.wait_stat(s, lambda st: all(st.homed[0:3]),
                     detail=lambda st: "homed=%s" % (list(st.homed[0:3]),))
 
 c.mode(MODE_AUTO)
-c.program_open('linuxcnc-test.ngc')
+c.program_open('stmak-test.ngc')
 
 epsilon = 0.000001
 

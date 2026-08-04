@@ -200,8 +200,8 @@ semantics.
 ## Building
 
 ```bash
-git clone -b stmak https://github.com/sittner/linuxcnc.git linuxcnc
-cd linuxcnc
+git clone -b main https://github.com/stratuMAK/stratumak.git stratumak
+cd stratumak
 git submodule update --init
 
 # Install build dependencies (Debian/Ubuntu)
@@ -224,14 +224,14 @@ A future goal is migration to CMake.
 **Terminal 1 — start the server:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 ./bin/stmakd configs/sim/axis/axis_mm.ini
 ```
 
 **Terminal 2 — start a UI client (as many as you like):**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
 axis
 ```
@@ -248,14 +248,14 @@ simultaneously — state updates are synchronized in real time.
 **Terminal 1 — start the server with multi-instance config:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 ./bin/stmakd configs/sim/axis/multiinst/multiinst.ini
 ```
 
 **Terminal 2 — Axis client connected to mill1:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
 GMC_INSTANCE=mill1 axis
 ```
@@ -263,7 +263,7 @@ GMC_INSTANCE=mill1 axis
 **Terminal 3 — second Axis client, also connected to mill1:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
 GMC_INSTANCE=mill1 axis
 ```
@@ -271,7 +271,7 @@ GMC_INSTANCE=mill1 axis
 **Terminal 4 — Axis client connected to mill2 (independent instance):**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
 GMC_INSTANCE=mill2 axis
 ```

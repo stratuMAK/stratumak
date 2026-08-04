@@ -2,7 +2,7 @@ This is a simulation of an XYZBCWY 5 axis bridge mill.
 
 Example demo:
 
- 1) $ linuxcnc 5axis.ini
+ 1) $ stmakd 5axis.ini
  2) F1 ---------- Estop off
     F2 ---------- Machine on
     CTRL-HOME --- home all

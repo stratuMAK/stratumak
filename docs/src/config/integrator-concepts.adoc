@@ -35,7 +35,7 @@ and file structure would look like this.
 
 If you run LinuxCNC from the command line and specify the name and location of
 the INI file the file locations can be in a different place. To view the
-options for running LinuxCNC from the command line run 'linuxcnc -h'.
+options for running LinuxCNC from the command line run 'stmakd -h'.
 
 [NOTE]
 Optional locations for some files can be configured in the INI file. See the

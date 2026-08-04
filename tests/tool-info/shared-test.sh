@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared driver for the tool-info/* subtests. Classic ran `linuxcnc -r test.ini`,
+# Shared driver for the tool-info/* subtests. Classic ran `stmakd -r test.ini`,
 # which launched the [DISPLAY] program; stmakd does NOT launch [DISPLAY], so
 # start the server and drive it with the subtest's own gmi test-ui.py.
 #

@@ -12,7 +12,7 @@ set -o monitor
 ./build-profile.sh
 cp position.blank position.txt
 operf rtapi_app > profile.log &
-linuxcnc -r circular_arcs.ini &
+stmakd -r circular_arcs.ini &
 LOCAL_LCNC_PID=$!
 echo $LOCAL_LCNC_PID
 (./machine_setup.py $1 && say_done) || say_failed

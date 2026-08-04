@@ -42,7 +42,7 @@ case "$0" in
 			    $0 command...
 			such as
 			    $0 halrun foo.hal
-			    $0 linuxcnc configs/.../foo.ini
+			    $0 stmakd configs/.../foo.ini
 		EOF
 	exit 1
         fi ;;

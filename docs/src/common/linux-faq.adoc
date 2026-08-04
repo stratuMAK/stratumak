@@ -56,7 +56,7 @@ picker dialog closes, add linuxcnc and a space in front of the path to your .ini
 Example:
 
 ----
-linuxcnc /home/mill/linuxcnc/config/mill/mill.ini
+stmakd /home/mill/linuxcnc/config/mill/mill.ini
 ----
 
 The documentation refers to your respective .ini file as INI-file.
