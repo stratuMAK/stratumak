@@ -29,6 +29,13 @@ INCLUDES += gmi/lib
 GMI_HEADERS := ../include/gmi.h ../include/gmi_error.h ../include/gmi_types.h \
                ../include/gmi_json.h ../include/gmi_http.h
 
+# ... and into the installed include directory. libgmi.so is a shipped library
+# that external clients are meant to link (-lgmi -lcurl -lcjson, see
+# tests/build/ui); shipping it without its headers gives them nothing to
+# include. These were copied into ../include for the build tree only, so an
+# installed system had the library and no way to call it.
+EXTRA_FLAT_HEADERS += $(GMI_HEADERS)
+
 # Source files
 GMI_SRCS := gmi/lib/gmi_error.c gmi/lib/gmi_types.c gmi/lib/gmi_json.c gmi/lib/gmi_http.c
 

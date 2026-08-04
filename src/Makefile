@@ -463,8 +463,17 @@ SRCINCLUDED_SOURCES := \
     emc/tp/tc.c
 
 # the "headers" target installs all the header files in ../include
+#
+# EXTRA_FLAT_HEADERS carries the ones that must reach the flat include
+# directory without being SRCHEADERS entries: the libgmi public API, and the
+# generated GMI headers that a shipped header includes. They stay out of
+# SRCHEADERS because that list also drives the source-relative install and the
+# basename-collision check below — and a generated header already lives inside
+# the gomc tree that check compares against, so listing it there would report
+# a file as colliding with itself. Submakefiles append; this composes.
 .PHONY: headers
-HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h)))
+HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h))) \
+	$(EXTRA_FLAT_HEADERS)
 headers: $(HEADERS) check-header-collisions
 
 # install header files as part of the build
