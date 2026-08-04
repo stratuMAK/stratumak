@@ -4,10 +4,12 @@ package tasktest
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/sittner/linuxcnc/src/gomc/generated/gmi/emcstat"
+	"github.com/sittner/linuxcnc/src/gomc/internal/config"
 )
 
 // RCS_STATUS codes returned by the old C milltask via emccmd_slot.
@@ -899,7 +901,7 @@ func (h *testHarness) testProgramOpen(r *testResults) {
 	h.ensureAuto()
 
 	// Open a simple test program (use nc_files path)
-	rc, err := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
+	rc, err := h.programOpen(filepath.Join(config.EMC2Home, "configs/sim/test/test.ngc"))
 	if err != nil || !isOK(rc) {
 		r.fail(name, fmt.Sprintf("programOpen: rc=%d err=%v", rc, err))
 		return
@@ -920,7 +922,7 @@ func (h *testHarness) testProgramRun(r *testResults) {
 	h.ensureAuto()
 	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
-	rc, err := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
+	rc, err := h.programOpen(filepath.Join(config.EMC2Home, "configs/sim/test/test.ngc"))
 	if err != nil || !isOK(rc) {
 		r.fail(name, fmt.Sprintf("open: rc=%d err=%v", rc, err))
 		return
@@ -985,7 +987,7 @@ func (h *testHarness) testProgramPauseResume(r *testResults) {
 	h.ensureHomed()
 	h.ensureAuto()
 
-	rc, _ := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
+	rc, _ := h.programOpen(filepath.Join(config.EMC2Home, "configs/sim/test/test.ngc"))
 	if !isOK(rc) {
 		r.fail(name, "cannot open program")
 		return
@@ -1043,7 +1045,7 @@ func (h *testHarness) testProgramStep(r *testResults) {
 	h.ensureAuto()
 	_ = h.waitForInterpState(emcstat.InterpState_IDLE, 2*time.Second)
 
-	rc, _ := h.programOpen("/home/sascha/source/linuxcnc/configs/sim/test/test.ngc")
+	rc, _ := h.programOpen(filepath.Join(config.EMC2Home, "configs/sim/test/test.ngc"))
 	if !isOK(rc) {
 		r.fail(name, "cannot open program")
 		return
