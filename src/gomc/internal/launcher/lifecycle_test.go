@@ -329,3 +329,93 @@ func TestCreateAPIServer_ListenerClosedOnStop(t *testing.T) {
 	}
 	_ = again.Close()
 }
+
+// serveTestAPIServer binds an ephemeral REST server, starts serving it, and
+// returns the launcher once the port has answered a request — so a stop that
+// follows cannot race the serve goroutine into existence and pass vacuously.
+func serveTestAPIServer(t *testing.T) *Launcher {
+	t.Helper()
+	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
+	apiserver.SetDefaultWatchRegistry(apiserver.NewWatchRegistry())
+	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
+
+	l := testLauncher()
+	if err := l.createAPIServer(); err != nil {
+		t.Fatalf("createAPIServer: %v", err)
+	}
+	addr := l.apiListenerRef().Addr().String()
+	l.startAPIServer()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return l
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("REST server never accepted a connection on %s: %v", addr, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// fatal returns the launcher's recorded fatal error, read under its mutex.
+func (l *Launcher) fatal() error {
+	l.fatalMu.Lock()
+	defer l.fatalMu.Unlock()
+	return l.fatalErr
+}
+
+// TestStopAPIServer_CleanStopIsNotFatal pins that an orderly teardown is not
+// reported as a crash. doCleanup closes the pre-bound listener itself (see
+// TestCreateAPIServer_ListenerClosedOnStop), and net/http only translates the
+// resulting accept failure into ErrServerClosed when its own Shutdown is what
+// closed the listener — so every clean stop reached the serve goroutine as a
+// raw "use of closed network connection". That was logged at ERROR and stored
+// in fatalErr, which is Run's return value: an ordinary SIGTERM looked like a
+// failed one, and the smoke test's log carried an ERROR line on the happy path.
+func TestStopAPIServer_CleanStopIsNotFatal(t *testing.T) {
+	l := serveTestAPIServer(t)
+
+	l.shutdown() // doCleanup's first act, before it touches the server
+	l.stopAPIServer()
+
+	// A negative, so give the serve goroutine room to get it wrong: it reacts
+	// the instant the listener closes, well inside this window.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if err := l.fatal(); err != nil {
+			t.Fatalf("clean stop recorded a fatal error: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestServeAPIServer_UnexpectedStopIsFatal is the other half: silencing the
+// clean stop must not silence a server that dies while the machine is meant to
+// keep running. Losing the REST/WS endpoint locks every client out of a machine
+// whose HAL threads keep running — a headless zombie — so it has to take the
+// ordered-shutdown path. Here nothing requested a shutdown, so closing the
+// listener under the serve goroutine is exactly that failure.
+func TestServeAPIServer_UnexpectedStopIsFatal(t *testing.T) {
+	l := serveTestAPIServer(t)
+
+	// Close the listener without going through shutdown(): the server dies with
+	// the launcher still expecting to serve.
+	if err := l.apiListenerRef().Close(); err != nil {
+		t.Fatalf("closing the listener: %v", err)
+	}
+
+	select {
+	case <-l.shutdownCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a dead REST server did not trigger the ordered shutdown")
+	}
+	if err := l.fatal(); err == nil {
+		t.Error("a dead REST server recorded no fatal error, so Run would exit 0")
+	} else if !strings.Contains(err.Error(), "REST API server") {
+		t.Errorf("fatalErr = %v, want it to name the REST API server", err)
+	}
+	l.stopAPIServer()
+}

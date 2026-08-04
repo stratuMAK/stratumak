@@ -4,8 +4,10 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -234,18 +236,31 @@ func (l *Launcher) startAPIServer() {
 		if ln != nil {
 			serve = func() error { return srv.Serve(ln) }
 		}
-		if err := serve(); err != nil {
-			// http.ErrServerClosed is expected on graceful shutdown
-			if err.Error() != "http: Server closed" {
-				// FATAL: without the REST/WS server every client (GUIs, gmi,
-				// halcmd remote, test drivers) is locked out while HAL keeps
-				// running — a headless zombie. Observed with a stale instance
-				// still holding the port ("bind: address already in use"):
-				// the next server came up headless and its test driver hung
-				// forever. Exit through the ordered shutdown path instead.
-				l.logger.Error("REST API server failed — shutting down", "error", err)
-				l.fail(fmt.Errorf("REST API server: %w", err))
-			}
+		err := serve()
+		switch {
+		case err == nil || errors.Is(err, http.ErrServerClosed):
+			// Graceful shutdown through http.Server.Shutdown/Close.
+		case l.shutdownRequested():
+			// Serving stopped while the machine was already going down, so
+			// there is nothing left to escalate: cleanup closes shutdownCh
+			// before it touches the server (doCleanup step 0), and it closes
+			// the pre-bound listener itself so a never-served bind cannot
+			// outlive the launcher. net/http only translates the resulting
+			// accept failure into ErrServerClosed when its own Shutdown is
+			// what closed the listener, so on every clean stop this arrives
+			// as a raw "use of closed network connection" — which used to be
+			// logged as a fatal error and recorded in fatalErr, making an
+			// orderly SIGTERM look like a crash.
+			l.logger.Debug("REST API server stopped", "reason", err)
+		default:
+			// FATAL: without the REST/WS server every client (GUIs, gmi,
+			// halcmd remote, test drivers) is locked out while HAL keeps
+			// running — a headless zombie. Observed with a stale instance
+			// still holding the port ("bind: address already in use"):
+			// the next server came up headless and its test driver hung
+			// forever. Exit through the ordered shutdown path instead.
+			l.logger.Error("REST API server failed — shutting down", "error", err)
+			l.fail(fmt.Errorf("REST API server: %w", err))
 		}
 	}()
 }
