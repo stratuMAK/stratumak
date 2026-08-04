@@ -67,7 +67,7 @@ def generate_links(filename, create_backup=True, add_descr=False):
             splitted = line.split('|')
 
             if 'link:' in splitted[1]:
-                link = re.search('(?<=link:).*(?=\[)', splitted[1]).group()
+                link = re.search(r'(?<=link:).*(?=\[)', splitted[1]).group()
                 if not os.path.isfile(os.path.join('../docs/html/hal',link)):
                     print('gen_complist: Broken link:', link)
             else:
