@@ -230,9 +230,18 @@ jobs:
       github.event_name == 'workflow_dispatch'
     container:
       image: debian:trixie
-      # IPC_OWNER/SYS_ADMIN for shm during the boot smoke; SETFCAP so the
-      # postinst can apply the realtime file capabilities.
-      options: --cpus=2 --cap-add=IPC_OWNER --cap-add=SYS_ADMIN --cap-add=SETFCAP
+      # IPC_OWNER for shm during the boot smoke; SETFCAP so the postinst can
+      # apply the realtime file capabilities. The remaining cap-adds mirror
+      # GOMC_CAPS in stratumak.postinst exactly: execve of a binary carrying
+      # file capabilities fails with EPERM unless every one of them is in the
+      # container's bounding set, so without these nobody can even run the
+      # installed gomc-server.
+      options: >-
+        --cpus=2 --cap-add=IPC_OWNER --cap-add=SETFCAP
+        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
+        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
+        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
+        --cap-add=DAC_OVERRIDE
     steps:
     - name: Install pre-dependencies
       env:
