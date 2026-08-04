@@ -6,7 +6,7 @@
 // bash script.  Kernel-module paths (RTAI, Xenomai) are intentionally not
 // implemented here.
 //
-// In the stmak architecture there is nothing to bring up at this layer: RT
+// In the stratuMAK architecture there is nothing to bring up at this layer: RT
 // modules load in-process via dlopen in the halcmd CGo shims, and HAL/RTAPI
 // shared memory is in-process heap allocation: there is no SysV-shm or
 // /dev/zero mmap to wait for, and 2.9's realtime.in ipcrm cleanup has no

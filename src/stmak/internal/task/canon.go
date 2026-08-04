@@ -593,7 +593,7 @@ func (c *Canon) UpdateEndPoint(x, y, z, a, b, _c, u, v, w float64) {
 // UpdateTag is called by the interpreter after every executed block with a
 // pointer to a PACKED state_tag_t (canon_interface.hh packs it), valid only
 // for the duration of this synchronous callback — copy it. It becomes the
-// state tag attached to subsequently queued motion segments, stmak's
+// state tag attached to subsequently queued motion segments, stratuMAK's
 // equivalent of 2.9 emccanon's static _tag + tag_and_send.
 func (c *Canon) UpdateTag(ptr uint64) {
 	tag := copyPackedStateTag(ptr)

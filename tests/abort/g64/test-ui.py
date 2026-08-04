@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API: uses the `gmi` client instead of the removed
+# Ported to the stratuMAK REST/WS API: uses the `gmi` client instead of the removed
 # NML `linuxcnc` module. Motion samples are captured by halsampler (started in
 # test.sh) into motion-samples.log.
 
@@ -37,7 +37,7 @@ def wait_samples_flushed():
 
 
 def process_samples(z_lev, expected_max_x):
-    # stmak: the sampled joint positions are millimetres (mm-everywhere
+    # stratuMAK: the sampled joint positions are millimetres (mm-everywhere
     # convention); the program/expectations are inch — convert on read.
     MM = 25.4
     res = 0
@@ -115,7 +115,7 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     c.program_open("test.ngc")
     c.auto(AUTO_RUN, 1)
 
-    # No wait_complete() here. stmak's WaitComplete settles on the interpreter
+    # No wait_complete() here. stratuMAK's WaitComplete settles on the interpreter
     # going idle, so after AUTO_RUN it does not return until the PROGRAM ends —
     # and this program is one we deliberately abort part-way through, so it
     # never would. (Classic NML's wait_complete only acked the command, which is

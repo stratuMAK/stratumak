@@ -141,7 +141,7 @@ EXEC_WAITING_FOR_MCODE_HANDLER = TASK_EXEC_WAITING_FOR_MCODE_HANDLER
 EXEC_WAITING_FOR_SPINDLE_ORIENTED = TASK_EXEC_WAITING_FOR_SPINDLE_ORIENTED
 
 # Classic 2.9 name for value 9: user M1xx scripts became compiled mcode
-# handlers in stmak, and the enum member was renamed with them. Classic code
+# handlers in stratuMAK, and the enum member was renamed with them. Classic code
 # referencing the classic name must keep working.
 EXEC_WAITING_FOR_SYSTEM_CMD = TASK_EXEC_WAITING_FOR_MCODE_HANDLER
 TASK_EXEC_WAITING_FOR_SYSTEM_CMD = TASK_EXEC_WAITING_FOR_MCODE_HANDLER

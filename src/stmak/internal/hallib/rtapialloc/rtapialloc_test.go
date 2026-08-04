@@ -14,7 +14,7 @@ import (
 //
 // This replaces the old tests/rtapi-shmem integration test, which asserted the
 // same property against the classic kernel shmem-key API (rtapi_shmem_new /
-// _getptr / _delete). stmak deliberately does not expose that key-based API to
+// _getptr / _delete). stratuMAK deliberately does not expose that key-based API to
 // components — cmods get RT-safe working memory through rtapi->calloc — so the
 // integration test was obsolete-by-design. The zero-init contract it cared
 // about lives here instead.

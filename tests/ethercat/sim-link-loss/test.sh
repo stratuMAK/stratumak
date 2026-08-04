@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — link loss / rescan (the cable-pull field
+# stratuMAK EtherCAT integration test — link loss / rescan (the cable-pull field
 # scenario), hardware-free on the sim transport.
 #
 # The sim consults a companion "bus.sim.link" control file for its link state

@@ -11,7 +11,7 @@ import (
 // A component is the basic unit of HAL functionality. It can export pins
 // and parameters that other components can connect to via signals.
 //
-// In stmak a component is owned by a compiled-in module (package stmak); the
+// In stratuMAK a component is owned by a compiled-in module (package stmak); the
 // launcher drives the module's Start/Stop/Destroy lifecycle. pkg/hal itself
 // runs no goroutines and installs no signal handlers — a component has no
 // "running" state of its own and no self-driven main loop.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — PDO value round-trip on the sim transport.
+# stratuMAK EtherCAT integration test — PDO value round-trip on the sim transport.
 #
 # The loopback slave (bus.sim) echoes output process data (SM2) into input
 # process data (SM3), so writing the output PDO HAL pin makes the same value

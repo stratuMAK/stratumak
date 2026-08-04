@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# --- stmak compatibility shim (prepended) --------------------------------------
-# Makes the original NML-based driver body run against the stmak REST/WS API:
+# --- stratuMAK compatibility shim (prepended) --------------------------------------
+# Makes the original NML-based driver body run against the stratuMAK REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
@@ -136,7 +136,7 @@ h.newpin("tool-from-pocket", hal.HAL_S32, hal.HAL_IN)
 
 h.ready()
 
-# stmak: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
+# stratuMAK: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
 
 
 # Wait for LinuxCNC to initialize itself so the Status buffer stabilizes.
@@ -310,7 +310,7 @@ assert(h['tool-from-pocket'] == 46)
 
 verify_stat(2, 46, 6)
 
-# stmak: gmi joint positions are reported in millimetres (mm-everywhere
+# stratuMAK: gmi joint positions are reported in millimetres (mm-everywhere
 # convention) and the field is joint_actual_position; TOOL_CHANGE_POSITION is
 # in machine units (inch here). Position settle tolerance widened to the mm
 # scale (classic 1e-10 inch is below the mm-domain arrival deadband).

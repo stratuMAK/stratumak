@@ -4,7 +4,7 @@
  * Re-expression of the classic tests/remap/introspect test, whose Python O-word
  * o<introspect> reached into the interpreter to read its call arguments plus live
  * state (current feed, spindle speed, named/predefined/INI parameters) and
- * returned a value.  stmak removed the embedded Python interpreter; the
+ * returned a value.  stratuMAK removed the embedded Python interpreter; the
  * re-expression uses the C interp_ext register_oword mechanism with the
  * interp_ctx accessors (get_feed_rate / get_speed / get_param).
  *

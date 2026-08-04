@@ -1,6 +1,6 @@
 /* Copyright (C) 2006-2026 Jeff Epler <jepler@unpythonic.net>
  * Copyright (C) 2006-2021, various authors (uspace_common.h)
- * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de> — stmak extraction
+ * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de> — stratuMAK extraction
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

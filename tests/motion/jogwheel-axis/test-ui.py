@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (gmi client).  The userspace hal.component that
+# Ported to the stratuMAK REST/WS API (gmi client).  The userspace hal.component that
 # fed the jogwheel-encoder pins is gone; drive axis.<a>.jog-* directly via
 # halcmd and read the axis position from gmi.Stat.  linuxcnc_util is reused by
 # copying gmi's constants onto the (command/stat-less) linuxcnc module.

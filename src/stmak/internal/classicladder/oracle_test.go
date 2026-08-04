@@ -13,7 +13,7 @@ import (
 
 // Differential tests: the same project and the same script are run through the
 // LinuxCNC 2.9 ClassicLadder engine (built headless from src/hal/classicladder
-// by testdata/oracle/Makefile) and through the stmak RT engine, and the
+// by testdata/oracle/Makefile) and through the stratuMAK RT engine, and the
 // resulting variable state must match scan for scan.
 
 const demoProject = "../../../../configs/sim/axis/classicladder/demo_sim_cl.clp"
@@ -80,7 +80,7 @@ func extractDumps(s string) string {
 	return b.String()
 }
 
-// runStmak loads the project into the stmak engine and runs the same script.
+// runStmak loads the project into the stratuMAK engine and runs the same script.
 func runStmak(t *testing.T, project, script string) string {
 	t.Helper()
 
@@ -118,7 +118,7 @@ func diffDumps(t *testing.T, want, got string) {
 		}
 	}
 	if len(wantLines) != len(gotLines) {
-		t.Errorf("dump length differs: 2.9 has %d lines, stmak has %d",
+		t.Errorf("dump length differs: 2.9 has %d lines, stratuMAK has %d",
 			len(wantLines), len(gotLines))
 	}
 }

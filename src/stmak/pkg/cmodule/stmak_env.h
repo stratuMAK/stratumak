@@ -2,10 +2,10 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_env.h — Combined environment header for stmak C modules.
+// stmak_env.h — Combined environment header for stratuMAK C modules.
 //
 // This is the new top-level header that replaces cmodule.h for modules
-// migrating to the stmak API.  It composes the four sub-API headers
+// migrating to the stratuMAK API.  It composes the four sub-API headers
 // (log, ini, hal, rtapi) into a single cmod_env_t structure.
 //
 // Module lifecycle remains the same:

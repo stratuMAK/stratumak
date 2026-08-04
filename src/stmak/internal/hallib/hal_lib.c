@@ -15,7 +15,7 @@
 * Copyright (c) 2003 All rights reserved.
 *
 * Last change:
-* Adapted for stmak uspace-only: Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+* Adapted for stratuMAK uspace-only: Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 ********************************************************************/
 
 /** Copyright (C) 2003 John Kasunich

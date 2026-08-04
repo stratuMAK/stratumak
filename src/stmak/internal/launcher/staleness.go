@@ -12,13 +12,13 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
 )
 
-// stmakVersionFile is the version stamp installed alongside the stmak sources.
+// stmakVersionFile is the version stamp installed alongside the stratuMAK sources.
 // It records which release those sources came from, which is the only way a
 // running server can tell whether it was built from them or from an older set.
 const stmakVersionFile = "VERSION"
 
 // WarnIfStale reports a locally rebuilt stmakd that no longer matches the
-// installed stmak sources.
+// installed stratuMAK sources.
 //
 // A server built from the sources of an older release goes on running happily
 // against newer C modules, and the mismatch shows up later as behaviour nobody

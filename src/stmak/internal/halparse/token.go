@@ -306,7 +306,7 @@ func (*PrintToken) tokenData() {}
 
 // LoadToken represents the "load" command for plugin modules.
 // The launcher resolves a bare module name against EMC2_CMOD_DIR first and
-// dlopens it if a .so is there; otherwise it looks the name up in the stmak
+// dlopens it if a .so is there; otherwise it looks the name up in the stratuMAK
 // registry of Go modules compiled into stmakd.  C RT modules use "loadrt"
 // instead.
 type LoadToken struct {

@@ -179,7 +179,7 @@ for comp in src/hal/components/*.comp src/hal/drivers/*.comp; do
     name="$(basename "$comp" .comp)"
     gen="$GEN_DIR/$name.c"
     # Comps that modcompile cannot generate (unsupported legacy features)
-    # are skipped — they are not part of the stmak build either.
+    # are skipped — they are not part of the stratuMAK build either.
     if ! ./bin/modcompile --preprocess "$comp" > "$gen" 2>/dev/null; then
         echo "rt-effects-check: skipping $name (modcompile cannot generate it)"
         skipped=$((skipped+1))

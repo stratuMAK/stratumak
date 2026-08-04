@@ -1,6 +1,6 @@
 #!/bin/bash
 # mb2hal's INI-DEBUG dump: with INIT_DEBUG=3 mb2hal echoes every parsed config
-# key. In stmak mb2hal is a cmod and its diagnostics go to the server log via slog
+# key. In stratuMAK mb2hal is a cmod and its diagnostics go to the server log via slog
 # as: time=... level=DEBUG msg="<fnct> DEBUG: [SECTION] [KEY] [VALUE]" component=mb2hal
 # Those DBG lines are debug-level, so run the server at debug (-d 0) to surface
 # them, normalize back to the classic "mb2hal <fnct> DEBUG: ..." form, and compare

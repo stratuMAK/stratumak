@@ -2,7 +2,7 @@
 * Description: linuxcnclcd.c
 *   LinuxCNC user interface for LCDproc-driven character displays.
 *
-*   Ported from emclcd.cc to the stmak cmod API: machine status comes
+*   Ported from emclcd.cc to the stratuMAK cmod API: machine status comes
 *   from the emcstat GMI API, commands go out through emccmd, INI
 *   access uses env->ini, and the LCDproc protocol loop runs in a
 *   pthread instead of main().
@@ -130,7 +130,7 @@
 #define SOCK_DELAY              0.005
 #define RECONNECT_DELAY         2.0
 
-// Joint jogging, as in the original.  The stmak jog API takes this as
+// Joint jogging, as in the original.  The stratuMAK jog API takes this as
 // the jjogmode flag.
 #define JOGJOINT                true
 
@@ -250,7 +250,7 @@ static const char connectStrs[][12] = {
 // The stats / copy / copying screens of the original drove themselves from
 // popen("df"), popen("top"), ifconfig / /etc/network/interfaces parsing and
 // system("cp ... /media/usbdisk"). None of that survives a move into the
-// stmak server process (forking from a process that owns RT threads), and the
+// stratuMAK server process (forking from a process that owns RT threads), and the
 // command output formats it parsed have not existed for over a decade.  The
 // screens, their widgets and their menu entries are gone with them.
 // The "open" screen went with them: nothing ever brought it to the
@@ -371,7 +371,7 @@ static const keyDef keys[] = {
 // Module state
 // ---------------------------------------------------------------------------
 
-// stmak environment, captured in New().
+// stratuMAK environment, captured in New().
 static const cmod_env_t  *the_env;
 static const stmak_log_t  *the_log;
 static const stmak_ini_t  *the_ini;
@@ -462,7 +462,7 @@ static void abortableSleep(double seconds)
     }
 }
 
-// Display units per machine unit.  stmak runs the motion controller in
+// Display units per machine unit.  stratuMAK runs the motion controller in
 // millimetres end to end, so a reported position is in mm regardless of
 // [TRAJ]LINEAR_UNITS -- the NML client had this table the other way round
 // because it assumed an inch-based machine.
@@ -1308,7 +1308,7 @@ static int initScreens(void)
 
 // Number of lines in the running program; the denominator of the progress bar.
 // The NML client shelled out to "wc -l" for this -- not something to fork from
-// the stmak server process for.
+// the stratuMAK server process for.
 static int stepCount(const char *fileName)
 {
   FILE *f;

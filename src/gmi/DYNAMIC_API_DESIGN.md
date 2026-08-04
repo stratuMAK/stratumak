@@ -53,7 +53,7 @@ centralized in the stmakd binary and invisible to modules.
                             │ JSON/HTTP (localhost:port)
                             ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                         STMAK-SERVER (Go)                                 │
+│                         stratuMAK-SERVER (Go)                            │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │                      HTTP Server Layer                             │  │
@@ -1349,7 +1349,7 @@ value is unused since `PyVCPCompat` is self-contained (WebSocket thread).
 **HAL Module Elimination from axis.py:**
 
 With PyVCP migrated, the `hal` Python module is no longer imported by axis.py.
-All HAL queries now go through the stmak REST API via the `gmi` package:
+All HAL queries now go through the stratuMAK REST API via the `gmi` package:
 
 | Old (hal module, needs shared memory) | New (gmi REST) |
 |---------------------------------------|----------------|
@@ -2767,7 +2767,7 @@ natural Go approach.
 
 #### Server Source Layout (Implemented)
 
-The stmak module serves as both development tree and installable build directory.
+The stratuMAK module serves as both development tree and installable build directory.
 For RIP, `EMC2_STMAK_DIR` points to the source tree directly. For installed
 systems, the source is copied to a share directory.
 
@@ -2963,7 +2963,7 @@ Examples:
 
 Key implementation details:
 - External packages' `go.mod` is **not** copied — the package becomes a
-  sub-directory of the stmak module, not a separate module
+  sub-directory of the stratuMAK module, not a separate module
 - Third-party dependencies are merged into the main `go.mod` via `go get`
 - Same-source reinstall is auto-detected via `.origin` file (no `--force` needed)
 - `dirMirror()` is a pure Go replacement for `rsync --delete`, avoiding
@@ -3071,7 +3071,7 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 | Variable | Purpose |
 |----------|---------|
 | `STMAK_LDFLAGS_PKG` | Go package path for `-ldflags -X` injection |
-| `EMC2_STMAK_DIR` | Install destination for stmak source tree |
+| `EMC2_STMAK_DIR` | Install destination for stratuMAK source tree |
 | `STMAK_LDFLAGS` | All `-X` flags for compile-time config |
 | `STMAK_SRC_BASE` | Hand-written Go sources + `go.mod.in` (no generated files) |
 | `GMI_ALL_GEN_GO` | All generated GMI Go files; injected as prerequisites of `imports_generated.go` and `stmakd` (defined in `gmi/codegen/Submakefile`) |
@@ -3136,7 +3136,7 @@ original design.
 #### go.work Was Not Needed
 
 The original design called for a `go.work` file to give external packages access
-to the stmak module. In practice, `go.work` was unnecessary because:
+to the stratuMAK module. In practice, `go.work` was unnecessary because:
 - External packages are copied into `external/<name>/` inside the module tree
 - Their `go.mod` is stripped — they become regular sub-packages of the module
 - Third-party dependencies are merged into the main `go.mod` via `go get`
@@ -3181,7 +3181,7 @@ meant the git tree was always dirty after external module operations.
 
 #### External Package go.mod Stripping
 
-External packages can't keep their own `go.mod` inside the stmak module tree —
+External packages can't keep their own `go.mod` inside the stratuMAK module tree —
 Go would treat them as separate modules. Instead:
 - `dirMirror()` copies everything except `go.mod` and `go.sum`
 - Third-party dependencies are extracted from the external `go.mod` via
@@ -3211,7 +3211,7 @@ stmakd:
    `stmak.RegisterModule(name, factory)` — the factory returns a `stmak.Module`
    with Start/Stop/Cleanup lifecycle hooks
 3. **No `main` package** — the package is imported, not executed
-4. **Compatible dependencies** — must build with the stmak module's Go version
+4. **Compatible dependencies** — must build with the stratuMAK module's Go version
 
 Example minimal gomod:
 
@@ -3237,7 +3237,7 @@ func (m *myModule) Cleanup()     { /* ... */ }
 
 The `stmak-stub/` directory pattern (from `go-comp-template`) provides local
 development with a stub `pkg/stmak` so the package can be developed independently
-and only needs the real stmak module when compiled into stmakd.
+and only needs the real stratuMAK module when compiled into stmakd.
 
 #### External Makefile Integration
 

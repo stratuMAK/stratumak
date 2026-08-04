@@ -104,7 +104,7 @@ Choose based on whether HAL pin manipulation or state logic dominates the comple
 ## Notes
 
 - stmakd unifies cmod + task + motion in one process — "moving logic to server" means no IPC overhead
-- NML will be replaced by GMI calls (one of the goals of the stmak project)
+- NML will be replaced by GMI calls (one of the goals of the stratuMAK project)
 - The axisui `.gmi` IDL already defines part of this interface — expand it incrementally
 - Existing axis client code can be thinned step by step (remove ensure_mode, remove direct c.mode() calls)
 - axisui cmod has been removed — axis talks directly to emccmd/emcstat APIs

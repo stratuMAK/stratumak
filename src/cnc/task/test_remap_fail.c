@@ -4,7 +4,7 @@
  * Re-expression of the classic tests/remap/fail/{prolog,epilog} tests, which
  * used Python remap handlers that returned INTERP_ERROR to check that a failing
  * prolog/epilog properly aborts the remap, conveys the error text, and unwinds
- * back to top level (call_level/remap_level restored).  stmak removed the embedded
+ * back to top level (call_level/remap_level restored).  stratuMAK removed the embedded
  * Python interpreter, so the same is exercised through the C interp_ext mechanism:
  *
  *   failingprolog  — register_remap_prolog handler; set_error() + INTERP_EXT_ERROR.

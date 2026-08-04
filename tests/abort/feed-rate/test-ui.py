@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ported to the stmak gmi REST/WS client (was the removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (was the removed NML linuxcnc module).
 import gmi
 import stmak_test
 from gmi.constants import *

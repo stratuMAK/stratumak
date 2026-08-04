@@ -1,4 +1,4 @@
-// stmak_rt_check.h — realtime function-effect annotations for stmak C modules.
+// stmak_rt_check.h — realtime function-effect annotations for stratuMAK C modules.
 //
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: LGPL Version 2

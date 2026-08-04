@@ -24,7 +24,7 @@ def wait_for_startup(s, timeout=10.0):
                 and s.task_state == STATE_ESTOP):
             return
         time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for stmak startup")
+    raise RuntimeError("Timeout waiting for stratuMAK startup")
 
 
 def wait_for(s, cond, what, timeout=15.0):
@@ -70,7 +70,7 @@ wait_for(s, lambda s: s.spindle[0]['enabled'] == 0, "spindle off after fault",
 # under-waited on a loaded runner (x sampled mid-decel, then compared against a
 # threshold it had not reached yet) and hid the interesting failure: if the
 # flushed G1 X1 *did* run, we want the assert below to see the settled endpoint.
-# Positions are reported in mm (stmak motion runs in millimetres); the G1 X0.5
+# Positions are reported in mm (stratuMAK motion runs in millimetres); the G1 X0.5
 # before the fault completes (M102's queue-buster drains motion first), so a
 # correct stop leaves x at 12.7 mm, well short of the flushed 25.4 mm target.
 _last_x = {"v": None}

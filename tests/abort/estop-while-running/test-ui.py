@@ -22,7 +22,7 @@ def wait_for_startup(s, timeout=10.0):
                 and s.task_state == STATE_ESTOP):
             return
         time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for stmak startup")
+    raise RuntimeError("Timeout waiting for stratuMAK startup")
 
 
 def wait_for(s, cond, what, timeout=15.0):

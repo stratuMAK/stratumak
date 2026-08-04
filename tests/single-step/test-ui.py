@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API: uses the `gmi` client package instead of the
+# Ported to the stratuMAK REST/WS API: uses the `gmi` client package instead of the
 # removed NML `linuxcnc` python module.  Positions come from gmi.Stat; the
 # custom `motion.analog-out-00` counter is read with `halcmd getp` (there is no
 # userspace HAL component anymore).

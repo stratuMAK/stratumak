@@ -22,7 +22,7 @@
 //
 //	list             List registered packages.
 //	rebuild          Regenerate imports_generated.go and rebuild stmakd.
-//	add-gomod        Copy a Go package into stmak and rebuild stmakd.
+//	add-gomod        Copy a Go package into stratuMAK and rebuild stmakd.
 //	rm-gomod         Remove a Go package and rebuild stmakd.
 //
 // Environment query options (for external Makefiles):
@@ -31,7 +31,7 @@
 //	--ldflags        Print linker flags for cmod components.
 //	--cmod-dir       Print cmod installation directory.
 //	--include-dir    Print cmod headers directory.
-//	--stmak-dir       Print stmak Go module source directory.
+//	--stmak-dir       Print stratuMAK Go module source directory.
 //	--go             Print Go binary path used to build LinuxCNC.
 //	--print-make-inc Print Makefile include snippet for external projects.
 package main
@@ -88,7 +88,7 @@ GMI code generation (.gmi):
 Package registry commands:
     list             List packages compiled into stmakd
     rebuild          Regenerate imports + rebuild stmakd from packages.conf
-    add-gomod <dir>  Copy a Go package into stmak, register, and rebuild
+    add-gomod <dir>  Copy a Go package into stratuMAK, register, and rebuild
     rm-gomod <name>  Unregister, delete source, and rebuild stmakd
 
 Environment query options (for external Makefiles):
@@ -96,7 +96,7 @@ Environment query options (for external Makefiles):
     --ldflags        Print linker flags for cmod components
     --cmod-dir       Print cmod installation directory
     --include-dir    Print cmod headers directory
-    --stmak-dir       Print stmak Go module source directory
+    --stmak-dir       Print stratuMAK Go module source directory
     --go             Print Go binary path used to build LinuxCNC
     --print-make-inc Print Makefile include snippet for external projects
 
@@ -629,17 +629,17 @@ func compileCFile(cPath string, outDir string) error {
 	return compileCMod(absCPath, dir, outDir, "", []string{"-I" + dir})
 }
 
-// cgoFlags returns the include and link flags a build of the stmak Go packages
+// cgoFlags returns the include and link flags a build of the stratuMAK Go packages
 // needs, for whichever layout this modcompile was built for.
 //
-// The stmak packages declare their C includes relative to ${SRCDIR}, which only
+// The stratuMAK packages declare their C includes relative to ${SRCDIR}, which only
 // resolves inside the source tree; from the installed tree at
 // $(datadir)/stratumak/stmak those paths point at directories that do not exist,
 // and gcc drops a missing -I without a word. Anything compiling those packages
 // outside the source tree -- a rebuild of stmakd, or a third-party Go
 // module importing pkg/hal -- has to be handed the real include directory.
 //
-// The include half belongs in CGO_CPPFLAGS, not CGO_CFLAGS: several stmak
+// The include half belongs in CGO_CPPFLAGS, not CGO_CFLAGS: several stratuMAK
 // packages carry C++ translation units (the interpreter shim above all), and
 // CGO_CFLAGS never reaches the C++ compiler. Passing it only as CGO_CFLAGS
 // left interp_shim.cc unable to find config.h while the C sources beside it
@@ -655,7 +655,7 @@ func cgoFlags() (cflags, ldflags string) {
 			srcDir, srcDir, srcDir, srcDir)
 	} else {
 		// Two roots. The first is where the C headers are installed. The
-		// second is the directory the stmak tree sits in, because a few
+		// second is the directory the stratuMAK tree sits in, because a few
 		// headers spell their includes from the source root inwards --
 		// cnc/rs274ngc/canon_interface.hh asks for
 		// "stmak/generated/gmi/canon/canon_api.h" -- and that resolves only
@@ -984,7 +984,7 @@ func cmdRebuild() {
 //
 // Then generates imports_generated.go.  No intermediate packages.conf needed.
 //
-// Operates on the build tree, which is the stmak source tree itself in an
+// Operates on the build tree, which is the stratuMAK source tree itself in an
 // in-place layout and the derived tree under the state directory on a packaged
 // system.  Either way it is the tree the compiler is about to read.
 func cmdRegenerateImports() {
@@ -1160,7 +1160,7 @@ func cmdAddGomod(dir string, force bool) {
 	}
 
 	// Mirror source directory into external/<name>/, excluding build artifacts
-	// and module boundary files (the copy becomes a sub-package of the stmak module).
+	// and module boundary files (the copy becomes a sub-package of the stratuMAK module).
 	excludeSet := map[string]bool{
 		".git": true, "go.work": true, "go.work.sum": true,
 		"go.mod": true, "go.sum": true,
@@ -1346,7 +1346,7 @@ func rmGomodTarget(name, extDir string) (string, error) {
 }
 
 // cmdAddGmi adds a GMI package to the registry idempotently.
-// importPath is relative to the stmak module, e.g. "generated/gmi/axisui".
+// importPath is relative to the stratuMAK module, e.g. "generated/gmi/axisui".
 // cmdAddGmi is a no-op retained for backward compatibility.
 // GMI packages are now auto-discovered from generated/gmi/ and external/*/gmi/
 // during regenerate-imports.  The codegen Submakefile still calls this, but it
@@ -2106,16 +2106,16 @@ func gmiGenerateStreamServerGo(api *gmiast.API, outputPath string) error {
 	return nil
 }
 
-// hintStmakDir explains where modcompile looked for the stmak source tree and
+// hintStmakDir explains where modcompile looked for the stratuMAK source tree and
 // which knob moves it. The baked-in default is the INSTALLED location, so a
 // build tree or a run-in-place tree that forgot to set $STMAK_DIR otherwise
 // fails with a bare "no such file" naming a path the user never chose.
 func hintStmakDir(stmakDir string) {
-	fmt.Fprintf(os.Stderr, "modcompile: looked for the stmak source tree in %s\n", stmakDir)
+	fmt.Fprintf(os.Stderr, "modcompile: looked for the stratuMAK source tree in %s\n", stmakDir)
 	if os.Getenv(config.StmakDirEnv) == "" {
 		fmt.Fprintf(os.Stderr,
 			"modcompile: that is the installed location compiled into this binary; "+
-				"set %s to the stmak source directory to override it "+
+				"set %s to the stratuMAK source directory to override it "+
 				"(run-in-place trees get it from scripts/rip-environment)\n",
 			config.StmakDirEnv)
 	} else {

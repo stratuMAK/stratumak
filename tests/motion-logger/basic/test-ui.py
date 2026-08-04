@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (`gmi` client, not the removed NML `linuxcnc`
+# Ported to the stratuMAK REST/WS API (`gmi` client, not the removed NML `linuxcnc`
 # module). The motion-logger is now an interceptor cmod sitting between milltask
 # and the *real* motmod, so this drives a real motion config.
 #

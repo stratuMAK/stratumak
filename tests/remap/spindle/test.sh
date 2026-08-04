@@ -2,7 +2,7 @@
 # Re-expression of the classic Python remap/spindle test on stmak.
 #
 # The classic test used a Python remap handler (M500 py=m500) to introspect the
-# interpreter's spindle state.  stmak removed the embedded Python interpreter, so
+# interpreter's spindle state.  stratuMAK removed the embedded Python interpreter, so
 # the M500 remap is now a C interp_ext prolog (cmod test_spindle_remap) that reads
 # the per-spindle commanded speed via the interp_ctx get_speed() accessor.  We run
 # a spindle sequence through MDI and confirm the prolog saw the live speeds:

@@ -6,7 +6,7 @@
 # cannot link onto the chain. Interp::_execute closes the chain at the end of an
 # MDI execution only on its o-word branch (canon.finish() in rs274ngc_pre.cc),
 # which a plain block never reaches — so after `g1 x y` the move is still
-# buffered when executeMDI returns. stmak then resyncs the canon endpoint from
+# buffered when executeMDI returns. stratuMAK then resyncs the canon endpoint from
 # the machine at the start of the NEXT MDI line, and that resync drops the chain
 # (2.9 GET_EXTERNAL_POSITION -> drop_segments). Net effect before the fix: an MDI
 # feed move was silently discarded — no motion, no error, RCS_DONE.

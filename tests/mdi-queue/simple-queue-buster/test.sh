@@ -1,13 +1,13 @@
 #!/bin/bash
-# mdi-queue/simple-queue-buster ported to the stmak REST/gmi path.
+# mdi-queue/simple-queue-buster ported to the stratuMAK REST/gmi path.
 #
 # Classic drove the linuxcncrsh telnet server and fired a big blob of MDI
 # commands that interleave `t1 m6`/`t2 m6` tool changes (the "queue busters",
 # which force interp synchronisation) with `m100 p<i>` calls, checking that
-# every M100 fires in order and none are dropped.  stmak has no telnet rsh, so
+# every M100 fires in order and none are dropped.  stratuMAK has no telnet rsh, so
 # the same command stream is translated to gmi by ../../rsh2gmi.py; M100 is
 # captured by the mcode_coord_log cmod (format=p -> just "P is", matching the
-# classic mdi-queue subs/M100 which echoed only $1).  stmak's mdi() is synchronous.
+# classic mdi-queue subs/M100 which echoed only $1).  stratuMAK's mdi() is synchronous.
 set -x
 . ../../stmak-driver.sh
 rm -f gcode-output sim.var sim.var.bak

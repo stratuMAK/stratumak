@@ -2,7 +2,7 @@
  * test_interp_ext.c — test cmod for the interp_ext API.
  *
  * The interp_ext API (register_oword / register_remap_prolog / _epilog) is the
- * stmak replacement for the classic Python interpreter extension points (Python
+ * stratuMAK replacement for the classic Python interpreter extension points (Python
  * O-word subroutines and py= remap prolog/epilog).  Remap prologs are already
  * exercised in production by stdglue.c; register_oword had no test at all.
  *

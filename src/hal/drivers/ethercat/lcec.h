@@ -46,7 +46,7 @@
 #include <math.h>
 
 // ecrt.h is included through lcec_ecrt.h, which hands the master's native
-// ECRT_RT_ATTR annotations over to stmak's STMAK_NONBLOCKING effects check
+// ECRT_RT_ATTR annotations over to stratuMAK's STMAK_NONBLOCKING effects check
 // (see that header).  Every lcec TU reaches ecrt.h this way so the
 // override wins in any include order.
 #include "lcec_ecrt.h"

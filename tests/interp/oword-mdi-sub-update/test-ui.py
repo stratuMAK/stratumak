@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ported to the stmak gmi REST/WS client (removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (removed NML linuxcnc module).
 # The sub's `(print, test RAN)` goes to the interpreter's stdout (the
 # stmakd log), which test.sh cats into `result`; we only need to drive the
 # three MDI calls with an edit in between.

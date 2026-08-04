@@ -1677,7 +1677,7 @@ func (t *Task) faultProgram(reason int32, msg string) {
 // interp, clears the toolchange/probe/input/mdi_interrupt flags an interrupted
 // remapped procedure may have left set, and synchronously executes a configured
 // [RS274NGC]ON_ABORT_COMMAND with reason as its numeric argument. Canon output
-// from that handler is discarded on EVERY abort path: stmak never replays
+// from that handler is discarded on EVERY abort path: stratuMAK never replays
 // abort-handler motion, and discarding keeps the handler's emissions from
 // hitting whatever sequencer state the teardown left behind (error-log spam
 // against an aborted queue, or an EnqueueCmd deadlock against a live one).
@@ -2257,7 +2257,7 @@ func (t *Task) Unhome(joint int32) error {
 // State gate mirrors 2.9's emctaskmain table: allowed in ESTOP/OFF/ESTOP_RESET
 // in any mode — this is the limit-recovery path, where you set the override
 // while the machine is faulted off after hitting a hard limit so it can be
-// re-enabled and jogged clear — and when ON only in MANUAL. In stmak's
+// re-enabled and jogged clear — and when ON only in MANUAL. In stratuMAK's
 // auto-mode-switch model, switch to manual when ON rather than rejecting a
 // non-manual caller (ensureMode still refuses while a program/MDI is running or
 // homing, so we never override limits mid-run).

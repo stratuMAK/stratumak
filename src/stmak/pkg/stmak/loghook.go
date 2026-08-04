@@ -76,7 +76,7 @@ func NotifyLogError(component, msg string) {
 func callLogHook(fn LogErrorFunc, component, msg string) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("stmak: log-error hook panicked",
+			slog.Error("stratuMAK: log-error hook panicked",
 				"panic", r, "component", component, "msg", msg)
 		}
 	}()

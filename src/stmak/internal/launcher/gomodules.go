@@ -5,7 +5,7 @@
 //
 // Go modules register themselves at init() time via stmak.RegisterModule().
 // When a HAL "load" command references a module name that is not found as a
-// cmod .so, the launcher looks it up in the stmak registry and calls the
+// cmod .so, the launcher looks it up in the stratuMAK registry and calls the
 // registered factory.
 package launcher
 
@@ -21,7 +21,7 @@ type goModule struct {
 	name string
 }
 
-// loadGoModule looks up a compiled-in Go module by registryName in the stmak
+// loadGoModule looks up a compiled-in Go module by registryName in the stratuMAK
 // registry, calls its factory with instanceName, and appends the module to
 // l.goModules. instanceName is the alias from the HAL file (or the module
 // name if no alias was given).

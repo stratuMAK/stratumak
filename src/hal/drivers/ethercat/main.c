@@ -42,7 +42,7 @@ static const char *lcec_name_g;
 
 #ifdef EC_USPACE_MASTER
 /**
- * @brief Log callback that forwards EtherCAT library messages to the stmak log ring.
+ * @brief Log callback that forwards EtherCAT library messages to the stratuMAK log ring.
  */
 static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
   char buf[256];
@@ -54,7 +54,7 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
     buf[--len] = '\0';
   }
 
-  // map syslog levels to stmak log levels
+  // map syslog levels to stratuMAK log levels
   switch (level) {
   case 0: // LOG_EMERG
   case 1: // LOG_ALERT

@@ -283,7 +283,7 @@ type jointHomingParams struct {
 }
 
 // machineToMM converts a length expressed in the machine's configured linear
-// units to the internal millimeters the motion controller works in. stmak's
+// units to the internal millimeters the motion controller works in. stratuMAK's
 // canon emits move targets in mm (fromProg/toAbsolute), so every length handed
 // to motion must be mm too. Soft-limit positions were the exception: they were
 // passed straight from the INI in machine units, so on an inch machine motion

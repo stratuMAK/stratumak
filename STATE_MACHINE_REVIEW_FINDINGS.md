@@ -31,7 +31,7 @@ All **CONFIRMED** findings are fixed on branch `production-readyness`; C cmods
 - **T1/T2/T3/T4/T5 — iotask abort wedge → FIXED (faithful port, both files).** Root cause
   confirmed against the 2.9 source: 2.9's `ioControl.cc`/`ioControl_v2.cc` are free-running
   loops that service the tool-change wait, the `emc-abort`→`emc-abort-ack` handshake and the
-  fault latch as non-blocking per-cycle state; the stmak port turned each into a blocking cgo
+  fault latch as non-blocking per-cycle state; the stratuMAK port turned each into a blocking cgo
   busy-wait on the sequencer goroutine (and did so unevenly between v1/v2). Restored the 2.9
   semantics: `gmi_get_status` now runs `poll_inputs()` (the async half of `read_inputs()`) on
   the monitor status poll — reaping the abort-ack and latching the toolchanger fault;
@@ -240,7 +240,7 @@ use the same `atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.state)))`.
 
 ### T4 — iocontrol has no read loop; toolchanger fault-latch / clear-fault only advance inside a handshake window
 `ioControl_v2.c:777-788,844-876`. **CONFIRMED (structural) / PLAUSIBLE (impact).** The 2.9
-NML process read HAL every cycle; the stmak cmod reads only inside the prepare/change
+NML process read HAL every cycle; the stratuMAK cmod reads only inside the prepare/change
 busy-loops. A `toolchanger_fault` (or a `clear_fault`) asserted while idle is not observed
 until the next change enters its loop. Behavioral divergence from 2.9 — verify against real
 toolchanger timing.
@@ -308,7 +308,7 @@ atomic (or per-topic). The paho reconnect/`onConnect`-resubscribe design itself 
   streams) and is worth citing as the reference pattern.
 - **ADS3 — accept-loop busy-spin on persistent errors** (`ads/server.go:114-121`, `continue`
   with no backoff → hot loop under EMFILE). **PLAUSIBLE** — add a small backoff.
-- **B4/B6 (motion) — informational.** ABORT scrubs the new stmak sequence-FSM state only in
+- **B4/B6 (motion) — informational.** ABORT scrubs the new stratuMAK sequence-FSM state only in
   `command.c:601-603`; the user→RT `send_command` path (`motctl_handlers.c:57-87`) is now
   serialized by `send_mtx` (commit `104f633164`) so intra-process command drops are closed,
   but ABORT/DISABLE still block up to `comm_timeout` and return −1 on RT comm-loss with no
@@ -333,7 +333,7 @@ atomic (or per-topic). The paho reconnect/`onConnect`-resubscribe design itself 
   pyvcpmodule, config/inirest/inifile/halparse/modcompile/adsconfig** — synchronous,
   mutex-guarded, or cancellation-driven; no state-machine/abort hazard found.
 - **motion homing-sequence FSM rewrite** (`do_homing_sequence`, `control.c:133-328`) — a
-  stmak reimplementation of proven 2.9 `homing.c` sequencing; not obviously wrong, but warrants
+  stratuMAK reimplementation of proven 2.9 `homing.c` sequencing; not obviously wrong, but warrants
   a line-by-line diff against 2.9 (the edge-triggered completion + `homing_active` force-clear
   at `control.c:310-327` is stmak-original reasoning). Tracked as **C2** (review, not a
   confirmed defect).

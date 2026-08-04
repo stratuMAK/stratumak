@@ -1,4 +1,4 @@
-// stmak_rtapi.h — RTAPI utility functions for stmak C modules.
+// stmak_rtapi.h — RTAPI utility functions for stratuMAK C modules.
 //
 // RTAPI_NAME_LEN mirrors rtapi.h by John Kasunich and Paul Corner.
 // License of rtapi.h: LGPL Version 2.1.

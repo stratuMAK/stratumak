@@ -1,4 +1,4 @@
-# STMAK — Real-Time Hardening Notes & Review Checklist
+# stratuMAK — Real-Time Hardening Notes & Review Checklist
 
 **Scope:** hard-RT correctness for a *single-process, mixed Go/C* machine controller — Go runtime for non-RT (REST, interpreter, TP, config, MQTT, persistence), native C `pthread`s under `SCHED_FIFO` for the hard-RT path (servo loop, HAL cyclic components, EtherCAT).
 
@@ -21,12 +21,12 @@ Code audit of the checklist in §4. Legend: **[x]** implemented (evidence cited)
 - `halscope_alloc()` now uses `rtapi_calloc`/`rtapi_free` — capture buffers prefaulted + mlocked.
 - Stale "SysV shmem / SHM_LOCK" strategy comment corrected (`uspace_rtapi_lib.c`).
 - cgo + modcompile now honor the configured C/C++ compiler (`STMAK_CGOENV`, baked `config.CCompiler/CxxCompiler`): a `CC=clang` configure now clang-compiles the cgo RT translation units too — previously they silently stayed gcc even in the `rip-and-test-clang` CI job. Verified: clang-built `stmakd`, whole tree compiles under clang.
-- The full tree is now **warning-free under clang 19** (was 264 unique sites: 218 format-security in the hostmot2 stmak HAL port, missing `override` in `rs274ngc_interp.hh`/`interp_g7x.cc`, missing virtual dtors in g7x [real UB], unused hm2_modbus helpers, C++ VLAs in `interp_convert.cc`, duplicate-const in gmicompile codegen). gcc stays at zero warnings. This clears the way for a `-Werror` clang gate. Caveat: Go's build cache replays stale cgo compile warnings on cache hits (it does not hash externally-included C headers) — force a recompile before trusting warning output.
+- The full tree is now **warning-free under clang 19** (was 264 unique sites: 218 format-security in the hostmot2 stratuMAK HAL port, missing `override` in `rs274ngc_interp.hh`/`interp_g7x.cc`, missing virtual dtors in g7x [real UB], unused hm2_modbus helpers, C++ VLAs in `interp_convert.cc`, duplicate-const in gmicompile codegen). gcc stays at zero warnings. This clears the way for a `-Werror` clang gate. Caveat: Go's build cache replays stale cgo compile warnings on cache hits (it does not hash externally-included C headers) — force a recompile before trusting warning output.
 
 **Forbidden-call enforcement landed (2026-07-15, `rt-validate`):**
 - `RTAPI_NONBLOCKING`/`STMAK_NONBLOCKING` macro infra (rtapi.h, `stmak_rt_check.h`), inert on gcc and clang < 20.
 - HAL funct pointer *types* are nonblocking (`hal_funct_ptr_t` in hal.h, `stmak_hal_funct_t` in stmak_hal.h) — the dispatch indirection is closed.
-- Annotated + verified: rtapi time/delay/pll/port primitives, the stmak log ring producer, `@rt_safe` GMI callback types (gmicompile emits the annotation), all modcompile-generated comp functs, halscope sampler. Trust boundaries are explicit `*_TRUSTED_BEGIN/END` blocks with justification (TLS lookups, `clock_gettime` vDSO, bounded `rtapi_delay`, log-ring `vsnprintf`) — grep for `NONBLOCKING_TRUSTED` to audit.
+- Annotated + verified: rtapi time/delay/pll/port primitives, the stratuMAK log ring producer, `@rt_safe` GMI callback types (gmicompile emits the annotation), all modcompile-generated comp functs, halscope sampler. Trust boundaries are explicit `*_TRUSTED_BEGIN/END` blocks with justification (TLS lookups, `clock_gettime` vDSO, bounded `rtapi_delay`, log-ring `vsnprintf`) — grep for `NONBLOCKING_TRUSTED` to audit.
 - `make rt-effects-check` verifies 126 RT TUs (core RTAPI/HAL + halscope + every generated .comp) with `-Werror=function-effects`; wired into the `rip-and-test-clang` CI job. Debian 13 ships only clang 19 (broken analysis), so the check uses a pinned LLVM 22.1.8 release binary, sha256-verified, downloaded once by `scripts/rt-clang.sh` — diagnostic only, gcc stays the production compiler.
 - Real findings already fixed by the analysis: `anglejog` had 7 function-local statics (shared across instances — a genuine multi-instance bug), `eoffset_per_angle` did `fprintf(stderr, ...)` in the RT path.
 
@@ -197,7 +197,7 @@ Status audited 2026-07-15 against the working tree (see §0 for summary). `[x]` 
 
 ### Forbidden-call enforcement
 - [~] RT entry points annotated `[[clang::nonblocking]]`
-  — Done on `rt-validate` for the core + generated scope: rtapi primitives (`rtapi.h` `RTAPI_NONBLOCKING`), stmak rtapi/log producer APIs (`stmak_rt_check.h`, `stmak_rtapi.h`, `stmak_log.h`), `@rt_safe` GMI callback types (gmicompile-emitted), every modcompile-generated comp funct, halscope sampler. Open: motmod, hostmot2, lcec, hand-written cmods. GNU spelling `__attribute__((nonblocking))`, gated to clang ≥ 20 (clang 19's analysis is broken: false conversion warnings, no body verification — verified empirically).
+  — Done on `rt-validate` for the core + generated scope: rtapi primitives (`rtapi.h` `RTAPI_NONBLOCKING`), stratuMAK rtapi/log producer APIs (`stmak_rt_check.h`, `stmak_rtapi.h`, `stmak_log.h`), `@rt_safe` GMI callback types (gmicompile-emitted), every modcompile-generated comp funct, halscope sampler. Open: motmod, hostmot2, lcec, hand-written cmods. GNU spelling `__attribute__((nonblocking))`, gated to clang ≥ 20 (clang 19's analysis is broken: false conversion warnings, no body verification — verified empirically).
 - [x] HAL cyclic dispatch function-pointer *type* is `nonblocking`
   — `hal_funct_ptr_t` (hal.h) used by `hal_export_funct`, `hal_funct_t`/`hal_funct_entry_t` and the `thread_task` dispatch; `stmak_hal_funct_t` (stmak_hal.h) in the cmod vtable. On gcc the annotation is empty — types and ABI unchanged.
 - [x] Clang CI job: `-Wfunction-effects -Werror` on RT translation units
@@ -218,7 +218,7 @@ Design note — `nonallocating`: deliberately **not** used. Verified on LLVM 22.
 
 ### Verification
 - [ ] 24–72 h jitter histogram under realistic + adversarial load, published
-  — No cyclictest-equivalent / latency-histogram instrumentation in stmak, no published results in the repo.
+  — No cyclictest-equivalent / latency-histogram instrumentation in stratuMAK, no published results in the repo.
 - [ ] Torture CI (RTSan + forced GC + alloc pressure + net saturation) asserts no overrun
   — Not present. Closest existing guard: nightly full Go test suite under the race detector plus runtests against a race-built `stmakd` (`.github/workflows/nightly-stmak.yml`) — a concurrency regression guard, not an RT-latency one.
 

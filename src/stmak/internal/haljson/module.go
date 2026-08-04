@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
 // Package haljson registers the haljson HAL-to-JSON bridge module with the
-// stmak module registry. It creates HAL pins from an XML configuration file and
+// stratuMAK module registry. It creates HAL pins from an XML configuration file and
 // exposes them as structured JSON via REST (GET/POST) and WebSocket
 // subscriptions.
 //

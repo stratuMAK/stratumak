@@ -3,7 +3,7 @@
 
 // Package pathres resolves configuration-supplied filesystem paths.
 //
-// stmak splits the CLI/REST client from the server, so a path in a module
+// stratuMAK splits the CLI/REST client from the server, so a path in a module
 // argument or a configuration file has no client-side meaning: it is always a
 // *server-side* path.  Every such path goes through one rule here, the same
 // rule the startup HAL-file processing uses:

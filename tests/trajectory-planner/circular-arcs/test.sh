@@ -1,9 +1,9 @@
 #!/bin/bash
-# Circular-arc trajectory-planner regression test (stmak).
+# Circular-arc trajectory-planner regression test (stratuMAK).
 #
 # The classic circular-arcs directory is a developer profiling/tuning harness
 # (operf + octave plots + interactive prompts); it has no automated pass/fail
-# test.  This adds one: run a full-circle G3 arc through the stmak TP, capture the
+# test.  This adds one: run a full-circle G3 arc through the stratuMAK TP, capture the
 # commanded X/Y joint path every servo cycle with the filestream cmod, and have
 # checkresult verify every sampled point lies on the commanded circle (so a
 # broken arc — straight chords, wrong radius, missed motion — fails).

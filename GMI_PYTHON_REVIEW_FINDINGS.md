@@ -105,7 +105,7 @@ success return.
   `BRAKE_ENGAGE/RELEASE`, `LINEAR`/`ANGULAR`, `MOTION_TYPE_TRAVERSE..INDEXROTARY`,
   `EXEC_WAITING_FOR_SYSTEM_CMD` (value 9 existed only under the renamed
   `…_MCODE_HANDLER`). All present values verified correct. **Fix:** names added
-  (classic alias kept alongside the stmak name), `from gmi.constants import *`
+  (classic alias kept alongside the stratuMAK name), `from gmi.constants import *`
   re-exported from `gmi/__init__.py`.
 - **GP-12 LOW three classic command wrappers missing though endpoints exist:**
   `set_feed_override` → `/feed-override-enable`, `set_feed_hold` → `/feed-hold-enable`,
@@ -124,7 +124,7 @@ success return.
 
 - **GP-16 HIGH AXIS + glcanon are 25.4× wrong on inch machines.** axis.py uses raw
   `gmi.Stat()` (mm-everywhere) while `glcanon.to_internal_units` is byte-identical to
-  2.9 (divides by `linear_units*25.4` — correct only for machine-unit positions; stmak
+  2.9 (divides by `linear_units*25.4` — correct only for machine-unit positions; stratuMAK
   serves classic `linear_units` = machine-units-per-mm but mm positions, so the divisor
   degenerates to 1.0 on inch configs): preview/backplot/DRO scale off by 25.4 on any
   `LINEAR_UNITS = inch` machine. Invisible on metric machines/CI, which is exactly why

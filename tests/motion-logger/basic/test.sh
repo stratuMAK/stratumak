@@ -4,7 +4,7 @@
 # in test-ui.py) is silently swallowed.
 set -e
 
-# stmak full-instance test: milltask -> motion-logger interceptor -> real motmod.
+# stratuMAK full-instance test: milltask -> motion-logger interceptor -> real motmod.
 # The interceptor logs the motctl command stream to out.motion-logger; the driver
 # slices it per sub-test and diffs against expected.*.
 

@@ -167,10 +167,10 @@ reason the install phase stays privileged even if the build does not.
 ### 4.4 Staleness instead of rebuilding on upgrade
 
 `EMC2Version` is baked in by ldflags, so a locally rebuilt server records the
-version of the tree it was built from. Comparing that against the installed stmak
+version of the tree it was built from. Comparing that against the installed stratuMAK
 tree at startup gives a "your local build is stale, run `modcompile rebuild`"
 signal almost for free, and catches the real hazard: a server built against
-stmak sources from an older release, now facing newer cmods.
+stratuMAK sources from an older release, now facing newer cmods.
 
 A warning may be too weak a floor for that hazard. The cmod ABI carries no
 version stamp today (`stmak_env.h` defines none; only the runtime API registry
@@ -376,7 +376,7 @@ each time is what makes an upgrade correct: the pristine sources change under
 it, and a tree that only ever had modules added would keep compiling the
 release it was first built from.
 
-**Behind all of this: the installed stmak tree did not compile, and now does.**
+**Behind all of this: the installed stratuMAK tree did not compile, and now does.**
 The note assumes throughout that `$(datadir)/stratumak/stmak` can be rebuilt; it
 could not, and never could — the permission error in §1 was simply the first
 thing in the way. `stmak-install` shipped only `*.go`, so every cgo package
@@ -391,7 +391,7 @@ installed nowhere. Five separate causes, all now fixed:
    had moved to `cnc/sai/` years ago and the stale path was being swallowed by
    a `-cp`.
 3. Headers are installed a **second** time under their source-relative path.
-   Several stmak packages include them the way the source tree does
+   Several stratuMAK packages include them the way the source tree does
    (`"hal/hal_priv.h"`, `"cnc/rs274ngc/interp_parameter_io.hh"`), which
    resolves against `-Isrc` in a build tree and against nothing at all in a
    flat include directory. Both spellings now work under the one `-I` that
@@ -409,14 +409,14 @@ installed nowhere. Five separate causes, all now fixed:
 One collision had to be broken by hand. `cnc/rs274ngc/interp_shim.h` and
 `stmak/internal/task/interp_shim.h` were different headers sharing a basename
 *and* an include guard, and the flat copy of the first silently won over the
-second's own directory. The stmak one is now `task_interp_shim.h`, guard and
+second's own directory. The stratuMAK one is now `task_interp_shim.h`, guard and
 all — the smaller blast radius of the two, since nothing outside `internal/task`
 referred to it — so no special case remains in the install and neither
 consumer has to qualify anything.
 
 `make` now refuses the situation outright: `check-header-collisions` compares
 the basenames of everything landing in the flat `$(includedir)/stratumak`
-against the headers inside the stmak tree, and fails the build naming both
+against the headers inside the stratuMAK tree, and fails the build naming both
 files. The original cost an afternoon precisely because every error pointed at
 the innocent file.
 

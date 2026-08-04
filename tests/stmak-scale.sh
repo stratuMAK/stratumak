@@ -1,10 +1,10 @@
 # shellcheck shell=bash
-# Small shared shell helpers for the stmak test suite: deadline scaling
+# Small shared shell helpers for the stratuMAK test suite: deadline scaling
 # (stmak_scale), EXIT-trap composition (stmak_add_exit_trap) and the
 # address-in-use diagnosis (stmak_bind_failure). Source it, don't execute it.
 #
 # --- Deadline scaling ---
-# One knob for every shell-side deadline in the stmak test suite, so the bespoke
+# One knob for every shell-side deadline in the stratuMAK test suite, so the bespoke
 # `for i in $(seq N); do ... sleep; done` loops honour the same multiplier the
 # Python waiters already do (STMAK_TEST_TIMEOUT_SCALE, see lib/python/stmak_test.py).
 #

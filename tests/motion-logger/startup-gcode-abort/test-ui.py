@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Ported to the stmak REST/WS API (`gmi` client). motion-logger is an interceptor
+# Ported to the stratuMAK REST/WS API (`gmi` client). motion-logger is an interceptor
 # between milltask and the real motmod.
 #
 # Github issue #49: the config runs startup gcode
-# ([RS274NGC]RS274NGC_STARTUP_CODE = o<init> call). stmak executes it at task init
+# ([RS274NGC]RS274NGC_STARTUP_CODE = o<init> call). stratuMAK executes it at task init
 # (mirroring classic emcTaskPlanInit), before the machine is enabled — so, exactly
 # like 2.9, init.ngc produces no real motion here (the first rapid is emitted to
 # motion but never runs at estop). This test just checks that aborting after the
@@ -25,7 +25,7 @@ def wait_for_startup(s, timeout=15.0):
     # synchronously during module Start(), before the server accepts clients).
     # exec_state is left at EXEC_ERROR, not EXEC_DONE: init.ngc's first rapid is
     # dispatched to motion at estop, which motmod rejects ("need to be enabled,
-    # in coord mode") — the deterministic side effect of stmak running startup
+    # in coord mode") — the deterministic side effect of stratuMAK running startup
     # motion at init while the machine is off. We only need interp idle + estop.
     start = time.time()
     while time.time() - start < timeout:

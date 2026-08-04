@@ -9,7 +9,7 @@
 //	New(env, name, args) → Start() → Stop() → Destroy()
 //
 // The launcher provides INI access, logging, HAL and RTAPI to C plugins
-// via the stmak sub-API callback structs in cmod_env_t, so plugins never
+// via the stratuMAK sub-API callback structs in cmod_env_t, so plugins never
 // parse config files or link liblinuxcnchal.so directly.
 package launcher
 
@@ -343,7 +343,7 @@ import (
 type cModule struct {
 	handle  *C.void // dlopen handle
 	mod     *C.cmod_t
-	env     *C.cmod_env_t // stmak env (freed in destroyCModules)
+	env     *C.cmod_env_t // stratuMAK env (freed in destroyCModules)
 	hCtx    cgo.Handle    // Go↔C handle for the Launcher pointer
 	name    string
 	started bool // true after Start() has been called
@@ -451,7 +451,7 @@ func checkCModuleABI(handle unsafe.Pointer, path string) error {
 	sym := C.dlsym(handle, symName)
 	if sym == nil {
 		return fmt.Errorf(
-			"load C plugin %q: no cmod ABI version; it was built against stmak headers "+
+			"load C plugin %q: no cmod ABI version; it was built against stratuMAK headers "+
 				"older than this server (expected ABI %d). Rebuild it with modcompile",
 			path, C.CMOD_ABI_VERSION)
 	}
@@ -460,7 +460,7 @@ func checkCModuleABI(handle unsafe.Pointer, path string) error {
 	if got != uint32(C.CMOD_ABI_VERSION) {
 		return fmt.Errorf(
 			"load C plugin %q: cmod ABI %d, but this server provides %d. "+
-				"The two were built from different stmak sources; rebuild whichever is older",
+				"The two were built from different stratuMAK sources; rebuild whichever is older",
 			path, got, C.CMOD_ABI_VERSION)
 	}
 	return nil
@@ -474,7 +474,7 @@ func checkCModuleABI(handle unsafe.Pointer, path string) error {
 const moduleLogHint = " (the module logs the reason it refused; see the server log)"
 
 // loadCPlugin loads a C plugin .so via dlopen, looks up the "New" symbol,
-// builds the cmod_env_t with stmak sub-API callbacks, calls the factory, and
+// builds the cmod_env_t with stratuMAK sub-API callbacks, calls the factory, and
 // appends the module to l.cModules.
 //
 // The factory is expected to create and fully initialize the module (including
@@ -509,7 +509,7 @@ func (l *Launcher) loadCPlugin(path string, name string, args []string) error {
 
 	factory := C.cmod_new_fn(sym)
 
-	// Build the stmak environment with all sub-API callbacks.
+	// Build the stratuMAK environment with all sub-API callbacks.
 	cm := &cModule{
 		handle: (*C.void)(handle),
 		name:   name,
@@ -724,7 +724,7 @@ func (l *Launcher) arenaAppend(p unsafe.Pointer) {
 
 // destroyCModules calls Destroy() on all loaded C plugin modules in reverse
 // order, unlocks and closes the dlopen handles, and frees all arena-tracked
-// strings and stmak env structs.  The log ring is NOT destroyed here — it
+// strings and stratuMAK env structs.  The log ring is NOT destroyed here — it
 // remains active so that later cleanup steps (destroyGoModules, UnloadAll)
 // can still emit log messages.  See doCleanup() for ring teardown.
 func (l *Launcher) destroyCModules() {
@@ -768,7 +768,7 @@ func cmodDestroy(cm *cModule) {
 	C.cmod_call_destroy(cm.mod)
 }
 
-// cmodDestroyEnv frees the stmak env struct.
+// cmodDestroyEnv frees the stratuMAK env struct.
 func cmodDestroyEnv(cm *cModule) {
 	if cm.env != nil {
 		C.stmak_env_destroy(cm.env)

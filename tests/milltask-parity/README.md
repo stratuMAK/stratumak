@@ -7,7 +7,7 @@ acceleration, feed, and geometry parameters.
 
 Each milltask runs against its OWN native motion controller, in its own tree:
 
-- **new / Go milltask** — this repo (`~/source/linuxcnc`, branch `stmak`).
+- **new / Go milltask** — this repo (`~/source/linuxcnc`, branch `main`).
 - **old / C++ milltask** — `~/source/linuxcnc-2.9` (branch `verify-milltask-lcnc`).
 
 Both trees' motion controller has the **identical** instrument in

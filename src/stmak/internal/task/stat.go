@@ -218,7 +218,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 	stat.Position = poseToPosition(ms.CartePosCmd)
 	stat.ActualPosition = poseToPosition(ms.CartePosFb)
 	stat.ProbedPosition = poseToPosition(ms.Probe.Pos)
-	// Tool offset comes from the canon (task) side: stmak folds it into the
+	// Tool offset comes from the canon (task) side: stratuMAK folds it into the
 	// coordinate math (toAbsolute) and never sends it to motion, so
 	// ms.ToolOffset is always zero. This matches C++, which reports
 	// task.toolOffset from the SET_OFFSET command (emctaskmain.cc:1889), not a
@@ -264,7 +264,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 				units = angularUnits
 			}
 		} else {
-			// stmak motion leaves joints beyond numJoints zeroed; report the
+			// stratuMAK motion leaves joints beyond numJoints zeroed; report the
 			// classic emcmot unconfigured-joint defaults so parity clients see
 			// the same (position limits +/-1, following-error limits 1, and
 			// in-position true since an unconfigured joint never moves).
@@ -278,7 +278,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			Enabled: j.Enabled != 0,
 			Fault:   j.Fault != 0,
 			Inpos:   inpos,
-			// stmak motion exposes no per-joint soft-limit-tripped flag; report
+			// stratuMAK motion exposes no per-joint soft-limit-tripped flag; report
 			// the hard-limit switches and leave the soft-limit flags cleared.
 			MinSoftLimit: false,
 			MaxSoftLimit: false,
@@ -290,7 +290,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			OverrideLimits:   ms.OverrideLimitMask != 0,
 			JointType:        jt,
 			Units:            units,
-			Backlash:         0.0, // stmak has no backlash compensation
+			Backlash:         0.0, // stratuMAK has no backlash compensation
 			MinPositionLimit: minPos,
 			MaxPositionLimit: maxPos,
 			MinFerror:        minFe,
@@ -307,7 +307,7 @@ func (t *Task) BuildStat() *emcstat.StatFull {
 			stat.JointPosition[i] = j.PosCmd
 			// Classic linuxcnc.stat().limit[j] is a bitmask, not a direction:
 			// minHardLimit=1, maxHardLimit=2, minSoftLimit=4, maxSoftLimit=8.
-			// stmak motion exposes only the hard-limit switches (OnNegLimit is
+			// stratuMAK motion exposes only the hard-limit switches (OnNegLimit is
 			// the min/negative switch, OnPosLimit the max/positive switch); the
 			// soft-limit bits stay clear, matching MinSoftLimit/MaxSoftLimit above.
 			var mask int32

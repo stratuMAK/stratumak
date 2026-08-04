@@ -416,7 +416,7 @@ func (m *monitor) checkMotionErrors(ms motstat.MotionStatus, err error, softLimi
 // transient split-read — correct for one sample, but a *sustained* run of read
 // failures means motmod is no longer updating shared memory (RT crashed or
 // detached) and the machine would otherwise keep "running" blind against stale
-// status. This is stmak's analogue of 2.9's loss of the motion NML heartbeat.
+// status. This is stratuMAK's analogue of 2.9's loss of the motion NML heartbeat.
 //
 // A good read resets the counter, so the commWatchdogTicks consecutive
 // failures required (commWatchdogTimeout ≈ 1 s) can only be reached by a

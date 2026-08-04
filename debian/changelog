@@ -8,7 +8,7 @@ stratumak (0.1.0) UNRELEASED; urgency=medium
     over; internal paths are unchanged for now.
   * Version restarts at 0.1.0. The epoch is dropped with the old name: a
     renamed package has no upgrade ordering to preserve.
-  * Debian packaging repaired -- the build had not completed since stmak
+  * Debian packaging repaired -- the build had not completed since stratuMAK
     landed, and the package it would have produced carried no controller
     binary. See PRODUCTION_READINESS.md.
 

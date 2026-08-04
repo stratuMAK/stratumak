@@ -1,6 +1,6 @@
 /* oracle_main.c — headless driver for the LinuxCNC 2.9 ClassicLadder engine.
  *
- * This is the reference implementation the stmak RT engine is differentially
+ * This is the reference implementation the stratuMAK RT engine is differentially
  * tested against. It loads a .clp project, applies a script of variable writes
  * and scans read from stdin, and dumps variable state on demand. Nothing here
  * ships; it exists so the port can be checked against the original.
@@ -185,7 +185,7 @@ static void do_varrw(int type, int offset) {
 }
 
 /* The sizes have to be set before ClassicLadder_AllocAll(). They mirror the
- * ones the stmak side is configured with, so both engines see the same PLC. */
+ * ones the stratuMAK side is configured with, so both engines see the same PLC. */
 static void set_sizes(void) {
     plc_sizeinfo_s *s = &GeneralParamsMirror.SizesInfos;
     s->nbr_rungs = 100;

@@ -6,7 +6,7 @@
  *
  * Based on Classic Ladder Project by Marc Le Douarain.
  * Copyright (C) Marc Le Douarain <marc.le.douarain@free.fr> (LGPL 2.1+)
- * Adapted for LinuxCNC stmak architecture.
+ * Adapted for LinuxCNC stratuMAK architecture.
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
  * This program is free software; you can redistribute it and/or modify

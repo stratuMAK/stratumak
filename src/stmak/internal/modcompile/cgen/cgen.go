@@ -2,7 +2,7 @@
 // License: GPL Version 2
 // Package cgen generates C source code from a modcompile AST.
 //
-// The generated code targets the stmak cmod API (stmak_env.h) and produces
+// The generated code targets the stratuMAK cmod API (stmak_env.h) and produces
 // a single .c file that compiles to one .so plugin for stmakd.
 package cgen
 
@@ -1259,7 +1259,7 @@ func (g *generator) emitFunctionExport(fn ast.Function) {
 	} else {
 		// HAL-namespace names use hyphens: halcompile runs function names through
 		// to_hal (underscore→hyphen) just like pin/param names, so `function
-		// read_all;` exports `comp.read-all`. Apply the same transform (stmak had
+		// read_all;` exports `comp.read-all`. Apply the same transform (stratuMAK had
 		// been emitting fn.Name raw, diverging from its own hyphenated pins).
 		g.printf("        snprintf(fname, sizeof(fname), \"%%s.%s\", name);\n", toHALFmt(fn.Name))
 	}

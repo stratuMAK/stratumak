@@ -34,7 +34,7 @@ func TestLoadJointComp(t *testing.T) {
 	pathres.SetDefaultForTest(t, dir)
 	file := filepath.Join(dir, "comp.txt")
 	// Header comment + a blank line exercise the skip path; C++ would stop at the
-	// comment, stmak tolerates it (strict superset for pure-triplet files).
+	// comment, stratuMAK tolerates it (strict superset for pure-triplet files).
 	content := "# leadscrew comp for joint 2\n" +
 		"0.0 0.0 -0.001\n" +
 		"0.1 0.098 0.051\n" +

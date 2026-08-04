@@ -1,18 +1,18 @@
 # motion-logger parity vs LinuxCNC 2.9.8
 
-Certifies the stmak milltask's `tests/motion-logger/` gold against the **real
+Certifies the stratuMAK milltask's `tests/motion-logger/` gold against the **real
 LinuxCNC 2.9.8 milltask**, by diffing the two through a shared normalizer that
 strips format spelling and NML-vs-GMI init/config noise. What survives is real
 milltask behaviour to adjudicate.
 
 This is a **validation harness**, not a runtests test. It does not run in CI.
 The everyday CI test is `tests/motion-logger/basic/` itself, which regresses the
-stmak gold against stmak. This harness answers the *other* question: is that gold
+stratuMAK gold against stmak. This harness answers the *other* question: is that gold
 actually right, or is it enshrining a regression vs 2.9?
 
 ## Why this works with zero new instrumentation
 
-The stmak interceptor cmod (`src/cnc/motion-logger/motion_logger_cmod.c`) is a
+The stratuMAK interceptor cmod (`src/cnc/motion-logger/motion_logger_cmod.c`) is a
 near-verbatim port of the classic 2.9 `src/cnc/motion-logger/motion-logger.c`;
 the `SET_LINE` line format is byte-identical. And the 2.9 tree already ships the
 same `tests/motion-logger/basic/` test with checked-in gold captured by the real
@@ -71,7 +71,7 @@ PARITY_FINDINGS.md  adjudication log (the load-bearing certification record)
 Adding a test: vendor its 2.9 gold (add a row to `targets.sh`, re-run
 `sync-oracle.sh`) and it joins `compare.sh`. Coverage today is every parity-able
 motion-logger test; `startup-gcode-abort` (incomparable oracle — 2.9 defers the
-startup move, stmak dispatches it at estop) and the two `abort/*-crazy-move`
+startup move, stratuMAK dispatches it at estop) and the two `abort/*-crazy-move`
 tests (real core_sim motion, judged by axis position not a logger gold) are
 enabled in runtests but excluded here (see `targets.sh` / `PARITY_FINDINGS.md`).
 
@@ -95,14 +95,14 @@ enabled in runtests but excluded here (see `targets.sh` / `PARITY_FINDINGS.md`).
 ## Workflow
 
 1. Run `./compare.sh`; each surviving diff is a candidate finding.
-2. For each finding: **real bug** → fix stmak, re-capture the affected
+2. For each finding: **real bug** → fix stratuMAK, re-capture the affected
    `expected.*`, re-run; **benign** → record it in `PARITY_FINDINGS.md` with the
    reason it is acceptable.
 3. When `PARITY_FINDINGS.md` accounts for every surviving diff, the committed
-   stmak gold is *certified against 2.9.8*. Routine runs of this harness become
+   stratuMAK gold is *certified against 2.9.8*. Routine runs of this harness become
    optional; `tests/motion-logger/` carries the frozen, certified gold from
    there on.
 
 This is the one moment the 2.9 linkage exists — after the freeze the runtests
-tests only guard against regressing away from the certified stmak gold, so the
+tests only guard against regressing away from the certified stratuMAK gold, so the
 adjudication in `PARITY_FINDINGS.md` is load-bearing. Keep it.

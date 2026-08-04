@@ -18,7 +18,7 @@
 # of a floating-point function fail on a runtime-created thread — hence the
 # floating-point `scale` function below alongside the nofp and2/not.
 #
-# stmak has no userspace comps / loadusr, so a resident stmakd + halcmd
+# stratuMAK has no userspace comps / loadusr, so a resident stmakd + halcmd
 # replaces the classic halrun test.hal. stdout must stay exactly the lines
 # `expected` compares against; diagnostics go to stderr.
 stmakd -r -f nt.hal --serve >server.log 2>&1 &

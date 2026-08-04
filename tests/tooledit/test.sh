@@ -2,7 +2,7 @@
 # Tool-table float fidelity (classic tests/tooledit).
 #
 # Classic drove the Tk `tooledit` GUI under xvfb to round-trip a .tbl with
-# tricky float offsets and checked the formatting.  stmak has no Tk tooledit and
+# tricky float offsets and checked the formatting.  stratuMAK has no Tk tooledit and
 # no .tbl *writer*: the tool table is persist-backed (sqlite) and served over
 # REST.  So we import the same .tbl, read the tools back via the tooltable REST
 # API, and verify every value survives the round-trip exactly (test.py).

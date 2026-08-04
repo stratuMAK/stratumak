@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (gmi client).  Drive joint.<n>.jog-* directly
+# Ported to the stratuMAK REST/WS API (gmi client).  Drive joint.<n>.jog-* directly
 # via halcmd (the userspace jogwheel-encoder hal.component is gone) and read the
 # joint position from gmi.Stat.joint_actual_position.
 

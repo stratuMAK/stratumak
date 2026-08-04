@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — the lcec driver on the in-process sim
+# stratuMAK EtherCAT integration test — the lcec driver on the in-process sim
 # transport (transportType="sim"), no hardware.
 #
 # Proves the whole driver pipeline: the sim transport parses the bus-description

@@ -665,7 +665,7 @@ static void reload_tool_number(iocontrol_module *m, int toolno) {
 // poll_inputs — the non-blocking, async half of 2.9's read_inputs().
 //
 // 2.9 iocontrol was a free-running loop that serviced these handshakes every
-// cycle; stmak has no such loop, so this runs on the monitor's periodic status
+// cycle; stratuMAK has no such loop, so this runs on the monitor's periodic status
 // poll (see gmi_get_status). It latches the toolchanger-fault line, services
 // the fault-ack / clear-fault handshakes, and reaps the emc-abort ->
 // emc-abort-ack handshake — so no abort/estop/tool path ever has to block

@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak has no 'loadusr -w sleep'; drive the resident server and use shell sleeps.
+# stratuMAK has no 'loadusr -w sleep'; drive the resident server and use shell sleeps.
 . "$(dirname "$0")/../../hal-stream-driver.sh"
 hal_start_server ilowpass.hal
 halcmd start

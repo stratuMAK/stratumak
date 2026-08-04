@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// Script execution against the stmak RT engine, in the same command language
+// Script execution against the stratuMAK RT engine, in the same command language
 // the 2.9 oracle in testdata/oracle understands, so a single script can drive
 // both engines and the dumps can be compared line for line.
 //

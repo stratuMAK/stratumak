@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 #
-# Shared stmak server lifecycle + readiness helpers for runtests shell tests.
+# Shared stratuMAK server lifecycle + readiness helpers for runtests shell tests.
 # Source it, don't execute it:
 #
 #     . "$(dirname "$0")/../stmak-driver.sh"     # adjust depth to suit

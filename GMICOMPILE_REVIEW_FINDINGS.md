@@ -74,7 +74,7 @@ current IDL trips them): the check layer rejects a 64-bit REST **path/query** pa
 coerces to a bare number → JS truncation), and `--client-python` rejects an API whose 64-bit field
 is reachable only through a **nested** named type (Python from_dict doesn't recurse). `newthread`'s
 `period_ns` is now bigint; webapp consumers convert bigint→number at the display boundary. Full
-gmicompile suite + stmak build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
+gmicompile suite + stratuMAK build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
 clean (a separate commit `1926c82ca8` fixed pre-existing halscope errors the regen surfaced).
 
 **G-M4 regression + root-cause fix (commit `69c6bea407`):** the `,string` change broke
@@ -207,7 +207,7 @@ or at minimum a generator warning.
   `@callback` today** — the four real ones (`interp_ext` oword/remap ×3, `mcode_handler` handler) are
   all task/worker-level and *must* stay blocking-capable (`mcode_handler.handler` blocks on `abort_fd`),
   and everything actually RT-invoked (mot/tp/hm2_serial `@rt_safe`) rides on `func`→`_fn` typedefs that
-  were already annotated. So nothing was mis-typed. But since stmak is a general framework and an RT
+  were already annotated. So nothing was mis-typed. But since stratuMAK is a general framework and an RT
   callback is a legitimate future need, the capability was wired symmetric to the `_fn` precedent:
   `ast.Callback.RTSafe`; `parseCallback` applies `@rt_safe` (other annotations before a callback still
   error); `emitCallbackDecls` stamps `STMAK_API_NONBLOCKING` iff RTSafe. Additive/non-breaking (default

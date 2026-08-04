@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-// Package pyvcpmodule registers the PyVCP panel module with the stmak module
+// Package pyvcpmodule registers the PyVCP panel module with the stratuMAK module
 // registry. When compiled into the stmakd binary, this package's init()
 // function registers a factory that creates PyVCP panel instances in response
 // to HAL "load pyvcp" commands.

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
 // Package launcher — stmak_env.go provides the Go-side log ring drain loop
-// and INI callback implementations for the stmak C plugin environment.
+// and INI callback implementations for the stratuMAK C plugin environment.
 //
 // All C helper functions (pass-through HAL/RTAPI callbacks, env allocation,
 // ring buffer read) live in the cgo preamble of cmodules.go.  This file

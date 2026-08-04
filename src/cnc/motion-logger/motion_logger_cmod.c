@@ -1,4 +1,4 @@
-/* motion-logger — stmak interceptor/proxy cmod.
+/* motion-logger — stratuMAK interceptor/proxy cmod.
  *
  * Stands in for motmod: milltask is configured with [EMCMOT]EMCMOT=motion-logger,
  * so it looks up the motctl/motstat providers registered here.  This module
@@ -7,8 +7,8 @@
  * LOGS the motctl command and FORWARDS to the real motmod (which does the real
  * trajectory planning and supplies real status).  No status faking.
  *
- * The log captures the stmak motctl command stream a program produces; the test
- * `expected.*` files are re-captured from stmak (self-regression), while
+ * The log captures the stratuMAK motctl command stream a program produces; the test
+ * `expected.*` files are re-captured from stratuMAK (self-regression), while
  * tests/milltask-parity remains the cross-tree C-vs-stmak check.
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>

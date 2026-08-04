@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (gmi client).  The classic NML linuxcnc module
+# Ported to the stratuMAK REST/WS API (gmi client).  The classic NML linuxcnc module
 # is command/stat-less now; drive via gmi.Command/Stat and read HAL pins with
 # halcmd (there is no userspace hal.component anymore).
 

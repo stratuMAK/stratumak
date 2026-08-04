@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run and2 on a 1ms thread for a second, then emit its recorded tmax so
-# checkresult can confirm per-function timing is nonzero.  stmak has no
+# checkresult can confirm per-function timing is nonzero.  stratuMAK has no
 # userspace comps / loadusr, so a resident stmakd + halcmd replaces the
 # classic halrun `test.hal`.
 stmakd -r -f threads.hal --serve >server.log 2>&1 &
@@ -25,7 +25,7 @@ done
 
 halcmd start
 sleep 1                       # accumulate ~1000 invocations of the 1ms thread
-# stmak's `getp` does not resolve RW params (e.g. and2.0.tmax); read the value
+# stratuMAK's `getp` does not resolve RW params (e.g. and2.0.tmax); read the value
 # from `show param` instead.  Column layout: Type Dir Name Value.
 halcmd show param | awk '$3=="and2.0.tmax"{print $4}'
 halcmd stop

@@ -11,7 +11,7 @@ out of scope.
 ## CONFIRMED — fixed
 
 - **A-1 HIGH (= GP-16) the 25.4× inch-machine unit break — full inventory +
-  fix.** stmak serves classic `linear_units` (machine-units-per-mm) but mm
+  fix.** stratuMAK serves classic `linear_units` (machine-units-per-mm) but mm
   positions; every classic `to/from_internal_*` helper divides by
   `linear_units*25.4`, which degenerates to 1.0 on inch configs. Precisely
   determined: the live backplot was CORRECT on metric machines (logger points
@@ -125,7 +125,7 @@ out of scope.
   - **Canon API:** `dwell(lineno, seconds)` and `change_tool(lineno, slot)`
     (canon.gmi + canon_interface.hh + interp_queue's dwell op + the seven
     canned-cycle call sites + saicanon/canterp). Before this, dwells and tool
-    changes inherited whatever moved last — and stmak's `CanonState.lineNo`
+    changes inherited whatever moved last — and stratuMAK's `CanonState.lineNo`
     existed only to paper over it, so it is now deleted along with its five
     writes. Departs from classic `emccanon`; the printed sai oracle format is
     unchanged (it never printed line numbers), so no test churn.

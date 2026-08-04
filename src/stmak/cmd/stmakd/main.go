@@ -213,7 +213,7 @@ Options:
 	}
 
 	// Before anything is loaded: say so if this binary was built locally from
-	// stmak sources older than the installed ones.
+	// stratuMAK sources older than the installed ones.
 	launcher.WarnIfStale(logger)
 
 	l := launcher.New(opts, logger)

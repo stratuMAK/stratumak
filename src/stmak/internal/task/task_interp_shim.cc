@@ -240,7 +240,7 @@ void interp_set_ini_accessor(void *handle, const interp_ini_accessor_t *accessor
 }
 
 // interp_ini_load_accessor loads INI config using the accessor callbacks
-// instead of opening a file.  Replaces interp_ini_load() for stmak usage.
+// instead of opening a file.  Replaces interp_ini_load() for stratuMAK usage.
 int interp_ini_load_accessor(void *handle, const interp_ini_accessor_t *accessor) {
     Interp *ip = dynamic_cast<Interp*>(static_cast<InterpBase*>(handle));
     if (!ip || !accessor) return -1;
@@ -251,7 +251,7 @@ int interp_ini_load_accessor(void *handle, const interp_ini_accessor_t *accessor
     ip->_setup.ini_accessor.get_nth = accessor->get_nth;
 
     // PARAMETER_FILE is optional.  With the persist-backed parameter I/O
-    // backend (the stmak default) numbered parameters live in the persistence
+    // backend (the stratuMAK default) numbered parameters live in the persistence
     // service, so no .var file name is needed.  Only the opt-in
     // PARAMETER_FILE_MODE=file backend uses it, and that requirement is
     // enforced separately (task/module.go).  Record the name when present so

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API. The classic test drove halui.* pins through a
-# userspace `python-ui` HAL component wired in postgui.hal; stmak has no
+# Ported to the stratuMAK REST/WS API. The classic test drove halui.* pins through a
+# userspace `python-ui` HAL component wired in postgui.hal; stratuMAK has no
 # userspace HAL components, so we drive the halui/joint pins directly via
 # halcmd, and use the gmi client for task state/mode. The `h[...]` shim below
 # maps the old logical pin names to the real HAL pins/signals.

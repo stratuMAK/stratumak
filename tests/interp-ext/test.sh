@@ -1,5 +1,5 @@
 #!/bin/bash
-# Dedicated test for the stmak interp_ext API (register_oword) -- the replacement
+# Dedicated test for the stratuMAK interp_ext API (register_oword) -- the replacement
 # for classic Python O-word subroutines.  A cmod (test_interp_ext) registers a
 # C O-word `o<test_oword>` that returns the sum of its args; we call it from MDI
 # and confirm the handler was dispatched with the right arguments.

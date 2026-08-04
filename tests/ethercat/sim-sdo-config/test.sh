@@ -1,12 +1,12 @@
 #!/bin/bash
-# stmak EtherCAT integration test — startup SDO configuration (initcmds).
+# stratuMAK EtherCAT integration test — startup SDO configuration (initcmds).
 #
 # The slave config carries <sdoConfig idx="0x2000" subIdx="0x0"> with data
 # 44 33 22 11, so the master writes 0x2000:00 = 0x11223344 to the slave via CoE
 # during PREOP as it brings the bus to OP. The test then reads that object back
 # with the ethercat REST CLI and confirms the configured value is present (the
 # sim preset it to 0), proving the lcec init-SDO path end to end — and, as a
-# bonus, exercising the stmak `ethercat` CLI + REST/GMI surface against the
+# bonus, exercising the stratuMAK `ethercat` CLI + REST/GMI surface against the
 # resident server. Failure is signalled by this script's exit value.
 . "$(dirname "$0")/../../hal-stream-driver.sh"
 

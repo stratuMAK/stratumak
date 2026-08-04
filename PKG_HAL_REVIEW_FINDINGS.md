@@ -56,7 +56,7 @@ serialization; **M1** will later collapse that to atomics behind this same barri
 
 **Two facts verified during the fix (both worse than the original adjudication assumed):**
 
-1. *Consequence is silent corruption, not a fail-fast segfault.* stmak links a **vendored** HAL
+1. *Consequence is silent corruption, not a fail-fast segfault.* stratuMAK links a **vendored** HAL
    (`src/stmak/internal/hallib/hal_lib.c` + `uspace_rtapi_lib.c`), not `src/hal/hal_lib.c`. The
    userspace HAL arena is a plain `malloc()`'d 1 MiB block (`HAL_SIZE`), **not** SysV/POSIX shm.
    On the last `hal_exit` it is `free()`'d but stays **mapped** — RT hardening sets
@@ -93,7 +93,7 @@ pin access against teardown.
 *Failure scenario:* during shutdown, goroutine A holds a `*Pin` and calls `Set()` while
 goroutine B calls `comp.Exit()`. A's `**ptrPtr` write lands in a pin slot HAL has just freed
 (→ logical corruption of a recycled slot), or — if this is the last component and the HAL
-data segment is released — touches unmapped memory (→ SIGSEGV). stmak's whole premise is
+data segment is released — touches unmapped memory (→ SIGSEGV). stratuMAK's whole premise is
 goroutine concurrency, so the window is materially wider than in a classic single-threaded C
 comp, and nothing in the type surface warns the caller.
 
@@ -225,7 +225,7 @@ violating the single-producer/single-consumer invariant the port atomics assume.
 closed stmak-only graph (writers only `Set`, readers only `Get`/peek) the read index is written by
 one serialized goroutine, so the only visible artifact is an occasional transient empty read —
 **but** if a real C HAL component is `net`-linked to the same port signal, two entities write the
-read index → corrupt readable/writable accounting. Also note the 4-byte length framing is a stmak
+read index → corrupt readable/writable accounting. Also note the 4-byte length framing is a stratuMAK
 invention no C HAL peer understands. **Human to decide:** use the port as intended (writer writes,
 reader commits), or document these string pins as stmak-private and stop clearing from the writer.
 

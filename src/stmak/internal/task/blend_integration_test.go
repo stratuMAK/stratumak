@@ -354,7 +354,7 @@ func checkSpindleOn(t *testing.T, got spindleRec, speed, cssFactor, cssOffset fl
 // Deliberate divergence from the C milltask oracle (logs/old/spindle.log): the C
 // SET_SPINDLE_SPEED always appends a SPINDLE_ON message, and for a *stopped*
 // spindle (dir=0) it carries state=0 (emcSpindleSpeed does not force state), so
-// the machine is not enabled — it is a status-only no-op. stmak's spindle-on GMI
+// the machine is not enabled — it is a status-only no-op. stratuMAK's spindle-on GMI
 // call hardcodes state=1 (motctl_handlers.c h_spindle_on), so it cannot express
 // "set speed, stay off". Rather than enable the drive at zero speed and release
 // its brake, the canon drops the command entirely when dir=0 (see

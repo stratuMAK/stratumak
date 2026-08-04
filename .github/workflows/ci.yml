@@ -18,8 +18,8 @@ on:
 
 # Job gating policy for this fork (upstream runs everything on every push):
 #   - stmak + rip-and-test + static-checks: every push and PR — the merge gates.
-#   - rip-and-test-clang, htmldocs: post-merge pushes to stmak only.
-#   - package-gate: post-merge pushes to stmak + dispatch — builds the deb,
+#   - rip-and-test-clang, htmldocs: post-merge pushes to main only.
+#   - package-gate: post-merge pushes to main + dispatch — builds the deb,
 #     asserts package contents, requires lintian-clean, installs the result
 #     and boots a config. This is the job that catches install-layout rot:
 #     runtests exercises the RIP tree, where the layout differs.

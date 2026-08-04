@@ -2,7 +2,7 @@
 # Tool-table float fidelity: parse the input .tbl, read the tools back from the
 # tooltable REST API, and verify every offset/diameter/pocket/comment survived
 # the import -> sqlite -> JSON round-trip exactly.  (Classic checked this via
-# the Tk tooledit's float formatting; stmak has no Tk tooledit and no .tbl
+# the Tk tooledit's float formatting; stratuMAK has no Tk tooledit and no .tbl
 # writer, so we check the persist-backed REST representation instead.)
 import json
 import os

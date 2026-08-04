@@ -9,10 +9,10 @@
 // everything down at end-of-file.  There is no INI, no task, and no motion
 // controller; only the HAL/RTAPI environment plus the REST/WebSocket API server
 // (so external clients such as halcmd/halsampler/halstreamer can connect while
-// the file is being executed, matching the stmak server+client model).
+// the file is being executed, matching the stratuMAK server+client model).
 //
 // NOTE: the classic `loadusr`/`waitusr` commands (which spawned userspace
-// helper processes) are intentionally NOT supported.  In stmak every formerly
+// helper processes) are intentionally NOT supported.  In stratuMAK every formerly
 // userspace component is a cmod/gomod loaded via load/loadrt, and streaming
 // clients (halsampler/halstreamer) connect over the REST/WebSocket API from a
 // shell driver rather than being forked from inside a HAL file.
@@ -41,7 +41,7 @@ import (
 // environment, execute the file's commands sequentially, then tear everything
 // down.  The process exit status reflects whether every command succeeded.
 //
-// When resident is true, the behaviour instead matches the stmak server+client
+// When resident is true, the behaviour instead matches the stratuMAK server+client
 // model: after executing the file (which should set up components, wiring and
 // threads but NOT call `start`), the REST/WebSocket API server is started and
 // the process blocks until SIGINT/SIGTERM.  This lets a shell driver feed a
@@ -210,7 +210,7 @@ func (l *Launcher) halrunDispatch(line string) error {
 		return l.halrunLoad(norm)
 
 	case "loadusr", "waitusr":
-		return fmt.Errorf("%s is not supported: stmak has no userspace HAL "+
+		return fmt.Errorf("%s is not supported: stratuMAK has no userspace HAL "+
 			"components; load components with load/loadrt and drive streaming "+
 			"clients (halsampler/halstreamer) from a shell driver over the REST API", verb)
 

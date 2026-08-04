@@ -1,6 +1,6 @@
 #!/bin/bash
 # normalize.sh <capture> — canonicalize a motion-logger capture (either the
-# classic 2.9 motion-logger.c dialect or the stmak interceptor-cmod dialect) to
+# classic 2.9 motion-logger.c dialect or the stratuMAK interceptor-cmod dialect) to
 # the common canonical motion stream, for diffing. Writes to stdout.
 #
 #   1. canonicalize.awk : keep only the behavioural motion opcodes, strip
@@ -17,7 +17,7 @@
 # before the program (e.g. mountaindew's single expected.motion-logger); omit it
 # for pre-split program segments (e.g. basic's expected.g1). See canonicalize.awk.
 # Pass --units-factor 25.4 for a capture in inch machine units (the 2.9 oracle
-# on the current corpus); stmak captures are mm already (factor 1).
+# on the current corpus); stratuMAK captures are mm already (factor 1).
 set -u
 # Numeric parsing/printing must be locale-independent (decimal POINT): awk's
 # str->num coercion and sprintf are locale-sensitive.

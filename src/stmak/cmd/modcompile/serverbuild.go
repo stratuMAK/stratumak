@@ -528,7 +528,7 @@ func ensureOwnedDir(d string, uid, gid int) error {
 // ---------------------------------------------------------------------------
 
 // syncBuildTree regenerates the build tree from the two things that are
-// authoritative: the package-owned stmak sources, and the root-owned copy of
+// authoritative: the package-owned stratuMAK sources, and the root-owned copy of
 // each registered external module.
 //
 // Regenerating rather than accumulating is what makes an upgrade correct. The
@@ -540,7 +540,7 @@ func syncBuildTree() error {
 	tree := config.BuildTreeDir()
 
 	if _, err := os.Stat(pristine); err != nil {
-		return fmt.Errorf("the installed stmak sources are missing from %s: %w", pristine, err)
+		return fmt.Errorf("the installed stratuMAK sources are missing from %s: %w", pristine, err)
 	}
 	if err := os.MkdirAll(tree, 0755); err != nil {
 		return fmt.Errorf("creating the build tree %s: %w", tree, err)
@@ -550,7 +550,7 @@ func syncBuildTree() error {
 	// sources no longer contain is deleted — external/ included, which is
 	// repopulated from the registry immediately below.
 	if err := dirMirror(pristine, tree, nil); err != nil {
-		return fmt.Errorf("copying the stmak sources into %s: %w", tree, err)
+		return fmt.Errorf("copying the stratuMAK sources into %s: %w", tree, err)
 	}
 
 	mods, err := registeredModules()

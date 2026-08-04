@@ -1,7 +1,7 @@
 #!/bin/bash
 # Load the module(s) from setup.hal in a resident stmakd and count the pins
 # it created via halcmd. (The classic `halrun setup.hal` relied on the one-shot
-# `show pin` rendering to stdout, which the stmak -f executor does not do.) RESULT
+# `show pin` rendering to stdout, which the stratuMAK -f executor does not do.) RESULT
 # distinguishes a load that succeeds (server comes up) from one that is rejected
 # (server exits).
 stmakd -r -f setup.hal --serve >server.log 2>&1 &

@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_path.h — configuration path resolution for stmak C modules.
+// stmak_path.h — configuration path resolution for stratuMAK C modules.
 //
 // A path that comes from configuration — a `config=` argument, a filename
 // attribute inside a config file, an INI value — is a *server-side* path.  The

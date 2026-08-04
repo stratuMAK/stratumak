@@ -606,7 +606,7 @@ class MachineUnitsStat:
     """Opt-in read-through view over a Stat presenting linear quantities in the
     machine's configured units (e.g. inch) instead of the server's internal mm.
 
-    stmak is mm-everywhere: the base Stat (like the rest of the gmi API) reports
+    stratuMAK is mm-everywhere: the base Stat (like the rest of the gmi API) reports
     positions, offsets, limits, velocities and accelerations in millimetres.
     This view converts those on read to the machine's configured units — the
     units classic linuxcnc.stat() reports — for consumers (UIs, parity tests)

@@ -28,13 +28,13 @@ numeric conversion uses `strtod` (stops at the first non-numeric byte).
 
 ### I-1 (parity, HIGH — FIXED): backslash line-continuation was not implemented
 2.9 joins a physical line ending in `\` with the following line(s), up to
-`MAX_EXTEND_LINES` (20). stmak's parser treated every physical line separately, so a
+`MAX_EXTEND_LINES` (20). stratuMAK's parser treated every physical line separately, so a
 continued value was truncated at the `\` and the continuation lines were dropped as
 "unknown lines".
 
 - **Impact:** shipped configs use this — **158 non-comment lines across the config tree**,
   notably the `[DISPLAY]APP = sim_pin \` multi-arg launcher pattern (`ini_hal_demo.ini`,
-  the `ja_tests`, moveoff, qtdragon, …). stmak read `APP` as `sim_pin \` and silently lost
+  the `ja_tests`, moveoff, qtdragon, …). stratuMAK read `APP` as `sim_pin \` and silently lost
   every argument.
 - **Fix (`parser.go` `parseFile`):** a trailing `\` (tested on the untrimmed line, so
   `\`+whitespace is *not* a continuation — matching the C parser's last-byte test) joins
@@ -49,10 +49,10 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
 **factually false**: the 2.9 C parser never strips `;` inline.
 
 - **Impact:** `;` is legitimate **data** — `MDI_COMMAND = G0 Z25;X0 Y0;Z0` chains G-code
-  moves (standard user-button feature in Touchy/Axis/QtDragon/HALUI). stmak silently
+  moves (standard user-button feature in Touchy/Axis/QtDragon/HALUI). stratuMAK silently
   truncated it to `G0 Z25`. **36 shipped occurrences.** A grep of the whole config tree
   found **zero** configs using `;` as an inline comment, so the "feature" was pure downside.
-- **Why `#` stripping was kept:** stmak converts INI numbers with `strconv`/`fmt.Sscanf`.
+- **Why `#` stripping was kept:** stratuMAK converts INI numbers with `strconv`/`fmt.Sscanf`.
   `parseFloat` (`config.go`) uses `Sscanf("%f")`, which is already `strtod`-lenient, so a
   whitespace-preceded `#` on a numeric value (`MAX_VELOCITY = 5 # note`) is handled either
   way. Keeping the narrow, whitespace-preceded `#` strip reproduces 2.9's effective numeric
@@ -71,8 +71,8 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
 
 ### I-3 (parity, LOW — DOCUMENTED, not fixed)
 An `#INCLUDE`d file that *continues* a section without repeating its `[HEADER]` lands its
-keys in an anonymous section under stmak's structural parse, whereas 2.9's textual include
-expansion (`handle_includes`, mirrored by stmak's own `WriteExpanded`) would concatenate
+keys in an anonymous section under stratuMAK's structural parse, whereas 2.9's textual include
+expansion (`handle_includes`, mirrored by stratuMAK's own `WriteExpanded`) would concatenate
 them into the current section. Niche (includes normally carry their own headers); the fix
 has its own reordering risk. Left as a known LOW divergence.
 
@@ -172,7 +172,7 @@ it was untested: `paths_test.go` only asserted that 15 of the 24 vars default to
 - **C-1 (dead `-X`, FIXED):** `go build -ldflags -X pkg.Name=v` **silently does nothing**
   when `Name` does not exist in `pkg` — no warning, no error. The Submakefile injected
   `-X '$(STMAK_LDFLAGS_PKG).DefaultNmlFile=$(DEFAULT_NMLFILE)'`, and **no Go code has ever
-  declared `DefaultNmlFile`** (an NML-era leftover; stmak has no NML). Removed. Nothing read
+  declared `DefaultNmlFile`** (an NML-era leftover; stratuMAK has no NML). Removed. Nothing read
   it, so there is no behaviour change — the point is the class: a renamed or removed
   variable leaves the build green while the value it was meant to carry is empty at runtime.
 - **Tests:** `TestLdflagsInjectionTargetsExist` parses the Submakefile's `-X` flags and the

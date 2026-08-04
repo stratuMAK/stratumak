@@ -141,7 +141,7 @@ func TestHalLibReasons(t *testing.T) {
 	}
 }
 
-// TestShimReasons covers the refusals that happen in stmak's own shims rather
+// TestShimReasons covers the refusals that happen in stratuMAK's own shims rather
 // than in hal_lib. Those resolve names and parse values themselves, so hal_lib
 // never sees the failure — they need their own reasons, not hal_lib's.
 func TestShimReasons(t *testing.T) {

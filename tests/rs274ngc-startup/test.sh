@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# stmak persists interp params and the tool table in db/ (sqlite) — wipe it so
+# stratuMAK persists interp params and the tool table in db/ (sqlite) — wipe it so
 # each run imports the checked-in .tbl fresh and starts with clean params.
 rm -rf db
 # stmakd does not launch the [DISPLAY] program; drive it ourselves.

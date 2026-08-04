@@ -1,6 +1,6 @@
 #!/bin/bash
 rm -f sim.var*
-# stmak persists interp params and the tool table in db/ (sqlite), not in
+# stratuMAK persists interp params and the tool table in db/ (sqlite), not in
 # sim.var / the .tbl file — wipe it so each run starts fresh (the driver sets
 # a G54 rotation that would otherwise leak into the next run) and the copied
 # .tbl below is re-imported.

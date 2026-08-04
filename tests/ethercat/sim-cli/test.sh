@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — the `ethercat` REST CLI (M3).
+# stratuMAK EtherCAT integration test — the `ethercat` REST CLI (M3).
 #
 # Runs the diagnostic CLI against the resident server on a two-slave sim bus
 # (an output/RxPDO slave and an input/TxPDO slave) and asserts its output

@@ -250,7 +250,7 @@ func TestParseHalArgs(t *testing.T) {
 	}
 }
 
-// TestHalrunDispatch_RejectsUserspaceVerbs pins the intentional removal: stmak
+// TestHalrunDispatch_RejectsUserspaceVerbs pins the intentional removal: stratuMAK
 // has no userspace HAL components, so loadusr/waitusr must fail with an error
 // that says what to do instead, rather than being silently ignored.
 func TestHalrunDispatch_RejectsUserspaceVerbs(t *testing.T) {

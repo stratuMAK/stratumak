@@ -372,7 +372,7 @@ func TestJog_MDIBusyRejects(t *testing.T) {
 // TestAutoCommand_EnsureModeWhenIdle pins an INTENTIONAL divergence from C++
 // milltask. In an idle Manual mode, a RUN command auto-switches the machine to
 // AUTO (ensureMode) and proceeds; C++ instead rejects it ("Can't do that in
-// manual mode", emctaskmain.cc:1003-1007). This is the deliberate stmak
+// manual mode", emctaskmain.cc:1003-1007). This is the deliberate stratuMAK
 // "auto change mode" model: a mode selector on the command, not a precondition.
 // Verified: with no program loaded the error is ErrNoProgram (the mode switch
 // happened and the run path ran), NOT ErrWrongMode (rejected in manual).

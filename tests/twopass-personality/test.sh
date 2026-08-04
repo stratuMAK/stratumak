@@ -1,5 +1,5 @@
 #!/bin/bash
-# TWOPASS removed (stmak loads the same module again natively). Load the former
+# TWOPASS removed (stratuMAK loads the same module again natively). Load the former
 # two-pass HAL sequentially: gateA/gateB then gateC.
 . "$(dirname "$0")/../hal-stream-driver.sh"
 hal_start_server tp.hal

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Regression test for the iocontrol v2 abort wedge (Tier-1 hotspot #5, T1/T2).
 #
-# The stmak port of 2.9's free-running iocontrol loop turned the tool-change
+# The stratuMAK port of 2.9's free-running iocontrol loop turned the tool-change
 # handshake into a BLOCKING cgo busy-wait on the sequencer goroutine, and the v2
 # (iov2) port lost every abort escape. So an abort/estop issued while a tool
 # change was in progress — with the changer not (yet) asserting tool-changed —

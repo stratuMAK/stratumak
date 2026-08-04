@@ -95,8 +95,8 @@ block (the oracle's sources are untouched).
 
 ## Verification at close (2026-07-31)
 
-All 52 stmak packages green; classicladder package also `-race` clean; webapp
+All 52 stratuMAK packages green; classicladder package also `-race` clean; webapp
 gates green (vue-tsc, eslint, 79 vitest); both classicladder runtests pass
 against freshly regenerated 2.9 expectations (through real HAL, with size
 overrides exercising the new allocator); **full runtests: 253/253**; branch
-merges clean into `stmak`.
+merges clean into `main`.

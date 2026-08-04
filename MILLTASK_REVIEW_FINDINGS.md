@@ -54,7 +54,7 @@ matching 2.9 semantics; M3/M4 then applies it.
 **Implemented note:** verified against 2.9 — `SET_SPINDLE_SPEED` routes through
 `emcSpindleSpeed`, which (unlike `emcSpindleOn`) does NOT force `state=1`, so for a
 stopped spindle it appends a *status-only* `SPINDLE_ON s=0 speed=0` (drive stays
-off, brake untouched). stmak's `spindle_on` GMI hardcodes `state=1`
+off, brake untouched). stratuMAK's `spindle_on` GMI hardcodes `state=1`
 (`h_spindle_on`) and cannot express "set speed, stay off", so the canon drops the
 command entirely when `dir==0`. Machine behavior is identical to 2.9; the only
 divergence is the absent leading status-only `SPINDLE_ON` (documented in
@@ -115,7 +115,7 @@ after a failed handshake.
 ### [x] C7 — G96 CSS in inch mode is 25.4× too slow
 **Where:** `src/stmak/internal/task/canon.go:663-665` (spindleCommand CSS factor)
 **Problem:** the inch branch uses bare `k = 12/(2π)` while C++ computes
-`12/(2π)·speed·TO_EXT_LEN(25.4)` (`emccanon.cc:1930-1931`). stmak canon/motion work
+`12/(2π)·speed·TO_EXT_LEN(25.4)` (`emccanon.cc:1930-1931`). stratuMAK canon/motion work
 in mm and motion computes RPM as `css_factor / offset_mm` (control.c:2230-2234), so
 inch-mode css_factor is 25.4× too small → G20 G96 spindle runs ~25.4× slower than
 the commanded surface speed. Masked by the mm-only parity corpus and the mm-only

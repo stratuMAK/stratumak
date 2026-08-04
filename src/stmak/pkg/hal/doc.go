@@ -24,7 +24,7 @@ The typical flow for a HAL component is:
  4. Read and write pins as data flows through HAL
  5. Release the component with Exit() when it is torn down
 
-In stmak a component is normally owned by a compiled-in module (see package
+In stratuMAK a component is normally owned by a compiled-in module (see package
 stmak): the launcher calls the module's Start/Stop/Destroy, and pin data flows
 as HAL threads drive the connected components. The module does its per-cycle
 work (or runs its own worker goroutines) and releases the component from
@@ -117,7 +117,7 @@ HAL components written in Go integrate seamlessly with the rest of LinuxCNC:
 
 # Lifecycle and Shutdown
 
-pkg/hal itself runs no goroutines and installs no signal handlers. In stmak a
+pkg/hal itself runs no goroutines and installs no signal handlers. In stratuMAK a
 component is owned by a compiled-in module (package stmak); the launcher drives
 each module's Start/Stop/Destroy. A module stops its own worker goroutines in
 Stop() and releases its HAL component (Exit()) from Destroy(). Process-level

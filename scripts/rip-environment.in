@@ -68,7 +68,7 @@ LINUXCNCVERSION="@EMC2VERSION@"; export LINUXCNCVERSION
 LINUXCNC_NCFILES_DIR="@EMC2_NCFILES_DIR@"; export LINUXCNC_NCFILES_DIR
 LINUXCNC_TCL_DIR="@EMC2_TCL_DIR@"; export LINUXCNC_TCL_DIR
 LINUXCNC_EMCSH=@WISH@; export LINUXCNC_EMCSH
-# modcompile bakes in the INSTALLED stmak location, which a run-in-place tree
+# modcompile bakes in the INSTALLED stratuMAK location, which a run-in-place tree
 # does not have; point it at this tree's source instead. See config.StmakDir().
 STMAK_DIR=$EMC2_HOME/src/stmak; export STMAK_DIR
 PATH=@EMC2_BIN_DIR@:$EMC2_HOME/scripts:$EMC2_HOME/tcl:"$PATH"

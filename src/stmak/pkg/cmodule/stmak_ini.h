@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_ini.h — INI configuration access API for stmak C modules.
+// stmak_ini.h — INI configuration access API for stratuMAK C modules.
 //
 // Provides read-only access to the parsed INI file through callbacks
 // into the Go launcher.  Returned strings have arena lifetime — they

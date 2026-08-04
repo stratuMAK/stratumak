@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-// Package adsmodule registers the ADS/AMS protocol server module with the stmak
+// Package adsmodule registers the ADS/AMS protocol server module with the stratuMAK
 // module registry. When compiled into the stmakd binary, this package's
 // init() function registers a factory that creates ADS server instances in
 // response to HAL "load ads-server" commands.

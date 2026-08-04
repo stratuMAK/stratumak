@@ -1,5 +1,5 @@
 #!/bin/bash
-# compare.sh [target ...] — diff the stmak motion-logger gold against the vendored
+# compare.sh [target ...] — diff the stratuMAK motion-logger gold against the vendored
 # LinuxCNC 2.9.8 oracle (oracle-2.9/, populated by ./sync-oracle.sh) through the
 # shared normalizer. Self-contained: needs no 2.9 tree checked out.
 #
@@ -10,7 +10,7 @@
 #   ./compare.sh                 # all
 #   ./compare.sh basic           # basic/g0 basic/g1 basic/s
 #   ./compare.sh mountaindew m98m99-12
-#   ./compare.sh --self          # determinism check: stmak gold vs itself (must be PARITY)
+#   ./compare.sh --self          # determinism check: stratuMAK gold vs itself (must be PARITY)
 #
 # Exit 0 = every requested target reached parity; 1 = at least one diverged.
 # Surviving diffs are REAL milltask behaviour to adjudicate — see PARITY_FINDINGS.md.
@@ -56,16 +56,16 @@ for row in "${PARITY_TARGETS[@]}"; do
   if [ "$SELF" = 1 ]; then old="$new" old_units=1; else old="$ORACLE/$oracle_rel" old_units="$units"; fi
 
   if [ ! -f "$old" ]; then printf 'SKIP        %-14s (missing oracle: %s)\n' "$label" "$oracle_rel"; continue; fi
-  if [ ! -f "$new" ]; then printf 'SKIP        %-14s (missing stmak gold: %s)\n' "$label" "$stmak_rel"; continue; fi
+  if [ ! -f "$new" ]; then printf 'SKIP        %-14s (missing stratuMAK gold: %s)\n' "$label" "$stmak_rel"; continue; fi
 
   na="$(mktemp)"; nb="$(mktemp)"
-  # Oracle side: scale machine-unit lengths to mm; stmak side is mm already.
+  # Oracle side: scale machine-unit lengths to mm; stratuMAK side is mm already.
   "$HERE/normalize.sh" $strip --units-factor "$old_units" "$old" > "$na"
   "$HERE/normalize.sh" $strip --units-factor 1 "$new" > "$nb"
   if diff -q "$na" "$nb" >/dev/null; then
     printf 'PARITY:     %-14s (%s motion commands)\n' "$label" "$(wc -l < "$na")"
   else
-    printf 'DIVERGENCE: %-14s (< 2.9 milltask   > stmak milltask)\n' "$label"
+    printf 'DIVERGENCE: %-14s (< 2.9 milltask   > stratuMAK milltask)\n' "$label"
     diff --label "2.9/$label" --label "stmak/$label" -u "$na" "$nb" | sed 's/^/    /'
     rc=1
   fi

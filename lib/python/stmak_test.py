@@ -1,4 +1,4 @@
-"""Shared synchronisation helpers for the stmak runtests suite.
+"""Shared synchronisation helpers for the stratuMAK runtests suite.
 
 Why this module exists
 ----------------------
@@ -313,7 +313,7 @@ class Hal:
     """Minimal halcmd-backed stand-in for the `hal` module.
 
     The classic tests drove a userspace HAL component to poke the io signals;
-    under stmak those signals are reached with halcmd instead. Component
+    under stratuMAK those signals are reached with halcmd instead. Component
     construction is a no-op — only item access does real work.
     """
 
@@ -349,7 +349,7 @@ def wait_file_stable(path, timeout=None, settle=0.15, samples=3):
     """Wait for `path` to exist and stop growing, then return its contents.
 
     For logs a *different* process appends to (motion-logger, halsampler, the
-    stmak server log). The suite used to sleep ~0.2s and read, which truncates
+    stratuMAK server log). The suite used to sleep ~0.2s and read, which truncates
     the tail whenever the writer is behind.
 
     CONTRACT, because this one is a heuristic and the subtlety bites: "finished"
@@ -416,7 +416,7 @@ def _count_in(path, text):
 def install_constants(module=None):
     """Publish gmi's constants on the `linuxcnc` module namespace.
 
-    linuxcnc.so is a deprecation stub under stmak: linuxcnc.command/stat/
+    linuxcnc.so is a deprecation stub under stratuMAK: linuxcnc.command/stat/
     error_channel raise, directing callers to gmi. But the tests (and
     linuxcnc_util) still spell constants `linuxcnc.STATE_ON`, so the name has
     to carry them. Copying them onto the real module object rather than a

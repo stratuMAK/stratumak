@@ -1,11 +1,11 @@
-# stmak units consistency fix — spec / handoff
+# stratuMAK units consistency fix — spec / handoff
 
 Status: **DONE** on branch `verify-motion-logger` (2026-07-14, two passes). All
 linear length/velocity/accel/jerk config values are converted machine-units->mm
 at load with a linear-only (axis-index / joint TYPE) guard; inch self-golds
 re-captured; parity harness updated. A second pass fixed the canon's startup
 modal units (G20 on inch machines — the first pass's "2.9 is unit-inconsistent"
-parity adjudication was a misdiagnosis of this stmak bug), the tool-length-offset
+parity adjudication was a misdiagnosis of this stratuMAK bug), the tool-length-offset
 program-units conversion, and restored the full dynamics comparison in the
 parity harness. See "Implementation notes" at the bottom, §5 subsection in
 particular. Original brief preserved below.
@@ -18,7 +18,7 @@ complete cold-start brief so no re-derivation is needed.
 
 ## 1. The bug (root cause)
 
-stmak runs the motion controller (`motmod`, the same C module as 2.9) in
+stratuMAK runs the motion controller (`motmod`, the same C module as 2.9) in
 **millimetres internally**: the canon converts G-code targets to mm
 (`CanonState.fromProg` × `unitScale`, `canon.go:139-159`) and emits mm to
 `SetLine`; position feedback (`s.actual_position`) is mm; the whole gmi API is mm.
@@ -55,7 +55,7 @@ Two coherent end states; pick one before coding.
 
 **A. mm-everywhere (RECOMMENDED).** Finish what the partial fix started: convert
 every *linear* length/velocity/accel/jerk config value from machine units to mm
-at load time. Localized to `config.go`. stmak is already mm-internal to the bone
+at load time. Localized to `config.go`. stratuMAK is already mm-internal to the bone
 (positions, feedback, gmi API), so this flows with the grain.
 - Cost: SET_LINE `vel`/`ini_maxvel`/`acc` output changes (×25.4) for inch
   configs → re-capture those golds; and the parity-vs-2.9 harness must
@@ -65,9 +65,9 @@ at load time. Localized to `config.go`. stmak is already mm-internal to the bone
 in machine units like 2.9: apply `TO_EXT_LEN` (mm→machine) to move targets in the
 canon, **revert** the position-limit scaling, and convert position feedback back
 to mm at the stat boundary. Parity stays numerically clean and SET_LINE golds
-don't churn — but it fights stmak's mm-internal design across the whole emit +
+don't churn — but it fights stratuMAK's mm-internal design across the whole emit +
 feedback path. Much larger blast radius. Only choose this if a deliberate
-decision is made to re-base stmak on machine-units internally.
+decision is made to re-base stratuMAK on machine-units internally.
 
 The rest of this spec assumes **A**.
 
@@ -101,9 +101,9 @@ is effectively 1 via `angularUnits`; do NOT apply the linear factor).
 
 **Determining linearity**
 - Axes: by axis index / COORDINATES letter — `X,Y,Z,U,V,W` (indices 0,1,2,6,7,8)
-  are linear; `A,B,C` (indices 3,4,5) are angular. stmak already has the axis
+  are linear; `A,B,C` (indices 3,4,5) are angular. stratuMAK already has the axis
   letter/index; add a small `axisIsLinear(index)` helper.
-- Joints: `[JOINT_n]TYPE = LINEAR|ANGULAR` (default LINEAR). stmak does **not**
+- Joints: `[JOINT_n]TYPE = LINEAR|ANGULAR` (default LINEAR). stratuMAK does **not**
   currently read `TYPE` — add it. (A joint's linearity ultimately follows the
   axis it drives, but reading `TYPE` matches the C config and is simplest.)
 
@@ -178,14 +178,14 @@ already converts. Only the raw INI→motion config path is wrong.
 
 ## 5. Parity harness (`tests/motion-logger/parity-vs-2.9`) — unit normalization
 
-Under mm-everywhere, stmak emits SET_LINE `x/y/z/u/v/w` and `vel/ini_maxvel/acc`
+Under mm-everywhere, stratuMAK emits SET_LINE `x/y/z/u/v/w` and `vel/ini_maxvel/acc`
 in **mm** while the vendored 2.9 oracle is in **machine units (inch)**. For inch
 configs they now differ by 25.4× (same physical motion). Add a normalization step
 to `canonicalize.awk`/`normalize.sh` so the comparison stays meaningful:
 
 - Multiply the **2.9 (oracle) side's linear** SET_LINE fields (x,y,z,u,v,w and
   vel,ini_maxvel,acc) by the config's linear factor (25.4 for inch) to bring them
-  to mm — OR divide stmak's by it. Leave A/B/C untouched (angular, unscaled both
+  to mm — OR divide stratuMAK's by it. Leave A/B/C untouched (angular, unscaled both
   sides). Positions like `turn`, `id` (already stripped), `motion_type` are not
   lengths.
 - Simplest implementation: a per-target `unit_factor` (1.0 for mm configs, 25.4
@@ -197,7 +197,7 @@ to `canonicalize.awk`/`normalize.sh` so the comparison stays meaningful:
   loop divergence) should re-appear unchanged; anything new is real.
 
 Note: the **self-regression** runtests golds (`tests/motion-logger/*/expected.*`)
-just get re-captured (see §6) — no normalizer needed there, they compare stmak to
+just get re-captured (see §6) — no normalizer needed there, they compare stratuMAK to
 stmak.
 
 ---
@@ -262,7 +262,7 @@ Convention **A (mm-everywhere)** as recommended. Changes:
   (dimensionless), and anything the canon already converts are left unscaled, as §4 said.
 - `inihal.go`: **no functional change** — its length pins are stmak-internal mm by
   design (traj pins initialised from the now-mm `t.maxVelocity`; joint/axis limit
-  pins are HAL-driven and pushed raw to mm-internal motion; no stmak code feeds INI
+  pins are HAL-driven and pushed raw to mm-internal motion; no stratuMAK code feeds INI
   machine units into them). Added a doc comment stating the mm contract so the bug
   isn't reintroduced. If you ever add INI->pin substitution, it must emit mm.
 - Tests: `internal/task/units_test.go` covers linear-scaled vs angular-unscaled
@@ -276,14 +276,14 @@ displacements against inch/s limits", basic/g1 move 1 `1.66296` vs `2.49444`,
 ratio 1.5) and stripped them from the diff. **That was a misdiagnosis.** 2.9's
 blend is unit-consistent — `getStraightVelocity` applies `FROM_EXT_LEN` to the
 axis limits and `toExtVel`/`TO_EXT_LEN` on emission — and its INIT_CANON starts
-the interpreter in the MACHINE's modal units (G20 on inch). stmak's canon
+the interpreter in the MACHINE's modal units (G20 on inch). stratuMAK's canon
 hardcoded its startup modal units to mm, so the same unit-less corpus programs
-ran as inches in 2.9 and as millimetres in stmak: physically different moves,
+ran as inches in 2.9 and as millimetres in stratuMAK: physically different moves,
 25.4× apart, coincidentally printing identical position numbers (which is why
 geometry "matched" while dynamics didn't — both trees blended correctly, for
 different moves). Verified arithmetically: a consistent G20 blend reproduces
 2.9's `1.66296`/`415.74` exactly; a consistent G21 blend reproduces the interim
-stmak `2.49444`/`623.61` exactly.
+stratuMAK `2.49444`/`623.61` exactly.
 
 Fixes (this branch, follow-up commit):
 - `canon.go`: `machineCanonUnits(linearUnits)` — `NewCanon`, `InitCanon` and
@@ -318,7 +318,7 @@ Fixes (this branch, follow-up commit):
 (trailing ABORT stripped), `interp/m98m99/12-M99-endless-main-program`. All pass.
 
 ### §7 test fallout — mm HAL pins
-stmak feeds motmod mm, so HAL `joint.N.pos*` pins are mm (not 2.9's inch). Three
+stratuMAK feeds motmod mm, so HAL `joint.N.pos*` pins are mm (not 2.9's inch). Three
 `tests/motion` inch tests that read those pins and compared against inch INI/values
 broke — the fix is correct; the tests assumed machine-unit pins. Made them
 "mm-aware" (interpret the HAL values as mm) WITHOUT migrating the test:

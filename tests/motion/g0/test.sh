@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Ported to stmak: run a resident stmakd, capture motion samples with
+# Ported to stratuMAK: run a resident stmakd, capture motion samples with
 # halsampler, and drive the machine with the rsh->gmi translator instead of
 # piping linuxcncrsh commands into `nc localhost 5007`.
 

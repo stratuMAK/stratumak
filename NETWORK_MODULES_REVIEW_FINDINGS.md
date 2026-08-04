@@ -342,8 +342,8 @@ control**, is an OPEN design question, and until it lands the surface **binds lo
 Key decisions: (a) **robustness is intrinsic** — the crash/DoS hardening above stands regardless
 of binding, because the endpoints will be exposed eventually; (b) the auth *mechanism* (authN,
 TLS, coarse allow/deny) is an **external** reverse-proxy / API-gateway (a product, not built into
-stmak); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to stmak's
-command semantics — the expected split is gateway→verified-identity, stmak enforces per-command
+stratuMAK); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to stratuMAK's
+command semantics — the expected split is gateway→verified-identity, stratuMAK enforces per-command
 permissions at `handleAPIRequest`/`handleCall` (one thin app-side seam, future work); (d) **N1
 stays required** even with a gateway — cross-site WS hijacking is a browser-origin attack the
 gateway can't see. Belongs in the Safety-boundary / security-model doc.

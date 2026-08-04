@@ -1,5 +1,5 @@
-/* Minimal GMI client — a compile/link check against the stmak control-API
- * client library (libgmi).  This is the stmak replacement for the classic
+/* Minimal GMI client — a compile/link check against the stratuMAK control-API
+ * client library (libgmi).  This is the stratuMAK replacement for the classic
  * nml-position-logger build test, which linked the now-removed NML client
  * libs (-lnml -llinuxcnc).  Like the classic test, this is built to /dev/null
  * and never executed; it only verifies that an external program can compile

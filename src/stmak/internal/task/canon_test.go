@@ -211,7 +211,7 @@ func TestCanon_SpindleOnOff(t *testing.T) {
 	// S1000 issued *before* M3 (dir=0) stores the speed only — it does NOT emit a
 	// spindle command. The C SET_SPINDLE_SPEED does append a SPINDLE_ON here, but
 	// with state=0 (emcSpindleSpeed does not force state), so it is a status-only
-	// no-op that leaves the drive off. stmak's spindle-on GMI hardcodes state=1
+	// no-op that leaves the drive off. stratuMAK's spindle-on GMI hardcodes state=1
 	// (h_spindle_on), so emitting the command would enable the drive at zero speed
 	// and release its brake; the canon drops it instead (see SetSpindleSpeed).
 	// Machine behavior matches 2.9; only the leading no-op command is absent:

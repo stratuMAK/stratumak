@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_api.h — Dynamic API registry callbacks for stmak C modules.
+// stmak_api.h — Dynamic API registry callbacks for stratuMAK C modules.
 //
 // Provides a generic API registration and lookup mechanism.  C modules
 // register typed callback tables (defined in generated *_api.h headers)

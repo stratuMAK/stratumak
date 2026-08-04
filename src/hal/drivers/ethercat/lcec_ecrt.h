@@ -6,7 +6,7 @@
  * The master library declares its documented realtime interface with
  * ECRT_RT_ATTR (master @c include/ecrt.h -> @c ecrt_rt.h), an overrideable
  * annotation macro.  Defining it as STMAK_NONBLOCKING @em before @c ecrt.h
- * is first pulled hands those annotations to stmak's function-effects check
+ * is first pulled hands those annotations to stratuMAK's function-effects check
  * ("make rt-effects-check"): the documented rt_safe subset
  * (send/receive/domain/DC/state + the real/lreal PDO accessors) verifies
  * when called from RT context, and any other ecrt call (SDO/EoE/config)

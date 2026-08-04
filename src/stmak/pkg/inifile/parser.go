@@ -184,7 +184,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 // character of a line, and a value is everything after '=' (trailing whitespace
 // trimmed). Numeric lookups nonetheless tolerate a trailing "# comment" because
 // the C code converts with strtod, which stops at the first non-numeric byte.
-// stmak reproduces exactly that tolerance — and no more — by truncating a value
+// stratuMAK reproduces exactly that tolerance — and no more — by truncating a value
 // at a whitespace-preceded '#' only:
 //
 //   - '#' is honoured only when preceded by whitespace (" #" or "\t#"), so

@@ -1,7 +1,7 @@
 #!/bin/bash -e
 # remap-io: verify M62-M68 can be remapped through NGC subs and that the remap
 # body can recursively call the original M-code.  The classic test also ran a
-# Python-remap variant (test-py.ini); stmak removed the embedded Python interp, so
+# Python-remap variant (test-py.ini); stratuMAK removed the embedded Python interp, so
 # only the NGC variant remains (the Python remap is a genuine removal).
 . ../../stmak-driver.sh
 export PYTHONUNBUFFERED=1

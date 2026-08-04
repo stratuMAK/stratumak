@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-// Package mqttbridge registers the MQTT bridge module with the stmak module
+// Package mqttbridge registers the MQTT bridge module with the stratuMAK module
 // registry. It creates HAL pins from an XML config and bridges them
 // bidirectionally to an MQTT broker.
 //

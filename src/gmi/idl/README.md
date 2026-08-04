@@ -1,4 +1,4 @@
-# STMAK Interface Definition (GMI)
+# stratuMAK Interface Definition (GMI)
 
 Machine-readable API definitions for LinuxCNC's inter-module communication.
 

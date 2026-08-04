@@ -36,7 +36,7 @@ var (
 	// For RIP this is src/stmak/pkg/cmodule, for installed it's include/stratumak/cmod.
 	EMC2CmodIncludeDir string
 
-	// EMC2StmakDir is the directory containing the stmak Go module source,
+	// EMC2StmakDir is the directory containing the stratuMAK Go module source,
 	// always baked as the INSTALLED location ($(datadir)/stratumak/stmak).
 	// External Go modules need it to compile against the same module.
 	//
@@ -132,7 +132,7 @@ var (
 // to out-of-tree cmod projects as the STMAK_DIR make variable.
 const StmakDirEnv = "STMAK_DIR"
 
-// StmakDir returns the stmak Go module source directory: $STMAK_DIR when set,
+// StmakDir returns the stratuMAK Go module source directory: $STMAK_DIR when set,
 // otherwise the installed location baked in at build time.
 //
 // The build and a run-in-place tree both set $STMAK_DIR because the baked value
@@ -157,7 +157,7 @@ func StateDir() string { return EMC2StateDir }
 // registered external module's source, keyed by module name.
 //
 // This, not the build tree, is the source of truth: the build tree is
-// regenerated from the pristine stmak sources plus these copies, so "is the
+// regenerated from the pristine stratuMAK sources plus these copies, so "is the
 // build tree trustworthy" reduces to "did every entry here arrive through a
 // privileged, attributable step". Empty when StateDir is.
 func ModuleRegistryDir() string {
@@ -198,7 +198,7 @@ func PristineServerPath() string {
 }
 
 // DerivedBuild reports whether a rebuild of stmakd must go through the
-// derived build tree under StateDir rather than compiling the stmak sources
+// derived build tree under StateDir rather than compiling the stratuMAK sources
 // where they sit.
 //
 // $STMAK_DIR wins: it names a tree the caller has chosen outright — the build

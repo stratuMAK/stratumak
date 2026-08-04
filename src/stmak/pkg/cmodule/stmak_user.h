@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_user.h — Userspace module helpers for stmak C modules.
+// stmak_user.h — Userspace module helpers for stratuMAK C modules.
 //
 // Provides an eventfd-based exit notification mechanism that integrates
 // cleanly with select()/poll()/epoll() main loops.

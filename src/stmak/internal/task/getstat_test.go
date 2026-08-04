@@ -61,7 +61,7 @@ func newRichTestTask() (*Task, *richMockStatus) {
 				{Homed: 0, Enabled: 1, PosFb: 30.1, VelCmd: 1.0, MinPosLimit: -50, MaxPosLimit: 50, OnPosLimit: 1},
 			},
 			Spindles: [8]motstat.SpindleStatus{
-				// State=1 => running. stmak derives Enabled from this explicit
+				// State=1 => running. stratuMAK derives Enabled from this explicit
 				// motion state field, unlike C++ which infers enabled=speed!=0.
 				{Speed: 1000, Direction: 1, State: 1, Brake: 0, Homed: 1, Scale: 1.0},
 			},
@@ -157,7 +157,7 @@ func TestGetStat_Positions(t *testing.T) {
 	bringUp(t, task)
 
 	// Tool offset is reported from the canon (task) side, not motion status —
-	// stmak folds it into coordinate math and never sends it to motion. Set it
+	// stratuMAK folds it into coordinate math and never sends it to motion. Set it
 	// distinct from the motion mock's ms.ToolOffset (Z=50) so the assertion
 	// below proves the canon source rather than the (now unused) motion echo.
 	task.canon.state.toolOffset = Pose{Z: 42.0}

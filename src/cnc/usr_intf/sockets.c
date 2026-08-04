@@ -214,7 +214,7 @@ int sockSend(int fd, const void *src, size_t size)
     // so we have to sent it in a loop like this
 #ifndef WINSOCK2
     // MSG_NOSIGNAL, not write(): writing to a display that has gone away
-    // raises SIGPIPE, and this code now runs inside the stmak server process,
+    // raises SIGPIPE, and this code now runs inside the stratuMAK server process,
     // where the default disposition would take the whole controller down.
     int sent = send(fd, ((const char *) src) + offset, size - offset, MSG_NOSIGNAL);
 #else

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak gmi REST/WS client (from the removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (from the removed NML linuxcnc module).
 
 import gmi
 from gmi.constants import *
@@ -33,7 +33,7 @@ if s.g5x_index != 1:
     retval = 1
 
 # The tool table Z offset is 0.1234 inch; the gmi stat API reports tool
-# offsets in stmak's internal millimetres (mm-everywhere convention, see
+# offsets in stratuMAK's internal millimetres (mm-everywhere convention, see
 # src/stmak/UNITS_MM_CONSISTENCY_FIX.md).
 expected = 0.1234 * 25.4
 if math.fabs(s.tool_offset[2] - expected) > 0.000001:

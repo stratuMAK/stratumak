@@ -3,7 +3,7 @@
 #
 # Background: the classic sampler/streamer HAL tests used
 #   loadusr -w sh <feed-streamer> ; start ; loadusr -w halsampler -n N
-# from inside a self-contained test.hal.  stmak has no userspace HAL components,
+# from inside a self-contained test.hal.  stratuMAK has no userspace HAL components,
 # so those tests now run a resident stmakd and drive it with the
 # halstreamer/halsampler REST/WebSocket clients from this shell driver.
 #
@@ -17,7 +17,7 @@
 #     hal_run                         # start threads, wait for the samples, stop
 #
 # The critical ordering: halsampler must connect before 'halcmd start', because
-# stmak's sampler stream delivers live samples from connect time (it is not a
+# stratuMAK's sampler stream delivers live samples from connect time (it is not a
 # replay of the sampler component's FIFO history).
 
 # Deadlines below honour STMAK_TEST_TIMEOUT_SCALE via stmak_scale.

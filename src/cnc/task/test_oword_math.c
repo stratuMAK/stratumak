@@ -4,7 +4,7 @@
  *
  * Re-expression of the classic tests/remap/oword-pycall test, which exercised
  * Python O-word subroutines (o<square>, o<multiply>) with fixed and variable
- * argument counts and return values surfaced as #<_value>.  stmak removed the
+ * argument counts and return values surfaced as #<_value>.  stratuMAK removed the
  * embedded Python interpreter, so the same is done via the C interp_ext
  * register_oword mechanism:
  *

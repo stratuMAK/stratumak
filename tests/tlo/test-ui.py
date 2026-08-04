@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# --- stmak compatibility shim (prepended) --------------------------------------
-# Makes the original NML-based driver body run against the stmak REST/WS API:
+# --- stratuMAK compatibility shim (prepended) --------------------------------------
+# Makes the original NML-based driver body run against the stratuMAK REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
@@ -119,7 +119,7 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    # stmak: the emcerror WS watch destructively flushes queued messages and the
+    # stratuMAK: the emcerror WS watch destructively flushes queued messages and the
     # push loop suppresses byte-identical consecutive payloads, so a DEBUG
     # display that repeats the previous one within a watch tick is LOST (see
     # PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
@@ -209,7 +209,7 @@ h.newpin("tool-number", hal.HAL_S32, hal.HAL_IN)
 
 h.ready() # mark the component as 'ready'
 
-# stmak: no postgui.hal — the shim's h[...] reads the HAL signals directly
+# stratuMAK: no postgui.hal — the shim's h[...] reads the HAL signals directly
 # (the classic python-ui pins don't exist), so there is nothing to net.
 
 
@@ -305,8 +305,8 @@ while (time.time() - start) < 2:
 
 c.mdi('g43.2')
 c.wait_complete()
-# stmak: the error arrives via the WS error channel within a watch tick — poll
-# for it (classic NML delivered synchronously), and match as substring (stmak
+# stratuMAK: the error arrives via the WS error channel within a watch tick — poll
+# for it (classic NML delivered synchronously), and match as substring (stratuMAK
 # wraps interp errors with the execute context).
 error = None
 start = time.time()

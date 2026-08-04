@@ -51,7 +51,7 @@ c.abort()
 c.wait_complete()
 
 # The program was aborted in g55; check.
-# stmak: the WS stat watch delivers with up to a few hundred ms lag — poll
+# stratuMAK: the WS stat watch delivers with up to a few hundred ms lag — poll
 # until the post-abort state arrives instead of judging the first snapshot.
 deadline = time.time() + 2.0
 while time.time() < deadline:
@@ -66,7 +66,7 @@ if not 550 in s.gcodes:
 else:
     print("Current coordinate system is G55")
 
-# stmak reports positions and offsets in millimetres (mm-everywhere
+# stratuMAK reports positions and offsets in millimetres (mm-everywhere
 # convention); the program/expectations here are inch.
 MM = 25.4
 

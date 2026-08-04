@@ -65,7 +65,7 @@ func stalenessFixture(t *testing.T, builtVersion, installedVersion string, local
 }
 
 // TestWarnIfStaleReportsAnOldLocalBuild is the case the stamp exists for: a
-// server rebuilt against a previous release's stmak, still running after the
+// server rebuilt against a previous release's stratuMAK, still running after the
 // package was upgraded around it.
 func TestWarnIfStaleReportsAnOldLocalBuild(t *testing.T) {
 	out := stalenessFixture(t, "0.1.0", "0.2.0", true)

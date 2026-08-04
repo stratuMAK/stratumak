@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API. halui.mdi-command-NN and halui.mode.is-* are
+# Ported to the stratuMAK REST/WS API. halui.mdi-command-NN and halui.mode.is-* are
 # driven directly via halcmd (the userspace python-ui HAL component + postgui
 # nets are gone); task state/mode via the gmi client.
 

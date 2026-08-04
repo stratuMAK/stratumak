@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Smoke-test driver for the installed package, ported to the stmak REST/WS API:
+# Smoke-test driver for the installed package, ported to the stratuMAK REST/WS API:
 # it uses the `gmi` client package instead of the removed NML `linuxcnc` python
 # module. Positions come from gmi.Stat; the custom `motion.analog-out-00`
 # counter is read with `halcmd getp` (there is no userspace HAL component

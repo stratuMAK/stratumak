@@ -4,7 +4,7 @@
 # in test-ui.py) is silently swallowed.
 set -e
 
-# stmak full-instance test: milltask -> motion-logger interceptor -> real motmod.
+# stratuMAK full-instance test: milltask -> motion-logger interceptor -> real motmod.
 # The task run loops the program 3x (M99 endless, counter-terminated); test-ui.py
 # diffs out.motion-logger vs expected.motion-logger (on stderr). Then the same
 # program is run in the standalone rs274 interpreter, whose stdout is compared

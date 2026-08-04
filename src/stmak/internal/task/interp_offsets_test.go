@@ -280,7 +280,7 @@ func checkWorkOffsetParams(t *testing.T, f *interpFixture, csX int, want [6]floa
 //
 // Note the program is forced to G21 in both cases rather than relying on the
 // startup default. An inch machine starts the interpreter in G20 — that is
-// correct and is 2.9 parity, not a stmak quirk: 2.9's INIT_CANON derives
+// correct and is 2.9 parity, not a stratuMAK quirk: 2.9's INIT_CANON derives
 // canon.lengthUnits from [TRAJ]LINEAR_UNITS the same way machineCanonUnits
 // does, and Interp::init reads it back via get_external_length_unit_type().
 // Without the explicit G21 the inch case would run an inch program on an inch
@@ -720,7 +720,7 @@ func TestToolTableWriteVisibleBeforeDrain(t *testing.T) {
 }
 
 // PARAMETER_FILE is optional: with the persist-backed parameter I/O backend
-// (the stmak default) numbered parameters live in the persistence service, so
+// (the stratuMAK default) numbered parameters live in the persistence service, so
 // ini_load must succeed when [RS274NGC]PARAMETER_FILE is absent.
 func TestIniLoadAccessor_ParameterFileOptional(t *testing.T) {
 	ini, err := inifile.ParseString("[EMC]\nMACHINE=noparamfile\n" +

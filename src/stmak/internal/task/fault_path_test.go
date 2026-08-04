@@ -241,7 +241,7 @@ func TestEstopReset_RunsAbortSequence(t *testing.T) {
 	task, mot, io := newRecordingTask()
 	ri := &recordingInterp{}
 	// abortInterp must discard ON_ABORT_COMMAND canon output on every abort
-	// path (stmak never replays abort-handler motion). The hook runs on the
+	// path (stratuMAK never replays abort-handler motion). The hook runs on the
 	// goroutine that set the flag, so the unguarded read is safe.
 	var discardDuringAbort atomic.Bool
 	ri.onAbort = func() { discardDuringAbort.Store(task.canon.discard) }

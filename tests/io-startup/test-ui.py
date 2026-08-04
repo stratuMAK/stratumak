@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak model: read the startup tool number directly from
-# iocontrol.tool-number via halcmd (stmak has no userspace HAL components, so the
+# Ported to the stratuMAK model: read the startup tool number directly from
+# iocontrol.tool-number via halcmd (stratuMAK has no userspace HAL components, so the
 # old test-ui HAL component + postgui net are gone).
 
 import subprocess

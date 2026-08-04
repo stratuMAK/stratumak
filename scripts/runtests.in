@@ -227,7 +227,7 @@ run_tests () {
 	fi
 	NUM=$(($NUM+1))
 	export TEST_DIR=$(readlink -f $testdir)
-	# stmak persists interp params / tool table / halscope state in a per-
+	# stratuMAK persists interp params / tool table / halscope state in a per-
 	# config db/ (sqlite). Classic tests assume a fresh parameter file per
 	# run — wipe the persistence dir so state (G10 offsets/rotations, tool
 	# table edits, spindle snapshots) cannot leak between runs.

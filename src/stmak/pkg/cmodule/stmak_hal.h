@@ -1,4 +1,4 @@
-// stmak_hal.h — HAL component/pin/param/function API for stmak C modules.
+// stmak_hal.h — HAL component/pin/param/function API for stratuMAK C modules.
 //
 // The numeric constants in this header (types, directions, name lengths)
 // mirror hal.h by John Kasunich. License of hal.h: LGPL Version 2.

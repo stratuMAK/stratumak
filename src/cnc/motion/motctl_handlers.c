@@ -46,7 +46,7 @@ typedef struct motctl_ctx {
 
    The WHOLE write+ack cycle is serialized by mc->send_mtx: the command slot is
    single-entry and the RT side consumes it once per servo cycle, so two
-   concurrent senders (stmak has several — the sequencer goroutine, command
+   concurrent senders (stratuMAK has several — the sequencer goroutine, command
    handlers, the monitor's inihal push) could otherwise overwrite each other's
    command before RT read it — the loser's command is silently dropped and its
    sender burns the full comm_timeout waiting for an echo that never comes

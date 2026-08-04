@@ -2,7 +2,7 @@
 #
 # Based on tests/single-step/
 #
-# On stmak, `stmakd` is the server: it serves GMI until signaled and does
+# On stratuMAK, `stmakd` is the server: it serves GMI until signaled and does
 # not launch [DISPLAY] programs (UIs are clients). So: start the server in
 # the background, wait for its REST endpoint, drive the test with the UI
 # client, then shut the server down. The test verdict is the client's.
@@ -48,7 +48,7 @@ kill $SERVER_PID 2>/dev/null || true
 wait $SERVER_PID 2>/dev/null || true
 
 if [ "$RC" != 0 ]; then
-    echo "error: stmak test driver failed (rc=$RC)"
+    echo "error: stratuMAK test driver failed (rc=$RC)"
     exit 1
 fi
 echo "success: stmakd ran successfully."

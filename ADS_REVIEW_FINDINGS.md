@@ -5,7 +5,7 @@
 `internal/adsmodule` (~163). Phase 2 (field I/O) per `PRODUCTION_READINESS.md`.
 
 The ADS server implements the Beckhoff **ADS/AMS over TCP** protocol so a TwinCAT HMI can
-read/write HAL pins. It is **net-new stmak code** (no LinuxCNC 2.9 parity oracle), so this
+read/write HAL pins. It is **net-new stratuMAK code** (no LinuxCNC 2.9 parity oracle), so this
 review is correctness / concurrency / robustness / protocol-safety, not parity. **There is no
 end-to-end runtests case** — coverage is unit-test-only (symbols 46, config 43, layout 14,
 xmlgen 17), and none of the existing tests exercise malformed / adversarial packets.

@@ -142,7 +142,7 @@ func injectedVars(t *testing.T) map[string]bool {
 // variable leaves the build green while the value it was supposed to carry is
 // empty at runtime. (This test was written after finding exactly that: the
 // Submakefile injected a `DefaultNmlFile` that no Go code has ever declared, an
-// NML-era leftover that stmak does not use.)
+// NML-era leftover that stratuMAK does not use.)
 func TestLdflagsInjectionTargetsExist(t *testing.T) {
 	declared := declaredVars(t)
 	injected := injectedVars(t)

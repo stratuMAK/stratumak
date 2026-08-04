@@ -1,4 +1,4 @@
-# `motion-logger` for stmak — interceptor design
+# `motion-logger` for stratuMAK — interceptor design
 
 Status: **Step 1 DONE.** The interceptor cmod is built (`cmod/motion-logger.so`)
 and validated end-to-end. Of the 6 tests: 3 green via runtests
@@ -8,7 +8,7 @@ independent stmak/gmi feature gaps (NOT interceptor issues):
 - abort/on_abort_command-crazy-move → `ON_ABORT_COMMAND` never wired + gmi queue gap.
 - abort/stop-button-crazy-move → gmi.Stat lacks motion queue depth.
 (the two abort tests turned out not to use motion-logger at all — real core_sim +
-position check; their old xfail reason was stale.) Also fixed a real stmak bug found
+position check; their old xfail reason was stale.) Also fixed a real stratuMAK bug found
 here: main-program M99 now loops in task (`SetLoopOnMainM99`). Steps 2-3 below
 (milltask-parity rewire, then delete the RT parity trace) remain, under human review.
 See PRODUCTION_READINESS.md for the gap entries.
@@ -31,7 +31,7 @@ like `mot_instance=motmod`) and forwards every call, logging the `motctl` comman
 stream on the way through. motmod does the real trajectory planning + provides
 real status; the interceptor **just logs + forwards** — no status faking.
 
-This is idiomatic stmak: motmod already looks up other modules by instance name
+This is idiomatic stratuMAK: motmod already looks up other modules by instance name
 (`motion.c:598-599`: `kins_instance=` / `tp_instance=`); the registry is
 instance-name keyed (`internal/apiserver/registry.go`: `Get`/`GetAll`/`Instances`).
 
@@ -68,9 +68,9 @@ The GMI mechanism supports the interceptor exactly:
   motctl/motstat generated headers, no TP/kins/GMI-kins).
 
 **Expected-log strategy (important):** the classic `expected.*` were captured at the
-raw-command level of *classic* motion-logger; the interceptor logs stmak's decoded
+raw-command level of *classic* motion-logger; the interceptor logs stratuMAK's decoded
 motctl sequence — close but not guaranteed identical. So **RE-CAPTURE `expected`
-from the stmak run for all 6 tests** (they become stmak self-regression tests;
+from the stratuMAK run for all 6 tests** (they become stratuMAK self-regression tests;
 `milltask-parity` remains the cross-tree C-vs-stmak check), then inspect each
 capture is sensible. abort tests additionally differ by real-motion timing.
 
@@ -114,7 +114,7 @@ The 6 tests currently xfail "motion-logger not ported":
 
 Convert configs to load **both** the real motmod (as `mot_instance`) and the
 interceptor (as `[EMCMOT]EMCMOT=motion-logger`, `mot_instance=motmod`), on a real
-sim kinematics config (they now need real motion), in the stmak full-instance model
+sim kinematics config (they now need real motion), in the stratuMAK full-instance model
 (config `LIB:linuxcnc.hal` + `PARAMETER_FILE`; `test.sh` drives a resident
 stmakd; driver `import gmi`). See `tests/single-step` / `tests/lathe`.
 
@@ -123,7 +123,7 @@ stmakd; driver `import gmi`). See `tests/single-step` / `tests/lathe`.
   byte-for-byte. Log to a file the checkresult diffs.
 - **abort/*crazy-move (timing-dependent):** with REAL motion the abort lands at a
   real-motion point that likely differs from the fake-motion capture → **re-capture
-  `expected` from the stmak run** (this is now testing real abort behavior). Do NOT
+  `expected` from the stratuMAK run** (this is now testing real abort behavior). Do NOT
   fake `expected`; capture it and sanity-check it's sensible.
 
 Remove each xfail as it passes.

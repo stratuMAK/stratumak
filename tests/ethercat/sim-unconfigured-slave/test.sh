@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — all-op counts the CONFIGURED slaves only.
+# stratuMAK EtherCAT integration test — all-op counts the CONFIGURED slaves only.
 #
 # The bus carries two slaves; ethercat-conf.xml claims only the first. The
 # unclaimed one answers the scan and stays in PRE-OP forever, so the master's

@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-// Package stmak provides the registration interface for Go modules compiled
+// Package stratuMAK provides the registration interface for Go modules compiled
 // into the stmakd binary. External Go packages and in-tree modules use
 // this package to register themselves at init() time so the launcher can
 // instantiate them when a HAL "load" command references their name.
@@ -62,7 +62,7 @@ func RegisterModule(name string, factory Factory) {
 	mu.Lock()
 	defer mu.Unlock()
 	if _, exists := factories[name]; exists {
-		panic("stmak: duplicate module registration: " + name)
+		panic("stratuMAK: duplicate module registration: " + name)
 	}
 	factories[name] = factory
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# stmak EtherCAT integration test — multi-slave bus on the sim transport.
+# stratuMAK EtherCAT integration test — multi-slave bus on the sim transport.
 #
 # Three CoE slaves (output-only, input-only, bidirectional) at positions 0/1/2.
 # Verifies multi-slave scan and per-position configuration: all three reach OP

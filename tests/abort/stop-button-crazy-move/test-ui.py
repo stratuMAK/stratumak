@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ported to the stmak gmi REST/WS client (was the removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (was the removed NML linuxcnc module).
 #
 # Reproduces the read-ahead / stop-button overrun bug (#865, cf. #579/#393/#241):
 # fill the interp read-ahead queue while running a program, hit stop (abort), and
@@ -28,11 +28,11 @@ def wait_for_startup(s, timeout=10.0):
                 and s.task_state == STATE_ESTOP):
             return
         time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for stmak startup")
+    raise RuntimeError("Timeout waiting for stratuMAK startup")
 
 
 #
-# connect to LinuxCNC (stmak)
+# connect to LinuxCNC (stratuMAK)
 #
 # stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.

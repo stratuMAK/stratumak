@@ -4,7 +4,7 @@
 # in test-ui.py) is silently swallowed.
 set -e
 
-# stmak full-instance test: milltask -> motion-logger interceptor -> real motmod.
+# stratuMAK full-instance test: milltask -> motion-logger interceptor -> real motmod.
 . "$(dirname "$0")/../../stmak-driver.sh"
 
 rm -f out.motion-logger*

@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: LGPL Version 2.1
  */
-// stmak_log.h — Structured logging API for stmak C modules.
+// stmak_log.h — Structured logging API for stratuMAK C modules.
 //
 // All log messages (RT and non-RT) are enqueued into a lock-free ring buffer.
 // A Go goroutine drains the buffer and forwards entries to the structured

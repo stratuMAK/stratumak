@@ -840,7 +840,7 @@ server-side G-code preview that runs concurrently with execution.
 1. ~~Remove `#include <Python.h>` and `#include <boost/python.hpp>` throughout.~~
    Removed by deleting all dead source files below. Python/Boost remain only
    in active UI components (emcmodule.so, delta kins, HAL components).
-2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — stmak packages.conf
+2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — stratuMAK packages.conf
    never had it. System-level Python/Boost deps stay for UI components.
 3. ~~Remove `libboost_python` from link flags.~~ Already removed from
    librs274 and milltask Submakefiles in Phase 2. Remains only for

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Re-express the classic Python hal.stream overrun/underrun/sampleno test on the
-# filestream cmod.  stmak removed the embedded Python hal.stream binding; the ring
+# filestream cmod.  stratuMAK removed the embedded Python hal.stream binding; the ring
 # semantics it exercised (mixed-type round-trip, sample counting, underrun when
 # clocked empty, no overrun) are now HAL pins.  Replay 9 bfsu samples through a
 # depth-10 ring clocked for 12 ticks and verify them.

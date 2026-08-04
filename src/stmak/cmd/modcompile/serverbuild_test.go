@@ -49,7 +49,7 @@ func TestDerivedBuildDiscriminator(t *testing.T) {
 			t.Error("a layout with no state directory has nothing to derive from")
 		}
 		if got, want := config.BuildTreeDir(), "/some/rip/tree/src/stmak"; got != want {
-			t.Errorf("BuildTreeDir() = %q, want the stmak sources %q", got, want)
+			t.Errorf("BuildTreeDir() = %q, want the stratuMAK sources %q", got, want)
 		}
 	})
 
@@ -129,7 +129,7 @@ func TestSyncBuildTreeRegeneratesFromSources(t *testing.T) {
 		}
 	}
 
-	write(filepath.Join(pristine, "go.mod.in"), "module stmak\n")
+	write(filepath.Join(pristine, "go.mod.in"), "module stratuMAK\n")
 	write(filepath.Join(pristine, "pkg", "a.go"), "package a // release 1\n")
 	write(filepath.Join(config.ModuleRegistryDir(), "widget", "widget.go"), "package widget\n")
 

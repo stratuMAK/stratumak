@@ -2,7 +2,7 @@
  *
  * Based on Classic Ladder Project by Marc Le Douarain (calc.c, module_hal.c).
  * Copyright (C) Marc Le Douarain <marc.le.douarain@free.fr> (LGPL 2.1+)
- * Adapted for the stmak cgo architecture — no shared memory, direct struct access.
+ * Adapted for the stratuMAK cgo architecture — no shared memory, direct struct access.
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
  * This program is free software; you can redistribute it and/or modify

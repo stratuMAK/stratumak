@@ -180,7 +180,7 @@ records the original narrow fix; the generator fix supersedes it.
 HF-2: `os.Stat` succeeds on directories, so a directory that name-matched a HAL
 file was returned as "resolved" then failed confusingly in the parser; 2.9
 rejects it (`[ -d ] && foundmsg=""`) — added `isRegularFile` at all three sites.
-HF-5: 2.9 tilde-expands HALFILE (`-tildeexpand`); stmak passed values raw — added
+HF-5: 2.9 tilde-expands HALFILE (`-tildeexpand`); stratuMAK passed values raw — added
 `expandTilde` for a leading `~`/`~/`. The nil-INI deref class bug was verified
 **ABSENT** (every `ini` touch guarded).
 
@@ -230,7 +230,7 @@ tokenize + `halcmd_main.c` continuation loop.
   adapter) / leaving the literal (test path). `INILookup.Get` gained a
   `found bool` (adapter derives it from `GetAll`; env via `os.LookupEnv`), so
   present-but-empty is still fine.
-- **HP-3 (CONFIRMED):** dropped the backslash-escape processing stmak had added —
+- **HP-3 (CONFIRMED):** dropped the backslash-escape processing stratuMAK had added —
   `\` is now an ordinary character everywhere (2.9 tokenize).
 - **HP-4 (CONFIRMED):** line continuation joins with NO separator (2.9 strips the
   trailing `\` and concatenates), not an inserted space.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (`gmi` client). motion-logger is now an
+# Ported to the stratuMAK REST/WS API (`gmi` client). motion-logger is now an
 # interceptor between milltask and the real motmod. Runs test.ngc from line 4;
 # the M99 in the main program loops it (terminated by a counter at 3 loops). A
 # large feed override lets real motion complete quickly without changing the

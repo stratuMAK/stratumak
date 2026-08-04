@@ -1,6 +1,6 @@
 # Path resolution — complete site inventory (cmods + Go modules + GMI surface)
 
-**Purpose.** stmak splits the CLI/REST client from the server, so "a path" in a
+**Purpose.** stratuMAK splits the CLI/REST client from the server, so "a path" in a
 module argument no longer has an unambiguous meaning. The ruling (2026-07-22) is:
 **paths are server-side paths**, resolved by one shared rule — the same rule the
 startup HAL-file processing already uses (`internal/halfile.(*Executor).resolvePath`:

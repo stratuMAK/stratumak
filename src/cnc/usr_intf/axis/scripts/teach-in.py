@@ -9,7 +9,7 @@ Each press of "Learn" records one line:
 You must ". scripts/rip-environment" before running this script, if you use
 run-in-place.
 
-The machine is addressed over the stmak REST API: GMC_REST_URL selects the
+The machine is addressed over the stratuMAK REST API: GMC_REST_URL selects the
 server, GMC_INSTANCE the task instance.
 """
 #    Copyright 2007 Jeff Epler <jepler@unpythonic.net>

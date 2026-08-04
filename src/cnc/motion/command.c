@@ -388,7 +388,7 @@ static int is_feed_type(int motion_type)
  * milltask parity instrument (development-only, compiled out by default).
  * When enabled AND the environment variable MOTCTL_LOG names a file (or "-"
  * for stderr), log one deterministic line per command the motion controller
- * receives, so the old (C++, linuxcnc-2.9) and new (Go, stmak) milltask can be
+ * receives, so the old (C++, linuxcnc-2.9) and new (Go, stratuMAK) milltask can be
  * diffed move-for-move against their OWN native motion module.  Logs by opcode
  * NAME (robust to enum renumbering) using only emcmot_command_t fields common
  * to both trees.  See tests/milltask-parity/README.md.

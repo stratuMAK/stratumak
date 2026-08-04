@@ -243,7 +243,7 @@ Kernel command line::
       latency to every cycle wakeup on an otherwise idle realtime CPU.
       Note that LinuxCNC does NOT hold `/dev/cpu_dma_latency` at
       runtime (the classic 2.9 `rtapi_app` was setuid root and held it
-      at 0; the stmak server runs unprivileged and deliberately does not
+      at 0; the stratuMAK server runs unprivileged and deliberately does not
       reimplement this): a global zero-latency request forces *all*
       CPUs into poll idle — a real thermal and power cost on fanless
       industrial PCs for no benefit on the housekeeping CPUs — and a

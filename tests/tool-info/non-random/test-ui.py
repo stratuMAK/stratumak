@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the stmak REST/WS API (gmi). The old userspace hal.component that
+# Ported to the stratuMAK REST/WS API (gmi). The old userspace hal.component that
 # simulated the toolchanger is replaced by an `h` shim that reads/writes the
 # io handshake signals via halcmd (tool-prepare/tool-prepared/tool-change/
 # tool-changed/tool-number/tool-prep-number/tool-prep-pocket). Interp vars are

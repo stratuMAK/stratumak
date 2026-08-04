@@ -3,7 +3,7 @@
 **Status:** register (living) · **Date:** 2026-07-09 · **Scope:** `src/stmak` milltask + canon + motctl
 
 Derived from a parity audit of all **95** `EMC_*` command types dispatched in the
-C++ `emctaskmain.cc`, matched against the stmak surfaces (Task methods, canon
+C++ `emctaskmain.cc`, matched against the stratuMAK surfaces (Task methods, canon
 callbacks, the `motctl` motion interface, the IO controller) and verified against
 the source. Most commands are implemented at the expected layer; this file
 records what is **not** — as gaps to fix, or as intentional divergences.
@@ -16,7 +16,7 @@ sub-behavior is absent · gaps are grouped by operational impact.
 ## Intentional divergences (NOT gaps — do not "fix")
 
 - **User M-codes M100–199 (`EMC_SYSTEM_CMD`) — no shell-script fork/exec.**
-  C++ forks an external `M1xx` script per call. stmak deliberately dropped this:
+  C++ forks an external `M1xx` script per call. stratuMAK deliberately dropped this:
   spawning an external process per M-code is inefficient and a security risk.
   M-code handlers must instead be compiled **cmod/gomod** modules that register
   via the `mcode_handler` GMI. Consequence: stock configs that ship shell-script
@@ -28,7 +28,7 @@ sub-behavior is absent · gaps are grouped by operational impact.
 - **`TASK_INIT`, `PLAN_INIT`, `PLAN_CLOSE`, `PLAN_END`** — handled at startup /
   folded into `abortLocked` / no-ops in C++ too. No runtime command needed.
 - **`SPINDLE_CONSTANT`** — a no-op in C++ (`return 0`); matched.
-- **Runtime NML setters for joint backlash/ferror/limits** — stmak sets these via
+- **Runtime NML setters for joint backlash/ferror/limits** — stratuMAK sets these via
   INI + HAL pins rather than runtime NML commands. Functionally equivalent for
   normal operation (GUIs almost never send these live).
 - **Multi-spindle index** — verified fully threaded end-to-end (not hardcoded to
@@ -56,13 +56,13 @@ sub-behavior is absent · gaps are grouped by operational impact.
 
 | # | Command | Problem | Pointer |
 |---|---|---|---|
-| 7 | `TRAJ_CLEAR_PROBE_TRIPPED_FLAG` | ~~no caller~~ **FIXED.** The audit under-rated this: C++ `TURN_PROBE_ON` appends `CLEAR_PROBE_TRIPPED_FLAG` to the interp_list, but stmak's `TurnProbeOn` was an empty stub — the probe-tripped flag was never cleared at probe start. `TurnProbeOn` now enqueues a `ClearProbeFlagsCmd` (→ `motion.ClearProbeFlags`) in program order before the STRAIGHT_PROBE move, matching C++. Added `ClearProbeFlags` to the `MotionController` interface (motctl client already implements it). `probe_clear_test.go`. | fixed | `canon.go` `TurnProbeOn` |
+| 7 | `TRAJ_CLEAR_PROBE_TRIPPED_FLAG` | ~~no caller~~ **FIXED.** The audit under-rated this: C++ `TURN_PROBE_ON` appends `CLEAR_PROBE_TRIPPED_FLAG` to the interp_list, but stratuMAK's `TurnProbeOn` was an empty stub — the probe-tripped flag was never cleared at probe start. `TurnProbeOn` now enqueues a `ClearProbeFlagsCmd` (→ `motion.ClearProbeFlags`) in program order before the STRAIGHT_PROBE move, matching C++. Added `ClearProbeFlags` to the `MotionController` interface (motctl client already implements it). `probe_clear_test.go`. | fixed | `canon.go` `TurnProbeOn` |
 | 8 | `TOOL_UNLOAD` | ~~unwired~~ **FIXED.** Added REST `tool_unload` → `Task.ToolUnload` → `io.ToolUnload` (reject-while-busy, interp synch after). `tier3_batch_test.go`. | fixed |
 | 9 | `SET_DEBUG` | ~~motion-only~~ **FIXED.** `SetDebug` now forwards to both `motion.SetDebug` and `io.SetDebug` and records the level to `stat.debug`. `tier3_batch_test.go`. | fixed |
-| 10 | `AUX_INPUT_WAIT` (M66) | **NOT A GAP (verified).** The interp (`interp_convert.cc:3286`) rejects analog + non-immediate wait (`NCE_ANALOG_INPUT_WITH_WAIT_NOT_IMMEDIATE`) and always calls `wait_input(e, ANALOG, 0, 0)` — immediate. stmak wraps that same librs274ngc, so `WaitInputCmd`'s analog rise/fall/high/low branch is unreachable dead code (analog always hits the `WaitType==0` early return). Every valid M66 case (digital any-mode, analog immediate) matches C++. The audit's "semantics differ" was a misread of the dead branch, which has now been removed (the poll loop is digital-only, guarded, with the invariant documented). | `canon.go` `WaitInputCmd` |
+| 10 | `AUX_INPUT_WAIT` (M66) | **NOT A GAP (verified).** The interp (`interp_convert.cc:3286`) rejects analog + non-immediate wait (`NCE_ANALOG_INPUT_WITH_WAIT_NOT_IMMEDIATE`) and always calls `wait_input(e, ANALOG, 0, 0)` — immediate. stratuMAK wraps that same librs274ngc, so `WaitInputCmd`'s analog rise/fall/high/low branch is unreachable dead code (analog always hits the `WaitType==0` early return). Every valid M66 case (digital any-mode, analog immediate) matches C++. The audit's "semantics differ" was a misread of the dead branch, which has now been removed (the poll loop is digital-only, guarded, with the invariant documented). | `canon.go` `WaitInputCmd` |
 | 11 | `JOINT_ENABLE`/`DISABLE` | **NOT A GAP (verified).** The motion handler `EMCMOT_JOINT_ENABLE_AMPLIFIER`/`DISABLE` is a no-op — byte-identical to LinuxCNC 2.9's, which is also a no-op. Amp-enable is driven automatically by the servo loop (`control.c: amp_enable = GET_JOINT_ENABLE_FLAG`), following machine-enable + joint-active. The per-joint command is vestigial in upstream; exposing it via GMI would wire a do-nothing command. Correctly omitted. | `command.c:1462` (stub) |
 | 12 | `JOINT_SET_HOMING_PARAMS` | ~~**BUG:** runtime HAL home/offset/seq change zeroed the other homing params~~ **FIXED.** `loadJoint` caches the INI-fixed params (`jointHomingParams` on the Task); inihal copies them in `initPins` and re-pushes them intact instead of `0`. `homing_params_test.go`. | fixed |
-| 13 | `TASK_PLAN_EXECUTE` multi-level MDI | ~~**CONFIRMED BUG (real, unlike #10/#11).**~~ **FIXED.** `Interp::_execute` (rs274ngc_pre.cc:290) runs a `while(MDImode && call_level)` loop for an MDI o-word sub; when a block inside the sub is a queue-buster (probe, M66, dwell, tool change) it returns `INTERP_EXECUTE_FINISH` **mid-sub** and expects the caller to drain the queue and call `execute()` again. stmak's `executeMDI` called `ExecuteString` once and routed `EXECUTE_FINISH` into its `default` (done) case — the rest of the sub after the queue-buster never ran (broke MDI probing/measurement macros like `o<probe_z> call`). `finishMDI` now, after the drain and re-synch, continues while `interp.CallLevel() > 0`: it re-points the active canon and re-runs `interp.Execute()`, drains any newly-queued motion via another `mdiDoneCmd`, and re-enters — continuing (call level still up) or completing (call level 0) — mirroring C++ re-issuing `emcTaskPlanExecute(0)` and the AUTO path. A plain MDI line / single top-level queue-buster has call level 0 and is unaffected. Mutation-proven test (`mdi_subcall_test.go`) with a scriptable two-queue-buster sub. | `commands.go` `finishMDI` |
+| 13 | `TASK_PLAN_EXECUTE` multi-level MDI | ~~**CONFIRMED BUG (real, unlike #10/#11).**~~ **FIXED.** `Interp::_execute` (rs274ngc_pre.cc:290) runs a `while(MDImode && call_level)` loop for an MDI o-word sub; when a block inside the sub is a queue-buster (probe, M66, dwell, tool change) it returns `INTERP_EXECUTE_FINISH` **mid-sub** and expects the caller to drain the queue and call `execute()` again. stratuMAK's `executeMDI` called `ExecuteString` once and routed `EXECUTE_FINISH` into its `default` (done) case — the rest of the sub after the queue-buster never ran (broke MDI probing/measurement macros like `o<probe_z> call`). `finishMDI` now, after the drain and re-synch, continues while `interp.CallLevel() > 0`: it re-points the active canon and re-runs `interp.Execute()`, drains any newly-queued motion via another `mdiDoneCmd`, and re-enters — continuing (call level still up) or completing (call level 0) — mirroring C++ re-issuing `emcTaskPlanExecute(0)` and the AUTO path. A plain MDI line / single top-level queue-buster has call level 0 and is unaffected. Mutation-proven test (`mdi_subcall_test.go`) with a scriptable two-queue-buster sub. | `commands.go` `finishMDI` |
 
 ---
 

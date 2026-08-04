@@ -28,7 +28,7 @@ to the pre-squash tip.
   (first message full snapshot, then changed widgets only). Multi-client sync falls out
   for free; a pin-centric protocol structurally cannot provide it without every client
   re-implementing widget semantics.
-- **Matches the rest of stmak** — GMI REST + WS watch with `Delta:true`, the same pattern
+- **Matches the rest of stratuMAK** — GMI REST + WS watch with `Delta:true`, the same pattern
   halscope and stat already use; `config=` goes through `pathres.Resolve` like every
   other module (pyvcpmodule is one of the nine call sites the 2026-07-22 containment
   audit verified clean).
