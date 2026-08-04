@@ -335,11 +335,7 @@ jobs:
         apt-get --yes --quiet install eatmydata curl
         eatmydata apt --quiet --yes upgrade
         # Install stuff needed to check out the linuxcnc repo and turn it into a debian source package.
-        # lsof is for the test step below, not the build: scripts/runtests uses it
-        # to tell when a test's results/stderr are closed, and refuses to start
-        # without it (a missing lsof would make every one of those waits succeed
-        # silently). The base image has procps, curl and file, but not lsof.
-        eatmydata apt-get --yes --quiet install --no-install-suggests git lsb-release python3 devscripts lsof
+        eatmydata apt-get --yes --quiet install --no-install-suggests git lsb-release python3 devscripts
 
     - uses: actions/checkout@v3
       with:
@@ -362,19 +358,33 @@ jobs:
         eatmydata git diff
         eatmydata apt-get --yes --quiet build-dep --arch-only .
         eatmydata debuild -us -uc --build=any
+    # Install the packages and boot the result, on both architectures.
+    #
+    # This used to run the whole runtests suite here, inherited from upstream,
+    # where the tests drove installed binaries. It cannot work on gomc and it
+    # never did: the suite is a run-in-place suite. 18 of its tests load test
+    # fixtures that live in the RIP tree's cmod directory and that a package
+    # must not ship (test_spindle_remap, mcode_coord_log, test_interp_ext, …),
+    # and 6 more call halrun, a RIP-only compatibility shim over
+    # `gomc-server -f`. Those 24 can never pass against an installed tree, so
+    # the step could only ever be red — and the two failures that were real
+    # (headers referencing headers we did not ship) it reported in the same
+    # breath as the 24 that were not. rip-and-test runs the suite where it
+    # belongs; package-gate asserts package contents and lintian.
+    #
+    # What is worth testing here is the thing this job alone produces: does the
+    # package install on this architecture, and does the machine come up. That
+    # is debian/tests/linuxcnc-test, the same smoke package-gate runs on amd64,
+    # so arm64 gets the same coverage for a few seconds instead of an hour.
     - name: Test debian packages
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         set -e
         set -x
-        eatmydata apt-get --yes --quiet install ../*.deb
-        eatmydata apt-get --yes --quiet install sudo # some tests run sudo...
-        eatmydata adduser --disabled-password --gecos "" testrunner
-        eatmydata passwd -d testrunner
-        eatmydata adduser testrunner sudo
-        chmod 0777 $(find tests/ -type d) # make test dirs world-writable for the testrunner
-        su -c "eatmydata ./scripts/runtests -p ./tests" testrunner
+        # The same stages package-gate runs, from the same script, so the two
+        # cannot drift: install the built debs, then drop root and boot.
+        bash scripts/package-gate.sh install smoke
     - name: Gather build artifacts
       run: |
         set -e
