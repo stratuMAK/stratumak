@@ -266,33 +266,13 @@ jobs:
         eatmydata git submodule update --init
         eatmydata debian/configure
         eatmydata apt-get --yes --quiet build-dep .
-        eatmydata debuild -us -uc -b
-    - name: Assert package contents
-      run: |
-        set -e
-        bash scripts/check-deb-contents.sh ..
-    - name: Lintian
-      run: |
-        set -e
-        set -x
-        lintian --fail-on error,warning --no-tag-display-limit ../*.changes
-    - name: Install the packages and boot a config
+        eatmydata bash scripts/package-gate.sh build
+    - name: Gate stages (contents, lintian, install, smoke, extcomp)
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         set -e
-        set -x
-        eatmydata apt-get --yes --quiet install ../*.deb
-        eatmydata adduser --disabled-password --gecos "" testrunner
-        chmod 0777 debian/tests
-        su -c "cd debian/tests && ./linuxcnc-test" testrunner
-    - name: Install an external component on the packaged system
-      run: |
-        set -e
-        set -x
-        printf 'component cigate "CI gate scratch component";\npin in bit a;\npin out bit out;\nfunction _;\nlicense "GPL";\n;;\nFUNCTION(_) { out = a; }\n' > /tmp/cigate.comp
-        modcompile --install /tmp/cigate.comp
-        test -f /var/lib/stratumak/cmod/cigate.so
+        bash scripts/package-gate.sh contents lintian install smoke extcomp
 
   package-arch:
     runs-on: ${{ matrix.runner }}
