@@ -53,15 +53,9 @@ def print_state():
 
 
 #
-# The launcher only waited for the REST endpoint to answer, which proves the
-# server is serving, not that the machine has finished booting. Ask the status
-# buffer before commanding anything.
-#
-
-stmak_test.wait_for_startup(s)
-
-#
 # Come out of E-stop, turn the machine on, home, and switch to Auto mode.
+# (The launcher has already waited for the machine to finish starting up, the
+# same way tests/stmak-driver.sh does for the runtests suite.)
 #
 
 c.state(STATE_ESTOP_RESET)

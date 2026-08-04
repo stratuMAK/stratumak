@@ -85,7 +85,7 @@ MOTMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime -DSEQUENTIAL_SUPPORT \
     -Isrc/stmak/generated/gmi/kins -Isrc/stmak/generated/gmi/tp \
     -Isrc/stmak/generated/gmi/home -Isrc/stmak/generated/gmi/mot \
     -Isrc/stmak/generated/gmi/motctl -Isrc/stmak/generated/gmi/motstat \
-    -Isrc/emc/tp -Isrc/emc/motion"
+    -Isrc/cnc/tp -Isrc/cnc/motion"
 
 for tu in src/cnc/motion/motion.c src/cnc/motion/command.c \
           src/cnc/motion/control.c src/cnc/motion/axis.c \
@@ -102,9 +102,9 @@ done
 
 TPMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
-    -Isrc -Isrc/libnml/posemath -Isrc/emc/nml_intf -Iinclude \
+    -Isrc -Isrc/libnml/posemath -Isrc/cnc/nml_intf -Iinclude \
     -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/tp \
-    -Isrc/stmak/generated/gmi/mot -Isrc/emc/motion -Isrc/emc/tp"
+    -Isrc/stmak/generated/gmi/mot -Isrc/cnc/motion -Isrc/cnc/tp"
 
 for tu in src/cnc/tp/tp.c src/cnc/tp/tc.c src/cnc/tp/tcq.c \
           src/cnc/tp/spherical_arc.c src/cnc/tp/blendmath.c \
@@ -116,7 +116,7 @@ HOMEMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -Isrc -Iinclude -Isrc/stmak/pkg/cmodule \
     -Isrc/stmak/generated/gmi/home -Isrc/stmak/generated/gmi/mot \
-    -Isrc/emc/motion"
+    -Isrc/cnc/motion"
 
 for tu in src/cnc/motion/homing.c src/cnc/motion/homemod_cia402.c; do
     check_tu "$tu" $HOMEMOD_INC

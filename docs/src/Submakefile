@@ -436,7 +436,14 @@ checkref_fr: $(DOC_TARGETS_HTML_FR) $(DOC_DIR)/html/fr/gcode.html .htmldoc-stamp
 MAN_SRCS_NOSO = $(patsubst $(DOC_DIR)/man/%,%, \
 			$(shell grep -L '^\.so ' $(MAN_SRCS)))
 
-PDF_MAN_ORDER := man1/stmakd.1 $(filter-out %/stmakd.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
+# Deferred (=), not immediate (:=), because MAN_SRCS_NOSO greps MAN_SRCS — and
+# most of MAN_SRCS is generated during the build (every man9 page comes from a
+# .comp). Expanding this at parse time ran that grep against files that do not
+# exist yet: 540 "No such file or directory" lines on stderr for every clean
+# build, and an order silently missing every page grep could not read. It is
+# only needed when the PDF is actually built, by which point MAN_SRCS are
+# prerequisites and therefore present.
+PDF_MAN_ORDER = man1/stmakd.1 $(filter-out %/stmakd.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
 	man3/intro.3hal $(filter-out %/undocumented.3hal %/intro.3hal, $(filter man3/%.3hal, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3hal man3/intro.3rtapi $(filter-out %/undocumented.3rtapi %/intro.3rtapi, $(filter man3/%.3rtapi, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3rtapi $(filter man9/%, $(MAN_SRCS_NOSO)) 

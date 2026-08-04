@@ -280,15 +280,46 @@ jobs:
       github.event_name == 'release' ||
       startsWith(github.ref, 'refs/tags/') ||
       github.event_name == 'workflow_dispatch'
+    # sid is a canary, not a release target, and it never gates (see the image
+    # matrix below for when it runs at all).
+    continue-on-error: ${{ matrix.image == 'debian:sid' }}
     strategy:
+      # One combination failing must not cancel the others: the whole point of
+      # the matrix is to tell "broken everywhere" from "broken on this arch" or
+      # "broken on this suite", and a cancelled sibling answers neither.
+      fail-fast: false
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
-        image: ["debian:trixie", "debian:sid"]
+        # Releases and tags build trixie only; a manual dispatch adds sid.
+        #
+        # sid exists to show us a toolchain change before it reaches a release
+        # suite, and it has earned that twice: python3-poppler-qt5 is gone from
+        # sid (five qtvcp screens import qt_pdf, so the package is currently
+        # uninstallable there) and texlive 2026's babel-french dropped the
+        # CompactItemize key dblatex still passes, which kills the French PDFs.
+        # Neither is fixable here. Left in every run it would be permanently
+        # red — and a job that is always red is one nobody reads, which is how
+        # the next, real breakage gets missed. It is also the most expensive
+        # thing in this workflow (a full test suite per architecture) for a
+        # package that cannot currently be installed. So: ask for it when you
+        # want to know, rather than being told daily what you already know.
+        image: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["debian:trixie","debian:sid"]' || '["debian:trixie"]') }}
     container:
       image: ${{ matrix.image }}
-      # IPC_OWNER is needed for shmget IPC_CREAT
-      # SYS_ADMIN is needed for shmctl IPC_SET
-      options: --cpus=2 --cap-add=IPC_OWNER --cap-add=SYS_ADMIN
+      # IPC_OWNER for shmget IPC_CREAT, SYS_ADMIN for shmctl IPC_SET, SETFCAP so
+      # the postinst can apply the realtime file capabilities. The rest mirror
+      # GOMC_CAPS in stratumak.postinst exactly, and are needed to *run* the
+      # result at all: execve of a binary carrying file capabilities fails with
+      # EPERM unless every one of them is in the container's bounding set —
+      # without them every test that starts a server dies on
+      # "/usr/bin/stmakd: Operation not permitted". Same list as
+      # package-gate; keep the two in step.
+      options: >-
+        --cpus=2 --cap-add=IPC_OWNER --cap-add=SETFCAP
+        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
+        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
+        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
+        --cap-add=DAC_OVERRIDE
     steps:
     - name: Dump GitHub context
       env:
@@ -327,19 +358,33 @@ jobs:
         eatmydata git diff
         eatmydata apt-get --yes --quiet build-dep --arch-only .
         eatmydata debuild -us -uc --build=any
+    # Install the packages and boot the result, on both architectures.
+    #
+    # This used to run the whole runtests suite here, inherited from upstream,
+    # where the tests drove installed binaries. It cannot work on main and it
+    # never did: the suite is a run-in-place suite. 18 of its tests load test
+    # fixtures that live in the RIP tree's cmod directory and that a package
+    # must not ship (test_spindle_remap, mcode_coord_log, test_interp_ext, …),
+    # and 6 more call halrun, a RIP-only compatibility shim over
+    # `stmakd -f`. Those 24 can never pass against an installed tree, so
+    # the step could only ever be red — and the two failures that were real
+    # (headers referencing headers we did not ship) it reported in the same
+    # breath as the 24 that were not. rip-and-test runs the suite where it
+    # belongs; package-gate asserts package contents and lintian.
+    #
+    # What is worth testing here is the thing this job alone produces: does the
+    # package install on this architecture, and does the machine come up. That
+    # is debian/tests/stmak-test, the same smoke package-gate runs on amd64,
+    # so arm64 gets the same coverage for a few seconds instead of an hour.
     - name: Test debian packages
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         set -e
         set -x
-        eatmydata apt-get --yes --quiet install ../*.deb
-        eatmydata apt-get --yes --quiet install sudo # some tests run sudo...
-        eatmydata adduser --disabled-password --gecos "" testrunner
-        eatmydata passwd -d testrunner
-        eatmydata adduser testrunner sudo
-        chmod 0777 $(find tests/ -type d) # make test dirs world-writable for the testrunner
-        su -c "eatmydata ./scripts/runtests -p ./tests" testrunner
+        # The same stages package-gate runs, from the same script, so the two
+        # cannot drift: install the built debs, then drop root and boot.
+        bash scripts/package-gate.sh install smoke
     - name: Gather build artifacts
       run: |
         set -e
@@ -372,9 +417,16 @@ jobs:
       github.event_name == 'release' ||
       startsWith(github.ref, 'refs/tags/') ||
       github.event_name == 'workflow_dispatch'
+    # See package-arch: sid does not gate, and only runs on a manual dispatch.
+    # This is the job the French-PDF breakage lands in, since the doc packages
+    # are the arch-independent ones.
+    continue-on-error: ${{ matrix.image == 'debian:sid' }}
     strategy:
+      # See package-arch: a cancelled sibling cannot tell us whether a failure
+      # is the suite's fault or ours.
+      fail-fast: false
       matrix:
-        image: ["debian:trixie", "debian:sid"]
+        image: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["debian:trixie","debian:sid"]' || '["debian:trixie"]') }}
     container:
       image: ${{ matrix.image }}
       # IPC_OWNER is needed for shmget IPC_CREAT

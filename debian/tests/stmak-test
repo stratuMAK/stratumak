@@ -9,7 +9,7 @@
 
 set -e
 
-cd $(dirname $0)
+cd "$(dirname "$0")"
 
 # Off the default port: a developer machine (or parallel job) may already run
 # a live stmakd on 5080, and the clients would silently talk to it.
@@ -19,15 +19,24 @@ export GMC_REST_URL=http://127.0.0.1:5077
 stmakd -r stmak-test.ini &
 SERVER_PID=$!
 
-up=0
-for i in $(seq 1 120); do
-    if curl -fsS -o /dev/null "$GMC_REST_URL/"; then up=1; break; fi
-    # A dead server never becomes ready; fail fast instead of timing out.
-    kill -0 $SERVER_PID 2>/dev/null || break
-    sleep 0.5
-done
-if [ "$up" != 1 ]; then
-    echo "error: stmakd did not become ready"
+# Wait for the machine to finish starting up, using the suite's one definition
+# of readiness (stmak_test.wait_for_startup, as tests/stmak-driver.sh does). It
+# polls the same REST API this test drives and tolerates the connection being
+# refused while the server is still binding, so no separate probe is needed —
+# the previous loop shelled out to curl, which neither a minimal Debian system
+# nor the CI container has. python3 is a dependency of the package under test.
+if ! kill -0 $SERVER_PID 2>/dev/null; then
+    echo "error: stmakd exited immediately"
+    exit 1
+fi
+if ! python3 -c '
+import stmak_test
+stmak_test.wait_for_startup(stmak_test.Stat())
+'; then
+    # A server that died explains the failed wait; say which it was.
+    kill -0 $SERVER_PID 2>/dev/null \
+        && echo "error: stmakd did not become ready" \
+        || echo "error: stmakd exited while starting up"
     kill $SERVER_PID 2>/dev/null || true
     exit 1
 fi

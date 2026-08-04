@@ -36,6 +36,21 @@ $(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-Istmak/generated/gmi/interp_e
 $(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/canon/canon_api.h
 $(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h stmak/generated/gmi/interp_ctx/interp_ctx_api.h
 
+# interp_ext.h is installed into the flat include directory, and its first act
+# is #include "interp_ext_api.h" — a generated header that lived only inside
+# the stmak tree, so the header we shipped could not be compiled by anyone who
+# had only the include directory we gave them (the in-tree build and modcompile
+# both pass -I into stmak/generated, which is why nothing noticed). Ship the
+# closure next to it: interp_ext_api.h -> interp_ctx_api.h -> stmak_api.h.
+../include/interp_ext_api.h: stmak/generated/gmi/interp_ext/interp_ext_api.h
+	$(Q)cp $< $@
+../include/interp_ctx_api.h: stmak/generated/gmi/interp_ctx/interp_ctx_api.h
+	$(Q)cp $< $@
+../include/stmak_api.h: stmak/pkg/cmodule/stmak_api.h
+	$(Q)cp $< $@
+EXTRA_FLAT_HEADERS += ../include/interp_ext_api.h ../include/interp_ctx_api.h \
+	../include/stmak_api.h
+
 TARGETS += ../lib/librs274.so ../lib/librs274.so.0
 
 ../lib/librs274.so.0: $(patsubst %.cc,objects/%.o,$(LIBRS274SRCS))
