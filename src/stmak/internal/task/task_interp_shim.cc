@@ -8,11 +8,11 @@
 
 #include "config.h"
 #include <cstring>
-#include "emc/rs274ngc/interp_base.hh"
-#include "emc/rs274ngc/rs274ngc_interp.hh"  // Interp class, USER_DEFINED_FUNCTION_NUM
-#include "emc/rs274ngc/modal_state.hh"      // StateTag (restore_from_tag)
-#include "emc/rs274ngc/interp_inspection.hh"     // currentX() & co (state inspection)
-#include "emc/rs274ngc/interp_parameter_def.hh"  // RS274NGC_MAX_PARAMETERS
+#include "cnc/rs274ngc/interp_base.hh"
+#include "cnc/rs274ngc/rs274ngc_interp.hh"  // Interp class, USER_DEFINED_FUNCTION_NUM
+#include "cnc/rs274ngc/modal_state.hh"      // StateTag (restore_from_tag)
+#include "cnc/rs274ngc/interp_inspection.hh"     // currentX() & co (state inspection)
+#include "cnc/rs274ngc/interp_parameter_def.hh"  // RS274NGC_MAX_PARAMETERS
 
 // Include the generated canon callback table header
 #define CANON_API_CGO

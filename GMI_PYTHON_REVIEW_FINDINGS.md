@@ -10,7 +10,7 @@ Method: three independent AI passes (classic-2.9 parity vs `emcmodule.cc`;
 wire-contract ground truth vs IDL/generated dispatch/apiserver; concurrency &
 robustness incl. consumer interleavings), findings adjudicated against the source by
 the coordinating reviewer; every HIGH re-verified by hand before acceptance.
-Classic reference: `~/source/linuxcnc-2.9/src/emc/usr_intf/axis/extensions/emcmodule.cc`.
+Classic reference: `~/source/linuxcnc-2.9/src/cnc/usr_intf/axis/extensions/emcmodule.cc`.
 
 Verified-clean ground (no findings): every stat wire key the shim reads exists on the
 wire (field-by-field vs `emcstat_cgo.go` json tags, no `omitempty`); all 28 command

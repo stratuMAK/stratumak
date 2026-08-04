@@ -13,7 +13,7 @@ set -u
 LOG="${1:?usage: check-stmak-cwarnings <build-log>}"
 
 # stmak-owned C paths (extend as ownership grows).
-OWNED='stmak/internal/hallib/|stmak/pkg/cmodule/|hal/components/|emc/motion-logger/|emc/task/|emc/sai/'
+OWNED='stmak/internal/hallib/|stmak/pkg/cmodule/|hal/components/|cnc/motion-logger/|cnc/task/|cnc/sai/'
 
 WARNINGS=$(grep -E ': warning:' "$LOG" | grep -E "$OWNED" || true)
 

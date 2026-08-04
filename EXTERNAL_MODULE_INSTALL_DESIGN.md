@@ -388,16 +388,16 @@ installed nowhere. Five separate causes, all now fixed:
    `hal_priv.h`, `rtapi_task.h`, `uspace_common.h`, `canon_interface.hh`,
    `interp_ext.h`, `interp_inspection.hh`, `interp_parameter_def.hh`,
    `interp_parameter_io.hh`, `rs274ngc_interp.hh`, `tp_debug.h`. `saicanon.hh`
-   had moved to `emc/sai/` years ago and the stale path was being swallowed by
+   had moved to `cnc/sai/` years ago and the stale path was being swallowed by
    a `-cp`.
 3. Headers are installed a **second** time under their source-relative path.
    Several stmak packages include them the way the source tree does
-   (`"hal/hal_priv.h"`, `"emc/rs274ngc/interp_parameter_io.hh"`), which
+   (`"hal/hal_priv.h"`, `"cnc/rs274ngc/interp_parameter_io.hh"`), which
    resolves against `-Isrc` in a build tree and against nothing at all in a
    flat include directory. Both spellings now work under the one `-I` that
    `cgoFlags` already passes; no new include path had to be invented.
-4. Four C *implementation* files are `#include`d textually — `emc/tp/tc.c`,
-   `blendmath.c`, `spherical_arc.c`, `emc/nml_intf/emcpose.c` — and are
+4. Four C *implementation* files are `#include`d textually — `cnc/tp/tc.c`,
+   `blendmath.c`, `spherical_arc.c`, `cnc/nml_intf/emcpose.c` — and are
    installed alongside the headers as `SRCINCLUDED_SOURCES`. To a tree that
    has to be rebuildable they are headers in everything but name.
 5. `cgoFlags` put its include path in `CGO_CFLAGS`, which never reaches the
@@ -406,7 +406,7 @@ installed nowhere. Five separate causes, all now fixed:
    own parent goes first so that a `"stmak/generated/..."` include resolves
    against the sources being compiled rather than an installed copy of them.
 
-One collision had to be broken by hand. `emc/rs274ngc/interp_shim.h` and
+One collision had to be broken by hand. `cnc/rs274ngc/interp_shim.h` and
 `stmak/internal/task/interp_shim.h` were different headers sharing a basename
 *and* an include guard, and the flat copy of the first silently won over the
 second's own directory. The stmak one is now `task_interp_shim.h`, guard and

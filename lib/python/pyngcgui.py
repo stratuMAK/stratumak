@@ -124,7 +124,7 @@ g_font_users        = []
 g_auto_file_ct      = 1
 
 INTERP_SUB_PARAMS = 30 # (1-based) conform to:
-# src/emc/rs274ngc/interp_internal.hh:#define INTERP_SUB_PARAMS 30
+# src/cnc/rs274ngc/interp_internal.hh:#define INTERP_SUB_PARAMS 30
 g_max_parm       = INTERP_SUB_PARAMS
 g_max_msg_len    = 500 # limit popup msg len for errant gcmc input
 

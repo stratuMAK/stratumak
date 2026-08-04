@@ -7,7 +7,7 @@ import (
 )
 
 // The oracle for these cases is the C tool-table parser this replaces
-// (src/emc/sai/sai_tooltable.cc parse_tool_line, itself derived from 2.9's
+// (src/cnc/sai/sai_tooltable.cc parse_tool_line, itself derived from 2.9's
 // tooldata.cc): keys are matched through toupper(), and every sscanf is
 // checked with `if (!valid) return -1`, i.e. one malformed field rejects the
 // whole line.

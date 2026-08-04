@@ -115,7 +115,7 @@ from the INPUT_SCALE. This second value is no longer used anywhere in emc2.
 9. .var file changes
 The .var file has been extended to require coordinate system offsets for 
 U, V and W axes. Copy a fresh .var file. An incorrect var file leads to emc 
-printing 'emc/task/emctask.cc 312: interp_error: Coordinate system index 
+printing 'cnc/task/emctask.cc 312: interp_error: Coordinate system index 
 parameter 5220 out of range' at startup.
 
 

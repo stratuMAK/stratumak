@@ -1,6 +1,6 @@
 # AXIS NML→GMI adaptation — Tier-2 review findings
 
-Scope: the diff vs merge-base `f5a72ff602` in `src/emc/usr_intf/axis/`
+Scope: the diff vs merge-base `f5a72ff602` in `src/cnc/usr_intf/axis/`
 (`scripts/axis.py` ~1270 changed lines, gutted `extensions/emcmodule.cc`, new
 `extensions/glhelpers.cc`, new `scripts/manualtoolchange_ui.py`,
 `scripts/linuxcnctop.py`) plus the glcanon/gcode.py surface AXIS drives.

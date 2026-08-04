@@ -23,7 +23,7 @@ rc=0
 SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-stmak-cwarnings scripts/check-static scripts/check-webapps.sh)
 
 # stmak-owned C (keep in sync with check-stmak-cwarnings)
-C_PATHS="src/stmak/internal/hallib src/stmak/pkg/cmodule src/hal/components src/emc/motion-logger src/emc/task src/emc/sai"
+C_PATHS="src/stmak/internal/hallib src/stmak/pkg/cmodule src/hal/components src/cnc/motion-logger src/cnc/task src/cnc/sai"
 
 if [ "$MODE" = shell ] || [ "$MODE" = all ]; then
     echo "== shellcheck (gate: error) =="

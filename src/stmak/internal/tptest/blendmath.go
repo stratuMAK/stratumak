@@ -13,8 +13,8 @@ package tptest
 
 // #cgo CFLAGS: -DULAPI
 // #cgo CFLAGS: -I${SRCDIR}/../../.. -I${SRCDIR}/../../../../include
-// #cgo CFLAGS: -I${SRCDIR}/../../../emc/tp -I${SRCDIR}/../../../emc/kinematics
-// #cgo CFLAGS: -I${SRCDIR}/../../../emc/motion -I${SRCDIR}/../../../rtapi
+// #cgo CFLAGS: -I${SRCDIR}/../../../cnc/tp -I${SRCDIR}/../../../cnc/kinematics
+// #cgo CFLAGS: -I${SRCDIR}/../../../cnc/motion -I${SRCDIR}/../../../rtapi
 // #cgo CFLAGS: -I${SRCDIR}/../../../hal -I${SRCDIR}/../../pkg/cmodule
 // #cgo LDFLAGS: -L${SRCDIR}/../../../../lib -lposemath -lm
 //

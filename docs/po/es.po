@@ -4743,14 +4743,14 @@ msgstr "Comandos"
 msgid ""
 "This section simply lists all of the commands that can be sent to the motion "
 "module, along with detailed explanations of what they do. The command names "
-"are defined in a large typedef enum in {linuxcnc}/src/emc/motion/motion.h, "
+"are defined in a large typedef enum in {linuxcnc}/src/cnc/motion/motion.h, "
 "called cmd_code_t. (Note that in the code, each command name starts with "
 "'EMCMOT_', which is omitted here.)"
 msgstr ""
 "Esta sección simplemente enumera todos los comandos que se pueden enviar al "
 "módulo de movimiento, junto con explicaciones detalladas de lo que hacen. "
 "los los nombres de los comandos se definen en cmd_code_t, que es un tipo "
-"definido por una gran enumeración en {linuxcnc}/src/emc/motion/motion.h . "
+"definido por una gran enumeración en {linuxcnc}/src/cnc/motion/motion.h . "
 "(Tenga en cuenta que en el código, cada nombre de comando comienza con "
 "'EMCMOT_', que se omite aquí)."
 
@@ -4763,7 +4763,7 @@ msgid ""
 "function later."
 msgstr ""
 "Los comandos se implementan mediante una gran instrucción switch en la "
-"función emcmotCommandHandler() del archivo fuente src/emc/motion/command.c, "
+"función emcmotCommandHandler() del archivo fuente src/cnc/motion/command.c, "
 "que se llama a la tasa servo. Más sobre esa función más adelante.  N.T. Esta "
 "ultima afirmación es erronea. No se vuelve a hablar de "
 "emcmotCommandHandler(), ni en este texto, ni en el resto del Manual del "
@@ -7016,10 +7016,10 @@ msgstr ""
 #: src/code/code-notes.adoc:1125
 #, fuzzy
 msgid ""
-"add the definition of the EMC_IO_GENERIC class to emc2/src/emc/nml_intf/"
+"add the definition of the EMC_IO_GENERIC class to emc2/src/cnc/nml_intf/"
 "emc.hh"
 msgstr ""
-"agregar la definición de la clase EMC_IO_GENERIC a /src/emc/nml_intf/emc.hh"
+"agregar la definición de la clase EMC_IO_GENERIC a /src/cnc/nml_intf/emc.hh"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1126
@@ -7031,32 +7031,32 @@ msgstr "agregar el tipo: #define EMC_IO_GENERIC_TYPE ((NMLTYPE) 1605) +"
 #: src/code/code-notes.adoc:1127
 #, fuzzy
 msgid ""
-"(I chose 1605, because it was available) to emc2/src/emc/nml_intf/emc.hh"
-msgstr "(Se elige 1605 porque esta disponible) en /src/emc/nml_intf/emc.hh"
+"(I chose 1605, because it was available) to emc2/src/cnc/nml_intf/emc.hh"
+msgstr "(Se elige 1605 porque esta disponible) en /src/cnc/nml_intf/emc.hh"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1128
 #, fuzzy
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/emc/nml_intf/emc.cc"
+"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/cnc/nml_intf/emc.cc"
 msgstr ""
-"agregar el caso EMC_IO_GENERIC_TYPE a emcFormat en /src/emc/nml_intf/emc.cc"
+"agregar el caso EMC_IO_GENERIC_TYPE a emcFormat en /src/cnc/nml_intf/emc.cc"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1129
 #, fuzzy
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/emc/nml_intf/"
+"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/cnc/nml_intf/"
 "emc.cc"
 msgstr ""
-"agregar el caso EMC_IO_GENERIC_TYPE a emc_symbol_lookup en /src/emc/nml_intf/"
+"agregar el caso EMC_IO_GENERIC_TYPE a emc_symbol_lookup en /src/cnc/nml_intf/"
 "emc.cc"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1130
 #, fuzzy
-msgid "add EMC_IO_GENERIC::update function to emc2/src/emc/nml_intf/emc.cc"
-msgstr "agregar la función EMC_IO_GENERIC::update a /src/emc/nml_intf/emc.cc"
+msgid "add EMC_IO_GENERIC::update function to emc2/src/cnc/nml_intf/emc.cc"
+msgstr "agregar la función EMC_IO_GENERIC::update a /src/cnc/nml_intf/emc.cc"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1134
@@ -7998,7 +7998,7 @@ msgstr "interp"
 #, fuzzy
 msgid ""
 "+settings+ is of type +settings+, defined as +struct setup_struct+ in +src/"
-"emc/rs274ngc/interp_internal.hh+."
+"cnc/rs274ngc/interp_internal.hh+."
 msgstr ""
 "+settings+ es de tipo +settings+, que es +struct setup_struct+.  Definido en "
 "+src / emc / rs274ngc / interp_internal.hh+."
@@ -8172,7 +8172,7 @@ msgstr "settings.tool_table"
 #: src/code/code-notes.adoc:1387
 #, fuzzy
 msgid ""
-"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/emc/"
+"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/cnc/"
 "nml_intf/emctool.h+), with +CANON_POCKETS_MAX+ entries.  Indexed by \"pocket "
 "number\", aka \"slot number\".  Index 0 is the spindle, indexes 1 to "
 "(CANON_POCKETS_MAX-1) are the pockets in the tool changer.  On a random "
@@ -8339,12 +8339,12 @@ msgstr ""
 msgid ""
 "Things are not this way currently in the joints-axes branch, but deviations "
 "from this design are considered bugs.  For an example of such a bug, see the "
-"treatment of axes in src/emc/ini/initraj.cc:loadTraj().  There are "
+"treatment of axes in src/cnc/ini/initraj.cc:loadTraj().  There are "
 "undoubtedly more, and I need your help to find them and fix them."
 msgstr ""
 "Las cosas no están así actualmente en la rama de ejes articulados, pero Las "
 "desviaciones de este diseño se consideran errores. Por un ejemplo de tal un "
-"error, vea el tratamiento de los ejes en src/emc/ini/initraj.cc: loadTraj "
+"error, vea el tratamiento de los ejes en src/cnc/ini/initraj.cc: loadTraj "
 "().  Indudablemente hay más, y necesito tu ayuda para encontrarlos y "
 "arreglalos."
 
@@ -9281,8 +9281,8 @@ msgstr "Mensajes NML"
 #, fuzzy, no-wrap
 msgid ""
 "List of NML messages.\n"
-"For details see `src/emc/nml_intf/emc.hh`."
-msgstr "Lista de mensajes NML. + Para mas detalles, vea `src/emc/nml_intf/emc.hh`"
+"For details see `src/cnc/nml_intf/emc.hh`."
+msgstr "Lista de mensajes NML. + Para mas detalles, vea `src/cnc/nml_intf/emc.hh`"
 
 #. type: Title ==
 #: src/code/nml-messages.adoc:11
@@ -14718,10 +14718,10 @@ msgstr ""
 #: src/config/core-components.adoc:133
 #, fuzzy
 msgid ""
-"'motion.motion-type' - (s32, out) These values are from src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) These values are from src/cnc/nml_intf/"
 "motion_types.h"
 msgstr ""
-"'motion.motion-type' - (s32, out) Valores definidos en src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) Valores definidos en src/cnc/nml_intf/"
 "motion_types.h"
 
 #. type: TP
@@ -16508,12 +16508,12 @@ msgstr ""
 msgid ""
 "`DEBUG = 0` - Debug level 0 means no messages will be printed when LinuxCNC "
 "is run from a <<faq:terminal,terminal>>.  Debug flags are usually only "
-"useful to developers. See src/emc/nml_intf/debugflags.h for other settings."
+"useful to developers. See src/cnc/nml_intf/debugflags.h for other settings."
 msgstr ""
 "'DEBUG = 0' - nivel de depuración; 0 significa que no se imprimirán mensajes "
 "cuando LinuxCNC esté ejecutandose desde un <<faq:terminal,terminal>>. Las "
 "marcas de depuración generalmente solo son útiles para desarrolladores. Vea "
-"src/emc/nml_intf/debugflags.h para otras configuraciones."
+"src/cnc/nml_intf/debugflags.h para otras configuraciones."
 
 #. type: Block title
 #: src/config/ini-config.adoc:234 src/config/ini-config.adoc:242
@@ -28746,11 +28746,11 @@ msgstr "*interpreter_errcode*"
 msgid ""
 "'(returns integer)' - current RS274NGC interpreter return code. One of "
 "INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE, "
-"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/emc/nml_intf/interp_return.hh"
+"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/cnc/nml_intf/interp_return.hh"
 msgstr ""
 "'(devuelve entero)' - código de retorno actual del intérprete RS274NGC. Uno "
 "de INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE, "
-"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  ver src/emc/nml_intf/interp_return.hh"
+"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  ver src/cnc/nml_intf/interp_return.hh"
 
 #. type: Labeled list
 #: src/config/python-interface.adoc:226
@@ -31202,9 +31202,9 @@ msgstr "El tipo `linuxcnc.positionlogger`"
 #: src/config/python-interface.adoc:902
 #, fuzzy
 msgid ""
-"Some usage hints can be gleaned from `src/emc/usr_intf/gremlin/gremlin.py`."
+"Some usage hints can be gleaned from `src/cnc/usr_intf/gremlin/gremlin.py`."
 msgstr ""
-"Algunas sugerencias de uso se pueden obtener de `src/emc/usr_intf/gremlin/"
+"Algunas sugerencias de uso se pueden obtener de `src/cnc/usr_intf/gremlin/"
 "gremlin.py`."
 
 #. type: Title ===
@@ -61797,7 +61797,7 @@ msgid ""
 "parameters except numbered parameters in the current persistent range "
 "footnoteref:[persistent_range,The range of persistent parameters may change "
 "as development progresses. This range is currently 5161- 5390. It is defined "
-"in the '_required_parameters array' in file the src/emc/rs274ngc/"
+"in the '_required_parameters array' in file the src/cnc/rs274ngc/"
 "interp_array.cc .] are volatile.  Persistent parameters are saved in "
 "the .var file and restored to their previous values when LinuxCNC is started "
 "again. Volatile numbered parameters are reset to zero."
@@ -61807,7 +61807,7 @@ msgstr ""
 "persistente footnote:[persistent_range, El rango de parámetros persistentes "
 "puede cambiar a medida que avanza el desarrollo. Este rango es actualmente "
 "5161-5390. Se define en la matriz '_required_parameters' en el archivo src/"
-"emc/rs274ngc/interp_array.cc.] son ​​volátiles.  Los parámetros persistentes "
+"cnc/rs274ngc/interp_array.cc.] son ​​volátiles.  Los parámetros persistentes "
 "se guardan en el archivo .var y son restaurados a sus valores anteriores "
 "cuando LinuxCNC se inicia de nuevo.  los parámetros numerados volatiles se "
 "restablecen a cero."
@@ -61883,7 +61883,7 @@ msgid ""
 "A numbered parameter is the pound character '#' followed by an integer "
 "between 1 and (currently) 5602 footnote:[The RS274/NGC interpreter maintains "
 "an array of numbered parameters. Its size is defined by the symbol "
-"'RS274NGC_MAX_PARAMETERS' in the file src/emc/rs274ngc/interp_internal.hh). "
+"'RS274NGC_MAX_PARAMETERS' in the file src/cnc/rs274ngc/interp_internal.hh). "
 "This number of numerical parameters may also increase as development adds "
 "support for new parameters.]. The parameter is referred to by this integer, "
 "and its value is whatever number is stored in the parameter."
@@ -61891,7 +61891,7 @@ msgstr ""
 "Un parámetro numerado es el carácter de numeral '#' seguido de un entero "
 "entre 1 y 5602 (actualmente) footnote:[El intérprete RS274/NGC mantiene una "
 "matriz de parámetros numerados. Su tamaño está definido por el símbolo "
-"'RS274NGC_MAX_PARAMETERS' en el archivo src/emc/rs274ngc/"
+"'RS274NGC_MAX_PARAMETERS' en el archivo src/cnc/rs274ngc/"
 "interp_internal.hh). Este número de parámetros numéricos también pueden "
 "aumentar a medida que el desarrollo agrege soporte para nuevos parámetros]. "
 "El parámetro es referido por este entero, y su valor es cualquier número "
@@ -63675,14 +63675,14 @@ msgid ""
 "Testing for equality or inequality of two double-precision floating-point "
 "values is inherently problematic.  The interpreter solves this problem by "
 "considering values equal if their absolute difference is less than 1e-6 "
-"(this value is defined as 'TOLERANCE_EQUAL' in src/emc/rs274ngc/"
+"(this value is defined as 'TOLERANCE_EQUAL' in src/cnc/rs274ngc/"
 "interp_internal.hh)."
 msgstr ""
 "El lenguaje RS274/NGC solo admite valores de punto flotante de precisión "
 "finita. Por lo tanto, probar la igualdad o desigualdad de dos valores de "
 "punto flotante es inherentemente problemático. El interprete resuelve este "
 "problema considerando valores iguales si su diferencia absoluta es menor que "
-"0.0001 (este valor se define como 'TOLERANCE_EQUAL' en src/emc/rs274ngc/"
+"0.0001 (este valor se define como 'TOLERANCE_EQUAL' en src/cnc/rs274ngc/"
 "interp_internal.hh)."
 
 #. type: Index entry
@@ -90145,7 +90145,7 @@ msgid ""
 "the top of the LinuxCNC folder.  Set up the environment by entering '. ./"
 "scripts/rip-environment' now enter 'glade', you see a bunch of warnings in "
 "the terminal that you can ignore and the editor should open.  The stock "
-"Gscreen Glade file is in: src/emc/usr_intf/gscreen/ sample skins are in /"
+"Gscreen Glade file is in: src/cnc/usr_intf/gscreen/ sample skins are in /"
 "share/gscreen/skins/.  This should be copied to a configuration folder.  Or "
 "you can make a clean-sheet Glade file by saving it in a configuration folder."
 msgstr ""
@@ -90154,7 +90154,7 @@ msgstr ""
 "directorio a la parte superior de la carpeta LinuxCNC. Configure el entorno "
 "entrando '. ./scripts/rip-environment ' y ahora ingrese 'glade'. Usted vera "
 "un montón de advertencias en el terminal que puede ignorar y el editor debe "
-"abrirse. El archivo de Gscreen Glade está en: src/emc/usr_intf/gscreen/.  "
+"abrirse. El archivo de Gscreen Glade está en: src/cnc/usr_intf/gscreen/.  "
 "Las skins de muestra están en /share/gscreen/skins/. Esto debe ser copiado a "
 "una carpeta de configuración, o puede hacer un archivo Glade limpio "
 "guardándolo en una carpeta de configuración."
@@ -113398,7 +113398,7 @@ msgstr ""
 #. type: Plain text
 #: src/gui/qtvcp-development.adoc:48
 msgid ""
-"*QtVCP source* is located in `+src/emc/usr_intf/qtvcp+` folder of LinuxCNC "
+"*QtVCP source* is located in `+src/cnc/usr_intf/qtvcp+` folder of LinuxCNC "
 "source tree."
 msgstr ""
 
@@ -163575,13 +163575,13 @@ msgstr "Ejemplos de mesa giratoria/inclinable"
 msgid ""
 "LinuxCNC includes kinematics modules for the 'xyzac-trt' and 'xyzbc-trt' "
 "topologies described in the mathematics detailed above.  For interested "
-"users, the source code is available in the git tree in the 'src/emc/"
+"users, the source code is available in the git tree in the 'src/cnc/"
 "kinematics/' directory."
 msgstr ""
 "LinuxCNC incluye módulos cinemáticos para las topologías 'xyzac-trt' y "
 "'xyzbc-trt' descrito en las matemáticas detalladas arriba. Para usuarios "
 "interesados, el código fuente está disponible en el árbol git en el "
-"directorio 'src/emc/kinematics/'."
+"directorio 'src/cnc/kinematics/'."
 
 #. type: Plain text
 #: src/motion/5-axis-kinematics.adoc:298
@@ -167369,7 +167369,7 @@ msgstr ""
 #: src/motion/switchkins.adoc:334
 msgid ""
 "Custom kinematics can be coded and tested on Run-In-Place ('RIP')  builds.  "
-"A template file src/emc/kinematics/userkfuncs.c is provided in the "
+"A template file src/cnc/kinematics/userkfuncs.c is provided in the "
 "distribution.  This file can be copied/renamed to a user directory and "
 "edited to supply custom kinematics with kinstype==2."
 msgstr ""
@@ -167379,7 +167379,7 @@ msgstr ""
 msgid ""
 "The user custom kinematics file can be compiled from out-of-tree source "
 "locations for rt-preempt implementations or by replacing the in-tree "
-"template file (src/emc/kinematics/userkfuncs.c) for rtai systems."
+"template file (src/cnc/kinematics/userkfuncs.c) for rtai systems."
 msgstr ""
 
 #. type: Plain text
@@ -189735,14 +189735,14 @@ msgstr "El intérprete visto desde Python"
 #: src/remap/remap.adoc:1180
 #, fuzzy
 msgid ""
-"The interpreter is an existing C++ class ('Interp') defined in 'src/emc/"
+"The interpreter is an existing C++ class ('Interp') defined in 'src/cnc/"
 "rs274ngc'.  Conceptually all `oword.<function>` and `remap.<function>` "
 "Python calls are methods of this Interp class, although there is no explicit "
 "Python definition of this class (it is a 'Boost.Python' wrapper instance)  "
 "and hence receive the as the first parameter `self` which can be used to "
 "access internals."
 msgstr ""
-"El intérprete es una clase existente C++ ('Interp') definida en 'src/emc/"
+"El intérprete es una clase existente C++ ('Interp') definida en 'src/cnc/"
 "rs274ngc'. Conceptualmente, todos las llamadas a Python `oword.<function>` y "
 "`remap.<function>` son métodos de esta clase Interp, aunque no hay una "
 "definición explícita de Python de esta clase (es una instancia de envoltorio "
@@ -190746,13 +190746,13 @@ msgstr ""
 #: src/remap/remap.adoc:1500
 #, fuzzy
 msgid ""
-"The actual canon functions are declared in `src/emc/nml_intf/canon.hh` and "
-"implemented in `src/emc/task/emccanon.cc`.  The implementation of the Python "
-"functions can be found in `src/emc/rs274ncg/canonmodule.cc`."
+"The actual canon functions are declared in `src/cnc/nml_intf/canon.hh` and "
+"implemented in `src/cnc/task/emccanon.cc`.  The implementation of the Python "
+"functions can be found in `src/cnc/rs274ncg/canonmodule.cc`."
 msgstr ""
-"Las funciones canonicas reales se declaran en `src/emc/nml_intf/canon.hh` y "
-"se implementan en `src/emc/task/emccanon.cc`. La implementación de las "
-"funciones Python se pueden encontrar en `src/emc/rs274ncg/canonmodule.cc`."
+"Las funciones canonicas reales se declaran en `src/cnc/nml_intf/canon.hh` y "
+"se implementan en `src/cnc/task/emccanon.cc`. La implementación de las "
+"funciones Python se pueden encontrar en `src/cnc/rs274ncg/canonmodule.cc`."
 
 #. type: Title ===
 #: src/remap/remap.adoc:1501
@@ -190776,10 +190776,10 @@ msgstr "`interpreter`"
 #: src/remap/remap.adoc:1508
 #, fuzzy
 msgid ""
-"Exposes internals of the Interp class.  See `src/emc/rs274ngc/"
+"Exposes internals of the Interp class.  See `src/cnc/rs274ngc/"
 "interpmodule.cc`, and the `tests/remap/introspect` regression test."
 msgstr ""
-"Expone la clase Interp. Ver `src/emc/rs274ngc/interpmodule.cc`, y el test de "
+"Expone la clase Interp. Ver `src/cnc/rs274ngc/interpmodule.cc`, y el test de "
 "regresión `tests/remap/introspect`."
 
 #. type: Labeled list
@@ -190791,8 +190791,8 @@ msgstr "`emccanon`"
 #. type: Plain text
 #: src/remap/remap.adoc:1511
 #, fuzzy
-msgid "Exposes most calls of `src/emc/task/emccanon.cc`."
-msgstr "expone la mayoría de las llamadas de `src/emc/task/emccanon.cc`."
+msgid "Exposes most calls of `src/cnc/task/emccanon.cc`."
+msgstr "expone la mayoría de las llamadas de `src/cnc/task/emccanon.cc`."
 
 #. type: Labeled list
 #: src/remap/remap.adoc:1512
@@ -190804,11 +190804,11 @@ msgstr "`emctask`"
 #: src/remap/remap.adoc:1515
 #, fuzzy
 msgid ""
-"Exposes the `emcStatus` class instance. See `src/emc/task/taskmodule.cc`.  "
+"Exposes the `emcStatus` class instance. See `src/cnc/task/taskmodule.cc`.  "
 "Not present when using the `gcode` module used for user interfaces - only "
 "present in the milltask instance of the interpreter."
 msgstr ""
-"expone la instancia de la clase `emcStatus`. Consulte `src/emc/task/"
+"expone la instancia de la clase `emcStatus`. Consulte `src/cnc/task/"
 "taskmodule.cc`.  No presente cuando se usa el módulo `gcode` usado para "
 "interfaces de usuario - solo está presente en la instancia miltask del "
 "intérprete."
@@ -191666,10 +191666,10 @@ msgstr ""
 #, fuzzy
 msgid ""
 "'or' these flags into the `[EMC]DEBUG` variable as needed.  For a current "
-"list of debug flags see 'src/emc/nml_intf/debugflags.h'."
+"list of debug flags see 'src/cnc/nml_intf/debugflags.h'."
 msgstr ""
 "combine con 'or' estas banderas en la variable `[EMC]DEBUG` según sea "
-"necesario. Para una lista actual de indicadores de depuración, vea 'src/emc/"
+"necesario. Para una lista actual de indicadores de depuración, vea 'src/cnc/"
 "nml_intf/debugflags.h'."
 
 #. type: Title ===
@@ -194099,12 +194099,12 @@ msgid ""
 "All the interpreter does is evaluate the toolnumber parameter, looks up its "
 "corresponding tooldata index, remembers it in the `selected_pocket` variable "
 "for later, and queues a canon command (SELECT_TOOL).  See "
-"'Interp::convert_tool_select' in 'src/emc/rs274/interp_execute.cc'."
+"'Interp::convert_tool_select' in 'src/cnc/rs274/interp_execute.cc'."
 msgstr ""
 "Todo lo que hace el intérprete es evaluar el parámetro toolnumber, busca su "
 "ranura correspondiente, lo recuerda en la variable `selected_pocket` para "
 "más tarde, y pone en cola un comando canonico (SELECT_POCKET). Consulte "
-"'Interp::convert_tool_select' en 'src/emc/rs274/interp_execute.cc'."
+"'Interp::convert_tool_select' en 'src/cnc/rs274/interp_execute.cc'."
 
 #. type: Block title
 #: src/remap/remap.adoc:2211
@@ -194213,10 +194213,10 @@ msgstr ""
 #, fuzzy
 msgid ""
 "Even if you are not familiar with C, I suggest you look at the "
-"'Interp::convert_tool_change' code in 'src/emc/rs274/interp_convert.cc'."
+"'Interp::convert_tool_change' code in 'src/cnc/rs274/interp_convert.cc'."
 msgstr ""
 "Incluso si no está familiarizado con C, le sugiero que mire el código "
-"'Interp::convert_tool_change' en 'src/emc/rs274/interp_convert.cc'."
+"'Interp::convert_tool_change' en 'src/cnc/rs274/interp_convert.cc'."
 
 #. type: Block title
 #: src/remap/remap.adoc:2238
@@ -194559,7 +194559,7 @@ msgstr ""
 #: src/remap/remap.adoc:2328
 #, fuzzy, no-wrap
 msgid ""
-"Debug level, 0 means no messages. See src/emc/nml_intf/debugflags.h for others\n"
+"Debug level, 0 means no messages. See src/cnc/nml_intf/debugflags.h for others\n"
 "DEBUG = 0x00000002 # configuration\n"
 "DEBUG = 0x7FFFDEFF # no interp,oword\n"
 "DEBUG = 0x00008000 # py only\n"
@@ -194575,7 +194575,7 @@ msgid ""
 "DEBUG = 0x30008000 # USER1,USER2, PYTHON # USER2 will cause involute to try to connect to pydev\n"
 "DEBUG = 0x7FFFFFFF # All debug messages\n"
 msgstr ""
-"Nivel de depuración, 0 significa que no hay mensajes. Vea src/emc/nml_intf/debugflags.h para otros.\n"
+"Nivel de depuración, 0 significa que no hay mensajes. Vea src/cnc/nml_intf/debugflags.h para otros.\n"
 "DEBUG = 0x00000002 # configuración\n"
 "DEBUG = 0x7FFFDEFF # no interp, oword\n"
 "DEBUG = 0x00008000 # solo py\n"
@@ -194707,7 +194707,7 @@ msgstr ""
 #: src/source-highlight/ini-demo.adoc:42
 #, no-wrap
 msgid ""
-"# Debug level, 0 means no messages. See src/emc/nml_int/emcglb.h for others\n"
+"# Debug level, 0 means no messages. See src/cnc/nml_int/emcglb.h for others\n"
 "# DEBUG =               0x7FFFFFFF\n"
 "DEBUG = 0\n"
 msgstr ""
@@ -233496,9 +233496,9 @@ msgstr ""
 #. type: Plain text
 #: man/man9/motion.9:245
 #, fuzzy
-msgid "These values are from src/emc/nml_intf/motion_types.h."
+msgid "These values are from src/cnc/nml_intf/motion_types.h."
 msgstr ""
-"'motion.motion-type' - (s32, out) Valores definidos en src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) Valores definidos en src/cnc/nml_intf/"
 "motion_types.h"
 
 #. type: Plain text
@@ -254479,12 +254479,12 @@ msgstr ""
 
 #, fuzzy
 #~ msgid ""
-#~ "A homing api is provided by src/emc/motion/homing.h to support users' "
-#~ "custom homing code that replaces src/emc/motion/homing.c with a user-"
+#~ "A homing api is provided by src/cnc/motion/homing.h to support users' "
+#~ "custom homing code that replaces src/cnc/motion/homing.c with a user-"
 #~ "customized homing.c file."
 #~ msgstr ""
-#~ "A homing api is provided by src/emc/motion/homing.h to support users' "
-#~ "custom homing code that replaces src/emc/motion/homing.c with a user-"
+#~ "A homing api is provided by src/cnc/motion/homing.h to support users' "
+#~ "custom homing code that replaces src/cnc/motion/homing.c with a user-"
 #~ "customized homing.c file."
 
 #, fuzzy

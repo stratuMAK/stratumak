@@ -8,7 +8,7 @@ This is a skeleton implementation where all joints are effectively
 homed at all times and cannot be unhomed.  It serves as a starting
 point for users who want to implement custom homing behavior.
 
-For a full-featured custom homing module, copy emc/motion/homing.c,
+For a full-featured custom homing module, copy cnc/motion/homing.c,
 modify the homing state machine as needed, and build it as a
 standalone cmod with modcompile.
 

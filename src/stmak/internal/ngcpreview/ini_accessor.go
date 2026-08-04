@@ -10,7 +10,7 @@ package ngcpreview
 // e.g. remapped M6 or SUBROUTINE_PATH o-calls failed only in the preview).
 //
 // Mirrors internal/task/ini_accessor.go against the rs274ngc preview shim
-// (emc/rs274ngc/interp_shim.h). The //export names differ because exported
+// (cnc/rs274ngc/interp_shim.h). The //export names differ because exported
 // cgo symbols are global to the final binary.
 
 /*

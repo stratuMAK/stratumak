@@ -362,5 +362,5 @@ No additional Go code needed in the task package for full functional parity.
 - `src/gmi/idl/motstat.gmi` — motion status readback
 - `src/gmi/idl/ini.gmi` — INI query API
 - `src/stmak/pkg/inifile/` — pure Go INI parser
-- `src/emc/task/emctaskmain_stmak.cc` — current implementation (reference)
-- `src/emc/rs274ngc/canon_interface.hh` — interpreter's canon vtable wrapper
+- `src/cnc/task/emctaskmain_stmak.cc` — current implementation (reference)
+- `src/cnc/rs274ngc/canon_interface.hh` — interpreter's canon vtable wrapper

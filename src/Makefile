@@ -180,13 +180,13 @@ SUBDIRS := \
 	hal/hal-ads-server \
 	hal/drivers/ethercat \
     \
-    emc/usr_intf/axis emc/usr_intf/touchy emc/usr_intf/stepconf emc/usr_intf/pncconf \
-    emc/usr_intf/gremlin emc/usr_intf/gscreen emc/usr_intf/pyui emc/usr_intf/qtvcp \
-    emc/usr_intf/gmoccapy emc/usr_intf/qtplasmac emc/usr_intf/mdro\
-    emc/usr_intf/gmcui \
-    emc/usr_intf emc/nml_intf emc/task emc/iotask emc/kinematics emc/tp \
-    emc/motion emc/motion-logger emc/ini emc/rs274ngc emc/sai \
-    emc \
+    cnc/usr_intf/axis cnc/usr_intf/touchy cnc/usr_intf/stepconf cnc/usr_intf/pncconf \
+    cnc/usr_intf/gremlin cnc/usr_intf/gscreen cnc/usr_intf/pyui cnc/usr_intf/qtvcp \
+    cnc/usr_intf/gmoccapy cnc/usr_intf/qtplasmac cnc/usr_intf/mdro\
+    cnc/usr_intf/gmcui \
+    cnc/usr_intf cnc/nml_intf cnc/task cnc/iotask cnc/kinematics cnc/tp \
+    cnc/motion cnc/motion-logger cnc/ini cnc/rs274ngc cnc/sai \
+    cnc \
     \
     stmak \
     gmi/codegen \
@@ -366,47 +366,47 @@ build-software: $(INFILES)
 # in ../include is used when building external components of linuxcnc.
 SRCHEADERS := \
     config.h \
-    emc/linuxcnc.h \
-    emc/kinematics/cubic.h \
-    emc/kinematics/kinematics.h \
-    emc/kinematics/genhexkins.h \
-    emc/kinematics/genserkins.h \
-    emc/kinematics/pentakins.h \
-    emc/kinematics/pumakins.h \
-    emc/tp/tc.h \
-    emc/tp/tc_types.h \
-    emc/tp/tcq.h \
-    emc/tp/tp_types.h \
-    emc/tp/spherical_arc.h \
-    emc/tp/blendmath.h \
-    emc/tp/tp_debug.h \
-    emc/motion/emcmotcfg.h \
-    emc/motion/motion.h \
-    emc/motion/homing.h \
-    emc/motion/simple_tp.h \
-    emc/motion/state_tag.h \
-    emc/motion/usrmotintf.h \
-    emc/nml_intf/canon.hh \
-    emc/nml_intf/canon_position.hh \
-    emc/nml_intf/emctool.h \
-    emc/nml_intf/emcpos.h \
-    emc/nml_intf/emcpose.h \
-    emc/nml_intf/interp_return.hh \
-    emc/nml_intf/motion_types.h \
-    emc/nml_intf/debugflags.h \
-    emc/rs274ngc/interp_internal.hh \
-    emc/rs274ngc/interp_fwd.hh \
-    emc/rs274ngc/interp_base.hh \
-    emc/rs274ngc/canon_interface.hh \
-    emc/rs274ngc/interp_ext.h \
-    emc/rs274ngc/interp_inspection.hh \
-    emc/rs274ngc/interp_parameter_def.hh \
-    emc/rs274ngc/interp_parameter_io.hh \
-    emc/rs274ngc/interp_shim.h \
-    emc/rs274ngc/modal_state.hh \
-    emc/rs274ngc/rs274ngc.hh \
-    emc/rs274ngc/rs274ngc_interp.hh \
-    emc/sai/saicanon.hh \
+    cnc/linuxcnc.h \
+    cnc/kinematics/cubic.h \
+    cnc/kinematics/kinematics.h \
+    cnc/kinematics/genhexkins.h \
+    cnc/kinematics/genserkins.h \
+    cnc/kinematics/pentakins.h \
+    cnc/kinematics/pumakins.h \
+    cnc/tp/tc.h \
+    cnc/tp/tc_types.h \
+    cnc/tp/tcq.h \
+    cnc/tp/tp_types.h \
+    cnc/tp/spherical_arc.h \
+    cnc/tp/blendmath.h \
+    cnc/tp/tp_debug.h \
+    cnc/motion/emcmotcfg.h \
+    cnc/motion/motion.h \
+    cnc/motion/homing.h \
+    cnc/motion/simple_tp.h \
+    cnc/motion/state_tag.h \
+    cnc/motion/usrmotintf.h \
+    cnc/nml_intf/canon.hh \
+    cnc/nml_intf/canon_position.hh \
+    cnc/nml_intf/emctool.h \
+    cnc/nml_intf/emcpos.h \
+    cnc/nml_intf/emcpose.h \
+    cnc/nml_intf/interp_return.hh \
+    cnc/nml_intf/motion_types.h \
+    cnc/nml_intf/debugflags.h \
+    cnc/rs274ngc/interp_internal.hh \
+    cnc/rs274ngc/interp_fwd.hh \
+    cnc/rs274ngc/interp_base.hh \
+    cnc/rs274ngc/canon_interface.hh \
+    cnc/rs274ngc/interp_ext.h \
+    cnc/rs274ngc/interp_inspection.hh \
+    cnc/rs274ngc/interp_parameter_def.hh \
+    cnc/rs274ngc/interp_parameter_io.hh \
+    cnc/rs274ngc/interp_shim.h \
+    cnc/rs274ngc/modal_state.hh \
+    cnc/rs274ngc/rs274ngc.hh \
+    cnc/rs274ngc/rs274ngc_interp.hh \
+    cnc/sai/saicanon.hh \
     hal/hal.h \
     hal/hal_priv.h \
     hal/drivers/mesa-hostmot2/hostmot2-serial.h \
@@ -443,14 +443,14 @@ SRCHEADERS := \
 # C files that are #included rather than compiled on their own.
 #
 # The stmak packages wrapping the trajectory planner and pose maths pull these
-# in textually (`#include "emc/tp/tc.c"`), so to a tree that has to be
+# in textually (`#include "cnc/tp/tc.c"`), so to a tree that has to be
 # rebuildable they are headers in everything but name, and are installed
 # alongside them. Nothing compiles them as translation units.
 SRCINCLUDED_SOURCES := \
-    emc/nml_intf/emcpose.c \
-    emc/tp/blendmath.c \
-    emc/tp/spherical_arc.c \
-    emc/tp/tc.c
+    cnc/nml_intf/emcpose.c \
+    cnc/tp/blendmath.c \
+    cnc/tp/spherical_arc.c \
+    cnc/tp/tc.c
 
 # the "headers" target installs all the header files in ../include
 .PHONY: headers
@@ -469,7 +469,7 @@ TARGETS += headers
 # everything compiled against LinuxCNC. A stmak package whose own header shares
 # a basename with one of them does not win by being adjacent -- when cgo
 # compiles it the flat copy is found first, and the package fails on types
-# declared in the file lying next to it. emc/rs274ngc/interp_shim.h and
+# declared in the file lying next to it. cnc/rs274ngc/interp_shim.h and
 # stmak/internal/task/interp_shim.h were exactly that, down to sharing an
 # include guard, and it cost an afternoon to find because every error pointed
 # at the innocent file.
@@ -758,8 +758,8 @@ install-docs:
 	$(DIR) $(DESTDIR)$(docsdir)
 	$(FILE) $(addprefix ../docs/,$(DOCS)) $(DESTDIR)$(docsdir)
 	$(FILE) $(DOCS_HELP) $(DESTDIR)$(docsdir)
-	$(FILE) emc/usr_intf/axis/etc/axis_light_background $(DESTDIR)$(docsdir)
-	$(FILE) emc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
+	$(FILE) cnc/usr_intf/axis/etc/axis_light_background $(DESTDIR)$(docsdir)
+	$(FILE) cnc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
 
 install-dirs:
 	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
@@ -851,7 +851,7 @@ install-common: install-dirs
 	# The flat copies above are what out-of-tree cmods have always used, and
 	# stay. But the stmak packages include a good many of them the way the
 	# source tree does -- `#include "hal/hal_priv.h"`, `#include
-	# "emc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
+	# "cnc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
 	# -Isrc in a build tree and against nothing at all in a flat include
 	# directory. That is why the installed stmak tree could not be rebuilt:
 	# not a missing file, a missing shape.
@@ -862,8 +862,8 @@ install-common: install-dirs
 	# `|| exit 1` on the install, and it is load-bearing: without it a failing
 	# iteration is not the loop's exit status, so a name that no longer exists
 	# passes silently. The flat copies above reach this file through a `-cp`
-	# rule that ignores errors, which is how emc/rs274ngc/saicanon.hh stayed
-	# listed for years after moving to emc/sai/ -- installed nowhere, missed by
+	# rule that ignores errors, which is how cnc/rs274ngc/saicanon.hh stayed
+	# listed for years after moving to cnc/sai/ -- installed nowhere, missed by
 	# nobody until something needed it.
 	$(Q)for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 		d=$$(dirname $$h); \
@@ -887,8 +887,8 @@ install-common: install-dirs
 	$(FILE) ../share/linuxcnc/pncconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/pncconf
 	$(FILE) ../share/linuxcnc/gremlin_view.ui $(DESTDIR)$(prefix)/share/linuxcnc
 	$(FILE) ../share/linuxcnc/popupkeyboard.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
-	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
 
 	$(FILE) ../lib/python/gladevcp/hal_python.xml $(DESTDIR)$(datadir)/glade/catalogs/
 	$(FILE) ../share/glade/pixmaps/hicolor/22x22/actions/widget*.png  $(DESTDIR)$(datadir)/glade/pixmaps/hicolor/22x22/actions/
@@ -997,7 +997,7 @@ endif # userspace
 # ---------------------------------------------------------------------------
 
 HOMEMOD_CMOD_SRCS := \
-    emc/motion/homing.c
+    cnc/motion/homing.c
 
 HOMEMOD_CMOD_CFLAGS := \
     -fPIC -g -Os -Wall -Wextra \
@@ -1007,14 +1007,14 @@ HOMEMOD_CMOD_CFLAGS := \
     -Istmak/pkg/cmodule \
     -Istmak/generated/gmi/home \
     -Istmak/generated/gmi/mot \
-    -Iemc/motion
+    -Icnc/motion
 
 HOMEMOD_CMOD_DEPS := \
     stmak/generated/gmi/home/home_api.h \
     stmak/generated/gmi/mot/mot_api.h \
     $(wildcard stmak/pkg/cmodule/stmak_*.h) \
-    $(wildcard emc/motion/homing.h) \
-    $(wildcard emc/motion/motion.h)
+    $(wildcard cnc/motion/homing.h) \
+    $(wildcard cnc/motion/motion.h)
 
 ../cmod/homemod.so: $(HOMEMOD_CMOD_SRCS) $(HOMEMOD_CMOD_DEPS) | headers
 	$(ECHO) "Compiling cmod homemod.so"
@@ -1031,7 +1031,7 @@ modules: ../cmod/homemod.so
 # ---------------------------------------------------------------------------
 
 HOMEMOD_CIA402_CMOD_SRCS := \
-    emc/motion/homemod_cia402.c
+    cnc/motion/homemod_cia402.c
 
 ../cmod/homemod_cia402.so: $(HOMEMOD_CIA402_CMOD_SRCS) $(HOMEMOD_CMOD_DEPS) | headers
 	$(ECHO) "Compiling cmod homemod_cia402.so"
@@ -1048,12 +1048,12 @@ modules: ../cmod/homemod_cia402.so
 # ---------------------------------------------------------------------------
 
 TPMOD_CMOD_SRCS := \
-    emc/tp/tp.c \
-    emc/tp/tc.c \
-    emc/tp/tcq.c \
-    emc/tp/spherical_arc.c \
-    emc/tp/blendmath.c \
-    emc/nml_intf/emcpose.c
+    cnc/tp/tp.c \
+    cnc/tp/tc.c \
+    cnc/tp/tcq.c \
+    cnc/tp/spherical_arc.c \
+    cnc/tp/blendmath.c \
+    cnc/nml_intf/emcpose.c
 
 TPMOD_CMOD_CFLAGS := \
     -fPIC -g -Os -Wall -Wextra \
@@ -1064,16 +1064,16 @@ TPMOD_CMOD_CFLAGS := \
     -Istmak/pkg/cmodule \
     -Istmak/generated/gmi/tp \
     -Istmak/generated/gmi/mot \
-    -Iemc/motion \
-    -Iemc/tp \
+    -Icnc/motion \
+    -Icnc/tp \
     -Ilibnml/posemath
 
 TPMOD_CMOD_DEPS := \
     stmak/generated/gmi/tp/tp_api.h \
     stmak/generated/gmi/mot/mot_api.h \
     $(wildcard stmak/pkg/cmodule/stmak_*.h) \
-    $(wildcard emc/tp/*.h) \
-    $(wildcard emc/motion/motion.h)
+    $(wildcard cnc/tp/*.h) \
+    $(wildcard cnc/motion/motion.h)
 
 ../cmod/tpmod.so: $(TPMOD_CMOD_SRCS) $(TPMOD_CMOD_DEPS) | headers ../lib/libposemath.so
 	$(ECHO) "Compiling cmod tpmod.so"

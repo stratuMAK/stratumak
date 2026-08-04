@@ -833,7 +833,7 @@ modules to self-contained cmods using the GMI dynamic API.
 - [x] Code generator (`gmicompile`): `--server-c` producing C headers + Go CGO wrappers
 - [x] Codegen: functions return values directly (not via out-pointer)
 - [x] Codegen: enums passed by value (not pointer)
-- [x] Kinematics: 17 kins modules ported to cmod (in `emc/kinematics/`)
+- [x] Kinematics: 17 kins modules ported to cmod (in `cnc/kinematics/`)
 - [x] Trajectory planner: `tp.c` is self-contained cmod (owns `TP_STRUCT`, registers tp API)
 - [x] Homing: `homing.c` is self-contained cmod (registers home API)
 - [x] Motion controller (`motmod`): consumes tp + home APIs via direct pointer calls
@@ -874,7 +874,7 @@ modules to self-contained cmods using the GMI dynamic API.
   in their inline helpers — fixed to match legacy posemath behavior.
 
 - **No separate directories needed**: Source lives in standard locations
-  (`emc/kinematics/`, `emc/tp/`, `emc/motion/`). Only the IDL definitions and
+  (`cnc/kinematics/`, `cnc/tp/`, `cnc/motion/`). Only the IDL definitions and
   runtime library need a dedicated `gmi/` directory.
 
 ### Step 1: apiserver Package (COMPLETE)
@@ -1904,7 +1904,7 @@ func get_errors() -> []ErrorMessage
 1. ✅ **IDL files** — `emcstat.gmi`, `emccmd.gmi`, `emcerror.gmi` written with
    all types, enums, and functions. (gmicompile code generation pending)
 
-2. ✅ **C++ NML shim: `emc/nml_intf/nml_shim.cc` + `nml_shim.h`** — `extern "C"`
+2. ✅ **C++ NML shim: `cnc/nml_intf/nml_shim.cc` + `nml_shim.h`** — `extern "C"`
    wrapper around the NML C++ API. Covers stat polling, 25 commands, error
    polling, init/shutdown lifecycle. Not yet compiled into stmakd.
 
@@ -2002,7 +2002,7 @@ instead of Python.
 - [x] `gmi/idl/emcstat.gmi` — stat types, enums (TaskMode, TaskState, etc.), watch function
 - [x] `gmi/idl/emccmd.gmi` — command enums (AutoCmd, JogType, SpindleCmd), command functions
 - [x] `gmi/idl/emcerror.gmi` — error types/enums, error watch function
-- [x] `emc/nml_intf/nml_shim.cc` + `nml_shim.h` — C shim wrapping NML C++ API with `extern "C"`
+- [x] `cnc/nml_intf/nml_shim.cc` + `nml_shim.h` — C shim wrapping NML C++ API with `extern "C"`
 - [x] `internal/emcgateway/` — gomod implementing callbacks via cgo→NML shim (DELETED — replaced by internal/task)
 - [x] `src/gmi/python/stat.py` — `Stat` class (watch-based, drop-in for `linuxcnc.stat()`)
 - [x] `src/gmi/python/command.py` — `Command` class (REST/WS, drop-in for `linuxcnc.command()`)
@@ -2363,7 +2363,7 @@ src/webapp/halscope/
 **Native Container (gmcui):**
 
 ```
-src/emc/usr_intf/gmcui/
+src/cnc/usr_intf/gmcui/
 ├── gmcui.c        # GTK3+WebKit2, profile table, symlink detection
 └── Submakefile    # Conditional on BUILD_WEBKIT2GTK=yes
 ```

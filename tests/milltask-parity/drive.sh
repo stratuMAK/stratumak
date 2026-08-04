@@ -10,7 +10,7 @@
 #
 # Requires motmod built with the parity trace compiled in, i.e.
 #   make ../cmod/motmod.so EXTRA_CFLAGS=-DMILLTASK_PARITY_TRACE
-# (motcmd_trace in src/emc/motion/command.c; off by default). See README.md.
+# (motcmd_trace in src/cnc/motion/command.c; off by default). See README.md.
 #
 # The same script drives whichever milltask is active — the Go gomod (default)
 # or the C++ cmod (when cmod/milltask.so is present). That is what makes the

@@ -5,7 +5,7 @@
 // task_interp_shim.h — C declarations for the interpreter shim functions.
 // This header is included by interp.go via cgo.
 //
-// Named for the task, not just for what it is, because emc/rs274ngc has its
+// Named for the task, not just for what it is, because cnc/rs274ngc has its
 // own interp_shim.h declaring a different set of types for the preview
 // interpreter. The two used to share both a basename and an include guard: in
 // a flat include directory the wrong one wins silently, and the symptom is
@@ -119,7 +119,7 @@ void interp_set_param_io(void *handle, const struct interp_param_io_t *io);
 
 // --- Interpreter state inspection ---
 // Read-only views of interpreter state that has no other C-callable route.
-// These mirror emc/rs274ngc/interp_inspection.hh, which exists for exactly
+// These mirror cnc/rs274ngc/interp_inspection.hh, which exists for exactly
 // this purpose ("shim functions to access interp internal data generically
 // ... so that backend changes don't break the tests as often") and is linked
 // into librs274 already.  Used by the Go interpreter unit tests to assert on

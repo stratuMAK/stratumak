@@ -1,7 +1,7 @@
 // Flattening and value formatting for the emcstat StatFull snapshot.
 //
 // This is the transliteration of the `maps` dict in the Tk linuxcnctop
-// (src/emc/usr_intf/axis/scripts/linuxcnctop.py): a per-field formatter table
+// (src/cnc/usr_intf/axis/scripts/linuxcnctop.py): a per-field formatter table
 // plus a generic fallback. Two things differ from the Tk original, both
 // because StatFull is a typed nested struct rather than the flat 2.9-named
 // attribute bag the Python gmi.Stat shim exposes:

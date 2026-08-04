@@ -327,14 +327,14 @@ configs/sim/axis/vismach/ .
 == User kinematics provisions
 
 Custom kinematics can be coded and tested on Run-In-Place ('RIP')
-builds.  A template file src/emc/kinematics/userkfuncs.c is provided
+builds.  A template file src/cnc/kinematics/userkfuncs.c is provided
 in the distribution.  This file can be copied/renamed to a user
 directory and edited to supply custom kinematics with
 kinstype==2.
 
 The user custom kinematics file can be compiled from out-of-tree
 source locations for rt-preempt implementations or by replacing
-the in-tree template file (src/emc/kinematics/userkfuncs.c) for rtai
+the in-tree template file (src/cnc/kinematics/userkfuncs.c) for rtai
 systems.
 
 Preempt-rt make example:

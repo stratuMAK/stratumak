@@ -28,7 +28,7 @@ in machine units** (whatever `[TRAJ]LINEAR_UNITS` says), never converted to mm.
 On an **inch** machine every such value is therefore **25.4× off**:
 
 - **Position limits** (`config.go` `SetJointPositionLimits`/`SetAxisPositionLimits`)
-  end up 25.4× too *tight* → `motmod` (`src/emc/motion/command.c:216`,`:261`)
+  end up 25.4× too *tight* → `motmod` (`src/cnc/motion/command.c:216`,`:261`)
   **rejects legal moves**. This is what blocked `tests/abort/stop-button-crazy-move`
   (a `G21 G0 Z10` = 0.39 in move tripped a ±4 in Z limit).
 - **Velocities / accelerations** end up 25.4× too *small* → motion on an inch

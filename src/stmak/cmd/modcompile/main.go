@@ -657,7 +657,7 @@ func cgoFlags() (cflags, ldflags string) {
 		// Two roots. The first is where the C headers are installed. The
 		// second is the directory the stmak tree sits in, because a few
 		// headers spell their includes from the source root inwards --
-		// emc/rs274ngc/canon_interface.hh asks for
+		// cnc/rs274ngc/canon_interface.hh asks for
 		// "stmak/generated/gmi/canon/canon_api.h" -- and that resolves only
 		// against a directory that has a "stmak" in it. The run-in-place
 		// branch above gets the same thing from -I<src>.

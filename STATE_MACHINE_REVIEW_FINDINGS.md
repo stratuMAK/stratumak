@@ -5,9 +5,9 @@ abort/estop path lives, that section gets human eyes regardless of module tier."
 the cross-cutting hotspot. It covers the abort/estop/lifecycle surface **not** already
 reviewed under the milltask (Phase 0), launcher (#4), HAL (#1), or realtime (#6) reviews:
 
-1. **C RT motion controller** — `src/emc/motion` (enable/disable/estop/abort + homing FSM,
+1. **C RT motion controller** — `src/cnc/motion` (enable/disable/estop/abort + homing FSM,
    incl. the stmak-specific CiA402 drive-internal homing module).
-2. **C iocontrol** — `src/emc/iotask` (estop loop + tool-change handshake), rewritten from
+2. **C iocontrol** — `src/cnc/iotask` (estop loop + tool-change handshake), rewritten from
    the 2.9 NML process into two in-process GMI cmods (`ioControl.c` v1, `ioControl_v2.c` v2).
 3. **Go-side lifecycle / connection state machines** — classicladder, halscope, ADS
    (server + module + bridge), mqttbridge, apiserver, ngcpreview, persist_sqlite.
@@ -83,8 +83,8 @@ without joining the goroutines still touching it** (classicladder, halscope).
 ## CRITICAL
 
 ### T1 — v2 tool-change loop has no abort-detect branch; an aborted/estop'd M6 wedges the sequencer goroutine forever in cgo
-`src/emc/iotask/ioControl_v2.c:857-901` (`gmi_tool_load`) · cf. the correct v1 at
-`src/emc/iotask/ioControl.c:668-676` · abort source `ioControl_v2.c:624-646` (`gmi_io_abort`)
+`src/cnc/iotask/ioControl_v2.c:857-901` (`gmi_tool_load`) · cf. the correct v1 at
+`src/cnc/iotask/ioControl.c:668-676` · abort source `ioControl_v2.c:624-646` (`gmi_io_abort`)
 **CONFIRMED**
 
 `gmi_tool_load` raises `tool_change=1` and busy-waits in `while (!m->done)`. The loop exits
@@ -129,7 +129,7 @@ the goroutine is in C and never reaches the `select`. Only killing the process r
 i.e. an operator abort during a stuck tool change **bricks the controller**.
 
 ### T3 — v2 `gmi_io_abort` itself blocks in `wait_for_abort_ack`; called from every teardown/estop path
-`src/emc/iotask/ioControl_v2.c:638-641` + `609-622` (`wait_for_abort_ack`) · callers
+`src/cnc/iotask/ioControl_v2.c:638-641` + `609-622` (`wait_for_abort_ack`) · callers
 `commands.go:351` (stopSignals), `commands.go:549` (estop-reset), `sequencer.go:781`
 (seqFaultExit), `commands.go:1398` (MDI abort), `commands.go:2125` (task abort)
 **CONFIRMED**
@@ -154,9 +154,9 @@ insufficient if the abort *initiator* still blocks on an ack that never comes.
 ## HIGH
 
 ### C1 — estop/disable during CiA402 drive-internal homing leaves the drive commanded in HOMING opmode
-`src/emc/motion/homemod_cia402.c:353-360` (`gmi_home_do_cancel`) · reset only in the
+`src/cnc/motion/homemod_cia402.c:353-360` (`gmi_home_do_cancel`) · reset only in the
 `DRV_HOME_ERROR` tick branch `homemod_cia402.c:242-248` · tick gated FREE-only at
-`src/emc/motion/control.c:441-442` · `write_out_pins` doesn't touch opmode
+`src/cnc/motion/control.c:441-442` · `write_out_pins` doesn't touch opmode
 `homemod_cia402.c:332-338`
 **CONFIRMED (mechanism) / PLAUSIBLE (hazard depends on drive STO behavior)**
 

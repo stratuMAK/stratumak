@@ -4284,7 +4284,7 @@ msgstr "Commentaires"
 msgid ""
 "This section simply lists all of the commands that can be sent to the motion "
 "module, along with detailed explanations of what they do. The command names "
-"are defined in a large typedef enum in {linuxcnc}/src/emc/motion/motion.h, "
+"are defined in a large typedef enum in {linuxcnc}/src/cnc/motion/motion.h, "
 "called cmd_code_t. (Note that in the code, each command name starts with "
 "'EMCMOT_', which is omitted here.)"
 msgstr ""
@@ -5896,7 +5896,7 @@ msgstr ""
 #. type: Plain text
 #: src/code/code-notes.adoc:1125
 msgid ""
-"add the definition of the EMC_IO_GENERIC class to emc2/src/emc/nml_intf/"
+"add the definition of the EMC_IO_GENERIC class to emc2/src/cnc/nml_intf/"
 "emc.hh"
 msgstr ""
 
@@ -5908,25 +5908,25 @@ msgstr ""
 #. type: Plain text
 #: src/code/code-notes.adoc:1127
 msgid ""
-"(I chose 1605, because it was available) to emc2/src/emc/nml_intf/emc.hh"
+"(I chose 1605, because it was available) to emc2/src/cnc/nml_intf/emc.hh"
 msgstr ""
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1128
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/emc/nml_intf/emc.cc"
+"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/cnc/nml_intf/emc.cc"
 msgstr ""
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1129
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/emc/nml_intf/"
+"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/cnc/nml_intf/"
 "emc.cc"
 msgstr ""
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1130
-msgid "add EMC_IO_GENERIC::update function to emc2/src/emc/nml_intf/emc.cc"
+msgid "add EMC_IO_GENERIC::update function to emc2/src/cnc/nml_intf/emc.cc"
 msgstr ""
 
 #. type: Plain text
@@ -6583,7 +6583,7 @@ msgstr "interp"
 #: src/code/code-notes.adoc:1342
 msgid ""
 "+settings+ is of type +settings+, defined as +struct setup_struct+ in +src/"
-"emc/rs274ngc/interp_internal.hh+."
+"cnc/rs274ngc/interp_internal.hh+."
 msgstr ""
 
 #. type: Labeled list
@@ -6716,7 +6716,7 @@ msgstr ""
 #. type: Plain text
 #: src/code/code-notes.adoc:1387
 msgid ""
-"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/emc/"
+"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/cnc/"
 "nml_intf/emctool.h+), with +CANON_POCKETS_MAX+ entries.  Indexed by \"pocket "
 "number\", aka \"slot number\".  Index 0 is the spindle, indexes 1 to "
 "(CANON_POCKETS_MAX-1) are the pockets in the tool changer.  On a random "
@@ -6848,7 +6848,7 @@ msgstr ""
 msgid ""
 "Things are not this way currently in the joints-axes branch, but deviations "
 "from this design are considered bugs.  For an example of such a bug, see the "
-"treatment of axes in src/emc/ini/initraj.cc:loadTraj().  There are "
+"treatment of axes in src/cnc/ini/initraj.cc:loadTraj().  There are "
 "undoubtedly more, and I need your help to find them and fix them."
 msgstr ""
 
@@ -7537,7 +7537,7 @@ msgstr "Messages d'erreur"
 #, no-wrap
 msgid ""
 "List of NML messages.\n"
-"For details see `src/emc/nml_intf/emc.hh`."
+"For details see `src/cnc/nml_intf/emc.hh`."
 msgstr ""
 
 #. type: Title ==
@@ -12348,7 +12348,7 @@ msgstr ""
 #. type: Plain text
 #: src/config/core-components.adoc:133
 msgid ""
-"'motion.motion-type' - (s32, out) These values are from src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) These values are from src/cnc/nml_intf/"
 "motion_types.h"
 msgstr ""
 
@@ -13926,7 +13926,7 @@ msgstr ""
 msgid ""
 "`DEBUG = 0` - Debug level 0 means no messages will be printed when LinuxCNC "
 "is run from a <<faq:terminal,terminal>>.  Debug flags are usually only "
-"useful to developers. See src/emc/nml_intf/debugflags.h for other settings."
+"useful to developers. See src/cnc/nml_intf/debugflags.h for other settings."
 msgstr ""
 "'DEBUG = 0' - Niveau de débogage 0 signifie qu'aucun message ne sera affiché "
 "dans le terminal pendant le fonctionnement de LinuxCNC. Les drapeaux de "
@@ -25792,7 +25792,7 @@ msgstr ""
 msgid ""
 "'(returns integer)' - current RS274NGC interpreter return code. One of "
 "INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE, "
-"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/emc/nml_intf/interp_return.hh"
+"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/cnc/nml_intf/interp_return.hh"
 msgstr ""
 
 #. type: Labeled list
@@ -27877,7 +27877,7 @@ msgstr ""
 #. type: Plain text
 #: src/config/python-interface.adoc:902
 msgid ""
-"Some usage hints can be gleaned from `src/emc/usr_intf/gremlin/gremlin.py`."
+"Some usage hints can be gleaned from `src/cnc/usr_intf/gremlin/gremlin.py`."
 msgstr ""
 
 #. type: Title ===
@@ -59367,7 +59367,7 @@ msgid ""
 "parameters except numbered parameters in the current persistent range "
 "footnoteref:[persistent_range,The range of persistent parameters may change "
 "as development progresses. This range is currently 5161- 5390. It is defined "
-"in the '_required_parameters array' in file the src/emc/rs274ngc/"
+"in the '_required_parameters array' in file the src/cnc/rs274ngc/"
 "interp_array.cc .] are volatile.  Persistent parameters are saved in "
 "the .var file and restored to their previous values when LinuxCNC is started "
 "again. Volatile numbered parameters are reset to zero."
@@ -59456,7 +59456,7 @@ msgid ""
 "A numbered parameter is the pound character '#' followed by an integer "
 "between 1 and (currently) 5602 footnote:[The RS274/NGC interpreter maintains "
 "an array of numbered parameters. Its size is defined by the symbol "
-"'RS274NGC_MAX_PARAMETERS' in the file src/emc/rs274ngc/interp_internal.hh). "
+"'RS274NGC_MAX_PARAMETERS' in the file src/cnc/rs274ngc/interp_internal.hh). "
 "This number of numerical parameters may also increase as development adds "
 "support for new parameters.]. The parameter is referred to by this integer, "
 "and its value is whatever number is stored in the parameter."
@@ -59464,7 +59464,7 @@ msgstr ""
 "Un paramètre numéroté commence par le caractère '#' suivi par un entier "
 "compris entre 1 et (actuellement) 5602 footnote:[The RS274/NGC interpreter "
 "maintains an array of numbered parameters. Its size is defined by the symbol "
-"'RS274NGC_MAX_PARAMETERS' in the file src/emc/rs274ngc/interp_internal.hh). "
+"'RS274NGC_MAX_PARAMETERS' in the file src/cnc/rs274ngc/interp_internal.hh). "
 "This number of numerical parameters may also increase as development adds "
 "support for new parameters.]. Le paramètre est référencé par cet entier, sa "
 "valeur est la valeur stockée dans le paramètre."
@@ -61217,14 +61217,14 @@ msgid ""
 "Testing for equality or inequality of two double-precision floating-point "
 "values is inherently problematic.  The interpreter solves this problem by "
 "considering values equal if their absolute difference is less than 1e-6 "
-"(this value is defined as 'TOLERANCE_EQUAL' in src/emc/rs274ngc/"
+"(this value is defined as 'TOLERANCE_EQUAL' in src/cnc/rs274ngc/"
 "interp_internal.hh)."
 msgstr ""
 "The RS274/NGC language only supports floating-point values of finite "
 "precision. Therefore, testing for equality or inequality of two floating-"
 "point values is inherently problematic. The interpreter solves this problem "
 "by considering values equal if their absolute difference is less than 0.0001 "
-"(this value is defined as 'TOLERANCE_EQUAL' in src/emc/rs274ngc/"
+"(this value is defined as 'TOLERANCE_EQUAL' in src/cnc/rs274ngc/"
 "interp_internal.hh)."
 
 #. type: Index entry
@@ -87862,7 +87862,7 @@ msgid ""
 "the top of the LinuxCNC folder.  Set up the environment by entering '. ./"
 "scripts/rip-environment' now enter 'glade', you see a bunch of warnings in "
 "the terminal that you can ignore and the editor should open.  The stock "
-"Gscreen Glade file is in: src/emc/usr_intf/gscreen/ sample skins are in /"
+"Gscreen Glade file is in: src/cnc/usr_intf/gscreen/ sample skins are in /"
 "share/gscreen/skins/.  This should be copied to a configuration folder.  Or "
 "you can make a clean-sheet Glade file by saving it in a configuration folder."
 msgstr ""
@@ -111931,7 +111931,7 @@ msgstr ""
 #. type: Plain text
 #: src/gui/qtvcp-development.adoc:48
 msgid ""
-"*QtVCP source* is located in `+src/emc/usr_intf/qtvcp+` folder of LinuxCNC "
+"*QtVCP source* is located in `+src/cnc/usr_intf/qtvcp+` folder of LinuxCNC "
 "source tree."
 msgstr ""
 
@@ -162100,7 +162100,7 @@ msgstr "Table Code Example"
 msgid ""
 "LinuxCNC includes kinematics modules for the 'xyzac-trt' and 'xyzbc-trt' "
 "topologies described in the mathematics detailed above.  For interested "
-"users, the source code is available in the git tree in the 'src/emc/"
+"users, the source code is available in the git tree in the 'src/cnc/"
 "kinematics/' directory."
 msgstr ""
 
@@ -165412,7 +165412,7 @@ msgstr ""
 #: src/motion/switchkins.adoc:334
 msgid ""
 "Custom kinematics can be coded and tested on Run-In-Place ('RIP')  builds.  "
-"A template file src/emc/kinematics/userkfuncs.c is provided in the "
+"A template file src/cnc/kinematics/userkfuncs.c is provided in the "
 "distribution.  This file can be copied/renamed to a user directory and "
 "edited to supply custom kinematics with kinstype==2."
 msgstr ""
@@ -165422,7 +165422,7 @@ msgstr ""
 msgid ""
 "The user custom kinematics file can be compiled from out-of-tree source "
 "locations for rt-preempt implementations or by replacing the in-tree "
-"template file (src/emc/kinematics/userkfuncs.c) for rtai systems."
+"template file (src/cnc/kinematics/userkfuncs.c) for rtai systems."
 msgstr ""
 
 #. type: Plain text
@@ -185796,7 +185796,7 @@ msgstr ""
 #. type: Plain text
 #: src/remap/remap.adoc:1180
 msgid ""
-"The interpreter is an existing C++ class ('Interp') defined in 'src/emc/"
+"The interpreter is an existing C++ class ('Interp') defined in 'src/cnc/"
 "rs274ngc'.  Conceptually all `oword.<function>` and `remap.<function>` "
 "Python calls are methods of this Interp class, although there is no explicit "
 "Python definition of this class (it is a 'Boost.Python' wrapper instance)  "
@@ -186547,9 +186547,9 @@ msgstr ""
 #. type: Plain text
 #: src/remap/remap.adoc:1500
 msgid ""
-"The actual canon functions are declared in `src/emc/nml_intf/canon.hh` and "
-"implemented in `src/emc/task/emccanon.cc`.  The implementation of the Python "
-"functions can be found in `src/emc/rs274ncg/canonmodule.cc`."
+"The actual canon functions are declared in `src/cnc/nml_intf/canon.hh` and "
+"implemented in `src/cnc/task/emccanon.cc`.  The implementation of the Python "
+"functions can be found in `src/cnc/rs274ncg/canonmodule.cc`."
 msgstr ""
 
 #. type: Title ===
@@ -186573,7 +186573,7 @@ msgstr "`interp-run`\n"
 #. type: Plain text
 #: src/remap/remap.adoc:1508
 msgid ""
-"Exposes internals of the Interp class.  See `src/emc/rs274ngc/"
+"Exposes internals of the Interp class.  See `src/cnc/rs274ngc/"
 "interpmodule.cc`, and the `tests/remap/introspect` regression test."
 msgstr ""
 
@@ -186585,7 +186585,7 @@ msgstr ""
 
 #. type: Plain text
 #: src/remap/remap.adoc:1511
-msgid "Exposes most calls of `src/emc/task/emccanon.cc`."
+msgid "Exposes most calls of `src/cnc/task/emccanon.cc`."
 msgstr ""
 
 #. type: Labeled list
@@ -186597,7 +186597,7 @@ msgstr ""
 #. type: Plain text
 #: src/remap/remap.adoc:1515
 msgid ""
-"Exposes the `emcStatus` class instance. See `src/emc/task/taskmodule.cc`.  "
+"Exposes the `emcStatus` class instance. See `src/cnc/task/taskmodule.cc`.  "
 "Not present when using the `gcode` module used for user interfaces - only "
 "present in the milltask instance of the interpreter."
 msgstr ""
@@ -187263,7 +187263,7 @@ msgstr ""
 #: src/remap/remap.adoc:1714
 msgid ""
 "'or' these flags into the `[EMC]DEBUG` variable as needed.  For a current "
-"list of debug flags see 'src/emc/nml_intf/debugflags.h'."
+"list of debug flags see 'src/cnc/nml_intf/debugflags.h'."
 msgstr ""
 
 #. type: Title ===
@@ -189380,7 +189380,7 @@ msgid ""
 "All the interpreter does is evaluate the toolnumber parameter, looks up its "
 "corresponding tooldata index, remembers it in the `selected_pocket` variable "
 "for later, and queues a canon command (SELECT_TOOL).  See "
-"'Interp::convert_tool_select' in 'src/emc/rs274/interp_execute.cc'."
+"'Interp::convert_tool_select' in 'src/cnc/rs274/interp_execute.cc'."
 msgstr ""
 
 #. type: Block title
@@ -189461,7 +189461,7 @@ msgstr ""
 #: src/remap/remap.adoc:2236
 msgid ""
 "Even if you are not familiar with C, I suggest you look at the "
-"'Interp::convert_tool_change' code in 'src/emc/rs274/interp_convert.cc'."
+"'Interp::convert_tool_change' code in 'src/cnc/rs274/interp_convert.cc'."
 msgstr ""
 
 #. type: Block title
@@ -189727,7 +189727,7 @@ msgstr ""
 #: src/remap/remap.adoc:2328
 #, no-wrap
 msgid ""
-"Debug level, 0 means no messages. See src/emc/nml_intf/debugflags.h for others\n"
+"Debug level, 0 means no messages. See src/cnc/nml_intf/debugflags.h for others\n"
 "DEBUG = 0x00000002 # configuration\n"
 "DEBUG = 0x7FFFDEFF # no interp,oword\n"
 "DEBUG = 0x00008000 # py only\n"
@@ -189862,7 +189862,7 @@ msgstr ""
 #: src/source-highlight/ini-demo.adoc:42
 #, no-wrap
 msgid ""
-"# Debug level, 0 means no messages. See src/emc/nml_int/emcglb.h for others\n"
+"# Debug level, 0 means no messages. See src/cnc/nml_int/emcglb.h for others\n"
 "# DEBUG =               0x7FFFFFFF\n"
 "DEBUG = 0\n"
 msgstr ""
@@ -228878,7 +228878,7 @@ msgstr ""
 
 #. type: Plain text
 #: man/man9/motion.9:245
-msgid "These values are from src/emc/nml_intf/motion_types.h."
+msgid "These values are from src/cnc/nml_intf/motion_types.h."
 msgstr ""
 
 #. type: Plain text

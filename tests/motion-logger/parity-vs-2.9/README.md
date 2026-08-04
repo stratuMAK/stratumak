@@ -12,8 +12,8 @@ actually right, or is it enshrining a regression vs 2.9?
 
 ## Why this works with zero new instrumentation
 
-The stmak interceptor cmod (`src/emc/motion-logger/motion_logger_cmod.c`) is a
-near-verbatim port of the classic 2.9 `src/emc/motion-logger/motion-logger.c`;
+The stmak interceptor cmod (`src/cnc/motion-logger/motion_logger_cmod.c`) is a
+near-verbatim port of the classic 2.9 `src/cnc/motion-logger/motion-logger.c`;
 the `SET_LINE` line format is byte-identical. And the 2.9 tree already ships the
 same `tests/motion-logger/basic/` test with checked-in gold captured by the real
 2.9.8 milltask. So both baselines already exist — the harness just normalizes

@@ -3,7 +3,7 @@
 package task
 
 // #cgo CFLAGS: -I${SRCDIR}/../../.. -I${SRCDIR}/../../../../include -I${SRCDIR}/../../generated/gmi/persist
-// #include "emc/rs274ngc/interp_parameter_io.hh"
+// #include "cnc/rs274ngc/interp_parameter_io.hh"
 // #include "task_interp_shim.h"
 //
 // extern interp_param_io_t interp_param_io_persist_create(const void *persist);

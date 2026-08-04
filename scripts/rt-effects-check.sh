@@ -75,7 +75,7 @@ check_tu src/stmak/internal/halscope/halscope_rt.c \
     $CORE_INC -Isrc/stmak/generated/gmi/halscope -Isrc/stmak/pkg/cmodule
 
 # --- 3. motmod — the motion controller cmod --------------------------------
-# Same defines/includes as the motmod.so rule in src/emc/motion/Submakefile.
+# Same defines/includes as the motmod.so rule in src/cnc/motion/Submakefile.
 
 MOTMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime -DSEQUENTIAL_SUPPORT \
     -DMOTMOD_INTERNAL \
@@ -87,10 +87,10 @@ MOTMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime -DSEQUENTIAL_SUPPORT \
     -Isrc/stmak/generated/gmi/motctl -Isrc/stmak/generated/gmi/motstat \
     -Isrc/emc/tp -Isrc/emc/motion"
 
-for tu in src/emc/motion/motion.c src/emc/motion/command.c \
-          src/emc/motion/control.c src/emc/motion/axis.c \
-          src/emc/motion/simple_tp.c src/emc/motion/motctl_handlers.c \
-          src/emc/motion/motstat_handlers.c src/emc/kinematics/cubic.c; do
+for tu in src/cnc/motion/motion.c src/cnc/motion/command.c \
+          src/cnc/motion/control.c src/cnc/motion/axis.c \
+          src/cnc/motion/simple_tp.c src/cnc/motion/motctl_handlers.c \
+          src/cnc/motion/motstat_handlers.c src/cnc/kinematics/cubic.c; do
     check_tu "$tu" $MOTMOD_INC
 done
 
@@ -106,9 +106,9 @@ TPMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime \
     -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/tp \
     -Isrc/stmak/generated/gmi/mot -Isrc/emc/motion -Isrc/emc/tp"
 
-for tu in src/emc/tp/tp.c src/emc/tp/tc.c src/emc/tp/tcq.c \
-          src/emc/tp/spherical_arc.c src/emc/tp/blendmath.c \
-          src/emc/nml_intf/emcpose.c src/libnml/posemath/_posemath.c; do
+for tu in src/cnc/tp/tp.c src/cnc/tp/tc.c src/cnc/tp/tcq.c \
+          src/cnc/tp/spherical_arc.c src/cnc/tp/blendmath.c \
+          src/cnc/nml_intf/emcpose.c src/libnml/posemath/_posemath.c; do
     check_tu "$tu" $TPMOD_INC
 done
 
@@ -118,7 +118,7 @@ HOMEMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime \
     -Isrc/stmak/generated/gmi/home -Isrc/stmak/generated/gmi/mot \
     -Isrc/emc/motion"
 
-for tu in src/emc/motion/homing.c src/emc/motion/homemod_cia402.c; do
+for tu in src/cnc/motion/homing.c src/cnc/motion/homemod_cia402.c; do
     check_tu "$tu" $HOMEMOD_INC
 done
 

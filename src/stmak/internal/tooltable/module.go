@@ -42,7 +42,7 @@ const persistNamespace = "tooltable"
 const SpindleIdx int32 = 0
 
 // MaxIdx is the highest addressable slot: CANON_POCKETS_MAX-1 from
-// emc/nml_intf/emctool.h, which bounds the interp's tool_table[] array.
+// cnc/nml_intf/emctool.h, which bounds the interp's tool_table[] array.
 const MaxIdx int32 = 1000
 
 // emptyToolno marks a slot with nothing in it — 2.9's tooldata_entry_init,

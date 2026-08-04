@@ -99,7 +99,7 @@ GUI, and the `emc-enable-in` input that stops motion when false). This is a
 **machine-state and convenience** mechanism — it lets the operator and the UI
 request a stop and reflects enable state — **it is not a safety function.**
 
-By design (see `src/emc/iotask/ioControl.c`), the software enable signal is meant
+By design (see `src/cnc/iotask/ioControl.c`), the software enable signal is meant
 to be wired **in series** with the real, external E-stop circuitry:
 
 ```

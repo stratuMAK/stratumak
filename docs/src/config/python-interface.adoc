@@ -12,7 +12,7 @@ This documentation describes the `linuxcnc` python module, which provides
 a Python API for talking to LinuxCNC.
 
 ////
-constants are located in src/emc/usr_intf/axis/extensions/emcmodule.cc
+constants are located in src/cnc/usr_intf/axis/extensions/emcmodule.cc
 ////
 
 == Introduction
@@ -221,7 +221,7 @@ machine angular units per deg, reflects [TRAJ]ANGULAR_UNITS INI value.
   current RS274NGC interpreter return code. One of
   INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE,
   INTERP_FILE_NOT_OPEN, INTERP_ERROR.
-  see src/emc/nml_intf/interp_return.hh
+  see src/cnc/nml_intf/interp_return.hh
 
 *joint*:: '(returns tuple of dicts)' -
   reflecting current joint values. See
@@ -898,7 +898,7 @@ inifile = linuxcnc.ini(stat.ini_filename)
 == The `linuxcnc.positionlogger` type
 
 Some usage hints can be gleaned from
-`src/emc/usr_intf/gremlin/gremlin.py`.
+`src/cnc/usr_intf/gremlin/gremlin.py`.
 
 === members
 

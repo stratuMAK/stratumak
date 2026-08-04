@@ -10,7 +10,7 @@
 
 #define PERSIST_API_CGO
 #include "persist_api.h"
-#include "emc/rs274ngc/interp_parameter_io.hh"
+#include "cnc/rs274ngc/interp_parameter_io.hh"
 
 #define PARAM_IO_NAMESPACE "ngc_vars"
 

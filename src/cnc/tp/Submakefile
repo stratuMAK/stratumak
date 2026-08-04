@@ -1,0 +1,7 @@
+INCLUDES += cnc/tp
+INCLUDES += stmak/generated/gmi/mot
+
+$(patsubst ./cnc/tp/%,../include/%,$(wildcard ./cnc/tp/*.h)): ../include/%.h: ./cnc/tp/%.h
+	cp $^ $@
+$(patsubst ./cnc/tp/%,../include/%,$(wildcard ./cnc/tp/*.hh)): ../include/%.hh: ./cnc/tp/%.hh
+	cp $^ $@

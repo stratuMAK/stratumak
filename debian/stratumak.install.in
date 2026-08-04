@@ -108,8 +108,8 @@ usr/share/locale
 
 usr/share/qtvcp
 
-src/emc/usr_intf/axis/etc    usr/share/doc/@MAIN_PACKAGE_NAME@/axis
-src/emc/usr_intf/axis/README usr/share/doc/@MAIN_PACKAGE_NAME@/axis
+src/cnc/usr_intf/axis/etc    usr/share/doc/@MAIN_PACKAGE_NAME@/axis
+src/cnc/usr_intf/axis/README usr/share/doc/@MAIN_PACKAGE_NAME@/axis
 
 debian/org.stratumak.stratumak.metainfo.xml usr/share/metainfo
 

@@ -16,10 +16,10 @@
  * be collision-free; keeping them in one file makes the closure explicit
  * rather than scattering four near-empty stubs.
  */
-#include "emc/tp/blendmath.c"
-#include "emc/tp/tc.c"
-#include "emc/tp/spherical_arc.c"
-#include "emc/nml_intf/emcpose.c"
+#include "cnc/tp/blendmath.c"
+#include "cnc/tp/tc.c"
+#include "cnc/tp/spherical_arc.c"
+#include "cnc/nml_intf/emcpose.c"
 
 /* Angle tolerances, materialised as real constants for the Go side.
  *

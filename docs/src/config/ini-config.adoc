@@ -224,7 +224,7 @@ Do _not_ use a file extension of '.ini' for included files.
 * `MACHINE = My Controller` - This is the name of the controller, which is printed out at the top of most graphical interfaces.
   You can put whatever you want here as long as you make it a single line long.
 * `DEBUG = 0` - Debug level 0 means no messages will be printed when LinuxCNC is run from a <<faq:terminal,terminal>>.
-  Debug flags are usually only useful to developers. See src/emc/nml_intf/debugflags.h for other settings.
+  Debug flags are usually only useful to developers. See src/cnc/nml_intf/debugflags.h for other settings.
 
 [[sub:ini:sec:display]]
 === [DISPLAY] Section

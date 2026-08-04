@@ -22,7 +22,7 @@ const (
 	AxisC = int(C.INTERP_AXIS_C)
 )
 
-// Length units, mirroring the CANON_UNITS enum in emc/nml_intf/canon.hh.
+// Length units, mirroring the CANON_UNITS enum in cnc/nml_intf/canon.hh.
 const (
 	LengthUnitsInches = 1
 	LengthUnitsMM     = 2
@@ -30,7 +30,7 @@ const (
 )
 
 // Numbered parameters of interest. The full map lives in
-// emc/rs274ngc/interp_parameter_def.hh.
+// cnc/rs274ngc/interp_parameter_def.hh.
 const (
 	ParamG92X = 5211 // G92/G52 axis offsets, 5211..5219 (X Y Z A B C U V W)
 	ParamG92Y = 5212

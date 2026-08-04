@@ -235,7 +235,7 @@ image::hss.svg[align="center"]
 This section simply lists all of the commands that can be sent to the
 motion module, along with detailed explanations of what they do. The
 command names are defined in a large typedef enum in
-{linuxcnc}/src/emc/motion/motion.h, called cmd_code_t. (Note that in the
+{linuxcnc}/src/cnc/motion/motion.h, called cmd_code_t. (Note that in the
 code, each command name starts with 'EMCMOT_', which is omitted here.)
 
 The commands are implemented by a large switch statement in the
@@ -1121,12 +1121,12 @@ follow these steps to add a new one. (The Message I added in the
 example is called EMC_IO_GENERIC (inherits EMC_IO_CMD_MSG (inherits
 RCS_CMD_MSG)))
 
-. add the definition of the EMC_IO_GENERIC class to emc2/src/emc/nml_intf/emc.hh
+. add the definition of the EMC_IO_GENERIC class to emc2/src/cnc/nml_intf/emc.hh
 . add the type define: #define EMC_IO_GENERIC_TYPE ((NMLTYPE) 1605) +
-.. (I chose 1605, because it was available) to emc2/src/emc/nml_intf/emc.hh
-. add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/emc/nml_intf/emc.cc
-. add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/emc/nml_intf/emc.cc
-. add EMC_IO_GENERIC::update function to emc2/src/emc/nml_intf/emc.cc
+.. (I chose 1605, because it was available) to emc2/src/cnc/nml_intf/emc.hh
+. add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/cnc/nml_intf/emc.cc
+. add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/cnc/nml_intf/emc.cc
+. add EMC_IO_GENERIC::update function to emc2/src/cnc/nml_intf/emc.cc
 
 Recompile, and the new message should be there. The next part is to
 send such messages from somewhere, and receive them in another place,
@@ -1338,7 +1338,7 @@ emcioStatus.tool.toolTable[]::
 
 ==== interp
 
-+settings+ is of type +settings+, defined as +struct setup_struct+ in +src/emc/rs274ngc/interp_internal.hh+.
++settings+ is of type +settings+, defined as +struct setup_struct+ in +src/cnc/rs274ngc/interp_internal.hh+.
 
 settings.selected_pocket::
   Tooldata index of the tool most recently selected by +Txxx+.
@@ -1379,7 +1379,7 @@ settings.pockets_max::
   FIXME: This settings variable is not currently useful and should probably be removed.
 
 settings.tool_table::
-  This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/emc/nml_intf/emctool.h+), with +CANON_POCKETS_MAX+ entries.
+  This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/cnc/nml_intf/emctool.h+), with +CANON_POCKETS_MAX+ entries.
   Indexed by "pocket number", aka "slot number".
   Index 0 is the spindle, indexes 1 to (CANON_POCKETS_MAX-1) are the pockets in the tool changer.
   On a random toolchanger pocket numbers are meaningful.
@@ -1420,7 +1420,7 @@ FIXME: `axis_mask` and `axes` overspecify the number of axes
   `joint[0]` through `joint[joints-1]` are valid, the others do not exist on this machine and must be ignored.
 
 Things are not this way currently in the joints-axes branch, but deviations from this design are considered bugs.
-For an example of such a bug, see the treatment of axes in src/emc/ini/initraj.cc:loadTraj().
+For an example of such a bug, see the treatment of axes in src/cnc/ini/initraj.cc:loadTraj().
 There are undoubtedly more, and I need your help to find them and fix them.
 
 === In Motion

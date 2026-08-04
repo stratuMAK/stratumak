@@ -4,9 +4,9 @@
 # NML-vs-GMI init/config noise.
 #
 # Accepts EITHER dialect:
-#   * classic 2.9 `src/emc/motion-logger/motion-logger.c`  (the checked-in
+#   * classic 2.9 `src/cnc/motion-logger/motion-logger.c`  (the checked-in
 #     tests/motion-logger/*/expected.* gold in the 2.9 tree)
-#   * stmak interceptor cmod `src/emc/motion-logger/motion_logger_cmod.c`
+#   * stmak interceptor cmod `src/cnc/motion-logger/motion_logger_cmod.c`
 # The two share the SET_LINE format verbatim; they differ in a handful of
 # fields and in which init/config commands they emit.
 #
