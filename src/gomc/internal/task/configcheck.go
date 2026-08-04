@@ -18,8 +18,8 @@ import (
 
 const configCheckProgname = "check_config"
 
-// Default values matching src/emc/nml_intf/emccfg.h, src/emc/ini/inijoint.cc,
-// src/emc/ini/iniaxis.cc.
+// Default values inherited from the former C defaults (emccfg.h, inijoint.cc,
+// iniaxis.cc), all since removed — these constants are now the only definition.
 const (
 	defaultAxisMaxVelocity      = 1.0
 	defaultAxisMaxAcceleration  = 1.0

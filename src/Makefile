@@ -397,8 +397,6 @@ SRCHEADERS := \
     emc/nml_intf/canon.hh \
     emc/nml_intf/canon_position.hh \
     emc/nml_intf/emctool.h \
-    emc/nml_intf/emccfg.h \
-    emc/nml_intf/emcglb.h \
     emc/nml_intf/emcpos.h \
     emc/nml_intf/emcpose.h \
     emc/nml_intf/interp_return.hh \

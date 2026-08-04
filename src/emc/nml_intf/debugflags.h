@@ -16,8 +16,9 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-// factored out from emcglb.h so subsystems not requiring the
-// emcglb.h defines may include them as well
+// Originally factored out of emcglb.h, which has since been removed.
+// This is now the sole definition of the EMC_DEBUG_* mask; the [EMC]DEBUG
+// INI setting is a bitwise OR of these values.
 
 
 
