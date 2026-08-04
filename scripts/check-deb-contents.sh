@@ -59,14 +59,14 @@ for so in hm2_modbus setsserial; do
     d=$(readelf -d "$f")
     echo "$d" | grep -q 'RUNPATH' && note "$so.so has RUNPATH (ignored under AT_SECURE)"
     echo "$d" | grep -q '\$ORIGIN' && note "$so.so rpath contains \$ORIGIN (ignored under AT_SECURE)"
-    echo "$d" | grep -q 'RPATH.*linuxcnc/cmod' \
+    echo "$d" | grep -q 'RPATH.*stratumak/cmod' \
         && ok "$so.so absolute DT_RPATH" || note "$so.so lacks absolute cmod DT_RPATH"
 done
 
 # Kernel-era fossils must stay gone: rtapi.conf has no reader since the
 # migration, and modules/ was the old rtlib location (cmods live in cmod/).
 echo "$C" | grep -q 'etc/stratumak/rtapi.conf' && note "dead rtapi.conf shipped" || ok "no rtapi.conf"
-echo "$C" | awk '{print $6}' | grep -q 'linuxcnc/modules/' && note "ghost modules/ directory shipped" || ok "no modules/ ghost dir"
+echo "$C" | awk '{print $6}' | grep -q 'stratumak/modules/' && note "ghost modules/ directory shipped" || ok "no modules/ ghost dir"
 
 # Web UIs are served from EMC2_WEBAPP_DIR; without them every tool is a 404.
 echo "$C" | grep -q 'usr/share/stratumak/webapp/halshow/' && ok "webapps shipped" || note "webapps missing"
