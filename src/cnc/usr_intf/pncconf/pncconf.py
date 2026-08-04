@@ -82,7 +82,7 @@ def makedirs(d):
         os.makedirs(d)
     except os.error as detail:
         if detail.errno != errno.EEXIST: raise
-makedirs(os.path.expanduser("~/linuxcnc/configs"))
+makedirs(os.path.expanduser("~/stratumak/configs"))
 
 # otherwise, on hardy the user is shown spurious "[application] closed
 # unexpectedly" messages but denied the ability to actually "report [the]
@@ -315,11 +315,11 @@ class App:
         makedirs(path)
 
     def build_base(self):
-        base = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
-        ncfiles = os.path.expanduser("~/linuxcnc/nc_files")
+        base = os.path.expanduser("~/stratumak/configs/%s" % self.d.machinename)
+        ncfiles = os.path.expanduser("~/stratumak/nc_files")
         if not os.path.exists(ncfiles):
             self.makedirs(ncfiles)
-            examples = os.path.join(BASE, "share", "linuxcnc", "ncfiles")
+            examples = os.path.join(BASE, "share", "stratumak", "ncfiles")
             if not os.path.exists(examples):
                 examples = os.path.join(BASE, "nc_files")
             if os.path.exists(examples):
@@ -345,7 +345,7 @@ class App:
             if self.d.frontend == _PD._QTPLASMAC:
                 # copy M190 file
                 if BASE == "/usr":
-                    m190Path = os.path.join(BASE, 'share/doc/linuxcnc/examples/sample-configs/sim/qtplasmac/M190')
+                    m190Path = os.path.join(BASE, 'share/doc/stratumak/examples/sample-configs/sim/qtplasmac/M190')
                 else:
                     m190Path = os.path.join(BASE, 'configs/sim/qtplasmac/M190')
                 shutil.copy(m190Path, os.path.join(base, 'M190'))
@@ -1000,9 +1000,9 @@ Discovery option requires the advanced options checked on this page."""%self._p.
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.add_filter(filter)
         if not self.d._lastconfigname == "" and self.d._chooselastconfig:
-            dialog.set_filename(os.path.expanduser("~/linuxcnc/configs/%s.pncconf"% self.d._lastconfigname))
-        dialog.add_shortcut_folder(os.path.expanduser("~/linuxcnc/configs"))
-        dialog.set_current_folder(os.path.expanduser("~/linuxcnc/configs"))
+            dialog.set_filename(os.path.expanduser("~/stratumak/configs/%s.pncconf"% self.d._lastconfigname))
+        dialog.add_shortcut_folder(os.path.expanduser("~/stratumak/configs"))
+        dialog.set_current_folder(os.path.expanduser("~/stratumak/configs"))
         dialog.show_all()
         result = dialog.run()
         if result == Gtk.ResponseType.OK:
@@ -1930,14 +1930,14 @@ Discovery option requires the advanced options checked on this page."""%self._p.
             self.widgets.gmcpytheme.set_active(temp3)
 
     def gladevcp_sanity_check(self):
-                if os.path.exists(os.path.expanduser("~/linuxcnc/configs/%s/gvcp-panel.ui" % self.d.machinename)):
+                if os.path.exists(os.path.expanduser("~/stratumak/configs/%s/gvcp-panel.ui" % self.d.machinename)):
                     if not self.warning_dialog(_("OK to replace existing glade panel ?\
 \nIt will be renamed and added to 'backups' folder.\n Clicking 'existing custom program' will avoid this warning, but \
 if you change related options later -such as spindle feedback- the HAL connection will not update"),False):
                         return True
 
     def pyvcp_sanity_check(self):
-              if os.path.exists(os.path.expanduser("~/linuxcnc/configs/%s/pyvcp-panel.xml" % self.d.machinename)):
+              if os.path.exists(os.path.expanduser("~/stratumak/configs/%s/pyvcp-panel.xml" % self.d.machinename)):
                  if not self.warning_dialog(_("OK to replace existing custom pyvcp panel?\
 \nExisting pyvcp-panel.xml will be renamed and added to 'backups' folder\n\
 Clicking 'existing custom program' will avoid this warning. "),False):

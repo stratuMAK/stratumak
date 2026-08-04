@@ -151,7 +151,7 @@ except:
 # themedir is path to system's GTK3 theme folder
 BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 libdir = os.path.join(BASE, "lib", "python")
-datadir = os.path.join(BASE, "share", "linuxcnc")
+datadir = os.path.join(BASE, "share", "stratumak")
 imagedir = os.path.join(BASE, "share","gscreen","images")
 SKINPATH = os.path.join(BASE, "share","gscreen","skins")
 sys.path.insert(0, libdir)

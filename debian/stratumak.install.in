@@ -69,7 +69,7 @@ usr/bin/xyzac-trt-gui
 usr/bin/xyzbc-trt-gui
 
 usr/lib/lib*.so.*
-usr/lib/linuxcnc
+usr/lib/stratumak
 usr/lib/python3
 usr/lib/tcltk
 
@@ -90,19 +90,19 @@ usr/share/applications/linuxcnc-latency.desktop
 usr/share/applications/linuxcnc-pncconf.desktop
 usr/share/applications/linuxcnc-stepconf.desktop
 
-usr/share/linuxcnc/gremlin_view.ui
-usr/share/linuxcnc/gscreen2.glade
-usr/share/linuxcnc/gscreen.glade
-usr/share/linuxcnc/hallib/
-usr/share/linuxcnc/linuxcnc.gif
-usr/share/linuxcnc/linuxcncicon.png
-usr/share/linuxcnc/linuxcnc-wizard.gif
-usr/share/linuxcnc/ncfiles/
-usr/share/linuxcnc/pncconf/
-usr/share/linuxcnc/popupkeyboard.ui
-usr/share/linuxcnc/stepconf/
-usr/share/linuxcnc/touchy.glade
-usr/share/linuxcnc/webapp/
+usr/share/stratumak/gremlin_view.ui
+usr/share/stratumak/gscreen2.glade
+usr/share/stratumak/gscreen.glade
+usr/share/stratumak/hallib/
+usr/share/stratumak/linuxcnc.gif
+usr/share/stratumak/linuxcncicon.png
+usr/share/stratumak/linuxcnc-wizard.gif
+usr/share/stratumak/ncfiles/
+usr/share/stratumak/pncconf/
+usr/share/stratumak/popupkeyboard.ui
+usr/share/stratumak/stepconf/
+usr/share/stratumak/touchy.glade
+usr/share/stratumak/webapp/
 
 usr/share/locale
 

@@ -1024,12 +1024,12 @@ class HAL:
         if self.d.classicladder:
            if not self.d.laddername == "custom.clp":
                 filename = os.path.join(_PD.DISTDIR, "configurable_options/ladder/%s" % self.d.laddername)
-                original = os.path.expanduser("~/linuxcnc/configs/%s/custom.clp" % self.d.machinename)
+                original = os.path.expanduser("~/stratumak/configs/%s/custom.clp" % self.d.machinename)
                 if os.path.exists(filename): # check for the master file to copy from
                   if os.path.exists(original):
                      #print("custom file already exists")
                      writebackup(original)
-                     #shutil.copy( original,os.path.expanduser("~/linuxcnc/configs/%s/backups/custom_backup.clp" % self.d.machinename) )
+                     #shutil.copy( original,os.path.expanduser("~/stratumak/configs/%s/backups/custom_backup.clp" % self.d.machinename) )
                      print("made backup of existing custom")
                   shutil.copy( filename,original)
                   #print("copied ladder program to usr directory")
@@ -1038,12 +1038,12 @@ class HAL:
                      print("Master or temp ladder files missing from configurable_options dir")
         if self.d.pyvcp and not self.d.pyvcpexist and self.d.frontend != _PD._QTPLASMAC:
            panelname = os.path.join(_PD.DISTDIR, "configurable_options/pyvcp/%s" % self.d.pyvcpname)
-           originalname = os.path.expanduser("~/linuxcnc/configs/%s/pyvcp-panel.xml" % self.d.machinename)
+           originalname = os.path.expanduser("~/stratumak/configs/%s/pyvcp-panel.xml" % self.d.machinename)
            if os.path.exists(panelname):
                   if os.path.exists(originalname):
                      #print("custom PYVCP file already exists")
                      writebackup(originalname)
-                     #shutil.copy( originalname,os.path.expanduser("~/linuxcnc/configs/%s/backups/pyvcp-panel_backup.xml" % self.d.machinename) )
+                     #shutil.copy( originalname,os.path.expanduser("~/stratumak/configs/%s/backups/pyvcp-panel_backup.xml" % self.d.machinename) )
                      print("made backup of existing custom")
                   shutil.copy( panelname,originalname)
                   #print("copied PYVCP program to usr directory")

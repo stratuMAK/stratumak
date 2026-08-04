@@ -85,7 +85,7 @@ import gettext
 import datetime
 import glib # for glib.GError
 
-g_ui_dir          = linuxcnc.SHARE + "/linuxcnc"
+g_ui_dir          = linuxcnc.SHARE + "/stratumak"
 g_periodic_secs   = 1 # integer
 g_delta_pixels    = 10
 g_move_delay_secs = 0.2

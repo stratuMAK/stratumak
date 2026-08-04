@@ -2399,8 +2399,8 @@ msgstr "\"nulovanje\" x-ose"
 #~ msgid "Trying default path..."
 #~ msgstr "Pokušavam podrazumevanu putanju..."
 
-#~ msgid "Default path to ~/linuxcnc/nc_files does not exist"
-#~ msgstr "Podrazumevana putanja ka ~/linuxcnc/nc_datotekama ne postoji"
+#~ msgid "Default path to ~/stratumak/nc_files does not exist"
+#~ msgstr "Podrazumevana putanja ka ~/stratumak/nc_datotekama ne postoji"
 
 #~ msgid "setting now home as path"
 #~ msgstr "podesiti sada \"home\" kao putanju"

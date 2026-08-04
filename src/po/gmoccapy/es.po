@@ -2445,8 +2445,8 @@ msgstr "Referenciar ejes"
 #~ msgid "Trying default path..."
 #~ msgstr "Intento con path estandard"
 
-#~ msgid "Default path to ~/linuxcnc/nc_files does not exist"
-#~ msgstr "Path estandard ace ~/linuxcnc/nc_files no existe"
+#~ msgid "Default path to ~/stratumak/nc_files does not exist"
+#~ msgstr "Path estandard ace ~/stratumak/nc_files no existe"
 
 #~ msgid "setting now home as path"
 #~ msgstr "se toma home as path"

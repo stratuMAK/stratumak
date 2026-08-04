@@ -65,11 +65,11 @@ done
 
 # Kernel-era fossils must stay gone: rtapi.conf has no reader since the
 # migration, and modules/ was the old rtlib location (cmods live in cmod/).
-echo "$C" | grep -q 'etc/linuxcnc/rtapi.conf' && note "dead rtapi.conf shipped" || ok "no rtapi.conf"
+echo "$C" | grep -q 'etc/stratumak/rtapi.conf' && note "dead rtapi.conf shipped" || ok "no rtapi.conf"
 echo "$C" | awk '{print $6}' | grep -q 'linuxcnc/modules/' && note "ghost modules/ directory shipped" || ok "no modules/ ghost dir"
 
 # Web UIs are served from EMC2_WEBAPP_DIR; without them every tool is a 404.
-echo "$C" | grep -q 'usr/share/linuxcnc/webapp/halshow/' && ok "webapps shipped" || note "webapps missing"
+echo "$C" | grep -q 'usr/share/stratumak/webapp/halshow/' && ok "webapps shipped" || note "webapps missing"
 
 # Documentation language set: de/en/es/fr, Norwegian dropped by ruling.
 ls "$DIR"/stratumak-doc-nb_* >/dev/null 2>&1 && note "stratumak-doc-nb exists despite nb drop" || ok "no nb doc package"
@@ -82,7 +82,7 @@ done
 if [ -n "$dev" ]; then
     D=$(dpkg-deb -c "$dev")
     echo "$D" | grep -q 'usr/bin/modcompile' && ok "modcompile in -dev" || note "modcompile missing from -dev"
-    echo "$D" | grep -q 'usr/share/linuxcnc/stmak/' && ok "stmak tree in -dev" || note "stmak source tree missing from -dev"
+    echo "$D" | grep -q 'usr/share/stratumak/stmak/' && ok "stmak tree in -dev" || note "stmak source tree missing from -dev"
     dpkg-deb -f "$dev" Depends | grep -q 'libc6' \
         && ok "-dev has shlibs deps" || note "-dev lacks libc6 (shlibs:Depends regressed)"
 fi

@@ -106,7 +106,7 @@ class INI:
         print("CYCLE_TIME = 0.100", file=file)
         print("INTRO_GRAPHIC = linuxcnc.gif", file=file)
         print("INTRO_TIME = 5", file=file)
-        print("PROGRAM_PREFIX = %s" % os.path.expanduser("~/linuxcnc/nc_files"), file=file)
+        print("PROGRAM_PREFIX = %s" % os.path.expanduser("~/stratumak/nc_files"), file=file)
         # qtplasmac has different increments
         if self.d.select_qtplasmac:
             if self.d.units:

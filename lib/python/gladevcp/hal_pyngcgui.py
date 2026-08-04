@@ -151,7 +151,7 @@ class PyNgcGui(Gtk.Box,hal_actions._EMC_ActionBase):
         if send_to_dir is not None:
             if send_to_dir == 'touchy':
                 # allow sent file to show up in touchy auto tab page
-                send_to_dir = '~/linuxcnc/nc_files'
+                send_to_dir = '~/stratumak/nc_files'
             if not os.path.isdir(os.path.expanduser(send_to_dir)):
                 raise ValueError(_('%s:Not a directory:\n    %s\n'
                                      % (g_module,send_to_dir)))

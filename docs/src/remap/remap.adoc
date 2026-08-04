@@ -560,7 +560,7 @@ Assuming your configuration lives under `/home/user/xxx` and the INI file is `/h
 $ cd /home/user/xxx
 $ mkdir python
 $ cd python
-$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .
+$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .
 $ echo 'from stdglue import *' >remap.py
 $ echo 'import remap' >toplevel.py
 ---------------------------------------------------------------------

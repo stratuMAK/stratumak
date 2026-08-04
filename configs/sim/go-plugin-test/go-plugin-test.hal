@@ -4,7 +4,7 @@
 # a .so is a Go plugin or a C RT module.
 
 # Load the Go passthrough plugin.
-# In RIP mode the plugin is installed at $EMC2_HOME/lib/linuxcnc/go-modules/
+# In RIP mode the plugin is installed at $EMC2_HOME/lib/stratumak/go-modules/
 # by "make install" in src/hal/hal-go-plugin-template.
 load mygomodule
 

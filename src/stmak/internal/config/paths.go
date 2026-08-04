@@ -12,7 +12,7 @@ import (
 
 // Compile-time path variables. These are set via -ldflags when building:
 //
-//	-X 'github.com/stratuMAK/stratumak/src/stmak/config.EMC2Home=/usr/lib/linuxcnc'
+//	-X 'github.com/stratuMAK/stratumak/src/stmak/config.EMC2Home=/usr/lib/stratumak'
 var (
 	// EMC2Home is the top-level LinuxCNC installation directory (@EMC2_HOME@).
 	EMC2Home string
@@ -33,11 +33,11 @@ var (
 	EMC2CmodDir string
 
 	// EMC2CmodIncludeDir is the directory containing cmod header files (stmak_*.h).
-	// For RIP this is src/stmak/pkg/cmodule, for installed it's include/linuxcnc/cmod.
+	// For RIP this is src/stmak/pkg/cmodule, for installed it's include/stratumak/cmod.
 	EMC2CmodIncludeDir string
 
 	// EMC2StmakDir is the directory containing the stmak Go module source,
-	// always baked as the INSTALLED location ($(datadir)/linuxcnc/stmak).
+	// always baked as the INSTALLED location ($(datadir)/stratumak/stmak).
 	// External Go modules need it to compile against the same module.
 	//
 	// Do not read this directly — call StmakDir(), which lets $STMAK_DIR

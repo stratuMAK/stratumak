@@ -26,7 +26,7 @@ share/menus/CNC.menu
 share/desktop-directories/linuxcnc-cnc.directory
 share/desktop-directories/linuxcnc-ref.directory
 share/desktop-directories/linuxcnc-doc.directory
-share/linuxcnc/launcher/
+share/stratumak/launcher/
 src/modules.order
 /docs/src/source-highlight/local
 lib/python/gremlin.py

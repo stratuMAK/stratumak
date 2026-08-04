@@ -10,7 +10,7 @@ cada una con uno o más archivos ini, que están destinadas a:
 
 
   1) ejecutarse tal cual en una compilación RIP (ejecución en el lugar)
-  2) ejecutarse cuando se copia al directorio de usuario ~/linuxcnc
+  2) ejecutarse cuando se copia al directorio de usuario ~/stratumak
      por el selector de configuración (pickconfig.tcl)
 
 Nota: Casos especiales.
@@ -35,23 +35,23 @@ creado para un archivo .demo sea utilizable.
 -------------------------------------------------------
 
 El selector de configuración (pickconfig.tcl) recorre las
-configuraciones _de usuario_ existentes en ~/linuxcnc/configs y /configs del
+configuraciones _de usuario_ existentes en ~/stratumak/configs y /configs del
 directorio raíz  de la distribución. Presenta ambas
 configuraciones existentes; configuraciones de usuario y de muestra.
 Cuando se selecciona una configuración de muestra, el selector de configuración:
 
-  1) crea un directorio en ~/linuxcnc/configs para el
+  1) crea un directorio en ~/stratumak/configs para el
      elemento seleccionado y copia todos los archivos y directorios
      relevantes al directorio recién creado. Cuando se produce una 
      duplicación de nombres, el selector agrega un número al nombre 
      del directorio para que sea distinto.
 
-  2) crea un directorio ~/linuxcnc/nc_files (si no existe). Crea 
+  2) crea un directorio ~/stratumak/nc_files (si no existe). Crea 
      enlaces en este directorio a las ubicaciones de ejemplos y bibliotecas
      en el sistema (examples, ngcgui_lib, gladevcp_lib)
 
   3) edita todos los archivos ini que se copian haciendo que
-     [DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files.
+     [DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files.
 
 Un proceso similar ocurre para los archivos de demostración (.demo) cuando
 se copian los directorios de los archivos .demo (solo cuando no hay ningún archivo
@@ -107,8 +107,8 @@ Ejemplo:
 Estas convenciones funcionan porque:
 
    1) Las configuraciones de usuario copiadas
-      tienen configuraciones ubicadas en --------- ~/linuxcnc/configs/
-      y nc_files ubicados como ------------------- ~/linuxcnc/nc_files/
+      tienen configuraciones ubicadas en --------- ~/stratumak/configs/
+      y nc_files ubicados como ------------------- ~/stratumak/nc_files/
 
       Así que si los archivos ini siempre se refieren a root/nc_files como
         ../../nc_files

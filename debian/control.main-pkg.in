@@ -1,6 +1,6 @@
 Package: @MAIN_PACKAGE_NAME@
 # This package was called linuxcnc-uspace and owns the same paths as the
-# LinuxCNC packages it descends from (/usr/bin/linuxcnc, /usr/share/linuxcnc),
+# LinuxCNC packages it descends from (/usr/bin/linuxcnc, /usr/share/stratumak),
 # so the two cannot be co-installed. Replaces lets an existing install be
 # taken over in one step instead of demanding a manual removal first, and
 # Provides keeps anything that depends on the old names satisfied.

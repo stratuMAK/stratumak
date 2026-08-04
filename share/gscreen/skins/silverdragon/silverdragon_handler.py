@@ -30,8 +30,8 @@ _NB_ALARMS = 3
 _NB_SETUP = 4
 
 NOTIFY_AVAILABLE = False
-ALERT_ICON = "/home/jim/linuxcnc/configs/silverdragon/images/applet-critical.png"
-INFO_ICON = "/home/jim/linuxcnc/configs/silverdragon/images/std_info.gif"
+ALERT_ICON = "/home/jim/stratumak/configs/silverdragon/images/applet-critical.png"
+INFO_ICON = "/home/jim/stratumak/configs/silverdragon/images/std_info.gif"
 
 # standard handler call
 def get_handlers(halcomp,builder,useropts,gscreen):
@@ -1369,7 +1369,7 @@ class HandlerClass:
         if not default_path:
             print("Path %s from DISPLAY , PROGRAM_PREFIX does not exist" % default_path)
             print("Trying default path...")
-            default_path = "~/linuxcnc/nc_files/"
+            default_path = "~/stratumak/nc_files/"
         open_file = self.gscreen.inifile.find("DISPLAY", "OPEN_FILE")
         if not open_file:
             print("No file to open")

@@ -56,7 +56,7 @@ picker dialog closes, add linuxcnc and a space in front of the path to your .ini
 Example:
 
 ----
-stmakd /home/mill/linuxcnc/config/mill/mill.ini
+stmakd /home/mill/stratumak/config/mill/mill.ini
 ----
 
 The documentation refers to your respective .ini file as INI-file.
@@ -227,7 +227,7 @@ And pwd might return the following result:
 With this information put the command together like this:
 
 ----
-find /home/joe/linuxcnc -name \*.ini -print
+find /home/joe/stratumak -name \*.ini -print
 ----
 
 The -name is the name of the file your looking for and the -print

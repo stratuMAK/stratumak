@@ -133,7 +133,7 @@ class TESTS:
            panel = "xyzjog.xml"
         if self.w.pyvcpexist.get_active() == True:
            panel = "pyvcp-panel.xml"
-           panelname = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
+           panelname = os.path.expanduser("~/stratumak/configs/%s" % self.d.machinename)
         if self.w.pyvcpposition.get_active() == True:
             xpos = self.w.pyvcpxpos.get_value()
             ypos = self.w.pyvcpypos.get_value()
@@ -158,7 +158,7 @@ class TESTS:
         options = ""
         folder = "/tmp"
         if not self.w.createconfig.get_active() and self.w.gladeexists.get_active():
-            folder = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
+            folder = os.path.expanduser("~/stratumak/configs/%s" % self.d.machinename)
             if not os.path.exists(folder + "/gvcp-panel.ui"):
                 self.a.warning_dialog (_("""You specified there is an existing gladefile, \
 But there is not one in the machine-named folder.."""),True)
@@ -445,7 +445,7 @@ But there is not one in the machine-named folder.."""),True)
             self.w.halui.set_active(True)
         if self.w.ladderexist.get_active() == True:
             self.d.laddername='custom.clp'
-            originalfile = filename = os.path.expanduser("~/linuxcnc/configs/%s/custom.clp" % self.d.machinename)
+            originalfile = filename = os.path.expanduser("~/stratumak/configs/%s/custom.clp" % self.d.machinename)
         else:
             filename = os.path.join(_PD.DISTDIR, "configurable_options/ladder/"+ self.d.laddername)
         if self.d.modbus == True:

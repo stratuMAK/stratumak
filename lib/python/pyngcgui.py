@@ -74,7 +74,7 @@ import traceback   # for debug printing
 import hal         # notused except for debug
 from gladevcp import hal_actions
 
-g_ui_dir = linuxcnc.SHARE + "/linuxcnc"
+g_ui_dir = linuxcnc.SHARE + "/stratumak"
 
 # determine if glade interface designer is running
 # in order to prevent connection of most signals

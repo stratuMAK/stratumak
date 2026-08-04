@@ -150,7 +150,7 @@ class HandlerClass:
 <hr />
 </body>
 </html>
-"""%(  os.path.expanduser('~/linuxcnc'),
+"""%(  os.path.expanduser('~/stratumak'),
         os.path.join(paths.IMAGEDIR,'lcnc_swoop.png'))
 
 

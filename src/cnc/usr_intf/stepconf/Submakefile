@@ -19,8 +19,8 @@ STEPCONF_GLADEFILES := \
 	axisa.glade \
 	finished.glade \
 
-PYTARGETS += ../bin/stepconf  ../lib/python/stepconf/__init__.py ../share/linuxcnc/linuxcnc-wizard.gif $(patsubst %,../lib/python/stepconf/%.py,$(STEPCONF_MODULES)) \
-	$(patsubst %, ../share/linuxcnc/stepconf/%, $(STEPCONF_GLADEFILES)) \
+PYTARGETS += ../bin/stepconf  ../lib/python/stepconf/__init__.py ../share/stratumak/linuxcnc-wizard.gif $(patsubst %,../lib/python/stepconf/%.py,$(STEPCONF_MODULES)) \
+	$(patsubst %, ../share/stratumak/stepconf/%, $(STEPCONF_GLADEFILES)) \
 
 PYI18NSRCS += cnc/usr_intf/stepconf/stepconf.py $(patsubst %,cnc/usr_intf/stepconf/%.py,$(STEPCONF_MODULES)) \
 	$(patsubst %, cnc/usr_intf/stepconf/%, $(STEPCONF_GLADEFILES)) \
@@ -37,12 +37,12 @@ PYI18NSRCS += cnc/usr_intf/stepconf/stepconf.py $(patsubst %,cnc/usr_intf/stepco
 	$(Q)mkdir -p ../lib/python/stepconf
 	$(Q)cp $< $@
 
-../share/linuxcnc/stepconf/%.glade: cnc/usr_intf/stepconf/%.glade
+../share/stratumak/stepconf/%.glade: cnc/usr_intf/stepconf/%.glade
 	$(ECHO) Copying glade file $(notdir $@)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)cp -f $< $@
 
-../share/linuxcnc/linuxcnc-wizard.gif: ../linuxcnc-wizard.gif
+../share/stratumak/linuxcnc-wizard.gif: ../linuxcnc-wizard.gif
 	$(ECHO) Copying $(notdir $@)
 	$(Q)cp $< $@
 

@@ -2671,10 +2671,10 @@ msgstr ""
 #, no-wrap
 msgid ""
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 msgstr ""
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 
 #. type: Plain text
 #: src/code/adding-configs.adoc:19
@@ -8529,7 +8529,7 @@ msgid ""
 "Note that the clone command put the local LinuxCNC repo in a directory "
 "called `linuxcnc-dev`, instead of the default `linuxcnc`.  This is because "
 "the LinuxCNC software by default expects configs and G-code programs in a "
-"directory called `$HOME/linuxcnc`, and having the git repo there too is "
+"directory called `$HOME/stratumak`, and having the git repo there too is "
 "confusing."
 msgstr ""
 "Tenga en cuenta que el comando clone coloca el repositorio local de LinuxCNC "
@@ -13515,8 +13515,8 @@ msgstr "Ejemplo:"
 #. type: delimited block -
 #: src/common/linux-faq.adoc:60
 #, fuzzy, no-wrap
-msgid "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
-msgstr "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
+msgid "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
+msgstr "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
 
 #. type: Plain text
 #: src/common/linux-faq.adoc:63
@@ -13938,8 +13938,8 @@ msgstr "Con esta información se pondrá el comando conjunto de esta manera:"
 #. type: delimited block -
 #: src/common/linux-faq.adoc:231
 #, fuzzy, no-wrap
-msgid "find /home/joe/linuxcnc -name \\*.ini -print\n"
-msgstr "find /home/joe/linuxcnc -name \\*.ini -print\n"
+msgid "find /home/joe/stratumak -name \\*.ini -print\n"
+msgstr "find /home/joe/stratumak -name \\*.ini -print\n"
 
 #. type: Plain text
 #: src/common/linux-faq.adoc:238
@@ -16442,13 +16442,13 @@ msgid ""
 "#INCLUDE ../parallel/joint_1.inc\n"
 "#INCLUDE below/joint_2.inc\n"
 "#INCLUDE /home/myusername/myincludes/display.inc\n"
-"#INCLUDE ~/linuxcnc/myincludes/rs274ngc.inc\n"
+"#INCLUDE ~/stratumak/myincludes/rs274ngc.inc\n"
 msgstr ""
 "#INCLUDE joint_0.inc\n"
 "#INCLUDE ../parallel/joint_1.inc\n"
 "#INCLUDE below/joint_2.inc\n"
 "#INCLUDE /home/myusername/myincludes/display.inc\n"
-"#INCLUDE ~/linuxcnc/myincludes/rs274ngc.inc\n"
+"#INCLUDE ~/stratumak/myincludes/rs274ngc.inc\n"
 
 #. type: Plain text
 #: src/config/ini-config.adoc:216
@@ -16775,12 +16775,12 @@ msgstr ""
 #: src/config/ini-config.adoc:288
 #, fuzzy
 msgid ""
-"`PROGRAM_PREFIX = ~/linuxcnc/nc_files` - The default directory for G-code "
+"`PROGRAM_PREFIX = ~/stratumak/nc_files` - The default directory for G-code "
 "files, named subroutines, and user-defined M-codes.  The `PROGRAM_PREFIX` "
 "directory is searched before the directories listed in "
 "`[RS274]SUBROUTINE_PATH` and `[RS274]USER_M_PATH`."
 msgstr ""
-"'PROGRAM_PREFIX = ~/linuxcnc/nc_files' - La ubicación predeterminada para "
+"'PROGRAM_PREFIX = ~/stratumak/nc_files' - La ubicación predeterminada para "
 "archivos de código g y ubicación de códigos M definidos por el usuario. Esta "
 "ubicación es buscada para el nombre del archivo antes de la ruta de "
 "subrutina y la ruta M de usuario si se especifica en la sección [RS274NGC]."
@@ -17408,10 +17408,10 @@ msgstr ""
 #, fuzzy, no-wrap
 msgid ""
 "PROGRAM_EXTENSION = .gcode 3D Printer\n"
-"  gcode = /home/mill/linuxcnc/convert.py\n"
+"  gcode = /home/mill/stratumak/convert.py\n"
 msgstr ""
 "PROGRAM_EXTENSION = .gcode 3D Printer\n"
-"  gcode = /home/mill/linuxcnc/convert.py\n"
+"  gcode = /home/mill/stratumak/convert.py\n"
 
 #. type: Plain text
 #: src/config/ini-config.adoc:445
@@ -22268,15 +22268,15 @@ msgstr ""
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:19
 #, fuzzy
-msgid "The LinuxCNC directory is located at '/home/user-name/linuxcnc'."
+msgid "The LinuxCNC directory is located at '/home/user-name/stratumak'."
 msgstr ""
-"El directorio LinuxCNC se encuentra en '/home/dir-de-usuario/linuxcnc'."
+"El directorio LinuxCNC se encuentra en '/home/dir-de-usuario/stratumak'."
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:20
 #, fuzzy
 msgid ""
-"The Configuration directories are located at '/home/user-name/linuxcnc/"
+"The Configuration directories are located at '/home/user-name/stratumak/"
 "configs'."
 msgstr ""
 "Los directorios de configuración se encuentran en '/home/dir-de-usuario/"
@@ -22286,7 +22286,7 @@ msgstr ""
 #: src/config/integrator-concepts.adoc:21
 #, fuzzy
 msgid ""
-"Configuration files are located at '/home/user-name/linuxcnc/configs/name-of-"
+"Configuration files are located at '/home/user-name/stratumak/configs/name-of-"
 "config'."
 msgstr ""
 "Los archivos de configuración se encuentran en '/home/dir-de-usuario/"
@@ -22295,9 +22295,9 @@ msgstr ""
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:22
 #, fuzzy
-msgid "G-code files are located at /home/user-name/linuxcnc/nc_files'."
+msgid "G-code files are located at /home/user-name/stratumak/nc_files'."
 msgstr ""
-"Los archivos de código G se encuentran en /home/dir-de-usuario/linuxcnc/"
+"Los archivos de código G se encuentran en /home/dir-de-usuario/stratumak/"
 "nc_files '."
 
 #. type: Plain text
@@ -22313,44 +22313,44 @@ msgstr ""
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:27
 #, fuzzy
-msgid "'/home/fred/linuxcnc'"
-msgstr "'/home/fred/linuxcnc'"
+msgid "'/home/fred/stratumak'"
+msgstr "'/home/fred/stratumak'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:28
 #, fuzzy
-msgid "'/home/fred/linuxcnc/nc_files'"
-msgstr "'/home/fred/linuxcnc/nc_files'"
+msgid "'/home/fred/stratumak/nc_files'"
+msgstr "'/home/fred/stratumak/nc_files'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:29
 #, fuzzy
-msgid "'/home/fred/linuxcnc/configs/mill'"
-msgstr "'/home/fred/linuxcnc/configs/mill'"
+msgid "'/home/fred/stratumak/configs/mill'"
+msgstr "'/home/fred/stratumak/configs/mill'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:30
 #, fuzzy
-msgid "'/home/fred/linuxcnc/configs/mill/mill.ini'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.ini'"
+msgid "'/home/fred/stratumak/configs/mill/mill.ini'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.ini'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:31
 #, fuzzy
-msgid "'/home/fred/linuxcnc/configs/mill/mill.hal'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.hal'"
+msgid "'/home/fred/stratumak/configs/mill/mill.hal'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.hal'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:32
 #, fuzzy
-msgid "'/home/fred/linuxcnc/configs/mill/mill.var'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.var'"
+msgid "'/home/fred/stratumak/configs/mill/mill.var'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.var'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:33
 #, fuzzy
-msgid "'/home/fred/linuxcnc/configs/mill/tool.tbl'"
-msgstr "'/home/fred/linuxcnc/configs/mill/tool.tbl'"
+msgid "'/home/fred/stratumak/configs/mill/tool.tbl'"
+msgstr "'/home/fred/stratumak/configs/mill/tool.tbl'"
 
 #. type: Title ===
 #: src/config/integrator-concepts.adoc:34
@@ -59421,11 +59421,11 @@ msgstr "Archivo de ejemplo M110"
 #, fuzzy, no-wrap
 msgid ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png\n"
+"eog /home/john/stratumak/nc_files/message.png\n"
 "exit 0\n"
 msgstr ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png\n"
+"eog /home/john/stratumak/nc_files/message.png\n"
 "exit 0\n"
 
 #. type: Plain text
@@ -59449,11 +59449,11 @@ msgstr "Ejemplo de visualización y sigue adelante M110 "
 #, fuzzy, no-wrap
 msgid ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png &\n"
+"eog /home/john/stratumak/nc_files/message.png &\n"
 "exit 0\n"
 msgstr ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png &\n"
+"eog /home/john/stratumak/nc_files/message.png &\n"
 "exit 0\n"
 
 #. type: Title =
@@ -69346,12 +69346,12 @@ msgstr ""
 #, fuzzy
 msgid ""
 "When you select a configuration from the Sample Configurations section, it "
-"will automatically place a copy of that config in the ~/linuxcnc/configs "
+"will automatically place a copy of that config in the ~/stratumak/configs "
 "directory."
 msgstr ""
 "Cuando seleccione una configuración de la sección Configuraciones de "
 "Muestra, automáticamente se colocará una copia de esa configuración en el "
-"directorio ~/linuxcnc/configs."
+"directorio ~/stratumak/configs."
 
 #. type: Title ==
 #: src/getting-started/running-linuxcnc.adoc:121
@@ -69421,12 +69421,12 @@ msgstr "Recursos de configuración"
 #, fuzzy
 msgid ""
 "The Configuration Selector copies all files needed for a configuration to a "
-"new subdirectory of ~/linuxcnc/configs (equivalently: /home/username/"
+"new subdirectory of ~/stratumak/configs (equivalently: /home/username/"
 "linuxcnc/configs).  Each created directory will include at least one INI "
 "file (iniflename.ini)  that is used to describe a specific configuration."
 msgstr ""
 "El selector de configuración copia todos los archivos necesarios para una "
-"configuración a un nuevo subdirectorio de ~/linuxcnc/configs.  Cada "
+"configuración a un nuevo subdirectorio de ~/stratumak/configs.  Cada "
 "directorio creado incluirá al menos un archivo ini (nombre_fichero.ini)  que "
 "se usa para describir una configuración específica."
 
@@ -69491,10 +69491,10 @@ msgstr ""
 #: src/getting-started/running-linuxcnc.adoc:178
 #, fuzzy, no-wrap
 msgid ""
-"cd ~/linuxcnc/configs/name_of_configuration\n"
+"cd ~/stratumak/configs/name_of_configuration\n"
 "cp hallib/core_sim.hal core_sim.hal\n"
 msgstr ""
-"cd ~/linuxcnc/configs/nombre_de_configuracion\n"
+"cd ~/stratumak/configs/nombre_de_configuracion\n"
 "cp hallib/core_sim.hal core_sim.hal\n"
 
 #. type: Index entry
@@ -70458,7 +70458,7 @@ msgstr ""
 #: src/getting-started/updating-linuxcnc.adoc:194
 msgid ""
 "In the extremely unlikely event that you are using `canterp`, know that the "
-"module has moved from `/usr/lib/libcanterp.so` to `/usr/lib/linuxcnc/"
+"module has moved from `/usr/lib/libcanterp.so` to `/usr/lib/stratumak/"
 "canterp.so`, and the `[TASK]INTERPRETER` setting correspondingly needs to "
 "change from `libcanterp.so` to `canterp.so`."
 msgstr ""
@@ -83071,17 +83071,17 @@ msgstr ""
 #, fuzzy, no-wrap
 msgid ""
 "$ linuxcnc_var LINUXCNC_AUX_GLADEVCP\n"
-"/usr/share/linuxcnc/aux_gladevcp\n"
+"/usr/share/stratumak/aux_gladevcp\n"
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 msgstr ""
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 
 #. type: Plain text
 #: src/gui/gladevcp.adoc:2815
 msgid ""
-"The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/linuxcnc/"
+"The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/stratumak/"
 "aux_gladevcp) specifies the location for a GladeVCP-compatible Python "
 "file(s) and related subdirectories.  The Python file is imported at GladeVCP "
 "startup and made available to subsequent GladeVCP applications including "
@@ -83091,7 +83091,7 @@ msgstr ""
 #. type: Plain text
 #: src/gui/gladevcp.adoc:2818
 msgid ""
-"The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/linuxcnc/"
+"The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/stratumak/"
 "aux_examples) specifies the location of example configuration subdirectories "
 "used for auxiliary applications.  See the getting-started/running-linuxcnc "
 "section for 'Adding Configuration Selection Items'."
@@ -97151,14 +97151,14 @@ msgstr "Los directorios pueden especificarse como rutas absolutas o relativas."
 #. type: Plain text
 #: src/gui/ngcgui.adoc:504
 #, fuzzy
-msgid "Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/linuxcnc/nc_files`"
-msgstr "Ejemplo: `[DISPLAY]PROGRAM_PREFIX = /home/myname/linuxcnc/nc_files`"
+msgid "Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/stratumak/nc_files`"
+msgstr "Ejemplo: `[DISPLAY]PROGRAM_PREFIX = /home/myname/stratumak/nc_files`"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:505
 #, fuzzy
-msgid "Example: `[DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files`"
-msgstr "Ejemplo: `[DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files`"
+msgid "Example: `[DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files`"
+msgstr "Ejemplo: `[DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files`"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:506
@@ -97301,10 +97301,10 @@ msgstr ""
 #: src/gui/ngcgui.adoc:545
 #, fuzzy
 msgid ""
-"In the following example, files in /home/myname/linuxcnc/mysubs will be "
+"In the following example, files in /home/myname/stratumak/mysubs will be "
 "found before files in ../../nc_files/ngcgui_lib."
 msgstr ""
-"En el siguiente ejemplo, los archivos en /home/myname/linuxcnc/mysubs se "
+"En el siguiente ejemplo, los archivos en /home/myname/stratumak/mysubs se "
 "encontrarán antes que archivos en ../../nc_files/ngcgui_lib."
 
 #. type: Block title
@@ -97316,8 +97316,8 @@ msgstr "Ejemplo de adición de directorio de usuarios:"
 #. type: delimited block -
 #: src/gui/ngcgui.adoc:550
 #, fuzzy, no-wrap
-msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
-msgstr "[RS274NGC]SUBROUTINE_PATH=/home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
+msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
+msgstr "[RS274NGC]SUBROUTINE_PATH=/home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:557
@@ -103020,9 +103020,9 @@ msgstr ""
 #, no-wrap
 msgid ""
 "[RS274NGC]\n"
-"SUBROUTINE_PATH = :~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs; \\\n"
-"~/linuxcnc/nc_files/examples/probe/basic_probe/macros:~/linuxcnc/nc_files/examples/remap-subroutines: \\\n"
-"~/linuxcnc/nc_files/examples/ngcgui_lib/remap_lib\n"
+"SUBROUTINE_PATH = :~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs; \\\n"
+"~/stratumak/nc_files/examples/probe/basic_probe/macros:~/stratumak/nc_files/examples/remap-subroutines: \\\n"
+"~/stratumak/nc_files/examples/ngcgui_lib/remap_lib\n"
 msgstr ""
 
 #. type: Plain text
@@ -103040,7 +103040,7 @@ msgid ""
 "[DISPLAY]\n"
 "# NGCGUI subroutine path.\n"
 "# Thr path must also  be in [RS274NGC] SUBROUTINE_PATH\n"
-"NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib\n"
+"NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib\n"
 "# pre selected programs tabs\n"
 "# specify filenames only, files must be in the NGCGUI_SUBFILE_PATH\n"
 "NGCGUI_SUBFILE = slot.ngc\n"
@@ -105153,8 +105153,8 @@ msgstr "[RS274NGC]\n"
 msgid ""
 "# Adjust this paths to point to folders with stdglue.py, qt_auto_tool_probe.ngc and on_abort.ngc\n"
 "# or similarly coded custom remap files.\n"
-"SUBROUTINE_PATH = ~/linuxcnc/nc_files/remap-subroutines:\\\n"
-"~/linuxcnc/nc_files/remap_lib\n"
+"SUBROUTINE_PATH = ~/stratumak/nc_files/remap-subroutines:\\\n"
+"~/stratumak/nc_files/remap_lib\n"
 msgstr ""
 
 #. type: delimited block -
@@ -105289,9 +105289,9 @@ msgstr ""
 #, no-wrap
 msgid ""
 "# The path start point for all remap searches, i.e. Python's sys.path.append()\n"
-"PATH_APPEND = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python\n"
+"PATH_APPEND = ~/stratumak/nc_files/remap_lib/python-stdglue/python\n"
 "# path to the tremap's 'toplevel file\n"
-"TOPLEVEL = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python/toplevel.py\n"
+"TOPLEVEL = ~/stratumak/nc_files/remap_lib/python-stdglue/python/toplevel.py\n"
 msgstr ""
 
 #. type: Title ===
@@ -126949,7 +126949,7 @@ msgstr ""
 msgid ""
 "mess = {'NAME':'LOAD','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Load Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
@@ -126966,7 +126966,7 @@ msgstr ""
 msgid ""
 "mess = {'NAME':'SAVE','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Save Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
@@ -128498,8 +128498,8 @@ msgstr ""
 #, fuzzy, no-wrap
 msgid ""
 "[RS274NGC]\n"
-"SUBROUTINE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs\n"
-msgstr "[RS274NGC]SUBROUTINE_PATH=/home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
+"SUBROUTINE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs\n"
+msgstr "[RS274NGC]SUBROUTINE_PATH=/home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2974
@@ -128516,7 +128516,7 @@ msgid ""
 "[DISPLAY]\n"
 "# NGCGUI subroutine path.\n"
 "# This path must also be in [RS274NGC] SUBROUTINE_PATH\n"
-"NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib\n"
+"NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib\n"
 "# pre selected programs tabs\n"
 "# specify filenames only, files must be in the NGCGUI_SUBFILE_PATH\n"
 "NGCGUI_SUBFILE = slot.ngc\n"
@@ -171826,8 +171826,8 @@ msgstr "la versión instalada debe ser:"
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:273
 #, fuzzy, no-wrap
-msgid "linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini\n"
-msgstr "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
+msgid "linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini\n"
+msgstr "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:276
@@ -171838,8 +171838,8 @@ msgstr "Instalación del paquete de desarrollo"
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:278
 #, fuzzy, no-wrap
-msgid "~/linuxcnc-dev/scripts/linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini\n"
-msgstr "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
+msgid "~/linuxcnc-dev/scripts/linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini\n"
+msgstr "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:281
@@ -172146,7 +172146,7 @@ msgid ""
 "attempt to create a new QtPlasmaC configuration from an existing PlasmaC INI "
 "file.  This program will convert the user's parameters, settings, and "
 "materials from the previous PlasmaC configuration and create a new QtPlasmaC "
-"configuration directory in the ~/linuxcnc/configs directory."
+"configuration directory in the ~/stratumak/configs directory."
 msgstr ""
 
 #. type: Plain text
@@ -172745,7 +172745,7 @@ msgid ""
 "Comment=\n"
 "Terminal=false\n"
 "Name=LinuxCNC\n"
-"Exec=sh -c \"linuxcnc $HOME/linuxcnc/configs/<machine_name>/<machine_name>.ini\"\n"
+"Exec=sh -c \"linuxcnc $HOME/stratumak/configs/<machine_name>/<machine_name>.ini\"\n"
 "Type=Application\n"
 "Icon=/usr/share/pixmaps/linuxcncicon.png\n"
 msgstr ""
@@ -176706,7 +176706,7 @@ msgstr ""
 msgid ""
 "Select the Output File to write to, press *OUTPUT* to bring up a file "
 "selector or directly enter the file in the entry box.  This would normally "
-"be ~/linuxcnc/configs/__<machine_name>___material.cfg.  If necessary, the "
+"be ~/stratumak/configs/__<machine_name>___material.cfg.  If necessary, the "
 "user could select a different file and hand edit the "
 "__<machine_name>___material.cfg file."
 msgstr ""
@@ -176734,7 +176734,7 @@ msgstr "images/qtvcp-cam-align.png"
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:1671
 msgid ""
-"If the user selects ~/linuxcnc/configs/__<machine_name>___material.cfg and "
+"If the user selects ~/stratumak/configs/__<machine_name>___material.cfg and "
 "the file already exists, it will be overwritten."
 msgstr ""
 
@@ -182536,7 +182536,7 @@ msgstr ""
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:3618
 #, no-wrap
-msgid "n Code = latest-file /home/me/linuxcnc/nc_files/qtplasmac-test\n"
+msgid "n Code = latest-file /home/me/stratumak/nc_files/qtplasmac-test\n"
 msgstr ""
 
 #. type: Block title
@@ -184536,7 +184536,7 @@ msgstr "Ejemplos de código G"
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:4123
 msgid ""
-"There are some sample G-code files in the ~/linuxcnc/nc_files/examples/"
+"There are some sample G-code files in the ~/stratumak/nc_files/examples/"
 "plasmac directory."
 msgstr ""
 
@@ -187733,14 +187733,14 @@ msgid ""
 "$ cd /home/user/xxx\n"
 "$ mkdir python\n"
 "$ cd python\n"
-"$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
+"$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
 "$ echo 'from stdglue import *' >remap.py\n"
 "$ echo 'import remap' >toplevel.py\n"
 msgstr ""
 "$ cd /home/user/xxx\n"
 "$ mkdir python\n"
 "$ cd python\n"
-"$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
+"$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
 "$ echo 'from stdglue import *' >remap.py\n"
 "$ echo 'import remap' >toplevel.py\n"
 
@@ -198360,7 +198360,7 @@ msgstr ""
 #: man/man1/axis-remote.1:62
 msgid ""
 "Much more information about LinuxCNC and HAL is available in the LinuxCNC "
-"and HAL User Manuals, found at /usr/share/doc/linuxcnc/."
+"and HAL User Manuals, found at /usr/share/doc/stratumak/."
 msgstr ""
 
 #. type: TH
@@ -209344,8 +209344,8 @@ msgstr ""
 #: man/man1/xhc-hb04.1:70
 #, no-wrap
 msgid ""
-"   /usr/share/linuxcnc/hallib/xhc-hb04-layout1.cfg\n"
-"   /usr/share/linuxcnc/hallib/xhc-hb04-layout2.cfg\n"
+"   /usr/share/stratumak/hallib/xhc-hb04-layout1.cfg\n"
+"   /usr/share/stratumak/hallib/xhc-hb04-layout2.cfg\n"
 "or for a RIP build:\n"
 "   rip_base_dir/lib/hallib/xhc-hb04-layout1.cfg\n"
 "   rip_base_dir/lib/hallib/xhc-hb04-layout2.cfg\n"
@@ -209884,7 +209884,7 @@ msgstr ""
 #: man/man1/xhc-hb04.1:257
 #, no-wrap
 msgid ""
-"   /usr/share/doc/linuxcnc/examples/sample-configs/sim/axis/xhc-hb04/\n"
+"   /usr/share/doc/stratumak/examples/sample-configs/sim/axis/xhc-hb04/\n"
 "or for a RIP build:\n"
 "   rip_base_dir/configs/sim/axis/xhc-hb04/\n"
 msgstr ""

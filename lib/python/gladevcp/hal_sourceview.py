@@ -360,7 +360,7 @@ class EMC_Action_SaveAs(EMC_Action_Save):
     def __init__(self, *a, **kw):
         _EMC_Action.__init__(self, *a, **kw)
         self.textview = None
-        self.currentfolder = os.path.expanduser("~/linuxcnc/nc_files")
+        self.currentfolder = os.path.expanduser("~/stratumak/nc_files")
 
     def on_activate(self, w):
         if not self.textview:

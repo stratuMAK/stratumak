@@ -20,7 +20,7 @@ import nf, os
 
 # lib/tcltk/emc2 for installed emc
 # tcl            for run-in-place emc
-for candidate in 'lib/tcltk/linuxcnc', 'tcl':
+for candidate in 'lib/tcltk/stratumak', 'tcl':
     LINUXCNC_TCL = os.path.join(nf.PREFIX, candidate, 'linuxcnc.tcl')
     if os.path.exists(LINUXCNC_TCL): break
 

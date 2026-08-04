@@ -62,7 +62,7 @@ from gi.repository import Pango
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
 from gi.repository import GObject
-g_ui_dir = linuxcnc.SHARE + "/linuxcnc"
+g_ui_dir = linuxcnc.SHARE + "/stratumak"
 
 class PopupKeyboard:
     def __init__(self

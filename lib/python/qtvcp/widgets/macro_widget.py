@@ -665,7 +665,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     #sw = QtSvg.QSvgWidget('LatheMacro.svg')
     sw = MacroTab()
-    sw.buildStack(['~/linuxcnc/nc_files/examples/macros/lathe'])
+    sw.buildStack(['~/stratumak/nc_files/examples/macros/lathe'])
     sw.setGeometry(50, 50, 759, 668)
     sw.show()
     sys.exit(app.exec_())

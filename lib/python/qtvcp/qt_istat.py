@@ -91,7 +91,7 @@ class _IStat(object):
         self.QTVCP_LOG_HISTORY_PATH = self.INI.find('DISPLAY', 'LOG_FILE') or '~/qtvcp.log'
         self.MACHINE_LOG_HISTORY_PATH = self.INI.find('DISPLAY', 'MACHINE_LOG_PATH') or '~/.machine_log_history'
         self.PREFERENCE_PATH = self.INI.find("DISPLAY", "PREFERENCE_FILE_PATH") or None
-        self.PROGRAM_PREFIX = self.get_error_safe_setting("DISPLAY", "PROGRAM_PREFIX", '~/linuxcnc/nc_files')
+        self.PROGRAM_PREFIX = self.get_error_safe_setting("DISPLAY", "PROGRAM_PREFIX", '~/stratumak/nc_files')
         if not os.path.exists(os.path.expanduser(self.PROGRAM_PREFIX)):
             log.warning('Path not valid in INI File [DISPLAY] PROGRAM_PREFIX section')
 

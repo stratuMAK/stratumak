@@ -2390,8 +2390,8 @@ msgstr "Ref. felvételek"
 #~ msgid "Trying default path..."
 #~ msgstr "Versuche Standardpfad..."
 
-#~ msgid "Default path to ~/linuxcnc/nc_files does not exist"
-#~ msgstr "Standardpfad nach ~/linuxcnc/nc_files existiert nicht"
+#~ msgid "Default path to ~/stratumak/nc_files does not exist"
+#~ msgstr "Standardpfad nach ~/stratumak/nc_files existiert nicht"
 
 #~ msgid "setting now home as path"
 #~ msgstr "setze home als Pfad"

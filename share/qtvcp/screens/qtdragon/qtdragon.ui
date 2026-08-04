@@ -116,7 +116,7 @@
        <bool>true</bool>
       </property>
       <property name="pref_filename_string" stdset="0">
-       <string>~/linuxcnc/configs/qtdragon/qtdragon.pref</string>
+       <string>~/stratumak/configs/qtdragon/qtdragon.pref</string>
       </property>
       <property name="embedded_program_option" stdset="0">
        <bool>true</bool>
@@ -5274,7 +5274,7 @@ LOG</string>
                                  </size>
                                 </property>
                                 <property name="toolTip">
-                                 <string extracomment="save Image to user/linuxcnc/nc_files/camImage.png">save Image to user/linuxcnc/nc_files/camImage.png</string>
+                                 <string extracomment="save Image to user/stratumak/nc_files/camImage.png">save Image to user/stratumak/nc_files/camImage.png</string>
                                 </property>
                                 <property name="text">
                                  <string>Save</string>

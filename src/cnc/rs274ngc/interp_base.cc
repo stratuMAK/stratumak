@@ -33,8 +33,8 @@ InterpBase *interp_from_shlib(const char *shlib) {
         interp_path = shlib;
     } else {
         // The passed-in .so name is a relative path or just a bare
-        // filename, look for it in `${EMC2_HOME}/lib/linuxcnc`.
-        snprintf(relative_interp, sizeof(relative_interp), "%s/%s", EMC2_HOME "/lib/linuxcnc", shlib);
+        // filename, look for it in `${EMC2_HOME}/lib/stratumak`.
+        snprintf(relative_interp, sizeof(relative_interp), "%s/%s", EMC2_HOME "/lib/stratumak", shlib);
         interp_path = relative_interp;
     }
 

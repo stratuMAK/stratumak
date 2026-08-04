@@ -94,7 +94,7 @@ class INI:
         print("INTRO_GRAPHIC = linuxcnc.gif", file=file)
         print("INTRO_TIME = 5", file=file)
         print("PROGRAM_PREFIX = %s" % \
-                                    os.path.expanduser("~/linuxcnc/nc_files"), file=file)
+                                    os.path.expanduser("~/stratumak/nc_files"), file=file)
         if self.d.pyvcp:
             print("PYVCP = pyvcp-panel.xml", file=file)
         # these are for AXIS GUI and QtPlasmaC

@@ -48,7 +48,7 @@ class Converter(QMainWindow, object):
             self.mode = ''
             self.iniIn = ''
         if 'usr' in self.appPath:
-            self.simPath = '/usr/share/doc/linuxcnc/examples/sample-configs/sim/qtplasmac'
+            self.simPath = '/usr/share/doc/stratumak/examples/sample-configs/sim/qtplasmac'
         else:
             self.simPath = self.appPath.replace('bin', 'configs/sim/qtplasmac')
         self.setFixedWidth(600)

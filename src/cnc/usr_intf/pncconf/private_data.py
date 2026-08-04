@@ -73,12 +73,12 @@ class Private_Data:
         self._IMPERIAL = 0
         self._METRIC = 1
 
-        self.DATADIR = linuxcnc.SHARE + "/linuxcnc/pncconf"
+        self.DATADIR = linuxcnc.SHARE + "/stratumak/pncconf"
         self.WIZARD = os.path.join(self.DATADIR, "linuxcnc-wizard.gif")
         if not os.path.isfile(self.WIZARD):
-            self.WIZARD = os.path.join("/etc/linuxcnc/linuxcnc-wizard.gif")
+            self.WIZARD = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
         if not os.path.isfile(self.WIZARD):
-            self.WIZARD = os.path.join("/usr/share/linuxcnc/linuxcnc-wizard.gif")
+            self.WIZARD = os.path.join("/usr/share/stratumak/linuxcnc-wizard.gif")
         if not os.path.isfile(self.WIZARD):
             wizdir = os.path.join(os.path.abspath(BIN), "..")
             self.WIZARD = os.path.join(wizdir, "linuxcnc-wizard.gif")
@@ -86,18 +86,18 @@ class Private_Data:
         self.ICONDIR = os.path.join(os.path.abspath(BIN), "..")
         self.LINUXCNCICON = os.path.join(self.ICONDIR, "linuxcncicon.png")
         if not os.path.isfile(self.LINUXCNCICON):
-            self.LINUXCNCICON = os.path.join("/etc/linuxcnc/linuxcnc-wizard.gif")
+            self.LINUXCNCICON = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
         if not os.path.isfile(self.LINUXCNCICON):
-            self.LINUXCNCICON = os.path.join("/usr/share/linuxcnc/linuxcncicon.png")
+            self.LINUXCNCICON = os.path.join("/usr/share/stratumak/linuxcncicon.png")
 
         self.DISTDIR = os.path.join(os.path.abspath(BIN), "..", "configs", "common")
         if not os.path.isdir(self.DISTDIR):
-            self.DISTDIR = os.path.join(os.path.abspath(BIN), "..", "share", "doc", "linuxcnc", "sample-configs", "common")
+            self.DISTDIR = os.path.join(os.path.abspath(BIN), "..", "share", "doc", "stratumak", "sample-configs", "common")
         if not os.path.isdir(self.DISTDIR):
-            self.DISTDIR = os.path.join(os.path.abspath(BIN), "..", "linuxcnc", "sample-configs", "common")
+            self.DISTDIR = os.path.join(os.path.abspath(BIN), "..", "stratumak", "sample-configs", "common")
         if not os.path.isdir(self.DISTDIR):
-            self.DISTDIR = "/usr/share/doc/linuxcnc/examples/sample-configs/common"
-        self.HELPDIR = os.path.join(BASE, "share", "linuxcnc", "pncconf", "pncconf-help")
+            self.DISTDIR = "/usr/share/doc/stratumak/examples/sample-configs/common"
+        self.HELPDIR = os.path.join(BASE, "share", "stratumak", "pncconf", "pncconf-help")
         if not os.path.exists(self.HELPDIR):
             self.HELPDIR = os.path.join(BASE, "src", "emc", "usr_intf", "pncconf", "pncconf-help")
         self.FIRMDIR = "/lib/firmware/hm2/"

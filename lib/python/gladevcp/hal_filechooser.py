@@ -194,7 +194,7 @@ class EMC_Action_Open(_EMC_Action, _EMC_FileChooser):
     def _hal_init(self):
         _EMC_FileChooser._hal_init(self)
         _EMC_Action._hal_init(self)
-        self.currentfolder = os.path.expanduser("~/linuxcnc/nc_files")
+        self.currentfolder = os.path.expanduser("~/stratumak/nc_files")
         self.gstat.connect('interp-run', lambda w: self.set_sensitive(False))
         self.gstat.connect('interp-idle', lambda w: self.set_sensitive(True))
 

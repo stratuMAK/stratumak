@@ -137,7 +137,7 @@ override_dh_auto_install-arch:
 	desktop-file-validate $(shell find debian/extras/ share/applications/ -name *.desktop);
 
 	# some clean-up
-	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/examples/sample-configs/*/*position*.txt
+	rm -f $(DESTDIR)/usr/share/doc/stratumak/examples/sample-configs/*/*position*.txt
 
 	# Nothing under /var/lib/stratumak may be shipped in the package.
 	#
@@ -154,12 +154,12 @@ override_dh_auto_install-arch:
 	rm -rf $(DESTDIR)/var/lib/stratumak
 
 override_dh_installdocs-arch:
-	# Sample configs go in `usr/share/doc/linuxcnc` (not `.../doc/@MAIN_PACKAGE_NAME@`)
+	# Sample configs go in `usr/share/doc/stratumak` (not `.../doc/@MAIN_PACKAGE_NAME@`)
 	# because that's where the `linuxcnc` launcher script looks for them,
 	# and that's inconvenient to change.
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=@MAIN_PACKAGE_NAME@
-	mkdir -p debian/@MAIN_PACKAGE_NAME@/usr/share/doc/linuxcnc
-	mv debian/@MAIN_PACKAGE_NAME@/usr/share/doc/@MAIN_PACKAGE_NAME@/examples debian/@MAIN_PACKAGE_NAME@/usr/share/doc/linuxcnc
+	mkdir -p debian/@MAIN_PACKAGE_NAME@/usr/share/doc/stratumak
+	mv debian/@MAIN_PACKAGE_NAME@/usr/share/doc/@MAIN_PACKAGE_NAME@/examples debian/@MAIN_PACKAGE_NAME@/usr/share/doc/stratumak
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=@MAIN_PACKAGE_NAME@-dev
 
@@ -175,22 +175,22 @@ override_dh_installdocs-indep:
 	# so they don't collide when we install all the doc debs.
 	#
 	# Rename the "main" doc directories from
-	# `usr/share/doc/@MAIN_PACKAGE_NAME@` to `usr/share/doc/linuxcnc`,
+	# `usr/share/doc/@MAIN_PACKAGE_NAME@` to `usr/share/doc/stratumak`,
 	# because that's where the `.desktop` files look for the docs.
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-de
 	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_de.html
-	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-de/usr/share/doc/linuxcnc
+	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-de/usr/share/doc/stratumak
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-en
-	mv debian/stratumak-doc-en/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-en/usr/share/doc/linuxcnc
+	mv debian/stratumak-doc-en/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-en/usr/share/doc/stratumak
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-es
 	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_es.html
-	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-es/usr/share/doc/linuxcnc
+	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-es/usr/share/doc/stratumak
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-fr
 	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_fr.html
-	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-fr/usr/share/doc/linuxcnc
+	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-fr/usr/share/doc/stratumak
 
 
 

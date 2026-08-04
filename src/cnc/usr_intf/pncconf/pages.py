@@ -382,7 +382,7 @@ class Pages:
 
     def on_machinename_changed(self, *args):
         temp = self.w.machinename.get_text()
-        self.w.confdir.set_text("~/linuxcnc/configs/%s" % temp.replace(" ","_"))
+        self.w.confdir.set_text("~/stratumak/configs/%s" % temp.replace(" ","_"))
 
     def on_address_search_clicked(self,w):
         self.a.show_help()
@@ -1532,7 +1532,7 @@ class Pages:
             if self.w.ladderexist.get_active() == True:
                 self.d.laddername='custom.clp'
             else:
-                if os.path.exists(os.path.expanduser("~/linuxcnc/configs/%s/custom.clp" % self.d.machinename)):
+                if os.path.exists(os.path.expanduser("~/stratumak/configs/%s/custom.clp" % self.d.machinename)):
                     if not self.a.warning_dialog(_("OK to replace existing custom ladder program?\nExisting\
  Custom.clp will be renamed custom_backup.clp.\nAny existing file named -custom_backup.clp- will be lost.\
 Selecting 'existing ladder program' will avoid this warning"),False):

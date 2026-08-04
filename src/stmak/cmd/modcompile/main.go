@@ -492,7 +492,7 @@ func processFile(path, mode, outputFile string) error {
 //
 // The two layouts put them in different places, and only the run-in-place one
 // was ever accounted for: a build tree collects them flat in <tree>/include,
-// an installed system puts them in $(includedir)/linuxcnc. Naming
+// an installed system puts them in $(includedir)/stratumak. Naming
 // $(EMC2Home)/include for both meant an installed system searched /usr/include
 // and found none of them, so every .comp that includes rtapi_math.h failed to
 // compile with a missing-header error that named a file sitting one directory
@@ -501,7 +501,7 @@ func linuxcncIncludeDir() string {
 	if config.RunInPlace == "yes" {
 		return filepath.Join(config.EMC2Home, "include")
 	}
-	return filepath.Join(config.EMC2Home, "include", "linuxcnc")
+	return filepath.Join(config.EMC2Home, "include", "stratumak")
 }
 
 // compileToSO compiles a C source file to a shared object in outDir.
@@ -634,7 +634,7 @@ func compileCFile(cPath string, outDir string) error {
 //
 // The stmak packages declare their C includes relative to ${SRCDIR}, which only
 // resolves inside the source tree; from the installed tree at
-// $(datadir)/linuxcnc/stmak those paths point at directories that do not exist,
+// $(datadir)/stratumak/stmak those paths point at directories that do not exist,
 // and gcc drops a missing -I without a word. Anything compiling those packages
 // outside the source tree -- a rebuild of stmakd, or a third-party Go
 // module importing pkg/hal -- has to be handed the real include directory.
@@ -661,7 +661,7 @@ func cgoFlags() (cflags, ldflags string) {
 		// "stmak/generated/gmi/canon/canon_api.h" -- and that resolves only
 		// against a directory that has a "stmak" in it. The run-in-place
 		// branch above gets the same thing from -I<src>.
-		cflags = "-I" + filepath.Join(config.EMC2Home, "include", "linuxcnc") +
+		cflags = "-I" + filepath.Join(config.EMC2Home, "include", "stratumak") +
 			" -I" + filepath.Dir(config.EMC2StmakDir)
 	}
 	return cflags, fmt.Sprintf("-L%s -Wl,-rpath,%s", libDir, libDir)

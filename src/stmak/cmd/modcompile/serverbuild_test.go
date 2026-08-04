@@ -90,7 +90,7 @@ func TestModuleStoreDirFollowsLayout(t *testing.T) {
 func TestCModInstallDirIsNotThePackagesOwn(t *testing.T) {
 	oldCmod := config.EMC2CmodDir
 	t.Cleanup(func() { config.EMC2CmodDir = oldCmod })
-	config.EMC2CmodDir = "/usr/lib/linuxcnc/cmod"
+	config.EMC2CmodDir = "/usr/lib/stratumak/cmod"
 
 	withStateDir(t, "/var/lib/stratumak")
 	if got, want := cmodInstallDir(), "/var/lib/stratumak/cmod"; got != want {
@@ -98,7 +98,7 @@ func TestCModInstallDirIsNotThePackagesOwn(t *testing.T) {
 	}
 
 	withStateDir(t, "")
-	if got, want := cmodInstallDir(), "/usr/lib/linuxcnc/cmod"; got != want {
+	if got, want := cmodInstallDir(), "/usr/lib/stratumak/cmod"; got != want {
 		t.Errorf("cmodInstallDir() = %q, want the only cmod dir there is, %q", got, want)
 	}
 }
@@ -217,7 +217,7 @@ func TestNormalizeModesMakesSourcesReadable(t *testing.T) {
 // compile depends on. It was wrong for installed systems from the start —
 // $(EMC2Home)/include is right only for a run-in-place tree, where the headers
 // are collected flat under the tree root; an installed system puts them in
-// $(includedir)/linuxcnc. So `modcompile --install` searched /usr/include,
+// $(includedir)/stratumak. So `modcompile --install` searched /usr/include,
 // found no rtapi_math.h, and every component doing floating-point maths
 // failed to compile against a header sitting one directory further down.
 //
@@ -228,12 +228,12 @@ func TestLinuxcncIncludeDirFollowsLayout(t *testing.T) {
 	t.Cleanup(func() { config.EMC2Home, config.RunInPlace = oldHome, oldRIP })
 
 	config.EMC2Home, config.RunInPlace = "/usr", "no"
-	if got, want := linuxcncIncludeDir(), "/usr/include/linuxcnc"; got != want {
+	if got, want := linuxcncIncludeDir(), "/usr/include/stratumak"; got != want {
 		t.Errorf("installed layout: linuxcncIncludeDir() = %q, want %q", got, want)
 	}
 
-	config.EMC2Home, config.RunInPlace = "/home/dev/linuxcnc", "yes"
-	if got, want := linuxcncIncludeDir(), "/home/dev/linuxcnc/include"; got != want {
+	config.EMC2Home, config.RunInPlace = "/home/dev/stratumak", "yes"
+	if got, want := linuxcncIncludeDir(), "/home/dev/stratumak/include"; got != want {
 		t.Errorf("run-in-place layout: linuxcncIncludeDir() = %q, want %q", got, want)
 	}
 }

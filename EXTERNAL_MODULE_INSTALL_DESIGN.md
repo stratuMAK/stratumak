@@ -13,13 +13,13 @@ what it does not cover.
 ```
 $ make install
 /usr/bin/modcompile add-gomod .
-modcompile add-gomod: creating directory: mkdir /usr/share/linuxcnc/stmak/external: permission denied
+modcompile add-gomod: creating directory: mkdir /usr/share/stratumak/stmak/external: permission denied
 ```
 
 Four separate problems sit behind that one message.
 
 **Everything mutable lives under `/usr`, which dpkg owns.** `add-gomod` writes
-module sources into `$(datadir)/linuxcnc/stmak/external/`, regenerates
+module sources into `$(datadir)/stratumak/stmak/external/`, regenerates
 `imports_generated.go` and `packages.conf` in the same tree, and rebuilds the
 server over `/usr/bin/stmakd`. The next `apt upgrade` overwrites the server
 and every generated file the package ships, silently unregistering locally added
@@ -39,7 +39,7 @@ no capability handling beyond save/restore around the rebuild
 
 **Locally built cmods have the same problem one directory over.**
 `modcompile <x>.comp --install` writes into `$(EMC2_CMOD_DIR)` =
-`/usr/lib/linuxcnc/cmod`, also dpkg-owned. A local `.so` there survives upgrades
+`/usr/lib/stratumak/cmod`, also dpkg-owned. A local `.so` there survives upgrades
 (dpkg only removes what it shipped) but can silently shadow or collide with a
 shipped module of the same name.
 
@@ -57,7 +57,7 @@ cap_sys_nice, cap_sys_rawio, cap_perfmon, cap_sys_admin …
 
 `cap_sys_admin` and `cap_sys_rawio` are root in all but name. A group-writable
 `stmakd` makes group membership equivalent to root: write your own bytes
-into the file the kernel then grants those capabilities to. `/usr/lib/linuxcnc/cmod/`
+into the file the kernel then grants those capabilities to. `/usr/lib/stratumak/cmod/`
 is the same argument one step removed — those objects are dlopened into that
 process.
 
@@ -253,7 +253,7 @@ Decisions taken where §4.3 and §5 left a choice, and the places the
 implementation went further or stopped short.
 
 **Collisions are refused** (§5). `resolveCModule` searches
-`/var/lib/stratumak/cmod` and `/usr/lib/linuxcnc/cmod`, and a bare name present
+`/var/lib/stratumak/cmod` and `/usr/lib/stratumak/cmod`, and a bare name present
 in both fails the load naming both files. Deliberate overriding is still
 possible by loading the module by its full path, which bypasses the search
 entirely. No per-module shadowing flag was added; nothing has asked for one yet.
@@ -265,7 +265,7 @@ into the package's own directory and loading it by name gives:
 
 ```
 C module "galv_mixer" is provided by more than one directory:
-/var/lib/stratumak/cmod/galv_mixer.so and /usr/lib/linuxcnc/cmod/galv_mixer.so.
+/var/lib/stratumak/cmod/galv_mixer.so and /usr/lib/stratumak/cmod/galv_mixer.so.
 Remove the one you did not mean, or load the one you did by its full path
 ```
 
@@ -377,7 +377,7 @@ it, and a tree that only ever had modules added would keep compiling the
 release it was first built from.
 
 **Behind all of this: the installed stmak tree did not compile, and now does.**
-The note assumes throughout that `$(datadir)/linuxcnc/stmak` can be rebuilt; it
+The note assumes throughout that `$(datadir)/stratumak/stmak` can be rebuilt; it
 could not, and never could — the permission error in §1 was simply the first
 thing in the way. `stmak-install` shipped only `*.go`, so every cgo package
 arrived without its C sources, and a dozen headers the build needs were
@@ -415,7 +415,7 @@ referred to it — so no special case remains in the install and neither
 consumer has to qualify anything.
 
 `make` now refuses the situation outright: `check-header-collisions` compares
-the basenames of everything landing in the flat `$(includedir)/linuxcnc`
+the basenames of everything landing in the flat `$(includedir)/stratumak`
 against the headers inside the stmak tree, and fails the build naming both
 files. The original cost an afternoon precisely because every error pointed at
 the innocent file.
@@ -453,7 +453,7 @@ An out-of-tree module then went through the flow it was designed for, from an
 ordinary project `Makefile`: `make install` builds as the invoking user and
 escalates only for `sudo modcompile add-gomod .`, which records the source,
 rebuilds unprivileged as `stratumak-build`, and reapplies the capabilities.
-That is §1's opening failure — `mkdir /usr/share/linuxcnc/stmak/external:
+That is §1's opening failure — `mkdir /usr/share/stratumak/stmak/external:
 permission denied` — closed.
 
 **`modcompile --install` drops privilege too.** §6 step 5 asked only for the

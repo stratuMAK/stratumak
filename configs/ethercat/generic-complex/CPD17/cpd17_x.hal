@@ -1,4 +1,4 @@
-loadusr -W lcec_conf /home/frank/linuxcnc/configs/ethercat/ethercat-conf_X.xml
+loadusr -W lcec_conf /home/frank/stratumak/configs/ethercat/ethercat-conf_X.xml
 loadrt lcec
 load trivkins
 loadrt [EMCMOT]EMCMOT base_period_nsec=[EMCMOT]BASE_PERIOD servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES

@@ -906,10 +906,10 @@ If you have a REALLY large config that you wish to convert to this newer version
 
     def save(self,basedir):
         base = basedir
-        ncfiles = os.path.expanduser("~/linuxcnc/nc_files")
+        ncfiles = os.path.expanduser("~/stratumak/nc_files")
         if not os.path.exists(ncfiles):
             _APP.makedirs(ncfiles)
-            examples = os.path.join(_BASE, "share", "linuxcnc", "ncfiles")
+            examples = os.path.join(_BASE, "share", "stratumak", "ncfiles")
             if not os.path.exists(examples):
                 examples = os.path.join(_BASE, "nc_files")
             if os.path.exists(examples):

@@ -338,9 +338,9 @@ class GetIniInfo:
         if not default_path:
             LOG.warning("Path {0} from DISPLAY , PROGRAM_PREFIX does not exist, ".format(default_path)\
             + "trying default path...")
-            default_path = "~/linuxcnc/nc_files/"
+            default_path = "~/stratumak/nc_files/"
             if not os.path.exists(os.path.expanduser(default_path)):
-                LOG.warning("Default path to ~/linuxcnc/nc_files does not exist, setting now home as path.")
+                LOG.warning("Default path to ~/stratumak/nc_files does not exist, setting now home as path.")
                 default_path = os.path.expanduser("~/")
         return default_path
 

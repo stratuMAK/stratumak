@@ -86,8 +86,8 @@ locale.setlocale(locale.LC_ALL, '')
 locale.bindtextdomain(domain, LOCALEDIR)
 gettext.bindtextdomain(domain, LOCALEDIR)
 
-datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "linuxcnc","stepconf")
-main_datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "linuxcnc")
+datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "stratumak","stepconf")
+main_datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "stratumak")
 wizard = os.path.join(datadir, "linuxcnc-wizard.gif")
 if not os.path.isfile(wizard):
     wizard = os.path.join(main_datadir, "linuxcnc-wizard.gif")
@@ -98,19 +98,19 @@ if not os.path.isfile(wizard):
 icondir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..")
 linuxcncicon = os.path.join(icondir, "linuxcncicon.png")
 if not os.path.isfile(linuxcncicon):
-    linuxcncicon = os.path.join("/etc/linuxcnc/linuxcnc-wizard.gif")
+    linuxcncicon = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
 if not os.path.isfile(linuxcncicon):
-    linuxcncicon = os.path.join("/usr/share/linuxcnc/linuxcncicon.png")
+    linuxcncicon = os.path.join("/usr/share/stratumak/linuxcncicon.png")
 
 distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "configs", "common")
 if not os.path.isdir(distdir):
-    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "doc", "linuxcnc", "sample-configs", "common")
+    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "doc", "stratumak", "sample-configs", "common")
 if not os.path.isdir(distdir):
-    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "linuxcnc", "sample-configs", "common")
+    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "stratumak", "sample-configs", "common")
 if not os.path.isdir(distdir):
-    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "doc", "linuxcnc", "examples", "sample-configs", "common")
+    distdir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "doc", "stratumak", "examples", "sample-configs", "common")
 if not os.path.isdir(distdir):
-    distdir = "/usr/share/doc/linuxcnc/examples/sample-configs/common"
+    distdir = "/usr/share/doc/stratumak/examples/sample-configs/common"
 
 
 from stepconf import pages
@@ -124,7 +124,7 @@ def makedirs(d):
         os.makedirs(d)
     except os.error as detail:
         if detail.errno != errno.EEXIST: raise
-makedirs(os.path.expanduser("~/linuxcnc/configs"))
+makedirs(os.path.expanduser("~/stratumak/configs"))
 
 def md5sum(filename):
     try:
@@ -676,11 +676,11 @@ class Data:
         if self.classicladder: 
            if not self.laddername == "custom.clp":
                 filename = os.path.join(distdir, "configurable_options/ladder/%s" % self.laddername)
-                original = os.path.expanduser("~/linuxcnc/configs/%s/custom.clp" % self.machinename)
+                original = os.path.expanduser("~/stratumak/configs/%s/custom.clp" % self.machinename)
                 if os.path.exists(filename):     
                   if os.path.exists(original):
                      print("custom file already exists")
-                     shutil.copy( original,os.path.expanduser("~/linuxcnc/configs/%s/custom_backup.clp" % self.machinename) ) 
+                     shutil.copy( original,os.path.expanduser("~/stratumak/configs/%s/custom_backup.clp" % self.machinename) ) 
                      print("made backup of existing custom")
                   shutil.copy( filename,original)
                   print("copied ladder program to usr directory")
@@ -690,11 +690,11 @@ class Data:
 
         if self.pyvcp and not self.pyvcpname == "custompanel.xml":                
            panelname = os.path.join(distdir, "configurable_options/pyvcp/%s" % self.pyvcpname)
-           originalname = os.path.expanduser("~/linuxcnc/configs/%s/custompanel.xml" % self.machinename)
+           originalname = os.path.expanduser("~/stratumak/configs/%s/custompanel.xml" % self.machinename)
            if os.path.exists(panelname):     
                   if os.path.exists(originalname):
                      print("custom PYVCP file already exists")
-                     shutil.copy( originalname,os.path.expanduser("~/linuxcnc/configs/%s/custompanel_backup.xml" % self.machinename) ) 
+                     shutil.copy( originalname,os.path.expanduser("~/stratumak/configs/%s/custompanel_backup.xml" % self.machinename) ) 
                      print("made backup of existing custom")
                   shutil.copy( panelname,originalname)
                   print("copied PYVCP program to usr directory")
@@ -838,11 +838,11 @@ class StepconfApp:
         window.show()
 
     def build_base(self):
-        base = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
-        ncfiles = os.path.expanduser("~/linuxcnc/nc_files")
+        base = os.path.expanduser("~/stratumak/configs/%s" % self.d.machinename)
+        ncfiles = os.path.expanduser("~/stratumak/nc_files")
         if not os.path.exists(ncfiles):
             makedirs(ncfiles)
-            examples = os.path.join(BASE, "share", "linuxcnc", "ncfiles")
+            examples = os.path.join(BASE, "share", "stratumak", "ncfiles")
             if not os.path.exists(examples):
                 examples = os.path.join(BASE, "nc_files")
             if os.path.exists(examples):
@@ -866,7 +866,7 @@ class StepconfApp:
         if self.d.select_qtplasmac:
             # copy M190 file
             if BASE == "/usr":
-                m190Path = os.path.join(BASE, 'share/doc/linuxcnc/examples/sample-configs/sim/qtplasmac/M190')
+                m190Path = os.path.join(BASE, 'share/doc/stratumak/examples/sample-configs/sim/qtplasmac/M190')
             else:
                 m190Path = os.path.join(BASE, 'configs/sim/qtplasmac/M190')
             shutil.copy(m190Path, os.path.join(base, 'M190'))
@@ -1348,7 +1348,7 @@ class StepconfApp:
             panel = "spindle.xml"
         if self.w.radiobutton8.get_active() == True:
             panel = "custompanel.xml"
-            panelname = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
+            panelname = os.path.expanduser("~/stratumak/configs/%s" % self.d.machinename)
         halrun = os.popen("cd %(panelname)s\nhalrun -Is > /dev/null"% {'panelname':panelname,}, "w" )    
         halrun.write("loadusr -Wn displaytest pyvcp -c displaytest %(panel)s\n" %{'panel':panel,})
         if self.w.radiobutton6.get_active() == True:
@@ -1393,7 +1393,7 @@ class StepconfApp:
             self.w.modbus.set_active(self.d.modbus)
         if self.w.radiobutton4.get_active() == True:
             self.d.laddername='custom.clp'
-            originalfile = filename = os.path.expanduser("~/linuxcnc/configs/%s/custom.clp" % self.d.machinename)
+            originalfile = filename = os.path.expanduser("~/stratumak/configs/%s/custom.clp" % self.d.machinename)
         else:
             filename = os.path.join(distdir, "configurable_options/ladder/"+ self.d.laddername)        
         if self.d.modbus == True: 

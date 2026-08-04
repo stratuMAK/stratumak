@@ -31,7 +31,7 @@ else
     # Set $EMC2_HOME to $prefix for tests that depend on it
     export SYSTEM_BUILD=1
     export EMC2_HOME=@EMC2_HOME@
-    export HEADERS=@includedir@/linuxcnc
+    export HEADERS=@includedir@/stratumak
     export LIBDIR=@EMC2_HOME@/lib
     export LINUXCNC_EMCSH=@WISH@
     export REALTIME=@REALTIME@

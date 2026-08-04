@@ -8,7 +8,7 @@
 #   contents  scripts/check-deb-contents.sh over ../
 #   lintian   lintian --fail-on error,warning over the .changes
 #   install   apt-get install the built debs           (needs root)
-#   smoke     run debian/tests/linuxcnc-test as an unprivileged user
+#   smoke     run debian/tests/stmak-test as an unprivileged user
 #   extcomp   modcompile --install a scratch .comp     (needs root)
 #
 # Local iteration: after a full `build`, packaging-metadata changes re-verify
@@ -37,9 +37,9 @@ stage_smoke() {
     if [ "$(id -u)" = 0 ]; then
         id testrunner >/dev/null 2>&1 || adduser --disabled-password --gecos "" testrunner
         chmod 0777 debian/tests
-        su -c "cd debian/tests && ./linuxcnc-test" testrunner
+        su -c "cd debian/tests && ./stmak-test" testrunner
     else
-        (cd debian/tests && ./linuxcnc-test)
+        (cd debian/tests && ./stmak-test)
     fi
 }
 

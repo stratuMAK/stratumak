@@ -4,7 +4,7 @@ pyngcgui -- implementación de ngcgui python, gladevcp que se puede incrustar en
 
 En la versión empaquetada de LinuxCNC, ngcgui_lib se crea como un enlace simbólico a un directorio del sistema propiedad root:
 
-/usr/share/linuxcnc/ncfiles/ngcgui_lib
+/usr/share/stratumak/ncfiles/ngcgui_lib
 
 Esta biblioteca normalmente no es cambiada por el usuario. Para modificar un archivo .ngc de la biblioteca,
 copie el archivo .ngc en el directorio [DISPLAY]PROGRAM_PREFIX o en un directorio que esté incluido en la

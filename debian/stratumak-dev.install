@@ -1,5 +1,5 @@
 usr/bin/modcompile
-usr/include/linuxcnc
+usr/include/stratumak
 usr/lib/*.so
-usr/share/linuxcnc/Makefile.modinc
-usr/share/linuxcnc/stmak/
+usr/share/stratumak/Makefile.modinc
+usr/share/stratumak/stmak/

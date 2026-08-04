@@ -3063,8 +3063,8 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 
 | Variable | RIP Value | Installed Value |
 |----------|-----------|-----------------|
-| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/linuxcnc/stmak` |
-| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/linuxcnc/cmod` |
+| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/stratumak/stmak` |
+| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/stratumak/cmod` |
 
 #### Submakefile Variables (STMAK_* namespace)
 
@@ -3081,8 +3081,8 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 
 | Variable | RIP Value | Installed Value |
 |----------|-----------|-----------------|
-| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/linuxcnc/stmak` |
-| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/linuxcnc/cmod` |
+| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/stratumak/stmak` |
+| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/stratumak/cmod` |
 
 ### Migration Phases (All Complete)
 

@@ -15,21 +15,21 @@ If your running LinuxCNC from the Live CD or you installed via a .deb and use th
 configuration picker 'LinuxCNC' from the menu LinuxCNC looks in the following
 directories:
 
-* The LinuxCNC directory is located at '/home/user-name/linuxcnc'.
-* The Configuration directories are located at '/home/user-name/linuxcnc/configs'.
-**  Configuration files are located at '/home/user-name/linuxcnc/configs/name-of-config'.
-* G-code files are located at /home/user-name/linuxcnc/nc_files'.
+* The LinuxCNC directory is located at '/home/user-name/stratumak'.
+* The Configuration directories are located at '/home/user-name/stratumak/configs'.
+**  Configuration files are located at '/home/user-name/stratumak/configs/name-of-config'.
+* G-code files are located at /home/user-name/stratumak/nc_files'.
 
 For example for a configuration called Mill and a user name Fred the directory
 and file structure would look like this.
 
-* '/home/fred/linuxcnc'
-* '/home/fred/linuxcnc/nc_files'
-* '/home/fred/linuxcnc/configs/mill'
-** '/home/fred/linuxcnc/configs/mill/mill.ini'
-** '/home/fred/linuxcnc/configs/mill/mill.hal'
-** '/home/fred/linuxcnc/configs/mill/mill.var'
-** '/home/fred/linuxcnc/configs/mill/tool.tbl'
+* '/home/fred/stratumak'
+* '/home/fred/stratumak/nc_files'
+* '/home/fred/stratumak/configs/mill'
+** '/home/fred/stratumak/configs/mill/mill.ini'
+** '/home/fred/stratumak/configs/mill/mill.hal'
+** '/home/fred/stratumak/configs/mill/mill.var'
+** '/home/fred/stratumak/configs/mill/tool.tbl'
 
 === Command Line
 

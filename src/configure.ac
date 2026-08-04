@@ -237,7 +237,7 @@ RTDIR=$(pwd -P)
 ULAPI_CFLAGS=""
 RTFLAGS="-DUSPACE"
 MODEXT=.so
-MODULE_DIR=${prefix}/lib/linuxcnc/modules
+MODULE_DIR=${prefix}/lib/stratumak/modules
 ULAPI_LDFLAGS=""
 
 AC_SUBST([RTPREFIX])
@@ -506,7 +506,7 @@ if test "$RUN_IN_PLACE" = "yes"; then
 else
     RUN_IN_PLACE=no
     EMC2_HOME=$prefix
-    DEFAULT_TOOLTABLE=${prefix}/share/doc/linuxcnc/examples/sample-configs/common/tool.tbl
+    DEFAULT_TOOLTABLE=${prefix}/share/doc/stratumak/examples/sample-configs/common/tool.tbl
     AC_MSG_RESULT([$MODULE_DIR])
 fi
 
@@ -544,7 +544,7 @@ if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_RTLIB_DIR=$EMC2_HOME/rtlib
     EMC2_GOMOD_DIR=$EMC2_HOME/gomod
     EMC2_CMOD_DIR=$EMC2_HOME/cmod
-    LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:$EMC2_HOME/configs"
+    LINUXCNC_CONFIG_PATH="~/stratumak/configs:$EMC2_HOME/configs"
     EMC2_NCFILES_DIR=$EMC2_HOME/nc_files
     EMC2_IMAGE_DIR=$EMC2_HOME
     HALLIB_DIR=$EMC2_HOME/lib/hallib
@@ -562,21 +562,21 @@ else
     EMC2_SCRIPT=$EMC2_BIN_DIR/stmakd
     EMC2_SUFFIX=""
     EMC2_ICON=linuxcncicon
-    EMC2_TCL_DIR=${prefix}/lib/tcltk/linuxcnc
-    EMC2_TCL_LIB_DIR=${prefix}/lib/tcltk/linuxcnc
-    EMC2_LANG_DIR=${prefix}/lib/tcltk/linuxcnc/msgs
+    EMC2_TCL_DIR=${prefix}/lib/tcltk/stratumak
+    EMC2_TCL_LIB_DIR=${prefix}/lib/tcltk/stratumak
+    EMC2_LANG_DIR=${prefix}/lib/tcltk/stratumak/msgs
     EMC2_PO_DIR=${prefix}/share/locale
-    EMC2_HELP_DIR=${prefix}/share/doc/linuxcnc
+    EMC2_HELP_DIR=${prefix}/share/doc/stratumak
     case $MODULE_DIR in
-        */linuxcnc*) EMC2_RTLIB_DIR=$MODULE_DIR ;;
-	*) EMC2_RTLIB_DIR=$MODULE_DIR/linuxcnc
+        */stratumak*) EMC2_RTLIB_DIR=$MODULE_DIR ;;
+	*) EMC2_RTLIB_DIR=$MODULE_DIR/stratumak
     esac
-    EMC2_GOMOD_DIR=${prefix}/lib/linuxcnc/gomod
-    EMC2_CMOD_DIR=${prefix}/lib/linuxcnc/cmod
-    LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:/usr/local/etc/linuxcnc/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
-    EMC2_NCFILES_DIR=${prefix}/share/linuxcnc/ncfiles
-    EMC2_IMAGE_DIR=$(fe "$datadir")/linuxcnc
-    HALLIB_DIR=${prefix}/share/linuxcnc/hallib
+    EMC2_GOMOD_DIR=${prefix}/lib/stratumak/gomod
+    EMC2_CMOD_DIR=${prefix}/lib/stratumak/cmod
+    LINUXCNC_CONFIG_PATH="~/stratumak/configs:/usr/local/etc/stratumak/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
+    EMC2_NCFILES_DIR=${prefix}/share/stratumak/ncfiles
+    EMC2_IMAGE_DIR=$(fe "$datadir")/stratumak
+    HALLIB_DIR=${prefix}/share/stratumak/hallib
     # Everything an administrator can change after installation lives here, on
     # a filesystem the package manager does not own: the registered external
     # module sources, the build tree derived from them, a locally rebuilt
@@ -631,8 +631,8 @@ AC_SUBST([EMC2_ICON])
 AC_SUBST([HALLIB_DIR])
 
 # coordinate installed auxiliary applications (not RIP or deb dependent):
-LINUXCNC_AUX_GLADEVCP=/usr/share/linuxcnc/aux_gladevcp
-LINUXCNC_AUX_EXAMPLES=/usr/share/linuxcnc/aux_examples
+LINUXCNC_AUX_GLADEVCP=/usr/share/stratumak/aux_gladevcp
+LINUXCNC_AUX_EXAMPLES=/usr/share/stratumak/aux_examples
 AC_SUBST([LINUXCNC_AUX_GLADEVCP])
 AC_SUBST([LINUXCNC_AUX_EXAMPLES])
 

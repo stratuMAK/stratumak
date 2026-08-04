@@ -1,8 +1,8 @@
 GSCREEN_MODULES = mdi emc_interface preferences keybindings
 
 PYTARGETS += ../bin/gscreen ../lib/python/gscreen/__init__.py $(patsubst %,../lib/python/gscreen/%.py,$(GSCREEN_MODULES)) \
-	../share/linuxcnc/gscreen.glade \
-	../share/linuxcnc/gscreen2.glade
+	../share/stratumak/gscreen.glade \
+	../share/stratumak/gscreen2.glade
 PYI18NSRCS += cnc/usr_intf/gscreen/gscreen.py $(patsubst %,cnc/usr_intf/gscreen/%.py,$(GSCREEN_MODULES)) \
 	cnc/usr_intf/gscreen/gscreen.glade \
 	cnc/usr_intf/gscreen/gscreen2.glade
@@ -18,12 +18,12 @@ PYI18NSRCS += cnc/usr_intf/gscreen/gscreen.py $(patsubst %,cnc/usr_intf/gscreen/
 	$(Q)mkdir -p ../lib/python/gscreen
 	$(Q)cp $< $@
 
-../share/linuxcnc/gscreen.glade: cnc/usr_intf/gscreen/gscreen.glade
+../share/stratumak/gscreen.glade: cnc/usr_intf/gscreen/gscreen.glade
 	$(ECHO) Copying glade file $(notdir $@)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)cp -f $< $@
 
-../share/linuxcnc/gscreen2.glade: cnc/usr_intf/gscreen/gscreen2.glade
+../share/stratumak/gscreen2.glade: cnc/usr_intf/gscreen/gscreen2.glade
 	$(ECHO) Copying glade file $(notdir $@)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)cp -f $< $@

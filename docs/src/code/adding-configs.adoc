@@ -9,7 +9,7 @@ Example Configurations can be added to the Configuration Selector by two methods
 +
 ----
 $ linuxcnc_var LINUXCNC_AUX_EXAMPLES
-/usr/share/linuxcnc/aux_examples
+/usr/share/stratumak/aux_examples
 ----
 
 * Runtime settings -- the configuration selector can also offer configuration subdirectories specified at runtime using an exported environamental variable (LINUXCNC_AUX_CONFIGS).

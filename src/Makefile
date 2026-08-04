@@ -464,7 +464,7 @@ TARGETS += headers
 # No two installed headers may share a basename
 # ---------------------------------------------------------------------------
 #
-# $(includedir)/linuxcnc is a flat namespace: every SRCHEADERS entry lands in
+# $(includedir)/stratumak is a flat namespace: every SRCHEADERS entry lands in
 # it under its basename alone, and that directory is on the include path of
 # everything compiled against LinuxCNC. A stmak package whose own header shares
 # a basename with one of them does not win by being adjacent -- when cgo
@@ -492,7 +492,7 @@ check-header-collisions:
 	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
 	if [ -n "$$dup" ]; then \
 	    echo "*** Two SRCHEADERS entries share a basename, so only one of them can" >&2; \
-	    echo "*** reach \$$(includedir)/linuxcnc:" >&2; \
+	    echo "*** reach \$$(includedir)/stratumak:" >&2; \
 	    for d in $$dup; do \
 	        echo "***   $$d:" >&2; \
 	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
@@ -504,7 +504,7 @@ check-header-collisions:
 	stmakh=`for h in $(STMAK_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
 	clash=`printf '%s\n' $$flat $$stmakh | sort | uniq -d`; \
 	if [ -n "$$clash" ]; then \
-	    echo "*** A header installed into the flat \$$(includedir)/linuxcnc shares a" >&2; \
+	    echo "*** A header installed into the flat \$$(includedir)/stratumak shares a" >&2; \
 	    echo "*** basename with one inside the stmak tree. The flat copy wins when cgo" >&2; \
 	    echo "*** compiles that package, whichever one it meant:" >&2; \
 	    for c in $$clash; do \
@@ -764,7 +764,7 @@ install-docs:
 install-dirs:
 	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
 		$(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
-		$(DESTDIR)$(includedir)/linuxcnc \
+		$(DESTDIR)$(includedir)/stratumak \
 		$(DESTDIR)$(docsdir) $(DESTDIR)$(ncfilesdir) \
 		$(DESTDIR)$(tcldir)/bin \
 		$(DESTDIR)$(mandir)/man1 \
@@ -784,11 +784,11 @@ install-dirs:
 		$(DESTDIR)$(datadir)/glade/catalogs \
 		$(DESTDIR)$(datadir)/glade/pixmaps/hicolor/22x22/actions \
 		$(DESTDIR)$(datadir)/gtksourceview-4/language-specs \
-		$(DESTDIR)$(datadir)/linuxcnc/stepconf \
-		$(DESTDIR)$(datadir)/linuxcnc/pncconf \
-		$(DESTDIR)$(datadir)/linuxcnc/pncconf/pncconf-help \
-		$(DESTDIR)$(datadir)/linuxcnc/hallib \
-		$(DESTDIR)$(datadir)/linuxcnc/webapp
+		$(DESTDIR)$(datadir)/stratumak/stepconf \
+		$(DESTDIR)$(datadir)/stratumak/pncconf \
+		$(DESTDIR)$(datadir)/stratumak/pncconf/pncconf-help \
+		$(DESTDIR)$(datadir)/stratumak/hallib \
+		$(DESTDIR)$(datadir)/stratumak/webapp
 
 install-common: install-dirs
 	$(FILE) ../docs/man/man1/*.1 $(DESTDIR)$(mandir)/man1
@@ -796,8 +796,8 @@ install-common: install-dirs
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.9, $(wildcard ../docs/man/man9/*.9)) $(DESTDIR)$(mandir)/man9
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
-	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/linuxcnc
-	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/linuxcnc/hallib
+	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/stratumak
+	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/stratumak/hallib
 
 	# install all the sample configs, including subdirs (tar is required on debian systems, and common on others)
 	$(DIR) $(DESTDIR)$(sampleconfsdir)
@@ -808,7 +808,7 @@ install-common: install-dirs
 	# (halshow, halscope, tooledit, emccalib, latency, classicladder,
 	# linuxcnctop-ui) is a 404 on an installed system. The .build-stamp files
 	# are make bookkeeping, not part of an app.
-	((cd ../share/stmak/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
+	((cd ../share/stmak/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/stratumak/webapp && tar -xf -))
 
 	# stmakd is excluded: stmak-install owns it entirely (libexec copy +
 	# bindir symlink); installing a flat copy here would race that symlink
@@ -845,7 +845,7 @@ install-common: install-dirs
 	# $(FILE) line above already installed them with install(1) semantics.
 	cp -a $(filter-out %.so.0,$(wildcard ../lib/*.so.[0-9]*)) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
-	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
+	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/stratumak/
 	# The same headers again, keeping their source-relative path.
 	#
 	# The flat copies above are what out-of-tree cmods have always used, and
@@ -857,7 +857,7 @@ install-common: install-dirs
 	# not a missing file, a missing shape.
 	#
 	# Both spellings therefore resolve under the one -I that cgoFlags already
-	# passes ($(includedir)/linuxcnc), and no include path had to be invented.
+	# passes ($(includedir)/stratumak), and no include path had to be invented.
 	#
 	# `|| exit 1` on the install, and it is load-bearing: without it a failing
 	# iteration is not the loop's exit status, so a name that no longer exists
@@ -868,27 +868,27 @@ install-common: install-dirs
 	$(Q)for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 		d=$$(dirname $$h); \
 		if [ "$$d" != "." ]; then \
-			$(DIR) $(DESTDIR)$(includedir)/linuxcnc/$$d || exit 1; \
+			$(DIR) $(DESTDIR)$(includedir)/stratumak/$$d || exit 1; \
 		fi; \
-		$(FILE) $$h $(DESTDIR)$(includedir)/linuxcnc/$$h || exit 1; \
+		$(FILE) $$h $(DESTDIR)$(includedir)/stratumak/$$h || exit 1; \
 	done
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
-	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/linuxcnc
+	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/stratumak
 	$(EXE) $(TCL) $(DESTDIR)$(tcldir)
 	$(FILE) ../tcl/pkgIndex.tcl $(DESTDIR)$(tcldir)
 	$(EXE) $(TCL_BIN) $(DESTDIR)$(tcldir)/bin
-	$(FILE) ../share/linuxcnc/*.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/stepconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/stepconf
-	$(FILE) ../share/linuxcnc/touchy.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/gscreen.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/gscreen2.glade $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../share/stratumak/*.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/stepconf/*.glade $(DESTDIR)$(prefix)/share/stratumak/stepconf
+	$(FILE) ../share/stratumak/touchy.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/gscreen.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/gscreen2.glade $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/gmoccapy/gmoccapy.glade $(DESTDIR)$(prefix)/share/gmoccapy
-	$(FILE) ../share/linuxcnc/pncconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/pncconf
-	$(FILE) ../share/linuxcnc/gremlin_view.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/popupkeyboard.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
-	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
+	$(FILE) ../share/stratumak/pncconf/*.glade $(DESTDIR)$(prefix)/share/stratumak/pncconf
+	$(FILE) ../share/stratumak/gremlin_view.ui $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/popupkeyboard.ui $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/stratumak/pncconf/pncconf-help
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/stratumak/pncconf/pncconf-help
 
 	$(FILE) ../lib/python/gladevcp/hal_python.xml $(DESTDIR)$(datadir)/glade/catalogs/
 	$(FILE) ../share/glade/pixmaps/hicolor/22x22/actions/widget*.png  $(DESTDIR)$(datadir)/glade/pixmaps/hicolor/22x22/actions/
@@ -956,7 +956,7 @@ install-python: install-dirs
 	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(VISMACH_PY)) $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(QTPLASMAC_PY)) $(DESTDIR)$(bindir)
-	$(FILE) ../share/linuxcnc/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../share/stratumak/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/axis/images/*.{png,gif,xbm,ngc} $(DESTDIR)$(datadir)/axis/images
 	$(FILE) ../share/axis/tcl/*.tcl $(DESTDIR)$(datadir)/axis/tcl
 	$(FILE) ../share/gscreen/images/*.gif $(DESTDIR)$(datadir)/gscreen/images

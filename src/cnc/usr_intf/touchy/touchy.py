@@ -15,7 +15,7 @@
 import sys, os
 BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 libdir = os.path.join(BASE, "lib", "python")
-datadir = os.path.join(BASE, "share", "linuxcnc")
+datadir = os.path.join(BASE, "share", "stratumak")
 sys.path.insert(0, libdir)
 themedir = "/usr/share/themes"
 import gi
