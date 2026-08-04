@@ -15,15 +15,6 @@ if [ -d /run/udev ] && command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
 fi
 
-# Realtime needs locked memory. The marker is deliberately still EMC2: a
-# machine that has ever had LinuxCNC installed already carries this line, and
-# matching on the old marker keeps us from appending a second one.
-if [ -f /etc/security/limits.conf ]; then
-    if ! grep -q "EMC2" /etc/security/limits.conf; then
-	echo '* - memlock 20480 #EMC2' >> /etc/security/limits.conf
-    fi
-fi
-
 # ---------------------------------------------------------------------------
 # The mutable state tree
 # ---------------------------------------------------------------------------
