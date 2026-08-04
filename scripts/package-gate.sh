@@ -32,9 +32,15 @@ stage_install() {
 }
 
 stage_smoke() {
-    id testrunner >/dev/null 2>&1 || adduser --disabled-password --gecos "" testrunner
-    chmod 0777 debian/tests
-    su -c "cd debian/tests && ./linuxcnc-test" testrunner
+    # The testrunner user exists only to drop root (the CI container runs the
+    # gate as root, and linuxcnc must not). An unprivileged caller runs as-is.
+    if [ "$(id -u)" = 0 ]; then
+        id testrunner >/dev/null 2>&1 || adduser --disabled-password --gecos "" testrunner
+        chmod 0777 debian/tests
+        su -c "cd debian/tests && ./linuxcnc-test" testrunner
+    else
+        (cd debian/tests && ./linuxcnc-test)
+    fi
 }
 
 stage_extcomp() {
