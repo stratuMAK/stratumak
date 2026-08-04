@@ -9,7 +9,7 @@
 
 set -e
 
-cd $(dirname $0)
+cd "$(dirname "$0")"
 
 # Off the default port: a developer machine (or parallel job) may already run
 # a live gomc-server on 5080, and the clients would silently talk to it.
