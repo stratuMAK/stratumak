@@ -1661,80 +1661,32 @@ install with "sudo apt-get install libwebkit2gtk-4.1-dev"])
 ])
 AC_SUBST([HAVE_WEBKIT2GTK])
 
-# Check for IgH EtherCAT master library and libexpat (optional, for lcec driver)
-AC_ARG_ENABLE([ethercat],
-    AS_HELP_STRING([--enable-ethercat], [Build EtherCAT HAL driver (requires IgH EtherCAT master and libexpat)]),
-    [enable_ethercat=$enableval],
-    [enable_ethercat=auto])
-
+# EtherCAT is integral to stratuMAK, not optional: the IgH master is a
+# submodule of this project (hal/drivers/ethercat/master), built and installed
+# into the build tree by the ecmaster-* rules in src/Makefile, and ethercat.so
+# depends on that install having happened. There is therefore nothing to
+# detect and nothing to enable -- the headers and library are always at
+# $(ECMASTER_PREFIX), which is the build tree itself, reached through the
+# normal -I../include / -L../lib search path.
+#
+# The probe this replaces looked for a SYSTEM libethercat in /usr and
+# /usr/local, which the build never consults; it could not see the in-tree
+# copy, and its result (HAVE_ETHERCAT -> BUILD_ETHERCAT) gated nothing. On a
+# host that happened to have IgH installed it answered yes for the wrong
+# library and mixed that prefix's flags into a link against ours.
 ETHERCAT_CFLAGS=
-ETHERCAT_LIBS=
+ETHERCAT_LIBS="-lethercat"
 
-if test "x$enable_ethercat" != "xno"; then
-    AC_MSG_CHECKING([for IgH EtherCAT master library])
-    have_libethercat=no
-
-    # 1) Try pkg-config (default paths)
-    if pkg-config libethercat >/dev/null 2>&1; then
-        ETHERCAT_CFLAGS=`pkg-config libethercat --cflags`
-        ETHERCAT_LIBS=`pkg-config libethercat --libs`
-        have_libethercat=yes
-    fi
-
-    # 2) Try pkg-config with /usr/local/lib/pkgconfig
-    if test "x$have_libethercat" != "xyes"; then
-        _ec_pkg="/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-        if PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat >/dev/null 2>&1; then
-            ETHERCAT_CFLAGS=`PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat --cflags`
-            ETHERCAT_LIBS=`PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat --libs`
-            have_libethercat=yes
-        fi
-    fi
-
-    # 3) Direct file detection (no .pc file at all)
-    if test "x$have_libethercat" != "xyes"; then
-        for _ec_pfx in /usr /usr/local; do
-            if test -f "$_ec_pfx/include/ecrt.h"; then
-                _ec_cflags=""
-                _ec_libs="-lethercat"
-                if test "$_ec_pfx" != "/usr"; then
-                    _ec_cflags="-I$_ec_pfx/include"
-                    _ec_libs="-L$_ec_pfx/lib -Wl,-rpath,$_ec_pfx/lib -lethercat"
-                fi
-                ETHERCAT_CFLAGS="$_ec_cflags"
-                ETHERCAT_LIBS="$_ec_libs"
-                have_libethercat=yes
-                break
-            fi
-        done
-    fi
-
-    if test "x$have_libethercat" = "xyes"; then
-        AC_MSG_RESULT([yes])
-    else
-        AC_MSG_RESULT([no])
-    fi
-
-    AC_CHECK_HEADER([expat.h], [have_expat_h=yes], [have_expat_h=no])
-    save_LIBS="$LIBS"
-    AC_CHECK_LIB([expat], [XML_ParserCreate], [have_libexpat=yes], [have_libexpat=no])
-    LIBS="$save_LIBS"
-
-    if test "x$have_libethercat" = "xyes" \
-       && test "x$have_expat_h" = "xyes" && test "x$have_libexpat" = "xyes"; then
-        HAVE_ETHERCAT=yes
-    else
-        HAVE_ETHERCAT=no
-    fi
-else
-    HAVE_ETHERCAT=no
+# libexpat is a genuine external dependency of the driver's XML config reader,
+# and the driver is not optional, so a missing expat is a hard error.
+AC_CHECK_HEADER([expat.h], [have_expat_h=yes], [have_expat_h=no])
+save_LIBS="$LIBS"
+AC_CHECK_LIB([expat], [XML_ParserCreate], [have_libexpat=yes], [have_libexpat=no])
+LIBS="$save_LIBS"
+if test "x$have_expat_h" != "xyes" || test "x$have_libexpat" != "xyes"; then
+    AC_MSG_ERROR([libexpat and its headers are required by the EtherCAT driver (Debian: libexpat1-dev)])
 fi
 
-if test "x$enable_ethercat" = "xyes" && test "x$HAVE_ETHERCAT" != "xyes"; then
-    AC_MSG_ERROR([EtherCAT support requested but IgH EtherCAT master library or libexpat not found])
-fi
-
-AC_SUBST([HAVE_ETHERCAT])
 AC_SUBST([ETHERCAT_CFLAGS])
 AC_SUBST([ETHERCAT_LIBS])
 
@@ -1800,7 +1752,6 @@ echo "    Tool table module:          $HAVE_TOOLTABLE"
 echo "    Node.js (webapp build):     $HAVE_NODEJS"
 echo "    WebKit2GTK (gmcui):         $HAVE_WEBKIT2GTK"
 fi
-echo "  Build EtherCAT HAL driver:    $HAVE_ETHERCAT"
 echo ""
 echo "######################################################################"
 echo "#                LinuxCNC - Enhanced Machine Controller              #"
