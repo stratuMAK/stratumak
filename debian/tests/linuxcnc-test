@@ -1,6 +1,11 @@
 #!/bin/sh
 #
 # Based on tests/single-step/
+#
+# On gomc, `linuxcnc` is the server: it serves GMI until signaled and does
+# not launch [DISPLAY] programs (UIs are clients). So: start the server in
+# the background, wait for its REST endpoint, drive the test with the UI
+# client, then shut the server down. The test verdict is the client's.
 
 set -e
 
@@ -11,10 +16,31 @@ cd $(dirname $0)
 export GMC_REST_ADDR=127.0.0.1:5077
 export GMC_REST_URL=http://127.0.0.1:5077
 
-if ! linuxcnc -r linuxcnc-test.ini ; then
-    echo "error: failed to execute linuxcnc"
+linuxcnc -r linuxcnc-test.ini &
+SERVER_PID=$!
+
+up=0
+for i in $(seq 1 120); do
+    if curl -fsS -o /dev/null "$GMC_REST_URL/"; then up=1; break; fi
+    # A dead server never becomes ready; fail fast instead of timing out.
+    kill -0 $SERVER_PID 2>/dev/null || break
+    sleep 0.5
+done
+if [ "$up" != 1 ]; then
+    echo "error: gomc-server did not become ready"
+    kill $SERVER_PID 2>/dev/null || true
     exit 1
 fi
 
+RC=0
+python3 ./linuxcnc-test-ui.py || RC=$?
+
+kill $SERVER_PID 2>/dev/null || true
+wait $SERVER_PID 2>/dev/null || true
+
+if [ "$RC" != 0 ]; then
+    echo "error: linuxcnc test driver failed (rc=$RC)"
+    exit 1
+fi
 echo "success: linuxcnc ran successfully."
 exit 0
