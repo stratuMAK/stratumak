@@ -215,7 +215,6 @@ Files:
  src/emc/nml_intf/*
  src/emc/kinematics/*
  src/emc/motion/*
- src/emc/canterp/canterp.cc
  src/emc/sai/driver.cc
  src/emc/sai/saicanon.cc
  src/emc/usr_intf/*

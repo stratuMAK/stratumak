@@ -5,7 +5,6 @@ Archivos ini principales de Axis gui sim:
 axis.ini               demo básica (in).
 axis_9axis.ini         9 ejes.
 axis_mm.ini            demo básica (mm).
-canterp.ini            demo de intérprete
                        no-gcode.
 gantry.ini             demo pórtico.
 gantry_mm.ini          demo pórtico (mm).
