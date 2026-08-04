@@ -297,9 +297,20 @@ jobs:
         image: ["debian:trixie", "debian:sid"]
     container:
       image: ${{ matrix.image }}
-      # IPC_OWNER is needed for shmget IPC_CREAT
-      # SYS_ADMIN is needed for shmctl IPC_SET
-      options: --cpus=2 --cap-add=IPC_OWNER --cap-add=SYS_ADMIN
+      # IPC_OWNER for shmget IPC_CREAT, SYS_ADMIN for shmctl IPC_SET, SETFCAP so
+      # the postinst can apply the realtime file capabilities. The rest mirror
+      # GOMC_CAPS in stratumak.postinst exactly, and are needed to *run* the
+      # result at all: execve of a binary carrying file capabilities fails with
+      # EPERM unless every one of them is in the container's bounding set —
+      # without them every test that starts a server dies on
+      # "/usr/bin/gomc-server: Operation not permitted". Same list as
+      # package-gate; keep the two in step.
+      options: >-
+        --cpus=2 --cap-add=IPC_OWNER --cap-add=SETFCAP
+        --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF
+        --cap-add=IPC_LOCK --cap-add=SYS_RESOURCE --cap-add=SYS_NICE
+        --cap-add=SYS_RAWIO --cap-add=PERFMON --cap-add=SYS_ADMIN
+        --cap-add=DAC_OVERRIDE
     steps:
     - name: Dump GitHub context
       env:
