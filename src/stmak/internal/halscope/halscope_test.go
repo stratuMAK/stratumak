@@ -26,8 +26,8 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	_ "github.com/stratuMAK/stratumak/src/stmak/internal/persist_sqlite"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 const maxChannels = 16 // HALSCOPE_MAX_CHANNELS

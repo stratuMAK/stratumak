@@ -77,7 +77,7 @@ type Launcher struct {
 	// self-deadlock. Nesting only ever goes modMu ⊃ arenaMu, never the reverse.
 	arenaMu   sync.Mutex
 	cModArena []unsafe.Pointer // arena-tracked C strings freed in destroyCModules
-	logRing   *stmakLogRing     // shared log ring buffer for C module FIFO logging
+	logRing   *stmakLogRing    // shared log ring buffer for C module FIFO logging
 	retain    *retainInstance  // integrated retain subsystem (nil if unused)
 	// apiMu guards apiServer. Today create/start/stop all run on the startup
 	// goroutine and the serve goroutine only ever touches a captured local, so

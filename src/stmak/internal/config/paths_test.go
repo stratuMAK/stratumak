@@ -27,7 +27,7 @@ func currentValues() map[string]string {
 		"EMC2RtlibDir":       config.EMC2RtlibDir,
 		"EMC2CmodDir":        config.EMC2CmodDir,
 		"EMC2CmodIncludeDir": config.EMC2CmodIncludeDir,
-		"EMC2StmakDir":        config.EMC2StmakDir,
+		"EMC2StmakDir":       config.EMC2StmakDir,
 		"GoBinary":           config.GoBinary,
 		"CCompiler":          config.CCompiler,
 		"CxxCompiler":        config.CxxCompiler,

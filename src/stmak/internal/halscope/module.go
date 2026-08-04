@@ -101,8 +101,8 @@ import (
 	halscopeapi "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/halscope"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/persist"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 func init() {

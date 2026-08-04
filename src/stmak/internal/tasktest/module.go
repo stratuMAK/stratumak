@@ -24,8 +24,8 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/emccmd"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/emcstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 func init() {

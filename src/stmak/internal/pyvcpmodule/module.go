@@ -35,9 +35,9 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/pyvcp"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 func init() {

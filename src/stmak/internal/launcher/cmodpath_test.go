@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 // withCModDirs points the config package at temporary cmod directories for one

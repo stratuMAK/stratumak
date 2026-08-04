@@ -25,9 +25,9 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/adsbridge"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/adsconfig"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 // DefaultAMSPort is the default AMS port used for the ADS server.

@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 // l3FakeModule is a no-op stmak.Module for the load/unload race test.

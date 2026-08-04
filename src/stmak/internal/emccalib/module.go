@@ -24,8 +24,8 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/calibreg"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 func init() {
