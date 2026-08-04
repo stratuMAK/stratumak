@@ -9,7 +9,7 @@
 
 #include <math.h>
 #include <string.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "switchkins.h"
 #include "gotypes.h"
 #include "gomath.h"
@@ -54,7 +54,7 @@
 
 // ─── Module state ───
 
-static const gomc_hal_t  *g_hal;
+static const stmak_hal_t  *g_hal;
 static int                g_comp_id;
 static sk_map_t           g_map;
 static sk_switch_t        g_sw;
@@ -66,12 +66,12 @@ typedef struct {
 } genser_struct;
 
 struct haldata {
-    gomc_hal_u32_t   *max_iterations;
-    gomc_hal_u32_t   *last_iterations;
-    gomc_hal_float_t *a[GENSER_MAX_JOINTS];
-    gomc_hal_float_t *alpha[GENSER_MAX_JOINTS];
-    gomc_hal_float_t *d[GENSER_MAX_JOINTS];
-    gomc_hal_s32_t   *unrotate[GENSER_MAX_JOINTS];
+    stmak_hal_u32_t   *max_iterations;
+    stmak_hal_u32_t   *last_iterations;
+    stmak_hal_float_t *a[GENSER_MAX_JOINTS];
+    stmak_hal_float_t *alpha[GENSER_MAX_JOINTS];
+    stmak_hal_float_t *d[GENSER_MAX_JOINTS];
+    stmak_hal_s32_t   *unrotate[GENSER_MAX_JOINTS];
     genser_struct    *kins;
     go_pose          *pos;
 };
@@ -441,7 +441,7 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
@@ -457,13 +457,13 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (sk_map_coordinates(&g_map, coordinates, 0) < 0) {
-        gomc_log_errorf(env->log, name, "bad coordinates: %s", coordinates);
+        stmak_log_errorf(env->log, name, "bad coordinates: %s", coordinates);
         return -1;
     }
     total_joints = g_map.num_joints;
 
     g_comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                               GOMC_HAL_COMP_REALTIME);
+                               STMAK_HAL_COMP_REALTIME);
     if (g_comp_id < 0) return g_comp_id;
 
     haldata = env->hal->malloc(env->hal->ctx, sizeof(struct haldata));
@@ -478,13 +478,13 @@ int New(const cmod_env_t *env, const char *name,
 
     // DH parameter pins (6 joints)
     for (int i = 0; i < 6; i++) {
-        rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+        rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &haldata->a[i], g_comp_id, "%s.A-%d", name, i);
-        rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+        rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &haldata->alpha[i], g_comp_id, "%s.ALPHA-%d", name, i);
-        rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+        rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &haldata->d[i], g_comp_id, "%s.D-%d", name, i);
-        rc |= gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IN,
+        rc |= stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IN,
             &haldata->unrotate[i], g_comp_id, "%s.unrotate-%d", name, i);
         if (rc < 0) goto fail;
         *haldata->a[i] = 0;
@@ -494,9 +494,9 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     // Iteration control pins
-    rc |= gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT,
+    rc |= stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT,
         &haldata->last_iterations, g_comp_id, "%s.last-iterations", name);
-    rc |= gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN,
+    rc |= stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN,
         &haldata->max_iterations, g_comp_id, "%s.max-iterations", name);
     if (rc < 0) goto fail;
 
@@ -519,7 +519,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &genser_callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name, "kins_api_register failed: %d", rc);
+        stmak_log_errorf(env->log, name, "kins_api_register failed: %d", rc);
         goto fail;
     }
 

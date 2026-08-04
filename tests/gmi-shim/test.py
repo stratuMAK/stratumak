@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""gmi Python shim contract tests against stub servers (no gomc-server).
+"""gmi Python shim contract tests against stub servers (no stmakd).
 
 Pins the fixes from GMI_PYTHON_REVIEW_FINDINGS.md:
   GP-1  tools.put sends the {"entry": {...}} envelope (flat body zeroed the tool)

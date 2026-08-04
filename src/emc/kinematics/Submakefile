@@ -30,8 +30,8 @@ $(patsubst ./emc/kinematics/%,../include/%,$(wildcard ./emc/kinematics/*.hh)): .
 # ---------------------------------------------------------------------------
 
 
-GMI_KINS_INCLUDE := gomc/pkg/cmodule
-GMI_KINS_API_INCLUDE := gomc/generated/gmi/kins
+GMI_KINS_INCLUDE := stmak/pkg/cmodule
+GMI_KINS_API_INCLUDE := stmak/generated/gmi/kins
 GMI_KINS_COMMON := emc/kinematics
 
 GMI_KINS_CFLAGS = -fPIC -g -Os -Wall -Wextra -shared \
@@ -39,8 +39,8 @@ GMI_KINS_CFLAGS = -fPIC -g -Os -Wall -Wextra -shared \
     -I $(GMI_KINS_API_INCLUDE) \
     -I $(GMI_KINS_COMMON)
 
-GMI_KINS_DEPS = gomc/generated/gmi/kins/kins_api.h \
-                $(wildcard gomc/pkg/cmodule/gomc_env.h)
+GMI_KINS_DEPS = stmak/generated/gmi/kins/kins_api.h \
+                $(wildcard stmak/pkg/cmodule/stmak_env.h)
 
 # Helper: build a simple kins cmod .so from a single .c file
 # $(1) = module name  $(2) = source dir relative to src/

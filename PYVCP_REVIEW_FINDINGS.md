@@ -28,7 +28,7 @@ to the pre-squash tip.
   (first message full snapshot, then changed widgets only). Multi-client sync falls out
   for free; a pin-centric protocol structurally cannot provide it without every client
   re-implementing widget semantics.
-- **Matches the rest of gomc** — GMI REST + WS watch with `Delta:true`, the same pattern
+- **Matches the rest of stmak** — GMI REST + WS watch with `Delta:true`, the same pattern
   halscope and stat already use; `config=` goes through `pathres.Resolve` like every
   other module (pyvcpmodule is one of the nine call sites the 2026-07-22 containment
   audit verified clean).
@@ -206,7 +206,7 @@ triggers only on `TypeMap`/`WatchDelta`, which no other IDL uses — verified by
 and `TestMapWatchDeltaOmittedWhenUnset` pins the no-`@watch_delta` case. Verified:
 parser/checker/emitter tests (map syntax, non-string-key rejection, 7 checker
 confinement cases, Go/C/TS/Py surface assertions in `cgen/map_watch_test.go`),
-pyvcpmodule 19 tests `-race` clean, `gomc-lint-full` 0, **`tests/pyvcp` runtests
+pyvcpmodule 19 tests `-race` clean, `stmak-lint-full` 0, **`tests/pyvcp` runtests
 green** — the wire contract is unchanged, proven by the untouched hand-written Python
 client passing against the generated registration.
 
@@ -218,7 +218,7 @@ client passing against the generated registration.
   in-process HAL via keep-alive `TestMain` + `hallibtest` link shim), **pass, `-race`
   clean**. Fault paths covered: unload/UAF teardown, unknown-widget event, out-of-bounds
   SELECT, clamp/quantize/saturation edges, param-pin override.
-- `gomc-lint` 0 issues; gofmt clean; `gomc-server` builds.
+- `stmak-lint` 0 issues; gofmt clean; `stmakd` builds.
 - **`tests/pyvcp` runtests passes** — the pin-inventory parity check that caught
   V-10/V-11.
 - Build/porting gotchas recorded for the next module: IDL `string?` → Go `*string`

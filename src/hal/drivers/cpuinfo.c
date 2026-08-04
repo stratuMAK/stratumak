@@ -26,9 +26,9 @@ SOFTWARE.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "gomc_log.h"
+#include "stmak_log.h"
 
-int get_rpi_revision(const gomc_log_t *log)
+int get_rpi_revision(const stmak_log_t *log)
 {
     FILE *fp;
     char buffer[1024];
@@ -43,7 +43,7 @@ int get_rpi_revision(const gomc_log_t *log)
 
     if (!r) return -1;
     
-    gomc_log_infof(log, "hal_pi_gpio", "%s found", buffer);
+    stmak_log_infof(log, "hal_pi_gpio", "%s found", buffer);
     
     if (strncmp(buffer, "Raspberry",9) != 0)
         return -1;

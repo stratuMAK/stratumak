@@ -13,7 +13,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -30,23 +30,23 @@
 #define DOWN_PIN 1
 
 typedef struct {
-    gomc_hal_bit_t   *out[2];
-    gomc_hal_bit_t   *enable;
-    gomc_hal_float_t *value;
-    gomc_hal_float_t *scale;
-    gomc_hal_float_t *offset;
-    gomc_hal_float_t *pwm_freq;
-    gomc_hal_bit_t   *dither_pwm;
-    gomc_hal_float_t *min_dc;
-    gomc_hal_float_t *max_dc;
-    gomc_hal_float_t *curr_dc;
+    stmak_hal_bit_t   *out[2];
+    stmak_hal_bit_t   *enable;
+    stmak_hal_float_t *value;
+    stmak_hal_float_t *scale;
+    stmak_hal_float_t *offset;
+    stmak_hal_float_t *pwm_freq;
+    stmak_hal_bit_t   *dither_pwm;
+    stmak_hal_float_t *min_dc;
+    stmak_hal_float_t *max_dc;
+    stmak_hal_float_t *curr_dc;
 } pwm_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     pwm_hal_t *hal;
     int output_type;
     unsigned char pwm_mode;
@@ -220,14 +220,14 @@ int New(const cmod_env_t *env, const char *name,
     pwm_hal_t *h;
     int r, i;
     int output_type = 0;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     for (i = 0; i < argc; i++) {
         if (strncmp(argv[i], "output_type=", 12) == 0)
             output_type = atoi(argv[i] + 12);
     }
     if (output_type < 0 || output_type > 2) {
-        gomc_log_errorf(env->log, name, "output_type=%d out of range (0..2)", output_type);
+        stmak_log_errorf(env->log, name, "output_type=%d out of range (0..2)", output_type);
         return -EINVAL;
     }
 
@@ -245,7 +245,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->old_pwm_freq = -1;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(pwm_hal_t));
@@ -253,47 +253,47 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->hal, 0, sizeof(pwm_hal_t));
     h = inst->hal;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->scale, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->scale, inst->comp_id,
                                 "%s.scale", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->offset, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->offset, inst->comp_id,
                                 "%s.offset", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->dither_pwm, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->dither_pwm, inst->comp_id,
                               "%s.dither-pwm", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->pwm_freq, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->pwm_freq, inst->comp_id,
                                 "%s.pwm-freq", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->min_dc, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->min_dc, inst->comp_id,
                                 "%s.min-dc", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->max_dc, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->max_dc, inst->comp_id,
                                 "%s.max-dc", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->curr_dc, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->curr_dc, inst->comp_id,
                                 "%s.curr-dc", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->enable, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->enable, inst->comp_id,
                               "%s.enable", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->value, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->value, inst->comp_id,
                                 "%s.value", name);
     if (r != 0) goto err;
 
     if (output_type == 2) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->out[UP_PIN], inst->comp_id,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->out[UP_PIN], inst->comp_id,
                                   "%s.up", name);
         if (r != 0) goto err;
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->out[DOWN_PIN], inst->comp_id,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->out[DOWN_PIN], inst->comp_id,
                                   "%s.down", name);
         if (r != 0) goto err;
     } else {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->out[PWM_PIN], inst->comp_id,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->out[PWM_PIN], inst->comp_id,
                                   "%s.pwm", name);
         if (r != 0) goto err;
         if (output_type == 1) {
-            r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->out[DIR_PIN], inst->comp_id,
+            r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->out[DIR_PIN], inst->comp_id,
                                       "%s.dir", name);
             if (r != 0) goto err;
         }

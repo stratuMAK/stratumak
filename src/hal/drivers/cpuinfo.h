@@ -20,6 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "gomc_log.h"
+#include "stmak_log.h"
 
-int get_rpi_revision(const gomc_log_t *log);
+int get_rpi_revision(const stmak_log_t *log);

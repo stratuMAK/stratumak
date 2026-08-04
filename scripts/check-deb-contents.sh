@@ -22,10 +22,10 @@ dev=$(ls "$DIR"/stratumak-dev_*.deb 2>/dev/null | head -1)
 C=$(dpkg-deb -c "$main")
 
 # Controller binary and the pristine/local-rebuild symlink chain.
-echo "$C" | grep -q './usr/libexec/stratumak/gomc-server$' \
-    && ok "gomc-server in libexec" || note "gomc-server missing from libexec"
-echo "$C" | grep -q 'usr/bin/gomc-server -> /var/lib/stratumak/bin/gomc-server' \
-    && ok "bindir symlink chain" || note "usr/bin/gomc-server symlink wrong/missing"
+echo "$C" | grep -q './usr/libexec/stratumak/stmakd$' \
+    && ok "stmakd in libexec" || note "stmakd missing from libexec"
+echo "$C" | grep -q 'usr/bin/stmakd -> /var/lib/stratumak/bin/stmakd' \
+    && ok "bindir symlink chain" || note "usr/bin/stmakd symlink wrong/missing"
 # Nothing under /var may be dpkg-owned: postinst creates it, so an upgrade
 # can never unpack over a locally rebuilt server.
 echo "$C" | awk '{print $6}' | grep -q '^\./var/' \
@@ -49,7 +49,7 @@ echo "$C" | grep -q 'usr/bin/mesambccc' && ok "mesambccc in base" || note "mesam
 
 # The hostmot2 secondary cmods resolve hostmot2.so via DT_RPATH. RUNPATH and
 # $ORIGIN are both ignored under AT_SECURE, i.e. under exactly the file
-# capabilities the postinst applies to gomc-server.
+# capabilities the postinst applies to stmakd.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 dpkg-deb -x "$main" "$tmp"
@@ -82,7 +82,7 @@ done
 if [ -n "$dev" ]; then
     D=$(dpkg-deb -c "$dev")
     echo "$D" | grep -q 'usr/bin/modcompile' && ok "modcompile in -dev" || note "modcompile missing from -dev"
-    echo "$D" | grep -q 'usr/share/linuxcnc/gomc/' && ok "gomc tree in -dev" || note "gomc source tree missing from -dev"
+    echo "$D" | grep -q 'usr/share/linuxcnc/stmak/' && ok "stmak tree in -dev" || note "stmak source tree missing from -dev"
     dpkg-deb -f "$dev" Depends | grep -q 'libc6' \
         && ok "-dev has shlibs deps" || note "-dev lacks libc6 (shlibs:Depends regressed)"
 fi

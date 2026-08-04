@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Ported to the gomc gmi REST/WS client (was the removed NML linuxcnc module).
+# Ported to the stmak gmi REST/WS client (was the removed NML linuxcnc module).
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 import math, time, sys
 
@@ -16,7 +16,7 @@ def wait_for_startup(s, timeout=10.0):
         time.sleep(0.1)
     raise RuntimeError("Timeout")
 
-c = gomc_test.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
+c = stmak_test.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
 wait_for_startup(s)
 
 c.state(STATE_ESTOP_RESET); c.state(STATE_ON); c.home(-1); c.wait_complete()
@@ -30,7 +30,7 @@ c.abort(); c.wait_complete()
 # sleeping 0.3 s and hoping: on a slow runner the old sleep expired before the
 # setting propagated and the test failed as an inscrutable float mismatch
 # instead of naming the wait that lost.
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: math.fabs(st.settings[1] - feed_rate) < 0.0000001,
     "feed rate %.1f to survive the abort" % feed_rate,
     detail=lambda st: "settings[1]=%r" % (st.settings[1],))
@@ -45,7 +45,7 @@ c.abort(); c.wait_complete()
 # sleeping 0.3 s and hoping: on a slow runner the old sleep expired before the
 # setting propagated and the test failed as an inscrutable float mismatch
 # instead of naming the wait that lost.
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: math.fabs(st.settings[1] - feed_rate) < 0.0000001,
     "feed rate %.1f to survive the abort" % feed_rate,
     detail=lambda st: "settings[1]=%r" % (st.settings[1],))

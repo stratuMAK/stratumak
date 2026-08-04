@@ -15,27 +15,27 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
 
 typedef struct {
-    gomc_hal_bit_t *up;
-    gomc_hal_bit_t *down;
-    gomc_hal_bit_t *on_target;
-    gomc_hal_s32_t *actual;
-    gomc_hal_s32_t *desired;
-    gomc_hal_s32_t *max_num;
-    gomc_hal_s32_t *min_num;
-    gomc_hal_bit_t *wrap;
+    stmak_hal_bit_t *up;
+    stmak_hal_bit_t *down;
+    stmak_hal_bit_t *on_target;
+    stmak_hal_s32_t *actual;
+    stmak_hal_s32_t *desired;
+    stmak_hal_s32_t *max_num;
+    stmak_hal_s32_t *min_num;
+    stmak_hal_bit_t *wrap;
 } inst_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     inst_hal_t *hal;
 } inst_t;
 
@@ -99,7 +99,7 @@ int New(const cmod_env_t *env, const char *name,
     strncpy(inst->name, name, sizeof(inst->name) - 1);
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(inst_hal_t));
@@ -107,28 +107,28 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->hal, 0, sizeof(inst_hal_t));
     h = inst->hal;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->up, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->up, inst->comp_id,
                               "%s.up", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->down, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->down, inst->comp_id,
                               "%s.down", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->on_target, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->on_target, inst->comp_id,
                               "%s.on-target", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IN, &h->actual, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IN, &h->actual, inst->comp_id,
                               "%s.actual", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IN, &h->desired, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IN, &h->desired, inst->comp_id,
                               "%s.desired", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IO, &h->min_num, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IO, &h->min_num, inst->comp_id,
                               "%s.min-num", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IO, &h->max_num, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IO, &h->max_num, inst->comp_id,
                               "%s.max-num", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->wrap, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->wrap, inst->comp_id,
                               "%s.wrap", name);
     if (r != 0) goto err;
 

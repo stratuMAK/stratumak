@@ -1,0 +1,82 @@
+# vim: sw=2
+
+# Nightly stmak deep checks — the expensive gates that are too slow for
+# every PR: the full Go test suite under the race detector, and the full
+# runtests suite against a stmakd BUILT WITH the race detector (the
+# best net we have for goroutine-ownership bugs under real integration
+# load).
+name: Nightly stmak
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stmak-race:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+        fetch-depth: 0
+    - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.x'
+        cache: false
+    - name: Build RIP
+      run: |
+        set -x
+        sudo apt-get install -y eatmydata
+        eatmydata ./scripts/travis-install-build-deps.sh
+        cd src
+        eatmydata ./autogen.sh
+        eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
+        eatmydata make -O -j$((1+$(nproc))) default V=1
+    - name: Go tests with race detector
+      run: |
+        cd src
+        make stmak-test-race
+    - name: Rebuild stmakd with race detector
+      run: |
+        set -x
+        cd src/stmak
+        CGO_LDFLAGS="-Wl,-rpath,$(cd ../../lib && pwd) -Wl,--disable-new-dtags" \
+          GOFLAGS=-mod=mod go build -race -o ../../bin/stmakd ./cmd/stmakd
+    - name: runtests against race-built stmakd
+      # Race-instrumented binaries are several times slower, so stretch every
+      # deadline in the suite rather than re-tune each test (see
+      # lib/python/stmak_test.py). Deadlines only bound failure — the waiters
+      # return as soon as their predicate holds, so a generous ceiling costs
+      # nothing on the happy path.
+      env:
+        STMAK_TEST_TIMEOUT_SCALE: "4"
+      # What we are after is any "WARNING: DATA RACE" in the server logs, which
+      # the next step turns into a failure — a timing casualty must not fail the
+      # job before we get to look.
+      continue-on-error: true
+      run: |
+        cd src
+        ../scripts/rip-environment runtests -p
+    - name: Fail on any detected data race
+      run: |
+        if grep -rl 'WARNING: DATA RACE' tests/ --include=server.log --include=result --include=stderr; then
+          echo "Data race(s) detected in runtests server logs" >&2
+          exit 1
+        fi
+        echo "No data races detected"
+    - name: Upload failure logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-stmak-race-logs
+        path: |
+          tests/**/server.log
+          tests/**/result
+          tests/**/stderr
+        if-no-files-found: ignore

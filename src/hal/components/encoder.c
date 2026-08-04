@@ -14,7 +14,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
@@ -51,34 +51,34 @@ typedef struct {
 } atomic_t;
 
 typedef struct {
-    gomc_hal_bit_t   *phaseA;
-    gomc_hal_bit_t   *phaseB;
-    gomc_hal_bit_t   *phaseZ;
-    gomc_hal_bit_t   *index_ena;
-    gomc_hal_bit_t   *reset;
-    gomc_hal_bit_t   *latch_in;
-    gomc_hal_bit_t   *latch_rising;
-    gomc_hal_bit_t   *latch_falling;
-    gomc_hal_bit_t   *x4_mode;
-    gomc_hal_bit_t   *counter_mode;
-    gomc_hal_s32_t   *missing_teeth;
-    gomc_hal_s32_t   *raw_counts;
-    gomc_hal_s32_t   *count;
-    gomc_hal_s32_t   *count_latch;
-    gomc_hal_float_t *min_speed;
-    gomc_hal_float_t *pos;
-    gomc_hal_float_t *pos_interp;
-    gomc_hal_float_t *pos_latch;
-    gomc_hal_float_t *vel;
-    gomc_hal_float_t *vel_rpm;
-    gomc_hal_float_t *pos_scale;
+    stmak_hal_bit_t   *phaseA;
+    stmak_hal_bit_t   *phaseB;
+    stmak_hal_bit_t   *phaseZ;
+    stmak_hal_bit_t   *index_ena;
+    stmak_hal_bit_t   *reset;
+    stmak_hal_bit_t   *latch_in;
+    stmak_hal_bit_t   *latch_rising;
+    stmak_hal_bit_t   *latch_falling;
+    stmak_hal_bit_t   *x4_mode;
+    stmak_hal_bit_t   *counter_mode;
+    stmak_hal_s32_t   *missing_teeth;
+    stmak_hal_s32_t   *raw_counts;
+    stmak_hal_s32_t   *count;
+    stmak_hal_s32_t   *count_latch;
+    stmak_hal_float_t *min_speed;
+    stmak_hal_float_t *pos;
+    stmak_hal_float_t *pos_interp;
+    stmak_hal_float_t *pos_latch;
+    stmak_hal_float_t *vel;
+    stmak_hal_float_t *vel_rpm;
+    stmak_hal_float_t *pos_scale;
 } enc_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     enc_hal_t *hal;
     /* internal state */
     unsigned char state;
@@ -264,7 +264,7 @@ int New(const cmod_env_t *env, const char *name,
     inst_t *inst;
     enc_hal_t *h;
     int r;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     (void)argc; (void)argv;
 
@@ -279,7 +279,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->scale = 1.0;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(enc_hal_t));
@@ -288,49 +288,49 @@ int New(const cmod_env_t *env, const char *name,
     h = inst->hal;
 
     /* input pins */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->phaseA, inst->comp_id, "%s.phase-A", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->phaseA, inst->comp_id, "%s.phase-A", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->phaseB, inst->comp_id, "%s.phase-B", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->phaseB, inst->comp_id, "%s.phase-B", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->phaseZ, inst->comp_id, "%s.phase-Z", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->phaseZ, inst->comp_id, "%s.phase-Z", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->index_ena, inst->comp_id, "%s.index-enable", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->index_ena, inst->comp_id, "%s.index-enable", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->reset, inst->comp_id, "%s.reset", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->reset, inst->comp_id, "%s.reset", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->latch_in, inst->comp_id, "%s.latch-input", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->latch_in, inst->comp_id, "%s.latch-input", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->latch_rising, inst->comp_id, "%s.latch-rising", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->latch_rising, inst->comp_id, "%s.latch-rising", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->latch_falling, inst->comp_id, "%s.latch-falling", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->latch_falling, inst->comp_id, "%s.latch-falling", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->x4_mode, inst->comp_id, "%s.x4-mode", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->x4_mode, inst->comp_id, "%s.x4-mode", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->counter_mode, inst->comp_id, "%s.counter-mode", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->counter_mode, inst->comp_id, "%s.counter-mode", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IN, &h->missing_teeth, inst->comp_id, "%s.missing-teeth", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IN, &h->missing_teeth, inst->comp_id, "%s.missing-teeth", name);
     if (r != 0) goto err;
 
     /* output pins */
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &h->raw_counts, inst->comp_id, "%s.rawcounts", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &h->raw_counts, inst->comp_id, "%s.rawcounts", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &h->count, inst->comp_id, "%s.counts", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &h->count, inst->comp_id, "%s.counts", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &h->count_latch, inst->comp_id, "%s.counts-latched", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &h->count_latch, inst->comp_id, "%s.counts-latched", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->min_speed, inst->comp_id, "%s.min-speed-estimate", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->min_speed, inst->comp_id, "%s.min-speed-estimate", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->pos, inst->comp_id, "%s.position", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->pos, inst->comp_id, "%s.position", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->pos_interp, inst->comp_id, "%s.position-interpolated", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->pos_interp, inst->comp_id, "%s.position-interpolated", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->pos_latch, inst->comp_id, "%s.position-latched", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->pos_latch, inst->comp_id, "%s.position-latched", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->vel, inst->comp_id, "%s.velocity", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->vel, inst->comp_id, "%s.velocity", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->vel_rpm, inst->comp_id, "%s.velocity-rpm", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->vel_rpm, inst->comp_id, "%s.velocity-rpm", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->pos_scale, inst->comp_id, "%s.position-scale", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->pos_scale, inst->comp_id, "%s.position-scale", name);
     if (r != 0) goto err;
 
     /* defaults */

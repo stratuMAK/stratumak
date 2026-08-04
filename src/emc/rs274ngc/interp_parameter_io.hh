@@ -35,7 +35,7 @@ extern "C" {
  *
  * Two implementations are expected:
  *  - File-based (default, exported by librs274ngc for SAI etc.)
- *  - GMI persist-backed (provided by gomc/milltask)
+ *  - GMI persist-backed (provided by stmak/milltask)
  */
 
 struct interp_param_io_t {

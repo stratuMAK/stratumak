@@ -4,7 +4,7 @@
  * Re-expression of the classic tests/remap/variable-injection test, which used
  * Python remap prologs/epilogs to inject a named parameter, have the NGC body
  * modify it, and retrieve the modified value in the epilog — while confirming the
- * parameter is scoped to its own remap (not visible in a sibling remap).  gomc
+ * parameter is scoped to its own remap (not visible in a sibling remap).  stmak
  * removed the embedded Python interpreter, so the handlers are C interp_ext
  * prolog/epilog handlers using the interp_ctx set_param / get_param accessors:
  *
@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "interp_ext_api.h"
 
 typedef struct {

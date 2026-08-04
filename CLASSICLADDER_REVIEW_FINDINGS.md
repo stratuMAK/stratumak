@@ -11,7 +11,7 @@ carries a test that would have caught it (the milltask "fixed-but-untested"
 rule).
 
 The engine itself was already differentially verified against a headless
-build of the 2.9 sources (`src/gomc/internal/classicladder/testdata/oracle`,
+build of the 2.9 sources (`src/stmak/internal/classicladder/testdata/oracle`,
 `oracle_test.go`); this review covered everything around and above it.
 
 ## Critical
@@ -73,7 +73,7 @@ correct without `@watch_factory` (all three watches non-parameterised;
 `@watch_delta` verified end-to-end); map-return-only-on-watch rule held; IDL ↔
 handler parity 1:1; pin naming single-home (legacy `classicladder.0.*`);
 all three path entry points contained via `internal/pathres`; the
-`GOMC_SRC_BASE` cgo-relink fix holds; no client-side prefix tables or
+`STMAK_SRC_BASE` cgo-relink fix holds; no client-side prefix tables or
 expression parsers reintroduced; the sfc.test.ts ↔ `branched_sfc.clp` ↔
 oracle fixture coupling is genuinely shared; fresh-checkout simulation
 passed (every fixture tracked); `src/po` removal was exactly the dead GTK
@@ -95,8 +95,8 @@ block (the oracle's sources are untouched).
 
 ## Verification at close (2026-07-31)
 
-All 52 gomc packages green; classicladder package also `-race` clean; webapp
+All 52 stmak packages green; classicladder package also `-race` clean; webapp
 gates green (vue-tsc, eslint, 79 vitest); both classicladder runtests pass
 against freshly regenerated 2.9 expectations (through real HAL, with size
 overrides exercising the new allocator); **full runtests: 253/253**; branch
-merges clean into `gomc`.
+merges clean into `stmak`.

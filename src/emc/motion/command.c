@@ -122,27 +122,27 @@ static int joint_jog_ok(motmod_inst_t *inst, int joint_num, double vel)
 	return 1;
     }
     if (joint_num < 0 || joint_num >= ALL_JOINTS) {
-	gomc_log_errorf(inst->log, inst->name, _("Can't jog invalid joint number %d."), joint_num);
+	stmak_log_errorf(inst->log, inst->name, _("Can't jog invalid joint number %d."), joint_num);
 	return 0;
     }
     if (vel > 0.0 && GET_JOINT_PHL_FLAG(joint)) {
-	gomc_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past max hard limit."),
+	stmak_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past max hard limit."),
 	    joint_num);
 	return 0;
     }
     if (vel < 0.0 && GET_JOINT_NHL_FLAG(joint)) {
-	gomc_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past min hard limit."),
+	stmak_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past min hard limit."),
 	    joint_num);
 	return 0;
     }
     refresh_jog_limits(inst, joint, joint_num);
     if ( vel > 0.0 && (joint->pos_cmd > joint->max_jog_limit) ) {
-	gomc_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past max soft limit."),
+	stmak_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past max soft limit."),
 	    joint_num);
 	return 0;
     }
     if ( vel < 0.0 && (joint->pos_cmd < joint->min_jog_limit) ) {
-	gomc_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past min soft limit."),
+	stmak_log_errorf(inst->log, inst->name, _("Can't jog joint %d further past min soft limit."),
 	    joint_num);
 	return 0;
     }
@@ -188,7 +188,7 @@ void apply_spindle_limits(spindle_status_t *s){
 /* inRange() returns non-zero if the position lies within the joint
    limits, or 0 if not.  It also reports an error for each joint limit
    violation.  It's possible to get more than one violation per move. */
-static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GOMC_NONBLOCKING
+static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) STMAK_NONBLOCKING
 {
     double joint_pos[EMCMOT_MAX_JOINTS];
     int joint_num, axis_num;
@@ -199,7 +199,7 @@ static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GO
     const char axis_letters[] = "XYZABCUVW";
 
     if (EMCMOT_MAX_AXIS != 9) {
-        gomc_log_errorf(inst->log, inst->name, "BUG: %s(): invalid number of axes defined", __func__);
+        stmak_log_errorf(inst->log, inst->name, "BUG: %s(): invalid number of axes defined", __func__);
     } else {
         targets[0] = pos.tran.x;
         targets[1] = pos.tran.y;
@@ -213,12 +213,12 @@ static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GO
         axis_check_constraints(ai, targets, failing_axes);
         for (axis_num = 0; axis_num < EMCMOT_MAX_AXIS; axis_num += 1) {
             if (failing_axes[axis_num] == -1) {
-                gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed %c's %s limit"),
+                stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed %c's %s limit"),
                                 move_type, id, axis_letters[axis_num], _("negative"));
                 in_range = 0;
             }
             if (failing_axes[axis_num] == 1) {
-                gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed %c's %s limit"),
+                stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed %c's %s limit"),
                                 move_type, id, axis_letters[axis_num], _("positive"));
                 in_range = 0;
             }
@@ -236,7 +236,7 @@ static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GO
     /* now fill in with real values, for joints that are used */
     if (motmod_kinematicsInverse(inst, &pos, joint_pos, &inst->iflags, &inst->fflags) != 0)
     {
-	gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) fails motmod_kinematicsInverse"),
+	stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) fails motmod_kinematicsInverse"),
 		    move_type, id);
 	return 0;
     }
@@ -251,20 +251,20 @@ static int inRange(motmod_inst_t *inst, EmcPose pos, int id, char *move_type) GO
 	}
 	if(!isfinite(joint_pos[joint_num]))
 	{
-	    gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) gave non-finite joint location on joint %d"),
+	    stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) gave non-finite joint location on joint %d"),
 		    move_type, id, joint_num);
 	    in_range = 0;
 	    continue;
 	}
 	if (joint_pos[joint_num] > joint->max_pos_limit) {
             in_range = 0;
-	    gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed joint %d's positive limit"),
+	    stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed joint %d's positive limit"),
 			move_type, id, joint_num);
         }
 
         if (joint_pos[joint_num] < joint->min_pos_limit) {
 	    in_range = 0;
-	    gomc_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed joint %d's negative limit"),
+	    stmak_log_errorf(inst->log, inst->name, _("%s move (segment %d) would exceed joint %d's negative limit"),
 			move_type, id, joint_num);
 	}
     }
@@ -300,7 +300,7 @@ void clearHomes(motmod_inst_t *inst, int joint_num)
 
 void emcmotSetRotaryUnlock(motmod_inst_t *inst, int jnum, int unlock) {
     if (NULL == inst->hal_data->joint[jnum].unlock) {
-        gomc_log_errorf(inst->log, inst->name, 
+        stmak_log_errorf(inst->log, inst->name, 
         "emcmotSetRotaryUnlock(): No unlock pin configured for joint %d\n"
         "   Use motmod parameter: unlock_joints_mask=%X",
         jnum,1<<jnum);
@@ -312,7 +312,7 @@ void emcmotSetRotaryUnlock(motmod_inst_t *inst, int jnum, int unlock) {
 int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int jnum) {
     if (NULL == inst->hal_data->joint[jnum].unlock) {
         if (!(inst->unlock_msg_given & (1 << jnum))) {
-            gomc_log_errorf(inst->log, inst->name, 
+            stmak_log_errorf(inst->log, inst->name, 
             "emcmotGetRotaryUnlocked(): No unlock pin configured for joint %d\n"
             "   Use motmod parameter: unlock_joints_mask=%X'",
             jnum,1<<jnum);
@@ -334,7 +334,7 @@ int emcmotGetRotaryIsUnlocked(motmod_inst_t *inst, int jnum) {
 void emcmotDioWrite(motmod_inst_t *inst, int index, char value)
 {
     if ((index >= inst->config->numDIO) || (index < 0)) {
-	gomc_log_errorf(inst->log, inst->name, "ERROR: index out of range, %d not in [0..%d] (increase num_dio/EMCMOT_MAX_DIO=%d)\n", index, inst->config->numDIO, EMCMOT_MAX_DIO);
+	stmak_log_errorf(inst->log, inst->name, "ERROR: index out of range, %d not in [0..%d] (increase num_dio/EMCMOT_MAX_DIO=%d)\n", index, inst->config->numDIO, EMCMOT_MAX_DIO);
     } else {
 	if (value != 0) {
 	    *(inst->hal_data->synch_do[index])=1;
@@ -355,7 +355,7 @@ void emcmotDioWrite(motmod_inst_t *inst, int index, char value)
 void emcmotAioWrite(motmod_inst_t *inst, int index, double value)
 {
     if ((index >= inst->config->numAIO) || (index < 0)) {
-	gomc_log_errorf(inst->log, inst->name, "ERROR: index out of range, %d not in [0..%d] (increase num_aio/EMCMOT_MAX_AIO=%d)\n", index, inst->config->numAIO, EMCMOT_MAX_AIO);
+	stmak_log_errorf(inst->log, inst->name, "ERROR: index out of range, %d not in [0..%d] (increase num_aio/EMCMOT_MAX_AIO=%d)\n", index, inst->config->numAIO, EMCMOT_MAX_AIO);
     } else {
         *(inst->hal_data->analog_output[index]) = value;
     }
@@ -388,7 +388,7 @@ static int is_feed_type(int motion_type)
  * milltask parity instrument (development-only, compiled out by default).
  * When enabled AND the environment variable MOTCTL_LOG names a file (or "-"
  * for stderr), log one deterministic line per command the motion controller
- * receives, so the old (C++, linuxcnc-2.9) and new (Go, gomc) milltask can be
+ * receives, so the old (C++, linuxcnc-2.9) and new (Go, stmak) milltask can be
  * diffed move-for-move against their OWN native motion module.  Logs by opcode
  * NAME (robust to enum renumbering) using only emcmot_command_t fields common
  * to both trees.  See tests/milltask-parity/README.md.
@@ -461,7 +461,7 @@ static void motcmd_trace(const emcmot_command_t *cmd)
 static inline void motcmd_trace(const emcmot_command_t *cmd) { (void)cmd; }
 #endif /* MILLTASK_PARITY_TRACE */
 
-void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
+void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)arg;
 
@@ -517,14 +517,14 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
            if (   !GET_MOTION_TELEOP_FLAG()
                && (joint_num >= ALL_JOINTS || joint_num <  0)
               ) {
-               gomc_log_errorf(inst->log, inst->name, 
+               stmak_log_errorf(inst->log, inst->name, 
                     "Joint jog requested for undefined joint number=%d (min=0,max=%d)",
                     joint_num,ALL_JOINTS-1);
                return;
            }
            if (GET_MOTION_TELEOP_FLAG()) {
                 if ( (inst->command->axis >= 0) && (axis_get_locking_joint(ai, inst->command->axis) >= 0) ) {
-                    gomc_log_errorf(inst->log, inst->name, 
+                    stmak_log_errorf(inst->log, inst->name, 
                     "Cannot jog a locking indexer AXIS_%c,joint_num=%d\n",
                     "XYZABCUVW"[inst->command->axis], axis_get_locking_joint(ai, inst->command->axis));
                     return;
@@ -534,13 +534,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         if (abort) {
           switch (inst->command->command) {
           case EMCMOT_JOG_CONT:
-               gomc_log_errorf(inst->log, inst->name, "JOG_CONT %s\n",emsg);
+               stmak_log_errorf(inst->log, inst->name, "JOG_CONT %s\n",emsg);
                break;
           case EMCMOT_JOG_INCR:
-               gomc_log_errorf(inst->log, inst->name, "JOG_INCR %s\n",emsg);
+               stmak_log_errorf(inst->log, inst->name, "JOG_INCR %s\n",emsg);
                break;
           case EMCMOT_JOG_ABS:
-               gomc_log_errorf(inst->log, inst->name, "JOG_ABS %s\n",emsg);
+               stmak_log_errorf(inst->log, inst->name, "JOG_ABS %s\n",emsg);
                break;
           default: break;
           }
@@ -558,12 +558,12 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
                 && !inst->homing_active
                ) {
                   if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                      gomc_log_errorf(inst->log, inst->name, 
+                      stmak_log_errorf(inst->log, inst->name, 
                       "Homing is REQUIRED to jog requested coordinate\n"
                       "because joint (%d) home_sequence is synchronized (%d)\n"
                       ,joint_num, joint->home_sequence);
                   } else {
-                      gomc_log_errorf(inst->log, inst->name, 
+                      stmak_log_errorf(inst->log, inst->name, 
                       "Cannot jog joint %d because home_sequence is synchronized (%d)\n"
                       ,joint_num, joint->home_sequence);
                   }
@@ -580,8 +580,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	       it calls the traj planner abort function (don't know what that
 	       does yet), and if in free mode, it disables the free mode traj
 	       planners which stops joint motion */
-	    gomc_log_debugf(inst->log, inst->name, "ABORT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "ABORT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    /* check for coord or free space motion active */
 	    if (GET_MOTION_TELEOP_FLAG()) {
                 axis_jog_abort_all(ai, 0);
@@ -645,7 +645,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	       requests the transition by clearing a couple of flags */
 	    /* reset the inst->internal->coordinating flag to defer transition
 	       to controller cycle */
-	    gomc_log_debugf(inst->log, inst->name, "FREE");
+	    stmak_log_debugf(inst->log, inst->name, "FREE");
 	    inst->internal->coordinating = 0;
 	    inst->internal->teleoperating = 0;
 	    break;
@@ -659,12 +659,12 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* set the inst->internal->coordinating flag to defer transition to
 	       controller cycle */
 
-	    gomc_log_debugf(inst->log, inst->name, "COORD");
+	    stmak_log_debugf(inst->log, inst->name, "COORD");
 	    inst->internal->coordinating = 1;
 	    inst->internal->teleoperating = 0;
 	    if (inst->config->kinType != KINEMATICS_IDENTITY) {
 		if (!inst->all_homed) {
-		    gomc_log_errorf(inst->log, inst->name, 
+		    stmak_log_errorf(inst->log, inst->name, 
 			_("all joints must be homed before going into coordinated mode"));
 		    inst->internal->coordinating = 0;
 		    break;
@@ -673,7 +673,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_TELEOP:
-	    gomc_log_debugf(inst->log, inst->name, "TELEOP");
+	    stmak_log_debugf(inst->log, inst->name, "TELEOP");
             switch_to_teleop_mode(inst);
 	    break;
 
@@ -683,8 +683,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	       Called  by task using [KINS]JOINTS= which is typically
 	       the same value as the motmod num_joints= parameter
 	    */
-	    gomc_log_debugf(inst->log, inst->name, "SET_NUM_JOINTS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->joint);
+	    stmak_log_debugf(inst->log, inst->name, "SET_NUM_JOINTS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->joint);
 	    if (( inst->command->joint <= 0 ) ||
 		( inst->command->joint > EMCMOT_MAX_JOINTS )) {
 		break;
@@ -698,13 +698,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	       the number of spindles configured for the motion module
 	       (inst->num_spindles)
 	    */
-	    gomc_log_debugf(inst->log, inst->name, "SET_NUM_SPINDLES");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->spindle);
+	    stmak_log_debugf(inst->log, inst->name, "SET_NUM_SPINDLES");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->spindle);
 	    if (   inst->command->spindle > inst->num_spindles
 	        || inst->command->spindle <= 0
 	        || inst->command->spindle > EMCMOT_MAX_SPINDLES
 	       ) {
-	        gomc_log_errorf(inst->log, inst->name, "Problem:\n"
+	        stmak_log_errorf(inst->log, inst->name, "Problem:\n"
 	                    "  motmod configured for %d spindles\n"
 	                    "  but command requests %d spindles\n"
 	                    "  Using: %d spindles",
@@ -719,13 +719,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_WORLD_HOME:
-	    gomc_log_debugf(inst->log, inst->name, "SET_WORLD_HOME");
+	    stmak_log_debugf(inst->log, inst->name, "SET_WORLD_HOME");
 	    inst->status->world_home = inst->command->pos;
 	    break;
 
 	case EMCMOT_SET_JOINT_HOMING_PARAMS:
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_HOMING_PARAMS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_HOMING_PARAMS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0) {
 		break;
@@ -745,8 +745,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_UPDATE_JOINT_HOMING_PARAMS:
-	    gomc_log_debugf(inst->log, inst->name, "UPDATE_JOINT_HOMING_PARAMS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "UPDATE_JOINT_HOMING_PARAMS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0) {
 		break;
@@ -763,14 +763,14 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* this command can be issued with joint < 0 to re-enable
 	       limits, but they are automatically re-enabled at the
 	       end of the next jog */
-	    gomc_log_debugf(inst->log, inst->name, "OVERRIDE_LIMITS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "OVERRIDE_LIMITS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint_num < 0) {
 		/* don't override limits */
-		gomc_log_debugf(inst->log, inst->name, "override off");
+		stmak_log_debugf(inst->log, inst->name, "override off");
 		inst->status->overrideLimitMask = 0;
 	    } else {
-		gomc_log_debugf(inst->log, inst->name, "override on");
+		stmak_log_debugf(inst->log, inst->name, "override on");
 		inst->status->overrideLimitMask = 0;
 		for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
 		    /* point at joint data */
@@ -794,8 +794,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_JOINT_MOTOR_OFFSET:
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_MOTOR_OFFSET");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_MOTOR_OFFSET");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if(joint == 0) {
 		break;
 	    }
@@ -805,8 +805,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_JOINT_POSITION_LIMITS:
 	    /* set the position limits for the joint */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_POSITION_LIMITS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_POSITION_LIMITS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0) {
 		break;
@@ -818,8 +818,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_JOINT_BACKLASH:
 	    /* set the backlash for the joint */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_BACKLASH");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_BACKLASH");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0) {
 		break;
@@ -834,8 +834,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	       minFerror then OK else if ferror < limiting ferror then OK
 	       else ERROR */
 	case EMCMOT_SET_JOINT_MAX_FERROR:
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_MAX_FERROR");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_MAX_FERROR");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0 || inst->command->maxFerror < 0.0) {
 		break;
@@ -844,8 +844,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_JOINT_MIN_FERROR:
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_MIN_FERROR");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_MIN_FERROR");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0 || inst->command->minFerror < 0.0) {
 		break;
@@ -857,20 +857,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* do a continuous jog, implemented as an incremental jog to the
 	       limit.  When the user lets go of the button an abort will
 	       stop the jog. */
-	    gomc_log_debugf(inst->log, inst->name, "JOG_CONT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOG_CONT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
             if (*(inst->hal_data->jog_inhibit)){
-                    gomc_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
+                    stmak_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
                 break;
             }
 	    if ( inst->homing_active ) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog any joints while homing."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog any joints while homing."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
@@ -880,7 +880,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 		    break;
 	        }
                 if (JOINT_HOME_API(joint)->get_needs_unlock_first(JOINT_HOME_API(joint)->ctx) ) {
-                    gomc_log_errorf(inst->log, inst->name, "Can't jog locking joint_num=%d",joint_num);
+                    stmak_log_errorf(inst->log, inst->name, "Can't jog locking joint_num=%d",joint_num);
                     SET_JOINT_ERROR_FLAG(joint, 1);
                     break;
                 }
@@ -925,20 +925,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
 	case EMCMOT_JOG_INCR:
 	    /* do an incremental jog */
-	    gomc_log_debugf(inst->log, inst->name, "JOG_INCR");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOG_INCR");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (!GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
             if (*(inst->hal_data->jog_inhibit)){
-                    gomc_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
+                    stmak_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
                 break;
             }
 	    if ( inst->homing_active ) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog any joint while homing."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog any joint while homing."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
@@ -948,7 +948,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 		    break;
 	        }
                 if (JOINT_HOME_API(joint)->get_needs_unlock_first(JOINT_HOME_API(joint)->ctx) ) {
-                    gomc_log_errorf(inst->log, inst->name, "Can't jog locking joint_num=%d",joint_num);
+                    stmak_log_errorf(inst->log, inst->name, "Can't jog locking joint_num=%d",joint_num);
                     SET_JOINT_ERROR_FLAG(joint, 1);
                     break;
                 }
@@ -1001,23 +1001,23 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
 	case EMCMOT_JOG_ABS:
 	    /* do an absolute jog */
-	    gomc_log_debugf(inst->log, inst->name, "JOG_ABS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOG_ABS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
 	    if (!GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog joint when not enabled."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
             // cannot jog if jog-inhibit is TRUE
             if (*(inst->hal_data->jog_inhibit)){
-                    gomc_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
+                    stmak_log_errorf(inst->log, inst->name, _("Cannot jog while jog-inhibit is active."));
                 break;
             }
 	    if ( inst->homing_active ) {
-		gomc_log_errorf(inst->log, inst->name, _("Can't jog any joints while homing."));
+		stmak_log_errorf(inst->log, inst->name, _("Can't jog any joints while homing."));
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		break;
 	    }
@@ -1069,7 +1069,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
 	case EMCMOT_SET_TERM_COND:
 	    /* sets termination condition for motion inst->internal->coord_tp */
-	    gomc_log_debugf(inst->log, inst->name, "SET_TERM_COND");
+	    stmak_log_debugf(inst->log, inst->name, "SET_TERM_COND");
 	    inst->tp_api->set_term_cond(inst->tp_api->ctx, inst->command->termCond, inst->command->tolerance);
 	    break;
 
@@ -1080,20 +1080,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_LINE:
 	    /* inst->internal->coord_tp up a linear move */
 	    /* requires motion enabled, coordinated mode, not on limits */
-	    gomc_log_debugf(inst->log, inst->name, "SET_LINE");
+	    stmak_log_debugf(inst->log, inst->name, "SET_LINE");
 	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for linear move"));
+		stmak_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for linear move"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 		SET_MOTION_ERROR_FLAG(1);
 		break;
 	    } else if (!inRange(inst, inst->command->pos, inst->command->id, "Linear")) {
-		gomc_log_errorf(inst->log, inst->name, _("invalid params in linear command"));
+		stmak_log_errorf(inst->log, inst->name, _("invalid params in linear command"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
 		break;
 	    } else if (!limits_ok(inst)) {
-		gomc_log_errorf(inst->log, inst->name, _("can't do linear move with limits exceeded"));
+		stmak_log_errorf(inst->log, inst->name, _("can't do linear move with limits exceeded"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1125,7 +1125,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 					inst->command->feed_mm_per_min);
         //KLUDGE ignore zero length line
         if (res_addline < 0) {
-            gomc_log_errorf(inst->log, inst->name, _("can't add linear move (segment %d), error code %d"),
+            stmak_log_errorf(inst->log, inst->name, _("can't add linear move (segment %d), error code %d"),
                     inst->command->id, res_addline);
             inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
             inst->tp_api->abort(inst->tp_api->ctx);
@@ -1150,9 +1150,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_CIRCLE:
 	    /* inst->internal->coord_tp up a circular move */
 	    /* requires coordinated mode, enable on, not on limits */
-	    gomc_log_debugf(inst->log, inst->name, "SET_CIRCLE");
+	    stmak_log_debugf(inst->log, inst->name, "SET_CIRCLE");
 	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for circular move"));
+		stmak_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for circular move"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 		SET_MOTION_ERROR_FLAG(1);
 		break;
@@ -1162,7 +1162,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 		SET_MOTION_ERROR_FLAG(1);
 		break;
 	    } else if (!limits_ok(inst)) {
-		gomc_log_errorf(inst->log, inst->name, _("can't do circular move with limits exceeded"));
+		stmak_log_errorf(inst->log, inst->name, _("can't do circular move with limits exceeded"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1184,7 +1184,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 			    (int8_t)issue_atspeed,
                             inst->command->feed_mm_per_min);
         if (res_addcircle < 0) {
-            gomc_log_errorf(inst->log, inst->name, _("can't add circular move (segment %d), error code %d"),
+            stmak_log_errorf(inst->log, inst->name, _("can't add circular move (segment %d), error code %d"),
                     inst->command->id, res_addcircle);
 		inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
 		inst->tp_api->abort(inst->tp_api->ctx);
@@ -1210,13 +1210,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_VEL:
 	    /* set the velocity for subsequent moves */
 	    /* can do it at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_VEL");
+	    stmak_log_debugf(inst->log, inst->name, "SET_VEL");
 	    inst->status->vel = inst->command->vel;
 	    inst->tp_api->set_vmax(inst->tp_api->ctx, inst->status->vel, inst->command->ini_maxvel);
 	    break;
 
 	case EMCMOT_SET_VEL_LIMIT:
-	    gomc_log_debugf(inst->log, inst->name, "SET_VEL_LIMIT");
+	    stmak_log_debugf(inst->log, inst->name, "SET_VEL_LIMIT");
 	    emcmot_config_change(inst);
 	    /* set the absolute max velocity for all subsequent moves */
 	    /* can do it at any time */
@@ -1227,8 +1227,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_JOINT_VEL_LIMIT:
 	    /* set joint max velocity */
 	    /* can do it at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_VEL_LIMIT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_VEL_LIMIT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    /* check joint range */
 	    if (joint == 0) {
@@ -1240,8 +1240,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_JOINT_ACC_LIMIT:
 	    /* set joint max acceleration */
 	    /* can do it at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_ACC_LIMIT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_ACC_LIMIT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    /* check joint range */
 	    if (joint == 0) {
@@ -1252,8 +1252,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
 	case EMCMOT_SET_JOINT_JERK_LIMIT:
 	    /* set joint max jerk (0 = disabled) */
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_JERK_LIMIT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_JERK_LIMIT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    emcmot_config_change(inst);
 	    if (joint == 0) {
 		break;
@@ -1265,7 +1265,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_ACC:
 	    /* set the max acceleration */
 	    /* can do it at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_ACCEL");
+	    stmak_log_debugf(inst->log, inst->name, "SET_ACCEL");
 	    inst->status->acc = inst->command->acc;
 	    inst->tp_api->set_amax(inst->tp_api->ctx, inst->status->acc);
 	    break;
@@ -1273,7 +1273,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_PAUSE:
 	    /* pause the motion */
 	    /* can happen at any time */
-	    gomc_log_debugf(inst->log, inst->name, "PAUSE");
+	    stmak_log_debugf(inst->log, inst->name, "PAUSE");
 	    inst->tp_api->pause(inst->tp_api->ctx);
 	    inst->status->paused = 1;
 	    break;
@@ -1281,21 +1281,21 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_REVERSE:
 	    /* run motion in reverse*/
 	    /* only allowed during a pause */
-	    gomc_log_debugf(inst->log, inst->name, "REVERSE");
+	    stmak_log_debugf(inst->log, inst->name, "REVERSE");
 	    inst->tp_api->set_run_dir(inst->tp_api->ctx, TP_REVERSE);
 	    break;
 
 	case EMCMOT_FORWARD:
 	    /* run motion in reverse*/
 	    /* only allowed during a pause */
-	    gomc_log_debugf(inst->log, inst->name, "FORWARD");
+	    stmak_log_debugf(inst->log, inst->name, "FORWARD");
 	    inst->tp_api->set_run_dir(inst->tp_api->ctx, TP_FORWARD);
 	    break;
 
 	case EMCMOT_RESUME:
 	    /* resume paused motion */
 	    /* can happen at any time */
-	    gomc_log_debugf(inst->log, inst->name, "RESUME");
+	    stmak_log_debugf(inst->log, inst->name, "RESUME");
 	    inst->status->stepping = 0;
 	    inst->tp_api->resume(inst->tp_api->ctx);
 	    inst->status->paused = 0;
@@ -1304,21 +1304,21 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_STEP:
 	    /* resume paused motion until id changes */
 	    /* can happen at any time */
-            gomc_log_debugf(inst->log, inst->name, "STEP");
+            stmak_log_debugf(inst->log, inst->name, "STEP");
             if(inst->status->paused) {
                 inst->internal->idForStep = inst->status->id;
                 inst->status->stepping = 1;
                 inst->tp_api->resume(inst->tp_api->ctx);
                 inst->status->paused = 1;
             } else {
-		gomc_log_errorf(inst->log, inst->name, _("MOTION: can't STEP while already executing"));
+		stmak_log_errorf(inst->log, inst->name, _("MOTION: can't STEP while already executing"));
 	    }
 	    break;
 
 	case EMCMOT_FEED_SCALE:
 	    /* override speed */
 	    /* can happen at any time */
-	    gomc_log_debugf(inst->log, inst->name, "FEED SCALE");
+	    stmak_log_debugf(inst->log, inst->name, "FEED SCALE");
 	    if (inst->command->scale < 0.0) {
 		inst->command->scale = 0.0;	/* clamp it */
 	    }
@@ -1328,7 +1328,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_RAPID_SCALE:
 	    /* override rapids */
 	    /* can happen at any time */
-	    gomc_log_debugf(inst->log, inst->name, "RAPID SCALE");
+	    stmak_log_debugf(inst->log, inst->name, "RAPID SCALE");
 	    if (inst->command->scale < 0.0) {
 		inst->command->scale = 0.0;	/* clamp it */
 	    }
@@ -1339,10 +1339,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* enable/disable overriding speed */
 	    /* can happen at any time */
 	    if ( inst->command->mode != 0 ) {
-		gomc_log_debugf(inst->log, inst->name, "FEED SCALE: ON");
+		stmak_log_debugf(inst->log, inst->name, "FEED SCALE: ON");
 		inst->status->enables_new |= FS_ENABLED;
             } else {
-		gomc_log_debugf(inst->log, inst->name, "FEED SCALE: OFF");
+		stmak_log_debugf(inst->log, inst->name, "FEED SCALE: OFF");
 		inst->status->enables_new &= ~FS_ENABLED;
 	    }
 	    break;
@@ -1351,10 +1351,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* enable/disable feed hold */
 	    /* can happen at any time */
 	    if ( inst->command->mode != 0 ) {
-		gomc_log_debugf(inst->log, inst->name, "FEED HOLD: ENABLED");
+		stmak_log_debugf(inst->log, inst->name, "FEED HOLD: ENABLED");
 		inst->status->enables_new |= FH_ENABLED;
             } else {
-		gomc_log_debugf(inst->log, inst->name, "FEED HOLD: DISABLED");
+		stmak_log_debugf(inst->log, inst->name, "FEED HOLD: DISABLED");
 		inst->status->enables_new &= ~FH_ENABLED;
 	    }
 	    break;
@@ -1362,13 +1362,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SPINDLE_SCALE:
 	    /* override spindle speed */
 	    /* can happen at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE SCALE");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE SCALE");
 	    if (inst->command->scale < 0.0) {
 		inst->command->scale = 0.0;	/* clamp it */
 	    }
 	    spindle_num = inst->command->spindle;
 	    if (spindle_num >= inst->config->numSpindles || spindle_num < -1) {
-		gomc_log_errorf(inst->log, inst->name, _("Attempt to scale non-existent spindle <%d>"), spindle_num);
+		stmak_log_errorf(inst->log, inst->name, _("Attempt to scale non-existent spindle <%d>"), spindle_num);
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 		break;
 	    }
@@ -1386,10 +1386,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* enable/disable overriding spindle speed */
 	    /* can happen at any time */
 	    if ( inst->command->mode != 0 ) {
-		gomc_log_debugf(inst->log, inst->name, "SPINDLE SCALE: ON");
+		stmak_log_debugf(inst->log, inst->name, "SPINDLE SCALE: ON");
 		inst->status->enables_new |= SS_ENABLED;
             } else {
-		gomc_log_debugf(inst->log, inst->name, "SPINDLE SCALE: OFF");
+		stmak_log_debugf(inst->log, inst->name, "SPINDLE SCALE: OFF");
 		inst->status->enables_new &= ~SS_ENABLED;
 	    }
 	    break;
@@ -1398,10 +1398,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* enable/disable adaptive feedrate override from HAL pin */
 	    /* can happen at any time */
 	    if ( inst->command->flags != 0 ) {
-		gomc_log_debugf(inst->log, inst->name, "ADAPTIVE FEED: ON");
+		stmak_log_debugf(inst->log, inst->name, "ADAPTIVE FEED: ON");
 		inst->status->enables_new |= AF_ENABLED;
             } else {
-		gomc_log_debugf(inst->log, inst->name, "ADAPTIVE FEED: OFF");
+		stmak_log_debugf(inst->log, inst->name, "ADAPTIVE FEED: OFF");
 		inst->status->enables_new &= ~AF_ENABLED;
 	    }
 	    break;
@@ -1411,7 +1411,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* can happen at any time */
 	    /* reset the inst->internal->enabling flag to defer disable until
 	       controller cycle (it *will* be honored) */
-	    gomc_log_debugf(inst->log, inst->name, "DISABLE");
+	    stmak_log_debugf(inst->log, inst->name, "DISABLE");
 	    inst->internal->enabling = 0;
 	    if (inst->config->kinType == KINEMATICS_INVERSE_ONLY) {
 		inst->internal->teleoperating = 0;
@@ -1424,9 +1424,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* can happen at any time */
 	    /* set the inst->internal->enabling flag to defer enable until
 	       controller cycle */
-	    gomc_log_debugf(inst->log, inst->name, "ENABLE");
+	    stmak_log_debugf(inst->log, inst->name, "ENABLE");
 	    if ( *(inst->hal_data->enable) == 0 ) {
-		gomc_log_errorf(inst->log, inst->name, _("can't enable motion, enable input is false"));
+		stmak_log_errorf(inst->log, inst->name, _("can't enable motion, enable input is false"));
 	    } else {
 		inst->internal->enabling = 1;
 		if (inst->config->kinType == KINEMATICS_INVERSE_ONLY) {
@@ -1440,8 +1440,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* make joint active, so that amps will be enabled when system is
 	       enabled or disabled */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "JOINT_ACTIVATE");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOINT_ACTIVATE");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
@@ -1452,8 +1452,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* make joint inactive, so that amps won't be affected when system
 	       is enabled or disabled */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "JOINT_DEACTIVATE");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOINT_DEACTIVATE");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
@@ -1462,8 +1462,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_JOINT_ENABLE_AMPLIFIER:
 	    /* enable the amplifier directly, but don't enable calculations */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "JOINT_ENABLE_AMP");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOINT_ENABLE_AMP");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
@@ -1473,8 +1473,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* disable the joint calculations and amplifier, but don't disable
 	       calculations */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "JOINT_DISABLE_AMP");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOINT_DISABLE_AMP");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
@@ -1485,16 +1485,16 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* need to be in free mode, enable on */
 	    /* this just sets the initial state, then the state machine in
 	       homing.c does the rest */
-	    gomc_log_debugf(inst->log, inst->name, "JOINT_HOME");
-	    gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "JOINT_HOME");
+	    stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 
 	    if (inst->status->motion_state != EMCMOT_MOTION_FREE) {
 		/* can't home unless in free mode */
-		gomc_log_errorf(inst->log, inst->name, _("must be in joint mode to home"));
+		stmak_log_errorf(inst->log, inst->name, _("must be in joint mode to home"));
 		return;
 	    }
 	    if (*(inst->hal_data->homing_inhibit)) {
-	        gomc_log_errorf(inst->log, inst->name, _("Homing denied by motion.homing-inhibit joint=%d"),
+	        stmak_log_errorf(inst->log, inst->name, _("Homing denied by motion.homing-inhibit joint=%d"),
 	                   joint_num);
                 return;
 	    }
@@ -1512,7 +1512,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    } else if (joint_num >= ALL_JOINTS) {
 	        /* Reject an out-of-range joint before dereferencing the (NULL) joint
 	           pointer (`joint` is only set for joint_num < ALL_JOINTS). */
-	        gomc_log_errorf(inst->log, inst->name,
+	        stmak_log_errorf(inst->log, inst->name,
 	            _("Cannot home invalid joint %d (max %d)"), joint_num, ALL_JOINTS - 1);
 	    } else {
 	        /* home one joint: apply rules for negative home_sequence */
@@ -1536,8 +1536,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_JOINT_UNHOME:
             /* unhome the specified joint, or all joints if -1, or
              * only volatile_home joints if -2 */
-            gomc_log_debugf(inst->log, inst->name, "JOINT_UNHOME");
-            gomc_log_debugf(inst->log, inst->name, " %d", joint_num);
+            stmak_log_debugf(inst->log, inst->name, "JOINT_UNHOME");
+            stmak_log_debugf(inst->log, inst->name, " %d", joint_num);
 
             /* Unhoming is allowed from any mode. Multi-joint unhome (-1/-2) is
              * all-or-none (mirrors 2.9 set_all_unhomed): validate every
@@ -1555,16 +1555,16 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
                         if (joint_num == -2 && !inst->joints[j].volatile_home) continue;
                         const home_callbacks_t *h = JOINT_HOME_API(&inst->joints[j]);
                         if (h->get_homing(h->ctx)) {
-                            gomc_log_errorf(inst->log, inst->name,
+                            stmak_log_errorf(inst->log, inst->name,
                                 _("Cannot unhome while homing, joint %d"), j);
                             ok = 0;
                         } else if (!GET_JOINT_INPOS_FLAG(&inst->joints[j])) {
-                            gomc_log_errorf(inst->log, inst->name,
+                            stmak_log_errorf(inst->log, inst->name,
                                 _("Cannot unhome while moving, joint %d"), j);
                             ok = 0;
                         } else if (IS_EXTRA_JOINT(j) &&
                                    inst->status->motion_state != EMCMOT_MOTION_DISABLED) {
-                            gomc_log_errorf(inst->log, inst->name,
+                            stmak_log_errorf(inst->log, inst->name,
                                 _("cannot unhome extrajoint <%d> with motion enabled"), j);
                             ok = 0;
                         }
@@ -1582,13 +1582,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
                        joint pointer — `joint` is only set for joint_num < ALL_JOINTS
                        (see above). Mirrors 2.9 base_set_unhomed's bounds check;
                        without it a non-cooperating client crashes motmod. */
-                    gomc_log_errorf(inst->log, inst->name,
+                    stmak_log_errorf(inst->log, inst->name,
                         _("Cannot unhome invalid joint %d (max %d)"), joint_num, ALL_JOINTS - 1);
                 } else {
                     /* Single joint: guard against unhoming extra-joints while enabled. */
                     if (IS_EXTRA_JOINT(joint_num) &&
                         inst->status->motion_state != EMCMOT_MOTION_DISABLED) {
-                        gomc_log_errorf(inst->log, inst->name,
+                        stmak_log_errorf(inst->log, inst->name,
                             _("cannot unhome extrajoint <%d> with motion enabled"), joint_num);
                     } else if (JOINT_HOME_API(joint)->set_unhomed(JOINT_HOME_API(joint)->ctx,
                                    (home_motion_state_t)inst->status->motion_state) == 0) {
@@ -1606,7 +1606,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
             break;
 
 	case EMCMOT_CLEAR_PROBE_FLAGS:
-	    gomc_log_debugf(inst->log, inst->name, "CLEAR_PROBE_FLAGS");
+	    stmak_log_debugf(inst->log, inst->name, "CLEAR_PROBE_FLAGS");
 	    inst->status->probing = 0;
             inst->status->probeTripped = 0;
 	    break;
@@ -1615,9 +1615,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* most of this is taken from EMCMOT_SET_LINE */
 	    /* inst->internal->coord_tp up a linear move */
 	    /* requires coordinated mode, enable off, not on limits */
-	    gomc_log_debugf(inst->log, inst->name, "PROBE");
+	    stmak_log_debugf(inst->log, inst->name, "PROBE");
 	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for probe move"));
+		stmak_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for probe move"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 		SET_MOTION_ERROR_FLAG(1);
 		break;
@@ -1627,7 +1627,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 		SET_MOTION_ERROR_FLAG(1);
 		break;
 	    } else if (!limits_ok(inst)) {
-		gomc_log_errorf(inst->log, inst->name, _("can't do probe move with limits exceeded"));
+		stmak_log_errorf(inst->log, inst->name, _("can't do probe move with limits exceeded"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1641,9 +1641,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
                 if (probeval != probe_whenclears) {
                     // the probe is already in the state we're seeking.
                     if(probe_whenclears)
-                        gomc_log_errorf(inst->log, inst->name, _("Probe is already clear when starting G38.4 or G38.5 move"));
+                        stmak_log_errorf(inst->log, inst->name, _("Probe is already clear when starting G38.4 or G38.5 move"));
                     else
-                        gomc_log_errorf(inst->log, inst->name, _("Probe is already tripped when starting G38.2 or G38.3 move"));
+                        stmak_log_errorf(inst->log, inst->name, _("Probe is already tripped when starting G38.2 or G38.3 move"));
 
                     inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
                     inst->tp_api->abort(inst->tp_api->ctx);
@@ -1664,7 +1664,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 				0,
 				-1,
 				inst->command->feed_mm_per_min)) {
-		gomc_log_errorf(inst->log, inst->name, _("can't add probe move"));
+		stmak_log_errorf(inst->log, inst->name, _("can't add probe move"));
 		inst->status->commandStatus = EMCMOT_COMMAND_BAD_EXEC;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1684,9 +1684,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    /* most of this is taken from EMCMOT_SET_LINE */
 	    /* inst->internal->coord_tp up a linear move */
 	    /* requires coordinated mode, enable off, not on limits */
-	    gomc_log_debugf(inst->log, inst->name, "RIGID_TAP");
+	    stmak_log_debugf(inst->log, inst->name, "RIGID_TAP");
 	    if (!GET_MOTION_COORD_FLAG() || !GET_MOTION_ENABLE_FLAG()) {
-		gomc_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for rigid tap move"));
+		stmak_log_errorf(inst->log, inst->name, _("need to be enabled, in coord mode for rigid tap move"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 		SET_MOTION_ERROR_FLAG(1);
 		break;
@@ -1696,7 +1696,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 		SET_MOTION_ERROR_FLAG(1);
 		break;
 	    } else if (!limits_ok(inst)) {
-		gomc_log_errorf(inst->log, inst->name, _("can't do rigid tap move with limits exceeded"));
+		stmak_log_errorf(inst->log, inst->name, _("can't do rigid tap move with limits exceeded"));
 		inst->status->commandStatus = EMCMOT_COMMAND_INVALID_PARAMS;
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1715,7 +1715,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
                                     inst->command->feed_mm_per_min);
         if (res_addtap < 0) {
             inst->status->atspeed_next_feed = 0; /* rigid tap always waits for spindle to be at-speed */
-            gomc_log_errorf(inst->log, inst->name, _("can't add rigid tap move (segment %d), error code %d"),
+            stmak_log_errorf(inst->log, inst->name, _("can't add rigid tap move (segment %d), error code %d"),
                     inst->command->id, res_addtap);
 		inst->tp_api->abort(inst->tp_api->ctx);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1726,14 +1726,14 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_DEBUG:
-	    gomc_log_debugf(inst->log, inst->name, "SET_DEBUG");
+	    stmak_log_debugf(inst->log, inst->name, "SET_DEBUG");
 	    inst->config->debug = inst->command->debug;
 	    emcmot_config_change(inst);
 	    break;
 
 	/* needed for synchronous I/O */
 	case EMCMOT_SET_AOUT:
-	    gomc_log_debugf(inst->log, inst->name, "SET_AOUT");
+	    stmak_log_debugf(inst->log, inst->name, "SET_AOUT");
 	    if (inst->command->now) { //we set it right away
 		emcmotAioWrite(inst, inst->command->out, inst->command->minLimit);
 	    } else { // we put it on the TP queue, warning: only room for one in there, any new ones will overwrite
@@ -1743,7 +1743,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_DOUT:
-	    gomc_log_debugf(inst->log, inst->name, "SET_DOUT");
+	    stmak_log_debugf(inst->log, inst->name, "SET_DOUT");
 	    if (inst->command->now) { //we set it right away
 		emcmotDioWrite(inst, inst->command->out, inst->command->start);
 	    } else { // we put it on the TP queue, warning: only room for one in there, any new ones will overwrite
@@ -1753,14 +1753,14 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
     case EMCMOT_SET_SPINDLE_PARAMS:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_SETUP: spindle %d/%d max_pos %f min_pos %f"
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_SETUP: spindle %d/%d max_pos %f min_pos %f"
                 "max_neg %f min_neg %f, home: %f, %f, %d\n",
                         inst->command->spindle, inst->config->numSpindles, inst->command->maxLimit,
                         inst->command->min_pos_speed, inst->command->max_neg_speed, inst->command->minLimit,
                         inst->command->search_vel, inst->command->home, inst->command->home_sequence);
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < 0){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to configure non-existent spindle"));
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to configure non-existent spindle"));
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1774,11 +1774,11 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
         break;
 	case EMCMOT_SPINDLE_ON:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_ON: spindle %d/%d speed %d\n",
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_ON: spindle %d/%d speed %d\n",
                         inst->command->spindle, inst->config->numSpindles, (int) inst->command->vel);
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to start non-existent spindle"));
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to start non-existent spindle"));
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1791,20 +1791,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         for (n = s0; n<=s1; n++){
 
 	        if (*(inst->hal_data->spindle[n].spindle_orient))
-	    	gomc_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_ON");
+	    	stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_ON");
 	        if (*(inst->hal_data->spindle[n].spindle_locked))
-		    gomc_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_ON");
+		    stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_ON");
 	        *(inst->hal_data->spindle[n].spindle_locked) = 0;
 	        *(inst->hal_data->spindle[n].spindle_orient) = 0;
 	        inst->status->spindle_status[n].orient_state = EMCMOT_ORIENT_NONE;
 
 	        /* if (inst->status->spindle.orient) { */
-	        /* 	gomc_log_errorf(inst->log, inst->name, _("can\'t turn on spindle during orient in progress")); */
+	        /* 	stmak_log_errorf(inst->log, inst->name, _("can\'t turn on spindle during orient in progress")); */
 	        /* 	inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND; */
 	        /* 	inst->tp_api->abort(&inst->internal->tp); */
 	        /* 	SET_MOTION_ERROR_FLAG(1); */
 	        /* } else {...} */
-	        gomc_log_debugf(inst->log, inst->name, "command state %d\n", inst->command->state);
+	        stmak_log_debugf(inst->log, inst->name, "command state %d\n", inst->command->state);
 	        inst->status->spindle_status[n].state = inst->command->state;
 	        inst->status->spindle_status[n].speed = inst->command->vel;
 	        inst->status->spindle_status[n].css_factor = inst->command->ini_maxvel;
@@ -1823,15 +1823,15 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
        // check whether it's passed correctly
        if (!inst->status->atspeed_next_feed){
-           gomc_log_debugf(inst->log, inst->name, "SPINDLE_ON without wait-for-atspeed");
+           stmak_log_debugf(inst->log, inst->name, "SPINDLE_ON without wait-for-atspeed");
        }
 	   break;
 
 	case EMCMOT_SPINDLE_OFF:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_OFF");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_OFF");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to stop non-existent spindle <%d>"),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to stop non-existent spindle <%d>"),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1848,9 +1848,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	        inst->status->spindle_status[n].direction = 0;
 	        inst->status->spindle_status[n].brake = 1; // engage brake
 	        if (*(inst->hal_data->spindle[n].spindle_orient))
-		    gomc_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_OFF");
+		    stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT cancelled by SPINDLE_OFF");
 	        if (*(inst->hal_data->spindle[n].spindle_locked)){
-		    gomc_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_OFF");
+		    stmak_log_debugf(inst->log, inst->name, "spindle-locked cleared by SPINDLE_OFF");
 	            *(inst->hal_data->spindle[n].spindle_locked) = 0;
             }
 	        *(inst->hal_data->spindle[n].spindle_orient) = 0;
@@ -1859,10 +1859,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SPINDLE_ORIENT:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_ORIENT");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to orient non-existent spindle <%d>"),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to orient non-existent spindle <%d>"),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1875,10 +1875,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         for (n = s0; n<=s1; n++){
 
 	        if (*(inst->hal_data->spindle[n].spindle_orient)) {
-		    gomc_log_debugf(inst->log, inst->name, "orient already in progress");
+		    stmak_log_debugf(inst->log, inst->name, "orient already in progress");
 
 		    // mah:FIXME unsure whether this is ok or an error
-		    /* gomc_log_errorf(inst->log, inst->name, _("orient already in progress")); */
+		    /* stmak_log_errorf(inst->log, inst->name, _("orient already in progress")); */
 		    /* inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND; */
 		    /* inst->tp_api->abort(&inst->internal->tp); */
 		    /* SET_MOTION_ERROR_FLAG(1); */
@@ -1906,10 +1906,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SPINDLE_INCREASE:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_INCREASE");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_INCREASE");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to increase non-existent spindle <%d>"),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to increase non-existent spindle <%d>"),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1930,10 +1930,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SPINDLE_DECREASE:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_DECREASE");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_DECREASE");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to decrease non-existent spindle <%d>."),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to decrease non-existent spindle <%d>."),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1954,10 +1954,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         break;
 
 	case EMCMOT_SPINDLE_BRAKE_ENGAGE:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_BRAKE_ENGAGE");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_BRAKE_ENGAGE");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to engage brake of non-existent spindle <%d>"),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to engage brake of non-existent spindle <%d>"),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1976,10 +1976,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SPINDLE_BRAKE_RELEASE:
-	    gomc_log_debugf(inst->log, inst->name, "SPINDLE_BRAKE_RELEASE");
+	    stmak_log_debugf(inst->log, inst->name, "SPINDLE_BRAKE_RELEASE");
 	    spindle_num = inst->command->spindle;
         if (spindle_num >= inst->config->numSpindles || spindle_num < -1){
-            gomc_log_errorf(inst->log, inst->name, _("Attempt to release brake of non-existent spindle <%d>"),spindle_num);
+            stmak_log_errorf(inst->log, inst->name, _("Attempt to release brake of non-existent spindle <%d>"),spindle_num);
             inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
             break;
         }
@@ -1996,18 +1996,18 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	    break;
 
 	case EMCMOT_SET_JOINT_COMP:
-	    gomc_log_debugf(inst->log, inst->name, "SET_JOINT_COMP for joint %d", joint_num);
+	    stmak_log_debugf(inst->log, inst->name, "SET_JOINT_COMP for joint %d", joint_num);
 	    if (joint == 0) {
 		break;
 	    }
 	    if (joint->comp.entries >= EMCMOT_COMP_SIZE) {
-		gomc_log_errorf(inst->log, inst->name, _("joint %d: too many compensation entries"), joint_num);
+		stmak_log_errorf(inst->log, inst->name, _("joint %d: too many compensation entries"), joint_num);
 		break;
 	    }
 	    /* point to last entry */
 	    comp_entry = &(joint->comp.array[joint->comp.entries]);
 	    if (inst->command->comp_nominal <= comp_entry[0].nominal) {
-		gomc_log_errorf(inst->log, inst->name, _("joint %d: compensation values must increase"), joint_num);
+		stmak_log_errorf(inst->log, inst->name, _("joint %d: compensation values must increase"), joint_num);
 		break;
 	    }
 	    /* store data to new entry */
@@ -2037,8 +2037,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 	case EMCMOT_SET_AXIS_POSITION_LIMITS:
 	    /* set the position limits for axis */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_AXIS_POSITION_LIMITS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
+	    stmak_log_debugf(inst->log, inst->name, "SET_AXIS_POSITION_LIMITS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
 	    emcmot_config_change(inst);
             if ((inst->command->axis < 0) || (inst->command->axis >= EMCMOT_MAX_AXIS)) {
                 break;
@@ -2050,8 +2050,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         case EMCMOT_SET_AXIS_VEL_LIMIT:
 	    /* set the max axis vel */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_AXIS_VEL_LIMITS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
+	    stmak_log_debugf(inst->log, inst->name, "SET_AXIS_VEL_LIMITS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
 	    emcmot_config_change(inst);
             if ((inst->command->axis < 0) || (inst->command->axis >= EMCMOT_MAX_AXIS)) {
                 break;
@@ -2063,8 +2063,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
         case EMCMOT_SET_AXIS_ACC_LIMIT:
  	    /* set the max axis acc */
 	    /* can be done at any time */
-	    gomc_log_debugf(inst->log, inst->name, "SET_AXIS_ACC_LIMITS");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
+	    stmak_log_debugf(inst->log, inst->name, "SET_AXIS_ACC_LIMITS");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
 	    emcmot_config_change(inst);
             if ((inst->command->axis < 0) || (inst->command->axis >= EMCMOT_MAX_AXIS)) {
                 break;
@@ -2074,8 +2074,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
             break;
 
         case EMCMOT_SET_AXIS_LOCKING_JOINT:
-	    gomc_log_debugf(inst->log, inst->name, "SET_AXIS_ACC_LOCKING_JOINT");
-	    gomc_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
+	    stmak_log_debugf(inst->log, inst->name, "SET_AXIS_ACC_LOCKING_JOINT");
+	    stmak_log_debugf(inst->log, inst->name, " %d", inst->command->axis);
 	    emcmot_config_change(inst);
             if ((inst->command->axis < 0) || (inst->command->axis >= EMCMOT_MAX_AXIS)) {
                 break;
@@ -2084,8 +2084,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
             break;
 
 	default:
-	    gomc_log_debugf(inst->log, inst->name, "UNKNOWN");
-	    gomc_log_errorf(inst->log, inst->name, _("unrecognized command %d"), inst->command->command);
+	    stmak_log_debugf(inst->log, inst->name, "UNKNOWN");
+	    stmak_log_errorf(inst->log, inst->name, _("unrecognized command %d"), inst->command->command);
 	    inst->status->commandStatus = EMCMOT_COMMAND_UNKNOWN_COMMAND;
 	    break;
         case EMCMOT_SET_MAX_FEED_OVERRIDE:
@@ -2106,7 +2106,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) GOMC_NONBLOCKING
 
 	}			/* end of: command switch */
 	if (inst->status->commandStatus != EMCMOT_COMMAND_OK) {
-	    gomc_log_debugf(inst->log, inst->name, "ERROR: %d",
+	    stmak_log_debugf(inst->log, inst->name, "ERROR: %d",
 		inst->status->commandStatus);
 	}
 	/* synch tail count */

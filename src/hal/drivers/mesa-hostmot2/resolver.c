@@ -144,7 +144,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
         
         snprintf(name, sizeof(name), "%s.resolver.excitation-khz", 
                        hm2->llio->name);
-        ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
+        ret= stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, 
                                  &(hm2->resolver.hal->param.excitation_khz), 
                                  hm2->llio->comp_id, "%s", name);
         if (ret < 0) {
@@ -157,7 +157,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.position", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.position),
                                    hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -167,7 +167,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.angle", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.angle), 
                                    hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -177,7 +177,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.velocity", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                    &(hm2->resolver.instance[i].hal.pin.velocity), 
                                    hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -187,7 +187,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
 
                         snprintf(name, sizeof(name), "%s.resolver.%02d.velocity-rpm",
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT,
+            ret= stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT,
                                    &(hm2->resolver.instance[i].hal.pin.velocity_rpm),
                                    hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -197,7 +197,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
 
             snprintf(name, sizeof(name), "%s.resolver.%02d.count", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.count), 
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -207,7 +207,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.rawcounts",
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.rawcounts), 
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -217,7 +217,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.reset", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, 
+            ret= stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, 
                                  &(hm2->resolver.instance[i].hal.pin.reset), 
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -227,7 +227,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.index-enable", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO,
+            ret= stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IO,
                                  &(hm2->resolver.instance[i].hal.pin.index_enable), 
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -237,7 +237,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.error", 
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, 
+            ret= stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, 
                                  &(hm2->resolver.instance[i].hal.pin.error), 
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -247,7 +247,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.joint-pos-fb",
                            hm2->llio->name, i);
-            ret= gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN,
+            ret= stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN,
                                  &(hm2->resolver.instance[i].hal.pin.joint_pos_fb),
                                  hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -258,7 +258,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             // parameters
             snprintf(name, sizeof(name), "%s.resolver.%02d.scale", 
                            hm2->llio->name, i);
-            ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
+            ret= stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.scale), 
                                      hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -268,7 +268,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
             
             snprintf(name, sizeof(name), "%s.resolver.%02d.velocity-scale", 
                            hm2->llio->name, i);
-            ret= gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, 
+            ret= stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, 
                                      &(hm2->resolver.instance[i].hal.param.vel_scale), 
                                      hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -278,7 +278,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
 
             snprintf(name, sizeof(name), "%s.resolver.%02d.index-divisor",
                            hm2->llio->name, i);
-            ret= gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW,
+            ret= stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.index_div),
                                      hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -288,7 +288,7 @@ int hm2_resolver_parse_md(hostmot2_t *hm2, int md_index) {
 
             snprintf(name, sizeof(name), "%s.resolver.%02d.use-position-file",
                            hm2->llio->name, i);
-            ret= gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW,
+            ret= stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW,
                                      &(hm2->resolver.instance[i].hal.param.use_abs),
                                      hm2->llio->comp_id, "%s", name);
             if (ret < 0) {
@@ -322,7 +322,7 @@ fail0:
     return r;
 }
 
-void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
+void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) STMAK_NONBLOCKING {
     (void)period;
     int i;
     hm2_resolver_instance_t *res;
@@ -413,7 +413,7 @@ void hm2_resolver_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKI
 }
 
 // This function needs to be modified so that it does not call llio->read, which hurts performance on hm2-eth
-void hm2_resolver_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
+void hm2_resolver_write(hostmot2_t *hm2, long period) STMAK_NONBLOCKING{
     //This function needs to handle comms handshaking, so is written as a state
     //machine.  Its state lives per-board in hm2->resolver.wr_* (formerly
     //function-local statics, shared across boards).
@@ -492,7 +492,7 @@ void hm2_resolver_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_resolver_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_resolver_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     if (hm2->resolver.num_instances <= 0) return;
     HM2_PRINT("resolvers: %d\n", hm2->resolver.num_instances);

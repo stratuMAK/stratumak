@@ -1,4 +1,4 @@
-# GOMC Interface Definition (GMI)
+# STMAK Interface Definition (GMI)
 
 Machine-readable API definitions for LinuxCNC's inter-module communication.
 

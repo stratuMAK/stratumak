@@ -21,7 +21,7 @@
 #include "tp_types.h"
 #include "spherical_arc.h"
 #include "motion_types.h"
-#include "gomc_log.h"
+#include "stmak_log.h"
 #include <math.h>
 #include <float.h>
 
@@ -114,7 +114,7 @@ int tcRemoveKinkProperties(TC_STRUCT *prev_tc, TC_STRUCT *tc)
 }
 
 
-int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING
+int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) STMAK_NONBLOCKING
 {
     PmCartesian startpoint;
     PmCartesian radius;
@@ -137,7 +137,7 @@ int tcCircleStartAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const
     return 0;
 }
 
-int tcCircleEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) GOMC_NONBLOCKING
+int tcCircleEndAccelUnitVector(TC_STRUCT const * const tc, PmCartesian * const out) STMAK_NONBLOCKING
 {
     PmCartesian endpoint;
     PmCartesian radius;
@@ -291,7 +291,7 @@ int tcGetStartTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const 
             pmCircleTangentVector(&tc->coords.circle.xyz, 0.0, out);
             break;
         default:
-            gomc_log_errorf(log, log_comp, "Invalid motion type %d!", tc->motion_type);
+            stmak_log_errorf(log, log_comp, "Invalid motion type %d!", tc->motion_type);
             return -1;
     }
     return 0;
@@ -315,7 +315,7 @@ int tcGetEndTangentUnitVector(TC_STRUCT const * const tc, PmCartesian * const ou
                     tc->coords.circle.xyz.angle, out);
             break;
         default:
-            gomc_log_errorf(log, log_comp, "Invalid motion type %d!", tc->motion_type);
+            stmak_log_errorf(log, log_comp, "Invalid motion type %d!", tc->motion_type);
             return -1;
     }
     return 0;
@@ -704,7 +704,7 @@ int pmLine9Init(PmLine9 * const line9,
     int uvw_fail = pmCartLineInit(&line9->uvw, &start_uvw, &end_uvw);
 
     if (xyz_fail || abc_fail || uvw_fail) {
-        gomc_log_errorf(log, log_comp, "Failed to initialize Line9, err codes %d, %d, %d",
+        stmak_log_errorf(log, log_comp, "Failed to initialize Line9, err codes %d, %d, %d",
                 xyz_fail,abc_fail,uvw_fail);
         return TP_ERR_FAIL;
     }
@@ -734,7 +734,7 @@ int pmCircle9Init(PmCircle9 * const circ9,
     int res_fit = findSpiralArcLengthFit(&circ9->xyz, &circ9->fit, log, log_comp);
 
     if (xyz_fail || abc_fail || uvw_fail || res_fit) {
-        gomc_log_errorf(log, log_comp, "Failed to initialize Circle9, err codes %d, %d, %d, %d",
+        stmak_log_errorf(log, log_comp, "Failed to initialize Circle9, err codes %d, %d, %d, %d",
                 xyz_fail, abc_fail, uvw_fail, res_fit);
         return TP_ERR_FAIL;
     }
@@ -888,14 +888,14 @@ int tcSetCircleXYZ(TC_STRUCT * const tc, PmCircle const * const circ,
         return TP_ERR_FAIL;
     }
     if (!tc->coords.circle.abc.tmag_zero || !tc->coords.circle.uvw.tmag_zero) {
-        gomc_log_errorf(log, log_comp, "SetCircleXYZ does not support ABC or UVW motion");
+        stmak_log_errorf(log, log_comp, "SetCircleXYZ does not support ABC or UVW motion");
         return TP_ERR_FAIL;
     }
 
     // Store the new circular segment (or use the current one)
 
     if (!circ) {
-        gomc_log_errorf(log, log_comp, "SetCircleXYZ missing new circle definition");
+        stmak_log_errorf(log, log_comp, "SetCircleXYZ missing new circle definition");
         return TP_ERR_FAIL;
     }
 

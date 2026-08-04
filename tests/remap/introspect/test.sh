@@ -1,12 +1,12 @@
 #!/bin/bash
-# Re-expression of the classic Python remap/introspect test on gomc.
+# Re-expression of the classic Python remap/introspect test on stmak.
 # The C interp_ext O-word o<introspect> reads its args plus live interpreter state
 # (feed, spindle speed, named/INI/global params) via the interp_ctx accessors.
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server test.ini
-gomc_wait_ready
+stmak_start_server test.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

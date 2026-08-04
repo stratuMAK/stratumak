@@ -46,7 +46,7 @@ $(COMP_DRIVER_MANPAGES): ../docs/man/man9/%.9: hal/drivers/%.comp ../bin/modcomp
 # keep this make target in 2.6, remove in 2.7 (just use 'clean-manpages' in 2.7+)
 clean-comp-manpages: clean-manpages
 
-# Legacy halstreamer/halsampler — replaced by Go WebSocket clients (gomc/Submakefile)
+# Legacy halstreamer/halsampler — replaced by Go WebSocket clients (stmak/Submakefile)
 #HALSTREAMERSRCS := hal/components/streamer_usr.c
 #USERSRCS += $(HALSTREAMERSRCS)
 #../bin/halstreamer: $(call TOOBJS, $(HALSTREAMERSRCS)) ../lib/liblinuxcnchal.so.0
@@ -119,7 +119,7 @@ hal/components/conv_u32_s32.comp: hal/components/conv.comp.in hal/components/mkc
 # ---------------------------------------------------------------------------
 
 
-CMOD_INCLUDE := gomc/pkg/cmodule
+CMOD_INCLUDE := stmak/pkg/cmodule
 # Shared compile flags for the hand-rolled cmod rules below. Fortify 3 keeps
 # these units at parity with the rest of the build (src/Makefile DEBUG) and
 # the Ubuntu CI runners' builtin default; -U first: Ubuntu's gcc predefines it.
@@ -147,7 +147,7 @@ objects/cmod/%.c: hal/drivers/%.comp ../bin/modcompile
 
 # Step 2b: kinematics comps need the GMI kins API header path.
 # These override the generic pattern rule above for kins modules.
-CMOD_GMI_KINS_API := gomc/generated/gmi/kins
+CMOD_GMI_KINS_API := stmak/generated/gmi/kins
 CMOD_KINS_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_KINS_API)
 
 ../cmod/userkins.so: objects/cmod/userkins.c $(CMOD_GMI_KINS_API)/kins_api.h
@@ -166,8 +166,8 @@ CMOD_KINS_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_
 	$(Q)$(CC) $(CMOD_KINS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 # Step 2c: homecomp needs the GMI home + mot API header paths.
-CMOD_GMI_HOME_API := gomc/generated/gmi/home
-CMOD_GMI_MOT_API := gomc/generated/gmi/mot
+CMOD_GMI_HOME_API := stmak/generated/gmi/home
+CMOD_GMI_MOT_API := stmak/generated/gmi/mot
 CMOD_HOME_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HOME_API) -I $(CMOD_GMI_MOT_API)
 
 ../cmod/homecomp.so: objects/cmod/homecomp.c $(CMOD_GMI_HOME_API)/home_api.h $(CMOD_GMI_MOT_API)/mot_api.h
@@ -176,7 +176,7 @@ CMOD_HOME_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_
 	$(Q)$(CC) $(CMOD_HOME_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 # Step 2d: manualtoolchange needs the GMI manualtoolchange API header path.
-CMOD_GMI_MTC_API := gomc/generated/gmi/manualtoolchange
+CMOD_GMI_MTC_API := stmak/generated/gmi/manualtoolchange
 CMOD_MTC_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_MTC_API)
 
 ../cmod/manualtoolchange.so: objects/cmod/manualtoolchange.c $(CMOD_GMI_MTC_API)/manualtoolchange_api.h
@@ -185,7 +185,7 @@ CMOD_MTC_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_M
 	$(Q)$(CC) $(CMOD_MTC_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 # Step 2e: hm2_serial consumers need the GMI hm2_serial API header path.
-CMOD_GMI_HM2_SERIAL_API := gomc/generated/gmi/hm2_serial
+CMOD_GMI_HM2_SERIAL_API := stmak/generated/gmi/hm2_serial
 
 CMOD_HM2_SERIAL_CFLAGS := -fPIC -g -Os -Wall -shared -I $(CMOD_INCLUDE) -I $(CMOD_GMI_HM2_SERIAL_API)
 
@@ -354,13 +354,13 @@ modules: $(CMOD_USER_TARGETS)
 
 # matrix_kb.so — hand-written cmod (not .comp)
 ../cmod/matrix_kb.so: hal/components/matrix_kb.c \
-                      $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                      $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                       | headers
 	$(ECHO) "Compiling cmod matrix_kb.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
-	    -I. -I../include -Igomc/pkg/cmodule \
+	    -I. -I../include -Istmak/pkg/cmodule \
 	    -o $@ hal/components/matrix_kb.c \
 	    $(CMOD_LDFLAGS) -lm
 
@@ -369,13 +369,13 @@ modules: ../cmod/matrix_kb.so
 
 # sendkeys.so — hand-written cmod (uinput virtual keyboard)
 ../cmod/sendkeys.so: hal/user_comps/sendkeys.c \
-                     $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                     $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                      | headers
 	$(ECHO) "Compiling cmod sendkeys.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule \
+	    -I. -Istmak/pkg/cmodule \
 	    -o $@ hal/user_comps/sendkeys.c \
 	    -lpthread
 TARGETS += ../cmod/sendkeys.so
@@ -383,13 +383,13 @@ modules: ../cmod/sendkeys.so
 
 # shuttle.so — hand-written cmod (Contour Design USB jog devices)
 ../cmod/shuttle.so: hal/user_comps/shuttle.c \
-                    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                     | headers
 	$(ECHO) "Compiling cmod shuttle.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule \
+	    -I. -Istmak/pkg/cmodule \
 	    -o $@ hal/user_comps/shuttle.c \
 	    -lpthread
 TARGETS += ../cmod/shuttle.so
@@ -398,13 +398,13 @@ modules: ../cmod/shuttle.so
 # xhc-hb04.so — hand-written cmod (XHC-HB04 wireless MPG pendant)
 ifdef HAVE_LIBUSB10
 ../cmod/xhc-hb04.so: hal/user_comps/xhc-hb04.c \
-                      $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                      $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                       | headers ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod xhc-hb04.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -Ilibnml/inifile -I../include \
+	    -I. -Istmak/pkg/cmodule -Ilibnml/inifile -I../include \
 	    -o $@ hal/user_comps/xhc-hb04.c \
 	    -lpthread $(LIBUSB10_CFLAGS) $(LIBUSB10_LIBS) -L../lib -liniparse
 TARGETS += ../cmod/xhc-hb04.so
@@ -412,13 +412,13 @@ modules: ../cmod/xhc-hb04.so
 
 # xhc-whb04b-6.so — hand-written cmod (XHC-WHB04B-6 wireless MPG pendant)
 ../cmod/xhc-whb04b-6.so: hal/user_comps/xhc-whb04b-6.c \
-                          $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                          $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                           | headers
 	$(ECHO) "Compiling cmod xhc-whb04b-6.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
+	    -I. -Istmak/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/xhc-whb04b-6.c \
 	    -lpthread $(LIBUSB10_CFLAGS) $(LIBUSB10_LIBS)
 TARGETS += ../cmod/xhc-whb04b-6.so
@@ -427,13 +427,13 @@ endif # HAVE_LIBUSB10
 
 # scorbot-er-3.so — hand-written cmod (Scorbot ER-3 robot arm serial driver)
 ../cmod/scorbot-er-3.so: hal/user_comps/scorbot-er-3.c \
-                          $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                          $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                           | headers
 	$(ECHO) "Compiling cmod scorbot-er-3.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
+	    -I. -Istmak/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/scorbot-er-3.c \
 	    -lpthread
 TARGETS += ../cmod/scorbot-er-3.so
@@ -441,13 +441,13 @@ modules: ../cmod/scorbot-er-3.so
 
 # pmx485.so — hand-written cmod (Hypertherm Powermax RS-485 driver)
 ../cmod/pmx485.so: hal/user_comps/pmx485.c \
-                   $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                   $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                    | headers
 	$(ECHO) "Compiling cmod pmx485.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
+	    -I. -Istmak/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/pmx485.c \
 	    -lpthread
 TARGETS += ../cmod/pmx485.so
@@ -455,13 +455,13 @@ modules: ../cmod/pmx485.so
 
 # mitsub_vfd.so — hand-written cmod (Mitsubishi VFD COMPUTER-LINK driver)
 ../cmod/mitsub_vfd.so: hal/user_comps/mitsub_vfd.c \
-                       $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                       $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                        | headers
 	$(ECHO) "Compiling cmod mitsub_vfd.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
+	    -I. -Istmak/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/mitsub_vfd.c \
 	    -lpthread -lm
 TARGETS += ../cmod/mitsub_vfd.so
@@ -469,13 +469,13 @@ modules: ../cmod/mitsub_vfd.so
 
 # hal_input.so — hand-written cmod (Linux evdev input device driver)
 ../cmod/hal_input.so: hal/user_comps/hal_input.c \
-                      $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                      $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                       | headers
 	$(ECHO) "Compiling cmod hal_input.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
+	    -I. -Istmak/pkg/cmodule -I../include \
 	    -o $@ hal/user_comps/hal_input.c \
 	    -lpthread
 TARGETS += ../cmod/hal_input.so
@@ -483,22 +483,22 @@ modules: ../cmod/hal_input.so
 
 # z_level_compensation.so — hand-written cmod (RT Z-axis surface compensation)
 ../cmod/z_level_compensation.so: hal/components/z_level_compensation.c \
-                                 $(wildcard gomc/pkg/cmodule/gomc_*.h) \
-                                 gomc/generated/gmi/z_level_compensation/z_level_compensation_api.h \
+                                 $(wildcard stmak/pkg/cmodule/stmak_*.h) \
+                                 stmak/generated/gmi/z_level_compensation/z_level_compensation_api.h \
                                  | headers
 	$(ECHO) "Compiling cmod z_level_compensation.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Igomc/pkg/cmodule -I../include \
-	    -Igomc/generated/gmi/z_level_compensation \
+	    -I. -Istmak/pkg/cmodule -I../include \
+	    -Istmak/generated/gmi/z_level_compensation \
 	    -o $@ hal/components/z_level_compensation.c \
 	    -lm
 TARGETS += ../cmod/z_level_compensation.so
 modules: ../cmod/z_level_compensation.so
 
 # sampler — streams HAL pin data to WebSocket clients
-CMOD_GMI_HAL_SAMPLER_API := gomc/generated/gmi/hal_sampler
+CMOD_GMI_HAL_SAMPLER_API := stmak/generated/gmi/hal_sampler
 ../cmod/sampler.so: hal/components/sampler.c $(CMOD_GMI_HAL_SAMPLER_API)/hal_sampler_stream_api.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
@@ -507,7 +507,7 @@ TARGETS += ../cmod/sampler.so
 modules: ../cmod/sampler.so
 
 # streamer — receives WebSocket data and outputs to HAL pins
-CMOD_GMI_HAL_STREAMER_API := gomc/generated/gmi/hal_streamer
+CMOD_GMI_HAL_STREAMER_API := stmak/generated/gmi/hal_streamer
 ../cmod/streamer.so: hal/components/streamer.c $(CMOD_GMI_HAL_STREAMER_API)/hal_streamer_stream_api.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
@@ -526,7 +526,7 @@ modules: ../cmod/filestream.so
 # latency — RT scheduling-latency / jitter measurement.  RT capture + non-RT
 # drainer thread building a server-side histogram, exposed via the latency
 # GMI REST/WS API.
-CMOD_GMI_LATENCY_API := gomc/generated/gmi/latency
+CMOD_GMI_LATENCY_API := stmak/generated/gmi/latency
 ../cmod/latency.so: hal/components/latency.c hal/components/latency_ring.h hal/components/latency_hist.h hal/components/latency_history.h $(CMOD_GMI_LATENCY_API)/latency_api.h
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)

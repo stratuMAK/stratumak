@@ -6,14 +6,14 @@ the cross-cutting hotspot. It covers the abort/estop/lifecycle surface **not** a
 reviewed under the milltask (Phase 0), launcher (#4), HAL (#1), or realtime (#6) reviews:
 
 1. **C RT motion controller** — `src/emc/motion` (enable/disable/estop/abort + homing FSM,
-   incl. the gomc-specific CiA402 drive-internal homing module).
+   incl. the stmak-specific CiA402 drive-internal homing module).
 2. **C iocontrol** — `src/emc/iotask` (estop loop + tool-change handshake), rewritten from
    the 2.9 NML process into two in-process GMI cmods (`ioControl.c` v1, `ioControl_v2.c` v2).
 3. **Go-side lifecycle / connection state machines** — classicladder, halscope, ADS
    (server + module + bridge), mqttbridge, apiserver, ngcpreview, persist_sqlite.
 
 **Method:** three independent read-only AI mapping passes (Go-side / motion-C / iotask-C),
-each classifying every hunk as **verbatim-2.9 (parity, low-risk)** vs **gomc-specific (needs
+each classifying every hunk as **verbatim-2.9 (parity, low-risk)** vs **stmak-specific (needs
 eyes)** and flagging risk signals. The synthesizer (this doc) then read the load-bearing code
 directly and adversarially checked each top finding. Date: 2026-07-20.
 
@@ -31,7 +31,7 @@ All **CONFIRMED** findings are fixed on branch `production-readyness`; C cmods
 - **T1/T2/T3/T4/T5 — iotask abort wedge → FIXED (faithful port, both files).** Root cause
   confirmed against the 2.9 source: 2.9's `ioControl.cc`/`ioControl_v2.cc` are free-running
   loops that service the tool-change wait, the `emc-abort`→`emc-abort-ack` handshake and the
-  fault latch as non-blocking per-cycle state; the gomc port turned each into a blocking cgo
+  fault latch as non-blocking per-cycle state; the stmak port turned each into a blocking cgo
   busy-wait on the sequencer goroutine (and did so unevenly between v1/v2). Restored the 2.9
   semantics: `gmi_get_status` now runs `poll_inputs()` (the async half of `read_inputs()`) on
   the monitor status poll — reaping the abort-ack and latching the toolchanger fault;
@@ -71,7 +71,7 @@ asserts recovery + a fresh MDI each time. Verified: wedges/fails on the pre-fix 
 
 **Headline.** The 2.9-inherited state logic (motion enable/disable/fault funnel, tool-table
 pocket logic, coolant/lube, ESTOP-chain semantics) is faithfully ported and low-risk. Every
-material issue is in **gomc-specific structural changes**: (a) iocontrol's transport moved
+material issue is in **stmak-specific structural changes**: (a) iocontrol's transport moved
 from a free-running NML loop to **synchronous blocking cgo handshakes on the sequencer
 goroutine** — which introduced a *critical, unrecoverable abort wedge* (T1/T2); (b) the
 homing FSM was **relocated + re-gated on `motion_state==FREE`**, which lets an estop strand a
@@ -177,13 +177,13 @@ the drive to Fault or Switch-On-Disabled, the commanded opmode is inert. If esto
 software-only (no STO on this axis), it is a live hazard. Either way the recommended fix is
 cheap defense-in-depth: **`do_cancel` (or the disable edge) should synchronously force
 `opmode_cmd=CSP`, `home_cmd=0`**, not defer to a tick that won't run. This is entirely
-gomc-specific (no 2.9 analog; CiA402 is this fork's primary EtherCAT homing path).
+stmak-specific (no 2.9 analog; CiA402 is this fork's primary EtherCAT homing path).
 
 > **Adjudication needed:** is STO/drive-fault guaranteed on estop for CiA402 axes (safety
 > boundary doc)? If yes → hardening/parity fix. If no → this is load-bearing and urgent.
 
 ### CL1 — classicladder `Stop()` frees the RT struct without joining the modbus goroutines still touching it
-`src/gomc/internal/classicladder/module.go:223-228` (`Stop` → `classicladder_rt_free(m.rt)`)
+`src/stmak/internal/classicladder/module.go:223-228` (`Stop` → `classicladder_rt_free(m.rt)`)
 · `modbus.go:156-174` (`modbusMaster.stop` — cancel only, no join) · loop writes `m.rt` at
 `modbus.go:273,288` (`C.write_var_ext`) · slave `modbus_slave.go:68-91` (no join, blocked
 reads not interruptible)
@@ -240,7 +240,7 @@ use the same `atomic.LoadInt32((*int32)(unsafe.Pointer(&m.rt.state)))`.
 
 ### T4 — iocontrol has no read loop; toolchanger fault-latch / clear-fault only advance inside a handshake window
 `ioControl_v2.c:777-788,844-876`. **CONFIRMED (structural) / PLAUSIBLE (impact).** The 2.9
-NML process read HAL every cycle; the gomc cmod reads only inside the prepare/change
+NML process read HAL every cycle; the stmak cmod reads only inside the prepare/change
 busy-loops. A `toolchanger_fault` (or a `clear_fault`) asserted while idle is not observed
 until the next change enters its loop. Behavioral divergence from 2.9 — verify against real
 toolchanger timing.
@@ -308,7 +308,7 @@ atomic (or per-topic). The paho reconnect/`onConnect`-resubscribe design itself 
   streams) and is worth citing as the reference pattern.
 - **ADS3 — accept-loop busy-spin on persistent errors** (`ads/server.go:114-121`, `continue`
   with no backoff → hot loop under EMFILE). **PLAUSIBLE** — add a small backoff.
-- **B4/B6 (motion) — informational.** ABORT scrubs the new gomc sequence-FSM state only in
+- **B4/B6 (motion) — informational.** ABORT scrubs the new stmak sequence-FSM state only in
   `command.c:601-603`; the user→RT `send_command` path (`motctl_handlers.c:57-87`) is now
   serialized by `send_mtx` (commit `104f633164`) so intra-process command drops are closed,
   but ABORT/DISABLE still block up to `comm_timeout` and return −1 on RT comm-loss with no
@@ -333,9 +333,9 @@ atomic (or per-topic). The paho reconnect/`onConnect`-resubscribe design itself 
   pyvcpmodule, config/inirest/inifile/halparse/modcompile/adsconfig** — synchronous,
   mutex-guarded, or cancellation-driven; no state-machine/abort hazard found.
 - **motion homing-sequence FSM rewrite** (`do_homing_sequence`, `control.c:133-328`) — a
-  gomc reimplementation of proven 2.9 `homing.c` sequencing; not obviously wrong, but warrants
+  stmak reimplementation of proven 2.9 `homing.c` sequencing; not obviously wrong, but warrants
   a line-by-line diff against 2.9 (the edge-triggered completion + `homing_active` force-clear
-  at `control.c:310-327` is gomc-original reasoning). Tracked as **C2** (review, not a
+  at `control.c:310-327` is stmak-original reasoning). Tracked as **C2** (review, not a
   confirmed defect).
 
 ---

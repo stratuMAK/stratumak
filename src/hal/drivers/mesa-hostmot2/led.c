@@ -80,7 +80,7 @@ int hm2_led_parse_md(hostmot2_t *hm2, int md_index) {
         char name[256];
         for (i = 0 ; i < hm2->config.num_leds ; i++) {
             snprintf(name, sizeof(name), "%s.led.CR%02d", hm2->llio->name, i + 1 );
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->led.instance[i].led), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->led.instance[i].led), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -98,7 +98,7 @@ int hm2_led_parse_md(hostmot2_t *hm2, int md_index) {
     }
 }
 
-void hm2_led_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_led_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     uint32_t regval = 0;
     int i;
 

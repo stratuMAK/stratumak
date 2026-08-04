@@ -15,7 +15,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -24,19 +24,19 @@
 #define MAX_BITS 16
 
 typedef struct {
-    gomc_hal_bit_t *bit;
-    gomc_hal_s32_t *weight;
+    stmak_hal_bit_t *bit;
+    stmak_hal_s32_t *weight;
 } wsum_bit_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     int num_bits;
-    gomc_hal_s32_t *sum;
-    gomc_hal_s32_t *offset;
-    gomc_hal_bit_t *hold;
+    stmak_hal_s32_t *sum;
+    stmak_hal_s32_t *offset;
+    stmak_hal_bit_t *hold;
     wsum_bit_t bits[MAX_BITS];
 } inst_t;
 
@@ -76,7 +76,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_bits < 1 || num_bits > MAX_BITS) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "num_bits=%d out of range (1..%d)", num_bits, MAX_BITS);
         return -EINVAL;
     }
@@ -90,31 +90,31 @@ int New(const cmod_env_t *env, const char *name,
     inst->num_bits = num_bits;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     /* output sum pin */
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &inst->sum, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &inst->sum, inst->comp_id,
                               "%s.sum", name);
     if (r != 0) goto err;
 
     /* offset pin */
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IO, &inst->offset, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IO, &inst->offset, inst->comp_id,
                               "%s.offset", name);
     if (r != 0) goto err;
 
     /* hold pin */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->hold, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->hold, inst->comp_id,
                               "%s.hold", name);
     if (r != 0) goto err;
 
     /* per-bit pins */
     w = 1;
     for (i = 0; i < num_bits; i++) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->bits[i].bit,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->bits[i].bit,
                                   inst->comp_id, "%s.bit.%d.in", name, i);
         if (r != 0) goto err;
-        r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IO, &inst->bits[i].weight,
+        r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IO, &inst->bits[i].weight,
                                   inst->comp_id, "%s.bit.%d.weight", name, i);
         if (r != 0) goto err;
         *(inst->bits[i].weight) = w;

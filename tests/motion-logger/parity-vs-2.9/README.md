@@ -1,18 +1,18 @@
 # motion-logger parity vs LinuxCNC 2.9.8
 
-Certifies the gomc milltask's `tests/motion-logger/` gold against the **real
+Certifies the stmak milltask's `tests/motion-logger/` gold against the **real
 LinuxCNC 2.9.8 milltask**, by diffing the two through a shared normalizer that
 strips format spelling and NML-vs-GMI init/config noise. What survives is real
 milltask behaviour to adjudicate.
 
 This is a **validation harness**, not a runtests test. It does not run in CI.
 The everyday CI test is `tests/motion-logger/basic/` itself, which regresses the
-gomc gold against gomc. This harness answers the *other* question: is that gold
+stmak gold against stmak. This harness answers the *other* question: is that gold
 actually right, or is it enshrining a regression vs 2.9?
 
 ## Why this works with zero new instrumentation
 
-The gomc interceptor cmod (`src/emc/motion-logger/motion_logger_cmod.c`) is a
+The stmak interceptor cmod (`src/emc/motion-logger/motion_logger_cmod.c`) is a
 near-verbatim port of the classic 2.9 `src/emc/motion-logger/motion-logger.c`;
 the `SET_LINE` line format is byte-identical. And the 2.9 tree already ships the
 same `tests/motion-logger/basic/` test with checked-in gold captured by the real
@@ -37,7 +37,7 @@ The 2.9.8 oracle is **vendored** into `oracle-2.9/` (pinned, with provenance in
 ./compare.sh basic           # all three basic/ segments
 ./compare.sh basic/g1        # one segment
 ./compare.sh mountaindew m98m99-12
-./compare.sh --self          # determinism check: gomc gold vs itself (all PARITY)
+./compare.sh --self          # determinism check: stmak gold vs itself (all PARITY)
 ```
 
 Exit 0 = parity for every requested target; 1 = at least one diverged (diff
@@ -59,19 +59,19 @@ move-class opcode — see `canonicalize.awk`). Both are pure NML-vs-GMI plumbing
 ## Layout
 
 ```
-targets.sh        shared target table (label, oracle path, gomc path, strip)
+targets.sh        shared target table (label, oracle path, stmak path, strip)
 sync-oracle.sh    vendor 2.9 golds into oracle-2.9/ + write MANIFEST (reads $LCNC29)
 oracle-2.9/       vendored 2.9.8 golds (committed) + MANIFEST provenance
 canonicalize.awk  keep behavioural motion opcodes, drop init/config, strip fields
 normalize.sh      canonicalize.awk | %.4f round   [--strip-preamble]
-compare.sh        diff gomc gold vs vendored oracle through the normalizer
+compare.sh        diff stmak gold vs vendored oracle through the normalizer
 PARITY_FINDINGS.md  adjudication log (the load-bearing certification record)
 ```
 
 Adding a test: vendor its 2.9 gold (add a row to `targets.sh`, re-run
 `sync-oracle.sh`) and it joins `compare.sh`. Coverage today is every parity-able
 motion-logger test; `startup-gcode-abort` (incomparable oracle — 2.9 defers the
-startup move, gomc dispatches it at estop) and the two `abort/*-crazy-move`
+startup move, stmak dispatches it at estop) and the two `abort/*-crazy-move`
 tests (real core_sim motion, judged by axis position not a logger gold) are
 enabled in runtests but excluded here (see `targets.sh` / `PARITY_FINDINGS.md`).
 
@@ -95,14 +95,14 @@ enabled in runtests but excluded here (see `targets.sh` / `PARITY_FINDINGS.md`).
 ## Workflow
 
 1. Run `./compare.sh`; each surviving diff is a candidate finding.
-2. For each finding: **real bug** → fix gomc, re-capture the affected
+2. For each finding: **real bug** → fix stmak, re-capture the affected
    `expected.*`, re-run; **benign** → record it in `PARITY_FINDINGS.md` with the
    reason it is acceptable.
 3. When `PARITY_FINDINGS.md` accounts for every surviving diff, the committed
-   gomc gold is *certified against 2.9.8*. Routine runs of this harness become
+   stmak gold is *certified against 2.9.8*. Routine runs of this harness become
    optional; `tests/motion-logger/` carries the frozen, certified gold from
    there on.
 
 This is the one moment the 2.9 linkage exists — after the freeze the runtests
-tests only guard against regressing away from the certified gomc gold, so the
+tests only guard against regressing away from the certified stmak gold, so the
 adjudication in `PARITY_FINDINGS.md` is load-bearing. Keep it.

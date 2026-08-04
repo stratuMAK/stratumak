@@ -532,7 +532,7 @@ fe () {
 if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_LATENCY_SCRIPT=$EMC2_HOME/scripts/latency-test
     EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_HOME/scripts/latency-histogram
-    EMC2_SCRIPT=$EMC2_HOME/bin/gomc-server
+    EMC2_SCRIPT=$EMC2_HOME/bin/stmakd
     EMC2_SUFFIX=" (run-in-place)"
     EMC2_ICON=$EMC2_HOME/linuxcncicon.png
     EMC2_BIN_DIR=$EMC2_HOME/bin
@@ -559,7 +559,7 @@ else
     EMC2_BIN_DIR=${prefix}/bin
     EMC2_LATENCY_SCRIPT=$EMC2_BIN_DIR/latency-test
     EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_BIN_DIR/latency-histogram
-    EMC2_SCRIPT=$EMC2_BIN_DIR/gomc-server
+    EMC2_SCRIPT=$EMC2_BIN_DIR/stmakd
     EMC2_SUFFIX=""
     EMC2_ICON=linuxcncicon
     EMC2_TCL_DIR=${prefix}/lib/tcltk/linuxcnc
@@ -588,7 +588,7 @@ else
     # autoconf's default it would be ${prefix}/var, which is right for a
     # /usr/local install and wrong for a package.
     EMC2_STATE_DIR=$(fe "$localstatedir")/lib/stratumak
-    # The pristine, package-owned server. /usr/bin/gomc-server is a symlink
+    # The pristine, package-owned server. /usr/bin/stmakd is a symlink
     # chain onto this; a local rebuild replaces one link in the chain and never
     # this file. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
     #

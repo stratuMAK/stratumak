@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-# --- gomc compatibility shim (prepended) --------------------------------------
-# Makes the original NML-based driver body run against the gomc REST/WS API:
+# --- stmak compatibility shim (prepended) --------------------------------------
+# Makes the original NML-based driver body run against the stmak REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
 import gmi as _gmi
-import gomc_test as _gomc_test
+import stmak_test as _stmak_test
 from gmi.constants import *
 import subprocess as _subprocess
 
 
 class _LinuxcncCompat:
-    # gomc_test.Command, not _gmi.Command: gmi's wait_complete() reports a
+    # stmak_test.Command, not _gmi.Command: gmi's wait_complete() reports a
     # timed-out wait as -1 in a normal 200 body, so the bare c.wait_complete()
     # calls below would silently proceed against an unsettled machine, and the
     # resulting mismatch would surface as a bogus TLO value somewhere later.
     # The strict subclass raises at the point the sync was actually lost.
-    command = staticmethod(_gomc_test.Command)
+    command = staticmethod(_stmak_test.Command)
     stat = staticmethod(_gmi.Stat)
     error_channel = staticmethod(_gmi.ErrorChannel)
     ini = staticmethod(_gmi.IniFile)
@@ -119,7 +119,7 @@ def verify_pin_value(pin_name, value):
 
 
 def get_interp_param(param_number):
-    # gomc: the emcerror WS watch destructively flushes queued messages and the
+    # stmak: the emcerror WS watch destructively flushes queued messages and the
     # push loop suppresses byte-identical consecutive payloads, so a DEBUG
     # display that repeats the previous one within a watch tick is LOST (see
     # PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
@@ -128,7 +128,7 @@ def get_interp_param(param_number):
         time.sleep(0.3)
         c.mdi("(debug, #%d)" % param_number)
         # Spinning on a -1 return used to be the only way to tell a timed-out
-        # wait from a completed one. gomc_test.Command raises instead, so what
+        # wait from a completed one. stmak_test.Command raises instead, so what
         # this loop expressed is now the exception path.
         c.wait_complete()
 
@@ -209,7 +209,7 @@ h.newpin("tool-number", hal.HAL_S32, hal.HAL_IN)
 
 h.ready() # mark the component as 'ready'
 
-# gomc: no postgui.hal — the shim's h[...] reads the HAL signals directly
+# stmak: no postgui.hal — the shim's h[...] reads the HAL signals directly
 # (the classic python-ui pins don't exist), so there is nothing to net.
 
 
@@ -305,8 +305,8 @@ while (time.time() - start) < 2:
 
 c.mdi('g43.2')
 c.wait_complete()
-# gomc: the error arrives via the WS error channel within a watch tick — poll
-# for it (classic NML delivered synchronously), and match as substring (gomc
+# stmak: the error arrives via the WS error channel within a watch tick — poll
+# for it (classic NML delivered synchronously), and match as substring (stmak
 # wraps interp errors with the execute context).
 error = None
 start = time.time()

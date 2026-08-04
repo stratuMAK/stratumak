@@ -1,14 +1,14 @@
 #!/bin/bash
-# Dedicated test for the gomc mcode_handler API (user M100-M199 implementation,
+# Dedicated test for the stmak mcode_handler API (user M100-M199 implementation,
 # the replacement for classic USER_M_PATH python/shell M-codes).  A cmod
 # (test_mcode_handler) registers an M101 handler via register_handler(); we
 # drive M101 P Q through the remote (rsh2gmi.py) interface and confirm the
 # handler was dispatched with the right P/Q and ran to completion.
 set -x
-. ../gomc-driver.sh
+. ../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server sim.ini
-gomc_wait_ready
+stmak_start_server sim.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

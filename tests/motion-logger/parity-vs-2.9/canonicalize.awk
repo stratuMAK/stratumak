@@ -1,12 +1,12 @@
 # canonicalize.awk — reduce a motion-logger capture to a common canonical
 # MOTION stream so that a diff between the classic LinuxCNC 2.9 milltask and the
-# gomc milltask shows only REAL behavioural differences, not format spelling or
+# stmak milltask shows only REAL behavioural differences, not format spelling or
 # NML-vs-GMI init/config noise.
 #
 # Accepts EITHER dialect:
 #   * classic 2.9 `src/emc/motion-logger/motion-logger.c`  (the checked-in
 #     tests/motion-logger/*/expected.* gold in the 2.9 tree)
-#   * gomc interceptor cmod `src/emc/motion-logger/motion_logger_cmod.c`
+#   * stmak interceptor cmod `src/emc/motion-logger/motion_logger_cmod.c`
 # The two share the SET_LINE format verbatim; they differ in a handful of
 # fields and in which init/config commands they emit.
 #
@@ -22,20 +22,20 @@
 #
 # Strip fields that carry no cross-tree meaning or differ only in spelling:
 #   SET_LINE / SET_CIRCLE : drop `id=N`  — the two trees number motion ids on
-#       different schemes (2.9 = running canonical-op counter, gomc = per-move);
+#       different schemes (2.9 = running canonical-op counter, stmak = per-move);
 #       id is a GUI current-line tracker, not a motion parameter.
 #   SET_VEL               : keep `vel=`, drop the 2.9-only `, ini_maxvel=` tail.
 #   SET_SPINDLESYNC       : keep `sync=`, drop the trailing field (2.9 `flags=`
-#       vs gomc `motion_type=` are incomparable encodings).
+#       vs stmak `motion_type=` are incomparable encodings).
 #   SET_CIRCLE            : multi-line; drop the 2.9-only `pos:` continuation
-#       (the gomc cmod does not log it), keep center/normal/id(stripped).
+#       (the stmak cmod does not log it), keep center/normal/id(stripped).
 #
 # unit_factor (machine-units -> mm)
 # ---------------------------------
-# gomc runs the motion stream in millimetres end to end, while 2.9 emits it in
+# stmak runs the motion stream in millimetres end to end, while 2.9 emits it in
 # the machine's units ([TRAJ]LINEAR_UNITS — inch for the current corpus). Run
 # the ORACLE side with `-v unit_factor=25.4` to bring its length-dimensioned
-# fields to mm; the gomc side runs with factor 1. Scaled per opcode:
+# fields to mm; the stmak side runs with factor 1. Scaled per opcode:
 #   SET_LINE     : x,y,z,u,v,w (positions) and vel,ini_maxvel,acc (dynamics —
 #                  2.9's toExtVel emits TO_EXT_LEN for any move with a linear
 #                  component; see the pure-angular caveat below)

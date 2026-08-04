@@ -2,7 +2,7 @@
 // Copyright 2016 Dewey Garrett. License: GPL Version 2
 
 #include <math.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "kins_api.h"
 
 #ifndef M_PI
@@ -16,13 +16,13 @@ static double my_hypot(double a, double b) { return sqrt(a * a + b * b); }
 
 // ─── HAL pins ───
 
-static const gomc_hal_t *g_hal;
+static const stmak_hal_t *g_hal;
 static int               g_comp_id;
 
 struct haldata {
-    gomc_hal_float_t *revolutions;
-    gomc_hal_float_t *theta_degrees;
-    gomc_hal_float_t *bigtheta_degrees;
+    stmak_hal_float_t *revolutions;
+    stmak_hal_float_t *theta_degrees;
+    stmak_hal_float_t *bigtheta_degrees;
 };
 static struct haldata *haldata;
 
@@ -127,26 +127,26 @@ int New(const cmod_env_t *env, const char *name,
     (void)argc; (void)argv;
 
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
 
     g_comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                               GOMC_HAL_COMP_REALTIME);
+                               STMAK_HAL_COMP_REALTIME);
     if (g_comp_id < 0) return g_comp_id;
 
     haldata = env->hal->malloc(env->hal->ctx, sizeof(struct haldata));
     if (!haldata) { g_hal->exit(g_hal->ctx, g_comp_id); return -1; }
 
     int rc;
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &haldata->revolutions,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &haldata->revolutions,
                                  g_comp_id, "%s.revolutions", name);
     if (rc < 0) goto fail;
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &haldata->theta_degrees,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &haldata->theta_degrees,
                                  g_comp_id, "%s.theta_degrees", name);
     if (rc < 0) goto fail;
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &haldata->bigtheta_degrees,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &haldata->bigtheta_degrees,
                                  g_comp_id, "%s.bigtheta_degrees", name);
     if (rc < 0) goto fail;
 
@@ -154,7 +154,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &rosekins_callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "failed to register kinematics API: %d", rc);
         goto fail;
     }

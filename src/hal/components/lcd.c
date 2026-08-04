@@ -26,7 +26,7 @@
 #include <errno.h>
 #include <stdint.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 
 #define MAX_ENTRY 20
 
@@ -122,13 +122,13 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!fmt_string || !fmt_string[0]) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "The LCD component requires a 'fmt=' parameter");
         return -EINVAL;
     }
 
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -EINVAL;
     }
 
@@ -139,9 +139,9 @@ int New(const cmod_env_t *env, const char *name,
     snprintf(priv->name, sizeof(priv->name), "%s", name);
 
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        gomc_log_errorf(env->log, name, "hal init failed");
+        stmak_log_errorf(env->log, name, "hal init failed");
         free(priv);
         return -1;
     }
@@ -153,7 +153,7 @@ int New(const cmod_env_t *env, const char *name,
     int fmt_len = strlen(fmt_string);
     char *fmt_copy = (char *)env->hal->malloc(env->hal->ctx, fmt_len + 1);
     if (!fmt_copy) {
-        gomc_log_errorf(env->log, name, "Out of memory");
+        stmak_log_errorf(env->log, name, "Out of memory");
         env->hal->exit(env->hal->ctx, priv->comp_id);
         free(priv);
         return -ENOMEM;
@@ -167,7 +167,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->pages = (lcd_page_t *)env->hal->malloc(env->hal->ctx,
                                                   inst->num_pages * sizeof(lcd_page_t));
     if (!inst->pages) {
-        gomc_log_errorf(env->log, name, "Out of memory");
+        stmak_log_errorf(env->log, name, "Out of memory");
         env->hal->exit(env->hal->ctx, priv->comp_id);
         free(priv);
         return -ENOMEM;
@@ -205,7 +205,7 @@ int New(const cmod_env_t *env, const char *name,
                             snprintf(pin_name, sizeof(pin_name),
                                      "%s.page.%02i.arg.%02i", name, p, a);
                             retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                                         GOMC_HAL_FLOAT, GOMC_HAL_IN,
+                                         STMAK_HAL_FLOAT, STMAK_HAL_IN,
                                          (void **)&(inst->pages[p].args[a]),
                                          priv->comp_id);
                             if (retval != 0) goto fail;
@@ -215,7 +215,7 @@ int New(const cmod_env_t *env, const char *name,
                             snprintf(pin_name, sizeof(pin_name),
                                      "%s.page.%02i.arg.%02i", name, p, a);
                             retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                                         GOMC_HAL_U32, GOMC_HAL_IN,
+                                         STMAK_HAL_U32, STMAK_HAL_IN,
                                          (void **)&(inst->pages[p].args[a]),
                                          priv->comp_id);
                             if (retval != 0) goto fail;
@@ -224,7 +224,7 @@ int New(const cmod_env_t *env, const char *name,
                             snprintf(pin_name, sizeof(pin_name),
                                      "%s.page.%02i.arg.%02i", name, p, a);
                             retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                                         GOMC_HAL_S32, GOMC_HAL_IN,
+                                         STMAK_HAL_S32, STMAK_HAL_IN,
                                          (void **)&(inst->pages[p].args[a]),
                                          priv->comp_id);
                             if (retval != 0) goto fail;
@@ -233,7 +233,7 @@ int New(const cmod_env_t *env, const char *name,
                             snprintf(pin_name, sizeof(pin_name),
                                      "%s.page.%02i.arg.%02i", name, p, a);
                             retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                                         GOMC_HAL_BIT, GOMC_HAL_IN,
+                                         STMAK_HAL_BIT, STMAK_HAL_IN,
                                          (void **)&(inst->pages[p].args[a]),
                                          priv->comp_id);
                             if (retval != 0) goto fail;
@@ -250,7 +250,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     do_write, inst, 1, 0, priv->comp_id);
     if (retval < 0) {
-        gomc_log_errorf(env->log, name, "function export failed");
+        stmak_log_errorf(env->log, name, "function export failed");
         goto fail;
     }
 
@@ -260,25 +260,25 @@ int New(const cmod_env_t *env, const char *name,
 
         snprintf(pin_name, sizeof(pin_name), "%s.page_num", name);
         retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                     GOMC_HAL_U32, GOMC_HAL_IN,
+                     STMAK_HAL_U32, STMAK_HAL_IN,
                      (void **)&inst->page_num, priv->comp_id);
         if (retval != 0) goto fail;
 
         snprintf(pin_name, sizeof(pin_name), "%s.out", name);
         retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                     GOMC_HAL_U32, GOMC_HAL_OUT,
+                     STMAK_HAL_U32, STMAK_HAL_OUT,
                      (void **)&inst->out, priv->comp_id);
         if (retval != 0) goto fail;
 
         snprintf(pin_name, sizeof(pin_name), "%s.contrast", name);
         retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                     GOMC_HAL_FLOAT, GOMC_HAL_IN,
+                     STMAK_HAL_FLOAT, STMAK_HAL_IN,
                      (void **)&inst->contrast, priv->comp_id);
         if (retval != 0) goto fail;
 
         snprintf(pin_name, sizeof(pin_name), "%s.decimal-separator", name);
         retval = env->hal->param_new(env->hal->ctx, pin_name,
-                     GOMC_HAL_U32, GOMC_HAL_RW,
+                     STMAK_HAL_U32, STMAK_HAL_RW,
                      (void *)&inst->dp, priv->comp_id);
         if (retval != 0) goto fail;
     }

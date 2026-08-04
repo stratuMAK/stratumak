@@ -2,7 +2,7 @@
 # Check that the right range of values can be assigned to HAL pins of various
 # types, regardless of the value's Python type.
 #
-# Classic drove this via the userspace Python `hal` binding.  gomc has no
+# Classic drove this via the userspace Python `hal` binding.  stmak has no
 # userspace components, so the s32/u32/float pins are created server-side by
 # haljson and driven from the gmi python client over REST — where the same
 # range coercion applies (haljson.writePin -> json int32/uint32/float64,

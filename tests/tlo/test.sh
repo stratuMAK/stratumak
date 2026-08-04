@@ -1,12 +1,12 @@
 #!/bin/bash
 rm -f sim.var*
-# gomc persists interp params and the tool table in db/ (sqlite), not in
+# stmak persists interp params and the tool table in db/ (sqlite), not in
 # sim.var / the .tbl file — wipe it so each run starts fresh (the driver sets
 # a G54 rotation that would otherwise leak into the next run) and the copied
 # .tbl below is re-imported.
 rm -rf db
 cp -f simpockets.tbl.original simpockets.tbl 2>/dev/null
-gomc-server -r g43-test.ini >server.log 2>&1 &
+stmakd -r g43-test.ini >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done

@@ -4,10 +4,10 @@ SAISRCS := $(addprefix emc/sai/, saicanon.cc driver.cc sai_tooltable.cc)
 USERSRCS += $(SAISRCS)
 
 # interp_internal.hh transitively includes canon_api.h via canon_interface.hh
-$(call TOOBJSDEPS, $(SAISRCS)): gomc/generated/gmi/canon/canon_api.h
+$(call TOOBJSDEPS, $(SAISRCS)): stmak/generated/gmi/canon/canon_api.h
 # interp_ext.h transitively includes interp_ext_api.h / interp_ctx_api.h
-$(call TOOBJSDEPS, $(SAISRCS)): EXTRAFLAGS += -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx
-$(call TOOBJSDEPS, $(SAISRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h gomc/generated/gmi/interp_ctx/interp_ctx_api.h
+$(call TOOBJSDEPS, $(SAISRCS)): EXTRAFLAGS += -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx
+$(call TOOBJSDEPS, $(SAISRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h stmak/generated/gmi/interp_ctx/interp_ctx_api.h
 
 INCLUDES += emc/sai
 

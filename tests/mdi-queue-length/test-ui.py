@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import math
@@ -39,7 +39,7 @@ def wait_for_mdi_queue(queue_len, timeout=10):
     sys.exit(1)
 
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 

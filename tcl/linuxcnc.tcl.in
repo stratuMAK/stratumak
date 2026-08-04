@@ -58,7 +58,7 @@ proc linuxcnc::image_search i {
     error "image $i is not available"
 }
 
-# NML Tcl extension removed — commands now handled via gomc-server
+# NML Tcl extension removed — commands now handled via stmakd
 # load [file join [file dirname [info script]] linuxcnc[info sharedlibextension]]
 
 # The removed extension was what satisfied `package require Linuxcnc`: emcsh.cc

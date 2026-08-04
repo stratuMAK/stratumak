@@ -28,7 +28,7 @@ current position instead of sending anything.
 Exit status is 1 if the line could not be issued or the machine reported an
 error executing it.
 
-The machine is addressed over the gomc REST API: GMC_REST_URL selects the
+The machine is addressed over the stmak REST API: GMC_REST_URL selects the
 server, GMC_INSTANCE the task instance.
 '''
 import sys
@@ -45,7 +45,7 @@ _ERROR_KINDS = (NML_ERROR, OPERATOR_ERROR)
 class Notifier:
     """Prints the operator messages a command produced.
 
-    gomc answers POST /mdi with an RCS status only; the reason for a refusal —
+    stmak answers POST /mdi with an RCS status only; the reason for a refusal —
     and any `(MSG,…)`/`(DEBUG,…)` output — travels on the server's message
     list, the same one a running GUI renders. This reads that list and never
     acknowledges anything, so nothing is taken away from the GUI. An

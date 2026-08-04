@@ -1,6 +1,6 @@
 .TH modcompile "1" "2026-08-02" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-modcompile \- compile HAL components, generate GMI code, manage gomc-server packages
+modcompile \- compile HAL components, generate GMI code, manage stmakd packages
 
 .SH SYNOPSIS
 .B modcompile
@@ -39,7 +39,7 @@ files.
 It also generates client and server code from
 .B .gmi
 interface definitions, and manages the Go packages compiled into
-.BR gomc-server .
+.BR stmakd .
 
 .SH OPTIONS
 .SS Component compilation (.comp)
@@ -87,16 +87,16 @@ variants generate WebSocket clients.
 .TP
 .B list
 List the packages compiled into
-.BR gomc-server .
+.BR stmakd .
 .TP
 .B rebuild
 Regenerate imports and rebuild
-.B gomc-server
+.B stmakd
 from
 .BR packages.conf .
 .TP
 .BI add-gomod " dir"
-Copy a Go package into the gomc tree, register it, and rebuild.
+Copy a Go package into the stmak tree, register it, and rebuild.
 .TP
 .BI rm-gomod " name"
 Unregister a package, delete its source, and rebuild.
@@ -110,8 +110,8 @@ input is no longer accepted.
 .BR \-\-cflags ", " \-\-ldflags
 Compiler and linker flags for cmod components.
 .TP
-.BR \-\-cmod-dir ", " \-\-include-dir ", " \-\-gomc-dir
-Installation directory, header directory, and gomc Go module source
+.BR \-\-cmod-dir ", " \-\-include-dir ", " \-\-stmak-dir
+Installation directory, header directory, and stmak Go module source
 directory.
 .TP
 .BR \-\-go

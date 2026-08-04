@@ -20,8 +20,8 @@
 //   Linux uinput.  HAL pins drive key events into the kernel input subsystem.
 //
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <linux/uinput.h>
 #include <unistd.h>
@@ -39,11 +39,11 @@
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    gomc_hal_u32_t *keycode;
-    gomc_hal_s32_t *current_event;
-    gomc_hal_bit_t *init;
-    gomc_hal_bit_t **trigger;
-    gomc_hal_u32_t *event;      /* array of event params */
+    stmak_hal_u32_t *keycode;
+    stmak_hal_s32_t *current_event;
+    stmak_hal_bit_t *init;
+    stmak_hal_bit_t **trigger;
+    stmak_hal_u32_t *event;      /* array of event params */
 } sendkeys_hal_t;
 
 typedef struct {
@@ -53,7 +53,7 @@ typedef struct {
     bool inited;
     int fd;
     bool *prev;
-    gomc_hal_u32_t oldcode;
+    stmak_hal_u32_t oldcode;
 } sendkeys_param_t;
 
 typedef struct {
@@ -89,7 +89,7 @@ static void *sendkeys_loop(void *arg) {
     sendkeys_inst_t *inst = (sendkeys_inst_t *)arg;
     struct pollfd pfd = { .fd = inst->exit_fd, .events = POLLIN };
 
-    while (!gomc_should_exit(inst->exit_fd)) {
+    while (!stmak_should_exit(inst->exit_fd)) {
         for (int i = 0; i < inst->num_insts; i++) {
             sendkeys_hal_t *hal = &inst->hal[i];
             sendkeys_param_t *param = &inst->param[i];
@@ -105,7 +105,7 @@ static void *sendkeys_loop(void *arg) {
             if (*hal->init && !param->inited) {
                 param->fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
                 if (param->fd < 0) {
-                    gomc_log_errorf(inst->env->log, "sendkeys",
+                    stmak_log_errorf(inst->env->log, "sendkeys",
                         "Cannot open /dev/uinput. Suggest chmod 666 /dev/uinput\n");
                     continue;
                 }
@@ -220,7 +220,7 @@ static int parse_config(sendkeys_inst_t *inst, int argc, const char **argv) {
 
     inst->num_insts = index + 1;
     if (inst->num_insts <= 0) {
-        gomc_log_errorf(inst->env->log, "sendkeys",
+        stmak_log_errorf(inst->env->log, "sendkeys",
             "no config= argument provided (e.g. config=S5T2)\n");
         free(codes); free(pins); return -1;
     }
@@ -236,15 +236,15 @@ static int parse_config(sendkeys_inst_t *inst, int argc, const char **argv) {
         sendkeys_param_t *param = &inst->param[i];
         int r;
 
-        r = gomc_hal_pin_u32_newf(inst->env->hal, GOMC_HAL_IN,
+        r = stmak_hal_pin_u32_newf(inst->env->hal, STMAK_HAL_IN,
             &hal->keycode, inst->comp_id, "sendkeys.%d.keycode", i);
         if (r != 0) goto fail;
 
-        r = gomc_hal_pin_s32_newf(inst->env->hal, GOMC_HAL_OUT,
+        r = stmak_hal_pin_s32_newf(inst->env->hal, STMAK_HAL_OUT,
             &hal->current_event, inst->comp_id, "sendkeys.%d.current-event", i);
         if (r != 0) goto fail;
 
-        r = gomc_hal_pin_bit_newf(inst->env->hal, GOMC_HAL_IN,
+        r = stmak_hal_pin_bit_newf(inst->env->hal, STMAK_HAL_IN,
             &hal->init, inst->comp_id, "sendkeys.%d.init", i);
         if (r != 0) goto fail;
 
@@ -254,32 +254,32 @@ static int parse_config(sendkeys_inst_t *inst, int argc, const char **argv) {
         param->fd = -1;
 
         /* Event params (scan-event-NN + pin-event-NN) */
-        hal->event = (gomc_hal_u32_t *)inst->env->hal->malloc(
-            inst->env->hal->ctx, param->num_events * sizeof(gomc_hal_u32_t));
+        hal->event = (stmak_hal_u32_t *)inst->env->hal->malloc(
+            inst->env->hal->ctx, param->num_events * sizeof(stmak_hal_u32_t));
         if (!hal->event) goto fail;
-        memset((void *)hal->event, 0, param->num_events * sizeof(gomc_hal_u32_t));
+        memset((void *)hal->event, 0, param->num_events * sizeof(stmak_hal_u32_t));
 
         for (int j = 0; j < param->num_codes; j++) {
-            r = gomc_hal_param_u32_newf(inst->env->hal, GOMC_HAL_RW,
+            r = stmak_hal_param_u32_newf(inst->env->hal, STMAK_HAL_RW,
                 &hal->event[j], inst->comp_id, "sendkeys.%d.scan-event-%02d", i, j);
             if (r != 0) goto fail;
         }
         for (int j = 0; j < param->num_triggers; j++) {
-            r = gomc_hal_param_u32_newf(inst->env->hal, GOMC_HAL_RW,
+            r = stmak_hal_param_u32_newf(inst->env->hal, STMAK_HAL_RW,
                 &hal->event[j + param->num_codes], inst->comp_id,
                 "sendkeys.%d.pin-event-%02d", i, j);
             if (r != 0) goto fail;
         }
 
         /* Trigger pins */
-        hal->trigger = (gomc_hal_bit_t **)inst->env->hal->malloc(
-            inst->env->hal->ctx, param->num_triggers * sizeof(gomc_hal_bit_t *));
+        hal->trigger = (stmak_hal_bit_t **)inst->env->hal->malloc(
+            inst->env->hal->ctx, param->num_triggers * sizeof(stmak_hal_bit_t *));
         if (!hal->trigger && param->num_triggers > 0) goto fail;
         param->prev = calloc(param->num_triggers, sizeof(bool));
         if (!param->prev && param->num_triggers > 0) goto fail;
 
         for (int j = 0; j < param->num_triggers; j++) {
-            r = gomc_hal_pin_bit_newf(inst->env->hal, GOMC_HAL_IN,
+            r = stmak_hal_pin_bit_newf(inst->env->hal, STMAK_HAL_IN,
                 &hal->trigger[j], inst->comp_id, "sendkeys.%d.trigger-%02d", i, j);
             if (r != 0) goto fail;
         }
@@ -301,7 +301,7 @@ fail:
 
 static void sendkeys_destroy(cmod_t *self) {
     sendkeys_inst_t *inst = (sendkeys_inst_t *)self;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
 
     if (inst->exit_fd >= 0) {
         uint64_t val = 1;
@@ -355,7 +355,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->exit_fd = -1;
 
     inst->comp_id = env->hal->init(env->hal->ctx, "sendkeys",
-                                   env->dl_handle, GOMC_HAL_COMP_USER);
+                                   env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->comp_id < 0) {
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;

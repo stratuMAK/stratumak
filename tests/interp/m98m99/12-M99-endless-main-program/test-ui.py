@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (`gmi` client). motion-logger is now an
+# Ported to the stmak REST/WS API (`gmi` client). motion-logger is now an
 # interceptor between milltask and the real motmod. Runs test.ngc from line 4;
 # the M99 in the main program loops it (terminated by a counter at 3 loops). A
 # large feed override lets real motion complete quickly without changing the
@@ -16,9 +16,9 @@ from gmi.constants import *
 import sys
 import subprocess
 
-import gomc_test
+import stmak_test
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -34,10 +34,10 @@ def wait_idle(timeout=60.0):
     # it expired, and the idle-wait then returned instantly against a program
     # that had never started -- yielding an empty out.motion-logger and a diff
     # that blamed the motion output for a run that never happened.
-    gomc_test.wait_stat(s, lambda st: st.interp_state != INTERP_IDLE,
+    stmak_test.wait_stat(s, lambda st: st.interp_state != INTERP_IDLE,
                         "the program to start (interpreter to leave idle)",
                         timeout=10.0, detail=_interp)
-    gomc_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE,
+    stmak_test.wait_stat(s, lambda st: st.interp_state == INTERP_IDLE,
                         "the program to finish (interpreter to return to idle)",
                         timeout=timeout, detail=_interp)
 
@@ -57,7 +57,7 @@ wait_idle()
 # not mean its trailing lines have been flushed. Sleeping ~0.2s and hoping
 # truncates the tail on a slow flush and fails the diff below. Wait for the log
 # to stop growing instead.
-gomc_test.wait_file_stable("out.motion-logger")
+stmak_test.wait_file_stable("out.motion-logger")
 
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"],

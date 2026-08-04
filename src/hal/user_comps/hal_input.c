@@ -12,8 +12,8 @@
  * License: GPL v2+
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -176,26 +176,26 @@ static void init_name_tables(void)
 /* ========================================================================== */
 
 typedef struct {
-    gomc_hal_bit_t   *pin;      /* key state */
-    gomc_hal_bit_t   *pin_not;  /* inverted */
+    stmak_hal_bit_t   *pin;      /* key state */
+    stmak_hal_bit_t   *pin_not;  /* inverted */
 } key_pin_t;
 
 typedef struct {
-    gomc_hal_float_t *position;
-    gomc_hal_s32_t   *counts;
-    gomc_hal_bit_t   *reset;
-    gomc_hal_float_t *scale;
+    stmak_hal_float_t *position;
+    stmak_hal_s32_t   *counts;
+    stmak_hal_bit_t   *reset;
+    stmak_hal_float_t *scale;
 } rel_pin_t;
 
 typedef struct {
-    gomc_hal_float_t *position;
-    gomc_hal_s32_t   *counts;
-    gomc_hal_bit_t   *is_pos;
-    gomc_hal_bit_t   *is_neg;
-    gomc_hal_float_t *scale;
-    gomc_hal_float_t *offset_pin;
-    gomc_hal_s32_t   *fuzz;
-    gomc_hal_s32_t   *flat;
+    stmak_hal_float_t *position;
+    stmak_hal_s32_t   *counts;
+    stmak_hal_bit_t   *is_pos;
+    stmak_hal_bit_t   *is_neg;
+    stmak_hal_float_t *scale;
+    stmak_hal_float_t *offset_pin;
+    stmak_hal_s32_t   *fuzz;
+    stmak_hal_s32_t   *flat;
     int               abs_min;
     int               abs_max;
 } abs_pin_t;
@@ -231,7 +231,7 @@ typedef struct {
 
 typedef struct {
     const cmod_env_t *env;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int               hal_id;
 
     input_dev_t       devs[MAX_DEVICES];
@@ -255,7 +255,7 @@ static int open_input_device(input_inst_t *inst, input_dev_t *dev)
 {
     dev->fd = open(dev->path, O_RDONLY | O_NONBLOCK);
     if (dev->fd < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
+        stmak_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
                         dev->path, strerror(errno));
         return -1;
     }
@@ -281,16 +281,16 @@ static int open_input_device(input_inst_t *inst, input_dev_t *dev)
 
 static int create_device_pins(input_inst_t *inst, input_dev_t *dev, int idx)
 {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int id = inst->hal_id;
 
     /* Key pins */
     for (int k = 0; k < KEY_CNT; k++) {
         if (!test_bit(dev->key_bits, k)) continue;
         const char *name = key_names[k];
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &dev->keys[k].pin,
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &dev->keys[k].pin,
                 id, "input.%d.%s", idx, name) < 0) return -1;
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &dev->keys[k].pin_not,
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &dev->keys[k].pin_not,
                 id, "input.%d.%s-not", idx, name) < 0) return -1;
         *dev->keys[k].pin_not = 1;
         dev->key_used[k] = true;
@@ -302,13 +302,13 @@ static int create_device_pins(input_inst_t *inst, input_dev_t *dev, int idx)
         if (!test_bit(dev->rel_bits, r)) continue;
         const char *name = rel_names[r];
         rel_pin_t *rp = &dev->rels[r];
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &rp->position,
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &rp->position,
                 id, "input.%d.%s-position", idx, name) < 0) return -1;
-        if (gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &rp->counts,
+        if (stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &rp->counts,
                 id, "input.%d.%s-counts", idx, name) < 0) return -1;
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &rp->reset,
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &rp->reset,
                 id, "input.%d.%s-reset", idx, name) < 0) return -1;
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &rp->scale,
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &rp->scale,
                 id, "input.%d.%s-scale", idx, name) < 0) return -1;
         *rp->scale = 1.0;
         dev->rel_used[r] = true;
@@ -325,21 +325,21 @@ static int create_device_pins(input_inst_t *inst, input_dev_t *dev, int idx)
         if (ioctl(dev->fd, EVIOCGABS(a), &absinfo) < 0)
             continue;
 
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &ap->position,
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &ap->position,
                 id, "input.%d.%s-position", idx, name) < 0) return -1;
-        if (gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &ap->counts,
+        if (stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &ap->counts,
                 id, "input.%d.%s-counts", idx, name) < 0) return -1;
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &ap->is_pos,
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &ap->is_pos,
                 id, "input.%d.%s-is-pos", idx, name) < 0) return -1;
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &ap->is_neg,
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &ap->is_neg,
                 id, "input.%d.%s-is-neg", idx, name) < 0) return -1;
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &ap->scale,
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &ap->scale,
                 id, "input.%d.%s-scale", idx, name) < 0) return -1;
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &ap->offset_pin,
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &ap->offset_pin,
                 id, "input.%d.%s-offset", idx, name) < 0) return -1;
-        if (gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &ap->fuzz,
+        if (stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &ap->fuzz,
                 id, "input.%d.%s-fuzz", idx, name) < 0) return -1;
-        if (gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &ap->flat,
+        if (stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &ap->flat,
                 id, "input.%d.%s-flat", idx, name) < 0) return -1;
 
         ap->abs_min = absinfo.minimum;
@@ -438,7 +438,7 @@ static void *input_thread(void *arg)
     pfds[nfds].events = POLLIN;
     nfds++;
 
-    while (inst->running && !gomc_should_exit(inst->exit_fd)) {
+    while (inst->running && !stmak_should_exit(inst->exit_fd)) {
         int ret = poll(pfds, nfds, 10); /* 10ms timeout */
         if (ret < 0) {
             if (errno == EINTR) continue;
@@ -464,7 +464,7 @@ static int input_Start(cmod_t *self)
     input_inst_t *inst = (input_inst_t *)self->priv;
     inst->running = true;
     if (pthread_create(&inst->thread, NULL, input_thread, inst) != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "thread creation failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "thread creation failed");
         return -1;
     }
     return 0;
@@ -537,7 +537,7 @@ int New(const cmod_env_t *env, const char *name,
         } else {
             /* Device path */
             if (inst->n_devs >= MAX_DEVICES) {
-                gomc_log_errorf(inst->log, COMP_NAME, "too many devices (max %d)", MAX_DEVICES);
+                stmak_log_errorf(inst->log, COMP_NAME, "too many devices (max %d)", MAX_DEVICES);
                 free(inst);
                 return -1;
             }
@@ -557,16 +557,16 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (inst->n_devs == 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "no input devices specified");
+        stmak_log_errorf(inst->log, COMP_NAME, "no input devices specified");
         free(inst);
         return -1;
     }
 
     /* HAL init */
-    const gomc_hal_t *hal = env->hal;
-    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, GOMC_HAL_COMP_USER);
+    const stmak_hal_t *hal = env->hal;
+    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
         for (int i = 0; i < inst->n_devs; i++) close(inst->devs[i].fd);
         free(inst);
         return -1;
@@ -583,7 +583,7 @@ int New(const cmod_env_t *env, const char *name,
 
     hal->ready(hal->ctx, inst->hal_id);
 
-    gomc_log_infof(inst->log, COMP_NAME, "%d device(s) opened", inst->n_devs);
+    stmak_log_infof(inst->log, COMP_NAME, "%d device(s) opened", inst->n_devs);
 
     cmod_t *mod = calloc(1, sizeof(cmod_t));
     if (!mod) {

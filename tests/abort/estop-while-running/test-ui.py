@@ -7,7 +7,7 @@
 #   2. After estop-reset (which runs 2.9's abort sequence: IoAbort(5) +
 #      interp on_abort + synch) and machine-on, an MDI must run cleanly.
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 import sys
 import time
@@ -22,7 +22,7 @@ def wait_for_startup(s, timeout=10.0):
                 and s.task_state == STATE_ESTOP):
             return
         time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for gomc startup")
+    raise RuntimeError("Timeout waiting for stmak startup")
 
 
 def wait_for(s, cond, what, timeout=15.0):
@@ -39,7 +39,7 @@ def wait_for(s, cond, what, timeout=15.0):
                                                   s.actual_position[0]))
 
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 wait_for_startup(s)
 
@@ -90,7 +90,7 @@ print("estop stopped the machine: spindle off, motion halted at x=%.3f mm" % x2)
 c.state(STATE_ESTOP_RESET)
 wait_for(s, lambda s: s.task_state == STATE_ESTOP_RESET, "estop-reset confirmed",
          timeout=5.0)
-gomc_test.wait_pin("estop-loop", True)
+stmak_test.wait_pin("estop-loop", True)
 c.state(STATE_ON)
 wait_for(s, lambda s: s.task_state == STATE_ON and s.exec_state == EXEC_DONE,
          "machine on after estop-reset", timeout=5.0)

@@ -1,8 +1,8 @@
 
 #include "axis.h"
 #include "emcmotcfg.h"      // EMCMOT_MAX_AXIS
-#include "gomc_hal.h"
-#include "gomc_log.h"
+#include "stmak_hal.h"
+#include "stmak_log.h"
 #include "rtapi_math.h"
 #include "simple_tp.h"
 #include <stdlib.h>
@@ -61,7 +61,7 @@ typedef struct {
 struct axis_inst {
     emcmot_axis_t axis_array[EMCMOT_MAX_AXIS];
     axis_hal_data_t *hal_data;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int jogwheel_first_pass;
     int ext_offset_first_pass;
     int last_eoffset_enable[EMCMOT_MAX_AXIS];
@@ -115,22 +115,22 @@ void axis_initialize_external_offsets(axis_inst_t *ai)
         if (_retval) return _retval;    \
     } while (0);
 
-static int export_axis(const gomc_hal_t *hal, int comp_id, char c, axis_hal_t *addr, const char *P)
+static int export_axis(const stmak_hal_t *hal, int comp_id, char c, axis_hal_t *addr, const char *P)
 {
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->ajog_enable), comp_id, "%saxis.%c.jog-enable", P, c));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->ajog_scale), comp_id, "%saxis.%c.jog-scale", P, c));
-    CALL_CHECK(gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &(addr->ajog_counts), comp_id, "%saxis.%c.jog-counts", P, c));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->ajog_vel_mode), comp_id, "%saxis.%c.jog-vel-mode", P, c));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->kb_ajog_active), comp_id, "%saxis.%c.kb-jog-active", P, c));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->wheel_ajog_active), comp_id, "%saxis.%c.wheel-jog-active", P, c));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->ajog_enable), comp_id, "%saxis.%c.jog-enable", P, c));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->ajog_scale), comp_id, "%saxis.%c.jog-scale", P, c));
+    CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &(addr->ajog_counts), comp_id, "%saxis.%c.jog-counts", P, c));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->ajog_vel_mode), comp_id, "%saxis.%c.jog-vel-mode", P, c));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->kb_ajog_active), comp_id, "%saxis.%c.kb-jog-active", P, c));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->wheel_ajog_active), comp_id, "%saxis.%c.wheel-jog-active", P, c));
 
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->ajog_accel_fraction), comp_id, "%saxis.%c.jog-accel-fraction", P, c));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->ajog_accel_fraction), comp_id, "%saxis.%c.jog-accel-fraction", P, c));
     *addr->ajog_accel_fraction = 1.0; // fraction of accel for wheel ajogs
 
     return 0;
 }
 
-int axis_init_hal_io(axis_inst_t *ai, const gomc_hal_t *hal, const gomc_log_t *log,
+int axis_init_hal_io(axis_inst_t *ai, const stmak_hal_t *hal, const stmak_log_t *log,
                      int comp_id, const char *pin_prefix)
 {
     int n, retval;
@@ -138,7 +138,7 @@ int axis_init_hal_io(axis_inst_t *ai, const gomc_hal_t *hal, const gomc_log_t *l
     ai->log = log;
     ai->hal_data = hal->malloc(hal->ctx, sizeof(axis_hal_data_t));
     if (!ai->hal_data) {
-        gomc_log_errorf(log, "motmod", "MOTION: axis_hal_data hal_malloc() failed");
+        stmak_log_errorf(log, "motmod", "MOTION: axis_hal_data hal_malloc() failed");
         return -1;
     }
 
@@ -147,22 +147,22 @@ int axis_init_hal_io(axis_inst_t *ai, const gomc_hal_t *hal, const gomc_log_t *l
         char c = "xyzabcuvw"[n];
         const char *P = pin_prefix;
         axis_hal_t *axis_data = &(ai->hal_data->axis[n]);
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->pos_cmd, comp_id, "%saxis.%c.pos-cmd", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->teleop_vel_cmd, comp_id, "%saxis.%c.teleop-vel-cmd", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->teleop_pos_cmd, comp_id, "%saxis.%c.teleop-pos-cmd", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->teleop_vel_lim, comp_id, "%saxis.%c.teleop-vel-lim", P, c));
-        CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&axis_data->teleop_tp_enable, comp_id, "%saxis.%c.teleop-tp-enable", P, c));
-        CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&axis_data->eoffset_enable, comp_id, "%saxis.%c.eoffset-enable", P, c));
-        CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&axis_data->eoffset_clear, comp_id, "%saxis.%c.eoffset-clear", P, c));
-        CALL_CHECK(gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &axis_data->eoffset_counts, comp_id, "%saxis.%c.eoffset-counts", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &axis_data->eoffset_scale, comp_id, "%saxis.%c.eoffset-scale", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->external_offset, comp_id, "%saxis.%c.eoffset", P, c));
-        CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &axis_data->external_offset_requested,
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->pos_cmd, comp_id, "%saxis.%c.pos-cmd", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->teleop_vel_cmd, comp_id, "%saxis.%c.teleop-vel-cmd", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->teleop_pos_cmd, comp_id, "%saxis.%c.teleop-pos-cmd", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->teleop_vel_lim, comp_id, "%saxis.%c.teleop-vel-lim", P, c));
+        CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&axis_data->teleop_tp_enable, comp_id, "%saxis.%c.teleop-tp-enable", P, c));
+        CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&axis_data->eoffset_enable, comp_id, "%saxis.%c.eoffset-enable", P, c));
+        CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&axis_data->eoffset_clear, comp_id, "%saxis.%c.eoffset-clear", P, c));
+        CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &axis_data->eoffset_counts, comp_id, "%saxis.%c.eoffset-counts", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &axis_data->eoffset_scale, comp_id, "%saxis.%c.eoffset-scale", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->external_offset, comp_id, "%saxis.%c.eoffset", P, c));
+        CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &axis_data->external_offset_requested,
            comp_id, "%saxis.%c.eoffset-request", P, c));
 
         retval = export_axis(hal, comp_id, c, axis_data, P);
         if (retval) {
-            gomc_log_errorf(log, "motmod", "MOTION: axis %c pin/param export failed", c);
+            stmak_log_errorf(log, "motmod", "MOTION: axis %c pin/param export failed", c);
             return -1;
         }
     }
@@ -418,7 +418,7 @@ void axis_handle_jogwheels(axis_inst_t *ai, bool motion_teleop_flag, bool motion
         if (axis->kb_ajog_active)             { continue; }
 
         if (axis->locking_joint >= 0) {
-            gomc_log_errorf(ai->log, "motmod",
+            stmak_log_errorf(ai->log, "motmod",
             "Cannot wheel jog a locking indexer AXIS_%c",
             "XYZABCUVW"[axis_num]);
             continue;
@@ -523,7 +523,7 @@ bool axis_plan_external_offsets(axis_inst_t *ai, double servo_period, bool motio
                 && (fabs(*(axis_data->external_offset)) > ext_offset_epsilon)
                 && motion_enable_flag
                 && axis->ext_offset_tp.enable) {
-                gomc_log_warnf(ai->log, "motmod",
+                stmak_log_warnf(ai->log, "motmod",
                            "Axis_%c External Offset=%.4g eps=%.4g "
                            "External Offset disabled while NON-zero "
                            "To clear: re-enable & zero or use Machine-Off",

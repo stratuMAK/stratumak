@@ -41,7 +41,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "tp_api.h"
 #include "mot_api.h"
 
@@ -51,11 +51,11 @@
 
 typedef struct {
     const mot_callbacks_t *mot;
-    const gomc_api_t *api;
-    const gomc_hal_t *hal;
-    const gomc_log_t *log;
-    char name[GOMC_HAL_NAME_LEN + 1];
-    char mot_instance[GOMC_HAL_NAME_LEN + 1];
+    const stmak_api_t *api;
+    const stmak_hal_t *hal;
+    const stmak_log_t *log;
+    char name[STMAK_HAL_NAME_LEN + 1];
+    char mot_instance[STMAK_HAL_NAME_LEN + 1];
     TP_STRUCT tp;
     TC_STRUCT queueTcSpace[DEFAULT_TC_QUEUE_SIZE + 10];
     tp_callbacks_t callbacks;
@@ -72,27 +72,27 @@ STATIC int tpComputeBlendVelocity(
         double v_target_next,
         double *v_blend_this,
         double *v_blend_next,
-        double *v_blend_net) GOMC_NONBLOCKING;
+        double *v_blend_net) STMAK_NONBLOCKING;
 
 STATIC double estimateParabolicBlendPerformance(
         TP_STRUCT const *tp,
         TC_STRUCT const *tc,
         TC_STRUCT const *nexttc);
 
-STATIC int tpCheckEndCondition(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT const * const nexttc) GOMC_NONBLOCKING;
+STATIC int tpCheckEndCondition(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT const * const nexttc) STMAK_NONBLOCKING;
 
 STATIC int tpUpdateCycle(TP_STRUCT * const tp,
-        TC_STRUCT * const tc, TC_STRUCT const * const nexttc) GOMC_NONBLOCKING;
+        TC_STRUCT * const tc, TC_STRUCT const * const nexttc) STMAK_NONBLOCKING;
 
-STATIC int tpRunOptimization(TP_STRUCT * const tp) GOMC_NONBLOCKING;
+STATIC int tpRunOptimization(TP_STRUCT * const tp) STMAK_NONBLOCKING;
 
-STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc, int inc_id) GOMC_NONBLOCKING;
+STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc, int inc_id) STMAK_NONBLOCKING;
 
-STATIC inline double tpGetMaxTargetVel(TP_STRUCT const * const tp, TC_STRUCT const * const tc) GOMC_NONBLOCKING;
+STATIC inline double tpGetMaxTargetVel(TP_STRUCT const * const tp, TC_STRUCT const * const tc) STMAK_NONBLOCKING;
 
 // Forward declarations for functions used before defined
 static int tpInit(TP_STRUCT * const tp);
-static int tpSetCurrentPos(TP_STRUCT * const tp, EmcPose const * const pos) GOMC_NONBLOCKING;
+static int tpSetCurrentPos(TP_STRUCT * const tp, EmcPose const * const pos) STMAK_NONBLOCKING;
 static int tpResume(TP_STRUCT * const tp);
 static int tpIsMoving(TP_STRUCT const * const tp);
 
@@ -153,7 +153,7 @@ STATIC double tpGetTangentKinkRatio(TP_STRUCT const * const tp) {
     return fmax(fmin(ratio,max_ratio),min_ratio);
 }
 
-STATIC int tpGetMachineAccelBounds(TP_STRUCT const * const tp, PmCartesian * const acc_bound) GOMC_NONBLOCKING {
+STATIC int tpGetMachineAccelBounds(TP_STRUCT const * const tp, PmCartesian * const acc_bound) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     if (!acc_bound) {
         return TP_ERR_FAIL;
@@ -239,7 +239,7 @@ STATIC double tpGetFeedScale(TP_STRUCT const * const tp,
  * This gives the requested velocity, capped by the segments maximum velocity.
  */
 STATIC inline double tpGetRealTargetVel(TP_STRUCT const * const tp,
-        TC_STRUCT const * const tc) GOMC_NONBLOCKING {
+        TC_STRUCT const * const tc) STMAK_NONBLOCKING {
 
     if (!tc) {
         return 0.0;
@@ -332,7 +332,7 @@ STATIC inline double tpGetRealFinalVel(TP_STRUCT const * const tp,
 /**
  * Convert the 2-part spindle position and sign to a signed double.
  */
-STATIC inline double tpGetSignedSpindlePosition(TP_STRUCT const * const tp, int spindle_num) GOMC_NONBLOCKING {
+STATIC inline double tpGetSignedSpindlePosition(TP_STRUCT const * const tp, int spindle_num) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     int32_t spindle_dir;
     double spindle_pos;
@@ -417,7 +417,7 @@ static int tpClearDIOs(TP_STRUCT * const tp) {
  *    intended to put the motion queue in the state it would be if all queued
  *    motions finished at the current position.
  */
-static int tpClear(TP_STRUCT * const tp) GOMC_NONBLOCKING
+static int tpClear(TP_STRUCT * const tp) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     tcqInit(&tp->queue);
@@ -467,7 +467,7 @@ static int tpInit(TP_STRUCT * const tp)
     PmCartesian acc_bound;
     //FIXME this acceleration bound isn't valid (nor is it used)
     if (mot == 0) {
-       gomc_log_errorf(tp->log, tp->log_comp,"!!!tpInit: NULL mot API, bye\n\n");
+       stmak_log_errorf(tp->log, tp->log_comp,"!!!tpInit: NULL mot API, bye\n\n");
        return -1;
     }
     tpGetMachineAccelBounds(tp, &acc_bound);
@@ -569,7 +569,7 @@ static int tpSetId(TP_STRUCT * const tp, int id)
 {
 
     if (!MOTION_ID_VALID(id)) {
-        gomc_log_errorf(tp->log, tp->log_comp, "tpSetId: invalid motion id %d\n", id);
+        stmak_log_errorf(tp->log, tp->log_comp, "tpSetId: invalid motion id %d\n", id);
         return TP_ERR_FAIL;
     }
 
@@ -637,7 +637,7 @@ static int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance)
  * It sets the current position AND the goal position to be the same.  Used
  * only at TP initialization and when switching modes.
  */
-static int tpSetPos(TP_STRUCT * const tp, EmcPose const * const pos) GOMC_NONBLOCKING
+static int tpSetPos(TP_STRUCT * const tp, EmcPose const * const pos) STMAK_NONBLOCKING
 {
     if (0 == tp) {
         return TP_ERR_FAIL;
@@ -668,7 +668,7 @@ static int tpSetCurrentPos(TP_STRUCT * const tp, EmcPose const * const pos)
         tp->currentPos = *pos;
         return TP_ERR_OK;
     } else {
-        gomc_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpSetCurrentPos on id %d!"
+        stmak_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpSetCurrentPos on id %d!"
                 "pos is %.12g, %.12g, %.12g\n",
                 tp->execId,
                 pos->tran.x,
@@ -679,7 +679,7 @@ static int tpSetCurrentPos(TP_STRUCT * const tp, EmcPose const * const pos)
 }
 
 
-static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) GOMC_NONBLOCKING
+static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) STMAK_NONBLOCKING
 {
     if (!tp || !disp) {
         return TP_ERR_MISSING_INPUT;
@@ -689,7 +689,7 @@ static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) GOM
         emcPoseSelfAdd(&tp->currentPos, disp);
         return TP_ERR_OK;
     } else {
-        gomc_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpAddCurrentPos on id %d!"
+        stmak_log_errorf(tp->log, tp->log_comp, "Tried to set invalid pose in tpAddCurrentPos on id %d!"
                 "disp is %.12g, %.12g, %.12g\n",
                 tp->execId,
                 disp->tran.x,
@@ -706,11 +706,11 @@ static int tpAddCurrentPos(TP_STRUCT * const tp, EmcPose const * const disp) GOM
 static int tpErrorCheck(TP_STRUCT const * const tp) {
 
     if (!tp) {
-        gomc_log_errorf(tp->log, tp->log_comp, "TP is null\n");
+        stmak_log_errorf(tp->log, tp->log_comp, "TP is null\n");
         return TP_ERR_FAIL;
     }
     if (tp->aborting) {
-        gomc_log_errorf(tp->log, tp->log_comp, "TP is aborting\n");
+        stmak_log_errorf(tp->log, tp->log_comp, "TP is aborting\n");
         return TP_ERR_FAIL;
     }
     return TP_ERR_OK;
@@ -722,7 +722,7 @@ static int tpErrorCheck(TP_STRUCT const * const tp) {
  * This is used to estimate blend velocity, though by itself is not enough
  * (since requested velocity and max velocity could be lower).
  */
-STATIC double tpCalculateTriangleVel(TC_STRUCT const *tc) GOMC_NONBLOCKING {
+STATIC double tpCalculateTriangleVel(TC_STRUCT const *tc) STMAK_NONBLOCKING {
     //Compute peak velocity for blend calculations
     double acc_scaled = tcGetTangentialMaxAccel(tc);
     double length = tc->target;
@@ -741,7 +741,7 @@ STATIC double tpCalculateTriangleVel(TC_STRUCT const *tc) GOMC_NONBLOCKING {
  * velocity the previous segment can have, if we want to exactly stop at the
  * halfway point.
  */
-STATIC double tpCalculateOptimizationInitialVel(TP_STRUCT const * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING
+STATIC double tpCalculateOptimizationInitialVel(TP_STRUCT const * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING
 {
     double acc_scaled = tcGetTangentialMaxAccel(tc);
     double triangle_vel = findVPeak(acc_scaled, tc->target);
@@ -764,7 +764,7 @@ STATIC int tpInitBlendArcFromPrev(TP_STRUCT const * const tp,
 				  TC_STRUCT* const blend_tc,
 				  double vel,
 				  double ini_maxvel,
-				  double acc) GOMC_NONBLOCKING
+				  double acc) STMAK_NONBLOCKING
 {
 
 #ifdef TP_SHOW_BLENDS
@@ -822,7 +822,7 @@ STATIC int tcSetLineXYZ(TC_STRUCT * const tc, PmCartLine const * const line,
         return TP_ERR_FAIL;
     }
     if (!tc->coords.line.abc.tmag_zero || !tc->coords.line.uvw.tmag_zero) {
-        gomc_log_errorf(log, log_comp, "SetLineXYZ does not support ABC or UVW motion");
+        stmak_log_errorf(log, log_comp, "SetLineXYZ does not support ABC or UVW motion");
         return TP_ERR_FAIL;
     }
 
@@ -858,7 +858,7 @@ static inline int find_max_element(double arr[], int sz)
 STATIC tc_blend_type_t tpChooseBestBlend(TP_STRUCT const * const tp,
         TC_STRUCT * const prev_tc,
         TC_STRUCT * const tc,
-        TC_STRUCT * const blend_tc) GOMC_NONBLOCKING
+        TC_STRUCT * const blend_tc) STMAK_NONBLOCKING
 {
     if (!tc || !prev_tc) {
         return NO_BLEND;
@@ -913,7 +913,7 @@ STATIC tc_blend_type_t tpChooseBestBlend(TP_STRUCT const * const tp,
 }
 
 
-STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) GOMC_NONBLOCKING
+STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     tp_debug_print("-- Starting LineArc blend arc --\n");
@@ -1077,7 +1077,7 @@ STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
 }
 
 
-STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) GOMC_NONBLOCKING
+STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
@@ -1224,7 +1224,7 @@ STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
     return TP_ERR_OK;
 }
 
-STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) GOMC_NONBLOCKING
+STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc, TC_STRUCT * const tc, TC_STRUCT * const blend_tc) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
@@ -1400,7 +1400,7 @@ STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev
 
 
 STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const prev_tc,
-        TC_STRUCT * const tc, TC_STRUCT * const blend_tc) GOMC_NONBLOCKING
+        TC_STRUCT * const tc, TC_STRUCT * const blend_tc) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
@@ -1471,7 +1471,7 @@ STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pr
         retval = tcqPopBack(&tp->queue);
         if (retval) {
             //This is unrecoverable since we've already changed the line. Something is wrong if we get here...
-            gomc_log_errorf(tp->log, tp->log_comp, "PopBack failed\n");
+            stmak_log_errorf(tp->log, tp->log_comp, "PopBack failed\n");
             return TP_ERR_FAIL;
         }
         //Since the blend arc meets the end of the previous line, we only need
@@ -1496,7 +1496,7 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
 
     tc->id = tp->nextId;
     if (tcqPut(&tp->queue, tc) == -1) {
-        gomc_log_errorf(tp->log, tp->log_comp, "tcqPut failed.\n");
+        stmak_log_errorf(tp->log, tp->log_comp, "tcqPut failed.\n");
         return TP_ERR_FAIL;
     }
     if (inc_id) {
@@ -1516,7 +1516,7 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
     return TP_ERR_OK;
 }
 
-STATIC int handleModeChange(TC_STRUCT * const prev_tc, TC_STRUCT * const tc) GOMC_NONBLOCKING
+STATIC int handleModeChange(TC_STRUCT * const prev_tc, TC_STRUCT * const tc) STMAK_NONBLOCKING
 {
     if (!tc || !prev_tc) {
         return TP_ERR_FAIL;
@@ -1536,7 +1536,7 @@ STATIC int handleModeChange(TC_STRUCT * const prev_tc, TC_STRUCT * const tc) GOM
     return TP_ERR_OK;
 }
 
-STATIC int tpSetupSyncedIO(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING {
+STATIC int tpSetupSyncedIO(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING {
     if (tp->syncdio.anychanged != 0) {
         tc->syncdio = tp->syncdio; //enqueue the list of DIOs that need toggling
         tpClearDIOs(tp); // clear out the list, in order to prepare for the next time we need to use it
@@ -1560,7 +1560,7 @@ static int tpAddRigidTap(TP_STRUCT * const tp,
         double acc,
         unsigned char enables,
         double scale,
-        double feed_mm_per_min) GOMC_NONBLOCKING {
+        double feed_mm_per_min) STMAK_NONBLOCKING {
 
     if (tpErrorCheck(tp)) {
         return TP_ERR_FAIL;
@@ -1569,7 +1569,7 @@ static int tpAddRigidTap(TP_STRUCT * const tp,
     tp_info_print("== AddRigidTap ==\n");
 
     if(!tp->synchronized) {
-        gomc_log_errorf(tp->log, tp->log_comp, "Cannot add unsynchronized rigid tap move.\n");
+        stmak_log_errorf(tp->log, tp->log_comp, "Cannot add unsynchronized rigid tap move.\n");
         return TP_ERR_FAIL;
     }
 
@@ -1668,7 +1668,7 @@ STATIC blend_type_t tpCheckBlendArcType(
  * acceleration) will speed up and slow down to reach their target velocity,
  * creating "humps" in the velocity profile.
  */
-STATIC int tpComputeOptimalVelocity(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT * const prev1_tc) GOMC_NONBLOCKING {
+STATIC int tpComputeOptimalVelocity(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT * const prev1_tc) STMAK_NONBLOCKING {
     //Calculate the maximum starting velocity vs_back of segment tc, given the
     //trajectory parameters
     double acc_this = tcGetTangentialMaxAccel(tc);
@@ -1832,7 +1832,7 @@ STATIC int tpRunOptimization(TP_STRUCT * const tp) {
  * rate.
  */
 STATIC int tpSetupTangent(TP_STRUCT const * const tp,
-        TC_STRUCT * const prev_tc, TC_STRUCT * const tc) GOMC_NONBLOCKING {
+        TC_STRUCT * const prev_tc, TC_STRUCT * const tc) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     if (!tc || !prev_tc) {
         tp_debug_print("missing tc or prev tc in tangent check\n");
@@ -1946,7 +1946,7 @@ static bool tpCreateBlendIfPossible(
         TP_STRUCT *tp,
         TC_STRUCT *prev_tc,
         TC_STRUCT *tc,
-        TC_STRUCT *blend_tc) GOMC_NONBLOCKING
+        TC_STRUCT *blend_tc) STMAK_NONBLOCKING
 {
     tp_err_t res_create = TP_ERR_FAIL;
     blend_type_t blend_requested = tpCheckBlendArcType(prev_tc, tc);
@@ -1981,7 +1981,7 @@ static bool tpCreateBlendIfPossible(
  * blend arc. Essentially all of the blend arc functions are called through
  * here to isolate the process.
  */
-STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING {
+STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING {
 
     tp_debug_print("*****************************************\n** Handle Blend Arc **\n");
 
@@ -2044,7 +2044,7 @@ STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const 
 
 static int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
             double vel, double ini_maxvel, double acc, unsigned char enables,
-            char atspeed, int indexer_jnum, double feed_mm_per_min) GOMC_NONBLOCKING
+            char atspeed, int indexer_jnum, double feed_mm_per_min) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     if (tpErrorCheck(tp) < 0) {
@@ -2080,7 +2080,7 @@ static int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
             tp->log, tp->log_comp);
     tc.target = pmLine9Target(&tc.coords.line);
     if (tc.target < TP_POS_EPSILON) {
-        gomc_log_debugf(tp->log, tp->log_comp,"failed to create line id %d, zero-length segment\n",tp->nextId);
+        stmak_log_debugf(tp->log, tp->log_comp,"failed to create line id %d, zero-length segment\n",tp->nextId);
         return TP_ERR_ZERO_LENGTH;
     }
     tc.nominal_length = tc.target;
@@ -2130,7 +2130,7 @@ static int tpAddCircle(TP_STRUCT * const tp,
         double acc,
         unsigned char enables,
         char atspeed,
-        double feed_mm_per_min) GOMC_NONBLOCKING
+        double feed_mm_per_min) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     if (tpErrorCheck(tp)<0) {
@@ -2322,7 +2322,7 @@ STATIC double estimateParabolicBlendPerformance(
 /**
  * Calculate distance update from velocity and acceleration.
  */
-STATIC int tcUpdateDistFromAccel(TC_STRUCT * const tc, double acc, double vel_desired, int reverse_run) GOMC_NONBLOCKING
+STATIC int tcUpdateDistFromAccel(TC_STRUCT * const tc, double acc, double vel_desired, int reverse_run) STMAK_NONBLOCKING
 {
     // If the resulting velocity is less than zero, than we're done. This
     // causes a small overshoot, but in practice it is very small.
@@ -2374,7 +2374,7 @@ STATIC void tpDebugCycleInfo(TP_STRUCT const * const tp, TC_STRUCT const * const
     tc_debug_print("          motion type %d\n", tc->motion_type);
 
     if (tc->on_final_decel) {
-        gomc_log_errorf(tp->log, tp->log_comp," on final decel\n");
+        stmak_log_errorf(tp->log, tp->log_comp," on final decel\n");
     }
 #else
     (void)tp; (void)tc; (void)nexttc; (void)acc;
@@ -2391,7 +2391,7 @@ STATIC void tpDebugCycleInfo(TP_STRUCT const * const tp, TC_STRUCT const * const
  * non-zero velocity at the instant the target is reached.
  */
 static void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT const * const nexttc,
-        double * const acc, double * const vel_desired) GOMC_NONBLOCKING
+        double * const acc, double * const vel_desired) STMAK_NONBLOCKING
 {
     tc_debug_print("using trapezoidal acceleration\n");
 
@@ -2402,7 +2402,7 @@ static void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * 
 
 #ifdef TP_PEDANTIC
     if (tc_finalvel > 0.0 && tc->term_cond != TC_TERM_COND_TANGENT) {
-        gomc_log_errorf(tp->log, tp->log_comp, "Final velocity of %f with non-tangent segment!\n",tc_finalvel);
+        stmak_log_errorf(tp->log, tp->log_comp, "Final velocity of %f with non-tangent segment!\n",tc_finalvel);
         tc_finalvel = 0.0;
     }
 #endif
@@ -2423,7 +2423,7 @@ static void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * 
     // in this situation
 #ifdef TP_PEDANTIC
     if (discr < 0.0) {
-        gomc_log_errorf(tp->log, tp->log_comp,
+        stmak_log_errorf(tp->log, tp->log_comp,
                 "discriminant %f < 0 in velocity calculation!\n", discr);
     }
 #endif
@@ -2454,7 +2454,7 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
         TC_STRUCT * const tc,
         TC_STRUCT const * const nexttc,
         double * const acc,
-        double * const vel_desired) GOMC_NONBLOCKING
+        double * const vel_desired) STMAK_NONBLOCKING
 {
     tc_debug_print("using ramped acceleration\n");
     // displacement remaining in this segment
@@ -2496,7 +2496,7 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
-static void tpToggleDIOs(TP_STRUCT const * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING {
+static void tpToggleDIOs(TP_STRUCT const * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
     int i=0;
@@ -2526,7 +2526,7 @@ static void tpToggleDIOs(TP_STRUCT const * const tp, TC_STRUCT * const tc) GOMC_
  * be carefully handled since we're reversing direction.
  */
 STATIC void tpUpdateRigidTapState(TP_STRUCT const * const tp,
-        TC_STRUCT * const tc) GOMC_NONBLOCKING {
+        TC_STRUCT * const tc) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
     int sn = tp->spindle.spindle_num;
@@ -2565,11 +2565,11 @@ STATIC void tpUpdateRigidTapState(TP_STRUCT const * const tp,
                 pmCartLinePoint(&tc->coords.rigidtap.xyz, tc->progress, &start);
                 end = tc->coords.rigidtap.xyz.start;
                 pmCartLineInit(aux, &start, &end);
-                gomc_log_debugf(tp->log, tp->log_comp, "old target = %f", tc->target);
+                stmak_log_debugf(tp->log, tp->log_comp, "old target = %f", tc->target);
                 tc->coords.rigidtap.reversal_target = aux->tmag;
                 tc->target = aux->tmag + 10. * tc->uu_per_rev;
                 tc->progress = 0.0;
-                gomc_log_debugf(tp->log, tp->log_comp, "new target = %f", tc->target);
+                stmak_log_debugf(tp->log, tp->log_comp, "new target = %f", tc->target);
 
                 tc->coords.rigidtap.state = RETRACTION;
             }
@@ -2616,7 +2616,7 @@ STATIC void tpUpdateRigidTapState(TP_STRUCT const * const tp,
  * Based on the specified trajectory segment tc, read its progress and status
  * flags. Then, update the status via the mot API.
  */
-STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const tc ) GOMC_NONBLOCKING {
+STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const tc ) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
 
@@ -2708,7 +2708,7 @@ STATIC void tpUpdateBlend(TP_STRUCT * const tp, TC_STRUCT * const tc,
  * If the program ends, or we hit QUEUE STARVATION, do a soft reset on the trajectory planner.
  * TODO merge with tpClear?
  */
-STATIC void tpHandleEmptyQueue(TP_STRUCT * const tp) GOMC_NONBLOCKING
+STATIC void tpHandleEmptyQueue(TP_STRUCT * const tp) STMAK_NONBLOCKING
 {
 
     tcqInit(&tp->queue);
@@ -2746,7 +2746,7 @@ STATIC int tpGetRotaryIsUnlocked(TP_STRUCT const * const tp, int axis) {
  * Finally, get the next move in the queue.
  */
 STATIC int tpCompleteSegment(TP_STRUCT * const tp,
-        TC_STRUCT * const tc) GOMC_NONBLOCKING {
+        TC_STRUCT * const tc) STMAK_NONBLOCKING {
 
     if (tp->spindle.waiting_for_atspeed == tc->id) {
         return TP_ERR_FAIL;
@@ -2788,7 +2788,7 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
         tp_debug_print("Finished reverse run of tc id %d\n", tc->id);
     } else {
         int res_pop = tcqPop(&tp->queue);
-        if (res_pop) gomc_log_errorf(tp->log, tp->log_comp,"Got error %d from tcqPop!\n", res_pop);
+        if (res_pop) stmak_log_errorf(tp->log, tp->log_comp,"Got error %d from tcqPop!\n", res_pop);
         tp_debug_print("Finished tc id %d\n", tc->id);
     }
 
@@ -2801,7 +2801,7 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
  * Based on the current motion state, handle the consequences of an abort command.
  */
 STATIC tp_err_t tpHandleAbort(TP_STRUCT * const tp, TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc) GOMC_NONBLOCKING {
+        TC_STRUCT * const nexttc) STMAK_NONBLOCKING {
 
     if(!tp->aborting) {
         //Don't need to do anything if not aborting
@@ -2835,14 +2835,14 @@ STATIC tp_err_t tpHandleAbort(TP_STRUCT * const tp, TC_STRUCT * const tc,
  * has not reached the requested speed, or the spindle index has not been
  * detected.
  */
-STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING
+STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 	int s;
     // this is no longer the segment we were waiting_for_index for
     if (MOTION_ID_VALID(tp->spindle.waiting_for_index) && tp->spindle.waiting_for_index != tc->id)
     {
-        gomc_log_errorf(tp->log, tp->log_comp,
+        stmak_log_errorf(tp->log, tp->log_comp,
                 "Was waiting for index on motion id %d, but reached id %d\n",
                 tp->spindle.waiting_for_index, tc->id);
         tp->spindle.waiting_for_index = MOTION_INVALID_ID;
@@ -2851,7 +2851,7 @@ STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_
     if (MOTION_ID_VALID(tp->spindle.waiting_for_atspeed) && tp->spindle.waiting_for_atspeed != tc->id)
     {
 
-        gomc_log_errorf(tp->log, tp->log_comp,
+        stmak_log_errorf(tp->log, tp->log_comp,
                 "Was waiting for atspeed on motion id %d, but reached id %d\n",
                 tp->spindle.waiting_for_atspeed, tc->id);
         tp->spindle.waiting_for_atspeed = MOTION_INVALID_ID;
@@ -2879,7 +2879,7 @@ STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_
             /* haven't passed index yet */
             return TP_ERR_WAITING;
         } else {
-            gomc_log_debugf(tp->log, tp->log_comp, "Index seen on spindle %d\n", tp->spindle.spindle_num);
+            stmak_log_debugf(tp->log, tp->log_comp, "Index seen on spindle %d\n", tp->spindle.spindle_num);
             /* passed index, start the move */
             mot->status_set_spindle_sync(mot->ctx, 1);
             tp->spindle.waiting_for_index = MOTION_INVALID_ID;
@@ -2895,7 +2895,7 @@ STATIC tp_err_t tpCheckAtSpeed(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_
  * This function handles initial setup of a new segment read off of the queue
  * for the first time.
  */
-STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) GOMC_NONBLOCKING {
+STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
     //Check if already active
@@ -2986,7 +2986,7 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) GO
         // ask for an index reset
         mot->status_set_spindle_index_enable(mot->ctx, tp->spindle.spindle_num, 1);
         tp->spindle.offset = 0.0;
-        gomc_log_debugf(tp->log, tp->log_comp, "Waiting on sync. spindle_num %d..\n", tp->spindle.spindle_num);
+        stmak_log_debugf(tp->log, tp->log_comp, "Waiting on sync. spindle_num %d..\n", tp->spindle.spindle_num);
         return TP_ERR_WAITING;
     }
 
@@ -3024,7 +3024,7 @@ STATIC void tpSyncVelocityMode(TP_STRUCT * const tp, TC_STRUCT * const tc, TC_ST
  * Updates requested velocity for a trajectory segment to track the spindle's position.
  */
 STATIC void tpSyncPositionMode(TP_STRUCT * const tp, TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc ) GOMC_NONBLOCKING {
+        TC_STRUCT * const nexttc ) STMAK_NONBLOCKING {
 
     double spindle_pos = tpGetSignedSpindlePosition(tp, tp->spindle.spindle_num);
     tp_debug_print("Spindle at %f\n",spindle_pos);
@@ -3097,7 +3097,7 @@ STATIC void tpSyncPositionMode(TP_STRUCT * const tp, TC_STRUCT * const tc,
  * between tangent and parabolic blends easier to follow.
  */
 STATIC int tpDoParabolicBlending(TP_STRUCT * const tp, TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc) GOMC_NONBLOCKING {
+        TC_STRUCT * const nexttc) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
 
     tc_debug_print("in DoParabolicBlend\n");
@@ -3184,7 +3184,7 @@ STATIC int tpUpdateCycle(TP_STRUCT * const tp,
 /**
  * Send default values to status structure.
  */
-STATIC int tpUpdateInitialStatus(TP_STRUCT const * const tp) GOMC_NONBLOCKING {
+STATIC int tpUpdateInitialStatus(TP_STRUCT const * const tp) STMAK_NONBLOCKING {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     // Update queue length
     mot->status_set_tcqlen(mot->ctx, tcqLen(&tp->queue));
@@ -3206,7 +3206,7 @@ STATIC inline int tcSetSplitCycle(TC_STRUCT * const tc, double split_time,
 {
     tp_debug_print("split time for id %d is %.16g\n", tc->id, split_time);
     if (tc->splitting != 0 && split_time > 0.0) {
-        gomc_log_errorf(log, log_comp, "already splitting on id %d with cycle time %.16g, dx = %.16g, split time %.12g",
+        stmak_log_errorf(log, log_comp, "already splitting on id %d with cycle time %.16g, dx = %.16g, split time %.12g",
                 tc->id,
                 tc->cycle_time,
                 tc->target-tc->progress,
@@ -3334,7 +3334,7 @@ STATIC int tpCheckEndCondition(TP_STRUCT const * const tp, TC_STRUCT * const tc,
 
 
 STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc) GOMC_NONBLOCKING
+        TC_STRUCT * const nexttc) STMAK_NONBLOCKING
 {
     if (tc->remove) {
         //Don't need to update since this segment is flagged for removal
@@ -3383,7 +3383,7 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
         case TC_TERM_COND_EXACT:
             break;
         default:
-            gomc_log_errorf(tp->log, tp->log_comp,"unknown term cond %d in segment %d\n",
+            stmak_log_errorf(tp->log, tp->log_comp,"unknown term cond %d in segment %d\n",
                     tc->term_cond,
                     tc->id);
     }
@@ -3411,7 +3411,7 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
 
 STATIC int tpHandleRegularCycle(TP_STRUCT * const tp,
         TC_STRUCT * const tc,
-        TC_STRUCT * const nexttc) GOMC_NONBLOCKING
+        TC_STRUCT * const nexttc) STMAK_NONBLOCKING
 {
     if (tc->remove) {
         //Don't need to update since this segment is flagged for removal
@@ -3455,7 +3455,7 @@ STATIC int tpHandleRegularCycle(TP_STRUCT * const tp,
  * status; I think those are spelled out here correctly and I can't clean it up
  * without breaking the API that the TP presents to motion.
  */
-static int tpRunCycle(TP_STRUCT * const tp, long period) GOMC_NONBLOCKING
+static int tpRunCycle(TP_STRUCT * const tp, long period) STMAK_NONBLOCKING
 {
     const mot_callbacks_t *mot = (const mot_callbacks_t *)tp->mot;
     (void)period;
@@ -3605,7 +3605,7 @@ static int tpResume(TP_STRUCT * const tp)
     return TP_ERR_OK;
 }
 
-static int tpAbort(TP_STRUCT * const tp) GOMC_NONBLOCKING
+static int tpAbort(TP_STRUCT * const tp) STMAK_NONBLOCKING
 {
     if (0 == tp) {
         return TP_ERR_FAIL;
@@ -3689,7 +3689,7 @@ static int tpSetDout(TP_STRUCT * const tp, int index, unsigned char start, unsig
     return TP_ERR_OK;
 }
 
-static int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir) GOMC_NONBLOCKING
+static int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir) STMAK_NONBLOCKING
 {
     // Can't change direction while moving
     if (tpIsMoving(tp)) {
@@ -3702,7 +3702,7 @@ static int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir) GOMC_NONBLOCKIN
             tp->reverse_run = dir;
             return TP_ERR_OK;
         default:
-            gomc_log_errorf(tp->log, tp->log_comp,"Invalid direction flag in SetRunDir");
+            stmak_log_errorf(tp->log, tp->log_comp,"Invalid direction flag in SetRunDir");
             return TP_ERR_FAIL;
     }
 }
@@ -3750,27 +3750,27 @@ static int32_t gmi_tp_create(void *ctx, int32_t queue_size, int32_t comp_id)
     return tpCreate(&inst->tp, queue_size, comp_id);
 }
 
-static int32_t gmi_tp_clear(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpClear(&inst->tp); }
-static int32_t gmi_tp_set_cycle_time(void *ctx, double secs) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetCycleTime(&inst->tp, secs); }
-static int32_t gmi_tp_set_vmax(void *ctx, double vmax, double ini_maxvel) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetVmax(&inst->tp, vmax, ini_maxvel); }
-static int32_t gmi_tp_set_vlimit(void *ctx, double limit) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetVlimit(&inst->tp, limit); }
-static int32_t gmi_tp_set_amax(void *ctx, double amax) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetAmax(&inst->tp, amax); }
-static int32_t gmi_tp_set_id(void *ctx, int32_t id) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetId(&inst->tp, id); }
-static int32_t gmi_tp_set_pos(void *ctx, tp_pose_t *pos) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetPos(&inst->tp, (EmcPose const *)pos); }
+static int32_t gmi_tp_clear(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpClear(&inst->tp); }
+static int32_t gmi_tp_set_cycle_time(void *ctx, double secs) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetCycleTime(&inst->tp, secs); }
+static int32_t gmi_tp_set_vmax(void *ctx, double vmax, double ini_maxvel) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetVmax(&inst->tp, vmax, ini_maxvel); }
+static int32_t gmi_tp_set_vlimit(void *ctx, double limit) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetVlimit(&inst->tp, limit); }
+static int32_t gmi_tp_set_amax(void *ctx, double amax) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetAmax(&inst->tp, amax); }
+static int32_t gmi_tp_set_id(void *ctx, int32_t id) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetId(&inst->tp, id); }
+static int32_t gmi_tp_set_pos(void *ctx, tp_pose_t *pos) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpSetPos(&inst->tp, (EmcPose const *)pos); }
 
-static int32_t gmi_tp_set_term_cond(void *ctx, int32_t cond, double tolerance) GOMC_NONBLOCKING
+static int32_t gmi_tp_set_term_cond(void *ctx, int32_t cond, double tolerance) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpSetTermCond(&inst->tp, cond, tolerance);
 }
 
-static int32_t gmi_tp_set_spindle_sync(void *ctx, int32_t spindle, double sync, int32_t wait) GOMC_NONBLOCKING
+static int32_t gmi_tp_set_spindle_sync(void *ctx, int32_t spindle, double sync, int32_t wait) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpSetSpindleSync(&inst->tp, spindle, sync, wait);
 }
 
-static int32_t gmi_tp_set_run_dir(void *ctx, tp_direction_t dir) GOMC_NONBLOCKING
+static int32_t gmi_tp_set_run_dir(void *ctx, tp_direction_t dir) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpSetRunDir(&inst->tp, (tc_direction_t)dir);
@@ -3779,7 +3779,7 @@ static int32_t gmi_tp_set_run_dir(void *ctx, tp_direction_t dir) GOMC_NONBLOCKIN
 static int32_t gmi_tp_add_line(void *ctx, const tp_pose_t *end,
     int32_t canon_motion_type, double vel, double ini_maxvel,
     double acc, uint8_t enables, int8_t atspeed,
-    int32_t indexrotary, double feed_mm_per_min) GOMC_NONBLOCKING
+    int32_t indexrotary, double feed_mm_per_min) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpAddLine(&inst->tp, *(EmcPose *)end,
@@ -3792,7 +3792,7 @@ static int32_t gmi_tp_add_circle(void *ctx, const tp_pose_t *end,
     const tp_cartesian_t *center, const tp_cartesian_t *normal,
     int32_t turn, int32_t canon_motion_type,
     double vel, double ini_maxvel, double acc,
-    uint8_t enables, int8_t atspeed, double feed_mm_per_min) GOMC_NONBLOCKING
+    uint8_t enables, int8_t atspeed, double feed_mm_per_min) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpAddCircle(&inst->tp, *(EmcPose *)end,
@@ -3805,7 +3805,7 @@ static int32_t gmi_tp_add_circle(void *ctx, const tp_pose_t *end,
 
 static int32_t gmi_tp_add_rigid_tap(void *ctx, const tp_pose_t *end,
     double vel, double ini_maxvel, double acc,
-    uint8_t enables, double scale, double feed_mm_per_min) GOMC_NONBLOCKING
+    uint8_t enables, double scale, double feed_mm_per_min) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpAddRigidTap(&inst->tp, *(EmcPose *)end,
@@ -3814,33 +3814,33 @@ static int32_t gmi_tp_add_rigid_tap(void *ctx, const tp_pose_t *end,
                          feed_mm_per_min);
 }
 
-static int32_t gmi_tp_set_aout(void *ctx, uint8_t index, double start_val, double end_val) GOMC_NONBLOCKING
+static int32_t gmi_tp_set_aout(void *ctx, uint8_t index, double start_val, double end_val) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpSetAout(&inst->tp, index, start_val, end_val);
 }
 
-static int32_t gmi_tp_set_dout(void *ctx, int32_t index, uint8_t start_val, uint8_t end_val) GOMC_NONBLOCKING
+static int32_t gmi_tp_set_dout(void *ctx, int32_t index, uint8_t start_val, uint8_t end_val) STMAK_NONBLOCKING
 {
     tpmod_inst_t *inst = (tpmod_inst_t *)ctx;
     return tpSetDout(&inst->tp, index, start_val, end_val);
 }
 
-static int32_t gmi_tp_run_cycle(void *ctx, int64_t period) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpRunCycle(&inst->tp, (long)period); }
-static int32_t gmi_tp_pause(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpPause(&inst->tp); }
-static int32_t gmi_tp_resume(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpResume(&inst->tp); }
-static int32_t gmi_tp_abort(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpAbort(&inst->tp); }
-static int32_t gmi_tp_get_exec_id(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetExecId(&inst->tp); }
+static int32_t gmi_tp_run_cycle(void *ctx, int64_t period) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpRunCycle(&inst->tp, (long)period); }
+static int32_t gmi_tp_pause(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpPause(&inst->tp); }
+static int32_t gmi_tp_resume(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpResume(&inst->tp); }
+static int32_t gmi_tp_abort(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpAbort(&inst->tp); }
+static int32_t gmi_tp_get_exec_id(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetExecId(&inst->tp); }
 
-static double gmi_tp_get_feed_mm_per_min(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetExecFeedMmPerMin(&inst->tp); }
+static double gmi_tp_get_feed_mm_per_min(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetExecFeedMmPerMin(&inst->tp); }
 
-static int32_t gmi_tp_get_pos(void *ctx, tp_pose_t *pos) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetPos(&inst->tp, (EmcPose *)pos); }
-static int32_t gmi_tp_is_done(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpIsDone(&inst->tp); }
-static int32_t gmi_tp_queue_depth(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpQueueDepth(&inst->tp); }
-static int32_t gmi_tp_active_depth(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpActiveDepth(&inst->tp); }
-static int32_t gmi_tp_get_motion_type(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetMotionType(&inst->tp); }
-static int32_t gmi_tp_queue_full(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tcqFull(&inst->tp.queue); }
-static int32_t gmi_tp_get_run_dir(void *ctx) GOMC_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return inst->tp.reverse_run; }
+static int32_t gmi_tp_get_pos(void *ctx, tp_pose_t *pos) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetPos(&inst->tp, (EmcPose *)pos); }
+static int32_t gmi_tp_is_done(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpIsDone(&inst->tp); }
+static int32_t gmi_tp_queue_depth(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpQueueDepth(&inst->tp); }
+static int32_t gmi_tp_active_depth(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpActiveDepth(&inst->tp); }
+static int32_t gmi_tp_get_motion_type(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tpGetMotionType(&inst->tp); }
+static int32_t gmi_tp_queue_full(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return tcqFull(&inst->tp.queue); }
+static int32_t gmi_tp_get_run_dir(void *ctx) STMAK_NONBLOCKING { tpmod_inst_t *inst = (tpmod_inst_t *)ctx; return inst->tp.reverse_run; }
 
 // ─── cmod lifecycle ─────────────────────────────────────────────────────
 
@@ -3883,7 +3883,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = tp_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "failed to register tp API: %d", rc);
         free(inst);
         return rc;

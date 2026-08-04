@@ -13,29 +13,29 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 #include <math.h>
 
 typedef struct {
-    gomc_hal_float_t *square;
-    gomc_hal_float_t *sawtooth;
-    gomc_hal_float_t *triangle;
-    gomc_hal_float_t *sine;
-    gomc_hal_float_t *cosine;
-    gomc_hal_bit_t   *clock;
-    gomc_hal_float_t *frequency;
-    gomc_hal_float_t *amplitude;
-    gomc_hal_float_t *offset;
-    gomc_hal_bit_t   *reset;
+    stmak_hal_float_t *square;
+    stmak_hal_float_t *sawtooth;
+    stmak_hal_float_t *triangle;
+    stmak_hal_float_t *sine;
+    stmak_hal_float_t *cosine;
+    stmak_hal_bit_t   *clock;
+    stmak_hal_float_t *frequency;
+    stmak_hal_float_t *amplitude;
+    stmak_hal_float_t *offset;
+    stmak_hal_bit_t   *reset;
 } siggen_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     siggen_hal_t *hal;
     double index;
 } inst_t;
@@ -109,7 +109,7 @@ int New(const cmod_env_t *env, const char *name,
     strncpy(inst->name, name, sizeof(inst->name) - 1);
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(siggen_hal_t));
@@ -117,34 +117,34 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->hal, 0, sizeof(siggen_hal_t));
     h = inst->hal;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->square, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->square, inst->comp_id,
                                 "%s.square", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->sawtooth, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->sawtooth, inst->comp_id,
                                 "%s.sawtooth", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->triangle, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->triangle, inst->comp_id,
                                 "%s.triangle", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->sine, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->sine, inst->comp_id,
                                 "%s.sine", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->cosine, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->cosine, inst->comp_id,
                                 "%s.cosine", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->clock, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->clock, inst->comp_id,
                               "%s.clock", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->frequency, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->frequency, inst->comp_id,
                                 "%s.frequency", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->amplitude, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->amplitude, inst->comp_id,
                                 "%s.amplitude", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->offset, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->offset, inst->comp_id,
                                 "%s.offset", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->reset, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->reset, inst->comp_id,
                               "%s.reset", name);
     if (r != 0) goto err;
 

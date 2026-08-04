@@ -291,7 +291,7 @@ fi
 if [ $1 = scope ] ; then
     echo "The halscope demo has been removed."
     echo "Halscope is now a web-based application that runs as part"
-    echo "of the gomc-server.  Launch it via the 'halscope' command"
+    echo "of the stmakd.  Launch it via the 'halscope' command"
     echo "or from your LinuxCNC configuration."
     exit 0
 fi

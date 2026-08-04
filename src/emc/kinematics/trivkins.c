@@ -15,7 +15,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "kins_api.h"
 
 // ─── Private state ───
@@ -222,7 +222,7 @@ int New(
     // Register with the GMI kinematics API
     int rc = kins_api_register(env->api, name, cb);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "failed to register kinematics API: %d", rc);
         trivkins_Destroy(&tk->base);
         return rc;

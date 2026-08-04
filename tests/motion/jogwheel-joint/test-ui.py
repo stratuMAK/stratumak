@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (gmi client).  Drive joint.<n>.jog-* directly
+# Ported to the stmak REST/WS API (gmi client).  Drive joint.<n>.jog-* directly
 # via halcmd (the userspace jogwheel-encoder hal.component is gone) and read the
 # joint position from gmi.Stat.joint_actual_position.
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import subprocess
@@ -49,7 +49,7 @@ def wait_for_joint_to_stop(joint_number):
     start_time = time.time()
     # A 2 s ceiling was a bet on an idle machine; the loop returns as soon as two
     # consecutive samples match, so a generous deadline only bounds the failure.
-    timeout = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
+    timeout = stmak_test.DEFAULT_TIMEOUT * stmak_test.scale()
     prev_pos = h[pos_pin]
     while (time.time() - start_time) < timeout:
         time.sleep(0.1)
@@ -62,7 +62,7 @@ def wait_for_joint_to_stop(joint_number):
     sys.exit(1)
 
 
-# Positions here are gomc-internal millimeters. simple_tp's arrival deadband
+# Positions here are stmak-internal millimeters. simple_tp's arrival deadband
 # TINY_DP = max_acc * period^2 * 0.001 scales with max_acc, which is now in mm/s^2
 # (25.4x larger than the old inch-scaled motion): for these configs (1000 inch/s^2
 # = 25400 mm/s^2, 1 ms servo) it is 2.54e-5 mm, so a jog legitimately stops that
@@ -124,7 +124,7 @@ def jog_joint(joint_number, counts=1, scale=0.001):
 # connect to LinuxCNC
 #
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -134,7 +134,7 @@ c.mode(MODE_MANUAL)
 # Jogging is only accepted in manual mode: wait for the mode switch to actually
 # land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
 # were silently refused and the test failed as "joint didn't get to target".
-gomc_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
+stmak_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
                     "task_mode to become MODE_MANUAL",
                     detail=lambda st: "task_mode=%d task_state=%d"
                                       % (st.task_mode, st.task_state))

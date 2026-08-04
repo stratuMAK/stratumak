@@ -22,7 +22,7 @@
 #include <string.h>
 #include <math.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "home_api.h"
 #include "mot_api.h"
 #include "motion.h"
@@ -53,25 +53,25 @@ typedef enum {
 
 /* HAL pins */
 typedef struct {
-    gomc_hal_u32_t  *opmode_cmd;
-    gomc_hal_u32_t  *opmode_fb;
-    gomc_hal_bit_t  *home_cmd;
-    gomc_hal_bit_t  *homing_attained;
-    gomc_hal_bit_t  *homing_error;
-    gomc_hal_bit_t  *homing_pin;     /* OUT: 1 while homing */
-    gomc_hal_bit_t  *homed_pin;      /* OUT: 1 when homed */
-    gomc_hal_s32_t  *home_state_pin; /* OUT: state for debug */
+    stmak_hal_u32_t  *opmode_cmd;
+    stmak_hal_u32_t  *opmode_fb;
+    stmak_hal_bit_t  *home_cmd;
+    stmak_hal_bit_t  *homing_attained;
+    stmak_hal_bit_t  *homing_error;
+    stmak_hal_bit_t  *homing_pin;     /* OUT: 1 while homing */
+    stmak_hal_bit_t  *homed_pin;      /* OUT: 1 when homed */
+    stmak_hal_s32_t  *home_state_pin; /* OUT: state for debug */
 } linmot_pins_t;
 
 /* Per-instance state */
 typedef struct {
     const mot_callbacks_t *mot;
-    const gomc_api_t *api;
-    const gomc_hal_t *hal;
-    const gomc_log_t *log;
-    char name[GOMC_HAL_NAME_LEN + 1];
-    char mot_instance[GOMC_HAL_NAME_LEN + 1];
-    char pin_prefix[GOMC_HAL_NAME_LEN + 1];
+    const stmak_api_t *api;
+    const stmak_hal_t *hal;
+    const stmak_log_t *log;
+    char name[STMAK_HAL_NAME_LEN + 1];
+    char mot_instance[STMAK_HAL_NAME_LEN + 1];
+    char pin_prefix[STMAK_HAL_NAME_LEN + 1];
     int comp_id;
     int jno;
 
@@ -116,7 +116,7 @@ static void track_drive_position(linmot_inst_t *inst)
     inst->mot->joint_set_free_tp_curr_pos(inst->mot->ctx, jno, pos);
 }
 
-static int drive_home_tick(linmot_inst_t *inst) GOMC_NONBLOCKING
+static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
 {
     int jno = inst->jno;
     linmot_pins_t *p = &inst->pins;
@@ -142,7 +142,7 @@ static int drive_home_tick(linmot_inst_t *inst) GOMC_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            gomc_log_errorf(inst->log, inst->name,
+            stmak_log_errorf(inst->log, inst->name,
                 "j%d: timeout waiting for homing mode", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -151,7 +151,7 @@ static int drive_home_tick(linmot_inst_t *inst) GOMC_NONBLOCKING
     case DRV_HOME_WAIT_ATTAINED:
         track_drive_position(inst);
         if (*(p->homing_error)) {
-            gomc_log_errorf(inst->log, inst->name,
+            stmak_log_errorf(inst->log, inst->name,
                 "j%d: drive reported homing error", jno);
             *(p->home_cmd) = 0;
             inst->drv_state = DRV_HOME_ERROR;
@@ -185,7 +185,7 @@ static int drive_home_tick(linmot_inst_t *inst) GOMC_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            gomc_log_errorf(inst->log, inst->name,
+            stmak_log_errorf(inst->log, inst->name,
                 "j%d: timeout waiting for CSP mode after homing", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -263,24 +263,24 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 
     inst->comp_id = comp_id;
 
-    retval += gomc_hal_pin_u32_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.opmode_cmd, comp_id,
+    retval += stmak_hal_pin_u32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.opmode_cmd, comp_id,
                               "%s.opmode-cmd", inst->name);
-    retval += gomc_hal_pin_u32_newf(inst->hal, GOMC_HAL_IN, &inst->pins.opmode_fb, comp_id,
+    retval += stmak_hal_pin_u32_newf(inst->hal, STMAK_HAL_IN, &inst->pins.opmode_fb, comp_id,
                               "%s.opmode-fb", inst->name);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.home_cmd, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.home_cmd, comp_id,
                               "%s.home-cmd", inst->name);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_IN, &inst->pins.homing_attained, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_IN, &inst->pins.homing_attained, comp_id,
                               "%s.homing-attained", inst->name);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_IN, &inst->pins.homing_error, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_IN, &inst->pins.homing_error, comp_id,
                               "%s.homing-error", inst->name);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.homing_pin, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.homing_pin, comp_id,
                               "%sjoint.%d.homing", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.homed_pin, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.homed_pin, comp_id,
                               "%sjoint.%d.homed", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_s32_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.home_state_pin, comp_id,
+    retval += stmak_hal_pin_s32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.home_state_pin, comp_id,
                               "%sjoint.%d.home-state", inst->pin_prefix, inst->jno);
     if (retval != 0) {
-        gomc_log_errorf(inst->log, inst->name, "failed to create HAL pins");
+        stmak_log_errorf(inst->log, inst->name, "failed to create HAL pins");
         return -1;
     }
 
@@ -293,7 +293,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 static int32_t gmi_home_set_params(void *ctx, double offset, double home,
     double home_final_vel, double home_search_vel,
     double home_latch_vel, int32_t home_flags,
-    int32_t home_sequence, int32_t volatile_home) GOMC_NONBLOCKING
+    int32_t home_sequence, int32_t volatile_home) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     (void)home_search_vel; /* unused — drive does search internally */
@@ -308,7 +308,7 @@ static int32_t gmi_home_set_params(void *ctx, double offset, double home,
 }
 
 static int32_t gmi_home_update_params(void *ctx, double home_offset,
-    double home_home, int32_t home_sequence) GOMC_NONBLOCKING
+    double home_home, int32_t home_sequence) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     inst->home_offset   = home_offset;
@@ -317,19 +317,19 @@ static int32_t gmi_home_update_params(void *ctx, double home_offset,
     return 0;
 }
 
-static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_read_in_pins(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx; /* pins are read directly in state machine */
     return 0;
 }
 
-static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_homing(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)drive_home_tick(inst);
 }
 
-static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_write_out_pins(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     *(inst->pins.homing_pin) = inst->homing;
@@ -338,7 +338,7 @@ static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_home(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if ((inst->home_flags & HOME_NO_REHOME) && inst->homed)
@@ -350,7 +350,7 @@ static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_cancel(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     if (inst->homing || inst->drv_state != DRV_HOME_IDLE) {
@@ -378,7 +378,7 @@ static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOMC_NONBLOCKING
+static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     (void)motstate;
@@ -387,37 +387,37 @@ static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOM
     return 0;
 }
 
-static int32_t gmi_home_get_homing(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_homing(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)inst->homing;
 }
 
-static int32_t gmi_home_get_homed(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_homed(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return (int32_t)inst->homed;
 }
 
-static int32_t gmi_home_get_index_enable(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_index_enable(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 0; /* LinMot doesn't use index pulse */
 }
 
-static int32_t gmi_home_get_needs_unlock_first(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_needs_unlock_first(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 0; /* Drive handles its own unlocking */
 }
 
-static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_is_idle(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     return inst->drv_state == DRV_HOME_IDLE ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_at_index_search_wait(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     /* While the drive owns the position loop (opmode HOMING, from the mode
@@ -444,7 +444,7 @@ static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
             inst->drv_state <= DRV_HOME_WAIT_CSP) ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_at_final_move_wait(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     /* Returns 1 when the state machine is paused at DRV_HOME_FINAL_MOVE
@@ -454,7 +454,7 @@ static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
             !inst->sync_final_move_released) ? 1 : 0;
 }
 
-static int32_t gmi_home_do_final_move(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_final_move(void *ctx) STMAK_NONBLOCKING
 {
     linmot_inst_t *inst = (linmot_inst_t *)ctx;
     /* Release the sync pause so the final move can start. */
@@ -493,7 +493,7 @@ int New(const cmod_env_t *env, const char *name,
     if (dot && dot[1] >= '0' && dot[1] <= '9') {
         inst->jno = atoi(dot + 1);
     } else {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "Cannot parse joint number from instance name '%s'", name);
         free(inst);
         return -1;
@@ -522,7 +522,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = home_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name, "failed to register home API: %d", rc);
+        stmak_log_errorf(env->log, name, "failed to register home API: %d", rc);
         free(inst);
         return rc;
     }

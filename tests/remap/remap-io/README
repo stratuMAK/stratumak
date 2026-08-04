@@ -1,7 +1,7 @@
 This test verifies that M62-M68 can be remapped through NGC subroutines,
 and that calling the original M-codes is supported in the remap subroutine.
 
-(The classic test also had a Python-remap variant; gomc removed the embedded
+(The classic test also had a Python-remap variant; stmak removed the embedded
 Python interpreter, so only the NGC variant remains — the Python remap is a
 genuine removal.)
 

@@ -27,7 +27,7 @@
 #include <unistd.h>
 #include <endian.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hm2_core_api.h"
 #define HM2_LLIO_NAME "hm2_spi"
 static const void *hm2_log;
@@ -208,14 +208,14 @@ static uint32_t write_command(uint16_t addr, unsigned nelem) {
  * register exchange through spidev from the servo thread.  Latency is a
  * property of the SPI controller/driver setup and is audited by the
  * latency tests, not by this static check. */
-static int spi_ioc_message(int fd, struct spi_ioc_transfer *t) GOMC_NONBLOCKING;
-GOMC_NONBLOCKING_TRUSTED_BEGIN
+static int spi_ioc_message(int fd, struct spi_ioc_transfer *t) STMAK_NONBLOCKING;
+STMAK_NONBLOCKING_TRUSTED_BEGIN
 static int spi_ioc_message(int fd, struct spi_ioc_transfer *t) {
     return ioctl(fd, SPI_IOC_MESSAGE(1), t);
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
-static int do_pending(hm2_spi_t *this) GOMC_NONBLOCKING {
+static int do_pending(hm2_spi_t *this) STMAK_NONBLOCKING {
     if(this->nbuf == 0) return 0;
 
     struct spi_ioc_transfer t;
@@ -231,7 +231,7 @@ static int do_pending(hm2_spi_t *this) GOMC_NONBLOCKING {
     }
     int r = spi_ioc_message(this->fd, &t);
     if(r < 0) {
-        gomc_log_errorf(hm2_log, HM2_LLIO_NAME,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", hm2_rt_strerror());
+        stmak_log_errorf(hm2_log, HM2_LLIO_NAME,             "hm2_spi: SPI_IOC_MESSAGE: %s\n", hm2_rt_strerror());
         this->nbuf = 0;
         return -hm2_rt_errno();
     }
@@ -267,12 +267,12 @@ static int do_pending(hm2_spi_t *this) GOMC_NONBLOCKING {
     this->scatter[this->nbuf++] = recv_addr; \
 } while(0)
 
-static int send_queued_writes(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING {
+static int send_queued_writes(hm2_lowlevel_io_t *llio) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     return do_pending(this) >= 0;
 }
 
-static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     if(size == 0) return 0;
     if(size % 4) return -EINVAL;
@@ -293,12 +293,12 @@ static int queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffe
     return 1;
 }
 
-static int send_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING {
+static int send_queued_reads(hm2_lowlevel_io_t *llio) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     return do_pending(this) >= 0;
 }
 
-static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     if(size == 0) return 0;
     if(size % 4) return -EINVAL;
@@ -318,14 +318,14 @@ static int queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int 
     return 1;
 }
 
-static int do_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+static int do_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     int r = queue_write(llio, addr, buffer, size);
     if(r < 0) return r;
     return do_pending(this) >= 0;
 }
 
-static int do_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int do_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_spi_t *this = (hm2_spi_t*) llio;
     int r = queue_read(llio, addr, buffer, size);
     if(r < 0) return r;
@@ -394,8 +394,8 @@ static int check_cookie(hm2_spi_t *board) {
     if(r < 0) return -errno;
 
     if(memcmp(cookie, xcookie, sizeof(cookie))) {
-        gomc_log_errorf(hm2_log, HM2_LLIO_NAME, "Invalid cookie\n");
-        gomc_log_errorf(hm2_log, HM2_LLIO_NAME, "Read: %08x %08x %08x %08x\n",
+        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Invalid cookie\n");
+        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Read: %08x %08x %08x %08x\n",
             cookie[0], cookie[1], cookie[2], cookie[3]);
         return -ENODEV;
     }
@@ -471,7 +471,7 @@ static int probe(hm2_spi_inst_t *inst, char *dev, int rate) {
         int i=0;
         for(i=0; (size_t)i<sizeof(ident); i++)
             if(!isprint(ident[i])) ident[i] = '?';
-        gomc_log_errorf(hm2_log, HM2_LLIO_NAME, "Unknown board: %.8s\n", ident);
+        stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "Unknown board: %.8s\n", ident);
         goto fail;
     }
 
@@ -520,7 +520,7 @@ static void hm2_spi_parse_argv(hm2_spi_inst_t *inst, int argc, const char **argv
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
     hm2_log = env->log;
     int ret;
     int i=0;
@@ -541,12 +541,12 @@ int New(const cmod_env_t *env, const char *name,
 
     inst->core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->core) {
-        gomc_log_errorf(env->log, name, "hm2_spi: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_log_errorf(env->log, name, "hm2_spi: hostmot2 core API not found (is hostmot2 loaded?)\n");
         free(inst);
         return -1;
     }
 
-    ret = hal->init(hal->ctx, "hm2_spi", env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    ret = hal->init(hal->ctx, "hm2_spi", env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (ret < 0) {
         free(inst);
         return ret;
@@ -574,7 +574,7 @@ fail:
 
 static void hm2_spi_destroy(cmod_t *self) {
     hm2_spi_inst_t *inst = (hm2_spi_inst_t *)self;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     hal->exit(hal->ctx, inst->comp_id);
     free(inst);
 }

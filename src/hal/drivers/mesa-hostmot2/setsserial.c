@@ -19,7 +19,7 @@
 //
 //    The code in this file is based on UFLBP.PAS by Peter C. Wallace.  
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hostmot2.h"
 #include "sserial.h"
 #include <stdlib.h>
@@ -65,7 +65,7 @@ static int waitfor(setsserial_inst_t *inst){
         inst->env->rtapi->delay(inst->env->rtapi->ctx, 50000);
         HM2READ(remote->command_reg_addr, buff);
         if (inst->env->rtapi->get_time(inst->env->rtapi->ctx) - starttime > 1000000000){
-            gomc_log_errorf(inst->env->log, "setsserial", "Timeout waiting for CMD to clear\n");
+            stmak_log_errorf(inst->env->log, "setsserial", "Timeout waiting for CMD to clear\n");
             return -1;
         }
     } while (buff);
@@ -81,7 +81,7 @@ static int doit(setsserial_inst_t *inst){
     if (waitfor(inst) < 0) return -1;
     HM2READ(remote->data_reg_addr, buff);
     if (buff & (1 << remote->index)){
-        gomc_log_errorf(inst->env->log, "setsserial", "Error flag set after CMD Clear %08x\n",
+        stmak_log_errorf(inst->env->log, "setsserial", "Error flag set after CMD Clear %08x\n",
                         buff);
         return -1;
     }
@@ -103,9 +103,9 @@ static int setup_start(setsserial_inst_t *inst){
     HM2WRITE(remote->command_reg_addr, buff);
     if (waitfor(inst) < 0) return -1;
     HM2READ(remote->data_reg_addr, buff); 
-    gomc_log_infof(inst->env->log, "setsserial", "setup start: data_reg readback = %x\n", buff);
+    stmak_log_infof(inst->env->log, "setsserial", "setup start: data_reg readback = %x\n", buff);
     if (buff & (1 << remote->index)){
-        gomc_log_infof(inst->env->log, "setsserial", "Remote failed to start\n");
+        stmak_log_infof(inst->env->log, "setsserial", "Remote failed to start\n");
         return -1;
     }
     return 0;
@@ -115,7 +115,7 @@ static int nv_access(setsserial_inst_t *inst, uint32_t type){
     hostmot2_t *hm2 = inst->hm2;
     hm2_sserial_remote_t *remote = inst->remote;
     uint32_t buff = LBPNONVOL_flag + LBPWRITE;
-    gomc_log_infof(inst->env->log, "setsserial", "buff = %x\n", buff);
+    stmak_log_infof(inst->env->log, "setsserial", "buff = %x\n", buff);
     HM2WRITE(remote->reg_cs_addr, buff);
     HM2WRITE(remote->rw_addr[0], type);
     return doit(inst);
@@ -142,7 +142,7 @@ static int set_nvram_param(setsserial_inst_t *inst, uint32_t addr, uint32_t valu
 fail0: // It's all gone wrong
     buff=0x800; //Stop
     HM2WRITE(remote->command_reg_addr, buff);
-    gomc_log_errorf(inst->env->log, "setsserial",                     "Problem with Smart Serial parameter setting, see dmesg\n");
+    stmak_log_errorf(inst->env->log, "setsserial",                     "Problem with Smart Serial parameter setting, see dmesg\n");
     return -1;
 }
 
@@ -352,20 +352,20 @@ static int sslbp_flash(setsserial_inst_t *inst, char *fname){
     
     if (strstr("8i20", remote->name)){
         if (hm2->sserial.version < 37){
-            gomc_log_infof(inst->env->log, "setsserial", "SSLBP Version must be at least v37 to flash the 8i20"
+            stmak_log_infof(inst->env->log, "setsserial", "SSLBP Version must be at least v37 to flash the 8i20"
                         "This firmware has v%i. Sorry about that\n"
                         ,hm2->sserial.version);
             return -1;
         }
     }
     else if (hm2->sserial.version < 34){
-        gomc_log_infof(inst->env->log, "setsserial", "SSLBP Version must be at least v34. This firmware has v%i"
+        stmak_log_infof(inst->env->log, "setsserial", "SSLBP Version must be at least v34. This firmware has v%i"
                     "\n",hm2->sserial.version);
         return -1;
     }
     
     if (hm2->sserial.baudrate != 115200){
-        gomc_log_infof(inst->env->log, "setsserial", "To flash firmware the baud rate of the board must be set "
+        stmak_log_infof(inst->env->log, "setsserial", "To flash firmware the baud rate of the board must be set "
                     "to 115200 by jumper, and in Hostmot2 using the "
                     "sserial_baudrate modparam\n");
         return -1;
@@ -382,7 +382,7 @@ static int sslbp_flash(setsserial_inst_t *inst, char *fname){
         HM2_ERR("request for firmware %s failed, aborting\n", fname);
         return -1;
     }    
-    gomc_log_infof(inst->env->log, "setsserial", "Firmware size 0x%zx\n", fw->size);
+    stmak_log_infof(inst->env->log, "setsserial", "Firmware size 0x%zx\n", fw->size);
     
     if (setup_start(inst) < 0) goto fail0;
     flash_start(inst);
@@ -470,7 +470,7 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
 
     inst->remote = hm2_get_sserial(&inst->hm2, inst->cmd_list[1]);
     if (!inst->remote) {
-        gomc_log_errorf(inst->env->log, "setsserial",                         "Unable to find sserial remote corresponding to %s\n",
+        stmak_log_errorf(inst->env->log, "setsserial",                         "Unable to find sserial remote corresponding to %s\n",
                         inst->cmd_list[1]);
         return -1;
     }
@@ -481,7 +481,7 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
         uint32_t value;
         uint32_t addr;
         int i;
-        gomc_log_infof(inst->env->log, "setsserial", "set command %s\n", inst->cmd_list[1]);
+        stmak_log_infof(inst->env->log, "setsserial", "set command %s\n", inst->cmd_list[1]);
         addr = 0;
         for (i = 0; i < remote->num_globals; i++){
             if (strstr(inst->cmd_list[1], remote->globals[i].NameString)){
@@ -490,38 +490,38 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
             }
         }
         if (!addr) {
-            gomc_log_errorf(inst->env->log, "setsserial",                             "Unable to find parameter corresponding to %s\n",
+            stmak_log_errorf(inst->env->log, "setsserial",                             "Unable to find parameter corresponding to %s\n",
                             inst->cmd_list[1]);
             return -1;
         }
         value = simple_strtol(inst->cmd_list[2], NULL, 0);
-        gomc_log_infof(inst->env->log, "setsserial", "remote name = %s ParamAddr = %x Value = %i\n",
+        stmak_log_infof(inst->env->log, "setsserial", "remote name = %s ParamAddr = %x Value = %i\n",
                     remote->name, addr, value);
         if (set_nvram_param(inst, addr, value) < 0) {
-            gomc_log_errorf(inst->env->log, "setsserial", "Parameter setting failed\n");
+            stmak_log_errorf(inst->env->log, "setsserial", "Parameter setting failed\n");
             return -1;
         } else {
-            gomc_log_errorf(inst->env->log, "setsserial", "Parameter setting success\n");
+            stmak_log_errorf(inst->env->log, "setsserial", "Parameter setting success\n");
             return 0;
         }
     }
     else if (!strncmp("flash", inst->cmd_list[0], 5) && cnt == 3){
-        gomc_log_infof(inst->env->log, "setsserial", "flash command\n");
+        stmak_log_infof(inst->env->log, "setsserial", "flash command\n");
         if (!strstr(inst->cmd_list[2], ".BIN")){
-            gomc_log_infof(inst->env->log, "setsserial", "Smart-Serial remote firmwares are .BIN format\n "
+            stmak_log_infof(inst->env->log, "setsserial", "Smart-Serial remote firmwares are .BIN format\n "
                         "flashing with the wrong one would be bad. Aborting\n");
             return -EINVAL;
         }
         if (sslbp_flash(inst, inst->cmd_list[2]) < 0){
-            gomc_log_errorf(inst->env->log, "setsserial", "Firmware Flash Failed\n");
+            stmak_log_errorf(inst->env->log, "setsserial", "Firmware Flash Failed\n");
             return -1;
         } else {
-            gomc_log_errorf(inst->env->log, "setsserial", "Firmware Flash Success\n");
+            stmak_log_errorf(inst->env->log, "setsserial", "Firmware Flash Success\n");
             return 0;
         }
     }
     else {
-        gomc_log_errorf(inst->env->log, "setsserial",                         "Unknown command or wrong number of parameters to "
+        stmak_log_errorf(inst->env->log, "setsserial",                         "Unknown command or wrong number of parameters to "
                         "setsserial command");
         return -1;
     }
@@ -542,7 +542,7 @@ int New(const cmod_env_t *env, const char *name,
             cmd_str = argv[i] + 4;
     }
     if (!cmd_str) {
-        gomc_log_errorf(env->log, "setsserial", "setsserial: missing cmd= parameter\n");
+        stmak_log_errorf(env->log, "setsserial", "setsserial: missing cmd= parameter\n");
         return -EINVAL;
     }
 
@@ -553,7 +553,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->env = env;
 
     inst->comp_id = env->hal->init(env->hal->ctx, "setsserial",
-                                   env->dl_handle, GOMC_HAL_COMP_REALTIME);
+                                   env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
         ret = inst->comp_id;
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);

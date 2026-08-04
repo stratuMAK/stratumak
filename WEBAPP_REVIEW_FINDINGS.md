@@ -115,7 +115,7 @@ design/wire change or a ruling), **RULED** (kept as-is with rationale),
   semantics match classic (live HAL values; pending edits survive, correctly);
   refresh cannot clobber typed text (edit map separate; live value is
   placeholder only); Revert client half of E-1 correct. RULED (release-note):
-  gomc Revert goes to the INI value, classic Cancel restored the pre-test HAL
+  stmak Revert goes to the INI value, classic Cancel restored the pre-test HAL
   value — after sequential Tests there is no path back to an intermediate.
 
 ## halshow (H-*)
@@ -248,7 +248,7 @@ design/wire change or a ruling), **RULED** (kept as-is with rationale),
   Fix: per-poller timeout race + single-in-flight guard + sequence numbers
   (late responses discarded) + staleness watchdog that flips the badge to
   stale when status stops arriving.
-- **LT-2 MEDIUM FIXED** — one-shot startup: page loaded before gomc-server →
+- **LT-2 MEDIUM FIXED** — one-shot startup: page loaded before stmakd →
   permanently dead app with a misleading "no latency instances found". Now
   retries enumeration on an interval and distinguishes registry-unreachable
   from genuinely-empty.

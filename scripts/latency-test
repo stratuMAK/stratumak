@@ -1,7 +1,7 @@
 #!/bin/bash
-# latency-test - measure RT scheduling latency (gomc).
+# latency-test - measure RT scheduling latency (stmak).
 #
-# Boots a minimal, standalone gomc-server (RT threads plus one `latency` cmod
+# Boots a minimal, standalone stmakd (RT threads plus one `latency` cmod
 # instance per thread; no INI, task or motion) and opens the web UI on it.  The
 # cmod measures each thread's scheduling latency in its RT function, and a
 # non-RT drainer inside it keeps the histogram, statistics and plot history
@@ -297,7 +297,7 @@ setup_confinement
 # Samples which tasks run on the RT CPUs and warns about foreign non-RT tasks:
 # an isolation violation contaminates the measurement (the multi-ms artifact
 # class above) and would otherwise be invisible.  Kernel per-cpu threads and
-# RT-policy tasks (the gomc RT threads, rtla, ...) are expected there.  The
+# RT-policy tasks (the stmak RT threads, rtla, ...) are expected there.  The
 # `processor` stat field is "CPU last ran on", so even transient visits by a
 # wandering task are eventually caught.  Each offender is reported once.
 WATCHDOG_PID=""
@@ -494,7 +494,7 @@ fi
 # Stream the server's stdout+stderr both to a log file (read back below) and
 # live to our own stderr, so a mid-run crash - panic, stack trace - is visible
 # instead of being lost when cleanup() removes the temp dir.
-GMC_REST_ADDR="$ADDR" gomc-server -f "$T/latency.hal" -serve \
+GMC_REST_ADDR="$ADDR" stmakd -f "$T/latency.hal" -serve \
     > >(tee "$T/server.log" >&2) 2>&1 &
 SRV_PID=$!
 
@@ -508,7 +508,7 @@ for _ in $(seq 1 100); do
     sleep 0.1
 done
 if [ "$started" -ne 1 ]; then
-    echo "latency-test: gomc-server failed to start (see server log above)" >&2
+    echo "latency-test: stmakd failed to start (see server log above)" >&2
     exit 1
 fi
 

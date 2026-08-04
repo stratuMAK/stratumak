@@ -11,7 +11,7 @@ out of scope.
 ## CONFIRMED — fixed
 
 - **A-1 HIGH (= GP-16) the 25.4× inch-machine unit break — full inventory +
-  fix.** gomc serves classic `linear_units` (machine-units-per-mm) but mm
+  fix.** stmak serves classic `linear_units` (machine-units-per-mm) but mm
   positions; every classic `to/from_internal_*` helper divides by
   `linear_units*25.4`, which degenerates to 1.0 on inch configs. Precisely
   determined: the live backplot was CORRECT on metric machines (logger points
@@ -125,7 +125,7 @@ out of scope.
   - **Canon API:** `dwell(lineno, seconds)` and `change_tool(lineno, slot)`
     (canon.gmi + canon_interface.hh + interp_queue's dwell op + the seven
     canned-cycle call sites + saicanon/canterp). Before this, dwells and tool
-    changes inherited whatever moved last — and gomc's `CanonState.lineNo`
+    changes inherited whatever moved last — and stmak's `CanonState.lineNo`
     existed only to paper over it, so it is now deleted along with its five
     writes. Departs from classic `emccanon`; the printed sai oracle format is
     unchanged (it never printed line numbers), so no test churn.
@@ -192,7 +192,7 @@ out of scope.
 No automated fault-path suite is possible for this row: axis.py is a
 monolithic Tk script (importing it launches the GUI), the same reason `U` is
 n/a. The underlying fault contracts ARE automatically tested one layer down —
-refusal→HTTPError with reason (Go contract tests, `gomc_test`), shim
+refusal→HTTPError with reason (Go contract tests, `stmak_test`), shim
 reconnect/retry (`tests/gmi-shim`), preview partial-geometry/error-line/bounds
 (`genpreview_test.go`). The AXIS-side handling is verified by this **manual
 smoke checklist, to be executed as part of the human `S` sign-off**:
@@ -203,7 +203,7 @@ smoke checklist, to be executed as part of the human `S` sign-off**:
 2. `wait_complete` timeout path: pause a running program, hit a
    wait_complete-backed action (e.g. touch-off) — notification, GUI stays
    alive.
-3. Server death mid-session: kill gomc-server under a running AXIS — poll
+3. Server death mid-session: kill stmakd under a running AXIS — poll
    errors on stderr, GUI responsive; restart the server — ErrorChannel/
    MessageList reconnect (messages flow again) and poll() recovers.
 4. Preview of a file with a mid-file error — partial toolpath drawn PLUS the

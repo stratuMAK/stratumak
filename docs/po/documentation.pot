@@ -128685,7 +128685,7 @@ msgid ""
 "Deep C-states (C6 and deeper) add 100-400 µs of exit latency to every cycle "
 "wakeup on an otherwise idle realtime CPU.  Note that LinuxCNC does NOT hold "
 "`/dev/cpu_dma_latency` at runtime (the classic 2.9 `rtapi_app` was setuid "
-"root and held it at 0; the gomc server runs unprivileged and deliberately "
+"root and held it at 0; the stmak server runs unprivileged and deliberately "
 "does not reimplement this): a global zero-latency request forces *all* CPUs "
 "into poll idle — a real thermal and power cost on fanless industrial PCs for "
 "no benefit on the housekeeping CPUs — and a boot-time cap cannot be lost to "
@@ -177565,7 +177565,7 @@ msgstr ""
 #. type: Plain text
 #: man/man1/milltask.1:21
 msgid ""
-"On B<gomc>, B<milltask> is loaded with a HAL B<load> line and accepts "
+"On B<stmak>, B<milltask> is loaded with a HAL B<load> line and accepts "
 "I<key>B<=>I<value> parameters, e.g.  B<load milltask E<lt>pnp.taskE<gt> "
 "motion_instance=pnp.mot error_filter=^pnp\\e.>"
 msgstr ""
@@ -179767,7 +179767,7 @@ msgstr ""
 #: man/man1/rtapi_app.1:34
 msgid ""
 "B<rtapi_app> is no longer built or used.  Realtime module loading is now "
-"handled in-process by gomc-server via dlopen."
+"handled in-process by stmakd via dlopen."
 msgstr ""
 
 #. type: Plain text

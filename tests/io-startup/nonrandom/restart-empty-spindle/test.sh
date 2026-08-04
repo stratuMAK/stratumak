@@ -7,21 +7,21 @@
 # survives in slot 0 while toolInSpindle starts at 0, and a bare G43 H0
 # applies a phantom tool-length offset from a tool io reports as absent.
 
-. ../../../gomc-driver.sh
+. ../../../stmak-driver.sh
 
 rm -rf db
 rm -f sim.var* tool.tbl
 cp tool.tbl.original tool.tbl
 
 # Boot 1: load T1 into the spindle (M61 Q1), leave it mounted at shutdown.
-gomc_start_server --log server1.log test.ini
-gomc_wait_ready
+stmak_start_server --log server1.log test.ini
+stmak_wait_ready
 ./drive.py load
 
-kill $GOMC_SRV
-wait $GOMC_SRV 2>/dev/null
+kill $STMAK_SRV
+wait $STMAK_SRV 2>/dev/null
 
 # Boot 2: same db. The spindle must come up empty, exactly as 2.9 did.
-gomc_start_server --log server2.log test.ini
-gomc_wait_ready
+stmak_start_server --log server2.log test.ini
+stmak_wait_ready
 ./drive.py check

@@ -34,7 +34,7 @@ so that multiple axis client instances can run simultaneously without conflicts.
 ```
 ┌──────────────────────┐     ┌─────────────────────────────────┐
 │  axis client (thin)  │     │  axis_ui server component       │
-│                      │◄───►│  (cmod or gomod in gomc-server) │
+│                      │◄───►│  (cmod or gomod in stmakd) │
 │  - renders UI        │ WS  │                                 │
 │  - sends user intent │     │  Owns:                          │
 │  - syncs display     │     │  - loaded_file                  │
@@ -48,7 +48,7 @@ so that multiple axis client instances can run simultaneously without conflicts.
                              │  - mode management              │
                              │                                 │
                              │  Lives in same process as       │
-                             │  task/motion (gomc-server)      │
+                             │  task/motion (stmakd)      │
                              │  → no IPC, direct function calls│
                              └─────────────────────────────────┘
 ```
@@ -86,8 +86,8 @@ so that multiple axis client instances can run simultaneously without conflicts.
 
 The server-side component can be implemented as either:
 
-- **cmod** (current `axis_ui`): C module loaded by gomc-server, exposes HAL pins directly
-- **gomod**: Pure Go module within gomc-server — may be preferable if the state logic becomes complex enough that Go's ergonomics help, and HAL pin access can be done via the Go HAL bindings
+- **cmod** (current `axis_ui`): C module loaded by stmakd, exposes HAL pins directly
+- **gomod**: Pure Go module within stmakd — may be preferable if the state logic becomes complex enough that Go's ergonomics help, and HAL pin access can be done via the Go HAL bindings
 
 Choose based on whether HAL pin manipulation or state logic dominates the complexity.
 
@@ -103,8 +103,8 @@ Choose based on whether HAL pin manipulation or state logic dominates the comple
 
 ## Notes
 
-- gomc-server unifies cmod + task + motion in one process — "moving logic to server" means no IPC overhead
-- NML will be replaced by GMI calls (one of the goals of the gomc project)
+- stmakd unifies cmod + task + motion in one process — "moving logic to server" means no IPC overhead
+- NML will be replaced by GMI calls (one of the goals of the stmak project)
 - The axisui `.gmi` IDL already defines part of this interface — expand it incrementally
 - Existing axis client code can be thinned step by step (remove ensure_mode, remove direct c.mode() calls)
 - axisui cmod has been removed — axis talks directly to emccmd/emcstat APIs

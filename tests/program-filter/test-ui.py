@@ -28,15 +28,15 @@ import time
 import gmi
 from gmi.constants import *
 from gmi.ngcpreview import NgcpreviewClient
-import gomc_test
+import stmak_test
 
 POLL = 0.05
 
 s = gmi.Stat()
-c = gomc_test.Command()
+c = stmak_test.Command()
 e = gmi.ErrorChannel()
 
-gomc_test.wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
@@ -53,7 +53,7 @@ def fail(name, detail):
 
 
 def wait_filter_done(timeout=60):
-    deadline = time.time() + timeout * gomc_test.scale()
+    deadline = time.time() + timeout * stmak_test.scale()
     saw_filtering = False
     saw_progress = False
     while time.time() < deadline:
@@ -79,7 +79,7 @@ saw_filtering, saw_progress = wait_filter_done()
 # Non-blocking means program_open returned while the conversion was still
 # running. The wall-clock bound alone would flake on a loaded runner — the
 # REST round-trip sits in the numerator while the converter's ~1.2s floor
-# (fixture sleeps, which do NOT scale with GOMC_TEST_TIMEOUT_SCALE) sits in
+# (fixture sleeps, which do NOT scale with STMAK_TEST_TIMEOUT_SCALE) sits in
 # the denominator — so a slow-but-correct open is rescued by the direct
 # observation: stat.filtering was seen true after program_open had returned.
 # An inline (blocking) open fails both arms: it takes at least the converter's
@@ -156,7 +156,7 @@ c.program_open(os.path.abspath("broken.bad"))
 # timeout on a coin flip. The converter's diagnosis arriving on the error
 # channel IS the completion signal of a failed conversion, so wait on that.
 diag = ""
-deadline = time.time() + 15 * gomc_test.scale()
+deadline = time.time() + 15 * stmak_test.scale()
 while time.time() < deadline:
     msg = e.poll()
     if msg is None:

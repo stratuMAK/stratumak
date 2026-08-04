@@ -735,10 +735,10 @@ class Data:
                 os.symlink(base,shortcut)
 
         if self.createshortcut and os.path.exists(desktop):
-            if os.path.exists(BASE + "/bin/gomc-server"):
-                scriptspath = (BASE + "/bin/gomc-server")
+            if os.path.exists(BASE + "/bin/stmakd"):
+                scriptspath = (BASE + "/bin/stmakd")
             else:
-                scriptspath ="gomc-server"
+                scriptspath ="stmakd"
 
             filename = os.path.join(desktop, "%s.desktop" % self.machinename)
             file = open(filename, "w")

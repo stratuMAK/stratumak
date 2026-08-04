@@ -29,8 +29,8 @@
  * @brief Per-channel HAL data for one digital input.
  */
 typedef struct {
-  gomc_hal_bit_t *in;     /**< OUT: digital input state */
-  gomc_hal_bit_t *in_not; /**< OUT: inverted digital input state */
+  stmak_hal_bit_t *in;     /**< OUT: digital input state */
+  stmak_hal_bit_t *in_not; /**< OUT: inverted digital input state */
   unsigned int pdo_os; /**< PDO byte offset */
   unsigned int pdo_bp; /**< Bit position within PDO byte */
 } lcec_em7004_din_t;
@@ -39,8 +39,8 @@ typedef struct {
  * @brief Per-channel HAL data for one digital output.
  */
 typedef struct {
-  gomc_hal_bit_t *out;    /**< IN: desired output state */
-  gomc_hal_bit_t invert;  /**< Parameter: 1 = invert the output */
+  stmak_hal_bit_t *out;    /**< IN: desired output state */
+  stmak_hal_bit_t invert;  /**< Parameter: 1 = invert the output */
   unsigned int pdo_os; /**< PDO byte offset */
   unsigned int pdo_bp; /**< Bit position within PDO byte */
 } lcec_em7004_dout_t;
@@ -49,19 +49,19 @@ typedef struct {
  * @brief Per-channel HAL data for one analog output.
  */
 typedef struct {
-  gomc_hal_bit_t *pos;         /**< OUT: output is in positive direction */
-  gomc_hal_bit_t *neg;         /**< OUT: output is in negative direction */
-  gomc_hal_bit_t *enable;      /**< IN: enable this output channel */
-  gomc_hal_bit_t *absmode;     /**< IN: use absolute value mode */
-  gomc_hal_float_t *value;     /**< IN: commanded value in user units */
-  gomc_hal_float_t *scale;     /**< IO: scale factor (user units → duty cycle) */
-  gomc_hal_float_t *offset;    /**< IO: offset added after scaling */
+  stmak_hal_bit_t *pos;         /**< OUT: output is in positive direction */
+  stmak_hal_bit_t *neg;         /**< OUT: output is in negative direction */
+  stmak_hal_bit_t *enable;      /**< IN: enable this output channel */
+  stmak_hal_bit_t *absmode;     /**< IN: use absolute value mode */
+  stmak_hal_float_t *value;     /**< IN: commanded value in user units */
+  stmak_hal_float_t *scale;     /**< IO: scale factor (user units → duty cycle) */
+  stmak_hal_float_t *offset;    /**< IO: offset added after scaling */
   double old_scale;       /**< Previously applied scale (change detection) */
   double scale_recip;     /**< Reciprocal of current scale */
-  gomc_hal_float_t *min_dc;    /**< IO: minimum duty cycle clamp */
-  gomc_hal_float_t *max_dc;    /**< IO: maximum duty cycle clamp */
-  gomc_hal_float_t *curr_dc;   /**< OUT: current duty cycle being applied */
-  gomc_hal_s32_t *raw_val;     /**< OUT: raw 16-bit output value written to PDO */
+  stmak_hal_float_t *min_dc;    /**< IO: minimum duty cycle clamp */
+  stmak_hal_float_t *max_dc;    /**< IO: maximum duty cycle clamp */
+  stmak_hal_float_t *curr_dc;   /**< OUT: current duty cycle being applied */
+  stmak_hal_s32_t *raw_val;     /**< OUT: raw 16-bit output value written to PDO */
   unsigned int val_pdo_os; /**< PDO byte offset of the 16-bit value */
 } lcec_em7004_aout_t;
 
@@ -69,21 +69,21 @@ typedef struct {
  * @brief Per-channel HAL data for one incremental encoder.
  */
 typedef struct {
-  gomc_hal_bit_t *ena_latch_ext_pos;  /**< IO: enable external latch on positive edge */
-  gomc_hal_bit_t *ena_latch_ext_neg;  /**< IO: enable external latch on negative edge */
-  gomc_hal_bit_t *reset;              /**< IN: reset accumulated count to zero */
-  gomc_hal_bit_t *ina;                /**< OUT: encoder channel A state */
-  gomc_hal_bit_t *inb;                /**< OUT: encoder channel B state */
-  gomc_hal_bit_t *ingate;             /**< OUT: encoder gate input state */
-  gomc_hal_bit_t *inext;              /**< OUT: external latch input state */
-  gomc_hal_bit_t *latch_ext_valid;    /**< OUT: external latch valid flag */
-  gomc_hal_bit_t *set_raw_count;      /**< IO: write 1 to preset the counter */
-  gomc_hal_s32_t *set_raw_count_val;  /**< IN: preset value for the counter */
-  gomc_hal_s32_t *raw_count;          /**< OUT: raw 16-bit counter value */
-  gomc_hal_s32_t *raw_latch;          /**< OUT: raw 16-bit latch value */
-  gomc_hal_s32_t *count;              /**< OUT: accumulated count */
-  gomc_hal_float_t *pos_scale;        /**< IO: counts per user unit */
-  gomc_hal_float_t *pos;              /**< OUT: position in user units */
+  stmak_hal_bit_t *ena_latch_ext_pos;  /**< IO: enable external latch on positive edge */
+  stmak_hal_bit_t *ena_latch_ext_neg;  /**< IO: enable external latch on negative edge */
+  stmak_hal_bit_t *reset;              /**< IN: reset accumulated count to zero */
+  stmak_hal_bit_t *ina;                /**< OUT: encoder channel A state */
+  stmak_hal_bit_t *inb;                /**< OUT: encoder channel B state */
+  stmak_hal_bit_t *ingate;             /**< OUT: encoder gate input state */
+  stmak_hal_bit_t *inext;              /**< OUT: external latch input state */
+  stmak_hal_bit_t *latch_ext_valid;    /**< OUT: external latch valid flag */
+  stmak_hal_bit_t *set_raw_count;      /**< IO: write 1 to preset the counter */
+  stmak_hal_s32_t *set_raw_count_val;  /**< IN: preset value for the counter */
+  stmak_hal_s32_t *raw_count;          /**< OUT: raw 16-bit counter value */
+  stmak_hal_s32_t *raw_latch;          /**< OUT: raw 16-bit latch value */
+  stmak_hal_s32_t *count;              /**< OUT: accumulated count */
+  stmak_hal_float_t *pos_scale;        /**< IO: counts per user unit */
+  stmak_hal_float_t *pos;              /**< OUT: position in user units */
 
   unsigned int ena_latch_ext_pos_pdo_os; /**< PDO byte offset: enable latch pos edge */
   unsigned int ena_latch_ext_pos_pdo_bp; /**< Bit position: enable latch pos edge */
@@ -125,60 +125,60 @@ typedef struct {
 } lcec_em7004_data_t;
 
 static const lcec_pindesc_t slave_din_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_din_t, in), "%s.%s.%s.din-%d" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_din_t, in_not), "%s.%s.%s.din-%d-not" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_din_t, in), "%s.%s.%s.din-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_din_t, in_not), "%s.%s.%s.din-%d-not" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_dout_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_em7004_dout_t, out), "%s.%s.%s.dout-%d" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_em7004_dout_t, out), "%s.%s.%s.dout-%d" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_dout_params[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_RW, offsetof(lcec_em7004_dout_t, invert), "%s.%s.%s.dout-%d-invert" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_RW, offsetof(lcec_em7004_dout_t, invert), "%s.%s.%s.dout-%d-invert" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_aout_pins[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em7004_aout_t, scale), "%s.%s.%s.aout-%d-scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em7004_aout_t, offset), "%s.%s.%s.aout-%d-offset" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em7004_aout_t, min_dc), "%s.%s.%s.aout-%d-min-dc" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em7004_aout_t, max_dc), "%s.%s.%s.aout-%d-max-dc" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_em7004_aout_t, curr_dc), "%s.%s.%s.aout-%d-curr-dc" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_em7004_aout_t, enable), "%s.%s.%s.aout-%d-enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_em7004_aout_t, absmode), "%s.%s.%s.aout-%d-absmode" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IN, offsetof(lcec_em7004_aout_t, value), "%s.%s.%s.aout-%d-value" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_em7004_aout_t, raw_val), "%s.%s.%s.aout-%d-raw" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_aout_t, pos), "%s.%s.%s.aout-%d-pos" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_aout_t, neg), "%s.%s.%s.aout-%d-neg" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em7004_aout_t, scale), "%s.%s.%s.aout-%d-scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em7004_aout_t, offset), "%s.%s.%s.aout-%d-offset" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em7004_aout_t, min_dc), "%s.%s.%s.aout-%d-min-dc" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em7004_aout_t, max_dc), "%s.%s.%s.aout-%d-max-dc" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_em7004_aout_t, curr_dc), "%s.%s.%s.aout-%d-curr-dc" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_em7004_aout_t, enable), "%s.%s.%s.aout-%d-enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_em7004_aout_t, absmode), "%s.%s.%s.aout-%d-absmode" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_em7004_aout_t, value), "%s.%s.%s.aout-%d-value" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_em7004_aout_t, raw_val), "%s.%s.%s.aout-%d-raw" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_aout_t, pos), "%s.%s.%s.aout-%d-pos" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_aout_t, neg), "%s.%s.%s.aout-%d-neg" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_enc_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_em7004_enc_t, ena_latch_ext_pos), "%s.%s.%s.enc-%d-index-ext-pos-enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_em7004_enc_t, ena_latch_ext_neg), "%s.%s.%s.enc-%d-index-ext-neg-enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_em7004_enc_t, reset), "%s.%s.%s.enc-%d-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, ina), "%s.%s.%s.enc-%d-ina" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, inb), "%s.%s.%s.enc-%d-inb" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, ingate), "%s.%s.%s.enc-%d-ingate" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, inext), "%s.%s.%s.enc-%d-inext" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, latch_ext_valid), "%s.%s.%s.enc-%d-latch-ext-valid" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_em7004_enc_t, set_raw_count), "%s.%s.%s.enc-%d-set-raw-count" },
-  { GOMC_HAL_S32, GOMC_HAL_IN, offsetof(lcec_em7004_enc_t, set_raw_count_val), "%s.%s.%s.enc-%d-set-raw-count-val" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, raw_count), "%s.%s.%s.enc-%d-raw-count" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, count), "%s.%s.%s.enc-%d-count" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, raw_latch), "%s.%s.%s.enc-%d-raw-latch" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_em7004_enc_t, pos), "%s.%s.%s.enc-%d-pos" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em7004_enc_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_em7004_enc_t, ena_latch_ext_pos), "%s.%s.%s.enc-%d-index-ext-pos-enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_em7004_enc_t, ena_latch_ext_neg), "%s.%s.%s.enc-%d-index-ext-neg-enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_em7004_enc_t, reset), "%s.%s.%s.enc-%d-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, ina), "%s.%s.%s.enc-%d-ina" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, inb), "%s.%s.%s.enc-%d-inb" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, ingate), "%s.%s.%s.enc-%d-ingate" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, inext), "%s.%s.%s.enc-%d-inext" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, latch_ext_valid), "%s.%s.%s.enc-%d-latch-ext-valid" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_em7004_enc_t, set_raw_count), "%s.%s.%s.enc-%d-set-raw-count" },
+  { STMAK_HAL_S32, STMAK_HAL_IN, offsetof(lcec_em7004_enc_t, set_raw_count_val), "%s.%s.%s.enc-%d-set-raw-count-val" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, raw_count), "%s.%s.%s.enc-%d-raw-count" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, count), "%s.%s.%s.enc-%d-count" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, raw_latch), "%s.%s.%s.enc-%d-raw-latch" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_em7004_enc_t, pos), "%s.%s.%s.enc-%d-pos" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em7004_enc_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
  * @brief Cyclic read and write: forward declarations.
  */
-void lcec_em7004_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_em7004_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_em7004_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_em7004_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise the EM7004 stepper module and map all PDOs.

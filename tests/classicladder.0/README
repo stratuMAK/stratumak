@@ -1,7 +1,7 @@
 ClassicLadder bit I/O through real HAL pins.
 
 The ladder engine itself is covered exhaustively by Go tests in
-src/gomc/internal/classicladder, including differential runs against the
+src/stmak/internal/classicladder, including differential runs against the
 LinuxCNC 2.9 engine. What those cannot reach is the layer between HAL and the
 ladder, because they drive the engine directly: that in-NN reaches the ladder
 variables, that out-NN carries back what the ladder computed, that the module

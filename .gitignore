@@ -62,9 +62,9 @@ configs/**/halshow.preferences
 configs/**/halscope_state.json
 
 # Web app build outputs
-share/gomc/
+share/stmak/
 src/hal/classicladder/classicladder-standalone
-src/share/gomc/webapp/
+src/share/stmak/webapp/
 *.la
 share/bash-completion/
 # Go and npm caches for Debian builds (see debian/rules)

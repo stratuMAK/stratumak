@@ -6,7 +6,7 @@ on:
   push:
     # Unfiltered push + pull_request would run everything twice for every PR
     # branch push. Branch work is covered by the pull_request trigger.
-    branches: [gomc]
+    branches: [main]
     tags: ['*']
   pull_request:
   release:
@@ -17,9 +17,9 @@ on:
   workflow_dispatch:
 
 # Job gating policy for this fork (upstream runs everything on every push):
-#   - gomc + rip-and-test + static-checks: every push and PR — the merge gates.
-#   - rip-and-test-clang, htmldocs: post-merge pushes to gomc only.
-#   - package-gate: post-merge pushes to gomc + dispatch — builds the deb,
+#   - stmak + rip-and-test + static-checks: every push and PR — the merge gates.
+#   - rip-and-test-clang, htmldocs: post-merge pushes to stmak only.
+#   - package-gate: post-merge pushes to stmak + dispatch — builds the deb,
 #     asserts package contents, requires lintian-clean, installs the result
 #     and boots a config. This is the job that catches install-layout rot:
 #     runtests exercises the RIP tree, where the layout differs.
@@ -74,7 +74,7 @@ jobs:
 
   rip-and-test-clang:
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/gomc'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
     - name: Dump GitHub context
       env:
@@ -115,12 +115,12 @@ jobs:
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
 
-  # gomc gate: build + Go vet/tests + pinned lint (no NEW findings vs the
-  # gomc merge base) + fmt + C-warning gate on gomc-owned paths. The make
-  # targets are the source of truth (src/gomc/Submakefile); this job only
+  # stmak gate: build + Go vet/tests + pinned lint (no NEW findings vs the
+  # stmak merge base) + fmt + C-warning gate on stmak-owned paths. The make
+  # targets are the source of truth (src/stmak/Submakefile); this job only
   # orchestrates them. The full runtests suite runs once per PR, in
   # rip-and-test (which uploads the failure logs).
-  gomc:
+  stmak:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -138,7 +138,7 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: '20'
-    - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/gomc/Submakefile)
+    - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/stmak/Submakefile)
       run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
     - name: Build RIP
       run: |
@@ -150,13 +150,13 @@ jobs:
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
         eatmydata make -O -j$((1+$(nproc))) default V=1 2>&1 | tee ../build.log
         test "${PIPESTATUS[0]}" -eq 0
-    - name: C warning gate (gomc-owned paths)
-      run: ./scripts/check-gomc-cwarnings build.log
+    - name: C warning gate (stmak-owned paths)
+      run: ./scripts/check-stmak-cwarnings build.log
     - name: Go tests + lint + fmt gate
       run: |
         export PATH="$PATH:$HOME/go/bin"
         cd src
-        make gomc-check GOMC_LINT_BASE=origin/gomc
+        make stmak-check STMAK_LINT_BASE=origin/main
     # Webapp gate: ESLint + cold vue-tsc type-check + vitest over the
     # non-deferred apps. Runs HERE, after the build, because the webapps' REST
     # clients (webapp/*/src/generated/*.ts) are gitignored artifacts that the
@@ -168,12 +168,12 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: gomc-failure-logs
+        name: stmak-failure-logs
         path: build.log
         if-no-files-found: ignore
 
   # Scoped, enforcing static analysis (shellcheck over fork-owned shell,
-  # cppcheck over gomc-owned C). Needs no RIP build — fast fail on every PR.
+  # cppcheck over stmak-owned C). Needs no RIP build — fast fail on every PR.
   static-checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -185,13 +185,13 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends cppcheck shellcheck
-    - name: Static checks (gomc-owned shell + C)
+    - name: Static checks (stmak-owned shell + C)
       run: ./scripts/check-static
 
   htmldocs:
     runs-on: ubuntu-24.04
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/gomc') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch'
     steps:
@@ -226,16 +226,16 @@ jobs:
   package-gate:
     runs-on: ubuntu-24.04
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/gomc') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'workflow_dispatch'
     container:
       image: debian:trixie
       # IPC_OWNER for shm during the boot smoke; SETFCAP so the postinst can
       # apply the realtime file capabilities. The remaining cap-adds mirror
-      # GOMC_CAPS in stratumak.postinst exactly: execve of a binary carrying
+      # STMAK_CAPS in stratumak.postinst exactly: execve of a binary carrying
       # file capabilities fails with EPERM unless every one of them is in the
       # container's bounding set, so without these nobody can even run the
-      # installed gomc-server.
+      # installed stmakd.
       options: >-
         --cpus=2 --cap-add=IPC_OWNER --cap-add=SETFCAP
         --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=BPF

@@ -52,7 +52,7 @@ export interface CmdHistoryEntry {
 
 export type TreeCategory = 'pins' | 'params' | 'signals' | 'components' | 'functions' | 'threads' | 'api';
 
-/** Server log verbosity levels, in the gomc_log_level_t encoding that
+/** Server log verbosity levels, in the stmak_log_level_t encoding that
  *  halcmd's set_debug/get_debug take (0=DEBUG .. 3=ERROR). */
 export const LOG_LEVEL_NAMES: Record<number, string> = {
   0: 'DEBUG', 1: 'INFO', 2: 'WARN', 3: 'ERROR',
@@ -842,7 +842,7 @@ export const halshowStore = {
 
       // The server's log verbosity, as classic "halcmd debug [level]". Bare
       // `debug` reports; `debug <n>` sets. This is the one live verbosity knob
-      // on gomc — it governs both the Go logging and the C modules' (their
+      // on stmak — it governs both the Go logging and the C modules' (their
       // messages drain through the same slog handler).
       case 'debug': {
         if (args.length === 0) {

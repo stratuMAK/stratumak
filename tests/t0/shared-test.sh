@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 
 rm -f sim.var
 
@@ -11,11 +11,11 @@ cp tool.tbl.original tool.tbl
 
 rm -f gcode-output
 
-# gomc-server does not launch [DISPLAY]; start it and drive the rsh command
+# stmakd does not launch [DISPLAY]; start it and drive the rsh command
 # stream through rsh2gmi.py (linuxcncrsh -> gmi translator). M100 introspection is
 # handled by the mcode_coord_log cmod loaded via mcode.hal.
-gomc_start_server --inherit sim.ini
-gomc_wait_ready
+stmak_start_server --inherit sim.ini
+stmak_wait_ready
 
 
 (

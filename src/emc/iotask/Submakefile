@@ -2,15 +2,15 @@ IOSRCS := emc/iotask/ioControl.c
 IOV2SRCS := emc/iotask/ioControl_v2.c
 USERSRCS += $(IOSRCS) $(IOV2SRCS)
 
-$(call TOOBJS, $(IOSRCS)): EXTRAFLAGS += -fPIC -Igomc/generated/gmi/emcio -Igomc/generated/gmi/tooltable -Igomc/pkg/cmodule -Iemc/iotask
-$(call TOOBJSDEPS, $(IOSRCS)): gomc/generated/gmi/emcio/emcio_api.h gomc/generated/gmi/tooltable/tooltable_api.h
+$(call TOOBJS, $(IOSRCS)): EXTRAFLAGS += -fPIC -Istmak/generated/gmi/emcio -Istmak/generated/gmi/tooltable -Istmak/pkg/cmodule -Iemc/iotask
+$(call TOOBJSDEPS, $(IOSRCS)): stmak/generated/gmi/emcio/emcio_api.h stmak/generated/gmi/tooltable/tooltable_api.h
 ../cmod/io.so: $(call TOOBJS, $(IOSRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod
 	$(Q)$(CC) -shared -o $@ $(filter %.o,$^) $(CMOD_LDFLAGS)
 
-$(call TOOBJS, $(IOV2SRCS)): EXTRAFLAGS += -fPIC -Igomc/generated/gmi/emcio -Igomc/generated/gmi/tooltable -Igomc/pkg/cmodule -Iemc/iotask
-$(call TOOBJSDEPS, $(IOV2SRCS)): gomc/generated/gmi/emcio/emcio_api.h gomc/generated/gmi/tooltable/tooltable_api.h
+$(call TOOBJS, $(IOV2SRCS)): EXTRAFLAGS += -fPIC -Istmak/generated/gmi/emcio -Istmak/generated/gmi/tooltable -Istmak/pkg/cmodule -Iemc/iotask
+$(call TOOBJSDEPS, $(IOV2SRCS)): stmak/generated/gmi/emcio/emcio_api.h stmak/generated/gmi/tooltable/tooltable_api.h
 ../cmod/iov2.so: $(call TOOBJS, $(IOV2SRCS))
 	$(ECHO) Linking $(notdir $@)
 	@mkdir -p ../cmod

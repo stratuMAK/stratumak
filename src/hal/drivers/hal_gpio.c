@@ -34,8 +34,8 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "gomc_env.h"		/* cmod API */
-#include "gomc_log.h"
+#include "stmak_env.h"		/* cmod API */
+#include "stmak_log.h"
 #include <gpiod.h>
 #include <string.h>
 #include <errno.h>
@@ -58,8 +58,8 @@
 */
 
 typedef struct{
-    gomc_hal_bit_t *value;
-    gomc_hal_bit_t *value_not;
+    stmak_hal_bit_t *value;
+    stmak_hal_bit_t *value_not;
 } hal_gpio_hal_t;
 
 /* flags are defined such:
@@ -92,7 +92,7 @@ typedef struct {
 typedef struct {
     // Bulk line access has to all be to the same "chip" so we have an
     // array of chips with their bulk line collections.
-    gomc_hal_u32_t *reset_ns;
+    stmak_hal_u32_t *reset_ns;
     int num_in_chips;
     int num_out_chips;
     hal_gpio_bulk_t *in_chips;
@@ -102,8 +102,8 @@ typedef struct {
 typedef struct {
     cmod_t cmod;
     const cmod_env_t *env;
-    const gomc_log_t *log;
-    const gomc_rtapi_t *rtapi;
+    const stmak_log_t *log;
+    const stmak_rtapi_t *rtapi;
     int comp_id;
 
     int reset_active;
@@ -161,7 +161,7 @@ static int flags(inst_t *inst, char *name){
 	    inst->reset_active = 1;
 	    f |= 0x40;
 	}
-    gomc_log_infof(inst->log, "hal_gpio", "line %s flags %02x", name, f);
+    stmak_log_infof(inst->log, "hal_gpio", "line %s flags %02x", name, f);
     return f;
 }
 
@@ -196,12 +196,12 @@ int allocate_lines(inst_t *inst, char **names, hal_gpio_bulk_t **bulk){
 // Get a list of all chips. the "filter" function identifies gpiochips
     n = scandir("/dev", &namelist, filter, alphasort);
     if (n == -1) {
-	gomc_log_errorf(inst->log, "hal_gpio", "No valid gpio devices recognized by gpiod in /dev");
+	stmak_log_errorf(inst->log, "hal_gpio", "No valid gpio devices recognized by gpiod in /dev");
 	return -1;
     }
 
     while (n--){
-	gomc_log_debugf(inst->log, "hal_gpio", "hal_gpio processing chip %s", namelist[n]->d_name);
+	stmak_log_debugf(inst->log, "hal_gpio", "hal_gpio processing chip %s", namelist[n]->d_name);
 	int l = 0;
 
 	*bulk = inst->rtapi->realloc(inst->rtapi->ctx, *bulk, sizeof(hal_gpio_bulk_t) * (b + 1));
@@ -214,7 +214,7 @@ int allocate_lines(inst_t *inst, char **names, hal_gpio_bulk_t **bulk){
 	for (int i = 0; names[i]; i++){
 	    offset = gpiod_chip_get_line_offset_from_name((*bulk)[b].chip, names[i]);
 	    if (offset >= 0){
-		gomc_log_debugf(inst->log, "hal_gpio", "hal_gpio processing line %s found at offset %i", names[i], offset);
+		stmak_log_debugf(inst->log, "hal_gpio", "hal_gpio processing line %s found at offset %i", names[i], offset);
 		(*bulk)[b].offsets = inst->rtapi->realloc(inst->rtapi->ctx, (*bulk)[b].offsets, (l + 1) * sizeof(offset));
 		(*bulk)[b].offsets[l] = offset;
 		(*bulk)[b].flags = inst->rtapi->realloc(inst->rtapi->ctx, (*bulk)[b].flags, (l + 1) * sizeof(offset));
@@ -222,7 +222,7 @@ int allocate_lines(inst_t *inst, char **names, hal_gpio_bulk_t **bulk){
 		(*bulk)[b].vals = inst->rtapi->realloc(inst->rtapi->ctx, (*bulk)[b].vals, (l + 1) * sizeof(int));
 		(*bulk)[b].num_lines = ++l;
 	    }
-	    for (int o = 0; o < l; o++) gomc_log_debugf(inst->log, "hal_gpio", "chip %i offset %i = %i", b, o, (*bulk)[b].offsets[o]);
+	    for (int o = 0; o < l; o++) stmak_log_debugf(inst->log, "hal_gpio", "chip %i offset %i = %i", b, o, (*bulk)[b].offsets[o]);
 	}
 	if (l > 0) {
 	    b ++; // move to a new hal_gpio_bulk_t next loop
@@ -233,7 +233,7 @@ int allocate_lines(inst_t *inst, char **names, hal_gpio_bulk_t **bulk){
     return b;
 }
 
-int setup_lines(hal_gpio_bulk_t *bulk, enum gpiod_line_direction direction, const gomc_log_t *log){
+int setup_lines(hal_gpio_bulk_t *bulk, enum gpiod_line_direction direction, const stmak_log_t *log){
     char *consumer = "LinuxCNC";
 //    unsigned int offset[1];
     struct gpiod_request_config *req_cfg;
@@ -264,13 +264,13 @@ int setup_lines(hal_gpio_bulk_t *bulk, enum gpiod_line_direction direction, cons
 	if (bulk->flags[i] & 0x10) gpiod_line_settings_set_bias(settings, GPIOD_LINE_BIAS_PULL_UP);
 
 	ret = gpiod_line_config_add_line_settings(line_cfg, &bulk->offsets[i], 1, settings);
-	gomc_log_debugf(log, "hal_gpio", "add_line_settings returned %d errno=%d (%s)",
+	stmak_log_debugf(log, "hal_gpio", "add_line_settings returned %d errno=%d (%s)",
 			ret, errno, strerror(errno));
 	if (ret) {
 	    return -1;
 	} else {
 	    ret = gpiod_line_request_reconfigure_lines(bulk->lines, line_cfg);
-	    gomc_log_debugf(log, "hal_gpio", "reconfigure returned %d errno=%d (%s)",
+	    stmak_log_debugf(log, "hal_gpio", "reconfigure returned %d errno=%d (%s)",
 			    ret, errno, strerror(errno));
 	    if (ret) {
 		return -1;
@@ -298,7 +298,7 @@ int build_chips_collection(inst_t *inst, char **names, hal_gpio_bulk_t **ptr){
 	name = names[i];
 	temp_line = gpiod_line_find(name);
 	if (!temp_line) {
-		gomc_log_errorf(inst->log, "hal_gpio", "The GPIO line %s can not be found", name);
+		stmak_log_errorf(inst->log, "hal_gpio", "The GPIO line %s can not be found", name);
 		return -EINVAL;
 	}
 	temp_chip = gpiod_line_get_chip(temp_line);
@@ -319,9 +319,9 @@ int build_chips_collection(inst_t *inst, char **names, hal_gpio_bulk_t **ptr){
 		(*ptr)[c].chip = gpiod_line_get_chip(temp_line);
 		(*ptr)[c].lines = inst->rtapi->calloc(inst->rtapi->ctx, sizeof(*(*ptr)[c].lines));
 		gpiod_line_bulk_init((*ptr)[c].lines);
-		gomc_log_infof(inst->log, "hal_gpio", "added chip %s index %i", gpiod_chip_name((*ptr)[c].chip), c);
+		stmak_log_infof(inst->log, "hal_gpio", "added chip %s index %i", gpiod_chip_name((*ptr)[c].chip), c);
 	}
-	gomc_log_infof(inst->log, "hal_gpio", "adding IO line %s to chip %i", name, c);
+	stmak_log_infof(inst->log, "hal_gpio", "adding IO line %s to chip %i", name, c);
 	temp_line = gpiod_chip_find_line((*ptr)[c].chip, name);
 	(*ptr)[c].num_lines++;
 	(*ptr)[c].flags = inst->rtapi->realloc(inst->rtapi->ctx, (*ptr)[c].flags, (*ptr)[c].num_lines * sizeof(int));
@@ -379,10 +379,10 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     (void)name;
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
     int retval = 0;
     int i, c;
-    char hal_name[GOMC_HAL_NAME_LEN + 1];
+    char hal_name[STMAK_HAL_NAME_LEN + 1];
     const char *line_name;
 
     inst_t *inst = env->rtapi->calloc(env->rtapi->ctx, sizeof(*inst));
@@ -393,12 +393,12 @@ int New(const cmod_env_t *env, const char *name,
 
     parse_argv(inst, argc, argv);
 
-gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
+stmak_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 
     
-    int r = hal->init(hal->ctx, "hal_gpio", env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    int r = hal->init(hal->ctx, "hal_gpio", env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
-        gomc_log_errorf(inst->log, "hal_gpio", "ERROR: hal_init() failed");
+        stmak_log_errorf(inst->log, "hal_gpio", "ERROR: hal_init() failed");
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return r;
     }
@@ -407,7 +407,7 @@ gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     // allocate shared memory for the base struct
     inst->gpio = inst->rtapi->calloc(inst->rtapi->ctx, sizeof(hal_gpio_t));
     if (inst->gpio == 0) {
-        gomc_log_errorf(inst->log, "hal_gpio",
+        stmak_log_errorf(inst->log, "hal_gpio",
                 "component: Out of Memory");
         goto fail0;
     }
@@ -426,7 +426,7 @@ gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     gpio->num_in_chips = build_chips_collection(inst, inst->inputs, &gpio->in_chips);
 #endif
     if (gpio->num_in_chips < 0){
-	gomc_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified input pins");
+	stmak_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified input pins");
 	goto fail0;
     }
     for (c = 0; c < gpio->num_in_chips; c++){
@@ -437,18 +437,18 @@ gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	retval = gpiod_line_request_bulk_input(gpio->in_chips[c].lines, "linuxcnc");
 #endif
 	if (retval < 0) {
-	    gomc_log_errorf(inst->log, "hal_gpio", "Failed to register input pin collection");
+	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to register input pin collection");
 	    goto fail0;
 	}
 
 	gpio->in_chips[c].hal = hal->malloc(hal->ctx, gpio->in_chips[c].num_lines * sizeof(hal_gpio_hal_t));
 	for (i = 0; i < gpio->in_chips[c].num_lines; i++){
 	    line_name = get_line_name(&gpio->in_chips[c], i);
-	    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &(gpio->in_chips[c].hal[i].value), inst->comp_id, "hal_gpio.%s-in", line_name);
-	    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &(gpio->in_chips[c].hal[i].value_not), inst->comp_id, "hal_gpio.%s-in-not", line_name);
+	    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(gpio->in_chips[c].hal[i].value), inst->comp_id, "hal_gpio.%s-in", line_name);
+	    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(gpio->in_chips[c].hal[i].value_not), inst->comp_id, "hal_gpio.%s-in-not", line_name);
 	}
 	if (retval < 0){
-	    gomc_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO input HAL pins");
+	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO input HAL pins");
 	    goto fail0;
 	}
 	    
@@ -463,7 +463,7 @@ gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
     gpio->num_out_chips = build_chips_collection(inst, inst->outputs, &gpio->out_chips);
 #endif
     if (gpio->num_in_chips < 0){
-	gomc_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified output pins");
+	stmak_log_errorf(inst->log, "hal_gpio", "Failed to identify all specified output pins");
 	goto fail0;
     }
     for (c = 0; c < gpio->num_out_chips; c++){
@@ -474,34 +474,34 @@ gomc_log_infof(inst->log, "hal_gpio", "Libgpiod is %i", LIBGPIOD_VER);
 	retval = gpiod_line_request_bulk_output(gpio->out_chips[c].lines, "linuxcnc", gpio->out_chips[c].vals);
 #endif
 	if (retval < 0){
-	    gomc_log_errorf(inst->log, "hal_gpio", "Failed to register output pin collection");
+	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to register output pin collection");
 	    goto fail0;
 	}
 
 	gpio->out_chips[c].hal = hal->malloc(hal->ctx, gpio->out_chips[c].num_lines * sizeof(hal_gpio_hal_t));
 	for (i = 0; i < gpio->out_chips[c].num_lines; i++){
 	    line_name = get_line_name(&gpio->out_chips[c], i);
-	    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(gpio->out_chips[c].hal[i].value), inst->comp_id, "hal_gpio.%s-out", line_name);
+	    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(gpio->out_chips[c].hal[i].value), inst->comp_id, "hal_gpio.%s-out", line_name);
 	}
 	if (retval < 0){
-	    gomc_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO output HAL pins");
+	    stmak_log_errorf(inst->log, "hal_gpio", "Failed to allocate GPIO output HAL pins");
 	    goto fail0;
 	}
     }
 
-    snprintf(hal_name, GOMC_HAL_NAME_LEN, "hal_gpio.read");
+    snprintf(hal_name, STMAK_HAL_NAME_LEN, "hal_gpio.read");
     retval += hal->export_funct(hal->ctx, hal_name, hal_gpio_read, inst, 0, 0, inst->comp_id);
-    snprintf(hal_name, GOMC_HAL_NAME_LEN, "hal_gpio.write");
+    snprintf(hal_name, STMAK_HAL_NAME_LEN, "hal_gpio.write");
     retval += hal->export_funct(hal->ctx, hal_name, hal_gpio_write, inst, 0, 0, inst->comp_id);
 
     if (inst->reset_active){
-	gpio->reset_ns = hal->malloc(hal->ctx, sizeof(gomc_hal_u32_t));
-	snprintf(hal_name, GOMC_HAL_NAME_LEN, "hal_gpio.reset");
-	retval += gomc_hal_param_u32_newf(hal, GOMC_HAL_RW, gpio->reset_ns, inst->comp_id, "hal_gpio.reset_ns");
+	gpio->reset_ns = hal->malloc(hal->ctx, sizeof(stmak_hal_u32_t));
+	snprintf(hal_name, STMAK_HAL_NAME_LEN, "hal_gpio.reset");
+	retval += stmak_hal_param_u32_newf(hal, STMAK_HAL_RW, gpio->reset_ns, inst->comp_id, "hal_gpio.reset_ns");
 	retval += hal->export_funct(hal->ctx, hal_name, hal_gpio_reset, inst, 0, 0, inst->comp_id);
     }
     if (retval < 0){
-	gomc_log_errorf(inst->log, "hal_gpio", "failed to export functions");
+	stmak_log_errorf(inst->log, "hal_gpio", "failed to export functions");
 	goto fail0;
     }
     hal->ready(hal->ctx, inst->comp_id);
@@ -591,7 +591,7 @@ static void hal_gpio_reset(void *arg, long period)
 
 static void hal_gpio_destroy(cmod_t *self) {
     inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     hal_gpio_t *gpio = inst->gpio;
     int c;
 

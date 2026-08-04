@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API. halui.mdi-command-NN and halui.mode.is-* are
+# Ported to the stmak REST/WS API. halui.mdi-command-NN and halui.mode.is-* are
 # driven directly via halcmd (the userspace python-ui HAL component + postgui
 # nets are gone); task state/mode via the gmi client.
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 import subprocess, time, sys, os, math
 
 program_start = time.time()
@@ -32,7 +32,7 @@ h = H()
 
 def wait_for_joint_to_stop_at(joint, target):
     # The INI's unit-less MDI_COMMANDs run in the machine's units (G20 on this
-    # inch config, matching 2.9); the sampled joint positions are gomc-mm.
+    # inch config, matching 2.9); the sampled joint positions are stmak-mm.
     # Scale the tolerance too — it was an inch tolerance.
     target *= 25.4
     timeout, tol = 10.0, 0.0001 * 25.4
@@ -61,9 +61,9 @@ def wait_for_halui_mode(pin_name):
         time.sleep(0.1)
     print("timeout waiting for halui mode {}".format(pin_name)); sys.exit(1)
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
+c = stmak_test.Command(); s = gmi.Stat(); e = gmi.ErrorChannel()
 c.state(STATE_ESTOP_RESET); c.state(STATE_ON); c.wait_complete()
 
 log("setting mode to Manual"); c.mode(MODE_MANUAL); wait_for_halui_mode('is-manual')

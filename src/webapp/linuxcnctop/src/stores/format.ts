@@ -148,7 +148,7 @@ const FORMATTERS: Record<string, Formatter> = {
   'state': (v: number) => RCS_NAMES[v] ?? String(v),
   'rcs_status': (v: number) => RCS_NAMES[v] ?? String(v),
   // The EMC_DEBUG_* bitmask. Rendered as the hex an INI [EMC]DEBUG= would
-  // carry. Note this value is inert on gomc — nothing reads the flags; the
+  // carry. Note this value is inert on stmak — nothing reads the flags; the
   // live verbosity knob is the halcmd log level (halshow -> Cmd tab).
   'debug': (v: number) => '0x' + (v >>> 0).toString(16).padStart(8, '0'),
 };

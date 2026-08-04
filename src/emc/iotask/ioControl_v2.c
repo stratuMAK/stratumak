@@ -3,7 +3,7 @@
  *           IO controller (v2 abort/fault-handshake protocol): drives the
  *           HAL estop/tool/coolant/lube pins.
  *
- *   Built as a C plugin (.so) loaded by gomc-server via:
+ *   Built as a C plugin (.so) loaded by stmakd via:
  *
  *       load iov2
  *
@@ -80,9 +80,9 @@
 
 #include "iocontrol_stat.h"
 
-#include "gomc/pkg/cmodule/gomc_env.h"
-#include "gomc/generated/gmi/emcio/emcio_api.h"
-#include "gomc/generated/gmi/tooltable/tooltable_api.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
+#include "stmak/generated/gmi/emcio/emcio_api.h"
+#include "stmak/generated/gmi/tooltable/tooltable_api.h"
 
 #define UNEXPECTED_MSG fprintf(stderr,"UNEXPECTED %s %d\n",__FILE__,__LINE__);
 
@@ -106,45 +106,45 @@ typedef  enum {
 } iostate_t;
 
 typedef struct iocontrol_str {
-    gomc_hal_bit_t *user_enable_out;        /* output, TRUE when EMC wants stop */
-    gomc_hal_bit_t *emc_enable_in;        /* input, TRUE on any external stop */
-    gomc_hal_bit_t *user_request_enable;        /* output, used to reset ENABLE latch */
-    gomc_hal_bit_t *coolant_mist;        /* coolant mist output pin */
-    gomc_hal_bit_t *coolant_flood;        /* coolant flood output pin */
-    gomc_hal_bit_t *lube;                /* lube output pin */
-    gomc_hal_bit_t *lube_level;        /* lube level input pin */
+    stmak_hal_bit_t *user_enable_out;        /* output, TRUE when EMC wants stop */
+    stmak_hal_bit_t *emc_enable_in;        /* input, TRUE on any external stop */
+    stmak_hal_bit_t *user_request_enable;        /* output, used to reset ENABLE latch */
+    stmak_hal_bit_t *coolant_mist;        /* coolant mist output pin */
+    stmak_hal_bit_t *coolant_flood;        /* coolant flood output pin */
+    stmak_hal_bit_t *lube;                /* lube output pin */
+    stmak_hal_bit_t *lube_level;        /* lube level input pin */
 
     // the following pins are needed for toolchanging
     //tool-prepare
-    gomc_hal_bit_t *tool_prepare;        /* output, pin that notifies HAL it needs to prepare a tool */
-    gomc_hal_s32_t *tool_prep_pocket;/* output, pin that holds the P word from the tool table entry matching the tool to be prepared,
+    stmak_hal_bit_t *tool_prepare;        /* output, pin that notifies HAL it needs to prepare a tool */
+    stmak_hal_s32_t *tool_prep_pocket;/* output, pin that holds the P word from the tool table entry matching the tool to be prepared,
                                    only valid when tool-prepare=TRUE */
-    gomc_hal_s32_t *tool_prep_index; /* output, internal index (idx) of prepped tool above */
-    gomc_hal_s32_t *tool_prep_number;/* output, pin that holds the tool number to be prepared, only valid when tool-prepare=TRUE */
-    gomc_hal_s32_t *tool_number;     /* output, pin that holds the tool number currently in the spindle */
-    gomc_hal_bit_t *tool_prepared;        /* input, pin that notifies that the tool has been prepared */
+    stmak_hal_s32_t *tool_prep_index; /* output, internal index (idx) of prepped tool above */
+    stmak_hal_s32_t *tool_prep_number;/* output, pin that holds the tool number to be prepared, only valid when tool-prepare=TRUE */
+    stmak_hal_s32_t *tool_number;     /* output, pin that holds the tool number currently in the spindle */
+    stmak_hal_bit_t *tool_prepared;        /* input, pin that notifies that the tool has been prepared */
     //tool-change
-    gomc_hal_bit_t *tool_change;        /* output, notifies a tool-change should happen (emc should be in the tool-change position) */
-    gomc_hal_bit_t *tool_changed;        /* input, notifies tool has been changed */
+    stmak_hal_bit_t *tool_change;        /* output, notifies a tool-change should happen (emc should be in the tool-change position) */
+    stmak_hal_bit_t *tool_changed;        /* input, notifies tool has been changed */
 
     // v2 protocol
     // iocontrolv2 -> toolchanger
-    gomc_hal_bit_t *emc_abort;         /* output, signals emc-originated abort to toolchanger */
-    gomc_hal_bit_t *emc_abort_ack;         /* input, handshake line to acknowledge abort_tool_change */
-    gomc_hal_s32_t *emc_reason;             /* output, convey cause for EMC-originated abort to toolchanger. */
+    stmak_hal_bit_t *emc_abort;         /* output, signals emc-originated abort to toolchanger */
+    stmak_hal_bit_t *emc_abort_ack;         /* input, handshake line to acknowledge abort_tool_change */
+    stmak_hal_s32_t *emc_reason;             /* output, convey cause for EMC-originated abort to toolchanger. */
 
     // toolchanger -> iocontrolv2
-    gomc_hal_bit_t *toolchanger_fault;        /* input, toolchanger signals fault */
-    gomc_hal_bit_t *toolchanger_fault_ack;        /* handshake line for above signal */
-    gomc_hal_s32_t *toolchanger_reason;         /* input, convey reason code for toolchanger-originated fault */
+    stmak_hal_bit_t *toolchanger_fault;        /* input, toolchanger signals fault */
+    stmak_hal_bit_t *toolchanger_fault_ack;        /* handshake line for above signal */
+    stmak_hal_s32_t *toolchanger_reason;         /* input, convey reason code for toolchanger-originated fault */
 
-    gomc_hal_bit_t *start_change;              /* signal begin of M6 cycle */
-    gomc_hal_bit_t *start_change_ack;          /* acknowledge line for start_change */
+    stmak_hal_bit_t *start_change;              /* signal begin of M6 cycle */
+    stmak_hal_bit_t *start_change_ack;          /* acknowledge line for start_change */
 
     // other:
-    gomc_hal_bit_t *toolchanger_faulted;         /* output. signals toolchanger-fault line has toggled */
-    gomc_hal_bit_t *toolchanger_clear_fault;        /* input. resets TC fault condition. */
-    gomc_hal_s32_t *state;                         /* output. Internal state for debugging */
+    stmak_hal_bit_t *toolchanger_faulted;         /* output. signals toolchanger-fault line has toggled */
+    stmak_hal_bit_t *toolchanger_clear_fault;        /* input. resets TC fault condition. */
+    stmak_hal_s32_t *state;                         /* output. Internal state for debugging */
 } iocontrol_str;
 
 // iocontrol_module holds all per-instance state.  Allocated in New(),
@@ -216,7 +216,7 @@ static int iniLoad(iocontrol_module *m)
         double temp = m->io_cycle_time;
         if (1 != sscanf(val, "%lf", &m->io_cycle_time)) {
             m->io_cycle_time = temp;
-            gomc_log_warnf(m->env->log, m->name, "invalid [EMCIO] CYCLE_TIME (%s); using default %f",
+            stmak_log_warnf(m->env->log, m->name, "invalid [EMCIO] CYCLE_TIME (%s); using default %f",
                         val, m->io_cycle_time);
         }
     }
@@ -225,7 +225,7 @@ static int iniLoad(iocontrol_module *m)
     if (val) {
         sscanf(val, "%i", &m->proto);
     }
-    gomc_log_debugf(m->env->log, m->name, "%s: [EMCIO] using v%d protocol", m->name, m->proto);
+    stmak_log_debugf(m->env->log, m->name, "%s: [EMCIO] using v%d protocol", m->name, m->proto);
 
     // random_toolchanger is NOT read from the INI: it is the tool store's
     // property, asked for in the start hook once m->tt is bound.
@@ -246,16 +246,16 @@ static int iocontrol_hal_init(iocontrol_module *m)
     int retval;
 
     /* STEP 1: initialise the hal component */
-    m->comp_id = m->env->hal->init(m->env->hal->ctx, m->name, m->env->dl_handle, GOMC_HAL_COMP_USER);
+    m->comp_id = m->env->hal->init(m->env->hal->ctx, m->name, m->env->dl_handle, STMAK_HAL_COMP_USER);
     if (m->comp_id < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_init() failed");
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_init() failed");
         return -1;
     }
 
     /* STEP 2: allocate shared memory for iocontrol data */
     m->hal_data = (iocontrol_str *) m->env->hal->malloc(m->env->hal->ctx, sizeof(iocontrol_str));
     if (m->hal_data == 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_malloc() failed");
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: hal_malloc() failed");
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
@@ -263,118 +263,118 @@ static int iocontrol_hal_init(iocontrol_module *m)
     /* STEP 3a: export the out-pin(s) */
 
     // user-enable-out
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->user_enable_out), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->user_enable_out), m->comp_id,
                               "%s.user-enable-out", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-enable-out export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-enable-out export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // user-request-enable
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->user_request_enable), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->user_request_enable), m->comp_id,
                              "%s.user-request-enable", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-request-enable export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin user-request-enable export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // coolant-flood
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->coolant_flood), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->coolant_flood), m->comp_id,
                          "%s.coolant-flood", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-flood export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-flood export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // coolant-mist
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->coolant_mist), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->coolant_mist), m->comp_id,
                               "%s.coolant-mist", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-mist export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin coolant-mist export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // lube
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->lube), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->lube), m->comp_id,
                               "%s.lube", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-number
-    retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_number), m->comp_id,
+    retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_number), m->comp_id,
                               "%s.tool-number", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-number export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-number export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-prep-number
-    retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_prep_number), m->comp_id,
+    retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_number), m->comp_id,
                               "%s.tool-prep-number", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-number export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-number export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-prep-pocket
-    retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_prep_pocket), m->comp_id,
+    retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_pocket), m->comp_id,
                               "%s.tool-prep-pocket", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-pocket export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-pocket export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-prep-index (idx)
-    retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_prep_index), m->comp_id,
+    retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prep_index), m->comp_id,
                               "%s.tool-prep-index", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-index export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prep-index export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-prepare
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_prepare), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_prepare), m->comp_id,
                               "%s.tool-prepare", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepare export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepare export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-prepared
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->tool_prepared), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->tool_prepared), m->comp_id,
                               "%s.tool-prepared", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepared export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-prepared export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-change
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->tool_change), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->tool_change), m->comp_id,
                               "%s.tool-change", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-change export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-change export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // tool-changed
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->tool_changed), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->tool_changed), m->comp_id,
                         "%s.tool-changed", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-changed export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin tool-changed export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -383,29 +383,29 @@ static int iocontrol_hal_init(iocontrol_module *m)
     /* STEP 3b: export the in-pin(s) */
 
     // emc-enable-in
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->emc_enable_in), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->emc_enable_in), m->comp_id,
                              "%s.emc-enable-in", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-enable-in export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-enable-in export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
     // lube_level
-    retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->lube_level), m->comp_id,
+    retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->lube_level), m->comp_id,
                              "%s.lube_level", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube_level export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin lube_level export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
     }
 
     // state pin (present in all protocol versions)
-    retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->state), m->comp_id,
+    retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->state), m->comp_id,
                               "%s.state", m->name);
     if (retval < 0) {
-        gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin state export failed with err=%i",
+        stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin state export failed with err=%i",
                         m->name, retval);
         m->env->hal->exit(m->env->hal->ctx, m->comp_id);
         return -1;
@@ -413,89 +413,89 @@ static int iocontrol_hal_init(iocontrol_module *m)
 
     // v2 protocol pins
     if (m->proto > V1) {
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->emc_abort), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->emc_abort), m->comp_id,
                                   "%s.emc-abort", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->emc_abort_ack), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->emc_abort_ack), m->comp_id,
                                   "%s.emc-abort-ack", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort-ack export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-abort-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->emc_reason), m->comp_id,
+        retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->emc_reason), m->comp_id,
                                   "%s.emc-reason", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-reason export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin emc-reason export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->toolchanger_fault), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_fault), m->comp_id,
                                   "%s.toolchanger-fault", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->toolchanger_fault_ack), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->toolchanger_fault_ack), m->comp_id,
                                   "%s.toolchanger-fault-ack", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault-ack export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-fault-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_s32_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->toolchanger_reason), m->comp_id,
+        retval = stmak_hal_pin_s32_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_reason), m->comp_id,
                                   "%s.toolchanger-reason", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-reason export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-reason export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->toolchanger_faulted), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->toolchanger_faulted), m->comp_id,
                                   "%s.toolchanger-faulted", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-faulted export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-faulted export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->toolchanger_clear_fault), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->toolchanger_clear_fault), m->comp_id,
                                   "%s.toolchanger-clear-fault", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-clear-fault export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin toolchanger-clear-fault export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_OUT, &(m->hal_data->start_change), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_OUT, &(m->hal_data->start_change), m->comp_id,
                                   "%s.start-change", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
-        retval = gomc_hal_pin_bit_newf(m->env->hal, GOMC_HAL_IN, &(m->hal_data->start_change_ack), m->comp_id,
+        retval = stmak_hal_pin_bit_newf(m->env->hal, STMAK_HAL_IN, &(m->hal_data->start_change_ack), m->comp_id,
                                   "%s.start-change-ack", m->name);
         if (retval < 0) {
-            gomc_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change-ack export failed with err=%i",
+            stmak_log_errorf(m->env->log, m->name, "IOV2: ERROR: %s pin start-change-ack export failed with err=%i",
                             m->name, retval);
             m->env->hal->exit(m->env->hal->ctx, m->comp_id);
             return -1;
         }
     }
 
-    gomc_log_debugf(m->env->log, m->name, "%s: iocontrol_hal_init() complete", m->name);
+    stmak_log_debugf(m->env->log, m->name, "%s: iocontrol_hal_init() complete", m->name);
     m->env->hal->ready(m->env->hal->ctx, m->comp_id);
     return 0;
 }
@@ -552,7 +552,7 @@ static int tt_get_tool(iocontrol_module *m, int32_t idx,
     memset(entry, 0, sizeof(*entry));
     if (m->tt->get_tool(m->tt->ctx, idx, entry) != 0) {
         memset(entry, 0, sizeof(*entry));
-        gomc_log_errorf(m->env->log, m->name,
+        stmak_log_errorf(m->env->log, m->name,
             "IOV2: ERROR: tool table read failed for slot %d", idx);
         return -1;
     }
@@ -572,7 +572,7 @@ static int tt_put_tool(iocontrol_module *m, int32_t idx,
     tooltable_tool_entry_t e = *entry;
     e.updated = 0;
     if (m->tt->put_tool(m->tt->ctx, idx, &e, &res) != 0 || !res.ok) {
-        gomc_log_errorf(m->env->log, m->name,
+        stmak_log_errorf(m->env->log, m->name,
             "IOV2: ERROR: tool table write failed for slot %d", idx);
         return -1;
     }
@@ -588,7 +588,7 @@ static int tt_find_idx(iocontrol_module *m, int32_t toolno)
     tooltable_index_result_t res;
     memset(&res, 0, sizeof(res));
     if (m->tt->find_index_for_tool(m->tt->ctx, toolno, &res) != 0) {
-        gomc_log_errorf(m->env->log, m->name,
+        stmak_log_errorf(m->env->log, m->name,
             "IOV2: ERROR: tool table lookup failed for tool %d", toolno);
         return -2;
     }
@@ -665,7 +665,7 @@ static void reload_tool_number(iocontrol_module *m, int toolno) {
 // poll_inputs — the non-blocking, async half of 2.9's read_inputs().
 //
 // 2.9 iocontrol was a free-running loop that serviced these handshakes every
-// cycle; gomc has no such loop, so this runs on the monitor's periodic status
+// cycle; stmak has no such loop, so this runs on the monitor's periodic status
 // poll (see gmi_get_status). It latches the toolchanger-fault line, services
 // the fault-ack / clear-fault handshakes, and reaps the emc-abort ->
 // emc-abort-ack handshake — so no abort/estop/tool path ever has to block
@@ -703,7 +703,7 @@ static int32_t gmi_io_abort(void *ctx, int32_t reason)
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_io_abort reason=%d", reason);
+    stmak_log_debugf(m->env->log, m->name, "gmi_io_abort reason=%d", reason);
 
     pthread_mutex_lock(&m->io_mtx);
     m->emcioStatus.coolant.mist = 0;
@@ -730,7 +730,7 @@ static int32_t gmi_io_abort(void *ctx, int32_t reason)
 static int32_t gmi_set_debug(void *ctx, int32_t debug)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
-    gomc_log_debugf(m->env->log, m->name, "gmi_set_debug debug=%d", debug);
+    stmak_log_debugf(m->env->log, m->name, "gmi_set_debug debug=%d", debug);
     m->debug = debug;
     return 0;
 }
@@ -738,7 +738,7 @@ static int32_t gmi_set_debug(void *ctx, int32_t debug)
 static int32_t gmi_estop_on(void *ctx)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
-    gomc_log_debugf(m->env->log, m->name, "gmi_estop_on");
+    stmak_log_debugf(m->env->log, m->name, "gmi_estop_on");
     *(m->hal_data->user_enable_out) = 0;
     hal_init_pins(m);
     return 0;
@@ -747,7 +747,7 @@ static int32_t gmi_estop_on(void *ctx)
 static int32_t gmi_estop_off(void *ctx)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
-    gomc_log_debugf(m->env->log, m->name, "gmi_estop_off");
+    stmak_log_debugf(m->env->log, m->name, "gmi_estop_off");
     *(m->hal_data->user_enable_out) = 1;
     *(m->hal_data->user_request_enable) = 1;
     return 0;
@@ -820,7 +820,7 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
         return -1;
     }
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_prepare tool=%d idx=%d pocket=%d",
+    stmak_log_debugf(m->env->log, m->name, "gmi_tool_prepare tool=%d idx=%d pocket=%d",
                     toolno, idx, tdata.pocketno);
 
     *(d->tool_prep_index) = idx;  // any type of changer
@@ -850,7 +850,7 @@ static int32_t gmi_tool_prepare(void *ctx, int32_t toolno)
 
     // v2: warn if toolchanger is faulted — next M6 will abort
     if ((m->proto > V1) && *(d->toolchanger_faulted)) {
-        gomc_log_debugf(m->env->log, m->name,
+        stmak_log_debugf(m->env->log, m->name,
             "prepare: toolchanger faulted (reason=%d), next M6 will %s",
             m->toolchanger_reason,
             m->toolchanger_reason > 0 ? "set fault code and reason" : "abort program");
@@ -887,7 +887,7 @@ static int32_t gmi_tool_start_change(void *ctx)
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_start_change");
+    stmak_log_debugf(m->env->log, m->name, "gmi_tool_start_change");
 
     if ((m->proto > V1) && m->support_start_change) {
         *(d->start_change) = 1;
@@ -918,7 +918,7 @@ static int32_t gmi_tool_load(void *ctx)
     iocontrol_module *m = (iocontrol_module *)ctx;
     iocontrol_str *d = m->hal_data;
 
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_load loaded=%d prepped=%d",
+    stmak_log_debugf(m->env->log, m->name, "gmi_tool_load loaded=%d prepped=%d",
                     m->emcioStatus.tool.toolInSpindle,
                     m->emcioStatus.tool.pocketPrepped);
 
@@ -980,7 +980,7 @@ static int32_t gmi_tool_load(void *ctx)
         // Abort: gmi_io_abort cleared tool_change (2.9: abort clears the
         // request line and the wait ends). Leave state as io_abort set it.
         if (!*(d->tool_change)) {
-            gomc_log_debugf(m->env->log, m->name, "gmi_tool_load aborted");
+            stmak_log_debugf(m->env->log, m->name, "gmi_tool_load aborted");
             m->emcioStatus.tool.pocketPrepped = -1;
             *(d->tool_prep_number) = 0;
             *(d->tool_prep_pocket) = 0;
@@ -1029,7 +1029,7 @@ static int32_t gmi_tool_load(void *ctx)
 static int32_t gmi_tool_unload(void *ctx)
 {
     iocontrol_module *m = (iocontrol_module *)ctx;
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_unload");
+    stmak_log_debugf(m->env->log, m->name, "gmi_tool_unload");
     m->emcioStatus.tool.toolInSpindle = 0;
     return 0;
 }
@@ -1039,7 +1039,7 @@ static int32_t gmi_tool_load_table(void *ctx, const char *file)
     iocontrol_module *m = (iocontrol_module *)ctx;
     (void)file;
     // With tooltable, reloading is a no-op — the SQLite DB is always current.
-    gomc_log_debugf(m->env->log, m->name, "gmi_tool_load_table (no-op with tooltable)");
+    stmak_log_debugf(m->env->log, m->name, "gmi_tool_load_table (no-op with tooltable)");
     reload_tool_number(m, m->emcioStatus.tool.toolInSpindle);
     return 0;
 }
@@ -1058,7 +1058,7 @@ static int32_t gmi_tool_set_offset(void *ctx,
     // see the identical note in ioControl.c.
     int32_t idx = pocket;
 
-    gomc_log_debugf(m->env->log, m->name,
+    stmak_log_debugf(m->env->log, m->name,
         "gmi_tool_set_offset idx=%d toolno=%d z=%lf x=%lf dia=%lf",
         idx, toolno, z, x, diameter);
 
@@ -1109,7 +1109,7 @@ static int32_t gmi_tool_set_number(void *ctx, int32_t idx)
         return -1;
     }
     m->emcioStatus.tool.toolInSpindle = spindle.toolno;
-    gomc_log_debugf(m->env->log, m->name,
+    stmak_log_debugf(m->env->log, m->name,
         "gmi_tool_set_number idx=%d new_tool=%d", idx, spindle.toolno);
     *(d->tool_number) = m->emcioStatus.tool.toolInSpindle;
     return 0;
@@ -1181,7 +1181,7 @@ static int iocontrol_start(cmod_t *self)
     // Look up the tooltable API (must have been loaded before us)
     m->tt = tooltable_api_get(m->env->api, m->tooltable_instance);
     if (!m->tt) {
-        gomc_log_errorf(m->env->log, m->name,
+        stmak_log_errorf(m->env->log, m->name,
             "IOV2: tooltable instance '%s' not found — "
             "ensure 'load tooltable' appears before 'load iov2' in HAL",
             m->tooltable_instance);
@@ -1196,7 +1196,7 @@ static int iocontrol_start(cmod_t *self)
     // store it was wired to.
     tooltable_store_info_t ttinfo;
     if (m->tt->get_info(m->tt->ctx, &ttinfo) != 0) {
-        gomc_log_errorf(m->env->log, m->name,
+        stmak_log_errorf(m->env->log, m->name,
             "IOV2: ERROR: tool table '%s' would not say whether it is a "
             "random changer", m->tooltable_instance);
         return -1;
@@ -1214,7 +1214,7 @@ static int iocontrol_start(cmod_t *self)
             // A tool table that cannot be read at startup must not be taken
             // for an empty one: that would silently report an empty spindle
             // and lose the tool physically loaded in it.
-            gomc_log_errorf(m->env->log, m->name,
+            stmak_log_errorf(m->env->log, m->name,
                 "IOV2: ERROR: tool table read failed at startup");
             return -1;
         }
@@ -1247,7 +1247,7 @@ static void iocontrol_destroy(cmod_t *self)
 
     pthread_mutex_destroy(&m->io_mtx);
 
-    gomc_log_warnf(m->env->log, m->name, "%s: exiting", m->name);
+    stmak_log_warnf(m->env->log, m->name, "%s: exiting", m->name);
     free(m);
 }
 

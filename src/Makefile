@@ -136,7 +136,7 @@ ifeq ($(origin KERNELRELEASE),undefined)
 # The "modules" target is the gateway to the kernel module build.
 build-software: userspace modules
 ifeq ($(RUN_IN_PLACE),yes)
-	@if [ -f ../bin/gomc-server ]; then if ! getcap ../bin/gomc-server 2>/dev/null | grep -q cap_sys_nice; then $(VECHO) "You now need to run 'sudo make setuid' in order to run in place with access to hardware."; fi; fi
+	@if [ -f ../bin/stmakd ]; then if ! getcap ../bin/stmakd 2>/dev/null | grep -q cap_sys_nice; then $(VECHO) "You now need to run 'sudo make setuid' in order to run in place with access to hardware."; fi; fi
 endif
 
 VERSION=$(shell cat ../VERSION)
@@ -188,7 +188,7 @@ SUBDIRS := \
     emc/motion emc/motion-logger emc/ini emc/rs274ngc emc/sai \
     emc \
     \
-    gomc \
+    stmak \
     gmi/codegen \
     webapp \
     \
@@ -442,7 +442,7 @@ SRCHEADERS := \
 
 # C files that are #included rather than compiled on their own.
 #
-# The gomc packages wrapping the trajectory planner and pose maths pull these
+# The stmak packages wrapping the trajectory planner and pose maths pull these
 # in textually (`#include "emc/tp/tc.c"`), so to a tree that has to be
 # rebuildable they are headers in everything but name, and are installed
 # alongside them. Nothing compiles them as translation units.
@@ -466,27 +466,27 @@ TARGETS += headers
 #
 # $(includedir)/linuxcnc is a flat namespace: every SRCHEADERS entry lands in
 # it under its basename alone, and that directory is on the include path of
-# everything compiled against LinuxCNC. A gomc package whose own header shares
+# everything compiled against LinuxCNC. A stmak package whose own header shares
 # a basename with one of them does not win by being adjacent -- when cgo
 # compiles it the flat copy is found first, and the package fails on types
 # declared in the file lying next to it. emc/rs274ngc/interp_shim.h and
-# gomc/internal/task/interp_shim.h were exactly that, down to sharing an
+# stmak/internal/task/interp_shim.h were exactly that, down to sharing an
 # include guard, and it cost an afternoon to find because every error pointed
 # at the innocent file.
 #
 # So the build refuses the situation rather than waiting for someone to hit
 # it. Cheap: two sorts over a list of names.
-GOMC_INSTALLED_HEADERS = $(shell cd gomc 2>/dev/null && find . \
+STMAK_INSTALLED_HEADERS = $(shell cd stmak 2>/dev/null && find . \
 	-path './internal/gmi/kinstest' -prune -o \
 	-path './internal/halscope/testrt' -prune -o \
 	-type f \( -name '*.h' -o -name '*.hh' \) -print 2>/dev/null)
 
 .PHONY: check-header-collisions
-# Order-only on the generated GMI headers: GOMC_INSTALLED_HEADERS finds
+# Order-only on the generated GMI headers: STMAK_INSTALLED_HEADERS finds
 # whatever exists when the recipe runs, so on a fresh tree the check must not
 # run before codegen has produced them (a collision involving a generated
 # header would pass once and only fail on the rebuild).
-check-header-collisions: | $(filter gomc/generated/%,$(TARGETS))
+check-header-collisions: | $(filter stmak/generated/%,$(TARGETS))
 check-header-collisions:
 	@flat=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort -u`; \
 	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
@@ -501,22 +501,22 @@ check-header-collisions:
 	    done; \
 	    exit 1; \
 	fi; \
-	gomch=`for h in $(GOMC_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
-	clash=`printf '%s\n' $$flat $$gomch | sort | uniq -d`; \
+	stmakh=`for h in $(STMAK_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
+	clash=`printf '%s\n' $$flat $$stmakh | sort | uniq -d`; \
 	if [ -n "$$clash" ]; then \
 	    echo "*** A header installed into the flat \$$(includedir)/linuxcnc shares a" >&2; \
-	    echo "*** basename with one inside the gomc tree. The flat copy wins when cgo" >&2; \
+	    echo "*** basename with one inside the stmak tree. The flat copy wins when cgo" >&2; \
 	    echo "*** compiles that package, whichever one it meant:" >&2; \
 	    for c in $$clash; do \
 	        echo "***   $$c:" >&2; \
 	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 	            case $$h in */$$c|$$c) echo "***     $$h" >&2 ;; esac; \
 	        done; \
-	        for h in $(GOMC_INSTALLED_HEADERS); do \
-	            case $$h in */$$c|$$c) echo "***     gomc/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
+	        for h in $(STMAK_INSTALLED_HEADERS); do \
+	            case $$h in */$$c|$$c) echo "***     stmak/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
 	        done; \
 	    done; \
-	    echo "*** Rename one of them. See src/gomc/internal/task/task_interp_shim.h" >&2; \
+	    echo "*** Rename one of them. See src/stmak/internal/task/task_interp_shim.h" >&2; \
 	    echo "*** for the one that had to be renamed and why." >&2; \
 	    exit 1; \
 	fi
@@ -678,7 +678,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # So that nothing is built as root, this rule does not depend on the touched
 # files (Note that files in depends/ might be rebuilt, and there's little that
 # can be done about it)
-# Capabilities required by gomc-server:
+# Capabilities required by stmakd:
 #   cap_net_admin  - EtherCAT: manage network interfaces and settings
 #   cap_net_raw    - EtherCAT: send/receive raw Ethernet frames
 #   cap_ipc_lock   - lock shared memory (mlock) for realtime operation
@@ -704,7 +704,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # (6.12 RT, xdp-native), each with its own error. See
 # EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
-	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/gomc-server
+	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/stmakd
 
 # These rules allows a header file from this directory to be installed into
 # ../include.  A pair of rules like these will exist in the Submakefile
@@ -803,17 +803,17 @@ install-common: install-dirs
 	$(DIR) $(DESTDIR)$(sampleconfsdir)
 	((cd ../configs && tar --exclude CVS --exclude .cvsignore --exclude .gitignore -cf - .) | (cd $(DESTDIR)$(sampleconfsdir) && tar -xf -))
 
-	# install the built web applications, including subdirs. gomc-server serves
+	# install the built web applications, including subdirs. stmakd serves
 	# these from EMC2_WEBAPP_DIR at /app/<name>/; without them every web tool
 	# (halshow, halscope, tooledit, emccalib, latency, classicladder,
 	# linuxcnctop-ui) is a 404 on an installed system. The .build-stamp files
 	# are make bookkeeping, not part of an app.
-	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
+	((cd ../share/stmak/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
 
-	# gomc-server is excluded: gomc-install owns it entirely (libexec copy +
+	# stmakd is excluded: stmak-install owns it entirely (libexec copy +
 	# bindir symlink); installing a flat copy here would race that symlink
 	# under a parallel install.
-	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/gomc-server, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/stmakd, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
 	# Several bin/ entries are symlinks onto one binary that picks its app
 	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
 	# the loop above ships a full copy per link; re-create them as links.
@@ -849,11 +849,11 @@ install-common: install-dirs
 	# The same headers again, keeping their source-relative path.
 	#
 	# The flat copies above are what out-of-tree cmods have always used, and
-	# stay. But the gomc packages include a good many of them the way the
+	# stay. But the stmak packages include a good many of them the way the
 	# source tree does -- `#include "hal/hal_priv.h"`, `#include
 	# "emc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
 	# -Isrc in a build tree and against nothing at all in a flat include
-	# directory. That is why the installed gomc tree could not be rebuilt:
+	# directory. That is why the installed stmak tree could not be rebuilt:
 	# not a missing file, a missing shape.
 	#
 	# Both spellings therefore resolve under the one -I that cgoFlags already
@@ -1004,15 +1004,15 @@ HOMEMOD_CMOD_CFLAGS := \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
-    -Igomc/pkg/cmodule \
-    -Igomc/generated/gmi/home \
-    -Igomc/generated/gmi/mot \
+    -Istmak/pkg/cmodule \
+    -Istmak/generated/gmi/home \
+    -Istmak/generated/gmi/mot \
     -Iemc/motion
 
 HOMEMOD_CMOD_DEPS := \
-    gomc/generated/gmi/home/home_api.h \
-    gomc/generated/gmi/mot/mot_api.h \
-    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+    stmak/generated/gmi/home/home_api.h \
+    stmak/generated/gmi/mot/mot_api.h \
+    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
     $(wildcard emc/motion/homing.h) \
     $(wildcard emc/motion/motion.h)
 
@@ -1061,17 +1061,17 @@ TPMOD_CMOD_CFLAGS := \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
-    -Igomc/pkg/cmodule \
-    -Igomc/generated/gmi/tp \
-    -Igomc/generated/gmi/mot \
+    -Istmak/pkg/cmodule \
+    -Istmak/generated/gmi/tp \
+    -Istmak/generated/gmi/mot \
     -Iemc/motion \
     -Iemc/tp \
     -Ilibnml/posemath
 
 TPMOD_CMOD_DEPS := \
-    gomc/generated/gmi/tp/tp_api.h \
-    gomc/generated/gmi/mot/mot_api.h \
-    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+    stmak/generated/gmi/tp/tp_api.h \
+    stmak/generated/gmi/mot/mot_api.h \
+    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
     $(wildcard emc/tp/*.h) \
     $(wildcard emc/motion/motion.h)
 
@@ -1091,18 +1091,18 @@ modules: ../cmod/tpmod.so
 #
 # cmods are built by a dozen Submakefiles, in pattern rules and explicit ones,
 # from .comp sources and hand-written .c alike, and almost none of them listed
-# gomc/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
+# stmak/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
 # most of ../cmod untouched -- the .comp-derived ones only rebuilt because
 # ../bin/modcompile happened to be newer.
 #
 # That was survivable while a mismatch merely meant undefined behaviour nobody
-# could detect. It is not survivable now that gomc_env.h carries an ABI stamp
+# could detect. It is not survivable now that stmak_env.h carries an ABI stamp
 # the launcher enforces: after a bump, every cmod the build skipped would be
 # refused at load with no hint that a rebuild was all it needed.
 #
 # One line rather than a prerequisite added to each of those rules, because
 # the next cmod rule someone writes would not get one.
-CMOD_ENV_HEADERS := $(wildcard gomc/pkg/cmodule/gomc_*.h)
+CMOD_ENV_HEADERS := $(wildcard stmak/pkg/cmodule/stmak_*.h)
 $(filter ../cmod/%.so,$(TARGETS)): $(CMOD_ENV_HEADERS)
 
 # Phony so that it is always rebuilt when requested, not because it

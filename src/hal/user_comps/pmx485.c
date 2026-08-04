@@ -12,8 +12,8 @@
  * License: GPL v2+
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -52,20 +52,20 @@
 /* ========================================================================== */
 
 typedef struct {
-    gomc_hal_float_t *mode_set;       /* IN */
-    gomc_hal_float_t *current_set;    /* IN */
-    gomc_hal_float_t *pressure_set;   /* IN */
-    gomc_hal_bit_t   *enable;         /* IN */
-    gomc_hal_float_t *mode;           /* OUT */
-    gomc_hal_float_t *current;        /* OUT */
-    gomc_hal_float_t *pressure;       /* OUT */
-    gomc_hal_float_t *fault;          /* OUT */
-    gomc_hal_bit_t   *status;         /* OUT */
-    gomc_hal_float_t *current_min;    /* OUT */
-    gomc_hal_float_t *current_max;    /* OUT */
-    gomc_hal_float_t *pressure_min;   /* OUT */
-    gomc_hal_float_t *pressure_max;   /* OUT */
-    gomc_hal_float_t *arc_time;       /* OUT */
+    stmak_hal_float_t *mode_set;       /* IN */
+    stmak_hal_float_t *current_set;    /* IN */
+    stmak_hal_float_t *pressure_set;   /* IN */
+    stmak_hal_bit_t   *enable;         /* IN */
+    stmak_hal_float_t *mode;           /* OUT */
+    stmak_hal_float_t *current;        /* OUT */
+    stmak_hal_float_t *pressure;       /* OUT */
+    stmak_hal_float_t *fault;          /* OUT */
+    stmak_hal_bit_t   *status;         /* OUT */
+    stmak_hal_float_t *current_min;    /* OUT */
+    stmak_hal_float_t *current_max;    /* OUT */
+    stmak_hal_float_t *pressure_min;   /* OUT */
+    stmak_hal_float_t *pressure_max;   /* OUT */
+    stmak_hal_float_t *arc_time;       /* OUT */
 } hal_pins_t;
 
 /* ========================================================================== */
@@ -74,7 +74,7 @@ typedef struct {
 
 typedef struct {
     const cmod_env_t *env;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int               hal_id;
     hal_pins_t       *pins;
 
@@ -94,7 +94,7 @@ static int serial_open(pmx_inst_t *inst)
 {
     int fd = open(inst->port, O_RDWR | O_NOCTTY);
     if (fd < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
+        stmak_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
                         inst->port, strerror(errno));
         return -1;
     }
@@ -263,7 +263,7 @@ static void *pmx_thread(void *arg)
     bool was_enabled = false;
     int error_count = 0;
 
-    while (inst->running && !gomc_should_exit(inst->exit_fd)) {
+    while (inst->running && !stmak_should_exit(inst->exit_fd)) {
         bool enabled = *p->enable;
 
         /* Detect enable edge */
@@ -376,27 +376,27 @@ static void *pmx_thread(void *arg)
 
 static int create_hal_pins(pmx_inst_t *inst)
 {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int id = inst->hal_id;
     hal_pins_t *p = inst->pins;
 
 #define P(dir, type, ptr, name) \
-    if (gomc_hal_pin_##type##_newf(hal, dir, ptr, id, "%s." name, COMP_NAME) < 0) return -1
+    if (stmak_hal_pin_##type##_newf(hal, dir, ptr, id, "%s." name, COMP_NAME) < 0) return -1
 
-    P(GOMC_HAL_IN,  float, &p->mode_set,     "mode_set");
-    P(GOMC_HAL_IN,  float, &p->current_set,  "current_set");
-    P(GOMC_HAL_IN,  float, &p->pressure_set, "pressure_set");
-    P(GOMC_HAL_IN,  bit,   &p->enable,       "enable");
-    P(GOMC_HAL_OUT, float, &p->mode,         "mode");
-    P(GOMC_HAL_OUT, float, &p->current,      "current");
-    P(GOMC_HAL_OUT, float, &p->pressure,     "pressure");
-    P(GOMC_HAL_OUT, float, &p->fault,        "fault");
-    P(GOMC_HAL_OUT, bit,   &p->status,       "status");
-    P(GOMC_HAL_OUT, float, &p->current_min,  "current_min");
-    P(GOMC_HAL_OUT, float, &p->current_max,  "current_max");
-    P(GOMC_HAL_OUT, float, &p->pressure_min, "pressure_min");
-    P(GOMC_HAL_OUT, float, &p->pressure_max, "pressure_max");
-    P(GOMC_HAL_OUT, float, &p->arc_time,     "arcTime");
+    P(STMAK_HAL_IN,  float, &p->mode_set,     "mode_set");
+    P(STMAK_HAL_IN,  float, &p->current_set,  "current_set");
+    P(STMAK_HAL_IN,  float, &p->pressure_set, "pressure_set");
+    P(STMAK_HAL_IN,  bit,   &p->enable,       "enable");
+    P(STMAK_HAL_OUT, float, &p->mode,         "mode");
+    P(STMAK_HAL_OUT, float, &p->current,      "current");
+    P(STMAK_HAL_OUT, float, &p->pressure,     "pressure");
+    P(STMAK_HAL_OUT, float, &p->fault,        "fault");
+    P(STMAK_HAL_OUT, bit,   &p->status,       "status");
+    P(STMAK_HAL_OUT, float, &p->current_min,  "current_min");
+    P(STMAK_HAL_OUT, float, &p->current_max,  "current_max");
+    P(STMAK_HAL_OUT, float, &p->pressure_min, "pressure_min");
+    P(STMAK_HAL_OUT, float, &p->pressure_max, "pressure_max");
+    P(STMAK_HAL_OUT, float, &p->arc_time,     "arcTime");
 #undef P
     return 0;
 }
@@ -412,7 +412,7 @@ static int pmx_Start(cmod_t *self)
     pmx_inst_t *inst = (pmx_inst_t *)self->priv;
     inst->running = true;
     if (pthread_create(&inst->thread, NULL, pmx_thread, inst) != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "thread creation failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "thread creation failed");
         return -1;
     }
     return 0;
@@ -460,10 +460,10 @@ int New(const cmod_env_t *env, const char *name,
         strncpy(inst->port, "/dev/ttyUSB0", sizeof(inst->port) - 1);
 
     /* HAL init */
-    const gomc_hal_t *hal = env->hal;
-    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, GOMC_HAL_COMP_USER);
+    const stmak_hal_t *hal = env->hal;
+    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
         free(inst);
         return -1;
     }

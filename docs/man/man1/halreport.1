@@ -37,13 +37,13 @@ machine state, and logs.
 .PP
 It runs on the machine, because much of what matters (kernel, distro, INI and
 HAL files, journal) is not reachable over the REST API. It contacts a running
-\fBgomc\-server\fR for the HAL and machine sections and falls back to the
+\fBstmak\-server\fR for the HAL and machine sections and falls back to the
 host\-only sections when none is reachable \(em a machine that will not start is
 exactly when a report is wanted.
 .PP
 The bundle contains the text report, the INI file and the local files it names
 (HAL files, tool table, panel XML, and the loaded part program \(em see
-\fB\-\-no\-program\fR), the \fBgomc\-server\fR journal and the tail of
+\fB\-\-no\-program\fR), the \fBstmak\-server\fR journal and the tail of
 \fBdmesg\fR. Files over 10\ MB are listed but not attached.
 .SH OPTIONS
 .TP
@@ -71,7 +71,7 @@ several functions has all of them listed.
 .SH ENVIRONMENT
 .TP
 \fBGMC_REST_URL\fR
-Base URL of the gomc server (default \fBhttp://127.0.0.1:5080\fR).
+Base URL of the stmak server (default \fBhttp://127.0.0.1:5080\fR).
 .TP
 \fBGMC_INSTANCE\fR
 Task instance to address (default \fBmilltask\fR).
@@ -79,7 +79,7 @@ Task instance to address (default \fBmilltask\fR).
 \fBINI_FILE_NAME\fR
 INI file recorded when \fB\-\-ini\fR is not given.
 .SH "SEE ALSO"
-\fBhalcmd(1)\fR, \fBgomc\-server(1)\fR
+\fBhalcmd(1)\fR, \fBstmak\-server(1)\fR
 .SH AUTHOR
 This man page is part of the LinuxCNC project.
 .SH COPYRIGHT

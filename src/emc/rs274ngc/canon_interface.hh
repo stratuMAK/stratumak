@@ -15,8 +15,8 @@
 #ifndef CANON_INTERFACE_HH
 #define CANON_INTERFACE_HH
 
-#define CANON_API_CGO  // skip gomc_api.h registry helpers
-#include "gomc/generated/gmi/canon/canon_api.h"
+#define CANON_API_CGO  // skip stmak_api.h registry helpers
+#include "stmak/generated/gmi/canon/canon_api.h"
 #undef CANON_API_CGO
 
 #include "canon.hh"       // EmcPose, CANON_TOOL_TABLE, enums, StateTag, CONTROL_POINT

@@ -91,7 +91,7 @@ static inline void sk_pos_to_joints(const sk_map_t *m,
 
 typedef struct {
     int current_type;
-    gomc_hal_bit_t *kinstype_is[SK_MAX_TYPES];
+    stmak_hal_bit_t *kinstype_is[SK_MAX_TYPES];
 } sk_switch_t;
 
 static inline int sk_switch_to(sk_switch_t *sw, int new_type)
@@ -106,18 +106,18 @@ static inline int sk_switch_to(sk_switch_t *sw, int new_type)
 }
 
 // Create the kinstype.is-N HAL pins.
-static inline int sk_create_switch_pins(const gomc_hal_t *hal,
+static inline int sk_create_switch_pins(const stmak_hal_t *hal,
                                         int comp_id,
                                         sk_switch_t *sw)
 {
     int rc = 0;
-    rc = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &sw->kinstype_is[0],
+    rc = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &sw->kinstype_is[0],
                                 comp_id, "kinstype.is-0");
     if (rc < 0) return rc;
-    rc = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &sw->kinstype_is[1],
+    rc = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &sw->kinstype_is[1],
                                 comp_id, "kinstype.is-1");
     if (rc < 0) return rc;
-    rc = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &sw->kinstype_is[2],
+    rc = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &sw->kinstype_is[2],
                                 comp_id, "kinstype.is-2");
     if (rc < 0) return rc;
     sw->current_type = 0;

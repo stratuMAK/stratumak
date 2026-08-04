@@ -137,7 +137,7 @@ typedef struct {
 
     const void *mot;  /* mot_callbacks_t* for accessing motmod services */
     void *tc_space;   /* TC_STRUCT[] queue storage (in enclosing instance) */
-    const void *log;  /* gomc_log_t* for structured logging */
+    const void *log;  /* stmak_log_t* for structured logging */
     const char *log_comp; /* component name for log messages */
 } TP_STRUCT;
 

@@ -43,7 +43,7 @@ Removed objects:
 
 **All remaining binaries are libnml-free:**
 `io.so`, `iov2.so`, `milltask.so`, `halui.so`, `rs274`, `emcmodule.so`,
-`motion-logger`, `gomc-server`.
+`motion-logger`, `stmakd`.
 
 **Circular include fix:** Created `emc/tooldata/tooldata_fwd.hh` to break the
 `emc_nml.hh` ↔ `tooldata.hh` circular dependency (needed for inlined
@@ -77,8 +77,8 @@ shared memory structs. `StateTag` remains only in librs274/interpreter.
 
 | Mechanism | Where | How |
 |-----------|-------|-----|
-| M100-M199 | `emctask.cc`, `emctaskmain_gomc.cc` | `fork()+execvp()`, async `waitpid` polling |
-| EMC\_SYSTEM\_CMD | `emctaskmain_gomc.cc` | NML message → same fork/exec (only for M1xx) |
+| M100-M199 | `emctask.cc`, `emctaskmain_stmak.cc` | `fork()+execvp()`, async `waitpid` polling |
+| EMC\_SYSTEM\_CMD | `emctaskmain_stmak.cc` | NML message → same fork/exec (only for M1xx) |
 | POSTTASK\_HALFILE | `taskclass.cc` | `vfork()+execlp("halcmd")`, synchronous |
 
 ### Multi-Instance Blockers (~35 globals)
@@ -118,7 +118,7 @@ without any task dependency.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ gomc-server                                             │
+│ stmakd                                             │
 │                                                         │
 │  ┌──────────────────────┐   ┌────────────────────────┐  │
 │  │ interp_canon_t       │   │ task_ext_t             │  │
@@ -144,7 +144,7 @@ without any task dependency.
 │  └──────────────────────┘                               │
 │                                                         │
 │  Registration lives in librs274.so (per Interp instance)│
-│  milltask exposes GMI pass-through (gomc_interp_ext_t)  │
+│  milltask exposes GMI pass-through (stmak_interp_ext_t)  │
 │  so external cmods/gomods can register handlers         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -376,7 +376,7 @@ line segments and call `straight_feed`). They do NOT go in the canon table.
 Registered by cmod/gomod via the milltask GMI pass-through. The interpreter
 dispatches to these instead of Python. The registration map and dispatch logic
 live in **librs274.so** (per Interp instance). milltask exposes the registration
-functions as a GMI interface (`gomc_interp_ext_t`) so external cmods/gomods
+functions as a GMI interface (`stmak_interp_ext_t`) so external cmods/gomods
 can call them.
 
 ```c
@@ -463,13 +463,13 @@ int interp_ext_register_remap_epilog(void *interp, const char *name,
                                       interp_remap_epilog_fn fn, void *user);
 ```
 
-**Layer 2: milltask GMI pass-through (gomc_interp_ext_t)**
+**Layer 2: milltask GMI pass-through (stmak_interp_ext_t)**
 
 milltask exposes these as a GMI interface. The `ctx` captures the Interp
 pointer; each function simply forwards to the librs274 C API:
 
 ```c
-typedef struct gomc_interp_ext {
+typedef struct stmak_interp_ext {
     void *ctx;
 
     int (*register_oword)(void *ctx, const char *name,
@@ -480,7 +480,7 @@ typedef struct gomc_interp_ext {
                                 interp_remap_body_fn fn, void *user);
     int (*register_remap_epilog)(void *ctx, const char *name,
                                   interp_remap_epilog_fn fn, void *user);
-} gomc_interp_ext_t;
+} stmak_interp_ext_t;
 ```
 
 The `void *user` is stored alongside the function pointer and passed back
@@ -530,7 +530,7 @@ typedef struct {
 // Returns 0 = success, -1 = error, -2 = aborted.
 typedef int (*task_mcode_fn)(task_mcode_ctx_t *ctx);
 
-typedef struct gomc_task_ext {
+typedef struct stmak_task_ext {
     void *ctx;
 
     int (*register_tool_prepare)(void *ctx, task_tool_prepare_fn fn,
@@ -549,7 +549,7 @@ typedef struct gomc_task_ext {
     // Register handler for specific M-code (100-199)
     int (*register_mcode)(void *ctx, int mcode, task_mcode_fn fn,
                            void *user);
-} gomc_task_ext_t;
+} stmak_task_ext_t;
 ```
 
 #### M-code Execution Flow
@@ -595,7 +595,7 @@ or a channel read, providing idiomatic Go abort handling.
 
 ### POSTTASK\_HALFILE
 
-Handled by gomc-server launcher calling internal halcmd directly. No API needed.
+Handled by stmakd launcher calling internal halcmd directly. No API needed.
 
 ### INI Configuration Changes
 
@@ -685,7 +685,7 @@ This is natural because:
   (preview doesn't need prolog/epilog side effects)
 
 **milltask.so** (the only consumer that creates an Interp AND loads cmods)
-exposes a GMI pass-through interface (`gomc_interp_ext_t`) so that external
+exposes a GMI pass-through interface (`stmak_interp_ext_t`) so that external
 cmods/gomods can register handlers. This is a thin wrapper: milltask captures
 the Interp pointer and forwards registration calls to librs274.
 
@@ -703,10 +703,10 @@ the Interp pointer and forwards registration calls to librs274.
 └────────────────────────────────────────────▲──────────────┘
                                              │ links
 ┌────────────────────────────────────────────┴──────────────┐
-│ milltask.so (cmod in gomc-server)                          │
+│ milltask.so (cmod in stmakd)                          │
 │                                                           │
 │  Owns the Interp instance                                 │
-│  Exposes GMI pass-through: gomc_interp_ext_t              │
+│  Exposes GMI pass-through: stmak_interp_ext_t              │
 │    register_oword(ctx, name, fn, user) →                  │
 │        interp->register_oword(name, fn, user)             │
 └────────────────────────────────────────────▲──────────────┘
@@ -737,7 +737,7 @@ the Interp pointer and forwards registration calls to librs274.
    - `set_error` → set interpreter error message
    - `canon` → pointer to the instance's canon interface
    - `phase` counter for EXECUTE\_FINISH yield/resume
-6. Define `gomc_interp_ext.gmi` — the GMI interface file for the
+6. Define `stmak_interp_ext.gmi` — the GMI interface file for the
    pass-through registration API exposed by milltask.
 7. Implement the pass-through in milltask (thin: capture Interp*, forward).
 8. Port `stdglue.py` (prepare\_prolog, change\_prolog, change\_epilog) to a
@@ -750,7 +750,7 @@ Custom remap prologs/epilogs can be written as cmods/gomods.
 
 **Goal:** Replace Python task overrides and M100-M199 fork/exec.
 
-1. Define `task_ext_t` / `gomc_task_ext_t` header.
+1. Define `task_ext_t` / `stmak_task_ext_t` header.
 2. Replace `TaskWrap` (Boost.Python) with C callback dispatch in
    `taskclass.cc` — each Task virtual method checks for registered handler,
    falls through to default C++ if none.
@@ -763,7 +763,7 @@ Custom remap prologs/epilogs can be written as cmods/gomods.
 6. Remove `user_defined_fmt[]` / `user_defined_function_dirindex[]` from
    `emctask.cc`.
 7. Remove `taskmodule.cc` (Boost.Python bindings).
-8. POSTTASK\_HALFILE: call halcmd internally from gomc-server launcher.
+8. POSTTASK\_HALFILE: call halcmd internally from stmakd launcher.
 9. Remove PLUGIN\_CALL / IO\_PLUGIN\_CALL entirely.
 10. Port iocontrol-v2 Python task class to a cmod (if anyone uses it).
 
@@ -783,7 +783,7 @@ server-side G-code preview that runs concurrently with execution.
    and status reference.
 4. Tool table access goes through canon getters (already done in Phase 1).
 5. ~~Implement **preview canon**~~ — **Done.** `ngcpreview` gomod in
-   `src/gomc/internal/ngcpreview/module.go` implements a recording canon
+   `src/stmak/internal/ngcpreview/module.go` implements a recording canon
    (C callbacks via `canon_callbacks_t`) that stores segments (traverse,
    feed, arc+center+rotation, probe), dwells, and tool changes. Returns
    JSON via REST endpoint `POST /api/v1/ngcpreview/file`.
@@ -792,7 +792,7 @@ server-side G-code preview that runs concurrently with execution.
    (normal NGC sub call, correct geometry), but prolog/epilog/body
    extension callbacks are not invoked. This is correct because preview
    doesn't need side effects, only geometry.
-7. ~~gomc-server exposes preview via REST endpoint~~ — **Done.** Client
+7. ~~stmakd exposes preview via REST endpoint~~ — **Done.** Client
    sends `{filename, initcodes, unitcode}`, server creates preview Interp
    + preview canon, runs interpretation, returns JSON geometry.
 8. ~~Python client module~~ — **Done.** `lib/python/gcode.py` is a pure
@@ -805,7 +805,7 @@ server-side G-code preview that runs concurrently with execution.
    execution canon for the same program (modulo side-effect-only codes).
 
 **Completed items:**
-- `src/gomc/internal/ngcpreview/module.go` — ngcpreview gomod with preview
+- `src/stmak/internal/ngcpreview/module.go` — ngcpreview gomod with preview
   canon (C callbacks via `canon_callbacks_t`). Features:
   - Segment storage: traverse, feed, arc (center+rotation), probe
   - Metric→inches conversion for all linear quantities (positions,
@@ -840,7 +840,7 @@ server-side G-code preview that runs concurrently with execution.
 1. ~~Remove `#include <Python.h>` and `#include <boost/python.hpp>` throughout.~~
    Removed by deleting all dead source files below. Python/Boost remain only
    in active UI components (emcmodule.so, delta kins, HAL components).
-2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — gomc packages.conf
+2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — stmak packages.conf
    never had it. System-level Python/Boost deps stay for UI components.
 3. ~~Remove `libboost_python` from link flags.~~ Already removed from
    librs274 and milltask Submakefiles in Phase 2. Remains only for
@@ -878,7 +878,7 @@ server-side G-code preview that runs concurrently with execution.
 
 **New:**
 - `src/gmi/idl/canon.gmi` — GMI interface definition for canon callback table
-- `src/gomc/generated/gmi/canon/canon_api.h` — generated `canon_callbacks_t` struct
+- `src/stmak/generated/gmi/canon/canon_api.h` — generated `canon_callbacks_t` struct
 - `src/emc/rs274ngc/canon_interface.hh` — C++ wrapper class hiding ctx plumbing, type conversions
 - `src/emc/task/emccanon_table.cc` — milltask canon table implementation (populates `canon_callbacks_t`)
 - `src/emc/task/emccanon_table.hh` — `emccanon_get_callbacks()` declaration
@@ -930,7 +930,7 @@ server-side G-code preview that runs concurrently with execution.
 - `src/emc/rs274ngc/rs274ngc_interp.hh` — added ext_registry pointer + ext dispatch methods
 - `src/emc/rs274ngc/rs274ngc_pre.cc` — ext_registry init in ctor, destroy in dtor
 - `src/emc/rs274ngc/Submakefile` — added interp_ext.cc to LIBRS274SRCS
-- `src/emc/task/emctaskmain_gomc.cc` — milltask New() calls emcTaskPlanCreate() + registers interp_ext_api
+- `src/emc/task/emctaskmain_stmak.cc` — milltask New() calls emcTaskPlanCreate() + registers interp_ext_api
 - `src/emc/task/emctask.cc` — split emcTaskPlanInit() into emcTaskPlanCreate() (Interp construction) + emcTaskPlanInit() (init + startup gcode)
 - `src/emc/task/task.hh` — added emcTaskPlanCreate() declaration
 - `src/emc/task/Submakefile` — added stdglue.so build rules
@@ -946,11 +946,11 @@ server-side G-code preview that runs concurrently with execution.
 
 **New:**
 - `src/gmi/idl/mcode_handler.gmi` — GMI interface for M-code handler registration
-- `src/gomc/generated/gmi/mcode_handler/mcode_handler_api.h` — generated mcode_handler_callbacks_t
+- `src/stmak/generated/gmi/mcode_handler/mcode_handler_api.h` — generated mcode_handler_callbacks_t
 - `src/emc/task/test_mcode_handler.c` — test harness for mcode handler cmod
 
 **Modified:**
-- `src/emc/task/emctaskmain_gomc.cc` — registers mcode_handler_api, dispatches M1xx via registered handlers
+- `src/emc/task/emctaskmain_stmak.cc` — registers mcode_handler_api, dispatches M1xx via registered handlers
 
 ### Phase 4b: GMI Migration of interp_ext + interp_ctx — Done
 
@@ -972,9 +972,9 @@ server-side G-code preview that runs concurrently with execution.
 - `src/emc/rs274ngc/interp_ext.cc` — renamed types (interp_ext_oword_fn_cb, etc.), ctx→get_phase()/get_user() accessors
 - `src/emc/rs274ngc/rs274ngc_interp.hh` — updated callback type names
 - `src/emc/task/stdglue.c` — renamed types, ctx->get_phase(ctx->ctx), ctx->ctx
-- `src/emc/task/emctaskmain_gomc.cc` — renamed types
+- `src/emc/task/emctaskmain_stmak.cc` — renamed types
 - `src/emc/rs274ngc/Submakefile` — -I paths for generated headers (librs274)
-- `src/emc/task/Submakefile` — -Igomc/pkg/cmodule for gomc_api.h
+- `src/emc/task/Submakefile` — -Istmak/pkg/cmodule for stmak_api.h
 - `src/emc/sai/Submakefile` — -I paths for generated headers
 - `src/gmi/codegen/Submakefile` — codegen rules for mcode_handler, interp_ctx, interp_ext
 
@@ -989,7 +989,7 @@ server-side G-code preview that runs concurrently with execution.
 - `src/emc/rs274ngc/gcodemodule.cc` — replaced by `lib/python/gcode.py` + server-side ngcpreview
 
 All functional items complete:
-- M100-M199 threaded handler dispatch with abort_fd — done (emctaskmain_gomc.cc)
+- M100-M199 threaded handler dispatch with abort_fd — done (emctaskmain_stmak.cc)
 - fork/exec replaced — no fork/execvp/waitpid remain
 - WAITING_FOR_MCODE_HANDLER state — implemented
 - Task extension API (tool_prepare, coolant, etc.) — not needed as separate API; standard HAL/iocontrol path suffices

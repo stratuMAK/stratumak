@@ -5,7 +5,7 @@
 
 #include <math.h>
 #include <string.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "switchkins.h"
 
 #ifndef M_PI
@@ -16,13 +16,13 @@
 
 // ─── Module state ───
 
-static const gomc_hal_t  *g_hal;
+static const stmak_hal_t  *g_hal;
 static int                g_comp_id;
 static sk_map_t           g_map;
 static sk_switch_t        g_sw;
 
 struct scara_data {
-    gomc_hal_float_t *d1, *d2, *d3, *d4, *d5, *d6;
+    stmak_hal_float_t *d1, *d2, *d3, *d4, *d5, *d6;
 };
 static struct scara_data *haldata;
 
@@ -158,7 +158,7 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
@@ -173,29 +173,29 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (sk_map_coordinates(&g_map, coordinates, 0) < 0) {
-        gomc_log_errorf(env->log, name, "bad coordinates: %s", coordinates);
+        stmak_log_errorf(env->log, name, "bad coordinates: %s", coordinates);
         return -1;
     }
 
     g_comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                               GOMC_HAL_COMP_REALTIME);
+                               STMAK_HAL_COMP_REALTIME);
     if (g_comp_id < 0) return g_comp_id;
 
     haldata = env->hal->malloc(env->hal->ctx, sizeof(struct scara_data));
     if (!haldata) { g_hal->exit(g_hal->ctx, g_comp_id); return -1; }
 
     int rc = 0;
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d1,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d1,
                                   g_comp_id, "%s.D1", name);
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d2,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d2,
                                   g_comp_id, "%s.D2", name);
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d3,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d3,
                                   g_comp_id, "%s.D3", name);
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d4,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d4,
                                   g_comp_id, "%s.D4", name);
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d5,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d5,
                                   g_comp_id, "%s.D5", name);
-    rc |= gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->d6,
+    rc |= stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->d6,
                                   g_comp_id, "%s.D6", name);
     if (rc < 0) goto fail;
 
@@ -209,7 +209,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &scara_callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name, "kins_api_register failed: %d", rc);
+        stmak_log_errorf(env->log, name, "kins_api_register failed: %d", rc);
         goto fail;
     }
 

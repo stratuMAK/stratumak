@@ -32,16 +32,16 @@
  * @brief Per-channel HAL data for an EL1xxx digital input terminal.
  */
 typedef struct {
-  gomc_hal_bit_t *in;      /**< HAL output pin: current digital input state. */
-  gomc_hal_bit_t *in_not;  /**< HAL output pin: inverted digital input state. */
+  stmak_hal_bit_t *in;      /**< HAL output pin: current digital input state. */
+  stmak_hal_bit_t *in_not;  /**< HAL output pin: inverted digital input state. */
   unsigned int pdo_os; /**< Byte offset of this channel's PDO entry in the process data image. */
   unsigned int pdo_bp; /**< Bit position within the byte at pdo_os. */
 } lcec_el1xxx_pin_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1xxx_pin_t, in), "%s.%s.%s.din-%d" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1xxx_pin_t, in_not), "%s.%s.%s.din-%d-not" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1xxx_pin_t, in), "%s.%s.%s.din-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1xxx_pin_t, in_not), "%s.%s.%s.din-%d-not" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -50,7 +50,7 @@ static const lcec_pindesc_t slave_pins[] = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1xxx_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1xxx_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize an EL1xxx digital input slave.

@@ -1,6 +1,6 @@
 """PyVCP WebSocket client — widget-centric, server-authoritative state model.
 
-Connects to gomc-server via WebSocket, receives widget state updates,
+Connects to stmakd via WebSocket, receives widget state updates,
 and provides a clean event-driven interface for pyvcp widgets.
 
 Architecture:

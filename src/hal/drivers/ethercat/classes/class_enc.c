@@ -46,27 +46,27 @@
 
 /** @brief HAL pin descriptors for encoder output and control pins. */
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, raw), "%s.%s.%s.%s-raw" },
-  { GOMC_HAL_U32, GOMC_HAL_IO, offsetof(lcec_class_enc_data_t, ext_lo), "%s.%s.%s.%s-ext-lo" },
-  { GOMC_HAL_U32, GOMC_HAL_IO, offsetof(lcec_class_enc_data_t, ext_hi), "%s.%s.%s.%s-ext-hi" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, ref_lo), "%s.%s.%s.%s-ref-lo" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, ref_hi), "%s.%s.%s.%s-ref-hi" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_class_enc_data_t, index_ena), "%s.%s.%s.%s-index-ena" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_class_enc_data_t, pos_reset), "%s.%s.%s.%s-pos-reset" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, pos_enc), "%s.%s.%s.%s-pos-enc" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, pos_abs), "%s.%s.%s.%s-pos-abs" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, pos), "%s.%s.%s.%s-pos" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, on_home_neg), "%s.%s.%s.%s-on-home-neg" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_class_enc_data_t, on_home_pos), "%s.%s.%s.%s-on-home-pos" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, raw), "%s.%s.%s.%s-raw" },
+  { STMAK_HAL_U32, STMAK_HAL_IO, offsetof(lcec_class_enc_data_t, ext_lo), "%s.%s.%s.%s-ext-lo" },
+  { STMAK_HAL_U32, STMAK_HAL_IO, offsetof(lcec_class_enc_data_t, ext_hi), "%s.%s.%s.%s-ext-hi" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, ref_lo), "%s.%s.%s.%s-ref-lo" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, ref_hi), "%s.%s.%s.%s-ref-hi" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_class_enc_data_t, index_ena), "%s.%s.%s.%s-index-ena" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_class_enc_data_t, pos_reset), "%s.%s.%s.%s-pos-reset" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, pos_enc), "%s.%s.%s.%s-pos-enc" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, pos_abs), "%s.%s.%s.%s-pos-abs" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, pos), "%s.%s.%s.%s-pos" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, on_home_neg), "%s.%s.%s.%s-on-home-neg" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_class_enc_data_t, on_home_pos), "%s.%s.%s.%s-on-home-pos" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /** @brief HAL parameter descriptors for encoder configuration (home position, bit width, scale). */
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_class_enc_data_t, raw_home), "%s.%s.%s.%s-raw-home" },
-  { GOMC_HAL_U32, GOMC_HAL_RO, offsetof(lcec_class_enc_data_t, raw_bits), "%s.%s.%s.%s-raw-bits" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RO, offsetof(lcec_class_enc_data_t, pprev_scale), "%s.%s.%s.%s-pprev-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_class_enc_data_t, raw_home), "%s.%s.%s.%s-raw-home" },
+  { STMAK_HAL_U32, STMAK_HAL_RO, offsetof(lcec_class_enc_data_t, raw_bits), "%s.%s.%s.%s-raw-bits" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RO, offsetof(lcec_class_enc_data_t, pprev_scale), "%s.%s.%s.%s-pprev-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 // Forward declarations for internal helper functions

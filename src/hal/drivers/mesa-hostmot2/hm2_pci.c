@@ -32,7 +32,7 @@
 #include <errno.h>
 #include <stdio.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hm2_core_api.h"
 #include "bitfile.h"
 #include "hostmot2-lowlevel.h"
@@ -219,7 +219,7 @@ static struct rtapi_pci_device_id hm2_pci_tbl[] = {
 // these are the "low-level I/O" functions exported up
 //
 
-static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_pci_t *board = this->private;
     void *src = board->base + addr;
 
@@ -233,7 +233,7 @@ static int hm2_pci_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, in
     return 1;  // success
 }
 
-static int hm2_pci_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_pci_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     hm2_pci_t *board = this->private;
     void *dest = board->base + addr;
 
@@ -822,7 +822,7 @@ static void hm2_pci_parse_argv(hm2_pci_inst_t *inst, int argc, const char **argv
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
     int r = 0;
 
     hm2_pci_inst_t *p = calloc(1, sizeof(*p));
@@ -834,14 +834,14 @@ int New(const cmod_env_t *env, const char *name,
 
     p->core = hm2_core_api_get(env->api, "hostmot2");
     if (!p->core) {
-        gomc_log_errorf(env->log, name, "hm2_pci: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_log_errorf(env->log, name, "hm2_pci: hostmot2 core API not found (is hostmot2 loaded?)\n");
         free(p);
         return -1;
     }
 
     LL_PRINT("loading Mesa AnyIO HostMot2 driver version " HM2_PCI_VERSION "\n");
 
-    r = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    r = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
         free(p);
         return r;
@@ -888,7 +888,7 @@ int New(const cmod_env_t *env, const char *name,
 
 static void hm2_pci_destroy(cmod_t *self) {
     hm2_pci_inst_t *p = self->priv;
-    const gomc_hal_t *hal = p->env->hal;
+    const stmak_hal_t *hal = p->env->hal;
     rtapi_pci_unregister_driver(&hm2_pci_driver);
     pci_bridge_inst = NULL;
     LL_PRINT("driver unloaded");

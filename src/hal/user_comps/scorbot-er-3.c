@@ -11,8 +11,8 @@
  * License: GPL v2+
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -37,10 +37,10 @@
 /* ========================================================================== */
 
 typedef struct {
-    gomc_hal_bit_t   *limit_sw[N_JOINTS];     /* OUT */
-    gomc_hal_float_t *motor_pos_cmd[N_JOINTS]; /* IN */
-    gomc_hal_float_t *scale[N_JOINTS];         /* IN */
-    gomc_hal_s32_t   *motor_max_vel[N_JOINTS]; /* IN */
+    stmak_hal_bit_t   *limit_sw[N_JOINTS];     /* OUT */
+    stmak_hal_float_t *motor_pos_cmd[N_JOINTS]; /* IN */
+    stmak_hal_float_t *scale[N_JOINTS];         /* IN */
+    stmak_hal_s32_t   *motor_max_vel[N_JOINTS]; /* IN */
 } hal_pins_t;
 
 /* ========================================================================== */
@@ -49,7 +49,7 @@ typedef struct {
 
 typedef struct {
     const cmod_env_t *env;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int               hal_id;
     hal_pins_t       *pins;
 
@@ -72,7 +72,7 @@ static int serial_open(scorbot_inst_t *inst)
 {
     int fd = open(inst->port, O_RDWR | O_NOCTTY);
     if (fd < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
+        stmak_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
                         inst->port, strerror(errno));
         return -1;
     }
@@ -103,7 +103,7 @@ static int serial_write_str(scorbot_inst_t *inst, const char *s)
     size_t len = strlen(s);
     ssize_t n = write(inst->serial_fd, s, len);
     if (n < 0) {
-        gomc_log_warnf(inst->log, COMP_NAME, "serial write error: %s", strerror(errno));
+        stmak_log_warnf(inst->log, COMP_NAME, "serial write error: %s", strerror(errno));
         return -1;
     }
     return 0;
@@ -116,11 +116,11 @@ static int serial_read_bytes(scorbot_inst_t *inst, unsigned char *buf, int count
         ssize_t n = read(inst->serial_fd, buf + got, count - got);
         if (n < 0) {
             if (errno == EINTR) continue;
-            gomc_log_warnf(inst->log, COMP_NAME, "serial read error: %s", strerror(errno));
+            stmak_log_warnf(inst->log, COMP_NAME, "serial read error: %s", strerror(errno));
             return -1;
         }
         if (n == 0) {
-            gomc_log_warnf(inst->log, COMP_NAME, "serial read timeout");
+            stmak_log_warnf(inst->log, COMP_NAME, "serial read timeout");
             return -1;
         }
         got += n;
@@ -138,7 +138,7 @@ static void *scorbot_thread(void *arg)
     hal_pins_t *p = inst->pins;
     char cmd[32];
 
-    while (inst->running && !gomc_should_exit(inst->exit_fd)) {
+    while (inst->running && !stmak_should_exit(inst->exit_fd)) {
         for (int j = 0; j < N_JOINTS; j++) {
             /* Compute new encoder counts from position * scale */
             double pos = *p->motor_pos_cmd[j];
@@ -190,21 +190,21 @@ static void *scorbot_thread(void *arg)
 
 static int create_hal_pins(scorbot_inst_t *inst)
 {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int comp_id = inst->hal_id;
     hal_pins_t *p = inst->pins;
 
     for (int j = 0; j < N_JOINTS; j++) {
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &p->limit_sw[j],
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &p->limit_sw[j],
                 comp_id, "%s.joint%d.limit-sw", PIN_PREFIX, j) < 0)
             return -1;
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &p->motor_pos_cmd[j],
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &p->motor_pos_cmd[j],
                 comp_id, "%s.joint%d.motor-pos-cmd", PIN_PREFIX, j) < 0)
             return -1;
-        if (gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &p->scale[j],
+        if (stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &p->scale[j],
                 comp_id, "%s.joint%d.scale", PIN_PREFIX, j) < 0)
             return -1;
-        if (gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &p->motor_max_vel[j],
+        if (stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &p->motor_max_vel[j],
                 comp_id, "%s.joint%d.motor-max-vel", PIN_PREFIX, j) < 0)
             return -1;
     }
@@ -229,7 +229,7 @@ static int scorbot_Start(cmod_t *self)
 
     inst->running = true;
     if (pthread_create(&inst->thread, NULL, scorbot_thread, inst) != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "thread creation failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "thread creation failed");
         serial_close(inst);
         return -1;
     }
@@ -284,17 +284,17 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     /* HAL init */
-    const gomc_hal_t *hal = env->hal;
-    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, GOMC_HAL_COMP_USER);
+    const stmak_hal_t *hal = env->hal;
+    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
         free(inst);
         return -1;
     }
 
     inst->pins = hal->malloc(hal->ctx, sizeof(hal_pins_t));
     if (!inst->pins) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal malloc failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal malloc failed");
         hal->exit(hal->ctx, inst->hal_id);
         free(inst);
         return -1;

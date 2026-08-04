@@ -475,7 +475,7 @@ FUNCTION(_) {
     if(isinf(arc_voltage_in) || isnan(arc_voltage_in)){
         arc_valid_timer += fperiod;
         if(arc_valid_timer > 1){
-            GOMC_LOG_ERR("invalid arc-voltage-in\n");
+            STMAK_LOG_ERR("invalid arc-voltage-in\n");
             arc_valid_timer = 0;
         }
         return;
@@ -616,13 +616,13 @@ FUNCTION(_) {
             torch_on = FALSE;
             if(!program_is_paused && !program_pause){
                 if(breakaway){
-                    GOMC_LOG_ERR("breakaway switch activated\n"
+                    STMAK_LOG_ERR("breakaway switch activated\n"
                                                   "program is paused.\n");
                 }else if(float_switch){
-                    GOMC_LOG_ERR("float switch activated\n"
+                    STMAK_LOG_ERR("float switch activated\n"
                                                   "program is paused.\n");
                 }else if(ohmic_detected){
-                    GOMC_LOG_ERR("ohmic probe activated\n"
+                    STMAK_LOG_ERR("ohmic probe activated\n"
                                                   "program is paused.\n");
                 }
             }
@@ -680,7 +680,7 @@ FUNCTION(_) {
                 program_pause = TRUE;
                 data.stop_type = PAUSE;
                 probe_required = TRUE;
-                GOMC_LOG_ERR("breakaway switch activated\n"
+                STMAK_LOG_ERR("breakaway switch activated\n"
                                               "program is paused.\n");
                 probe_inhibit = TRUE;
                 data.state = MAX_HEIGHT;
@@ -689,7 +689,7 @@ FUNCTION(_) {
                 program_pause = TRUE;
                 data.stop_type = PAUSE;
                 probe_required = TRUE;
-                GOMC_LOG_ERR("float switch activated\n"
+                STMAK_LOG_ERR("float switch activated\n"
                                               "program is paused.\n");
                 probe_inhibit = TRUE;
                 data.state = MAX_HEIGHT;
@@ -698,7 +698,7 @@ FUNCTION(_) {
                 program_pause = TRUE;
                 data.stop_type = PAUSE;
                 probe_required = TRUE;
-                GOMC_LOG_ERR("ohmic probe activated\n"
+                STMAK_LOG_ERR("ohmic probe activated\n"
                                               "program is paused.\n");
                 probe_inhibit = TRUE;
                 data.state = MAX_HEIGHT;
@@ -707,7 +707,7 @@ FUNCTION(_) {
                 program_pause = TRUE;
                 data.stop_type = PAUSE;
                 probe_required = TRUE;
-                GOMC_LOG_ERR("valid arc lost\n"
+                STMAK_LOG_ERR("valid arc lost\n"
                                               "program is paused.\n");
                 data.state = MAX_HEIGHT;
             }
@@ -743,7 +743,7 @@ FUNCTION(_) {
         program_pause = TRUE;
         data.stop_type = PAUSE;
         probe_required = TRUE;
-        GOMC_LOG_ERR("arc voltage fell below safe level while THC active\n"
+        STMAK_LOG_ERR("arc voltage fell below safe level while THC active\n"
                                       "target voltage = %f\n"
                                       "low cut volts = %d\n"
                                       "arc voltage = %f\n"
@@ -960,40 +960,40 @@ FUNCTION(_) {
                             if(ohmic_detected && !probe_inhibit){
                                 probe_inhibit = TRUE;
                                 if(probe_testing){
-                                    GOMC_LOG_ERR("ohmic probe detected before probing.\n"
+                                    STMAK_LOG_ERR("ohmic probe detected before probing.\n"
                                                                   "probe test aborted.\n");
                                     data.state = PROBE_TEST;
                                     probe_test_error = TRUE;
                                 }else{
                                     data.stop_type = PAUSE;
                                     program_pause = TRUE;
-                                    GOMC_LOG_ERR("ohmic probe detected before probing.\n"
+                                    STMAK_LOG_ERR("ohmic probe detected before probing.\n"
                                                                   "program is paused.\n");
                                 }
                             }else if(float_switch && !probe_inhibit){
                                 probe_inhibit = TRUE;
                                 if(probe_testing){
-                                    GOMC_LOG_ERR("float switch detected before probing.\n"
+                                    STMAK_LOG_ERR("float switch detected before probing.\n"
                                                                   "probe test aborted.");
                                     data.state = PROBE_TEST;
                                     probe_test_error = TRUE;
                                 }else{
                                     data.stop_type = PAUSE;
                                     program_pause = TRUE;
-                                    GOMC_LOG_ERR("float switch detected before probing.\n"
+                                    STMAK_LOG_ERR("float switch detected before probing.\n"
                                                                   "program is paused.\n");
                                 }
                             }else if(breakaway && !probe_inhibit){
                                 probe_inhibit = TRUE;
                                 if(probe_testing){
-                                    GOMC_LOG_ERR("breakaway switch detected before probing.\n"
+                                    STMAK_LOG_ERR("breakaway switch detected before probing.\n"
                                                                   "probe test aborted.\n");
                                     data.state = PROBE_TEST;
                                     probe_test_error = TRUE;
                                 }else{
                                     data.stop_type = PAUSE;
                                     program_pause = TRUE;
-                                    GOMC_LOG_ERR("breakaway switch detected before probing.\n"
+                                    STMAK_LOG_ERR("breakaway switch detected before probing.\n"
                                                                   "program is paused.\n");
                                 }
                             }else if (!program_is_paused && !program_pause){
@@ -1015,28 +1015,28 @@ FUNCTION(_) {
                                     op_x_start = x_offset_counts;
                                     op_y_start = y_offset_counts;
                                     if(axis_x_position + (op_x_target * offset_scale) <= axis_x_min_limit){
-                                        GOMC_LOG_ERR("probe offset would violate axis X minimum limit.\n"
+                                        STMAK_LOG_ERR("probe offset would violate axis X minimum limit.\n"
                                                                       "program is paused.\n");
                                         data.stop_type = PAUSE;
                                         program_pause = TRUE;
                                         break;
                                     }
                                     if(axis_y_position + (op_y_target * offset_scale) <= axis_y_min_limit){
-                                        GOMC_LOG_ERR("probe offset would violate axis Y minimum limit.\n"
+                                        STMAK_LOG_ERR("probe offset would violate axis Y minimum limit.\n"
                                                                       "program is paused.\n");
                                         data.stop_type = PAUSE;
                                         program_pause = TRUE;
                                         break;
                                     }
                                     if(axis_x_position + (op_x_target * offset_scale) >= axis_x_max_limit){
-                                        GOMC_LOG_ERR("probe offset would violate axis X maximum limit.\n"
+                                        STMAK_LOG_ERR("probe offset would violate axis X maximum limit.\n"
                                                                       "program is paused.\n");
                                         data.stop_type = PAUSE;
                                         program_pause = TRUE;
                                         break;
                                     }
                                     if(axis_y_position + (op_y_target * offset_scale) >= axis_y_max_limit){
-                                        GOMC_LOG_ERR("probe offset would violate axis Y maximum limit.\n"
+                                        STMAK_LOG_ERR("probe offset would violate axis Y maximum limit.\n"
                                                                       "program is paused.\n");
                                         data.stop_type = PAUSE;
                                         program_pause = TRUE;
@@ -1108,7 +1108,7 @@ FUNCTION(_) {
                     break;
                 }
                 if(probe_testing && breakaway){
-                    GOMC_LOG_ERR("breakaway switch detected during probe test\n");
+                    STMAK_LOG_ERR("breakaway switch detected during probe test\n");
                     probe_test_error = TRUE;
                     data.state = PROBE_TEST;
                     break;
@@ -1133,10 +1133,10 @@ FUNCTION(_) {
                           data.state = PROBE_TEST;
                           probe_test_error = TRUE;
                           if(float_switch){
-                            GOMC_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
+                            STMAK_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
                                                           "condition found while moving to probe height during float switch probe testing");
                           }else{
-                            GOMC_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
+                            STMAK_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
                                                           "condition found while moving to probe height during ohmic probe testing");
                           }
                         }else{
@@ -1144,10 +1144,10 @@ FUNCTION(_) {
                           program_pause = TRUE;
                           data.state = MAX_HEIGHT;
                           if(float_switch){
-                              GOMC_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
+                              STMAK_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
                                                             "condition found while moving to probe height during float switch probing\n");
                           }else{
-                              GOMC_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
+                              STMAK_LOG_ERR("pierce height would exceed Z axis maximum limit\n"
                                                             "condition found while moving to probe height during ohmic probing\n");
                           }
                         }
@@ -1155,7 +1155,7 @@ FUNCTION(_) {
                     }else if(ohmic_probe_enable && (x_offset_counts != op_x_target || y_offset_counts != op_y_target)){
                         data.stop_type = PAUSE;
                         program_pause = TRUE;
-                        GOMC_LOG_ERR("probe contact detected before probe offset reached\n"
+                        STMAK_LOG_ERR("probe contact detected before probe offset reached\n"
                                                       "try increasing PROBE HEIGHT parameter\n");
                         data.state = MAX_HEIGHT;
                         break;
@@ -1196,7 +1196,7 @@ FUNCTION(_) {
                     break;
                 }
                 if(probe_testing && breakaway){
-                    GOMC_LOG_ERR("breakaway switch detected during probe test\n");
+                    STMAK_LOG_ERR("breakaway switch detected during probe test\n");
                     probe_test_error = TRUE;
                     data.state = PROBE_TEST;
                     break;
@@ -1209,7 +1209,7 @@ FUNCTION(_) {
                         z_pierce = z_offset_counts + probe_offset + ((pierce_height + (1 * units_per_mm))/ offset_scale);
                         z_max = z_offset_counts + (axis_z_max_limit - axis_z_position - (max_offset * units_per_mm)) / offset_scale;
                         if(z_pierce > z_max && !probe_testing){
-                            GOMC_LOG_ERR("pierce height would exceed Z axis maximum safe height\n"
+                            STMAK_LOG_ERR("pierce height would exceed Z axis maximum safe height\n"
                                                           "condition found while float switch probing\n");
                             data.stop_type = PAUSE;
                             program_pause = TRUE;
@@ -1229,7 +1229,7 @@ FUNCTION(_) {
                     z_pierce = z_offset_counts + probe_offset + ((pierce_height + (1 * units_per_mm))/ offset_scale);
                     z_max = z_offset_counts + (axis_z_max_limit - axis_z_position - (max_offset * units_per_mm)) / offset_scale;
                     if(z_pierce > z_max && !probe_testing){
-                        GOMC_LOG_ERR("pierce height would exceed Z axis maximum safe height\n"
+                        STMAK_LOG_ERR("pierce height would exceed Z axis maximum safe height\n"
                                                       "condition found while ohmic probing\n");
                         data.stop_type = PAUSE;
                         program_pause = TRUE;
@@ -1244,13 +1244,13 @@ FUNCTION(_) {
                         if(probe_at_bottom - z_offset_current < 0.0001){
                             probe_at_bottom = 0;
                             if(!probe_test){
-                                GOMC_LOG_ERR("bottom limit reached while probing down.\n"
+                                STMAK_LOG_ERR("bottom limit reached while probing down.\n"
                                                               "program is paused.\n");
                                 data.stop_type = PAUSE;
                                 program_pause = TRUE;
                                 data.state = MAX_HEIGHT;
                             }else{
-                                GOMC_LOG_ERR("bottom limit reached while probe testing.\n");
+                                STMAK_LOG_ERR("bottom limit reached while probe testing.\n");
                                 data.state = PROBE_TEST;
                                 probe_test_error = TRUE;
                             }
@@ -1322,7 +1322,7 @@ FUNCTION(_) {
                             data.state = ZERO_HEIGHT;
                     }else if(safe_min > offset_max && !probe_testing){
                         safe_target = offset_max;
-                        GOMC_LOG_ERR( "material is too high for safe traverse.\n"
+                        STMAK_LOG_ERR( "material is too high for safe traverse.\n"
                                                        "program is paused.\n");
                         data.stop_type = PAUSE;
                         program_pause = TRUE;
@@ -1332,10 +1332,10 @@ FUNCTION(_) {
                         // warn if safe_height is less than available safe height{
                         if(offset_max - zero_target < safe_available){
                             if(units_per_mm == 1){
-                                GOMC_LOG_ERR( "safe traverse height has been reduced to %0.1fmm.\n",
+                                STMAK_LOG_ERR( "safe traverse height has been reduced to %0.1fmm.\n",
                                                                 (offset_max - zero_target) * offset_scale);
                             }else{
-                                GOMC_LOG_ERR( "safe traverse height has been reduced to %0.2fin.\n",
+                                STMAK_LOG_ERR( "safe traverse height has been reduced to %0.2fin.\n",
                                                                 (offset_max - zero_target) * offset_scale);
                             }
                             safe_available = offset_max - zero_target;
@@ -1404,7 +1404,7 @@ FUNCTION(_) {
                     data.stop_type = PAUSE;
                     program_pause = TRUE;
                     data.state = MAX_HEIGHT;
-                    GOMC_LOG_ERR("invalid pierce height.\n"
+                    STMAK_LOG_ERR("invalid pierce height.\n"
                                                   "or invalid cut height.\n"
                                                   "or invalid cut volts.\n"
                                                   "program is paused.\n");
@@ -1421,13 +1421,13 @@ FUNCTION(_) {
                         cutting_stop = 1;
                         data.state = MAX_HEIGHT;
                         if (!error_message){
-                            GOMC_LOG_ERR("no arc detected after %d start attempts\nmanual cut is stopped.\n", arc_max_starts);
+                            STMAK_LOG_ERR("no arc detected after %d start attempts\nmanual cut is stopped.\n", arc_max_starts);
                             error_message = 1;
                         }
                     }else{
                         program_pause = TRUE;
                         if (!error_message){
-                            GOMC_LOG_ERR("no arc detected after %d start attempts\nprogram is paused.\n", arc_max_starts);
+                            STMAK_LOG_ERR("no arc detected after %d start attempts\nprogram is paused.\n", arc_max_starts);
                             error_message = 1;
                         }
                     }
@@ -1673,10 +1673,10 @@ FUNCTION(_) {
                                 data.stop_type = PAUSE;
                                 program_pause = TRUE;
                                 if(z_offset_counts + pid_output <= offset_min){
-                                    GOMC_LOG_ERR("bottom limit reached while THC moving down.\n"
+                                    STMAK_LOG_ERR("bottom limit reached while THC moving down.\n"
                                                                   "program is paused.\n");
                                 }else{
-                                    GOMC_LOG_ERR("top limit reached while THC moving up.\n"
+                                    STMAK_LOG_ERR("top limit reached while THC moving up.\n"
                                                                   "program is paused.\n");
                                 }
                                 pid_output = 0;
@@ -1705,9 +1705,9 @@ FUNCTION(_) {
                             if(!safe_height_is_limited && z_offset_counts > safe_alarm){
                                 safe_height_is_limited = TRUE;
                                 if(units_per_mm == 1){
-                                    GOMC_LOG_ERR( "safe traverse height has been reduced to less than 13mm.\n");
+                                    STMAK_LOG_ERR( "safe traverse height has been reduced to less than 13mm.\n");
                                 }else{
-                                    GOMC_LOG_ERR( "safe traverse height has been reduced to less than 0.5in.\n");
+                                    STMAK_LOG_ERR( "safe traverse height has been reduced to less than 0.5in.\n");
                                 }
                                 safe_available = offset_max - z_offset_counts;
                             }
@@ -1760,7 +1760,7 @@ FUNCTION(_) {
                                 torch_on = FALSE;
                                 data.stop_type = PAUSE;
                                 program_pause = TRUE;
-                                GOMC_LOG_ERR("bottom limit reached while THC moving down.\n"
+                                STMAK_LOG_ERR("bottom limit reached while THC moving down.\n"
                                                               "program is paused.\n");
                                 data.state = MAX_HEIGHT;
                             }else{ /* move down at requested velocity */
@@ -1772,7 +1772,7 @@ FUNCTION(_) {
                                 torch_on = FALSE;
                                 data.stop_type = PAUSE;
                                 program_pause = TRUE;
-                                GOMC_LOG_ERR("top limit reached while THC moving up.\n"
+                                STMAK_LOG_ERR("top limit reached while THC moving up.\n"
                                                               "program is paused.\n");
                                 data.state = MAX_HEIGHT;
                             }else{ /* move up at requested velocity */
@@ -1794,9 +1794,9 @@ FUNCTION(_) {
                             if(!safe_height_is_limited && z_offset_counts > safe_alarm){
                                 safe_height_is_limited = TRUE;
                                 if(units_per_mm == 1){
-                                    GOMC_LOG_ERR( "safe traverse height has been reduced to less than 13mm.\n");
+                                    STMAK_LOG_ERR( "safe traverse height has been reduced to less than 13mm.\n");
                                 }else{
-                                    GOMC_LOG_ERR( "safe traverse height has been reduced to less than 0.5in.\n");
+                                    STMAK_LOG_ERR( "safe traverse height has been reduced to less than 0.5in.\n");
                                 }
                                 safe_available = offset_max - z_offset_counts;
                             }
@@ -2046,7 +2046,7 @@ FUNCTION(_) {
                 if(sensor_active){
                     if(!error_message){
                         error_message = TRUE;
-                        GOMC_LOG_ERR(
+                        STMAK_LOG_ERR(
                                         "breakaway, float, or ohmic activated during consumable change, motion paused.\n"
                                         "WARNING: MOTION WILL RESUME IMMEDIATELY UPON RESOLVING THIS CONDITION!\n");
                     }
@@ -2112,7 +2112,7 @@ FUNCTION(_) {
                 if(sensor_active){
                     if(!error_message){
                         error_message = TRUE;
-                        GOMC_LOG_ERR(
+                        STMAK_LOG_ERR(
                                         "breakaway, float, or ohmic activated during consumable change, motion paused.\n"
                                         "WARNING: MOTION WILL RESUME IMMEDIATELY UPON RESOLVING THIS CONDITION!\n");
                     }
@@ -2167,7 +2167,7 @@ FUNCTION(_) {
                 if(!cut_recovering){
                     cut_recovering = TRUE;
                     if(puddle_jump_delay || puddle_jump_percent != 100){
-                        GOMC_LOG_ERR( "Puddle Jump is disabled during Cut Recovery.\n");
+                        STMAK_LOG_ERR( "Puddle Jump is disabled during Cut Recovery.\n");
                     }
                 }
                 if(torch_pulse_start && torch_enable && !breakaway && !float_switch && !ohmic_probe){
@@ -2261,7 +2261,7 @@ FUNCTION(_) {
                 break;
             case DEBUG:
                 /* holding data.state for debugging */
-                GOMC_LOG_ERR( "We should never end up here...\n");
+                STMAK_LOG_ERR( "We should never end up here...\n");
                 break;
         }
     }
@@ -2275,88 +2275,88 @@ FUNCTION(_) {
         state_old = data.state;
         switch(data.state){
             case 0:
-                GOMC_LOG_INFO( "IDLE\n");
+                STMAK_LOG_INFO( "IDLE\n");
                 break;
             case 1:
-                GOMC_LOG_INFO( "PROBE_HEIGHT\n");
+                STMAK_LOG_INFO( "PROBE_HEIGHT\n");
                 break;
             case 2:
-                GOMC_LOG_INFO( "PROBE_DOWN\n");
+                STMAK_LOG_INFO( "PROBE_DOWN\n");
                 break;
             case 3:
-                GOMC_LOG_INFO( "PROBE_UP\n");
+                STMAK_LOG_INFO( "PROBE_UP\n");
                 break;
             case 4:
-                GOMC_LOG_INFO( "ZERO_HEIGHT\n");
+                STMAK_LOG_INFO( "ZERO_HEIGHT\n");
                 break;
             case 5:
-                GOMC_LOG_INFO( "PIERCE_HEIGHT\n");
+                STMAK_LOG_INFO( "PIERCE_HEIGHT\n");
                 break;
             case 6:
-                GOMC_LOG_INFO( "TORCH_ON\n");
+                STMAK_LOG_INFO( "TORCH_ON\n");
                 break;
             case 7:
-                GOMC_LOG_INFO( "ARC_OK\n");
+                STMAK_LOG_INFO( "ARC_OK\n");
                 break;
             case 8:
-                GOMC_LOG_INFO( "PIERCE_DELAY\n");
+                STMAK_LOG_INFO( "PIERCE_DELAY\n");
                 break;
             case 9:
-                GOMC_LOG_INFO( "PUDDLE_JUMP\n");
+                STMAK_LOG_INFO( "PUDDLE_JUMP\n");
                 break;
             case 10:
-                GOMC_LOG_INFO( "CUT_HEIGHT\n");
+                STMAK_LOG_INFO( "CUT_HEIGHT\n");
                 break;
             case 11:
-                GOMC_LOG_INFO( "CUT_MODE_01\n");
+                STMAK_LOG_INFO( "CUT_MODE_01\n");
                 break;
             case 12:
-                GOMC_LOG_INFO( "CUT_MODE_2\n");
+                STMAK_LOG_INFO( "CUT_MODE_2\n");
                 break;
             case 13:
-                GOMC_LOG_INFO( "PAUSE_AT_END\n");
+                STMAK_LOG_INFO( "PAUSE_AT_END\n");
                 break;
             case 14:
-                GOMC_LOG_INFO( "SAFE_HEIGHT\n");
+                STMAK_LOG_INFO( "SAFE_HEIGHT\n");
                 break;
             case 15:
-                GOMC_LOG_INFO( "MAX_HEIGHT\n");
+                STMAK_LOG_INFO( "MAX_HEIGHT\n");
                 break;
             case 16:
-                GOMC_LOG_INFO( "END_CUT\n");
+                STMAK_LOG_INFO( "END_CUT\n");
                 break;
             case 17:
-                GOMC_LOG_INFO( "END_JOB\n\n");
+                STMAK_LOG_INFO( "END_JOB\n\n");
                 break;
             case 18:
-                GOMC_LOG_INFO( "TORCHPULSE\n");
+                STMAK_LOG_INFO( "TORCHPULSE\n");
                 break;
             case 19:
-                GOMC_LOG_INFO( "PAUSED_MOTION\n");
+                STMAK_LOG_INFO( "PAUSED_MOTION\n");
                 break;
             case 20:
-                GOMC_LOG_INFO( "OHMIC_TEST\n");
+                STMAK_LOG_INFO( "OHMIC_TEST\n");
                 break;
             case 21:
-                GOMC_LOG_INFO( "PROBE_TEST\n");
+                STMAK_LOG_INFO( "PROBE_TEST\n");
                 break;
             case 22:
-                GOMC_LOG_INFO( "SCRIBING\n");
+                STMAK_LOG_INFO( "SCRIBING\n");
                 break;
             case 23:
-                GOMC_LOG_INFO( "CONSUMABLE_CHANGE_ON\n");
+                STMAK_LOG_INFO( "CONSUMABLE_CHANGE_ON\n");
                 break;
             case 24:
-                GOMC_LOG_INFO( "CONSUMABLE_CHANGE_OFF\n");
+                STMAK_LOG_INFO( "CONSUMABLE_CHANGE_OFF\n");
                 break;
             case 25:
-                GOMC_LOG_INFO( "CUT_RECOVERY_ON\n");
+                STMAK_LOG_INFO( "CUT_RECOVERY_ON\n");
                 break;
             case 26:
-                GOMC_LOG_INFO( "CUT_RECOVERY_OFF\n");
+                STMAK_LOG_INFO( "CUT_RECOVERY_OFF\n");
                 break;
             case 27:
-                GOMC_LOG_INFO( "DEBUG\n");
+                STMAK_LOG_INFO( "DEBUG\n");
                 break;
         }
     }

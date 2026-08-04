@@ -1,8 +1,8 @@
 Exercise an O-word subroutine introspecting live interpreter state.
 
-Re-expressed for gomc: the classic test's Python o<introspect> read its call
+Re-expressed for stmak: the classic test's Python o<introspect> read its call
 arguments plus interpreter state (feed, spindle speed, named/predefined/INI
-parameters) and returned a value.  gomc removed the embedded Python interpreter,
+parameters) and returned a value.  stmak removed the embedded Python interpreter,
 so o<introspect> is a C interp_ext O-word (cmod test_introspect) using the
 interp_ctx accessors (get_feed_rate / get_speed / get_param).  The driver sets
 feed/speed and a user global, then calls o<introspect> with #<_ini[example]variable>

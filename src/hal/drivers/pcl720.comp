@@ -62,7 +62,7 @@ author "Andy Pugh";
 
 /* rtapi_delay has no generator-provided compat macro (unlike rtapi_get_time);
  * map it to the RT-safe rtapi callback for this instance.  The callback is
- * typed GOMC_NONBLOCKING, so it is legal from the RT functions below. */
+ * typed STMAK_NONBLOCKING, so it is legal from the RT functions below. */
 #define rtapi_delay(nsec) \
     (__comp_inst->env->rtapi->delay(__comp_inst->env->rtapi->ctx, (nsec)))
 
@@ -142,17 +142,17 @@ EXTRA_SETUP(){
     unsigned long addr;
 
     if (ioaddr == NULL || ioaddr[0] == '\0') {
-        GOMC_LOG_ERR("%s: no ioaddr= given\n", name);
+        STMAK_LOG_ERR("%s: no ioaddr= given\n", name);
         return -EINVAL;
     }
 
     addr = strtoul(ioaddr, &endp, 0);
     if (*endp != '\0' || addr == 0) {
-        GOMC_LOG_ERR("%s: invalid ioaddr=%s\n", name, ioaddr);
+        STMAK_LOG_ERR("%s: invalid ioaddr=%s\n", name, ioaddr);
         return -EINVAL;
     }
 
     base_addr = addr;
-    GOMC_LOG_INFO("Loading Advantech pcl720 driver at base addr %X\n", base_addr);
+    STMAK_LOG_INFO("Loading Advantech pcl720 driver at base addr %X\n", base_addr);
     return 0;
 }

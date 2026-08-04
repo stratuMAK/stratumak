@@ -2,7 +2,7 @@
 #
 # Based on tests/single-step/
 #
-# On gomc, `linuxcnc` is the server: it serves GMI until signaled and does
+# On stmak, `linuxcnc` is the server: it serves GMI until signaled and does
 # not launch [DISPLAY] programs (UIs are clients). So: start the server in
 # the background, wait for its REST endpoint, drive the test with the UI
 # client, then shut the server down. The test verdict is the client's.
@@ -12,7 +12,7 @@ set -e
 cd $(dirname $0)
 
 # Off the default port: a developer machine (or parallel job) may already run
-# a live gomc-server on 5080, and the clients would silently talk to it.
+# a live stmakd on 5080, and the clients would silently talk to it.
 export GMC_REST_ADDR=127.0.0.1:5077
 export GMC_REST_URL=http://127.0.0.1:5077
 
@@ -27,7 +27,7 @@ for i in $(seq 1 120); do
     sleep 0.5
 done
 if [ "$up" != 1 ]; then
-    echo "error: gomc-server did not become ready"
+    echo "error: stmakd did not become ready"
     kill $SERVER_PID 2>/dev/null || true
     exit 1
 fi

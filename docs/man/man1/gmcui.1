@@ -14,7 +14,7 @@ gmcui \- WebKit container for the LinuxCNC web user interfaces
 .B gmcui
 opens a single GTK/WebKit window and loads a LinuxCNC web application
 served by
-.BR gomc-server (1).
+.BR stmakd (1).
 It is the native-window front end for the web-based HAL and machine
 utilities.
 .PP
@@ -82,7 +82,7 @@ Show usage and the list of known application profiles.
 .SH ENVIRONMENT
 .TP
 .B GMC_REST_URL
-Base URL of the gomc-server REST interface (default
+Base URL of the stmakd REST interface (default
 .BR http://127.0.0.1:5080 ).
 .TP
 .B GMC_INSTANCE
@@ -92,7 +92,7 @@ to profile URLs; overrides the profile default (usually
 .BR milltask ).
 
 .SH "SEE ALSO"
-.BR gomc-server (1),
+.BR stmakd (1),
 .BR halscope (1),
 .BR halshow (1),
 .BR emccalib (1),

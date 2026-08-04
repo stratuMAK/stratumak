@@ -17,7 +17,7 @@
 #include <string.h>
 #include <math.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "home_api.h"
 #include "mot_api.h"
 #include "motion.h"
@@ -87,11 +87,11 @@ typedef struct {
 
 // HAL pin data for one joint
 typedef struct {
-    gomc_hal_bit_t *home_sw;
-    gomc_hal_bit_t *homing;
-    gomc_hal_bit_t *homed;
-    gomc_hal_bit_t *index_enable;
-    gomc_hal_s32_t *home_state;
+    stmak_hal_bit_t *home_sw;
+    stmak_hal_bit_t *homing;
+    stmak_hal_bit_t *homed;
+    stmak_hal_bit_t *index_enable;
+    stmak_hal_s32_t *home_state;
 } joint_home_pins_t;
 
 /***********************************************************************
@@ -100,12 +100,12 @@ typedef struct {
 
 typedef struct {
     const mot_callbacks_t *mot;
-    const gomc_api_t *api;
-    const gomc_hal_t *hal;
-    const gomc_log_t *log;
-    char name[GOMC_HAL_NAME_LEN + 1];
-    char mot_instance[GOMC_HAL_NAME_LEN + 1];
-    char pin_prefix[GOMC_HAL_NAME_LEN + 1]; /* empty for default, "prefix." for non-default */
+    const stmak_api_t *api;
+    const stmak_hal_t *hal;
+    const stmak_log_t *log;
+    char name[STMAK_HAL_NAME_LEN + 1];
+    char mot_instance[STMAK_HAL_NAME_LEN + 1];
+    char pin_prefix[STMAK_HAL_NAME_LEN + 1]; /* empty for default, "prefix." for non-default */
     int comp_id;
     int jno;            /* joint number — parsed from instance name */
     double servo_freq;
@@ -120,7 +120,7 @@ typedef struct {
 *                      LOCAL FUNCTIONS                                 *
 ************************************************************************/
 
-static void home_start_move(homemod_inst_t *inst, double vel) GOMC_NONBLOCKING
+static void home_start_move(homemod_inst_t *inst, double vel) STMAK_NONBLOCKING
 {
     int jno = inst->jno;
     double joint_range;
@@ -149,7 +149,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     if (inst->mot->joint_get_on_pos_limit(inst->mot->ctx, jno) ||
         inst->mot->joint_get_on_neg_limit(inst->mot->ctx, jno)) {
         if (!(inst->H.home_flags & HOME_IGNORE_LIMITS)) {
-            gomc_log_errorf(inst->log, inst->name,
+            stmak_log_errorf(inst->log, inst->name,
                 "j%d hit limit in home state %d", jno, inst->H.home_state);
             inst->H.home_state = HOME_ABORT;
             return 1;
@@ -157,7 +157,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     }
     if (!inst->mot->joint_get_free_tp_active(inst->mot->ctx, jno)) {
         inst->mot->joint_set_free_tp_enable(inst->mot->ctx, jno, 0);
-        gomc_log_errorf(inst->log, inst->name,
+        stmak_log_errorf(inst->log, inst->name,
             "j%d end of move in home state %d", jno, inst->H.home_state);
         inst->H.home_state = HOME_ABORT;
         return 1;
@@ -172,7 +172,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     } \
 } while(0);
 
-static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
+static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
 {
     int jno = inst->jno;
     double offset, tmp;
@@ -193,7 +193,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
 
         case HOME_START:
             if (inst->H.home_flags & HOME_IS_SHARED && home_sw_active) {
-                gomc_log_errorf(inst->log, inst->name,
+                stmak_log_errorf(inst->log, inst->name,
                     "Cannot home while shared home switch is closed j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -238,7 +238,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
                     inst->H.home_state = HOME_INDEX_ONLY_START;
                     immediate_state = 1;
                 } else {
-                    gomc_log_errorf(inst->log, inst->name,
+                    stmak_log_errorf(inst->log, inst->name,
                         "invalid homing config: non-zero LATCH_VEL needs either SEARCH_VEL or USE_INDEX");
                     inst->H.home_state = HOME_IDLE;
                 }
@@ -247,7 +247,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
                     inst->H.home_state = HOME_INITIAL_SEARCH_START;
                     immediate_state = 1;
                 } else {
-                    gomc_log_errorf(inst->log, inst->name,
+                    stmak_log_errorf(inst->log, inst->name,
                         "invalid homing config: non-zero SEARCH_VEL needs LATCH_VEL");
                     inst->H.home_state = HOME_IDLE;
                 }
@@ -337,7 +337,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (!home_sw_active) {
-                gomc_log_errorf(inst->log, inst->name,
+                stmak_log_errorf(inst->log, inst->name,
                     "Home switch inactive before start of backoff move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -367,7 +367,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (home_sw_active) {
-                gomc_log_errorf(inst->log, inst->name,
+                stmak_log_errorf(inst->log, inst->name,
                     "Home switch active before start of latch move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -403,7 +403,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (!home_sw_active) {
-                gomc_log_errorf(inst->log, inst->name,
+                stmak_log_errorf(inst->log, inst->name,
                     "Home switch inactive before start of latch move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -565,7 +565,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
             if (inst->mot->joint_get_on_pos_limit(inst->mot->ctx, jno) ||
                 inst->mot->joint_get_on_neg_limit(inst->mot->ctx, jno)) {
                 if (!(inst->H.home_flags & HOME_IGNORE_LIMITS)) {
-                    gomc_log_errorf(inst->log, inst->name,
+                    stmak_log_errorf(inst->log, inst->name,
                         "hit limit in home state j=%d", jno);
                     inst->H.home_state = HOME_ABORT;
                     immediate_state = 1;
@@ -611,7 +611,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) GOMC_NONBLOCKING
             break;
 
         default:
-            gomc_log_errorf(inst->log, inst->name,
+            stmak_log_errorf(inst->log, inst->name,
                 "unknown state '%d' during homing j=%d",
                 inst->H.home_state, jno);
             inst->H.home_state = HOME_ABORT;
@@ -636,7 +636,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     inst->comp_id = comp_id;
 
     if (servo_period < 1e-9) {
-        gomc_log_errorf(inst->log, inst->name, "bad servo_period:%g", servo_period);
+        stmak_log_errorf(inst->log, inst->name, "bad servo_period:%g", servo_period);
         return -1;
     }
     inst->servo_freq = 1.0 / servo_period;
@@ -644,18 +644,18 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     /* Create HAL pins for this joint.
        Default prefix ("homemod.N"): bare "joint.N.*"
        Non-default ("home1.N"): "home1.joint.N.*" */
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_IN, &inst->pins.home_sw, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_IN, &inst->pins.home_sw, comp_id,
                               "%sjoint.%d.home-sw-in", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.homing, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.homing, comp_id,
                               "%sjoint.%d.homing", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.homed, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.homed, comp_id,
                               "%sjoint.%d.homed", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_s32_newf(inst->hal, GOMC_HAL_OUT, &inst->pins.home_state, comp_id,
+    retval += stmak_hal_pin_s32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.home_state, comp_id,
                               "%sjoint.%d.home-state", inst->pin_prefix, inst->jno);
-    retval += gomc_hal_pin_bit_newf(inst->hal, GOMC_HAL_IO, &inst->pins.index_enable, comp_id,
+    retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_IO, &inst->pins.index_enable, comp_id,
                               "%sjoint.%d.index-enable", inst->pin_prefix, inst->jno);
     if (retval != 0) {
-        gomc_log_errorf(inst->log, inst->name, "failed to create HAL pins");
+        stmak_log_errorf(inst->log, inst->name, "failed to create HAL pins");
         return -1;
     }
 
@@ -679,7 +679,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 static int32_t gmi_home_set_params(void *ctx, double offset, double home,
     double home_final_vel, double home_search_vel,
     double home_latch_vel, int32_t home_flags,
-    int32_t home_sequence, int32_t volatile_home) GOMC_NONBLOCKING
+    int32_t home_sequence, int32_t volatile_home) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_offset     = offset;
@@ -694,7 +694,7 @@ static int32_t gmi_home_set_params(void *ctx, double offset, double home,
 }
 
 static int32_t gmi_home_update_params(void *ctx, double home_offset,
-    double home_home, int32_t home_sequence) GOMC_NONBLOCKING
+    double home_home, int32_t home_sequence) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_offset   = home_offset;
@@ -703,7 +703,7 @@ static int32_t gmi_home_update_params(void *ctx, double home_offset,
     return 0;
 }
 
-static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_read_in_pins(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_sw      = *(inst->pins.home_sw);
@@ -711,7 +711,7 @@ static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_homing(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     if (!inst->mot->joint_get_active_flag(inst->mot->ctx, inst->jno))
@@ -719,7 +719,7 @@ static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING
     return (int32_t)do_homing_state_machine(inst);
 }
 
-static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_write_out_pins(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     *(inst->pins.homing)       = inst->H.homing;
@@ -729,7 +729,7 @@ static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_home(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     inst->H.home_state = HOME_START;
@@ -737,7 +737,7 @@ static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_cancel(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     if (inst->H.homing || inst->H.home_state != HOME_IDLE) {
@@ -746,23 +746,23 @@ static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING
     return 0;
 }
 
-static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOMC_NONBLOCKING
+static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     (void)motstate;
 
     if (!inst->mot->joint_get_active_flag(inst->mot->ctx, inst->jno)) {
-        gomc_log_errorf(inst->log, inst->name,
+        stmak_log_errorf(inst->log, inst->name,
             "Cannot unhome inactive joint %d", inst->jno);
         return -1;
     }
     if (inst->H.homing) {
-        gomc_log_errorf(inst->log, inst->name,
+        stmak_log_errorf(inst->log, inst->name,
             "Cannot unhome while homing, joint %d", inst->jno);
         return -1;
     }
     if (!inst->mot->joint_get_inpos_flag(inst->mot->ctx, inst->jno)) {
-        gomc_log_errorf(inst->log, inst->name,
+        stmak_log_errorf(inst->log, inst->name,
             "Cannot unhome while moving, joint %d", inst->jno);
         return -1;
     }
@@ -770,43 +770,43 @@ static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOM
     return 0;
 }
 
-static int32_t gmi_home_get_homing(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_homing(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.homing;
 }
 
-static int32_t gmi_home_get_homed(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_homed(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.homed;
 }
 
-static int32_t gmi_home_get_index_enable(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_index_enable(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (int32_t)inst->H.index_enable;
 }
 
-static int32_t gmi_home_get_needs_unlock_first(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_needs_unlock_first(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return (inst->H.home_flags & HOME_UNLOCK_FIRST) ? 1 : 0;
 }
 
-static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_is_idle(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return inst->H.home_state == HOME_IDLE ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_at_index_search_wait(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     return inst->H.home_state == HOME_INDEX_SEARCH_WAIT ? 1 : 0;
 }
 
-static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_get_at_final_move_wait(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     /* Returns 1 when the state machine is paused at HOME_FINAL_MOVE_START
@@ -816,7 +816,7 @@ static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING
             !inst->H.sync_final_move_released) ? 1 : 0;
 }
 
-static int32_t gmi_home_do_final_move(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_do_final_move(void *ctx) STMAK_NONBLOCKING
 {
     homemod_inst_t *inst = (homemod_inst_t *)ctx;
     /* Release the sync pause so the final move can start. */
@@ -855,7 +855,7 @@ int New(const cmod_env_t *env, const char *name,
     if (dot && dot[1] >= '0' && dot[1] <= '9') {
         inst->jno = atoi(dot + 1);
     } else {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "Cannot parse joint number from instance name '%s' (expected 'prefix.N')", name);
         free(inst);
         return -1;
@@ -885,7 +885,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = home_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name, "failed to register home API: %d", rc);
+        stmak_log_errorf(env->log, name, "failed to register home API: %d", rc);
         free(inst);
         return rc;
     }

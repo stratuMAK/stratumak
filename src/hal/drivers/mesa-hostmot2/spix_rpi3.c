@@ -82,8 +82,8 @@ static int rpi3_setup(int probemask);
 static int rpi3_cleanup(void);
 static const spix_port_t *rpi3_open(int port, const spix_args_t *args);
 static int rpi3_close(const spix_port_t *sp);
-static int spi0_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) GOMC_NONBLOCKING;
-static int spi1_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) GOMC_NONBLOCKING;
+static int spi0_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) STMAK_NONBLOCKING;
+static int spi1_transfer(const spix_port_t *sp, uint32_t *wptr, size_t txlen, int rw) STMAK_NONBLOCKING;
 
 #define PORT_MAX	5
 #define PORT_SPI0	0	// port index for hardware SPI0

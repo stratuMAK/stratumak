@@ -436,7 +436,7 @@ FUNCTION(_){
         break;
     case 9: //waiting for enable to go false
         if (! ready && ! err_once){
-            GOMC_LOG_ERR("The toolchanger has failed the final alignment check");
+            STMAK_LOG_ERR("The toolchanger has failed the final alignment check");
             err_once = 1;
         }
         if (enable) return;

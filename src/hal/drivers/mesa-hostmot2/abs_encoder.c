@@ -11,7 +11,7 @@ static const void *hm2_log;
 
 static bool funct_flag = false;
 
-static void hm2_absenc_trigger(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_absenc_trigger(void *void_hm2, long period) STMAK_NONBLOCKING {
     (void)period;
     hostmot2_t *hm2 = void_hm2;
     uint32_t buff = 0xFFFFFFFF;
@@ -218,7 +218,7 @@ int hm2_absenc_setup_fabs(hostmot2_t *hm2, hm2_sserial_remote_t *chan,
             + (5 * md->register_stride);
     chan->data_written[0] = 0;
 
-    if (gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(chan->params->u32_param),
+    if (stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW, &(chan->params->u32_param),
             hm2->llio->comp_id,"%s.filter",
             chan->name)){
         HM2_ERR("error adding param fanuc param 2, aborting\n");
@@ -232,7 +232,7 @@ int hm2_absenc_setup_fabs(hostmot2_t *hm2, hm2_sserial_remote_t *chan,
 }
 
 
-int hm2_absenc_parse_format(hm2_sserial_remote_t *chan, hm2_absenc_format_t *def, const gomc_rtapi_t *rtapi){
+int hm2_absenc_parse_format(hm2_sserial_remote_t *chan, hm2_absenc_format_t *def, const stmak_rtapi_t *rtapi){
     char* AA64 = "%5pbatt_fail%1b%2ppos_invalid%1b%9plow%16l%2pencoder%16h%2pcomm%10u%7pcrc%5u";
     char* format = def->string;
     char name[HM2_SSERIAL_MAX_STRING_LENGTH+1] = "";
@@ -438,7 +438,7 @@ int hm2_absenc_parse_md(hostmot2_t *hm2, int md_index) {
                 }
                 
                 // Set up the common pins
-                if (gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(chan->params->error),
+                if (stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(chan->params->error),
                         hm2->llio->comp_id,"%s.data-invalid",
                         chan->name)){
                     HM2_ERR("error adding %s over-run pin, aborting\n", 
@@ -446,14 +446,14 @@ int hm2_absenc_parse_md(hostmot2_t *hm2, int md_index) {
                     return -EINVAL;
                 }
                 // And Params
-                if (gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(chan->params->float_param),
+                if (stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, &(chan->params->float_param),
                         hm2->llio->comp_id,"%s.frequency-khz",
                         chan->name)){
                     HM2_ERR("error adding frequency param for %s, aborting\n",
                             chan->name);
                     return -EINVAL;
                 }
-                if (gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(chan->params->timer_num),
+                if (stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW, &(chan->params->timer_num),
                         hm2->llio->comp_id,"%s.timer-number",
                         chan->name)){
                     HM2_ERR("error adding %s timer number param, aborting\n", 
@@ -482,7 +482,7 @@ int hm2_absenc_parse_md(hostmot2_t *hm2, int md_index) {
     return -EINVAL;
 }
 
-void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
+void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) STMAK_NONBLOCKING {
     (void)period;
     int i;
     if (hm2->absenc.num_chans <= 0) return;
@@ -546,7 +546,7 @@ void hm2_absenc_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING
 }
 
 
-void hm2_absenc_write(hostmot2_t *hm2) GOMC_NONBLOCKING{
+void hm2_absenc_write(hostmot2_t *hm2) STMAK_NONBLOCKING{
 
     int i;
     uint32_t buff, buff2, buff3, dds, filt;
@@ -658,7 +658,7 @@ void hm2_absenc_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_absenc_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_absenc_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     if (hm2->absenc.num_chans <= 0) return;
     HM2_PRINT("Absolute Encoder (Generic): %d\n", hm2->absenc.num_chans);

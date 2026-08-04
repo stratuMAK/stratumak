@@ -44,7 +44,7 @@ static int eth_llio_read_in_rt_warned;
 
 
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hostmot2-lowlevel.h"
 #include "hostmot2.h"
 #include "hm2_core_api.h"
@@ -56,7 +56,7 @@ struct kvlist {
     int value;
 };
 
-static int *kvlist_lookup(const gomc_rtapi_t *rtapi, struct rtapi_list_head *head, const char *name) {
+static int *kvlist_lookup(const stmak_rtapi_t *rtapi, struct rtapi_list_head *head, const char *name) {
     struct rtapi_list_head *ptr;
     rtapi_list_for_each(ptr, head) {
         struct kvlist *ent = rtapi_list_entry(ptr, struct kvlist, list);
@@ -68,7 +68,7 @@ static int *kvlist_lookup(const gomc_rtapi_t *rtapi, struct rtapi_list_head *hea
     return &ent->value;
 }
 
-static void kvlist_free(const gomc_rtapi_t *rtapi, struct rtapi_list_head *head) {
+static void kvlist_free(const stmak_rtapi_t *rtapi, struct rtapi_list_head *head) {
     struct rtapi_list_head *orig_head = head;
     for(head = head->next; head != orig_head;) {
         struct rtapi_list_head *ptr = head;
@@ -453,8 +453,8 @@ static char *hm2_8cSS_pin_names[] = {
 
 /// ethernet io functions
 
-static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) GOMC_NONBLOCKING;
-static int eth_socket_recv(int sockfd, void *buffer, int len, int flags) GOMC_NONBLOCKING;
+static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) STMAK_NONBLOCKING;
+static int eth_socket_recv(int sockfd, void *buffer, int len, int flags) STMAK_NONBLOCKING;
 
 #define IPTABLES "env \"PATH=/usr/sbin:/sbin:${PATH}\" iptables"
 #define CHAIN "hm2-eth-rules-output"
@@ -767,7 +767,7 @@ static int close_board(hm2_eth_t *board) {
  * The receive side polls with MSG_DONTWAIT + bounded rtapi delays (see
  * eth_socket_recv_loop); latency is a property of the NIC/IRQ setup and
  * is audited by the latency tests, not by this static check. */
-GOMC_NONBLOCKING_TRUSTED_BEGIN
+STMAK_NONBLOCKING_TRUSTED_BEGIN
 static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) {
     return send(sockfd, buffer, len, flags);
 }
@@ -775,9 +775,9 @@ static int eth_socket_send(int sockfd, const void *buffer, int len, int flags) {
 static int eth_socket_recv(int sockfd, void *buffer, int len, int flags) {
     return recv(sockfd, buffer, len, flags);
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
-static int eth_socket_recv_loop(const gomc_rtapi_t *rtapi, int sockfd, void *buffer, int len, int flags, long timeout) {
+static int eth_socket_recv_loop(const stmak_rtapi_t *rtapi, int sockfd, void *buffer, int len, int flags, long timeout) {
     long long end = rtapi->get_time(rtapi->ctx) + timeout;
     int result;
     do {
@@ -788,7 +788,7 @@ static int eth_socket_recv_loop(const gomc_rtapi_t *rtapi, int sockfd, void *buf
 
 /// hm2_eth io functions
 
-static int hm2_eth_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_eth_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_eth_t *board = this->private;
     hm2_eth_inst_t *inst = board->inst;
     int send, recv, i = 0;
@@ -836,7 +836,7 @@ static int hm2_eth_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, in
     return 1;  // success
 }
 
-static int hm2_eth_send_queued_reads(hm2_lowlevel_io_t *this) GOMC_NONBLOCKING {
+static int hm2_eth_send_queued_reads(hm2_lowlevel_io_t *this) STMAK_NONBLOCKING {
     hm2_eth_t *board = this->private;
     int send;
 
@@ -900,7 +900,7 @@ static void decrement_soft_error(hm2_eth_t *board) {
     *board->hal->packet_error_exceeded = 0;
 }
 
-static int hm2_eth_receive_queued_reads(hm2_lowlevel_io_t *this) GOMC_NONBLOCKING {
+static int hm2_eth_receive_queued_reads(hm2_lowlevel_io_t *this) STMAK_NONBLOCKING {
     hm2_eth_t *board = this->private;
     hm2_eth_inst_t *inst = board->inst;
     int recv, i = 0;
@@ -979,7 +979,7 @@ static int hm2_eth_reset(hm2_lowlevel_io_t *this) {
     return ret < 0 ? -errno : 0;
 }
 
-static int hm2_eth_enqueue_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_eth_enqueue_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_eth_t *board = this->private;
     hm2_eth_inst_t *inst = board->inst;
     if (inst->comm_active == 0) return 1;
@@ -995,9 +995,9 @@ static int hm2_eth_enqueue_read(hm2_lowlevel_io_t *this, uint32_t addr, void *bu
     return 1;
 }
 
-static int hm2_eth_enqueue_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING;
+static int hm2_eth_enqueue_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING;
 
-static int hm2_eth_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_eth_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     if(this->rtapi->task_self(this->rtapi->ctx) >= 0 || this->force_enqueue)
         return hm2_eth_enqueue_write(this, addr, buffer, size);
 
@@ -1024,7 +1024,7 @@ static int hm2_eth_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buf
     return 1;  // success
 }
 
-static int hm2_eth_send_queued_writes(hm2_lowlevel_io_t *this) GOMC_NONBLOCKING {
+static int hm2_eth_send_queued_writes(hm2_lowlevel_io_t *this) STMAK_NONBLOCKING {
     int send;
     long long t0, t1;
     hm2_eth_t *board = this->private;
@@ -1068,7 +1068,7 @@ static int hm2_eth_enqueue_write(hm2_lowlevel_io_t *this, uint32_t addr, const v
     return 1;
 }
 
-static int hm2_eth_set_force_enqueue(hm2_lowlevel_io_t *this, int do_enqueue) GOMC_NONBLOCKING {
+static int hm2_eth_set_force_enqueue(hm2_lowlevel_io_t *this, int do_enqueue) STMAK_NONBLOCKING {
     if (do_enqueue) {
         this->force_enqueue = 1;
         return 1;
@@ -1078,7 +1078,7 @@ static int hm2_eth_set_force_enqueue(hm2_lowlevel_io_t *this, int do_enqueue) GO
     }
 }
 
-static int llio_idx(const gomc_rtapi_t *rtapi, struct rtapi_list_head *board_num, const char *llio_name) {
+static int llio_idx(const stmak_rtapi_t *rtapi, struct rtapi_list_head *board_num, const char *llio_name) {
     int *idx = kvlist_lookup(rtapi, board_num, llio_name);
     return (*idx)++;
 }
@@ -1525,7 +1525,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
     board->hal = board->llio.hal->malloc(board->llio.hal->ctx, sizeof(*board->hal));
     if(!board->hal) return -ENOMEM;
 
-    if((r = gomc_hal_param_s32_newf(board->llio.hal, GOMC_HAL_RW,
+    if((r = stmak_hal_param_s32_newf(board->llio.hal, STMAK_HAL_RW,
             &board->hal->read_timeout,
             board->llio.comp_id,
             "%s.packet-read-timeout",
@@ -1533,7 +1533,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     board->hal->read_timeout = 80;
 
-    if((r = gomc_hal_param_s32_newf(board->llio.hal, GOMC_HAL_RW,
+    if((r = stmak_hal_param_s32_newf(board->llio.hal, STMAK_HAL_RW,
             &board->hal->packet_error_limit,
             board->llio.comp_id,
             "%s.packet-error-limit",
@@ -1541,7 +1541,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     board->hal->packet_error_limit = 10;
 
-    if((r = gomc_hal_param_s32_newf(board->llio.hal, GOMC_HAL_RW,
+    if((r = stmak_hal_param_s32_newf(board->llio.hal, STMAK_HAL_RW,
             &board->hal->packet_error_increment,
             board->llio.comp_id,
             "%s.packet-error-increment",
@@ -1549,7 +1549,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     board->hal->packet_error_increment = 2;
 
-    if((r = gomc_hal_param_s32_newf(board->llio.hal, GOMC_HAL_RO,
+    if((r = stmak_hal_param_s32_newf(board->llio.hal, STMAK_HAL_RO,
             &board->hal->packet_error_decrement,
             board->llio.comp_id,
             "%s.packet-error-decrement",
@@ -1557,7 +1557,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     board->hal->packet_error_decrement = 1;
 
-    if((r = gomc_hal_pin_bit_newf(board->llio.hal, GOMC_HAL_OUT,
+    if((r = stmak_hal_pin_bit_newf(board->llio.hal, STMAK_HAL_OUT,
             &board->hal->packet_error,
             board->llio.comp_id,
             "%s.packet-error",
@@ -1565,7 +1565,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     *board->hal->packet_error = 0;
 
-    if((r = gomc_hal_pin_u32_newf(board->llio.hal, GOMC_HAL_IO,
+    if((r = stmak_hal_pin_u32_newf(board->llio.hal, STMAK_HAL_IO,
             &board->hal->packet_error_total,
             board->llio.comp_id,
             "%s.packet-error-total",
@@ -1573,7 +1573,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     *board->hal->packet_error_total = 0;
 
-    if((r = gomc_hal_pin_s32_newf(board->llio.hal, GOMC_HAL_OUT,
+    if((r = stmak_hal_pin_s32_newf(board->llio.hal, STMAK_HAL_OUT,
             &board->hal->packet_error_level,
             board->llio.comp_id,
             "%s.packet-error-level",
@@ -1581,7 +1581,7 @@ static int hm2_eth_items(hm2_eth_t *board) {
         return r;
     *board->hal->packet_error_level = 0;
 
-    if((r = gomc_hal_pin_bit_newf(board->llio.hal, GOMC_HAL_OUT,
+    if((r = stmak_hal_pin_bit_newf(board->llio.hal, STMAK_HAL_OUT,
             &board->hal->packet_error_exceeded,
             board->llio.comp_id,
             "%s.packet-error-exceeded",
@@ -1616,8 +1616,8 @@ static void hm2_eth_destroy(cmod_t *self);
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
-    const gomc_log_t *log = env->log;
+    const stmak_hal_t *hal = env->hal;
+    const stmak_log_t *log = env->log;
     hm2_log = log;
 
     hm2_eth_inst_t *inst = env->rtapi->calloc(env->rtapi->ctx, sizeof(*inst));
@@ -1629,7 +1629,7 @@ int New(const cmod_env_t *env, const char *name,
     // Look up hm2_core API from hostmot2 module.
     inst->core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->core) {
-        gomc_log_errorf(log, name, "hm2_eth: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_log_errorf(log, name, "hm2_eth: hostmot2 core API not found (is hostmot2 loaded?)\n");
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
         return -1;
     }
@@ -1641,7 +1641,7 @@ int New(const cmod_env_t *env, const char *name,
 
     LL_PRINT("loading Mesa AnyIO HostMot2 ethernet driver version " HM2_ETH_VERSION "\n");
 
-    ret = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    ret = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (ret < 0) {
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
         return ret;
@@ -1710,7 +1710,7 @@ error:
 
 static void hm2_eth_destroy(cmod_t *self) {
     hm2_eth_inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int i;
     inst->comm_active = 0;
 

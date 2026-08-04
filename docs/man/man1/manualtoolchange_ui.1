@@ -10,7 +10,7 @@ manualtoolchange_ui \- manual tool change prompt window
 shows the operator prompt for manual tool changes.  It connects to the
 .B manualtoolchange
 component in
-.BR gomc-server (1)
+.BR stmakd (1)
 over the REST API, polls for a pending tool change request, and pops up
 a dialog asking the operator to insert (or remove) the tool and click
 Continue, which confirms the change to the controller.  It replaces the
@@ -26,7 +26,7 @@ to close or iconify it.
 .SH ENVIRONMENT
 .TP
 .B GMC_REST_URL
-Base URL of the gomc-server REST interface (default
+Base URL of the stmakd REST interface (default
 .BR http://127.0.0.1:5080 ).
 .TP
 .B GMC_MTC_INSTANCE
@@ -34,7 +34,7 @@ Name of the manualtoolchange component instance to talk to (default
 .BR manualtoolchange ).
 
 .SH "SEE ALSO"
-.BR gomc-server (1),
+.BR stmakd (1),
 .BR axis (1)
 
 .SH AUTHOR

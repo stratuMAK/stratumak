@@ -27,14 +27,14 @@ cycles_per_second = 1000000000.0 / servo_period_ns
 
 # The samples file stores positions to 6 decimal places, so acceleration — a
 # second difference of positions — is quantized to a few * 1e-6 per cycle. Under
-# gomc's mm-everywhere the accel is ~25x larger than the old inch-scaled motion,
+# stmak's mm-everywhere the accel is ~25x larger than the old inch-scaled motion,
 # so at mm scale this quantization dither (e.g. -0.001271 vs -0.001270) is
 # significant. The accel comparisons below use this quantization-scaled epsilon
 # instead of a fixed 1e-7 (which assumed the slower, exactly-representable inch
 # motion). Velocity checks keep 1e-7: peak vel stays well under the limit here.
 accel_epsilon = 4.0e-6 * cycles_per_second
 
-# gomc runs the motion controller in millimeters internally, so the sampled
+# stmak runs the motion controller in millimeters internally, so the sampled
 # joint.0.motor-pos-cmd (below) is in mm — NOT the INI's machine units. The
 # [AXIS_X] velocity/accel limits are in machine units ([TRAJ]LINEAR_UNITS), so
 # convert them to mm before comparing, otherwise an inch machine (limits in
@@ -52,7 +52,7 @@ linear_units = Popen(
     stdout=PIPE
 ).communicate()[0].decode().strip().lower()
 
-# mm per machine linear unit (matches gomc parseLinearUnits)
+# mm per machine linear unit (matches stmak parseLinearUnits)
 mm_per_unit = {
     "in": 25.4, "inch": 25.4, "imperial": 25.4,
     "mm": 1.0, "metric": 1.0, "": 1.0,
@@ -161,7 +161,7 @@ for i in range(i, len(samples) - 1):
 
     # accel phase ends when the joint stops speeding up: at cruise (accel==0,
     # a trapezoidal move) OR at the apex (accel goes negative, a triangular
-    # move that never reaches max velocity). Under gomc's mm-everywhere the
+    # move that never reaches max velocity). Under stmak's mm-everywhere the
     # short 1 mm move is triangular, so break on <= 0, not just == 0.
     if accel_ipc2 <= 0:
         print("line %d: accel phase over" % i)
@@ -243,7 +243,7 @@ if abs(max_acceleration_ipspc + (highest_seen_accel_ipc2 * cycles_per_second)) >
 
 # verify X stopped at the target: MDI g0x1 = 1 MACHINE unit (the interp starts
 # in the machine's units, G20 on this inch config, matching 2.9), and the
-# sampled HAL pin is gomc-mm — so 25.4 mm here.
+# sampled HAL pin is stmak-mm — so 25.4 mm here.
 target_mm = 1.0 * mm_per_unit
 if samples[i][1] != target_mm:
     print("error: line %d: X stopped at %.6f, not at %.6f!" % (i, samples[i][1], target_mm))

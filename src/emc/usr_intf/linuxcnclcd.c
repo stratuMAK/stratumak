@@ -2,7 +2,7 @@
 * Description: linuxcnclcd.c
 *   LinuxCNC user interface for LCDproc-driven character displays.
 *
-*   Ported from emclcd.cc to the gomc cmod API: machine status comes
+*   Ported from emclcd.cc to the stmak cmod API: machine status comes
 *   from the emcstat GMI API, commands go out through emccmd, INI
 *   access uses env->ini, and the LCDproc protocol loop runs in a
 *   pthread instead of main().
@@ -117,9 +117,9 @@
 #include "config.h"		// EMC2_NCFILES_DIR
 #include "sockets.h"		// TCP/IP common socket functions
 
-#include "gomc/pkg/cmodule/gomc_env.h"
-#include "gomc/generated/gmi/emccmd/emccmd_api.h"
-#include "gomc/generated/gmi/emcstat/emcstat_api.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
+#include "stmak/generated/gmi/emccmd/emccmd_api.h"
+#include "stmak/generated/gmi/emcstat/emcstat_api.h"
 
 #define DEFAULT_SERVER		"localhost"
 #define DEFAULT_PORT            13666
@@ -130,7 +130,7 @@
 #define SOCK_DELAY              0.005
 #define RECONNECT_DELAY         2.0
 
-// Joint jogging, as in the original.  The gomc jog API takes this as
+// Joint jogging, as in the original.  The stmak jog API takes this as
 // the jjogmode flag.
 #define JOGJOINT                true
 
@@ -250,7 +250,7 @@ static const char connectStrs[][12] = {
 // The stats / copy / copying screens of the original drove themselves from
 // popen("df"), popen("top"), ifconfig / /etc/network/interfaces parsing and
 // system("cp ... /media/usbdisk"). None of that survives a move into the
-// gomc server process (forking from a process that owns RT threads), and the
+// stmak server process (forking from a process that owns RT threads), and the
 // command output formats it parsed have not existed for over a decade.  The
 // screens, their widgets and their menu entries are gone with them.
 // The "open" screen went with them: nothing ever brought it to the
@@ -371,12 +371,12 @@ static const keyDef keys[] = {
 // Module state
 // ---------------------------------------------------------------------------
 
-// gomc environment, captured in New().
+// stmak environment, captured in New().
 static const cmod_env_t  *the_env;
-static const gomc_log_t  *the_log;
-static const gomc_ini_t  *the_ini;
-static const gomc_path_t *the_path;
-static char               mod_name[GOMC_RTAPI_NAME_LEN + 1] = "linuxcnclcd";
+static const stmak_log_t  *the_log;
+static const stmak_ini_t  *the_ini;
+static const stmak_path_t *the_path;
+static char               mod_name[STMAK_RTAPI_NAME_LEN + 1] = "linuxcnclcd";
 
 // GMI provider callbacks, fetched in Start().
 static const char              *milltask_instance = "milltask";
@@ -462,7 +462,7 @@ static void abortableSleep(double seconds)
     }
 }
 
-// Display units per machine unit.  gomc runs the motion controller in
+// Display units per machine unit.  stmak runs the motion controller in
 // millimetres end to end, so a reported position is in mm regardless of
 // [TRAJ]LINEAR_UNITS -- the NML client had this table the other way round
 // because it assumed an inch-based machine.
@@ -514,7 +514,7 @@ static void emcstatFree(emcstat_stat_full_t *s)
 static int updateStatus(void)
 {
   if (!emcstat_cb) {
-    gomc_log_errorf(the_log, mod_name, "%s: no emcstat API", __func__);
+    stmak_log_errorf(the_log, mod_name, "%s: no emcstat API", __func__);
     return -1;
     }
   emcstatFree(&lcd_stat);
@@ -633,7 +633,7 @@ static void strScreenSet(const char *screen, const char *attr, const char *s)
 {
   if (s != NULL) {
     snprintf(sockStr, sizeof(sockStr), "screen_set %s %s %s\n", screen, attr, s);
-    gomc_log_debugf(the_log, mod_name, "screen set: %s %s %s", screen, attr, s);
+    stmak_log_debugf(the_log, mod_name, "screen set: %s %s %s", screen, attr, s);
     sockSendStr(sockfd, sockStr);
     }
 }
@@ -746,7 +746,7 @@ static int loadFiles(void)
 
   if (nc_dir == NULL) return -1;
   if ((dp = opendir(nc_dir)) == NULL) {
-    gomc_log_warnf(the_log, mod_name, "cannot open nc files folder %s: %s",
+    stmak_log_warnf(the_log, mod_name, "cannot open nc files folder %s: %s",
                    nc_dir, strerror(errno));
     return -1;
     }
@@ -763,7 +763,7 @@ static int loadFiles(void)
 
     baseNameNoExt(entry->d_name, namebuf, sizeof(namebuf));
     if (!menuNameIsSafe(namebuf)) {
-      gomc_log_debugf(the_log, mod_name, "skipping %s: name not usable as a menu item",
+      stmak_log_debugf(the_log, mod_name, "skipping %s: name not usable as a menu item",
                       entry->d_name);
       continue;
       }
@@ -854,7 +854,7 @@ static screenType setNewScreen(screenType screenNo)
 
   if (screenNo >= stUnknown) return curScreen;
 
-  gomc_log_debugf(the_log, mod_name, "screen %s -> %s",
+  stmak_log_debugf(the_log, mod_name, "screen %s -> %s",
                   screens[curScreen].name, screens[screenNo].name);
   strScreenSet(screens[curScreen].name, attrs[3], background);
   strScreenSet(screens[screenNo].name, attrs[3], foreground);
@@ -930,7 +930,7 @@ static int reloadProgram(void)
                      ? lcd_stat.task.file : lastProgramFile;
 
   if (file[0] == '\0') {
-    gomc_log_warnf(the_log, mod_name, "reload: no program is open");
+    stmak_log_warnf(the_log, mod_name, "reload: no program is open");
     return -1;
     }
   if (sendTaskMode(EMCSTAT_AUTO) != 0) return -1;
@@ -939,7 +939,7 @@ static int reloadProgram(void)
 
 static int doHome(int joint)
 {
-  gomc_log_infof(the_log, mod_name, "homing %s",
+  stmak_log_infof(the_log, mod_name, "homing %s",
                  joint < 0 ? "all joints" : (joint == 0 ? "X" : (joint == 1 ? "Y" : "Z")));
   return emccmd->home(emccmd->ctx, (int32_t)joint) < 0 ? -1 : 0;
 }
@@ -978,11 +978,11 @@ static int selectEvent(void)
 
   pch = strtok_r(NULL, delims, &tokptr);
   if (pch == NULL) return -1;
-  gomc_log_debugf(the_log, mod_name, "menu select: menu %s item %s", menu2, pch);
+  stmak_log_debugf(the_log, mod_name, "menu select: menu %s item %s", menu2, pch);
 
   if (strcmp(menu2, "open") == 0) {
     if (openProgram(pch) == -1) {
-      gomc_log_warnf(the_log, mod_name, "failed to open program %s", pch);
+      stmak_log_warnf(the_log, mod_name, "failed to open program %s", pch);
       return -1;
       }
     return 0;
@@ -1063,7 +1063,7 @@ static int enterEvent(void)
   if (pch == NULL) return -1;
   strCopy(menu1, sizeof(menu1), menu2);
   strCopy(menu2, sizeof(menu2), pch);
-  gomc_log_debugf(the_log, mod_name, "menu enter %s", pch);
+  stmak_log_debugf(the_log, mod_name, "menu enter %s", pch);
 
   return 0;
 }
@@ -1073,7 +1073,7 @@ static int leaveEvent(void)
   char *pch;
 
   pch = strtok_r(NULL, delims, &tokptr);
-  gomc_log_debugf(the_log, mod_name, "menu leave %s", pch ? pch : "");
+  stmak_log_debugf(the_log, mod_name, "menu leave %s", pch ? pch : "");
 
   // Pop what enterEvent pushed.  Without this, backing out of File/Open
   // leaves menu2 at "open", and the next sibling selection -- File/Reload --
@@ -1131,7 +1131,7 @@ static void parseConnect(void)
         if (val) lcdParms.cellHeight = atoi(val);
         break;
       case cpUnknown:
-        gomc_log_debugf(the_log, mod_name, "unknown connect parameter: %s", pch);
+        stmak_log_debugf(the_log, mod_name, "unknown connect parameter: %s", pch);
         break;
       }
     pch = strtok_r(NULL, delims, &tokptr);
@@ -1268,7 +1268,7 @@ static int parseLine(void)
     case rmSuccess: break;
     case rmHuh:
       pch = strtok_r(NULL, delims, &tokptr);
-      gomc_log_debugf(the_log, mod_name, "LCDd rejected a command: %s", pch ? pch : "");
+      stmak_log_debugf(the_log, mod_name, "LCDd rejected a command: %s", pch ? pch : "");
       break;
     case rmListen:
       pch = strtok_r(NULL, delims, &tokptr);
@@ -1289,7 +1289,7 @@ static int parseLine(void)
       if (pch) doMenuEvent(pch);
       break;
     case rmUnknown:
-      gomc_log_debugf(the_log, mod_name, "unknown command %s", pch);
+      stmak_log_debugf(the_log, mod_name, "unknown command %s", pch);
       break;
     }
   return 0;
@@ -1302,20 +1302,20 @@ static int initScreens(void)
   createKeys();
   createMenus();
   curScreen = setNewScreen(stMain);
-  gomc_log_infof(the_log, mod_name, "screens created");
+  stmak_log_infof(the_log, mod_name, "screens created");
   return 0;
 }
 
 // Number of lines in the running program; the denominator of the progress bar.
 // The NML client shelled out to "wc -l" for this -- not something to fork from
-// the gomc server process for.
+// the stmak server process for.
 static int stepCount(const char *fileName)
 {
   FILE *f;
   int lines = 0, last = '\n', c;
 
   if ((f = fopen(fileName, "r")) == NULL) {
-    gomc_log_warnf(the_log, mod_name, "cannot read %s: %s", fileName, strerror(errno));
+    stmak_log_warnf(the_log, mod_name, "cannot read %s: %s", fileName, strerror(errno));
     return 0;
     }
   while ((c = getc(f)) != EOF) {
@@ -1576,7 +1576,7 @@ static int lcdConnect(void)
     if (!failureLogged) {
       // errno stays 0 when the failure was the host lookup, which reports
       // through h_errno instead.
-      gomc_log_warnf(the_log, mod_name, "cannot reach LCDd at %s:%d (%s), retrying",
+      stmak_log_warnf(the_log, mod_name, "cannot reach LCDd at %s:%d (%s), retrying",
                      server, port, errno ? strerror(errno) : "host lookup failed");
       failureLogged = 1;
       }
@@ -1584,7 +1584,7 @@ static int lcdConnect(void)
     }
   failureLogged = 0;
   sockError = 0;
-  gomc_log_infof(the_log, mod_name, "connected to LCDd at %s:%d", server, port);
+  stmak_log_infof(the_log, mod_name, "connected to LCDd at %s:%d", server, port);
 
   // Once per Start(), not per connect: a reconnect must not clear an E-stop
   // the operator set while the display was away.
@@ -1614,7 +1614,7 @@ static void *lcdLoop(void *arg)
 
     len = sockRecvString(sockfd, buffer, sizeof(buffer) - 1);
     if (len < 0) {
-      gomc_log_warnf(the_log, mod_name, "LCDd read failed, reconnecting");
+      stmak_log_warnf(the_log, mod_name, "LCDd read failed, reconnecting");
       lcdDisconnect(0);
       continue;
       }
@@ -1631,7 +1631,7 @@ static void *lcdLoop(void *arg)
     // A write failure is the only way a vanished display shows up: the
     // reader cannot tell an idle connection from a closed one.
     if (sockError) {
-      gomc_log_warnf(the_log, mod_name, "LCDd write failed, reconnecting");
+      stmak_log_warnf(the_log, mod_name, "LCDd write failed, reconnecting");
       lcdDisconnect(0);
       }
     }
@@ -1657,19 +1657,19 @@ static int lcd_start(cmod_t *self)
   struct lcd_module *m = (struct lcd_module *)self->priv;
 
   if (!the_env->api) {
-    gomc_log_errorf(the_log, mod_name, "no API registry available");
+    stmak_log_errorf(the_log, mod_name, "no API registry available");
     return -1;
     }
   emccmd = emccmd_api_get(the_env->api, milltask_instance);
   if (!emccmd) {
-    gomc_log_errorf(the_log, mod_name,
+    stmak_log_errorf(the_log, mod_name,
                     "emccmd API not registered (instance '%s', is milltask loaded?)",
                     milltask_instance);
     return -1;
     }
   emcstat_cb = emcstat_api_get(the_env->api, milltask_instance);
   if (!emcstat_cb) {
-    gomc_log_errorf(the_log, mod_name,
+    stmak_log_errorf(the_log, mod_name,
                     "emcstat API not registered (instance '%s', is milltask loaded?)",
                     milltask_instance);
     return -1;
@@ -1681,7 +1681,7 @@ static int lcd_start(cmod_t *self)
   atomic_store(&done, 0);
   atomic_store(&m->thread_started, 1);
   if (pthread_create(&m->loop_thread, NULL, lcdLoop, m) != 0) {
-    gomc_log_errorf(the_log, mod_name, "failed to create loop thread");
+    stmak_log_errorf(the_log, mod_name, "failed to create loop thread");
     atomic_store(&m->thread_started, 0);
     return -1;
     }
@@ -1715,9 +1715,9 @@ static const char *resolveNcDir(const char *raw)
   const char *resolved;
 
   if (raw == NULL || raw[0] == '\0') return NULL;
-  resolved = the_path->resolve(the_path->ctx, raw, GOMC_PATH_DIR, &err);
+  resolved = the_path->resolve(the_path->ctx, raw, STMAK_PATH_DIR, &err);
   if (!resolved) {
-    gomc_log_warnf(the_log, mod_name, "nc files directory %s: %s",
+    stmak_log_warnf(the_log, mod_name, "nc files directory %s: %s",
                    raw, err ? err : "cannot be resolved");
     return NULL;
     }
@@ -1732,7 +1732,7 @@ int New(const cmod_env_t *env, const char *name,
   int i;
 
   if (the_mod != NULL) {
-    gomc_log_errorf(env->log, name, "only one linuxcnclcd instance is supported");
+    stmak_log_errorf(env->log, name, "only one linuxcnclcd instance is supported");
     return -1;
     }
 
@@ -1756,17 +1756,17 @@ int New(const cmod_env_t *env, const char *name,
     else if (!strncmp(argv[i], "milltask_instance=", 18))
       milltask_instance = argv[i] + 18;
     else {
-      gomc_log_errorf(the_log, mod_name, "unknown parameter '%s'", argv[i]);
+      stmak_log_errorf(the_log, mod_name, "unknown parameter '%s'", argv[i]);
       return -1;
       }
     }
 
   if (port <= 0 || port > 65535) {
-    gomc_log_errorf(the_log, mod_name, "invalid port %d", port);
+    stmak_log_errorf(the_log, mod_name, "invalid port %d", port);
     return -1;
     }
   if (delay < 0.0 || delay > 1.0) {
-    gomc_log_errorf(the_log, mod_name, "invalid delay %f", delay);
+    stmak_log_errorf(the_log, mod_name, "invalid delay %f", delay);
     return -1;
     }
 

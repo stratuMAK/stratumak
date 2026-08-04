@@ -11,8 +11,8 @@
  * License: GPL v2+
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -34,27 +34,27 @@
 /* ========================================================================== */
 
 typedef struct {
-    gomc_hal_bit_t   *fwd;          /* IN */
-    gomc_hal_bit_t   *run;          /* IN */
-    gomc_hal_bit_t   *estop;        /* IN */
-    gomc_hal_bit_t   *debug;        /* IN */
-    gomc_hal_bit_t   *monitor;      /* IN */
-    gomc_hal_float_t *motor_cmd;    /* IN */
-    gomc_hal_float_t *scale_cmd;    /* IN */
-    gomc_hal_float_t *scale_fb;     /* IN */
-    gomc_hal_float_t *scale_amps;   /* IN */
-    gomc_hal_float_t *scale_volts;  /* IN */
-    gomc_hal_float_t *scale_power;  /* IN */
-    gomc_hal_float_t *scale_user;   /* IN */
+    stmak_hal_bit_t   *fwd;          /* IN */
+    stmak_hal_bit_t   *run;          /* IN */
+    stmak_hal_bit_t   *estop;        /* IN */
+    stmak_hal_bit_t   *debug;        /* IN */
+    stmak_hal_bit_t   *monitor;      /* IN */
+    stmak_hal_float_t *motor_cmd;    /* IN */
+    stmak_hal_float_t *scale_cmd;    /* IN */
+    stmak_hal_float_t *scale_fb;     /* IN */
+    stmak_hal_float_t *scale_amps;   /* IN */
+    stmak_hal_float_t *scale_volts;  /* IN */
+    stmak_hal_float_t *scale_power;  /* IN */
+    stmak_hal_float_t *scale_user;   /* IN */
 
-    gomc_hal_bit_t   *up_to_speed;  /* OUT */
-    gomc_hal_bit_t   *alarm;        /* OUT */
-    gomc_hal_float_t *motor_fb;     /* OUT */
-    gomc_hal_float_t *motor_amps;   /* OUT */
-    gomc_hal_float_t *motor_volts;  /* OUT */
-    gomc_hal_float_t *motor_power;  /* OUT */
-    gomc_hal_float_t *motor_user;   /* OUT */
-    gomc_hal_bit_t   *stat_bit[8];  /* OUT */
+    stmak_hal_bit_t   *up_to_speed;  /* OUT */
+    stmak_hal_bit_t   *alarm;        /* OUT */
+    stmak_hal_float_t *motor_fb;     /* OUT */
+    stmak_hal_float_t *motor_amps;   /* OUT */
+    stmak_hal_float_t *motor_volts;  /* OUT */
+    stmak_hal_float_t *motor_power;  /* OUT */
+    stmak_hal_float_t *motor_user;   /* OUT */
+    stmak_hal_bit_t   *stat_bit[8];  /* OUT */
 } vfd_pins_t;
 
 typedef struct {
@@ -74,7 +74,7 @@ typedef struct {
 
 typedef struct {
     const cmod_env_t *env;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int               hal_id;
 
     int               serial_fd;
@@ -107,7 +107,7 @@ static int serial_open(mitsub_inst_t *inst)
 {
     int fd = open(inst->port, O_RDWR | O_NOCTTY);
     if (fd < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
+        stmak_log_errorf(inst->log, COMP_NAME, "cannot open %s: %s",
                         inst->port, strerror(errno));
         return -1;
     }
@@ -279,13 +279,13 @@ static void send_command(mitsub_inst_t *inst, vfd_t *v)
             /* Stop on estop loss */
             prepare_and_send(inst, v->slave, "FA", "00");
             usleep(50000);
-            gomc_log_warnf(inst->log, COMP_NAME, "%s: stopped due to estop", v->name);
+            stmak_log_warnf(inst->log, COMP_NAME, "%s: stopped due to estop", v->name);
             return;
         } else {
             /* Reset VFD after estop clear */
             prepare_and_send(inst, v->slave, "FD", NULL);
             usleep(50000);
-            gomc_log_infof(inst->log, COMP_NAME, "%s: estop cleared", v->name);
+            stmak_log_infof(inst->log, COMP_NAME, "%s: estop cleared", v->name);
         }
     }
 
@@ -337,7 +337,7 @@ static void *mitsub_thread(void *arg)
         usleep(50000);
     }
 
-    while (inst->running && !gomc_should_exit(inst->exit_fd)) {
+    while (inst->running && !stmak_should_exit(inst->exit_fd)) {
         for (int i = 0; i < inst->n_vfds; i++) {
             if (!inst->running) break;
             send_command(inst, &inst->vfds[i]);
@@ -361,36 +361,36 @@ static void *mitsub_thread(void *arg)
 
 static int create_vfd_pins(mitsub_inst_t *inst, vfd_t *v)
 {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int id = inst->hal_id;
     vfd_pins_t *p = &v->pins;
     const char *n = v->name;
 
 #define P(dir, type, ptr, pname) \
-    if (gomc_hal_pin_##type##_newf(hal, dir, ptr, id, "%s." pname, n) < 0) return -1
+    if (stmak_hal_pin_##type##_newf(hal, dir, ptr, id, "%s." pname, n) < 0) return -1
 
-    P(GOMC_HAL_IN,  bit,   &p->fwd,         "fwd");
-    P(GOMC_HAL_IN,  bit,   &p->run,         "run");
-    P(GOMC_HAL_IN,  bit,   &p->estop,       "estop");
-    P(GOMC_HAL_IN,  bit,   &p->debug,       "debug");
-    P(GOMC_HAL_IN,  bit,   &p->monitor,     "monitor");
-    P(GOMC_HAL_IN,  float, &p->motor_cmd,   "motor-cmd");
-    P(GOMC_HAL_IN,  float, &p->scale_cmd,   "scale-cmd");
-    P(GOMC_HAL_IN,  float, &p->scale_fb,    "scale-fb");
-    P(GOMC_HAL_IN,  float, &p->scale_amps,  "scale-amps");
-    P(GOMC_HAL_IN,  float, &p->scale_volts, "scale-volts");
-    P(GOMC_HAL_IN,  float, &p->scale_power, "scale-power");
-    P(GOMC_HAL_IN,  float, &p->scale_user,  "scale-user");
-    P(GOMC_HAL_OUT, bit,   &p->up_to_speed, "up-to-speed");
-    P(GOMC_HAL_OUT, bit,   &p->alarm,       "alarm");
-    P(GOMC_HAL_OUT, float, &p->motor_fb,    "motor-fb");
-    P(GOMC_HAL_OUT, float, &p->motor_amps,  "motor-amps");
-    P(GOMC_HAL_OUT, float, &p->motor_volts, "motor-volts");
-    P(GOMC_HAL_OUT, float, &p->motor_power, "motor-power");
-    P(GOMC_HAL_OUT, float, &p->motor_user,  "motor-user");
+    P(STMAK_HAL_IN,  bit,   &p->fwd,         "fwd");
+    P(STMAK_HAL_IN,  bit,   &p->run,         "run");
+    P(STMAK_HAL_IN,  bit,   &p->estop,       "estop");
+    P(STMAK_HAL_IN,  bit,   &p->debug,       "debug");
+    P(STMAK_HAL_IN,  bit,   &p->monitor,     "monitor");
+    P(STMAK_HAL_IN,  float, &p->motor_cmd,   "motor-cmd");
+    P(STMAK_HAL_IN,  float, &p->scale_cmd,   "scale-cmd");
+    P(STMAK_HAL_IN,  float, &p->scale_fb,    "scale-fb");
+    P(STMAK_HAL_IN,  float, &p->scale_amps,  "scale-amps");
+    P(STMAK_HAL_IN,  float, &p->scale_volts, "scale-volts");
+    P(STMAK_HAL_IN,  float, &p->scale_power, "scale-power");
+    P(STMAK_HAL_IN,  float, &p->scale_user,  "scale-user");
+    P(STMAK_HAL_OUT, bit,   &p->up_to_speed, "up-to-speed");
+    P(STMAK_HAL_OUT, bit,   &p->alarm,       "alarm");
+    P(STMAK_HAL_OUT, float, &p->motor_fb,    "motor-fb");
+    P(STMAK_HAL_OUT, float, &p->motor_amps,  "motor-amps");
+    P(STMAK_HAL_OUT, float, &p->motor_volts, "motor-volts");
+    P(STMAK_HAL_OUT, float, &p->motor_power, "motor-power");
+    P(STMAK_HAL_OUT, float, &p->motor_user,  "motor-user");
 
     for (int b = 0; b < 8; b++) {
-        if (gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &p->stat_bit[b],
+        if (stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &p->stat_bit[b],
                 id, "%s.stat-bit-%d", n, b) < 0)
             return -1;
     }
@@ -419,7 +419,7 @@ static int mitsub_Start(cmod_t *self)
     mitsub_inst_t *inst = (mitsub_inst_t *)self->priv;
     inst->running = true;
     if (pthread_create(&inst->thread, NULL, mitsub_thread, inst) != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "thread creation failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "thread creation failed");
         return -1;
     }
     return 0;
@@ -478,7 +478,7 @@ int New(const cmod_env_t *env, const char *name,
         } else if (strchr(argv[i], '=')) {
             /* name=slave_number */
             if (inst->n_vfds >= MAX_VFDS) {
-                gomc_log_errorf(inst->log, COMP_NAME, "too many VFDs (max %d)", MAX_VFDS);
+                stmak_log_errorf(inst->log, COMP_NAME, "too many VFDs (max %d)", MAX_VFDS);
                 free(inst);
                 return -1;
             }
@@ -502,10 +502,10 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     /* HAL init */
-    const gomc_hal_t *hal = env->hal;
-    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, GOMC_HAL_COMP_USER);
+    const stmak_hal_t *hal = env->hal;
+    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
         free(inst);
         return -1;
     }
@@ -520,7 +520,7 @@ int New(const cmod_env_t *env, const char *name,
 
     hal->ready(hal->ctx, inst->hal_id);
 
-    gomc_log_infof(inst->log, COMP_NAME, "port=%s baud=%d vfds=%d",
+    stmak_log_infof(inst->log, COMP_NAME, "port=%s baud=%d vfds=%d",
                    inst->port, inst->baud, inst->n_vfds);
 
     cmod_t *mod = calloc(1, sizeof(cmod_t));

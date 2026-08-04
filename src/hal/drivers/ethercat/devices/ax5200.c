@@ -42,9 +42,9 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
 };
 
 /** @brief Cyclic read callback — iterates over both axes calling lcec_class_ax5_read(). */
-void lcec_ax5200_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ax5200_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 /** @brief Cyclic write callback — iterates over both axes calling lcec_class_ax5_write(). */
-void lcec_ax5200_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ax5200_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 int lcec_ax5200_preinit(struct lcec_slave *slave) {
   // check if already initialized
@@ -68,7 +68,7 @@ int lcec_ax5200_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   int i;
   lcec_class_ax5_chan_t *chan;
   int err;
-  char pfx[GOMC_HAL_NAME_LEN];
+  char pfx[STMAK_HAL_NAME_LEN];
 
   // initialize callbacks
   slave->proc_read = lcec_ax5200_read;
@@ -87,7 +87,7 @@ int lcec_ax5200_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
     chan = &hal_data->chans[i];
 
     // init subclasses
-    snprintf(pfx, GOMC_HAL_NAME_LEN, "ch%d.", i);
+    snprintf(pfx, STMAK_HAL_NAME_LEN, "ch%d.", i);
     if ((err = lcec_class_ax5_init(slave, pdo_entry_regs, chan, i, pfx)) != 0) {
       return err;
     }

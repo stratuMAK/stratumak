@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Ported to the gomc REST/WS API (`gmi` client). motion-logger is an interceptor
+# Ported to the stmak REST/WS API (`gmi` client). motion-logger is an interceptor
 # between milltask and the real motmod.
 #
 # Github issue #49: the config runs startup gcode
-# ([RS274NGC]RS274NGC_STARTUP_CODE = o<init> call). gomc executes it at task init
+# ([RS274NGC]RS274NGC_STARTUP_CODE = o<init> call). stmak executes it at task init
 # (mirroring classic emcTaskPlanInit), before the machine is enabled — so, exactly
 # like 2.9, init.ngc produces no real motion here (the first rapid is emitted to
 # motion but never runs at estop). This test just checks that aborting after the
@@ -13,7 +13,7 @@
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import sys
 import time
@@ -25,7 +25,7 @@ def wait_for_startup(s, timeout=15.0):
     # synchronously during module Start(), before the server accepts clients).
     # exec_state is left at EXEC_ERROR, not EXEC_DONE: init.ngc's first rapid is
     # dispatched to motion at estop, which motmod rejects ("need to be enabled,
-    # in coord mode") — the deterministic side effect of gomc running startup
+    # in coord mode") — the deterministic side effect of stmak running startup
     # motion at init while the machine is off. We only need interp idle + estop.
     start = time.time()
     while time.time() - start < timeout:
@@ -50,7 +50,7 @@ c.wait_complete()
 # The interceptor cmod writes out.motion-logger from another process: wait for
 # the abort's log lines to land and the file to stop growing, rather than
 # sleeping and hoping. Reading early truncates the diff below.
-gomc_test.wait_file_stable("out.motion-logger")
+stmak_test.wait_file_stable("out.motion-logger")
 print("UI done with abort")
 sys.stdout.flush()
 

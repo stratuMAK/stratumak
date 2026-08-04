@@ -1,8 +1,8 @@
 Exercise C O-word subroutines, including parameter passing and return values.
 
-Re-expressed for gomc: the classic test called Python O-word subroutines
+Re-expressed for stmak: the classic test called Python O-word subroutines
 (o<square>, o<multiply>) with fixed and variable argument counts and read the
-result back as #<_value>.  gomc removed the embedded Python interpreter, so the
+result back as #<_value>.  stmak removed the embedded Python interpreter, so the
 subs are C interp_ext O-words (cmod test_oword_math, register_oword).  The driver
 calls them via MDI; checkresult greps the cmod log to confirm the arguments were
 passed through (fixed + variable count) and — by feeding a prior call's #<_value>

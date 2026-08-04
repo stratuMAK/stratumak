@@ -1,19 +1,19 @@
 # VCP Frontend Migration Guide
 
 This document describes the architecture for migrating ALL LinuxCNC UI
-code (pyvcp, gladevcp, qtvcp, and full GUIs) to the gomc infrastructure.
+code (pyvcp, gladevcp, qtvcp, and full GUIs) to the stmak infrastructure.
 It covers both the widget-centric panel protocol (implemented for pyvcp)
 and the broader migration strategy for the complete feature set.
 
 ## Migration Strategy
 
 The goal is to eliminate direct `linuxcnc` Python module usage and move
-all UI communication through the gomc WebSocket/REST infrastructure.
+all UI communication through the stmak WebSocket/REST infrastructure.
 Two patterns handle different complexity levels:
 
 ### Pattern A: Panel Module (server-side companion)
 
-For `.ui`/`.xml`-based panels — a gomc module that:
+For `.ui`/`.xml`-based panels — a stmak module that:
 - Parses the panel file (pyvcp XML, Glade `.ui`, Qt `.ui`)
 - Creates a HAL component with required pins
 - Serves the file + widget definitions to the frontend client
@@ -60,7 +60,7 @@ code added extra non-widget HAL pins to a panel's component.
 
 Widgets like DRO, overrides, toolpath preview, G-code editor, MDI
 history, etc. do NOT need a server-side panel module. They consume
-existing gomc APIs directly:
+existing stmak APIs directly:
 
 | Widget            | Reads from          | Sends to                    |
 |-------------------|---------------------|-----------------------------|
@@ -98,7 +98,7 @@ Use the existing `persist_sqlite` module with a `ui_` namespace prefix:
 The `ui_` prefix avoids collisions with other persist consumers
 (`hal_retain`, `tooltable`, etc.).
 
-## Existing gomc APIs (available for all frontends)
+## Existing stmak APIs (available for all frontends)
 
 | API           | Purpose                                        |
 |---------------|------------------------------------------------|
@@ -191,7 +191,7 @@ The module parses standard Glade/Qt `.ui` XML to extract:
 
 ### Handler Replacement
 
-| Old pattern (Python)                    | New pattern (gomc)                     |
+| Old pattern (Python)                    | New pattern (stmak)                     |
 |-----------------------------------------|----------------------------------------|
 | .ui panel, no handler                   | vcpmodule loads .ui (Pattern A)        |
 | .ui panel + handler adding extra pins   | vcpmodule loads .ui + haljson for extra pins |
@@ -285,9 +285,9 @@ rendering clients that:
 
 ### Existing `bin/gladevcp` Rewrite
 
-The `bin/gladevcp` script on the gomc branch is already a thin gmi
+The `bin/gladevcp` script on the stmak branch is already a thin gmi
 client (not using `linuxcnc` Python module). It demonstrates the
-frontend pattern: connect to gomc WebSocket, subscribe to panel watch,
+frontend pattern: connect to stmak WebSocket, subscribe to panel watch,
 render GTK widgets from server-pushed state. The vcpmodule plan
 formalizes what this script consumes.
 
@@ -330,7 +330,7 @@ planned unified `vcpmodule` for gladevcp/qtvcp panels.
 
 ```
 ┌──────────────┐         WebSocket          ┌──────────────────────┐
-│  Frontend    │◄──── watch_state (delta) ───│  gomc panel module   │
+│  Frontend    │◄──── watch_state (delta) ───│  stmak panel module   │
 │  (Tk/Qt/GTK) │                             │                      │
 │              │──── widget_event ──────────►│  HAL component       │
 └──────────────┘         REST               │  (pins, constraints) │

@@ -9,7 +9,7 @@ export default defineConfig({
     alias: { '@': resolve(__dirname, 'src') },
   },
   server: {
-    // dev-only proxy to a running gomc-server
+    // dev-only proxy to a running stmakd
     proxy: { '/api': 'http://localhost:5080' },
   },
 });

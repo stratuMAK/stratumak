@@ -6,7 +6,7 @@
 
 #include <math.h>
 #include <string.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "kins_api.h"
 #include "posemath.h"
 
@@ -52,21 +52,21 @@ static double sqr(double x) { return x * x; }
 
 // ─── HAL data ───
 
-static const gomc_hal_t *g_hal;
+static const stmak_hal_t *g_hal;
 static int               g_comp_id;
 
 struct haldata {
-    gomc_hal_float_t basex[NUM_STRUTS];
-    gomc_hal_float_t basey[NUM_STRUTS];
-    gomc_hal_float_t basez[NUM_STRUTS];
-    gomc_hal_float_t effectorr[NUM_STRUTS];
-    gomc_hal_float_t effectorz[NUM_STRUTS];
-    gomc_hal_u32_t  *last_iter;
-    gomc_hal_u32_t  *max_iter;
-    gomc_hal_u32_t  *iter_limit;
-    gomc_hal_float_t *max_error;
-    gomc_hal_float_t *conv_criterion;
-    gomc_hal_float_t *tool_offset;
+    stmak_hal_float_t basex[NUM_STRUTS];
+    stmak_hal_float_t basey[NUM_STRUTS];
+    stmak_hal_float_t basez[NUM_STRUTS];
+    stmak_hal_float_t effectorr[NUM_STRUTS];
+    stmak_hal_float_t effectorz[NUM_STRUTS];
+    stmak_hal_u32_t  *last_iter;
+    stmak_hal_u32_t  *max_iter;
+    stmak_hal_u32_t  *iter_limit;
+    stmak_hal_float_t *max_error;
+    stmak_hal_float_t *conv_criterion;
+    stmak_hal_float_t *tool_offset;
 };
 static struct haldata *haldata;
 
@@ -302,13 +302,13 @@ int New(const cmod_env_t *env, const char *name,
     (void)argc; (void)argv;
 
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -1;
     }
     g_hal = env->hal;
 
     g_comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                               GOMC_HAL_COMP_REALTIME);
+                               STMAK_HAL_COMP_REALTIME);
     if (g_comp_id < 0) return g_comp_id;
 
     haldata = env->hal->malloc(env->hal->ctx, sizeof(struct haldata));
@@ -316,49 +316,49 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc;
     for (int i = 0; i < NUM_STRUTS; i++) {
-        rc = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW,
+        rc = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,
             &haldata->basex[i], g_comp_id, "%s.base.%d.x", name, i);
         if (rc < 0) goto fail;
-        rc = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW,
+        rc = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,
             &haldata->basey[i], g_comp_id, "%s.base.%d.y", name, i);
         if (rc < 0) goto fail;
-        rc = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW,
+        rc = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,
             &haldata->basez[i], g_comp_id, "%s.base.%d.z", name, i);
         if (rc < 0) goto fail;
-        rc = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW,
+        rc = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,
             &haldata->effectorr[i], g_comp_id, "%s.effector.%d.r", name, i);
         if (rc < 0) goto fail;
-        rc = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW,
+        rc = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,
             &haldata->effectorz[i], g_comp_id, "%s.effector.%d.z", name, i);
         if (rc < 0) goto fail;
     }
 
-    rc = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT, &haldata->last_iter,
+    rc = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT, &haldata->last_iter,
                                g_comp_id, "%s.last-iterations", name);
     if (rc < 0) goto fail;
     *haldata->last_iter = 0;
 
-    rc = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT, &haldata->max_iter,
+    rc = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT, &haldata->max_iter,
                                g_comp_id, "%s.max-iterations", name);
     if (rc < 0) goto fail;
     *haldata->max_iter = 0;
 
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &haldata->max_error,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &haldata->max_error,
                                  g_comp_id, "%s.max-error", name);
     if (rc < 0) goto fail;
     *haldata->max_error = 100;
 
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &haldata->conv_criterion,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &haldata->conv_criterion,
                                  g_comp_id, "%s.convergence-criterion", name);
     if (rc < 0) goto fail;
     *haldata->conv_criterion = 1e-9;
 
-    rc = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &haldata->iter_limit,
+    rc = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &haldata->iter_limit,
                                g_comp_id, "%s.limit-iterations", name);
     if (rc < 0) goto fail;
     *haldata->iter_limit = 120;
 
-    rc = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &haldata->tool_offset,
+    rc = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &haldata->tool_offset,
                                  g_comp_id, "%s.tool-offset", name);
     if (rc < 0) goto fail;
     *haldata->tool_offset = 0.0;
@@ -380,7 +380,7 @@ int New(const cmod_env_t *env, const char *name,
 
     rc = kins_api_register(env->api, name, &pentakins_callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "failed to register kinematics API: %d", rc);
         goto fail;
     }

@@ -143,7 +143,7 @@ filtering through it (nocgo → `path.Match` fallback, unreachable there).
 
 ### HC-4 — `newthread` at runtime rejected with `cpu=0` (GitHub issue #265)
 `cmd/halcmd/main.go`. **CONFIRMED, MED (reported by a user).** `[FIXED — b4c7ffb74a]`
-`halcmd newthread <name> <period>` (no cpu) against a running gomc-server failed
+`halcmd newthread <name> <period>` (no cpu) against a running stmakd failed
 with `cpu=0 is not an isolated CPU (isolated: [])` on a machine with no isolated
 CPUs, while the same `newthread` in a HAL file at startup worked. Root cause: the
 `.hal` parser defaults cpu to **-1** (auto-assign / no-affinity), but the CLI left
@@ -180,7 +180,7 @@ records the original narrow fix; the generator fix supersedes it.
 HF-2: `os.Stat` succeeds on directories, so a directory that name-matched a HAL
 file was returned as "resolved" then failed confusingly in the parser; 2.9
 rejects it (`[ -d ] && foundmsg=""`) — added `isRegularFile` at all three sites.
-HF-5: 2.9 tilde-expands HALFILE (`-tildeexpand`); gomc passed values raw — added
+HF-5: 2.9 tilde-expands HALFILE (`-tildeexpand`); stmak passed values raw — added
 `expandTilde` for a leading `~`/`~/`. The nil-INI deref class bug was verified
 **ABSENT** (every `ini` touch guarded).
 
@@ -230,7 +230,7 @@ tokenize + `halcmd_main.c` continuation loop.
   adapter) / leaving the literal (test path). `INILookup.Get` gained a
   `found bool` (adapter derives it from `GetAll`; env via `os.LookupEnv`), so
   present-but-empty is still fine.
-- **HP-3 (CONFIRMED):** dropped the backslash-escape processing gomc had added —
+- **HP-3 (CONFIRMED):** dropped the backslash-escape processing stmak had added —
   `\` is now an ordinary character everywhere (2.9 tokenize).
 - **HP-4 (CONFIRMED):** line continuation joins with NO separator (2.9 strips the
   trailing `\` and concatenates), not an inserted space.

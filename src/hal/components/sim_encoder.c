@@ -11,26 +11,26 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
 
 typedef struct {
-    gomc_hal_bit_t   *phaseA;
-    gomc_hal_bit_t   *phaseB;
-    gomc_hal_bit_t   *phaseZ;
-    gomc_hal_u32_t   *ppr;
-    gomc_hal_float_t *scale;
-    gomc_hal_float_t *speed;
-    gomc_hal_s32_t   *rawcounts;
+    stmak_hal_bit_t   *phaseA;
+    stmak_hal_bit_t   *phaseB;
+    stmak_hal_bit_t   *phaseZ;
+    stmak_hal_u32_t   *ppr;
+    stmak_hal_float_t *scale;
+    stmak_hal_float_t *speed;
+    stmak_hal_s32_t   *rawcounts;
 } se_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     se_hal_t *hal;
     /* internal state */
     signed long addval;
@@ -131,7 +131,7 @@ int New(const cmod_env_t *env, const char *name,
     inst_t *inst;
     se_hal_t *h;
     int r;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     (void)argc; (void)argv;
 
@@ -152,7 +152,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->scale_mult = 1.0;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(se_hal_t));
@@ -160,25 +160,25 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->hal, 0, sizeof(se_hal_t));
     h = inst->hal;
 
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->ppr, inst->comp_id,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->ppr, inst->comp_id,
                               "%s.ppr", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->scale, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->scale, inst->comp_id,
                                 "%s.scale", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->speed, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->speed, inst->comp_id,
                                 "%s.speed", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->phaseA, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->phaseA, inst->comp_id,
                               "%s.phase-A", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->phaseB, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->phaseB, inst->comp_id,
                               "%s.phase-B", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->phaseZ, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->phaseZ, inst->comp_id,
                               "%s.phase-Z", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_IN, &h->rawcounts, inst->comp_id,
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_IN, &h->rawcounts, inst->comp_id,
                               "%s.rawcounts", name);
     if (r != 0) goto err;
 

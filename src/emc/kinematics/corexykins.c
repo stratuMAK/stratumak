@@ -3,7 +3,7 @@
 // License: GPL Version 2
 
 #include <math.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "kins_api.h"
 
 // ─── Forward/Inverse kinematics ───
@@ -80,7 +80,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = kins_api_register(env->api, name, &corexykins_callbacks);
     if (rc != 0) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "failed to register kinematics API: %d", rc);
         return rc;
     }

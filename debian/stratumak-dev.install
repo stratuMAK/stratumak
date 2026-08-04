@@ -2,4 +2,4 @@ usr/bin/modcompile
 usr/include/linuxcnc
 usr/lib/*.so
 usr/share/linuxcnc/Makefile.modinc
-usr/share/linuxcnc/gomc/
+usr/share/linuxcnc/stmak/

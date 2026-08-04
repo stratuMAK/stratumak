@@ -52,7 +52,7 @@ int tooldata_last_index_get(void);
 #include <cstdio>
 
 #define CANON_API_CGO
-#include "gomc/generated/gmi/canon/canon_api.h"
+#include "stmak/generated/gmi/canon/canon_api.h"
 #undef CANON_API_CGO
 
 #define UNEXPECTED_MSG fprintf(stderr,"UNEXPECTED %s %d\n",__FILE__,__LINE__);

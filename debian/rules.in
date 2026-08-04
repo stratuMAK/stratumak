@@ -142,7 +142,7 @@ override_dh_auto_install-arch:
 	# Nothing under /var/lib/stratumak may be shipped in the package.
 	#
 	# The directories are harmless in themselves, but the symlink
-	# /var/lib/stratumak/bin/gomc-server is not: if dpkg owned that path,
+	# /var/lib/stratumak/bin/stmakd is not: if dpkg owned that path,
 	# every upgrade would unpack the shipped symlink over a server the
 	# administrator had rebuilt locally, silently unregistering every external
 	# module compiled into it. postinst creates it instead, and only when it
@@ -197,7 +197,7 @@ override_dh_installdocs-indep:
 # dwz cannot process Go binaries: the toolchain emits compressed .debug_*
 # sections and dwz exits non-zero rather than skipping them ("Found compressed
 # .debug_abbrev section, not attempting dwz compression"). This package is
-# largely Go now -- gomc-server, halcmd, modcompile, ethercat, ads-xml-gen --
+# largely Go now -- stmakd, halcmd, modcompile, ethercat, ads-xml-gen --
 # and dh_dwz batches every binary into a single invocation, so one Go binary
 # fails the whole step. Excluding them by name would be a list to maintain
 # forever. Disabling only changes how compactly the debug info is stored.

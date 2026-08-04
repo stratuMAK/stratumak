@@ -1,5 +1,5 @@
 INCLUDES += emc/tp
-INCLUDES += gomc/generated/gmi/mot
+INCLUDES += stmak/generated/gmi/mot
 
 $(patsubst ./emc/tp/%,../include/%,$(wildcard ./emc/tp/*.h)): ../include/%.h: ./emc/tp/%.h
 	cp $^ $@

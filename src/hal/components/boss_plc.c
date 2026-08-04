@@ -15,7 +15,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 
@@ -51,11 +51,11 @@ static void Timer_Update(Timer *t, long period) {
 typedef enum { LS_INIT, LS_ON_LIMIT, LS_NO_MOTION, LS_POS_MOTION, LS_NEG_MOTION } LimitState;
 
 typedef struct {
-    gomc_hal_float_t *pPositionIn;
-    gomc_hal_bit_t   *pJogEnIn;
-    gomc_hal_bit_t   *pIn;
-    gomc_hal_bit_t   *pPosOut;
-    gomc_hal_bit_t   *pNegOut;
+    stmak_hal_float_t *pPositionIn;
+    stmak_hal_bit_t   *pJogEnIn;
+    stmak_hal_bit_t   *pIn;
+    stmak_hal_bit_t   *pPosOut;
+    stmak_hal_bit_t   *pNegOut;
     LimitState state;
     double position;
     int limitPos, limitNeg;
@@ -103,9 +103,9 @@ static void Limit_Refresh(Limit *l, int override) {
 
 /* Amp sub-object */
 typedef struct {
-    gomc_hal_bit_t *pEnableIn;
-    gomc_hal_bit_t *pReadyIn;
-    gomc_hal_bit_t *pFaultOut;
+    stmak_hal_bit_t *pEnableIn;
+    stmak_hal_bit_t *pReadyIn;
+    stmak_hal_bit_t *pFaultOut;
     Timer timer;
     int lastEnable;
 } Amp;
@@ -129,53 +129,53 @@ typedef enum { SS_OFF, SS_WAIT_BRAKE_OFF, SS_WAIT_ON, SS_ON, SS_WAIT_OFF, SS_WAI
 /* Main PLC pins */
 typedef struct {
     /* params (IO) */
-    gomc_hal_u32_t   *ampReadyDelay;
-    gomc_hal_u32_t   *brakeOnDelay;
-    gomc_hal_u32_t   *brakeOffDelay;
-    gomc_hal_float_t *spindleLoToHi;
-    gomc_hal_float_t *jogScale[NUM_JOG_SEL];
+    stmak_hal_u32_t   *ampReadyDelay;
+    stmak_hal_u32_t   *brakeOnDelay;
+    stmak_hal_u32_t   *brakeOffDelay;
+    stmak_hal_float_t *spindleLoToHi;
+    stmak_hal_float_t *jogScale[NUM_JOG_SEL];
     /* feed */
-    gomc_hal_bit_t   *pCycleStartIn;
-    gomc_hal_bit_t   *pCycleHoldIn;
-    gomc_hal_bit_t   *pFeedHoldOut;
-    gomc_hal_float_t *pAdaptiveFeedIn;
-    gomc_hal_float_t *pAdaptiveFeedOut;
-    gomc_hal_bit_t   *pToolChangeIn;
-    gomc_hal_bit_t   *pToolChangedOut;
-    gomc_hal_bit_t   *pWaitUserOut;
-    gomc_hal_bit_t   *pMistOnIn;
-    gomc_hal_bit_t   *pMistOnOut;
-    gomc_hal_bit_t   *pFloodOnIn;
-    gomc_hal_bit_t   *pFloodOnOut;
+    stmak_hal_bit_t   *pCycleStartIn;
+    stmak_hal_bit_t   *pCycleHoldIn;
+    stmak_hal_bit_t   *pFeedHoldOut;
+    stmak_hal_float_t *pAdaptiveFeedIn;
+    stmak_hal_float_t *pAdaptiveFeedOut;
+    stmak_hal_bit_t   *pToolChangeIn;
+    stmak_hal_bit_t   *pToolChangedOut;
+    stmak_hal_bit_t   *pWaitUserOut;
+    stmak_hal_bit_t   *pMistOnIn;
+    stmak_hal_bit_t   *pMistOnOut;
+    stmak_hal_bit_t   *pFloodOnIn;
+    stmak_hal_bit_t   *pFloodOnOut;
     /* limits */
-    gomc_hal_bit_t   *pLimitOverrideIn;
-    gomc_hal_bit_t   *pLimitActiveOut;
-    gomc_hal_bit_t   *pZJogEnIn;
-    gomc_hal_bit_t   *pZLimitPosIn;
-    gomc_hal_bit_t   *pZLimitNegIn;
-    gomc_hal_bit_t   *pZLimitPosOut;
-    gomc_hal_bit_t   *pZLimitNegOut;
+    stmak_hal_bit_t   *pLimitOverrideIn;
+    stmak_hal_bit_t   *pLimitActiveOut;
+    stmak_hal_bit_t   *pZJogEnIn;
+    stmak_hal_bit_t   *pZLimitPosIn;
+    stmak_hal_bit_t   *pZLimitNegIn;
+    stmak_hal_bit_t   *pZLimitPosOut;
+    stmak_hal_bit_t   *pZLimitNegOut;
     /* spindle */
-    gomc_hal_float_t *pSpindleSpeedIn;
-    gomc_hal_bit_t   *pSpindleIsOnIn;
-    gomc_hal_bit_t   *pSpindleFwdOut;
-    gomc_hal_bit_t   *pSpindleRevOut;
-    gomc_hal_bit_t   *pSpindleIncIn;
-    gomc_hal_bit_t   *pSpindleDecIn;
-    gomc_hal_bit_t   *pSpindleIncOut;
-    gomc_hal_bit_t   *pSpindleDecOut;
-    gomc_hal_bit_t   *pBrakeEnIn;
-    gomc_hal_bit_t   *pBrakeEnOut;
+    stmak_hal_float_t *pSpindleSpeedIn;
+    stmak_hal_bit_t   *pSpindleIsOnIn;
+    stmak_hal_bit_t   *pSpindleFwdOut;
+    stmak_hal_bit_t   *pSpindleRevOut;
+    stmak_hal_bit_t   *pSpindleIncIn;
+    stmak_hal_bit_t   *pSpindleDecIn;
+    stmak_hal_bit_t   *pSpindleIncOut;
+    stmak_hal_bit_t   *pSpindleDecOut;
+    stmak_hal_bit_t   *pBrakeEnIn;
+    stmak_hal_bit_t   *pBrakeEnOut;
     /* jog */
-    gomc_hal_bit_t   *pJogSelIn[NUM_JOG_SEL];
-    gomc_hal_float_t *pJogScaleOut;
+    stmak_hal_bit_t   *pJogSelIn[NUM_JOG_SEL];
+    stmak_hal_float_t *pJogScaleOut;
 } plc_pins_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     plc_pins_t *p;
     /* sub-objects */
     Limit xLimit;
@@ -318,25 +318,25 @@ static void inst_destroy(cmod_t *self) {
 
 /* Helper macros for pin creation */
 #define PIN_BIT_IN(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_BIT_OUT(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_BIT_IO(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_FLOAT_IN(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_FLOAT_OUT(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_FLOAT_IO(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 #define PIN_U32_IO(ptr, fmt, ...) do { \
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &(ptr), cid, fmt, __VA_ARGS__); \
     if (r) goto err; } while(0)
 
 int New(const cmod_env_t *env, const char *name,
@@ -345,7 +345,7 @@ int New(const cmod_env_t *env, const char *name,
     plc_pins_t *p;
     int r, i;
     int cid;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     (void)argc; (void)argv;
 
@@ -362,7 +362,7 @@ int New(const cmod_env_t *env, const char *name,
     Limit_Init(&inst->yLimit);
     for (i = 0; i < NUM_AXIS; i++) Amp_Init(&inst->amps[i]);
 
-    cid = env->hal->init(env->hal->ctx, name, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    cid = env->hal->init(env->hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (cid < 0) goto err;
     inst->comp_id = cid;
 

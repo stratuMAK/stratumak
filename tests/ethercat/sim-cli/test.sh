@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc EtherCAT integration test — the `ethercat` REST CLI (M3).
+# stmak EtherCAT integration test — the `ethercat` REST CLI (M3).
 #
 # Runs the diagnostic CLI against the resident server on a two-slave sim bus
 # (an output/RxPDO slave and an input/TxPDO slave) and asserts its output
@@ -14,7 +14,7 @@ halcmd start
 
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 
-deadline=$(( SECONDS + $(gomc_scale 20) ))
+deadline=$(( SECONDS + $(stmak_scale 20) ))
 while [ $SECONDS -lt $deadline ]; do
     [ "$(getp ethercat.0.all-op)" = TRUE ] && break
     sleep 0.1

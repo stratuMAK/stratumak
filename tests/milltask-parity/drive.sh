@@ -1,5 +1,5 @@
 #!/bin/bash
-# drive.sh — run ONE G-code program through gomc-server headlessly and capture
+# drive.sh — run ONE G-code program through stmakd headlessly and capture
 # the motctl command stream (the "motion oracle" for milltask parity testing).
 #
 #   drive.sh <base-ini> <ngc-file> <out-log>
@@ -20,7 +20,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 HALCMD="$ROOT/bin/halcmd"
-SERVER="$ROOT/bin/gomc-server"
+SERVER="$ROOT/bin/stmakd"
 
 BASE_INI="${1:?usage: drive.sh <base-ini> <ngc> <out-log>}"
 NGC="${2:?}"
@@ -41,13 +41,13 @@ awk -v ngc="$NGC_ABS" '
 
 set +u; source "$ROOT/scripts/rip-environment" >/dev/null 2>&1; set -u
 
-pkill -9 -f "gomc-server .*_parity_run.ini" >/dev/null 2>&1
+pkill -9 -f "stmakd .*_parity_run.ini" >/dev/null 2>&1
 sleep 0.3
 rm -f "$OUT"
 
 MOTCTL_LOG="$OUT" "$SERVER" "$RUN_INI" >"$OUT.srvout" 2>&1 &
 SRV=$!
-cleanup() { kill "$SRV" 2>/dev/null; sleep 0.5; pkill -9 -f "gomc-server .*_parity_run.ini" 2>/dev/null; rm -f "$RUN_INI"; }
+cleanup() { kill "$SRV" 2>/dev/null; sleep 0.5; pkill -9 -f "stmakd .*_parity_run.ini" 2>/dev/null; rm -f "$RUN_INI"; }
 trap cleanup EXIT
 
 hc() { "$HALCMD" "$@" 2>/dev/null; }

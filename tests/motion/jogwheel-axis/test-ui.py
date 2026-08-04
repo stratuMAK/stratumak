@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (gmi client).  The userspace hal.component that
+# Ported to the stmak REST/WS API (gmi client).  The userspace hal.component that
 # fed the jogwheel-encoder pins is gone; drive axis.<a>.jog-* directly via
 # halcmd and read the axis position from gmi.Stat.  linuxcnc_util is reused by
 # copying gmi's constants onto the (command/stat-less) linuxcnc module.
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 import linuxcnc_util
 
 import subprocess
@@ -51,7 +51,7 @@ class HalShim:
 h = HalShim()
 
 
-# Positions here are gomc-internal millimeters. simple_tp's arrival deadband
+# Positions here are stmak-internal millimeters. simple_tp's arrival deadband
 # TINY_DP = max_acc * period^2 * 0.001 scales with max_acc, which is now in mm/s^2
 # (25.4x larger than the old inch-scaled motion): for these configs (1000 inch/s^2
 # = 25400 mm/s^2, 1 ms servo) it is 2.54e-5 mm, so a jog legitimately stops that
@@ -111,7 +111,7 @@ def jog_axis(axis_letter, counts=1, scale=0.001):
 # connect to LinuxCNC
 #
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -132,7 +132,7 @@ c.mode(MODE_MANUAL)
 # Jogging is only accepted in manual mode: wait for the mode switch to actually
 # land instead of assuming 0.5 s is always enough. When it wasn't, the jogs below
 # were silently refused and the test failed as "axis didn't get to target".
-gomc_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
+stmak_test.wait_stat(s, lambda st: st.task_mode == MODE_MANUAL,
                     "task_mode to become MODE_MANUAL",
                     detail=lambda st: "task_mode=%d task_state=%d"
                                       % (st.task_mode, st.task_state))

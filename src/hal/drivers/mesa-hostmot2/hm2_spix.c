@@ -22,7 +22,7 @@ const void *hm2_log;
 #include <string.h>
 #include <errno.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hm2_core_api.h"
 
 #define HM2_LLIO_NAME "hm2_spix"
@@ -135,9 +135,9 @@ static const uint32_t iocookie[3] = {
  * size is established, after which this function never allocates again.
  * A setup-time preallocation to remove the warm-up allocations is tracked
  * in RT_HARDENING_CHECKLIST.md. */
-static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize) GOMC_NONBLOCKING;
-GOMC_NONBLOCKING_TRUSTED_BEGIN
-static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize)
+static int buffer_check_room(const stmak_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize) STMAK_NONBLOCKING;
+STMAK_NONBLOCKING_TRUSTED_BEGIN
+static int buffer_check_room(const stmak_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize)
 {
 	if(!b->ptr || !b->na) {
 		b->na = 64;	// Default to this many elements
@@ -157,9 +157,9 @@ static int buffer_check_room(const gomc_rtapi_t *rtapi, buffer_t *b, size_t n, s
 	}
 	return 0;
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
-static void buffer_free(const gomc_rtapi_t *rtapi, buffer_t *b)
+static void buffer_free(const stmak_rtapi_t *rtapi, buffer_t *b)
 {
 	if(b->ptr) {
 		rtapi->free(rtapi->ctx, b->ptr);
@@ -173,7 +173,7 @@ static void buffer_free(const gomc_rtapi_t *rtapi, buffer_t *b)
  * HM2 interface: Write buffer to SPI
  * Writes the buffer to SPI, prepended with a command word.
  */
-static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING
+static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int txlen = size / sizeof(uint32_t);	// uint32_t words to transmit
@@ -194,7 +194,7 @@ static int hm2_spix_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *bu
  * Reads from SPI after sending the appropriate command. Sends one word with
  * the command followed by writing zeros while reading.
  */
-static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING
+static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rxlen = size / sizeof(uint32_t);	// uint32_t words to receive
@@ -217,7 +217,7 @@ static int hm2_spix_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, i
  * HM2 interface: Queue read
  * Collects the read address and buffer for bulk-read later on.
  */
-static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING
+static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rxlen = size / sizeof(uint32_t);
@@ -258,7 +258,7 @@ static int hm2_spix_queue_read(hm2_lowlevel_io_t *llio, uint32_t addr, void *buf
  * Performs a SPI transfer of all collected read requests in one burst and
  * copies back the data received in the individual buffers.
  */
-static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
+static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio) STMAK_NONBLOCKING
 {
 	uint32_t cookie[3] = {0, 0, 0};
 	spix_board_t *brd = (spix_board_t *)llio;
@@ -293,7 +293,7 @@ static int hm2_spix_send_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
  * performed in hm2_spix_send_queued_reads() above. The data was copied to
  * the requester(s) immediately after the transfer.
  */
-static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
+static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio) STMAK_NONBLOCKING
 {
 	(void)llio;
 	return 1;
@@ -303,7 +303,7 @@ static int hm2_spix_receive_queued_reads(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKI
  * HM2 interface: Queue write
  * Collects the write address and data for bulk-write later on.
  */
-static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING
+static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int txlen = size / sizeof(uint32_t);
@@ -329,7 +329,7 @@ static int hm2_spix_queue_write(hm2_lowlevel_io_t *llio, uint32_t addr, const vo
  * HM2 interface: Send queued writes
  * Performs a SPI transfer of all collected write requests in one burst.
  */
-static int hm2_spix_send_queued_writes(hm2_lowlevel_io_t *llio) GOMC_NONBLOCKING
+static int hm2_spix_send_queued_writes(hm2_lowlevel_io_t *llio) STMAK_NONBLOCKING
 {
 	spix_board_t *brd = (spix_board_t *)llio;
 	int rv = brd->port->transfer(brd->port, brd->wbuf.ptr, brd->wbuf.n, 0);
@@ -711,7 +711,7 @@ static void hm2_spix_parse_argv(hm2_spix_inst_t *inst, int argc, const char **ar
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-	const gomc_hal_t *hal = env->hal;
+	const stmak_hal_t *hal = env->hal;
 	hm2_log = env->log;
 	int ret;
 
@@ -733,12 +733,12 @@ int New(const cmod_env_t *env, const char *name,
 
 	inst->hm2_core = hm2_core_api_get(env->api, "hostmot2");
 	if (!inst->hm2_core) {
-		gomc_log_errorf(env->log, name, "hm2_spix: hostmot2 core API not found (is hostmot2 loaded?)\n");
+		stmak_log_errorf(env->log, name, "hm2_spix: hostmot2 core API not found (is hostmot2 loaded?)\n");
 		inst->mod_env->rtapi->free(inst->mod_env->rtapi->ctx, inst);
 		return -1;
 	}
 
-	ret = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+	ret = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, STMAK_HAL_COMP_REALTIME);
 	if (ret < 0) goto fail;
 	inst->comp_id = ret;
 
@@ -762,7 +762,7 @@ fail:
 static void hm2_spix_destroy(cmod_t *self)
 {
 	hm2_spix_inst_t *inst = self->priv;
-	const gomc_hal_t *hal = inst->mod_env->hal;
+	const stmak_hal_t *hal = inst->mod_env->hal;
 	spix_cleanup(inst);
 	hal->exit(hal->ctx, inst->comp_id);
 	inst->mod_env->rtapi->free(inst->mod_env->rtapi->ctx, inst);

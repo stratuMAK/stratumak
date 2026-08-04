@@ -1,6 +1,6 @@
 # internal/ngcpreview — Tier-2 review findings
 
-Module: `src/gomc/internal/ngcpreview` (server-side G-code preview; replaces the
+Module: `src/stmak/internal/ngcpreview` (server-side G-code preview; replaces the
 classic in-process `gcode` C extension) plus its hand-written Python adapter
 `lib/python/gcode.py`. Classic oracle: 2.9 `gcodemodule.cc`. Reviewed 2026-07-23
 (one adversarial pass, every HIGH re-verified by hand before fixing). Prior

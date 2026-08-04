@@ -35,7 +35,7 @@ import {
   VAR_PHYS_FLOAT_OUTPUT,
 } from '../generated/classicladder_client';
 
-// Backoff for the reconnect loop, matching the other gomc webapps.
+// Backoff for the reconnect loop, matching the other stmak webapps.
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 10000;
 

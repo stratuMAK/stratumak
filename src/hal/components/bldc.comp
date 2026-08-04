@@ -489,7 +489,7 @@ FUNCTION(_) {
             trap = 1;
 
             if (pattern > 47){
-                GOMC_LOG_ERR(
+                STMAK_LOG_ERR(
                                 "Only `Hall patterns 0-47 are allowed, you have"
                                 " requested pattern %i\n", pattern);
                 pattern = 0;
@@ -612,7 +612,7 @@ FUNCTION(_) {
                 rotor_angle -= floor(rotor_angle);
             }
             else {
-                GOMC_LOG_ERR( "An error has occurred in the "
+                STMAK_LOG_ERR( "An error has occurred in the "
                                 "bldc homing sequence. Init done without state");
                 return;}
             break;
@@ -652,7 +652,7 @@ FUNCTION(_) {
 
         case 0x03:
         case 0x0B:
-            GOMC_LOG_ERR( "Both Hall Sensors and Absolute "
+            STMAK_LOG_ERR( "Both Hall Sensors and Absolute "
                             "encoder specified on the same motor. Only the"
                             "Encoder will be used\n");
             in_type = 0x02;
@@ -661,30 +661,30 @@ FUNCTION(_) {
         case 0x07:
         case 0x0E:
         case 0x0F:
-            GOMC_LOG_ERR( "Specifying the use of both absolute "
+            STMAK_LOG_ERR( "Specifying the use of both absolute "
                             "and incremental encoders on the same motor is an "
                              "error. Motor disabled\n");
             in_type = -2;
             return;
         case 0x08:
-            GOMC_LOG_ERR( "Driving an electronically commutated"
+            STMAK_LOG_ERR( "Driving an electronically commutated"
                             "motor with only an index for feedback is not"
                             "possible. Motor Disabled\n" );
             in_type = -2;
             return;
         case 0x09:
-            GOMC_LOG_ERR( "The use of an encoder Index with "
+            STMAK_LOG_ERR( "The use of an encoder Index with "
                             "Hall sensors is not supported. Defaulting to "
                             "trapezoidal commutation\n");
             in_type = 0x01;
             return;
         case 0x0A:
-            GOMC_LOG_ERR( "Index is not needed with an Absolute"
+            STMAK_LOG_ERR( "Index is not needed with an Absolute"
                             "encoder and will be ignored\n");
             in_type = 0x02;
             return;
         default:
-        GOMC_LOG_ERR( "Unknown input type pattern (%X) in "
+        STMAK_LOG_ERR( "Unknown input type pattern (%X) in "
                         "bldc\n", in_type);
             in_type = -2;
         return;
@@ -812,17 +812,17 @@ FUNCTION(_) {
             return;
 
         case 0x500:
-            GOMC_LOG_ERR( "Combinations of Hall Pattern and Bit"
+            STMAK_LOG_ERR( "Combinations of Hall Pattern and Bit"
                             " outputs are not supported. Defaulting to Hall");
             out_type = 0x400;
             return;
         case 0x600:
-            GOMC_LOG_ERR( "6-Wire Hall patterns outputs are "
+            STMAK_LOG_ERR( "6-Wire Hall patterns outputs are "
                             "not supported. Defaulting to 3-wire");
             out_type = 0x400;
             return;
         case 0x700:
-            GOMC_LOG_ERR( "6-wire combinations of Hall and Bit"
+            STMAK_LOG_ERR( "6-wire combinations of Hall and Bit"
                             " outputs can't be supported. Defaulting to 3-wire"
                             " Hall pattern");
             out_type = 0x400;
@@ -830,18 +830,18 @@ FUNCTION(_) {
         case 0x900:
         case 0xB00:
         case 0xA00:
-            GOMC_LOG_ERR( "Combinations of bit level and "
+            STMAK_LOG_ERR( "Combinations of bit level and "
                             " Gray Code outputs are not supported. Defaulting"
                             " to Gray Code");
             out_type = 0x800;
             return;
         case 0xC00:
-            GOMC_LOG_ERR( "Hall Sensor and Gray-code outputs"
+            STMAK_LOG_ERR( "Hall Sensor and Gray-code outputs"
                             " can not be combined. defaulting to Hall");
             out_type = 0x400;
             return;
         default:
-            GOMC_LOG_ERR( "Unsupported output type (%X) in bldc"
+            STMAK_LOG_ERR( "Unsupported output type (%X) in bldc"
                             , out_type);
             in_type = -2;
             return;
@@ -853,7 +853,7 @@ EXTRA_SETUP(){
     int i;
     char c;
     if (cfg[0] == '\0') {
-        GOMC_LOG_ERR("The bldc component needs a cfg= parameter.\n"
+        STMAK_LOG_ERR("The bldc component needs a cfg= parameter.\n"
                     "Valid tags are h, a, q, i, f, B, 6, H, F, T\n");
         return -1;
     }

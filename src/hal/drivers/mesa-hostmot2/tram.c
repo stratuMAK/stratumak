@@ -141,7 +141,7 @@ int hm2_allocate_tram_regions(hostmot2_t *hm2) {
 
 
 static uint32_t tram_read_iteration = 0;
-int hm2_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+int hm2_tram_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     struct rtapi_list_head *ptr;
 
     rtapi_list_for_each(ptr, &hm2->tram_read_entries) {
@@ -157,7 +157,7 @@ int hm2_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     return 0;
 }
 
-int hm2_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+int hm2_queue_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if (!hm2->llio->send_queued_reads) return 0;
     if (!hm2->llio->send_queued_reads(hm2->llio)) {
         HM2_ERR("error queuing read! iter=%u)\n",
@@ -167,7 +167,7 @@ int hm2_queue_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     return 0;
 }
 
-int hm2_finish_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+int hm2_finish_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if (!hm2->llio->receive_queued_reads) return 0;
     int r = hm2->llio->receive_queued_reads(hm2->llio);
     if (r < 0) return r;
@@ -181,7 +181,7 @@ int hm2_finish_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
 
 static uint32_t tram_write_iteration = 0;
-int hm2_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+int hm2_tram_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     struct rtapi_list_head *ptr;
 
     rtapi_list_for_each(ptr, &hm2->tram_write_entries) {
@@ -197,7 +197,7 @@ int hm2_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     return 0;
 }
 
-int hm2_finish_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+int hm2_finish_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if (!hm2->llio->send_queued_writes) return 0;
     if (!hm2->llio->send_queued_writes(hm2->llio)) {
         HM2_ERR("error finishing write! iter=%u)\n",

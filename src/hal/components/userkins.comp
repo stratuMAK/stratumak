@@ -70,13 +70,13 @@ static kins_kinematics_type_t gmi_kins_type(void *ctx)
     return KINS_IDENTITY;
 }
 
-static int32_t gmi_kins_switchable(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_kins_switchable(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 0;
 }
 
-static int32_t gmi_kins_switch(void *ctx, int32_t switchkins_type) GOMC_NONBLOCKING
+static int32_t gmi_kins_switch(void *ctx, int32_t switchkins_type) STMAK_NONBLOCKING
 {
     (void)ctx;
     (void)switchkins_type;
@@ -88,7 +88,7 @@ static int32_t gmi_kins_forward(
     const double joints[KINS_MAX_JOINTS],
     kins_pose_t *pos,
     uint64_t fflags,
-    uint64_t *iflags) GOMC_NONBLOCKING
+    uint64_t *iflags) STMAK_NONBLOCKING
 {
     (void)ctx;
     (void)fflags;
@@ -113,7 +113,7 @@ static int32_t gmi_kins_inverse(
     const kins_pose_t *pos,
     double joints[KINS_MAX_JOINTS],
     uint64_t iflags,
-    uint64_t *fflags) GOMC_NONBLOCKING
+    uint64_t *fflags) STMAK_NONBLOCKING
 {
     (void)ctx;
     (void)iflags;
@@ -131,7 +131,7 @@ FUNCTION(fdemo) {
    // This function can be added to a thread (addf) for
    // purposes not related to the kinematics functions.
    if (fpin == 0) {
-       GOMC_LOG_INFO("fdemo function added to thread");
+       STMAK_LOG_INFO("fdemo function added to thread");
    }
    fpin++;
    // example HAL pin echo (only works in FUNCTION context)

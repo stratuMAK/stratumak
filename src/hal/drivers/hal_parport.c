@@ -101,7 +101,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "gomc_env.h"		/* cmod API */
+#include "stmak_env.h"		/* cmod API */
 
 		/* HAL public API decls */
 
@@ -121,18 +121,18 @@ typedef struct {
     unsigned short base_addr;	/* base I/O address (0x378, etc.) */
     unsigned char data_dir;	/* non-zero if pins 2-9 are input */
     unsigned char use_control_in; /* non-zero if pins 1, 4, 16, 17 are input */ 
-    gomc_hal_bit_t *status_in[10];	/* ptrs for in pins 15, 13, 12, 10, 11 */
-    gomc_hal_bit_t *data_in[16];	/* ptrs for input pins 2 - 9 */
-    gomc_hal_bit_t *data_out[8];	/* ptrs for output pins 2 - 9 */
-    gomc_hal_bit_t data_inv[8];	/* polarity params for output pins 2 - 9 */
-    gomc_hal_bit_t data_reset[8];	/* reset flag for output pins 2 - 9 */
-    gomc_hal_bit_t *control_in[8];	/* ptrs for in pins 1, 14, 16, 17 */
-    gomc_hal_bit_t *control_out[4];	/* ptrs for out pins 1, 14, 16, 17 */
-    gomc_hal_bit_t control_inv[4];	/* pol. params for output pins 1, 14, 16, 17 */
-    gomc_hal_bit_t control_reset[4];	/* reset flag for output pins 1, 14, 16, 17 */
-    gomc_hal_u32_t reset_time;       /* min ns between write and reset */
-    gomc_hal_u32_t debug1, debug2;
-    const gomc_rtapi_t *rtapi;        /* for get_time in RT callbacks */
+    stmak_hal_bit_t *status_in[10];	/* ptrs for in pins 15, 13, 12, 10, 11 */
+    stmak_hal_bit_t *data_in[16];	/* ptrs for input pins 2 - 9 */
+    stmak_hal_bit_t *data_out[8];	/* ptrs for output pins 2 - 9 */
+    stmak_hal_bit_t data_inv[8];	/* polarity params for output pins 2 - 9 */
+    stmak_hal_bit_t data_reset[8];	/* reset flag for output pins 2 - 9 */
+    stmak_hal_bit_t *control_in[8];	/* ptrs for in pins 1, 14, 16, 17 */
+    stmak_hal_bit_t *control_out[4];	/* ptrs for out pins 1, 14, 16, 17 */
+    stmak_hal_bit_t control_inv[4];	/* pol. params for output pins 1, 14, 16, 17 */
+    stmak_hal_bit_t control_reset[4];	/* reset flag for output pins 1, 14, 16, 17 */
+    stmak_hal_u32_t reset_time;       /* min ns between write and reset */
+    stmak_hal_u32_t debug1, debug2;
+    const stmak_rtapi_t *rtapi;        /* for get_time in RT callbacks */
     long long write_time;
     unsigned char outdata;
     unsigned char reset_mask;       /* reset flag for pin 2..9 */
@@ -183,10 +183,10 @@ static void write_all(void *arg, long period);
 static int pins_and_params(inst_t *inst, char *argv[]);
 
 static unsigned short parse_port_addr(char *cp);
-static int export_port(const gomc_hal_t *hal, int portnum, parport_t * addr, int comp_id);
-static int export_input_pin(const gomc_hal_t *hal, int portnum, int pin, gomc_hal_bit_t ** base, int n, int comp_id);
-static int export_output_pin(const gomc_hal_t *hal, int portnum, int pin, gomc_hal_bit_t ** dbase,
-    gomc_hal_bit_t * pbase, gomc_hal_bit_t * rbase, int n, int comp_id);
+static int export_port(const stmak_hal_t *hal, int portnum, parport_t * addr, int comp_id);
+static int export_input_pin(const stmak_hal_t *hal, int portnum, int pin, stmak_hal_bit_t ** base, int n, int comp_id);
+static int export_output_pin(const stmak_hal_t *hal, int portnum, int pin, stmak_hal_bit_t ** dbase,
+    stmak_hal_bit_t * pbase, stmak_hal_bit_t * rbase, int n, int comp_id);
 
 static void hal_parport_destroy(cmod_t *self);
 
@@ -210,11 +210,11 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     (void)name;
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
     char *cp;
     char *tok_argv[MAX_TOK];
     char cfg_buf[256];
-    char fname[GOMC_HAL_NAME_LEN + 1];
+    char fname[STMAK_HAL_NAME_LEN + 1];
     int n, retval;
 
     inst_t *inst = (inst_t *)env->rtapi->calloc(env->rtapi->ctx, sizeof(inst_t));
@@ -230,11 +230,11 @@ int New(const cmod_env_t *env, const char *name,
 
     /* test for config string */
     if (inst->cfg == 0) {
-	gomc_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: no config string\n");
+	stmak_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: no config string\n");
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
 	return -1;
     }
-gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
+stmak_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
     /* as a RT module, we don't get a nice argc/argv command line, we only
        get a single string... so we need to tokenize it ourselves */
     /* in addition, it seems that insmod under kernel 2.6 will truncate 
@@ -278,7 +278,7 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, read_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    gomc_log_errorf(inst->env->log, "parport",
+	    stmak_log_errorf(inst->env->log, "parport",
 		"PARPORT: ERROR: port %d read funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -290,7 +290,7 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, write_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    gomc_log_errorf(inst->env->log, "parport",
+	    stmak_log_errorf(inst->env->log, "parport",
 		"PARPORT: ERROR: port %d write funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -302,7 +302,7 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 	retval = hal->export_funct(hal->ctx, fname, reset_port, &(inst->port_data_array[n]),
 	    0, 0, inst->comp_id);
 	if (retval != 0) {
-	    gomc_log_errorf(inst->env->log, "parport",
+	    stmak_log_errorf(inst->env->log, "parport",
 		"PARPORT: ERROR: port %d reset funct export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -313,7 +313,7 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
     retval = hal->export_funct(hal->ctx, "parport.read-all", read_all,
 	inst, 0, 0, inst->comp_id);
     if (retval != 0) {
-	gomc_log_errorf(inst->env->log, "parport",
+	stmak_log_errorf(inst->env->log, "parport",
 	    "PARPORT: ERROR: read all funct export failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -322,13 +322,13 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
     retval = hal->export_funct(hal->ctx, "parport.write-all", write_all,
 	inst, 0, 0, inst->comp_id);
     if (retval != 0) {
-	gomc_log_errorf(inst->env->log, "parport",
+	stmak_log_errorf(inst->env->log, "parport",
 	    "PARPORT: ERROR: write all funct export failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
 	return -1;
     }
-    gomc_log_infof(inst->env->log, "parport",
+    stmak_log_infof(inst->env->log, "parport",
 	"PARPORT: installed driver for %d ports\n", inst->num_ports);
     hal->ready(hal->ctx, inst->comp_id);
 
@@ -341,7 +341,7 @@ gomc_log_infof(inst->env->log, "parport",  "config string '%s'\n", inst->cfg );
 static void hal_parport_destroy(cmod_t *self)
 {
     inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int n;
 
     for (n = 0; n < inst->num_ports; n++) {
@@ -542,7 +542,7 @@ static int pins_and_params(inst_t *inst, char *argv[])
     while ((inst->num_ports < MAX_PORTS) && (argv[n] != 0)) {
 	port_addr[inst->num_ports] = parse_port_addr(argv[n]);
 	if (port_addr[inst->num_ports] < 0) {
-	    gomc_log_errorf(inst->env->log, "parport",
+	    stmak_log_errorf(inst->env->log, "parport",
 		"PARPORT: ERROR: bad port address '%s'\n", argv[n]);
 	    return -1;
 	}
@@ -582,22 +582,22 @@ static int pins_and_params(inst_t *inst, char *argv[])
     }
     /* OK, now we've parsed everything */
     if (inst->num_ports == 0) {
-	gomc_log_errorf(inst->env->log, "parport",
+	stmak_log_errorf(inst->env->log, "parport",
 	    "PARPORT: ERROR: no ports configured\n");
 	return -1;
     }
     /* have good config info, connect to the HAL */
-    const gomc_hal_t *hal = inst->env->hal;
-    int r = hal->init(hal->ctx, "hal_parport", inst->env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    const stmak_hal_t *hal = inst->env->hal;
+    int r = hal->init(hal->ctx, "hal_parport", inst->env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
-	gomc_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: hal_init() failed\n");
+	stmak_log_errorf(inst->env->log, "parport", "PARPORT: ERROR: hal_init() failed\n");
 	return -1;
     }
     inst->comp_id = r;
     /* allocate shared memory for parport data */
     inst->port_data_array = hal->malloc(hal->ctx, inst->num_ports * sizeof(parport_t));
     if (inst->port_data_array == 0) {
-	gomc_log_errorf(inst->env->log, "parport",
+	stmak_log_errorf(inst->env->log, "parport",
 	    "PARPORT: ERROR: hal->malloc(hal->ctx, ) failed\n");
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
@@ -640,7 +640,7 @@ static int pins_and_params(inst_t *inst, char *argv[])
 	/* export all vars */
 	retval = export_port(hal, n, &(inst->port_data_array[n]), inst->comp_id);
 	if (retval != 0) {
-	    gomc_log_errorf(inst->env->log, "parport",
+	    stmak_log_errorf(inst->env->log, "parport",
 		"PARPORT: ERROR: port %d var export failed\n", n);
 	    hal->exit(hal->ctx, inst->comp_id);
 	    return retval;
@@ -685,7 +685,7 @@ static unsigned short parse_port_addr(char *cp)
     return result;
 }
 
-static int export_port(const gomc_hal_t *hal, int portnum, parport_t * port, int comp_id)
+static int export_port(const stmak_hal_t *hal, int portnum, parport_t * port, int comp_id)
 {
     int retval;
 
@@ -729,11 +729,11 @@ static int export_port(const gomc_hal_t *hal, int portnum, parport_t * port, int
 	    port->data_out, port->data_inv, port->data_reset, 6, comp_id);
 	retval += export_output_pin(hal, portnum, 9,
 	    port->data_out, port->data_inv, port->data_reset, 7, comp_id);
-	retval += gomc_hal_param_u32_newf(hal, GOMC_HAL_RW, &port->reset_time, comp_id, 
+	retval += stmak_hal_param_u32_newf(hal, STMAK_HAL_RW, &port->reset_time, comp_id, 
 			"parport.%d.reset-time", portnum);
-	retval += gomc_hal_param_u32_newf(hal, GOMC_HAL_RW, &port->debug1, comp_id, 
+	retval += stmak_hal_param_u32_newf(hal, STMAK_HAL_RW, &port->debug1, comp_id, 
 			"parport.%d.debug1", portnum);
-	retval += gomc_hal_param_u32_newf(hal, GOMC_HAL_RW, &port->debug2, comp_id, 
+	retval += stmak_hal_param_u32_newf(hal, STMAK_HAL_RW, &port->debug2, comp_id, 
 			"parport.%d.debug2", portnum);
 	port->write_time = 0;
     }
@@ -760,42 +760,42 @@ static int export_port(const gomc_hal_t *hal, int portnum, parport_t * port, int
     return retval;
 }
 
-static int export_input_pin(const gomc_hal_t *hal, int portnum, int pin, gomc_hal_bit_t ** base, int n, int comp_id)
+static int export_input_pin(const stmak_hal_t *hal, int portnum, int pin, stmak_hal_bit_t ** base, int n, int comp_id)
 {
     int retval;
 
     /* export write only HAL pin for the input bit */
-    retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, base + (2 * n), comp_id,
+    retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, base + (2 * n), comp_id,
             "parport.%d.pin-%02d-in", portnum, pin);
     if (retval != 0) {
 	return retval;
     }
     /* export another write only HAL pin for the same bit inverted */
-    retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, base + (2 * n) + 1, comp_id,
+    retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, base + (2 * n) + 1, comp_id,
             "parport.%d.pin-%02d-in-not", portnum, pin);
     return retval;
 }
 
-static int export_output_pin(const gomc_hal_t *hal, int portnum, int pin, gomc_hal_bit_t ** dbase,
-    gomc_hal_bit_t * pbase, gomc_hal_bit_t * rbase, int n, int comp_id)
+static int export_output_pin(const stmak_hal_t *hal, int portnum, int pin, stmak_hal_bit_t ** dbase,
+    stmak_hal_bit_t * pbase, stmak_hal_bit_t * rbase, int n, int comp_id)
 {
     int retval;
 
     /* export read only HAL pin for output data */
-    retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, dbase + n, comp_id,
+    retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, dbase + n, comp_id,
             "parport.%d.pin-%02d-out", portnum, pin);
     if (retval != 0) {
 	return retval;
     }
     /* export parameter for polarity */
-    retval = gomc_hal_param_bit_newf(hal, GOMC_HAL_RW, pbase + n, comp_id,
+    retval = stmak_hal_param_bit_newf(hal, STMAK_HAL_RW, pbase + n, comp_id,
             "parport.%d.pin-%02d-out-invert", portnum, pin);
     if (retval != 0) {
 	return retval;
     }
     /* export parameter for reset */
     if (rbase)
-	retval = gomc_hal_param_bit_newf(hal, GOMC_HAL_RW, rbase + n, comp_id,
+	retval = stmak_hal_param_bit_newf(hal, STMAK_HAL_RW, rbase + n, comp_id,
 		"parport.%d.pin-%02d-out-reset", portnum, pin);
     return retval;
 }

@@ -183,7 +183,7 @@ int hm2_uart_setup(char *name, int bitrate, int32_t tx_mode, int32_t rx_mode){
 }
 
 
-int hm2_uart_send(char *name,  unsigned char data[], int count) GOMC_NONBLOCKING
+int hm2_uart_send(char *name,  unsigned char data[], int count) STMAK_NONBLOCKING
 {
     hostmot2_t *hm2;
     uint32_t buff;
@@ -264,7 +264,7 @@ int hm2_uart_send(char *name,  unsigned char data[], int count) GOMC_NONBLOCKING
 }
 
 // This function needs to be modified so that it does not call llio->read, which hurts performance on hm2-eth
-int hm2_uart_read(char *name, unsigned char data[]) GOMC_NONBLOCKING
+int hm2_uart_read(char *name, unsigned char data[]) STMAK_NONBLOCKING
 {
     hostmot2_t *hm2;
     int r, c;

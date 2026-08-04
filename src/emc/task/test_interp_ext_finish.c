@@ -31,7 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "interp_ext_api.h"
 
 typedef struct {

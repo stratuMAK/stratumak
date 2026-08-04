@@ -17,7 +17,7 @@
 #include "tp_types.h"
 #include "spherical_arc.h"
 #include "blendmath.h"
-#include "gomc_log.h"
+#include "stmak_log.h"
 #include <math.h>
 #include <float.h>
 #include "tp_debug.h"
@@ -202,7 +202,7 @@ static inline int findSpiralApproximation(PmCircle const * const circ,
         PmCartesian const * const base_pt,
         PmCartesian const * const u_tan,
         PmCartesian * const center_out,
-        double * const radius_out) GOMC_NONBLOCKING
+        double * const radius_out) STMAK_NONBLOCKING
 {
     double dr = circ->spiral / circ->angle;
 
@@ -1703,7 +1703,7 @@ static int pmCircleAngleFromParam(PmCircle const * const circle,
         SpiralArcLengthFit const * const fit,
         double t,
         double * const angle,
-        const void *log, const char *log_comp) GOMC_NONBLOCKING
+        const void *log, const char *log_comp) STMAK_NONBLOCKING
 {
     if (fit->spiral_in) {
         t = 1.0 - t;
@@ -1719,7 +1719,7 @@ static int pmCircleAngleFromParam(PmCircle const * const circle,
 
     double disc = pmSq(B) - 4.0 * A * C ;
     if (disc < 0) {
-        gomc_log_errorf(log, log_comp, "discriminant %f is negative in angle calculation", disc);
+        stmak_log_errorf(log, log_comp, "discriminant %f is negative in angle calculation", disc);
         return TP_ERR_FAIL;
     }
 
@@ -1820,14 +1820,14 @@ int findSpiralArcLengthFit(PmCircle const * const circle,
     double angle_end_chk = 0.0;
     int res_angle = pmCircleAngleFromParam(circle, fit, 1.0, &angle_end_chk, log, log_comp);
     if (res_angle != TP_ERR_OK) {
-        gomc_log_errorf(log, log_comp, "Spiral fit failed");
+        stmak_log_errorf(log, log_comp, "Spiral fit failed");
         return TP_ERR_FAIL;
     }
 
     // Check fit against angle
     double fit_err = angle_end_chk - circle->angle;
     if (fabs(fit_err) > TP_ANGLE_EPSILON) {
-        gomc_log_errorf(log, log_comp,
+        stmak_log_errorf(log, log_comp,
                 "Spiral fit angle difference is %e, maximum allowed is %e",
                 fit_err,
                 TP_ANGLE_EPSILON);

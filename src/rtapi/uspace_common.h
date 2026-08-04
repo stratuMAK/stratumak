@@ -136,7 +136,7 @@ int rtapi_shmem_delete(int handle, int module_id)
 
 
 
-// Internal message handler function pointer — set once by gomc-server to
+// Internal message handler function pointer — set once by stmakd to
 // connect rtapi_print/rtapi_print_msg to the lock-free log ring.
 // Before the ring is connected, messages are silently discarded.
 typedef void(*rtapi_msg_handler_t)(msg_level_t level, const char *fmt, va_list ap);

@@ -53,7 +53,7 @@ async function execute() {
       </div>
     </div>
     <div class="loglevel-row">
-      <span class="loglevel-label" title="Server log verbosity (halcmd debug). Applies to the whole gomc-server process — Go and C modules alike.">Log level</span>
+      <span class="loglevel-label" title="Server log verbosity (halcmd debug). Applies to the whole stmakd process — Go and C modules alike.">Log level</span>
       <select
         class="loglevel-select"
         :value="halshowStore.state.logLevel ?? ''"

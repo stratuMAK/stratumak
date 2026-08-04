@@ -224,7 +224,7 @@ class Command:
         raise here: those travel on the error channel and leave the task
         settled. Read them via gmi.ErrorChannel.
 
-        See lib/python/gomc_test.py, which turns the HTTPError into a Timeout
+        See lib/python/stmak_test.py, which turns the HTTPError into a Timeout
         naming the deadline.
 
         A negative timeout is meaningless (the IDL constrains it to >= 0); the

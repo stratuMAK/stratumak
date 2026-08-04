@@ -562,7 +562,7 @@ function sequentialCsvOf(clp: string): string {
 // file: happy-dom serves the suite from an http URL, so import.meta.url is not
 // a path.
 const branchedProject = resolve(
-  process.cwd(), '../../gomc/internal/classicladder/testdata/branched_sfc.clp');
+  process.cwd(), '../../stmak/internal/classicladder/testdata/branched_sfc.clp');
 
 describe('the chart the differential test runs', () => {
   it('is what these clicks produce', () => {

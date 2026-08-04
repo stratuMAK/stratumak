@@ -1,5 +1,5 @@
 <!--
-  gomc EtherCAT integration test config: two slaves on the simulated bus
+  stmak EtherCAT integration test config: two slaves on the simulated bus
   (see bus.sim), but only slave 0 is configured here. Slave 1 is deliberately
   left out so that it stays in PRE-OP for the whole run. Never a production
   config.

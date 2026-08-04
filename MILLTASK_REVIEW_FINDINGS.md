@@ -3,11 +3,11 @@
 > **Status: CLOSED — historical record.** Every finding in this document (the
 > original 34: C1-C13/T1/D1-D10/E1-E6/S1-S4, the recheck residuals R1-R9, and
 > the second-recheck leftovers H1-H6) has been fixed and re-verified. The file
-> is kept because ~50 code comments in `src/gomc/internal/task/` and
-> `src/gomc/internal/gmicompile/` cite these finding IDs (e.g. "(C8)",
+> is kept because ~50 code comments in `src/stmak/internal/task/` and
+> `src/stmak/internal/gmicompile/` cite these finding IDs (e.g. "(C8)",
 > "(D3: one committer)", "(R1)", "(H1)") — this document is their decoder ring.
 
-Review scope: `git diff gomc...HEAD` (81 commits, ~7,900 insertions across 123 files),
+Review scope: `git diff stmak...HEAD` (81 commits, ~7,900 insertions across 123 files),
 reviewed 2026-07-10 against the C++ 2.9 reference in `~/source/linuxcnc-2.9`.
 Method: 7 independent finder passes (line-by-line, removed-behavior, cross-file,
 reuse, simplification, efficiency, altitude), then an adversarial verification pass
@@ -25,7 +25,7 @@ with justification.
 ## A. Correctness — merge blockers
 
 ### [x] C1 — MDI interpreter errors never abort queued motion
-**Where:** `src/gomc/internal/task/commands.go:1035-1043` (executeMDI error paths),
+**Where:** `src/stmak/internal/task/commands.go:1035-1043` (executeMDI error paths),
 `commands.go:963-970` (finishMDI o-word continuation error path)
 **Problem:** `faultProgram()` (motion.Abort + sequencer restart to discard queued
 readahead) is called only from `runProgram` (1117/1134/1160). The MDI error paths
@@ -40,7 +40,7 @@ paths). The two MDI error paths must also stop diverging from each other
 (continuation sets ExecError, executeMDI leaves execState untouched).
 
 ### [x] C2 — Bare S-word enables a stopped spindle and releases its brake
-**Where:** `src/gomc/internal/task/canon.go:691-698` (SetSpindleSpeed)
+**Where:** `src/stmak/internal/task/canon.go:691-698` (SetSpindleSpeed)
 **Problem:** `SetSpindleSpeed` unconditionally enqueues
 `spindleCommand(spindle, s.spindleDir[spindle], ...)` with no `dir==0` guard →
 `SpindleOnCmd{Speed:0}` → `h_spindle_on` hardcodes `state=1`
@@ -54,7 +54,7 @@ matching 2.9 semantics; M3/M4 then applies it.
 **Implemented note:** verified against 2.9 — `SET_SPINDLE_SPEED` routes through
 `emcSpindleSpeed`, which (unlike `emcSpindleOn`) does NOT force `state=1`, so for a
 stopped spindle it appends a *status-only* `SPINDLE_ON s=0 speed=0` (drive stays
-off, brake untouched). gomc's `spindle_on` GMI hardcodes `state=1`
+off, brake untouched). stmak's `spindle_on` GMI hardcodes `state=1`
 (`h_spindle_on`) and cannot express "set speed, stay off", so the canon drops the
 command entirely when `dir==0`. Machine behavior is identical to 2.9; the only
 divergence is the absent leading status-only `SPINDLE_ON` (documented in
@@ -62,7 +62,7 @@ divergence is the absent leading status-only `SPINDLE_ON` (documented in
 manual `spindle.ngc` parity replay therefore drops that one line by design.
 
 ### [x] C3 — ESTOP command while already estopped/off permanently kills the sequencer
-**Where:** `src/gomc/internal/task/commands.go:294-296` (SetState fires
+**Where:** `src/stmak/internal/task/commands.go:294-296` (SetState fires
 `signalAbort()` unconditionally for StateEstop), `commands.go:324-329`
 (`!wasOn` branch never restarts), `sequencer.go:189-195` (loop exits permanently on
 `seqAbort` close)
@@ -79,7 +79,7 @@ signalAbort when already down). Additionally: check the enqueue error at
 log lines.
 
 ### [x] C4 — RigidTap velocity is clamped by the F word; tap cannot follow the spindle
-**Where:** `src/gomc/internal/task/canon.go:595` (RigidTap uses `feedLimits()`),
+**Where:** `src/stmak/internal/task/canon.go:595` (RigidTap uses `feedLimits()`),
 `canon.go:1188` (`c.Vel` passed as both vel and ini_maxvel)
 **Problem:** `feedLimits()` clamps vel to `s.linearFeedRate` (canon.go:522-523).
 C++ RIGID_TAP passes unclamped `getStraightVelocity` as both vel and ini_maxvel
@@ -91,7 +91,7 @@ threads/tap breakage.
 feed) for both vel and ini_maxvel.
 
 ### [x] C5 — M66 wait types "rise"/"fall" implemented as levels, not edges
-**Where:** `src/gomc/internal/task/canon.go:1374-1378` (WaitInputCmd)
+**Where:** `src/stmak/internal/task/canon.go:1374-1378` (WaitInputCmd)
 **Problem:** `case 1, 3: satisfied = high` / `case 2, 4: satisfied = !high`
 collapses rise→high and fall→low. C++ 2.9 implements true edges: WAIT_MODE_RISE
 first requires observing the input low, then high (`emctaskmain.cc:2759-2779`).
@@ -101,7 +101,7 @@ first poll tick and the handshake is skipped.
 for wait types 1 and 2.
 
 ### [x] C6 — M66 timeout contract broken: #5399 never gets −1
-**Where:** `src/gomc/internal/task/canon_getters.go:290-298` (digital),
+**Where:** `src/stmak/internal/task/canon_getters.go:290-298` (digital),
 `canon_getters.go:301` (analog has the same omission)
 **Problem:** `t.inputTimeout` is set by WaitInputCmd (canon.go:1336) and exported to
 stat, but no getter consumes it: `GET_EXTERNAL_DIGITAL_INPUT` returns the raw pin
@@ -113,9 +113,9 @@ after a failed handshake.
 `t.inputTimeout` is set, and clear the flag at the same points 2.9 does.
 
 ### [x] C7 — G96 CSS in inch mode is 25.4× too slow
-**Where:** `src/gomc/internal/task/canon.go:663-665` (spindleCommand CSS factor)
+**Where:** `src/stmak/internal/task/canon.go:663-665` (spindleCommand CSS factor)
 **Problem:** the inch branch uses bare `k = 12/(2π)` while C++ computes
-`12/(2π)·speed·TO_EXT_LEN(25.4)` (`emccanon.cc:1930-1931`). gomc canon/motion work
+`12/(2π)·speed·TO_EXT_LEN(25.4)` (`emccanon.cc:1930-1931`). stmak canon/motion work
 in mm and motion computes RPM as `css_factor / offset_mm` (control.c:2230-2234), so
 inch-mode css_factor is 25.4× too small → G20 G96 spindle runs ~25.4× slower than
 the commanded surface speed. Masked by the mm-only parity corpus and the mm-only
@@ -124,7 +124,7 @@ blend test.
 the tests (see also the corpus note in T1/S-section).
 
 ### [x] C8 — finishMDI has no ownership token: stale-completion race + ExecError clobber
-**Where:** `src/gomc/internal/task/commands.go:917` (finishMDI), `:934` (canSynch
+**Where:** `src/stmak/internal/task/commands.go:917` (finishMDI), `:934` (canSynch
 guards), `:980-987` (unconditional InterpIdle/ExecDone commit),
 `sequencer.go:1032-1034` (PostWait spawns detached goroutine)
 **Problem:** `mdiDoneCmd.PostWait` spawns `go t.finishMDI()` with no generation
@@ -141,7 +141,7 @@ carried by `mdiDoneCmd`; finishMDI validates it under `cmdMu` and exits if stale
 Never downgrade ExecError outside the estop-reset/on recovery path.
 
 ### [x] C9 — A failed dequeued MDI strands the mdiQueue and causes out-of-order execution
-**Where:** `src/gomc/internal/task/commands.go:995-998` (log-and-return on error),
+**Where:** `src/stmak/internal/task/commands.go:995-998` (log-and-return on error),
 `:1013` (taskCommand set, never cleared on error)
 **Problem:** executeMDI's error paths enqueue no mdiDoneCmd, so no further dequeue
 is ever scheduled: remaining `mdiQueue` entries are stranded and `stat.task.command`
@@ -153,7 +153,7 @@ message) or continue the dequeue chain; clear/update taskCommand on the error pa
 2.9 flushes (`mdi_execute_abort`), which is the safer parity choice.
 
 ### [x] C10 — Pause/resume with no program running wedges the task
-**Where:** `src/gomc/internal/task/commands.go:576-592` (autoSignal AutoPause, no
+**Where:** `src/stmak/internal/task/commands.go:576-592` (autoSignal AutoPause, no
 interp-state guard), `:599-603` (AutoResume sets InterpReading unconditionally when
 paused), `:735-757` (autoCommand path, identical)
 **Problem:** with mode AUTO and the interpreter idle, halui pause (unguarded pin
@@ -177,7 +177,7 @@ with no preceding `canon.syncEndPointFromMachine` (masked only by the re-syncs
 at the next executeMDI/AutoRun). See R6.
 **RESOLVED (second pass):** R6 fixed — `abortLocked` now calls
 `canon.syncEndPointFromMachine()` before `interp.Synch()`.
-**Where:** `src/gomc/internal/task/monitor.go:210-252` (checkEstop),
+**Where:** `src/stmak/internal/task/monitor.go:210-252` (checkEstop),
 `commands.go:1739-1743` (abortLocked shares one omission)
 **Problem:** checkEstop hand-rolls the shutdown sequence and has already diverged
 from `machineShutdown`: (a) no `io.LubeOff` and `lubeOn` never cleared — lube stays
@@ -208,7 +208,7 @@ hand-typing them. Consider simplifying halui's per-spindle loop to use the
 broadcast once the path is validated end-to-end.
 
 ### [x] C13 — Constraint codegen reuses loop variable `i` at every nesting level (latent)
-**Where:** `src/gomc/internal/gmicompile/cgen/constraint_emit.go:207-210`,
+**Where:** `src/stmak/internal/gmicompile/cgen/constraint_emit.go:207-210`,
 `client_validate.go:106-114`
 **Problem:** nested constrained collections emit
 `for i := range x { for i := range x[i] { ... x[i][i] ... } }` — compiles fine in
@@ -222,7 +222,7 @@ doubly-nested fixture to the codegen tests.
 ## C. Test coverage
 
 ### [x] T1 — PlasmaC launch-guard positive path left untested
-**Where:** `src/gomc/internal/launcher/launcher_test.go` (TestCheckPlasmaC_PlasmaC
+**Where:** `src/stmak/internal/launcher/launcher_test.go` (TestCheckPlasmaC_PlasmaC
 deleted; only the negative-path test remains), `prelaunch.go:83-111`
 **Problem:** the deleted test was the only coverage of `[PLASMAC]MODE →
 ErrPlasmaC`. The stated reason (it exec'd the real `qtplasmac-plasmac2qt` GUI tool)
@@ -249,7 +249,7 @@ The "keep them in sync" comment (:26-27) still stands. See R7.
 bodies (SetMode, setState, ProgramOpen/Unhome/LoadToolTable/ToolUnload, MDI);
 the "keep them in sync" comment is replaced by "both call the SAME shared
 guard primitives, so the two copies cannot drift".
-**Where:** `src/gomc/internal/task/commands.go:17-27` (the "keep them in sync"
+**Where:** `src/stmak/internal/task/commands.go:17-27` (the "keep them in sync"
 comment), helpers at :30, :37, :52, :64, :77, :122, :144, :152, :169;
 `preflightAuto:86-102` duplicates `autoCommand:673-696` verbatim incl. operator
 strings
@@ -472,7 +472,7 @@ failure remains). Summary:
   −1 sentinel, DisplayMsgCmd non-barrier) are left as documented.
 
 ### [x] R1 — ProbeCmd missing from the motionDispatched set (stale-inpos race for G38)
-**Where:** `src/gomc/internal/task/sequencer.go:246` (marks only
+**Where:** `src/stmak/internal/task/sequencer.go:246` (marks only
 LinearMoveCmd/CircularMoveCmd/RigidTapCmd), `canon.go:1261-1262` (ProbeCmd also
 dispatches a TP segment)
 **Problem:** E1's settle-skip is gated on `motionDispatched`; ProbeCmd never sets
@@ -489,7 +489,7 @@ motionDispatched" is violated.
 **Recheck 2: fixed for both named triggers** (seqFaultExit flushes + bumps mdiGen,
 sequencer.go:706-715; monitor latch paths bump mdiGen, monitor.go:186/257/338;
 faultMDI intact). One rare pre-existing sibling remains → see H1.
-**Where:** `src/gomc/internal/task/sequencer.go:298-345` (sequencer error exits),
+**Where:** `src/stmak/internal/task/sequencer.go:298-345` (sequencer error exits),
 `monitor.go` checkMotionErrors/checkMotionEnabled latch paths;
 `commands.go:1032-1038` (finishMDI's ExecError early-return skips the dequeue)
 **Problem:** only faultMDI/abortLocked/setState flush `mdiQueue`. Two confirmed
@@ -504,7 +504,7 @@ latches ExecError — the sequencer error exits and the monitor latch paths —
 mirroring faultMDI.
 
 ### [x] R3 — Barrier-coalescing state survives aborts and is blind to non-sequencer motion
-**Where:** `src/gomc/internal/task/canon.go:1195-1198` (lastEnqueued), reset only
+**Where:** `src/stmak/internal/task/canon.go:1195-1198` (lastEnqueued), reset only
 at the seek boundary (canon.go:307)
 **Problem:** `lastEnqueued` is set before EnqueueCmd's error check and never reset
 on abort/sequencer restart, and canon cannot see jog/homing motion between two
@@ -520,7 +520,7 @@ inpos/queueDepth, so there is no coalescing state to invalidate and the
 jog-blindness goes away with it. Strictly stronger than the proposed reset.
 
 ### [x] R4 — M66 poll: read errors postpone/disable the timeout
-**Where:** `src/gomc/internal/task/canon.go:1446` (`continue` on GetSynchDi error
+**Where:** `src/stmak/internal/task/canon.go:1446` (`continue` on GetSynchDi error
 skips the deadline check at the bottom of the tick branch)
 **Problem:** persistent read errors keep jumping back to the select without ever
 evaluating `time.Now().After(deadline)` — the M66 Q-timeout never fires and the
@@ -528,7 +528,7 @@ sequencer blocks until abort/estop. Pre-fix code checked the deadline every tick
 **Fix:** check the deadline before (or regardless of) the read-error `continue`.
 
 ### [x] R5 — Operator-error burst on normal abort from canon enqueue failures
-**Where:** `src/gomc/internal/task/canon.go:1200-1208` (C3's operator-error on
+**Where:** `src/stmak/internal/task/canon.go:1200-1208` (C3's operator-error on
 dropped commands)
 **Problem:** a user Abort mid-block leaves the producer firing the rest of the
 current block's canon callbacks into the closed queue — each now pops a
@@ -540,7 +540,7 @@ commanded abort (e.g. only emit if the sequencer is *supposed* to be running —
 check abort-in-progress state), keep it for unexpected drops.
 
 ### [x] R6 — C11 residual: abortLocked still Synchs against the stale canon endpoint
-**Where:** `src/gomc/internal/task/commands.go:1851`
+**Where:** `src/stmak/internal/task/commands.go:1851`
 **Fix:** call `canon.syncEndPointFromMachine` before `interp.Synch()` in
 abortLocked, as finishShutdown now does.
 

@@ -1,15 +1,15 @@
 USERSRCS += $(USRMOTSRCS)
 
 # halui.so — DISABLED: halui is now built into milltask gomod (halui= parameter)
-# Source kept as halui_gomc.cc.disabled for reference.
-#HALUI_GOMC_SRCS := emc/usr_intf/halui_gomc.cc
+# Source kept as halui_stmak.cc.disabled for reference.
+#HALUI_STMAK_SRCS := emc/usr_intf/halui_stmak.cc
 #
-#USERSRCS += $(HALUI_GOMC_SRCS)
+#USERSRCS += $(HALUI_STMAK_SRCS)
 #
-#$(call TOOBJSDEPS, $(HALUI_GOMC_SRCS)): EXTRAFLAGS += -fPIC -Igomc/generated/gmi/emccmd -Igomc/generated/gmi/emcstat -Igomc/pkg/cmodule
-#$(call TOOBJSDEPS, $(HALUI_GOMC_SRCS)): gomc/generated/gmi/emccmd/emccmd_api.h gomc/generated/gmi/emcstat/emcstat_api.h
+#$(call TOOBJSDEPS, $(HALUI_STMAK_SRCS)): EXTRAFLAGS += -fPIC -Istmak/generated/gmi/emccmd -Istmak/generated/gmi/emcstat -Istmak/pkg/cmodule
+#$(call TOOBJSDEPS, $(HALUI_STMAK_SRCS)): stmak/generated/gmi/emccmd/emccmd_api.h stmak/generated/gmi/emcstat/emcstat_api.h
 #
-#../cmod/halui.so: $(call TOOBJS, $(HALUI_GOMC_SRCS)) \
+#../cmod/halui.so: $(call TOOBJS, $(HALUI_STMAK_SRCS)) \
 #                  ../lib/liblinuxcnc.a ../lib/liblinuxcncini.so.0 \
 #                  ../lib/libtooldata.so.0
 #	$(ECHO) Linking $(notdir $@)
@@ -29,15 +29,15 @@ LINUXCNCLCD_CMOD_CFLAGS := \
     -fPIC -g -Os -Wall -Wextra \
     -D_GNU_SOURCE \
     -I. -I../include \
-    -Igomc/pkg/cmodule \
-    -Igomc/generated/gmi/emccmd \
-    -Igomc/generated/gmi/emcstat \
+    -Istmak/pkg/cmodule \
+    -Istmak/generated/gmi/emccmd \
+    -Istmak/generated/gmi/emcstat \
     -Iemc/usr_intf
 
 LINUXCNCLCD_CMOD_DEPS := \
-    gomc/generated/gmi/emccmd/emccmd_api.h \
-    gomc/generated/gmi/emcstat/emcstat_api.h \
-    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+    stmak/generated/gmi/emccmd/emccmd_api.h \
+    stmak/generated/gmi/emcstat/emcstat_api.h \
+    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
     emc/usr_intf/sockets.h
 
 ../cmod/linuxcnclcd.so: $(LINUXCNCLCD_CMOD_SRCS) $(LINUXCNCLCD_CMOD_DEPS) | headers

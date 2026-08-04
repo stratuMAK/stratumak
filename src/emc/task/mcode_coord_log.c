@@ -2,9 +2,9 @@
  * mcode_coord_log.c — cmod that registers an M-code handler (default M100) to
  * log coordinate / tool-offset introspection values to a file.
  *
- * This is the gomc replacement for the classic USER_M_PATH `subs/M100` shell
+ * This is the stmak replacement for the classic USER_M_PATH `subs/M100` shell
  * script used by the tool tests (tests/t0, tests/toolchanger/toolno-pocket-differ):
- * gomc has no USER_M_PATH shell-script M-codes — user M-codes are cmods that
+ * stmak has no USER_M_PATH shell-script M-codes — user M-codes are cmods that
  * register via the mcode_handler GMI API. The test g-code calls
  *   M100 P<sel> Q<value>
  * where P selects the field and Q carries the (interp-resolved) value; each call
@@ -23,7 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "mcode_handler_api.h"
 
 typedef struct {
@@ -49,7 +49,7 @@ static int coord_log_handler(const mcode_handler_mcode_call_t *call, void *user_
     int rc = 0;
 
     /* P-only mode: dump just the P word, matching the classic mdi-queue
-     * subs/M100 (which echoed only "$1").  gomc sets q_number to a -1 sentinel
+     * subs/M100 (which echoed only "$1").  stmak sets q_number to a -1 sentinel
      * when Q is absent, so raw mode's "Q is" line would not match here. */
     if (m->p_only) {
         fprintf(f, "P is %f\n", call->p_number);

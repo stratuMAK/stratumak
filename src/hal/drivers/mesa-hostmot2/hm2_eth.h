@@ -64,14 +64,14 @@ typedef struct {
     struct arpreq req;
 
     struct {
-        gomc_hal_s32_t read_timeout;
-        gomc_hal_s32_t packet_error_limit;
-        gomc_hal_s32_t packet_error_increment;
-        gomc_hal_s32_t packet_error_decrement;
-        gomc_hal_bit_t *packet_error;
-        gomc_hal_u32_t *packet_error_total;
-        gomc_hal_s32_t *packet_error_level;
-        gomc_hal_bit_t *packet_error_exceeded;
+        stmak_hal_s32_t read_timeout;
+        stmak_hal_s32_t packet_error_limit;
+        stmak_hal_s32_t packet_error_increment;
+        stmak_hal_s32_t packet_error_decrement;
+        stmak_hal_bit_t *packet_error;
+        stmak_hal_u32_t *packet_error_total;
+        stmak_hal_s32_t *packet_error_level;
+        stmak_hal_bit_t *packet_error_exceeded;
     } *hal;
 
     /* per-board scratch for hm2_eth_write (was a static local in

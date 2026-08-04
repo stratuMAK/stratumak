@@ -14,24 +14,24 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 
 typedef struct {
-    gomc_hal_bit_t   *q;
-    gomc_hal_bit_t   *_q;
-    gomc_hal_float_t *variable;
-    gomc_hal_float_t *_variable;
-    gomc_hal_bit_t   *d;
-    gomc_hal_float_t *value;
+    stmak_hal_bit_t   *q;
+    stmak_hal_bit_t   *_q;
+    stmak_hal_float_t *variable;
+    stmak_hal_float_t *_variable;
+    stmak_hal_bit_t   *d;
+    stmak_hal_float_t *value;
 } inst_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     inst_hal_t *hal;
 } inst_t;
 
@@ -67,29 +67,29 @@ int New(const cmod_env_t *env, const char *name,
     strncpy(inst->name, name, sizeof(inst->name) - 1);
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(inst_hal_t));
     if (!inst->hal) goto err;
     memset(inst->hal, 0, sizeof(inst_hal_t));
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &inst->hal->q, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &inst->hal->q, inst->comp_id,
                               "%s.q", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &inst->hal->_q, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &inst->hal->_q, inst->comp_id,
                               "%s._q", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &inst->hal->variable, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &inst->hal->variable, inst->comp_id,
                                 "%s.variable", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &inst->hal->_variable, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &inst->hal->_variable, inst->comp_id,
                                 "%s._variable", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &inst->hal->d, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &inst->hal->d, inst->comp_id,
                               "%s.d", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &inst->hal->value, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &inst->hal->value, inst->comp_id,
                                 "%s.value", name);
     if (r != 0) goto err;
 

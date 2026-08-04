@@ -1,7 +1,7 @@
 #!/bin/bash
 # HAL signal value propagation across linked pins of each type (s32/u32/float/
 # bit-IO).  Classic used the pyhal userspace Python binding to create the
-# component; gomc has no userspace components, so the pins are created server-
+# component; stmak has no userspace components, so the pins are created server-
 # side by haljson, linked into signals in the HAL file, and driven from the gmi
 # python client over REST.
 #

@@ -1,4 +1,4 @@
-/* motion-logger — gomc interceptor/proxy cmod.
+/* motion-logger — stmak interceptor/proxy cmod.
  *
  * Stands in for motmod: milltask is configured with [EMCMOT]EMCMOT=motion-logger,
  * so it looks up the motctl/motstat providers registered here.  This module
@@ -7,9 +7,9 @@
  * LOGS the motctl command and FORWARDS to the real motmod (which does the real
  * trajectory planning and supplies real status).  No status faking.
  *
- * The log captures the gomc motctl command stream a program produces; the test
- * `expected.*` files are re-captured from gomc (self-regression), while
- * tests/milltask-parity remains the cross-tree C-vs-gomc check.
+ * The log captures the stmak motctl command stream a program produces; the test
+ * `expected.*` files are re-captured from stmak (self-regression), while
+ * tests/milltask-parity remains the cross-tree C-vs-stmak check.
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPL Version 2
@@ -20,9 +20,9 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "gomc_env.h"
-#include "gomc_hal.h"
-#include "gomc_log.h"
+#include "stmak_env.h"
+#include "stmak_hal.h"
+#include "stmak_log.h"
 #include "motctl_api.h"
 #include "motstat_api.h"
 
@@ -220,17 +220,17 @@ static double s_get_analog_input(void *ctx, int32_t i) { return RS->get_analog_i
 static int ml_Init(cmod_t *self)
 {
     ml_t *m = (ml_t *)self->priv;
-    const gomc_log_t *log = (const gomc_log_t *)m->env->log;
+    const stmak_log_t *log = (const stmak_log_t *)m->env->log;
 
     m->real_ctl = motctl_api_get(m->env->api, m->mot_inst);
     m->real_stat = motstat_api_get(m->env->api, m->mot_inst);
     if (!m->real_ctl || !m->real_stat) {
-        gomc_log_errorf(log, m->name,
+        stmak_log_errorf(log, m->name,
             "motion-logger: could not find real motion instance '%s' (motctl=%p motstat=%p)\n",
             m->mot_inst, (void *)m->real_ctl, (void *)m->real_stat);
         return -1;
     }
-    gomc_log_infof(log, m->name, "motion-logger: proxying to '%s'\n", m->mot_inst);
+    stmak_log_infof(log, m->name, "motion-logger: proxying to '%s'\n", m->mot_inst);
     return 0;
 }
 
@@ -240,7 +240,7 @@ static void ml_Destroy(cmod_t *self)
     if (!m) return;
     if (m->log) { fclose(m->log); m->log = NULL; }
     if (m->comp_id >= 0 && m->env && m->env->hal) {
-        const gomc_hal_t *hal = (const gomc_hal_t *)m->env->hal;
+        const stmak_hal_t *hal = (const stmak_hal_t *)m->env->hal;
         hal->exit(hal->ctx, m->comp_id);
     }
     free(m->ctl_cb);
@@ -252,8 +252,8 @@ static void ml_Destroy(cmod_t *self)
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_log_t *log = (const gomc_log_t *)env->log;
-    const gomc_hal_t *hal = (const gomc_hal_t *)env->hal;
+    const stmak_log_t *log = (const stmak_log_t *)env->log;
+    const stmak_hal_t *hal = (const stmak_hal_t *)env->hal;
 
     ml_t *m = calloc(1, sizeof(*m));
     if (!m) return -1;
@@ -277,15 +277,15 @@ int New(const cmod_env_t *env, const char *name,
 
     m->log = fopen(logfile, "w");
     if (!m->log) {
-        gomc_log_errorf(log, name, "motion-logger: cannot open logfile '%s'\n", logfile);
+        stmak_log_errorf(log, name, "motion-logger: cannot open logfile '%s'\n", logfile);
         free(m);
         return -1;
     }
 
     /* Register a HAL component so we are a well-formed RT module. */
-    m->comp_id = hal->init(hal->ctx, name, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    m->comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (m->comp_id < 0) {
-        gomc_log_errorf(log, name, "motion-logger: hal init failed\n");
+        stmak_log_errorf(log, name, "motion-logger: hal init failed\n");
         fclose(m->log);
         free(m);
         return -1;
@@ -332,7 +332,7 @@ int New(const cmod_env_t *env, const char *name,
         .set_world_home = w_set_world_home, .set_debug = w_set_debug,
     };
     if (motctl_api_register(env->api, name, m->ctl_cb) != 0) {
-        gomc_log_errorf(log, name, "motion-logger: motctl register failed\n");
+        stmak_log_errorf(log, name, "motion-logger: motctl register failed\n");
         hal->exit(hal->ctx, m->comp_id); fclose(m->log); free(m->ctl_cb); free(m->stat_cb); free(m); return -1;
     }
 
@@ -344,7 +344,7 @@ int New(const cmod_env_t *env, const char *name,
         .get_synch_di = s_get_synch_di, .get_analog_input = s_get_analog_input,
     };
     if (motstat_api_register(env->api, name, m->stat_cb) != 0) {
-        gomc_log_errorf(log, name, "motion-logger: motstat register failed\n");
+        stmak_log_errorf(log, name, "motion-logger: motstat register failed\n");
         hal->exit(hal->ctx, m->comp_id); fclose(m->log); free(m->ctl_cb); free(m->stat_cb); free(m); return -1;
     }
 
@@ -356,7 +356,7 @@ int New(const cmod_env_t *env, const char *name,
     c->Destroy = ml_Destroy;
     c->priv = m;
 
-    gomc_log_infof(log, name, "motion-logger: New('%s') logfile='%s' mot_instance='%s'\n", name, logfile, m->mot_inst);
+    stmak_log_infof(log, name, "motion-logger: New('%s') logfile='%s' mot_instance='%s'\n", name, logfile, m->mot_inst);
     *out = c;
     return 0;
 }

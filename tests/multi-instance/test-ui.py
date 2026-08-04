@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-instance client contract, against a real two-task gomc-server.
+"""Multi-instance client contract, against a real two-task stmakd.
 
 The bug this exists to catch: a UI client that names its peers by convention or
 by hardcoded default. Those names are right whenever there is exactly one of

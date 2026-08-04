@@ -1,6 +1,6 @@
 #!/bin/bash
 rm -f sim.var
-gomc-server -r test.ini >/tmp/gomc-feed-rate.log 2>&1 &
+stmakd -r test.ini >/tmp/stmak-feed-rate.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 for i in $(seq 100); do halcmd show comp 2>/dev/null | grep -q milltask && break; sleep 0.1; done

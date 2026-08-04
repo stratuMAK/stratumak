@@ -4,7 +4,7 @@
  * Re-expression of the classic tests/remap/introspect test, whose Python O-word
  * o<introspect> reached into the interpreter to read its call arguments plus live
  * state (current feed, spindle speed, named/predefined/INI parameters) and
- * returned a value.  gomc removed the embedded Python interpreter; the
+ * returned a value.  stmak removed the embedded Python interpreter; the
  * re-expression uses the C interp_ext register_oword mechanism with the
  * interp_ctx accessors (get_feed_rate / get_speed / get_param).
  *
@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "interp_ext_api.h"
 
 #define INTROSPECT_RETVAL 2.71828

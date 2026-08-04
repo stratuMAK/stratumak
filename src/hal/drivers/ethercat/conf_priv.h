@@ -109,8 +109,8 @@ typedef struct lcec_conf_outbuf {
  * @brief HAL pin data for the ethercat config component.
  */
 typedef struct {
-  gomc_hal_u32_t *master_count;
-  gomc_hal_u32_t *slave_count;
+  stmak_hal_u32_t *master_count;
+  stmak_hal_u32_t *slave_count;
 } LCEC_CONF_HAL_T;
 
 /**
@@ -122,7 +122,7 @@ typedef struct {
 struct lcec_conf_module {
   cmod_t base;                     /**< cmod lifecycle vtable; must be first. */
   const cmod_env_t *env;           /**< Launcher-provided environment. */
-  char name[GOMC_RTAPI_NAME_LEN + 1];  /**< Instance name (used as HAL component name). */
+  char name[STMAK_RTAPI_NAME_LEN + 1];  /**< Instance name (used as HAL component name). */
 
   int hal_comp_id;                 /**< HAL component ID from hal_init_ex(). */
   LCEC_CONF_HAL_T *conf_hal_data;  /**< HAL pin data block. */
@@ -136,13 +136,13 @@ static inline const char *xml_modname(const LCEC_CONF_XML_INST_T *inst) {
 }
 
 #define xml_log_error(inst, msg) \
-  gomc_log_errorf((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))
+  stmak_log_errorf((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))
 
 #define xml_log_error_fmt(inst, fmt, ...) \
-  gomc_log_errorf((inst)->mod->env->log, (inst)->mod->name, fmt, ##__VA_ARGS__)
+  stmak_log_errorf((inst)->mod->env->log, (inst)->mod->name, fmt, ##__VA_ARGS__)
 
 #define xml_log_info(inst, msg) \
-  gomc_log_infof((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))
+  stmak_log_infof((inst)->mod->env->log, (inst)->mod->name, "%s", (msg))
 
 /**
  * @brief Initialise an output buffer to the empty state.

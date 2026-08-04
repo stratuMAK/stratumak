@@ -5,11 +5,11 @@ STDGLUE_SRCS := emc/task/stdglue.c
 USERSRCS += $(STDGLUE_SRCS)
 
 $(call TOOBJSDEPS, $(STDGLUE_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx \
-    -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx \
+    -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(STDGLUE_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
-$(call TOOBJSDEPS, $(STDGLUE_SRCS)): gomc/generated/gmi/interp_ctx/interp_ctx_api.h
+$(call TOOBJSDEPS, $(STDGLUE_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(STDGLUE_SRCS)): stmak/generated/gmi/interp_ctx/interp_ctx_api.h
 
 ../cmod/stdglue.so: $(call TOOBJS, $(STDGLUE_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -22,9 +22,9 @@ TEST_MCODE_SRCS := emc/task/test_mcode_handler.c
 USERSRCS += $(TEST_MCODE_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_MCODE_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/mcode_handler -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/mcode_handler -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_MCODE_SRCS)): gomc/generated/gmi/mcode_handler/mcode_handler_api.h
+$(call TOOBJSDEPS, $(TEST_MCODE_SRCS)): stmak/generated/gmi/mcode_handler/mcode_handler_api.h
 
 ../cmod/test_mcode_handler.so: $(call TOOBJS, $(TEST_MCODE_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -37,9 +37,9 @@ TEST_INTERP_EXT_SRCS := emc/task/test_interp_ext.c
 USERSRCS += $(TEST_INTERP_EXT_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_INTERP_EXT_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_INTERP_EXT_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_INTERP_EXT_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_interp_ext.so: $(call TOOBJS, $(TEST_INTERP_EXT_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -52,9 +52,9 @@ TEST_SPINDLE_REMAP_SRCS := emc/task/test_spindle_remap.c
 USERSRCS += $(TEST_SPINDLE_REMAP_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_SPINDLE_REMAP_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_SPINDLE_REMAP_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_SPINDLE_REMAP_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_spindle_remap.so: $(call TOOBJS, $(TEST_SPINDLE_REMAP_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -68,9 +68,9 @@ TEST_INTERP_EXT_FINISH_SRCS := emc/task/test_interp_ext_finish.c
 USERSRCS += $(TEST_INTERP_EXT_FINISH_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_INTERP_EXT_FINISH_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_INTERP_EXT_FINISH_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_INTERP_EXT_FINISH_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_interp_ext_finish.so: $(call TOOBJS, $(TEST_INTERP_EXT_FINISH_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -83,9 +83,9 @@ TEST_REMAP_FAIL_SRCS := emc/task/test_remap_fail.c
 USERSRCS += $(TEST_REMAP_FAIL_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_REMAP_FAIL_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_REMAP_FAIL_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_REMAP_FAIL_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_remap_fail.so: $(call TOOBJS, $(TEST_REMAP_FAIL_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -98,9 +98,9 @@ TEST_OWORD_MATH_SRCS := emc/task/test_oword_math.c
 USERSRCS += $(TEST_OWORD_MATH_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_OWORD_MATH_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_OWORD_MATH_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_OWORD_MATH_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_oword_math.so: $(call TOOBJS, $(TEST_OWORD_MATH_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -113,9 +113,9 @@ TEST_INTROSPECT_SRCS := emc/task/test_introspect.c
 USERSRCS += $(TEST_INTROSPECT_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_INTROSPECT_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_INTROSPECT_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_INTROSPECT_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_introspect.so: $(call TOOBJS, $(TEST_INTROSPECT_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -128,9 +128,9 @@ TEST_VAR_INJECT_SRCS := emc/task/test_var_inject.c
 USERSRCS += $(TEST_VAR_INJECT_SRCS)
 
 $(call TOOBJSDEPS, $(TEST_VAR_INJECT_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(TEST_VAR_INJECT_SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h
+$(call TOOBJSDEPS, $(TEST_VAR_INJECT_SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h
 
 ../cmod/test_var_inject.so: $(call TOOBJS, $(TEST_VAR_INJECT_SRCS))
 	$(ECHO) Linking $(notdir $@)
@@ -144,9 +144,9 @@ MCODE_COORD_LOG_SRCS := emc/task/mcode_coord_log.c
 USERSRCS += $(MCODE_COORD_LOG_SRCS)
 
 $(call TOOBJSDEPS, $(MCODE_COORD_LOG_SRCS)): EXTRAFLAGS += -fPIC \
-    -Igomc/generated/gmi/mcode_handler -Igomc/pkg/cmodule
+    -Istmak/generated/gmi/mcode_handler -Istmak/pkg/cmodule
 
-$(call TOOBJSDEPS, $(MCODE_COORD_LOG_SRCS)): gomc/generated/gmi/mcode_handler/mcode_handler_api.h
+$(call TOOBJSDEPS, $(MCODE_COORD_LOG_SRCS)): stmak/generated/gmi/mcode_handler/mcode_handler_api.h
 
 ../cmod/mcode_coord_log.so: $(call TOOBJS, $(MCODE_COORD_LOG_SRCS))
 	$(ECHO) Linking $(notdir $@)

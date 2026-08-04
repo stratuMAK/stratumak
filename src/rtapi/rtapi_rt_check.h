@@ -14,9 +14,9 @@
     practice (clock_gettime).  Every use is a trust boundary of the RT
     path and must carry a justification comment.
 
-    The cmodule header set carries an equivalent GOMC_NONBLOCKING in
-    gomc_rt_check.h (self-contained for external modules), and gmicompile
-    emits a third copy of the version gate (GOMC_API_NONBLOCKING, see
+    The cmodule header set carries an equivalent STMAK_NONBLOCKING in
+    stmak_rt_check.h (self-contained for external modules), and gmicompile
+    emits a third copy of the version gate (STMAK_API_NONBLOCKING, see
     gmicompile/cgen/server.go) into generated GMI headers — keep all
     three in sync.
 

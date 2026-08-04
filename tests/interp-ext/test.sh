@@ -1,13 +1,13 @@
 #!/bin/bash
-# Dedicated test for the gomc interp_ext API (register_oword) -- the replacement
+# Dedicated test for the stmak interp_ext API (register_oword) -- the replacement
 # for classic Python O-word subroutines.  A cmod (test_interp_ext) registers a
 # C O-word `o<test_oword>` that returns the sum of its args; we call it from MDI
 # and confirm the handler was dispatched with the right arguments.
 set -x
-. ../gomc-driver.sh
+. ../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server sim.ini
-gomc_wait_ready
+stmak_start_server sim.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

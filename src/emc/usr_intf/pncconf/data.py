@@ -1061,10 +1061,10 @@ If you have a REALLY large config that you wish to convert to this newer version
                 os.symlink(base,shortcut)
 
         if self.createshortcut and os.path.exists(desktop):
-            if os.path.exists(_BASE + "/bin/gomc-server"):
-                scriptspath = (_BASE + "/bin/gomc-server")
+            if os.path.exists(_BASE + "/bin/stmakd"):
+                scriptspath = (_BASE + "/bin/stmakd")
             else:
-                scriptspath ="gomc-server"
+                scriptspath ="stmakd"
 
             filename = os.path.join(desktop, "%s.desktop" % self.machinename)
             file = open(filename, "w")

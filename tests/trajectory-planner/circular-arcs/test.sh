@@ -1,16 +1,16 @@
 #!/bin/bash
-# Circular-arc trajectory-planner regression test (gomc).
+# Circular-arc trajectory-planner regression test (stmak).
 #
 # The classic circular-arcs directory is a developer profiling/tuning harness
 # (operf + octave plots + interactive prompts); it has no automated pass/fail
-# test.  This adds one: run a full-circle G3 arc through the gomc TP, capture the
+# test.  This adds one: run a full-circle G3 arc through the stmak TP, capture the
 # commanded X/Y joint path every servo cycle with the filestream cmod, and have
 # checkresult verify every sampled point lies on the commanded circle (so a
 # broken arc — straight chords, wrong radius, missed motion — fails).
 set -e
 rm -f path.txt sim.var sim.var.bak
 
-gomc-server -r arc.ini >server.log 2>&1 &
+stmakd -r arc.ini >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 

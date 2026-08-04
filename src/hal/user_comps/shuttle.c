@@ -22,8 +22,8 @@
 // Cmod port: hand-written cmod for Contour Design Shuttle USB jog devices.
 //
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -95,11 +95,11 @@ static const contour_dev_t contour_dev[] = {
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    gomc_hal_bit_t *button[MAX_BUTTONS];
-    gomc_hal_bit_t *button_not[MAX_BUTTONS];
-    gomc_hal_s32_t *counts;
-    gomc_hal_float_t *spring_wheel_f;
-    gomc_hal_s32_t *spring_wheel_s32;
+    stmak_hal_bit_t *button[MAX_BUTTONS];
+    stmak_hal_bit_t *button_not[MAX_BUTTONS];
+    stmak_hal_s32_t *counts;
+    stmak_hal_float_t *spring_wheel_f;
+    stmak_hal_s32_t *spring_wheel_s32;
 } shuttle_hal_t;
 
 typedef struct {
@@ -176,7 +176,7 @@ static void *shuttle_loop(void *arg) {
         pfds[i + 1].events = POLLIN;
     }
 
-    while (!gomc_should_exit(inst->exit_fd)) {
+    while (!stmak_should_exit(inst->exit_fd)) {
         int r = poll(pfds, nfds, 200);
         if (r < 0) {
             if (errno == EINTR || errno == EAGAIN) continue;
@@ -187,7 +187,7 @@ static void *shuttle_loop(void *arg) {
         for (int i = 0; i < inst->num_devices; i++) {
             if (pfds[i + 1].revents & POLLIN) {
                 if (read_update(&inst->devices[i]) < 0) {
-                    gomc_log_errorf(inst->env->log, "shuttle",
+                    stmak_log_errorf(inst->env->log, "shuttle",
                         "error reading %s\n", inst->devices[i].device_file);
                     /* disable this fd */
                     pfds[i + 1].fd = -1;
@@ -231,7 +231,7 @@ static const contour_dev_t *probe_device(const char *path, int *fd_out) {
  * -------------------------------------------------------------------------- */
 
 static int create_pins(shuttle_inst_t *inst, shuttle_dev_t *dev, int dev_idx) {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int r;
 
     dev->hal = (shuttle_hal_t *)hal->malloc(hal->ctx, sizeof(shuttle_hal_t));
@@ -239,28 +239,28 @@ static int create_pins(shuttle_inst_t *inst, shuttle_dev_t *dev, int dev_idx) {
     memset(dev->hal, 0, sizeof(shuttle_hal_t));
 
     for (int i = 0; i < dev->contour_type->num_buttons; i++) {
-        r = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT,
+        r = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT,
             &dev->hal->button[i], inst->comp_id,
             "shuttle.%d.button-%d", dev_idx, i);
         if (r != 0) return -1;
 
-        r = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT,
+        r = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT,
             &dev->hal->button_not[i], inst->comp_id,
             "shuttle.%d.button-%d-not", dev_idx, i);
         if (r != 0) return -1;
         *dev->hal->button_not[i] = 1;
     }
 
-    r = gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT,
         &dev->hal->counts, inst->comp_id, "shuttle.%d.counts", dev_idx);
     if (r != 0) return -1;
 
-    r = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT,
         &dev->hal->spring_wheel_f, inst->comp_id,
         "shuttle.%d.spring-wheel-f", dev_idx);
     if (r != 0) return -1;
 
-    r = gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT,
         &dev->hal->spring_wheel_s32, inst->comp_id,
         "shuttle.%d.spring-wheel-s32", dev_idx);
     if (r != 0) return -1;
@@ -329,7 +329,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->exit_fd = -1;
 
     inst->comp_id = env->hal->init(env->hal->ctx, "shuttle",
-                                   env->dl_handle, GOMC_HAL_COMP_USER);
+                                   env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->comp_id < 0) {
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;
@@ -374,14 +374,14 @@ int New(const cmod_env_t *env, const char *name,
         if (create_pins(inst, dev, inst->num_devices - 1) != 0)
             goto fail;
 
-        gomc_log_infof(env->log, "shuttle", "found %s on %s\n",
+        stmak_log_infof(env->log, "shuttle", "found %s on %s\n",
             type->name, names[i]);
     }
 
     if (glob_used) globfree(&glob_buf);
 
     if (inst->num_devices == 0) {
-        gomc_log_errorf(env->log, "shuttle", "no devices found\n");
+        stmak_log_errorf(env->log, "shuttle", "no devices found\n");
         goto fail;
     }
 

@@ -6,10 +6,10 @@
  * Product ID: 0x07433052
  *
  * HAL pins exposed per channel (0–7):
- *   - `<pfx>.din-<n>`        (GOMC_HAL_BIT, GOMC_HAL_OUT): Digital input state.
- *   - `<pfx>.din-<n>-not`    (GOMC_HAL_BIT, GOMC_HAL_OUT): Inverted digital input state.
- *   - `<pfx>.dout-<n>`       (GOMC_HAL_BIT, GOMC_HAL_IN):  Digital output command.
- *   - `<pfx>.dout-<n>-invert`(GOMC_HAL_BIT, GOMC_HAL_RW param): Invert output polarity when set.
+ *   - `<pfx>.din-<n>`        (STMAK_HAL_BIT, STMAK_HAL_OUT): Digital input state.
+ *   - `<pfx>.din-<n>-not`    (STMAK_HAL_BIT, STMAK_HAL_OUT): Inverted digital input state.
+ *   - `<pfx>.dout-<n>`       (STMAK_HAL_BIT, STMAK_HAL_IN):  Digital output command.
+ *   - `<pfx>.dout-<n>-invert`(STMAK_HAL_BIT, STMAK_HAL_RW param): Invert output polarity when set.
  *
  * @copyright Copyright (C) 2011-2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *

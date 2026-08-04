@@ -31,8 +31,8 @@
  * One instance is allocated per PDO entry (i.e., per output channel).
  */
 typedef struct {
-  gomc_hal_bit_t *out;       /**< HAL IN pin: desired output logic level. */
-  gomc_hal_bit_t invert;     /**< HAL RW parameter: when non-zero the output is inverted before writing. */
+  stmak_hal_bit_t *out;       /**< HAL IN pin: desired output logic level. */
+  stmak_hal_bit_t invert;     /**< HAL RW parameter: when non-zero the output is inverted before writing. */
   unsigned int pdo_os;  /**< Byte offset of this channel's output bit in the process image. */
   unsigned int pdo_bp;  /**< Bit position of this channel's output bit within its byte. */
 } lcec_el2xxx_pin_t;
@@ -40,7 +40,7 @@ typedef struct {
 /**
  * @brief Forward declaration of the periodic write callback.
  */
-void lcec_el2xxx_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el2xxx_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize an EL2xxx digital output slave: allocate HAL memory,
@@ -83,10 +83,10 @@ int lcec_el2xxx_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
     LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7000 + (i << 4), 0x01, &pin->pdo_os, &pin->pdo_bp);
 
     // export pins
-    if ((err = lcec_pin_newf(env, comp_id, GOMC_HAL_BIT, GOMC_HAL_IN, (void **) &(pin->out), "%s.%s.%s.dout-%d", master->instance_name, master->name, slave->name, i)) != 0) {
+    if ((err = lcec_pin_newf(env, comp_id, STMAK_HAL_BIT, STMAK_HAL_IN, (void **) &(pin->out), "%s.%s.%s.dout-%d", master->instance_name, master->name, slave->name, i)) != 0) {
       return err;
     }
-    if ((err = lcec_param_newf(env, comp_id, GOMC_HAL_BIT, GOMC_HAL_RW, (void *) &(pin->invert), "%s.%s.%s.dout-%d-invert", master->instance_name, master->name, slave->name, i)) != 0) {
+    if ((err = lcec_param_newf(env, comp_id, STMAK_HAL_BIT, STMAK_HAL_RW, (void *) &(pin->invert), "%s.%s.%s.dout-%d-invert", master->instance_name, master->name, slave->name, i)) != 0) {
       return err;
     }
 

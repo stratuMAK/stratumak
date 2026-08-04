@@ -1,4 +1,4 @@
-# HAL setup for the abs test — loaded by test.sh into a resident gomc-server.
+# HAL setup for the abs test — loaded by test.sh into a resident stmakd.
 # Feeds a streamer through abs into a sampler; the driver primes the streamer,
 # starts threads, then captures the sampler.  (No 'start'/loadusr here.)
 setexact_for_test_suite_only

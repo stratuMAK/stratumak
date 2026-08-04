@@ -30,11 +30,11 @@ LIBRS274SRCS := $(addprefix emc/rs274ngc/, \
 USERSRCS += $(LIBRS274SRCS)
 
 $(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-fPIC
-$(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-Igomc/generated/gmi/interp_ext -Igomc/generated/gmi/interp_ctx
+$(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx
 
 # interp_internal.hh includes canon_interface.hh which includes the generated canon_api.h
-$(call TOOBJSDEPS, $(LIBRS274SRCS)): gomc/generated/gmi/canon/canon_api.h
-$(call TOOBJSDEPS, $(LIBRS274SRCS)): gomc/generated/gmi/interp_ext/interp_ext_api.h gomc/generated/gmi/interp_ctx/interp_ctx_api.h
+$(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/canon/canon_api.h
+$(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h stmak/generated/gmi/interp_ctx/interp_ctx_api.h
 
 TARGETS += ../lib/librs274.so ../lib/librs274.so.0
 

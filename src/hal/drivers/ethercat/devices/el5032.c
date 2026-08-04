@@ -32,19 +32,19 @@
  * @brief Per-channel HAL pins and PDO mapping data for one EL5032 EnDat channel.
  */
 typedef struct {
-  gomc_hal_bit_t *reset;         /**< HAL IN: reset the relative position counter to zero. */
-  gomc_hal_bit_t *abs_mode;      /**< HAL IN: when high, pos outputs the raw absolute position; otherwise relative. */
-  gomc_hal_bit_t *warn;          /**< HAL OUT: warning flag from the EnDat encoder (PDO 0x6000/0x01). */
-  gomc_hal_bit_t *error;         /**< HAL OUT: error flag from the EnDat encoder (PDO 0x6000/0x02). */
-  gomc_hal_bit_t *ready;         /**< HAL OUT: encoder ready flag — communication established (PDO 0x6000/0x03). */
-  gomc_hal_bit_t *diag;          /**< HAL OUT: diagnostic flag from the EnDat encoder (PDO 0x6000/0x0d). */
-  gomc_hal_bit_t *tx_state;      /**< HAL OUT: TxPDO state bit indicating PDO validity (PDO 0x6000/0x0e). */
-  gomc_hal_u32_t *cyc_cnt;       /**< HAL OUT: 2-bit cycle counter; increments each new PDO frame (PDO 0x6000/0x0f). */
-  gomc_hal_u32_t *raw_count_lo;  /**< HAL OUT: lower 32 bits of the 64-bit absolute position counter. */
-  gomc_hal_u32_t *raw_count_hi;  /**< HAL OUT: upper 32 bits of the 64-bit absolute position counter. */
-  gomc_hal_s32_t *count;         /**< HAL OUT: relative position count (zeroed on reset or initialisation). */
-  gomc_hal_float_t *pos;         /**< HAL OUT: scaled position in user units. */
-  gomc_hal_float_t *pos_scale;   /**< HAL IO: counts per user unit; reciprocal applied internally. */
+  stmak_hal_bit_t *reset;         /**< HAL IN: reset the relative position counter to zero. */
+  stmak_hal_bit_t *abs_mode;      /**< HAL IN: when high, pos outputs the raw absolute position; otherwise relative. */
+  stmak_hal_bit_t *warn;          /**< HAL OUT: warning flag from the EnDat encoder (PDO 0x6000/0x01). */
+  stmak_hal_bit_t *error;         /**< HAL OUT: error flag from the EnDat encoder (PDO 0x6000/0x02). */
+  stmak_hal_bit_t *ready;         /**< HAL OUT: encoder ready flag — communication established (PDO 0x6000/0x03). */
+  stmak_hal_bit_t *diag;          /**< HAL OUT: diagnostic flag from the EnDat encoder (PDO 0x6000/0x0d). */
+  stmak_hal_bit_t *tx_state;      /**< HAL OUT: TxPDO state bit indicating PDO validity (PDO 0x6000/0x0e). */
+  stmak_hal_u32_t *cyc_cnt;       /**< HAL OUT: 2-bit cycle counter; increments each new PDO frame (PDO 0x6000/0x0f). */
+  stmak_hal_u32_t *raw_count_lo;  /**< HAL OUT: lower 32 bits of the 64-bit absolute position counter. */
+  stmak_hal_u32_t *raw_count_hi;  /**< HAL OUT: upper 32 bits of the 64-bit absolute position counter. */
+  stmak_hal_s32_t *count;         /**< HAL OUT: relative position count (zeroed on reset or initialisation). */
+  stmak_hal_float_t *pos;         /**< HAL OUT: scaled position in user units. */
+  stmak_hal_float_t *pos_scale;   /**< HAL IO: counts per user unit; reciprocal applied internally. */
 
   unsigned int warn_os;       /**< Byte offset of warn bit in process data image. */
   unsigned int warn_bp;       /**< Bit position of warn within the byte. */
@@ -75,20 +75,20 @@ typedef struct {
 } lcec_el5032_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el5032_chan_t, reset), "%s.%s.%s.enc-%d-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el5032_chan_t, abs_mode), "%s.%s.%s.enc-%d-abs-mode" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, warn), "%s.%s.%s.enc-%d-warn" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, error), "%s.%s.%s.enc-%d-error" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, ready), "%s.%s.%s.enc-%d-ready" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, diag), "%s.%s.%s.enc-%d-diag" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, tx_state), "%s.%s.%s.enc-%d-tx-state" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, cyc_cnt), "%s.%s.%s.enc-%d-cyc-cnt" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, raw_count_lo), "%s.%s.%s.enc-%d-raw-count-lo" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, raw_count_hi), "%s.%s.%s.enc-%d-raw-count-hi" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, count), "%s.%s.%s.enc-%d-count" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el5032_chan_t, pos), "%s.%s.%s.enc-%d-pos" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_el5032_chan_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el5032_chan_t, reset), "%s.%s.%s.enc-%d-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el5032_chan_t, abs_mode), "%s.%s.%s.enc-%d-abs-mode" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, warn), "%s.%s.%s.enc-%d-warn" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, error), "%s.%s.%s.enc-%d-error" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, ready), "%s.%s.%s.enc-%d-ready" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, diag), "%s.%s.%s.enc-%d-diag" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, tx_state), "%s.%s.%s.enc-%d-tx-state" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, cyc_cnt), "%s.%s.%s.enc-%d-cyc-cnt" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, raw_count_lo), "%s.%s.%s.enc-%d-raw-count-lo" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, raw_count_hi), "%s.%s.%s.enc-%d-raw-count-hi" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, count), "%s.%s.%s.enc-%d-count" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el5032_chan_t, pos), "%s.%s.%s.enc-%d-pos" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_el5032_chan_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_el5032_channel1_in[] = {
@@ -128,7 +128,7 @@ static ec_sync_info_t lcec_el5032_syncs[] = {
     {0xff}
 };
 
-void lcec_el5032_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el5032_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise the EL5032 EtherCAT slave driver.

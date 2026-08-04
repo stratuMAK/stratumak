@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Ported to gomc: run a resident gomc-server, capture motion samples with
+# Ported to stmak: run a resident stmakd, capture motion samples with
 # halsampler, and drive the machine with the rsh->gmi translator instead of
 # piping linuxcncrsh commands into `nc localhost 5007`.
 
-. "$(dirname "$0")/../../gomc-driver.sh"
+. "$(dirname "$0")/../../stmak-driver.sh"
 
 wait_for_pin() {
     pin="$1"
@@ -25,16 +25,16 @@ wait_for_pin() {
     exit 1
 }
 
-gomc-server -r motion-test.ini >server.log 2>&1 &
-gomcpid=$!
+stmakd -r motion-test.ini >server.log 2>&1 &
+stmakpid=$!
 samplerpid=""
-trap 'kill $samplerpid 2>/dev/null; kill $gomcpid 2>/dev/null; wait 2>/dev/null' EXIT
+trap 'kill $samplerpid 2>/dev/null; kill $stmakpid 2>/dev/null; wait 2>/dev/null' EXIT
 
 # Replaces a `grep milltask` loop with no failure branch: ask the status buffer
 # and fail loudly if the machine never finished starting up.
-GOMC_SRV=$gomcpid
-export GOMC_SRV
-gomc_wait_ready
+STMAK_SRV=$stmakpid
+export STMAK_SRV
+stmak_wait_ready
 
 wait_for_pin motion.in-position TRUE
 
@@ -64,7 +64,7 @@ sleep 0.5   # let the sampler subscribe before motion starts
 
     echo set mode mdi
     # The interpreter starts in the machine's units (G20 here — inch config,
-    # matching 2.9), so `g0x1` moves 1 inch. The HAL joint pins are gomc-mm:
+    # matching 2.9), so `g0x1` moves 1 inch. The HAL joint pins are stmak-mm:
     # wait for 25.4.
     dist=1
     dist_mm=25.4

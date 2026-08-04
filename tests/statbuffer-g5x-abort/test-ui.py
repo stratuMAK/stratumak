@@ -2,7 +2,7 @@
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import math
 import time
@@ -17,9 +17,9 @@ import re
 retval = 0
 
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -51,7 +51,7 @@ c.abort()
 c.wait_complete()
 
 # The program was aborted in g55; check.
-# gomc: the WS stat watch delivers with up to a few hundred ms lag — poll
+# stmak: the WS stat watch delivers with up to a few hundred ms lag — poll
 # until the post-abort state arrives instead of judging the first snapshot.
 deadline = time.time() + 2.0
 while time.time() < deadline:
@@ -66,7 +66,7 @@ if not 550 in s.gcodes:
 else:
     print("Current coordinate system is G55")
 
-# gomc reports positions and offsets in millimetres (mm-everywhere
+# stmak reports positions and offsets in millimetres (mm-everywhere
 # convention); the program/expectations here are inch.
 MM = 25.4
 

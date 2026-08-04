@@ -5,8 +5,8 @@
  *
  * The master library declares its documented realtime interface with
  * ECRT_RT_ATTR (master @c include/ecrt.h -> @c ecrt_rt.h), an overrideable
- * annotation macro.  Defining it as GOMC_NONBLOCKING @em before @c ecrt.h
- * is first pulled hands those annotations to gomc's function-effects check
+ * annotation macro.  Defining it as STMAK_NONBLOCKING @em before @c ecrt.h
+ * is first pulled hands those annotations to stmak's function-effects check
  * ("make rt-effects-check"): the documented rt_safe subset
  * (send/receive/domain/DC/state + the real/lreal PDO accessors) verifies
  * when called from RT context, and any other ecrt call (SDO/EoE/config)
@@ -38,10 +38,10 @@
 #ifndef _LCEC_ECRT_H_
 #define _LCEC_ECRT_H_
 
-#include "gomc/pkg/cmodule/gomc_rt_check.h"
+#include "stmak/pkg/cmodule/stmak_rt_check.h"
 
 #ifndef ECRT_RT_ATTR
-#define ECRT_RT_ATTR GOMC_NONBLOCKING
+#define ECRT_RT_ATTR STMAK_NONBLOCKING
 #endif
 
 #include "ecrt.h"

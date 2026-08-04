@@ -1,5 +1,5 @@
 package gostrport
-// Package strsender is a Go module for gomc-server that writes a test string
+// Package strsender is a Go module for stmakd that writes a test string
 // to a HAL port pin continuously. Used with str-receiver to test port pins.
 //
 // Install with:
@@ -18,13 +18,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 )
 
 func init() {
-	gomc.RegisterModule("strsender", newStrSender)
+	stmak.RegisterModule("strsender", newStrSender)
 }
 
 type strSender struct {
@@ -34,7 +34,7 @@ type strSender struct {
 	done   chan struct{}
 }
 
-func newStrSender(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+func newStrSender(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	m := &strSender{
 		logger: logger.With("module", name),
 		done:   make(chan struct{}),

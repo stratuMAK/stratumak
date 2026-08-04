@@ -27,7 +27,7 @@ import time
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 # Each move is 5 mm at 600 mm/min = 0.5 s, in G61 exact stop so segments do
 # not blend or chain — every one of them is the executing segment for long
@@ -35,9 +35,9 @@ import gomc_test
 POLL = 0.02
 
 s = gmi.Stat()
-c = gomc_test.Command()
+c = stmak_test.Command()
 
-gomc_test.wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
@@ -51,7 +51,7 @@ main_paths = set()  # full motion_file values seen for the main program
 
 c.auto(AUTO_RUN, 0)
 
-deadline = time.time() + 60 * gomc_test.scale()
+deadline = time.time() + 60 * stmak_test.scale()
 started = False
 while time.time() < deadline:
     s.poll()

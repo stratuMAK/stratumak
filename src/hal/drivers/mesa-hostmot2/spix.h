@@ -18,7 +18,7 @@
 #ifndef HAL_HM2_SPIX_H
 #define HAL_HM2_SPIX_H
 
-#include "gomc_rt_check.h"
+#include "stmak_rt_check.h"
 
 /*
  * Select which SPI channel(s) to probe. There are many SPI interfaces exposed
@@ -77,7 +77,7 @@ typedef struct __spix_port_t {
 	 * Called from the servo thread — implementations must be nonblocking
 	 * (the register exchange itself is each backend's trusted RT path).
 	 */
-	int (*transfer)(const struct __spix_port_t *port, uint32_t *buffer, size_t nelem, int rw) GOMC_NONBLOCKING;
+	int (*transfer)(const struct __spix_port_t *port, uint32_t *buffer, size_t nelem, int rw) STMAK_NONBLOCKING;
 } spix_port_t;
 
 #define SPIX_MAX_BOARDS	5			// One on each (traditional) CE for SPI ports 0 and 1

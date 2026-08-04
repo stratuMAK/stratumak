@@ -1,6 +1,6 @@
-# GOMC — Golang Machine Controller
+# STMAK — Golang Machine Controller
 
-> **Working title.** GOMC is an effort to push the high-value but aged concepts of
+> **Working title.** STMAK is an effort to push the high-value but aged concepts of
 > EMC/LinuxCNC to the forefront of modern industrial automation — without carrying
 > the burden of decades-old compatibility constraints.
 
@@ -16,14 +16,14 @@ What has aged is the surrounding infrastructure: NML message passing from the
 and an architecture that resists incremental modernization. Every attempt to
 improve one layer pulls in the weight of all others.
 
-GOMC takes a different path: **preserve the proven control concepts, rewrite the
+STMAK takes a different path: **preserve the proven control concepts, rewrite the
 plumbing.**
 
 ## Technical Approach
 
 ### Single-Process, Mixed Go/C Architecture
 
-GOMC runs as a single process with a unified address space:
+STMAK runs as a single process with a unified address space:
 
 - **Go runtime** handles non-real-time tasks: REST API, G-code interpretation,
   trajectory planning, configuration, MQTT, persistence
@@ -53,7 +53,7 @@ The short answer: **Go never runs in the real-time path.**
   role, but with compile-time type checking, real concurrency, and refactoring
   safety that an interpreted language cannot offer.
 - **A powerful standard ecosystem.** HTTP/WebSocket servers, TLS, JSON, MQTT,
-  databases — the entire modern API surface of GOMC is standard-library-grade
+  databases — the entire modern API surface of STMAK is standard-library-grade
   Go, with no dependency sprawl.
 - **Single static binary.** No interpreter, no virtualenv, no version drift on
   the deployment machine.
@@ -136,7 +136,7 @@ non-RT functions in a single component:
 database persistence, protocol gateways). Full access to Go's ecosystem,
 goroutines, and standard library.
 
-Both types share the same HAL signal namespace and are managed by the gomc
+Both types share the same HAL signal namespace and are managed by the stmak
 server process.
 
 ### EtherCAT Fieldbus
@@ -182,7 +182,7 @@ semantics.
 
 - **Not a fork that tries to stay compatible.** INI files, NML tools, and the
   old Python/Tcl interfaces are deliberately not carried forward.
-- **Not a competing project.** GOMC builds directly on LinuxCNC's proven
+- **Not a competing project.** STMAK builds directly on LinuxCNC's proven
   motion control, trajectory planning, and G-code interpretation. We acknowledge
   and respect the decades of engineering in that codebase.
 - **Not starting from scratch.** The rs274ngc interpreter, trajectory planner,
@@ -200,7 +200,7 @@ semantics.
 ## Building
 
 ```bash
-git clone -b gomc https://github.com/sittner/linuxcnc.git linuxcnc
+git clone -b stmak https://github.com/sittner/linuxcnc.git linuxcnc
 cd linuxcnc
 git submodule update --init
 
@@ -225,7 +225,7 @@ A future goal is migration to CMake.
 
 ```bash
 cd linuxcnc
-./bin/gomc-server configs/sim/axis/axis_mm.ini
+./bin/stmakd configs/sim/axis/axis_mm.ini
 ```
 
 **Terminal 2 — start a UI client (as many as you like):**
@@ -241,7 +241,7 @@ additional configuration.
 
 ## Multi-Instance Demo
 
-A single gomc-server process can host multiple independent CNC instances.
+A single stmakd process can host multiple independent CNC instances.
 Multiple UI clients can connect to the same or different instances
 simultaneously — state updates are synchronized in real time.
 
@@ -249,7 +249,7 @@ simultaneously — state updates are synchronized in real time.
 
 ```bash
 cd linuxcnc
-./bin/gomc-server configs/sim/axis/multiinst/multiinst.ini
+./bin/stmakd configs/sim/axis/multiinst/multiinst.ini
 ```
 
 **Terminal 2 — Axis client connected to mill1:**
@@ -292,10 +292,10 @@ GMC_INSTANCE=mill2 axis
 This project contains code under multiple open source licenses:
 
 - **GPL-2.0** — inherited LinuxCNC code (motion, HAL, interpreter, drivers, etc.)
-  and new `src/gomc` components by Sascha Ittner. See [COPYING](COPYING).
-- **LGPL-2.0** — HAL library (`hal_lib.c`, `gomc_hal.h`), originally by
+  and new `src/stmak` components by Sascha Ittner. See [COPYING](COPYING).
+- **LGPL-2.0** — HAL library (`hal_lib.c`, `stmak_hal.h`), originally by
   John Kasunich. See [COPYING.more](COPYING.more).
-- **LGPL-2.1** — RTAPI interface (`gomc_rtapi.h`) originally by John Kasunich
+- **LGPL-2.1** — RTAPI interface (`stmak_rtapi.h`) originally by John Kasunich
   and Paul Corner; GMI library headers (`src/gmi/lib/`) by Sascha Ittner.
 - **LGPL-2.1+** — Classic Ladder RT engine, originally by Marc Le Douarain.
 
@@ -303,7 +303,7 @@ See individual source file headers for per-file license and copyright details.
 
 ## Status
 
-**Lab-prototype stage.** GOMC has completed the automated half of a structured
+**Lab-prototype stage.** STMAK has completed the automated half of a structured
 production-readiness program and is moving onto supervised prototype machines.
 Not yet suitable for unattended production use.
 
@@ -332,7 +332,7 @@ Known limitations — read before deploying:
   network. Keep it on loopback or an isolated machine network. The plan is an
   external authentication gateway plus fine-grained in-process authorization —
   designed, not yet built.
-- **Safety.** GOMC is not a safety component. Operator protection must be
+- **Safety.** STMAK is not a safety component. Operator protection must be
   implemented in certified external hardware, independent of this software —
   see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
 - **Pending.** The review program's final human sign-off pass runs alongside
@@ -340,7 +340,7 @@ Known limitations — read before deploying:
   multi-day certification soak still to come.
 - **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
   not ported; some shipped example configurations still await migration to the
-  gomc model.
+  stmak model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been

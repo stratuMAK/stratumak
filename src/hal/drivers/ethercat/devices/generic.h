@@ -50,13 +50,13 @@
  */
 typedef struct {
   char name[LCEC_CONF_STR_MAXLEN]; /**< HAL pin name (without master/slave prefix). */
-  gomc_hal_type_t type;                 /**< HAL pin type (BIT, S32, U32, FLOAT). */
+  stmak_hal_type_t type;                 /**< HAL pin type (BIT, S32, U32, FLOAT). */
   LCEC_PDOENT_TYPE_T subType;      /**< Sub-type for FLOAT pins (signed, unsigned, IEEE 754). */
-  gomc_hal_float_t floatScale;          /**< Scale factor applied to FLOAT values on read/write. */
-  gomc_hal_float_t floatOffset;         /**< Offset applied to FLOAT values after scaling on read. */
+  stmak_hal_float_t floatScale;          /**< Scale factor applied to FLOAT values on read/write. */
+  stmak_hal_float_t floatOffset;         /**< Offset applied to FLOAT values after scaling on read. */
   uint8_t bitOffset;               /**< Bit offset within the PDO entry for complex sub-pins. */
   uint8_t bitLength;               /**< Number of bits occupied by this pin's value. */
-  int dir;               /**< HAL pin direction (GOMC_HAL_IN or GOMC_HAL_OUT). */
+  int dir;               /**< HAL pin direction (STMAK_HAL_IN or STMAK_HAL_OUT). */
   void *pin[LCEC_CONF_GENERIC_MAX_SUBPINS]; /**< Pointers to the registered HAL pin values. */
   uint16_t pdo_idx;                /**< CANopen object index of the mapped PDO entry. */
   uint8_t pdo_sidx;                /**< CANopen sub-index of the mapped PDO entry. */
@@ -72,7 +72,7 @@ typedef struct {
  * consumed so that subsequent calls append to the correct array positions.
  */
 typedef struct {
-  const gomc_log_t *log;            /**< Cached log handle (set from master->log). */
+  const stmak_log_t *log;            /**< Cached log handle (set from master->log). */
   const char       *comp_name;      /**< Component name for log messages (set from master->comp_name). */
   ec_pdo_entry_info_t *pdo_entries; /**< Next free slot in the PDO entry array. */
   ec_pdo_info_t *pdos;              /**< Next free slot in the PDO array. */

@@ -34,29 +34,29 @@
 
 /** @brief HAL pin descriptors exported for every master instance, including the global summary master. */
 static const lcec_pindesc_t master_global_pins[] = {
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_master_data_t, slaves_responding), "%s.slaves-responding" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, state_init), "%s.state-init" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, state_preop), "%s.state-preop" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, state_safeop), "%s.state-safeop" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, state_op), "%s.state-op" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, link_up), "%s.link-up" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_master_data_t, all_op), "%s.all-op" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_master_data_t, slaves_responding), "%s.slaves-responding" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, state_init), "%s.state-init" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, state_preop), "%s.state-preop" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, state_safeop), "%s.state-safeop" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, state_op), "%s.state-op" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, link_up), "%s.link-up" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_master_data_t, all_op), "%s.all-op" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
  * @brief HAL pin descriptors exported only for individual (non-global) master instances.
  *
- * These pins are conditionally compiled based on @c GOMC_RTAPI_TASK_PLL_SUPPORT and
+ * These pins are conditionally compiled based on @c STMAK_RTAPI_TASK_PLL_SUPPORT and
  * provide PLL synchronisation diagnostics for the DC reference clock.
  */
 static const lcec_pindesc_t master_pins[] = {
-#ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_master_data_t, pll_err), "%s.pll-err" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_master_data_t, pll_out), "%s.pll-out" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_master_data_t, pll_reset_cnt), "%s.pll-reset-count" },
+#ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_master_data_t, pll_err), "%s.pll-err" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_master_data_t, pll_out), "%s.pll-out" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_master_data_t, pll_reset_cnt), "%s.pll-reset-count" },
 #endif
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -65,7 +65,7 @@ static const lcec_pindesc_t master_pins[] = {
  * Allocates a zeroed @c lcec_master_data_t from HAL shared memory and registers
  * all HAL output pins described by @c master_global_pins.  When @p global is
  * zero the per-master pins from @c master_pins are also registered (includes
- * PLL diagnostic pins when @c GOMC_RTAPI_TASK_PLL_SUPPORT is defined).
+ * PLL diagnostic pins when @c STMAK_RTAPI_TASK_PLL_SUPPORT is defined).
  *
  * @param pfx    HAL name prefix for all pins (e.g. @c "lcec.0").
  * @param global Non-zero when creating the aggregate "global" summary master;
@@ -79,7 +79,7 @@ lcec_master_data_t *lcec_init_master_hal(const cmod_env_t *env, int comp_id, con
 
   // alloc hal data
   if ((hal_data = env->hal->malloc(env->hal->ctx, sizeof(lcec_master_data_t))) == NULL) {
-    gomc_log_errorf(env->log, pfx, "hal_malloc() for %s failed", pfx);
+    stmak_log_errorf(env->log, pfx, "hal_malloc() for %s failed", pfx);
     return NULL;
   }
   memset(hal_data, 0, sizeof(lcec_master_data_t));
@@ -146,11 +146,11 @@ void lcec_update_master_hal(lcec_master_data_t *hal_data, ec_master_state_t *ms,
 lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *master_conf) {
   lcec_master_t *master;
 
-#ifndef GOMC_RTAPI_TASK_PLL_SUPPORT
+#ifndef STMAK_RTAPI_TASK_PLL_SUPPORT
   if (master_conf->refClockSyncCycles < 0) {
-    gomc_log_errorf(env->log, "ethercat",
+    stmak_log_errorf(env->log, "ethercat",
       "Master %d: refClockSyncCycles < 0"
-      " (sync master to ref) not available (GOMC_RTAPI_TASK_PLL_SUPPORT missing)",
+      " (sync master to ref) not available (STMAK_RTAPI_TASK_PLL_SUPPORT missing)",
       master_conf->index);
     goto fail0;
   }
@@ -159,7 +159,7 @@ lcec_master_t * lcec_create_master(const cmod_env_t *env, LCEC_CONF_MASTER_T *ma
   // alloc master memory
   master = env->rtapi->calloc(env->rtapi->ctx, sizeof(lcec_master_t));
   if (master == NULL) {
-    gomc_log_errorf(env->log, "ethercat",
+    stmak_log_errorf(env->log, "ethercat",
         "Unable to allocate master %d structure memory", master_conf->index);
     goto fail0;
   }
@@ -365,12 +365,12 @@ void lcec_shutdown_master(lcec_master_t *master) {
  * sched_yield — acceptable here only because of the bounded hold times.
  * A try-lock + skip redesign for the state-polling sites is tracked in
  * RT_HARDENING_CHECKLIST.md. */
-static void lcec_master_rt_lock(lcec_master_t *master) GOMC_NONBLOCKING;
-GOMC_NONBLOCKING_TRUSTED_BEGIN
+static void lcec_master_rt_lock(lcec_master_t *master) STMAK_NONBLOCKING;
+STMAK_NONBLOCKING_TRUSTED_BEGIN
 static void lcec_master_rt_lock(lcec_master_t *master) {
   rtapi_mutex_get(&master->mutex);
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
 void lcec_read_master(void *arg, long period) {
   lcec_master_t *master = (lcec_master_t *) arg;

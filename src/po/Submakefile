@@ -63,7 +63,7 @@ pofiles: po/linuxcnc.pot po/gmoccapy/gmoccapy.pot
 po/linuxcnc.pot: $(LIBRS274SRCS) emc/rs274ngc/rs274ngc_return.hh
 po/linuxcnc.pot: emc/motion/control.c emc/motion/command.c emc/motion/motion.c emc/motion/homing.c
 
-# Two groups of sources were listed here until the gomc migration deleted them,
+# Two groups of sources were listed here until the stmak migration deleted them,
 # which left `make pofiles` failing outright with "No rule to make target
 # emc/task/emctaskmain.cc":
 #

@@ -1,5 +1,5 @@
 package gopassthrough
-// Package passthrough is a Go module for gomc-server that copies input pins
+// Package passthrough is a Go module for stmakd that copies input pins
 // to output pins. It demonstrates the basic gomod pattern with all pin types.
 //
 // Install with:
@@ -16,13 +16,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 )
 
 func init() {
-	gomc.RegisterModule("passthrough", newPassthrough)
+	stmak.RegisterModule("passthrough", newPassthrough)
 }
 
 type passthrough struct {
@@ -41,7 +41,7 @@ type passthrough struct {
 	done     chan struct{}
 }
 
-func newPassthrough(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+func newPassthrough(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	m := &passthrough{
 		logger: logger.With("module", name),
 		done:   make(chan struct{}),

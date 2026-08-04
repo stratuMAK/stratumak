@@ -5,7 +5,7 @@ Guards the fix in `iotask: fix unrecoverable abort wedge` (STATE_MACHINE_REVIEW_
 findings T1/T2).
 
 2.9's iocontrol is a free-running loop that services the tool-change handshake and the
-abort/fault handshakes as non-blocking per-cycle state. The gomc cmod port turned the
+abort/fault handshakes as non-blocking per-cycle state. The stmak cmod port turned the
 tool-change wait into a BLOCKING cgo busy-wait on the sequencer goroutine, and the v2 port
 (iov2) lost every abort escape. So an abort/estop issued while a tool change was in progress —
 and the toolchanger had not (yet) asserted `tool-changed` — froze the sequencer inside cgo.

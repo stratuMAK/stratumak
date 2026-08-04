@@ -3,7 +3,7 @@
  *
  * Re-expression of the classic tests/remap/spindle test, which used a Python
  * remap handler (M500 py=m500) to introspect the interpreter's spindle state
- * (self.speed[] / self.active_spindle) from inside a remap.  gomc removed the
+ * (self.speed[] / self.active_spindle) from inside a remap.  stmak removed the
  * embedded Python interpreter, so the same capability is exercised here through
  * the C interp_ext mechanism: a remap prolog for M500 that reads the per-spindle
  * commanded speed via the interp_ctx get_speed() accessor and logs it, so a
@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "interp_ext_api.h"
 
 /* Number of spindles to introspect (matches [TRAJ]SPINDLES in the test ini). */

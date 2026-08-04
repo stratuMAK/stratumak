@@ -4,12 +4,12 @@
 `internal/halrest` (~659), `internal/inirest` (~87), `internal/mqttbridge` (~861),
 `internal/halscope` (~1035). Phases 4–6 per `PRODUCTION_READINESS.md`. Reviewed together
 because they share one lens: **untrusted-wire allocation/panic → controller death** (the risk
-class the ADS review surfaced — see `gomc-review-learnings` #5) plus goroutine/lifecycle safety.
+class the ADS review surfaced — see `stmak-review-learnings` #5) plus goroutine/lifecycle safety.
 
 **Exposure:** the REST/WS server binds `127.0.0.1:5080` by default but a deployment can set
 `GMC_REST_ADDR` / `[GMC]REST_ADDR` to `0.0.0.0` for a remote HMI. Crucially, the **cross-site
 WebSocket hijack (N1) works even on the loopback default** — a browser tab is enough. A crash of
-`gomc-server` is an uncontrolled machine stop.
+`stmakd` is an uncontrolled machine stop.
 
 **Method (Tier-2 adversarial):** primary read-through + two independent refutation passes (one on
 `apiserver`, one on `halrest`/`inirest`/`mqttbridge`); `halscope` read directly. Cross-checked
@@ -84,7 +84,7 @@ debugging without exposing it by default.
 REST calls race each other, since every `net/http` request is its own goroutine) → torn slice /
 double-`dlclose` / UAF. halrest itself adds no unsafe allocation — the danger is purely the
 unlocked launcher state. **This is exactly the open Tier-1 launcher finding L-3**; the fix (a
-locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock) belongs there, not
+locking design that avoids the `stmak_ini_get` `//export` re-entrancy deadlock) belongs there, not
 in halrest. Recorded here as confirmation that the REST surface makes L-3 remotely reachable.
 **RESOLVED 2026-07-22 (bookkeeping; the fix landed 2026-07-21).** The full locking fix is in the
 launcher — `arenaMu` around the arena append/free, `modMu` serialising `loadModuleNamed`/
@@ -95,7 +95,7 @@ gate returning `ESHUTDOWN` to stragglers; mutation-verified by `-race` `TestLoad
 **RULING 2026-07-21 (user): runtime REST load/unload IS a supported production path**, so L-3
 gets the FULL locking fix (`arenaMu` around the arena append/free + `modMu` serialising the REST
 handlers, snapshot-under-lock in the shutdown iterators) — not the shrink. Now the
-highest-priority open item. See `gomc-rest-auth-and-loadunload-rulings` (auto-memory).
+highest-priority open item. See `stmak-rest-auth-and-loadunload-rulings` (auto-memory).
 
 ---
 
@@ -342,8 +342,8 @@ control**, is an OPEN design question, and until it lands the surface **binds lo
 Key decisions: (a) **robustness is intrinsic** — the crash/DoS hardening above stands regardless
 of binding, because the endpoints will be exposed eventually; (b) the auth *mechanism* (authN,
 TLS, coarse allow/deny) is an **external** reverse-proxy / API-gateway (a product, not built into
-gomc); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to gomc's
-command semantics — the expected split is gateway→verified-identity, gomc enforces per-command
+stmak); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to stmak's
+command semantics — the expected split is gateway→verified-identity, stmak enforces per-command
 permissions at `handleAPIRequest`/`handleCall` (one thin app-side seam, future work); (d) **N1
 stays required** even with a gateway — cross-site WS hijacking is a browser-origin attack the
 gateway can't see. Belongs in the Safety-boundary / security-model doc.

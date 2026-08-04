@@ -10,7 +10,7 @@
 #include "interp_shim.h"
 
 #include "rs274ngc_interp.hh"
-#include "gomc/generated/gmi/canon/canon_api.h"
+#include "stmak/generated/gmi/canon/canon_api.h"
 #include "interp_parameter_io.hh"
 
 struct interp_handle {

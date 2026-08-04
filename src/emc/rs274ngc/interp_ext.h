@@ -17,7 +17,7 @@
 #ifndef INTERP_EXT_H
 #define INTERP_EXT_H
 
-#define INTERP_CTX_API_CGO  // skip gomc_api.h registry helpers
+#define INTERP_CTX_API_CGO  // skip stmak_api.h registry helpers
 #define INTERP_EXT_API_CGO
 #include "interp_ext_api.h"
 #undef INTERP_CTX_API_CGO

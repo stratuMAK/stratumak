@@ -1,15 +1,15 @@
 #!/bin/bash
-# mdi-queue/simple-queue-buster ported to the gomc REST/gmi path.
+# mdi-queue/simple-queue-buster ported to the stmak REST/gmi path.
 #
 # Classic drove the linuxcncrsh telnet server and fired a big blob of MDI
 # commands that interleave `t1 m6`/`t2 m6` tool changes (the "queue busters",
 # which force interp synchronisation) with `m100 p<i>` calls, checking that
-# every M100 fires in order and none are dropped.  gomc has no telnet rsh, so
+# every M100 fires in order and none are dropped.  stmak has no telnet rsh, so
 # the same command stream is translated to gmi by ../../rsh2gmi.py; M100 is
 # captured by the mcode_coord_log cmod (format=p -> just "P is", matching the
-# classic mdi-queue subs/M100 which echoed only $1).  gomc's mdi() is synchronous.
+# classic mdi-queue subs/M100 which echoed only $1).  stmak's mdi() is synchronous.
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f gcode-output sim.var sim.var.bak
 
 # Build the command stream + the expected M100 log, switching tools every few
@@ -33,8 +33,8 @@ for i in $(seq 0 1000); do
 done
 printf 'P is -2.000000\n' >> expected-gcode-output
 
-gomc_start_server --inherit sim.ini
-gomc_wait_ready
+stmak_start_server --inherit sim.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

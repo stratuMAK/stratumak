@@ -12,7 +12,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -21,8 +21,8 @@
 #define MAX_FILTERS 50
 
 typedef struct {
-    gomc_hal_bit_t *in;
-    gomc_hal_bit_t *out;
+    stmak_hal_bit_t *in;
+    stmak_hal_bit_t *out;
     int32_t state;
 } filter_t;
 
@@ -30,7 +30,7 @@ typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     int count;
     int32_t delay;
     filter_t *filters;
@@ -81,7 +81,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (count < 1 || count > MAX_FILTERS) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "count=%d out of range (1..%d)", count, MAX_FILTERS);
         return -EINVAL;
     }
@@ -98,20 +98,20 @@ int New(const cmod_env_t *env, const char *name,
     inst->filters = (filter_t *)((char *)inst + sizeof(inst_t));
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     /* export delay param */
-    r = gomc_hal_param_s32_newf(env->hal, GOMC_HAL_RW, &inst->delay,
+    r = stmak_hal_param_s32_newf(env->hal, STMAK_HAL_RW, &inst->delay,
                                 inst->comp_id, "%s.delay", name);
     if (r != 0) goto err;
 
     /* export per-filter pins */
     for (i = 0; i < count; i++) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->filters[i].in,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->filters[i].in,
                                   inst->comp_id, "%s.%d.in", name, i);
         if (r != 0) goto err;
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &inst->filters[i].out,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &inst->filters[i].out,
                                   inst->comp_id, "%s.%d.out", name, i);
         if (r != 0) goto err;
         inst->filters[i].state = 0;

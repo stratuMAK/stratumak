@@ -36,14 +36,14 @@
  * @brief Per-channel HAL pins and PDO offsets for one EL31x4 input channel.
  */
 typedef struct {
-  gomc_hal_bit_t *overrange;      /**< HAL bit output: signal exceeds measurable range (object 0x6000+n, subindex 0x02). */
-  gomc_hal_bit_t *underrange;     /**< HAL bit output: signal is below measurable range (object 0x6000+n, subindex 0x01). */
-  gomc_hal_bit_t *error;          /**< HAL bit output: channel error flag (object 0x6000+n, subindex 0x07). */
-  gomc_hal_bit_t *sync_err;       /**< HAL bit output: synchronisation error flag (object 0x6000+n, subindex 0x0E). */
-  gomc_hal_s32_t *raw_val;        /**< HAL s32 output: raw 16-bit signed ADC value from the terminal. */
-  gomc_hal_float_t *scale;        /**< HAL float I/O: multiplier applied to the normalised ADC value (default 1.0). */
-  gomc_hal_float_t *bias;         /**< HAL float I/O: offset added after scaling (default 0.0). */
-  gomc_hal_float_t *val;          /**< HAL float output: final value = bias + scale * raw / 0x7fff. */
+  stmak_hal_bit_t *overrange;      /**< HAL bit output: signal exceeds measurable range (object 0x6000+n, subindex 0x02). */
+  stmak_hal_bit_t *underrange;     /**< HAL bit output: signal is below measurable range (object 0x6000+n, subindex 0x01). */
+  stmak_hal_bit_t *error;          /**< HAL bit output: channel error flag (object 0x6000+n, subindex 0x07). */
+  stmak_hal_bit_t *sync_err;       /**< HAL bit output: synchronisation error flag (object 0x6000+n, subindex 0x0E). */
+  stmak_hal_s32_t *raw_val;        /**< HAL s32 output: raw 16-bit signed ADC value from the terminal. */
+  stmak_hal_float_t *scale;        /**< HAL float I/O: multiplier applied to the normalised ADC value (default 1.0). */
+  stmak_hal_float_t *bias;         /**< HAL float I/O: offset added after scaling (default 0.0). */
+  stmak_hal_float_t *val;          /**< HAL float output: final value = bias + scale * raw / 0x7fff. */
   unsigned int ovr_pdo_os;   /**< Byte offset of the overrange bit in the EtherCAT process data image. */
   unsigned int ovr_pdo_bp;   /**< Bit position of the overrange flag within its byte. */
   unsigned int udr_pdo_os;   /**< Byte offset of the underrange bit in the EtherCAT process data image. */
@@ -56,15 +56,15 @@ typedef struct {
 } lcec_el31x4_chan_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,error), "%s.%s.%s.ain-%d-error" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,sync_err), "%s.%s.%s.ain-%d-sync-err" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,overrange), "%s.%s.%s.ain-%d-overrange" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,underrange), "%s.%s.%s.ain-%d-underrange" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,raw_val), "%s.%s.%s.ain-%d-raw" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el31x4_chan_t ,val), "%s.%s.%s.ain-%d-val" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_el31x4_chan_t ,scale), "%s.%s.%s.ain-%d-scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_el31x4_chan_t ,bias), "%s.%s.%s.ain-%d-bias" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,error), "%s.%s.%s.ain-%d-error" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,sync_err), "%s.%s.%s.ain-%d-sync-err" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,overrange), "%s.%s.%s.ain-%d-overrange" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,underrange), "%s.%s.%s.ain-%d-underrange" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,raw_val), "%s.%s.%s.ain-%d-raw" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el31x4_chan_t ,val), "%s.%s.%s.ain-%d-val" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_el31x4_chan_t ,scale), "%s.%s.%s.ain-%d-scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_el31x4_chan_t ,bias), "%s.%s.%s.ain-%d-bias" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -74,7 +74,7 @@ typedef struct {
   lcec_el31x4_chan_t chans[LCEC_EL31x4_CHANS]; /**< Per-channel data for all four analog inputs. */
 } lcec_el31x4_data_t;
 
-void lcec_el31x4_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el31x4_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise an EL31x4 slave: allocate HAL memory, register PDOs, and create HAL pins.

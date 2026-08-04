@@ -1,8 +1,8 @@
 #!/bin/bash
-# Re-expression of the classic Python remap/spindle test on gomc.
+# Re-expression of the classic Python remap/spindle test on stmak.
 #
 # The classic test used a Python remap handler (M500 py=m500) to introspect the
-# interpreter's spindle state.  gomc removed the embedded Python interpreter, so
+# interpreter's spindle state.  stmak removed the embedded Python interpreter, so
 # the M500 remap is now a C interp_ext prolog (cmod test_spindle_remap) that reads
 # the per-spindle commanded speed via the interp_ctx get_speed() accessor.  We run
 # a spindle sequence through MDI and confirm the prolog saw the live speeds:
@@ -12,10 +12,10 @@
 #   S2000 $1 M4 $1                   -> spindle 1 = 2000
 #   M500 P2                          -> speeds [1000, 2000, 0]
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server test.ini
-gomc_wait_ready
+stmak_start_server test.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

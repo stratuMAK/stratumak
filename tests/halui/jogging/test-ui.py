@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API. The classic test drove halui.* pins through a
-# userspace `python-ui` HAL component wired in postgui.hal; gomc has no
+# Ported to the stmak REST/WS API. The classic test drove halui.* pins through a
+# userspace `python-ui` HAL component wired in postgui.hal; stmak has no
 # userspace HAL components, so we drive the halui/joint pins directly via
 # halcmd, and use the gmi client for task state/mode. The `h[...]` shim below
 # maps the old logical pin names to the real HAL pins/signals.
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import subprocess
@@ -140,11 +140,11 @@ def jog_plus(name, target):
 def wait_for_pin_value(pin_name, target_value, timeout=None):
     # h[] is a shim over halcmd/status rather than a plain HAL pin, so this keeps
     # its own loop (and its diagnostics) rather than routing through
-    # gomc_test.wait_pin. The deadline was 2 s — a bet on an idle machine; it now
+    # stmak_test.wait_pin. The deadline was 2 s — a bet on an idle machine; it now
     # defaults to the suite's, which costs nothing on the happy path because the
     # loop exits as soon as the pin reads the target value.
     if timeout is None:
-        timeout = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
+        timeout = stmak_test.DEFAULT_TIMEOUT * stmak_test.scale()
     start_time = time.time()
     while h[pin_name] != target_value:
         if (time.time() - start_time) > timeout:
@@ -209,7 +209,7 @@ def jog_joint(joint_number, target):
 
 
 # ---- task command/status via gmi ----
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)

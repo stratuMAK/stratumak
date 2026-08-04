@@ -4,7 +4,7 @@
  *
  * Re-expression of the classic tests/remap/oword-pycall test, which exercised
  * Python O-word subroutines (o<square>, o<multiply>) with fixed and variable
- * argument counts and return values surfaced as #<_value>.  gomc removed the
+ * argument counts and return values surfaced as #<_value>.  stmak removed the
  * embedded Python interpreter, so the same is done via the C interp_ext
  * register_oword mechanism:
  *
@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "interp_ext_api.h"
 
 typedef struct {

@@ -1,0 +1,219 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package halparse
+
+import (
+	"fmt"
+	"strings"
+
+	halcmd "github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
+)
+
+// ExecutionError wraps a SourceLoc and an underlying error for reporting
+// execution failures with file:line context.
+type ExecutionError struct {
+	Loc SourceLoc
+	Err error
+}
+
+func (e *ExecutionError) Error() string {
+	return fmt.Sprintf("%s:%d: %s", e.Loc.File, e.Loc.Line, e.Err)
+}
+
+func (e *ExecutionError) Unwrap() error { return e.Err }
+
+// executeToken dispatches a single Token to the corresponding halcmd function.
+func executeToken(tok Token) error {
+	var err error
+	switch d := tok.Data.(type) {
+	case *NetToken:
+		err = halcmd.Net(d.Signal, d.Pins...)
+	case *SetPToken:
+		err = halcmd.SetP(d.Name, d.Value)
+	case *SetSToken:
+		err = halcmd.SetS(d.Name, d.Value)
+	case *GetPToken:
+		_, err = halcmd.GetP(d.Name)
+	case *GetSToken:
+		_, err = halcmd.GetS(d.Name)
+	case *AddFToken:
+		err = halcmd.AddF(d.Funct, d.Thread, d.Pos)
+	case *DelFToken:
+		err = halcmd.DelF(d.Funct, d.Thread)
+	case *NewSigToken:
+		err = halcmd.NewSig(d.Name, d.SigType)
+	case *DelSigToken:
+		err = halcmd.DelSig(d.Name)
+	case *NewThreadToken:
+		err = halcmd.CreateThreadCPU(d.Name, d.Period, d.FP, d.CPU)
+	case *DelThreadToken:
+		err = halcmd.ThreadDelete(d.Name)
+	case *RetainToken:
+		err = halcmd.Retain(d.Name)
+	case *UnretainToken:
+		err = halcmd.Unretain(d.Name)
+	case *LinkPSToken:
+		err = halcmd.LinkPS(d.Pin, d.Sig)
+	case *LinkSPToken:
+		err = halcmd.LinkSP(d.Sig, d.Pin)
+	case *LinkPPToken:
+		// linkpp is deprecated; treat Pin2 as signal name (same as linkps)
+		err = halcmd.LinkPS(d.Pin1, d.Pin2)
+	case *UnlinkPToken:
+		err = halcmd.UnlinkP(d.Pin)
+	case *AliasToken:
+		err = halcmd.Alias(aliasKindStr(d.Kind), d.Name, d.Alias)
+	case *UnAliasToken:
+		err = halcmd.UnAlias(aliasKindStr(d.Kind), d.Name)
+	case *StartToken:
+		err = halcmd.StartThreads()
+	case *StopToken:
+		err = halcmd.StopThreads()
+	case *LockToken:
+		err = halcmd.SetLock(int(d.Level))
+	case *UnlockToken:
+		// unlock clears the named lock bits from the CURRENT lock (upstream
+		// do_unlock_cmd semantics): "unlock all" → 0, "unlock tune" → current &^ tune.
+		err = halcmd.SetLock(halcmd.GetLock() &^ int(d.Level))
+	case *ListToken:
+		_, err = halcmd.List(halObjTypeToString(d.ObjType), d.Patterns...)
+	case *ShowToken:
+		_, err = halcmd.Show(halObjTypeToString(d.ObjType), d.Patterns...)
+	case *SaveToken:
+		_, err = halcmd.Save(saveTypeToString(d.SaveType), d.File)
+	case *StatusToken:
+		// The one-shot `status` renders the classic HAL lock-status block (upstream
+		// halcmd prints it as part of `status`); this is what `halrun -f | grep lock`
+		// consumes. Only the lock block is emitted — the general status summary has
+		// its own "RT Lock:"/"Mem Lock:" lines that would pollute a `grep lock`.
+		fmt.Print(halcmd.LockStatusString())
+	case *DebugToken:
+		err = halcmd.SetDebug(d.Level)
+	case *PTypeToken:
+		_, err = halcmd.PType(d.Name)
+	case *STypeToken:
+		_, err = halcmd.SType(d.Name)
+	case *EchoToken:
+		return nil
+	case *UnEchoToken:
+		return nil
+	case *PrintToken:
+		return nil
+	case *LoadToken:
+		// The "load" command is for C and Go plugin modules.  It is handled
+		// by the launcher via IterLoads, never by executeToken directly.
+		return &ExecutionError{
+			Loc: tok.Location,
+			Err: fmt.Errorf("load command cannot be executed directly; use the launcher"),
+		}
+	default:
+		return &ExecutionError{
+			Loc: tok.Location,
+			Err: fmt.Errorf("unknown token type %T", tok.Data),
+		}
+	}
+	if err != nil {
+		return &ExecutionError{Loc: tok.Location, Err: err}
+	}
+	return nil
+}
+
+// Execute runs the remaining HAL commands (net, addf, setp, etc.).
+// Must be called after Load().
+func (r *ParseResult) Execute() error {
+	for _, tok := range r.HALCmd {
+		if err := executeToken(tok); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// IterLoads calls fn once for each instance described by "load" command tokens
+// in ParseResult.Loads, passing the module path, instance name, and argument
+// slice.
+//
+// When a LoadToken has no explicit Names, a single call is made with the default
+// name derived from the module path (basename without .so).  When Names are set
+// (via the <name1,name2,...> syntax parseLoad accepts), fn is called once per name.
+func (r *ParseResult) IterLoads(fn func(path string, name string, args []string) error) error {
+	for _, tok := range r.Loads {
+		d, ok := tok.Data.(*LoadToken)
+		if !ok {
+			continue
+		}
+		names := d.Names
+		if len(names) == 0 {
+			// Default: basename without .so extension.
+			base := d.Path
+			if i := strings.LastIndex(base, "/"); i >= 0 {
+				base = base[i+1:]
+			}
+			base = strings.TrimSuffix(base, ".so")
+			names = []string{base}
+		}
+		for _, name := range names {
+			if err := fn(d.Path, name, d.Args); err != nil {
+				return &ExecutionError{Loc: tok.Location, Err: err}
+			}
+		}
+	}
+	return nil
+}
+
+// aliasKindStr converts an AliasKind enum to the string accepted by Alias()/UnAlias().
+func aliasKindStr(k AliasKind) string {
+	switch k {
+	case AliasPin:
+		return "pin"
+	case AliasParam:
+		return "param"
+	default:
+		return "pin"
+	}
+}
+
+// halObjTypeToString converts a HalObjType enum to the string accepted by List()/Show().
+func halObjTypeToString(t HalObjType) string {
+	switch t {
+	case ObjPin:
+		return "pin"
+	case ObjSig:
+		return "sig"
+	case ObjParam:
+		return "param"
+	case ObjFunct:
+		return "funct"
+	case ObjThread:
+		return "thread"
+	case ObjComp:
+		return "comp"
+	case ObjAll:
+		return "all"
+	default:
+		return "all"
+	}
+}
+
+// saveTypeToString converts a SaveType enum to the string accepted by Save().
+func saveTypeToString(t SaveType) string {
+	switch t {
+	case SaveComp:
+		return "comp"
+	case SaveSig:
+		return "sig"
+	case SaveLink:
+		return "link"
+	case SaveNet:
+		return "net"
+	case SaveParam:
+		return "param"
+	case SaveThread:
+		return "thread"
+	case SaveAll:
+		return "all"
+	default:
+		return "all"
+	}
+}

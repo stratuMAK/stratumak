@@ -1,0 +1,510 @@
+# stmak/Submakefile - Go-based LinuxCNC server (stmakd)
+
+
+# Helper variables for string manipulation
+comma := ,
+space := $(subst ,, )
+
+# Build directory for absolute paths
+TOP := $(shell cd ..; pwd)
+
+# Package path for -ldflags -X injection
+STMAK_LDFLAGS_PKG := github.com/stratuMAK/stratumak/src/stmak/internal/config
+
+# The stmak source tree. Baked as the INSTALLED location in both layouts, on
+# purpose: the build needs the tree in the source directory, which the installed
+# path does not name until `make install` has run, so a compile-time branch here
+# could only ever be right for one of the two. $STMAK_DIR selects it instead —
+# set by scripts/rip-environment for a run-in-place tree and by the modcompile
+# recipes below for the build. See config.StmakDir().
+EMC2_STMAK_DIR := $(datadir)/linuxcnc/stmak
+
+# Where the stmak source actually lives while we are building it.
+STMAK_SRC_DIR := $(TOP)/src/stmak
+
+# Cmod include directory - where stmak_*.h headers are
+ifeq ($(RUN_IN_PLACE),yes)
+EMC2_CMOD_INCLUDE_DIR := $(EMC2_HOME)/src/stmak/pkg/cmodule
+EMC2_WEBAPP_DIR := $(EMC2_HOME)/share/stmak/webapp
+else
+# Where stmak-install actually puts stmak_*.h: inside the installed stmak tree, at
+# the same offset the RIP value has inside the source tree. It used to say
+# $(includedir)/linuxcnc/cmod, which nothing ever installed -- so every
+# `modcompile <x>.comp --install` on a packaged system died on the first
+# #include, silently, because a missing -I is not an error to gcc.
+EMC2_CMOD_INCLUDE_DIR := $(datadir)/linuxcnc/stmak/pkg/cmodule
+# Under the directory the package already owns, not a top-level $(datadir)/stmak:
+# on a distribution install that would be /usr/share/stmak, a generic name no
+# single package should claim. The RIP tree above keeps share/stmak/webapp.
+EMC2_WEBAPP_DIR := $(datadir)/linuxcnc/webapp
+endif
+
+# Comma-separated list of enabled optional Go module tags.
+# modcompile uses this to filter conditional entries in packages.conf.
+STMAK_BUILD_FLAGS := $(subst $(space),$(comma),$(strip \
+    $(if $(filter yes,$(BUILD_ADSSERVER)),ADSSERVER) \
+    $(if $(filter yes,$(BUILD_CLASSICLADDER)),CLASSICLADDER) \
+    $(if $(filter yes,$(BUILD_HALSCOPE)),HALSCOPE) \
+    $(if $(filter yes,$(BUILD_EMCCALIB)),EMCCALIB) \
+    $(if $(filter yes,$(BUILD_HALJSON)),HALJSON) \
+    $(if $(filter yes,$(BUILD_NGCPREVIEW)),NGCPREVIEW) \
+    $(if $(filter yes,$(BUILD_MILLTASK_GO)),MILLTASK_GO) \
+    $(if $(filter yes,$(BUILD_MQTTBRIDGE)),MQTTBRIDGE) \
+    $(if $(filter yes,$(BUILD_PYVCP)),PYVCP) \
+    $(if $(filter yes,$(BUILD_TASKTEST)),TASKTEST) \
+    $(if $(filter yes,$(BUILD_PERSIST_SQLITE)),PERSIST_SQLITE) \
+    $(if $(filter yes,$(BUILD_TOOLTABLE)),TOOLTABLE)))
+
+# Compile-time variables injected via -ldflags
+STMAK_LDFLAGS := \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2Home=$(EMC2_HOME)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2BinDir=$(EMC2_BIN_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2TclDir=$(EMC2_TCL_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2HelpDir=$(EMC2_HELP_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2RtlibDir=$(EMC2_RTLIB_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2CmodDir=$(EMC2_CMOD_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2CmodIncludeDir=$(EMC2_CMOD_INCLUDE_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2StmakDir=$(EMC2_STMAK_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2StateDir=$(EMC2_STATE_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2LibexecDir=$(EMC2_LIBEXEC_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).GoBinary=$(GO)' \
+    -X '$(STMAK_LDFLAGS_PKG).CCompiler=$(CC)' \
+    -X '$(STMAK_LDFLAGS_PKG).CxxCompiler=$(CXX)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2ConfigPath=$(LINUXCNC_CONFIG_PATH)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2NCFilesDir=$(EMC2_NCFILES_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2LangDir=$(EMC2_LANG_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2ImageDir=$(EMC2_IMAGEDIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2TclLibDir=$(EMC2_TCL_LIB_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).HalibDir=$(HALLIB_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2WebAppDir=$(EMC2_WEBAPP_DIR)' \
+    -X '$(STMAK_LDFLAGS_PKG).EMC2Version=$(EMC2VERSION)' \
+    -X '$(STMAK_LDFLAGS_PKG).RunInPlace=$(RUN_IN_PLACE)' \
+    -X '$(STMAK_LDFLAGS_PKG).ModExt=$(MODULE_EXT)' \
+    -X '$(STMAK_LDFLAGS_PKG).KernelVers=$(kernelvers)' \
+    -X '$(STMAK_LDFLAGS_PKG).BuildFlags=$(STMAK_BUILD_FLAGS)'
+
+# Generated imports file for compiled-in Go modules.
+IMPORTS_GENERATED := stmak/cmd/stmakd/imports_generated.go
+
+# All hand-written source files in the stmak module (recursive wildcard for
+# sub-packages).  Make will rebuild when any of them changes.  No generated
+# files here — deliberately: a parse-time wildcard over stmak/generated/ would
+# be empty on a fresh build, so the dependency graph would differ between the
+# first and second run.  Generated GMI Go files reach ../bin/stmakd as
+# injected prerequisites from gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO))
+# instead.
+#
+# The .c/.cc/.h files matter as much as the .go ones: several packages carry
+# cgo sources (classicladder's RT engine, hallib, halscope, the interp shim),
+# and leaving them out let an edited engine link a stale binary with no
+# warning. .cc was missing from that list while the comment claimed otherwise,
+# so the one C++ translation unit in the tree -- the interp shim it names --
+# was exactly the file an edit to which rebuilt nothing.
+STMAK_SRC_DIRS := stmak stmak/cmd/* stmak/pkg/* stmak/internal/* \
+    stmak/internal/*/* stmak/internal/*/*/*
+STMAK_SRC_BASE := $(filter-out $(IMPORTS_GENERATED), \
+    $(wildcard $(addsuffix /*.go,$(STMAK_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.c,$(STMAK_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.cc,$(STMAK_SRC_DIRS))) \
+    $(wildcard $(addsuffix /*.h,$(STMAK_SRC_DIRS)))) \
+    stmak/go.mod.in
+# NB: stmak/go.mod is deliberately NOT here — it is order-only on each Go binary
+# rule (see '| stmak/go.mod'), so a -mod=mod build rewriting it never forces a
+# rebuild.  go.mod.in (the tracked spec) stays a normal prerequisite.
+
+# Generated GMI Go files are prerequisites of imports_generated.go and
+# ../bin/stmakd so that codegen completes before the Go build starts.
+# The list (GMI_ALL_GEN_GO) is accumulated next to each codegen rule in
+# gmi/codegen/Submakefile (included after this file) and injected there as
+# extra prerequisites — single source, nothing to keep in sync here.
+
+# Runtime files generated from .in bases on fresh checkouts.
+# imports_generated.go is produced by modcompile directly from packages.conf
+# plus auto-discovery of GMI and external packages.  No intermediate
+# packages.conf file is needed — modcompile handles filtering internally
+# using build flags baked in at compile time.
+
+stmak/go.mod: stmak/go.mod.in $(wildcard stmak/external/*/go.deps)
+	$(Q)if [ -n "$$(find stmak/external -name go.deps 2>/dev/null)" ] && [ -x $(TOP)/bin/modcompile ]; then \
+		cd stmak && STMAK_DIR=$(STMAK_SRC_DIR) $(TOP)/bin/modcompile regenerate-gomod; \
+	else \
+		cp $< $@; \
+	fi
+	$(Q)cd stmak && $(GO) mod download
+
+$(IMPORTS_GENERATED): stmak/packages.conf ../bin/modcompile
+	$(Q)cd stmak && STMAK_DIR=$(STMAK_SRC_DIR) $(TOP)/bin/modcompile regenerate-imports
+
+# Environment shared by all cgo-enabled Go build/test/lint invocations.
+#
+# CC/CXX: cgo takes the compiler from the *environment* (default gcc) and
+# ignores make's CC/CXX variables — pass the configured compiler through so
+# the cgo-compiled C/C++ (hallib, halscope, interp shim, generated GMI
+# bridges) is built with the same toolchain as the rest of the tree
+# (e.g. the clang CI job).
+# CGO_LDFLAGS adds -Wl,-rpath so the dynamic linker finds libposemath.so
+# and librs274.so at runtime.
+# --disable-new-dtags forces DT_RPATH instead of DT_RUNPATH; RUNPATH is
+# ignored by the dynamic linker when the binary has file capabilities (setcap).
+# -z relro -z now: full RELRO for the cgo-linked binaries; dpkg's hardening
+# LDFLAGS never reach the Go external link on their own.
+# LIB_DIR is $(EMC2_HOME)/lib, defined in Makefile.inc.
+# CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
+# gets the same diagnostics as Ubuntu CI runners (builtin fortify).
+# GOFLAGS=-mod=mod lets a build complete go.mod/go.sum on the fly.  It is
+# required here: a complete go.mod depends on imports_generated.go, which
+# depends on modcompile, which depends on go.mod — a cycle, so go.mod cannot be
+# fully settled ahead of the build.  The price is that a build may rewrite
+# go.mod (bumping its mtime).  To stop that from cascading, go.mod is an
+# ORDER-ONLY prerequisite of the Go binaries below (the '| stmak/go.mod' on each
+# rule): make ensures it exists but never rebuilds a binary because go.mod's
+# mtime advanced.  This matters most for modcompile, which every generated cmod
+# .c and every GMI header depend on — a spurious modcompile rebuild used to
+# cascade a rebuild through all modules and GMI headers.
+# The rpath is RIP-only: the tree's lib/ is no loader default, but an
+# installed build's libraries land in $(libdir), which ldconfig covers — a
+# /usr/lib RPATH there is redundant (and lintian-flagged E).
+ifeq ($(RUN_IN_PLACE),yes)
+STMAK_CGO_RPATH := -Wl,-rpath,$(LIB_DIR)
+endif
+STMAK_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="$(STMAK_CGO_RPATH) -Wl,--disable-new-dtags -Wl,-z,relro -Wl,-z,now" GOFLAGS=-mod=mod
+
+# All Go binaries build as PIE: the cgo ones pick up full RELRO through the
+# linker flags above, the pure-Go ones stop being statically-linked oddities
+# the tooling (lintian, gdb) treats as suspect. Negligible runtime cost.
+#
+# -buildvcs=false: VCS stamping shells out to git, which fails with "dubious
+# ownership" (exit 128) inside the deb build — debhelper redirects HOME, so
+# git never sees the safe.directory config the CI job set. The stamp would
+# also break build reproducibility; nothing reads it.
+STMAK_BUILDMODE := -buildmode=pie -buildvcs=false
+
+# Build the stmakd binary.  Generated GMI Go prerequisites are injected
+# by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
+../bin/stmakd: $(STMAK_SRC_BASE) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | stmak/go.mod
+	$(ECHO) Building stmakd
+	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/stmakd ./cmd/stmakd
+
+# ---------------------------------------------------------------------------
+# ADS XML generator tool — built from cmd/ads-xml-gen within the stmak module
+# ---------------------------------------------------------------------------
+
+../bin/ads-xml-gen: $(STMAK_SRC_BASE) | stmak/go.mod
+	$(ECHO) Building ads-xml-gen
+	$(Q)cd stmak && CGO_ENABLED=0 $(GO) build $(STMAK_BUILDMODE) -o $(TOP)/bin/ads-xml-gen ./cmd/ads-xml-gen
+
+# ---------------------------------------------------------------------------
+# halsampler / halstreamer — WebSocket stream clients
+# ---------------------------------------------------------------------------
+
+../bin/halsampler: $(STMAK_SRC_BASE) stmak/cmd/halsampler/main.go | stmak/go.mod
+	$(ECHO) Building halsampler
+	$(Q)cd stmak && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build $(STMAK_BUILDMODE) -o $(TOP)/bin/halsampler ./cmd/halsampler
+
+../bin/halstreamer: $(STMAK_SRC_BASE) stmak/cmd/halstreamer/main.go | stmak/go.mod
+	$(ECHO) Building halstreamer
+	$(Q)cd stmak && CGO_ENABLED=0 GOFLAGS=-mod=mod $(GO) build $(STMAK_BUILDMODE) -o $(TOP)/bin/halstreamer ./cmd/halstreamer
+
+TARGETS += ../bin/halsampler ../bin/halstreamer
+
+# ---------------------------------------------------------------------------
+# Copy stmak public packages to share/ for RIP builds
+# ---------------------------------------------------------------------------
+
+# Files that external Go modules need (hal bindings + stmak interface +
+# inifile parser).
+STMAK_PKG_FILES := \
+    ../share/linuxcnc/stmak/pkg/hal/hal.go \
+    ../share/linuxcnc/stmak/pkg/hal/component.go \
+    ../share/linuxcnc/stmak/pkg/hal/pin.go \
+    ../share/linuxcnc/stmak/pkg/hal/types.go \
+    ../share/linuxcnc/stmak/pkg/hal/errors.go \
+    ../share/linuxcnc/stmak/pkg/hal/cgo.go \
+    ../share/linuxcnc/stmak/pkg/hal/doc.go \
+    ../share/linuxcnc/stmak/pkg/stmak/stmak.go \
+    ../share/linuxcnc/stmak/pkg/inifile/types.go \
+    ../share/linuxcnc/stmak/pkg/inifile/parser.go \
+    ../share/linuxcnc/stmak/pkg/inifile/expand.go \
+    ../share/linuxcnc/stmak/go.mod
+
+../share/linuxcnc/stmak/pkg/%: stmak/pkg/%
+	$(ECHO) Copying stmak pkg file $<
+	@mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+# The installed go.mod must not carry the local replace directive.  The
+# content is a fixed literal (the recipe never reads stmak/go.mod), so
+# stmak/go.mod is order-only — its -mod=mod mtime churn must not regenerate
+# this file on every make.
+../share/linuxcnc/stmak/go.mod: | stmak/go.mod
+	$(ECHO) Generating stmak share go.mod
+	@mkdir -p $(dir $@)
+	$(Q)printf 'module github.com/stratuMAK/stratumak/src/stmak\n\ngo 1.22\n' > $@
+
+# ---------------------------------------------------------------------------
+# HAL Go example / test binaries (standalone processes using the hal package)
+# ---------------------------------------------------------------------------
+
+HAL_GO_CGO_CFLAGS := -I$(TOP)/src -I$(TOP)/src/hal -I$(TOP)/src/rtapi -I$(TOP)/include
+HAL_GO_CGO_LDFLAGS :=
+
+TARGETS += ../bin/stmakd ../bin/ads-xml-gen $(STMAK_PKG_FILES)
+
+# ---------------------------------------------------------------------------
+# modcompile — .comp → cmod C code generator
+# ---------------------------------------------------------------------------
+
+# modcompile only imports cmd/modcompile, internal/config, internal/modcompile,
+# internal/gmicompile, and internal/pkgreg — NOT the server packages.  Use a
+# narrow dep list so server code changes don't trigger cmod rebuilds.
+MODCOMPILE_SRC := $(wildcard stmak/cmd/modcompile/*.go) \
+    $(wildcard stmak/internal/config/*.go) \
+    $(wildcard stmak/internal/modcompile/*/*.go) \
+    $(wildcard stmak/internal/gmicompile/*/*.go) \
+    $(wildcard stmak/internal/pkgreg/*.go)
+
+# go.mod is ORDER-ONLY (after '|'): a -mod=mod build may rewrite it, and a
+# bumped mtime must not rebuild modcompile — every cmod .c and GMI header
+# depends on modcompile, so that would cascade to the whole tree.  go.mod.in
+# (a real, tracked spec) stays a normal prerequisite via the go.mod rule.
+# Build to a tmp file and move-if-change: 'go build -o' rewrites the output
+# even when nothing changed, and a bumped modcompile mtime rebuilds every
+# generated cmod .c and GMI header.  Go builds are deterministic, so cmp is
+# reliable.
+../bin/modcompile: $(MODCOMPILE_SRC) Makefile.inc | stmak/go.mod
+	$(ECHO) Building modcompile
+	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/modcompile.tmp ./cmd/modcompile
+	$(Q)sh move-if-change $@.tmp $@
+
+TARGETS += ../bin/modcompile
+
+# ---------------------------------------------------------------------------
+# halcmd — HAL command-line tool (REST-based, replaces legacy C halcmd/halrmt)
+# ---------------------------------------------------------------------------
+
+GMI_HALCMD_GEN_GO := stmak/generated/gmi/halcmdclient/halcmd_client.go
+
+../bin/halcmd: $(STMAK_SRC_BASE) $(GMI_HALCMD_GEN_GO) Makefile.inc | stmak/go.mod
+	$(ECHO) Building halcmd - Go REST client
+	@rm -f $@
+	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/halcmd ./cmd/halcmd
+
+TARGETS += ../bin/halcmd
+
+# ---------------------------------------------------------------------------
+# ethercat — EtherCAT command-line tool (REST client, replaces IgH master tool)
+# ---------------------------------------------------------------------------
+
+# cmd/ethercat imports the generated Go REST client, so it must exist before the
+# binary builds (else a clean build fails to resolve the ethercatclient package).
+GMI_ETHERCAT_CLIENT_GEN_GO := stmak/generated/gmi/ethercatclient/ethercat_client.go
+
+../bin/ethercat: $(STMAK_SRC_BASE) $(wildcard stmak/cmd/ethercat/*.go) $(GMI_ETHERCAT_CLIENT_GEN_GO) Makefile.inc | stmak/go.mod
+	$(ECHO) Building ethercat - Go REST client
+	@rm -f $@
+	$(Q)cd stmak && CGO_ENABLED=0 $(GO) build $(STMAK_BUILDMODE) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/ethercat ./cmd/ethercat
+
+TARGETS += ../bin/ethercat
+
+# ---------------------------------------------------------------------------
+# Test / lint targets (used locally and by CI — keep them the single source
+# of truth for what "green" means)
+# ---------------------------------------------------------------------------
+
+# Environment shared by all Go test/lint invocations — same cgo environment
+# as the build recipes (see STMAK_CGOENV above): test binaries find
+# librs274.so / libposemath.so via -rpath without LD_LIBRARY_PATH, and the
+# cgo-compiled C matches the configured toolchain and fortify level.
+STMAK_TESTENV := $(STMAK_CGOENV)
+
+# Run the Go unit tests over the whole module. Narrow on the command line if
+# wanted, e.g. make stmak-test STMAK_TEST_PKGS=./internal/task/...
+STMAK_TEST_PKGS ?= ./...
+.PHONY: stmak-test
+stmak-test:
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GO) vet $(STMAK_TEST_PKGS)
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GO) test -count=1 $(STMAK_TEST_PKGS)
+
+# Same as stmak-test but with the race detector (concurrency regression guard).
+.PHONY: stmak-test-race
+stmak-test-race:
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GO) test -count=1 -race $(STMAK_TEST_PKGS)
+
+# Static analysis gate: no NEW findings relative to the merge base with the
+# stmak branch. The legacy findings (see stmak-lint-full) are burned down in the
+# per-submodule cleanup phase — see PRODUCTION_READINESS.md.
+# Tool version is pinned (see GOLANGCI_LINT_VERSION); config in stmak/.golangci.yml.
+# Default: golangci-lint from PATH, else the standard `go install` location
+# (GOPATH/bin) — `go install` does not put binaries on PATH by itself.
+GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null \
+    || echo "$(shell $(GO) env GOPATH)/bin/golangci-lint")
+GOLANGCI_LINT_VERSION := v2.12.2
+STMAK_LINT_BASE ?= main
+.PHONY: stmak-lint
+stmak-lint:
+	@command -v $(GOLANGCI_LINT) >/dev/null || { \
+	    echo "golangci-lint not found. Install with:"; \
+	    echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; \
+	    exit 1; }
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GOLANGCI_LINT) run --new-from-merge-base=$(STMAK_LINT_BASE)
+
+# Full lint run including the legacy baseline — the burn-down list for the
+# cleanup phase. Not a CI gate.
+.PHONY: stmak-lint-full
+stmak-lint-full:
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GOLANGCI_LINT) run
+
+# Formatting gate — uses golangci-lint's bundled formatter so the verdict is
+# pinned to the tool version, not the local Go toolchain's gofmt.
+.PHONY: stmak-fmt-check
+stmak-fmt-check:
+	$(Q)cd stmak && $(STMAK_TESTENV) $(GOLANGCI_LINT) fmt --diff
+
+# RT function-effects check: verify the RT path (core RTAPI/HAL TUs,
+# halscope sampler, every generated .comp) with clang's -Wfunction-effects
+# analysis.  Uses a pinned clang >= 20 downloaded once by
+# scripts/rt-clang.sh (Debian 13's clang 19 analysis is broken); gcc
+# remains the production compiler — this target is diagnostic only.
+# Deliberately depends only on bin/modcompile (which the script needs to
+# generate the .comp TUs) — nothing else.  The check is a pure diagnostic: it
+# must never write to, regenerate, or otherwise perturb the build tree, so that
+# switching between 'make' and 'make rt-effects-check' rebuilds nothing.  It
+# does NOT try to refresh GMI headers; instead the script reads their mtimes and
+# fails loudly if any is older than its IDL (a pull/branch switch left it stale
+# with no full build), turning a silent stale-header pass into an actionable
+# "run make first" error.
+.PHONY: rt-effects-check
+rt-effects-check: ../bin/modcompile
+	$(Q)$(TOP)/scripts/rt-effects-check.sh
+
+# Aggregate check used by CI.
+.PHONY: stmak-check
+stmak-check: stmak-test stmak-lint stmak-fmt-check
+
+# Clean
+clean: stmak-clean
+.PHONY: stmak-clean
+stmak-clean:
+	rm -f ../bin/stmakd ../bin/ads-xml-gen
+	rm -f ../bin/modcompile ../bin/modcompile.tmp ../bin/halcmd ../bin/ethercat
+	rm -f $(STMAK_PKG_FILES)
+	rm -f stmak/go.mod stmak/go.sum
+	rm -f $(IMPORTS_GENERATED)
+
+# Install
+#
+# Hooked onto install-software, not install: debian/rules runs
+# `make -C src install-software` (install-docs is a separate call), so hanging
+# this off `install` meant the stmak source tree, the cmodule headers and the
+# generated GMI headers were never packaged. The binaries got in regardless,
+# via install-kernel-indep's generic $(TARGETS) sweep, which is why nothing
+# looked wrong until `modcompile add-gomod` had no tree to work on.
+#
+# Hooked only when EMC2_STATE_DIR is set (non-RIP): in a run-in-place tree the
+# state/libexec dirs are deliberately empty, and an unguarded run would
+# install to / and replace the tree's own bin/stmakd with a symlink.
+ifneq ($(EMC2_STATE_DIR),)
+install-software: stmak-install stmak-install-state
+endif
+
+# The mutable state tree, and the one symlink that makes $(bindir)/stmakd
+# resolve to something.
+#
+# Separate from stmak-install and never packaged: if the package owned
+# $(EMC2_STATE_DIR)/bin/stmakd, every upgrade would unpack the shipped
+# symlink over a locally rebuilt binary and discard it without a word --
+# exactly the failure the whole layout exists to prevent (see
+# EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1). The deb's postinst creates
+# these instead, and debian/rules deletes whatever this target left in the
+# staging tree. This target is what a plain `make install` needs, where there
+# is no postinst to do it.
+#
+# The symlink is created only when absent, for the same reason: on a system
+# that has already rebuilt, the entry is a real binary and must stay one.
+.PHONY: stmak-install-state
+stmak-install-state:
+	$(Q)test -n "$(EMC2_STATE_DIR)" || { \
+		echo "stmak-install-state: EMC2_STATE_DIR is empty (run-in-place tree); refusing" >&2; \
+		exit 1; }
+	$(DIR) $(DESTDIR)$(EMC2_STATE_DIR)/bin \
+		$(DESTDIR)$(EMC2_STATE_DIR)/cmod \
+		$(DESTDIR)$(EMC2_STATE_DIR)/modules \
+		$(DESTDIR)$(EMC2_STATE_DIR)/stmak
+	$(Q)if [ ! -e $(DESTDIR)$(EMC2_STATE_DIR)/bin/stmakd ]; then \
+		ln -s $(EMC2_LIBEXEC_DIR)/stmakd \
+			$(DESTDIR)$(EMC2_STATE_DIR)/bin/stmakd; \
+	fi
+
+.PHONY: stmak-install
+stmak-install: ../bin/stmakd ../bin/ads-xml-gen ../bin/modcompile ../bin/halcmd ../bin/ethercat $(STMAK_PKG_FILES)
+	$(Q)test -n "$(EMC2_STATE_DIR)" -a -n "$(EMC2_LIBEXEC_DIR)" || { \
+		echo "stmak-install: EMC2_STATE_DIR/EMC2_LIBEXEC_DIR empty (run-in-place tree); refusing" >&2; \
+		exit 1; }
+	$(DIR) $(DESTDIR)$(EMC2_BIN_DIR)
+	# The server is installed pristine, under a directory nothing else writes,
+	# and $(bindir) only points at it. A local rebuild replaces the middle link
+	# of that chain -- $(EMC2_STATE_DIR)/bin/stmakd, which the package
+	# deliberately does not own and postinst creates -- so an upgrade never
+	# unpacks over a locally built binary, and never has to recover from having
+	# done so. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	$(DIR) $(DESTDIR)$(EMC2_LIBEXEC_DIR)
+	$(INSTALL) -m 0755 ../bin/stmakd $(DESTDIR)$(EMC2_LIBEXEC_DIR)/stmakd
+	$(Q)rm -f $(DESTDIR)$(EMC2_BIN_DIR)/stmakd
+	$(Q)ln -s $(EMC2_STATE_DIR)/bin/stmakd $(DESTDIR)$(EMC2_BIN_DIR)/stmakd
+	$(INSTALL) -m 0755 ../bin/ads-xml-gen $(DESTDIR)$(EMC2_BIN_DIR)/ads-xml-gen
+	$(INSTALL) -m 0755 ../bin/modcompile $(DESTDIR)$(EMC2_BIN_DIR)/modcompile
+	$(INSTALL) -m 0755 ../bin/halcmd $(DESTDIR)$(EMC2_BIN_DIR)/halcmd
+	$(INSTALL) -m 0755 ../bin/ethercat $(DESTDIR)$(EMC2_BIN_DIR)/ethercat
+	# Install full stmak source tree for modcompile rebuild/add-gomod support.
+	# This allows `sudo modcompile add-gomod` to rebuild stmakd on
+	# installed systems (requires Go toolchain).
+	#
+	# The .c/.h/.cc/.hh files are as necessary as the .go ones and used not to
+	# be here: several packages are cgo (classicladder's RT engine, halscope,
+	# halcmd, hallib, ngcpreview, the interp shim) and carry their C sources
+	# next to the Go. Without them the installed tree looks complete, `go
+	# build` gets as far as cgo, and the rebuild dies on a missing local
+	# header -- so a rebuild on a packaged system could never have worked.
+	#
+	# internal/halscope/testrt is pruned for the same reason kinstest is: it
+	# is a test harness nothing imports. Shipping .h files brought its mock
+	# hal.h and rtapi.h along, which is dead weight in a runtime package under
+	# two names it would be a shame for anyone to ever pick up by accident.
+	$(DIR) $(DESTDIR)$(datadir)/linuxcnc/stmak
+	$(Q)cd stmak && find . \
+		-name '*_test.go' -prune -o \
+		-path './internal/gmi/kinstest' -prune -o \
+		-path './internal/halscope/testrt' -prune -o \
+		-type f \( -name '*.go' -o -name '*.c' -o -name '*.h' \
+			-o -name '*.cc' -o -name '*.hh' \
+			-o -name 'go.mod' -o -name 'go.mod.in' -o -name 'go.sum' -o -name 'packages.conf' \) \
+		-print | while read f; do \
+			dest=$(DESTDIR)$(datadir)/linuxcnc/stmak/$$f; \
+			mkdir -p $$(dirname $$dest); \
+			$(INSTALL) -m 0644 $$f $$dest; \
+		done
+	# Install cmodule headers (needed for modcompile --compile on installed systems)
+	$(DIR) $(DESTDIR)$(datadir)/linuxcnc/stmak/pkg/cmodule
+	# `if` rather than `[ -f ] && install`: with the latter, a name that does
+	# not match (cmodule.h has never existed) makes the last iteration exit
+	# non-zero, and with it the whole recipe.
+	$(Q)for f in stmak/pkg/cmodule/stmak_*.h stmak/pkg/cmodule/cmodule.h; do \
+		if [ -f "$$f" ]; then \
+			$(INSTALL) -m 0644 $$f \
+				$(DESTDIR)$(datadir)/linuxcnc/stmak/pkg/cmodule/$$(basename $$f); \
+		fi; \
+	done
+	# Install generated GMI headers and Go shims
+	$(Q)cd stmak && find generated -type f \( -name '*.h' -o -name '*.go' \) \
+		2>/dev/null | while read f; do \
+			dest=$(DESTDIR)$(datadir)/linuxcnc/stmak/$$f; \
+			mkdir -p $$(dirname $$dest); \
+			$(INSTALL) -m 0644 $$f $$dest; \
+		done
+	# Stamp the installed sources with the release they came from. A locally
+	# rebuilt server carries the same string baked in by ldflags, so comparing
+	# the two at startup is all it takes to notice a server still built from a
+	# previous release's stmak -- see launcher.WarnIfStale.
+	$(Q)echo '$(EMC2VERSION)' > $(DESTDIR)$(datadir)/linuxcnc/stmak/VERSION
+	$(Q)chmod 0644 $(DESTDIR)$(datadir)/linuxcnc/stmak/VERSION
+

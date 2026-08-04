@@ -7,7 +7,7 @@
  * the RTAPI task PLL is @b not adjusted; instead the EtherCAT bus time follows
  * the LinuxCNC time base passively.
  *
- * This mode is suitable when no @c GOMC_RTAPI_TASK_PLL_SUPPORT is available or
+ * This mode is suitable when no @c STMAK_RTAPI_TASK_PLL_SUPPORT is available or
  * when the system integrator prefers the simpler, one-direction scheme.
  *
  * Call sequence each servo cycle:
@@ -55,8 +55,8 @@
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->app_time_ns.
  */
-static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
-  const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
+static void cycle_start(struct lcec_master *master) STMAK_NONBLOCKING {
+  const stmak_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   master->app_time_ns = master->rt_ctx->dc_time_offset + rtapi->pll_get_reference(rtapi->ctx);
   ecrt_master_application_time(master->master, master->app_time_ns);
 }
@@ -84,8 +84,8 @@ static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->ref_clock_sync_counter.
  */
-static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
-  const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
+static void pre_send(struct lcec_master *master) STMAK_NONBLOCKING {
+  const stmak_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
 
   if (master->ref_clock_sync_cycles <= 0) {
     return;
@@ -113,7 +113,7 @@ static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
  *
  * @param master  EtherCAT master (unused).
  */
-static void post_send(struct lcec_master *master) GOMC_NONBLOCKING {
+static void post_send(struct lcec_master *master) STMAK_NONBLOCKING {
   // NOP
 }
 

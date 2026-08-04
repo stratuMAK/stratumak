@@ -11,7 +11,7 @@ usr/bin/gladevcp
 usr/bin/gladevcp_demo
 usr/bin/gmcui
 usr/bin/gmoccapy
-usr/bin/gomc-server
+usr/bin/stmakd
 usr/bin/gremlin_view
 usr/bin/gscreen
 usr/bin/hal-histogram
@@ -73,8 +73,8 @@ usr/lib/linuxcnc
 usr/lib/python3
 usr/lib/tcltk
 
-# The pristine gomc-server. usr/bin/gomc-server, listed above, is only a
-# symlink onto /var/lib/stratumak/bin/gomc-server, which points here in turn
+# The pristine stmakd. usr/bin/stmakd, listed above, is only a
+# symlink onto /var/lib/stratumak/bin/stmakd, which points here in turn
 # until an administrator rebuilds locally. This is the file dpkg owns and
 # replaces on upgrade; the /var one is deliberately not packaged at all.
 usr/libexec/stratumak

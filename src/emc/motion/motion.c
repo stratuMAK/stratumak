@@ -13,7 +13,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "kins_api.h"
 #include "mot_api.h"
 #include <string.h>
@@ -50,7 +50,7 @@ extern void motstat_init_ctx(motstat_ctx_t *mc, emcmot_struct_t *mot, axis_inst_
 ************************************************************************/
 
 /* PFMT: prefix HAL pin/param format strings with the instance name.
-   Usage: gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &p, id, PFMT("joint.%d.pos-cmd"), num)
+   Usage: stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &p, id, PFMT("joint.%d.pos-cmd"), num)
    When pin_prefix is empty (default/no alias), expands to bare "joint.%d.pos-cmd".
    When pin_prefix is "name.", expands to "name.joint.%d.pos-cmd". */
 #define PFMT(fmt) "%s" fmt, inst->pin_prefix
@@ -115,21 +115,21 @@ int motmod_kinematicsSwitch(motmod_inst_t *inst, int switchkins_type)
 
 /* --- I/O callbacks --- */
 
-static void gmi_mot_dio_write(void *ctx, int32_t index, int8_t value) GOMC_NONBLOCKING
+static void gmi_mot_dio_write(void *ctx, int32_t index, int8_t value) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotDioWrite(inst, index, value);
 }
 
-static void gmi_mot_aio_write(void *ctx, int32_t index, double value) GOMC_NONBLOCKING
+static void gmi_mot_aio_write(void *ctx, int32_t index, double value) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotAioWrite(inst, index, value);
 }
 
 /* --- Rotary unlock --- */
 
-static void gmi_mot_set_rotary_unlock(void *ctx, int32_t jnum, int32_t unlock) GOMC_NONBLOCKING
+static void gmi_mot_set_rotary_unlock(void *ctx, int32_t jnum, int32_t unlock) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; emcmotSetRotaryUnlock(inst, jnum, unlock);
 }
 
-static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum) GOMC_NONBLOCKING
+static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return emcmotGetRotaryIsUnlocked(inst, jnum);
@@ -137,13 +137,13 @@ static int32_t gmi_mot_get_rotary_unlock(void *ctx, int32_t jnum) GOMC_NONBLOCKI
 
 /* --- Axis limits --- */
 
-static double gmi_mot_axis_get_vel_limit(void *ctx, int32_t axis) GOMC_NONBLOCKING
+static double gmi_mot_axis_get_vel_limit(void *ctx, int32_t axis) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return axis_get_vel_limit((axis_inst_t *)inst->axis_inst, axis);
 }
 
-static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis) GOMC_NONBLOCKING
+static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return axis_get_acc_limit((axis_inst_t *)inst->axis_inst, axis);
@@ -151,55 +151,55 @@ static double gmi_mot_axis_get_acc_limit(void *ctx, int32_t axis) GOMC_NONBLOCKI
 
 /* --- Config getters (inst->config fields, read-only) --- */
 
-static int32_t gmi_mot_cfg_get_arc_blend_enable(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_arc_blend_enable(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendEnable;
 }
 
-static int32_t gmi_mot_cfg_get_arc_blend_gap_cycles(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_arc_blend_gap_cycles(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendGapCycles;
 }
 
-static int32_t gmi_mot_cfg_get_arc_blend_opt_depth(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_arc_blend_opt_depth(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendOptDepth;
 }
 
-static double gmi_mot_cfg_get_arc_blend_ramp_freq(void *ctx) GOMC_NONBLOCKING
+static double gmi_mot_cfg_get_arc_blend_ramp_freq(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendRampFreq;
 }
 
-static double gmi_mot_cfg_get_arc_blend_tangent_kink_ratio(void *ctx) GOMC_NONBLOCKING
+static double gmi_mot_cfg_get_arc_blend_tangent_kink_ratio(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->arcBlendTangentKinkRatio;
 }
 
-static double gmi_mot_cfg_get_max_feed_scale(void *ctx) GOMC_NONBLOCKING
+static double gmi_mot_cfg_get_max_feed_scale(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->maxFeedScale;
 }
 
-static int32_t gmi_mot_cfg_get_num_aio(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_num_aio(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numAIO;
 }
 
-static int32_t gmi_mot_cfg_get_num_dio(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_num_dio(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numDIO;
 }
 
-static int32_t gmi_mot_cfg_get_num_spindles(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_cfg_get_num_spindles(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->config->numSpindles;
@@ -207,67 +207,67 @@ static int32_t gmi_mot_cfg_get_num_spindles(void *ctx) GOMC_NONBLOCKING
 
 /* --- Status getters --- */
 
-static double gmi_mot_status_get_net_feed_scale(void *ctx) GOMC_NONBLOCKING
+static double gmi_mot_status_get_net_feed_scale(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->net_feed_scale;
 }
 
-static int32_t gmi_mot_status_get_stepping(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_status_get_stepping(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->stepping;
 }
 
-static double gmi_mot_status_get_current_vel(void *ctx) GOMC_NONBLOCKING
+static double gmi_mot_status_get_current_vel(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->current_vel;
 }
 
-static int32_t gmi_mot_status_get_spindle_sync(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_mot_status_get_spindle_sync(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindleSync;
 }
 
-static double gmi_mot_status_get_spindle_revs(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static double gmi_mot_status_get_spindle_revs(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindleRevs;
 }
 
-static int32_t gmi_mot_status_get_spindle_direction(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static int32_t gmi_mot_status_get_spindle_direction(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].direction;
 }
 
-static int32_t gmi_mot_status_get_spindle_at_speed(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static int32_t gmi_mot_status_get_spindle_at_speed(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].at_speed;
 }
 
-static double gmi_mot_status_get_spindle_speed_in(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static double gmi_mot_status_get_spindle_speed_in(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindleSpeedIn;
 }
 
-static int32_t gmi_mot_status_get_spindle_index_enable(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static int32_t gmi_mot_status_get_spindle_index_enable(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].spindle_index_enable;
 }
 
-static uint8_t gmi_mot_status_get_enables_new(void *ctx) GOMC_NONBLOCKING
+static uint8_t gmi_mot_status_get_enables_new(void *ctx) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->enables_new;
 }
 
-static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle) GOMC_NONBLOCKING
+static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     return inst->status->spindle_status[spindle].speed;
@@ -275,43 +275,43 @@ static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle) GOMC_
 
 /* --- Status setters --- */
 
-static void gmi_mot_status_set_current_vel(void *ctx, double vel) GOMC_NONBLOCKING
+static void gmi_mot_status_set_current_vel(void *ctx, double vel) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->current_vel = vel;
 }
 
-static void gmi_mot_status_set_requested_vel(void *ctx, double vel) GOMC_NONBLOCKING
+static void gmi_mot_status_set_requested_vel(void *ctx, double vel) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->requested_vel = vel;
 }
 
-static void gmi_mot_status_set_distance_to_go(void *ctx, double dist) GOMC_NONBLOCKING
+static void gmi_mot_status_set_distance_to_go(void *ctx, double dist) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->distance_to_go = dist;
 }
 
-static void gmi_mot_status_set_dtg(void *ctx, mot_pose_t *dtg) GOMC_NONBLOCKING
+static void gmi_mot_status_set_dtg(void *ctx, mot_pose_t *dtg) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; memcpy(&inst->status->dtg, dtg, sizeof(EmcPose));
 }
 
-static void gmi_mot_status_or_motion_flag(void *ctx, uint32_t bits) GOMC_NONBLOCKING
+static void gmi_mot_status_or_motion_flag(void *ctx, uint32_t bits) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->motionFlag |= bits;
 }
 
-static void gmi_mot_status_set_enables_queued(void *ctx, uint8_t val) GOMC_NONBLOCKING
+static void gmi_mot_status_set_enables_queued(void *ctx, uint8_t val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->enables_queued = val;
 }
 
-static void gmi_mot_status_set_spindle_sync(void *ctx, int32_t val) GOMC_NONBLOCKING
+static void gmi_mot_status_set_spindle_sync(void *ctx, int32_t val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindleSync = val;
 }
 
-static void gmi_mot_status_set_tcqlen(void *ctx, uint32_t len) GOMC_NONBLOCKING
+static void gmi_mot_status_set_tcqlen(void *ctx, uint32_t len) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->tcqlen = len;
 }
 
-static void gmi_mot_status_set_spindle_speed(void *ctx, int32_t spindle, double speed) GOMC_NONBLOCKING
+static void gmi_mot_status_set_spindle_speed(void *ctx, int32_t spindle, double speed) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindle_status[spindle].speed = speed;
 }
 
-static void gmi_mot_status_set_spindle_index_enable(void *ctx, int32_t spindle, int32_t enable) GOMC_NONBLOCKING
+static void gmi_mot_status_set_spindle_index_enable(void *ctx, int32_t spindle, int32_t enable) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->status->spindle_status[spindle].spindle_index_enable = enable;
 }
 
@@ -323,28 +323,28 @@ static int32_t gmi_mot_get_num_joints(void *ctx)
     return inst->num_joints;
 }
 
-static int32_t gmi_mot_joint_get_active_flag(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static int32_t gmi_mot_joint_get_active_flag(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return GET_JOINT_ACTIVE_FLAG(&inst->joints[jno]);
 }
 
-static int32_t gmi_mot_joint_get_inpos_flag(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static int32_t gmi_mot_joint_get_inpos_flag(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return GET_JOINT_INPOS_FLAG(&inst->joints[jno]);
 }
 
-static int32_t gmi_mot_joint_get_free_tp_active(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static int32_t gmi_mot_joint_get_free_tp_active(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.active;
 }
 
-static void gmi_mot_joint_set_free_tp_enable(void *ctx, int32_t jno, int32_t enable) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_free_tp_enable(void *ctx, int32_t jno, int32_t enable) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.enable = enable;
 }
 
@@ -355,40 +355,40 @@ static double gmi_mot_joint_get_free_tp_pos_cmd(void *ctx, int32_t jno)
     return inst->joints[jno].free_tp.pos_cmd;
 }
 
-static void gmi_mot_joint_set_free_tp_pos_cmd(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_free_tp_pos_cmd(void *ctx, int32_t jno, double val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.pos_cmd = val;
 }
 
-static double gmi_mot_joint_get_free_tp_curr_pos(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_free_tp_curr_pos(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.curr_pos;
 }
 
-static void gmi_mot_joint_set_free_tp_curr_pos(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_free_tp_curr_pos(void *ctx, int32_t jno, double val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.curr_pos = val;
 }
 
-static void gmi_mot_joint_set_free_tp_max_vel(void *ctx, int32_t jno, double vel) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_free_tp_max_vel(void *ctx, int32_t jno, double vel) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].free_tp.max_vel = vel;
 }
 
-static double gmi_mot_joint_get_free_tp_max_vel(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_free_tp_max_vel(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].free_tp.max_vel;
 }
 
-static double gmi_mot_joint_get_pos_cmd(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_pos_cmd(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].pos_cmd;
 }
 
-static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
     /* External writes come only from homing modules redefining the joint
@@ -403,71 +403,71 @@ static void gmi_mot_joint_set_pos_cmd(void *ctx, int32_t jno, double val) GOMC_N
     inst->joints[jno].pos_cmd = val;
 }
 
-static double gmi_mot_joint_get_pos_fb(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_pos_fb(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].pos_fb;
 }
 
-static void gmi_mot_joint_set_pos_fb(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_pos_fb(void *ctx, int32_t jno, double val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].pos_fb = val;
 }
 
-static double gmi_mot_joint_get_motor_pos_fb(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_motor_pos_fb(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].motor_pos_fb;
 }
 
-static double gmi_mot_joint_get_motor_offset(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_motor_offset(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].motor_offset;
 }
 
-static void gmi_mot_joint_set_motor_offset(void *ctx, int32_t jno, double val) GOMC_NONBLOCKING
+static void gmi_mot_joint_set_motor_offset(void *ctx, int32_t jno, double val) STMAK_NONBLOCKING
 {    motmod_inst_t *inst = (motmod_inst_t *)ctx; inst->joints[jno].motor_offset = val;
 }
 
-static double gmi_mot_joint_get_backlash_filt(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_backlash_filt(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].backlash_filt;
 }
 
-static double gmi_mot_joint_get_vel_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_vel_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].vel_limit;
 }
 
-static double gmi_mot_joint_get_max_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_max_pos_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].max_pos_limit;
 }
 
-static double gmi_mot_joint_get_min_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static double gmi_mot_joint_get_min_pos_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].min_pos_limit;
 }
 
-static int32_t gmi_mot_joint_get_on_pos_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static int32_t gmi_mot_joint_get_on_pos_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
     return inst->joints[jno].on_pos_limit;
 }
 
-static int32_t gmi_mot_joint_get_on_neg_limit(void *ctx, int32_t jno) GOMC_NONBLOCKING
+static int32_t gmi_mot_joint_get_on_neg_limit(void *ctx, int32_t jno) STMAK_NONBLOCKING
 {
     motmod_inst_t *inst = (motmod_inst_t *)ctx;
 
@@ -524,11 +524,11 @@ int joint_is_lockable(motmod_inst_t *inst, int joint_num) {
 void switch_to_teleop_mode(motmod_inst_t *inst) {
     int joint_num;
     emcmot_joint_t *joint;
-    const gomc_log_t *log = inst->log;
+    const stmak_log_t *log = inst->log;
 
     if (inst->config->kinType != KINEMATICS_IDENTITY) {
         if (!inst->all_homed) {
-            gomc_log_errorf(log, inst->name, "all joints must be homed before going into teleop mode");
+            stmak_log_errorf(log, inst->name, "all joints must be homed before going into teleop mode");
             return;
         }
     }
@@ -570,9 +570,9 @@ static int module_intfc(motmod_inst_t *inst) {
 }
 
 static int tp_init(motmod_inst_t *inst) {
-    const gomc_log_t *log = inst->log;
+    const stmak_log_t *log = inst->log;
     if (-1 == inst->tp_api->create(inst->tp_api->ctx, DEFAULT_TC_QUEUE_SIZE,inst->comp_id)) {
-        gomc_log_errorf(log, inst->name, "MOTION: tp_api->create failed\n");
+        stmak_log_errorf(log, inst->name, "MOTION: tp_api->create failed\n");
         return -1;
     }
     // tpInit is called from tp_api->create
@@ -686,15 +686,15 @@ int New(const cmod_env_t *env, const char *name,
     int retval;
     motmod_inst_t *inst;
     cmod_t *cmod;
-    const gomc_hal_t *hal = (const gomc_hal_t *)env->hal;
-    const gomc_log_t *log = (const gomc_log_t *)env->log;
+    const stmak_hal_t *hal = (const stmak_hal_t *)env->hal;
+    const stmak_log_t *log = (const stmak_log_t *)env->log;
 
-    gomc_log_infof(log, name, "MOTION: New('%s') starting...\n", name);
+    stmak_log_infof(log, name, "MOTION: New('%s') starting...\n", name);
 
     /* Allocate per-instance state */
     inst = calloc(1, sizeof(*inst));
     if (!inst) {
-        gomc_log_errorf(log, name, "MOTION: failed to allocate instance\n");
+        stmak_log_errorf(log, name, "MOTION: failed to allocate instance\n");
         return -1;
     }
     inst->env = env;
@@ -716,7 +716,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate per-instance axis state */
     inst->axis_inst = axis_inst_new();
     if (!inst->axis_inst) {
-        gomc_log_errorf(log, inst->name, "MOTION: failed to allocate axis instance\n");
+        stmak_log_errorf(log, inst->name, "MOTION: failed to allocate axis instance\n");
         free(inst);
         return -1;
     }
@@ -731,23 +731,23 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate cmod handle */
     cmod = calloc(1, sizeof(*cmod));
     if (!cmod) {
-        gomc_log_errorf(log, inst->name, "MOTION: failed to allocate cmod\n");
+        stmak_log_errorf(log, inst->name, "MOTION: failed to allocate cmod\n");
         free(inst);
         return -1;
     }
 
     /* Parse module arguments from argv */
     if (parse_argv(inst, argc, argv) != 0) {
-        gomc_log_errorf(log, inst->name, "MOTION: argument parsing failed\n");
+        stmak_log_errorf(log, inst->name, "MOTION: argument parsing failed\n");
         free(cmod);
         free(inst);
         return -1;
     }
 
     /* connect to the HAL and RTAPI */
-    inst->comp_id = hal->init(hal->ctx, name, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    inst->comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: hal_init_ex() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: hal_init_ex() failed\n");
 	free(cmod);
 	free(inst);
 	return -1;
@@ -762,7 +762,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->mot_cb = mot_cb;
     retval = mot_api_register(env->api, name, mot_cb);
     if (retval != 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: failed to register mot API: %d\n", retval);
+	stmak_log_errorf(log, inst->name, "MOTION: failed to register mot API: %d\n", retval);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
@@ -775,7 +775,7 @@ int New(const cmod_env_t *env, const char *name,
         motctl_callbacks_t *motctl_cb = calloc(1, sizeof(*motctl_cb));
         motstat_callbacks_t *motstat_cb = calloc(1, sizeof(*motstat_cb));
         if (!motctl_cb || !motstat_cb) {
-            gomc_log_errorf(log, inst->name, "MOTION: failed to allocate motctl/motstat callbacks\n");
+            stmak_log_errorf(log, inst->name, "MOTION: failed to allocate motctl/motstat callbacks\n");
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -783,7 +783,7 @@ int New(const cmod_env_t *env, const char *name,
         *motctl_cb = motctl_get_callbacks(&mctl_ctx);
         retval = motctl_api_register(env->api, name, motctl_cb);
         if (retval != 0) {
-            gomc_log_errorf(log, inst->name, "MOTION: failed to register motctl API: %d\n", retval);
+            stmak_log_errorf(log, inst->name, "MOTION: failed to register motctl API: %d\n", retval);
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -791,7 +791,7 @@ int New(const cmod_env_t *env, const char *name,
         *motstat_cb = motstat_get_callbacks(&mstat_ctx);
         retval = motstat_api_register(env->api, name, motstat_cb);
         if (retval != 0) {
-            gomc_log_errorf(log, inst->name, "MOTION: failed to register motstat API: %d\n", retval);
+            stmak_log_errorf(log, inst->name, "MOTION: failed to register motstat API: %d\n", retval);
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -803,29 +803,29 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (( inst->num_joints < 1 ) || ( inst->num_joints > EMCMOT_MAX_JOINTS )) {
-	gomc_log_errorf(log, inst->name, "MOTION: inst->num_joints is %d, must be between 1 and %d\n", inst->num_joints, EMCMOT_MAX_JOINTS);
+	stmak_log_errorf(log, inst->name, "MOTION: inst->num_joints is %d, must be between 1 and %d\n", inst->num_joints, EMCMOT_MAX_JOINTS);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
     if (( inst->num_extrajoints < 0 ) || ( inst->num_extrajoints > inst->num_joints )) {
-	gomc_log_errorf(log, inst->name, "\nMOTION: inst->num_extrajoints is %d, must be between 0 and %d\n\n", inst->num_extrajoints, inst->num_joints);
+	stmak_log_errorf(log, inst->name, "\nMOTION: inst->num_extrajoints is %d, must be between 0 and %d\n\n", inst->num_extrajoints, inst->num_joints);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
     if (inst->num_extrajoints > 0) {
-	gomc_log_errorf(log, inst->name, "\nMOTION: kinematicjoints=%2d\n            extrajoints=%2d\n           Total joints=%2d\n\n",
+	stmak_log_errorf(log, inst->name, "\nMOTION: kinematicjoints=%2d\n            extrajoints=%2d\n           Total joints=%2d\n\n",
             inst->num_joints-inst->num_extrajoints, inst->num_extrajoints, inst->num_joints);
     }
 
     if (( inst->num_spindles < 0 ) || ( inst->num_spindles > EMCMOT_MAX_SPINDLES )) {
-	gomc_log_errorf(log, inst->name, "MOTION: inst->num_spindles is %d, must be between 0 and %d\n", inst->num_spindles, EMCMOT_MAX_SPINDLES);
+	stmak_log_errorf(log, inst->name, "MOTION: inst->num_spindles is %d, must be between 0 and %d\n", inst->num_spindles, EMCMOT_MAX_SPINDLES);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
     if(inst->num_dio && (inst->names_dout[0] || inst->names_din[0])){
-      gomc_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for digital pins\n");
+      stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for digital pins\n");
       return -1;
     }
     else if(inst->names_dout[0] || inst->names_din[0]){
@@ -838,13 +838,13 @@ int New(const cmod_env_t *env, const char *name,
 
 
     if (( inst->num_dio < 1 ) || ( inst->num_dio > EMCMOT_MAX_DIO )) {
-	gomc_log_errorf(log, inst->name, "MOTION: inst->num_dio is %d, must be between 1 and %d\n", inst->num_dio, EMCMOT_MAX_DIO);
+	stmak_log_errorf(log, inst->name, "MOTION: inst->num_dio is %d, must be between 1 and %d\n", inst->num_dio, EMCMOT_MAX_DIO);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
   if(inst->num_aio && (inst->names_aout[0] || inst->names_ain[0])){
-    gomc_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for analog pins\n");
+    stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for analog pins\n");
     return -1;
   }
   else if(inst->names_aout[0] || inst->names_ain[0]){
@@ -856,13 +856,13 @@ int New(const cmod_env_t *env, const char *name,
   }
 
     if (( inst->num_aio < 1 ) || ( inst->num_aio > EMCMOT_MAX_AIO )) {
-	gomc_log_errorf(log, inst->name, "MOTION: inst->num_aio is %d, must be between 1 and %d\n", inst->num_aio, EMCMOT_MAX_AIO);
+	stmak_log_errorf(log, inst->name, "MOTION: inst->num_aio is %d, must be between 1 and %d\n", inst->num_aio, EMCMOT_MAX_AIO);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
   if(inst->num_misc_error != -1 && (inst->names_misc_errors[0])){
-    gomc_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for misc error\n");
+    stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for misc error\n");
     return -1;
   }
   else if(inst->names_misc_errors[0]){
@@ -873,12 +873,12 @@ int New(const cmod_env_t *env, const char *name,
   }
 
   if (( inst->num_misc_error < 0 ) || ( inst->num_misc_error > EMCMOT_MAX_MISC_ERROR )) {
-    gomc_log_errorf(log, inst->name, "MOTION: inst->num_misc_error is %d, must be between 0 and %d\n", inst->num_misc_error, EMCMOT_MAX_MISC_ERROR);
+    stmak_log_errorf(log, inst->name, "MOTION: inst->num_misc_error is %d, must be between 0 and %d\n", inst->num_misc_error, EMCMOT_MAX_MISC_ERROR);
     hal->exit(hal->ctx, inst->comp_id);
     return -1;
   }
 
-    gomc_log_infof(log, inst->name, "MOTION: New('%s') complete\n", name);
+    stmak_log_infof(log, inst->name, "MOTION: New('%s') complete\n", name);
 
     /* Set up cmod interface */
     cmod->Init    = motmod_init;
@@ -904,26 +904,26 @@ static int motmod_init(cmod_t *self)
     int retval;
     motmod_inst_t *inst = (motmod_inst_t *)self->priv;
     const cmod_env_t *env = (const cmod_env_t *)inst->env;
-    const gomc_hal_t *hal = inst->hal;
-    const gomc_log_t *log = inst->log;
+    const stmak_hal_t *hal = inst->hal;
+    const stmak_log_t *log = inst->log;
 
 
 
-    gomc_log_infof(log, inst->name, "MOTION: Init('%s') starting...\n", inst->name);
+    stmak_log_infof(log, inst->name, "MOTION: Init('%s') starting...\n", inst->name);
 
     /* --- Cross-module API lookups (must come first) --- */
 
     /* Look up the kinematics API registered by the kins module */
     inst->kins = kins_api_get(env->api, inst->kins_inst_name);
     if (!inst->kins) {
-	gomc_log_errorf(log, inst->name, "MOTION: kinematics API not registered (instance '%s', is kins module loaded?)\n", inst->kins_inst_name);
+	stmak_log_errorf(log, inst->name, "MOTION: kinematics API not registered (instance '%s', is kins module loaded?)\n", inst->kins_inst_name);
 	return -1;
     }
 
     /* Look up the trajectory planner API registered by the tp module */
     inst->tp_api = tp_api_get(env->api, inst->tp_inst_name);
     if (!inst->tp_api) {
-	gomc_log_errorf(log, inst->name, "MOTION: tp API not registered (instance '%s', is tp module loaded?)\n", inst->tp_inst_name);
+	stmak_log_errorf(log, inst->name, "MOTION: tp API not registered (instance '%s', is tp module loaded?)\n", inst->tp_inst_name);
 	return -1;
     }
 
@@ -939,7 +939,7 @@ static int motmod_init(cmod_t *self)
             snprintf(hname, sizeof(hname), "%s.%d", inst->home_inst_prefix, j);
             const home_callbacks_t *hapi = home_api_get(env->api, hname);
             if (!hapi) {
-                gomc_log_errorf(log, inst->name,
+                stmak_log_errorf(log, inst->name,
                     "MOTION: home API not registered (instance '%s', is home module loaded?)\n", hname);
                 return -1;
             }
@@ -955,7 +955,7 @@ static int motmod_init(cmod_t *self)
     /* --- Validation (depends on kins) --- */
 
     if ( (inst->num_extrajoints > 0) && (motmod_kinematicsType(inst) != KINEMATICS_BOTH) ) {
-	gomc_log_errorf(log, inst->name, "\nMOTION: nonzero inst->num_extrajoints requires KINEMATICS_BOTH\n\n");
+	stmak_log_errorf(log, inst->name, "\nMOTION: nonzero inst->num_extrajoints requires KINEMATICS_BOTH\n\n");
         return -1;
     }
 
@@ -963,13 +963,13 @@ static int motmod_init(cmod_t *self)
 
     retval = init_hal_io(inst);
     if (retval != 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: init_hal_io() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: init_hal_io() failed\n");
 	return -1;
     }
 
     retval = init_comm_buffers(inst);
     if (retval != 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: init_comm_buffers() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: init_comm_buffers() failed\n");
 	return -1;
     }
 
@@ -978,7 +978,7 @@ static int motmod_init(cmod_t *self)
        re-strides within this capacity). */
     retval = jerk_filter_alloc(inst);
     if (retval != 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: jerk_filter_alloc() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: jerk_filter_alloc() failed\n");
 	return -1;
     }
 
@@ -988,18 +988,18 @@ static int motmod_init(cmod_t *self)
 
     retval = export_functions(inst);
     if (retval != 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: export_functions() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: export_functions() failed\n");
 	return -1;
     }
 
     /* --- Subsystem initialization --- */
 
     if (module_intfc(inst)) {
-	gomc_log_errorf(log, inst->name, "MOTION: module_intfc() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: module_intfc() failed\n");
 	return -1;
     }
     if (tp_init(inst)) {
-	gomc_log_errorf(log, inst->name, "MOTION: tp_init() failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: tp_init() failed\n");
 	return -1;
     }
 
@@ -1010,7 +1010,7 @@ static int motmod_init(cmod_t *self)
             const home_callbacks_t *hapi = (const home_callbacks_t *)inst->joints[j].home_api;
             if (hapi->init(hapi->ctx, inst->comp_id,
                            inst->config->servoCycleTime) != 0) {
-                gomc_log_errorf(log, inst->name, "MOTION: homing init failed for joint %d\n", j);
+                stmak_log_errorf(log, inst->name, "MOTION: homing init failed for joint %d\n", j);
                 return -1;
             }
         }
@@ -1018,17 +1018,17 @@ static int motmod_init(cmod_t *self)
 
     hal->ready(hal->ctx, inst->comp_id);
 
-    gomc_log_infof(log, inst->name, "MOTION: Init('%s') complete\n", inst->name);
+    stmak_log_infof(log, inst->name, "MOTION: Init('%s') complete\n", inst->name);
     return 0;
 }
 
 static void motmod_Destroy(cmod_t *self)
 {
     motmod_inst_t *inst = (motmod_inst_t *)self->priv;
-    const gomc_hal_t *hal = inst->hal;
-    const gomc_log_t *log = inst->log;
+    const stmak_hal_t *hal = inst->hal;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: Destroy('%s') started.\n", inst->name);
+    stmak_log_infof(log, inst->name, "MOTION: Destroy('%s') started.\n", inst->name);
 
     /* free motion structure */
     if (inst->mot_struct) {
@@ -1049,7 +1049,7 @@ static void motmod_Destroy(cmod_t *self)
 
     free_name_arrays(inst);
 
-    gomc_log_infof(log, inst->name, "MOTION: Destroy('%s') finished.\n", inst->name);
+    stmak_log_infof(log, inst->name, "MOTION: Destroy('%s') finished.\n", inst->name);
 
     /* free per-instance state */
     free(inst->mot_cb);
@@ -1076,30 +1076,30 @@ static int init_hal_io(motmod_inst_t *inst)
     int n, retval;
     joint_hal_t      *joint_data;
     extrajoint_hal_t *ejoint_data;
-    const gomc_hal_t *hal = inst->hal;
-    const gomc_log_t *log = inst->log;
+    const stmak_hal_t *hal = inst->hal;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: init_hal_io() starting...\n");
+    stmak_log_infof(log, inst->name, "MOTION: init_hal_io() starting...\n");
 
     /* allocate shared memory for machine data */
     inst->hal_data = hal->malloc(hal->ctx, sizeof(emcmot_hal_data_t));
     if (inst->hal_data == 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: inst->hal_data malloc failed\n");
+	stmak_log_errorf(log, inst->name, "MOTION: inst->hal_data malloc failed\n");
 	return -1;
     }
 
     /* export machine wide hal pins */
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->probe_input), inst->comp_id, PFMT("motion.probe-input")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(inst->hal_data->adaptive_feed), inst->comp_id, PFMT("motion.adaptive-feed")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->feed_hold), inst->comp_id, PFMT("motion.feed-hold")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->feed_inhibit), inst->comp_id, PFMT("motion.feed-inhibit")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->homing_inhibit), inst->comp_id, PFMT("motion.homing-inhibit")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->jog_inhibit), inst->comp_id, PFMT("motion.jog-inhibit")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->jog_stop), inst->comp_id, PFMT("motion.jog-stop")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->jog_stop_immediate), inst->comp_id, PFMT("motion.jog-stop-immediate")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->tp_reverse), inst->comp_id, PFMT("motion.tp-reverse")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->enable), inst->comp_id, PFMT("motion.enable")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->is_all_homed), inst->comp_id, PFMT("motion.is-all-homed")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->probe_input), inst->comp_id, PFMT("motion.probe-input")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(inst->hal_data->adaptive_feed), inst->comp_id, PFMT("motion.adaptive-feed")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->feed_hold), inst->comp_id, PFMT("motion.feed-hold")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->feed_inhibit), inst->comp_id, PFMT("motion.feed-inhibit")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->homing_inhibit), inst->comp_id, PFMT("motion.homing-inhibit")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->jog_inhibit), inst->comp_id, PFMT("motion.jog-inhibit")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->jog_stop), inst->comp_id, PFMT("motion.jog-stop")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->jog_stop_immediate), inst->comp_id, PFMT("motion.jog-stop-immediate")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->tp_reverse), inst->comp_id, PFMT("motion.tp-reverse")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->enable), inst->comp_id, PFMT("motion.enable")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->is_all_homed), inst->comp_id, PFMT("motion.is-all-homed")));
 
     /* Commanded-feed pins. NOTE: the 2.9 motion.feed-upm pin (feed in G-code
      * program units/min, derived from the state-tag units flag) was intentionally
@@ -1108,32 +1108,32 @@ static int init_hal_io(motmod_inst_t *inst)
      * physical units. A consumer that needs "program units" (e.g. plasmac) should
      * net the pin matching the machine's native units — feed-mm-per-minute for a
      * metric machine, feed-inches-per-minute for an imperial one. */
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->feed_inches_per_minute), inst->comp_id, PFMT("motion.feed-inches-per-minute")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->feed_inches_per_second), inst->comp_id, PFMT("motion.feed-inches-per-second")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->feed_mm_per_minute), inst->comp_id, PFMT("motion.feed-mm-per-minute")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->feed_mm_per_second), inst->comp_id, PFMT("motion.feed-mm-per-second")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->feed_inches_per_minute), inst->comp_id, PFMT("motion.feed-inches-per-minute")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->feed_inches_per_second), inst->comp_id, PFMT("motion.feed-inches-per-second")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->feed_mm_per_minute), inst->comp_id, PFMT("motion.feed-mm-per-minute")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->feed_mm_per_second), inst->comp_id, PFMT("motion.feed-mm-per-second")));
 
     /* export motion-synched digital output pins */
     /* export motion digital input pins */
     if (inst->names_din[0]){
         for (n = 0; n < inst->num_dio; n++) {
             if (inst->names_din[n] == NULL || (*inst->names_din[n] == 0)) {break;}
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->synch_di[n]), inst->comp_id, PFMT("motion.din-%s"), inst->names_din[n]));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->synch_di[n]), inst->comp_id, PFMT("motion.din-%s"), inst->names_din[n]));
         }
     } else {
         for (n = 0; n < inst->num_dio; n++) {
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->synch_di[n]), inst->comp_id, PFMT("motion.digital-in-%02d"), n));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->synch_di[n]), inst->comp_id, PFMT("motion.digital-in-%02d"), n));
         }
     }
 
     if (inst->names_dout[0]){
         for (n = 0; n < inst->num_dio; n++) {
             if (inst->names_dout[n] == NULL || (*inst->names_dout[n] == 0)) {break;}
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->synch_do[n]), inst->comp_id, PFMT("motion.dout-%s"), inst->names_dout[n]));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->synch_do[n]), inst->comp_id, PFMT("motion.dout-%s"), inst->names_dout[n]));
         }
     } else {
         for (n = 0; n < inst->num_dio; n++) {
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->synch_do[n]), inst->comp_id, PFMT("motion.digital-out-%02d"),n));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->synch_do[n]), inst->comp_id, PFMT("motion.digital-out-%02d"),n));
         }
     }
 
@@ -1142,92 +1142,92 @@ static int init_hal_io(motmod_inst_t *inst)
     if (inst->names_ain[0]) {
         for (n = 0; n < inst->num_aio; n++) {
             if (inst->names_ain[n] == NULL || (*inst->names_ain[n] == 0)) {break;}
-            CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(inst->hal_data->analog_input[n]), inst->comp_id, PFMT("motion.ain-%s"), inst->names_ain[n]));
+            CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(inst->hal_data->analog_input[n]), inst->comp_id, PFMT("motion.ain-%s"), inst->names_ain[n]));
         }
     } else {
         for (n = 0; n < inst->num_aio; n++) {
-            CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(inst->hal_data->analog_input[n]), inst->comp_id, PFMT("motion.analog-in-%02d"), n));
+            CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(inst->hal_data->analog_input[n]), inst->comp_id, PFMT("motion.analog-in-%02d"), n));
         }
     }
     if (inst->names_aout[0]) {
         for (n = 0; n < inst->num_aio; n++) {
             if (inst->names_aout[n] == NULL || (*inst->names_aout[n] == 0)) {break;}
-            CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->analog_output[n]), inst->comp_id, PFMT("motion.aout-%s"), inst->names_aout[n]));
+            CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->analog_output[n]), inst->comp_id, PFMT("motion.aout-%s"), inst->names_aout[n]));
         }
     } else {
         for (n = 0; n < inst->num_aio; n++) {
-            CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->analog_output[n]), inst->comp_id, PFMT("motion.analog-out-%02d"), n));
+            CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->analog_output[n]), inst->comp_id, PFMT("motion.analog-out-%02d"), n));
         }
     }
 
     if (inst->names_misc_errors[0]) {
         for (n = 0; n < inst->num_misc_error; n++) {
             if (inst->names_misc_errors[n] == NULL || (*inst->names_misc_errors[n] == 0)) {break;}
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->misc_error[n]), inst->comp_id, PFMT("motion.err-%s"), inst->names_misc_errors[n]));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->misc_error[n]), inst->comp_id, PFMT("motion.err-%s"), inst->names_misc_errors[n]));
         }
     } else {
         /* export misc error input pins */
         for (n = 0; n < inst->num_misc_error; n++) {
-            CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(inst->hal_data->misc_error[n]), inst->comp_id, PFMT("motion.misc-error-%02d"), n));
+            CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(inst->hal_data->misc_error[n]), inst->comp_id, PFMT("motion.misc-error-%02d"), n));
         }
     }
 
     /* export machine wide hal pins */
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->motion_enabled), inst->comp_id, PFMT("motion.motion-enabled")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->in_position), inst->comp_id, PFMT("motion.in-position")));
-    CALL_CHECK(gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->motion_type), inst->comp_id, PFMT("motion.motion-type")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->coord_mode), inst->comp_id, PFMT("motion.coord-mode")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->teleop_mode), inst->comp_id, PFMT("motion.teleop-mode")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->coord_error), inst->comp_id, PFMT("motion.coord-error")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->on_soft_limit), inst->comp_id, PFMT("motion.on-soft-limit")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->current_vel), inst->comp_id, PFMT("motion.current-vel")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->requested_vel), inst->comp_id, PFMT("motion.requested-vel")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->distance_to_go), inst->comp_id, PFMT("motion.distance-to-go")));
-    CALL_CHECK(gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->segment_id), inst->comp_id, PFMT("motion.segment-id")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->jog_is_active), inst->comp_id, PFMT("motion.jog-is-active")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->motion_enabled), inst->comp_id, PFMT("motion.motion-enabled")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->in_position), inst->comp_id, PFMT("motion.in-position")));
+    CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->motion_type), inst->comp_id, PFMT("motion.motion-type")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->coord_mode), inst->comp_id, PFMT("motion.coord-mode")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->teleop_mode), inst->comp_id, PFMT("motion.teleop-mode")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->coord_error), inst->comp_id, PFMT("motion.coord-error")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->on_soft_limit), inst->comp_id, PFMT("motion.on-soft-limit")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->current_vel), inst->comp_id, PFMT("motion.current-vel")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->requested_vel), inst->comp_id, PFMT("motion.requested-vel")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->distance_to_go), inst->comp_id, PFMT("motion.distance-to-go")));
+    CALL_CHECK(stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->segment_id), inst->comp_id, PFMT("motion.segment-id")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->jog_is_active), inst->comp_id, PFMT("motion.jog-is-active")));
 
     /* export debug parameters */
     /* these can be used to view any internal variable, simply change a line
        in control.c:output_to_hal() and recompile */
-    CALL_CHECK(gomc_hal_param_bit_newf(hal, GOMC_HAL_RO, (gomc_hal_bit_t *)&(inst->hal_data->debug_bit_0), inst->comp_id, PFMT("motion.debug-bit-0")));
-    CALL_CHECK(gomc_hal_param_bit_newf(hal, GOMC_HAL_RO, (gomc_hal_bit_t *)&(inst->hal_data->debug_bit_1), inst->comp_id, PFMT("motion.debug-bit-1")));
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_float_0), inst->comp_id, PFMT("motion.debug-float-0")));
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_float_1), inst->comp_id, PFMT("motion.debug-float-1")));
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_float_2), inst->comp_id, PFMT("motion.debug-float-2")));
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_float_3), inst->comp_id, PFMT("motion.debug-float-3")));
-    CALL_CHECK(gomc_hal_param_s32_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_s32_0), inst->comp_id, PFMT("motion.debug-s32-0")));
-    CALL_CHECK(gomc_hal_param_s32_newf(hal, GOMC_HAL_RO, &(inst->hal_data->debug_s32_1), inst->comp_id, PFMT("motion.debug-s32-1")));
+    CALL_CHECK(stmak_hal_param_bit_newf(hal, STMAK_HAL_RO, (stmak_hal_bit_t *)&(inst->hal_data->debug_bit_0), inst->comp_id, PFMT("motion.debug-bit-0")));
+    CALL_CHECK(stmak_hal_param_bit_newf(hal, STMAK_HAL_RO, (stmak_hal_bit_t *)&(inst->hal_data->debug_bit_1), inst->comp_id, PFMT("motion.debug-bit-1")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_float_0), inst->comp_id, PFMT("motion.debug-float-0")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_float_1), inst->comp_id, PFMT("motion.debug-float-1")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_float_2), inst->comp_id, PFMT("motion.debug-float-2")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_float_3), inst->comp_id, PFMT("motion.debug-float-3")));
+    CALL_CHECK(stmak_hal_param_s32_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_s32_0), inst->comp_id, PFMT("motion.debug-s32-0")));
+    CALL_CHECK(stmak_hal_param_s32_newf(hal, STMAK_HAL_RO, &(inst->hal_data->debug_s32_1), inst->comp_id, PFMT("motion.debug-s32-1")));
 
     // FIXME - debug only, remove later
     // export HAL parameters for some trajectory planner internal variables
     // so they can be scoped
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->traj_pos_out), inst->comp_id, PFMT("traj.pos_out")));
-    CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->traj_vel_out), inst->comp_id, PFMT("traj.vel_out")));
-    CALL_CHECK(gomc_hal_param_u32_newf(hal, GOMC_HAL_RO, &(inst->hal_data->traj_active_tc), inst->comp_id, PFMT("traj.active_tc")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->traj_pos_out), inst->comp_id, PFMT("traj.pos_out")));
+    CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->traj_vel_out), inst->comp_id, PFMT("traj.vel_out")));
+    CALL_CHECK(stmak_hal_param_u32_newf(hal, STMAK_HAL_RO, &(inst->hal_data->traj_active_tc), inst->comp_id, PFMT("traj.active_tc")));
 
     for (n = 0; n < 4; n++) {
-        CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->tc_pos[n]), inst->comp_id, PFMT("tc.%d.pos"), n));
-        CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->tc_vel[n]), inst->comp_id, PFMT("tc.%d.vel"), n));
-        CALL_CHECK(gomc_hal_param_float_newf(hal, GOMC_HAL_RO, &(inst->hal_data->tc_acc[n]), inst->comp_id, PFMT("tc.%d.acc"), n));
+        CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->tc_pos[n]), inst->comp_id, PFMT("tc.%d.pos"), n));
+        CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->tc_vel[n]), inst->comp_id, PFMT("tc.%d.vel"), n));
+        CALL_CHECK(stmak_hal_param_float_newf(hal, STMAK_HAL_RO, &(inst->hal_data->tc_acc[n]), inst->comp_id, PFMT("tc.%d.acc"), n));
     }
     // end of exporting trajectory planner internals
 
     // export timing related HAL pins so they can be scoped and/or connected
-    CALL_CHECK(gomc_hal_pin_u32_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->last_period), inst->comp_id, PFMT("motion.servo.last-period")));
+    CALL_CHECK(stmak_hal_pin_u32_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->last_period), inst->comp_id, PFMT("motion.servo.last-period")));
 
     // export timing related HAL pins so they can be scoped
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_x), inst->comp_id, PFMT("motion.tooloffset.x")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_y), inst->comp_id, PFMT("motion.tooloffset.y")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_z), inst->comp_id, PFMT("motion.tooloffset.z")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_a), inst->comp_id, PFMT("motion.tooloffset.a")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_b), inst->comp_id, PFMT("motion.tooloffset.b")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_c), inst->comp_id, PFMT("motion.tooloffset.c")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_u), inst->comp_id, PFMT("motion.tooloffset.u")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_v), inst->comp_id, PFMT("motion.tooloffset.v")));
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(inst->hal_data->tooloffset_w), inst->comp_id, PFMT("motion.tooloffset.w")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_x), inst->comp_id, PFMT("motion.tooloffset.x")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_y), inst->comp_id, PFMT("motion.tooloffset.y")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_z), inst->comp_id, PFMT("motion.tooloffset.z")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_a), inst->comp_id, PFMT("motion.tooloffset.a")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_b), inst->comp_id, PFMT("motion.tooloffset.b")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_c), inst->comp_id, PFMT("motion.tooloffset.c")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_u), inst->comp_id, PFMT("motion.tooloffset.u")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_v), inst->comp_id, PFMT("motion.tooloffset.v")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(inst->hal_data->tooloffset_w), inst->comp_id, PFMT("motion.tooloffset.w")));
 
     /* Always create switchkins-type pin; it's a no-op if kins isn't switchable. */
-    CALL_CHECK(gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(inst->hal_data->switchkins_type), inst->comp_id, PFMT("motion.switchkins-type")));
+    CALL_CHECK(stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(inst->hal_data->switchkins_type), inst->comp_id, PFMT("motion.switchkins-type")));
 
     /* initialize machine wide pins and parameters */
     *(inst->hal_data->adaptive_feed) = 1.0;
@@ -1283,7 +1283,7 @@ static int init_hal_io(motmod_inst_t *inst)
     for (n = 0; n < inst->num_spindles; n++) {
         retval = export_spindle(inst, n, &(inst->hal_data->spindle[n]));
         if (retval != 0){
-            gomc_log_errorf(log, inst->name, "MOTION: spindle %d pin export failed", n);
+            stmak_log_errorf(log, inst->name, "MOTION: spindle %d pin export failed", n);
             return -1;
         }
     }
@@ -1293,7 +1293,7 @@ static int init_hal_io(motmod_inst_t *inst)
         /* export all vars */
         retval = export_joint(inst, n, joint_data);
         if (retval != 0) {
-            gomc_log_errorf(log, inst->name, "MOTION: joint %d pin/param export failed\n", n);
+            stmak_log_errorf(log, inst->name, "MOTION: joint %d pin/param export failed\n", n);
             return -1;
         }
         *(joint_data->amp_enable) = 0;
@@ -1306,55 +1306,55 @@ static int init_hal_io(motmod_inst_t *inst)
         ejoint_data = &(inst->hal_data->ejoint[n]);
         retval = export_extrajoint(inst, n + inst->num_joints - inst->num_extrajoints,ejoint_data);
         if (retval != 0) {
-            gomc_log_errorf(log, inst->name, "MOTION: ejoint %d pin/param export failed\n", n);
+            stmak_log_errorf(log, inst->name, "MOTION: ejoint %d pin/param export failed\n", n);
             return -1;
         }
     }
 
     CALL_CHECK(axis_init_hal_io((axis_inst_t *)inst->axis_inst, inst->hal, inst->log, inst->comp_id, inst->pin_prefix));
 
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->eoffset_limited), inst->comp_id, PFMT("motion.eoffset-limited")));
-    CALL_CHECK(gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(inst->hal_data->eoffset_active), inst->comp_id, PFMT("motion.eoffset-active")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->eoffset_limited), inst->comp_id, PFMT("motion.eoffset-limited")));
+    CALL_CHECK(stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(inst->hal_data->eoffset_active), inst->comp_id, PFMT("motion.eoffset-active")));
 
     /* Done! */
-    gomc_log_infof(log, inst->name, "MOTION: init_hal_io() complete, %d axes.\n", n);
+    stmak_log_infof(log, inst->name, "MOTION: init_hal_io() complete, %d axes.\n", n);
     return 0;
 }
 
 static int export_spindle(motmod_inst_t *inst, int num, spindle_hal_t * addr){
 	int retval;
-    const gomc_hal_t *hal = inst->hal;
+    const stmak_hal_t *hal = inst->hal;
     (void)hal;
 
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IO, (gomc_hal_bit_t **)&(addr->spindle_index_enable), inst->comp_id, PFMT("spindle.%d.index-enable"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IO, (stmak_hal_bit_t **)&(addr->spindle_index_enable), inst->comp_id, PFMT("spindle.%d.index-enable"), num)) != 0) return retval;
 
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_on), inst->comp_id, PFMT("spindle.%d.on"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_forward), inst->comp_id, PFMT("spindle.%d.forward"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_reverse), inst->comp_id, PFMT("spindle.%d.reverse"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_brake), inst->comp_id, PFMT("spindle.%d.brake"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_speed_out), inst->comp_id, PFMT("spindle.%d.speed-out"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_speed_out_abs), inst->comp_id, PFMT("spindle.%d.speed-out-abs"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_speed_out_rps), inst->comp_id, PFMT("spindle.%d.speed-out-rps"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_speed_out_rps_abs), inst->comp_id, PFMT("spindle.%d.speed-out-rps-abs"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_speed_cmd_rps), inst->comp_id, PFMT("spindle.%d.speed-cmd-rps"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->spindle_inhibit), inst->comp_id, PFMT("spindle.%d.inhibit"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->spindle_amp_fault), inst->comp_id, PFMT("spindle.%d.amp-fault-in"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_on), inst->comp_id, PFMT("spindle.%d.on"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_forward), inst->comp_id, PFMT("spindle.%d.forward"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_reverse), inst->comp_id, PFMT("spindle.%d.reverse"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_brake), inst->comp_id, PFMT("spindle.%d.brake"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_out), inst->comp_id, PFMT("spindle.%d.speed-out"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_out_abs), inst->comp_id, PFMT("spindle.%d.speed-out-abs"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_out_rps), inst->comp_id, PFMT("spindle.%d.speed-out-rps"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_out_rps_abs), inst->comp_id, PFMT("spindle.%d.speed-out-rps-abs"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_speed_cmd_rps), inst->comp_id, PFMT("spindle.%d.speed-cmd-rps"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_inhibit), inst->comp_id, PFMT("spindle.%d.inhibit"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_amp_fault), inst->comp_id, PFMT("spindle.%d.amp-fault-in"), num)) != 0) return retval;
     *(addr->spindle_inhibit) = 0;
 
     // spindle orient pins
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->spindle_orient_angle), inst->comp_id, PFMT("spindle.%d.orient-angle"), num)) < 0) return retval;
-    if ((retval = gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &(addr->spindle_orient_mode), inst->comp_id, PFMT("spindle.%d.orient-mode"), num)) < 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_orient), inst->comp_id, PFMT("spindle.%d.orient"), num)) < 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->spindle_locked), inst->comp_id, PFMT("spindle.%d.locked"), num)) < 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->spindle_is_oriented), inst->comp_id, PFMT("spindle.%d.is-oriented"), num)) < 0) return retval;
-    if ((retval = gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN, &(addr->spindle_orient_fault), inst->comp_id, PFMT("spindle.%d.orient-fault"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->spindle_orient_angle), inst->comp_id, PFMT("spindle.%d.orient-angle"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(addr->spindle_orient_mode), inst->comp_id, PFMT("spindle.%d.orient-mode"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_orient), inst->comp_id, PFMT("spindle.%d.orient"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->spindle_locked), inst->comp_id, PFMT("spindle.%d.locked"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_is_oriented), inst->comp_id, PFMT("spindle.%d.is-oriented"), num)) < 0) return retval;
+    if ((retval = stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN, &(addr->spindle_orient_fault), inst->comp_id, PFMT("spindle.%d.orient-fault"), num)) < 0) return retval;
     *(addr->spindle_orient_angle) = 0.0;
     *(addr->spindle_orient_mode) = 0;
     *(addr->spindle_orient) = 0;
 
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->spindle_revs), inst->comp_id, PFMT("spindle.%d.revs"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->spindle_speed_in), inst->comp_id, PFMT("spindle.%d.speed-in"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->spindle_is_atspeed), inst->comp_id, PFMT("spindle.%d.at-speed"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->spindle_revs), inst->comp_id, PFMT("spindle.%d.revs"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->spindle_speed_in), inst->comp_id, PFMT("spindle.%d.speed-in"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->spindle_is_atspeed), inst->comp_id, PFMT("spindle.%d.at-speed"), num)) != 0) return retval;
     *(addr->spindle_is_atspeed) = 1;
     return 0;
 }
@@ -1362,52 +1362,52 @@ static int export_spindle(motmod_inst_t *inst, int num, spindle_hal_t * addr){
 static int export_joint(motmod_inst_t *inst, int num, joint_hal_t * addr)
 {
     int retval;
-    const gomc_hal_t *hal = inst->hal;
-    const gomc_log_t *log = inst->log;
+    const stmak_hal_t *hal = inst->hal;
+    const stmak_log_t *log = inst->log;
     (void)log;
 
     /* export joint pins */
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->coarse_pos_cmd), inst->comp_id, PFMT("joint.%d.coarse-pos-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->joint_pos_cmd), inst->comp_id, PFMT("joint.%d.pos-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->joint_pos_fb), inst->comp_id, PFMT("joint.%d.pos-fb"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->motor_pos_cmd), inst->comp_id, PFMT("joint.%d.motor-pos-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->motor_pos_fb), inst->comp_id, PFMT("joint.%d.motor-pos-fb"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->motor_offset), inst->comp_id, PFMT("joint.%d.motor-offset"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->pos_lim_sw), inst->comp_id, PFMT("joint.%d.pos-lim-sw-in"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->neg_lim_sw), inst->comp_id, PFMT("joint.%d.neg-lim-sw-in"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->amp_enable), inst->comp_id, PFMT("joint.%d.amp-enable-out"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->amp_fault), inst->comp_id, PFMT("joint.%d.amp-fault-in"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_s32_newf(hal, GOMC_HAL_IN,   &(addr->jjog_counts), inst->comp_id, PFMT("joint.%d.jog-counts"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->jjog_enable), inst->comp_id, PFMT("joint.%d.jog-enable"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &(addr->jjog_scale), inst->comp_id, PFMT("joint.%d.jog-scale"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->jjog_vel_mode), inst->comp_id, PFMT("joint.%d.jog-vel-mode"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->joint_vel_cmd), inst->comp_id, PFMT("joint.%d.vel-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->joint_acc_cmd), inst->comp_id, PFMT("joint.%d.acc-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->backlash_corr), inst->comp_id, PFMT("joint.%d.backlash-corr"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->backlash_filt), inst->comp_id, PFMT("joint.%d.backlash-filt"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->backlash_vel), inst->comp_id, PFMT("joint.%d.backlash-vel"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->f_error), inst->comp_id, PFMT("joint.%d.f-error"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->f_error_lim), inst->comp_id, PFMT("joint.%d.f-error-lim"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->free_pos_cmd), inst->comp_id, PFMT("joint.%d.free-pos-cmd"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &(addr->free_vel_lim), inst->comp_id, PFMT("joint.%d.free-vel-lim"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->free_tp_enable), inst->comp_id, PFMT("joint.%d.free-tp-enable"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->kb_jjog_active), inst->comp_id, PFMT("joint.%d.kb-jog-active"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->wheel_jjog_active), inst->comp_id, PFMT("joint.%d.wheel-jog-active"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->in_position), inst->comp_id, PFMT("joint.%d.in-position"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->phl), inst->comp_id, PFMT("joint.%d.pos-hard-limit"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->nhl), inst->comp_id, PFMT("joint.%d.neg-hard-limit"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->active), inst->comp_id, PFMT("joint.%d.active"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->error), inst->comp_id, PFMT("joint.%d.error"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->f_errored), inst->comp_id, PFMT("joint.%d.f-errored"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->faulted), inst->comp_id, PFMT("joint.%d.faulted"), num)) != 0) return retval;
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN,&(addr->jjog_accel_fraction),inst->comp_id,PFMT("joint.%d.jog-accel-fraction"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->coarse_pos_cmd), inst->comp_id, PFMT("joint.%d.coarse-pos-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->joint_pos_cmd), inst->comp_id, PFMT("joint.%d.pos-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->joint_pos_fb), inst->comp_id, PFMT("joint.%d.pos-fb"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->motor_pos_cmd), inst->comp_id, PFMT("joint.%d.motor-pos-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->motor_pos_fb), inst->comp_id, PFMT("joint.%d.motor-pos-fb"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->motor_offset), inst->comp_id, PFMT("joint.%d.motor-offset"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->pos_lim_sw), inst->comp_id, PFMT("joint.%d.pos-lim-sw-in"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->neg_lim_sw), inst->comp_id, PFMT("joint.%d.neg-lim-sw-in"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->amp_enable), inst->comp_id, PFMT("joint.%d.amp-enable-out"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->amp_fault), inst->comp_id, PFMT("joint.%d.amp-fault-in"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_s32_newf(hal, STMAK_HAL_IN,   &(addr->jjog_counts), inst->comp_id, PFMT("joint.%d.jog-counts"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->jjog_enable), inst->comp_id, PFMT("joint.%d.jog-enable"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &(addr->jjog_scale), inst->comp_id, PFMT("joint.%d.jog-scale"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->jjog_vel_mode), inst->comp_id, PFMT("joint.%d.jog-vel-mode"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->joint_vel_cmd), inst->comp_id, PFMT("joint.%d.vel-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->joint_acc_cmd), inst->comp_id, PFMT("joint.%d.acc-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->backlash_corr), inst->comp_id, PFMT("joint.%d.backlash-corr"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->backlash_filt), inst->comp_id, PFMT("joint.%d.backlash-filt"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->backlash_vel), inst->comp_id, PFMT("joint.%d.backlash-vel"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->f_error), inst->comp_id, PFMT("joint.%d.f-error"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->f_error_lim), inst->comp_id, PFMT("joint.%d.f-error-lim"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->free_pos_cmd), inst->comp_id, PFMT("joint.%d.free-pos-cmd"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &(addr->free_vel_lim), inst->comp_id, PFMT("joint.%d.free-vel-lim"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->free_tp_enable), inst->comp_id, PFMT("joint.%d.free-tp-enable"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->kb_jjog_active), inst->comp_id, PFMT("joint.%d.kb-jog-active"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->wheel_jjog_active), inst->comp_id, PFMT("joint.%d.wheel-jog-active"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->in_position), inst->comp_id, PFMT("joint.%d.in-position"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->phl), inst->comp_id, PFMT("joint.%d.pos-hard-limit"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->nhl), inst->comp_id, PFMT("joint.%d.neg-hard-limit"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->active), inst->comp_id, PFMT("joint.%d.active"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->error), inst->comp_id, PFMT("joint.%d.error"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->f_errored), inst->comp_id, PFMT("joint.%d.f-errored"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->faulted), inst->comp_id, PFMT("joint.%d.faulted"), num)) != 0) return retval;
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN,&(addr->jjog_accel_fraction),inst->comp_id,PFMT("joint.%d.jog-accel-fraction"), num)) != 0) return retval;
     *addr->jjog_accel_fraction = 1.0; // fraction of accel for wheel jjogs
 
     if ( joint_is_lockable(inst, num) ) {
         // these pins may be needed for rotary joints
-        gomc_log_warnf(log, inst->name, "motion.c: Creating unlock hal pins for joint %d\n",num);
-        if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, (gomc_hal_bit_t **)&(addr->unlock), inst->comp_id, PFMT("joint.%d.unlock"), num)) != 0) return retval;
-        if ((retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, (gomc_hal_bit_t **)&(addr->is_unlocked), inst->comp_id, PFMT("joint.%d.is-unlocked"), num)) != 0) return retval;
+        stmak_log_warnf(log, inst->name, "motion.c: Creating unlock hal pins for joint %d\n",num);
+        if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, (stmak_hal_bit_t **)&(addr->unlock), inst->comp_id, PFMT("joint.%d.unlock"), num)) != 0) return retval;
+        if ((retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, (stmak_hal_bit_t **)&(addr->is_unlocked), inst->comp_id, PFMT("joint.%d.is-unlocked"), num)) != 0) return retval;
     }
 
     return 0;
@@ -1416,9 +1416,9 @@ static int export_joint(motmod_inst_t *inst, int num, joint_hal_t * addr)
 static int export_extrajoint(motmod_inst_t *inst, int num, extrajoint_hal_t * addr)
 {
     int retval;
-    const gomc_hal_t *hal = inst->hal;
+    const stmak_hal_t *hal = inst->hal;
     /* export extrajoint pins */
-    if ((retval = gomc_hal_pin_float_newf(hal, GOMC_HAL_IN,  &(addr->posthome_cmd),  inst->comp_id,
+    if ((retval = stmak_hal_pin_float_newf(hal, STMAK_HAL_IN,  &(addr->posthome_cmd),  inst->comp_id,
                                             "joint.%d.posthome-cmd",  num)) != 0) return retval;
     return 0;
 }
@@ -1431,9 +1431,9 @@ static int init_comm_buffers(motmod_inst_t *inst)
 {
     int joint_num, spindle_num, n;
     emcmot_joint_t *joint;
-    const gomc_log_t *log = inst->log;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: init_comm_buffers() starting...\n");
+    stmak_log_infof(log, inst->name, "MOTION: init_comm_buffers() starting...\n");
 
     inst->mot_struct = 0;
     inst->internal = 0;
@@ -1444,7 +1444,7 @@ static int init_comm_buffers(motmod_inst_t *inst)
     /* allocate the motion structure (direct memory, no shmem key) */
     inst->mot_struct = rtapi_calloc(sizeof(emcmot_struct_t));
     if (!inst->mot_struct) {
-	gomc_log_errorf(log, inst->name, "MOTION: rtapi_calloc failed for emcmot_struct_t\n");
+	stmak_log_errorf(log, inst->name, "MOTION: rtapi_calloc failed for emcmot_struct_t\n");
 	return -1;
     }
 
@@ -1582,7 +1582,7 @@ static int init_comm_buffers(motmod_inst_t *inst)
 
     inst->status->tail = 0;
 
-    gomc_log_infof(log, inst->name, "MOTION: init_comm_buffers() complete\n");
+    stmak_log_infof(log, inst->name, "MOTION: init_comm_buffers() complete\n");
     return 0;
 }
 
@@ -1598,10 +1598,10 @@ static int export_functions(motmod_inst_t *inst)
     double base_period_sec, servo_period_sec;
     int servo_base_ratio;
     int retval;
-    const gomc_hal_t *hal = inst->hal;
-    const gomc_log_t *log = inst->log;
+    const stmak_hal_t *hal = inst->hal;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: export_functions() starting...\n");
+    stmak_log_infof(log, inst->name, "MOTION: export_functions() starting...\n");
 
     /* if base_period not specified, assume same as servo_period */
     if (inst->base_period_nsec == 0) {
@@ -1612,7 +1612,7 @@ static int export_functions(motmod_inst_t *inst)
     }
     /* servo period must be greater or equal to base period */
     if (inst->servo_period_nsec < inst->base_period_nsec) {
-	gomc_log_errorf(log, inst->name, "MOTION: bad servo period %ld nsec\n", inst->servo_period_nsec);
+	stmak_log_errorf(log, inst->name, "MOTION: bad servo period %ld nsec\n", inst->servo_period_nsec);
 	return -1;
     }
     /* convert desired periods to floating point */
@@ -1628,14 +1628,14 @@ static int export_functions(motmod_inst_t *inst)
     retval = hal->export_funct(hal->ctx, fname, emcmotController, inst
 	 /* arg */ , 1 /* uses_fp */ , 0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: failed to export controller function\n");
+	stmak_log_errorf(log, inst->name, "MOTION: failed to export controller function\n");
 	return -1;
     }
     snprintf(fname, sizeof(fname), "%smotion-command-handler", inst->pin_prefix);
     retval = hal->export_funct(hal->ctx, fname, emcmotCommandHandler, inst
 	 /* arg */ , 1 /* uses_fp */ , 0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: failed to export command handler function\n");
+	stmak_log_errorf(log, inst->name, "MOTION: failed to export command handler function\n");
 	return -1;
     }
 /*! \todo Another #if 0 */
@@ -1646,7 +1646,7 @@ static int export_functions(motmod_inst_t *inst)
 	 /* arg */ , 1 /* uses_fp */ ,
 	0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	gomc_log_errorf(log, inst->name, "MOTION: failed to export traj planner function\n");
+	stmak_log_errorf(log, inst->name, "MOTION: failed to export traj planner function\n");
 	return -1;
     }
 #endif
@@ -1656,7 +1656,7 @@ static int export_functions(motmod_inst_t *inst)
     setServoCycleTime(inst, inst->servo_period_nsec * 1e-9);
     setTrajCycleTime(inst, inst->traj_period_nsec * 1e-9);
 
-    gomc_log_infof(log, inst->name, "MOTION: export_functions() complete\n");
+    stmak_log_infof(log, inst->name, "MOTION: export_functions() complete\n");
     return 0;
 }
 
@@ -1673,9 +1673,9 @@ void emcmotSetCycleTime(motmod_inst_t *inst, unsigned long nsec)
 static int setTrajCycleTime(motmod_inst_t *inst, double secs)
 {
     int t;
-    const gomc_log_t *log = inst->log;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: setting Traj cycle time to %ld nsecs\n", (long) (secs * 1e9));
+    stmak_log_infof(log, inst->name, "MOTION: setting Traj cycle time to %ld nsecs\n", (long) (secs * 1e9));
 
     /* make sure it's not zero */
     if (secs <= 0.0) {
@@ -1710,9 +1710,9 @@ static int setTrajCycleTime(motmod_inst_t *inst, double secs)
 static int setServoCycleTime(motmod_inst_t *inst, double secs)
 {
     int t;
-    const gomc_log_t *log = inst->log;
+    const stmak_log_t *log = inst->log;
 
-    gomc_log_infof(log, inst->name, "MOTION: setting Servo cycle time to %ld nsecs\n", (long) (secs * 1e9));
+    stmak_log_infof(log, inst->name, "MOTION: setting Servo cycle time to %ld nsecs\n", (long) (secs * 1e9));
 
     /* make sure it's not zero */
     if (secs <= 0.0) {

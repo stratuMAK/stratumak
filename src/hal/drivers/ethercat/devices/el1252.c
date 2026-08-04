@@ -101,7 +101,7 @@ ec_sync_info_t lcec_el1252_syncs[] = {
 /** \brief data structure of one channel of the device */
 typedef struct {
   // data exposed as PIN to Linuxcnc/Machinekit
-  gomc_hal_bit_t *in;      /**< HAL output pin: current digital input state. */
+  stmak_hal_bit_t *in;      /**< HAL output pin: current digital input state. */
 
   uint8_t    Status;     /**< Cached edge-detection status byte from the PDO. */
   uint64_t   LatchPos;   /**< Cached timestamp of last positive edge (0→1). */
@@ -118,8 +118,8 @@ typedef struct {
 } lcec_el1252_chan_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1252_chan_t, in), "%s.%s.%s.din-%d" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1252_chan_t, in), "%s.%s.%s.din-%d" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /** \brief complete data structure for EL1252 */
@@ -128,7 +128,7 @@ typedef struct {
 } lcec_el1252_data_t;
 
 /** \brief callback for periodic IO data access*/
-void lcec_el1252_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1252_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize the EL1252 fast digital input slave.

@@ -1,5 +1,5 @@
 extern char **environ;
-#include "gomc_env.h"
+#include "stmak_env.h"
 #define HM2_LLIO_NAME "hm2_spix"
 extern const void *hm2_log;
 #include "hostmot2-lowlevel.h"
@@ -60,7 +60,7 @@ int eshellf(const char *errpfx, const char *fmt, ...)
 	if(res == EXIT_SUCCESS)
 		return 0;
 
-	gomc_log_errorf(hm2_log, HM2_LLIO_NAME, "%s: ERROR: Failed to execute '%s'\n", errpfx ? errpfx : "eshellf()", commandbuf);
+	stmak_log_errorf(hm2_log, HM2_LLIO_NAME, "%s: ERROR: Failed to execute '%s'\n", errpfx ? errpfx : "eshellf()", commandbuf);
 	return -EINVAL;
 }
 

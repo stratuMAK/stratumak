@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Smoke-test driver for the installed package, ported to the gomc REST/WS API:
+# Smoke-test driver for the installed package, ported to the stmak REST/WS API:
 # it uses the `gmi` client package instead of the removed NML `linuxcnc` python
 # module. Positions come from gmi.Stat; the custom `motion.analog-out-00`
 # counter is read with `halcmd getp` (there is no userspace HAL component
@@ -12,13 +12,13 @@
 import gmi
 from gmi.constants import *
 
-import gomc_test
+import stmak_test
 
 import subprocess
 import time
 import sys
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -39,7 +39,7 @@ def counter():
 
 
 def positions():
-    # s.actual_position is gomc-mm; the program runs G20 on this inch config,
+    # s.actual_position is stmak-mm; the program runs G20 on this inch config,
     # so convert back to inches for the mod-5 goal checks.
     p = s.actual_position
     return p[0] / 25.4, p[1] / 25.4, p[2] / 25.4
@@ -58,7 +58,7 @@ def print_state():
 # buffer before commanding anything.
 #
 
-gomc_test.wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 
 #
 # Come out of E-stop, turn the machine on, home, and switch to Auto mode.
@@ -72,7 +72,7 @@ c.home(2)
 
 # A generous ceiling costs nothing on the happy path -- the wait ends as soon
 # as homing does; it only bounds the failure on a loaded runner.
-gomc_test.wait_stat(s, lambda st: all(st.homed[0:3]),
+stmak_test.wait_stat(s, lambda st: all(st.homed[0:3]),
                     "joints 0-2 to finish homing", timeout=30.0,
                     detail=lambda st: "homed=%s" % (list(st.homed[0:3]),))
 
@@ -100,14 +100,14 @@ def wait_complete_step():
 
     # Wait for the step to be accepted (exec_state enters a waiting state),
     # or for the interpreter to go idle (program finished).
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s,
         lambda st: st.exec_state in _WAITING or st.interp_state == INTERP_IDLE,
         "the step to be accepted (task to start waiting for motion)",
         timeout=_STEP_TIMEOUT, detail=_exec)
 
     # Wait for Task to be done waiting for Motion.
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s, lambda st: st.exec_state not in _WAITING,
         "the step to finish (task to stop waiting for motion)",
         timeout=_STEP_TIMEOUT, detail=_exec)

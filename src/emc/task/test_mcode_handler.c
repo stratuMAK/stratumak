@@ -6,7 +6,7 @@
  * M102 that deliberately fails (drives the milltask EMC_TASK_EXEC_ERROR
  * fault path — tests/abort/seq-fault-recovery).
  *
- * Load via INI: [GOMC] CMOD=test_mcode_handler
+ * Load via INI: [STMAK] CMOD=test_mcode_handler
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPL Version 2
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 #include "mcode_handler_api.h"
 
 typedef struct {

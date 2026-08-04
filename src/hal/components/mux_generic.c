@@ -20,7 +20,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -33,25 +33,25 @@
 
 /* HAL data union — mirrors hal_data_u from hal.h */
 typedef union {
-    gomc_hal_bit_t   b;
-    gomc_hal_float_t f;
-    gomc_hal_s32_t   s;
-    gomc_hal_u32_t   u;
+    stmak_hal_bit_t   b;
+    stmak_hal_float_t f;
+    stmak_hal_s32_t   s;
+    stmak_hal_u32_t   u;
 } hal_data_u;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     hal_data_u **inputs;
     hal_data_u *output;
-    gomc_hal_u32_t *sel_int;
-    gomc_hal_bit_t **sel_bit;
+    stmak_hal_u32_t *sel_int;
+    stmak_hal_bit_t **sel_bit;
     uint32_t selection;
-    gomc_hal_u32_t *debounce;
+    stmak_hal_u32_t *debounce;
     uint32_t timer;
-    gomc_hal_bit_t *suppress;
+    stmak_hal_bit_t *suppress;
     int in_type;
     int out_type;
     int size;
@@ -186,20 +186,20 @@ static void inst_destroy(cmod_t *self) {
 
 static int parse_type(char c) {
     switch (c) {
-    case 'b': case 'B': return GOMC_HAL_BIT;
-    case 'f': case 'F': return GOMC_HAL_FLOAT;
-    case 's': case 'S': return GOMC_HAL_S32;
-    case 'u': case 'U': return GOMC_HAL_U32;
+    case 'b': case 'B': return STMAK_HAL_BIT;
+    case 'f': case 'F': return STMAK_HAL_FLOAT;
+    case 's': case 'S': return STMAK_HAL_S32;
+    case 'u': case 'U': return STMAK_HAL_U32;
     default: return -1;
     }
 }
 
 static const char *type_name(int type) {
     switch (type) {
-    case GOMC_HAL_BIT:   return "bit";
-    case GOMC_HAL_FLOAT: return "float";
-    case GOMC_HAL_S32:   return "s32";
-    case GOMC_HAL_U32:   return "u32";
+    case STMAK_HAL_BIT:   return "bit";
+    case STMAK_HAL_FLOAT: return "float";
+    case STMAK_HAL_S32:   return "s32";
+    case STMAK_HAL_U32:   return "u32";
     default: return "invalid";
     }
 }
@@ -218,7 +218,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!config_arg || !*config_arg) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "mux_generic requires config= argument (e.g. config=\"ff8\")");
         return -EINVAL;
     }
@@ -232,7 +232,7 @@ int New(const cmod_env_t *env, const char *name,
             else if (out_type == -1)
                 out_type = type;
             else {
-                gomc_log_errorf(env->log, name,
+                stmak_log_errorf(env->log, name,
                                 "too many type specifiers in config string");
                 return -EINVAL;
             }
@@ -240,20 +240,20 @@ int New(const cmod_env_t *env, const char *name,
             size = size * 10 + (config_arg[i] - '0');
             if (size > MAX_SIZE) size = MAX_SIZE;
         } else {
-            gomc_log_errorf(env->log, name,
+            stmak_log_errorf(env->log, name,
                             "invalid character '%c' in config string", config_arg[i]);
             return -EINVAL;
         }
     }
 
     if (in_type == -1) {
-        gomc_log_errorf(env->log, name, "no type specifiers in config string");
+        stmak_log_errorf(env->log, name, "no type specifiers in config string");
         return -EINVAL;
     }
     if (out_type == -1)
         out_type = in_type;
     if (size < 2) {
-        gomc_log_errorf(env->log, name, "mux size must be >= 2");
+        stmak_log_errorf(env->log, name, "mux size must be >= 2");
         return -EINVAL;
     }
 
@@ -279,11 +279,11 @@ int New(const cmod_env_t *env, const char *name,
     inst->num_bits = num_bits;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     /* export function */
-    if (in_type == GOMC_HAL_FLOAT || out_type == GOMC_HAL_FLOAT) {
+    if (in_type == STMAK_HAL_FLOAT || out_type == STMAK_HAL_FLOAT) {
         r = env->hal->export_funct(env->hal->ctx, name, write_fp, inst, 1, 0,
                                    inst->comp_id);
     } else {
@@ -295,17 +295,17 @@ int New(const cmod_env_t *env, const char *name,
     /* create sel-bit pins if size is power of 2 */
     if (num_bits > 0) {
         inst->sel_bit = env->hal->malloc(env->hal->ctx,
-                                         num_bits * sizeof(gomc_hal_bit_t *));
+                                         num_bits * sizeof(stmak_hal_bit_t *));
         if (!inst->sel_bit) goto err;
         for (p = 0; p < num_bits; p++) {
-            r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->sel_bit[p],
+            r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->sel_bit[p],
                                       inst->comp_id, "%s.sel-bit-%02d", name, p);
             if (r != 0) goto err;
         }
     }
 
     /* sel-int pin */
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN, &inst->sel_int,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN, &inst->sel_int,
                               inst->comp_id, "%s.sel-int", name);
     if (r != 0) goto err;
 
@@ -314,23 +314,23 @@ int New(const cmod_env_t *env, const char *name,
                                     size * sizeof(hal_data_u *));
     if (!inst->inputs) goto err;
     for (p = 0; p < size; p++) {
-        r = gomc_hal_pin_newf(env->hal, in_type, GOMC_HAL_IN,
+        r = stmak_hal_pin_newf(env->hal, in_type, STMAK_HAL_IN,
                               (void **)&inst->inputs[p], inst->comp_id,
                               "%s.in-%s-%02d", name, type_name(in_type), p);
         if (r != 0) goto err;
     }
 
     /* behaviour-modifier pins */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->suppress,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->suppress,
                               inst->comp_id, "%s.suppress-no-input", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN, &inst->debounce,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN, &inst->debounce,
                               inst->comp_id, "%s.debounce-us", name);
     if (r != 0) goto err;
 
     /* output pin */
-    r = gomc_hal_pin_newf(env->hal, out_type, GOMC_HAL_OUT,
+    r = stmak_hal_pin_newf(env->hal, out_type, STMAK_HAL_OUT,
                           (void **)&inst->output, inst->comp_id,
                           "%s.out-%s", name, type_name(out_type));
     if (r != 0) goto err;

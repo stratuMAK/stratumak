@@ -25,13 +25,13 @@
  * @brief Per-channel HAL data for one EM3712 input channel.
  */
 typedef struct {
-  gomc_hal_bit_t *overrange;       /**< OUT: measurement above sensor range */
-  gomc_hal_bit_t *underrange;      /**< OUT: measurement below sensor range */
-  gomc_hal_bit_t *error;           /**< OUT: channel error flag */
-  gomc_hal_s32_t *raw_val;         /**< OUT: raw 16-bit signed measurement */
-  gomc_hal_float_t *scale;         /**< IO: scale factor applied to normalised value */
-  gomc_hal_float_t *bias;          /**< IO: offset added after scaling */
-  gomc_hal_float_t *val;           /**< OUT: scaled and biased output value */
+  stmak_hal_bit_t *overrange;       /**< OUT: measurement above sensor range */
+  stmak_hal_bit_t *underrange;      /**< OUT: measurement below sensor range */
+  stmak_hal_bit_t *error;           /**< OUT: channel error flag */
+  stmak_hal_s32_t *raw_val;         /**< OUT: raw 16-bit signed measurement */
+  stmak_hal_float_t *scale;         /**< IO: scale factor applied to normalised value */
+  stmak_hal_float_t *bias;          /**< IO: offset added after scaling */
+  stmak_hal_float_t *val;           /**< OUT: scaled and biased output value */
   unsigned int ovr_pdo_os;    /**< PDO byte offset: overrange bit (0x6000/0x6010:02) */
   unsigned int ovr_pdo_bp;    /**< Bit position: overrange bit */
   unsigned int udr_pdo_os;    /**< PDO byte offset: underrange bit (0x6000/0x6010:01) */
@@ -49,14 +49,14 @@ typedef struct {
 } lcec_em3712_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em3712_chan_t, overrange), "%s.%s.%s.press-%d-overrange" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em3712_chan_t, underrange), "%s.%s.%s.press-%d-underrange" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_em3712_chan_t, error), "%s.%s.%s.press-%d-error" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_em3712_chan_t, raw_val), "%s.%s.%s.press-%d-raw" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_em3712_chan_t, val), "%s.%s.%s.press-%d-val" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em3712_chan_t, scale), "%s.%s.%s.press-%d-scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_em3712_chan_t, bias), "%s.%s.%s.press-%d-bias" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em3712_chan_t, overrange), "%s.%s.%s.press-%d-overrange" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em3712_chan_t, underrange), "%s.%s.%s.press-%d-underrange" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_em3712_chan_t, error), "%s.%s.%s.press-%d-error" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_em3712_chan_t, raw_val), "%s.%s.%s.press-%d-raw" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_em3712_chan_t, val), "%s.%s.%s.press-%d-val" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em3712_chan_t, scale), "%s.%s.%s.press-%d-scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_em3712_chan_t, bias), "%s.%s.%s.press-%d-bias" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_em3712_channels[][9] = {
@@ -100,7 +100,7 @@ static ec_sync_info_t lcec_em3712_syncs[] = {
 /**
  * @brief Cyclic read: forward declaration.
  */
-void lcec_em3712_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_em3712_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise the EM3712 analog input module.

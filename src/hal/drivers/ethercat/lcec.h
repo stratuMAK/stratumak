@@ -33,7 +33,7 @@
 #ifndef _LCEC_H_
 #define _LCEC_H_
 
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -46,7 +46,7 @@
 #include <math.h>
 
 // ecrt.h is included through lcec_ecrt.h, which hands the master's native
-// ECRT_RT_ATTR annotations over to gomc's GOMC_NONBLOCKING effects check
+// ECRT_RT_ATTR annotations over to stmak's STMAK_NONBLOCKING effects check
 // (see that header).  Every lcec TU reaches ecrt.h this way so the
 // override wins in any include order.
 #include "lcec_ecrt.h"
@@ -55,19 +55,19 @@
 /**
  * @defgroup lcec_log Logging wrapper macros
  *
- * Convenience macros that forward to gomc_log_*f() using the cached
+ * Convenience macros that forward to stmak_log_*f() using the cached
  * @c log / @c comp_name pointers on @c lcec_master_t.  Every macro
  * expects a pointer to the master as its first argument.
  * @{
  */
 #define LCEC_ERR(master, fmt, ...) \
-  gomc_log_errorf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
+  stmak_log_errorf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
 #define LCEC_WARN(master, fmt, ...) \
-  gomc_log_warnf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
+  stmak_log_warnf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
 #define LCEC_INFO(master, fmt, ...) \
-  gomc_log_infof((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
+  stmak_log_infof((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
 #define LCEC_DBG(master, fmt, ...) \
-  gomc_log_debugf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
+  stmak_log_debugf((master)->log, (master)->comp_name, fmt, ##__VA_ARGS__)
 /** @} */ // lcec_log
 
 /**
@@ -263,13 +263,13 @@ typedef void (*lcec_slave_cleanup_t) (struct lcec_slave *slave);
  * @brief Real-time read or write callback executed every servo period.
  *
  * Implementations must not block, sleep, or allocate/free memory.
- * The GOMC_NONBLOCKING type annotation makes clang's function-effects
+ * The STMAK_NONBLOCKING type annotation makes clang's function-effects
  * analysis enforce exactly that (see "make rt-effects-check").
  *
  * @param slave   Pointer to the slave.
  * @param period  Servo period in nanoseconds.
  */
-typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Distributed Clock synchronisation callback invoked at a specific
@@ -277,7 +277,7 @@ typedef void (*lcec_slave_rw_t) (struct lcec_slave *slave, long period) GOMC_NON
  *
  * @param master  Pointer to the master that owns the DC clock.
  */
-typedef void (*lcec_dcsync_callback_t) (struct lcec_master *master) GOMC_NONBLOCKING;
+typedef void (*lcec_dcsync_callback_t) (struct lcec_master *master) STMAK_NONBLOCKING;
 
 /**
  * @brief FsoE (Functional Safety over EtherCAT) PDO dimension parameters.
@@ -312,17 +312,17 @@ typedef struct {
  * and remain valid for the lifetime of the HAL component.
  */
 typedef struct lcec_master_data {
-  gomc_hal_u32_t *slaves_responding; /**< Number of slaves currently visible on the bus. */
-  gomc_hal_bit_t *state_init;        /**< TRUE when at least one slave is in INIT state. */
-  gomc_hal_bit_t *state_preop;       /**< TRUE when at least one slave is in PRE-OP state. */
-  gomc_hal_bit_t *state_safeop;      /**< TRUE when at least one slave is in SAFE-OP state. */
-  gomc_hal_bit_t *state_op;          /**< TRUE when at least one slave is in OP state. */
-  gomc_hal_bit_t *link_up;           /**< TRUE when the EtherCAT physical link is up. */
-  gomc_hal_bit_t *all_op;            /**< TRUE when every @em configured slave is in OP state. */
-#ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
-  gomc_hal_s32_t *pll_err;           /**< Current PLL phase error in nanoseconds. */
-  gomc_hal_s32_t *pll_out;           /**< Current PLL correction output in nanoseconds. */
-  gomc_hal_u32_t *pll_reset_cnt;     /**< Cumulative number of PLL resets since module load. */
+  stmak_hal_u32_t *slaves_responding; /**< Number of slaves currently visible on the bus. */
+  stmak_hal_bit_t *state_init;        /**< TRUE when at least one slave is in INIT state. */
+  stmak_hal_bit_t *state_preop;       /**< TRUE when at least one slave is in PRE-OP state. */
+  stmak_hal_bit_t *state_safeop;      /**< TRUE when at least one slave is in SAFE-OP state. */
+  stmak_hal_bit_t *state_op;          /**< TRUE when at least one slave is in OP state. */
+  stmak_hal_bit_t *link_up;           /**< TRUE when the EtherCAT physical link is up. */
+  stmak_hal_bit_t *all_op;            /**< TRUE when every @em configured slave is in OP state. */
+#ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
+  stmak_hal_s32_t *pll_err;           /**< Current PLL phase error in nanoseconds. */
+  stmak_hal_s32_t *pll_out;           /**< Current PLL correction output in nanoseconds. */
+  stmak_hal_u32_t *pll_reset_cnt;     /**< Cumulative number of PLL resets since module load. */
 #endif
 } lcec_master_data_t;
 
@@ -334,12 +334,12 @@ typedef struct lcec_master_data {
  * lifetime of the HAL component.
  */
 typedef struct lcec_slave_state {
-  gomc_hal_bit_t *online;        /**< TRUE when the slave is reachable on the bus. */
-  gomc_hal_bit_t *operational;   /**< TRUE when the slave is in OP state. */
-  gomc_hal_bit_t *state_init;    /**< TRUE when the slave AL state is INIT. */
-  gomc_hal_bit_t *state_preop;   /**< TRUE when the slave AL state is PRE-OP. */
-  gomc_hal_bit_t *state_safeop;  /**< TRUE when the slave AL state is SAFE-OP. */
-  gomc_hal_bit_t *state_op;      /**< TRUE when the slave AL state is OP. */
+  stmak_hal_bit_t *online;        /**< TRUE when the slave is reachable on the bus. */
+  stmak_hal_bit_t *operational;   /**< TRUE when the slave is in OP state. */
+  stmak_hal_bit_t *state_init;    /**< TRUE when the slave AL state is INIT. */
+  stmak_hal_bit_t *state_preop;   /**< TRUE when the slave AL state is PRE-OP. */
+  stmak_hal_bit_t *state_safeop;  /**< TRUE when the slave AL state is SAFE-OP. */
+  stmak_hal_bit_t *state_op;      /**< TRUE when the slave AL state is OP. */
 } lcec_slave_state_t;
 
 /**
@@ -361,7 +361,7 @@ typedef struct lcec_master {
   char instance_name[LCEC_CONF_STR_MAXLEN]; /**< Instance name from cmod New(); used as HAL pin name prefix. */
   struct lcec_rt_context *rt_ctx; /**< Back-pointer to the owning RT context (for per-instance state). */
   const cmod_env_t *env;         /**< Convenience copy of rt_ctx->env for device/class code. */
-  const gomc_log_t *log;         /**< Convenience copy of env->log for logging macros. */
+  const stmak_log_t *log;         /**< Convenience copy of env->log for logging macros. */
   const char *comp_name;         /**< Component name for log messages (points to instance_name). */
 #ifdef EC_USPACE_MASTER
   int transport_type;                          /**< Transport layer type identifier (userspace build only). */
@@ -394,7 +394,7 @@ typedef struct lcec_master {
   int ref_clock_sync_counter;               /**< Remaining cycles before the next DC ref-clock sync. */
   uint64_t app_time_ns;    /**< Application time written to the EtherCAT master each cycle (ns). */
   uint64_t ref_time_ns;    /**< Reference time snapshot used for computing the DC time offset (ns). */
-#ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
+#ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
   uint64_t dc_time_ns;     /**< DC system time read from the reference clock slave (ns). */
   int dc_started;          /**< Non-zero once the DC synchronisation PI controller has been seeded. */
   int64_t dc_diff_ns;      /**< Current DC phase error (application time minus DC time) in ns. */
@@ -543,8 +543,8 @@ typedef struct lcec_slave {
  * parameter.
  */
 typedef struct {
-  gomc_hal_type_t    type;   /**< HAL data type (GOMC_HAL_BIT, GOMC_HAL_U32, GOMC_HAL_S32, GOMC_HAL_FLOAT). */
-  int dir;    /**< Pin/parameter direction (GOMC_HAL_IN, GOMC_HAL_OUT, GOMC_HAL_IO, GOMC_HAL_RO, GOMC_HAL_RW). */
+  stmak_hal_type_t    type;   /**< HAL data type (STMAK_HAL_BIT, STMAK_HAL_U32, STMAK_HAL_S32, STMAK_HAL_FLOAT). */
+  int dir;    /**< Pin/parameter direction (STMAK_HAL_IN, STMAK_HAL_OUT, STMAK_HAL_IO, STMAK_HAL_RO, STMAK_HAL_RW). */
   int           offset; /**< Byte offset of the pointer field within the driver's HAL data struct. */
   const char   *fmt;    /**< printf-style name format string; NULL terminates the descriptor list. */
 } lcec_pindesc_t;
@@ -561,7 +561,7 @@ typedef struct {
  * @c LCEC_MAX_PDO_INFO_COUNT, and @c LCEC_MAX_PDO_ENTRY_COUNT.
  */
 typedef struct {
-  const gomc_log_t *log;           /**< Cached log handle for overflow diagnostics. */
+  const stmak_log_t *log;           /**< Cached log handle for overflow diagnostics. */
   const char       *comp_name;     /**< Component name for log messages. */
 
   int              sync_count;    /**< Number of sync managers added so far. */
@@ -613,7 +613,7 @@ int lcec_read_idn(struct lcec_slave *slave, uint8_t drive_no, uint16_t idn, uint
  * @param ...            Format arguments.
  * @return 0 on success, negative HAL error code on failure.
  */
-int lcec_pin_newf(const cmod_env_t *env, int comp_id, gomc_hal_type_t type, int dir, void **data_ptr_addr, const char *fmt, ...);
+int lcec_pin_newf(const cmod_env_t *env, int comp_id, stmak_hal_type_t type, int dir, void **data_ptr_addr, const char *fmt, ...);
 
 /**
  * @brief Create a list of HAL pins described by a NULL-terminated lcec_pindesc_t array.
@@ -633,13 +633,13 @@ int lcec_pin_newf_list(const cmod_env_t *env, int comp_id, void *base, const lce
  * @param env        Launcher-provided environment.
  * @param comp_id    HAL component ID.
  * @param type       HAL data type.
- * @param dir        Parameter direction (GOMC_HAL_RO or GOMC_HAL_RW).
+ * @param dir        Parameter direction (STMAK_HAL_RO or STMAK_HAL_RW).
  * @param data_addr  Address of the parameter's storage.
  * @param fmt        printf-style format string for the parameter name.
  * @param ...        Format arguments.
  * @return 0 on success, negative HAL error code on failure.
  */
-int lcec_param_newf(const cmod_env_t *env, int comp_id, gomc_hal_type_t type, int dir, void *data_addr, const char *fmt, ...);
+int lcec_param_newf(const cmod_env_t *env, int comp_id, stmak_hal_type_t type, int dir, void *data_addr, const char *fmt, ...);
 
 /**
  * @brief Create a list of HAL parameters described by a NULL-terminated lcec_pindesc_t array.
@@ -680,7 +680,7 @@ lcec_slave_t *lcec_slave_by_index(struct lcec_master *master, int index);
  * @param slave_offset   Byte offset of the slave-to-master FsoE PDO in the domain image.
  * @param master_offset  Byte offset of the master-to-slave FsoE PDO in the domain image.
  */
-void copy_fsoe_data(struct lcec_slave *slave, unsigned int slave_offset, unsigned int master_offset) GOMC_NONBLOCKING;
+void copy_fsoe_data(struct lcec_slave *slave, unsigned int slave_offset, unsigned int master_offset) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise an lcec_syncs_t builder to an empty state.

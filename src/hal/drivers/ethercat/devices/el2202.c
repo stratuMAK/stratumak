@@ -5,8 +5,8 @@
  *
  * The EL2202 provides two independent digital output channels.  Each channel
  * exposes two HAL pins:
- *  - @c dout-N   (GOMC_HAL_BIT, IN) — desired logic level of the output.
- *  - @c tristate-N (GOMC_HAL_BIT, IN) — when TRUE the output is placed in
+ *  - @c dout-N   (STMAK_HAL_BIT, IN) — desired logic level of the output.
+ *  - @c tristate-N (STMAK_HAL_BIT, IN) — when TRUE the output is placed in
  *    high-impedance (tri-state) mode regardless of @c dout-N.
  *
  * EtherCAT identifiers:
@@ -72,8 +72,8 @@ ec_sync_info_t lcec_el2202_syncs[] = {
  */
 typedef struct {
   // data exposed as PIN to Linuxcnc/Machinekit
-  gomc_hal_bit_t *out;           /**< HAL input pin: desired output logic level. */
-  gomc_hal_bit_t *tristate;      /**< HAL input pin: TRUE to enable tri-state (high-Z) on this channel. */
+  stmak_hal_bit_t *out;           /**< HAL input pin: desired output logic level. */
+  stmak_hal_bit_t *tristate;      /**< HAL input pin: TRUE to enable tri-state (high-Z) on this channel. */
   // OffSets and BitPositions used to access data in EC PDOs
   unsigned int out_offs;        /**< Byte offset of the output bit within the process data image. */
   unsigned int out_bitp;        /**< Bit position of the output bit within the process data byte. */
@@ -91,9 +91,9 @@ typedef struct {
 } lcec_el2202_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el2202_chan_t, out), "%s.%s.%s.dout-%d" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el2202_chan_t, tristate), "%s.%s.%s.tristate-%d" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el2202_chan_t, out), "%s.%s.%s.dout-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el2202_chan_t, tristate), "%s.%s.%s.tristate-%d" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -101,7 +101,7 @@ static const lcec_pindesc_t slave_pins[] = {
  * @param slave  Pointer to the EtherCAT slave structure.
  * @param period Servo period in nanoseconds (unused, present for callback ABI).
  */
-void lcec_el2202_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el2202_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize the EL2202 slave: allocate HAL memory, register PDOs, and

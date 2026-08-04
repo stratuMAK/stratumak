@@ -8,7 +8,7 @@ Integration test: **61 pass, 0 fail, 4 xfail** (configs/sim/test/tasktest.ini)
 - ✅ Task struct + dependency interfaces (motctl, emcio, motstat clients)
 - ✅ INI config loading (loadConfig → motctl calls for traj/joint/axis/spindle)
 - ✅ HAL pins (inihal component — runtime INI parameter override)
-- ✅ Module registration (`gomc.RegisterModule("milltask", factory)`)
+- ✅ Module registration (`stmak.RegisterModule("milltask", factory)`)
 - ✅ Lifecycle fix: API lookups in Start() (not factory/New)
 - ✅ Integration: loads via `load milltask` in lib/hallib/linuxcnc.hal
 - ✅ Launcher cleanup: no more hasTask special handling
@@ -90,7 +90,7 @@ All items previously in Tier 1 are now implemented.
 
 ## Overview
 
-Rewrite milltask from C++ cmod (~3,580 lines in emctaskmain_gomc.cc) to a Go
+Rewrite milltask from C++ cmod (~3,580 lines in emctaskmain_stmak.cc) to a Go
 gomod. The C version routes commands through NML message structs and three
 large switch statements. The Go design eliminates NML — GMI methods on the
 Task struct are the direct command handlers.
@@ -173,7 +173,7 @@ The shim is the ONLY C++ code in the Go milltask.
 ## Package Structure
 
 ```
-src/gomc/internal/task/
+src/stmak/internal/task/
     task.go            // Task struct, state types, dependency interfaces
     guards.go          // requireOn(), requireMode(), requireInterpIdle(), externalOffsetApplied()
     commands.go        // 27 emccmd method implementations + runProgram/seekToLine
@@ -189,7 +189,7 @@ src/gomc/internal/task/
     interp_iface.go    // Interpreter interface definition
     interp_shim.cc     // thin C++ shim wrapping InterpBase* calls
     interp_shim.h      // header for interp shim
-    module.go          // gomc.Module lifecycle (factory, Start, Stop, Destroy)
+    module.go          // stmak.Module lifecycle (factory, Start, Stop, Destroy)
     api_provider.go    // EmccmdCallbacks + EmcstatCallbacks implementations
     api_cbridge.go     // CGO //export functions for C callers (halui)
     config.go          // INI reading at startup (joints, axes, traj, spindles)
@@ -291,14 +291,14 @@ The acceptance rules extracted from the current implementation:
 
 ## Test Strategy
 
-### Unit tests (src/gomc/internal/task/task_test.go)
+### Unit tests (src/stmak/internal/task/task_test.go)
 - Guard matrix: state×mode×command acceptance/rejection
 - State transitions: estop→on sequence, idempotency
 - ProgramOpen: works in any mode/state
 - Run with mock interpreter + mock motion
 
 ### Integration tests (configs/sim/test/tasktest.ini)
-Python test harness that starts the full system (gomc-server + sim HAL config)
+Python test harness that starts the full system (stmakd + sim HAL config)
 and exercises all commands via the emccmd/emcstat C API with assertion on stat changes.
 The tasktest module is a Go gomod loaded after milltask in the HAL file.
 
@@ -308,13 +308,13 @@ override, option, abort, misc. Currently 65 tests (61 pass, 4 xfail).
 ### How to run
 ```bash
 # Unit tests
-cd src/gomc && LD_LIBRARY_PATH=../../lib go test ./internal/task/
+cd src/stmak && LD_LIBRARY_PATH=../../lib go test ./internal/task/
 
 # Integration tests
 ./scripts/linuxcnc configs/sim/test/tasktest.ini
 
 # Build
-cd src && make ../bin/gomc-server
+cd src && make ../bin/stmakd
 ```
 
 ## Effort Estimate (remaining work)
@@ -361,6 +361,6 @@ No additional Go code needed in the task package for full functional parity.
 - `src/gmi/idl/motctl.gmi` — motion controller commands
 - `src/gmi/idl/motstat.gmi` — motion status readback
 - `src/gmi/idl/ini.gmi` — INI query API
-- `src/gomc/pkg/inifile/` — pure Go INI parser
-- `src/emc/task/emctaskmain_gomc.cc` — current implementation (reference)
+- `src/stmak/pkg/inifile/` — pure Go INI parser
+- `src/emc/task/emctaskmain_stmak.cc` — current implementation (reference)
 - `src/emc/rs274ngc/canon_interface.hh` — interpreter's canon vtable wrapper

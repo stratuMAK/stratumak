@@ -436,7 +436,7 @@ checkref_fr: $(DOC_TARGETS_HTML_FR) $(DOC_DIR)/html/fr/gcode.html .htmldoc-stamp
 MAN_SRCS_NOSO = $(patsubst $(DOC_DIR)/man/%,%, \
 			$(shell grep -L '^\.so ' $(MAN_SRCS)))
 
-PDF_MAN_ORDER := man1/gomc-server.1 $(filter-out %/gomc-server.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
+PDF_MAN_ORDER := man1/stmakd.1 $(filter-out %/stmakd.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
 	man3/intro.3hal $(filter-out %/undocumented.3hal %/intro.3hal, $(filter man3/%.3hal, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3hal man3/intro.3rtapi $(filter-out %/undocumented.3rtapi %/intro.3rtapi, $(filter man3/%.3rtapi, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3rtapi $(filter man9/%, $(MAN_SRCS_NOSO)) 

@@ -6,7 +6,7 @@ from gmi.constants import *
 # module is command/stat-less now, so copy gmi's constants onto it and drive
 # via gmi.Command/Stat/ErrorChannel.
 import linuxcnc_util
-import gomc_test
+import stmak_test
 
 import time
 import sys
@@ -25,16 +25,16 @@ sys.stdout = os.fdopen(sys.stdout.fileno(), 'w')
 # connect to LinuxCNC
 #
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 e = gmi.ErrorChannel()
 s = gmi.Stat()
 
 
 class MachineUnitsStat:
     """linuxcnc_util compares status.position against machine-unit targets;
-    gmi.Stat reports gomc-mm. Convert positions back to this inch config's
+    gmi.Stat reports stmak-mm. Convert positions back to this inch config's
     machine units, pass everything else through."""
 
     def __init__(self, stat):
