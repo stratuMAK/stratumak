@@ -94,8 +94,8 @@ func TestResolveRelativePath_Absolute(t *testing.T) {
 		opts:   Options{IniFile: "/configs/test.ini"},
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
-	got := l.resolveRelativePath("/opt/linuxcnc/linuxcnc.nml")
-	want := "/opt/linuxcnc/linuxcnc.nml"
+	got := l.resolveRelativePath("/opt/linuxcnc/custom.hal")
+	want := "/opt/linuxcnc/custom.hal"
 	if got != want {
 		t.Errorf("resolveRelativePath = %q, want %q", got, want)
 	}
@@ -108,8 +108,8 @@ func TestResolveRelativePath_Relative(t *testing.T) {
 		opts:   Options{IniFile: "/configs/sim/test.ini"},
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
-	got := l.resolveRelativePath("linuxcnc.nml")
-	want := "/configs/sim/linuxcnc.nml"
+	got := l.resolveRelativePath("custom.hal")
+	want := "/configs/sim/custom.hal"
 	if got != filepath.Clean(want) {
 		t.Errorf("resolveRelativePath = %q, want %q", got, want)
 	}

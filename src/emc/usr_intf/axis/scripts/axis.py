@@ -4107,8 +4107,6 @@ root_window.tk.eval("${pane_top}.maxvel.s set [setval $maxvel_speed $max_maxvel]
 widgets.feedoverride.configure(to=max_feed_override)
 widgets.rapidoverride.configure(to=100)
 widgets.spinoverride.configure(from_=min_spindle_override, to=max_spindle_override)
-# NML file path is handled internally by the emcgateway gomod.
-# No need to set linuxcnc.nmlfile here.
 vars.coord_type.set(inifile.find("DISPLAY", "POSITION_OFFSET") == "RELATIVE")
 vars.display_type.set(inifile.find("DISPLAY", "POSITION_FEEDBACK") == "COMMANDED")
 coordinate_display = inifile.find("DISPLAY", "POSITION_UNITS")

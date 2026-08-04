@@ -436,7 +436,6 @@ PyMODINIT_FUNC PyInit_linuxcnc(void)
 
     PyModule_AddStringConstant(m, "PREFIX", EMC2_HOME);
     PyModule_AddStringConstant(m, "SHARE", EMC2_HOME "/share");
-    PyModule_AddStringConstant(m, "nmlfile", "");
     PyModule_AddStringConstant(m, "version", PACKAGE_VERSION);
 
 #define ENUM(e) PyModule_AddIntConstant(m, #e, e)
