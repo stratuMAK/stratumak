@@ -10,6 +10,6 @@ stratumak (0.1.0) UNRELEASED; urgency=medium
     renamed package has no upgrade ordering to preserve.
   * Debian packaging repaired -- the build had not completed since stratuMAK
     landed, and the package it would have produced carried no controller
-    binary. See PRODUCTION_READINESS.md.
+    binary. See docs/dev/PRODUCTION_READINESS.md.
 
  -- Sascha Ittner <sascha.ittner@modusoft.de>  Fri, 31 Jul 2026 17:34:07 +0200

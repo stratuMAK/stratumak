@@ -13,7 +13,7 @@
 // counterpart here.
 // Start() is retained as the startup seam and error-return contract for the
 // launcher; RT-correctness of the cyclic paths lives in cmod/* and is tracked
-// in RT_HARDENING_CHECKLIST.md, not here.
+// in docs/dev/RT_HARDENING_CHECKLIST.md, not here.
 package realtime
 
 import (

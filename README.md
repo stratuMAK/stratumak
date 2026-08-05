@@ -315,7 +315,8 @@ What stands behind that:
   review: independent adversarial AI passes cross-checked against the LinuxCNC
   2.9 sources, each finding adjudicated and fixed with mutation-verified
   regression tests. The full record — per-module matrix, findings documents,
-  design rulings — lives in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+  design rulings — lives in [PRODUCTION_READINESS.md](docs/dev/PRODUCTION_READINESS.md),
+  alongside the per-module findings documents indexed in [docs/dev/](docs/dev/README.md).
 - **Tests.** The classic LinuxCNC runtest suite is fully ported and green
   (240+ tests, nothing skipped or expected-to-fail) and runs on every pull
   request, plus nightly race-detector builds. Unit coverage was raised module
@@ -324,7 +325,7 @@ What stands behind that:
 - **Fault paths.** Abort, E-stop and error semantics are verified against 2.9
   as written-spec tests — not just the happy paths.
 - **Real-time.** RT correctness is tracked in
-  [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md): compiler-enforced
+  [RT_HARDENING_CHECKLIST.md](docs/dev/RT_HARDENING_CHECKLIST.md): compiler-enforced
   non-blocking guarantees across the RT paths (including the EtherCAT master),
   and the adversarial-load jitter measurement documented above.
 
@@ -336,7 +337,7 @@ Known limitations — read before deploying:
   designed, not yet built.
 - **Safety.** stratuMAK is not a safety component. Operator protection must be
   implemented in certified external hardware, independent of this software —
-  see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
+  see [SAFETY_BOUNDARY.md](docs/dev/SAFETY_BOUNDARY.md).
 - **Pending.** The review program's final human sign-off pass runs alongside
   lab deployment; a 15 h on-machine EtherCAT soak is documented above, with a
   multi-day certification soak still to come.

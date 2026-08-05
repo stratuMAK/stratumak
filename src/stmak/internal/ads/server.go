@@ -53,7 +53,7 @@ type Server struct {
 	connsMu  sync.Mutex
 	conns    map[net.Conn]struct{}
 	// maxConns caps concurrent connections; maxSubs caps notifications per
-	// connection. <= 0 means unlimited. See ADS_REVIEW_FINDINGS.md A7.
+	// connection. <= 0 means unlimited. See docs/dev/ADS_REVIEW_FINDINGS.md A7.
 	maxConns int
 	maxSubs  int
 }
@@ -61,7 +61,7 @@ type Server struct {
 // NewServer creates a new ADS server listening on addr (e.g. ":48898").
 // netID and port identify this device in AMS routing. maxConns caps concurrent
 // client connections and maxSubs caps device notifications per connection (both
-// <= 0 mean unlimited) — see ADS_REVIEW_FINDINGS.md A7.
+// <= 0 mean unlimited) — see docs/dev/ADS_REVIEW_FINDINGS.md A7.
 func NewServer(addr string, netID AMSNetID, port uint16, symbols *SymbolTable, maxConns, maxSubs int, verbose bool, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -119,7 +119,7 @@ func (s *Server) doStop() {
 	// sendLoop) to finish before returning. This is the sound shutdown contract —
 	// once Stop() returns, no ADS goroutine can still touch a HAL pin, so the
 	// subsequent Destroy()->comp.Exit() that frees the pins cannot race live pin
-	// access (ADS_REVIEW_FINDINGS.md A5 / pkg-hal H1). The wait is bounded: the
+	// access (docs/dev/ADS_REVIEW_FINDINGS.md A5 / pkg-hal H1). The wait is bounded: the
 	// listener and every connection are already closed above, and both read and
 	// write paths carry deadlines (readDeadlineInterval / amsDataReadTimeout /
 	// writeTimeout), so no goroutine can block indefinitely.
@@ -147,7 +147,7 @@ func (s *Server) acceptLoop() {
 		// re-check quit atomically. This closes the race where Stop()'s close-loop
 		// runs between Accept() and the handler registering itself, leaving a
 		// connection that Stop() never force-closes (and could then touch HAL pins
-		// after Destroy frees them). See ADS_REVIEW_FINDINGS.md A5.
+		// after Destroy frees them). See docs/dev/ADS_REVIEW_FINDINGS.md A5.
 		s.connsMu.Lock()
 		select {
 		case <-s.quit:
@@ -158,7 +158,7 @@ func (s *Server) acceptLoop() {
 		}
 		// Cap concurrent connections so a remote peer cannot exhaust resources by
 		// opening unbounded sockets (2 goroutines + buffers each). See
-		// ADS_REVIEW_FINDINGS.md A7.
+		// docs/dev/ADS_REVIEW_FINDINGS.md A7.
 		if s.maxConns > 0 && len(s.conns) >= s.maxConns {
 			s.connsMu.Unlock()
 			s.logger.Warn("ADS connection rejected: connection cap reached",
@@ -181,7 +181,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	// Recover from any panic on the untrusted wire path so a single malformed
 	// packet drops this connection instead of killing the whole process (the
-	// motion controller). See ADS_REVIEW_FINDINGS.md A4.
+	// motion controller). See docs/dev/ADS_REVIEW_FINDINGS.md A4.
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("ADS connection handler panic", "remote", conn.RemoteAddr(), "panic", r)
@@ -258,7 +258,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		if _, err := io.ReadFull(conn, amsData); err != nil {
 			// A stage-2 timeout during shutdown must exit promptly rather than
 			// dispatch on stale data after the HAL component may have been freed
-			// (see ADS_REVIEW_FINDINGS.md A5). Any read error here ends the
+			// (see docs/dev/ADS_REVIEW_FINDINGS.md A5). Any read error here ends the
 			// connection anyway, so no retry is needed.
 			select {
 			case <-s.quit:

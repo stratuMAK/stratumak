@@ -8,7 +8,7 @@ import (
 )
 
 // These regression tests cover the remote, unauthenticated crash/OOM vectors
-// found in the Tier-2 review (ADS_REVIEW_FINDINGS.md A1–A3). A client reaches
+// found in the Tier-2 review (docs/dev/ADS_REVIEW_FINDINGS.md A1–A3). A client reaches
 // every one of these through a single AMS packet, so a failure here is a crash
 // of the motion controller. Each test would panic or OOM the test process
 // before the fix.

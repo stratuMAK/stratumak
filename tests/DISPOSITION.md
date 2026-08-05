@@ -38,7 +38,7 @@ xfail and zero skip — the governing rule holds.
 **CI is the authority for this count.** A `runtests.log` in the tree is an untracked local
 scratch artifact and goes stale the moment a test is added; do not cite it as the number.
 Milestones on the way there: the 07-15 tool-change/lifecycle sweep
-(`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
+(`../docs/dev/MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
 RANDOM_TOOLCHANGER clusters, abort modal-state restore, statbuffer-g5x-abort; earlier passes
 had flipped startup-gcode-abort and the on_abort/stop-button crazy-move pair); the
 stale-status / sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) and `abort/g64`
@@ -63,7 +63,7 @@ running (interp params / tool table state leaked between runs).
 | twopass · twopass-personality | drop 3 `twopass:invoked/found` announce lines + blanks; line-split (no TWOPASS in stratuMAK) |
 | save.0 | `halcmd save` re-baseline: `# component X (loaded by cmod)` headers; stratuMAK naming; hex→decimal (round-trip verified, e252c17ed5) |
 
-### 1b. Semantic — canon-call / motion-stream divergence (parity note in `../PRODUCTION_READINESS.md`)
+### 1b. Semantic — canon-call / motion-stream divergence (parity note in `../docs/dev/PRODUCTION_READINESS.md`)
 
 | test | delta | parity flag |
 |---|---|---|
@@ -225,11 +225,11 @@ the tests were repaired, not the code.
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem | 🗑 **deleted, obsolete-by-design** (c383769f80) — the symbol must **not** be exported; see §2f. Real contract now a Go unit test in `internal/hallib/rtapialloc`. |
 | stepgen array module-param instance count | modparam.0 | ✅ **not a bug — test rewritten** (51abb8369b). stratuMAK has no array module params and derives instance count solely from the explicit name list, by design (the test never existed on 2.9). Rewritten to assert scalar module-param *application*: three named `step_type=2` instances each export the `.phase-A` pin. |
 | mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} | ✅ **not a gap — test repaired** (c0b7fc6853). The INI-DEBUG DBG calls DO fire; they route through `stmak_log_debugf` at slog *debug* level, filtered out at the default INFO level. Running the server at `-d 0` surfaces the full dump; the test normalizes the slog wrapper back to the classic form. |
-| operator-message loss (emcerror watch), *probable* | interp/oword-mdi-sub-update | ✅ **misattributed — test repaired** (cc06432180). The sub uses `(print, …)`, which the interp emits via `fprintf(stdout)` — it never touches the operator-message/error channel, even in classic. Under stratuMAK that output lands in the server log; the test now cats server.log into stdout and greps `result`. **The operator-message-loss bug is real and still open** (`../PRODUCTION_READINESS.md`) — it just was not the cause of this xfail. |
+| operator-message loss (emcerror watch), *probable* | interp/oword-mdi-sub-update | ✅ **misattributed — test repaired** (cc06432180). The sub uses `(print, …)`, which the interp emits via `fprintf(stdout)` — it never touches the operator-message/error channel, even in classic. Under stratuMAK that output lands in the server log; the test now cats server.log into stdout and greps `result`. **The operator-message-loss bug is real and still open** (`../docs/dev/PRODUCTION_READINESS.md`) — it just was not the cause of this xfail. |
 
 ### 3a-history-2 (2026-07-16). jog/teleop + joint-mode + limit status (hard-limits, halui/jogging — xfail files removed, tests green)
 
-Three stacked bugs (see `../PRODUCTION_READINESS.md`): (1) a homed machine was
+Three stacked bugs (see `../docs/dev/PRODUCTION_READINESS.md`): (1) a homed machine was
 trapped in TELEOP — the homing-FSM refactor made `do_homing_sequence` (motmod
 control.c) return the teleop-auto-switch signal level-triggered instead of on the
 all-homed rising edge, re-overriding every operator `teleop_enable(0)`; restored the
@@ -248,14 +248,14 @@ t0/random-*, tool-info/random-*) · tool tracking M6 #5400 / M61 Q (t0/nonrandom
 tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/*,
 toolchanger/toolno-pocket-differ/*, mdi-queue/oword-queue-buster) · abort modal-state
 restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
-`../MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
+`../docs/dev/MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
 (motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
 (abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
 (mux, multiclick via filestream, §2c).
 
 **2026-07-15, G64 blending parity (abort/g64):** all extent checks now match 2.9
 exactly (G61 5.000 / G64P0.5 4.500 / G64 3.725 / G64Q6 0.000). Three stacked fixes
-(see `../PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
+(see `../docs/dev/PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
 (`canon_naivecam.go`, merged segments pin their own line/tag/status codes via
 `Interp::active_modes`); arc blending had been silently OFF machine-wide (no
 `EMCMOT_SETUP_ARC_BLENDS` sender existed — new IDL `setup_arc_blends`, pushed from

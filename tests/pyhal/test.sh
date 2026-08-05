@@ -7,7 +7,7 @@
 #
 # The classic HAL PORT coverage (port-in/out write/read/peek) is omitted:
 # HAL_PORT exists in hal_lib but is not exposed via haljson/REST -- deferred and
-# documented (../DISPOSITION.md, ../../PRODUCTION_READINESS.md).
+# documented (../DISPOSITION.md, ../../docs/dev/PRODUCTION_READINESS.md).
 . "$(dirname "$0")/../hal-stream-driver.sh"
 hal_start_server pyhal.hal || exit 1
 ./pyhaltest.py

@@ -43,7 +43,7 @@ Ranked most-severe first.
 ## units (mm-everywhere)
 
 stratuMAK converts every *linear* length/velocity/accel/jerk config value from the
-INI's machine units to internal mm at load time (`src/stmak/UNITS_MM_CONSISTENCY_FIX.md`),
+INI's machine units to internal mm at load time (`docs/dev/UNITS_MM_CONSISTENCY_FIX.md`),
 and emits the whole motion stream in mm; 2.9 emits it in machine units. The
 oracle side is therefore normalized ×25.4 (inch configs) by `canonicalize.awk`
 (`unit_factor`, per-target `units` column in `targets.sh`) — positions x..w and

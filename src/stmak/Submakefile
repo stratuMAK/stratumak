@@ -332,7 +332,7 @@ stmak-test-race:
 
 # Static analysis gate: no NEW findings relative to the merge base with the
 # stmak branch. The legacy findings (see stmak-lint-full) are burned down in the
-# per-submodule cleanup phase — see PRODUCTION_READINESS.md.
+# per-submodule cleanup phase — see docs/dev/PRODUCTION_READINESS.md.
 # Tool version is pinned (see GOLANGCI_LINT_VERSION); config in stmak/.golangci.yml.
 # Default: golangci-lint from PATH, else the standard `go install` location
 # (GOPATH/bin) — `go install` does not put binaries on PATH by itself.
@@ -414,7 +414,7 @@ endif
 # $(EMC2_STATE_DIR)/bin/stmakd, every upgrade would unpack the shipped
 # symlink over a locally rebuilt binary and discard it without a word --
 # exactly the failure the whole layout exists to prevent (see
-# EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1). The deb's postinst creates
+# docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1). The deb's postinst creates
 # these instead, and debian/rules deletes whatever this target left in the
 # staging tree. This target is what a plain `make install` needs, where there
 # is no postinst to do it.
@@ -446,7 +446,7 @@ stmak-install: ../bin/stmakd ../bin/ads-xml-gen ../bin/modcompile ../bin/halcmd 
 	# of that chain -- $(EMC2_STATE_DIR)/bin/stmakd, which the package
 	# deliberately does not own and postinst creates -- so an upgrade never
 	# unpacks over a locally built binary, and never has to recover from having
-	# done so. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	# done so. See docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
 	$(DIR) $(DESTDIR)$(EMC2_LIBEXEC_DIR)
 	$(INSTALL) -m 0755 ../bin/stmakd $(DESTDIR)$(EMC2_LIBEXEC_DIR)/stmakd
 	$(Q)rm -f $(DESTDIR)$(EMC2_BIN_DIR)/stmakd

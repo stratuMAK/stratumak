@@ -134,7 +134,7 @@ static const uint32_t iocookie[3] = {
  * and reaches a steady state within the first cycles once the tram queue
  * size is established, after which this function never allocates again.
  * A setup-time preallocation to remove the warm-up allocations is tracked
- * in RT_HARDENING_CHECKLIST.md. */
+ * in docs/dev/RT_HARDENING_CHECKLIST.md. */
 static int buffer_check_room(const stmak_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize) STMAK_NONBLOCKING;
 STMAK_NONBLOCKING_TRUSTED_BEGIN
 static int buffer_check_room(const stmak_rtapi_t *rtapi, buffer_t *b, size_t n, size_t elmsize)

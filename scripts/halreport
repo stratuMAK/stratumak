@@ -3,7 +3,7 @@
 
 The old halreport was a Tcl HAL-topology printer built on the Tcl HAL binding,
 which no longer exists. This is deliberately not a port of it: the goal is the
-"short access path" item in PRODUCTION_READINESS.md -- one command that gathers
+"short access path" item in docs/dev/PRODUCTION_READINESS.md -- one command that gathers
 what is needed to answer a support question from a machine in the field.
 Versions, host and RT environment, the config that was actually loaded, live
 HAL topology and thread timing, machine state, and logs.

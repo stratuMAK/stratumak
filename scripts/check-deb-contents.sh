@@ -7,7 +7,7 @@
 # defect that once shipped silently: the build succeeded, dh_install saw
 # nothing wrong, and the package was broken anyway (empty locale tree,
 # dropped MIME registration, capability-blind RUNPATH, stale install
-# sources). See PRODUCTION_READINESS.md, status log 2026-08-03.
+# sources). See docs/dev/PRODUCTION_READINESS.md, status log 2026-08-03.
 set -u
 DIR=${1:?usage: check-deb-contents.sh <dir-with-debs>}
 fail=0

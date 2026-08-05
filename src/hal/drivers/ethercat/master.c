@@ -364,7 +364,7 @@ void lcec_shutdown_master(lcec_master_t *master) {
  * bus access against that.  TRUSTED: rtapi_mutex_get spins with
  * sched_yield — acceptable here only because of the bounded hold times.
  * A try-lock + skip redesign for the state-polling sites is tracked in
- * RT_HARDENING_CHECKLIST.md. */
+ * docs/dev/RT_HARDENING_CHECKLIST.md. */
 static void lcec_master_rt_lock(lcec_master_t *master) STMAK_NONBLOCKING;
 STMAK_NONBLOCKING_TRUSTED_BEGIN
 static void lcec_master_rt_lock(lcec_master_t *master) {

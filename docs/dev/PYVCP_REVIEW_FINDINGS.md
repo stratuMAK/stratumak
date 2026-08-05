@@ -2,7 +2,7 @@
 
 **Modules:** `internal/pyvcpmodule` (1585 non-test / 555 test LOC after migration), the
 Python/Tkinter client (`lib/python/pyvcp_client.py`, `pyvcp_widgets.py`, `vcpparse.py`),
-and the protocol (`src/gmi/idl/pyvcp.gmi` v2 + `src/gmi/VCP_MIGRATION.md`). Phase 6
+and the protocol (`src/gmi/idl/pyvcp.gmi` v2 + `VCP_MIGRATION.md`). Phase 6
 (UI-adjacent) per `PRODUCTION_READINESS.md`. Companion codegen fix in
 `internal/gmicompile/cgen` (see V-9).
 
@@ -229,7 +229,7 @@ client passing against the generated registration.
 ## Template status
 
 Widget-centric / server-authoritative is the **ruled template** for the remaining UI
-framework ports (`src/gmi/VCP_MIGRATION.md` is the how-to). Three conditions attach,
+framework ports (`VCP_MIGRATION.md` is the how-to). Three conditions attach,
 tracked as a cross-cutting item in `PRODUCTION_READINESS.md`:
 
 1. **D-2 before the second consumer** — DONE 2026-07-22: `map[string]T` +

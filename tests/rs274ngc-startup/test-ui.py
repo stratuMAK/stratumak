@@ -34,7 +34,7 @@ if s.g5x_index != 1:
 
 # The tool table Z offset is 0.1234 inch; the gmi stat API reports tool
 # offsets in stratuMAK's internal millimetres (mm-everywhere convention, see
-# src/stmak/UNITS_MM_CONSISTENCY_FIX.md).
+# docs/dev/UNITS_MM_CONSISTENCY_FIX.md).
 expected = 0.1234 * 25.4
 if math.fabs(s.tool_offset[2] - expected) > 0.000001:
     print("Expected tool offset of %f (0.1234 in) via startup gcode not detected" % expected)

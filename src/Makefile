@@ -711,7 +711,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # call this tree makes, so reading the source is not enough to re-derive this --
 # removing cap_perfmon or cap_sys_admin fails EtherCAT startup on a real machine
 # (6.12 RT, xdp-native), each with its own error. See
-# EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
+# docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
 	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/stmakd
 

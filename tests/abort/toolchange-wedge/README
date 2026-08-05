@@ -1,7 +1,7 @@
 iocontrol v2 abort-wedge regression test (Tier-1 hotspot #5)
 ============================================================
 
-Guards the fix in `iotask: fix unrecoverable abort wedge` (STATE_MACHINE_REVIEW_FINDINGS.md,
+Guards the fix in `iotask: fix unrecoverable abort wedge` (docs/dev/STATE_MACHINE_REVIEW_FINDINGS.md,
 findings T1/T2).
 
 2.9's iocontrol is a free-running loop that services the tool-change handshake and the

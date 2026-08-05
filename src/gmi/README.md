@@ -79,9 +79,9 @@ sudo apt install libcurl4-openssl-dev libcjson-dev
 
 ## Design Documents
 
-- [`DYNAMIC_API_DESIGN.md`](DYNAMIC_API_DESIGN.md) — the inter-module
+- [`DYNAMIC_API_DESIGN.md`](../../docs/dev/DYNAMIC_API_DESIGN.md) — the inter-module
   communication system (registry, dispatch, REST/WebSocket boundary).
-- [`FIELD_VALIDATION_DESIGN.md`](FIELD_VALIDATION_DESIGN.md) — declarative
+- [`FIELD_VALIDATION_DESIGN.md`](../../docs/dev/FIELD_VALIDATION_DESIGN.md) — declarative
   input validation via IDL field/parameter constraints (`@min`, `@max`,
   `@regex`, automatic enum checks). *Implemented: server (REST + WS) enforcement
   and client-side (TS/Python) collect-all.*

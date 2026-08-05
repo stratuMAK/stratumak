@@ -103,7 +103,7 @@ collect **all** violations and raise before sending. `@regex` runs on the Go
 server only (avoids JS/Python/RE2 flavor mismatch). Mistyped or contradictory
 constraints (e.g. `@maxlen` on an `i32`, `@min > @max`) fail the build.
 
-See `../FIELD_VALIDATION_DESIGN.md` for the full design.
+See `../../../docs/dev/FIELD_VALIDATION_DESIGN.md` for the full design.
 
 ## Failure reporting
 

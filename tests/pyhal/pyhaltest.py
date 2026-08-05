@@ -6,7 +6,7 @@
 #
 # The HAL PORT type (classic pyhal port-in/out write/read/peek) is intentionally
 # not covered: HAL_PORT exists in hal_lib but is not exposed via haljson/REST.
-# Deferred + documented (../DISPOSITION.md, ../../PRODUCTION_READINESS.md).
+# Deferred + documented (../DISPOSITION.md, ../../docs/dev/PRODUCTION_READINESS.md).
 import json
 import urllib.request
 import gmi

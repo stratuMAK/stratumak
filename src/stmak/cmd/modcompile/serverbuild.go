@@ -23,7 +23,7 @@
 // is empty, DerivedBuild is false, and everything below reduces to compiling
 // the sources where they sit, exactly as it always did.
 //
-// See EXTERNAL_MODULE_INSTALL_DESIGN.md sections 2 through 4.3.
+// See docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md sections 2 through 4.3.
 package main
 
 import (

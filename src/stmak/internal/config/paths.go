@@ -150,7 +150,7 @@ func StmakDir() string {
 //
 // "" is the discriminator, not a fallback: callers branch on it rather than
 // substituting some other directory, because there is no other directory that
-// would be correct. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+// would be correct. See docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
 func StateDir() string { return EMC2StateDir }
 
 // ModuleRegistryDir returns the directory holding one root-owned copy of each

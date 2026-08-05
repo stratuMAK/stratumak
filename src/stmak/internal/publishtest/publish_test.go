@@ -4,7 +4,7 @@
 // Package publishtest exercises the generated @publish drain's multi-subscriber
 // delivery at runtime against a real generated package (emcerror). It is the
 // regression test for the operator-message-loss bug root-caused in
-// GMICOMPILE_REVIEW_FINDINGS.md (G-H1): the generated drain used to expose one
+// docs/dev/GMICOMPILE_REVIEW_FINDINGS.md (G-H1): the generated drain used to expose one
 // shared, destructive-flush Watch, so with N WS subscribers each operator
 // message reached only one of them. The fix hands each connection its own cursor
 // over a retained buffer via WatchFactory. These tests fail against the old codegen.
@@ -85,7 +85,7 @@ func TestPublishDrainMultiSubscriber(t *testing.T) {
 }
 
 // TestPublishDrainBoundedBuffer verifies the retained buffer is bounded
-// (GMICOMPILE_REVIEW_FINDINGS.md G-M1: the accumulator used to grow unbounded
+// (docs/dev/GMICOMPILE_REVIEW_FINDINGS.md G-M1: the accumulator used to grow unbounded
 // with no subscriber). Publishing far more than the cap keeps only the most
 // recent PublishErrorWatchBufferSize events for a cursor that never polled.
 func TestPublishDrainBoundedBuffer(t *testing.T) {

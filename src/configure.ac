@@ -590,7 +590,7 @@ else
     EMC2_STATE_DIR=$(fe "$localstatedir")/lib/stratumak
     # The pristine, package-owned server. /usr/bin/stmakd is a symlink
     # chain onto this; a local rebuild replaces one link in the chain and never
-    # this file. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+    # this file. See docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
     #
     # Built from ${prefix} rather than ${libexecdir}, as EMC2_BIN_DIR above is:
     # exec_prefix is still the literal string NONE this early in configure, so

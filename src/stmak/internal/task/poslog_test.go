@@ -5,7 +5,7 @@ package task
 import "testing"
 
 // The pending buffer is drained only while a get_positions subscriber polls;
-// with no subscriber it must stay bounded (GMI_PYTHON_REVIEW_FINDINGS.md GP-5:
+// with no subscriber it must stay bounded (docs/dev/GMI_PYTHON_REVIEW_FINDINGS.md GP-5:
 // a client that vanished without stop_logger let it grow without bound).
 func TestPoslogPendingBounded(t *testing.T) {
 	pl := &posLogger{}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # rt-effects-check.sh — verify the RT path with clang's function-effects
-# analysis (see RT_HARDENING_CHECKLIST.md §2.1).
+# analysis (see docs/dev/RT_HARDENING_CHECKLIST.md §2.1).
 #
 # Compiles the RT translation units with -Wfunction-effects (treated as an
 # error) using the pinned clang provided by scripts/rt-clang.sh:

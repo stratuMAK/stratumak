@@ -4,7 +4,7 @@
 # build check (which linked the now-removed -lnml -llinuxcnc).
 #
 # NB: libgmi.so does not declare its libcurl/libcjson dependencies, so a
-# consumer must add -lcurl -lcjson explicitly (see PRODUCTION_READINESS.md).
+# consumer must add -lcurl -lcjson explicitly (see docs/dev/PRODUCTION_READINESS.md).
 set -x
 gcc -I${HEADERS} \
     build-ui.c \

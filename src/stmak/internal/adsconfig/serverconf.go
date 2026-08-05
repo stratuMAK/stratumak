@@ -21,15 +21,15 @@ type ServerConf struct {
 	// Bind is the IP address to bind the TCP listener to (from $bind, default
 	// "127.0.0.1"). ADS carries no authentication and every command handler can
 	// drive HAL outputs, so exposure to the network is opt-in: set $bind 0.0.0.0
-	// (or a specific interface IP) explicitly. See ADS_REVIEW_FINDINGS.md A9.
+	// (or a specific interface IP) explicitly. See docs/dev/ADS_REVIEW_FINDINGS.md A9.
 	Bind string
 	// Port is the TCP port for the ADS server (from $port, default 48898).
 	Port int
 	// MaxConnections caps concurrent client connections (from $max-connections,
-	// default 8). Excess connections are refused. See ADS_REVIEW_FINDINGS.md A7.
+	// default 8). Excess connections are refused. See docs/dev/ADS_REVIEW_FINDINGS.md A7.
 	MaxConnections int
 	// MaxSubscriptions caps device notifications per connection (from
-	// $max-subscriptions, default 256). See ADS_REVIEW_FINDINGS.md A7.
+	// $max-subscriptions, default 256). See docs/dev/ADS_REVIEW_FINDINGS.md A7.
 	MaxSubscriptions int
 }
 
