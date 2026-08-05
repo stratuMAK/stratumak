@@ -132,36 +132,89 @@ subclasses gladevcp's `GStat`), they share ONE unified module.
 ### Widget Class → WidgetType Mapping
 
 GladeVCP and qtvcp use different class names but map to the same
-WidgetType enums and protocol behavior as pyvcp:
+WidgetType enums and protocol behavior as pyvcp.
 
-| GladeVCP class     | QtVCP class         | WidgetType    | Pin pattern              |
-|--------------------|---------------------|---------------|--------------------------|
-| HAL_LED            | StateLED, LED       | LED           | {name}(IN bit)           |
-| —                  | —                   | RECTLED       | {name}(IN bit)           |
-| HAL_Label (float)  | HAL_Label           | NUMBER        | {name}(IN float)         |
-| HAL_Label (u32)    | —                   | U32           | {name}(IN u32)           |
-| HAL_Label (s32)    | —                   | S32           | {name}(IN s32)           |
-| HAL_Bar (HBar/VBar)| HAL_Bar             | BAR           | {name}(IN float)         |
-| HAL_Meter          | Gauge, RoundGauge   | METER         | {name}(IN float)         |
-| HAL_Button         | ActionButton        | BUTTON        | {name}(OUT bit)          |
-| HAL_CheckButton    | —                   | CHECKBUTTON   | {name}(OUT bit), {name}-not(OUT bit) |
-| HAL_ToggleButton   | —                   | CHECKBUTTON   | {name}(OUT bit), {name}-not(OUT bit) |
-| HAL_RadioButton    | —                   | RADIOBUTTON   | {name}(OUT bit), {name}-not(OUT bit) |
-| HAL_SpinButton     | DoubleScale         | SPINBOX       | {name}-f(OUT float), {name}-s(OUT s32) |
-| HAL_HScale/VScale  | HAL_Slider          | SCALE         | {name}(OUT float), {name}-s(OUT s32) |
-| Hal_Dial           | Dial                | DIAL          | {name}(OUT s32), {name}-scaled(OUT float) |
-| JogWheel           | JogWheel            | JOGWHEEL      | {name}(OUT s32), {name}-scaled(OUT float) |
-| HALIO_Button       | —                   | IO_BUTTON     | {name}(IO bit)           |
-| HALIO_HScale       | —                   | IO_SCALE      | {name}(IO float)         |
-| HAL_ProgressBar    | RoundProgress       | PROGRESSBAR   | {name}(IN float), {name}.scale(IN float) |
-| HAL_ComboBox       | HAL_SelectionBox    | COMBOBOX      | {name}-f(OUT float), {name}-s(OUT s32) |
-| HAL_LightButton    | —                   | LIGHTBUTTON   | {name}-button(OUT/IO), {name}-light(IN) |
-| HAL_HBox/Table     | —                   | CONTAINER_SENS| {name}(IN bit)           |
-| HAL_HideTable      | —                   | CONTAINER_VIS | {name}(IN bit)           |
+They do **not**, however, share a pin pattern — even where they share a
+WidgetType — so each toolkit gets its own column. Do not assume a
+GladeVCP pin name carries over to the QtVCP widget of the same role, or
+vice versa; several roles are also implemented in only one of the two.
 
-Note: Pin naming follows each VCP's existing convention to maintain
-backward compatibility with existing HAL files. The server-side module
-maps these to the unified WidgetType for protocol purposes.
+| WidgetType    | GladeVCP class      | GladeVCP pins                                | QtVCP class    | QtVCP pins                                   |
+|---------------|---------------------|----------------------------------------------|----------------|----------------------------------------------|
+| LED           | HAL_LED             | {name}(IN bit)                               | LED            | {name}(IN bit)                               |
+| LED           | —                   | —                                            | StateLED       | {name}(**OUT** bit) — status-driven, see note |
+| RECTLED       | —                   | —                                            | —              | — (pyvcp only)                               |
+| NUMBER        | HAL_Label (type 1)  | {name}(IN float)                             | HALLabel       | {name}(IN float)                             |
+| U32           | HAL_Label (type 2)  | {name}(IN u32)                               | —              | — (no u32 variant)                           |
+| S32           | HAL_Label (type 0)  | {name}(IN s32)                               | HALLabel       | {name}(IN s32)                               |
+| MULTILABEL    | —                   | —                                            | HALLabel       | {name}(IN s32) — multi-label mode            |
+| (none)        | —                   | —                                            | HALLabel       | {name}(IN bit) — bit variant, renders true/false text |
+| BAR           | HAL_Bar/HBar/VBar   | {name}(IN float)                             | HalBar         | {name}(IN float **or** s32)                  |
+| METER         | HAL_Meter           | {name}(IN float)                             | Gauge          | {name}\_value(IN float), {name}\_setpoint(IN float) |
+| BUTTON        | HAL_Button          | {name}(OUT bit)                              | PushButton     | {name}(OUT bit), {name}-led(IN bit)          |
+| BUTTON        | —                   | —                                            | ActionButton   | {name}-led(IN bit) **only** — no output pin  |
+| CHECKBUTTON   | HAL_CheckButton     | {name}(OUT bit), {name}-not(OUT bit)         | CheckBox       | {name}(OUT bit), {name}-not(OUT bit)         |
+| CHECKBUTTON   | HAL_ToggleButton    | {name}(OUT bit), {name}-not(OUT bit)         | —              | —                                            |
+| RADIOBUTTON   | HAL_RadioButton     | {name}(OUT bit), {name}-not(OUT bit)         | RadioButton    | {name}(OUT bit), {name}-not(OUT bit)         |
+| SPINBOX       | HAL_SpinButton      | {name}-f(OUT float), {name}-s(OUT s32)       | DoubleScale    | {name}-f(OUT float), {name}-s(OUT s32)       |
+| SCALE         | HAL_HScale/VScale   | {name}(OUT float), {name}-s(OUT s32)         | Slider         | {name}-s(OUT s32), {name}-f(OUT float), {name}-scale(IN float) |
+| DIAL          | Hal_Dial            | {name}(OUT s32), {name}-scaled(OUT float), {name}-delta-scaled(OUT float) | Dial | {name}-s(OUT s32), {name}-f(OUT float), {name}-d(OUT float), {name}-scale(IN float) |
+| JOGWHEEL      | JogWheel            | {name}(OUT s32), {name}-scaled(OUT float), {name}.scale(IN float) | — | — (no QtVCP jogwheel)             |
+| IO_BUTTON     | HALIO_Button        | {name}(IO bit)                               | —              | —                                            |
+| IO_SCALE      | HALIO_HScale        | {name}(IO float)                             | —              | —                                            |
+| PROGRESSBAR   | HAL_ProgressBar     | {name}(IN float), {name}.scale(IN float)     | —              | — (RoundProgressBar has no HAL pins)         |
+| COMBOBOX      | HAL_ComboBox        | {name}-f(OUT float), {name}-s(OUT s32)       | —              | — (HALSelectionBox is a pin browser, see note) |
+| LIGHTBUTTON   | HAL_LightButton     | {name}-button(OUT bit, or IO), {name}-button-not(OUT bit, non-IO only), {name}-enable(IN bit), {name}-light(IN bit) | — | —          |
+| CONTAINER_SENS| HAL_HBox/HAL_Table  | {name}(IN bit)                               | —              | —                                            |
+| CONTAINER_VIS | HAL_HideTable       | {name}(IN bit)                               | —              | —                                            |
+
+Verified against `lib/python/gladevcp/` and `lib/python/qtvcp/widgets/`
+`_hal_init()` implementations. Pin naming follows each VCP's existing
+convention to maintain backward compatibility with existing HAL files.
+The server-side module maps these to the unified WidgetType for protocol
+purposes.
+
+Notes for the parser:
+
+- **`{name}` is not always the widget name.** Most QtVCP widgets honour a
+  `pin_name` property that overrides it; GladeVCP uses the widget's
+  `hal_name`. Read the property before deriving pins.
+- **`StateLED` writes its pin.** It subclasses `LED` but creates an OUT
+  bit reflecting a STATUS condition. Under the server-authoritative
+  model this is a status subscription, not a panel pin — do not model it
+  as an LED input.
+- **`ActionButton` has no output pin.** It calls emccmd actions directly;
+  only the inherited `-led` indicator pin exists. Its migration target is
+  a frontend emccmd call, not a pin.
+- **`HALSelectionBox` creates no pins.** It enumerates existing HAL
+  pins/signals/params via `hal.get_info_pins()` — a HAL introspection
+  API, not a COMBOBOX. It is listed here only to stop it being mapped to
+  one.
+- **GladeVCP's `-scaled`/`-delta-scaled` are conditional.** `_HalJogWheelBase`
+  creates each only if the subclass implements `get_scaled_value()` /
+  `get_delta_scaled_value()`. `Hal_Dial` has both; `JogWheel` has only
+  the first (and adds `.scale`). The pin set is per-class, not per-base.
+
+### Widgets With No WidgetType Yet
+
+These create HAL pins but have no protocol mapping. They are the reason
+the table above must not be treated as exhaustive — several use **fixed
+pin names** that ignore `{name}` entirely, which breaks any parser that
+assumes a name-derived pin.
+
+| Toolkit  | Class            | Pins                                                                        |
+|----------|------------------|-----------------------------------------------------------------------------|
+| GladeVCP | HAL_Graph        | {name}(IN float)                                                            |
+| GladeVCP | SpeedControl     | {name}.value(OUT float), .scale(IN float), .scaled-value(OUT float), .increase(IN bit), .decrease(IN bit) |
+| QtVCP    | LCDNumber        | {name}(IN bit\|float\|s32)                                                  |
+| QtVCP    | StatusSlider     | {name}(OUT float)                                                           |
+| QtVCP    | AxisToolButton   | {name}-joint(OUT bit), {name}-axis(OUT bit)                                 |
+| QtVCP    | CamView          | `cam-rotation`(OUT float) — **fixed name**                                  |
+| QtVCP    | HALPad           | {name}.right/.left/.top/.bottom/.center(OUT), {name}.light.center(IN bit)    |
+| QtVCP    | GeneralHALInput  | {name}(IN bit\|float\|s32)                                                  |
+| QtVCP    | GeneralHALOutput | {name}(OUT) + {name}-not(OUT), or {name}-s32 + {name}-float                 |
+| QtVCP    | ToolDialog       | `change`(IN bit), `number`(IN s32), `changed`(OUT bit) — **fixed names, created under a switched `manualtoolchange` component prefix** — plus {name}change_button(IN bit) |
+| QtVCP    | VersaProbe       | `searchvel`, `probevel`, `probeheight`, `blockheight`, `backoffdist` (OUT float) — **fixed names** |
 
 ### New Widget Types (beyond pyvcp)
 
@@ -169,7 +222,7 @@ maps these to the unified WidgetType for protocol purposes.
 |------------------|---------------------------------------|-----------------|--------------------------|
 | PROGRESSBAR      | value(IN, float), scale(IN, float)    | none            | Bar with configurable scale |
 | COMBOBOX         | -f(OUT, float), -s(OUT, s32)          | SELECT          | Dropdown selection       |
-| LIGHTBUTTON      | button(OUT/IO), light(IN), enable(IN) | PRESS, RELEASE  | Button + LED combo       |
+| LIGHTBUTTON      | button(OUT/IO), button-not(OUT, non-IO only), light(IN), enable(IN) | PRESS, RELEASE  | Button + LED combo       |
 | CONTAINER_VIS    | visible(IN, bit)                      | none            | HAL-driven visibility    |
 | CONTAINER_SENS   | sensitive(IN, bit)                    | none            | HAL-driven sensitivity   |
 | IO_BUTTON        | state(IO, bit)                        | PRESS, RELEASE  | Bidirectional button     |
