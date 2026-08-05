@@ -59,7 +59,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 		raw := scanner.Text()
 
 		// Honour a trailing backslash (\) as a line-continuation escape,
-		// matching the LinuxCNC C parser (libnml/inifile): when a physical
+		// matching the LinuxCNC C parser (src/inifile): when a physical
 		// line's last character is a single '\', it is joined with the
 		// following line(s) — up to maxExtendLines — with the backslash
 		// removed and no separator inserted, so a value split across lines
@@ -179,7 +179,7 @@ func (ini *IniFile) parseFile(filename string, visited map[string]bool) error {
 // stripInlineComment removes a trailing whitespace-preceded '#' inline comment
 // from a value string.
 //
-// The LinuxCNC C parser (libnml/inifile) does NOT strip inline comments at all:
+// The LinuxCNC C parser (src/inifile) does NOT strip inline comments at all:
 // it recognises a comment only when '#' or ';' is the FIRST non-whitespace
 // character of a line, and a value is everything after '=' (trailing whitespace
 // trimmed). Numeric lookups nonetheless tolerate a trailing "# comment" because

@@ -314,7 +314,7 @@ objects/cmod/vfdb_vfd.c: hal/user_comps/vfdb_vfd/vfdb_vfd.comp ../bin/modcompile
                        ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Iinifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
 
 # vfs11_vfd: hal/user_comps/vfs11_vfd/vfs11_vfd.comp
 objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcompile
@@ -326,7 +326,7 @@ objects/cmod/vfs11_vfd.c: hal/user_comps/vfs11_vfd/vfs11_vfd.comp ../bin/modcomp
                        ../lib/libiniparse.so
 	$(ECHO) "Compiling cmod $(notdir $@)"
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Ilibnml/inifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
+	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared -I $(CMOD_INCLUDE) -I. -Iinifile $(LIBMODBUS_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm -lpthread -lmodbus -L../lib -liniparse
 
 # hy_vfd: hal/user_comps/huanyang-vfd/hy_vfd.comp + hy_comm.c
 objects/cmod/hy_vfd.c: hal/user_comps/huanyang-vfd/hy_vfd.comp ../bin/modcompile
@@ -404,7 +404,7 @@ ifdef HAVE_LIBUSB10
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(CMOD_COMP_CFLAGS) -shared \
 	    -DUSPACE -D_GNU_SOURCE \
-	    -I. -Istmak/pkg/cmodule -Ilibnml/inifile -I../include \
+	    -I. -Istmak/pkg/cmodule -Iinifile -I../include \
 	    -o $@ hal/user_comps/xhc-hb04.c \
 	    -lpthread $(LIBUSB10_CFLAGS) $(LIBUSB10_LIBS) -L../lib -liniparse
 TARGETS += ../cmod/xhc-hb04.so

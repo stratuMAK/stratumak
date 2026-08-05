@@ -1,14 +1,14 @@
-INCLUDES += libnml/inifile
+INCLUDES += inifile
 
-$(patsubst ./libnml/inifile/%,../include/%,$(wildcard ./libnml/inifile/*.h)): ../include/%.h: ./libnml/inifile/%.h
+$(patsubst ./inifile/%,../include/%,$(wildcard ./inifile/*.h)): ../include/%.h: ./inifile/%.h
 	cp $^ $@
-$(patsubst ./libnml/inifile/%,../include/%,$(wildcard ./libnml/inifile/*.hh)): ../include/%.hh: ./libnml/inifile/%.hh
+$(patsubst ./inifile/%,../include/%,$(wildcard ./inifile/*.hh)): ../include/%.hh: ./inifile/%.hh
 	cp $^ $@
 
-LIBINISRCS := libnml/inifile/iniparse.c
+LIBINISRCS := inifile/iniparse.c
 $(call TOOBJSDEPS, $(LIBINISRCS)) : EXTRAFLAGS=-fPIC
 
-INIFILESRCS := libnml/inifile/inivar.cc
+INIFILESRCS := inifile/inivar.cc
 
 USERSRCS += $(INIFILESRCS) $(LIBINISRCS)
 TARGETS += ../lib/libiniparse.so ../lib/libiniparse.so.0

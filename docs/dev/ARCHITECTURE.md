@@ -63,9 +63,10 @@ tree is downstream of them:
 | Python/Tcl non-RT layer | Go |
 | Tk/GTK UIs over NML | Vue/TS over REST+WS; AXIS ported to the REST client |
 
-`src/libnml/` still exists but no longer contains NML: only `inifile/` (the C
-INI parser, kept because C modules read INI) and `posemath/`. The directory
-name is a leftover.
+No trace of NML remains in the tree. What outlived it are two unrelated
+libraries that had been living under `src/libnml/` — the C INI parser (C
+modules read INI) and the pose-math library — and they now sit at
+`src/inifile/` and `src/posemath/`.
 
 ---
 
@@ -82,6 +83,8 @@ name is a leftover.
 | `src/cnc/` | Inherited CNC core: `rs274ngc` interpreter, `motion`, `tp`, `kinematics`, `iotask`, UIs | C/C++ |
 | `src/hal/` | HAL components (`components/*.comp`), drivers (Mesa, EtherCAT, GPIO, VFDs), ClassicLadder | C, `.comp` |
 | `src/rtapi/` | RTAPI headers and the small uspace support pieces | C |
+| `src/posemath/` | Pose/vector math (`libposemath`), inherited | C |
+| `src/inifile/` | The C INI parser (`libiniparse`) and `inivar`, inherited | C |
 | `src/webapp/` | Vue + TypeScript web applications | TS/Vue |
 | `lib/hallib/` | Shipped HAL files, Go-templated (§7) | HAL |
 | `lib/python/` | Python client libraries and the remaining Python UIs | Python |

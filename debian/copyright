@@ -345,26 +345,12 @@ Copyright:      2002 Mihai Bazon
            2006,2009 Stuart Rackham
 License: GPL-2
 
-Files: src/libnml/*
-       src/libnml/linklist/*
-       src/libnml/posemath/*
-       src/libnml/rcs/*
-       src/libnml/cms/*
-       src/libnml/buffer/*
-       src/libnml/nml/*
-       src/libnml/os_intf/*
+Files: src/posemath/*
 Copyright: The LinuxCNC developers derived this work from
            2004 Fred Proctor & Will Shackleford
 License: LGPL-2
 
-Files: src/libnml/inifile/*
-       src/libnml/nml/nml_mod.cc
-       src/libnml/nml/nml_mod.hh
-       src/libnml/nml/nml_type.hh
-       src/libnml/buffer/tcpmem.cc
-       src/libnml/buffer/tcpmem.hh
-       src/libnml/buffer/shmem.cc
-       src/libnml/buffer/shmem.hh
+Files: src/inifile/*
 Copyright: The LinuxCNC developers derived this work from
            2004 Fred Proctor & Will Shackleford
 License: GPL-2
