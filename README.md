@@ -144,9 +144,25 @@ server process.
 Native EtherCAT support via IGH EtherLab Master with:
 - XML device configuration (the LinuxCNC-EtherCAT `lcec` format), with a
   generated native format a future goal
-- Automatic PDO/SDO mapping to HAL signals
-- CiA 402 drive profile state machine
-- FSoE (Fail Safe over EtherCAT) support
+- Config-driven PDO/SDO mapping to HAL signals: 44 dedicated device drivers,
+  plus a generic driver that maps arbitrary PDO entries to HAL pins — with
+  scaling, bit arrays and IEEE-754 subtypes — straight from the XML
+- **Distributed clocks** with two synchronisation modes: master-to-reference,
+  where a PI controller nudges the RT task's wakeup to phase-lock the servo
+  thread to the bus reference clock (sub-microsecond alignment, needs RTAPI PLL
+  support), and reference-to-master, an open-loop fallback that snaps the
+  reference clock to the RT timer instead. See
+  [`src/hal/drivers/ethercat/DC-SYNC.md`](src/hal/drivers/ethercat/DC-SYNC.md)
+- CiA 402 drives: control/status word mapped to HAL, plus drive-internal
+  homing (`homemod_cia402` — CSP ↔ homing mode, HomingAttained handshake)
+- Ethernet over EtherCAT (EoE), including IP configuration
+- Bus diagnostics over REST and from the `ethercat` CLI: masters, slaves, sync
+  managers, PDOs, domains, FMMUs and raw domain data
+- Safety-over-EtherCAT (FSoE / TwinSAFE) devices are carried as a
+  **black channel** — telegrams are transported and diagnostic transparency
+  pins (command, connection ID, CRCs) are exposed. The safety function itself
+  lives entirely in the certified FSoE master and slaves, never in stratuMAK —
+  see [SAFETY_BOUNDARY.md](docs/dev/SAFETY_BOUNDARY.md)
 
 The IgH master is a submodule of this repository
 (https://github.com/stratuMAK/ethercat, at `src/hal/drivers/ethercat/master`).
