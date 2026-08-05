@@ -6,9 +6,9 @@
 #    and machines without a display.
 #
 #    The window is now the linuxcnctop web app, shown by `linuxcnctop-ui` (a
-#    gmcui symlink). We os.exec into it rather than spawning it, so no extra
+#    stmakui symlink). We os.exec into it rather than spawning it, so no extra
 #    process is left behind — this script becomes the viewer. Going through the
-#    launcher also lets us absorb arguments gmcui would reject outright, such
+#    launcher also lets us absorb arguments stmakui would reject outright, such
 #    as the -ini INIFILE that callers have passed since 2.9.
 #
 #    The text mode has two output shapes, because they answer different
@@ -223,14 +223,14 @@ def run_ui(args, instance):
         if value is not None:
             argv += [flag, str(value)]
 
-    # gmcui takes the instance from the environment, not the command line.
+    # stmakui takes the instance from the environment, not the command line.
     if args.instance is not None:
-        os.environ["GMC_INSTANCE"] = instance
+        os.environ["STMAK_TASK_INSTANCE"] = instance
 
     try:
         os.execvp(UI_COMMAND, argv)
     except OSError as e:
-        # Typically a build without webkit2gtk, where no gmcui symlink exists.
+        # Typically a build without webkit2gtk, where no stmakui symlink exists.
         # Name the text mode rather than leaving the user with an exec error:
         # on a headless machine that is the mode they wanted anyway.
         raise Unreachable(
@@ -256,15 +256,15 @@ def main():
                       help="do not truncate values to 58 columns")
 
     win = p.add_argument_group("window options (passed to " + UI_COMMAND + ")")
-    win.add_argument("--url", help="server URL (default: $GMC_REST_URL)")
+    win.add_argument("--url", help="server URL (default: $STMAK_REST_URL)")
     win.add_argument("--title", help="window title")
     win.add_argument("--width", type=int, help="window width in pixels")
     win.add_argument("--height", type=int, help="window height in pixels")
 
     p.add_argument("--instance", default=None,
-                   help="task instance to query (default: $GMC_INSTANCE or milltask)")
+                   help="task instance to query (default: $STMAK_TASK_INSTANCE or milltask)")
     # -ini FILE has been passed by AXIS since 2.9. It carries nothing we need —
-    # the server URL and instance come from the environment — but gmcui rejects
+    # the server URL and instance come from the environment — but stmakui rejects
     # unknown flags outright, so swallowing it here is what keeps such callers
     # working.
     p.add_argument("-ini", metavar="FILE", help=argparse.SUPPRESS)

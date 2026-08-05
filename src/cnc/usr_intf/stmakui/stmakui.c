@@ -1,13 +1,13 @@
 /*
- * gmcui — Generic WebKit container for LinuxCNC web UIs.
+ * stmakui — Generic WebKit container for LinuxCNC web UIs.
  *
  * When invoked directly:
- *   gmcui --url URL [--title TITLE] [--width W] [--height H]
+ *   stmakui --url URL [--title TITLE] [--width W] [--height H]
  *
  * When invoked via a symlink (e.g. "halscope"):
  *   The basename of argv[0] selects built-in defaults for URL path,
  *   window title, and size.  The server base URL comes from the
- *   GMC_REST_URL environment variable (default: http://127.0.0.1:5080).
+ *   STMAK_REST_URL environment variable (default: http://127.0.0.1:5080).
  *
  * Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  * License: GPLv2
@@ -21,8 +21,8 @@
 #include <stdlib.h>
 
 #define DEFAULT_REST_URL "http://127.0.0.1:5080"
-#define ENV_REST_URL     "GMC_REST_URL"
-#define ENV_INSTANCE     "GMC_INSTANCE"
+#define ENV_REST_URL     "STMAK_REST_URL"
+#define ENV_INSTANCE     "STMAK_TASK_INSTANCE"
 #define DEFAULT_INSTANCE "milltask"
 
 /* Built-in app profiles, selected by symlink name. */
@@ -32,7 +32,7 @@ typedef struct {
     const char *title;      /* window title */
     int         width;
     int         height;
-    const char *instance;   /* default ?instance= value (GMC_INSTANCE overrides) */
+    const char *instance;   /* default ?instance= value (STMAK_TASK_INSTANCE overrides) */
 } app_profile_t;
 
 static const app_profile_t profiles[] = {

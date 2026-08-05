@@ -152,14 +152,14 @@ func TestResolveRESTAddr_Precedence(t *testing.T) {
 		t.Errorf("no INI, no env: got %q, want the loopback default %q", got, defaultRESTAddr)
 	}
 
-	l.ini = iniWith(t, "[GMC]\nREST_ADDR = 127.0.0.1:6001\n")
+	l.ini = iniWith(t, "[SERVER]\nREST_ADDR = 127.0.0.1:6001\n")
 	if got, want := l.resolveRESTAddr(), "127.0.0.1:6001"; got != want {
 		t.Errorf("INI only: got %q, want %q", got, want)
 	}
 
 	// The env override exists so the test harness can run several servers on
 	// distinct ports without editing per-config INIs — it must win over the INI.
-	t.Setenv("GMC_REST_ADDR", "127.0.0.1:6002")
+	t.Setenv("STMAK_REST_ADDR", "127.0.0.1:6002")
 	if got, want := l.resolveRESTAddr(), "127.0.0.1:6002"; got != want {
 		t.Errorf("env over INI: got %q, want %q", got, want)
 	}
@@ -175,13 +175,13 @@ func TestResolveWSOriginPatterns(t *testing.T) {
 		t.Errorf("no INI, no env: got %v, want nil (same-origin only)", got)
 	}
 
-	l.ini = iniWith(t, "[GMC]\nREST_ORIGINS = hmi.local, *.shop.example ,\n")
+	l.ini = iniWith(t, "[SERVER]\nREST_ORIGINS = hmi.local, *.shop.example ,\n")
 	want := []string{"hmi.local", "*.shop.example"}
 	if got := l.resolveWSOriginPatterns(); !reflect.DeepEqual(got, want) {
 		t.Errorf("INI list: got %v, want %v (trimmed, empty entries dropped)", got, want)
 	}
 
-	t.Setenv("GMC_REST_ORIGINS", "*")
+	t.Setenv("STMAK_REST_ORIGINS", "*")
 	if got := l.resolveWSOriginPatterns(); !reflect.DeepEqual(got, []string{"*"}) {
 		t.Errorf("env override: got %v, want [*]", got)
 	}

@@ -14,9 +14,9 @@ stmak_start_server test.ini
 
 # Readiness is per task: stmak_wait_ready asks one instance's status buffer, and
 # with no instance named "milltask" here it must be told which.
-export GMC_INSTANCE=left.task
+export STMAK_TASK_INSTANCE=left.task
 stmak_wait_ready
-export GMC_INSTANCE=right.task
+export STMAK_TASK_INSTANCE=right.task
 stmak_wait_ready
 
 # NOT exec: that replaces this shell, and with it the EXIT trap stmak_start_server

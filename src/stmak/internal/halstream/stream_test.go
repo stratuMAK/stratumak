@@ -112,7 +112,7 @@ func TestHTTPToWS(t *testing.T) {
 		{"http://127.0.0.1:5080", "ws://127.0.0.1:5080"},
 		{"https://host:5080", "wss://host:5080"},
 		{"http://host/base", "ws://host/base"},
-		// A schemeless GMC_REST_URL passes through unchanged; the WebSocket
+		// A schemeless STMAK_REST_URL passes through unchanged; the WebSocket
 		// dial then rejects it. Documented rather than papered over — the
 		// variable is specified as a base URL and its default carries a
 		// scheme, and a dial error names the bad value plainly.

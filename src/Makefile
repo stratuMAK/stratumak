@@ -183,7 +183,7 @@ SUBDIRS := \
     cnc/usr_intf/axis cnc/usr_intf/touchy cnc/usr_intf/stepconf cnc/usr_intf/pncconf \
     cnc/usr_intf/gremlin cnc/usr_intf/gscreen cnc/usr_intf/pyui cnc/usr_intf/qtvcp \
     cnc/usr_intf/gmoccapy cnc/usr_intf/qtplasmac cnc/usr_intf/mdro\
-    cnc/usr_intf/gmcui \
+    cnc/usr_intf/stmakui \
     cnc/usr_intf cnc/nml_intf cnc/task cnc/iotask cnc/kinematics cnc/tp \
     cnc/motion cnc/motion-logger cnc/ini cnc/rs274ngc cnc/sai \
     cnc \
@@ -562,7 +562,7 @@ TARGETS += ../bin/gremlin_view
 	$(Q)(echo "gremlin_view.standalone_gremlin_view()")>>$@
 	$(Q)chmod +x $@
 
-# halshow: now a gmcui web app (symlink created in gmcui/Submakefile)
+# halshow: now a stmakui web app (symlink created in stmakui/Submakefile)
 
 # And make userspace depend on $(TARGETS)
 userspace: $(TARGETS)
@@ -824,7 +824,7 @@ install-common: install-dirs
 	# under a parallel install.
 	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/stmakd, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
 	# Several bin/ entries are symlinks onto one binary that picks its app
-	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
+	# from argv[0] (the stmakui web-UI front-ends). install(1) dereferences, so
 	# the loop above ships a full copy per link; re-create them as links.
 	$(Q)for f in $(filter ../bin/%,$(TARGETS)); do \
 		if [ -L "$$f" ]; then \

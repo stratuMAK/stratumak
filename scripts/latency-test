@@ -204,10 +204,10 @@ mapfile -t THREADS < <(printf '%s\n' "${THREADS[@]}" | sort -t: -k2,2n)
 
 # This server is standalone and short-lived, so bind an ephemeral port instead
 # of the well-known one - a running LinuxCNC already owns 5080.  An explicit
-# GMC_REST_ADDR from the caller wins.  (Skipped in --stress-only: no server.)
+# STMAK_REST_ADDR from the caller wins.  (Skipped in --stress-only: no server.)
 if [ "$STRESS_ONLY" -eq 0 ]; then
-    if [ -n "$GMC_REST_ADDR" ]; then
-        ADDR="$GMC_REST_ADDR"
+    if [ -n "$STMAK_REST_ADDR" ]; then
+        ADDR="$STMAK_REST_ADDR"
     else
         PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
         [ -n "$PORT" ] || PORT=5081
@@ -494,7 +494,7 @@ fi
 # Stream the server's stdout+stderr both to a log file (read back below) and
 # live to our own stderr, so a mid-run crash - panic, stack trace - is visible
 # instead of being lost when cleanup() removes the temp dir.
-GMC_REST_ADDR="$ADDR" stmakd -f "$T/latency.hal" -serve \
+STMAK_REST_ADDR="$ADDR" stmakd -f "$T/latency.hal" -serve \
     > >(tee "$T/server.log" >&2) 2>&1 &
 SRV_PID=$!
 
@@ -520,7 +520,7 @@ start_watchdog
 
 # The viewer blocks until its window is closed.  Closing it (or Ctrl+C /
 # SIGTERM) fires cleanup(), which stops the stressors and the server.
-GMC_REST_URL="$BASE_URL" latency
+STMAK_REST_URL="$BASE_URL" latency
 
 # Record this run's worst-case jitter, keeping the worst ever seen: ~/.latency
 # is what the docs and other tools read.

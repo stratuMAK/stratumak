@@ -25,7 +25,7 @@ fail=0
 [ "$(getp ethercat.0.all-op)" = TRUE ] || { echo "FAIL: master did not reach OP" >&2; fail=1; }
 
 # Read back the startup-configured object 0x2000:00 via the CLI (default
-# GMC_REST_URL = the resident server). The XML wrote 0x11223344 = 287454020;
+# STMAK_REST_URL = the resident server). The XML wrote 0x11223344 = 287454020;
 # the sim preset it to 0, so a match proves the init SDO was applied.
 val=$(ethercat -p0 --type uint32 upload 0x2000 0x00 2>&1)
 echo "upload 0x2000:00 -> $val"

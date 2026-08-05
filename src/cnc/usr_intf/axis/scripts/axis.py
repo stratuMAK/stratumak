@@ -117,7 +117,7 @@ inifile = gmi.IniFile()
 # NOT caught: without it every peer name would fall back to a single-instance
 # default and this UI would spend the session talking to the wrong modules —
 # which is far harder to diagnose than refusing to start. A stack trace here
-# means the server is older than this AXIS, GMC_INSTANCE names a task that does
+# means the server is older than this AXIS, STMAK_TASK_INSTANCE names a task that does
 # not exist, or the task never started.
 _machine_info = gmi.info() if server_present == 1 else None
 
@@ -4466,10 +4466,10 @@ class AxisCommand(_GmiCommand):
         except urllib.error.HTTPError:
             return -1
 
-# Bind to THIS UI's task instance (GMC_INSTANCE), not the "milltask" default
+# Bind to THIS UI's task instance (STMAK_TASK_INSTANCE), not the "milltask" default
 # baked into gmi.command.Command — otherwise every command posts to a
 # nonexistent milltask instance and 404s on a multi-instance server, while stat
-# (built via gmi.Stat) correctly followed GMC_INSTANCE.
+# (built via gmi.Stat) correctly followed STMAK_TASK_INSTANCE.
 c = AxisCommand(instance=gmi.instance())
 
 _jog_speed_from_remote = False

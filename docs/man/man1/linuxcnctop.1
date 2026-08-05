@@ -72,14 +72,14 @@ Do not truncate values to 58 columns. Implies \fB\-t\fR.
 Passed through to \fBlinuxcnctop\-ui\fR(1) when opening the window.
 .TP
 \fB\-\-instance\fR \fINAME\fR
-Query the named task instance. Defaults to \fB$GMC_INSTANCE\fR, or
+Query the named task instance. Defaults to \fB$STMAK_TASK_INSTANCE\fR, or
 \fImilltask\fR if that is unset.
 .SH ENVIRONMENT
 .TP
-.B GMC_REST_URL
+.B STMAK_REST_URL
 Base URL of the controller's REST API (default http://127.0.0.1:5080).
 .TP
-.B GMC_INSTANCE
+.B STMAK_TASK_INSTANCE
 Default task instance name.
 .SH EXAMPLES
 Open the status window (what AXIS's Machine > Show LinuxCNC Status does, though
@@ -111,7 +111,7 @@ It is more fully documented in the AXIS GUI documentation but can be run
 standalone or with other GUIs.
 http://linuxcnc.org/docs/html/gui/axis.html
 .SH "SEE ALSO"
-\fBlinuxcnctop\-ui(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
+\fBlinuxcnctop\-ui(1)\fR, \fBstmakui(1)\fR, \fBLinuxCNC(1)\fR
 
 Much more information about LinuxCNC and HAL is available in the LinuxCNC
 and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.

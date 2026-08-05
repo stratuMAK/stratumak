@@ -8,7 +8,7 @@
 // Environment:
 //
 //	EC_INST       Instance name (default: "ethercat")
-//	GMC_REST_URL  REST endpoint (default: "http://localhost:5080/")
+//	STMAK_REST_URL  REST endpoint (default: "http://localhost:5080/")
 package main
 
 import (
@@ -102,7 +102,7 @@ Global options:
 
 Environment:
   EC_INST       EtherCAT instance name (default: "ethercat")
-  GMC_REST_URL  REST server URL (default: "http://localhost:5080/")
+  STMAK_REST_URL  REST server URL (default: "http://localhost:5080/")
 
 Numeric values can be specified as:
   - Decimal:     12345
@@ -285,7 +285,7 @@ func main() {
 	}
 
 	// Create client from environment.
-	restURL := os.Getenv("GMC_REST_URL")
+	restURL := os.Getenv("STMAK_REST_URL")
 	if restURL == "" {
 		restURL = "http://localhost:5080/"
 	}

@@ -1,9 +1,9 @@
-.TH gmcui "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
+.TH stmakui "1" "2026-08-03" "LinuxCNC Documentation" "The Enhanced Machine Controller"
 .SH NAME
-gmcui \- WebKit container for the LinuxCNC web user interfaces
+stmakui \- WebKit container for the LinuxCNC web user interfaces
 
 .SH SYNOPSIS
-.B gmcui
+.B stmakui
 .BI \-\-url " URL"
 [\fB\-\-title\fR \fITITLE\fR] [\fB\-\-width\fR \fIW\fR] [\fB\-\-height\fR \fIH\fR]
 .br
@@ -11,7 +11,7 @@ gmcui \- WebKit container for the LinuxCNC web user interfaces
 (via symlink)
 
 .SH DESCRIPTION
-.B gmcui
+.B stmakui
 opens a single GTK/WebKit window and loads a LinuxCNC web application
 served by
 .BR stmakd (1).
@@ -19,7 +19,7 @@ It is the native-window front end for the web-based HAL and machine
 utilities.
 .PP
 When invoked as
-.B gmcui
+.B stmakui
 directly, the page to load must be given with
 .BR \-\-url .
 When invoked through a symlink, the basename of the link selects a
@@ -54,7 +54,7 @@ instance instead of the
 default)
 .PP
 The server base URL is taken from the
-.B GMC_REST_URL
+.B STMAK_REST_URL
 environment variable (default
 .BR http://127.0.0.1:5080 ).
 Positional arguments are ignored, so callers that pass a file path
@@ -81,11 +81,11 @@ Show usage and the list of known application profiles.
 
 .SH ENVIRONMENT
 .TP
-.B GMC_REST_URL
+.B STMAK_REST_URL
 Base URL of the stmakd REST interface (default
 .BR http://127.0.0.1:5080 ).
 .TP
-.B GMC_INSTANCE
+.B STMAK_TASK_INSTANCE
 Instance name appended as
 .B ?instance=
 to profile URLs; overrides the profile default (usually

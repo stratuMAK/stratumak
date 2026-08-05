@@ -60,11 +60,11 @@ func NewServer(registry *Registry, addr string) *Server {
 	s.mux.HandleFunc(s.prefix+"/", s.handleAPIRequest)
 	s.mux.HandleFunc(s.prefix+"/_registry", s.handleRegistryRequest)
 
-	// pprof profiling endpoints are opt-in (GMC_REST_PPROF=1). They are
+	// pprof profiling endpoints are opt-in (STMAK_REST_PPROF=1). They are
 	// unauthenticated and leak memory/argv/config plus allow a CPU-profile DoS,
 	// so they must not be mounted by default — especially when the server is
 	// bound to a non-loopback address for a remote HMI.
-	if os.Getenv("GMC_REST_PPROF") == "1" {
+	if os.Getenv("STMAK_REST_PPROF") == "1" {
 		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
 		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)

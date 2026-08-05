@@ -204963,7 +204963,7 @@ msgstr ""
 #. type: Plain text
 #: man/man1/linuxcnctop.1:77
 msgid ""
-"Query the named task instance. Defaults to B<$GMC_INSTANCE>, or I<milltask> "
+"Query the named task instance. Defaults to B<$STMAK_TASK_INSTANCE>, or I<milltask> "
 "if that is unset."
 msgstr ""
 
@@ -204976,7 +204976,7 @@ msgstr ""
 #. type: TP
 #: man/man1/linuxcnctop.1:78
 #, no-wrap
-msgid "B<GMC_REST_URL>"
+msgid "B<STMAK_REST_URL>"
 msgstr ""
 
 #. type: Plain text
@@ -204987,7 +204987,7 @@ msgstr ""
 #. type: TP
 #: man/man1/linuxcnctop.1:81
 #, no-wrap
-msgid "B<GMC_INSTANCE>"
+msgid "B<STMAK_TASK_INSTANCE>"
 msgstr ""
 
 #. type: Plain text
@@ -205050,7 +205050,7 @@ msgstr ""
 
 #. type: Plain text
 #: man/man1/linuxcnctop.1:115
-msgid "B<linuxcnctop-ui(1)>, B<gmcui(1)>, B<LinuxCNC(1)>"
+msgid "B<linuxcnctop-ui(1)>, B<stmakui(1)>, B<LinuxCNC(1)>"
 msgstr ""
 
 #. type: Plain text

@@ -67,7 +67,7 @@ stmak_bind_failure() {
     local logfile="${1:-server.log}"
     [ -f "$logfile" ] || return 1
     grep -q "address already in use" "$logfile" || return 1
-    echo "*** the REST address (${GMC_REST_ADDR:-127.0.0.1:5080}) was already in use," \
+    echo "*** the REST address (${STMAK_REST_ADDR:-127.0.0.1:5080}) was already in use," \
          "so this server exited instead of starting." >&2
     echo "*** a stmakd leaked by an earlier test is the usual cause;" \
          "every later test that starts one fails the same way." >&2

@@ -7,7 +7,7 @@
 //   halsampler [-n num_samples] [-t] [instance_name]
 //
 // Environment:
-//   GMC_REST_URL — base URL of stmakd (default: http://127.0.0.1:5080)
+//   STMAK_REST_URL — base URL of stmakd (default: http://127.0.0.1:5080)
 
 package main
 
@@ -24,7 +24,7 @@ import (
 
 const (
 	defaultRestURL = "http://127.0.0.1:5080"
-	envRestURL     = "GMC_REST_URL"
+	envRestURL     = "STMAK_REST_URL"
 )
 
 func main() {

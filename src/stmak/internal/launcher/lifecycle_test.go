@@ -170,7 +170,7 @@ func TestStopAPIServer_IdempotentAndConcurrent(t *testing.T) {
 	// An ephemeral port: createAPIServer binds for real, and a unit test must
 	// not fail because this machine happens to be running LinuxCNC on the
 	// configured one (nor collide with a second test run).
-	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
+	t.Setenv("STMAK_REST_ADDR", "127.0.0.1:0")
 	l := testLauncher()
 	if err := l.createAPIServer(); err != nil {
 		t.Fatalf("createAPIServer: %v", err)
@@ -281,7 +281,7 @@ func TestCreateAPIServer_BindFailureIsReported(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	defer func() { _ = blocker.Close() }()
-	t.Setenv("GMC_REST_ADDR", blocker.Addr().String())
+	t.Setenv("STMAK_REST_ADDR", blocker.Addr().String())
 
 	l := testLauncher()
 	err = l.createAPIServer()
@@ -304,7 +304,7 @@ func TestCreateAPIServer_BindFailureIsReported(t *testing.T) {
 // would hit "address already in use" caused by its own predecessor.
 func TestCreateAPIServer_ListenerClosedOnStop(t *testing.T) {
 	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
-	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
+	t.Setenv("STMAK_REST_ADDR", "127.0.0.1:0")
 
 	l := testLauncher()
 	if err := l.createAPIServer(); err != nil {
@@ -337,7 +337,7 @@ func serveTestAPIServer(t *testing.T) *Launcher {
 	t.Helper()
 	apiserver.SetDefaultRegistry(apiserver.NewRegistry())
 	apiserver.SetDefaultWatchRegistry(apiserver.NewWatchRegistry())
-	t.Setenv("GMC_REST_ADDR", "127.0.0.1:0")
+	t.Setenv("STMAK_REST_ADDR", "127.0.0.1:0")
 
 	l := testLauncher()
 	if err := l.createAPIServer(); err != nil {

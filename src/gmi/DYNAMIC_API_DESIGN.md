@@ -784,7 +784,7 @@ src/stmak/                   # Go module: github.com/stratuMAK/stratumak/src/stm
 │   │   └── paths.go         # EMC2StmakDir, EMC2BinDir, etc.
 │   ├── stmak/                # Server lifecycle
 │   │   ├── launcher.go      # Main server struct + startup
-│   │   ├── rest_server.go   # REST API server start/stop ([GMC]REST_ADDR)
+│   │   ├── rest_server.go   # REST API server start/stop ([SERVER]REST_ADDR)
 │   │   └── cleanup.go       # Shutdown sequence
 │   ├── emcgateway/           # DELETED — replaced by Go milltask (internal/task)
 │   ├── halrest/             # Server-side REST handler for halcmd API (Step 4.5)
@@ -994,7 +994,7 @@ Replace the legacy C halcmd/halrmt with a new Go-based halcmd using the REST API
 
 **Deliverables:**
 - [x] New `cmd/halcmd/` in launcher — Go CLI using generated halcmd client
-- [x] Environment variable `GMC_REST_URL` (default: `http://localhost:5080/`)
+- [x] Environment variable `STMAK_REST_URL` (default: `http://localhost:5080/`)
 - [x] Full command compatibility (show, list, getp, setp, gets, sets, newsig, delsig, net, loadrt, etc.)
 - [x] Disable old halcmd/halrmt in build system (`BUILD_GOLANG=yes` guard)
 
@@ -1362,7 +1362,7 @@ All HAL queries now go through the stratuMAK REST API via the `gmi` package:
 Now a hand-written source file (previously an empty `@touch` build artifact).
 Contains central helpers used by axis.py and other UI code:
 
-- `rest_url()` / `ws_url()` — URL helpers from `GMC_REST_URL` env var
+- `rest_url()` / `ws_url()` — URL helpers from `STMAK_REST_URL` env var
 - `component_exists(name)` — `GET /api/v1/halcmd/components?pattern={name}`
 - `pin_has_writer(name)` — `GET /api/v1/halcmd/pins?pattern={name}`, checks `has_writer` field
 
@@ -2241,7 +2241,7 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
 **New Architecture:**
 
 ```
-  Vue halscope (browser/gmcui)          other clients (future)
+  Vue halscope (browser/stmakui)          other clients (future)
        │                                        │
        └──────── WebSocket + REST ──────────────┘
                           │
@@ -2270,9 +2270,9 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
    Chosen over raw Canvas for built-in zoom/pan, axis labeling, and series
    management. Data is in "divisions" space (-5 to +5 vertical).
 
-4. **gmcui native container** — GTK3+WebKit2 wrapper (~150 LOC) providing a
+4. **stmakui native container** — GTK3+WebKit2 wrapper (~150 LOC) providing a
    native window for the web UI. Detected via `basename(argv[0])` symlink
-   (e.g., `halscope` → `gmcui`). DevTools enabled.
+   (e.g., `halscope` → `stmakui`). DevTools enabled.
 
 5. **State persistence** — Scope configuration (thread, channels, trigger,
    continuous mode) is saved to a JSON file on every config change and on
@@ -2360,11 +2360,11 @@ src/webapp/halscope/
         └── halscope_watch_client.ts # Generated WS watch client
 ```
 
-**Native Container (gmcui):**
+**Native Container (stmakui):**
 
 ```
-src/cnc/usr_intf/gmcui/
-├── gmcui.c        # GTK3+WebKit2, profile table, symlink detection
+src/cnc/usr_intf/stmakui/
+├── stmakui.c        # GTK3+WebKit2, profile table, symlink detection
 └── Submakefile    # Conditional on BUILD_WEBKIT2GTK=yes
 ```
 
@@ -2373,7 +2373,7 @@ Profile table maps symlink names to webapp paths:
 { "halscope", "/app/halscope/", "HAL Oscilloscope", 1280, 800 }
 ```
 
-Build produces `bin/gmcui` + `bin/halscope` symlink. CLI supports
+Build produces `bin/stmakui` + `bin/halscope` symlink. CLI supports
 `--url`, `--title`, `--width`, `--height` for custom use.
 
 **State Persistence Format (version 1):**
@@ -2404,7 +2404,7 @@ Build produces `bin/gmcui` + `bin/halscope` symlink. CLI supports
 | Dependency | Build-time | Runtime | configure.ac check |
 |------------|-----------|---------|-------------------|
 | Node.js + npm | Yes (Vite build) | No | `HAVE_NODEJS` |
-| webkit2gtk-4.1 | Yes (gmcui) | Yes | `HAVE_WEBKIT2GTK` (pkg-config) |
+| webkit2gtk-4.1 | Yes (stmakui) | Yes | `HAVE_WEBKIT2GTK` (pkg-config) |
 
 Both are optional — stmakd and the web UI work in a browser without them.
 
@@ -2416,7 +2416,7 @@ Both are optional — stmakd and the web UI work in a browser without them.
 - [x] Generated TypeScript clients (REST + WS watch)
 - [x] Mouse wheel on all sliders, hover tooltip with cursor dot, drag rubberband
 - [x] CSV capture save/load (client-side, with legacy format support)
-- [x] gmcui native WebKit container with halscope symlink
+- [x] stmakui native WebKit container with halscope symlink
 - [x] Old halscope removed: `scope.c`, `scope_*.c`, `scope_rt.c`, `scope_shm.h` (git rm)
 - [x] `scope_rt` RTMODULE removed from Makefile
 - [x] All `loadrt scope_rt` / `loadusr halscope` references cleaned from configs
@@ -2448,7 +2448,7 @@ endpoints already served by `internal/halrest/`.
 **New Architecture:**
 
 ```
-  Vue halshow (browser/gmcui)
+  Vue halshow (browser/stmakui)
        │
        └──── REST (halcmd API at /api/v1/halcmd/...)
                     │
@@ -2511,14 +2511,14 @@ src/webapp/halshow/
   signals + params (previously only pins). Signals with writer pins marked
   `linked: true` to suppress Set button in frontend.
 
-**gmcui Integration:**
+**stmakui Integration:**
 
-Profile entry in `gmcui.c`:
+Profile entry in `stmakui.c`:
 ```c
 { "halshow", "/app/halshow/", "HAL Configuration", 1024, 768 }
 ```
 
-`bin/halshow` symlink → `gmcui` → opens halshow webapp.
+`bin/halshow` symlink → `stmakui` → opens halshow webapp.
 
 **AXIS Menu Integration:**
 
@@ -2542,7 +2542,7 @@ Profile entry in `gmcui.c`:
 - [x] Watch panel: Set dialog, bit toggle, canSet() logic (hides for OUT/linked/RO)
 - [x] Node overview: child pin table, +W per pin, +Watch All
 - [x] halcmd console: parse+execute, history, color-coded output
-- [x] gmcui native container with halshow symlink
+- [x] stmakui native container with halshow symlink
 - [x] AXIS menu integration (`exec halshow &`)
 - [x] Old halshow.tcl, halmeter, and associated files removed
 - [x] Build system cleaned (Submakefiles, debian packaging)
@@ -2562,7 +2562,7 @@ tuning via HAL setp, and saves changes back to the correct INI file(s).
 **New Architecture:**
 
 ```
-  Vue emccalib (browser/gmcui)
+  Vue emccalib (browser/stmakui)
        │
        └──── REST (/api/v1/emccalib/...)
                     │
@@ -2705,7 +2705,7 @@ The file is found via `HALLIB_PATH` resolution.
 - [x] `src/webapp/emccalib/` — Vue 3 web app
 - [x] Build integration: `configure.ac` (`--enable-emccalib`), `packages.conf.in`,
       `Submakefile` rules
-- [x] gmcui profile entry + `bin/emccalib` symlink
+- [x] stmakui profile entry + `bin/emccalib` symlink
 - [x] Sim config: `configs/sim/emccalib/` (3-axis servo sim with PID tunables)
 - [x] UI integration: axis, gmoccapy, gscreen, qtvcp, tklinuxcnc menus updated
 - [x] Old Tcl source removed (`tcl/bin/emccalib.tcl`)
@@ -2715,7 +2715,7 @@ The file is found via `HALLIB_PATH` resolution.
 - [ ] Logging/tracing
 - [ ] Performance optimization
 - [ ] Documentation
-- [x] Launcher REST server reads listen URL from INI file (`[GMC]REST_ADDR`, default `localhost:5080`)
+- [x] Launcher REST server reads listen URL from INI file (`[SERVER]REST_ADDR`, default `localhost:5080`)
 
 ## Step 7: Remove Go Plugins — Compile-In Architecture (COMPLETE)
 

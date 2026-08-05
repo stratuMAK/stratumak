@@ -20,45 +20,45 @@ import (
 
 const (
 	// defaultRESTAddr is the default listen address for the REST API server.
-	// Can be overridden via [GMC]REST_ADDR in the INI file.
+	// Can be overridden via [SERVER]REST_ADDR in the INI file.
 	defaultRESTAddr = "127.0.0.1:5080"
 
 	// defaultRESTMaxConnections caps concurrently accepted HTTP connections;
-	// [GMC]REST_MAX_CONNECTIONS overrides it (0 = unlimited).
+	// [SERVER]REST_MAX_CONNECTIONS overrides it (0 = unlimited).
 	defaultRESTMaxConnections = 256
 	// defaultRESTMaxWSConnections caps concurrent WebSocket connections across
-	// the watch and stream endpoints; [GMC]REST_MAX_WS_CONNECTIONS overrides it
+	// the watch and stream endpoints; [SERVER]REST_MAX_WS_CONNECTIONS overrides it
 	// (0 = unlimited). Kept below the overall cap on purpose — a WebSocket is a
 	// hijacked HTTP connection and holds an accept slot for its whole life.
 	defaultRESTMaxWSConnections = 64
 )
 
 // resolveRESTAddr returns the REST API listen address, in precedence order:
-// the GMC_REST_ADDR environment variable, then [GMC]REST_ADDR in the INI, then
+// the STMAK_REST_ADDR environment variable, then [SERVER]REST_ADDR in the INI, then
 // the compiled default (127.0.0.1:5080).  The env override lets the test
 // harness run several stmakd instances on distinct ports in parallel
 // without editing per-config REST_ADDR.
 func (l *Launcher) resolveRESTAddr() string {
-	if v := os.Getenv("GMC_REST_ADDR"); v != "" {
+	if v := os.Getenv("STMAK_REST_ADDR"); v != "" {
 		return v
 	}
 	if l.ini != nil {
-		if v := l.ini.Get("GMC", "REST_ADDR"); v != "" {
+		if v := l.ini.Get("SERVER", "REST_ADDR"); v != "" {
 			return v
 		}
 	}
 	return defaultRESTAddr
 }
 
-// resolveConnLimit reads a connection cap from the GMC_<key> environment
-// variable, else [GMC]<key> in the INI, else def. Zero means "unlimited" and is
+// resolveConnLimit reads a connection cap from the STMAK_<key> environment
+// variable, else [SERVER]<key> in the INI, else def. Zero means "unlimited" and is
 // an explicit opt-out; an unparsable or negative value is a configuration
 // mistake, so it is logged and the default is used rather than silently
 // disabling the cap.
 func (l *Launcher) resolveConnLimit(key string, def int) int {
-	raw := os.Getenv("GMC_" + key)
+	raw := os.Getenv("STMAK_" + key)
 	if raw == "" && l.ini != nil {
-		raw = l.ini.Get("GMC", key)
+		raw = l.ini.Get("SERVER", key)
 	}
 	if raw = strings.TrimSpace(raw); raw == "" {
 		return def
@@ -150,14 +150,14 @@ func (l *Launcher) apiServerRef() *apiserver.Server {
 }
 
 // resolveWSOriginPatterns returns the WebSocket Origin allow-list, from the
-// GMC_REST_ORIGINS environment variable, else [GMC]REST_ORIGINS in the INI
+// STMAK_REST_ORIGINS environment variable, else [SERVER]REST_ORIGINS in the INI
 // (both comma-separated). Empty means same-origin only — the secure default
 // that blocks cross-site WebSocket hijacking. Set it to the HMI host(s), or to
 // "*" to allow any origin (opt-in, insecure).
 func (l *Launcher) resolveWSOriginPatterns() []string {
-	raw := os.Getenv("GMC_REST_ORIGINS")
+	raw := os.Getenv("STMAK_REST_ORIGINS")
 	if raw == "" && l.ini != nil {
-		raw = l.ini.Get("GMC", "REST_ORIGINS")
+		raw = l.ini.Get("SERVER", "REST_ORIGINS")
 	}
 	if raw == "" {
 		return nil
@@ -172,7 +172,7 @@ func (l *Launcher) resolveWSOriginPatterns() []string {
 }
 
 // startAPIServer starts the REST API server in the background.
-// The listen address is read from [GMC]REST_ADDR in the INI file,
+// The listen address is read from [SERVER]REST_ADDR in the INI file,
 // defaulting to "127.0.0.1:5080".
 func (l *Launcher) startAPIServer() {
 	if l.apiServerRef() == nil {

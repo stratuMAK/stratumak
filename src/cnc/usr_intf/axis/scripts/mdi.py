@@ -28,8 +28,8 @@ current position instead of sending anything.
 Exit status is 1 if the line could not be issued or the machine reported an
 error executing it.
 
-The machine is addressed over the stratuMAK REST API: GMC_REST_URL selects the
-server, GMC_INSTANCE the task instance.
+The machine is addressed over the stratuMAK REST API: STMAK_REST_URL selects the
+server, STMAK_TASK_INSTANCE the task instance.
 '''
 import sys
 import threading

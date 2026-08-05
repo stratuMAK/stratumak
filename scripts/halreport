@@ -24,7 +24,7 @@ Usage:
     --no-program      do not attach the loaded part program (OPEN_FILE)
     --journal-lines N journal lines to capture (default 2000)
 
-Environment: GMC_REST_URL (default http://127.0.0.1:5080), GMC_INSTANCE.
+Environment: STMAK_REST_URL (default http://127.0.0.1:5080), STMAK_TASK_INSTANCE.
 """
 
 import argparse
@@ -78,7 +78,7 @@ def run(cmd, timeout=15):
 
 
 def rest_url():
-    return os.environ.get("GMC_REST_URL", "http://127.0.0.1:5080").rstrip("/")
+    return os.environ.get("STMAK_REST_URL", "http://127.0.0.1:5080").rstrip("/")
 
 
 def display_url():
@@ -92,7 +92,7 @@ def display_url():
 
 
 def instance():
-    return os.environ.get("GMC_INSTANCE", "milltask")
+    return os.environ.get("STMAK_TASK_INSTANCE", "milltask")
 
 
 def get_json(path):

@@ -1653,7 +1653,7 @@ install with "sudo apt-get install npm"])
 fi
 AC_SUBST([HAVE_NODEJS])
 
-# WebKit2GTK for gmcui (native web UI container)
+# WebKit2GTK for stmakui (native web UI container)
 HAVE_WEBKIT2GTK=no
 PKG_CHECK_MODULES([WEBKIT2GTK], [webkit2gtk-4.1], [HAVE_WEBKIT2GTK=yes], [
     AC_MSG_ERROR([webkit2gtk-4.1 not found!
@@ -1750,7 +1750,7 @@ echo "    Task test module:           $HAVE_TASKTEST"
 echo "    SQLite persistence module:  $HAVE_PERSIST_SQLITE"
 echo "    Tool table module:          $HAVE_TOOLTABLE"
 echo "    Node.js (webapp build):     $HAVE_NODEJS"
-echo "    WebKit2GTK (gmcui):         $HAVE_WEBKIT2GTK"
+echo "    WebKit2GTK (stmakui):         $HAVE_WEBKIT2GTK"
 fi
 echo ""
 echo "######################################################################"

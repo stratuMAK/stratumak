@@ -87,15 +87,15 @@ proc hal {args} {
 # ---------------------------------------------------------------------------
 
 proc linuxcnc::rest_url {} {
-    if {[info exists ::env(GMC_REST_URL)] && $::env(GMC_REST_URL) ne ""} {
-        return [string trimright $::env(GMC_REST_URL) /]
+    if {[info exists ::env(STMAK_REST_URL)] && $::env(STMAK_REST_URL) ne ""} {
+        return [string trimright $::env(STMAK_REST_URL) /]
     }
     return "http://127.0.0.1:5080"
 }
 
 proc linuxcnc::instance {} {
-    if {[info exists ::env(GMC_INSTANCE)] && $::env(GMC_INSTANCE) ne ""} {
-        return $::env(GMC_INSTANCE)
+    if {[info exists ::env(STMAK_TASK_INSTANCE)] && $::env(STMAK_TASK_INSTANCE) ne ""} {
+        return $::env(STMAK_TASK_INSTANCE)
     }
     return "milltask"
 }

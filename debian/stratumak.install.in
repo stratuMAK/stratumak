@@ -9,7 +9,7 @@ usr/bin/emccalib
 usr/bin/ethercat
 usr/bin/gladevcp
 usr/bin/gladevcp_demo
-usr/bin/gmcui
+usr/bin/stmakui
 usr/bin/gmoccapy
 usr/bin/stmakd
 usr/bin/gremlin_view

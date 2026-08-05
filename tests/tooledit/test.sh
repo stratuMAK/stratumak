@@ -15,7 +15,7 @@ trap cleanup EXIT
 stmakd -r "$here/tooledit.ini" >/dev/null 2>&1 &
 SRV=$!
 
-url="${GMC_REST_URL:-http://127.0.0.1:5080}/api/v1/tooltable/"
+url="${STMAK_REST_URL:-http://127.0.0.1:5080}/api/v1/tooltable/"
 for i in $(seq 100); do
     curl -sf "$url" >/dev/null 2>&1 && break
     sleep 0.1

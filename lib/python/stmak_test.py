@@ -183,7 +183,7 @@ class Command(_GmiCommand):
     """
 
     # No __init__: the base gmi.Command resolves instance=None to the session
-    # default (GMC_INSTANCE) itself now.
+    # default (STMAK_TASK_INSTANCE) itself now.
 
     def wait_complete(self, timeout=None):
         secs = _deadline_secs(timeout)

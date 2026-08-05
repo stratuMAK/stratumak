@@ -31,7 +31,7 @@ def fail(name, detail):
 
 def use(instance):
     """Point the client at one of the two tasks."""
-    os.environ["GMC_INSTANCE"] = instance
+    os.environ["STMAK_TASK_INSTANCE"] = instance
     # The description is cached per instance; drop it so each side is fetched
     # fresh rather than inheriting the previous side's answer.
     gmi.reset_info()
@@ -123,7 +123,7 @@ def check_command_reaches_instance(side):
     use(side)
     from gmi.command import Command
     # A BARE construction, deliberately: this is exactly what AXIS's subclass
-    # did when it 404'd. Command's own default must resolve GMC_INSTANCE (set
+    # did when it 404'd. Command's own default must resolve STMAK_TASK_INSTANCE (set
     # by use()); passing instance= here would let a re-hardcoded "milltask"
     # default pass this test.
     c = Command()

@@ -12,8 +12,8 @@ from gmi.constants import *  # noqa: F401,F403
 from gmi.taskinfo import InfoUnavailable  # noqa: F401
 
 _DEFAULT_REST_URL = "http://127.0.0.1:5080"
-_ENV_VAR = "GMC_REST_URL"
-_INSTANCE_ENV_VAR = "GMC_INSTANCE"
+_ENV_VAR = "STMAK_REST_URL"
+_INSTANCE_ENV_VAR = "STMAK_TASK_INSTANCE"
 _DEFAULT_INSTANCE = "milltask"
 
 # Version string (matches linuxcnc.version).
@@ -21,13 +21,13 @@ version = os.environ.get("LINUXCNCVERSION", "unknown")
 
 
 def instance() -> str:
-    """Return the target instance name (from GMC_INSTANCE or default 'milltask')."""
+    """Return the target instance name (from STMAK_TASK_INSTANCE or default 'milltask')."""
     return os.environ.get(_INSTANCE_ENV_VAR, _DEFAULT_INSTANCE)
 
 
 def resolve_instance(name=None) -> str:
     """The instance a client should address: the explicit name if one is given,
-    otherwise the session default from GMC_INSTANCE (instance()).
+    otherwise the session default from STMAK_TASK_INSTANCE (instance()).
 
     Every gmi client class takes ``instance=None`` and passes it through here, so
     the ONE rule — explicit wins, unset follows the environment — holds whether a
@@ -76,12 +76,12 @@ def _peer(env_var: str, peer_attr: str, legacy_default: str) -> str:
 
 def preview_instance() -> str:
     """Return the ngcpreview instance name serving this task."""
-    return _peer("GMC_PREVIEW_INSTANCE", "preview", "ngcpreview")
+    return _peer("STMAK_PREVIEW_INSTANCE", "preview", "ngcpreview")
 
 
 def mtc_instance() -> str:
     """Return the manual-tool-change instance name for this task."""
-    return _peer("GMC_MTC_INSTANCE", "manualtoolchange", "manualtoolchange")
+    return _peer("STMAK_MTC_INSTANCE", "manualtoolchange", "manualtoolchange")
 
 
 def pyvcp_instance() -> str:
@@ -95,7 +95,7 @@ def pyvcp_instance() -> str:
     loaded 404'd. An empty answer here means "no panel", and the caller must
     treat it as the gate.
     """
-    return _peer("GMC_PYVCP_INSTANCE", "pyvcp", "")
+    return _peer("STMAK_PYVCP_INSTANCE", "pyvcp", "")
 
 
 def tooltable_instance() -> str:
@@ -106,8 +106,8 @@ def tooltable_instance() -> str:
     server did not answer at all, and guessing "tooltable" is what produced the
     404 storm in the first place.
     """
-    if "GMC_TOOLTABLE_INSTANCE" in os.environ:
-        return os.environ["GMC_TOOLTABLE_INSTANCE"]
+    if "STMAK_TOOLTABLE_INSTANCE" in os.environ:
+        return os.environ["STMAK_TOOLTABLE_INSTANCE"]
     return info().peers.tooltable
 
 
@@ -141,7 +141,7 @@ def reset_registry() -> None:
 
 
 def rest_url() -> str:
-    """Return the REST base URL (from GMC_REST_URL or default)."""
+    """Return the REST base URL (from STMAK_REST_URL or default)."""
     return os.environ.get(_ENV_VAR, _DEFAULT_REST_URL).rstrip("/")
 
 
@@ -248,7 +248,7 @@ class IniFile:
       - find(section, key) -> str | None
       - findall(section, key) -> list[str]
 
-    When GMC_INSTANCE is set (multi-instance), namespace-prefixed sections
+    When STMAK_TASK_INSTANCE is set (multi-instance), namespace-prefixed sections
     (e.g. [mill2:KINS]) are resolved automatically via the server.
     """
 
@@ -257,7 +257,7 @@ class IniFile:
         self._client = IniClient(rest_url())
         self._cache = {}  # (section, key) -> str or None (find)
         self._cache_all = {}  # (section, key) -> list[str] (findall)
-        # Use namespace only when GMC_INSTANCE is explicitly set.
+        # Use namespace only when STMAK_TASK_INSTANCE is explicitly set.
         ns = os.environ.get(_INSTANCE_ENV_VAR)
         self._namespace = ns if ns else None
 

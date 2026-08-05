@@ -1,0 +1,64 @@
+# stmakui — Generic WebKit container for LinuxCNC web UIs.
+# Build only if webkit2gtk-4.1 was detected by configure.
+
+ifeq ($(BUILD_WEBKIT2GTK),yes)
+
+WEBKIT_CFLAGS := $(shell pkg-config --cflags webkit2gtk-4.1 2>/dev/null)
+WEBKIT_LIBS := $(shell pkg-config --libs webkit2gtk-4.1 2>/dev/null)
+
+STMAKUI_SRCS := cnc/usr_intf/stmakui/stmakui.c
+USERSRCS += $(STMAKUI_SRCS)
+
+$(call TOOBJSDEPS, $(STMAKUI_SRCS)): EXTRAFLAGS = $(GTK_CFLAGS) $(WEBKIT_CFLAGS)
+
+../bin/stmakui: $(call TOOBJS, $(STMAKUI_SRCS))
+	$(ECHO) Linking $(notdir $@)
+	$(Q)$(CC) -o $@ $^ $(GTK_LIBS) $(WEBKIT_LIBS) $(LDFLAGS)
+TARGETS += ../bin/stmakui
+
+# Symlink: halscope -> stmakui
+../bin/halscope: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/halscope
+
+# Symlink: halshow -> stmakui
+../bin/halshow: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/halshow
+
+# Symlink: tooledit -> stmakui
+../bin/tooledit: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/tooledit
+
+# Symlink: emccalib -> stmakui
+../bin/emccalib: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/emccalib
+
+# Symlink: classicladder -> stmakui
+../bin/classicladder: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/classicladder
+
+# Symlink: latency -> stmakui  (the viewer; scripts/latency-test starts the
+# server and then opens this)
+../bin/latency: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/latency
+
+# Symlink: linuxcnctop-ui -> stmakui  (AXIS "Show LinuxCNC Status"). Bare
+# linuxcnctop is the python launcher that execs into this one; it is what
+# provides the text mode.
+../bin/linuxcnctop-ui: ../bin/stmakui
+	$(ECHO) Creating symlink $(notdir $@)
+	$(Q)ln -sf stmakui $@
+TARGETS += ../bin/linuxcnctop-ui
+
+endif

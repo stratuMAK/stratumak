@@ -259,7 +259,7 @@ cd stratumak
 ```bash
 cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill1 axis
+STMAK_TASK_INSTANCE=mill1 axis
 ```
 
 **Terminal 3 — second Axis client, also connected to mill1:**
@@ -267,7 +267,7 @@ GMC_INSTANCE=mill1 axis
 ```bash
 cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill1 axis
+STMAK_TASK_INSTANCE=mill1 axis
 ```
 
 **Terminal 4 — Axis client connected to mill2 (independent instance):**
@@ -275,7 +275,7 @@ GMC_INSTANCE=mill1 axis
 ```bash
 cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill2 axis
+STMAK_TASK_INSTANCE=mill2 axis
 ```
 
 **Things to try:**
