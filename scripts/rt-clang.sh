@@ -46,7 +46,7 @@ LLVM_DIR="LLVM-${LLVM_VERSION}-Linux-${LLVM_ARCH}"
 LLVM_TAR="${LLVM_DIR}.tar.xz"
 LLVM_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${LLVM_TAR}"
 
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/linuxcnc-rt-clang"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/stratumak-rt-clang"
 CLANG="${CACHE_DIR}/${LLVM_DIR}/bin/clang"
 
 if [ -x "$CLANG" ]; then

@@ -49,7 +49,7 @@ extern "C" {
 // old modules never read are the one thing that does not need a bump.
 //
 // Why it exists: a locally rebuilt stmakd can be older than the cmods
-// installed beside it (see EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.4).
+// installed beside it (see docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.4).
 // Without a stamp, dlopening a cmod built for a different cmod_env_t is
 // undefined behaviour with nothing to detect it at load time -- the symbols
 // all resolve, and the module reads the wrong offsets.  The launcher reads

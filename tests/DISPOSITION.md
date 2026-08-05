@@ -5,7 +5,7 @@ green against stratuMAK, and every `expected` oracle re-baselined from classic-C
 Purpose: a parity reviewer can see *what* diverged from LinuxCNC 2.9 and *why* without git
 archaeology.
 
-**Governing rule (user, 2026-07-12):** everything that exists must be tested. A test may be
+**Governing rule (maintainer, 2026-07-12):** everything that exists must be tested. A test may be
 **deleted** only when the capability it exercises is genuinely gone from the stratuMAK architecture —
 three such classes: (1) **TCL support for HAL**, (2) **Python support in the interpreter**, and
 (3) **a mechanism the stratuMAK model no longer has** (the rt/userspace split, NML transports,
@@ -14,7 +14,8 @@ narrow: it covers a removed *mechanism*, not a feature that still exists by anot
 class-(3) deletion is enumerated with its exact removed mechanism in §2c/§2d/§4a. Everything else
 exists (the mechanism may have changed) → default **port** (adjust method) or **xfail** (adjusted
 method hits a real stratuMAK gap). Verify a replacement is truly absent before calling anything removed.
-See `memory/runtests-only-two-removals`.
+Only two capability classes have actually cleared that bar so far — the embedded
+Python interpreter (§2a) and TCL-for-HAL (§2b).
 
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
@@ -38,7 +39,7 @@ xfail and zero skip — the governing rule holds.
 **CI is the authority for this count.** A `runtests.log` in the tree is an untracked local
 scratch artifact and goes stale the moment a test is added; do not cite it as the number.
 Milestones on the way there: the 07-15 tool-change/lifecycle sweep
-(`../MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
+(`../docs/dev/MILLTASK_LIFECYCLE_SWEEP.md`) un-xfailed 17 tests (G43 Hn, the whole tool-tracking and
 RANDOM_TOOLCHANGER clusters, abort modal-state restore, statbuffer-g5x-abort; earlier passes
 had flipped startup-gcode-abort and the on_abort/stop-button crazy-move pair); the
 stale-status / sync-I/O cluster (`single-step`, `remap/remap-io`, `lathe`) and `abort/g64`
@@ -63,7 +64,7 @@ running (interp params / tool table state leaked between runs).
 | twopass · twopass-personality | drop 3 `twopass:invoked/found` announce lines + blanks; line-split (no TWOPASS in stratuMAK) |
 | save.0 | `halcmd save` re-baseline: `# component X (loaded by cmod)` headers; stratuMAK naming; hex→decimal (round-trip verified, e252c17ed5) |
 
-### 1b. Semantic — canon-call / motion-stream divergence (parity note in `../PRODUCTION_READINESS.md`)
+### 1b. Semantic — canon-call / motion-stream divergence (parity note in `../docs/dev/PRODUCTION_READINESS.md`)
 
 | test | delta | parity flag |
 |---|---|---|
@@ -138,7 +139,7 @@ Tcl GUI stack is not ported. Deleted.
 
 **Item 7 (HAL streaming) — DONE.** The WS sampler/streamer decision was kept for live/GUI use (panelui/qtvcp/gladevcp later) but a new **`filestream`** cmod (`src/hal/components/filestream.c`, file-backed replay+capture, deterministic one-line-per-thread-cycle, byte-identical to halsampler) now backs the tests. The 26 streaming tests migrated off the WS driver to `filestream` + `tests/filestream-driver.sh` (`fs_run`), expected files unchanged; `tests/ws-stream` is the new dedicated WS-path coverage; `hal-stream`/`halmodule.1` re-enabled (above); `multiclick` and `mux` both **xfail→pass** (filestream's one-per-cycle pacing fixed the timing multiplicity that the classic streamer-FIFO-overflow golden encoded — both `xfail` files deleted). The 16 resident-server-only tests still use `hal-stream-driver.sh`'s `hal_start_server`.
 
-### 2d. Ruled (user, 2026-07-12)
+### 2d. Ruled (maintainer, 2026-07-12)
 
 | test | mechanism | disposition |
 |---|---|---|
@@ -225,11 +226,11 @@ the tests were repaired, not the code.
 | rtapi_shmem_delete not exported to cmods | rtapi-shmem | 🗑 **deleted, obsolete-by-design** (c383769f80) — the symbol must **not** be exported; see §2f. Real contract now a Go unit test in `internal/hallib/rtapialloc`. |
 | stepgen array module-param instance count | modparam.0 | ✅ **not a bug — test rewritten** (51abb8369b). stratuMAK has no array module params and derives instance count solely from the explicit name list, by design (the test never existed on 2.9). Rewritten to assert scalar module-param *application*: three named `step_type=2` instances each export the `.phase-A` pin. |
 | mb2hal debug output routing | mb2hal/mb2hal.{1a,2a} | ✅ **not a gap — test repaired** (c0b7fc6853). The INI-DEBUG DBG calls DO fire; they route through `stmak_log_debugf` at slog *debug* level, filtered out at the default INFO level. Running the server at `-d 0` surfaces the full dump; the test normalizes the slog wrapper back to the classic form. |
-| operator-message loss (emcerror watch), *probable* | interp/oword-mdi-sub-update | ✅ **misattributed — test repaired** (cc06432180). The sub uses `(print, …)`, which the interp emits via `fprintf(stdout)` — it never touches the operator-message/error channel, even in classic. Under stratuMAK that output lands in the server log; the test now cats server.log into stdout and greps `result`. **The operator-message-loss bug is real and still open** (`../PRODUCTION_READINESS.md`) — it just was not the cause of this xfail. |
+| operator-message loss (emcerror watch), *probable* | interp/oword-mdi-sub-update | ✅ **misattributed — test repaired** (cc06432180). The sub uses `(print, …)`, which the interp emits via `fprintf(stdout)` — it never touches the operator-message/error channel, even in classic. Under stratuMAK that output lands in the server log; the test now cats server.log into stdout and greps `result`. **The operator-message-loss bug is real and still open** (`../docs/dev/PRODUCTION_READINESS.md`) — it just was not the cause of this xfail. |
 
 ### 3a-history-2 (2026-07-16). jog/teleop + joint-mode + limit status (hard-limits, halui/jogging — xfail files removed, tests green)
 
-Three stacked bugs (see `../PRODUCTION_READINESS.md`): (1) a homed machine was
+Three stacked bugs (see `../docs/dev/PRODUCTION_READINESS.md`): (1) a homed machine was
 trapped in TELEOP — the homing-FSM refactor made `do_homing_sequence` (motmod
 control.c) return the teleop-auto-switch signal level-triggered instead of on the
 all-homed rising edge, re-overriding every operator `teleop_enable(0)`; restored the
@@ -248,14 +249,14 @@ t0/random-*, tool-info/random-*) · tool tracking M6 #5400 / M61 Q (t0/nonrandom
 tool-info/non-random, toolchanger/m61, toolchanger/reload-tool/*,
 toolchanger/toolno-pocket-differ/*, mdi-queue/oword-queue-buster) · abort modal-state
 restore + g5x desync (statbuffer-g5x-abort; abort/g64's modal checks) — see
-`../MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
+`../docs/dev/MILLTASK_LIFECYCLE_SWEEP.md`. Earlier fixes: RS274NGC_STARTUP_CODE
 (motion-logger/startup-gcode-abort), ON_ABORT_COMMAND + queue depth
 (abort/{on_abort_command,stop-button}-crazy-move), streaming multiplicity
 (mux, multiclick via filestream, §2c).
 
 **2026-07-15, G64 blending parity (abort/g64):** all extent checks now match 2.9
 exactly (G61 5.000 / G64P0.5 4.500 / G64 3.725 / G64Q6 0.000). Three stacked fixes
-(see `../PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
+(see `../docs/dev/PRODUCTION_READINESS.md`): the 2.9 naive-CAM detector ported to the canon
 (`canon_naivecam.go`, merged segments pin their own line/tag/status codes via
 `Interp::active_modes`); arc blending had been silently OFF machine-wide (no
 `EMCMOT_SETUP_ARC_BLENDS` sender existed — new IDL `setup_arc_blends`, pushed from
@@ -289,14 +290,14 @@ recurs in CI), single-step 4/4, full suite green.
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 
 module-loading/*/num_chan=0 → **removed** (default-channel-count concept gone, covered by `count=1`);
-module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (user ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the stratuMAK ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
+module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (maintainer ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the stratuMAK ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
 mdi-while-queuebuster-waitflag → **re-expressed non-Python, now PASS** (§2d).
 
 ---
 
 ## 4. Vanished dirs (12) — deleted on stratuMAK
 
-### 4a. Deleted — INTENTIONALLY removed (user ruling): rt/userspace-split model is gone
+### 4a. Deleted — INTENTIONALLY removed (maintainer ruling): rt/userspace-split model is gone
 
 Deleted (f3cd5a61c8 / 6bc8f606ff). These test the classic `halcompile` **rt/userspace split** —
 compiling a component as a separate userspace program, `rtapi_app` main, `RTAPI_MP_ARRAY_INT`

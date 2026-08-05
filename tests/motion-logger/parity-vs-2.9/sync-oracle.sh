@@ -30,6 +30,14 @@ for row in "${PARITY_TARGETS[@]}"; do
   printf '  vendored %-12s <- tests/%s\n' "$label" "$src_rel"
 done
 
+# The MANIFEST is committed, so the source tree is recorded ~-relative when it
+# sits under $HOME — a developer's home directory does not belong in a tracked
+# file. The commit hash below is the real provenance; this line is orientation.
+src_tree="$LCNC29"
+case "$src_tree" in
+  "$HOME"/*) src_tree="~${src_tree#"$HOME"}" ;;
+esac
+
 commit="$(git -C "$LCNC29" rev-parse HEAD 2>/dev/null || echo unknown)"
 short="$( git -C "$LCNC29" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 branch="$(git -C "$LCNC29" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
@@ -37,7 +45,7 @@ cdate="$( git -C "$LCNC29" log -1 --format=%ci 2>/dev/null || echo unknown)"
 {
   echo "# Vendored LinuxCNC 2.9 motion-logger oracle — provenance."
   echo "# Regenerate with ./sync-oracle.sh (reads \$LCNC29). Do not hand-edit the golds."
-  echo "source_tree:   $LCNC29"
+  echo "source_tree:   $src_tree"
   echo "source_commit: $commit"
   echo "source_short:  $short"
   echo "source_branch: $branch"

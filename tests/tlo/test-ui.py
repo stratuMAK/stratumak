@@ -122,7 +122,7 @@ def get_interp_param(param_number):
     # stratuMAK: the emcerror WS watch destructively flushes queued messages and the
     # push loop suppresses byte-identical consecutive payloads, so a DEBUG
     # display that repeats the previous one within a watch tick is LOST (see
-    # PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
+    # docs/dev/PRODUCTION_READINESS.md "operator messages lost").  Pace the MDIs past
     # the 200 ms watch tick and retry on a lost reply.
     for attempt in range(3):
         time.sleep(0.3)

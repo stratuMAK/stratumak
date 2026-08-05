@@ -152,7 +152,7 @@ const (
 	ErrAccessDenied      uint32 = 0x0712
 	// ErrDeviceNoMemory (ADSERR_DEVICE_NOMEMORY) is returned when a
 	// client-controlled resource (subscriptions, handles) hits its configured
-	// cap. See ADS_REVIEW_FINDINGS.md A7/A14.
+	// cap. See docs/dev/ADS_REVIEW_FINDINGS.md A7/A14.
 	ErrDeviceNoMemory uint32 = 0x070A
 )
 
@@ -236,7 +236,7 @@ func (s *Server) sendAMSResponse(conn net.Conn, req *AMSHeader, cmdID uint16, er
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], data)
 
 	// Bound the write so a client that stops reading cannot block this goroutine
-	// indefinitely (TCP backpressure). See ADS_REVIEW_FINDINGS.md A6.
+	// indefinitely (TCP backpressure). See docs/dev/ADS_REVIEW_FINDINGS.md A6.
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := conn.Write(pkt)
 	return err

@@ -164,7 +164,7 @@ ECMASTER_PREFIX := $(dir $(BASEPWD))
 
 # Submakefiles from each of these directories will be included if they exist
 SUBDIRS := \
-    libnml/inifile libnml/posemath libnml \
+    inifile posemath \
     \
     gmi/lib \
     \
@@ -410,13 +410,13 @@ SRCHEADERS := \
     hal/hal.h \
     hal/hal_priv.h \
     hal/drivers/mesa-hostmot2/hostmot2-serial.h \
-    libnml/inifile/inifile.h \
-    libnml/inifile/inifile.hh \
-    libnml/inifile/iniparse.h \
-    libnml/posemath/posemath.h \
-    libnml/posemath/gotypes.h \
-    libnml/posemath/gomath.h \
-    libnml/posemath/sincos.h \
+    inifile/inifile.h \
+    inifile/inifile.hh \
+    inifile/iniparse.h \
+    posemath/posemath.h \
+    posemath/gotypes.h \
+    posemath/gomath.h \
+    posemath/sincos.h \
     rtapi/rtapi.h \
     rtapi/rtapi_app.h \
     rtapi/rtapi_atomic.h \
@@ -711,7 +711,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # call this tree makes, so reading the source is not enough to re-derive this --
 # removing cap_perfmon or cap_sys_admin fails EtherCAT startup on a real machine
 # (6.12 RT, xdp-native), each with its own error. See
-# EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
+# docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
 	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/stmakd
 
@@ -1075,7 +1075,7 @@ TPMOD_CMOD_CFLAGS := \
     -Istmak/generated/gmi/mot \
     -Icnc/motion \
     -Icnc/tp \
-    -Ilibnml/posemath
+    -Iposemath
 
 TPMOD_CMOD_DEPS := \
     stmak/generated/gmi/tp/tp_api.h \

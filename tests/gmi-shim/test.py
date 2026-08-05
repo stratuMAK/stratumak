@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gmi Python shim contract tests against stub servers (no stmakd).
 
-Pins the fixes from GMI_PYTHON_REVIEW_FINDINGS.md:
+Pins the fixes from docs/dev/GMI_PYTHON_REVIEW_FINDINGS.md:
   GP-1  tools.put sends the {"entry": {...}} envelope (flat body zeroed the tool)
   GP-6  tools.get maps the server's zero entry to None
   GP-4  jog and abort arrive at the server in issue order (both synchronous)

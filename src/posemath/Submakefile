@@ -1,5 +1,5 @@
-INCLUDES += libnml/posemath
-POSEMATHSRCS := $(addprefix libnml/posemath/, _posemath.c posemath.cc gomath.c sincos.c)
+INCLUDES += posemath
+POSEMATHSRCS := $(addprefix posemath/, _posemath.c posemath.cc gomath.c sincos.c)
 $(call TOOBJSDEPS, $(POSEMATHSRCS)) : EXTRAFLAGS=-fPIC
 USERSRCS += $(POSEMATHSRCS) 
 TARGETS += ../lib/libposemath.so ../lib/libposemath.so.0
@@ -10,7 +10,7 @@ TARGETS += ../lib/libposemath.so ../lib/libposemath.so.0
 	@rm -f $@
 	@$(CXX) $(LDFLAGS) -Wl,-soname,$(notdir $@) -shared -o $@ $^
 
-$(patsubst ./libnml/posemath/%,../include/%,$(wildcard ./libnml/posemath/*.h)): ../include/%.h: ./libnml/posemath/%.h
+$(patsubst ./posemath/%,../include/%,$(wildcard ./posemath/*.h)): ../include/%.h: ./posemath/%.h
 	cp $^ $@
-$(patsubst ./libnml/posemath/%,../include/%,$(wildcard ./libnml/posemath/*.hh)): ../include/%.hh: ./libnml/posemath/%.hh
+$(patsubst ./posemath/%,../include/%,$(wildcard ./posemath/*.hh)): ../include/%.hh: ./posemath/%.hh
 	cp $^ $@

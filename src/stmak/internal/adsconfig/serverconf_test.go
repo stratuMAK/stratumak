@@ -20,7 +20,7 @@ func writeConf(t *testing.T, body string) string {
 }
 
 // TestServerConfDefaults pins the security-relevant defaults: the listener binds
-// loopback (ADS_REVIEW_FINDINGS.md A9) and the resource caps default to 8/256
+// loopback (docs/dev/ADS_REVIEW_FINDINGS.md A9) and the resource caps default to 8/256
 // (A7). A minimal config with no $ directives must produce these.
 func TestServerConfDefaults(t *testing.T) {
 	conf, _, _, err := ParseConfFile(writeConf(t, "aVar : BOOL\n"))

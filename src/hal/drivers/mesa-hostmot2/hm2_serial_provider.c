@@ -144,7 +144,7 @@ static int32_t shim_bspi_setup_chan(void *ctx, const char *name,
  * across this seam — the cast below adds the attribute by conversion.
  * Callbacks registered here run in the servo cycle; module authors must
  * keep them nonblocking (typing the callback in the hm2_serial GMI IDL is
- * tracked in RT_HARDENING_CHECKLIST.md). */
+ * tracked in docs/dev/RT_HARDENING_CHECKLIST.md). */
 STMAK_NONBLOCKING_TRUSTED_BEGIN
 static int32_t shim_bspi_set_read_function(void *ctx, const char *name,
     void *func_ptr, void *subdata)

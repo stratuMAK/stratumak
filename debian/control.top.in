@@ -75,7 +75,7 @@ Rules-Requires-Root: binary-targets
 
 Package: @MAIN_PACKAGE_NAME@-dev
 Architecture: any
-Conflicts: linuxcnc-dev, linuxcnc-sim-dev, linuxcnc-uspace-dev, @OTHER_MAIN_PACKAGE_NAME@-dev
+Conflicts: linuxcnc-dev, linuxcnc-sim-dev, linuxcnc-uspace-dev
 Replaces: linuxcnc-dev, linuxcnc-uspace-dev
 Provides: linuxcnc-dev, linuxcnc-uspace-dev
 # No ${python3:Depends}: this package ships no python, so dh_python3 never

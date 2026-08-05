@@ -78,7 +78,7 @@ func (nm *notifyManager) stop() {
 
 // add creates a new subscription and returns its handle and an ADS error code.
 // It returns ErrDeviceNoMemory (without creating a subscription) when the
-// per-connection subscription cap is reached — see ADS_REVIEW_FINDINGS.md A7.
+// per-connection subscription cap is reached — see docs/dev/ADS_REVIEW_FINDINGS.md A7.
 func (nm *notifyManager) add(indexGroup, indexOffset, length, transMode uint32, cycleTime time.Duration) (uint32, uint32) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
@@ -117,7 +117,7 @@ func (nm *notifyManager) sendLoop() {
 	defer nm.wg.Done()
 
 	// Recover from any panic in the notification path so it drops the connection
-	// rather than killing the process. See ADS_REVIEW_FINDINGS.md A4.
+	// rather than killing the process. See docs/dev/ADS_REVIEW_FINDINGS.md A4.
 	defer func() {
 		if r := recover(); r != nil {
 			nm.server.logger.Error("ADS notification sendLoop panic", "panic", r)
@@ -255,7 +255,7 @@ func (nm *notifyManager) sendNotifications(now time.Time, items []notifySample) 
 	encodeAMSHeader(pkt[AMSTCPHeaderSize:], &hdr)
 	copy(pkt[AMSTCPHeaderSize+AMSHeaderSize:], payload)
 
-	// Bound the write (TCP backpressure) — see ADS_REVIEW_FINDINGS.md A6.
+	// Bound the write (TCP backpressure) — see docs/dev/ADS_REVIEW_FINDINGS.md A6.
 	_ = nm.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if _, err := nm.conn.Write(pkt); err != nil {
 		if nm.server.verbose {

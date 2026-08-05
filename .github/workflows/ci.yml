@@ -90,7 +90,7 @@ jobs:
     - name: Cache pinned RT-check clang
       uses: actions/cache@v4
       with:
-        path: ~/.cache/linuxcnc-rt-clang
+        path: ~/.cache/stratumak-rt-clang
         key: rt-clang-22.1.8-${{ runner.arch }}
     # Pin the Go toolchain: the apt go on the runner is older than go.mod
     # requires, so without this every fresh run downloads a toolchain from
@@ -406,7 +406,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: linuxcnc-${{ steps.meta.outputs.dist }}-${{ steps.meta.outputs.arch }}
+        name: stratumak-${{ steps.meta.outputs.dist }}-${{ steps.meta.outputs.arch }}
         path: artifacts/${{ steps.meta.outputs.dist }}/${{ steps.meta.outputs.arch }}
         if-no-files-found: error
 
@@ -499,7 +499,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: linuxcnc-${{ steps.meta.outputs.dist }}-${{ steps.meta.outputs.arch }}
+        name: stratumak-${{ steps.meta.outputs.dist }}-${{ steps.meta.outputs.arch }}
         path: artifacts/${{ steps.meta.outputs.dist }}/${{ steps.meta.outputs.arch }}
         if-no-files-found: error
 
@@ -526,8 +526,15 @@ jobs:
         for d in release_artifacts/*; do
           [ -d "$d" ] || continue
           name=$(basename "$d")
-          # Expect name like linuxcnc-bookworm-amd64 or linuxcnc-trixie-all
-          dist=${name#linuxcnc-}
+          # Expect name like stratumak-bookworm-amd64 or stratumak-trixie-all.
+          # Fail loudly on anything else: ${name#prefix} leaves the name intact
+          # when the prefix does not match, which would silently publish
+          # "..._stratumak.deb" instead of "..._bookworm.deb".
+          case "$name" in
+            stratumak-*) ;;
+            *) echo "unexpected artifact name: $name (expected stratumak-<dist>-<arch>)" >&2; exit 1 ;;
+          esac
+          dist=${name#stratumak-}
           dist=${dist%-*}
           arch=${name##*-}
           echo "Processing artifact: $name (dist=$dist arch=$arch)"

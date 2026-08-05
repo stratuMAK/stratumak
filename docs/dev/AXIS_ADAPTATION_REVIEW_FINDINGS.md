@@ -176,7 +176,7 @@ out of scope.
   on ANY FocusOut, dialogs included), with the 2 s dead-man as backstop
   for anything this misses. Residual exposure ≈ one display cycle.
 - **A-9 MED duplicate manual-tool-change dialogs — RULED, no code
-  change.** User ruling: `loadusr` is dead; the axis-integrated MTC
+  change.** Maintainer ruling: `loadusr` is dead; the axis-integrated MTC
   poller is the authoritative UI. The `loadusr manualtoolchange_ui`
   lines in shipped configs (rolfmill, 3axis-tutorial,
   ethercat/swm-fm45a, stepconf/pncconf emitters) are not-yet-migrated

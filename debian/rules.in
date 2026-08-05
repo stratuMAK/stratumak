@@ -146,7 +146,7 @@ override_dh_auto_install-arch:
 	# every upgrade would unpack the shipped symlink over a server the
 	# administrator had rebuilt locally, silently unregistering every external
 	# module compiled into it. postinst creates it instead, and only when it
-	# is absent. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
+	# is absent. See docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
 	#
 	# `make install` still creates all of it, for installations that have no
 	# maintainer scripts to do the job; this removes it again from the staging

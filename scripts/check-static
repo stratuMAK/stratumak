@@ -8,7 +8,7 @@
 #   shell: shellcheck over the fork-owned shell scripts (test drivers,
 #          scripts/).  Gate = error severity; warnings are printed as the
 #          burn-down list but do not fail (dominated by unused loop vars in
-#          the wait-loops — see PRODUCTION_READINESS.md).
+#          the wait-loops — see docs/dev/PRODUCTION_READINESS.md).
 #   c:     cppcheck over the stmak-owned C paths (same ownership list as
 #          check-stmak-cwarnings).  Gate = cppcheck errors/warnings; style is
 #          not enabled.  Inherited 2.9 C is deliberately NOT gated.

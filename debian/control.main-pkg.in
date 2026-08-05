@@ -7,8 +7,7 @@ Package: @MAIN_PACKAGE_NAME@
 Conflicts:
     linuxcnc,
     linuxcnc-sim,
-    linuxcnc-uspace,
-    @OTHER_MAIN_PACKAGE_NAME@
+    linuxcnc-uspace
 Replaces:
     linuxcnc,
     linuxcnc-uspace

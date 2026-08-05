@@ -1,6 +1,6 @@
 #!/bin/bash
 # rt-effects-check.sh — verify the RT path with clang's function-effects
-# analysis (see RT_HARDENING_CHECKLIST.md §2.1).
+# analysis (see docs/dev/RT_HARDENING_CHECKLIST.md §2.1).
 #
 # Compiles the RT translation units with -Wfunction-effects (treated as an
 # error) using the pinned clang provided by scripts/rt-clang.sh:
@@ -102,13 +102,13 @@ done
 
 TPMOD_INC="-DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
-    -Isrc -Isrc/libnml/posemath -Isrc/cnc/nml_intf -Iinclude \
+    -Isrc -Isrc/posemath -Isrc/cnc/nml_intf -Iinclude \
     -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/tp \
     -Isrc/stmak/generated/gmi/mot -Isrc/cnc/motion -Isrc/cnc/tp"
 
 for tu in src/cnc/tp/tp.c src/cnc/tp/tc.c src/cnc/tp/tcq.c \
           src/cnc/tp/spherical_arc.c src/cnc/tp/blendmath.c \
-          src/cnc/nml_intf/emcpose.c src/libnml/posemath/_posemath.c; do
+          src/cnc/nml_intf/emcpose.c src/posemath/_posemath.c; do
     check_tu "$tu" $TPMOD_INC
 done
 

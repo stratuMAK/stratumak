@@ -4,7 +4,7 @@ package ngcpreview
 
 // GenPreview contract tests against the real interpreter (librs274 at
 // runtime, like internal/task). Pins the fixes from
-// NGCPREVIEW_REVIEW_FINDINGS.md: N-1 (containment), N-2 (EXECUTE_FINISH is
+// docs/dev/NGCPREVIEW_REVIEW_FINDINGS.md: N-1 (containment), N-2 (EXECUTE_FINISH is
 // success), N-3 (INI accessor), N-4 (bounds), N-6/N-9 (partial segments +
 // error line), N-11 (eval injection), plus the wire unit contract.
 

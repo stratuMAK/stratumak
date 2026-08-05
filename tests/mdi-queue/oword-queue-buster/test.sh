@@ -7,7 +7,7 @@
 # change.  The M100 stream is captured by mcode_coord_log (format=p).
 #
 # XFAIL on stratuMAK: this depends on M6 updating the interp #<_current_tool>/#5400,
-# which stratuMAK does not do (tool-tracking cluster, see ../../../PRODUCTION_READINESS.md).
+# which stratuMAK does not do (tool-tracking cluster, see ../../../docs/dev/PRODUCTION_READINESS.md).
 # So "m100 p-#5400" logs "P is 0" instead of the tool number, and the run
 # diverges from expected.  Remove xfail once M6/#5400 tool-tracking is fixed.
 set -x

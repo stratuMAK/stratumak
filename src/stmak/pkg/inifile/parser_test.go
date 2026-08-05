@@ -81,7 +81,7 @@ KEY3 = #notacomment
 }
 
 // A ';' is data, never an inline comment — matching the LinuxCNC C parser
-// (libnml/inifile), which only treats '#'/';' as a comment when it is the first
+// (src/inifile), which only treats '#'/';' as a comment when it is the first
 // non-whitespace character of a line. Regression: an earlier version stripped
 // at the first ';', silently truncating every ';'-chained MDI_COMMAND.
 func TestSemicolonIsDataNotComment(t *testing.T) {

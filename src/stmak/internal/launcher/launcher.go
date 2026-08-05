@@ -61,7 +61,7 @@ type Launcher struct {
 	cleanupOnce sync.Once         // ensures cleanup runs exactly once
 	halComp     *hal.Component    // launcher's HAL component (like halcmd's hal_init)
 	// modMu serializes runtime load/unload operations (a supported production
-	// path via the halcmd REST surface — see NETWORK_MODULES_REVIEW_FINDINGS.md
+	// path via the halcmd REST surface — see docs/dev/NETWORK_MODULES_REVIEW_FINDINGS.md
 	// N6 / launcher L-3) and guards the goModules/cModules slices and the
 	// shuttingDown flag. It may be held across the cgo cmod_call_* load calls:
 	// no //export callback ever acquires it (they touch only cModArena/ini/the

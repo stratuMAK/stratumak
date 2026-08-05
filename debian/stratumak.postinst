@@ -22,7 +22,7 @@ fi
 # Everything an administrator can change after installation lives under
 # /var/lib/stratumak, on a filesystem dpkg does not own, so that an upgrade
 # cannot silently discard it. None of it is shipped in the package: see
-# EXTERNAL_MODULE_INSTALL_DESIGN.md sections 4.1 and 4.2 for why the symlink
+# docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md sections 4.1 and 4.2 for why the symlink
 # in particular must not be.
 #
 # root:root 0755 throughout, and that is the point rather than an oversight.

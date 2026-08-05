@@ -10,7 +10,7 @@
 #   2. saicanon (SAI)  — standalone interpreter dummy/simulator
 #   3. gcodemodule     — Python backplot/preview forwarding
 #
-# Design: MILLTASK_CLEANUP.md Phase 1
+# Design: docs/dev/MILLTASK_CLEANUP.md Phase 1
 
 @api canon
 @author "Thomas Kramer (canon.hh)"

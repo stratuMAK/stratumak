@@ -10,11 +10,12 @@ review is correctness / concurrency / robustness / protocol-safety, not parity. 
 end-to-end runtests case** — coverage is unit-test-only (symbols 46, config 43, layout 14,
 xmlgen 17), and none of the existing tests exercise malformed / adversarial packets.
 
-**Threat model (the reason severities are high):** the listener binds **`0.0.0.0:48898` by
-default** (`serverconf.go:52`) and the ADS protocol carries **no authentication**. Every
-command handler is therefore reachable by any host that can route to the controller, with no
-credential. A crash of `stmakd` is a crash of the **motion controller** (uncontrolled
-machine stop). See A9.
+**Threat model (the reason severities are high):** as reviewed, the listener bound
+**`0.0.0.0:48898` by default** (`serverconf.go:52`) and the ADS protocol carries **no
+authentication**. Every command handler was therefore reachable by any host that could route to
+the controller, with no credential. A crash of `stmakd` is a crash of the **motion controller**
+(uncontrolled machine stop). See A9 — the default bind is now `127.0.0.1`, so this exposure is
+opt-in; the absence of protocol authentication stands.
 
 **Method (Tier-2 adversarial):** one primary read-through plus two *independent* AI passes
 with distinct lenses — (D) remote DoS / crash / OOM, (C) concurrency / lifecycle / UAF — each
@@ -145,7 +146,7 @@ unlimited subscriptions (map growth + per-sub 10 ms HAL polling). Grep-confirmed
 semaphore/limit anywhere. The natural fix is a small connection cap and a per-connection
 subscription cap — but the right numbers depend on how many HMIs a deployment expects.
 
-**RESOLVED (2026-07-22, user ruling):** default **8** concurrent connections / **256**
+**RESOLVED (2026-07-22, maintainer ruling):** default **8** concurrent connections / **256**
 subscriptions per connection, overridable per instance via `$max-connections` /
 `$max-subscriptions` in the `.conf` (siblings of `$bind`/`$port`). `acceptLoop` refuses (closes)
 a connection over the cap; `notifyManager.add` returns `ErrDeviceNoMemory` (ADSERR_DEVICE_NOMEMORY,
@@ -171,7 +172,7 @@ ADS has no auth by design, and the default binds all interfaces. Any host that r
 :48898 can write `out`/`inout` pins, i.e. command machine outputs, and (with A1–A4) crash the
 controller.
 
-**RESOLVED (2026-07-22, user ruling):** the default `$bind` is now **`127.0.0.1`** (loopback), so
+**RESOLVED (2026-07-22, maintainer ruling):** the default `$bind` is now **`127.0.0.1`** (loopback), so
 network exposure is **opt-in** — a deployment that wants a remote HMI must set `$bind 0.0.0.0` (or a
 specific interface IP) explicitly. The network-trust assumption still belongs in the cross-cutting
 **Safety boundary document** (an exposed ADS port has no authentication), but the *default* is now

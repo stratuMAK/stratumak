@@ -122,7 +122,7 @@ func newADSModule(ini *inifile.IniFile, logger *slog.Logger, name string, args [
 		return nil, fmt.Errorf("ADS %q: creating HAL component: %w", name, err)
 	}
 	// Release the HAL component if construction fails after this point, so a
-	// failed load does not leak a HAL component slot (ADS_REVIEW_FINDINGS.md A12).
+	// failed load does not leak a HAL component slot (docs/dev/ADS_REVIEW_FINDINGS.md A12).
 	ok := false
 	defer func() {
 		if !ok {

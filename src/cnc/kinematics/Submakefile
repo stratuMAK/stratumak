@@ -75,7 +75,7 @@ $(eval $(call GMI_KINS_BUILD,xyzbc-trt-kins,cnc/kinematics))
 $(eval $(call GMI_KINS_BUILD,scarakins,cnc/kinematics))
 
 # --- Group D: with posemath linkage ---
-GMI_POSEMATH_INCDIR := libnml/posemath
+GMI_POSEMATH_INCDIR := posemath
 
 define GMI_KINS_POSEMATH_BUILD
 ../cmod/$(1).so: $(2)/$(1).c ../lib/libposemath.so $$(GMI_KINS_DEPS)

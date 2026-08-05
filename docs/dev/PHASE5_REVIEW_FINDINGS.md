@@ -305,7 +305,7 @@ for the recommended fix below.
 - **Sequencing:** *after* the Phase-5 remainder. The network half's `U`/`FP`
   tail and N7 **closed 2026-07-22** (halrest 0 → 87.1 %, mqttbridge 0 → 86.8 %,
   halscope 4.1 → 91.3 %, apiserver 45.6 → 96.2 %; two new bugs N10/N11 found and
-  fixed). N9 followed the same day with the user ruling: both an overall and a
+  fixed). N9 followed the same day with the maintainer ruling: both an overall and a
   WebSocket connection cap, INI-configurable. See
   `NETWORK_MODULES_REVIEW_FINDINGS.md`. G-1/G-2 then gets its own session.
 - Because the conversion touches `ioControl_v2.c`, which is on the tool-change

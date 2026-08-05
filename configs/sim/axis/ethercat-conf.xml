@@ -1,5 +1,8 @@
+<!-- Example EtherCAT bus configuration.
+     Set interface= to the NIC the bus is attached to on this machine
+     (e.g. eth0, enp2s0, or an enx<mac> name from "ip link"). -->
 <masters>
-  <master idx="0" interface="enx000acd3394b8" transportType="raw" appTimePeriod="1000000" refClockSyncCycles="-1">
+  <master idx="0" interface="eth0" transportType="raw" appTimePeriod="1000000" refClockSyncCycles="-1">
     <slave idx="0" type="EK1100"/>
     <slave idx="1" type="EL1808"/>
     <slave idx="2" type="EL2808"/>

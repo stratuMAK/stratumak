@@ -1,6 +1,15 @@
-# milltask — Feature-Parity Gaps vs C++ 2.9
+# milltask — Command-Parity Audit vs C++ 2.9
 
-**Status:** register (living) · **Date:** 2026-07-09 · **Scope:** `src/stmak` milltask + canon + motctl
+**Status:** CLOSED — no open items · **Date:** 2026-07-09, closed 2026-07-23 ·
+**Scope:** `src/stmak` milltask + canon + motctl
+
+> This is the record of one bounded audit: the 95 `EMC_*` command types, one by
+> one. Every gap it found is fixed. It is kept because the intentional
+> divergences below are still binding rulings, and because the fixes cite it.
+>
+> **For what is missing across the whole system today, see
+> [MISSING_FEATURES.md](MISSING_FEATURES.md)** — this file was renamed out of
+> that name when it closed.
 
 Derived from a parity audit of all **95** `EMC_*` command types dispatched in the
 C++ `emctaskmain.cc`, matched against the stratuMAK surfaces (Task methods, canon

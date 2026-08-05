@@ -28,7 +28,7 @@
 // Not every configuration string that names something is a path.  Device nodes
 // (`spidev_path=/dev/spidev1.0`, `port=/dev/ttyUSB0`), hardware config strings
 // (`hm2_pci config=num_encoders=…`) and EtherCAT FoE filenames must NOT be
-// resolved here — see PATH_RESOLUTION_INVENTORY.md, category D.  Resolution is
+// resolved here — see docs/dev/PATH_RESOLUTION_INVENTORY.md, category D.  Resolution is
 // opt-in per call site for exactly that reason.
 package pathres
 

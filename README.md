@@ -1,23 +1,75 @@
-# stratuMAK — Machine Controller
+# stratuMAK — a toolkit for building machine controls
 
-> stratuMAK is an effort to push the high-value but aged concepts of
-> EMC/LinuxCNC to the forefront of modern industrial automation — without carrying
-> the burden of decades-old compatibility constraints.
+> stratuMAK is the infrastructure a machine control needs — real-time
+> execution, hardware abstraction, typed APIs, configuration, tooling — so that
+> building one means working on the machine instead of on the plumbing.
 
-## Motivation
+## What stratuMAK is
 
-LinuxCNC has proven for over 30 years that open-source CNC control is not only
-viable but often superior to proprietary alternatives. Its core ideas — a
-hardware abstraction layer (HAL), real-time motion control, pluggable kinematics,
-and an interpreted G-code engine — remain sound and relevant.
+A toolkit for building machine controls. The goal is that whoever builds a
+controller spends their time on the actual problem — the machine, its process,
+its interfaces — and as little of it as possible on infrastructure and
+boilerplate.
 
-What has aged is the surrounding infrastructure: NML message passing from the
-1990s, Tcl/Tk user interfaces, a monolithic build system tied to kernel modules,
-and an architecture that resists incremental modernization. Every attempt to
-improve one layer pulls in the weight of all others.
+That goal shapes what the project provides:
 
-stratuMAK takes a different path: **preserve the proven control concepts, rewrite the
-plumbing.**
+- **Reusable answers to recurring problems.** Real-time scheduling, hardware
+  abstraction, fieldbus access, persistence, remote APIs and configuration are
+  solved once, in the framework, instead of again in every project.
+- **A structure that scales.** Components are independent modules with explicit
+  lifecycles and per-instance state, so a control can grow — more axes, more
+  instances, even several complete machines in one process — without the parts
+  growing into each other.
+- **Interfaces that are cheap to add.** An interface is declared once in an IDL;
+  the C, Go, Python and TypeScript bindings, the REST and WebSocket surface and
+  the validation are generated from that declaration.
+- **Modern development practice, supported rather than fought.** Version
+  control, continuous integration, unit and end-to-end tests, static analysis
+  and reproducible builds — the things that make a codebase both productive to
+  work on and trustworthy enough to put on a machine.
+
+CNC machining is the first application built on it, and the most complete one.
+It is not meant to be the only one.
+
+## Relationship to LinuxCNC
+
+stratuMAK is not a competing CNC control, and it is not an attempt to replace
+LinuxCNC. It is a layer underneath — and the honest history of how it got there
+is worth telling, because the code did start as a LinuxCNC fork.
+
+**The original plan was the other way around.** stratuMAK was to be built
+clean-room, and LinuxCNC ported onto it afterwards as a technology
+demonstrator — proof that the infrastructure could carry a real, complete
+machine control rather than a demo.
+
+Analysing the interfaces changed that plan. Working iteratively from code that
+already existed turned out to be far more efficient than reimplementing against
+a specification and hoping the two met in the middle. So stratuMAK grew from
+the bottom up inside a fork, replacing one layer of infrastructure at a time,
+with a working machine control at every step.
+
+**Much of LinuxCNC's design was simply right.** The hardware abstraction layer
+is an excellent idea and survives essentially intact. So does the decision to
+put a distributed API between the control components rather than one monolith —
+NML had exactly the right instinct, decades before it was fashionable. Where an
+idea was sound and only its implementation had aged, the component was
+modernised rather than replaced: the rs274ngc interpreter, the motion
+controller, the trajectory planner, the kinematics modules and HAL itself are
+all inherited and evolved, not rewritten.
+
+Where a design no longer carried its weight it was retired. `milltask` was
+rewritten in Go; NML gave way to GMI, which keeps the distributed-API idea and
+gives it types, versioning and generated bindings.
+
+**What that buys is generality.** Because the infrastructure underneath is no
+longer CNC-specific, LinuxCNC's components become available outside CNC. The
+motion controller is commanded through a typed API, and a G-code interpreter is
+simply one thing that can sit on the other end of it. The Mesa I/O stack, the
+EtherCAT drivers and HAL are usable in a control that has nothing to do with
+machining. Thirty years of engineering in that codebase gets a wider audience,
+not a smaller one.
+
+We are grateful for that codebase and for the people who built it.
 
 ## Technical Approach
 
@@ -33,10 +85,10 @@ stratuMAK runs as a single process with a unified address space:
   sub-microsecond latency between domains, lock-free ring buffers for
   streaming data
 
-This eliminates the complexity of LinuxCNC's multi-process NML architecture while
-maintaining strict RT guarantees. If the servo loop crashes, the entire process
-dies and an external watchdog triggers E-stop — clean, predictable failure
-instead of ambiguous partial failures.
+One address space removes the message-passing layer between control components
+without giving up RT guarantees, and it makes the failure model unambiguous: if
+the servo loop crashes, the whole process dies and an external watchdog
+triggers E-stop, rather than some components continuing while others are gone.
 
 ### Why Go — a Garbage-Collected Language — for Machine Control?
 
@@ -47,11 +99,11 @@ The short answer: **Go never runs in the real-time path.**
   attached to the Go runtime. The garbage collector cannot pause them — its
   stop-the-world only reaches Go-managed threads. This is not an assumption;
   it is verified by measurement (see below).
-- **Go replaces Python, not C.** In classic LinuxCNC the non-RT layer is a mix
-  of Python, C++ and Tcl — and Python is just as garbage-collected and
-  non-deterministic as Go, without anyone objecting. Go fills exactly that
-  role, but with compile-time type checking, real concurrency, and refactoring
-  safety that an interpreted language cannot offer.
+- **Go replaces Python, not C.** The non-RT layer of a machine control has long
+  been written in garbage-collected languages — Python, in LinuxCNC's case, with
+  the same non-deterministic timing Go is criticised for. Go takes that role and
+  adds compile-time type checking, real concurrency and refactoring safety that
+  an interpreted language cannot offer.
 - **A powerful standard ecosystem.** HTTP/WebSocket servers, TLS, JSON, MQTT,
   databases — the entire modern API surface of stratuMAK is standard-library-grade
   Go, with no dependency sprawl.
@@ -106,7 +158,7 @@ industrial hardware:
 | Hardware | WAGO 752-940x (Intel Atom E3845, 4 cores @ 1.91 GHz, 8 GB RAM) |
 | Fieldbus | EtherCAT, 23 slaves in OP (couplers, digital/analog I/O, DC motor stages, NC axis controllers) |
 | Clocking | Distributed clocks, master synced to the slave reference clock (`refClockSyncCycles="-1"`) |
-| NIC driver | XDP-native `r8169_xdp` ([legacy-xdp](https://github.com/sittner/legacy-xdp)) |
+| NIC driver | XDP-native `r8169_xdp` ([xdp-backports](https://github.com/stratuMAK/xdp-backports)) |
 | RT thread | 1 ms cycle, SCHED_FIFO |
 | Load | full `latency-test --stress-only` vector set |
 | Duration | > 15 h (54,500 jitter samples; 54.6 M bus cycles at 1 kHz) |
@@ -142,10 +194,27 @@ server process.
 ### EtherCAT Fieldbus
 
 Native EtherCAT support via IGH EtherLab Master with:
-- YAML-based device configuration
-- Automatic PDO/SDO mapping to HAL signals
-- CiA 402 drive profile state machine
-- FSoE (Fail Safe over EtherCAT) support
+- XML device configuration (the LinuxCNC-EtherCAT `lcec` format), with a
+  generated native format a future goal
+- Config-driven PDO/SDO mapping to HAL signals: 44 dedicated device drivers,
+  plus a generic driver that maps arbitrary PDO entries to HAL pins — with
+  scaling, bit arrays and IEEE-754 subtypes — straight from the XML
+- **Distributed clocks** with two synchronisation modes: master-to-reference,
+  where a PI controller nudges the RT task's wakeup to phase-lock the servo
+  thread to the bus reference clock (sub-microsecond alignment, needs RTAPI PLL
+  support), and reference-to-master, an open-loop fallback that snaps the
+  reference clock to the RT timer instead. See
+  [`src/hal/drivers/ethercat/DC-SYNC.md`](src/hal/drivers/ethercat/DC-SYNC.md)
+- CiA 402 drives: control/status word mapped to HAL, plus drive-internal
+  homing (`homemod_cia402` — CSP ↔ homing mode, HomingAttained handshake)
+- Ethernet over EtherCAT (EoE), including IP configuration
+- Bus diagnostics over REST and from the `ethercat` CLI: masters, slaves, sync
+  managers, PDOs, domains, FMMUs and raw domain data
+- Safety-over-EtherCAT (FSoE / TwinSAFE) devices are carried as a
+  **black channel** — telegrams are transported and diagnostic transparency
+  pins (command, connection ID, CRCs) are exposed. The safety function itself
+  lives entirely in the certified FSoE master and slaves, never in stratuMAK —
+  see [SAFETY_BOUNDARY.md](docs/dev/SAFETY_BOUNDARY.md)
 
 The IgH master is a submodule of this repository
 (https://github.com/stratuMAK/ethercat, at `src/hal/drivers/ethercat/master`).
@@ -176,28 +245,28 @@ bindings for Python, TypeScript, and Go.
 
 A typed, versioned API layer between the control engine and user-facing tools.
 Defined via IDL, with generated client bindings for Go, Python, and TypeScript.
-Replaces LinuxCNC's untyped NML stat/command channels, moving from asynchronous
-message passing to synchronous function calls with clear request/response
-semantics.
+GMI takes over the role NML held — a defined API between control components —
+and adds static types, versioning, generated bindings and explicit
+request/response semantics in place of asynchronous message passing.
 
-## What This Is Not
+## Compatibility
 
-- **Not a fork that tries to stay compatible.** INI files, NML tools, and the
-  old Python/Tcl interfaces are deliberately not carried forward.
-- **Not a competing project.** stratuMAK builds directly on LinuxCNC's proven
-  motion control, trajectory planning, and G-code interpretation. We acknowledge
-  and respect the decades of engineering in that codebase.
-- **Not starting from scratch.** The rs274ngc interpreter, trajectory planner,
-  kinematics modules, and core motion controller are inherited and evolved.
+stratuMAK does not aim to be a drop-in replacement for a LinuxCNC installation.
+The classic NML tools and the Python/Tcl UI stack are not carried forward, and
+a configuration needs work to move across. What is carried forward is the
+control behaviour itself: the interpreter, motion, trajectory planning and
+kinematics are the same code, and the classic runtest suite runs green against
+stratuMAK. See [docs/dev/MISSING_FEATURES.md](docs/dev/MISSING_FEATURES.md) for
+an honest account of what differs and what is missing.
 
-## Target Audience
+## Who it is for
 
-- **LinuxCNC contributors** frustrated by architectural constraints that prevent
-  meaningful modernization
-- **Machine builders** looking for an open, flexible alternative to proprietary
-  PLCs without vendor lock-in
-- **Automation engineers** who need modern APIs, web interfaces, and EtherCAT
-  support without the overhead of enterprise licensing
+- **Machine builders** who want an open, flexible foundation instead of a
+  proprietary PLC, without vendor lock-in
+- **Automation engineers** who need modern APIs, web interfaces and EtherCAT
+  support without enterprise licensing overhead
+- **Developers building non-CNC machine controls** who want the real-time,
+  HAL and fieldbus infrastructure without writing it from scratch
 
 ## Building
 
@@ -240,6 +309,14 @@ axis
 
 See [README_LINUXCNC.md](README_LINUXCNC.md) for full build options and
 additional configuration.
+
+## Contributing
+
+[docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md) is the orientation
+document for contributors: how the single process is put together, the two
+inter-module planes (HAL and GMI), the component model, the real-time rules and
+how they are enforced, the startup sequence, the build order, the CI gates, and
+an honest list of the seams that are still mid-migration.
 
 ## Multi-Instance Demo
 
@@ -315,7 +392,8 @@ What stands behind that:
   review: independent adversarial AI passes cross-checked against the LinuxCNC
   2.9 sources, each finding adjudicated and fixed with mutation-verified
   regression tests. The full record — per-module matrix, findings documents,
-  design rulings — lives in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+  design rulings — lives in [PRODUCTION_READINESS.md](docs/dev/PRODUCTION_READINESS.md),
+  alongside the per-module findings documents indexed in [docs/dev/](docs/dev/README.md).
 - **Tests.** The classic LinuxCNC runtest suite is fully ported and green
   (240+ tests, nothing skipped or expected-to-fail) and runs on every pull
   request, plus nightly race-detector builds. Unit coverage was raised module
@@ -324,7 +402,7 @@ What stands behind that:
 - **Fault paths.** Abort, E-stop and error semantics are verified against 2.9
   as written-spec tests — not just the happy paths.
 - **Real-time.** RT correctness is tracked in
-  [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md): compiler-enforced
+  [RT_HARDENING_CHECKLIST.md](docs/dev/RT_HARDENING_CHECKLIST.md): compiler-enforced
   non-blocking guarantees across the RT paths (including the EtherCAT master),
   and the adversarial-load jitter measurement documented above.
 
@@ -336,13 +414,13 @@ Known limitations — read before deploying:
   designed, not yet built.
 - **Safety.** stratuMAK is not a safety component. Operator protection must be
   implemented in certified external hardware, independent of this software —
-  see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
+  see [SAFETY_BOUNDARY.md](docs/dev/SAFETY_BOUNDARY.md).
 - **Pending.** The review program's final human sign-off pass runs alongside
   lab deployment; a 15 h on-machine EtherCAT soak is documented above, with a
   multi-day certification soak still to come.
-- **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
-  not ported; some shipped example configurations still await migration to the
-  stratuMAK model.
+- **Deferred subsystems.** GladeVCP/QtVCP UIs are not ported — the migration is
+  specified but not implemented; some shipped example configurations still await
+  migration to the stratuMAK model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been

@@ -14,7 +14,7 @@ import gettext
 BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 gettext.install("linuxcnc", localedir=os.path.join(BASE, "share", "locale"))
 
-# Generated REST client (from manualtoolchange.gmi via gmicompile --client-python)
+# Generated REST client (from manualtoolchange.gmi via modcompile gmi --client-python)
 import gmi
 from gmi.manualtoolchange_client import ManualtoolchangeClient
 

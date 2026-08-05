@@ -124,14 +124,11 @@ KERNEL_DEPENDS_BUILD=libudev-dev
 KERNEL_HEADERS=
 KERNEL_VERSION=uspace
 MODUTILS_DEPENDS=
-if false; then
-MAIN_PACKAGE_NAME=stratumak
-OTHER_MAIN_PACKAGE_NAME=stratumak-uspace
-else
+# uspace is the only realtime flavour stratuMAK has. The kernel-module
+# flavours (RTAI, Xenomai) are not implemented and are not planned, so there is
+# no sibling main package to conflict with -- see src/stmak/internal/realtime.
 DISTRIB_NAME=uspace-$DISTRIB_NAME
 MAIN_PACKAGE_NAME=stratumak
-OTHER_MAIN_PACKAGE_NAME=stratumak-rtai
-fi
 
 EXTRA_RECOMMENDS="$EXTRA_RECOMMENDS, linux-image-rt-amd64 [linux-amd64], linux-image-rt-686-pae [linux-i386]"
 CONFIGURE_REALTIME_ARG=--with-realtime=uspace
@@ -153,18 +150,15 @@ sed \
     -e "s#@MODULE_EXT@#$MODULE_EXT#g" \
     -e "s#@MODULE_PATH@#$MODULE_PATH#g" \
     -e "s#@MODUTILS_DEPENDS@#$MODUTILS_DEPENDS#g" \
-    -e "s#@OTHER_MAIN_PACKAGE_NAME@#$OTHER_MAIN_PACKAGE_NAME#g" \
     -e "s#@PYTHON_GST@#$PYTHON_GST#g" \
     -e "s#@PYTHON_IMAGING@#$PYTHON_IMAGING#g" \
     -e "s#@PYTHON_IMAGING_TK@#$PYTHON_IMAGING_TK#g" \
     -e "s#@PYTHON_PACKAGING_DEPENDS@#$PYTHON_PACKAGING_DEPENDS#g" \
     -e "s#@PYTHON_VERSION_NEXT@#$PYTHON_VERSION_NEXT#g" \
     -e "s#@QTVCP_DEPENDS@#$QTVCP_DEPENDS#g" \
-    -e "s#@RTAI_ARCHITECTURE@#$RTAI_ARCHITECTURE#g" \
     -e "s#@TARGET@#$TARGET#g" \
     -e "s#@CONFIGURE_REALTIME_ARG@#$CONFIGURE_REALTIME_ARG#g" \
     -e "s#@TCLTK_VERSION@#$TCLTK_VERSION#g" \
-    -e "s#@XENOMAI_ARCHITECTURE@#$XENOMAI_ARCHITECTURE#g" \
     -e "s|@YAPPS_RUNTIME@|$YAPPS_RUNTIME|g" \
     -e "s#@ENABLE_BUILD_DOCUMENTATION@#$ENABLE_BUILD_DOCUMENTATION#g" \
     -e '/^\s*,\s*$/d' \

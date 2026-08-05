@@ -340,7 +340,7 @@ func (st *SymbolTable) GetByHandle(handle uint32) *Symbol {
 // maxHandles caps the number of live name-to-symbol handles. Handles live for
 // the lifetime of the SymbolTable and are only reclaimed by an explicit
 // ReleaseHandle, so a client that never releases (buggy or hostile) would
-// otherwise grow the map without limit. See ADS_REVIEW_FINDINGS.md A14.
+// otherwise grow the map without limit. See docs/dev/ADS_REVIEW_FINDINGS.md A14.
 const maxHandles = 1 << 16
 
 // CreateHandle allocates a new handle for the named symbol.
@@ -645,7 +645,7 @@ func (st *SymbolTable) writeProcessImageRange(offset uint32, data []byte) uint32
 	// below, so two concurrent overlapping process-image writes under a shared
 	// RLock could interleave and lose an update. Serializing the whole range write
 	// makes the RMW atomic against other process-image writes and reads.
-	// See ADS_REVIEW_FINDINGS.md A13.
+	// See docs/dev/ADS_REVIEW_FINDINGS.md A13.
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
