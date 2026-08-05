@@ -4,7 +4,7 @@
 `internal/halrest` (~659), `internal/inirest` (~87), `internal/mqttbridge` (~861),
 `internal/halscope` (~1035). Phases 4–6 per `PRODUCTION_READINESS.md`. Reviewed together
 because they share one lens: **untrusted-wire allocation/panic → controller death** (the risk
-class the ADS review surfaced — see `stmak-review-learnings` #5) plus goroutine/lifecycle safety.
+class the ADS review surfaced, see `ADS_REVIEW_FINDINGS.md`) plus goroutine/lifecycle safety.
 
 **Exposure:** the REST/WS server binds `127.0.0.1:5080` by default but a deployment can set
 `STMAK_REST_ADDR` / `[SERVER]REST_ADDR` to `0.0.0.0` for a remote HMI. Crucially, the **cross-site
@@ -95,7 +95,9 @@ gate returning `ESHUTDOWN` to stragglers; mutation-verified by `-race` `TestLoad
 **RULING 2026-07-21 (user): runtime REST load/unload IS a supported production path**, so L-3
 gets the FULL locking fix (`arenaMu` around the arena append/free + `modMu` serialising the REST
 handlers, snapshot-under-lock in the shutdown iterators) — not the shrink. Now the
-highest-priority open item. See `stmak-rest-auth-and-loadunload-rulings` (auto-memory).
+highest-priority open item. The governing rulings on REST authentication and on
+runtime load/unload are recorded in `PRODUCTION_READINESS.md` under "Security
+model / API authentication".
 
 ---
 

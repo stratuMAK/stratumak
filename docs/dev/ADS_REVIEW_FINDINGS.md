@@ -145,7 +145,7 @@ unlimited subscriptions (map growth + per-sub 10 ms HAL polling). Grep-confirmed
 semaphore/limit anywhere. The natural fix is a small connection cap and a per-connection
 subscription cap — but the right numbers depend on how many HMIs a deployment expects.
 
-**RESOLVED (2026-07-22, user ruling):** default **8** concurrent connections / **256**
+**RESOLVED (2026-07-22, maintainer ruling):** default **8** concurrent connections / **256**
 subscriptions per connection, overridable per instance via `$max-connections` /
 `$max-subscriptions` in the `.conf` (siblings of `$bind`/`$port`). `acceptLoop` refuses (closes)
 a connection over the cap; `notifyManager.add` returns `ErrDeviceNoMemory` (ADSERR_DEVICE_NOMEMORY,
@@ -171,7 +171,7 @@ ADS has no auth by design, and the default binds all interfaces. Any host that r
 :48898 can write `out`/`inout` pins, i.e. command machine outputs, and (with A1–A4) crash the
 controller.
 
-**RESOLVED (2026-07-22, user ruling):** the default `$bind` is now **`127.0.0.1`** (loopback), so
+**RESOLVED (2026-07-22, maintainer ruling):** the default `$bind` is now **`127.0.0.1`** (loopback), so
 network exposure is **opt-in** — a deployment that wants a remote HMI must set `$bind 0.0.0.0` (or a
 specific interface IP) explicitly. The network-trust assumption still belongs in the cross-cutting
 **Safety boundary document** (an exposed ADS port has no authentication), but the *default* is now

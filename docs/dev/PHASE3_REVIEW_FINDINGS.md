@@ -63,7 +63,7 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
   (handled separately at line-classification). Doc rewritten to the true C-parser semantics.
 - **Tests:** `TestSemicolonIsDataNotComment` (MDI_COMMAND round-trip), updated
   `TestComments` / `TestInlineCommentOrdering`.
-- **RULING — CONFIRMED KEEP-AS-IS (user, 2026-07-22).** The fix stands as landed: `;` is
+- **RULING — CONFIRMED KEEP-AS-IS (maintainer, 2026-07-22).** The fix stands as landed: `;` is
   data, the narrow whitespace-`#` strip stays. Full 2.9 parity (dropping the `#` strip too)
   would additionally require `strtod`-lenient conversion at every INI→number site
   (centralised in `getFloatOr`/`getIntOr` + ~11 direct `strconv` sites) and was judged not

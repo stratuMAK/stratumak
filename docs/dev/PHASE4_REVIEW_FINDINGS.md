@@ -159,7 +159,7 @@ the parser. Regression runtest `tests/newthread-runtime` (resident server + runt
 no-isolcpus box.
 
 **Follow-up (broader): nullable-scalar-through-cgo flattening — FIXED at the
-generator (user ruling, commit `4e1f2ac387`).** Any `T?` scalar param handled by
+generator (maintainer ruling, commit `4e1f2ac387`).** Any `T?` scalar param handled by
 the cgo callback FFI lost its "absent" and defaulted to the zero value — the
 dispatch zero-filled it and the bridge trampoline always took `&local`, so a Go
 provider always saw a non-nil pointer to a fabricated 0 (`addf position` → 0 =
@@ -214,7 +214,7 @@ cgen regression tests added (the package's first).
 
 ## FIXED after ruling — halparse tokenizer now matches 2.9 (HP-1..HP-4)
 
-User ruling (2026-07-21): fix HP-1/HP-2, match 2.9 for HP-3/HP-4.
+Maintainer ruling (2026-07-21): fix HP-1/HP-2, match 2.9 for HP-3/HP-4.
 `[FIXED — 7bf02a484e]` Verified against `halcmd.c` strip_comments/replace_vars/
 tokenize + `halcmd_main.c` continuation loop.
 

@@ -5,7 +5,7 @@ green against stratuMAK, and every `expected` oracle re-baselined from classic-C
 Purpose: a parity reviewer can see *what* diverged from LinuxCNC 2.9 and *why* without git
 archaeology.
 
-**Governing rule (user, 2026-07-12):** everything that exists must be tested. A test may be
+**Governing rule (maintainer, 2026-07-12):** everything that exists must be tested. A test may be
 **deleted** only when the capability it exercises is genuinely gone from the stratuMAK architecture —
 three such classes: (1) **TCL support for HAL**, (2) **Python support in the interpreter**, and
 (3) **a mechanism the stratuMAK model no longer has** (the rt/userspace split, NML transports,
@@ -14,7 +14,8 @@ narrow: it covers a removed *mechanism*, not a feature that still exists by anot
 class-(3) deletion is enumerated with its exact removed mechanism in §2c/§2d/§4a. Everything else
 exists (the mechanism may have changed) → default **port** (adjust method) or **xfail** (adjusted
 method hits a real stratuMAK gap). Verify a replacement is truly absent before calling anything removed.
-See `memory/runtests-only-two-removals`.
+Only two capability classes have actually cleared that bar so far — the embedded
+Python interpreter (§2a) and TCL-for-HAL (§2b).
 
 First run (2026-07-12, full suite): 216 run, 167 pass, 0 fail, 49 xfail, 37 skip (+1 XPASS: lathe).
 *(historical — superseded)*
@@ -138,7 +139,7 @@ Tcl GUI stack is not ported. Deleted.
 
 **Item 7 (HAL streaming) — DONE.** The WS sampler/streamer decision was kept for live/GUI use (panelui/qtvcp/gladevcp later) but a new **`filestream`** cmod (`src/hal/components/filestream.c`, file-backed replay+capture, deterministic one-line-per-thread-cycle, byte-identical to halsampler) now backs the tests. The 26 streaming tests migrated off the WS driver to `filestream` + `tests/filestream-driver.sh` (`fs_run`), expected files unchanged; `tests/ws-stream` is the new dedicated WS-path coverage; `hal-stream`/`halmodule.1` re-enabled (above); `multiclick` and `mux` both **xfail→pass** (filestream's one-per-cycle pacing fixed the timing multiplicity that the classic streamer-FIFO-overflow golden encoded — both `xfail` files deleted). The 16 resident-server-only tests still use `hal-stream-driver.sh`'s `hal_start_server`.
 
-### 2d. Ruled (user, 2026-07-12)
+### 2d. Ruled (maintainer, 2026-07-12)
 
 | test | mechanism | disposition |
 |---|---|---|
@@ -289,14 +290,14 @@ recurs in CI), single-step 4/4, full suite green.
 ### 3b. Reclassified out of xfail (→ §2d, ruled)
 
 module-loading/*/num_chan=0 → **removed** (default-channel-count concept gone, covered by `count=1`);
-module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (user ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the stratuMAK ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
+module-loading array-count (encoder/encoder_ratio/sim_encoder `9-names`+`num_chan=9`, pid/siggen `17-names`+`num_chan=17`) → **removed** (maintainer ruling). These asserted that loading one instance past the classic `MAX_CHAN` static-array cap is *rejected* (`RESULT=1`, `NUM_PINS=0`). That cap was an artifact of fixed-size C arrays; the stratuMAK ports are genuine multi-instance comps with no such array, so the over-limit load correctly *succeeds*. This is the same no-cap behaviour `or2` (never array-backed) already expected upstream (`count=17` → `RESULT=0`). The surviving `count=1`/`8`/`16` variants still cover multi-instance loading + atomic pin creation. **Correctly removed — do not restore.**
 mdi-while-queuebuster-waitflag → **re-expressed non-Python, now PASS** (§2d).
 
 ---
 
 ## 4. Vanished dirs (12) — deleted on stratuMAK
 
-### 4a. Deleted — INTENTIONALLY removed (user ruling): rt/userspace-split model is gone
+### 4a. Deleted — INTENTIONALLY removed (maintainer ruling): rt/userspace-split model is gone
 
 Deleted (f3cd5a61c8 / 6bc8f606ff). These test the classic `halcompile` **rt/userspace split** —
 compiling a component as a separate userspace program, `rtapi_app` main, `RTAPI_MP_ARRAY_INT`

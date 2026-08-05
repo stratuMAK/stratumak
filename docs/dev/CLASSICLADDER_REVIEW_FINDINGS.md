@@ -5,7 +5,7 @@ Pre-merge review of the completed classicladder migration (branch
 GMI IDL + Vue/TS webapp + AXIS/launcher integration + docs + runtests),
 run 2026-07-31 with five parallel adversarial reviewers — RT C engine, Go
 write surface, IDL/codegen/launcher plumbing, webapp, tests/configs/docs.
-User ruling: **fix all findings.** Everything below is FIXED on the branch
+Maintainer ruling: **fix all findings.** Everything below is FIXED on the branch
 (commits `d586de4b66`..`1c4586aeac`) unless marked otherwise; every fix
 carries a test that would have caught it (the milltask "fixed-but-untested"
 rule).
