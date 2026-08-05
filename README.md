@@ -241,6 +241,14 @@ axis
 See [README_LINUXCNC.md](README_LINUXCNC.md) for full build options and
 additional configuration.
 
+## Contributing
+
+[docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md) is the orientation
+document for contributors: how the single process is put together, the two
+inter-module planes (HAL and GMI), the component model, the real-time rules and
+how they are enforced, the startup sequence, the build order, the CI gates, and
+an honest list of the seams that are still mid-migration.
+
 ## Multi-Instance Demo
 
 A single stmakd process can host multiple independent CNC instances.
@@ -341,9 +349,9 @@ Known limitations — read before deploying:
 - **Pending.** The review program's final human sign-off pass runs alongside
   lab deployment; a 15 h on-machine EtherCAT soak is documented above, with a
   multi-day certification soak still to come.
-- **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
-  not ported; some shipped example configurations still await migration to the
-  stratuMAK model.
+- **Deferred subsystems.** GladeVCP/QtVCP UIs are not ported — the migration is
+  specified but not implemented; some shipped example configurations still await
+  migration to the stratuMAK model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been

@@ -14,10 +14,14 @@ tree cite them by finding ID (`// See ADS_REVIEW_FINDINGS.md A7`, `(C8)`,
 those comments, not as history for its own sake — see the note at the top of
 `MILLTASK_REVIEW_FINDINGS.md`.
 
+**New here?** Start with [ARCHITECTURE.md](ARCHITECTURE.md) — how the system is
+put together, where the code lives, and what the rules are for changing it.
+
 ## Program and cross-cutting
 
 | Document | What it is |
 |---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Contributor orientation: the single-process model, the HAL and GMI planes, the component model, the RT rules, startup, build and test gates, and the seams still under migration. |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | The master ledger: per-submodule verification matrix, tier assignment, design rulings, open gaps, status log. Everything else in this directory hangs off it. |
 | [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md) | Hard-RT correctness for the mixed Go/C process — Go-scheduler isolation, forbidden calls in the RT path, memory locking/prefault, deadline-miss handling, jitter soaks. Owns the RT correctness of the inherited C that the readiness matrix defers. |
 | [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md) | Where the boundary lies between stratuMAK software and machine functional safety. Draft, 2026-07-22. |
