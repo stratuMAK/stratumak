@@ -567,12 +567,13 @@ thread — they are covered by the runtests suite, not unit tests.
 | internal/adsmodule | 163/83 | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | — | ☐ |
 
 **ADS cluster — reviewed 2026-07-21 (Tier 2, adversarial). Full findings +
-verdicts in `ADS_REVIEW_FINDINGS.md`.** Net-new stratuMAK code (no 2.9 oracle); the ADS/AMS server
-binds `0.0.0.0:48898` with **no protocol authentication**, so every command handler is reachable
-by any host that can route to the controller. Method: primary read-through + two independent
-refutation passes (remote-DoS lens, concurrency/lifecycle lens). **Headline: a remote,
-unauthenticated client could crash or OOM the motion controller with a single ~28-byte packet**
-— all fixed this pass:
+verdicts in `ADS_REVIEW_FINDINGS.md`.** Net-new stratuMAK code (no 2.9 oracle); as reviewed, the
+ADS/AMS server bound `0.0.0.0:48898` with **no protocol authentication**, so every command
+handler was reachable by any host that could route to the controller (A9 — the default bind is
+`127.0.0.1` since 2026-07-22). Method: primary read-through + two independent refutation passes
+(remote-DoS lens, concurrency/lifecycle lens). **Main result: four remote-DoS defects in the
+as-reviewed code, all fixed this pass.** Until the bounds checks landed, a malformed request of
+~28 bytes could panic or exhaust memory in the server process:
 - **A1** SumWrite `uint32` overflow → slice panic (deterministic crash); **A2** unbounded
   `make` from the client-controlled sub-request count (≈137 GB alloc → OOM); **A3** unbounded
   process-image read `length` (≈4 GB, incl. a notification `sendLoop` that re-OOMs every 10 ms);

@@ -10,11 +10,12 @@ review is correctness / concurrency / robustness / protocol-safety, not parity. 
 end-to-end runtests case** — coverage is unit-test-only (symbols 46, config 43, layout 14,
 xmlgen 17), and none of the existing tests exercise malformed / adversarial packets.
 
-**Threat model (the reason severities are high):** the listener binds **`0.0.0.0:48898` by
-default** (`serverconf.go:52`) and the ADS protocol carries **no authentication**. Every
-command handler is therefore reachable by any host that can route to the controller, with no
-credential. A crash of `stmakd` is a crash of the **motion controller** (uncontrolled
-machine stop). See A9.
+**Threat model (the reason severities are high):** as reviewed, the listener bound
+**`0.0.0.0:48898` by default** (`serverconf.go:52`) and the ADS protocol carries **no
+authentication**. Every command handler was therefore reachable by any host that could route to
+the controller, with no credential. A crash of `stmakd` is a crash of the **motion controller**
+(uncontrolled machine stop). See A9 — the default bind is now `127.0.0.1`, so this exposure is
+opt-in; the absence of protocol authentication stands.
 
 **Method (Tier-2 adversarial):** one primary read-through plus two *independent* AI passes
 with distinct lenses — (D) remote DoS / crash / OOM, (C) concurrency / lifecycle / UAF — each
