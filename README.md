@@ -63,10 +63,11 @@ gives it types, versioning and generated bindings.
 
 **What that buys is generality.** Because the infrastructure underneath is no
 longer CNC-specific, LinuxCNC's components become available outside CNC. The
-motion controller can be driven by a pick-and-place task instead of a G-code
-interpreter. The Mesa I/O stack, the EtherCAT drivers and HAL are usable in a
-control that has nothing to do with machining. Thirty years of engineering in
-that codebase gets a wider audience, not a smaller one.
+motion controller is commanded through a typed API, and a G-code interpreter is
+simply one thing that can sit on the other end of it. The Mesa I/O stack, the
+EtherCAT drivers and HAL are usable in a control that has nothing to do with
+machining. Thirty years of engineering in that codebase gets a wider audience,
+not a smaller one.
 
 We are grateful for that codebase and for the people who built it.
 
