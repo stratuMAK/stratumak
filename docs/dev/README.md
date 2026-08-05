@@ -25,7 +25,7 @@ put together, where the code lives, and what the rules are for changing it.
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | The master ledger: per-submodule verification matrix, tier assignment, design rulings, open gaps, status log. Everything else in this directory hangs off it. |
 | [RT_HARDENING_CHECKLIST.md](RT_HARDENING_CHECKLIST.md) | Hard-RT correctness for the mixed Go/C process — Go-scheduler isolation, forbidden calls in the RT path, memory locking/prefault, deadline-miss handling, jitter soaks. Owns the RT correctness of the inherited C that the readiness matrix defers. |
 | [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md) | Where the boundary lies between stratuMAK software and machine functional safety. Draft, 2026-07-22. |
-| [MISSING_FEATURES.md](MISSING_FEATURES.md) | Living register of feature-parity gaps vs C++ 2.9, derived from an audit of all 95 `EMC_*` command types. Distinguishes gaps-to-fix from intentional divergences. |
+| [MISSING_FEATURES.md](MISSING_FEATURES.md) | What stratuMAK does not do — parity gaps vs LinuxCNC 2.9 (removed on purpose, not ported yet, behaves differently) and its own designed-but-unbuilt capabilities. |
 | [PATH_RESOLUTION_INVENTORY.md](PATH_RESOLUTION_INVENTORY.md) | The "paths are server-side paths" ruling (2026-07-22) and the complete site inventory behind it. Categories A–C done; category D unresolved by design. |
 
 ## Review findings
@@ -36,6 +36,7 @@ tags, and what was fixed. Ordered roughly as the program ran them.
 | Document | Scope |
 |---|---|
 | [MILLTASK_REVIEW_FINDINGS.md](MILLTASK_REVIEW_FINDINGS.md) | The `verify-milltask` pre-merge review (Phase 0). Closed — kept as the decoder ring for the finding IDs cited in `internal/task/` and `internal/gmicompile/`. |
+| [MILLTASK_COMMAND_PARITY.md](MILLTASK_COMMAND_PARITY.md) | Command-by-command audit of all 95 `EMC_*` types against the task layer. Closed, no open items — kept for its intentional-divergence rulings. |
 | [PKG_HAL_REVIEW_FINDINGS.md](PKG_HAL_REVIEW_FINDINGS.md) | Tier 1 — `pkg/hal`, the Go↔C HAL binding layer. |
 | [GMICOMPILE_REVIEW_FINDINGS.md](GMICOMPILE_REVIEW_FINDINGS.md) | Tier 1 — the `gmicompile/cgen` emission logic, ground-truthed against generated output. |
 | [STATE_MACHINE_REVIEW_FINDINGS.md](STATE_MACHINE_REVIEW_FINDINGS.md) | Tier 1 hotspot #5 — every state machine and abort/E-stop path: RT motion C, iocontrol C, Go lifecycle machines. |

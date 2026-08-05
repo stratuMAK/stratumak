@@ -142,7 +142,8 @@ server process.
 ### EtherCAT Fieldbus
 
 Native EtherCAT support via IGH EtherLab Master with:
-- YAML-based device configuration
+- XML device configuration (the LinuxCNC-EtherCAT `lcec` format), with a
+  generated native format a future goal
 - Automatic PDO/SDO mapping to HAL signals
 - CiA 402 drive profile state machine
 - FSoE (Fail Safe over EtherCAT) support

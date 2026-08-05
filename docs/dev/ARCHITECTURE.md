@@ -581,7 +581,8 @@ Named deliberately; these are the useful places to contribute.
 - **Example configurations.** Some shipped configs still assume the classic
   model and have not been migrated.
 
-The parity gap register against C++ 2.9 is [MISSING_FEATURES.md](MISSING_FEATURES.md);
+The full register — parity gaps against LinuxCNC 2.9 plus the designed-but-unbuilt
+capabilities — is [MISSING_FEATURES.md](MISSING_FEATURES.md);
 the per-module verification matrix and open items are in
 [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
