@@ -110,14 +110,21 @@ inter-module mechanisms and they are not interchangeable.
 | Carries | scalar values: `bit`, `float`, `s32`, `u32`, `port` | typed structs, strings, slices, maps |
 | Shape | published state, sampled every cycle | request → response function call |
 | Wiring | `net` in a HAL file, at load time | name lookup in a registry, at start time |
-| RT | yes — this is what the servo cycle reads and writes | no — never called from a cyclic funct |
+| RT | yes — this is what the servo cycle reads and writes | yes, for `@rt_safe` functions with a C provider (§5) |
 | Reaches outside | via `halcmd` / the HAL REST surface | directly, if `@rest_export` |
 | Defined in | the component's pin declarations | `src/gmi/idl/*.gmi` |
 
-Rule of thumb: **if the servo loop needs it every cycle, it is a HAL pin. If it
-is a command, a query, or anything with structure, it is a GMI call.** A tool
-table entry is GMI. A commanded joint position is HAL. Getting this wrong is
-the most common architectural mistake in new code.
+Rule of thumb: **if it is continuous state the cycle samples, it is a HAL pin.
+If it is a call — a command, a query, anything with structure — it is GMI.** A
+tool table entry is GMI. A commanded joint position is HAL. Getting this wrong
+is the most common architectural mistake in new code.
+
+Note that the split is *data versus call*, **not** *real-time versus not*. GMI
+is real-time capable by design and the motion controller depends on it: the
+servo cycle calls the trajectory planner, kinematics and homing through GMI
+every period. What is not real-time is a **Go** provider, or the REST/WebSocket
+dispatch — both by nature, not by GMI's design. §5 covers how that is declared
+and enforced.
 
 ---
 
@@ -211,6 +218,49 @@ All four work and are exercised by tests:
 | gomod → cmod | Go calls C through the generated cgo bridge |
 | gomod → gomod | Go interfaces via the registry |
 | cmod → gomod | C calls Go through `//export` trampolines |
+
+Only the first is usable from the RT path — it is a plain indirect call through
+a function pointer. The three that cross into Go are not, and never can be.
+
+### Real-time GMI
+
+**GMI is a real-time call plane, not just a control-plane one.** The motion
+controller is built on that: `motmod`'s servo cycle drives the trajectory
+planner, kinematics and the homing state machine entirely through GMI, calling
+e.g. `inst->tp_api->set_pos(...)` and `get_run_dir(...)` (`src/cnc/motion/control.c`)
+every period. 126 functions across seven interfaces — `mot`, `tp`, `home`,
+`kins`, `hm2_llio`, `hm2_serial`, `halcmd` — are declared RT-callable.
+
+A function opts in with an IDL annotation:
+
+```
+@doc "Set the cycle time (servo period)"
+@rt_safe "true"
+func set_cycle_time(secs: f64) -> i32
+```
+
+`@rt_safe "true"` makes `gmicompile` stamp the generated **callback typedef**
+with `STMAK_API_NONBLOCKING` — clang's `__attribute__((nonblocking))`, the same
+attribute `STMAK_NONBLOCKING` carries in hand-written RT code (§7). That single
+annotation does both halves of the job: it obliges the *provider* to be
+non-blocking, since clang's function-effects analysis checks every
+implementation assigned to the typedef, and it permits the *caller*, because an
+RT funct may only call through a nonblocking type. `make rt-effects-check`
+verifies the whole graph transitively, generated headers included.
+
+The default is `@rt_safe "false"` — task- and worker-level calls stay
+blocking-capable, and an RT caller cannot reach them.
+
+Two things are outside this guarantee regardless of the annotation:
+
+- **A Go provider.** The call crosses into the Go runtime, so it is subject to
+  the scheduler and the GC. Go providers serve control-plane interfaces.
+- **REST/WebSocket dispatch.** Networking, allocation and JSON — non-RT by
+  nature, not by any property of GMI.
+
+So the honest statement is not "GMI is non-RT" but "a GMI call is as real-time
+as its provider and its transport", and the IDL makes which one you are getting
+explicit and compiler-checked.
 
 ### Registry and instances
 
@@ -335,6 +385,13 @@ everything they call.
 
 **In the RT path you may not** allocate, take a lock that a non-RT thread can
 hold, call anything that can block, use static locals, or call into Go.
+
+**You may call other modules.** A GMI function declared `@rt_safe "true"` is
+callable from a funct — that is how the servo cycle reaches the trajectory
+planner, kinematics and homing (§5). The annotation puts clang's nonblocking
+attribute on the generated callback typedef, so the call is checked rather than
+merely intended. Crossing module boundaries in RT is normal here, not a
+compromise.
 
 **This is compiler-enforced, not convention.** Functions on the RT path are
 declared `STMAK_NONBLOCKING` (`stmak_rt_check.h`, mirroring `RTAPI_NONBLOCKING`

@@ -45,6 +45,31 @@ func name(params) -> ReturnType
 Function annotations (`@method`, `@path`, `@rt_safe`, `@doc`) precede the `func`
 declaration. Values must be quoted strings. Functions do not use braces.
 
+## Real-time callability: `@rt_safe`
+
+```
+@rt_safe "true"
+func set_cycle_time(secs: f64) -> i32
+```
+
+`@rt_safe "true"` marks a function callable from the real-time path — a funct
+on a HAL thread. The generated **callback typedef** is stamped
+`STMAK_API_NONBLOCKING` (clang's `__attribute__((nonblocking))`), which does
+two things at once: clang's function-effects analysis checks every C
+implementation assigned to that typedef for allocation, locking and blocking
+calls, and an RT caller is allowed to make the call, because a funct may only
+call through a nonblocking type. `make rt-effects-check` verifies the graph
+transitively.
+
+This is what lets the servo cycle drive the trajectory planner, kinematics and
+homing through GMI (`mot`, `tp`, `home`, `kins`) instead of reaching around it.
+
+The default is `"false"`: task/worker-level, blocking-capable, not reachable
+from RT. Two limits hold regardless of the annotation — a **Go** provider is
+never RT (it crosses into the Go runtime), and REST/WebSocket dispatch is never
+RT (networking, allocation, JSON). Declare `@rt_safe "true"` only where a C
+provider genuinely serves it.
+
 ## Reporting Failures: `@rc_error`
 
 A callback that hands its payload back as the C return value has nowhere left
