@@ -18,12 +18,13 @@ and others) connect to.  It replaces the NML-based process group
 (task, iocontrol, motion, halui) of earlier LinuxCNC releases with a
 single server process.
 .PP
-It is usually not started by hand but through the
-.B linuxcnc
-script with an INI file; on installed systems
-.B /usr/bin/linuxcnc
-is a symlink to
-.BR stmakd .
+It is started with an INI file argument; on installed systems
+.B /usr/bin/stmakd
+is a symlink through
+.IR /var/lib/stratumak/bin/stmakd ,
+which points at the packaged server in
+.I /usr/libexec/stratumak
+unless a locally rebuilt one has replaced it.
 Passing
 .B \-
 as the INI file argument reuses the last-used INI file, same as
@@ -76,15 +77,14 @@ Custom trajectory planning module name (overrides
 .BR [TRAJ]TPMOD ).
 
 .SH "SEE ALSO"
-.BR linuxcnc (1),
 .BR stmakui (1),
 .BR halcmd (1),
 .BR modcompile (1)
 
 .SH AUTHOR
-Part of the LinuxCNC project.
+Part of the stratuMAK project, derived from LinuxCNC.
 .SH REPORTING BUGS
-Report bugs at https://github.com/LinuxCNC/linuxcnc/issues
+Report bugs at https://github.com/stratuMAK/stratumak/issues
 .SH COPYRIGHT
 This is free software; see the source for copying conditions.  There is NO
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

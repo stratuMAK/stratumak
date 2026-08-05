@@ -308,7 +308,7 @@ jobs:
       image: ${{ matrix.image }}
       # IPC_OWNER for shmget IPC_CREAT, SYS_ADMIN for shmctl IPC_SET, SETFCAP so
       # the postinst can apply the realtime file capabilities. The rest mirror
-      # GOMC_CAPS in stratumak.postinst exactly, and are needed to *run* the
+      # STMAK_CAPS in stratumak.postinst exactly, and are needed to *run* the
       # result at all: execve of a binary carrying file capabilities fails with
       # EPERM unless every one of them is in the container's bounding set —
       # without them every test that starts a server dies on

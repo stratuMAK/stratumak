@@ -1793,7 +1793,7 @@ echo "#         sudo make install                                          #"
 fi
 echo "#                                                                    #"
 echo "#   To run the software type                                         #"
-echo "#         linuxcnc                                                   #"
+echo "#         stmakd path/to/your-config.ini                             #"
 echo "#                                                                    #"
 echo "######################################################################"
 echo ""

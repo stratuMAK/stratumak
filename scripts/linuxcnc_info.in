@@ -118,7 +118,7 @@ show "        UTC Date" $(date -u)
 show "    this program" $0
 show "          uptime" $(uptime)
 show " lsb_release -sa" $(lsb_release -sa 2>/dev/null)
-show "        linuxcnc" $(command -v linuxcnc)
+show "          stmakd" $(command -v stmakd)
 show "             pwd" $(pwd -P)
 show "            USER" $USER
 show "         LOGNAME" $LOGNAME
@@ -166,8 +166,8 @@ for n in $(linuxcnc_var all) ; do
 done
 
 echo
-echo "dpkg -l '*linuxcnc*':"
-dpkg -l '*linuxcnc*'
+echo "dpkg -l '*stratumak*':"
+dpkg -l '*stratumak*'
 echo
 
 [ -n "$VIEWER" ] && $VIEWER "$ofile"

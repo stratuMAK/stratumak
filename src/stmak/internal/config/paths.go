@@ -83,7 +83,7 @@ var (
 
 	// EMC2WebAppDir is the directory containing web application static files.
 	// Web apps are served from subdirectories: <EMC2WebAppDir>/<app-name>/
-	// For RIP this is share/stmak/webapp, for installed it's $(datadir)/stmak/webapp.
+	// For RIP this is share/stmak/webapp, for installed it's $(datadir)/stratumak/webapp.
 	EMC2WebAppDir string
 
 	// EMC2Version is the LinuxCNC version string (@EMC2VERSION@).

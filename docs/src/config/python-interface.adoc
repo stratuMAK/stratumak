@@ -869,11 +869,6 @@ print("machine name: ", machine_name)
 
 extensions = inifile.findall("FILTER", "PROGRAM_EXTENSION")
 print("extensions: ", extensions)
-
-# override default NML file by INI parameter if given
-nmlfile = inifile.find("EMC", "NML_FILE")
-if nmlfile:
-    linuxcnc.nmlfile = os.path.join(os.path.dirname(sys.argv[1]), nmlfile)
 ----
 
 Or for the same INI file as LinuxCNC:

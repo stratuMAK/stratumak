@@ -562,12 +562,12 @@ class FileDialog(QFileDialog, GeometryMixin):
 
         self.INI_exts = INFO.get_qt_filter_extensions()
         self.setNameFilter(self.INI_exts)
-        self.default_path = (os.path.join(os.path.expanduser('~'), 'linuxcnc/nc_files/examples'))
+        self.default_path = (os.path.join(os.path.expanduser('~'), 'stratumak/nc_files/examples'))
 
         # sidebar links
         urls = []
         urls.append(QUrl.fromLocalFile(os.path.expanduser('~')))
-        local = os.path.join(os.path.expanduser('~'),'linuxcnc/nc_files')
+        local = os.path.join(os.path.expanduser('~'),'stratumak/nc_files')
         if os.path.exists(local):
             urls.append(QUrl.fromLocalFile(local))
         self.setSidebarUrls(urls)

@@ -117,10 +117,10 @@ class Cfg2Prefs(QMainWindow, object):
         cancel.pressed.connect(self.cancel_pressed)
         fromFileButton.pressed.connect(self.from_pressed)
         toFileButton.pressed.connect(self.to_pressed)
-        if os.path.exists('{}/linuxcnc/configs'.format(os.path.expanduser('~'))):
-            self.DIR = '{}/linuxcnc/configs'.format(os.path.expanduser('~'))
-        elif os.path.exists('{}/linuxcnc'.format(os.path.expanduser('~'))):
-            self.DIR = '{}/linuxcnc'.format(os.path.expanduser('~'))
+        if os.path.exists('{}/stratumak/configs'.format(os.path.expanduser('~'))):
+            self.DIR = '{}/stratumak/configs'.format(os.path.expanduser('~'))
+        elif os.path.exists('{}/stratumak'.format(os.path.expanduser('~'))):
+            self.DIR = '{}/stratumak'.format(os.path.expanduser('~'))
         else:
             self.DIR = '{}'.format(os.path.expanduser('~'))
         self.fromFileName = None

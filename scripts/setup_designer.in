@@ -39,13 +39,13 @@ sudo apt-get install -y libpython3-dev
 # get the correct plugin file to copy
 # for run in place LinuxCNC installation
 if [ $response -eq 2 ]; then
-    if [ -f ~/linuxcnc-dev/lib/python/qtvcp/plugins/qtvcp_plugin.py ]; then
-        pifile=~/linuxcnc-dev/lib/python/qtvcp/plugins/qtvcp_plugin.py
+    if [ -f ~/stratumak-dev/lib/python/qtvcp/plugins/qtvcp_plugin.py ]; then
+        pifile=~/stratumak-dev/lib/python/qtvcp/plugins/qtvcp_plugin.py
     else
         while true; do
 #            clear
             echo -e '\nrun in place installation not found'
-            echo 'Enter base directory name e.g. linuxcnc-2.9'
+            echo 'Enter base directory name e.g. stratumak-dev'
             echo 'X to exit'
             read -p $'\nDirectory? ' basedir
             case $basedir in

@@ -1523,6 +1523,44 @@ needs either a small fix or a ruling. Ask-before-fix applies.
     operator either way. Documented in the package comment; closing it means a
     small prctl-then-exec helper.
 
+**From the 2026-08-05 pre-merge review of `stratumak-layout` (all pre-existing
+on `gomc`, i.e. not rename regressions — the regressions that review found were
+fixed on the branch itself):**
+
+21. **desktop launcher [MED]** — `share/applications/linuxcnc.desktop.in` has
+    `Exec=@EMC2_SCRIPT@`, which resolves to a bare `stmakd`; without an INI
+    argument it exits 1, and with `Terminal=false` the CNC menu entry does
+    nothing at all. Identical failure with `gomc-server` before the rename —
+    the config picker (`pickconfig.tcl`) that once made a bare Exec meaningful
+    is long gone. Needs a ruling: ship a minimal config chooser, point Exec at
+    something interactive, or drop the menu entry.
+22. **packaging [MED]** — `scripts/halrun` exists only in the RIP tree: it is
+    in neither `src/Makefile`'s installed-scripts list nor any
+    `debian/*.install`, but installed `/usr/bin/stepconf` shells out to it
+    unconditionally (test-panel, classicladder and parport-test pages), so
+    those fail on a packaged system. Separately, stepconf calls `halrun -Is`,
+    a flag combination the shim's own header documents as unsupported.
+23. **build [LOW]** — `make rip-install-menus` lists
+    `../share/desktop-directories/cnc.directory` as a prerequisite, but
+    configure only generates `linuxcnc-{cnc,ref,doc}.directory`; the target
+    dies on a missing file.
+24. **stmakd [LOW]** — the man page documents `-` / `-l` (reuse the last-used
+    INI) but `cmd/stmakd/main.go` returns "not yet implemented" for it;
+    implement the flag or drop it from the page.
+25. **cosmetic paths [COSMETIC]** — stepconf's icon fallback
+    `/etc/stratumak/linuxcnc-wizard.gif` and the `/etc/stratumak` entry in
+    `tcl/linuxcnc.tcl.in`'s `image_search` name a directory nothing installs
+    (mechanical renames of the already-dead `/etc/linuxcnc` path); both are
+    harmless fall-throughs today.
+26. **merge/release coordination** — the branch assumes the repo becomes
+    `github.com/stratuMAK/stratumak` with default branch `main`: CI push
+    triggers are `branches: [main]`, and the Go module path and README clone
+    line name the new repo. CI is green today only via the `pull_request`
+    trigger; after a merge to `gomc` no push/post-merge CI fires until the
+    repo move + default-branch rename happen (Go builds are unaffected — the
+    `replace` directive keeps the module self-contained). Land the merge and
+    the migration together, or add a temporary `gomc` entry to the trigger.
+
 ## Test environment
 
 - **Simulation configs** — stratuMAK sim config set sufficient to run the runtests subset and

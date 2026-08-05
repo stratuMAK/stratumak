@@ -447,7 +447,7 @@ if len(errors) > 0:
   rm.write(f'{errors}\n'.encode())
   print(errors)
 rm.write('This file can be deleted after running the Stepconf Wizard once.\n'.encode())
-rm.write('Copy the generated .stepconf file to the linuxcnc/configs directory.\n'.encode())
+rm.write('Copy the generated .stepconf file to the stratumak/configs directory.\n'.encode())
 rm.write('Run the Stepconf Wizard from the CNC menu.\n'.encode())
 rm.write('Select Modify a configuration already created with this program.\n'.encode())
 rm.write('Pick the converted file from the list.\n'.encode())
