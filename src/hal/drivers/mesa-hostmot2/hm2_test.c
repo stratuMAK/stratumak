@@ -29,7 +29,7 @@ static const void *hm2_log;
 
 
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hm2_core_api.h"
 #include "hostmot2.h"
 #include "hostmot2-lowlevel.h"
@@ -68,14 +68,14 @@ static void set32(hm2_test_t *me, uint16_t addr, uint32_t val) {
 //
 
 
-static int hm2_test_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_test_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     hm2_test_t *me = this->private;
     memcpy(buffer, &me->test_pattern.tp8[addr], size);
     return 1;  // success
 }
 
 
-static int hm2_test_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+static int hm2_test_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     (void)this; (void)addr; (void)buffer; (void)size;
     return 1;  // success
 }
@@ -102,7 +102,7 @@ static int hm2_test_init(hm2_test_inst_t *inst) {
 
     LL_ERR("loading HostMot2 test driver with test pattern %d\n", inst->test_pattern);
 
-    inst->comp_id = inst->mod_env->hal->init(inst->mod_env->hal->ctx, HM2_LLIO_NAME, inst->mod_env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    inst->comp_id = inst->mod_env->hal->init(inst->mod_env->hal->ctx, HM2_LLIO_NAME, inst->mod_env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) return inst->comp_id;
 
     me = &inst->board;
@@ -607,7 +607,7 @@ int New(const cmod_env_t *env, const char *name,
 
     inst->hm2_core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->hm2_core) {
-        gomc_log_errorf(env->log, name, "hm2_test: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_log_errorf(env->log, name, "hm2_test: hostmot2 core API not found (is hostmot2 loaded?)\n");
         free(inst);
         return -1;
     }
@@ -626,7 +626,7 @@ int New(const cmod_env_t *env, const char *name,
 
 static void hm2_test_destroy(cmod_t *self) {
     hm2_test_inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->mod_env->hal;
+    const stmak_hal_t *hal = inst->mod_env->hal;
     hm2_test_t *me = &inst->board;
 
     inst->hm2_core->unregister_board(inst->hm2_core->ctx, &me->llio);

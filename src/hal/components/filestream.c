@@ -40,7 +40,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hal_stream_common.h"
 
 #define DEFAULT_DEPTH   1000
@@ -319,18 +319,18 @@ int New(const cmod_env_t *env, const char *name,
         else if (strcmp(argv[i], "tag") == 0)              tag = 1;
     }
 
-    if (!env->hal) { gomc_log_errorf(env->log, name, "HAL API not available"); return -EINVAL; }
+    if (!env->hal) { stmak_log_errorf(env->log, name, "HAL API not available"); return -EINVAL; }
 
     if (!stream_cfg && !sample_cfg) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
             "filestream needs stream_cfg= and/or sample_cfg=");
         return -EINVAL;
     }
     if (stream_cfg && !infile) {
-        gomc_log_errorf(env->log, name, "stream_cfg= requires infile="); return -EINVAL;
+        stmak_log_errorf(env->log, name, "stream_cfg= requires infile="); return -EINVAL;
     }
     if (sample_cfg && !outfile) {
-        gomc_log_errorf(env->log, name, "sample_cfg= requires outfile="); return -EINVAL;
+        stmak_log_errorf(env->log, name, "sample_cfg= requires outfile="); return -EINVAL;
     }
 
     filestream_priv_t *priv = calloc(1, sizeof(filestream_priv_t));
@@ -345,14 +345,14 @@ int New(const cmod_env_t *env, const char *name,
     if (stream_cfg) {
         m->n_stream = hal_stream_parse_cfg(stream_cfg, m->stream_types, HAL_STREAM_MAX_PINS);
         if (m->n_stream < 0) {
-            gomc_log_errorf(env->log, name, "invalid stream_cfg '%s'", stream_cfg);
+            stmak_log_errorf(env->log, name, "invalid stream_cfg '%s'", stream_cfg);
             free(priv); return -EINVAL;
         }
     }
     if (sample_cfg) {
         m->n_sample = hal_stream_parse_cfg(sample_cfg, m->sample_types, HAL_STREAM_MAX_PINS);
         if (m->n_sample < 0) {
-            gomc_log_errorf(env->log, name, "invalid sample_cfg '%s'", sample_cfg);
+            stmak_log_errorf(env->log, name, "invalid sample_cfg '%s'", sample_cfg);
             free(priv); return -EINVAL;
         }
     }
@@ -362,18 +362,18 @@ int New(const cmod_env_t *env, const char *name,
         m->replay = calloc((size_t)depth * m->n_stream, sizeof(hal_stream_val_t));
         if (!m->replay) { retval = -ENOMEM; goto fail_early; }
         // infile= is a configuration path: resolved server-side and required
-        // to stay inside the config / HAL library directories (gomc_path.h).
+        // to stay inside the config / HAL library directories (stmak_path.h).
         const char *inerr = NULL;
         const char *inpath = env->path->resolve(env->path->ctx, infile,
-                                                GOMC_PATH_READ, &inerr);
+                                                STMAK_PATH_READ, &inerr);
         if (!inpath) {
-            gomc_log_errorf(env->log, name, "infile '%s': %s", infile,
+            stmak_log_errorf(env->log, name, "infile '%s': %s", infile,
                             inerr ? inerr : "cannot be resolved");
             retval = -ENOENT; goto fail_early;
         }
         m->infp = fopen(inpath, "r");
         if (!m->infp) {
-            gomc_log_errorf(env->log, name, "cannot open infile '%s'", infile);
+            stmak_log_errorf(env->log, name, "cannot open infile '%s'", infile);
             retval = -ENOENT; goto fail_early;
         }
     }
@@ -383,26 +383,26 @@ int New(const cmod_env_t *env, const char *name,
         if (!m->capture || !m->cap_seq) { retval = -ENOMEM; goto fail_early; }
         // outfile= is a *write* target: a relative name resolves under the
         // config directory only, never into a HAL library directory, so it
-        // cannot overwrite a system file (gomc_path.h).
+        // cannot overwrite a system file (stmak_path.h).
         const char *outerr = NULL;
         const char *outpath = env->path->resolve(env->path->ctx, outfile,
-                                                 GOMC_PATH_WRITE, &outerr);
+                                                 STMAK_PATH_WRITE, &outerr);
         if (!outpath) {
-            gomc_log_errorf(env->log, name, "outfile '%s': %s", outfile,
+            stmak_log_errorf(env->log, name, "outfile '%s': %s", outfile,
                             outerr ? outerr : "cannot be resolved");
             retval = -ENOENT; goto fail_early;
         }
         m->outfp = fopen(outpath, "w");
         if (!m->outfp) {
-            gomc_log_errorf(env->log, name, "cannot open outfile '%s'", outfile);
+            stmak_log_errorf(env->log, name, "cannot open outfile '%s'", outfile);
             retval = -ENOENT; goto fail_early;
         }
     }
 
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        gomc_log_errorf(env->log, name, "hal_init failed");
+        stmak_log_errorf(env->log, name, "hal_init failed");
         retval = -1; goto fail_early;
     }
 
@@ -415,9 +415,9 @@ int New(const cmod_env_t *env, const char *name,
             if (retval != 0) goto fail;                                        \
         } while (0)
 
-    PIN(m->enable,     "enable",     GOMC_HAL_BIT, GOMC_HAL_IN);
-    PIN(m->sample_num, "sample-num", GOMC_HAL_S32, GOMC_HAL_IO);
-    PIN(m->done,       "done",       GOMC_HAL_BIT, GOMC_HAL_OUT);
+    PIN(m->enable,     "enable",     STMAK_HAL_BIT, STMAK_HAL_IN);
+    PIN(m->sample_num, "sample-num", STMAK_HAL_S32, STMAK_HAL_IO);
+    PIN(m->done,       "done",       STMAK_HAL_BIT, STMAK_HAL_OUT);
     *(m->enable) = 1;
     *(m->sample_num) = 0;
     *(m->done) = 0;
@@ -425,36 +425,36 @@ int New(const cmod_env_t *env, const char *name,
     int usefp_w = 0, usefp_r = 0;
 
     if (m->n_stream) {
-        PIN(m->stream_num, "stream-num", GOMC_HAL_S32, GOMC_HAL_IO);
-        PIN(m->underruns,  "underruns",  GOMC_HAL_S32, GOMC_HAL_IO);
+        PIN(m->stream_num, "stream-num", STMAK_HAL_S32, STMAK_HAL_IO);
+        PIN(m->underruns,  "underruns",  STMAK_HAL_S32, STMAK_HAL_IO);
         *(m->stream_num) = 0; *(m->underruns) = 0;
         for (int n = 0; n < m->n_stream; n++) {
-            int t = GOMC_HAL_FLOAT;
+            int t = STMAK_HAL_FLOAT;
             switch (m->stream_types[n]) {
-            case 'f': t = GOMC_HAL_FLOAT; usefp_w = 1; break;
-            case 'b': t = GOMC_HAL_BIT;  break;
-            case 'u': t = GOMC_HAL_U32;  break;
-            case 's': t = GOMC_HAL_S32;  break;
+            case 'f': t = STMAK_HAL_FLOAT; usefp_w = 1; break;
+            case 'b': t = STMAK_HAL_BIT;  break;
+            case 'u': t = STMAK_HAL_U32;  break;
+            case 's': t = STMAK_HAL_S32;  break;
             }
             snprintf(pin, sizeof(pin), "%s.stream.%d", name, n);
-            retval = env->hal->pin_new(env->hal->ctx, pin, t, GOMC_HAL_OUT,
+            retval = env->hal->pin_new(env->hal->ctx, pin, t, STMAK_HAL_OUT,
                          (void **)&m->stream_pins[n], priv->comp_id);
             if (retval != 0) goto fail;
         }
     }
     if (m->n_sample) {
-        PIN(m->overruns, "overruns", GOMC_HAL_S32, GOMC_HAL_IO);
+        PIN(m->overruns, "overruns", STMAK_HAL_S32, STMAK_HAL_IO);
         *(m->overruns) = 0;
         for (int n = 0; n < m->n_sample; n++) {
-            int t = GOMC_HAL_FLOAT;
+            int t = STMAK_HAL_FLOAT;
             switch (m->sample_types[n]) {
-            case 'f': t = GOMC_HAL_FLOAT; usefp_r = 1; break;
-            case 'b': t = GOMC_HAL_BIT;  break;
-            case 'u': t = GOMC_HAL_U32;  break;
-            case 's': t = GOMC_HAL_S32;  break;
+            case 'f': t = STMAK_HAL_FLOAT; usefp_r = 1; break;
+            case 'b': t = STMAK_HAL_BIT;  break;
+            case 'u': t = STMAK_HAL_U32;  break;
+            case 's': t = STMAK_HAL_S32;  break;
             }
             snprintf(pin, sizeof(pin), "%s.sample.%d", name, n);
-            retval = env->hal->pin_new(env->hal->ctx, pin, t, GOMC_HAL_IN,
+            retval = env->hal->pin_new(env->hal->ctx, pin, t, STMAK_HAL_IN,
                          (void **)&m->sample_pins[n], priv->comp_id);
             if (retval != 0) goto fail;
         }
@@ -467,18 +467,18 @@ int New(const cmod_env_t *env, const char *name,
         snprintf(fn, sizeof(fn), "%s.write", name);
         retval = env->hal->export_funct(env->hal->ctx, fn, write_funct, m,
                                         usefp_w, 0, priv->comp_id);
-        if (retval < 0) { gomc_log_errorf(env->log, name, "export .write failed"); goto fail; }
+        if (retval < 0) { stmak_log_errorf(env->log, name, "export .write failed"); goto fail; }
     }
     if (m->n_sample) {
         snprintf(fn, sizeof(fn), "%s.read", name);
         retval = env->hal->export_funct(env->hal->ctx, fn, read_funct, m,
                                         usefp_r, 0, priv->comp_id);
-        if (retval < 0) { gomc_log_errorf(env->log, name, "export .read failed"); goto fail; }
+        if (retval < 0) { stmak_log_errorf(env->log, name, "export .read failed"); goto fail; }
     }
 
     // Start the non-RT I/O thread.
     if (pthread_create(&m->io_tid, NULL, io_thread, priv) != 0) {
-        gomc_log_errorf(env->log, name, "pthread_create failed");
+        stmak_log_errorf(env->log, name, "pthread_create failed");
         retval = -1; goto fail;
     }
     m->io_running = 1;

@@ -10,7 +10,7 @@
 ; ON_ABORT_COMMAND=o<on_abort>call
 ;
 ; the reason code is passed as parameter #1 and is taken from
-; the below enum in src/emc/nml_intf/emc.hh :
+; the below enum in src/cnc/nml_intf/emc.hh :
 ;
 ; // types for emcIoAbort() reasons
 ; enum EMC_IO_ABORT_REASON_ENUM {
@@ -24,7 +24,7 @@
 ;    EMC_ABORT_TASK_ABORT = 8,
 ;    EMC_ABORT_USER = 100  // user-defined abort codes start here
 ; };
-; see src/emc/emc/task/emctask.cc and emctaskmain.cc for context where this 
+; see src/cnc/emc/task/emctask.cc and emctaskmain.cc for context where this 
 ; is called
 ;
 O<on_abort> sub

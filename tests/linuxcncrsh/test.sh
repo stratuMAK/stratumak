@@ -1,17 +1,17 @@
 #!/bin/bash
-# linuxcncrsh migrated to the gomc REST/gmi remote-control path.
+# linuxcncrsh migrated to the stratuMAK REST/gmi remote-control path.
 #
 # Classic drove the linuxcncrsh telnet server (port 5007) with the rsh command
 # vocabulary (hello / set enable / set mode / set estop / set machine / set mdi)
-# and fed a batch of M100 MDI commands, checking the M100 log.  gomc has no
+# and fed a batch of M100 MDI commands, checking the M100 log.  stratuMAK has no
 # telnet rsh -- the remote-control capability IS the REST API -- so the same rsh
 # command stream is translated to gmi by rsh2gmi.py, and M100 is captured by the
 # mcode_coord_log cmod (format=raw, matching the classic subs/M100 "P is/Q is").
 set -x
-. ../gomc-driver.sh
+. ../stmak-driver.sh
 rm -f gcode-output sim.var sim.var.bak
-gomc_start_server --inherit sim.ini
-gomc_wait_ready
+stmak_start_server --inherit sim.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

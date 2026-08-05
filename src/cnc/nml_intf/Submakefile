@@ -1,0 +1,6 @@
+INCLUDES += emc cnc/nml_intf
+
+$(patsubst ./cnc/nml_intf/%,../include/%,$(wildcard ./cnc/nml_intf/*.h)): ../include/%.h: ./cnc/nml_intf/%.h
+	cp $^ $@
+$(patsubst ./cnc/nml_intf/%,../include/%,$(wildcard ./cnc/nml_intf/*.hh)): ../include/%.hh: ./cnc/nml_intf/%.hh
+	cp $^ $@

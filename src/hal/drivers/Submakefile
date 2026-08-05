@@ -12,14 +12,14 @@ GPIO_CMOD_CFLAGS := \
     -I. -I../include \
     -Irtapi/parport \
     -I$(GPIO_DIR) \
-    -Igomc/pkg/cmodule
+    -Istmak/pkg/cmodule
 
 GPIO_CMOD_LDFLAGS = $(CMOD_LDFLAGS) -lm
 
 # hal_parport.so (x86 only — uses sys/io.h + librtapi_parport)
 ifeq ($(X86ARCH),true)
 ../cmod/hal_parport.so: $(GPIO_DIR)/hal_parport.c \
-                        $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                        $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                         | headers ../lib/librtapi_parport.so
 	$(ECHO) "Compiling cmod hal_parport.so"
 	@mkdir -p $(dir $@)
@@ -34,7 +34,7 @@ endif
 # hal_bb_gpio.so
 ../cmod/hal_bb_gpio.so: $(GPIO_DIR)/hal_bb_gpio.c \
                         $(GPIO_DIR)/beaglebone_gpio.h \
-                        $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                        $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                         | headers
 	$(ECHO) "Compiling cmod hal_bb_gpio.so"
 	@mkdir -p $(dir $@)
@@ -50,7 +50,7 @@ modules: ../cmod/hal_bb_gpio.so
                         $(GPIO_DIR)/cpuinfo.c \
                         $(GPIO_DIR)/bcm2835.h \
                         $(GPIO_DIR)/cpuinfo.h \
-                        $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                        $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                         | headers
 	$(ECHO) "Compiling cmod hal_pi_gpio.so"
 	@mkdir -p $(dir $@)
@@ -64,7 +64,7 @@ modules: ../cmod/hal_pi_gpio.so
 # hal_gpio.so (requires libgpiod)
 ifdef LIBGPIOD_VER
 ../cmod/hal_gpio.so: $(GPIO_DIR)/hal_gpio.c \
-                     $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                     $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                      | headers
 	$(ECHO) "Compiling cmod hal_gpio.so"
 	@mkdir -p $(dir $@)
@@ -81,14 +81,14 @@ endif
 # hal_gm — General Mechatronics 6-Axis PCI card
 # ---------------------------------------------------------------------------
 ../cmod/hal_gm.so: hal/drivers/hal_gm.c \
-                   $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                   $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                    | headers ../lib/librtapi_pci.so
 	$(ECHO) "Compiling cmod hal_gm.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -fPIC -g -Os -Wall -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
 	    -fno-strict-aliasing -fwrapv \
-	    -I. -I../include -Igomc/pkg/cmodule -Irtapi/pci \
+	    -I. -I../include -Istmak/pkg/cmodule -Irtapi/pci \
 	    -o $@ hal/drivers/hal_gm.c \
 	    $(CMOD_LDFLAGS) -lrtapi_pci -lm
 
@@ -100,14 +100,14 @@ modules: ../cmod/hal_gm.so
 # ---------------------------------------------------------------------------
 ifeq ($(X86ARCH),true)
 ../cmod/hal_ppmc.so: hal/drivers/hal_ppmc.c \
-                    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
+                    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
                     | headers ../lib/librtapi_parport.so
 	$(ECHO) "Compiling cmod hal_ppmc.so"
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) -fPIC -g -Os -Wall -Wextra -shared \
 	    -DUSPACE -D_GNU_SOURCE -Drealtime \
 	    -fno-strict-aliasing -fwrapv \
-	    -I. -I../include -Igomc/pkg/cmodule -Irtapi/parport -Ihal \
+	    -I. -I../include -Istmak/pkg/cmodule -Irtapi/parport -Ihal \
 	    -o $@ hal/drivers/hal_ppmc.c \
 	    $(CMOD_LDFLAGS) -lrtapi_parport -lm
 

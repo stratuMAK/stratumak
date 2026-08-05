@@ -1,6 +1,6 @@
 # Path resolution — complete site inventory (cmods + Go modules + GMI surface)
 
-**Purpose.** gomc splits the CLI/REST client from the server, so "a path" in a
+**Purpose.** stratuMAK splits the CLI/REST client from the server, so "a path" in a
 module argument no longer has an unambiguous meaning. The ruling (2026-07-22) is:
 **paths are server-side paths**, resolved by one shared rule — the same rule the
 startup HAL-file processing already uses (`internal/halfile.(*Executor).resolvePath`:
@@ -132,7 +132,7 @@ These take an arbitrary string straight off the wire.
 `Dir` modes, `EvalSymlinks` containment, `SetDefault` published by the launcher
 after its chdir). `halfile.resolvePath` is a thin wrapper over it.
 `cmd/halcmd`'s `resolveArgPath` is deleted — arguments go over the wire
-verbatim. `pkg/cmodule/gomc_path.h` adds `env->path->resolve(ctx, name, mode,
+verbatim. `pkg/cmodule/stmak_path.h` adds `env->path->resolve(ctx, name, mode,
 &err)`; `cmod_env_t` gained a trailing `path` field.
 
 Two rules that fell out of the implementation:

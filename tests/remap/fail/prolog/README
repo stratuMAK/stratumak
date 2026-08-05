@@ -1,8 +1,8 @@
 Exercise a failing remap prolog: it must abort the remap, convey the error text,
 and leave the interpreter usable (return to top level) without running the NGC body.
 
-Re-expressed for gomc: the classic test used a Python prolog that returned
-INTERP_ERROR.  gomc removed the embedded Python interpreter, so M400's prolog is a
+Re-expressed for stmak: the classic test used a Python prolog that returned
+INTERP_ERROR.  stmak removed the embedded Python interpreter, so M400's prolog is a
 C interp_ext handler (cmod test_remap_fail, failingprolog) that calls set_error()
 and returns INTERP_EXT_ERROR.  The driver runs M400 via MDI; checkresult confirms
 the prolog ran and failed, the error text was conveyed (logged by milltask), the

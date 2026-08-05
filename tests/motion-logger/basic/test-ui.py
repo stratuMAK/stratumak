@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (`gmi` client, not the removed NML `linuxcnc`
+# Ported to the stratuMAK REST/WS API (`gmi` client, not the removed NML `linuxcnc`
 # module). The motion-logger is now an interceptor cmod sitting between milltask
 # and the *real* motmod, so this drives a real motion config.
 #
@@ -20,7 +20,7 @@
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import sys
 import time
@@ -64,7 +64,7 @@ def capture(name, compare=True):
     # The interceptor cmod is a *different* writer: wait for its log to stop
     # growing rather than sleeping and hoping it flushed. The program is already
     # idle here, so the delta is complete once the size holds steady.
-    gomc_test.wait_file_stable(LOG)
+    stmak_test.wait_file_stable(LOG)
     with open(LOG, "rb") as f:
         f.seek(log_offset)
         chunk = f.read().decode()

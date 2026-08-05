@@ -389,7 +389,7 @@ clean-translated:
 # The first find runs from src/ and walks the whole tree, which used to include
 # the EtherCAT master submodule: we rendered its documentation graphs and left
 # ten generated .svg files sitting in another project's checkout. Its docs are
-# its own to build. Prune it; only emc/motion/homing.dot here is ours.
+# its own to build. Prune it; only cnc/motion/homing.dot here is ours.
 DOTFILES=$(shell find . -name "*.dot" -not -path "./hal/drivers/ethercat/master/*") \
          $(shell find ../docs/src/ -name "*.dot")
 .PHONY: svgs_made_from_dots
@@ -443,7 +443,7 @@ MAN_SRCS_NOSO = $(patsubst $(DOC_DIR)/man/%,%, \
 # build, and an order silently missing every page grep could not read. It is
 # only needed when the PDF is actually built, by which point MAN_SRCS are
 # prerequisites and therefore present.
-PDF_MAN_ORDER = man1/gomc-server.1 $(filter-out %/gomc-server.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
+PDF_MAN_ORDER = man1/stmakd.1 $(filter-out %/stmakd.1, $(filter man1/%, $(MAN_SRCS_NOSO))) \
 	man3/intro.3hal $(filter-out %/undocumented.3hal %/intro.3hal, $(filter man3/%.3hal, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3hal man3/intro.3rtapi $(filter-out %/undocumented.3rtapi %/intro.3rtapi, $(filter man3/%.3rtapi, $(MAN_SRCS_NOSO))) \
 	man3/undocumented.3rtapi $(filter man9/%, $(MAN_SRCS_NOSO)) 
@@ -629,14 +629,14 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 # Hack to avoid ../../../src/ style include which do not work with
 # translated documents.  Copy the ini file where the documentation
 # build can find it without ../.. paths.
-.include-stamp: hal/user_comps/mb2hal/mb2hal_HOWTO.ini emc/usr_intf/gmoccapy/release_notes.txt
+.include-stamp: hal/user_comps/mb2hal/mb2hal_HOWTO.ini cnc/usr_intf/gmoccapy/release_notes.txt
 	(set -x; set -e; \
 	cp -f hal/user_comps/mb2hal/mb2hal_HOWTO.ini $(DOC_DIR)/src/drivers/;\
 	mkdir -p $(DOC_DIR)/html/drivers/; \
 	cp -f hal/user_comps/mb2hal/mb2hal_HOWTO.ini $(DOC_DIR)/html/drivers/;\
-	cp -f emc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/src/gui/gmoccapy_release_notes.txt;\
+	cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/src/gui/gmoccapy_release_notes.txt;\
 	mkdir -p $(DOC_DIR)/html/gui/; \
-	cp -f emc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/html/gui/gmoccapy_release_notes.txt;\
+	cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/html/gui/gmoccapy_release_notes.txt;\
 	for lang in $(LANGUAGES); do \
 		mkdir -p $(DOC_DIR)/src/$$lang/drivers/; \
 		mkdir -p $(DOC_DIR)/html/$$lang/drivers/; \
@@ -644,8 +644,8 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 		cp -f hal/user_comps/mb2hal/mb2hal_HOWTO.ini $(DOC_DIR)/html/$$lang/drivers/ ; \
 		mkdir -p $(DOC_DIR)/src/$$lang/gui/; \
 		mkdir -p $(DOC_DIR)/html/$$lang/gui/; \
-		cp -f emc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/src/$$lang/gui/gmoccapy_release_notes.txt ; \
-		cp -f emc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/html/$$lang/gui/gmoccapy_release_notes.txt ; \
+		cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/src/$$lang/gui/gmoccapy_release_notes.txt ; \
+		cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/html/$$lang/gui/gmoccapy_release_notes.txt ; \
 	done) > $@.new && mv $@.new $@
 
 # Copy all images used by translated adoc files into the directories

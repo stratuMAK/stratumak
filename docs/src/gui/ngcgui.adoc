@@ -500,8 +500,8 @@ followed by multiple directories specified by:
 
 Directories may be specified as absolute paths or relative paths.
 
-* Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/linuxcnc/nc_files`
-* Example: `[DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files`
+* Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/stratumak/nc_files`
+* Example: `[DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files`
 * Example: `[DISPLAY]PROGRAM_PREFIX = ../../nc_files`
 
 .Absolute Paths
@@ -541,12 +541,12 @@ To modify the behavior of the files, you can copy any file and place it in an ea
 The first directory searched is [DISPLAY]PROGRAM_PREFIX.
 You can use this directory but it is better practice to create dedicated directory(ies) and put them at the beginning of the [RS274NGC]SUBROUTINE_PATH.
 
-In the following example, files in /home/myname/linuxcnc/mysubs will be found before files in ../../nc_files/ngcgui_lib.
+In the following example, files in /home/myname/stratumak/mysubs will be found before files in ../../nc_files/ngcgui_lib.
 
 .Adding User Directory Example:
 [source,{ini}]
 ----
-[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`
+[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`
 ----
 
 New users may inadvertently try to use files that are not structured to be compatible with NGCGUI requirements.

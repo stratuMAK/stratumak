@@ -25,7 +25,7 @@
 
 AC_PREREQ(2.69)
 AC_INIT([LinuxCNC],[m4_normalize(esyscmd(cat ../VERSION))],[emc-developers@lists.sourceforge.net])
-AC_CONFIG_SRCDIR(emc/motion/motion.c)
+AC_CONFIG_SRCDIR(cnc/motion/motion.c)
 if test "$srcdir" != "."; then
     AC_MSG_ERROR([Building outside of srcdir is not supported])
 fi
@@ -171,20 +171,6 @@ AC_ARG_WITH(realtime,
         ])
 AC_SUBST([RTS])
 
-TOOL_NML=no
-AC_ARG_ENABLE(toolnml,
-    AS_HELP_STRING(
-        [--enable-toolnml],
-        [Use nml for tooldata, default is mmap]
-    ),
-    [
-        case "$enableval" in
-        N*|n*)
-            TOOL_NML=no ;;
-        Y*|y*)
-            TOOL_NML=yes ;;
-        esac
-    ])
 ##############################################################################
 # Subsection 2.2                                                             #
 # Set up uspace realtime configuration                                       #
@@ -251,7 +237,7 @@ RTDIR=$(pwd -P)
 ULAPI_CFLAGS=""
 RTFLAGS="-DUSPACE"
 MODEXT=.so
-MODULE_DIR=${prefix}/lib/linuxcnc/modules
+MODULE_DIR=${prefix}/lib/stratumak/modules
 ULAPI_LDFLAGS=""
 
 AC_SUBST([RTPREFIX])
@@ -515,32 +501,19 @@ if test "$RUN_IN_PLACE" = "yes"; then
     RIP_MODULE_DIR="${BUILD_TOPLEVEL}/rtlib"
     AC_MSG_RESULT([configuring for run-in-place])
     prefix=${BUILD_TOPLEVEL}
-    if test "$TOOL_NML" = "yes"; then
-       DEFAULT_NMLFILE=${prefix}/configs/common/linuxcnc_big.nml
-    else
-       DEFAULT_NMLFILE=${prefix}/configs/common/linuxcnc.nml
-    fi
     DEFAULT_TOOLTABLE=${prefix}/configs/sim/sim.tbl
     AC_MSG_RESULT([$RIP_MODULE_DIR])
 else
     RUN_IN_PLACE=no
     EMC2_HOME=$prefix
-    if test "$TOOL_NML" = "yes"; then
-       DEFAULT_NMLFILE=${prefix}/share/linuxcnc/linuxcnc_big.nml
-    else
-       DEFAULT_NMLFILE=${prefix}/share/linuxcnc/linuxcnc.nml
-    fi
-    DEFAULT_TOOLTABLE=${prefix}/share/doc/linuxcnc/examples/sample-configs/common/tool.tbl
+    DEFAULT_TOOLTABLE=${prefix}/share/doc/stratumak/examples/sample-configs/common/tool.tbl
     AC_MSG_RESULT([$MODULE_DIR])
 fi
 
 AC_SUBST([MODULE_DIR])
 AC_SUBST([RIP_MODULE_DIR])
 AC_SUBST([RUN_IN_PLACE])
-AC_SUBST([DEFAULT_NMLFILE])
-AC_SUBST([TOOL_NML])
-AC_DEFINE_UNQUOTED([EMC2_DEFAULT_NMLFILE], "$DEFAULT_NMLFILE", [Default nml file])
-AC_DEFINE_UNQUOTED([EMC2_DEFAULT_TOOLTABLE], "$DEFAULT_TOOLTABLE", [Default nml file])
+AC_DEFINE_UNQUOTED([EMC2_DEFAULT_TOOLTABLE], "$DEFAULT_TOOLTABLE", [Default tool table])
 
 ##############################################################################
 # Subsection 3.4 - define default dirs, these get used in a lot of places    #
@@ -559,7 +532,7 @@ fe () {
 if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_LATENCY_SCRIPT=$EMC2_HOME/scripts/latency-test
     EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_HOME/scripts/latency-histogram
-    EMC2_SCRIPT=$EMC2_HOME/bin/gomc-server
+    EMC2_SCRIPT=$EMC2_HOME/bin/stmakd
     EMC2_SUFFIX=" (run-in-place)"
     EMC2_ICON=$EMC2_HOME/linuxcncicon.png
     EMC2_BIN_DIR=$EMC2_HOME/bin
@@ -571,7 +544,7 @@ if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_RTLIB_DIR=$EMC2_HOME/rtlib
     EMC2_GOMOD_DIR=$EMC2_HOME/gomod
     EMC2_CMOD_DIR=$EMC2_HOME/cmod
-    LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:$EMC2_HOME/configs"
+    LINUXCNC_CONFIG_PATH="~/stratumak/configs:$EMC2_HOME/configs"
     EMC2_NCFILES_DIR=$EMC2_HOME/nc_files
     EMC2_IMAGE_DIR=$EMC2_HOME
     HALLIB_DIR=$EMC2_HOME/lib/hallib
@@ -586,24 +559,24 @@ else
     EMC2_BIN_DIR=${prefix}/bin
     EMC2_LATENCY_SCRIPT=$EMC2_BIN_DIR/latency-test
     EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_BIN_DIR/latency-histogram
-    EMC2_SCRIPT=$EMC2_BIN_DIR/gomc-server
+    EMC2_SCRIPT=$EMC2_BIN_DIR/stmakd
     EMC2_SUFFIX=""
     EMC2_ICON=linuxcncicon
-    EMC2_TCL_DIR=${prefix}/lib/tcltk/linuxcnc
-    EMC2_TCL_LIB_DIR=${prefix}/lib/tcltk/linuxcnc
-    EMC2_LANG_DIR=${prefix}/lib/tcltk/linuxcnc/msgs
+    EMC2_TCL_DIR=${prefix}/lib/tcltk/stratumak
+    EMC2_TCL_LIB_DIR=${prefix}/lib/tcltk/stratumak
+    EMC2_LANG_DIR=${prefix}/lib/tcltk/stratumak/msgs
     EMC2_PO_DIR=${prefix}/share/locale
-    EMC2_HELP_DIR=${prefix}/share/doc/linuxcnc
+    EMC2_HELP_DIR=${prefix}/share/doc/stratumak
     case $MODULE_DIR in
-        */linuxcnc*) EMC2_RTLIB_DIR=$MODULE_DIR ;;
-	*) EMC2_RTLIB_DIR=$MODULE_DIR/linuxcnc
+        */stratumak*) EMC2_RTLIB_DIR=$MODULE_DIR ;;
+	*) EMC2_RTLIB_DIR=$MODULE_DIR/stratumak
     esac
-    EMC2_GOMOD_DIR=${prefix}/lib/linuxcnc/gomod
-    EMC2_CMOD_DIR=${prefix}/lib/linuxcnc/cmod
-    LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:/usr/local/etc/linuxcnc/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
-    EMC2_NCFILES_DIR=${prefix}/share/linuxcnc/ncfiles
-    EMC2_IMAGE_DIR=$(fe "$datadir")/linuxcnc
-    HALLIB_DIR=${prefix}/share/linuxcnc/hallib
+    EMC2_GOMOD_DIR=${prefix}/lib/stratumak/gomod
+    EMC2_CMOD_DIR=${prefix}/lib/stratumak/cmod
+    LINUXCNC_CONFIG_PATH="~/stratumak/configs:/usr/local/etc/stratumak/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
+    EMC2_NCFILES_DIR=${prefix}/share/stratumak/ncfiles
+    EMC2_IMAGE_DIR=$(fe "$datadir")/stratumak
+    HALLIB_DIR=${prefix}/share/stratumak/hallib
     # Everything an administrator can change after installation lives here, on
     # a filesystem the package manager does not own: the registered external
     # module sources, the build tree derived from them, a locally rebuilt
@@ -615,7 +588,7 @@ else
     # autoconf's default it would be ${prefix}/var, which is right for a
     # /usr/local install and wrong for a package.
     EMC2_STATE_DIR=$(fe "$localstatedir")/lib/stratumak
-    # The pristine, package-owned server. /usr/bin/gomc-server is a symlink
+    # The pristine, package-owned server. /usr/bin/stmakd is a symlink
     # chain onto this; a local rebuild replaces one link in the chain and never
     # this file. See EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.1.
     #
@@ -658,8 +631,8 @@ AC_SUBST([EMC2_ICON])
 AC_SUBST([HALLIB_DIR])
 
 # coordinate installed auxiliary applications (not RIP or deb dependent):
-LINUXCNC_AUX_GLADEVCP=/usr/share/linuxcnc/aux_gladevcp
-LINUXCNC_AUX_EXAMPLES=/usr/share/linuxcnc/aux_examples
+LINUXCNC_AUX_GLADEVCP=/usr/share/stratumak/aux_gladevcp
+LINUXCNC_AUX_EXAMPLES=/usr/share/stratumak/aux_examples
 AC_SUBST([LINUXCNC_AUX_GLADEVCP])
 AC_SUBST([LINUXCNC_AUX_EXAMPLES])
 
@@ -1680,7 +1653,7 @@ install with "sudo apt-get install npm"])
 fi
 AC_SUBST([HAVE_NODEJS])
 
-# WebKit2GTK for gmcui (native web UI container)
+# WebKit2GTK for stmakui (native web UI container)
 HAVE_WEBKIT2GTK=no
 PKG_CHECK_MODULES([WEBKIT2GTK], [webkit2gtk-4.1], [HAVE_WEBKIT2GTK=yes], [
     AC_MSG_ERROR([webkit2gtk-4.1 not found!
@@ -1688,80 +1661,32 @@ install with "sudo apt-get install libwebkit2gtk-4.1-dev"])
 ])
 AC_SUBST([HAVE_WEBKIT2GTK])
 
-# Check for IgH EtherCAT master library and libexpat (optional, for lcec driver)
-AC_ARG_ENABLE([ethercat],
-    AS_HELP_STRING([--enable-ethercat], [Build EtherCAT HAL driver (requires IgH EtherCAT master and libexpat)]),
-    [enable_ethercat=$enableval],
-    [enable_ethercat=auto])
-
+# EtherCAT is integral to stratuMAK, not optional: the IgH master is a
+# submodule of this project (hal/drivers/ethercat/master), built and installed
+# into the build tree by the ecmaster-* rules in src/Makefile, and ethercat.so
+# depends on that install having happened. There is therefore nothing to
+# detect and nothing to enable -- the headers and library are always at
+# $(ECMASTER_PREFIX), which is the build tree itself, reached through the
+# normal -I../include / -L../lib search path.
+#
+# The probe this replaces looked for a SYSTEM libethercat in /usr and
+# /usr/local, which the build never consults; it could not see the in-tree
+# copy, and its result (HAVE_ETHERCAT -> BUILD_ETHERCAT) gated nothing. On a
+# host that happened to have IgH installed it answered yes for the wrong
+# library and mixed that prefix's flags into a link against ours.
 ETHERCAT_CFLAGS=
-ETHERCAT_LIBS=
+ETHERCAT_LIBS="-lethercat"
 
-if test "x$enable_ethercat" != "xno"; then
-    AC_MSG_CHECKING([for IgH EtherCAT master library])
-    have_libethercat=no
-
-    # 1) Try pkg-config (default paths)
-    if pkg-config libethercat >/dev/null 2>&1; then
-        ETHERCAT_CFLAGS=`pkg-config libethercat --cflags`
-        ETHERCAT_LIBS=`pkg-config libethercat --libs`
-        have_libethercat=yes
-    fi
-
-    # 2) Try pkg-config with /usr/local/lib/pkgconfig
-    if test "x$have_libethercat" != "xyes"; then
-        _ec_pkg="/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-        if PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat >/dev/null 2>&1; then
-            ETHERCAT_CFLAGS=`PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat --cflags`
-            ETHERCAT_LIBS=`PKG_CONFIG_PATH="$_ec_pkg" pkg-config libethercat --libs`
-            have_libethercat=yes
-        fi
-    fi
-
-    # 3) Direct file detection (no .pc file at all)
-    if test "x$have_libethercat" != "xyes"; then
-        for _ec_pfx in /usr /usr/local; do
-            if test -f "$_ec_pfx/include/ecrt.h"; then
-                _ec_cflags=""
-                _ec_libs="-lethercat"
-                if test "$_ec_pfx" != "/usr"; then
-                    _ec_cflags="-I$_ec_pfx/include"
-                    _ec_libs="-L$_ec_pfx/lib -Wl,-rpath,$_ec_pfx/lib -lethercat"
-                fi
-                ETHERCAT_CFLAGS="$_ec_cflags"
-                ETHERCAT_LIBS="$_ec_libs"
-                have_libethercat=yes
-                break
-            fi
-        done
-    fi
-
-    if test "x$have_libethercat" = "xyes"; then
-        AC_MSG_RESULT([yes])
-    else
-        AC_MSG_RESULT([no])
-    fi
-
-    AC_CHECK_HEADER([expat.h], [have_expat_h=yes], [have_expat_h=no])
-    save_LIBS="$LIBS"
-    AC_CHECK_LIB([expat], [XML_ParserCreate], [have_libexpat=yes], [have_libexpat=no])
-    LIBS="$save_LIBS"
-
-    if test "x$have_libethercat" = "xyes" \
-       && test "x$have_expat_h" = "xyes" && test "x$have_libexpat" = "xyes"; then
-        HAVE_ETHERCAT=yes
-    else
-        HAVE_ETHERCAT=no
-    fi
-else
-    HAVE_ETHERCAT=no
+# libexpat is a genuine external dependency of the driver's XML config reader,
+# and the driver is not optional, so a missing expat is a hard error.
+AC_CHECK_HEADER([expat.h], [have_expat_h=yes], [have_expat_h=no])
+save_LIBS="$LIBS"
+AC_CHECK_LIB([expat], [XML_ParserCreate], [have_libexpat=yes], [have_libexpat=no])
+LIBS="$save_LIBS"
+if test "x$have_expat_h" != "xyes" || test "x$have_libexpat" != "xyes"; then
+    AC_MSG_ERROR([libexpat and its headers are required by the EtherCAT driver (Debian: libexpat1-dev)])
 fi
 
-if test "x$enable_ethercat" = "xyes" && test "x$HAVE_ETHERCAT" != "xyes"; then
-    AC_MSG_ERROR([EtherCAT support requested but IgH EtherCAT master library or libexpat not found])
-fi
-
-AC_SUBST([HAVE_ETHERCAT])
 AC_SUBST([ETHERCAT_CFLAGS])
 AC_SUBST([ETHERCAT_LIBS])
 
@@ -1825,9 +1750,8 @@ echo "    Task test module:           $HAVE_TASKTEST"
 echo "    SQLite persistence module:  $HAVE_PERSIST_SQLITE"
 echo "    Tool table module:          $HAVE_TOOLTABLE"
 echo "    Node.js (webapp build):     $HAVE_NODEJS"
-echo "    WebKit2GTK (gmcui):         $HAVE_WEBKIT2GTK"
+echo "    WebKit2GTK (stmakui):         $HAVE_WEBKIT2GTK"
 fi
-echo "  Build EtherCAT HAL driver:    $HAVE_ETHERCAT"
 echo ""
 echo "######################################################################"
 echo "#                LinuxCNC - Enhanced Machine Controller              #"
@@ -1869,7 +1793,7 @@ echo "#         sudo make install                                          #"
 fi
 echo "#                                                                    #"
 echo "#   To run the software type                                         #"
-echo "#         linuxcnc                                                   #"
+echo "#         stmakd path/to/your-config.ini                             #"
 echo "#                                                                    #"
 echo "######################################################################"
 echo ""

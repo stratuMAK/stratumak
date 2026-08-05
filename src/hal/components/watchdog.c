@@ -14,7 +14,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -23,27 +23,27 @@
 #define MAX_INPUTS 32
 
 typedef struct {
-    gomc_hal_bit_t *input;
+    stmak_hal_bit_t *input;
     int32_t c_secs, c_nsecs;
     int32_t t_secs, t_nsecs;
     int32_t old_bit;
 } wd_input_t;
 
 typedef struct {
-    gomc_hal_bit_t   *output;
-    gomc_hal_bit_t   *enable;
-    gomc_hal_float_t *timeout;  /* per-input timeout array (HAL params) */
+    stmak_hal_bit_t   *output;
+    stmak_hal_bit_t   *enable;
+    stmak_hal_float_t *timeout;  /* per-input timeout array (HAL params) */
 } wd_pins_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     int num_inputs;
     wd_pins_t *pins;
     wd_input_t *inputs;
-    gomc_hal_float_t **timeouts; /* array of pointers to per-input timeout pins */
+    stmak_hal_float_t **timeouts; /* array of pointers to per-input timeout pins */
     int32_t old_enable;
 } inst_t;
 
@@ -119,7 +119,7 @@ int New(const cmod_env_t *env, const char *name,
     inst_t *inst;
     int r, i;
     int num_inputs = 0;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     for (i = 0; i < argc; i++) {
         if (strncmp(argv[i], "num_inputs=", 11) == 0)
@@ -127,14 +127,14 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_inputs < 1 || num_inputs > MAX_INPUTS) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "num_inputs=%d out of range (1..%d)", num_inputs, MAX_INPUTS);
         return -EINVAL;
     }
 
     /* allocate instance (includes space for inputs and timeout pointers) */
     size_t sz = sizeof(inst_t) + sizeof(wd_input_t) * num_inputs +
-                sizeof(gomc_hal_float_t *) * num_inputs;
+                sizeof(stmak_hal_float_t *) * num_inputs;
     inst = env->rtapi->calloc(env->rtapi->ctx, sz);
     if (!inst) return -ENOMEM;
 
@@ -143,27 +143,27 @@ int New(const cmod_env_t *env, const char *name,
     strncpy(inst->name, name, sizeof(inst->name) - 1);
     inst->num_inputs = num_inputs;
     inst->inputs = (wd_input_t *)((char *)inst + sizeof(inst_t));
-    inst->timeouts = (gomc_hal_float_t **)((char *)inst->inputs +
+    inst->timeouts = (stmak_hal_float_t **)((char *)inst->inputs +
                      sizeof(wd_input_t) * num_inputs);
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->pins = env->hal->malloc(env->hal->ctx,
-                                  sizeof(wd_pins_t) + sizeof(gomc_hal_bit_t *) * num_inputs +
-                                  sizeof(gomc_hal_float_t *) * num_inputs);
+                                  sizeof(wd_pins_t) + sizeof(stmak_hal_bit_t *) * num_inputs +
+                                  sizeof(stmak_hal_float_t *) * num_inputs);
     if (!inst->pins) goto err;
     memset(inst->pins, 0, sizeof(wd_pins_t));
 
     /* per-input pins */
     for (i = 0; i < num_inputs; i++) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN,
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN,
                                   &inst->inputs[i].input, inst->comp_id,
                                   "%s.input-%d", name, i);
         if (r != 0) goto err;
 
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO,
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO,
                                     &inst->timeouts[i], inst->comp_id,
                                     "%s.timeout-%d", name, i);
         if (r != 0) goto err;
@@ -171,11 +171,11 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     /* global pins */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &inst->pins->output,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &inst->pins->output,
                               inst->comp_id, "%s.ok-out", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &inst->pins->enable,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &inst->pins->enable,
                               inst->comp_id, "%s.enable-in", name);
     if (r != 0) goto err;
 

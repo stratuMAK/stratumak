@@ -3109,10 +3109,10 @@ msgstr ""
 #, no-wrap
 msgid ""
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 msgstr ""
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 
 #. type: Plain text
 #: src/code/adding-configs.adoc:19
@@ -5271,14 +5271,14 @@ msgstr "Befehle"
 msgid ""
 "This section simply lists all of the commands that can be sent to the motion "
 "module, along with detailed explanations of what they do. The command names "
-"are defined in a large typedef enum in {linuxcnc}/src/emc/motion/motion.h, "
+"are defined in a large typedef enum in {linuxcnc}/src/cnc/motion/motion.h, "
 "called cmd_code_t. (Note that in the code, each command name starts with "
 "'EMCMOT_', which is omitted here.)"
 msgstr ""
 "In diesem Abschnitt werden einfach alle Befehle aufgelistet, die an das "
 "Bewegungsmodul gesendet werden können, zusammen mit ausführlichen "
 "Erklärungen zu ihrer Funktion. Die Befehlsnamen sind in einem großen typedef "
-"enum in {linuxcnc}/src/emc/motion/motion.h mit dem Namen cmd_code_t "
+"enum in {linuxcnc}/src/cnc/motion/motion.h mit dem Namen cmd_code_t "
 "definiert. (Beachten Sie, dass im Code jeder Befehlsname mit 'EMCMOT_' "
 "beginnt, was hier weggelassen wird.)"
 
@@ -7431,10 +7431,10 @@ msgstr ""
 #. type: Plain text
 #: src/code/code-notes.adoc:1125
 msgid ""
-"add the definition of the EMC_IO_GENERIC class to emc2/src/emc/nml_intf/"
+"add the definition of the EMC_IO_GENERIC class to emc2/src/cnc/nml_intf/"
 "emc.hh"
 msgstr ""
-"Hinzufügen der Definition der Klasse EMC_IO_GENERIC zu emc2/src/emc/nml_intf/"
+"Hinzufügen der Definition der Klasse EMC_IO_GENERIC zu emc2/src/cnc/nml_intf/"
 "emc.hh"
 
 #. type: Plain text
@@ -7446,33 +7446,33 @@ msgstr ""
 #. type: Plain text
 #: src/code/code-notes.adoc:1127
 msgid ""
-"(I chose 1605, because it was available) to emc2/src/emc/nml_intf/emc.hh"
+"(I chose 1605, because it was available) to emc2/src/cnc/nml_intf/emc.hh"
 msgstr ""
-"(ich habe 1605 gewählt, weil es verfügbar war) nach emc2/src/emc/nml_intf/"
+"(ich habe 1605 gewählt, weil es verfügbar war) nach emc2/src/cnc/nml_intf/"
 "emc.hh"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1128
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/emc/nml_intf/emc.cc"
+"add case EMC_IO_GENERIC_TYPE to emcFormat in emc2/src/cnc/nml_intf/emc.cc"
 msgstr ""
-"Fall EMC_IO_GENERIC_TYPE zu emcFormat in emc2/src/emc/nml_intf/emc.cc "
+"Fall EMC_IO_GENERIC_TYPE zu emcFormat in emc2/src/cnc/nml_intf/emc.cc "
 "hinzufügen"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1129
 msgid ""
-"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/emc/nml_intf/"
+"add case EMC_IO_GENERIC_TYPE to emc_symbol_lookup in emc2/src/cnc/nml_intf/"
 "emc.cc"
 msgstr ""
-"Fall EMC_IO_GENERIC_TYPE zu emc_symbol_lookup in emc2/src/emc/nml_intf/"
+"Fall EMC_IO_GENERIC_TYPE zu emc_symbol_lookup in emc2/src/cnc/nml_intf/"
 "emc.cc hinzufügen"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1130
-msgid "add EMC_IO_GENERIC::update function to emc2/src/emc/nml_intf/emc.cc"
+msgid "add EMC_IO_GENERIC::update function to emc2/src/cnc/nml_intf/emc.cc"
 msgstr ""
-"EMC_IO_GENERIC::update-Funktion in emc2/src/emc/nml_intf/emc.cc hinzufügen"
+"EMC_IO_GENERIC::update-Funktion in emc2/src/cnc/nml_intf/emc.cc hinzufügen"
 
 #. type: Plain text
 #: src/code/code-notes.adoc:1134
@@ -8356,10 +8356,10 @@ msgstr "interp"
 #: src/code/code-notes.adoc:1342
 msgid ""
 "+settings+ is of type +settings+, defined as +struct setup_struct+ in +src/"
-"emc/rs274ngc/interp_internal.hh+."
+"cnc/rs274ngc/interp_internal.hh+."
 msgstr ""
 "+settings+ ist vom Typ +settings+, definiert als +struct setup_struct+ ist "
-"in +src/emc/rs274ngc/interp_internal.hh+."
+"in +src/cnc/rs274ngc/interp_internal.hh+."
 
 #. type: Labeled list
 #: src/code/code-notes.adoc:1343
@@ -8519,7 +8519,7 @@ msgstr "settings.tool_table"
 #. type: Plain text
 #: src/code/code-notes.adoc:1387
 msgid ""
-"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/emc/"
+"This is an array of +CANON_TOOL_TABLE+ structures (defined in +src/cnc/"
 "nml_intf/emctool.h+), with +CANON_POCKETS_MAX+ entries.  Indexed by \"pocket "
 "number\", aka \"slot number\".  Index 0 is the spindle, indexes 1 to "
 "(CANON_POCKETS_MAX-1) are the pockets in the tool changer.  On a random "
@@ -8527,7 +8527,7 @@ msgid ""
 "pockets are meaningless; the pocket numbers in the tool table file are "
 "ignored and tools are assigned to +tool_table+ slots sequentially."
 msgstr ""
-"Dies ist ein Array von +CANON_TOOL_TABLE+ Strukturen (definiert in +src/emc/"
+"Dies ist ein Array von +CANON_TOOL_TABLE+ Strukturen (definiert in +src/cnc/"
 "nml_intf/emctool.h+), mit +CANON_POCKETS_MAX+ Einträgen.  Indiziert durch "
 "\"Taschen-Nummer\", auch bekannt als \"Slot-Nummer\".  Index 0 ist die "
 "Spindel, die Indizes 1 bis (CANON_POCKETS_MAX-1) sind die Plätze im "
@@ -8682,12 +8682,12 @@ msgstr ""
 msgid ""
 "Things are not this way currently in the joints-axes branch, but deviations "
 "from this design are considered bugs.  For an example of such a bug, see the "
-"treatment of axes in src/emc/ini/initraj.cc:loadTraj().  There are "
+"treatment of axes in src/cnc/ini/initraj.cc:loadTraj().  There are "
 "undoubtedly more, and I need your help to find them and fix them."
 msgstr ""
 "Im Joints-Axes-Entwicklungszweig sind die Dinge derzeit nicht so, aber "
 "Abweichungen von diesem Design werden als Fehler betrachtet. Ein Beispiel "
-"für einen solchen Fehler ist die Behandlung von Achsen in src/emc/ini/"
+"für einen solchen Fehler ist die Behandlung von Achsen in src/cnc/ini/"
 "initraj.cc:loadTraj().  Es gibt zweifellos noch mehr, und ich brauche Ihre "
 "Hilfe, um sie zu finden und zu beheben."
 
@@ -8867,14 +8867,14 @@ msgid ""
 "Note that the clone command put the local LinuxCNC repo in a directory "
 "called `linuxcnc-dev`, instead of the default `linuxcnc`.  This is because "
 "the LinuxCNC software by default expects configs and G-code programs in a "
-"directory called `$HOME/linuxcnc`, and having the git repo there too is "
+"directory called `$HOME/stratumak`, and having the git repo there too is "
 "confusing."
 msgstr ""
 "Beachten Sie, dass der Clone-Befehl das lokale LinuxCNC Repo in ein "
 "Verzeichnis namens `linuxcnc-dev` legt, anstatt des Standardverzeichnisses "
 "`linuxcnc`.  Dies wurde so gewählt, da die LinuxCNC-Software standardmäßig "
 "die Configurations-Dateien (.ini) und G-Code-Programme in einem Verzeichnis "
-"in dem Pfad `$HOME/linuxcnc` erwartet. Dies soll Verwirrungen zwischen der "
+"in dem Pfad `$HOME/stratumak` erwartet. Dies soll Verwirrungen zwischen der "
 "Entwickung im Git Repository und der Ausführung helfen zu vermeiden."
 
 #. type: Plain text
@@ -9604,10 +9604,10 @@ msgstr "NML-Nachrichten"
 #, no-wrap
 msgid ""
 "List of NML messages.\n"
-"For details see `src/emc/nml_intf/emc.hh`."
+"For details see `src/cnc/nml_intf/emc.hh`."
 msgstr ""
 "Liste der NML-Nachrichten.\n"
-"Für Einzelheiten siehe 'src/emc/nml_intf/emc.hh'."
+"Für Einzelheiten siehe 'src/cnc/nml_intf/emc.hh'."
 
 #. type: Title ==
 #: src/code/nml-messages.adoc:11
@@ -14246,8 +14246,8 @@ msgstr "Beispiel:"
 #. type: delimited block -
 #: src/common/linux-faq.adoc:60
 #, no-wrap
-msgid "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
-msgstr "linuxcnc /home/mill/linuxcnc/config/mill/mill.ini\n"
+msgid "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
+msgstr "linuxcnc /home/mill/stratumak/config/mill/mill.ini\n"
 
 #. type: Plain text
 #: src/common/linux-faq.adoc:63
@@ -14653,8 +14653,8 @@ msgstr "Mit diesen Informationen setzen Sie den Befehl wie folgt zusammen:"
 #. type: delimited block -
 #: src/common/linux-faq.adoc:231
 #, no-wrap
-msgid "find /home/joe/linuxcnc -name \\*.ini -print\n"
-msgstr "find /home/joe/linuxcnc -name \\*.ini -print\n"
+msgid "find /home/joe/stratumak -name \\*.ini -print\n"
+msgstr "find /home/joe/stratumak -name \\*.ini -print\n"
 
 #. type: Plain text
 #: src/common/linux-faq.adoc:238
@@ -15389,10 +15389,10 @@ msgstr ""
 #. type: Plain text
 #: src/config/core-components.adoc:133
 msgid ""
-"'motion.motion-type' - (s32, out) These values are from src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) These values are from src/cnc/nml_intf/"
 "motion_types.h"
 msgstr ""
-"'motion.motion-type' - (s32, out) Diese Werte sind aus src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) Diese Werte sind aus src/cnc/nml_intf/"
 "motion_types.h"
 
 #. type: TP
@@ -17028,13 +17028,13 @@ msgid ""
 "#INCLUDE ../parallel/joint_1.inc\n"
 "#INCLUDE below/joint_2.inc\n"
 "#INCLUDE /home/myusername/myincludes/display.inc\n"
-"#INCLUDE ~/linuxcnc/myincludes/rs274ngc.inc\n"
+"#INCLUDE ~/stratumak/myincludes/rs274ngc.inc\n"
 msgstr ""
 "#INCLUDE joint_0.inc\n"
 "#INCLUDE ../parallel/joint_1.inc\n"
 "#INCLUDE below/joint_2.inc\n"
 "#INCLUDE /home/myusername/myincludes/display.inc\n"
-"#INCLUDE ~/linuxcnc/myincludes/rs274ngc.inc\n"
+"#INCLUDE ~/stratumak/myincludes/rs274ngc.inc\n"
 
 #. type: Plain text
 #: src/config/ini-config.adoc:216
@@ -17107,16 +17107,16 @@ msgstr ""
 #| msgid ""
 #| "'DEBUG = 0' - Debug level 0 means no messages will be printed when "
 #| "LinuxCNC is run from a <<faq:terminal,terminal>>. Debug flags are usually "
-#| "only useful to developers. See src/emc/nml_intf/debugflags.h for other "
+#| "only useful to developers. See src/cnc/nml_intf/debugflags.h for other "
 #| "settings."
 msgid ""
 "`DEBUG = 0` - Debug level 0 means no messages will be printed when LinuxCNC "
 "is run from a <<faq:terminal,terminal>>.  Debug flags are usually only "
-"useful to developers. See src/emc/nml_intf/debugflags.h for other settings."
+"useful to developers. See src/cnc/nml_intf/debugflags.h for other settings."
 msgstr ""
 "'DEBUG = 0' - Debug-Level 0 bedeutet, dass keine Meldungen ausgegeben "
 "werden, wenn LinuxCNC von einem <<faq:terminal,Terminal>> ausgeführt wird. "
-"Debug-Flags sind normalerweise nur für Entwickler nützlich. Siehe src/emc/"
+"Debug-Flags sind normalerweise nur für Entwickler nützlich. Siehe src/cnc/"
 "nml_intf/debugflags.h für andere Einstellungen."
 
 #. type: Block title
@@ -17472,17 +17472,17 @@ msgstr ""
 #: src/config/ini-config.adoc:288
 #, fuzzy
 #| msgid ""
-#| "'PROGRAM_PREFIX = ~/linuxcnc/nc_files' - The default location for G-code "
+#| "'PROGRAM_PREFIX = ~/stratumak/nc_files' - The default location for G-code "
 #| "files and the location for user-defined M-codes. This location is "
 #| "searched for the file name before the subroutine path and user M path if "
 #| "specified in the [RS274NGC] section."
 msgid ""
-"`PROGRAM_PREFIX = ~/linuxcnc/nc_files` - The default directory for G-code "
+"`PROGRAM_PREFIX = ~/stratumak/nc_files` - The default directory for G-code "
 "files, named subroutines, and user-defined M-codes.  The `PROGRAM_PREFIX` "
 "directory is searched before the directories listed in "
 "`[RS274]SUBROUTINE_PATH` and `[RS274]USER_M_PATH`."
 msgstr ""
-"'PROGRAM_PREFIX = ~/linuxcnc/nc_files' - Der Standardspeicherort für G-Code-"
+"'PROGRAM_PREFIX = ~/stratumak/nc_files' - Der Standardspeicherort für G-Code-"
 "Dateien und der Speicherort für benutzerdefinierte M-Codes. Dieser "
 "Speicherort wird nach dem Dateinamen vor dem Unterprogramm-Pfad und dem "
 "Benutzer-M-Pfad durchsucht, wenn er im Abschnitt [RS274NGC] angegeben wurde."
@@ -18271,10 +18271,10 @@ msgstr ""
 #, no-wrap
 msgid ""
 "PROGRAM_EXTENSION = .gcode 3D Printer\n"
-"  gcode = /home/mill/linuxcnc/convert.py\n"
+"  gcode = /home/mill/stratumak/convert.py\n"
 msgstr ""
 "PROGRAM_EXTENSION = .gcode 3D Printer\n"
-"  gcode = /home/mill/linuxcnc/convert.py\n"
+"  gcode = /home/mill/stratumak/convert.py\n"
 
 #. type: Plain text
 #: src/config/ini-config.adoc:445
@@ -23882,14 +23882,14 @@ msgstr ""
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:19
-msgid "The LinuxCNC directory is located at '/home/user-name/linuxcnc'."
+msgid "The LinuxCNC directory is located at '/home/user-name/stratumak'."
 msgstr ""
-"Das LinuxCNC-Verzeichnis befindet sich unter ‚/home/benutzername/linuxcnc‘."
+"Das LinuxCNC-Verzeichnis befindet sich unter ‚/home/benutzername/stratumak‘."
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:20
 msgid ""
-"The Configuration directories are located at '/home/user-name/linuxcnc/"
+"The Configuration directories are located at '/home/user-name/stratumak/"
 "configs'."
 msgstr ""
 "Die Konfigurationsverzeichnisse befinden sich unter '/home/benutzername/"
@@ -23898,17 +23898,17 @@ msgstr ""
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:21
 msgid ""
-"Configuration files are located at '/home/user-name/linuxcnc/configs/name-of-"
+"Configuration files are located at '/home/user-name/stratumak/configs/name-of-"
 "config'."
 msgstr ""
-"Die Konfigurationsdateien befinden sich unter '/home/benutzername/linuxcnc/"
+"Die Konfigurationsdateien befinden sich unter '/home/benutzername/stratumak/"
 "configs/name-of-config'."
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:22
-msgid "G-code files are located at /home/user-name/linuxcnc/nc_files'."
+msgid "G-code files are located at /home/user-name/stratumak/nc_files'."
 msgstr ""
-"Die G-Code-Dateien befinden sich unter /home/benutzername/linuxcnc/nc_files'."
+"Die G-Code-Dateien befinden sich unter /home/benutzername/stratumak/nc_files'."
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:25
@@ -23921,38 +23921,38 @@ msgstr ""
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:27
-msgid "'/home/fred/linuxcnc'"
-msgstr "'/home/fred/linuxcnc'"
+msgid "'/home/fred/stratumak'"
+msgstr "'/home/fred/stratumak'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:28
-msgid "'/home/fred/linuxcnc/nc_files'"
-msgstr "'/home/fred/linuxcnc/nc_files'"
+msgid "'/home/fred/stratumak/nc_files'"
+msgstr "'/home/fred/stratumak/nc_files'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:29
-msgid "'/home/fred/linuxcnc/configs/mill'"
-msgstr "'/home/fred/linuxcnc/configs/mill'"
+msgid "'/home/fred/stratumak/configs/mill'"
+msgstr "'/home/fred/stratumak/configs/mill'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:30
-msgid "'/home/fred/linuxcnc/configs/mill/mill.ini'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.ini'"
+msgid "'/home/fred/stratumak/configs/mill/mill.ini'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.ini'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:31
-msgid "'/home/fred/linuxcnc/configs/mill/mill.hal'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.hal'"
+msgid "'/home/fred/stratumak/configs/mill/mill.hal'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.hal'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:32
-msgid "'/home/fred/linuxcnc/configs/mill/mill.var'"
-msgstr "'/home/fred/linuxcnc/configs/mill/mill.var'"
+msgid "'/home/fred/stratumak/configs/mill/mill.var'"
+msgstr "'/home/fred/stratumak/configs/mill/mill.var'"
 
 #. type: Plain text
 #: src/config/integrator-concepts.adoc:33
-msgid "'/home/fred/linuxcnc/configs/mill/tool.tbl'"
-msgstr "'/home/fred/linuxcnc/configs/mill/tool.tbl'"
+msgid "'/home/fred/stratumak/configs/mill/tool.tbl'"
+msgstr "'/home/fred/stratumak/configs/mill/tool.tbl'"
 
 #. type: Title ===
 #: src/config/integrator-concepts.adoc:34
@@ -30398,11 +30398,11 @@ msgstr "*interpreter_errcode*"
 msgid ""
 "'(returns integer)' - current RS274NGC interpreter return code. One of "
 "INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE, "
-"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/emc/nml_intf/interp_return.hh"
+"INTERP_FILE_NOT_OPEN, INTERP_ERROR.  see src/cnc/nml_intf/interp_return.hh"
 msgstr ""
 "'(gibt ganze Zahl zurück)' - aktueller RS274NGC-Interpreter-Rückgabecode. "
 "Einer von INTERP_OK, INTERP_EXIT, INTERP_EXECUTE_FINISH, INTERP_ENDFILE, "
-"INTERP_FILE_NOT_OPEN, INTERP_ERROR. siehe src/emc/nml_intf/interp_return.hh"
+"INTERP_FILE_NOT_OPEN, INTERP_ERROR. siehe src/cnc/nml_intf/interp_return.hh"
 
 #. type: Labeled list
 #: src/config/python-interface.adoc:226
@@ -32729,9 +32729,9 @@ msgstr "Der Typ `linuxcnc.positionlogger`"
 #. type: Plain text
 #: src/config/python-interface.adoc:902
 msgid ""
-"Some usage hints can be gleaned from `src/emc/usr_intf/gremlin/gremlin.py`."
+"Some usage hints can be gleaned from `src/cnc/usr_intf/gremlin/gremlin.py`."
 msgstr ""
-"Einige Verwendungshinweise können von 'src/emc/usr_intf/gremlin/gremlin.py' "
+"Einige Verwendungshinweise können von 'src/cnc/usr_intf/gremlin/gremlin.py' "
 "entnommen werden."
 
 #. type: Title ===
@@ -62407,11 +62407,11 @@ msgstr "M110 Beispieldatei"
 #, no-wrap
 msgid ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png\n"
+"eog /home/john/stratumak/nc_files/message.png\n"
 "exit 0\n"
 msgstr ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png\n"
+"eog /home/john/stratumak/nc_files/message.png\n"
 "exit 0\n"
 
 #. type: Plain text
@@ -62434,11 +62434,11 @@ msgstr "M110 Beispielanzeige und Weiterfahrt"
 #, no-wrap
 msgid ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png &\n"
+"eog /home/john/stratumak/nc_files/message.png &\n"
 "exit 0\n"
 msgstr ""
 "#!/bin/bash\n"
-"eog /home/john/linuxcnc/nc_files/message.png &\n"
+"eog /home/john/stratumak/nc_files/message.png &\n"
 "exit 0\n"
 
 #. type: Title =
@@ -64709,7 +64709,7 @@ msgid ""
 "parameters except numbered parameters in the current persistent range "
 "footnoteref:[persistent_range,The range of persistent parameters may change "
 "as development progresses. This range is currently 5161- 5390. It is defined "
-"in the '_required_parameters array' in file the src/emc/rs274ngc/"
+"in the '_required_parameters array' in file the src/cnc/rs274ngc/"
 "interp_array.cc .] are volatile.  Persistent parameters are saved in "
 "the .var file and restored to their previous values when LinuxCNC is started "
 "again. Volatile numbered parameters are reset to zero."
@@ -64719,7 +64719,7 @@ msgstr ""
 "persistenten Bereich footnoteref:[persistent_range,Der Bereich der "
 "persistenten Parameter kann sich mit fortschreitender Entwicklung ändern. "
 "Dieser Bereich liegt derzeit zwischen 5161 und 5390. Er ist im Array "
-"'_required_parameters' in der Datei src/emc/rs274ngc/interp_array.cc "
+"'_required_parameters' in der Datei src/cnc/rs274ngc/interp_array.cc "
 "definiert.] sind flüchtig.  Persistente Parameter werden in der .var-Datei "
 "gespeichert und auf ihre vorherigen Werte zurückgesetzt, wenn LinuxCNC "
 "erneut gestartet wird. Flüchtige nummerierte Parameter werden auf Null "
@@ -64792,7 +64792,7 @@ msgid ""
 "A numbered parameter is the pound character '#' followed by an integer "
 "between 1 and (currently) 5602 footnote:[The RS274/NGC interpreter maintains "
 "an array of numbered parameters. Its size is defined by the symbol "
-"'RS274NGC_MAX_PARAMETERS' in the file src/emc/rs274ngc/interp_internal.hh). "
+"'RS274NGC_MAX_PARAMETERS' in the file src/cnc/rs274ngc/interp_internal.hh). "
 "This number of numerical parameters may also increase as development adds "
 "support for new parameters.]. The parameter is referred to by this integer, "
 "and its value is whatever number is stored in the parameter."
@@ -64801,7 +64801,7 @@ msgstr ""
 "pound), gefolgt von einer ganzen Zahl zwischen 1 und (derzeit) 5602 footnote:"
 "[Der RS274/NGC-Interpreter verwaltet ein Array mit nummerierten Parametern. "
 "Seine Größe wird durch das Symbol 'RS274NGC_MAX_PARAMETERS' in der Datei src/"
-"emc/rs274ngc/interp_internal.hh) definiert. Diese Anzahl numerischer "
+"cnc/rs274ngc/interp_internal.hh) definiert. Diese Anzahl numerischer "
 "Parameter kann sich auch erhöhen, wenn die Entwicklung die Unterstützung für "
 "neue Parameter hinzufügt.]. Der Parameter wird durch diese Ganzzahl "
 "referenziert, und sein Wert ist die Zahl, die im Parameter gespeichert ist."
@@ -66474,20 +66474,20 @@ msgstr "Gleichheit und Gleitkommawerte"
 #| "precision. Therefore, testing for equality or inequality of two floating-"
 #| "point values is inherently problematic. The interpreter solves this "
 #| "problem by considering values equal if their absolute difference is less "
-#| "than 0.0001 (this value is defined as 'TOLERANCE_EQUAL' in src/emc/"
+#| "than 0.0001 (this value is defined as 'TOLERANCE_EQUAL' in src/cnc/"
 #| "rs274ngc/interp_internal.hh)."
 msgid ""
 "Testing for equality or inequality of two double-precision floating-point "
 "values is inherently problematic.  The interpreter solves this problem by "
 "considering values equal if their absolute difference is less than 1e-6 "
-"(this value is defined as 'TOLERANCE_EQUAL' in src/emc/rs274ngc/"
+"(this value is defined as 'TOLERANCE_EQUAL' in src/cnc/rs274ngc/"
 "interp_internal.hh)."
 msgstr ""
 "Die Sprache RS274/NGC unterstützt nur Fließkommazahlen mit endlicher "
 "Genauigkeit. Daher ist die Prüfung auf Gleichheit oder Ungleichheit zweier "
 "Fließkommazahlen von Natur aus problematisch. Der Interpreter löst dieses "
 "Problem, indem er Werte als gleich betrachtet, wenn ihre absolute Differenz "
-"kleiner als 0,0001 ist (dieser Wert ist als 'TOLERANCE_EQUAL' in src/emc/"
+"kleiner als 0,0001 ist (dieser Wert ist als 'TOLERANCE_EQUAL' in src/cnc/"
 "rs274ngc/interp_internal.hh definiert)."
 
 #. type: Index entry
@@ -72124,7 +72124,7 @@ msgstr ""
 #: src/getting-started/running-linuxcnc.adoc:120
 msgid ""
 "When you select a configuration from the Sample Configurations section, it "
-"will automatically place a copy of that config in the ~/linuxcnc/configs "
+"will automatically place a copy of that config in the ~/stratumak/configs "
 "directory."
 msgstr ""
 "Wenn Sie eine Konfiguration aus dem Abschnitt Beispielkonfigurationen "
@@ -72197,12 +72197,12 @@ msgstr "Konfigurationsressourcen"
 #: src/getting-started/running-linuxcnc.adoc:150
 msgid ""
 "The Configuration Selector copies all files needed for a configuration to a "
-"new subdirectory of ~/linuxcnc/configs (equivalently: /home/username/"
+"new subdirectory of ~/stratumak/configs (equivalently: /home/username/"
 "linuxcnc/configs).  Each created directory will include at least one INI "
 "file (iniflename.ini)  that is used to describe a specific configuration."
 msgstr ""
 "Die Konfigurationsauswahl kopiert alle für eine Konfiguration benötigten "
-"Dateien in ein neues Unterverzeichnis von ~/linuxcnc/configs (äquivalent: /"
+"Dateien in ein neues Unterverzeichnis von ~/stratumak/configs (äquivalent: /"
 "home/username/linuxcnc/configs).  Jedes erstellte Verzeichnis enthält "
 "mindestens eine INI-Datei (iniflename.ini), die zur Beschreibung einer "
 "bestimmten Konfiguration verwendet wird."
@@ -72266,10 +72266,10 @@ msgstr ""
 #: src/getting-started/running-linuxcnc.adoc:178
 #, no-wrap
 msgid ""
-"cd ~/linuxcnc/configs/name_of_configuration\n"
+"cd ~/stratumak/configs/name_of_configuration\n"
 "cp hallib/core_sim.hal core_sim.hal\n"
 msgstr ""
-"cd ~/linuxcnc/configs/name_of_configuration\n"
+"cd ~/stratumak/configs/name_of_configuration\n"
 "cp hallib/core_sim.hal core_sim.hal\n"
 
 #. type: Index entry
@@ -73293,7 +73293,7 @@ msgstr ""
 #: src/getting-started/updating-linuxcnc.adoc:194
 msgid ""
 "In the extremely unlikely event that you are using `canterp`, know that the "
-"module has moved from `/usr/lib/libcanterp.so` to `/usr/lib/linuxcnc/"
+"module has moved from `/usr/lib/libcanterp.so` to `/usr/lib/stratumak/"
 "canterp.so`, and the `[TASK]INTERPRETER` setting correspondingly needs to "
 "change from `libcanterp.so` to `canterp.so`."
 msgstr ""
@@ -87904,19 +87904,19 @@ msgstr ""
 #, no-wrap
 msgid ""
 "$ linuxcnc_var LINUXCNC_AUX_GLADEVCP\n"
-"/usr/share/linuxcnc/aux_gladevcp\n"
+"/usr/share/stratumak/aux_gladevcp\n"
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 msgstr ""
 "$ linuxcnc_var LINUXCNC_AUX_GLADEVCP\n"
-"/usr/share/linuxcnc/aux_gladevcp\n"
+"/usr/share/stratumak/aux_gladevcp\n"
 "$ linuxcnc_var LINUXCNC_AUX_EXAMPLES\n"
-"/usr/share/linuxcnc/aux_examples\n"
+"/usr/share/stratumak/aux_examples\n"
 
 #. type: Plain text
 #: src/gui/gladevcp.adoc:2815
 msgid ""
-"The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/linuxcnc/"
+"The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/stratumak/"
 "aux_gladevcp) specifies the location for a GladeVCP-compatible Python "
 "file(s) and related subdirectories.  The Python file is imported at GladeVCP "
 "startup and made available to subsequent GladeVCP applications including "
@@ -87932,7 +87932,7 @@ msgstr ""
 #. type: Plain text
 #: src/gui/gladevcp.adoc:2818
 msgid ""
-"The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/linuxcnc/"
+"The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/stratumak/"
 "aux_examples) specifies the location of example configuration subdirectories "
 "used for auxiliary applications.  See the getting-started/running-linuxcnc "
 "section for 'Adding Configuration Selection Items'."
@@ -87987,7 +87987,7 @@ msgstr ""
 "Dateien, die in Verzeichnissen gefunden werden, die mit der "
 "Umgebungsvariablen GLADEVCP_EXTRAS angegeben sind, ersetzen gleichnamige "
 "Dateien in Unterverzeichnissen des durch LINUXNC_AUX_GLADEVCP angegebenen "
-"Systemverzeichnisses (z. B. /usr/share/linuxcnc/aux_gladevcp).  Diese "
+"Systemverzeichnisses (z. B. /usr/share/stratumak/aux_gladevcp).  Diese "
 "Bestimmung ermöglicht es einem Entwickler, eine Anwendung zu testen, indem "
 "er GLADEVCP_EXTRAS exportiert, um ein privates Anwendungsverzeichnis "
 "anzugeben, ohne ein im System installiertes Anwendungsverzeichnis zu "
@@ -95684,7 +95684,7 @@ msgstr "RIP-kompilierte Befehle"
 #| "to the top of the LinuxCNC folder. Set up the environment by entering "
 #| "'. ./scripts/rip-environment' now enter 'glade', you see a bunch of "
 #| "warnings in the terminal that you can ignore and the editor should open. "
-#| "The stock Gscreen Glade file is in: src/emc/usr_intf/gscreen/ sample "
+#| "The stock Gscreen Glade file is in: src/cnc/usr_intf/gscreen/ sample "
 #| "skins are in /share/gscreen/skins/. This should be copied to a "
 #| "configuration folder. Or you can make a clean-sheet Glade file by saving "
 #| "it in a configuration folder."
@@ -95694,7 +95694,7 @@ msgid ""
 "the top of the LinuxCNC folder.  Set up the environment by entering '. ./"
 "scripts/rip-environment' now enter 'glade', you see a bunch of warnings in "
 "the terminal that you can ignore and the editor should open.  The stock "
-"Gscreen Glade file is in: src/emc/usr_intf/gscreen/ sample skins are in /"
+"Gscreen Glade file is in: src/cnc/usr_intf/gscreen/ sample skins are in /"
 "share/gscreen/skins/.  This should be copied to a configuration folder.  Or "
 "you can make a clean-sheet Glade file by saving it in a configuration folder."
 msgstr ""
@@ -95704,7 +95704,7 @@ msgstr ""
 "die Umgebung ein, indem Sie '. ./scripts/rip-environment' eingeben. Geben "
 "Sie nun 'glade' ein, Sie sehen eine Reihe von Warnungen im Terminal, die Sie "
 "ignorieren können und der Editor sollte sich öffnen. Die Standard-Gscreen-"
-"Gladedatei befindet sich in: src/emc/usr_intf/gscreen/ Beispielskins "
+"Gladedatei befindet sich in: src/cnc/usr_intf/gscreen/ Beispielskins "
 "befinden sich in /share/gscreen/skins/. Diese sollte in einen "
 "Konfigurationsordner kopiert werden. Sie können auch eine saubere Glade-"
 "Datei erstellen, indem Sie sie in einem Konfigurationsordner speichern."
@@ -103208,13 +103208,13 @@ msgstr ""
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:504
-msgid "Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/linuxcnc/nc_files`"
-msgstr "Beispiel: `[DISPLAY]PROGRAM_PREFIX = /home/myname/linuxcnc/nc_files`"
+msgid "Example: `[DISPLAY]PROGRAM_PREFIX = /home/myname/stratumak/nc_files`"
+msgstr "Beispiel: `[DISPLAY]PROGRAM_PREFIX = /home/myname/stratumak/nc_files`"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:505
-msgid "Example: `[DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files`"
-msgstr "Beispiel: `[DISPLAY]PROGRAM_PREFIX = ~/linuxcnc/nc_files`"
+msgid "Example: `[DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files`"
+msgstr "Beispiel: `[DISPLAY]PROGRAM_PREFIX = ~/stratumak/nc_files`"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:506
@@ -103348,10 +103348,10 @@ msgstr ""
 #. type: Plain text
 #: src/gui/ngcgui.adoc:545
 msgid ""
-"In the following example, files in /home/myname/linuxcnc/mysubs will be "
+"In the following example, files in /home/myname/stratumak/mysubs will be "
 "found before files in ../../nc_files/ngcgui_lib."
 msgstr ""
-"Im folgenden Beispiel werden die Dateien in /home/myname/linuxcnc/mysubs vor "
+"Im folgenden Beispiel werden die Dateien in /home/myname/stratumak/mysubs vor "
 "den Dateien in ../../nc_files/ngcgui_lib gefunden."
 
 #. type: Block title
@@ -103363,8 +103363,8 @@ msgstr "Beispiel für das Hinzufügen eines Benutzerverzeichnisses:"
 #. type: delimited block -
 #: src/gui/ngcgui.adoc:550
 #, no-wrap
-msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
-msgstr "[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs\n"
+msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
+msgstr "[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs\n"
 
 #. type: Plain text
 #: src/gui/ngcgui.adoc:557
@@ -110556,9 +110556,9 @@ msgstr ""
 #, no-wrap
 msgid ""
 "[RS274NGC]\n"
-"SUBROUTINE_PATH = :~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs; \\\n"
-"~/linuxcnc/nc_files/examples/probe/basic_probe/macros:~/linuxcnc/nc_files/examples/remap-subroutines: \\\n"
-"~/linuxcnc/nc_files/examples/ngcgui_lib/remap_lib\n"
+"SUBROUTINE_PATH = :~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs; \\\n"
+"~/stratumak/nc_files/examples/probe/basic_probe/macros:~/stratumak/nc_files/examples/remap-subroutines: \\\n"
+"~/stratumak/nc_files/examples/ngcgui_lib/remap_lib\n"
 msgstr ""
 
 #. type: Plain text
@@ -110576,7 +110576,7 @@ msgid ""
 "[DISPLAY]\n"
 "# NGCGUI subroutine path.\n"
 "# Thr path must also  be in [RS274NGC] SUBROUTINE_PATH\n"
-"NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib\n"
+"NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib\n"
 "# pre selected programs tabs\n"
 "# specify filenames only, files must be in the NGCGUI_SUBFILE_PATH\n"
 "NGCGUI_SUBFILE = slot.ngc\n"
@@ -113065,16 +113065,16 @@ msgstr "[RS274NGC]\n"
 #| msgid ""
 #| "# adjust this paths to point to folders with stdglu.py and qt_auto_tool_probe.ngc\n"
 #| "# or similarly coded custom remap files\n"
-#| "SUBROUTINE_PATH = ~/linuxcnc/nc_files/remap-subroutines:~/linuxcnc/nc_files/remap_lib\n"
+#| "SUBROUTINE_PATH = ~/stratumak/nc_files/remap-subroutines:~/stratumak/nc_files/remap_lib\n"
 msgid ""
 "# Adjust this paths to point to folders with stdglue.py, qt_auto_tool_probe.ngc and on_abort.ngc\n"
 "# or similarly coded custom remap files.\n"
-"SUBROUTINE_PATH = ~/linuxcnc/nc_files/remap-subroutines:\\\n"
-"~/linuxcnc/nc_files/remap_lib\n"
+"SUBROUTINE_PATH = ~/stratumak/nc_files/remap-subroutines:\\\n"
+"~/stratumak/nc_files/remap_lib\n"
 msgstr ""
 "# diese Pfade so anpassen, dass sie auf Ordner mit stdglu.py und qt_auto_tool_probe.ngc zeigen\n"
 "# oder ähnlich kodierte benutzerdefinierte Remap-Dateien\n"
-"SUBROUTINE_PATH = ~/linuxcnc/nc_files/remap-subroutines:~/linuxcnc/nc_files/remap_lib\n"
+"SUBROUTINE_PATH = ~/stratumak/nc_files/remap-subroutines:~/stratumak/nc_files/remap_lib\n"
 
 #. type: delimited block -
 #: src/gui/qtdragon.adoc:1015
@@ -113215,9 +113215,9 @@ msgstr ""
 #, no-wrap
 msgid ""
 "# The path start point for all remap searches, i.e. Python's sys.path.append()\n"
-"PATH_APPEND = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python\n"
+"PATH_APPEND = ~/stratumak/nc_files/remap_lib/python-stdglue/python\n"
 "# path to the tremap's 'toplevel file\n"
-"TOPLEVEL = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python/toplevel.py\n"
+"TOPLEVEL = ~/stratumak/nc_files/remap_lib/python-stdglue/python/toplevel.py\n"
 msgstr ""
 
 #. type: Title ===
@@ -122683,7 +122683,7 @@ msgstr "QtVCP vom Startup bis zum Herunterfahren"
 #. type: Plain text
 #: src/gui/qtvcp-development.adoc:48
 msgid ""
-"*QtVCP source* is located in `+src/emc/usr_intf/qtvcp+` folder of LinuxCNC "
+"*QtVCP source* is located in `+src/cnc/usr_intf/qtvcp+` folder of LinuxCNC "
 "source tree."
 msgstr ""
 
@@ -137779,14 +137779,14 @@ msgstr "Ein Beispiel für einen Python-Aufruf, für einen _Load-Dialog_:"
 msgid ""
 "mess = {'NAME':'LOAD','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Load Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
 msgstr ""
 "mess = {'NAME':'LOAD','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Load Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
@@ -137802,14 +137802,14 @@ msgstr "Und für einen _Speicherdialog_"
 msgid ""
 "mess = {'NAME':'SAVE','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Save Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
 msgstr ""
 "mess = {'NAME':'SAVE','ID':'_MY_DIALOG_',\n"
 "            'TITLE':'Save Some text File',\n"
-"            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',\n"
+"            'FILENAME':'~/stratumak/nc_files/someprogram.txt',\n"
 "            'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'\n"
 "            }\n"
 "ACTION.CALL_DIALOG(mess)\n"
@@ -139445,11 +139445,11 @@ msgstr ""
 #. type: delimited block -
 #: src/gui/qtvcp-widgets.adoc:2970
 #, fuzzy, no-wrap
-#| msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
+#| msgid "[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs`\n"
 msgid ""
 "[RS274NGC]\n"
-"SUBROUTINE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs\n"
-msgstr "[RS274NGC]SUBROUTINE_PATH = /home/myname/linuxcnc/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs\n"
+"SUBROUTINE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs\n"
+msgstr "[RS274NGC]SUBROUTINE_PATH = /home/myname/stratumak/mysubs:../../nc_files/ngcgui_lib:../../nc_files/ngcgui_lib/utilitysubs\n"
 
 #. type: Plain text
 #: src/gui/qtvcp-widgets.adoc:2974
@@ -139466,7 +139466,7 @@ msgid ""
 "[DISPLAY]\n"
 "# NGCGUI subroutine path.\n"
 "# This path must also be in [RS274NGC] SUBROUTINE_PATH\n"
-"NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib\n"
+"NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib\n"
 "# pre selected programs tabs\n"
 "# specify filenames only, files must be in the NGCGUI_SUBFILE_PATH\n"
 "NGCGUI_SUBFILE = slot.ngc\n"
@@ -163731,7 +163731,7 @@ msgid ""
 "Deep C-states (C6 and deeper) add 100-400 µs of exit latency to every cycle "
 "wakeup on an otherwise idle realtime CPU.  Note that LinuxCNC does NOT hold "
 "`/dev/cpu_dma_latency` at runtime (the classic 2.9 `rtapi_app` was setuid "
-"root and held it at 0; the gomc server runs unprivileged and deliberately "
+"root and held it at 0; the stratuMAK server runs unprivileged and deliberately "
 "does not reimplement this): a global zero-latency request forces *all* CPUs "
 "into poll idle — a real thermal and power cost on fanless industrial PCs for "
 "no benefit on the housekeeping CPUs — and a boot-time cap cannot be lost to "
@@ -178367,12 +178367,12 @@ msgstr "Beispiele für Dreh-/Kipptische"
 msgid ""
 "LinuxCNC includes kinematics modules for the 'xyzac-trt' and 'xyzbc-trt' "
 "topologies described in the mathematics detailed above.  For interested "
-"users, the source code is available in the git tree in the 'src/emc/"
+"users, the source code is available in the git tree in the 'src/cnc/"
 "kinematics/' directory."
 msgstr ""
 "LinuxCNC enthält Kinematik-Module für die \"xyzac-trt\" und \"xyzbc-trt\" "
 "Topologien in der Mathematik oben beschrieben.  Für interessierte Benutzer "
-"ist der Quellcode im Git-Baum im Verzeichnis \"src/emc/kinematics/\" "
+"ist der Quellcode im Git-Baum im Verzeichnis \"src/cnc/kinematics/\" "
 "verfügbar."
 
 #. type: Plain text
@@ -182303,12 +182303,12 @@ msgstr "Kinematische Bestimmungen des Benutzers"
 #: src/motion/switchkins.adoc:334
 msgid ""
 "Custom kinematics can be coded and tested on Run-In-Place ('RIP')  builds.  "
-"A template file src/emc/kinematics/userkfuncs.c is provided in the "
+"A template file src/cnc/kinematics/userkfuncs.c is provided in the "
 "distribution.  This file can be copied/renamed to a user directory and "
 "edited to supply custom kinematics with kinstype==2."
 msgstr ""
 "Benutzerdefinierte Kinematiken können auf Run-In-Place (\"RIP\") Builds "
-"kodiert und getestet werden.  Eine Vorlagendatei src/emc/kinematics/"
+"kodiert und getestet werden.  Eine Vorlagendatei src/cnc/kinematics/"
 "userkfuncs.c ist in der Distribution enthalten.  Diese Datei kann in ein "
 "Benutzerverzeichnis kopiert/umbenannt und bearbeitet werden, um "
 "benutzerdefinierte Kinematik mit kinstype==2 bereitzustellen."
@@ -182318,11 +182318,11 @@ msgstr ""
 msgid ""
 "The user custom kinematics file can be compiled from out-of-tree source "
 "locations for rt-preempt implementations or by replacing the in-tree "
-"template file (src/emc/kinematics/userkfuncs.c) for rtai systems."
+"template file (src/cnc/kinematics/userkfuncs.c) for rtai systems."
 msgstr ""
 "Die benutzerdefinierte Kinematikdatei kann bei rt-preempt-Implementierungen "
 "aus den Out-of-Tree-Quellen kompiliert werden oder bei rtai-Systemen durch "
-"Ersetzen der In-Tree-Vorlagendatei (src/emc/kinematics/userkfuncs.c)."
+"Ersetzen der In-Tree-Vorlagendatei (src/cnc/kinematics/userkfuncs.c)."
 
 #. type: Plain text
 #: src/motion/switchkins.adoc:341
@@ -186535,7 +186535,7 @@ msgstr ""
 "Wenn die Konfiguration abgeschlossen ist, speichert der Assistent eine Kopie "
 "der Konfiguration, die zu einem späteren Zeitpunkt geladen und bearbeitet "
 "werden kann. Eine funktionierende QtPlasmaC-Konfiguration wird im folgenden "
-"Verzeichnis erstellt: ~/linuxcnc/configs/_<Maschinenname>_."
+"Verzeichnis erstellt: ~/stratumak/configs/_<Maschinenname>_."
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:269
@@ -186553,9 +186553,9 @@ msgstr "Für eine Paketinstallation (Buildbot):"
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:273
 #, fuzzy, no-wrap
-#| msgid "linuxcnc ~/linuxcnc/configs/<machine_name>/<machine_name>.ini\n"
-msgid "linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini\n"
-msgstr "linuxcnc ~/linuxcnc/configs/<Maschinenname>/<Maschinenname>.ini\n"
+#| msgid "linuxcnc ~/stratumak/configs/<machine_name>/<machine_name>.ini\n"
+msgid "linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini\n"
+msgstr "linuxcnc ~/stratumak/configs/<Maschinenname>/<Maschinenname>.ini\n"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:276
@@ -186565,9 +186565,9 @@ msgstr "Für eine Installation an Ort und Stelle (engl. run-in-place):"
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:278
 #, fuzzy, no-wrap
-#| msgid "~/linuxcnc-dev/scripts/linuxcnc ~/linuxcnc/configs/<machine_name>/_<machine_name>_.ini\n"
-msgid "~/linuxcnc-dev/scripts/linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini\n"
-msgstr "~/linuxcnc-dev/scripts/linuxcnc ~/linuxcnc/configs/<Maschinenname>/_<Maschinenname>_.ini\n"
+#| msgid "~/linuxcnc-dev/scripts/linuxcnc ~/stratumak/configs/<machine_name>/_<machine_name>_.ini\n"
+msgid "~/linuxcnc-dev/scripts/linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini\n"
+msgstr "~/linuxcnc-dev/scripts/linuxcnc ~/stratumak/configs/<Maschinenname>/_<Maschinenname>_.ini\n"
 
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:281
@@ -186923,7 +186923,7 @@ msgid ""
 "attempt to create a new QtPlasmaC configuration from an existing PlasmaC INI "
 "file.  This program will convert the user's parameters, settings, and "
 "materials from the previous PlasmaC configuration and create a new QtPlasmaC "
-"configuration directory in the ~/linuxcnc/configs directory."
+"configuration directory in the ~/stratumak/configs directory."
 msgstr ""
 "Diese Methode, um von PlasmaC (das auf AXIS oder GMOCCAPY geladen wurde) zu "
 "QtPlasmaC zu wechseln, besteht darin, einen <<Konfigurationsassistenten>> zu "
@@ -187620,7 +187620,7 @@ msgid ""
 "Comment=\n"
 "Terminal=false\n"
 "Name=LinuxCNC\n"
-"Exec=sh -c \"linuxcnc $HOME/linuxcnc/configs/<machine_name>/<machine_name>.ini\"\n"
+"Exec=sh -c \"linuxcnc $HOME/stratumak/configs/<machine_name>/<machine_name>.ini\"\n"
 "Type=Application\n"
 "Icon=/usr/share/pixmaps/linuxcncicon.png\n"
 msgstr ""
@@ -187628,7 +187628,7 @@ msgstr ""
 "Comment=\n"
 "Terminal=false\n"
 "Name=LinuxCNC\n"
-"Exec=sh -c \"linuxcnc $HOME/linuxcnc/configs/<machine_name>/<machine_name>.ini\"\n"
+"Exec=sh -c \"linuxcnc $HOME/stratumak/configs/<machine_name>/<machine_name>.ini\"\n"
 "Type=Application\n"
 "Icon=/usr/share/pixmaps/linuxcncicon.png\n"
 
@@ -192058,19 +192058,19 @@ msgstr ""
 #| msgid ""
 #| "Select the Output File to write to, press *OUTPUT* to bring up a file "
 #| "selector or directly enter the file in the entry box.  This would "
-#| "normally be ~/linuxcnc/configs/<machine_name>_material.cfg.  If "
+#| "normally be ~/stratumak/configs/<machine_name>_material.cfg.  If "
 #| "necessary, the user could select a different file and hand edit the "
 #| "<machine_name>_material.cfg file."
 msgid ""
 "Select the Output File to write to, press *OUTPUT* to bring up a file "
 "selector or directly enter the file in the entry box.  This would normally "
-"be ~/linuxcnc/configs/__<machine_name>___material.cfg.  If necessary, the "
+"be ~/stratumak/configs/__<machine_name>___material.cfg.  If necessary, the "
 "user could select a different file and hand edit the "
 "__<machine_name>___material.cfg file."
 msgstr ""
 "Wählen Sie die Ausgabedatei, in die geschrieben werden soll, drücken Sie "
 "*OUTPUT*, um eine Dateiauswahl aufzurufen, oder geben Sie die Datei direkt "
-"in das Eingabefeld ein. Normalerweise ist dies ~/linuxcnc/configs/"
+"in das Eingabefeld ein. Normalerweise ist dies ~/stratumak/configs/"
 "<Maschinenname>_material.cfg. Falls erforderlich, kann der Benutzer eine "
 "andere Datei auswählen und die Datei <Maschinenname>_material.cfg manuell "
 "bearbeiten."
@@ -192105,13 +192105,13 @@ msgstr "images/qtplasmac_material_manual_dialog.png"
 #: src/plasma/qtplasmac.adoc:1671
 #, fuzzy
 #| msgid ""
-#| "If the user selects ~/linuxcnc/configs/<machine_name>_material.cfg and "
+#| "If the user selects ~/stratumak/configs/<machine_name>_material.cfg and "
 #| "the file already exists, it will be overwritten."
 msgid ""
-"If the user selects ~/linuxcnc/configs/__<machine_name>___material.cfg and "
+"If the user selects ~/stratumak/configs/__<machine_name>___material.cfg and "
 "the file already exists, it will be overwritten."
 msgstr ""
-"Wenn der Benutzer ~/linuxcnc/configs/<Maschinenname>_material.cfg auswählt "
+"Wenn der Benutzer ~/stratumak/configs/<Maschinenname>_material.cfg auswählt "
 "und die Datei bereits existiert, wird sie überschrieben."
 
 #. type: Plain text
@@ -198820,7 +198820,7 @@ msgstr ""
 #. type: delimited block -
 #: src/plasma/qtplasmac.adoc:3618
 #, no-wrap
-msgid "n Code = latest-file /home/me/linuxcnc/nc_files/qtplasmac-test\n"
+msgid "n Code = latest-file /home/me/stratumak/nc_files/qtplasmac-test\n"
 msgstr ""
 
 #. type: Block title
@@ -201004,10 +201004,10 @@ msgstr "NGC Beispiele"
 #. type: Plain text
 #: src/plasma/qtplasmac.adoc:4123
 msgid ""
-"There are some sample G-code files in the ~/linuxcnc/nc_files/examples/"
+"There are some sample G-code files in the ~/stratumak/nc_files/examples/"
 "plasmac directory."
 msgstr ""
-"Im Verzeichnis ~/linuxcnc/nc_files/examples/plasmac befinden sich einige "
+"Im Verzeichnis ~/stratumak/nc_files/examples/plasmac befinden sich einige "
 "Beispiel-G-Code-Dateien."
 
 #. type: Title ===
@@ -204428,14 +204428,14 @@ msgid ""
 "$ cd /home/user/xxx\n"
 "$ mkdir python\n"
 "$ cd python\n"
-"$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
+"$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
 "$ echo 'from stdglue import *' >remap.py\n"
 "$ echo 'import remap' >toplevel.py\n"
 msgstr ""
 "$ cd /home/user/xxx\n"
 "$ mkdir python\n"
 "$ cd python\n"
-"$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
+"$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .\n"
 "$ echo 'from stdglue import *' >remap.py\n"
 "$ echo 'import remap' >toplevel.py\n"
 
@@ -206175,14 +206175,14 @@ msgstr "Der Interpreter aus der Sicht von Python"
 #: src/remap/remap.adoc:1180
 #, fuzzy
 #| msgid ""
-#| "The interpreter is an existing C++ class ('Interp') defined in 'src/emc/"
+#| "The interpreter is an existing C++ class ('Interp') defined in 'src/cnc/"
 #| "rs274ngc'. Conceptually all `oword.<function>` and `remap.<function>` "
 #| "Python calls are methods of this Interp class, although there is no "
 #| "explicit Python definition of this class (it's a 'Boost.Python' wrapper "
 #| "instance) and hence receive the as the first parameter `self` which can "
 #| "be used to access internals."
 msgid ""
-"The interpreter is an existing C++ class ('Interp') defined in 'src/emc/"
+"The interpreter is an existing C++ class ('Interp') defined in 'src/cnc/"
 "rs274ngc'.  Conceptually all `oword.<function>` and `remap.<function>` "
 "Python calls are methods of this Interp class, although there is no explicit "
 "Python definition of this class (it is a 'Boost.Python' wrapper instance)  "
@@ -206190,7 +206190,7 @@ msgid ""
 "access internals."
 msgstr ""
 "Der Interpreter ist eine bestehende C++-Klasse (\"Interp\"), die in \"src/"
-"emc/rs274ngc\" definiert ist. Konzeptionell sind alle `oword.<function>` und "
+"cnc/rs274ngc\" definiert ist. Konzeptionell sind alle `oword.<function>` und "
 "`remap.<function>` Python-Aufrufe Methoden dieser Interp-Klasse, obwohl es "
 "keine explizite Python-Definition dieser Klasse gibt (es handelt sich um "
 "eine 'Boost.Python'-Wrapper-Instanz) und daher den ersten Parameter `self` "
@@ -207044,9 +207044,9 @@ msgstr ""
 #. type: Plain text
 #: src/remap/remap.adoc:1500
 msgid ""
-"The actual canon functions are declared in `src/emc/nml_intf/canon.hh` and "
-"implemented in `src/emc/task/emccanon.cc`.  The implementation of the Python "
-"functions can be found in `src/emc/rs274ncg/canonmodule.cc`."
+"The actual canon functions are declared in `src/cnc/nml_intf/canon.hh` and "
+"implemented in `src/cnc/task/emccanon.cc`.  The implementation of the Python "
+"functions can be found in `src/cnc/rs274ncg/canonmodule.cc`."
 msgstr ""
 
 #. type: Title ===
@@ -207069,10 +207069,10 @@ msgstr "`interpreter`"
 #. type: Plain text
 #: src/remap/remap.adoc:1508
 msgid ""
-"Exposes internals of the Interp class.  See `src/emc/rs274ngc/"
+"Exposes internals of the Interp class.  See `src/cnc/rs274ngc/"
 "interpmodule.cc`, and the `tests/remap/introspect` regression test."
 msgstr ""
-"legt Interna der Interp-Klasse offen. Siehe `src/emc/rs274ngc/"
+"legt Interna der Interp-Klasse offen. Siehe `src/cnc/rs274ngc/"
 "interpmodule.cc`, und den `tests/remap/introspect` Regressionstest."
 
 #. type: Labeled list
@@ -207083,8 +207083,8 @@ msgstr "`emccanon`"
 
 #. type: Plain text
 #: src/remap/remap.adoc:1511
-msgid "Exposes most calls of `src/emc/task/emccanon.cc`."
-msgstr "legt die meisten Aufrufe von `src/emc/task/emccanon.cc` offen."
+msgid "Exposes most calls of `src/cnc/task/emccanon.cc`."
+msgstr "legt die meisten Aufrufe von `src/cnc/task/emccanon.cc` offen."
 
 #. type: Labeled list
 #: src/remap/remap.adoc:1512
@@ -207095,11 +207095,11 @@ msgstr "`emctask`"
 #. type: Plain text
 #: src/remap/remap.adoc:1515
 msgid ""
-"Exposes the `emcStatus` class instance. See `src/emc/task/taskmodule.cc`.  "
+"Exposes the `emcStatus` class instance. See `src/cnc/task/taskmodule.cc`.  "
 "Not present when using the `gcode` module used for user interfaces - only "
 "present in the milltask instance of the interpreter."
 msgstr ""
-"stellt die Instanz der Klasse `emcStatus` zur Verfügung. Siehe `src/emc/task/"
+"stellt die Instanz der Klasse `emcStatus` zur Verfügung. Siehe `src/cnc/task/"
 "taskmodule.cc`.  Nicht vorhanden, wenn das Modul `gcode` für "
 "Benutzeroberflächen verwendet wird - nur in der milltask-Instanz des "
 "Interpreters vorhanden."
@@ -207881,10 +207881,10 @@ msgstr "2.000000"
 #: src/remap/remap.adoc:1714
 msgid ""
 "'or' these flags into the `[EMC]DEBUG` variable as needed.  For a current "
-"list of debug flags see 'src/emc/nml_intf/debugflags.h'."
+"list of debug flags see 'src/cnc/nml_intf/debugflags.h'."
 msgstr ""
 "oder' diese Flags in die `[EMC]DEBUG'-Variable nach Bedarf. Eine aktuelle "
-"Liste der Debug-Flags finden Sie in 'src/emc/nml_intf/debugflags.h'."
+"Liste der Debug-Flags finden Sie in 'src/cnc/nml_intf/debugflags.h'."
 
 #. type: Title ===
 #: src/remap/remap.adoc:1715
@@ -210125,12 +210125,12 @@ msgid ""
 "All the interpreter does is evaluate the toolnumber parameter, looks up its "
 "corresponding tooldata index, remembers it in the `selected_pocket` variable "
 "for later, and queues a canon command (SELECT_TOOL).  See "
-"'Interp::convert_tool_select' in 'src/emc/rs274/interp_execute.cc'."
+"'Interp::convert_tool_select' in 'src/cnc/rs274/interp_execute.cc'."
 msgstr ""
 "Der Interpreter wertet lediglich den Parameter toolnumber aus, sucht den "
 "entsprechenden tooldata-Index, speichert ihn für später in der Variablen "
 "`selected_pocket` und stellt einen Kanon-Befehl (SELECT_TOOL) in die "
-"Warteschlange. Siehe 'Interp::convert_tool_select' in 'src/emc/rs274/"
+"Warteschlange. Siehe 'Interp::convert_tool_select' in 'src/cnc/rs274/"
 "interp_execute.cc'."
 
 #. type: Block title
@@ -210234,10 +210234,10 @@ msgstr ""
 #: src/remap/remap.adoc:2236
 msgid ""
 "Even if you are not familiar with C, I suggest you look at the "
-"'Interp::convert_tool_change' code in 'src/emc/rs274/interp_convert.cc'."
+"'Interp::convert_tool_change' code in 'src/cnc/rs274/interp_convert.cc'."
 msgstr ""
 "Auch wenn Sie mit C nicht vertraut sind, empfehle ich Ihnen, sich den Code "
-"von \"Interp::convert_tool_change\" in \"src/emc/rs274/interp_convert.cc\" "
+"von \"Interp::convert_tool_change\" in \"src/cnc/rs274/interp_convert.cc\" "
 "anzusehen."
 
 #. type: Block title
@@ -210538,7 +210538,7 @@ msgstr ""
 #: src/remap/remap.adoc:2328
 #, no-wrap
 msgid ""
-"Debug level, 0 means no messages. See src/emc/nml_intf/debugflags.h for others\n"
+"Debug level, 0 means no messages. See src/cnc/nml_intf/debugflags.h for others\n"
 "DEBUG = 0x00000002 # configuration\n"
 "DEBUG = 0x7FFFDEFF # no interp,oword\n"
 "DEBUG = 0x00008000 # py only\n"
@@ -210671,7 +210671,7 @@ msgstr ""
 #: src/source-highlight/ini-demo.adoc:42
 #, no-wrap
 msgid ""
-"# Debug level, 0 means no messages. See src/emc/nml_int/emcglb.h for others\n"
+"# Debug level, 0 means no messages. See src/cnc/nml_int/emcglb.h for others\n"
 "# DEBUG =               0x7FFFFFFF\n"
 "DEBUG = 0\n"
 msgstr ""
@@ -213858,10 +213858,10 @@ msgstr "B<axis(1)>"
 #: man/man1/axis-remote.1:62
 msgid ""
 "Much more information about LinuxCNC and HAL is available in the LinuxCNC "
-"and HAL User Manuals, found at /usr/share/doc/linuxcnc/."
+"and HAL User Manuals, found at /usr/share/doc/stratumak/."
 msgstr ""
 "Viele weitere Informationen über LinuxCNC und HAL finden Sie in den "
-"LinuxCNC- und HAL-Benutzerhandbüchern in /usr/share/doc/linuxcnc."
+"LinuxCNC- und HAL-Benutzerhandbüchern in /usr/share/doc/stratumak."
 
 #. type: TH
 #: man/man1/elbpcom.1:2 man/man3/rtapi_task_self.3rtapi:1
@@ -221252,7 +221252,7 @@ msgstr "B<-t> I<THEME>"
 #. type: Plain text
 #: man/man1/linuxcnctop.1:77
 msgid ""
-"Query the named task instance. Defaults to B<$GMC_INSTANCE>, or I<milltask> "
+"Query the named task instance. Defaults to B<$STMAK_TASK_INSTANCE>, or I<milltask> "
 "if that is unset."
 msgstr ""
 
@@ -221265,7 +221265,7 @@ msgstr ""
 #. type: TP
 #: man/man1/linuxcnctop.1:78
 #, no-wrap
-msgid "B<GMC_REST_URL>"
+msgid "B<STMAK_REST_URL>"
 msgstr ""
 
 #. type: Plain text
@@ -221276,7 +221276,7 @@ msgstr ""
 #. type: TP
 #: man/man1/linuxcnctop.1:81
 #, no-wrap
-msgid "B<GMC_INSTANCE>"
+msgid "B<STMAK_TASK_INSTANCE>"
 msgstr ""
 
 #. type: Plain text
@@ -221346,7 +221346,7 @@ msgstr ""
 #: man/man1/linuxcnctop.1:115
 #, fuzzy
 #| msgid "B<ngcgui> B<LinuxCNC(1)>"
-msgid "B<linuxcnctop-ui(1)>, B<gmcui(1)>, B<LinuxCNC(1)>"
+msgid "B<linuxcnctop-ui(1)>, B<stmakui(1)>, B<LinuxCNC(1)>"
 msgstr "B<ngcgui> B<LinuxCNC(1)>"
 
 #. type: Plain text
@@ -221771,7 +221771,7 @@ msgstr "PARAMETER"
 #. type: Plain text
 #: man/man1/milltask.1:21
 msgid ""
-"On B<gomc>, B<milltask> is loaded with a HAL B<load> line and accepts "
+"On B<stratuMAK>, B<milltask> is loaded with a HAL B<load> line and accepts "
 "I<key>B<=>I<value> parameters, e.g.  B<load milltask E<lt>pnp.taskE<gt> "
 "motion_instance=pnp.mot error_filter=^pnp\\e.>"
 msgstr ""
@@ -224277,7 +224277,7 @@ msgstr "B<rtapi_app>"
 #: man/man1/rtapi_app.1:34
 msgid ""
 "B<rtapi_app> is no longer built or used.  Realtime module loading is now "
-"handled in-process by gomc-server via dlopen."
+"handled in-process by stmakd via dlopen."
 msgstr ""
 
 #. type: Plain text
@@ -226112,8 +226112,8 @@ msgstr ""
 #: man/man1/xhc-hb04.1:70
 #, no-wrap
 msgid ""
-"   /usr/share/linuxcnc/hallib/xhc-hb04-layout1.cfg\n"
-"   /usr/share/linuxcnc/hallib/xhc-hb04-layout2.cfg\n"
+"   /usr/share/stratumak/hallib/xhc-hb04-layout1.cfg\n"
+"   /usr/share/stratumak/hallib/xhc-hb04-layout2.cfg\n"
 "or for a RIP build:\n"
 "   rip_base_dir/lib/hallib/xhc-hb04-layout1.cfg\n"
 "   rip_base_dir/lib/hallib/xhc-hb04-layout2.cfg\n"
@@ -226689,7 +226689,7 @@ msgstr ""
 #: man/man1/xhc-hb04.1:257
 #, no-wrap
 msgid ""
-"   /usr/share/doc/linuxcnc/examples/sample-configs/sim/axis/xhc-hb04/\n"
+"   /usr/share/doc/stratumak/examples/sample-configs/sim/axis/xhc-hb04/\n"
 "or for a RIP build:\n"
 "   rip_base_dir/configs/sim/axis/xhc-hb04/\n"
 msgstr ""
@@ -253869,11 +253869,11 @@ msgstr ""
 #: man/man9/motion.9:245
 #, fuzzy
 #| msgid ""
-#| "'motion.motion-type' - (s32, out) These values are from src/emc/nml_intf/"
+#| "'motion.motion-type' - (s32, out) These values are from src/cnc/nml_intf/"
 #| "motion_types.h"
-msgid "These values are from src/emc/nml_intf/motion_types.h."
+msgid "These values are from src/cnc/nml_intf/motion_types.h."
 msgstr ""
-"'motion.motion-type' - (s32, out) Diese Werte sind aus src/emc/nml_intf/"
+"'motion.motion-type' - (s32, out) Diese Werte sind aus src/cnc/nml_intf/"
 "motion_types.h"
 
 #. type: Plain text
@@ -276408,13 +276408,13 @@ msgstr ""
 #~ "finden Sie in der Manpage motion."
 
 #~ msgid ""
-#~ "A homing api is provided by src/emc/motion/homing.h to support users' "
-#~ "custom homing code that replaces src/emc/motion/homing.c with a user-"
+#~ "A homing api is provided by src/cnc/motion/homing.h to support users' "
+#~ "custom homing code that replaces src/cnc/motion/homing.c with a user-"
 #~ "customized homing.c file."
 #~ msgstr ""
-#~ "Eine Referenzfahrt (engl. homing)-API wird von src/emc/motion/homing.h "
+#~ "Eine Referenzfahrt (engl. homing)-API wird von src/cnc/motion/homing.h "
 #~ "bereitgestellt, um benutzerdefinierten Homing-Code zu unterstützen, der "
-#~ "src/emc/motion/homing.c durch eine benutzerdefinierte homing.c-Datei "
+#~ "src/cnc/motion/homing.c durch eine benutzerdefinierte homing.c-Datei "
 #~ "ersetzt."
 
 #~ msgid ""
@@ -277037,10 +277037,10 @@ msgstr ""
 #, no-wrap
 #~ msgid ""
 #~ "if using an installed version of LinuxCNC:\n"
-#~ "from '/usr/share/doc/linuxcnc/examples/sample-configs/sim/qtvcp_screens/qtdragon/python/' , copy 'toplevel.py' and 'remap.py' to your configuration's new 'python' folder."
+#~ "from '/usr/share/doc/stratumak/examples/sample-configs/sim/qtvcp_screens/qtdragon/python/' , copy 'toplevel.py' and 'remap.py' to your configuration's new 'python' folder."
 #~ msgstr ""
 #~ "Wenn Sie eine installierte Version von LinuxCNC verwenden:\n"
-#~ "Kopieren Sie von '/usr/share/doc/linuxcnc/examples/sample-configs/sim/qtvcp_screens/qtdragon/python/' die Dateien 'toplevel.py' und 'remap.py' in den neuen 'python'-Ordner Ihrer Konfiguration."
+#~ "Kopieren Sie von '/usr/share/doc/stratumak/examples/sample-configs/sim/qtvcp_screens/qtdragon/python/' die Dateien 'toplevel.py' und 'remap.py' in den neuen 'python'-Ordner Ihrer Konfiguration."
 
 #~ msgid ""
 #~ "Alternately, you can make new files in your 'python' folder that you made "
@@ -277073,14 +277073,14 @@ msgstr ""
 #~ "Dateien in den oben beschriebenen Ordner 'python'."
 
 #, fuzzy
-#~| msgid "In '~/linuxcnc/nc_files/examples/remap_subroutine/' folder"
-#~ msgid "In`~/linuxcnc/nc_files/examples/remap_subroutine/` folder"
-#~ msgstr "Im Ordner \"~/linuxcnc/nc_files/examples/remap_subroutine/\"."
+#~| msgid "In '~/stratumak/nc_files/examples/remap_subroutine/' folder"
+#~ msgid "In`~/stratumak/nc_files/examples/remap_subroutine/` folder"
+#~ msgstr "Im Ordner \"~/stratumak/nc_files/examples/remap_subroutine/\"."
 
 #, fuzzy
-#~| msgid "In '~/linuxcnc/nc_files/examples/remap_lib/python_stdglue/' folder"
-#~ msgid "In `~/linuxcnc/nc_files/examples/remap_lib/python_stdglue/` folder"
-#~ msgstr "Im Ordner '~/linuxcnc/nc_files/examples/remap_lib/python_stdglue/'"
+#~| msgid "In '~/stratumak/nc_files/examples/remap_lib/python_stdglue/' folder"
+#~ msgid "In `~/stratumak/nc_files/examples/remap_lib/python_stdglue/` folder"
+#~ msgstr "Im Ordner '~/stratumak/nc_files/examples/remap_lib/python_stdglue/'"
 
 #, fuzzy
 #~| msgid ""
@@ -277094,8 +277094,8 @@ msgstr ""
 #~| "default."
 #~ msgid ""
 #~ "These file names and location could be different depending on installed "
-#~ "verses development (RIP) version of LinuxCNC.  For instance `~/linuxcnc/"
-#~ "nc_files/macros` is `~/linuxcnc/nc_files/examples/macros` in installed "
+#~ "verses development (RIP) version of LinuxCNC.  For instance `~/stratumak/"
+#~ "nc_files/macros` is `~/stratumak/nc_files/examples/macros` in installed "
 #~ "versions of LinuxCNC.  You could use customized versions of the same "
 #~ "files or name them differently.  The entries in the '[RS274NGC]' section "
 #~ "dictate to LinuxCNC what and where to look.  The names and location "
@@ -281247,7 +281247,7 @@ msgstr ""
 
 #~ msgid ""
 #~ "Much more information about LinuxCNC and HAL is available in the LinuxCNC "
-#~ "and HAL User Manuals, found at I</usr/share/doc/linuxcnc/>."
+#~ "and HAL User Manuals, found at I</usr/share/doc/stratumak/>."
 #~ msgstr ""
 #~ "Viele weitere Informationen über LinuxCNC und HAL finden Sie in den "
 #~ "LinuxCNC- und HAL-Benutzerhandbüchern, die Sie unter I</usr/share/doc/"

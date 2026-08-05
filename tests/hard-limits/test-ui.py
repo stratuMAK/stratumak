@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import time
@@ -12,12 +12,12 @@ import signal
 import glob
 import re
 
-# Deadline for the poll loops below. These loops predate gomc_test and keep
+# Deadline for the poll loops below. These loops predate stmak_test and keep
 # their own bodies (custom diagnostics + sys.exit), but a 5 s ceiling is a bet
 # on an idle machine: waiting longer costs nothing on the happy path, since
 # every loop exits as soon as its condition holds. Honours
-# GOMC_TEST_TIMEOUT_SCALE like the rest of the suite.
-TIMEOUT = gomc_test.DEFAULT_TIMEOUT * gomc_test.scale()
+# STMAK_TEST_TIMEOUT_SCALE like the rest of the suite.
+TIMEOUT = stmak_test.DEFAULT_TIMEOUT * stmak_test.scale()
 
 
 def print_status(status):
@@ -28,7 +28,7 @@ def print_status(status):
     print("status.joint[1]: {}".format(status.joint[1]))
     print("status.current_vel: {}".format(status.current_vel))
     # echo_serial_number intentionally omitted: it is the classic NML command-
-    # serial handshake, which gomc (REST/WebSocket, synchronous wait_complete)
+    # serial handshake, which stratuMAK (REST/WebSocket, synchronous wait_complete)
     # does not have.
     print("status.enabled: {}".format(status.enabled))
     print("status.estop: {}".format(status.estop))
@@ -65,7 +65,7 @@ def _set_lim(v):
 # connect to LinuxCNC
 #
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -188,7 +188,7 @@ c.override_limits()
 # holds, turning the machine on would be refused by the still-tripped limit and
 # the enabled/min_hard_limit asserts below would report a confusing mismatch
 # rather than "the override never took".
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: st.joint[0]['override_limits'],
     "joint 0 hard limits to be overridden",
     detail=lambda st: "override_limits=%s min_hard_limit=%s enabled=%s"
@@ -197,7 +197,7 @@ gomc_test.wait_stat(
                          st.joint[0]['enabled']))
 print_status(s)
 # command.serial intentionally omitted: the classic NML command-serial
-# handshake has no gomc equivalent (synchronous wait_complete instead).
+# handshake has no stratuMAK equivalent (synchronous wait_complete instead).
 # this fails in 2.6.12 due to the stat RCS message having a status of
 # RCS_EXEC...  as if though the override_limits command didn't set status
 # back to RCS_DONE when it finished.
@@ -309,7 +309,7 @@ assert(s.enabled == True)
 # ("limits are automatically re-enabled at the end of the next jog").
 #
 
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: not st.joint[0]['override_limits'],
     "joint 0 limit override to auto-clear after the jog",
     detail=lambda st: "override_limits=%s inpos=%s"
@@ -324,7 +324,7 @@ print("override limits auto-cleared after jog")
 
 # trip the limit again: machine faults off
 _set_lim(True)
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: not st.enabled,
     "machine to fault off on the re-tripped limit",
     detail=lambda st: "enabled=%s min_hard_limit=%s"
@@ -332,13 +332,13 @@ gomc_test.wait_stat(
 
 # check the override, then manually revoke it
 c.override_limits()
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: st.joint[0]['override_limits'],
     "joint 0 hard limits to be overridden again",
     detail=lambda st: "override_limits=%s" % st.joint[0]['override_limits'])
 
 c.override_limits(-1)
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: not st.joint[0]['override_limits'],
     "manual override_limits(-1) to resume normal limit checking",
     detail=lambda st: "override_limits=%s" % st.joint[0]['override_limits'])

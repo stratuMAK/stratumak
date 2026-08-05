@@ -1,6 +1,6 @@
 # gmicompile (cgen emission logic) — Review Findings (Tier 1)
 
-**Module:** `src/gomc/internal/gmicompile/cgen` — the code generator that emits Go↔C bridges,
+**Module:** `src/stmak/internal/gmicompile/cgen` — the code generator that emits Go↔C bridges,
 cgo clients, REST/WS dispatch, publish/stream code, and type validation for the **~39 GMI
 packages**. **Tier 1** per `PRODUCTION_READINESS.md`: the *emission logic* is the highest
 multiplier in the tree — one wrong emission pattern replicates into every generated package
@@ -30,7 +30,7 @@ synthesizer independently read the `bridge_go.go` handle-transit emission. Date:
   `[]struct`, nested) — no confirmed leak/double-free/UAF; alloc/free symmetric; ownership doc
   consistent; the one C provider (ethercat) complies. (Cleared.)
 - **RT-safety annotation** the hardening work depends on: **complete** (58/58 `@rt_safe` `mot`
-  members → `GOMC_API_NONBLOCKING`). (Cleared.)
+  members → `STMAK_API_NONBLOCKING`). (Cleared.)
 
 So the generator is in good shape on the catastrophic classes. The review surfaced **one
 production-relevant live defect** — and it *root-causes a known open bug* to this module.
@@ -74,7 +74,7 @@ current IDL trips them): the check layer rejects a 64-bit REST **path/query** pa
 coerces to a bare number → JS truncation), and `--client-python` rejects an API whose 64-bit field
 is reachable only through a **nested** named type (Python from_dict doesn't recurse). `newthread`'s
 `period_ns` is now bigint; webapp consumers convert bigint→number at the display boundary. Full
-gmicompile suite + gomc build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
+gmicompile suite + stratuMAK build + halshow/latency webapps green; all 6 webapps `vue-tsc --force`
 clean (a separate commit `1926c82ca8` fixed pre-existing halscope errors the regen surfaced).
 
 **G-M4 regression + root-cause fix (commit `69c6bea407`):** the `,string` change broke
@@ -99,7 +99,7 @@ bridge is now `joints[KINS_MAX_JOINTS]` not `[16]`) and an unresolved `ArrayLenN
 **Remaining: NONE — both former deferrals CLOSED (2026-07-21, `505e87d19f`).** G-L1 landed as an
 additive capability (not an RT-session deferral): the investigation confirmed there is no RT-invoked
 `@callback` today and the four existing ones are task/worker-level (must stay blocking), so `@rt_safe`
-on a `@callback` now stamps the `_cb` typedef `GOMC_API_NONBLOCKING` — default-false, byte-identical
+on a `@callback` now stamps the `_cb` typedef `STMAK_API_NONBLOCKING` — default-false, byte-identical
 for existing callbacks — ready for the first RT consumer without needing the clang worktree now. G-L7
 landed as fail-loud (Option B): every silent-drop site in `--client-c` now errors at generate time; the
 sweep revealed the generator faithfully supports only 5 of 16 `@rest_export` IDLs, so the full recursive
@@ -202,15 +202,15 @@ or at minimum a generator warning.
 
 ## LOW / latent
 
-- **G-L1 — `@callback` (`_cb`) typedefs are not `GOMC_API_NONBLOCKING`-annotated. DONE (capability
+- **G-L1 — `@callback` (`_cb`) typedefs are not `STMAK_API_NONBLOCKING`-annotated. DONE (capability
   added, 2026-07-21, `505e87d19f`).** Investigation corrected the framing: there is **no RT-invoked
   `@callback` today** — the four real ones (`interp_ext` oword/remap ×3, `mcode_handler` handler) are
   all task/worker-level and *must* stay blocking-capable (`mcode_handler.handler` blocks on `abort_fd`),
   and everything actually RT-invoked (mot/tp/hm2_serial `@rt_safe`) rides on `func`→`_fn` typedefs that
-  were already annotated. So nothing was mis-typed. But since gomc is a general framework and an RT
+  were already annotated. So nothing was mis-typed. But since stratuMAK is a general framework and an RT
   callback is a legitimate future need, the capability was wired symmetric to the `_fn` precedent:
   `ast.Callback.RTSafe`; `parseCallback` applies `@rt_safe` (other annotations before a callback still
-  error); `emitCallbackDecls` stamps `GOMC_API_NONBLOCKING` iff RTSafe. Additive/non-breaking (default
+  error); `emitCallbackDecls` stamps `STMAK_API_NONBLOCKING` iff RTSafe. Additive/non-breaking (default
   false → existing callbacks byte-identical). The clang `-Wfunction-effects` check only bites when a
   real RT `@callback` appears — same as `_fn` — so this is **out of the RT-hardening bucket**. Tests:
   parser (RTSafe set + default-false + guard) + cgen (`callback_rtsafe_test.go`).
@@ -281,7 +281,7 @@ or at minimum a generator warning.
   symmetric; ownership doc in all 33 `*_api.h` matches the free-side assumption; ethercat C
   provider `strdup`/`malloc`/`calloc`s and sets the `_len` the free loop iterates. Double-free,
   UAF, empty-buffer-leak, static-string-freed — all **refuted**.
-- **RT-safety annotation:** `@rt_safe` `_fn` typedefs emit `GOMC_API_NONBLOCKING` complete and
+- **RT-safety annotation:** `@rt_safe` `_fn` typedefs emit `STMAK_API_NONBLOCKING` complete and
   correct (58/58 `mot`), gated to clang ≥ 20 via `__has_attribute`.
 - **Constraint/validation:** `spindle_num @min(-1)` broadcast sentinel emits correctly (signed
   `i32`, inclusive bounds, named max resolved to literal); validation emitted **once** per func
@@ -318,7 +318,7 @@ or at minimum a generator warning.
    array bounds through one `#define`-aware helper (`cArraySizeStr`); regenerated cgo recompiles
    clean; 2 tests. See the STATUS blocks and the per-finding entries above.
 6. **Former deferrals — BOTH DONE** (2026-07-21, `505e87d19f`). G-L1: `@rt_safe` on a `@callback`
-   now annotates the `_cb` typedef `GOMC_API_NONBLOCKING` (additive capability, out of the
+   now annotates the `_cb` typedef `STMAK_API_NONBLOCKING` (additive capability, out of the
    RT-hardening bucket — no RT `@callback` exists today; existing callbacks are correctly blocking).
    G-L7: `--client-c` fail-loud — silent field-drops are now generate-time build errors; the sweep
    found the generator faithfully supports only 5/16 `@rest_export` IDLs, so full recursive parity

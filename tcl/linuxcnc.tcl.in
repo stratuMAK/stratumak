@@ -46,7 +46,7 @@ if {[string first $::linuxcnc::BIN_DIR: $env(PATH)] != 0} {
 }
 
 proc linuxcnc::image_search i {
-    set paths "$linuxcnc::IMAGEDIR $linuxcnc::HOME $linuxcnc::HOME/etc/linuxcnc /etc/linuxcnc ."
+    set paths "$linuxcnc::IMAGEDIR $linuxcnc::HOME $linuxcnc::HOME/etc/stratumak /etc/stratumak ."
     foreach f $paths {
         if [file exists $f/$i] {
             return [image create photo -file $f/$i]
@@ -58,7 +58,7 @@ proc linuxcnc::image_search i {
     error "image $i is not available"
 }
 
-# NML Tcl extension removed — commands now handled via gomc-server
+# NML Tcl extension removed — commands now handled via stmakd
 # load [file join [file dirname [info script]] linuxcnc[info sharedlibextension]]
 
 # The removed extension was what satisfied `package require Linuxcnc`: emcsh.cc
@@ -87,15 +87,15 @@ proc hal {args} {
 # ---------------------------------------------------------------------------
 
 proc linuxcnc::rest_url {} {
-    if {[info exists ::env(GMC_REST_URL)] && $::env(GMC_REST_URL) ne ""} {
-        return [string trimright $::env(GMC_REST_URL) /]
+    if {[info exists ::env(STMAK_REST_URL)] && $::env(STMAK_REST_URL) ne ""} {
+        return [string trimright $::env(STMAK_REST_URL) /]
     }
     return "http://127.0.0.1:5080"
 }
 
 proc linuxcnc::instance {} {
-    if {[info exists ::env(GMC_INSTANCE)] && $::env(GMC_INSTANCE) ne ""} {
-        return $::env(GMC_INSTANCE)
+    if {[info exists ::env(STMAK_TASK_INSTANCE)] && $::env(STMAK_TASK_INSTANCE) ne ""} {
+        return $::env(STMAK_TASK_INSTANCE)
     }
     return "milltask"
 }

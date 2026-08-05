@@ -27,7 +27,7 @@ class Main(QtWidgets.QMainWindow):
         self.changesSaved = True
 
         self.initUI()
-        self.default_path = (os.path.join(os.path.expanduser('~'), 'linuxcnc/nc_files/examples'))
+        self.default_path = (os.path.join(os.path.expanduser('~'), 'stratumak/nc_files/examples'))
 
     def initToolbar(self):
 

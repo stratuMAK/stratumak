@@ -57,7 +57,7 @@ Only the `T` and `P` conversions were checked. Every offset — `X Y Z A B C U V
 W D I J` — used `v, _ := strconv.ParseFloat(...)`, so an unparsable field became
 **0.0** and the line was still imported as a valid tool.
 
-The C parser this replaces (`src/emc/sai/sai_tooltable.cc` `parse_tool_line`,
+The C parser this replaces (`src/cnc/sai/sai_tooltable.cc` `parse_tool_line`,
 derived from 2.9's `tooldata.cc`) does `if (!valid) return -1` after every
 `sscanf`: one malformed field rejects the whole line. That difference matters
 because of what the zero means — a zeroed **tool-length offset** is a tool
@@ -277,7 +277,7 @@ consumers** are blind — and that includes the C ones.
 Consequences beyond T-4 — the live in-process consumers, all blind:
 `internal/tooltable` and `internal/halscope` → `persist`; `internal/task`
 (milltask) and `internal/ngcpreview` → `tooltable`; and on the C side
-`emc/iotask/ioControl_v2.c` → `tooltable` (5 `tt->get_tool(...)` call sites, on
+`cnc/iotask/ioControl_v2.c` → `tooltable` (5 `tt->get_tool(...)` call sites, on
 the **tool-change path**) and `internal/task/interp_param_io_persist.c` →
 `persist`. A sqlite error and a missing row are the same event to every one of
 them — precisely the confusion the comment at `GetTool` was written to prevent,
@@ -297,7 +297,7 @@ for the recommended fix below.
 
 - **In scope:** fix the dispatch emitter (G-2), convert `persist.gmi` and
   `tooltable.gmi` to the `out`-param + `i32` form, update the two C consumers
-  (`emc/iotask/ioControl_v2.c`, `internal/task/interp_param_io_persist.c`),
+  (`cnc/iotask/ioControl_v2.c`, `internal/task/interp_param_io_persist.c`),
   regenerate and rebuild both sides together.
 - **Out of scope:** `emcio.GetStatus` (its consumer situation is untraced; it can
   be argued on its own merits later) and the `@returns_value` contracts, which
@@ -332,7 +332,7 @@ log. What is worth carrying forward from doing it:
   slice-returning methods — the ones both C consumers actually use — would have
   stayed blind.
 - **The finding under-counted the C consumers: five, not two.**
-  `emc/iotask/ioControl.c` (v1 iocontrol), `internal/ngcpreview/module.go` and
+  `cnc/iotask/ioControl.c` (v1 iocontrol), `internal/ngcpreview/module.go` and
   `internal/launcher/retain.go` were found by the compiler after the ABI change,
   not by the review that scoped the work. A grep for the API *header* would have
   found them; a grep for the two named files did not.
@@ -394,7 +394,7 @@ Three things have to happen first, in this order:
    nothing useful to do with an error anyway, and `@returns_value` is the honest
    contract there. `emcio.GetStatus` can follow or stay, on its own merits.
 3. **Update the C consumers**, which is the only place the ABI break is felt:
-   `emc/iotask/ioControl_v2.c` (5 `tt->get_tool` sites plus `put_tool` and
+   `cnc/iotask/ioControl_v2.c` (5 `tt->get_tool` sites plus `put_tool` and
    `list_tools`) and `internal/task/interp_param_io_persist.c`. Provider and
    consumer share a header, so this is a single atomic change — there is no
    partial-rollout path, and it must land with a rebuild of both.

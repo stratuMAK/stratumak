@@ -4,13 +4,13 @@ Module: `src/gmi/python/` (source of truth; built into `lib/python/gmi/` by
 `src/gmi/codegen/Submakefile`). 2047 LOC hand-written; the generated
 `ini_client.py` / `manualtoolchange_client.py` / `ngcpreview.py` are Tier 3 under the
 closed gmicompile review. Consumers: AXIS, `lib/python/linuxcnc_util.py`, `gcode.py`,
-`glcanon.py`, `gomc_test.py`, ~30 runtests drivers.
+`glcanon.py`, `stmak_test.py`, ~30 runtests drivers.
 
 Method: three independent AI passes (classic-2.9 parity vs `emcmodule.cc`;
 wire-contract ground truth vs IDL/generated dispatch/apiserver; concurrency &
 robustness incl. consumer interleavings), findings adjudicated against the source by
 the coordinating reviewer; every HIGH re-verified by hand before acceptance.
-Classic reference: `~/source/linuxcnc-2.9/src/emc/usr_intf/axis/extensions/emcmodule.cc`.
+Classic reference: `~/source/linuxcnc-2.9/src/cnc/usr_intf/axis/extensions/emcmodule.cc`.
 
 Verified-clean ground (no findings): every stat wire key the shim reads exists on the
 wire (field-by-field vs `emcstat_cgo.go` json tags, no `omitempty`); all 28 command
@@ -100,12 +100,12 @@ success return.
   websocket ("Task was destroyed but it is pending!"); `Stat.stop()` leaked
   `_poll_conn`. **Fix:** in `_watch.py` + `Stat.stop()`.
 - **GP-11 MED module namespace/constants gaps.** `gmi.MODE_MANUAL` raised
-  AttributeError (constants not re-exported; `gomc_test.install_constants()` exists
+  AttributeError (constants not re-exported; `stmak_test.install_constants()` exists
   purely to patch this); classic names missing: `MIST_ON/OFF`, `FLOOD_ON/OFF`,
   `BRAKE_ENGAGE/RELEASE`, `LINEAR`/`ANGULAR`, `MOTION_TYPE_TRAVERSE..INDEXROTARY`,
   `EXEC_WAITING_FOR_SYSTEM_CMD` (value 9 existed only under the renamed
   `…_MCODE_HANDLER`). All present values verified correct. **Fix:** names added
-  (classic alias kept alongside the gomc name), `from gmi.constants import *`
+  (classic alias kept alongside the stratuMAK name), `from gmi.constants import *`
   re-exported from `gmi/__init__.py`.
 - **GP-12 LOW three classic command wrappers missing though endpoints exist:**
   `set_feed_override` → `/feed-override-enable`, `set_feed_hold` → `/feed-hold-enable`,
@@ -124,7 +124,7 @@ success return.
 
 - **GP-16 HIGH AXIS + glcanon are 25.4× wrong on inch machines.** axis.py uses raw
   `gmi.Stat()` (mm-everywhere) while `glcanon.to_internal_units` is byte-identical to
-  2.9 (divides by `linear_units*25.4` — correct only for machine-unit positions; gomc
+  2.9 (divides by `linear_units*25.4` — correct only for machine-unit positions; stratuMAK
   serves classic `linear_units` = machine-units-per-mm but mm positions, so the divisor
   degenerates to 1.0 on inch configs): preview/backplot/DRO scale off by 25.4 on any
   `LINEAR_UNITS = inch` machine. Invisible on metric machines/CI, which is exactly why
@@ -149,7 +149,7 @@ success return.
 - **GP-19 `wait_complete` raises on a wait-that-didn't-happen instead of returning -1,
   and never returns RCS_ERROR** (an accepted-and-faulted command reports via the error
   channel; the failed call itself raised at issue time). Deliberate fork contract per
-  the REST fault-status rulings; `gomc_test` wraps it. Classic code comparing
+  the REST fault-status rulings; `stmak_test` wraps it. Classic code comparing
   `== RCS_ERROR` must be ported knowingly.
 - **GP-20 `Stat.poll()` keeps the stale cache on fetch failure instead of raising
   `linuxcnc.error`** — deliberate (drivers poll in loops); combined with
@@ -191,7 +191,7 @@ success return.
 
 ## Test coverage added
 
-`tests/gmi-shim/` (runtests, standalone — no gomc-server): a Python stub REST+WS
+`tests/gmi-shim/` (runtests, standalone — no stmakd): a Python stub REST+WS
 server drives the shim's real code paths. Covers: GP-1 (PUT body carries the `entry`
 envelope; caller dict unmutated), GP-6 (zero entry → None), GP-4 (jog and abort arrive
 in issue order), GP-7 (attributes frozen between polls; poll swaps snapshots), GP-2/3

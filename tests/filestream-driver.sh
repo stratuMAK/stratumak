@@ -15,8 +15,8 @@
 # The .hal must `load filestream ... samples=N` (so `done` fires after N captured
 # samples) and NOT call `start` (the driver owns thread lifecycle).
 
-# Deadlines below honour GOMC_TEST_TIMEOUT_SCALE via gomc_scale.
-. "$(dirname "${BASH_SOURCE[0]}")/gomc-scale.sh"
+# Deadlines below honour STMAK_TEST_TIMEOUT_SCALE via stmak_scale.
+. "$(dirname "${BASH_SOURCE[0]}")/stmak-scale.sh"
 
 _FS_SRVPID=""
 
@@ -25,22 +25,22 @@ fs_cleanup() {
     wait 2>/dev/null
 }
 
-# fs_run <halfile> [outfile]: start a resident gomc-server on <halfile>, run the
+# fs_run <halfile> [outfile]: start a resident stmakd on <halfile>, run the
 # HAL threads until filestream signals done, stop, and print <outfile> (the
 # captured samples) to stdout as the test result.
 fs_run() {
     local halfile=$1 outfile=${2:-out.txt}
     rm -f "$outfile" server.log
-    gomc-server -r -f "$halfile" --serve >server.log 2>&1 &
+    stmakd -r -f "$halfile" --serve >server.log 2>&1 &
     _FS_SRVPID=$!
-    gomc_add_exit_trap fs_cleanup
+    stmak_add_exit_trap fs_cleanup
 
     # Wait for the server to load filestream. The loop must fail loudly on
     # expiry: falling through would run the rest of the sequence against a dead
     # server and report an empty-output diff rather than "the server never
     # started".
     local i ready=""
-    for i in $(seq "$(gomc_scale 100)"); do
+    for i in $(seq "$(stmak_scale 100)"); do
         if halcmd show comp 2>/dev/null | grep -q filestream; then
             ready=1
             break
@@ -49,7 +49,7 @@ fs_run() {
         sleep 0.1
     done
     if [ -z "$ready" ]; then
-        gomc_bind_failure
+        stmak_bind_failure
         echo "filestream-driver: server did not load filestream within 10s;" \
              "see $PWD/server.log" >&2
         exit 1
@@ -58,7 +58,7 @@ fs_run() {
     halcmd start
     # Wait for the run to complete (replay drained / N samples captured).
     local done_=""
-    for i in $(seq "$(gomc_scale 500)"); do
+    for i in $(seq "$(stmak_scale 500)"); do
         if [ "$(halcmd getp filestream.done 2>/dev/null | awk '{print $NF}')" = TRUE ]; then
             done_=1
             break

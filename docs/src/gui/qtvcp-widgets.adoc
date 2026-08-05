@@ -2411,7 +2411,7 @@ An example Python call, for a _load dialog_:
 ----
 mess = {'NAME':'LOAD','ID':'_MY_DIALOG_',
             'TITLE':'Load Some text File',
-            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',
+            'FILENAME':'~/stratumak/nc_files/someprogram.txt',
             'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'
             }
 ACTION.CALL_DIALOG(mess)
@@ -2423,7 +2423,7 @@ And for a _save dialog_
 ----
 mess = {'NAME':'SAVE','ID':'_MY_DIALOG_',
             'TITLE':'Save Some text File',
-            'FILENAME':'~/linuxcnc/nc_files/someprogram.txt',
+            'FILENAME':'~/stratumak/nc_files/someprogram.txt',
             'EXTENSIONS':'Text Files (*.txt);;ALL Files (*.*)'
             }
 ACTION.CALL_DIALOG(mess)
@@ -2966,7 +2966,7 @@ If the subroutine calls other subroutines or custom M codes, those paths must be
 [source,{ini}]
 ----
 [RS274NGC]
-SUBROUTINE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs
+SUBROUTINE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs
 ----
 
 QtVCP needs to know where to open subroutines from. +
@@ -2977,7 +2977,7 @@ You can also specify subroutines to be pre-opened in tabs.
 [DISPLAY]
 # NGCGUI subroutine path.
 # This path must also be in [RS274NGC] SUBROUTINE_PATH
-NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib
+NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib
 # pre selected programs tabs
 # specify filenames only, files must be in the NGCGUI_SUBFILE_PATH
 NGCGUI_SUBFILE = slot.ngc

@@ -12,7 +12,7 @@
 
 #include "rtapi_stdint.h"
 #include "hm2_serial_api.h"
-#include "gomc_rt_check.h"
+#include "stmak_rt_check.h"
 #include "hostmot2-serial.h"
 #include <string.h>
 
@@ -22,7 +22,7 @@
 
 static int32_t shim_pktuart_config(void *ctx, const char *name,
     const hm2_serial_pkt_uart_config_t *rxcfg,
-    const hm2_serial_pkt_uart_config_t *txcfg, int32_t queue) GOMC_NONBLOCKING
+    const hm2_serial_pkt_uart_config_t *txcfg, int32_t queue) STMAK_NONBLOCKING
 {
     (void)ctx;
     // Convert GMI types to internal types (layout-compatible for first 5 fields)
@@ -34,7 +34,7 @@ static int32_t shim_pktuart_config(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_send(void *ctx, const char *name,
-    void *data, uint8_t num_frames, void *frame_sizes) GOMC_NONBLOCKING
+    void *data, uint8_t num_frames, void *frame_sizes) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_send(name, (unsigned char *)data,
@@ -42,7 +42,7 @@ static int32_t shim_pktuart_send(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_read(void *ctx, const char *name,
-    void *data, uint8_t *num_frames, void *max_frame_length, void *frame_sizes) GOMC_NONBLOCKING
+    void *data, uint8_t *num_frames, void *max_frame_length, void *frame_sizes) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_read(name, (unsigned char *)data,
@@ -52,14 +52,14 @@ static int32_t shim_pktuart_read(void *ctx, const char *name,
 }
 
 static int32_t shim_pktuart_queue_get_frame_sizes(void *ctx, const char *name,
-    void *fsizes) GOMC_NONBLOCKING
+    void *fsizes) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_queue_get_frame_sizes(name, (uint32_t *)fsizes);
 }
 
 static int32_t shim_pktuart_queue_read_data(void *ctx, const char *name,
-    void *data, int32_t bytes) GOMC_NONBLOCKING
+    void *data, int32_t bytes) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_queue_read_data(name, (uint32_t *)data, bytes);
@@ -71,7 +71,7 @@ static void shim_pktuart_reset(void *ctx, const char *name)
     hm2_pktuart_reset(name);
 }
 
-static void shim_pktuart_queue_reset(void *ctx, const char *name) GOMC_NONBLOCKING
+static void shim_pktuart_queue_reset(void *ctx, const char *name) STMAK_NONBLOCKING
 {
     (void)ctx;
     hm2_pktuart_queue_reset(name);
@@ -89,13 +89,13 @@ static int32_t shim_pktuart_get_version(void *ctx, const char *name)
     return hm2_pktuart_get_version(name);
 }
 
-static uint32_t shim_pktuart_get_rx_status(void *ctx, const char *name) GOMC_NONBLOCKING
+static uint32_t shim_pktuart_get_rx_status(void *ctx, const char *name) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_get_rx_status(name);
 }
 
-static uint32_t shim_pktuart_get_tx_status(void *ctx, const char *name) GOMC_NONBLOCKING
+static uint32_t shim_pktuart_get_tx_status(void *ctx, const char *name) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_pktuart_get_tx_status(name);
@@ -113,13 +113,13 @@ static int32_t shim_uart_setup(void *ctx, const char *name,
 }
 
 static int32_t shim_uart_send(void *ctx, const char *name,
-    void *data, int32_t count) GOMC_NONBLOCKING
+    void *data, int32_t count) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_uart_send((char *)name, (unsigned char *)data, count);
 }
 
-static int32_t shim_uart_read(void *ctx, const char *name, void *data) GOMC_NONBLOCKING
+static int32_t shim_uart_read(void *ctx, const char *name, void *data) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_uart_read((char *)name, (unsigned char *)data);
@@ -145,7 +145,7 @@ static int32_t shim_bspi_setup_chan(void *ctx, const char *name,
  * Callbacks registered here run in the servo cycle; module authors must
  * keep them nonblocking (typing the callback in the hm2_serial GMI IDL is
  * tracked in RT_HARDENING_CHECKLIST.md). */
-GOMC_NONBLOCKING_TRUSTED_BEGIN
+STMAK_NONBLOCKING_TRUSTED_BEGIN
 static int32_t shim_bspi_set_read_function(void *ctx, const char *name,
     void *func_ptr, void *subdata)
 {
@@ -161,10 +161,10 @@ static int32_t shim_bspi_set_write_function(void *ctx, const char *name,
     return hm2_bspi_set_write_function((char *)name,
                                        (hm2_bspi_xfer_fn_t)func_ptr, subdata);
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
 static int32_t shim_bspi_write_chan(void *ctx, const char *name,
-    int32_t chan, uint32_t val) GOMC_NONBLOCKING
+    int32_t chan, uint32_t val) STMAK_NONBLOCKING
 {
     (void)ctx;
     return hm2_bspi_write_chan((char *)name, chan, val);

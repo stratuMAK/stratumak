@@ -15,15 +15,6 @@ if [ -d /run/udev ] && command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
 fi
 
-# Realtime needs locked memory. The marker is deliberately still EMC2: a
-# machine that has ever had LinuxCNC installed already carries this line, and
-# matching on the old marker keeps us from appending a second one.
-if [ -f /etc/security/limits.conf ]; then
-    if ! grep -q "EMC2" /etc/security/limits.conf; then
-	echo '* - memlock 20480 #EMC2' >> /etc/security/limits.conf
-    fi
-fi
-
 # ---------------------------------------------------------------------------
 # The mutable state tree
 # ---------------------------------------------------------------------------
@@ -41,12 +32,12 @@ fi
 # until the next `sudo modcompile rebuild`.
 
 STATE_DIR=/var/lib/stratumak
-LIBEXEC_SERVER=/usr/libexec/stratumak/gomc-server
+LIBEXEC_SERVER=/usr/libexec/stratumak/stmakd
 BUILD_USER=stratumak-build
 BUILD_CACHE=/var/cache/stratumak-build
 
 for d in "$STATE_DIR" "$STATE_DIR/bin" "$STATE_DIR/cmod" \
-	 "$STATE_DIR/modules" "$STATE_DIR/gomc"; do
+	 "$STATE_DIR/modules" "$STATE_DIR/stmak"; do
     if [ ! -d "$d" ]; then
 	mkdir -p "$d"
     fi
@@ -54,13 +45,13 @@ for d in "$STATE_DIR" "$STATE_DIR/bin" "$STATE_DIR/cmod" \
     chmod 0755 "$d"
 done
 
-# /usr/bin/gomc-server points here, and this points at the package's own copy
+# /usr/bin/stmakd points here, and this points at the package's own copy
 # --- until an administrator rebuilds, at which point it becomes a real binary
 # and must be left alone. Created only when absent, for that reason: replacing
 # a local build with the shipped symlink would unregister every external
 # module compiled into it, without saying so.
-if [ ! -e "$STATE_DIR/bin/gomc-server" ]; then
-    ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/gomc-server"
+if [ ! -e "$STATE_DIR/bin/stmakd" ]; then
+    ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/stmakd"
 fi
 
 # The unprivileged account the compiler runs as. It owns nothing but its own
@@ -114,20 +105,20 @@ chmod 0755 "$BUILD_CACHE"
 # code -- only by removing them and watching EtherCAT fail to start.
 #
 # setcap resolves symlinks, so naming the pristine binary is deliberate: a
-# locally rebuilt server is a real file at $STATE_DIR/bin/gomc-server, and
+# locally rebuilt server is a real file at $STATE_DIR/bin/stmakd, and
 # modcompile carries its capabilities across its own replacement. Applying
 # them through the chain would move them onto the local build and leave the
 # package's copy without any.
-GOMC_CAPS=cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep
+STMAK_CAPS=cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep
 
 if [ -f "$LIBEXEC_SERVER" ] && command -v setcap >/dev/null 2>&1; then
     # Not fatal. setcap fails on filesystems without xattr support and in some
     # container builds; a package that refuses to configure there would be
     # worse than one that runs without realtime privileges and says so.
-    if ! setcap "$GOMC_CAPS" "$LIBEXEC_SERVER" 2>/dev/null; then
+    if ! setcap "$STMAK_CAPS" "$LIBEXEC_SERVER" 2>/dev/null; then
 	echo "stratumak: could not set file capabilities on $LIBEXEC_SERVER;" >&2
 	echo "stratumak: realtime will not start until this succeeds:" >&2
-	echo "stratumak:   sudo setcap '$GOMC_CAPS' $LIBEXEC_SERVER" >&2
+	echo "stratumak:   sudo setcap '$STMAK_CAPS' $LIBEXEC_SERVER" >&2
     fi
 fi
 
@@ -139,7 +130,7 @@ fi
 # toolchain and a warm module cache, and can fail --- and a failing postinst
 # leaves the package half-configured and apt wedged.
 #
-# Three cases, distinguished by what $STATE_DIR/bin/gomc-server is:
+# Three cases, distinguished by what $STATE_DIR/bin/stmakd is:
 #
 #   a symlink                      the package's own binary is live already;
 #                                  the new one took effect when dpkg unpacked
@@ -149,16 +140,16 @@ fi
 #   a real file, modules registered  leave it alone and say so. It is stale,
 #                                  but discarding an administrator's modules
 #                                  silently is worse than running stale.
-if [ -f "$STATE_DIR/bin/gomc-server" ] && [ ! -L "$STATE_DIR/bin/gomc-server" ]; then
+if [ -f "$STATE_DIR/bin/stmakd" ] && [ ! -L "$STATE_DIR/bin/stmakd" ]; then
     if [ -n "$(ls -A "$STATE_DIR/modules" 2>/dev/null)" ]; then
-	echo "stratumak: $STATE_DIR/bin/gomc-server was built locally and has" >&2
+	echo "stratumak: $STATE_DIR/bin/stmakd was built locally and has" >&2
 	echo "stratumak: external modules compiled into it; it is now older than the" >&2
 	echo "stratumak: installed sources. Rebuild it with:" >&2
 	echo "stratumak:   sudo modcompile rebuild" >&2
     else
-	rm -f "$STATE_DIR/bin/gomc-server"
-	ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/gomc-server"
-	echo "stratumak: replaced a locally built gomc-server with the packaged one" >&2
+	rm -f "$STATE_DIR/bin/stmakd"
+	ln -s "$LIBEXEC_SERVER" "$STATE_DIR/bin/stmakd"
+	echo "stratumak: replaced a locally built stmakd with the packaged one" >&2
 	echo "stratumak: (no external modules were registered)." >&2
     fi
 fi

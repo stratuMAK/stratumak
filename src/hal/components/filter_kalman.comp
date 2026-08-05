@@ -96,7 +96,7 @@ FUNCTION(_) {
             xk_out = 0;
 
             if (debug) {
-                GOMC_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
+                STMAK_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
             }
 
             return;
@@ -107,7 +107,7 @@ FUNCTION(_) {
         xk_out = zk;
 
         if (debug) {
-            GOMC_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
+            STMAK_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
         }
 
         return;
@@ -131,7 +131,7 @@ FUNCTION(_) {
         xk_out     = xk;
 
         if (debug) {
-            GOMC_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
+            STMAK_LOG_ERR("filter-kalman %f %f\n", zk, xk_out);
         }
     }
 }

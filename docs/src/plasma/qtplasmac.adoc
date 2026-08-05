@@ -263,18 +263,18 @@ image::images/qtplasmac_pncconf_thcad.png[width=600,align="center"]
 The THCAD screen will only appear if a Plasma Encoder is selected in the card screen.
 The the <<plasma:mesa-thcad,dedicated section on Mesa THCAD>> for more information.
 
-When the configuration is complete, the wizard will save a copy of the configuration that may be loaded and edited at a later time, a working QtPlasmaC configuration will be created in the following directory: ~/linuxcnc/configs/_<machine_name>_.
+When the configuration is complete, the wizard will save a copy of the configuration that may be loaded and edited at a later time, a working QtPlasmaC configuration will be created in the following directory: ~/stratumak/configs/_<machine_name>_.
 
 The way the newly created QtPlasmaC configuration can be run from the terminal command line slightly differs depending the way LinuxCNC was installed:
 
 For a package installation (Buildbot):
 ----
-linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini
+linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini
 ----
 
 For a run in place installation: +
 ----
-~/linuxcnc-dev/scripts/linuxcnc ~/linuxcnc/configs/_<machine_name>_/_<machine_name>_.ini
+~/linuxcnc-dev/scripts/linuxcnc ~/stratumak/configs/_<machine_name>_/_<machine_name>_.ini
 ----
 
 After running the above command LinuxCNC should be running with the QtPlasmaC GUI visible.
@@ -361,7 +361,7 @@ If there are Qt dependency errors, the user should run the <<qt-dependency,QtVCP
 A quick method to move to QtPlasmaC from PlasmaC (loaded on top of either AXIS or GMOCCAPY) is to use the plasmac2qt conversion program,
 which will attempt to create a new QtPlasmaC configuration from an existing PlasmaC INI file.
 This program will convert the user's parameters, settings, and materials from the previous PlasmaC configuration
-and create a new QtPlasmaC configuration directory in the ~/linuxcnc/configs directory.
+and create a new QtPlasmaC configuration directory in the ~/stratumak/configs directory.
 
 This methods will keep the original PlasmaC config as a backup with _plasmac and a time stamp appended to the directory name.
 
@@ -561,7 +561,7 @@ After the launcher appears on the desktop, right click on it and then edit it wi
 Comment=
 Terminal=false
 Name=LinuxCNC
-Exec=sh -c "linuxcnc $HOME/linuxcnc/configs/<machine_name>/<machine_name>.ini"
+Exec=sh -c "linuxcnc $HOME/stratumak/configs/<machine_name>/<machine_name>.ini"
 Type=Application
 Icon=/usr/share/pixmaps/linuxcncicon.png
 ----
@@ -1657,7 +1657,7 @@ To convert:
 
 . Select the Input File to be converted, press *INPUT* to bring up a file selector or directly enter the file in the entry box.
 . Select the Output File to write to, press *OUTPUT* to bring up a file selector or directly enter the file in the entry box.
-  This would normally be ~/linuxcnc/configs/__<machine_name>___material.cfg.
+  This would normally be ~/stratumak/configs/__<machine_name>___material.cfg.
   If necessary, the user could select a different file and hand edit the __<machine_name>___material.cfg file.
 . Click *CREATE/CONVERT* and the new material file will be created.
 
@@ -1667,7 +1667,7 @@ Any entry marked with pass:[***] is mandatory and all other entries are optional
 image::images/qtplasmac_material_manual_dialog.png[width=150,align="center"]
 
 [NOTE]
-If the user selects ~/linuxcnc/configs/__<machine_name>___material.cfg and the file already exists, it will be overwritten.
+If the user selects ~/stratumak/configs/__<machine_name>___material.cfg and the file already exists, it will be overwritten.
 
 [[plasma:laser]]
 === LASER
@@ -3477,7 +3477,7 @@ HAL connections to this HAL pin needs to be specified in a postgui HAL file as t
 [[plasma:button-load]]
 .Load
 
-Loading a G-code program from the directory specified by the *PROGRAM_PREFIX* variable in the _<machine_name>_.ini file (usually ~/linuxcnc/nc_files) is possible by using the following format:
+Loading a G-code program from the directory specified by the *PROGRAM_PREFIX* variable in the _<machine_name>_.ini file (usually ~/stratumak/nc_files) is possible by using the following format:
 
 [source,{ini}]
 ----
@@ -3614,7 +3614,7 @@ The directory name is optional and if omitted will default to the last directory
 
 [source,{ini}]
 ----
-n Code = latest-file /home/me/linuxcnc/nc_files/qtplasmac-test
+n Code = latest-file /home/me/stratumak/nc_files/qtplasmac-test
 ----
 
 [[plasma:button-umanual]]
@@ -4119,7 +4119,7 @@ Each sample configuration includes a popup control panel to simulate various inp
 
 === NGC Samples
 
-There are some sample G-code files in the ~/linuxcnc/nc_files/examples/plasmac directory.
+There are some sample G-code files in the ~/stratumak/nc_files/examples/plasmac directory.
 
 === QtPlasmaC Specific G-codes
 

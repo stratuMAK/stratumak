@@ -43,25 +43,25 @@
  *                 pos_reset).
  */
 typedef struct {
-  gomc_hal_s32_t raw_home;       /**< HAL RW param: raw encoder count corresponding to the home position. */
-  gomc_hal_u32_t raw_bits;       /**< HAL RO param: number of significant bits in the raw encoder word. */
-  gomc_hal_float_t pprev_scale;  /**< HAL RO param: reciprocal of pulses-per-revolution (1/pprev), for display. */
+  stmak_hal_s32_t raw_home;       /**< HAL RW param: raw encoder count corresponding to the home position. */
+  stmak_hal_u32_t raw_bits;       /**< HAL RO param: number of significant bits in the raw encoder word. */
+  stmak_hal_float_t pprev_scale;  /**< HAL RO param: reciprocal of pulses-per-revolution (1/pprev), for display. */
 
-  gomc_hal_s32_t *raw;           /**< HAL OUT: most-recent raw encoder count (sign-extended to 32 bits). */
-  gomc_hal_u32_t *ext_lo;        /**< HAL IO:  low 32 bits of the 64-bit extrapolated position accumulator. */
-  gomc_hal_u32_t *ext_hi;        /**< HAL IO:  high 32 bits of the 64-bit extrapolated position accumulator. */
-  gomc_hal_u32_t *ref_lo;        /**< HAL OUT: low 32 bits of the 64-bit reference (zero-point) position. */
-  gomc_hal_u32_t *ref_hi;        /**< HAL OUT: high 32 bits of the 64-bit reference (zero-point) position. */
+  stmak_hal_s32_t *raw;           /**< HAL OUT: most-recent raw encoder count (sign-extended to 32 bits). */
+  stmak_hal_u32_t *ext_lo;        /**< HAL IO:  low 32 bits of the 64-bit extrapolated position accumulator. */
+  stmak_hal_u32_t *ext_hi;        /**< HAL IO:  high 32 bits of the 64-bit extrapolated position accumulator. */
+  stmak_hal_u32_t *ref_lo;        /**< HAL OUT: low 32 bits of the 64-bit reference (zero-point) position. */
+  stmak_hal_u32_t *ref_hi;        /**< HAL OUT: high 32 bits of the 64-bit reference (zero-point) position. */
 
-  gomc_hal_bit_t *index_ena;     /**< HAL IO:  set by motion controller to arm index-pulse homing; cleared by driver when index is detected. */
-  gomc_hal_bit_t *pos_reset;     /**< HAL IN:  pulse high to reset the relative position reference to the current position. */
+  stmak_hal_bit_t *index_ena;     /**< HAL IO:  set by motion controller to arm index-pulse homing; cleared by driver when index is detected. */
+  stmak_hal_bit_t *pos_reset;     /**< HAL IN:  pulse high to reset the relative position reference to the current position. */
 
-  gomc_hal_float_t *pos_enc;     /**< HAL OUT: position in user-units relative to the encoder power-on zero. */
-  gomc_hal_float_t *pos_abs;     /**< HAL OUT: absolute position in user-units corrected for the raw_home offset. */
-  gomc_hal_float_t *pos;         /**< HAL OUT: relative position in user-units with respect to the current reference point. */
+  stmak_hal_float_t *pos_enc;     /**< HAL OUT: position in user-units relative to the encoder power-on zero. */
+  stmak_hal_float_t *pos_abs;     /**< HAL OUT: absolute position in user-units corrected for the raw_home offset. */
+  stmak_hal_float_t *pos;         /**< HAL OUT: relative position in user-units with respect to the current reference point. */
 
-  gomc_hal_bit_t *on_home_neg;   /**< HAL OUT: true when the absolute position is at or below the home position. */
-  gomc_hal_bit_t *on_home_pos;   /**< HAL OUT: true when the absolute position is at or above the home position. */
+  stmak_hal_bit_t *on_home_neg;   /**< HAL OUT: true when the absolute position is at or below the home position. */
+  stmak_hal_bit_t *on_home_pos;   /**< HAL OUT: true when the absolute position is at or above the home position. */
 
   int do_init;              /**< Internal: non-zero on first update cycle or after a slave fault; triggers state re-initialisation. */
 
@@ -114,6 +114,6 @@ int class_enc_init(struct lcec_slave *slave, lcec_class_enc_data_t *hal_data, in
  * @param ext_latch_raw   Raw encoder count captured at the external latch event.
  * @param ext_latch_ena   Non-zero if a valid external latch event occurred this cycle.
  */
-void class_enc_update(lcec_class_enc_data_t *hal_data, uint64_t pprev, double scale, uint32_t raw, uint32_t ext_latch_raw, int ext_latch_ena) GOMC_NONBLOCKING;
+void class_enc_update(lcec_class_enc_data_t *hal_data, uint64_t pprev, double scale, uint32_t raw, uint32_t ext_latch_raw, int ext_latch_ena) STMAK_NONBLOCKING;
 
 #endif

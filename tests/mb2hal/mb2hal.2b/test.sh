@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc: mb2hal is a cmod (loadrt); inspect created pins via halcmd in a resident
+# stratuMAK: mb2hal is a cmod (loadrt); inspect created pins via halcmd in a resident
 # server. '.0*' patterns exclude the varying num_errors pin.
 . "$(dirname "$0")/../../hal-stream-driver.sh"
 hal_start_server mb2hal.hal

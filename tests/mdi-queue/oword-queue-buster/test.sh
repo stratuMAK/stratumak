@@ -1,17 +1,17 @@
 #!/bin/bash
-# mdi-queue/oword-queue-buster ported to the gomc REST/gmi path.
+# mdi-queue/oword-queue-buster ported to the stratuMAK REST/gmi path.
 #
 # Like simple-queue-buster, but the queue-buster is an O-word sub
 # (o<queue-buster> in ../subs) that does m100 / t#1 / m6 / m100 p-#5400 /
 # m100 p54321 -- i.e. it logs the *current tool* (#5400) after a mid-sub tool
 # change.  The M100 stream is captured by mcode_coord_log (format=p).
 #
-# XFAIL on gomc: this depends on M6 updating the interp #<_current_tool>/#5400,
-# which gomc does not do (tool-tracking cluster, see ../../../PRODUCTION_READINESS.md).
+# XFAIL on stratuMAK: this depends on M6 updating the interp #<_current_tool>/#5400,
+# which stratuMAK does not do (tool-tracking cluster, see ../../../PRODUCTION_READINESS.md).
 # So "m100 p-#5400" logs "P is 0" instead of the tool number, and the run
 # diverges from expected.  Remove xfail once M6/#5400 tool-tracking is fixed.
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f gcode-output sim.var sim.var.bak
 
 # Build the command stream + expected M100 log, calling the queue-buster sub
@@ -38,8 +38,8 @@ for i in $(seq 0 1000); do
 done
 printf 'P is -200.000000\n' >> expected-gcode-output
 
-gomc_start_server --inherit sim.ini
-gomc_wait_ready
+stmak_start_server --inherit sim.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

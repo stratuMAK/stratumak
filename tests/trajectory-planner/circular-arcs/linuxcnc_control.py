@@ -2,7 +2,7 @@
 '''Copied from m61-test'''
 
 import linuxcnc
-import gomc_test
+import stmak_test
 import os
 from time import sleep
 
@@ -31,9 +31,9 @@ class LinuxcncControl:
     '''
 
     def __init__(self,timeout=2):
-        # gomc_test.Command, not linuxcnc.command(): its wait_complete() raises
+        # stmak_test.Command, not linuxcnc.command(): its wait_complete() raises
         # on a timed-out wait instead of returning -1, so it cannot fail silently.
-        self.c = gomc_test.Command()
+        self.c = stmak_test.Command()
         self.e = linuxcnc.error_channel()
         self.s = linuxcnc.stat()
         self.timeout = timeout

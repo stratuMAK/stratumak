@@ -7,11 +7,11 @@ acceleration, feed, and geometry parameters.
 
 Each milltask runs against its OWN native motion controller, in its own tree:
 
-- **new / Go milltask** — this repo (`~/source/linuxcnc`, branch `gomc`).
+- **new / Go milltask** — this repo (`~/source/linuxcnc`, branch `main`).
 - **old / C++ milltask** — `~/source/linuxcnc-2.9` (branch `verify-milltask-lcnc`).
 
 Both trees' motion controller has the **identical** instrument in
-`src/emc/motion/command.c` — a `motcmd_trace()` in `emcmotCommandHandler_locked()`,
+`src/cnc/motion/command.c` — a `motcmd_trace()` in `emcmotCommandHandler_locked()`,
 the exact point where each native `motmod` receives a command. When enabled it
 logs one deterministic line per command **by opcode name** (robust to enum
 renumbering between the trees), using only `emcmot_command_t` fields common to

@@ -2,7 +2,7 @@
 LinuxCNC User Interface helper functions
 """
 
-# Under gomc, linuxcnc.so is a deprecation stub: linuxcnc.command/stat/
+# Under stratuMAK, linuxcnc.so is a deprecation stub: linuxcnc.command/stat/
 # error_channel raise and point callers at gmi. This module used to `import
 # linuxcnc` and read its constants off that stub, which only worked because
 # every caller first monkey-patched gmi's constants onto the shared module
@@ -25,7 +25,7 @@ class LinuxCNC_Exception(Exception):
 
 
 # How far an axis may drift and still count as "did not move". Sized to swallow
-# float noise from sampling a live machine (and gomc's mm -> machine-unit
+# float noise from sampling a live machine (and stratuMAK's mm -> machine-unit
 # scaling) while being far below any real commanded motion.
 IDLE_AXIS_EPSILON = 1e-6
 
@@ -217,7 +217,7 @@ class LinuxCNC:
         start = time.time()
         while not done(self.status.position[axis_index]) and ((time.time() - start) < timeout):
             time.sleep(0.1)
-            # gomc dead-mans continuous jogs not refreshed within its jog
+            # stratuMAK dead-mans continuous jogs not refreshed within its jog
             # watchdog interval (runaway protection for disconnected
             # clients) — keep the jog alive while we wait.
             self.command.jog(JOG_CONTINUOUS, 0, axis_index, vel)
@@ -239,7 +239,7 @@ class LinuxCNC:
                 continue;
             # Tolerance, not exact equality. "This axis did not move" cannot be
             # an == on a live status feed: the values are floats sampled from a
-            # running machine, and under gomc they are also scaled (mm -> machine
+            # running machine, and under stratuMAK they are also scaled (mm -> machine
             # units) on the way out, so a 1-ULP wobble in the underlying mm value
             # produces a different float here. That made the check fire on axes
             # that had not moved at all -- the failure printed "moved from 0.000

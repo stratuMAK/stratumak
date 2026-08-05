@@ -4,11 +4,11 @@
 set -e
 cd "$(dirname "$0")"
 
-# The float column is formatted with %f, which follows LC_NUMERIC. gomc-server
+# The float column is formatted with %f, which follows LC_NUMERIC. stmakd
 # never calls setlocale, so filestream writes "1.000000"; generate the same.
 export LC_ALL=C
 
-ORACLE_DIR=../../src/gomc/internal/classicladder/testdata/oracle
+ORACLE_DIR=../../src/stmak/internal/classicladder/testdata/oracle
 make -s -C "$ORACLE_DIR"
 
 # in-seq.txt columns: bit %I0, s32 %IW0, s32 %IW1, float %IF0.

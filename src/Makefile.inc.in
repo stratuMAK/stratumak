@@ -27,8 +27,8 @@ EMC2_CMOD_DIR=@EMC2_CMOD_DIR@
 # Both empty for a run-in-place tree, which has no such split.
 EMC2_STATE_DIR=@EMC2_STATE_DIR@
 EMC2_LIBEXEC_DIR=@EMC2_LIBEXEC_DIR@
-EMC2_USER_CONFIG_DIR=~/emc2/configs
-EMC2_SYSTEM_CONFIG_DIR=/usr/local/etc/emc2/configs
+EMC2_USER_CONFIG_DIR=~/stratumak/configs
+EMC2_SYSTEM_CONFIG_DIR=/usr/local/etc/stratumak/configs
 EMC2_NCFILES_DIR=@EMC2_NCFILES_DIR@
 EMC2_IMAGEDIR=@EMC2_IMAGE_DIR@
 
@@ -67,10 +67,10 @@ LANGUAGES = @LANGUAGES@
 
 #still needs discussion
 # do we really need these?
-docsdir = ${prefix}/share/doc/linuxcnc
-sampleconfsdir = ${prefix}/share/doc/linuxcnc/examples/sample-configs
-ncfilesdir = ${prefix}/share/linuxcnc/ncfiles
-tcldir = ${prefix}/lib/tcltk/linuxcnc
+docsdir = ${prefix}/share/doc/stratumak
+sampleconfsdir = ${prefix}/share/doc/stratumak/examples/sample-configs
+ncfilesdir = ${prefix}/share/stratumak/ncfiles
+tcldir = ${prefix}/lib/tcltk/stratumak
 
 
 # /Standard configure directories
@@ -85,7 +85,6 @@ MODULE_EXT = @MODEXT@
 CC = @CC@
 MANDB = @MANDB@
 HIDRAW_H_USABLE = @HIDRAW_H_USABLE@
-TOOL_NML = @TOOL_NML@
 
 # readline support for halcmd
 READLINE_LIBS =  @READLINE_LIBS@
@@ -160,14 +159,12 @@ BUILD_PERSIST_SQLITE = @HAVE_PERSIST_SQLITE@
 BUILD_TOOLTABLE = @HAVE_TOOLTABLE@
 BUILD_NODEJS = @HAVE_NODEJS@
 BUILD_WEBKIT2GTK = @HAVE_WEBKIT2GTK@
-BUILD_ETHERCAT = @HAVE_ETHERCAT@
 ETHERCAT_CFLAGS = @ETHERCAT_CFLAGS@
 ETHERCAT_LIBS = @ETHERCAT_LIBS@
 EMC2VERSION = @EMC2VERSION@
 LINUXCNC_CONFIG_PATH = @LINUXCNC_CONFIG_PATH@
 HALLIB_DIR = @HALLIB_DIR@
 EMC2_LANG_DIR = @EMC2_LANG_DIR@
-DEFAULT_NMLFILE = @DEFAULT_NMLFILE@
 
 YAPPS = @YAPPS@
 

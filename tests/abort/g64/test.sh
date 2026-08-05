@@ -1,21 +1,21 @@
 #!/bin/bash -e
 rm -f motion-samples.log
 
-# gomc-server does not launch the [DISPLAY] program; start a resident server,
+# stmakd does not launch the [DISPLAY] program; start a resident server,
 # capture the motion sampler with halsampler (connect before motion starts),
 # then drive the test with the gmi-based test-ui.py.
-. "$(dirname "$0")/../../gomc-driver.sh"
+. "$(dirname "$0")/../../stmak-driver.sh"
 
-gomc-server -r test.ini >server.log 2>&1 &
+stmakd -r test.ini >server.log 2>&1 &
 SRV=$!
-GOMC_SRV=$SRV
-export GOMC_SRV
+STMAK_SRV=$SRV
+export STMAK_SRV
 trap 'kill $SAMPLER 2>/dev/null; kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
 # Replaces a `grep milltask` loop with no failure branch plus a trailing
 # `sleep 0.5` that guessed at task init: ask the status buffer instead, and fail
 # loudly if the machine never came up.
-gomc_wait_ready
+stmak_wait_ready
 
 halsampler -t > motion-samples.log &
 SAMPLER=$!

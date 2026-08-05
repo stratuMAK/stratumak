@@ -1,0 +1,7 @@
+INCLUDES += cnc
+
+$(patsubst ./cnc/%,../include/%,$(wildcard ./cnc/*.h)): ../include/%.h: ./cnc/%.h
+	cp $^ $@
+
+$(patsubst ./cnc/%,../include/%,$(wildcard ./cnc/*.hh)): ../include/%.hh: ./cnc/%.hh
+	cp $^ $@

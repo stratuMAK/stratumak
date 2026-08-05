@@ -261,7 +261,7 @@ function pollAll() {
 }
 
 async function start() {
-  // Re-arm-after-completion retry: if the page loaded before gomc-server (or
+  // Re-arm-after-completion retry: if the page loaded before stmakd (or
   // before any latency instance was created), keep trying instead of dying
   // into a permanently blank app.
   if (retryTimer) {

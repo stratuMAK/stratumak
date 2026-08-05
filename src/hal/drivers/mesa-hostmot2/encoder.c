@@ -122,7 +122,7 @@ static void hm2_encoder_update_control_register(hostmot2_t *hm2) {
 }
 
 
-static void hm2_encoder_read_control_register(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_encoder_read_control_register(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
 
     for (i = 0; i < hm2->encoder.num_instances; i ++) {
@@ -138,7 +138,7 @@ static void hm2_encoder_read_control_register(hostmot2_t *hm2) GOMC_NONBLOCKING 
             if ((*e->hal.pin.quadrature_error == 0) && state) {
                 HM2_ERR("Encoder %d: quadrature count error\n", i);
             }
-            *e->hal.pin.quadrature_error = (gomc_hal_bit_t) state;
+            *e->hal.pin.quadrature_error = (stmak_hal_bit_t) state;
         } else{ // quadrature error disabled, set reported error to 0
             *e->hal.pin.quadrature_error = 0;
         }
@@ -152,7 +152,7 @@ static void hm2_encoder_read_control_register(hostmot2_t *hm2) GOMC_NONBLOCKING 
 }
 
 
-static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) STMAK_NONBLOCKING {
     uint32_t filter_rate = hm2->encoder.clock_frequency/(*hm2->encoder.hal->pin.sample_frequency);
     
     if (filter_rate == 1) {
@@ -179,7 +179,7 @@ static void hm2_encoder_set_filter_rate_and_skew(hostmot2_t *hm2) GOMC_NONBLOCKI
     hm2->encoder.written_sample_frequency = *hm2->encoder.hal->pin.sample_frequency;
 }
 
-static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if(!hm2->encoder.dpll_timer_num_addr) return;
 
     uint32_t data = hm2->encoder.desired_dpll_timer_reg;
@@ -188,11 +188,11 @@ static void hm2_encoder_set_dpll_timer_if_present(hostmot2_t *hm2) GOMC_NONBLOCK
     hm2->encoder.written_dpll_timer_reg = data;
 }
 
-static void hm2_encoder_force_write_dpll_timer(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_encoder_force_write_dpll_timer(hostmot2_t *hm2) STMAK_NONBLOCKING {
     hm2_encoder_set_dpll_timer_if_present(hm2);
 }
 
-void hm2_encoder_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_encoder_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
 
     if (hm2->encoder.num_instances == 0) return;
@@ -283,7 +283,7 @@ force_write:
 }
 
 
-void hm2_encoder_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_encoder_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
 
     if (hm2->encoder.num_instances == 0) return;
@@ -463,14 +463,14 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
         } else {
             snprintf(name, sizeof(name), "%s.encoder.sample-frequency", hm2->llio->name);
         }
-        r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.hal->pin.sample_frequency), hm2->llio->comp_id, "%s", name);
+        r = stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.hal->pin.sample_frequency), hm2->llio->comp_id, "%s", name);
         if (r < 0) {
             HM2_ERR("error adding pin %s, aborting\n", name);
             goto fail1;
         }
         if ((md->gtag == HM2_GTAG_MUXED_ENCODER) && (md->version > 3 )) {   // >3 to include modules with probe enable
             snprintf(name, sizeof(name), "%s.encoder.muxed-skew", hm2->llio->name);
-            r = gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.hal->pin.skew), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.hal->pin.skew), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin %s, aborting\n", name);
                 goto fail1;
@@ -478,7 +478,7 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
             hm2->encoder.has_skew = 1;
         }
         if(hm2->encoder.dpll_timer_num_addr) {
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.hal->pin.dpll_timer_num), hm2->llio->comp_id, "%s.encoder.timer-number", hm2->llio->name);
+            r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.hal->pin.dpll_timer_num), hm2->llio->comp_id, "%s.encoder.timer-number", hm2->llio->name);
             if (r < 0) {
                 HM2_ERR("error adding pin %s, aborting\n", name);
                 goto fail1;
@@ -487,7 +487,7 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
         }
 
         snprintf(name, sizeof(name), "%s.encoder.hires-timestamp", hm2->llio->name);
-        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.hal->pin.hires_timestamp), hm2->llio->comp_id, "%s", name);
+        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.hal->pin.hires_timestamp), hm2->llio->comp_id, "%s", name);
         if (r < 0) {
             HM2_ERR("error adding pin %s, aborting\n", name);
             goto fail1;
@@ -496,70 +496,70 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
         for (i = 0; i < hm2->encoder.num_instances; i ++) {
             // pins
             snprintf(name, sizeof(name), "%s.encoder.%02d.rawcounts", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.rawcounts), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.rawcounts), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.rawlatch", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.rawlatch), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.rawlatch), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.count", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.count), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.count), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.count-latched", hm2->llio->name, i);
-            r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.count_latch), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.count_latch), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.position", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.position), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.position), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.position-latched", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.position_latch), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.position_latch), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.velocity", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.velocity), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.velocity), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.velocity-rpm", hm2->llio->name, i);
-            r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.velocity_rpm), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.velocity_rpm), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.reset", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.instance[i].hal.pin.reset), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.instance[i].hal.pin.reset), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.index-enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IO, &(hm2->encoder.instance[i].hal.pin.index_enable), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IO, &(hm2->encoder.instance[i].hal.pin.index_enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -567,14 +567,14 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
  
             if (hm2->encoder.firmware_supports_probe) {
                 snprintf(name, sizeof(name), "%s.encoder.%02d.probe-enable", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.instance[i].hal.pin.latch_enable), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.instance[i].hal.pin.latch_enable), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     goto fail1;
                 }
     
                 snprintf(name, sizeof(name), "%s.encoder.%02d.probe-invert", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.instance[i].hal.pin.latch_polarity), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.instance[i].hal.pin.latch_polarity), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     goto fail1;
@@ -582,7 +582,7 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.quad-error", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.quadrature_error), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.quadrature_error), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -590,28 +590,28 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
 
 
           snprintf(name, sizeof(name), "%s.encoder.%02d.quad-error-enable", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->encoder.instance[i].hal.pin.quadrature_error_enable), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->encoder.instance[i].hal.pin.quadrature_error_enable), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.input-a", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_a), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_a), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.input-b", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_b), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_b), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.input-index", hm2->llio->name, i);
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_idx), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->encoder.instance[i].hal.pin.input_idx), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding pin '%s', aborting\n", name);
                 goto fail1;
@@ -619,49 +619,49 @@ int hm2_encoder_parse_md(hostmot2_t *hm2, int md_index) {
 
             // parameters
             snprintf(name, sizeof(name), "%s.encoder.%02d.scale", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.scale), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.scale), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.index-invert", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_invert), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_invert), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.index-mask", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_mask), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_mask), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.index-mask-invert", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_mask_invert), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.index_mask_invert), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.counter-mode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.counter_mode), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.counter_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.filter", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.filter), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.filter), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
 
             snprintf(name, sizeof(name), "%s.encoder.%02d.vel-timeout", hm2->llio->name, i);
-            r = gomc_hal_param_float_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->encoder.instance[i].hal.param.vel_timeout), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_float_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->encoder.instance[i].hal.param.vel_timeout), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -1090,7 +1090,7 @@ static void hm2_encoder_instance_process_tram_read(hostmot2_t *hm2, int instance
 
 
 
-void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns) GOMC_NONBLOCKING {
+void hm2_encoder_process_tram_read(hostmot2_t *hm2, long l_period_ns) STMAK_NONBLOCKING {
     (void)l_period_ns;
     int i;
 
@@ -1111,7 +1111,7 @@ void hm2_encoder_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_encoder_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_encoder_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
      if (hm2->encoder.num_instances <= 0) return;
     HM2_PRINT("Encoders: %d\n", hm2->encoder.num_instances);

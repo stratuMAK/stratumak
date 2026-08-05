@@ -1,4 +1,4 @@
 #!/bin/bash
 
-exec linuxcnc -r halui.ini
+exec stmakd -r halui.ini
 

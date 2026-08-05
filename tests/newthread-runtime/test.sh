@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regression for issue #265 ("Adding threads while running GOMC Server") and the
+# Regression for issue #265 ("Adding threads while running STMAK Server") and the
 # same nullable-scalar-argument class in addf.
 #
 # Two runtime halcmd operations that used to break because an omitted nullable
@@ -18,10 +18,10 @@
 # of a floating-point function fail on a runtime-created thread — hence the
 # floating-point `scale` function below alongside the nofp and2/not.
 #
-# gomc has no userspace comps / loadusr, so a resident gomc-server + halcmd
+# stratuMAK has no userspace comps / loadusr, so a resident stmakd + halcmd
 # replaces the classic halrun test.hal. stdout must stay exactly the lines
 # `expected` compares against; diagnostics go to stderr.
-gomc-server -r -f nt.hal --serve >server.log 2>&1 &
+stmakd -r -f nt.hal --serve >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 

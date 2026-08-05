@@ -23,8 +23,8 @@
    Cmod port: hand-written cmod for XHC-WHB04B-6 wireless MPG pendant.
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 
 #include <stdlib.h>
@@ -246,93 +246,93 @@ typedef struct {
 
 typedef struct {
     /* Button output pins (one per meta-button) */
-    gomc_hal_bit_t  *button_pin[NB_META_BUTTONS];
+    stmak_hal_bit_t  *button_pin[NB_META_BUTTONS];
 
     /* Flood/mist/lube */
-    gomc_hal_bit_t  *flood_is_on;      /* IN */
-    gomc_hal_bit_t  *flood_on;         /* OUT */
-    gomc_hal_bit_t  *flood_off;        /* OUT */
-    gomc_hal_bit_t  *mist_is_on;       /* IN */
-    gomc_hal_bit_t  *mist_on;          /* OUT */
-    gomc_hal_bit_t  *mist_off;         /* OUT */
-    gomc_hal_bit_t  *lube_is_on;       /* IN */
-    gomc_hal_bit_t  *lube_on;          /* OUT */
-    gomc_hal_bit_t  *lube_off;         /* OUT */
+    stmak_hal_bit_t  *flood_is_on;      /* IN */
+    stmak_hal_bit_t  *flood_on;         /* OUT */
+    stmak_hal_bit_t  *flood_off;        /* OUT */
+    stmak_hal_bit_t  *mist_is_on;       /* IN */
+    stmak_hal_bit_t  *mist_on;          /* OUT */
+    stmak_hal_bit_t  *mist_off;         /* OUT */
+    stmak_hal_bit_t  *lube_is_on;       /* IN */
+    stmak_hal_bit_t  *lube_on;          /* OUT */
+    stmak_hal_bit_t  *lube_off;         /* OUT */
 
     /* Per-axis pins */
-    gomc_hal_s32_t  *jog_counts[N_AXIS];     /* OUT */
-    gomc_hal_bit_t  *jog_enable[N_AXIS];     /* OUT */
-    gomc_hal_float_t *jog_scale[N_AXIS];     /* OUT */
-    gomc_hal_bit_t  *jog_vel_mode[N_AXIS];   /* OUT */
-    gomc_hal_bit_t  *axis_select[N_AXIS];    /* OUT */
+    stmak_hal_s32_t  *jog_counts[N_AXIS];     /* OUT */
+    stmak_hal_bit_t  *jog_enable[N_AXIS];     /* OUT */
+    stmak_hal_float_t *jog_scale[N_AXIS];     /* OUT */
+    stmak_hal_bit_t  *jog_vel_mode[N_AXIS];   /* OUT */
+    stmak_hal_bit_t  *axis_select[N_AXIS];    /* OUT */
 
     /* Axis position feedback */
-    gomc_hal_float_t *axis_pos[N_AXIS];          /* IN */
-    gomc_hal_float_t *axis_pos_rel[N_AXIS];      /* IN */
+    stmak_hal_float_t *axis_pos[N_AXIS];          /* IN */
+    stmak_hal_float_t *axis_pos_rel[N_AXIS];      /* IN */
 
     /* Joint homed */
-    gomc_hal_bit_t  *joint_homed[N_AXIS];    /* IN */
+    stmak_hal_bit_t  *joint_homed[N_AXIS];    /* IN */
 
     /* Feed */
-    gomc_hal_bit_t  *feed_sel_2;       /* OUT */
-    gomc_hal_bit_t  *feed_sel_5;       /* OUT */
-    gomc_hal_bit_t  *feed_sel_10;      /* OUT */
-    gomc_hal_bit_t  *feed_sel_30;      /* OUT */
-    gomc_hal_bit_t  *feed_sel_60;      /* OUT */
-    gomc_hal_bit_t  *feed_sel_100;     /* OUT */
-    gomc_hal_bit_t  *feed_sel_lead;    /* OUT */
-    gomc_hal_bit_t  *feed_sel_mpg;     /* OUT */
-    gomc_hal_bit_t  *feed_sel_con;     /* OUT */
-    gomc_hal_bit_t  *feed_sel_step;    /* OUT */
-    gomc_hal_float_t *feed_ovr_scale;  /* OUT */
-    gomc_hal_bit_t  *feed_ovr_dec;     /* OUT */
-    gomc_hal_bit_t  *feed_ovr_inc;     /* OUT */
-    gomc_hal_float_t *feed_ovr_max_vel;/* IN */
-    gomc_hal_float_t *feed_ovr_value;  /* IN */
+    stmak_hal_bit_t  *feed_sel_2;       /* OUT */
+    stmak_hal_bit_t  *feed_sel_5;       /* OUT */
+    stmak_hal_bit_t  *feed_sel_10;      /* OUT */
+    stmak_hal_bit_t  *feed_sel_30;      /* OUT */
+    stmak_hal_bit_t  *feed_sel_60;      /* OUT */
+    stmak_hal_bit_t  *feed_sel_100;     /* OUT */
+    stmak_hal_bit_t  *feed_sel_lead;    /* OUT */
+    stmak_hal_bit_t  *feed_sel_mpg;     /* OUT */
+    stmak_hal_bit_t  *feed_sel_con;     /* OUT */
+    stmak_hal_bit_t  *feed_sel_step;    /* OUT */
+    stmak_hal_float_t *feed_ovr_scale;  /* OUT */
+    stmak_hal_bit_t  *feed_ovr_dec;     /* OUT */
+    stmak_hal_bit_t  *feed_ovr_inc;     /* OUT */
+    stmak_hal_float_t *feed_ovr_max_vel;/* IN */
+    stmak_hal_float_t *feed_ovr_value;  /* IN */
 
     /* Spindle */
-    gomc_hal_float_t *spindle_ovr_scale; /* OUT */
-    gomc_hal_bit_t  *spindle_ovr_dec;    /* OUT */
-    gomc_hal_bit_t  *spindle_ovr_inc;    /* OUT */
-    gomc_hal_bit_t  *spindle_start;      /* OUT */
-    gomc_hal_bit_t  *spindle_stop;       /* OUT */
-    gomc_hal_bit_t  *spindle_fwd;        /* OUT */
-    gomc_hal_bit_t  *spindle_rev;        /* OUT */
-    gomc_hal_bit_t  *spindle_inc;        /* OUT */
-    gomc_hal_bit_t  *spindle_dec;        /* OUT */
-    gomc_hal_bit_t  *spindle_is_on;      /* IN */
-    gomc_hal_float_t *spindle_ovr_value; /* IN */
-    gomc_hal_float_t *spindle_speed_cmd; /* IN */
+    stmak_hal_float_t *spindle_ovr_scale; /* OUT */
+    stmak_hal_bit_t  *spindle_ovr_dec;    /* OUT */
+    stmak_hal_bit_t  *spindle_ovr_inc;    /* OUT */
+    stmak_hal_bit_t  *spindle_start;      /* OUT */
+    stmak_hal_bit_t  *spindle_stop;       /* OUT */
+    stmak_hal_bit_t  *spindle_fwd;        /* OUT */
+    stmak_hal_bit_t  *spindle_rev;        /* OUT */
+    stmak_hal_bit_t  *spindle_inc;        /* OUT */
+    stmak_hal_bit_t  *spindle_dec;        /* OUT */
+    stmak_hal_bit_t  *spindle_is_on;      /* IN */
+    stmak_hal_float_t *spindle_ovr_value; /* IN */
+    stmak_hal_float_t *spindle_speed_cmd; /* IN */
 
     /* Machine */
-    gomc_hal_bit_t  *machine_is_on;      /* IN */
-    gomc_hal_bit_t  *machine_on;         /* OUT */
-    gomc_hal_bit_t  *machine_off;        /* OUT */
+    stmak_hal_bit_t  *machine_is_on;      /* IN */
+    stmak_hal_bit_t  *machine_on;         /* OUT */
+    stmak_hal_bit_t  *machine_off;        /* OUT */
 
     /* Program */
-    gomc_hal_bit_t  *prog_is_idle;       /* IN */
-    gomc_hal_bit_t  *prog_is_paused;     /* IN */
-    gomc_hal_bit_t  *prog_is_running;    /* IN */
-    gomc_hal_bit_t  *prog_run;           /* OUT */
-    gomc_hal_bit_t  *prog_pause;         /* OUT */
-    gomc_hal_bit_t  *prog_resume;        /* OUT */
-    gomc_hal_bit_t  *prog_stop;          /* OUT */
+    stmak_hal_bit_t  *prog_is_idle;       /* IN */
+    stmak_hal_bit_t  *prog_is_paused;     /* IN */
+    stmak_hal_bit_t  *prog_is_running;    /* IN */
+    stmak_hal_bit_t  *prog_run;           /* OUT */
+    stmak_hal_bit_t  *prog_pause;         /* OUT */
+    stmak_hal_bit_t  *prog_resume;        /* OUT */
+    stmak_hal_bit_t  *prog_stop;          /* OUT */
 
     /* Mode */
-    gomc_hal_bit_t  *mode_is_auto;       /* IN */
-    gomc_hal_bit_t  *mode_is_joint;      /* IN */
-    gomc_hal_bit_t  *mode_is_manual;     /* IN */
-    gomc_hal_bit_t  *mode_is_mdi;        /* IN */
-    gomc_hal_bit_t  *mode_is_teleop;     /* IN */
-    gomc_hal_bit_t  *mode_auto;          /* OUT */
-    gomc_hal_bit_t  *mode_joint;         /* OUT */
-    gomc_hal_bit_t  *mode_manual;        /* OUT */
-    gomc_hal_bit_t  *mode_mdi;           /* OUT */
-    gomc_hal_bit_t  *mode_teleop;        /* OUT */
+    stmak_hal_bit_t  *mode_is_auto;       /* IN */
+    stmak_hal_bit_t  *mode_is_joint;      /* IN */
+    stmak_hal_bit_t  *mode_is_manual;     /* IN */
+    stmak_hal_bit_t  *mode_is_mdi;        /* IN */
+    stmak_hal_bit_t  *mode_is_teleop;     /* IN */
+    stmak_hal_bit_t  *mode_auto;          /* OUT */
+    stmak_hal_bit_t  *mode_joint;         /* OUT */
+    stmak_hal_bit_t  *mode_manual;        /* OUT */
+    stmak_hal_bit_t  *mode_mdi;           /* OUT */
+    stmak_hal_bit_t  *mode_teleop;        /* OUT */
 
     /* Pendant state */
-    gomc_hal_bit_t  *pendant_sleeping;   /* OUT */
-    gomc_hal_bit_t  *pendant_connected;  /* OUT */
+    stmak_hal_bit_t  *pendant_sleeping;   /* OUT */
+    stmak_hal_bit_t  *pendant_connected;  /* OUT */
 } hal_pins_t;
 
 /* ========================================================================== */
@@ -342,7 +342,7 @@ typedef struct {
 typedef struct {
     /* cmod env */
     const cmod_env_t *env;
-    const gomc_log_t *log;
+    const stmak_log_t *log;
     int               exit_fd;
 
     /* HAL */
@@ -394,121 +394,121 @@ static void send_display(whb_inst_t *inst);
 /* ========================================================================== */
 
 #define NEW_BIT_PIN(dir, ptr, fmt, ...) \
-    do { if (gomc_hal_pin_bit_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
+    do { if (stmak_hal_pin_bit_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
 #define NEW_S32_PIN(dir, ptr, fmt, ...) \
-    do { if (gomc_hal_pin_s32_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
+    do { if (stmak_hal_pin_s32_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
 #define NEW_FLOAT_PIN(dir, ptr, fmt, ...) \
-    do { if (gomc_hal_pin_float_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
+    do { if (stmak_hal_pin_float_newf(hal, dir, ptr, comp_id, fmt, ##__VA_ARGS__) < 0) return -1; } while(0)
 
 static int create_hal_pins(whb_inst_t *inst)
 {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     int comp_id = inst->hal_id;
     hal_pins_t *p = inst->pins;
     static const char *axis_name[] = { "x", "y", "z", "a", "b", "c" };
 
     /* Button pins */
     for (int i = 0; meta_buttons[i].pin_name != NULL; i++) {
-        NEW_BIT_PIN(GOMC_HAL_OUT, &p->button_pin[i], "%s.button.%s", PIN_PREFIX, meta_buttons[i].pin_name);
+        NEW_BIT_PIN(STMAK_HAL_OUT, &p->button_pin[i], "%s.button.%s", PIN_PREFIX, meta_buttons[i].pin_name);
     }
 
     /* Flood/mist/lube */
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->flood_is_on, "%s.halui.flood.is-on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->flood_off,   "%s.halui.flood.off", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->flood_on,    "%s.halui.flood.on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mist_is_on,  "%s.halui.mist.is-on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mist_off,    "%s.halui.mist.off", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mist_on,     "%s.halui.mist.on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->lube_is_on,  "%s.halui.lube.is-on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->lube_off,    "%s.halui.lube.off", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->lube_on,     "%s.halui.lube.on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->flood_is_on, "%s.halui.flood.is-on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->flood_off,   "%s.halui.flood.off", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->flood_on,    "%s.halui.flood.on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mist_is_on,  "%s.halui.mist.is-on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mist_off,    "%s.halui.mist.off", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mist_on,     "%s.halui.mist.on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->lube_is_on,  "%s.halui.lube.is-on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->lube_off,    "%s.halui.lube.off", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->lube_on,     "%s.halui.lube.on", PIN_PREFIX);
 
     /* Per-axis pins */
     for (int i = 0; i < N_AXIS; i++) {
-        NEW_S32_PIN(GOMC_HAL_OUT,   &p->jog_counts[i],  "%s.axis.%s.jog-counts", PIN_PREFIX, axis_name[i]);
-        NEW_BIT_PIN(GOMC_HAL_OUT,   &p->jog_enable[i],  "%s.axis.%s.jog-enable", PIN_PREFIX, axis_name[i]);
-        NEW_FLOAT_PIN(GOMC_HAL_OUT, &p->jog_scale[i],   "%s.axis.%s.jog-scale", PIN_PREFIX, axis_name[i]);
-        NEW_BIT_PIN(GOMC_HAL_OUT,   &p->jog_vel_mode[i],"%s.axis.%s.jog-vel-mode", PIN_PREFIX, axis_name[i]);
+        NEW_S32_PIN(STMAK_HAL_OUT,   &p->jog_counts[i],  "%s.axis.%s.jog-counts", PIN_PREFIX, axis_name[i]);
+        NEW_BIT_PIN(STMAK_HAL_OUT,   &p->jog_enable[i],  "%s.axis.%s.jog-enable", PIN_PREFIX, axis_name[i]);
+        NEW_FLOAT_PIN(STMAK_HAL_OUT, &p->jog_scale[i],   "%s.axis.%s.jog-scale", PIN_PREFIX, axis_name[i]);
+        NEW_BIT_PIN(STMAK_HAL_OUT,   &p->jog_vel_mode[i],"%s.axis.%s.jog-vel-mode", PIN_PREFIX, axis_name[i]);
     }
 
     /* Pendant state */
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->pendant_sleeping,  "%s.pendant.is-sleeping", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->pendant_connected, "%s.pendant.is-connected", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->pendant_sleeping,  "%s.pendant.is-sleeping", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->pendant_connected, "%s.pendant.is-connected", PIN_PREFIX);
 
     /* Axis position feedback */
     for (int i = 0; i < N_AXIS; i++) {
-        NEW_FLOAT_PIN(GOMC_HAL_IN, &p->axis_pos[i],     "%s.halui.axis.%s.pos-feedback", PIN_PREFIX, axis_name[i]);
-        NEW_FLOAT_PIN(GOMC_HAL_IN, &p->axis_pos_rel[i], "%s.halui.axis.%s.pos-relative", PIN_PREFIX, axis_name[i]);
+        NEW_FLOAT_PIN(STMAK_HAL_IN, &p->axis_pos[i],     "%s.halui.axis.%s.pos-feedback", PIN_PREFIX, axis_name[i]);
+        NEW_FLOAT_PIN(STMAK_HAL_IN, &p->axis_pos_rel[i], "%s.halui.axis.%s.pos-relative", PIN_PREFIX, axis_name[i]);
     }
 
     /* Feed selection */
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_2,    "%s.halui.feed.selected-2", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_5,    "%s.halui.feed.selected-5", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_10,   "%s.halui.feed.selected-10", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_30,   "%s.halui.feed.selected-30", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_60,   "%s.halui.feed.selected-60", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_100,  "%s.halui.feed.selected-100", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_lead, "%s.halui.feed.selected-lead", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_mpg,  "%s.halui.feed.selected-mpg-feed", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_con,  "%s.halui.feed.selected-continuous", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->feed_sel_step, "%s.halui.feed.selected-step", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_2,    "%s.halui.feed.selected-2", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_5,    "%s.halui.feed.selected-5", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_10,   "%s.halui.feed.selected-10", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_30,   "%s.halui.feed.selected-30", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_60,   "%s.halui.feed.selected-60", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_100,  "%s.halui.feed.selected-100", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_lead, "%s.halui.feed.selected-lead", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_mpg,  "%s.halui.feed.selected-mpg-feed", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_con,  "%s.halui.feed.selected-continuous", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->feed_sel_step, "%s.halui.feed.selected-step", PIN_PREFIX);
 
     /* Feed override */
-    NEW_FLOAT_PIN(GOMC_HAL_OUT, &p->feed_ovr_scale, "%s.halui.feed-override.scale", PIN_PREFIX);
-    NEW_FLOAT_PIN(GOMC_HAL_IN,  &p->feed_ovr_max_vel, "%s.halui.max-velocity.value", PIN_PREFIX);
-    NEW_FLOAT_PIN(GOMC_HAL_IN,  &p->feed_ovr_value,   "%s.halui.feed-override.value", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->feed_ovr_dec,     "%s.halui.feed-override.decrease", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->feed_ovr_inc,     "%s.halui.feed-override.increase", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_OUT, &p->feed_ovr_scale, "%s.halui.feed-override.scale", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_IN,  &p->feed_ovr_max_vel, "%s.halui.max-velocity.value", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_IN,  &p->feed_ovr_value,   "%s.halui.feed-override.value", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->feed_ovr_dec,     "%s.halui.feed-override.decrease", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->feed_ovr_inc,     "%s.halui.feed-override.increase", PIN_PREFIX);
 
     /* Spindle */
-    NEW_FLOAT_PIN(GOMC_HAL_IN,  &p->spindle_speed_cmd, "%s.halui.spindle-speed-cmd", PIN_PREFIX);
-    NEW_FLOAT_PIN(GOMC_HAL_IN,  &p->spindle_ovr_value, "%s.halui.spindle-override.value", PIN_PREFIX);
-    NEW_FLOAT_PIN(GOMC_HAL_OUT, &p->spindle_ovr_scale, "%s.halui.spindle-override.scale", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_inc,       "%s.halui.spindle.increase", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_dec,       "%s.halui.spindle.decrease", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_ovr_inc,   "%s.halui.spindle-override.increase", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_ovr_dec,   "%s.halui.spindle-override.decrease", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_start,     "%s.halui.spindle.start", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,    &p->spindle_is_on,     "%s.halui.spindle.is-on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_stop,      "%s.halui.spindle.stop", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_fwd,       "%s.halui.spindle.forward", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT,   &p->spindle_rev,       "%s.halui.spindle.reverse", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_IN,  &p->spindle_speed_cmd, "%s.halui.spindle-speed-cmd", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_IN,  &p->spindle_ovr_value, "%s.halui.spindle-override.value", PIN_PREFIX);
+    NEW_FLOAT_PIN(STMAK_HAL_OUT, &p->spindle_ovr_scale, "%s.halui.spindle-override.scale", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_inc,       "%s.halui.spindle.increase", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_dec,       "%s.halui.spindle.decrease", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_ovr_inc,   "%s.halui.spindle-override.increase", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_ovr_dec,   "%s.halui.spindle-override.decrease", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_start,     "%s.halui.spindle.start", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,    &p->spindle_is_on,     "%s.halui.spindle.is-on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_stop,      "%s.halui.spindle.stop", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_fwd,       "%s.halui.spindle.forward", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT,   &p->spindle_rev,       "%s.halui.spindle.reverse", PIN_PREFIX);
 
     /* Machine */
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->machine_is_on, "%s.halui.machine.is-on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->machine_on,    "%s.halui.machine.on", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->machine_off,   "%s.halui.machine.off", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->machine_is_on, "%s.halui.machine.is-on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->machine_on,    "%s.halui.machine.on", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->machine_off,   "%s.halui.machine.off", PIN_PREFIX);
 
     /* Program */
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->prog_is_idle,    "%s.halui.program.is-idle", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->prog_is_paused,  "%s.halui.program.is-paused", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->prog_is_running, "%s.halui.program.is-running", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->prog_resume,     "%s.halui.program.resume", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->prog_pause,      "%s.halui.program.pause", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->prog_run,        "%s.halui.program.run", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->prog_stop,       "%s.halui.program.stop", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->prog_is_idle,    "%s.halui.program.is-idle", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->prog_is_paused,  "%s.halui.program.is-paused", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->prog_is_running, "%s.halui.program.is-running", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->prog_resume,     "%s.halui.program.resume", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->prog_pause,      "%s.halui.program.pause", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->prog_run,        "%s.halui.program.run", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->prog_stop,       "%s.halui.program.stop", PIN_PREFIX);
 
     /* Mode */
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mode_is_auto,    "%s.halui.mode.is-auto", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mode_is_joint,   "%s.halui.mode.is-joint", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mode_is_manual,  "%s.halui.mode.is-manual", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mode_is_mdi,     "%s.halui.mode.is-mdi", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_IN,  &p->mode_is_teleop,  "%s.halui.mode.is-teleop", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mode_is_auto,    "%s.halui.mode.is-auto", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mode_is_joint,   "%s.halui.mode.is-joint", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mode_is_manual,  "%s.halui.mode.is-manual", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mode_is_mdi,     "%s.halui.mode.is-mdi", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_IN,  &p->mode_is_teleop,  "%s.halui.mode.is-teleop", PIN_PREFIX);
 
     /* Joint homed */
     for (int i = 0; i < N_AXIS; i++) {
-        NEW_BIT_PIN(GOMC_HAL_IN, &p->joint_homed[i], "%s.halui.joint.%s.is-homed", PIN_PREFIX, axis_name[i]);
+        NEW_BIT_PIN(STMAK_HAL_IN, &p->joint_homed[i], "%s.halui.joint.%s.is-homed", PIN_PREFIX, axis_name[i]);
     }
 
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mode_auto,       "%s.halui.mode.auto", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mode_joint,      "%s.halui.mode.joint", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mode_manual,     "%s.halui.mode.manual", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mode_mdi,        "%s.halui.mode.mdi", PIN_PREFIX);
-    NEW_BIT_PIN(GOMC_HAL_OUT, &p->mode_teleop,     "%s.halui.mode.teleop", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mode_auto,       "%s.halui.mode.auto", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mode_joint,      "%s.halui.mode.joint", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mode_manual,     "%s.halui.mode.manual", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mode_mdi,        "%s.halui.mode.mdi", PIN_PREFIX);
+    NEW_BIT_PIN(STMAK_HAL_OUT, &p->mode_teleop,     "%s.halui.mode.teleop", PIN_PREFIX);
 
     /* Axis select */
     for (int i = 0; i < N_AXIS; i++) {
-        NEW_BIT_PIN(GOMC_HAL_OUT, &p->axis_select[i], "%s.halui.axis.%s.select", PIN_PREFIX, axis_name[i]);
+        NEW_BIT_PIN(STMAK_HAL_OUT, &p->axis_select[i], "%s.halui.axis.%s.select", PIN_PREFIX, axis_name[i]);
     }
 
     return 0;
@@ -518,7 +518,7 @@ static int create_hal_pins(whb_inst_t *inst)
 /* Mode request helpers                                                        */
 /* ========================================================================== */
 
-static bool wait_for_mode(volatile gomc_hal_bit_t *condition)
+static bool wait_for_mode(volatile stmak_hal_bit_t *condition)
 {
     for (int i = 0; i < MODE_CHECK_LOOPS; i++) {
         if (*condition)
@@ -528,7 +528,7 @@ static bool wait_for_mode(volatile gomc_hal_bit_t *condition)
     return false;
 }
 
-static bool request_mode(whb_inst_t *inst, bool rising, gomc_hal_bit_t *req_pin, gomc_hal_bit_t *fb_pin)
+static bool request_mode(whb_inst_t *inst, bool rising, stmak_hal_bit_t *req_pin, stmak_hal_bit_t *fb_pin)
 {
     if (rising) {
         if (*fb_pin)
@@ -585,7 +585,7 @@ static void clear_start_resume(whb_inst_t *inst)
     *p->prog_resume = 0;
 }
 
-static void check_state(bool state, volatile gomc_hal_bit_t *pin)
+static void check_state(bool state, volatile stmak_hal_bit_t *pin)
 {
     for (int i = 0; i < 500; i++) {
         if (*pin != state)
@@ -1226,7 +1226,7 @@ static void send_display(whb_inst_t *inst)
             block, sizeof(block), 0);
 
         if (r < 0) {
-            gomc_log_warnf(inst->log, COMP_NAME, "display send failed: %s",
+            stmak_log_warnf(inst->log, COMP_NAME, "display send failed: %s",
                            libusb_error_name(r));
             return;
         }
@@ -1274,7 +1274,7 @@ static void usb_callback(struct libusb_transfer *transfer)
         break;
 
     default:
-        gomc_log_errorf(inst->log, COMP_NAME, "USB transfer error: %d", transfer->status);
+        stmak_log_errorf(inst->log, COMP_NAME, "USB transfer error: %d", transfer->status);
         inst->running = false;
         break;
     }
@@ -1290,17 +1290,17 @@ static void *usb_thread_fn(void *arg)
     struct timeval tv;
 
     if (usb_open(inst) < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "USB open failed, thread exiting");
+        stmak_log_errorf(inst->log, COMP_NAME, "USB open failed, thread exiting");
         return NULL;
     }
 
-    while (inst->running && !gomc_should_exit(inst->exit_fd)) {
+    while (inst->running && !stmak_should_exit(inst->exit_fd)) {
         tv.tv_sec  = 0;
         tv.tv_usec = 200000; /* 200ms */
         int r = libusb_handle_events_timeout_completed(inst->usb_ctx, &tv, NULL);
         if (r != 0 && r != LIBUSB_ERROR_TIMEOUT && r != LIBUSB_ERROR_INTERRUPTED) {
             if (r == LIBUSB_ERROR_NO_DEVICE) {
-                gomc_log_warnf(inst->log, COMP_NAME, "device disconnected");
+                stmak_log_warnf(inst->log, COMP_NAME, "device disconnected");
                 break;
             }
         }
@@ -1322,7 +1322,7 @@ static int usb_open(whb_inst_t *inst)
 {
     int r = libusb_init(&inst->usb_ctx);
     if (r != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "libusb_init failed: %s", libusb_error_name(r));
+        stmak_log_errorf(inst->log, COMP_NAME, "libusb_init failed: %s", libusb_error_name(r));
         return -1;
     }
 
@@ -1332,7 +1332,7 @@ static int usb_open(whb_inst_t *inst)
         inst->usb_dev = libusb_open_device_with_vid_pid(inst->usb_ctx, USB_VENDOR_ID, USB_PRODUCT_ID);
         if (inst->usb_dev)
             break;
-        if (gomc_should_exit(inst->exit_fd) || !inst->running) {
+        if (stmak_should_exit(inst->exit_fd) || !inst->running) {
             libusb_exit(inst->usb_ctx);
             inst->usb_ctx = NULL;
             return -1;
@@ -1341,7 +1341,7 @@ static int usb_open(whb_inst_t *inst)
             sleep(1);
             wait--;
         } else if (wait == 0) {
-            gomc_log_errorf(inst->log, COMP_NAME, "device not found (timeout)");
+            stmak_log_errorf(inst->log, COMP_NAME, "device not found (timeout)");
             libusb_exit(inst->usb_ctx);
             inst->usb_ctx = NULL;
             return -1;
@@ -1364,7 +1364,7 @@ static int usb_open(whb_inst_t *inst)
 
     r = libusb_claim_interface(inst->usb_dev, 0);
     if (r != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "claim interface failed: %s", libusb_error_name(r));
+        stmak_log_errorf(inst->log, COMP_NAME, "claim interface failed: %s", libusb_error_name(r));
         libusb_close(inst->usb_dev);
         inst->usb_dev = NULL;
         libusb_exit(inst->usb_ctx);
@@ -1381,7 +1381,7 @@ static int usb_open(whb_inst_t *inst)
 
     r = libusb_submit_transfer(inst->in_transfer);
     if (r != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "submit transfer failed: %s", libusb_error_name(r));
+        stmak_log_errorf(inst->log, COMP_NAME, "submit transfer failed: %s", libusb_error_name(r));
         libusb_free_transfer(inst->in_transfer);
         inst->in_transfer = NULL;
         libusb_release_interface(inst->usb_dev, 0);
@@ -1392,7 +1392,7 @@ static int usb_open(whb_inst_t *inst)
         return -1;
     }
 
-    gomc_log_infof(inst->log, COMP_NAME, "device opened successfully");
+    stmak_log_infof(inst->log, COMP_NAME, "device opened successfully");
     *inst->pins->pendant_connected = 1;
     return 0;
 }
@@ -1437,7 +1437,7 @@ static int whb_Start(cmod_t *self)
     clear_display(inst);
 
     if (pthread_create(&inst->usb_thread, NULL, usb_thread_fn, inst) != 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "failed to create USB thread");
+        stmak_log_errorf(inst->log, COMP_NAME, "failed to create USB thread");
         return -1;
     }
 
@@ -1501,17 +1501,17 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     /* HAL init */
-    const gomc_hal_t *hal = env->hal;
-    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, GOMC_HAL_COMP_USER);
+    const stmak_hal_t *hal = env->hal;
+    inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
         free(inst);
         return -1;
     }
 
     inst->pins = hal->malloc(hal->ctx, sizeof(hal_pins_t));
     if (!inst->pins) {
-        gomc_log_errorf(inst->log, COMP_NAME, "hal malloc failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "hal malloc failed");
         hal->exit(hal->ctx, inst->hal_id);
         free(inst);
         return -1;
@@ -1519,7 +1519,7 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->pins, 0, sizeof(hal_pins_t));
 
     if (create_hal_pins(inst) < 0) {
-        gomc_log_errorf(inst->log, COMP_NAME, "pin creation failed");
+        stmak_log_errorf(inst->log, COMP_NAME, "pin creation failed");
         hal->exit(hal->ctx, inst->hal_id);
         free(inst);
         return -1;
@@ -1541,7 +1541,7 @@ int New(const cmod_env_t *env, const char *name,
     mod->priv    = inst;
 
     *out = mod;
-    gomc_log_infof(inst->log, COMP_NAME, "initialized (lead_spindle=%d lead_feed=%d step_5_10=%d)",
+    stmak_log_infof(inst->log, COMP_NAME, "initialized (lead_spindle=%d lead_feed=%d step_5_10=%d)",
                    inst->lead_mode_spindle, inst->lead_mode_feed, inst->step_5_10);
     return 0;
 }

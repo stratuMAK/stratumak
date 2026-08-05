@@ -4,7 +4,7 @@
 """
 HAL type and direction constants for Python.
 
-In GOMC, userspace HAL components are managed by gomc-server (Go modules
+In STMAK, userspace HAL components are managed by stmakd (Go modules
 or cmod plugins). This module provides only the type/direction constants
 needed by legacy Python code (e.g. pyvcp_widgets).
 """

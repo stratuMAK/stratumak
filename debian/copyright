@@ -212,19 +212,18 @@ Copyright: 2011 LinuxCNC.org
 License: GPL-3+
 
 Files:
- src/emc/nml_intf/*
- src/emc/kinematics/*
- src/emc/motion/*
- src/emc/canterp/canterp.cc
- src/emc/sai/driver.cc
- src/emc/sai/saicanon.cc
- src/emc/usr_intf/*
- src/emc/tp/*
- src/emc/ini/*
- src/emc/task/*
- src/emc/rs274ngc/*
- src/emc/iotask/ioControl.cc
- src/emc/iotask/ioControl_v2.cc
+ src/cnc/nml_intf/*
+ src/cnc/kinematics/*
+ src/cnc/motion/*
+ src/cnc/sai/driver.cc
+ src/cnc/sai/saicanon.cc
+ src/cnc/usr_intf/*
+ src/cnc/tp/*
+ src/cnc/ini/*
+ src/cnc/task/*
+ src/cnc/rs274ngc/*
+ src/cnc/iotask/ioControl.cc
+ src/cnc/iotask/ioControl_v2.cc
  src/rtapi/rtapi_list.h
  src/rtapi/rtai_rtapi.c
  src/rtapi/rtapi.h
@@ -328,7 +327,7 @@ Files: src/hal/hal_lib.c
 Copyright: 2003 John Kasunich
 License: LGPL-2
 
-Files: src/emc/linuxcnc.h
+Files: src/cnc/linuxcnc.h
 Copyright: 2021 Petter Reinholdtsen
 License: LGPL-2
 
@@ -399,7 +398,7 @@ Files: share/qtvcp/images/widgets/writer/icons/*
 Copyright: 2013 Yusuke Kamiyamane
 License: CC-BY-3.0
 
-Files: src/emc/rs274ngc/array1.hh
+Files: src/cnc/rs274ngc/array1.hh
 Copyright: 2004 Roman Yakovenko.
 License: Boost-1.0
 
@@ -407,7 +406,7 @@ Files: debian/org.stratumak.stratumak.metainfo.xml
 Copyright: 2021 Petter Reinholdtsen <pere@debian.org>
 License: MIT
 
-Files: src/gomc/internal/halscope/testrt/greatest.h
+Files: src/stmak/internal/halscope/testrt/greatest.h
 Copyright: 2011-2019 Scott Vokes <vokes.s@gmail.com>
 License: ISC
  Permission to use, copy, modify, and/or distribute this software for any

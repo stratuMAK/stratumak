@@ -65,27 +65,27 @@ static kins_kinematics_type_t gmi_kins_type(void *ctx)
     return KINS_BOTH;
 }
 
-static int32_t gmi_kins_switchable(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_kins_switchable(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 1;
 }
 
-static int32_t gmi_kins_switch(void *ctx, int32_t new_switchkins_type) GOMC_NONBLOCKING
+static int32_t gmi_kins_switch(void *ctx, int32_t new_switchkins_type) STMAK_NONBLOCKING
 {
     inst_t *__comp_inst = (inst_t *)ctx;
     switchkins_type = new_switchkins_type;
-    gomc_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch(): type=%d", switchkins_type);
+    stmak_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch(): type=%d", switchkins_type);
     switch (switchkins_type) {
-        case 0: gomc_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:TYPE0");
+        case 0: stmak_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:TYPE0");
                 kinstype_is_0 = 1;
                 kinstype_is_1 = 0;
                 break;
-        case 1: gomc_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:TYPE1");
+        case 1: stmak_log_infof(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:TYPE1");
                 kinstype_is_0 = 0;
                 kinstype_is_1 = 1;
                 break;
-       default: gomc_log_errorf(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:BAD VALUE <%d>",
+       default: stmak_log_errorf(__comp_inst->env->log, __comp_inst->name, "kinematicsSwitch:BAD VALUE <%d>",
                 switchkins_type);
                 kinstype_is_0 = 0;
                 kinstype_is_1 = 0;
@@ -99,7 +99,7 @@ static int32_t gmi_kins_forward(
     const double joints[KINS_MAX_JOINTS],
     kins_pose_t *pos,
     uint64_t fflags,
-    uint64_t *iflags) GOMC_NONBLOCKING
+    uint64_t *iflags) STMAK_NONBLOCKING
 {
     inst_t *__comp_inst = (inst_t *)ctx;
     (void)fflags;
@@ -158,7 +158,7 @@ static int32_t gmi_kins_inverse(
     const kins_pose_t *pos,
     double joints[KINS_MAX_JOINTS],
     uint64_t iflags,
-    uint64_t *fflags) GOMC_NONBLOCKING
+    uint64_t *fflags) STMAK_NONBLOCKING
 {
     inst_t *__comp_inst = (inst_t *)ctx;
     (void)iflags;

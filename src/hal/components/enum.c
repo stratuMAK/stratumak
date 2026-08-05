@@ -19,26 +19,26 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
 
 typedef struct {
-    gomc_hal_bit_t *bit;
-    gomc_hal_u32_t *en;
+    stmak_hal_bit_t *bit;
+    stmak_hal_u32_t *en;
 } enum_pin_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
-    int dir;         /* GOMC_HAL_IN for encode, GOMC_HAL_OUT for decode */
+    char name[STMAK_HAL_NAME_LEN + 1];
+    int dir;         /* STMAK_HAL_IN for encode, STMAK_HAL_OUT for decode */
     int num_pins;
     enum_pin_t *pins;
-    gomc_hal_u32_t *int_pin; /* the single int pin (input for decode, output for encode) */
+    stmak_hal_u32_t *int_pin; /* the single int pin (input for decode, output for encode) */
 } inst_t;
 
 static void decode(void *arg, long period) {
@@ -83,7 +83,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!enums_arg || !*enums_arg) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "enum requires enums= argument (e.g. enums=\"D;off;on;error\")");
         return -EINVAL;
     }
@@ -97,13 +97,13 @@ int New(const cmod_env_t *env, const char *name,
     /* determine direction from first character */
     switch (enums_copy[0]) {
     case 'E': case 'e':
-        dir = GOMC_HAL_IN;  /* bit pins are inputs (encode) */
+        dir = STMAK_HAL_IN;  /* bit pins are inputs (encode) */
         break;
     case 'D': case 'd':
-        dir = GOMC_HAL_OUT; /* bit pins are outputs (decode) */
+        dir = STMAK_HAL_OUT; /* bit pins are outputs (decode) */
         break;
     default:
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "enums string must start with E; or D;");
         env->rtapi->free(env->rtapi->ctx, enums_copy);
         return -EINVAL;
@@ -120,7 +120,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_pins < 1) {
-        gomc_log_errorf(env->log, name, "enum: no enumeration values found");
+        stmak_log_errorf(env->log, name, "enum: no enumeration values found");
         env->rtapi->free(env->rtapi->ctx, enums_copy);
         return -EINVAL;
     }
@@ -139,7 +139,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->num_pins = num_pins;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->pins = env->hal->malloc(env->hal->ctx, num_pins * sizeof(enum_pin_t));
@@ -147,13 +147,13 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->pins, 0, num_pins * sizeof(enum_pin_t));
 
     /* create the single integer pin */
-    if (dir == GOMC_HAL_OUT) {
+    if (dir == STMAK_HAL_OUT) {
         /* decode: int is input */
-        r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN, &inst->int_pin,
+        r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN, &inst->int_pin,
                                   inst->comp_id, "%s.input", name);
     } else {
         /* encode: int is output */
-        r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT, &inst->int_pin,
+        r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT, &inst->int_pin,
                                   inst->comp_id, "%s.output", name);
     }
     if (r != 0) goto err;
@@ -169,12 +169,12 @@ int New(const cmod_env_t *env, const char *name,
         /* skip empty tokens (consecutive NULs = skipped enum values) */
         while (*token == '\0') { token++; v++; }
 
-        r = gomc_hal_pin_bit_newf(env->hal, dir, &inst->pins[i].bit,
+        r = stmak_hal_pin_bit_newf(env->hal, dir, &inst->pins[i].bit,
                                   inst->comp_id, "%s.%s-%s", name, token,
-                                  (dir == GOMC_HAL_IN) ? "in" : "out");
+                                  (dir == STMAK_HAL_IN) ? "in" : "out");
         if (r != 0) goto err;
 
-        r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN, &inst->pins[i].en,
+        r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN, &inst->pins[i].en,
                                   inst->comp_id, "%s.%s-val", name, token);
         if (r != 0) goto err;
         *(inst->pins[i].en) = v++;
@@ -185,7 +185,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     /* export function */
-    if (dir == GOMC_HAL_OUT) {
+    if (dir == STMAK_HAL_OUT) {
         r = env->hal->export_funct(env->hal->ctx, name, decode, inst, 0, 0,
                                    inst->comp_id);
     } else {

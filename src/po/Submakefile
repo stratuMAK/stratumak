@@ -60,14 +60,14 @@ pofiles: po/linuxcnc.pot po/gmoccapy/gmoccapy.pot
 	set -x; for i in po/*.po; do msgmerge -U $$i po/linuxcnc.pot; done
 	set -x; for i in po/gmoccapy/*.po; do msgmerge -U $$i po/gmoccapy/gmoccapy.pot; done
 
-po/linuxcnc.pot: $(LIBRS274SRCS) emc/rs274ngc/rs274ngc_return.hh
-po/linuxcnc.pot: emc/motion/control.c emc/motion/command.c emc/motion/motion.c emc/motion/homing.c
+po/linuxcnc.pot: $(LIBRS274SRCS) cnc/rs274ngc/rs274ngc_return.hh
+po/linuxcnc.pot: cnc/motion/control.c cnc/motion/command.c cnc/motion/motion.c cnc/motion/homing.c
 
-# Two groups of sources were listed here until the gomc migration deleted them,
+# Two groups of sources were listed here until the stmak migration deleted them,
 # which left `make pofiles` failing outright with "No rule to make target
-# emc/task/emctaskmain.cc":
+# cnc/task/emctaskmain.cc":
 #
-#   emc/task/emctaskmain.cc   -- task is now the Go milltask
+#   cnc/task/emctaskmain.cc   -- task is now the Go milltask
 #   hal/utils/{meter,scope*,miscgtk}.c -- halmeter and halscope are now web apps
 #
 # Their translatable strings are not extracted any more.  xgettext does not
@@ -84,12 +84,12 @@ install-locale: $(addprefix $(DESTDIR)$(localedir)/, $(MO_FILES))
 install-common: install-locale
 
 GMOCCAPY_GLADE := \
-	emc/usr_intf/gmoccapy/gmoccapy.glade.h
+	cnc/usr_intf/gmoccapy/gmoccapy.glade.h
 
 $(GMOCCAPY_GLADE): %.glade.h: %.glade
 	intltool-extract --type=gettext/glade $<
 GMOCCAPY_I18N_SRCS := \
-	$(patsubst %,emc/usr_intf/gmoccapy/%, \
+	$(patsubst %,cnc/usr_intf/gmoccapy/%, \
 		gmoccapy.py dialogs.py getiniinfo.py notification.py player.py \
 		preferences.py widgets.py gmoccapy.glade.h) \
 

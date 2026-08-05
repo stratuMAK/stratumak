@@ -1,14 +1,14 @@
 #!/bin/bash
-# halrun — compatibility shim for the gomc fork.
+# halrun — compatibility shim for the stmak fork.
 #
 # The classic standalone `halrun` (start realtime, run a HAL file, tear down)
-# was removed when HAL/realtime moved in-process into gomc-server.  This shim
-# forwards to gomc-server's one-shot HAL-file mode (`gomc-server -f <file>`) so
+# was removed when HAL/realtime moved in-process into stmakd.  This shim
+# forwards to stmakd's one-shot HAL-file mode (`stmakd -f <file>`) so
 # the runtests suite and manual `halrun -f file.hal` invocations keep working.
 #
 # Supported classic forms (as used by the test suite):
 #   halrun [-f] <file>     run a HAL file (one-shot), then exit
-#   halrun -k <file>       keep going after HAL errors  -> gomc-server -k -f
+#   halrun -k <file>       keep going after HAL errors  -> stmakd -k -f
 #   halrun -s <file>       script mode (non-interactive) == one-shot -f
 #   halrun -v|-V <file>    verbose (accepted, no extra effect here)
 #   halrun -U              unload the realtime environment (no persistent
@@ -16,8 +16,8 @@
 # Other classic options (-I interactive, -T tcl, etc.) are not supported.
 
 usage() {
-    echo "Usage: halrun [-f] <halfile>   (gomc one-shot HAL mode)" >&2
-    echo "       halrun -U               (no-op on gomc)" >&2
+    echo "Usage: halrun [-f] <halfile>   (stmak one-shot HAL mode)" >&2
+    echo "       halrun -U               (no-op on stmak)" >&2
     exit 1
 }
 
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
             usage
             ;;
         -*)
-            echo "halrun: unsupported option '$1' (gomc shim supports -f/-k/-s/-v/-U)" >&2
+            echo "halrun: unsupported option '$1' (stmak shim supports -f/-k/-s/-v/-U)" >&2
             exit 1
             ;;
         *)
@@ -56,4 +56,4 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$halfile" ] || usage
-exec gomc-server $keep_going -f "$halfile"
+exec stmakd $keep_going -f "$halfile"

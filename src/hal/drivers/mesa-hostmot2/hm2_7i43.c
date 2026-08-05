@@ -22,7 +22,7 @@ static const void *hm2_log;
 
 
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hm2_core_api.h"
 #include "hal/drivers/mesa-hostmot2/bitfile.h"
 #include "hal/drivers/mesa-hostmot2/hostmot2-lowlevel.h"
@@ -156,7 +156,7 @@ static int hm2_7i43_epp_clear_timeout(hm2_7i43_t *board) {
 //
 
 // FIXME: this is bogus
-static void hm2_7i43_nanosleep(const gomc_rtapi_t *rtapi, unsigned long int nanoseconds) {
+static void hm2_7i43_nanosleep(const stmak_rtapi_t *rtapi, unsigned long int nanoseconds) {
     long int max_ns_delay;
 
     max_ns_delay = rtapi->delay_max(rtapi->ctx);
@@ -176,7 +176,7 @@ static void hm2_7i43_nanosleep(const gomc_rtapi_t *rtapi, unsigned long int nano
 // these are the low-level i/o functions exported to the hostmot2 driver
 //
 
-int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING {
+int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING {
     int bytes_remaining = size;
     hm2_7i43_t *board = this->private;
 
@@ -206,7 +206,7 @@ int hm2_7i43_read(hm2_lowlevel_io_t *this, uint32_t addr, void *buffer, int size
 
 
 
-int hm2_7i43_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING {
+int hm2_7i43_write(hm2_lowlevel_io_t *this, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING {
     int bytes_remaining = size;
     hm2_7i43_t *board = this->private;
 
@@ -509,7 +509,7 @@ static void hm2_7i43_parse_argv(hm2_7i43_inst_t *inst, int argc, const char **ar
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
     hm2_log = env->log;
     int r = 0;
 
@@ -528,12 +528,12 @@ int New(const cmod_env_t *env, const char *name,
 
     inst->core = hm2_core_api_get(env->api, "hostmot2");
     if (!inst->core) {
-        gomc_log_errorf(env->log, name, "hm2_7i43: hostmot2 core API not found (is hostmot2 loaded?)\n");
+        stmak_log_errorf(env->log, name, "hm2_7i43: hostmot2 core API not found (is hostmot2 loaded?)\n");
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
         return -1;
     }
 
-    r = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    r = hal->init(hal->ctx, HM2_LLIO_NAME, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (r < 0) {
         inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
         return r;
@@ -560,7 +560,7 @@ int New(const cmod_env_t *env, const char *name,
 
 static void hm2_7i43_destroy(cmod_t *self) {
     hm2_7i43_inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     hm2_7i43_cleanup(inst);
     hal->exit(hal->ctx, inst->comp_id);
     LL_PRINT("driver unloaded\n");

@@ -137,12 +137,12 @@ override_dh_auto_install-arch:
 	desktop-file-validate $(shell find debian/extras/ share/applications/ -name *.desktop);
 
 	# some clean-up
-	rm -f $(DESTDIR)/usr/share/doc/linuxcnc/examples/sample-configs/*/*position*.txt
+	rm -f $(DESTDIR)/usr/share/doc/stratumak/examples/sample-configs/*/*position*.txt
 
 	# Nothing under /var/lib/stratumak may be shipped in the package.
 	#
 	# The directories are harmless in themselves, but the symlink
-	# /var/lib/stratumak/bin/gomc-server is not: if dpkg owned that path,
+	# /var/lib/stratumak/bin/stmakd is not: if dpkg owned that path,
 	# every upgrade would unpack the shipped symlink over a server the
 	# administrator had rebuilt locally, silently unregistering every external
 	# module compiled into it. postinst creates it instead, and only when it
@@ -154,12 +154,13 @@ override_dh_auto_install-arch:
 	rm -rf $(DESTDIR)/var/lib/stratumak
 
 override_dh_installdocs-arch:
-	# Sample configs go in `usr/share/doc/linuxcnc` (not `.../doc/@MAIN_PACKAGE_NAME@`)
-	# because that's where the `linuxcnc` launcher script looks for them,
-	# and that's inconvenient to change.
+	# Sample configs live in `usr/share/doc/@MAIN_PACKAGE_NAME@/examples`, which
+	# is where dh_installdocs puts them and where LINUXCNC_CONFIG_PATH looks
+	# ($(EMC2_HELP_DIR)/examples/sample-configs, EMC2_HELP_DIR being
+	# $(prefix)/share/doc/@MAIN_PACKAGE_NAME@). They used to be moved out to
+	# `.../doc/linuxcnc` afterwards, for the launcher script of that name;
+	# both the launcher and that directory are gone, so the move is too.
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=@MAIN_PACKAGE_NAME@
-	mkdir -p debian/@MAIN_PACKAGE_NAME@/usr/share/doc/linuxcnc
-	mv debian/@MAIN_PACKAGE_NAME@/usr/share/doc/@MAIN_PACKAGE_NAME@/examples debian/@MAIN_PACKAGE_NAME@/usr/share/doc/linuxcnc
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=@MAIN_PACKAGE_NAME@-dev
 
@@ -174,30 +175,28 @@ override_dh_installdocs-indep:
 	# for the English one) to include the language in the filename,
 	# so they don't collide when we install all the doc debs.
 	#
-	# Rename the "main" doc directories from
-	# `usr/share/doc/@MAIN_PACKAGE_NAME@` to `usr/share/doc/linuxcnc`,
-	# because that's where the `.desktop` files look for the docs.
+	# The docs land in `usr/share/doc/@MAIN_PACKAGE_NAME@`, which is where the
+	# `.desktop` files look for them. They used to be moved to
+	# `usr/share/doc/linuxcnc` afterwards, back when the package was named
+	# differently from the directory the desktop files pointed at; the two
+	# agree now, so there is nothing left to move.
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-de
 	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_de.html
-	mv debian/stratumak-doc-de/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-de/usr/share/doc/linuxcnc
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-en
-	mv debian/stratumak-doc-en/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-en/usr/share/doc/linuxcnc
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-es
 	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_es.html
-	mv debian/stratumak-doc-es/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-es/usr/share/doc/linuxcnc
 
 	dh_installdocs --doc-main-package=@MAIN_PACKAGE_NAME@ --package=stratumak-doc-fr
 	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode.html debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@/gcode_fr.html
-	mv debian/stratumak-doc-fr/usr/share/doc/@MAIN_PACKAGE_NAME@ debian/stratumak-doc-fr/usr/share/doc/linuxcnc
 
 
 
 # dwz cannot process Go binaries: the toolchain emits compressed .debug_*
 # sections and dwz exits non-zero rather than skipping them ("Found compressed
 # .debug_abbrev section, not attempting dwz compression"). This package is
-# largely Go now -- gomc-server, halcmd, modcompile, ethercat, ads-xml-gen --
+# largely Go now -- stmakd, halcmd, modcompile, ethercat, ads-xml-gen --
 # and dh_dwz batches every binary into a single invocation, so one Go binary
 # fails the whole step. Excluding them by name would be a list to maintain
 # forever. Disabling only changes how compactly the debug info is stored.
@@ -211,7 +210,18 @@ override_dh_fixperms:
 	# FIXME: Who sets those -x flags? This better be fixed at the root of the problem - to be found.
 	find debian -name linuxcnc.tcl -o -name cbutton.tcl -o -name mdi_text.py -o -name util.py | xargs -r chmod -x
 	# override_dh_python3: # not executed, so we attach it to fixperms
-	DEB_HOST_ARCH=`dpkg-architecture -qDEB_HOST_ARCH` dh_python3
+	#
+	# --no-ext-rename: dh_python3 treats /usr/lib/<package> as a private Python
+	# directory and renames every .so it finds there to the CPython extension
+	# form (abs.so -> abs.cpython-313-x86_64-linux-gnu.so). The cmods live in
+	# $(EMC2_CMOD_DIR) = /usr/lib/@MAIN_PACKAGE_NAME@/cmod, which became such a
+	# directory when the install paths were renamed from lib/linuxcnc to
+	# lib/@MAIN_PACKAGE_NAME@ -- the package is named @MAIN_PACKAGE_NAME@ too,
+	# so the heuristic started matching. It renamed all 213 of them, and HAL
+	# loads a cmod by plain name (`loadrt abs` opens abs.so), so every one of
+	# them became unloadable in the package while the RIP tree stayed fine.
+	# They are HAL modules, not Python extensions; nothing may rename them.
+	DEB_HOST_ARCH=`dpkg-architecture -qDEB_HOST_ARCH` dh_python3 --no-ext-rename
 
 override_dh_shlibdeps:
 	# No debian/shlibs.local: it was a copy of the package's own DEBIAN/shlibs

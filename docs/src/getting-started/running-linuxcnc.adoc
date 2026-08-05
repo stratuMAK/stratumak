@@ -115,7 +115,7 @@ to directly launch this configuration without showing the Configuration Selector
 
 When you select a configuration from the Sample Configurations section,
 it will automatically place a copy of that config in the
-~/linuxcnc/configs directory.
+~/stratumak/configs directory.
 
 == Next steps in configuration
 
@@ -142,8 +142,8 @@ available in other GUIs as well.
 == Configuration Resources
 
 The Configuration Selector copies all files needed
-for a configuration to a new subdirectory of ~/linuxcnc/configs
-(equivalently: /home/username/linuxcnc/configs).  Each
+for a configuration to a new subdirectory of ~/stratumak/configs
+(equivalently: /home/username/stratumak/configs).  Each
 created directory will include at least one INI file (iniflename.ini)
 that is used to describe a specific configuration.
 
@@ -172,7 +172,7 @@ a library file.  For example, to copy the library core_sim.hal
 file in order to make local modifications:
 
 ----
-cd ~/linuxcnc/configs/name_of_configuration
+cd ~/stratumak/configs/name_of_configuration
 cp hallib/core_sim.hal core_sim.hal
 ----
 

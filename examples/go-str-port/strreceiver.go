@@ -8,13 +8,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 )
 
 func init() {
-	gomc.RegisterModule("strreceiver", newStrReceiver)
+	stmak.RegisterModule("strreceiver", newStrReceiver)
 }
 
 type strReceiver struct {
@@ -24,7 +24,7 @@ type strReceiver struct {
 	done   chan struct{}
 }
 
-func newStrReceiver(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+func newStrReceiver(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	m := &strReceiver{
 		logger: logger.With("module", name),
 		done:   make(chan struct{}),

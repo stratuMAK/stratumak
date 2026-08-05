@@ -67,25 +67,25 @@ int hm2_dpll_parse_md(hostmot2_t *hm2, int md_index) {
     // export to HAL
     hm2->dpll.pins = hm2->llio->hal->malloc(hm2->llio->hal->ctx, sizeof(hm2_dpll_pins_t));
 
-    r = gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->time1_us),
+    r = stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->time1_us),
             hm2->llio->comp_id, "%s.dpll.01.timer-us", hm2->llio->name);
-    r += gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->time2_us),
+    r += stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->time2_us),
             hm2->llio->comp_id, "%s.dpll.02.timer-us", hm2->llio->name);
-    r += gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->time3_us),
+    r += stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->time3_us),
             hm2->llio->comp_id, "%s.dpll.03.timer-us", hm2->llio->name);
-    r += gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->time4_us),
+    r += stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->time4_us),
             hm2->llio->comp_id, "%s.dpll.04.timer-us", hm2->llio->name);
-    r += gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->base_freq),
+    r += stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->base_freq),
             hm2->llio->comp_id, "%s.dpll.base-freq-khz", hm2->llio->name);
-    r += gomc_hal_pin_float_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->dpll.pins->phase_error),
+    r += stmak_hal_pin_float_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->dpll.pins->phase_error),
             hm2->llio->comp_id, "%s.dpll.phase-error-us", hm2->llio->name);
-    r += gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->time_const),
+    r += stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->time_const),
             hm2->llio->comp_id, "%s.dpll.time-const", hm2->llio->name);
-    r += gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->dpll.pins->plimit),
+    r += stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->dpll.pins->plimit),
             hm2->llio->comp_id, "%s.dpll.plimit", hm2->llio->name);
-    r += gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->dpll.pins->ddssize),
+    r += stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->dpll.pins->ddssize),
             hm2->llio->comp_id, "%s.dpll.ddsize", hm2->llio->name);
-    r += gomc_hal_pin_u32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->dpll.pins->prescale),
+    r += stmak_hal_pin_u32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->dpll.pins->prescale),
             hm2->llio->comp_id, "%s.dpll.prescale", hm2->llio->name);
     if (r < 0) {
         HM2_ERR("error adding hm2_dpll timer pins, Aborting\n");
@@ -126,7 +126,7 @@ int hm2_dpll_parse_md(hostmot2_t *hm2, int md_index) {
 
 }
 
-void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
+void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period) STMAK_NONBLOCKING{
     hm2_dpll_pins_t *pins;
     
     if (hm2->dpll.num_instances == 0) return;
@@ -138,7 +138,7 @@ void hm2_dpll_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING{
     *pins->ddssize = *hm2->dpll.control_reg1_read & 0xFF;
 }
 
-void hm2_dpll_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING {
+void hm2_dpll_write(hostmot2_t *hm2, long period) STMAK_NONBLOCKING {
     hm2_dpll_pins_t *pins;
     double period_us = period / 1000.;
     uint32_t buff;

@@ -4,20 +4,20 @@
 # the test instead of being swallowed.
 set -e
 
-. "$(dirname "$0")/../../gomc-driver.sh"
+. "$(dirname "$0")/../../stmak-driver.sh"
 
 # Build+install the motor-cmd step watchdog cmod (installs to EMC2_CMOD_DIR,
-# where gomc-server's `load` resolves it).
+# where stmakd's `load` resolves it).
 ${SUDO} modcompile --install cmd_step_watch.comp
 
 rm -f server.log
 
-gomc-server -r switch-jerk.ini >server.log 2>&1 &
+stmakd -r switch-jerk.ini >server.log 2>&1 &
 SRV=$!
-GOMC_SRV=$SRV
-export GOMC_SRV
+STMAK_SRV=$SRV
+export STMAK_SRV
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
-gomc_wait_ready
+stmak_wait_ready
 
 ./test-ui.py

@@ -15,7 +15,7 @@ The config runs separate tasks to
 Usage (for db_nonran.ini):
 
 1) In a terminal, start as
-$ linuxcnc ./db_nonran.ini
+$ stmakd ./db_nonran.ini
 F1 --------- Estop off
 F2 --------- Machine On
 Ctrl-Home -- Home All

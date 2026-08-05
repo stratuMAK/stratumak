@@ -40,7 +40,7 @@ FUNCTION(_) {
 
             num = r*8+c; // row * number of rows + column
             if ( cur_button != last[num] ){
-                GOMC_LOG_DBG("row: %d column: %d code: %d\n",r,c,num);
+                STMAK_LOG_DBG("row: %d column: %d code: %d\n",r,c,num);
                 last[num] = cur_button;
                 if (cur_button == 1){
                     out = num | keydown;

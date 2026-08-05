@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (gmi client).  The classic NML linuxcnc module
+# Ported to the stratuMAK REST/WS API (gmi client).  The classic NML linuxcnc module
 # is command/stat-less now; drive via gmi.Command/Stat and read HAL pins with
 # halcmd (there is no userspace hal.component anymore).
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import subprocess
 import time
@@ -44,9 +44,9 @@ def settle():
     s.poll()
 
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 

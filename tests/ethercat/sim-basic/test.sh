@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc EtherCAT integration test — the lcec driver on the in-process sim
+# stratuMAK EtherCAT integration test — the lcec driver on the in-process sim
 # transport (transportType="sim"), no hardware.
 #
 # Proves the whole driver pipeline: the sim transport parses the bus-description
@@ -16,7 +16,7 @@ pin_exists() { halcmd show pin 2>/dev/null | grep -qw "$1"; }
 
 # The AL state machine advances on the servo thread; wait for OP on a deadline
 # rather than a fixed sleep.
-deadline=$(( SECONDS + $(gomc_scale 15) ))
+deadline=$(( SECONDS + $(stmak_scale 15) ))
 while [ $SECONDS -lt $deadline ]; do
     [ "$(getp ethercat.0.all-op)" = TRUE ] && break
     sleep 0.1

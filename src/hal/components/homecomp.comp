@@ -8,7 +8,7 @@ This is a skeleton implementation where all joints are effectively
 homed at all times and cannot be unhomed.  It serves as a starting
 point for users who want to implement custom homing behavior.
 
-For a full-featured custom homing module, copy emc/motion/homing.c,
+For a full-featured custom homing module, copy cnc/motion/homing.c,
 modify the homing state machine as needed, and build it as a
 standalone cmod with modcompile.
 
@@ -44,7 +44,7 @@ gmi_consume mot from motmod;
 
 // EXTRA_SETUP is executed during New()
 EXTRA_SETUP() {
-    GOMC_LOG_INFO("Skeleton Homing Module loaded");
+    STMAK_LOG_INFO("Skeleton Homing Module loaded");
     return 0;
 }
 
@@ -55,12 +55,12 @@ EXTRA_SETUP() {
 
 // data for per-joint homing-specific hal pins:
 typedef struct {
-    gomc_hal_bit_t *home_sw;      // home switch input
-    gomc_hal_bit_t *homing;       // joint is homing
-    gomc_hal_bit_t *homed;        // joint was homed
-    gomc_hal_bit_t *index_enable; // motmod sets: request reset on index
+    stmak_hal_bit_t *home_sw;      // home switch input
+    stmak_hal_bit_t *homing;       // joint is homing
+    stmak_hal_bit_t *homed;        // joint was homed
+    stmak_hal_bit_t *index_enable; // motmod sets: request reset on index
                                   //        encoder clears: index arrived
-    gomc_hal_s32_t *home_state;   // homing state machine state
+    stmak_hal_s32_t *home_state;   // homing state machine state
 } one_joint_home_data_t;
 
 static one_joint_home_data_t joint_home_data[MAX_JOINTS];
@@ -75,17 +75,17 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     (void)comp_id; (void)servo_period;
     /* Per-joint: create pins for this one joint */
     one_joint_home_data_t *addr = &joint_home_data[0];
-    const gomc_hal_t *hal = __comp_inst->env->hal;
+    const stmak_hal_t *hal = __comp_inst->env->hal;
     int retval = 0;
-    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(addr->home_sw),
+    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(addr->home_sw),
                               __comp_inst->comp_id, "%s.home-sw-in", __comp_inst->name);
-    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &(addr->homing),
+    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(addr->homing),
                               __comp_inst->comp_id, "%s.homing", __comp_inst->name);
-    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &(addr->homed),
+    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(addr->homed),
                               __comp_inst->comp_id, "%s.homed", __comp_inst->name);
-    retval += gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &(addr->home_state),
+    retval += stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &(addr->home_state),
                               __comp_inst->comp_id, "%s.home-state", __comp_inst->name);
-    retval += gomc_hal_pin_bit_newf(hal, GOMC_HAL_IO, &(addr->index_enable),
+    retval += stmak_hal_pin_bit_newf(hal, STMAK_HAL_IO, &(addr->index_enable),
                               __comp_inst->comp_id, "%s.index-enable", __comp_inst->name);
     return retval;
 }
@@ -93,7 +93,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
 static int32_t gmi_home_set_params(void *ctx, double offset, double home,
     double home_final_vel, double home_search_vel,
     double home_latch_vel, int32_t home_flags,
-    int32_t home_sequence, int32_t volatile_home) GOMC_NONBLOCKING
+    int32_t home_sequence, int32_t volatile_home) STMAK_NONBLOCKING
 {
     (void)ctx; (void)offset; (void)home;
     (void)home_final_vel; (void)home_search_vel; (void)home_latch_vel;
@@ -102,40 +102,40 @@ static int32_t gmi_home_set_params(void *ctx, double offset, double home,
 }
 
 static int32_t gmi_home_update_params(void *ctx, double home_offset,
-    double home_home, int32_t home_sequence) GOMC_NONBLOCKING
+    double home_home, int32_t home_sequence) STMAK_NONBLOCKING
 {
     (void)ctx; (void)home_offset; (void)home_home; (void)home_sequence;
     return 0;
 }
 
-static int32_t gmi_home_read_in_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_read_in_pins(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 0;
 }
 
-static int32_t gmi_home_do_homing(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; } // always idle
+static int32_t gmi_home_do_homing(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; } // always idle
 
-static int32_t gmi_home_write_out_pins(void *ctx) GOMC_NONBLOCKING
+static int32_t gmi_home_write_out_pins(void *ctx) STMAK_NONBLOCKING
 {
     (void)ctx;
     return 0;
 }
 
-static int32_t gmi_home_do_home(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_do_cancel(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_do_home(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_do_cancel(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
 
-static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) GOMC_NONBLOCKING
+static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) STMAK_NONBLOCKING
 {
     (void)ctx; (void)motstate;
     return 0;
 }
 
-static int32_t gmi_home_get_homing(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_get_homed(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 1; }
-static int32_t gmi_home_get_index_enable(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_get_needs_unlock_first(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_get_is_idle(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 1; }
-static int32_t gmi_home_get_at_index_search_wait(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_get_at_final_move_wait(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
-static int32_t gmi_home_do_final_move(void *ctx) GOMC_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_get_homing(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_get_homed(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 1; }
+static int32_t gmi_home_get_index_enable(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_get_needs_unlock_first(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_get_is_idle(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 1; }
+static int32_t gmi_home_get_at_index_search_wait(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_get_at_final_move_wait(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }
+static int32_t gmi_home_do_final_move(void *ctx) STMAK_NONBLOCKING { (void)ctx; return 0; }

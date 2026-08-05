@@ -31,7 +31,7 @@ Los parámetros sticky se manejan correctamente.
 
 Uso:
 
-linuxcnc cycle.ini
+stmakd cycle.ini
 
 pulsa ejecutar y ver qué ocurre.
 

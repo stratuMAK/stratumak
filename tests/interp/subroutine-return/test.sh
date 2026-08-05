@@ -1,7 +1,7 @@
 #!/bin/bash
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 cp -f orig.ngc test.ngc
 cp -f subs/orig-sub.ngc subs/sub.ngc
-gomc_start_server --log /tmp/gomc-subret.log interp.ini
-gomc_wait_ready
+stmak_start_server --log /tmp/stmak-subret.log interp.ini
+stmak_wait_ready
 ./test-ui.py

@@ -165,49 +165,49 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
 	    hm2->inmux.instance[i].hal.param.scan_width = temp;
 
             snprintf(name, sizeof(name), "%s.inmux.%02d.scan_rate", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.scan_rate), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.scan_rate), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.inmux.%02d.slow_scans", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.slow_scans), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.slow_scans), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             } 
             snprintf(name, sizeof(name), "%s.inmux.%02d.fast_scans", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.fast_scans), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.fast_scans), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }  
            snprintf(name, sizeof(name), "%s.inmux.%02d.enc0_4xmode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc0_mode), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc0_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.inmux.%02d.enc1_4xmode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc1_mode), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc1_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.inmux.%02d.enc2_4xmode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc2_mode), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc2_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             } 
             snprintf(name, sizeof(name), "%s.inmux.%02d.enc3_4xmode", hm2->llio->name, i);
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, GOMC_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc3_mode), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, STMAK_HAL_RW, &(hm2->inmux.instance[i].hal.param.enc3_mode), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
             }
             snprintf(name, sizeof(name), "%s.inmux.%02d.scan_width", hm2->llio->name, i);
-            r = gomc_hal_param_u32_newf(hm2->llio->hal, GOMC_HAL_RO, &(hm2->inmux.instance[i].hal.param.scan_width), hm2->llio->comp_id, "%s", name);
+            r = stmak_hal_param_u32_newf(hm2->llio->hal, STMAK_HAL_RO, &(hm2->inmux.instance[i].hal.param.scan_width), hm2->llio->comp_id, "%s", name);
             if (r < 0) {
                 HM2_ERR("error adding param '%s', aborting\n", name);
                 goto fail1;
@@ -219,35 +219,35 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
   
 
                         snprintf(name, sizeof(name), "%s.inmux.%02d.input-%02d", hm2->llio->name, i, j);
-                        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.filt_data[j]), hm2->llio->comp_id, "%s", name);
+                        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.filt_data[j]), hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             r = -ENOMEM;
                             goto fail1;
                         }
                          snprintf(name, sizeof(name), "%s.inmux.%02d.raw-input-%02d", hm2->llio->name, i, j);
-                        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.raw_data[j]), hm2->llio->comp_id, "%s", name);
+                        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.raw_data[j]), hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             r = -ENOMEM;
                             goto fail1;
                         }
                         snprintf(name, sizeof(name), "%s.inmux.%02d.input-%02d-not", hm2->llio->name, i, j);
-                        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.filt_data_not[j]), hm2->llio->comp_id, "%s", name);
+                        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.filt_data_not[j]), hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             r = -ENOMEM;
                             goto fail1;
                         }
                          snprintf(name, sizeof(name), "%s.inmux.%02d.raw-input-%02d-not", hm2->llio->name, i, j);
-                        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.raw_data_not[j]), hm2->llio->comp_id, "%s", name);
+                        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.raw_data_not[j]), hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             r = -ENOMEM;
                             goto fail1;
                         }
                         snprintf(name, sizeof(name), "%s.inmux.%02d.input-%02d-slow", hm2->llio->name, i, j);
-                        r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->inmux.instance[i].hal.pin.slow[j]), hm2->llio->comp_id, "%s", name);
+                        r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->inmux.instance[i].hal.pin.slow[j]), hm2->llio->comp_id, "%s", name);
                         if (r < 0) {
                             HM2_ERR("error adding pin '%s', aborting\n", name);
                             r = -ENOMEM;
@@ -256,7 +256,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                    }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc0-count", hm2->llio->name, i);
-                r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc0_count), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc0_count), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -264,7 +264,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc1-count", hm2->llio->name, i);
-                r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc1_count), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc1_count), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -272,7 +272,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc2-count", hm2->llio->name, i);
-                r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc2_count), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc2_count), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -280,7 +280,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc3-count", hm2->llio->name, i);
-                r = gomc_hal_pin_s32_newf(hm2->llio->hal, GOMC_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc3_count), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_s32_newf(hm2->llio->hal, STMAK_HAL_OUT, &(hm2->inmux.instance[i].hal.pin.enc3_count), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -288,7 +288,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc0-reset", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc0_reset), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc0_reset), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -296,7 +296,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc1-reset", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc1_reset), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc1_reset), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -304,7 +304,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc2-reset", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc2_reset), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc2_reset), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -312,7 +312,7 @@ int hm2_inmux_parse_md(hostmot2_t *hm2, int md_index) {
                 }
 
                 snprintf(name, sizeof(name), "%s.inmux.%02d.enc3-reset", hm2->llio->name, i);
-                r = gomc_hal_pin_bit_newf(hm2->llio->hal, GOMC_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc3_reset), hm2->llio->comp_id, "%s", name);
+                r = stmak_hal_pin_bit_newf(hm2->llio->hal, STMAK_HAL_IN, &(hm2->inmux.instance[i].hal.pin.enc3_reset), hm2->llio->comp_id, "%s", name);
                 if (r < 0) {
                     HM2_ERR("error adding pin '%s', aborting\n", name);
                     r = -ENOMEM;
@@ -359,7 +359,7 @@ fail0:
 
 
 
-void hm2_inmux_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_inmux_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int divisor;
     int i;
     int size;
@@ -405,7 +405,7 @@ void hm2_inmux_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     }
 }
 
-void hm2_inmux_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_inmux_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int divisor;
     int i;
     int j;
@@ -482,7 +482,7 @@ void hm2_inmux_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 }
 
 
-void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     int j;
 
@@ -495,7 +495,7 @@ void hm2_inmux_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
     }
 }
 
-void hm2_inmux_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_inmux_process_tram_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     int j;
     int count_diff;
@@ -555,7 +555,7 @@ void hm2_inmux_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_inmux_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_inmux_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     if (hm2->inmux.num_instances <= 0) return;
     HM2_PRINT("inmuxs: %d\n", hm2->inmux.num_instances);

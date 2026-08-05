@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (`gmi` client). The motion-logger is now an
+# Ported to the stratuMAK REST/WS API (`gmi` client). The motion-logger is now an
 # interceptor cmod between milltask and the real motmod. The program is run from
 # a specific start line; a large feed override lets real motion complete quickly
 # without changing the logged (programmed) SET_LINE velocities. We wait for
@@ -9,7 +9,7 @@
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import sys
 import time
@@ -49,7 +49,7 @@ wait_idle()
 # The interceptor cmod appends to out.motion-logger from another process; wait
 # for it to stop growing instead of sleeping and hoping the tail was flushed. A
 # short read here truncates the diff and fails the test for the wrong reason.
-gomc_test.wait_file_stable("out.motion-logger")
+stmak_test.wait_file_stable("out.motion-logger")
 
 status = subprocess.call(
     ["diff", "-u", "expected.motion-logger", "out.motion-logger"])

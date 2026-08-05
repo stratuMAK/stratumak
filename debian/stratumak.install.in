@@ -9,9 +9,9 @@ usr/bin/emccalib
 usr/bin/ethercat
 usr/bin/gladevcp
 usr/bin/gladevcp_demo
-usr/bin/gmcui
+usr/bin/stmakui
 usr/bin/gmoccapy
-usr/bin/gomc-server
+usr/bin/stmakd
 usr/bin/gremlin_view
 usr/bin/gscreen
 usr/bin/hal-histogram
@@ -69,12 +69,12 @@ usr/bin/xyzac-trt-gui
 usr/bin/xyzbc-trt-gui
 
 usr/lib/lib*.so.*
-usr/lib/linuxcnc
+usr/lib/stratumak
 usr/lib/python3
 usr/lib/tcltk
 
-# The pristine gomc-server. usr/bin/gomc-server, listed above, is only a
-# symlink onto /var/lib/stratumak/bin/gomc-server, which points here in turn
+# The pristine stmakd. usr/bin/stmakd, listed above, is only a
+# symlink onto /var/lib/stratumak/bin/stmakd, which points here in turn
 # until an administrator rebuilds locally. This is the file dpkg owns and
 # replaces on upgrade; the /var one is deliberately not packaged at all.
 usr/libexec/stratumak
@@ -90,28 +90,26 @@ usr/share/applications/linuxcnc-latency.desktop
 usr/share/applications/linuxcnc-pncconf.desktop
 usr/share/applications/linuxcnc-stepconf.desktop
 
-usr/share/linuxcnc/gremlin_view.ui
-usr/share/linuxcnc/gscreen2.glade
-usr/share/linuxcnc/gscreen.glade
-usr/share/linuxcnc/hallib/
-usr/share/linuxcnc/linuxcnc_big.nml
-usr/share/linuxcnc/linuxcnc.gif
-usr/share/linuxcnc/linuxcncicon.png
-usr/share/linuxcnc/linuxcnc.nml
-usr/share/linuxcnc/linuxcnc-wizard.gif
-usr/share/linuxcnc/ncfiles/
-usr/share/linuxcnc/pncconf/
-usr/share/linuxcnc/popupkeyboard.ui
-usr/share/linuxcnc/stepconf/
-usr/share/linuxcnc/touchy.glade
-usr/share/linuxcnc/webapp/
+usr/share/stratumak/gremlin_view.ui
+usr/share/stratumak/gscreen2.glade
+usr/share/stratumak/gscreen.glade
+usr/share/stratumak/hallib/
+usr/share/stratumak/linuxcnc.gif
+usr/share/stratumak/linuxcncicon.png
+usr/share/stratumak/linuxcnc-wizard.gif
+usr/share/stratumak/ncfiles/
+usr/share/stratumak/pncconf/
+usr/share/stratumak/popupkeyboard.ui
+usr/share/stratumak/stepconf/
+usr/share/stratumak/touchy.glade
+usr/share/stratumak/webapp/
 
 usr/share/locale
 
 usr/share/qtvcp
 
-src/emc/usr_intf/axis/etc    usr/share/doc/@MAIN_PACKAGE_NAME@/axis
-src/emc/usr_intf/axis/README usr/share/doc/@MAIN_PACKAGE_NAME@/axis
+src/cnc/usr_intf/axis/etc    usr/share/doc/@MAIN_PACKAGE_NAME@/axis
+src/cnc/usr_intf/axis/README usr/share/doc/@MAIN_PACKAGE_NAME@/axis
 
 debian/org.stratumak.stratumak.metainfo.xml usr/share/metainfo
 

@@ -43,7 +43,7 @@ class HandlerClass:
         self.w.filemanager.delButton.hide()
         self.w.filemanager.loadButton.hide()
         self.w.filemanager.copy_control.hide()
-        self.w.filemanager.user_path = os.path.expanduser('~/linuxcnc/configs')
+        self.w.filemanager.user_path = os.path.expanduser('~/stratumak/configs')
         if os.path.exists(self.paths.RIPCONFIGDIR):
             self.w.filemanager._jumpList.update([('RIP',self.paths.RIPCONFIGDIR)])
             self.w.filemanager.addAction('RIP')

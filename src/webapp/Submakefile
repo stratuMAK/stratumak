@@ -2,12 +2,12 @@
 # Web application builds (Vue 3 + TypeScript via Vite)
 # ---------------------------------------------------------------------------
 # Builds web applications from src/webapp/<app>/ into
-# share/gomc/webapp/<app>/ for serving by gomc-server.
+# share/stmak/webapp/<app>/ for serving by stmakd.
 # ---------------------------------------------------------------------------
 
 
 WEBAPP_DIR := webapp
-WEBAPP_DEST := ../share/gomc/webapp
+WEBAPP_DEST := ../share/stmak/webapp
 
 # --- halscope ---
 

@@ -741,8 +741,8 @@ extern int hal_get_param_value_by_name(
     function-pointer indirection between the HAL thread dispatcher and
     component code.  On gcc the annotation expands to nothing and the
     type is identical to the traditional void (*)(void *, long).
-    Duplicated deliberately as gomc_hal_funct_t in
-    src/gomc/pkg/cmodule/gomc_hal.h (self-contained module headers) —
+    Duplicated deliberately as stmak_hal_funct_t in
+    src/stmak/pkg/cmodule/stmak_hal.h (self-contained module headers) —
     keep the two in sync. */
 typedef void (*hal_funct_ptr_t)(void *arg, long period) RTAPI_NONBLOCKING;
 

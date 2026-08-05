@@ -478,12 +478,12 @@ int New(const cmod_env_t *env, const char *name,
 
     // config= is a configuration path: resolved server-side against the config
     // directory / HAL library directories and required to stay inside them
-    // (gomc_path.h).  A runtime "load" arrives over REST, where the client's
+    // (stmak_path.h).  A runtime "load" arrives over REST, where the client's
     // working directory has no meaning.
     {
         const char *reserr = NULL;
         const char *resolved = env->path->resolve(env->path->ctx, m->ini_file_path,
-                                                  GOMC_PATH_READ, &reserr);
+                                                  STMAK_PATH_READ, &reserr);
         if (resolved == NULL) {
             ERR(m, m->init_dbg, "config file [%s]: %s", m->ini_file_path,
                 reserr ? reserr : "cannot be resolved");
@@ -536,7 +536,7 @@ int New(const cmod_env_t *env, const char *name,
 
     // Use the component name from the constructor
     m->hal_mod_id = env->hal->init(env->hal->ctx, m->name, env->dl_handle,
-                                   GOMC_HAL_COMP_USER);
+                                   STMAK_HAL_COMP_USER);
     if (m->hal_mod_id < 0) {
         ERR(m, m->init_dbg, "Unable to initialize HAL component [%s]", m->name);
         mb2hal_cleanup(m);

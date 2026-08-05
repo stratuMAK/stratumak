@@ -3,7 +3,7 @@
      positions as a JSON topic at 100 ms, always (so the publish-count liveness
      pin advances every tick regardless of motion). The broker is never reached
      because the test loads the bridge in `dryrun`. -->
-<mqttBridge broker="tcp://broker.local:1883" clientId="gomc-mqtt-test">
+<mqttBridge broker="tcp://broker.local:1883" clientId="stmak-mqtt-test">
   <topic path="cnc/position" dir="out" type="json" publish="always" rate="100">
     <pin name="X" type="float" dir="out"/>
     <pin name="Y" type="float" dir="out"/>

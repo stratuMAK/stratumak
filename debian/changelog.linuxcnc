@@ -2115,7 +2115,7 @@ linuxcnc (1:2.7.0) wheezy; urgency=low
 
   * packaging: switch to dh_python2 on Jessie and later
   * packaging: libgnomeprintui2.2 is not available on Debian Jessie
-  * packaging: allow sample configs in /usr/share/doc/linuxcnc/examples to run
+  * packaging: allow sample configs in /usr/share/doc/stratumak/examples to run
 
  -- Sebastian Kuzminsky <seb@highlab.com>  Sat, 05 Sep 2015 14:15:27 -0600
 
@@ -3297,7 +3297,7 @@ linuxcnc (1:2.5.1) lucid; urgency=low
   * AXIS: fix a surprise jog when the jog increment combobox was open
   * AXIS: show S word in active gcode pane
   * AXIS: rebranding
-  * Touchy: rebranding, change program path to ~/linuxcnc/nc_files
+  * Touchy: rebranding, change program path to ~/stratumak/nc_files
   * Docs: improvements/clarifications to the halui.1 manpage
   * Docs: improvements/clarifications to the gladevcp docs
   * Docs: improvements/clarifications to the halcmd docs

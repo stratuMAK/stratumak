@@ -9,11 +9,11 @@
 #   ./gen-expected.sh
 #
 # Needs the 2.9 reference sources in src/hal/classicladder; see
-# src/gomc/internal/classicladder/testdata/oracle.
+# src/stmak/internal/classicladder/testdata/oracle.
 set -e
 cd "$(dirname "$0")"
 
-ORACLE_DIR=../../src/gomc/internal/classicladder/testdata/oracle
+ORACLE_DIR=../../src/stmak/internal/classicladder/testdata/oracle
 make -s -C "$ORACLE_DIR"
 
 # One scan per input row, applying the five bit inputs first — the same order

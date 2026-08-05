@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ported to the gomc gmi REST/WS client (was the removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (was the removed NML linuxcnc module).
 #
 # Reproduces the read-ahead / stop-button overrun bug (#865, cf. #579/#393/#241):
 # fill the interp read-ahead queue while running a program, hit stop (abort), and
@@ -9,7 +9,7 @@
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import time
 import sys
@@ -28,15 +28,15 @@ def wait_for_startup(s, timeout=10.0):
                 and s.task_state == STATE_ESTOP):
             return
         time.sleep(0.1)
-    raise RuntimeError("Timeout waiting for gomc startup")
+    raise RuntimeError("Timeout waiting for stratuMAK startup")
 
 
 #
-# connect to LinuxCNC (gomc)
+# connect to LinuxCNC (stratuMAK)
 #
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 wait_for_startup(s)
@@ -87,7 +87,7 @@ c.mdi('T1M6')       # Load tool 1
 c.mdi('G0 X2 Y2')   # Move near to start: unit-less MDI runs in the machine's
                     # units (G20 on this inch config, matching 2.9) = 2 inches.
 c.wait_complete()
-# s.actual_position is gomc-mm: 2 in = 50.8 mm.
+# s.actual_position is stmak-mm: 2 in = 50.8 mm.
 start_mm = 2 * 25.4
 start_time = time.time()
 px, py = xy()

@@ -215,9 +215,9 @@ These paths will need to be adjusted to point to the actual files on your system
 [source,{ini}]
 ----
 [RS274NGC]
-SUBROUTINE_PATH = :~/linuxcnc/nc_files/examples/ngcgui_lib:~/linuxcnc/nc_files/examples/ngcgui_lib/utilitysubs; \
-~/linuxcnc/nc_files/examples/probe/basic_probe/macros:~/linuxcnc/nc_files/examples/remap-subroutines: \
-~/linuxcnc/nc_files/examples/ngcgui_lib/remap_lib
+SUBROUTINE_PATH = :~/stratumak/nc_files/examples/ngcgui_lib:~/stratumak/nc_files/examples/ngcgui_lib/utilitysubs; \
+~/stratumak/nc_files/examples/probe/basic_probe/macros:~/stratumak/nc_files/examples/remap-subroutines: \
+~/stratumak/nc_files/examples/ngcgui_lib/remap_lib
 ----
 
 QtVCP's NGCGUI program also need to know where to open for subroutine selection and pre-selection. +
@@ -228,7 +228,7 @@ NGCGUI_SUBFILE_PATH must point to an actual path on your system and also a path 
 [DISPLAY]
 # NGCGUI subroutine path.
 # Thr path must also  be in [RS274NGC] SUBROUTINE_PATH
-NGCGUI_SUBFILE_PATH = ~/linuxcnc/nc_files/examples/ngcgui_lib
+NGCGUI_SUBFILE_PATH = ~/stratumak/nc_files/examples/ngcgui_lib
 # pre selected programs tabs
 # specify filenames only, files must be in the NGCGUI_SUBFILE_PATH
 NGCGUI_SUBFILE = slot.ngc
@@ -1007,8 +1007,8 @@ instead of 'linuxcnc/nc_files/'. please check that paths are valid. Custom entri
 
 # Adjust this paths to point to folders with stdglue.py, qt_auto_tool_probe.ngc and on_abort.ngc
 # or similarly coded custom remap files.
-SUBROUTINE_PATH = ~/linuxcnc/nc_files/remap-subroutines:\
-~/linuxcnc/nc_files/remap_lib
+SUBROUTINE_PATH = ~/stratumak/nc_files/remap-subroutines:\
+~/stratumak/nc_files/remap_lib
 
 # is the sub, with is called when a error during tool change happens.
 ON_ABORT_COMMAND=O <on_abort> call
@@ -1075,9 +1075,9 @@ Custom entries pointing to modified file are possible.
 [source,{ini}]
 ----
 # The path start point for all remap searches, i.e. Python's sys.path.append()
-PATH_APPEND = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python
+PATH_APPEND = ~/stratumak/nc_files/remap_lib/python-stdglue/python
 # path to the tremap's 'toplevel file
-TOPLEVEL = ~/linuxcnc/nc_files/remap_lib/python-stdglue/python/toplevel.py
+TOPLEVEL = ~/stratumak/nc_files/remap_lib/python-stdglue/python/toplevel.py
 ----
 
 === Required HAL Connections

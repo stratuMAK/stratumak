@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc gmi REST/WS client (from the removed NML linuxcnc module).
+# Ported to the stratuMAK gmi REST/WS client (from the removed NML linuxcnc module).
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 
 import math
 import time
 import sys
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -33,8 +33,8 @@ if s.g5x_index != 1:
     retval = 1
 
 # The tool table Z offset is 0.1234 inch; the gmi stat API reports tool
-# offsets in gomc's internal millimetres (mm-everywhere convention, see
-# src/gomc/UNITS_MM_CONSISTENCY_FIX.md).
+# offsets in stratuMAK's internal millimetres (mm-everywhere convention, see
+# src/stmak/UNITS_MM_CONSISTENCY_FIX.md).
 expected = 0.1234 * 25.4
 if math.fabs(s.tool_offset[2] - expected) > 0.000001:
     print("Expected tool offset of %f (0.1234 in) via startup gcode not detected" % expected)

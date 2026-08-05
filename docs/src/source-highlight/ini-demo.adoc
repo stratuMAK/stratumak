@@ -36,7 +36,7 @@ VERSION =               $Revision$
 # Name of machine, for use with display, etc.
 MACHINE =               EMC-HAL-SIM-AXIS
 
-# Debug level, 0 means no messages. See src/emc/nml_int/emcglb.h for others
+# Debug level, 0 means no messages. See src/cnc/nml_intf/debugflags.h for others
 # DEBUG =               0x7FFFFFFF
 DEBUG = 0
 

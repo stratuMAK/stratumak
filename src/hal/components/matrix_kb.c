@@ -18,7 +18,7 @@
 
 /* A component to convert 7i73 bytecodes to bit pins */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 
 #include <string.h>
 
@@ -26,30 +26,30 @@
 
 typedef struct {
     struct {
-        gomc_hal_bit_t **key;
-        gomc_hal_bit_t **rows;
-        gomc_hal_bit_t **cols;
-        gomc_hal_u32_t *keycode;
+        stmak_hal_bit_t **key;
+        stmak_hal_bit_t **rows;
+        stmak_hal_bit_t **cols;
+        stmak_hal_u32_t *keycode;
     } hal;
     struct {
-        gomc_hal_u32_t rollover;
-        gomc_hal_bit_t invert;
+        stmak_hal_u32_t rollover;
+        stmak_hal_bit_t invert;
     } param;
-    gomc_hal_u32_t ncols;
-    gomc_hal_u32_t nrows;
-    gomc_hal_u32_t *now;
-    gomc_hal_u32_t *then;
-    gomc_hal_bit_t invert;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    stmak_hal_u32_t ncols;
+    stmak_hal_u32_t nrows;
+    stmak_hal_u32_t *now;
+    stmak_hal_u32_t *then;
+    stmak_hal_bit_t invert;
+    char name[STMAK_HAL_NAME_LEN + 1];
     struct input_dev *key_dev;
-    gomc_hal_u32_t index;
+    stmak_hal_u32_t index;
     int keydown;
     int keyup;
     int rowshift;
     int row;
     int num_keys;
-    gomc_hal_bit_t scan;
-    gomc_hal_bit_t keystroke;
+    stmak_hal_bit_t scan;
+    stmak_hal_bit_t keystroke;
 }kb_inst_t;
 
 typedef struct {
@@ -75,15 +75,15 @@ void keyup(kb_inst_t *inst){
     
     if  (r < 0 
          || c < 0
-         || (gomc_hal_u32_t)r >= inst->nrows 
-         || (gomc_hal_u32_t)c >= inst->ncols
-         || inst->hal.key[(gomc_hal_u32_t)r * inst->ncols + (gomc_hal_u32_t)c] == NULL){
+         || (stmak_hal_u32_t)r >= inst->nrows 
+         || (stmak_hal_u32_t)c >= inst->ncols
+         || inst->hal.key[(stmak_hal_u32_t)r * inst->ncols + (stmak_hal_u32_t)c] == NULL){
         return;
     }
     
     if (inst->num_keys > 0) inst->num_keys--;
     
-    *inst->hal.key[(gomc_hal_u32_t)r * inst->ncols + (gomc_hal_u32_t)c] = 0;
+    *inst->hal.key[(stmak_hal_u32_t)r * inst->ncols + (stmak_hal_u32_t)c] = 0;
 }
 void keydown(kb_inst_t *inst){
     int r, c;
@@ -94,31 +94,31 @@ void keydown(kb_inst_t *inst){
     
     if  (r < 0 
          || c < 0
-         || (gomc_hal_u32_t)r >= inst->nrows 
-         || (gomc_hal_u32_t)c >= inst->ncols
-         || inst->hal.key[(gomc_hal_u32_t)r * inst->ncols + (gomc_hal_u32_t)c] == NULL){
+         || (stmak_hal_u32_t)r >= inst->nrows 
+         || (stmak_hal_u32_t)c >= inst->ncols
+         || inst->hal.key[(stmak_hal_u32_t)r * inst->ncols + (stmak_hal_u32_t)c] == NULL){
         return;
     }
     
-    if ((gomc_hal_u32_t)inst->num_keys >= inst->param.rollover) return;
+    if ((stmak_hal_u32_t)inst->num_keys >= inst->param.rollover) return;
     inst->num_keys++;
     
-    *inst->hal.key[(gomc_hal_u32_t)r * inst->ncols + (gomc_hal_u32_t)c] = 1;
+    *inst->hal.key[(stmak_hal_u32_t)r * inst->ncols + (stmak_hal_u32_t)c] = 1;
 }
 
     void loop(void *arg, long period){
     int c;
-    gomc_hal_u32_t scan = 0;
+    stmak_hal_u32_t scan = 0;
     kb_inst_t *inst = arg;
     (void)period;
     
     if (inst->scan){ //scanning request
-        for (c = 0; (gomc_hal_u32_t)c < inst->ncols; c++){
+        for (c = 0; (stmak_hal_u32_t)c < inst->ncols; c++){
             scan += ((*inst->hal.cols[c] != inst->param.invert) << c);
         }
         if (scan == inst->now[inst->row] && scan != inst->then[inst->row]){
             // debounced and changed
-            for (c = 0; (gomc_hal_u32_t)c < inst->ncols; c++){
+            for (c = 0; (stmak_hal_u32_t)c < inst->ncols; c++){
                 int mask = 1 << c;
                 if ((inst->then[inst->row] & mask) && !(scan & mask)){ //keyup
                     *inst->hal.keycode = inst->keyup 
@@ -144,16 +144,16 @@ void keydown(kb_inst_t *inst){
         
         *inst->hal.rows[inst->row] = inst->param.invert;
         inst->row++;
-        if ((gomc_hal_u32_t)inst->row >= inst->nrows) inst->row = 0;
+        if ((stmak_hal_u32_t)inst->row >= inst->nrows) inst->row = 0;
         *inst->hal.rows[inst->row] = !inst->param.invert;
     }
     else
     {
         if (*inst->hal.keycode == 0x40) return;
-        if ((*inst->hal.keycode & (gomc_hal_u32_t)inst->keydown) == (gomc_hal_u32_t)inst->keydown){
+        if ((*inst->hal.keycode & (stmak_hal_u32_t)inst->keydown) == (stmak_hal_u32_t)inst->keydown){
             keydown(inst);
         }
-        else if ((*inst->hal.keycode & (gomc_hal_u32_t)inst->keydown) == (gomc_hal_u32_t)inst->keyup)
+        else if ((*inst->hal.keycode & (stmak_hal_u32_t)inst->keydown) == (stmak_hal_u32_t)inst->keyup)
         {
             keyup(inst);
         }
@@ -173,7 +173,7 @@ static void matrix_kb_parse_argv(matrix_kb_inst_t *inst, int argc, const char **
 
 static void matrix_kb_destroy(cmod_t *self) {
     matrix_kb_inst_t *inst = (matrix_kb_inst_t *)self;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     if (inst->comp_id > 0)
         hal->exit(hal->ctx, inst->comp_id);
     inst->env->rtapi->free(inst->env->rtapi->ctx, inst);
@@ -185,7 +185,7 @@ int New(const cmod_env_t *env, const char *name,
     int retval;
     matrix_kb_inst_t *inst;
     kb_t *kb;
-    const gomc_hal_t *hal = env->hal;
+    const stmak_hal_t *hal = env->hal;
 
     (void)name;
 
@@ -199,9 +199,9 @@ int New(const cmod_env_t *env, const char *name,
     matrix_kb_parse_argv(inst, argc, argv);
 
     inst->comp_id = env->hal->init(env->hal->ctx, "matrix_kb",
-                                   env->dl_handle, GOMC_HAL_COMP_REALTIME);
+                                   env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-        gomc_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: hal_init() failed\n");
+        stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: hal_init() failed\n");
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;
     }
@@ -209,7 +209,7 @@ int New(const cmod_env_t *env, const char *name,
     // allocate shared memory for data
     kb = env->hal->malloc(env->hal->ctx, sizeof(kb_t));
     if (kb == 0) {
-        gomc_log_errorf(inst->env->log, "matrix_kb",
+        stmak_log_errorf(inst->env->log, "matrix_kb",
                         "matrix_kb component: Out of Memory\n");
         env->hal->exit(env->hal->ctx, inst->comp_id);
         env->rtapi->free(env->rtapi->ctx, inst);
@@ -223,7 +223,7 @@ int New(const cmod_env_t *env, const char *name,
     for (n = 0; inst->names[n];n++);
     
     if (n && n != kb->num_insts){
-        gomc_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: Number of sizes and number"
+        stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: Number of sizes and number"
                         " of names must match\n");
         env->hal->exit(env->hal->ctx, inst->comp_id);
         env->rtapi->free(env->rtapi->ctx, inst);
@@ -234,7 +234,7 @@ int New(const cmod_env_t *env, const char *name,
     
     for (i = 0; i < kb->num_insts; i++){
         int a = 0;
-        gomc_hal_u32_t c, r;
+        stmak_hal_u32_t c, r;
         kb_inst_t *kinst = &kb->insts[i];
 
         kinst->index = i;
@@ -260,7 +260,7 @@ int New(const cmod_env_t *env, const char *name,
         kinst->ncols = a;
         
         if (kinst->ncols == 0 || kinst->nrows == 0){
-            gomc_log_errorf(inst->env->log, "matrix_kb",
+            stmak_log_errorf(inst->env->log, "matrix_kb",
                             "matrix_kb: Invalid size format. should be NxN\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
@@ -268,7 +268,7 @@ int New(const cmod_env_t *env, const char *name,
         }
         
         if (kinst->ncols > 32){
-            gomc_log_errorf(inst->env->log, "matrix_kb",
+            stmak_log_errorf(inst->env->log, "matrix_kb",
                             "matrix_kb: maximum number of columns is 32. Sorry\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
@@ -280,9 +280,9 @@ int New(const cmod_env_t *env, const char *name,
              ; (int)(kinst->nrows << kinst->rowshift) > kinst->keydown
              ; kinst->keydown <<= 1, kinst->keyup <<= 1);
         
-        kinst->hal.key = (gomc_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->nrows * kinst->ncols * sizeof(gomc_hal_bit_t*));
-        kinst->now = env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(gomc_hal_u32_t));
-        kinst->then = env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(gomc_hal_u32_t));
+        kinst->hal.key = (stmak_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->nrows * kinst->ncols * sizeof(stmak_hal_bit_t*));
+        kinst->now = env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(stmak_hal_u32_t));
+        kinst->then = env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(stmak_hal_u32_t));
         kinst->row = 0;
         kinst->param.rollover = 2;
         
@@ -297,13 +297,13 @@ int New(const cmod_env_t *env, const char *name,
         
         for (c = 0; c < kinst->ncols; c++){
             for (r = 0; r < kinst->nrows; r++){  
-                retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT,
+                retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT,
                                           &(kinst->hal.key[r * kinst->ncols + c]), 
                                           inst->comp_id,
                                           "%s.key.r%xc%x", 
                                           kinst->name, r, c);
                 if (retval != 0) {
-                    gomc_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_log_errorf(inst->env->log, "matrix_kb",
                                     "matrix_kb: Failed to create output pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -313,15 +313,15 @@ int New(const cmod_env_t *env, const char *name,
         }
         
         if (kinst->scan){ //internally generated scanning
-            kinst->hal.rows = (gomc_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(gomc_hal_bit_t*));
-            kinst->hal.cols = (gomc_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->ncols * sizeof(gomc_hal_bit_t*));
+            kinst->hal.rows = (stmak_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->nrows * sizeof(stmak_hal_bit_t*));
+            kinst->hal.cols = (stmak_hal_bit_t **)env->hal->malloc(env->hal->ctx, kinst->ncols * sizeof(stmak_hal_bit_t*));
             
             for (r = 0; r < kinst->nrows; r++){
-                retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT,
+                retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT,
                                           &(kinst->hal.rows[r]), inst->comp_id,
                                           "%s.row-%02i-out",kinst->name, r);
                 if (retval != 0) {
-                    gomc_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_log_errorf(inst->env->log, "matrix_kb",
                                     "matrix_kb: Failed to create output row pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -329,11 +329,11 @@ int New(const cmod_env_t *env, const char *name,
                 }
             }
             for (c = 0; c < kinst->ncols; c++){
-                retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN,
+                retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN,
                                           &(kinst->hal.cols[c]), inst->comp_id,
                                           "%s.col-%02i-in",kinst->name, c);
                 if (retval != 0) {
-                    gomc_log_errorf(inst->env->log, "matrix_kb",
+                    stmak_log_errorf(inst->env->log, "matrix_kb",
                                     "matrix_kb: Failed to create input col pin\n");
                     env->hal->exit(env->hal->ctx, inst->comp_id);
                     env->rtapi->free(env->rtapi->ctx, inst);
@@ -341,22 +341,22 @@ int New(const cmod_env_t *env, const char *name,
                 }
             }
                 
-            retval = gomc_hal_pin_u32_newf(hal, GOMC_HAL_OUT,
+            retval = stmak_hal_pin_u32_newf(hal, STMAK_HAL_OUT,
                                       &(kinst->hal.keycode), inst->comp_id,
                                       "%s.keycode",kinst->name);
             if (retval != 0) {
-                gomc_log_errorf(inst->env->log, "matrix_kb",
+                stmak_log_errorf(inst->env->log, "matrix_kb",
                                 "matrix_kb: Failed to create output pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
                 return -1;
             }
             
-            retval = gomc_hal_param_bit_newf(hal, GOMC_HAL_RW,
+            retval = stmak_hal_param_bit_newf(hal, STMAK_HAL_RW,
                                       &(kinst->param.invert), inst->comp_id,
                                       "%s.negative-logic",kinst->name);
             if (retval != 0) {
-                gomc_log_errorf(inst->env->log, "matrix_kb",
+                stmak_log_errorf(inst->env->log, "matrix_kb",
                                 "matrix_kb: Failed to create output pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -364,11 +364,11 @@ int New(const cmod_env_t *env, const char *name,
             }
             
             
-            retval = gomc_hal_param_u32_newf(hal, GOMC_HAL_RW,
+            retval = stmak_hal_param_u32_newf(hal, STMAK_HAL_RW,
                                       &(kinst->param.rollover), inst->comp_id,
                                       "%s.key_rollover",kinst->name);
             if (retval != 0) {
-                gomc_log_errorf(inst->env->log, "matrix_kb",
+                stmak_log_errorf(inst->env->log, "matrix_kb",
                                 "matrix_kb: Failed to create rollover param\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -378,11 +378,11 @@ int New(const cmod_env_t *env, const char *name,
         }
         else // scanning by 7i73 or similar
         {
-            retval = gomc_hal_pin_u32_newf(hal, GOMC_HAL_IN,
+            retval = stmak_hal_pin_u32_newf(hal, STMAK_HAL_IN,
                                       &(kinst->hal.keycode), inst->comp_id,
                                       "%s.keycode",kinst->name);
             if (retval != 0) {
-                gomc_log_errorf(inst->env->log, "matrix_kb",
+                stmak_log_errorf(inst->env->log, "matrix_kb",
                                 "matrix_kb: Failed to create input pin\n");
                 env->hal->exit(env->hal->ctx, inst->comp_id);
                 env->rtapi->free(env->rtapi->ctx, inst);
@@ -392,7 +392,7 @@ int New(const cmod_env_t *env, const char *name,
         
         retval = hal->export_funct(hal->ctx, kinst->name, loop, kinst, 1, 0, inst->comp_id); //needs fp?
         if (retval < 0) {
-            gomc_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: function export failed\n");
+            stmak_log_errorf(inst->env->log, "matrix_kb", "matrix_kb: ERROR: function export failed\n");
             env->hal->exit(env->hal->ctx, inst->comp_id);
             env->rtapi->free(env->rtapi->ctx, inst);
             return -1;

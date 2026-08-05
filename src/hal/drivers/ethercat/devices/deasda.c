@@ -48,40 +48,40 @@
  * @brief HAL data structure for the Delta ASDA-A2 servo drive.
  */
 typedef struct {
-  gomc_hal_float_t *vel_fb;              /**< HAL OUT: Velocity feedback (scale units/s). */
-  gomc_hal_float_t *vel_fb_rpm;          /**< HAL OUT: Velocity feedback (RPM). */
-  gomc_hal_float_t *vel_fb_rpm_abs;      /**< HAL OUT: Absolute velocity feedback (RPM). */
-  gomc_hal_float_t *vel_rpm;             /**< HAL OUT: Velocity command sent to drive (RPM). */
-  gomc_hal_bit_t *ready;                 /**< HAL OUT: CiA-402 ready-to-switch-on. */
-  gomc_hal_bit_t *switched_on;          /**< HAL OUT: CiA-402 switched-on. */
-  gomc_hal_bit_t *oper_enabled;          /**< HAL OUT: CiA-402 operation-enabled. */
-  gomc_hal_bit_t *fault;                 /**< HAL OUT: Gated fault (suppressed during auto-reset). */
-  gomc_hal_bit_t *volt_enabled;          /**< HAL OUT: CiA-402 voltage-enabled. */
-  gomc_hal_bit_t *quick_stoped;          /**< HAL OUT: CiA-402 quick-stop active (inverted). */
-  gomc_hal_bit_t *on_disabled;           /**< HAL OUT: CiA-402 switch-on-disabled. */
-  gomc_hal_bit_t *warning;               /**< HAL OUT: CiA-402 warning. */
-  gomc_hal_bit_t *remote;                /**< HAL OUT: Drive is remote-controlled. */
-  gomc_hal_bit_t *at_speed;              /**< HAL OUT: Motor has reached target velocity. */
-  gomc_hal_bit_t *limit_active;          /**< HAL OUT: A torque/speed limit is active. */
-  gomc_hal_bit_t *zero_speed;            /**< HAL OUT: Motor is at zero speed. */
-  gomc_hal_bit_t *switch_on;             /**< HAL IN:  CiA-402 switch-on command. */
-  gomc_hal_bit_t *enable_volt;           /**< HAL IN:  CiA-402 enable-voltage. */
-  gomc_hal_bit_t *quick_stop;            /**< HAL IN:  CiA-402 quick-stop (active-low). */
-  gomc_hal_bit_t *enable;                /**< HAL IN:  CiA-402 enable-operation. */
-  gomc_hal_bit_t *fault_reset;           /**< HAL IN:  CiA-402 fault-reset. */
-  gomc_hal_bit_t *halt;                  /**< HAL IN:  CiA-402 halt. */
-  gomc_hal_float_t *vel_cmd;             /**< HAL IN:  Velocity command (scale units/s). */
+  stmak_hal_float_t *vel_fb;              /**< HAL OUT: Velocity feedback (scale units/s). */
+  stmak_hal_float_t *vel_fb_rpm;          /**< HAL OUT: Velocity feedback (RPM). */
+  stmak_hal_float_t *vel_fb_rpm_abs;      /**< HAL OUT: Absolute velocity feedback (RPM). */
+  stmak_hal_float_t *vel_rpm;             /**< HAL OUT: Velocity command sent to drive (RPM). */
+  stmak_hal_bit_t *ready;                 /**< HAL OUT: CiA-402 ready-to-switch-on. */
+  stmak_hal_bit_t *switched_on;          /**< HAL OUT: CiA-402 switched-on. */
+  stmak_hal_bit_t *oper_enabled;          /**< HAL OUT: CiA-402 operation-enabled. */
+  stmak_hal_bit_t *fault;                 /**< HAL OUT: Gated fault (suppressed during auto-reset). */
+  stmak_hal_bit_t *volt_enabled;          /**< HAL OUT: CiA-402 voltage-enabled. */
+  stmak_hal_bit_t *quick_stoped;          /**< HAL OUT: CiA-402 quick-stop active (inverted). */
+  stmak_hal_bit_t *on_disabled;           /**< HAL OUT: CiA-402 switch-on-disabled. */
+  stmak_hal_bit_t *warning;               /**< HAL OUT: CiA-402 warning. */
+  stmak_hal_bit_t *remote;                /**< HAL OUT: Drive is remote-controlled. */
+  stmak_hal_bit_t *at_speed;              /**< HAL OUT: Motor has reached target velocity. */
+  stmak_hal_bit_t *limit_active;          /**< HAL OUT: A torque/speed limit is active. */
+  stmak_hal_bit_t *zero_speed;            /**< HAL OUT: Motor is at zero speed. */
+  stmak_hal_bit_t *switch_on;             /**< HAL IN:  CiA-402 switch-on command. */
+  stmak_hal_bit_t *enable_volt;           /**< HAL IN:  CiA-402 enable-voltage. */
+  stmak_hal_bit_t *quick_stop;            /**< HAL IN:  CiA-402 quick-stop (active-low). */
+  stmak_hal_bit_t *enable;                /**< HAL IN:  CiA-402 enable-operation. */
+  stmak_hal_bit_t *fault_reset;           /**< HAL IN:  CiA-402 fault-reset. */
+  stmak_hal_bit_t *halt;                  /**< HAL IN:  CiA-402 halt. */
+  stmak_hal_float_t *vel_cmd;             /**< HAL IN:  Velocity command (scale units/s). */
 
-  gomc_hal_float_t pos_scale;            /**< HAL RW param: Position/velocity scale factor. */
-  gomc_hal_float_t extenc_scale;         /**< HAL RW param: External encoder scale factor. */
-  gomc_hal_u32_t pprev;                  /**< HAL RW param: Encoder pulses per revolution. */
-  gomc_hal_u32_t fault_autoreset_cycles; /**< HAL RW param: Cycles per auto-reset phase. */
-  gomc_hal_u32_t fault_autoreset_retries;/**< HAL RW param: Auto-reset retry limit. */
+  stmak_hal_float_t pos_scale;            /**< HAL RW param: Position/velocity scale factor. */
+  stmak_hal_float_t extenc_scale;         /**< HAL RW param: External encoder scale factor. */
+  stmak_hal_u32_t pprev;                  /**< HAL RW param: Encoder pulses per revolution. */
+  stmak_hal_u32_t fault_autoreset_cycles; /**< HAL RW param: Cycles per auto-reset phase. */
+  stmak_hal_u32_t fault_autoreset_retries;/**< HAL RW param: Auto-reset retry limit. */
 
   lcec_class_enc_data_t enc;        /**< Main encoder state (class_enc). */
   lcec_class_enc_data_t extenc;     /**< External encoder state (class_enc). */
 
-  gomc_hal_float_t pos_scale_old;        /**< Last seen pos_scale (change detection). */
+  stmak_hal_float_t pos_scale_old;        /**< Last seen pos_scale (change detection). */
   double pos_scale_rcpt;            /**< Cached reciprocal of pos_scale. */
 
   unsigned int status_pdo_os;       /**< PDO offset: CiA-402 status word (0x6041). */
@@ -91,49 +91,49 @@ typedef struct {
   unsigned int control_pdo_os;      /**< PDO offset: CiA-402 control word (0x6040). */
   unsigned int cmdvel_pdo_os;       /**< PDO offset: target velocity (0x60FF). */
 
-  gomc_hal_bit_t last_switch_on;         /**< Previous value of switch_on (edge detection). */
-  gomc_hal_bit_t internal_fault;         /**< Raw fault bit from the drive status word. */
+  stmak_hal_bit_t last_switch_on;         /**< Previous value of switch_on (edge detection). */
+  stmak_hal_bit_t internal_fault;         /**< Raw fault bit from the drive status word. */
 
-  gomc_hal_u32_t fault_reset_retry;      /**< Remaining auto-reset retries. */
-  gomc_hal_u32_t fault_reset_state;      /**< Current phase of the auto-reset state machine. */
-  gomc_hal_u32_t fault_reset_cycle;      /**< Cycle counter within the current reset phase. */
+  stmak_hal_u32_t fault_reset_retry;      /**< Remaining auto-reset retries. */
+  stmak_hal_u32_t fault_reset_state;      /**< Current phase of the auto-reset state machine. */
+  stmak_hal_u32_t fault_reset_cycle;      /**< Cycle counter within the current reset phase. */
 
 } lcec_deasda_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb), "%s.%s.%s.srv-vel-fb" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb_rpm), "%s.%s.%s.srv-vel-fb-rpm" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb_rpm_abs), "%s.%s.%s.srv-vel-fb-rpm-abs" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, vel_rpm), "%s.%s.%s.srv-vel-rpm" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, ready), "%s.%s.%s.srv-ready" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, switched_on), "%s.%s.%s.srv-switched-on" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, oper_enabled), "%s.%s.%s.srv-oper-enabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, fault), "%s.%s.%s.srv-fault" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, volt_enabled), "%s.%s.%s.srv-volt-enabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, quick_stoped), "%s.%s.%s.srv-quick-stoped" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, on_disabled), "%s.%s.%s.srv-on-disabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, warning), "%s.%s.%s.srv-warning" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, remote), "%s.%s.%s.srv-remote" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, at_speed), "%s.%s.%s.srv-at-speed" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, limit_active), "%s.%s.%s.srv-limit-active" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_deasda_data_t, zero_speed), "%s.%s.%s.srv-zero-speed" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, switch_on), "%s.%s.%s.srv-switch-on" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, enable_volt), "%s.%s.%s.srv-enable-volt" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, quick_stop), "%s.%s.%s.srv-quick-stop" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, enable), "%s.%s.%s.srv-enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, fault_reset), "%s.%s.%s.srv-fault-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, halt), "%s.%s.%s.srv-halt" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IN, offsetof(lcec_deasda_data_t, vel_cmd), "%s.%s.%s.srv-vel-cmd" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb), "%s.%s.%s.srv-vel-fb" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb_rpm), "%s.%s.%s.srv-vel-fb-rpm" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, vel_fb_rpm_abs), "%s.%s.%s.srv-vel-fb-rpm-abs" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, vel_rpm), "%s.%s.%s.srv-vel-rpm" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, ready), "%s.%s.%s.srv-ready" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, switched_on), "%s.%s.%s.srv-switched-on" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, oper_enabled), "%s.%s.%s.srv-oper-enabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, fault), "%s.%s.%s.srv-fault" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, volt_enabled), "%s.%s.%s.srv-volt-enabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, quick_stoped), "%s.%s.%s.srv-quick-stoped" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, on_disabled), "%s.%s.%s.srv-on-disabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, warning), "%s.%s.%s.srv-warning" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, remote), "%s.%s.%s.srv-remote" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, at_speed), "%s.%s.%s.srv-at-speed" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, limit_active), "%s.%s.%s.srv-limit-active" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_deasda_data_t, zero_speed), "%s.%s.%s.srv-zero-speed" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, switch_on), "%s.%s.%s.srv-switch-on" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, enable_volt), "%s.%s.%s.srv-enable-volt" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, quick_stop), "%s.%s.%s.srv-quick-stop" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, enable), "%s.%s.%s.srv-enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, fault_reset), "%s.%s.%s.srv-fault-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, halt), "%s.%s.%s.srv-halt" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_deasda_data_t, vel_cmd), "%s.%s.%s.srv-vel-cmd" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_deasda_data_t, pos_scale), "%s.%s.%s.pos-scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_deasda_data_t, extenc_scale), "%s.%s.%s.extenc-scale" },
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_deasda_data_t, pprev), "%s.%s.%s.srv-pulses-per-rev" },
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_deasda_data_t, fault_autoreset_cycles), "%s.%s.%s.srv-fault-autoreset-cycles" },
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_deasda_data_t, fault_autoreset_retries), "%s.%s.%s.srv-fault-autoreset-retries" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_deasda_data_t, pos_scale), "%s.%s.%s.pos-scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_deasda_data_t, extenc_scale), "%s.%s.%s.extenc-scale" },
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_deasda_data_t, pprev), "%s.%s.%s.srv-pulses-per-rev" },
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_deasda_data_t, fault_autoreset_cycles), "%s.%s.%s.srv-fault-autoreset-cycles" },
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_deasda_data_t, fault_autoreset_retries), "%s.%s.%s.srv-fault-autoreset-retries" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_deasda_in[] = {
@@ -166,8 +166,8 @@ static ec_sync_info_t lcec_deasda_syncs[] = {
 
 void lcec_deasda_check_scales(lcec_deasda_data_t *hal_data);
 
-void lcec_deasda_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_deasda_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_deasda_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_deasda_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 int lcec_deasda_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
   lcec_master_t *master = slave->master;

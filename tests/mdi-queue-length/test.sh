@@ -1,5 +1,5 @@
 #!/bin/bash
-. ../gomc-driver.sh
-gomc_start_server test.ini
-gomc_wait_ready
+. ../stmak-driver.sh
+stmak_start_server test.ini
+stmak_wait_ready
 ./test-ui.py

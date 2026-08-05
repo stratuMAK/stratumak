@@ -20,7 +20,7 @@
  *      synchronisation.
  *   3. post_send()   – runs the PI controller and applies the PLL correction.
  *
- * This file is compiled only when @c GOMC_RTAPI_TASK_PLL_SUPPORT is defined.
+ * This file is compiled only when @c STMAK_RTAPI_TASK_PLL_SUPPORT is defined.
  *
  * @copyright Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
@@ -41,7 +41,7 @@
 
 #include "priv.h"
 
-#ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
+#ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
 
 /**
  * @brief Target closed-loop settling time in seconds.
@@ -125,8 +125,8 @@ static inline int32_t clamp32(int64_t val) {
  * @note Real-time context: must not block or allocate memory.
  * @note Side effect: modifies @c master->app_time_ns.
  */
-static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
-  const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
+static void cycle_start(struct lcec_master *master) STMAK_NONBLOCKING {
+  const stmak_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   if (master->app_time_ns == 0) {
     master->app_time_ns = master->rt_ctx->dc_time_offset + rtapi->pll_get_reference(rtapi->ctx);
   } else {
@@ -170,8 +170,8 @@ static void cycle_start(struct lcec_master *master) GOMC_NONBLOCKING {
  *       @c master->dc_diff_ns, @c master->app_time_ns, and the @c pll_err and
  *       @c pll_reset_cnt HAL pins.
  */
-static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
-  const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
+static void pre_send(struct lcec_master *master) STMAK_NONBLOCKING {
+  const stmak_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   lcec_master_data_t *hal_data = master->hal_data;
   uint32_t ref_time_ns;
 
@@ -249,8 +249,8 @@ static void pre_send(struct lcec_master *master) GOMC_NONBLOCKING {
  * @note Side effects: modifies @c master->dc_integrator, calls
  *       @c rtapi_task_pll_set_correction(), and updates the @c pll_out HAL pin.
  */
-static void post_send(struct lcec_master *master) GOMC_NONBLOCKING {
-  const gomc_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
+static void post_send(struct lcec_master *master) STMAK_NONBLOCKING {
+  const stmak_rtapi_t *rtapi = master->rt_ctx->env->rtapi;
   lcec_master_data_t *hal_data = master->hal_data;
 
   // check if DC has started initially
@@ -305,7 +305,7 @@ static void post_send(struct lcec_master *master) GOMC_NONBLOCKING {
  * @param master  Master to configure.  @c master->app_time_period must already
  *                be set to the servo period in nanoseconds before this call.
  *
- * @note This function is available only when @c GOMC_RTAPI_TASK_PLL_SUPPORT is
+ * @note This function is available only when @c STMAK_RTAPI_TASK_PLL_SUPPORT is
  *       defined at compile time.
  * @note Non-real-time: called once during component initialisation.
  */

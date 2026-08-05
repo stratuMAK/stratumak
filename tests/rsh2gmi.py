@@ -3,16 +3,16 @@
 # commands used by the tool tests on stdin and drives the machine via the gmi
 # REST client. Replaces piping the command stream into `nc localhost 5007`.
 #
-# Synchronisation lives in gomc_test (see lib/python/gomc_test.py): the Command
+# Synchronisation lives in stmak_test (see lib/python/stmak_test.py): the Command
 # here raises rather than silently returning -1 from a timed-out wait_complete,
 # and drain_mdi polls a predicate against a deadline instead of sleeping.
 import sys
 
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
-c = gomc_test.Command()
-s = gomc_test.Stat()
+c = stmak_test.Command()
+s = stmak_test.Stat()
 
 
 for raw in sys.stdin:
@@ -39,7 +39,7 @@ for raw in sys.stdin:
     elif low == 'set wait done':
         # RCS_ERROR is NOT fatal: these tool tests deliberately issue commands
         # that error (e.g. G10 L1 P0) and introspect the resulting state
-        # afterwards. A timeout IS fatal, and gomc_test.Command raises on it —
+        # afterwards. A timeout IS fatal, and stmak_test.Command raises on it —
         # a hung interpreter must not read as a clean run.
         c.wait_complete()
     elif low.startswith('set mdi '):
@@ -48,7 +48,7 @@ for raw in sys.stdin:
         # before it returns (Task.executeMDI sets interpState synchronously, or
         # the command lands on mdiQueue), so the drain predicate cannot read
         # "already idle" for an MDI that has not started yet.
-        gomc_test.drain_mdi(s)
+        stmak_test.drain_mdi(s)
     elif low.startswith('set home '):
         c.home(int(cmd.split()[-1]))
     elif low.startswith('set teleop_enable '):

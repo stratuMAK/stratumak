@@ -1,0 +1,628 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package apiserver
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/pprof"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// Server is the REST API server that dispatches to registered APIs.
+type Server struct {
+	registry     *Registry
+	mux          *http.ServeMux
+	server       *http.Server
+	prefix       string // e.g. "/api/v1"
+	logger       *slog.Logger
+	watchHandler *WatchHandler
+
+	// wsOriginPatterns is the WebSocket Origin allow-list. Empty means
+	// same-origin only (the secure default): a cross-origin page — e.g. a
+	// malicious tab in the operator's browser — cannot open the watch/stream
+	// sockets and issue `call` commands to the controller. Set to the HMI's
+	// host(s), or to []string{"*"} to allow any origin (opt-in, insecure).
+	wsOriginPatterns []string
+
+	// maxConns caps concurrently accepted HTTP connections; wsLimit caps
+	// concurrent WebSocket connections. See limits.go (finding N9).
+	maxConns int
+	wsLimit  *wsLimiter
+
+	streamMu    sync.Mutex
+	streamConns map[*streamConn]struct{}
+	streamWg    sync.WaitGroup
+}
+
+// NewServer creates a new API server bound to the given registry.
+// addr is the listen address (e.g. "localhost:8080").
+func NewServer(registry *Registry, addr string) *Server {
+	s := &Server{
+		registry: registry,
+		mux:      http.NewServeMux(),
+		prefix:   "/api/v1",
+		logger:   slog.Default(),
+		maxConns: defaultMaxConnections,
+		wsLimit:  newWSLimiter(defaultMaxWSConnections),
+	}
+
+	s.mux.HandleFunc(s.prefix+"/", s.handleAPIRequest)
+	s.mux.HandleFunc(s.prefix+"/_registry", s.handleRegistryRequest)
+
+	// pprof profiling endpoints are opt-in (STMAK_REST_PPROF=1). They are
+	// unauthenticated and leak memory/argv/config plus allow a CPU-profile DoS,
+	// so they must not be mounted by default — especially when the server is
+	// bound to a non-loopback address for a remote HMI.
+	if os.Getenv("STMAK_REST_PPROF") == "1" {
+		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
+		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		s.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		s.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
+
+	s.server = &http.Server{
+		Addr:    addr,
+		Handler: s.mux,
+		// ReadHeaderTimeout bounds slow-header (Slowloris) connections. We
+		// deliberately do NOT set ReadTimeout/WriteTimeout: those would also
+		// apply to the long-lived WebSocket watch/stream connections and kill
+		// them. IdleTimeout bounds idle keep-alive between plain requests.
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
+	return s
+}
+
+// maxRequestBodyBytes caps a REST request body so a large POST cannot OOM the
+// controller. API command bodies are small JSON; 8 MiB is generous headroom.
+const maxRequestBodyBytes = 8 << 20
+
+// readHeaderTimeout / idleTimeout harden the HTTP server against slow-header
+// and idle-keepalive resource exhaustion without affecting upgraded WebSocket
+// connections (which are hijacked and no longer governed by these).
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
+// SetAddr updates the listen address before ListenAndServe is called.
+func (s *Server) SetAddr(addr string) {
+	s.server.Addr = addr
+}
+
+// SetMaxConnections caps concurrently accepted HTTP connections (WebSocket
+// connections included — they are hijacked HTTP connections). Zero or negative
+// means unlimited. Must be called before ListenAndServe/Serve.
+func (s *Server) SetMaxConnections(n int) {
+	s.maxConns = n
+}
+
+// SetMaxWSConnections caps concurrent WebSocket connections across the watch
+// and stream endpoints; further upgrade attempts get 503. Zero or negative
+// means unlimited. Must be called before AddWatchEndpoint/RegisterStream.
+func (s *Server) SetMaxWSConnections(n int) {
+	s.wsLimit = newWSLimiter(n)
+}
+
+// ListenAndServe starts the HTTP server. Blocks until the server stops.
+func (s *Server) ListenAndServe() error {
+	ln, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ln)
+}
+
+// Serve accepts connections on the given listener. Useful for tests.
+func (s *Server) Serve(ln net.Listener) error {
+	return s.server.Serve(limitListener(ln, s.maxConns))
+}
+
+// Shutdown gracefully shuts down the server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	// Close all active WebSocket connections first so their goroutines
+	// exit before the HTTP server finishes draining.
+	if s.watchHandler != nil {
+		s.watchHandler.Close()
+	}
+	// Close all active stream WebSocket connections.
+	s.streamMu.Lock()
+	for sc := range s.streamConns {
+		sc.cancel()
+	}
+	s.streamMu.Unlock()
+	// Wait for all ServeConn goroutines to exit so no CGO calls are
+	// in-flight when modules are destroyed.
+	s.streamWg.Wait()
+	return s.server.Shutdown(ctx)
+}
+
+// Handler returns the http.Handler for use with httptest.
+func (s *Server) Handler() http.Handler {
+	return s.mux
+}
+
+// SetLogger sets the logger for request and error logging.
+func (s *Server) SetLogger(logger *slog.Logger) {
+	s.logger = logger
+}
+
+// SetWSOriginPatterns sets the WebSocket Origin allow-list (see wsOriginPatterns).
+// Must be called before AddWatchEndpoint/RegisterStream so the patterns reach the
+// upgraders. Empty keeps the secure same-origin default; []string{"*"} allows any
+// origin (opt-in).
+func (s *Server) SetWSOriginPatterns(patterns []string) {
+	s.wsOriginPatterns = patterns
+}
+
+// RegisterStream registers a stream_server endpoint.
+// Connections to {prefix}/stream/{apiName}/{instanceName} will be handled by the server.
+func (s *Server) RegisterStream(apiName, instanceName string, server StreamServer) {
+	path := s.prefix + "/stream/" + apiName + "/" + instanceName
+	s.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		s.handleStreamUpgrade(w, r, server)
+	})
+	s.logger.Info("registered stream server", "api", apiName, "instance", instanceName, "path", path)
+}
+
+// handleAPIRequest is the generic REST dispatcher.
+// URL format: /api/v1/{instance}/{func-path...}
+func (s *Server) handleAPIRequest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	// Strip prefix: "/api/v1/hal0/pin/axis.0" → "hal0/pin/axis.0"
+	path := strings.TrimPrefix(r.URL.Path, s.prefix+"/")
+	if path == "" {
+		writeErrorJSON(w, http.StatusNotFound, "missing instance name")
+		s.logger.Debug("api request", "method", r.Method, "path", r.URL.Path, "status", 404, "dur", time.Since(start))
+		return
+	}
+
+	// Split into instance + remaining path
+	instance, funcPath, _ := strings.Cut(path, "/")
+	funcPath = "/" + funcPath // normalize: "" → "/", "pin/x" → "/pin/x"
+
+	// Look up registered API(s)
+	apis := s.registry.GetAll(instance)
+	if len(apis) == 0 {
+		writeErrorJSON(w, http.StatusNotFound, "unknown API instance: "+instance)
+		return
+	}
+
+	// Try each registered API for a function match.
+	// Prefer exact (literal) path matches over wildcard matches so that
+	// e.g. GET /stat resolves to emcstat's "/stat" rather than tools' "/{toolno}".
+	var api *RegisteredAPI
+	var funcIndex int
+	var wildcardAPI *RegisteredAPI
+	var wildcardIdx int
+	for _, candidate := range apis {
+		if candidate.Meta == nil || !candidate.Meta.RESTExport {
+			continue
+		}
+		funcs := candidate.RESTFuncs()
+		idx := matchFunc(funcs, r.Method, funcPath)
+		if idx >= 0 {
+			if isLiteralPath(funcs[idx].Path) {
+				api = candidate
+				funcIndex = idx
+				break
+			}
+			if wildcardAPI == nil {
+				wildcardAPI = candidate
+				wildcardIdx = idx
+			}
+		}
+	}
+	if api == nil {
+		api = wildcardAPI
+		funcIndex = wildcardIdx
+	}
+	if api == nil {
+		writeErrorJSON(w, http.StatusNotFound, "no matching function")
+		return
+	}
+
+	fn := &api.RESTFuncs()[funcIndex]
+	if fn.Dispatch == nil {
+		writeErrorJSON(w, http.StatusNotImplemented, "function not dispatachable: "+fn.Name)
+		return
+	}
+
+	// Read request body, bounded so a large POST cannot OOM the controller.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
+	if err != nil {
+		writeErrorJSON(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	// For GET/DELETE, encode path+query params as JSON if no body provided
+	if len(body) == 0 && (r.Method == http.MethodGet || r.Method == http.MethodDelete) {
+		body = encodeParams(fn.Path, funcPath, r.URL.Query())
+	}
+
+	// For POST/PUT, merge path params into the JSON body so that
+	// dispatch functions can access e.g. /thread/{thread}/function
+	// params via the same getField() as body params.
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+		pathParams := extractPathParams(fn.Path, funcPath)
+		if len(pathParams) > 0 {
+			body = mergePathParamsIntoBody(pathParams, body)
+		}
+	}
+
+	// Dispatch
+	if api.Callbacks == nil {
+		writeErrorJSON(w, http.StatusServiceUnavailable, "API not yet initialized: "+api.APIName)
+		return
+	}
+	resp, err := fn.Dispatch(api.Callbacks, body)
+	if err != nil {
+		writeDispatchError(w, err)
+		s.logger.Debug("api request", "method", r.Method, "path", r.URL.Path, "status", 500, "dur", time.Since(start))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resp)
+	s.logger.Debug("api request", "method", r.Method, "path", r.URL.Path, "status", 200, "dur", time.Since(start))
+}
+
+// matchFunc finds the FuncMeta index matching the given HTTP method and path.
+// Returns -1 if no match found.
+func matchFunc(funcs []FuncMeta, method, requestPath string) int {
+	// Prefer a literal match over a wildcard one WITHIN an API, mirroring the
+	// cross-API preference in the dispatcher: without this a literal
+	// "GET /units" is shadowed by an earlier "GET /{toolno}" in the same API,
+	// since a bare first-match would return whichever appears first in the IDL.
+	wildcard := -1
+	for i := range funcs {
+		f := &funcs[i]
+		if f.Method == "" || f.Path == "" {
+			continue // not REST-exported
+		}
+		if f.Method != method {
+			continue
+		}
+		if !matchPath(f.Path, requestPath) {
+			continue
+		}
+		if isLiteralPath(f.Path) {
+			return i
+		}
+		if wildcard < 0 {
+			wildcard = i
+		}
+	}
+	return wildcard
+}
+
+// matchPath matches a pattern like "/pin/{name}" against a request path like "/pin/axis.0".
+// Supports {param} wildcards that match exactly one path segment,
+// and {param...} that matches the rest of the path.
+func matchPath(pattern, requestPath string) bool {
+	patParts := strings.Split(strings.Trim(pattern, "/"), "/")
+	reqParts := strings.Split(strings.Trim(requestPath, "/"), "/")
+
+	for i, pat := range patParts {
+		// Wildcard rest: {name...} matches remaining segments
+		if strings.HasPrefix(pat, "{") && strings.HasSuffix(pat, "...}") {
+			return true // matches everything from here
+		}
+		if i >= len(reqParts) {
+			return false // request path too short
+		}
+		// Wildcard segment: {name} matches one segment
+		if strings.HasPrefix(pat, "{") && strings.HasSuffix(pat, "}") {
+			continue // matches any single segment
+		}
+		// Literal match
+		if pat != reqParts[i] {
+			return false
+		}
+	}
+
+	return len(patParts) == len(reqParts)
+}
+
+// isLiteralPath returns true if the path pattern contains no {param} wildcards.
+func isLiteralPath(pattern string) bool {
+	return !strings.Contains(pattern, "{")
+}
+
+// extractPathParams extracts named parameters from a pattern and request path.
+func extractPathParams(pattern, requestPath string) map[string]string {
+	params := make(map[string]string)
+	patParts := strings.Split(strings.Trim(pattern, "/"), "/")
+	reqParts := strings.Split(strings.Trim(requestPath, "/"), "/")
+
+	for i, pat := range patParts {
+		if strings.HasPrefix(pat, "{") && strings.HasSuffix(pat, "...}") {
+			name := pat[1 : len(pat)-4]
+			params[name] = strings.Join(reqParts[i:], "/")
+			break
+		}
+		if i >= len(reqParts) {
+			break
+		}
+		if strings.HasPrefix(pat, "{") && strings.HasSuffix(pat, "}") {
+			name := pat[1 : len(pat)-1]
+			params[name] = reqParts[i]
+		}
+	}
+	return params
+}
+
+// mergePathParamsIntoBody merges URL path parameters into a JSON body.
+// Path params do not overwrite existing body keys.
+func mergePathParamsIntoBody(pathParams map[string]string, body []byte) []byte {
+	var m map[string]interface{}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &m); err != nil {
+			return body // leave as-is if body isn't valid JSON
+		}
+	} else {
+		m = make(map[string]interface{})
+	}
+	for k, v := range pathParams {
+		if _, exists := m[k]; !exists {
+			// Convert numeric strings so json.Unmarshal into int/float fields works.
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				m[k] = n
+			} else if f, err := strconv.ParseFloat(v, 64); err == nil {
+				m[k] = f
+			} else {
+				m[k] = v
+			}
+		}
+	}
+	data, _ := json.Marshal(m)
+	return data
+}
+
+// encodeParams builds a JSON object from path parameters and query string.
+func encodeParams(pattern, requestPath string, query map[string][]string) []byte {
+	params := extractPathParams(pattern, requestPath)
+
+	// Add query parameters (first value only)
+	for k, v := range query {
+		if _, exists := params[k]; !exists && len(v) > 0 {
+			params[k] = v[0]
+		}
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	// Build a map[string]interface{} so numeric strings are encoded as
+	// JSON numbers.  This allows generated dispatch functions to unmarshal
+	// path/query params like {channel} = "0" into int32 fields.
+	typed := make(map[string]interface{}, len(params))
+	for k, v := range params {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			typed[k] = n
+		} else if f, err := strconv.ParseFloat(v, 64); err == nil {
+			typed[k] = f
+		} else if v == "true" {
+			typed[k] = true
+		} else if v == "false" {
+			typed[k] = false
+		} else {
+			typed[k] = v
+		}
+	}
+
+	data, _ := json.Marshal(typed)
+	return data
+}
+
+// apiError is the JSON error response format.
+type apiError struct {
+	Error string `json:"error"`
+	Code  int    `json:"code"`
+}
+
+func writeErrorJSON(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(apiError{Error: msg, Code: code})
+}
+
+func writeDispatchError(w http.ResponseWriter, err error) {
+	// A constraint violation renders as a structured 400 identifying the field
+	// and rule, before falling through to the generic errno mapping.
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(struct {
+			Error      string `json:"error"`
+			Code       int    `json:"code"`
+			Field      string `json:"field"`
+			Constraint string `json:"constraint"`
+		}{ve.Message, http.StatusBadRequest, ve.Field, ve.Constraint})
+		return
+	}
+
+	// A classified fault knows what it is; prefer it over guessing from an
+	// errno. Without this a refusal the machine's state made ("must be in MDI
+	// mode") reached the client as a 500 — the controller reported as broken
+	// when it was working correctly and declining.
+	var f *Fault
+	if errors.As(err, &f) {
+		code := http.StatusInternalServerError
+		switch f.Kind {
+		case FaultState:
+			code = http.StatusConflict
+		case FaultNotReady, FaultCapacity:
+			code = http.StatusServiceUnavailable
+		case FaultNotFound:
+			code = http.StatusNotFound
+		}
+		writeErrorJSON(w, code, err.Error())
+		return
+	}
+
+	// Map errno to HTTP status. errors.Is, not ==: a provider that wraps its
+	// errno for context ("open %s: %w") would otherwise fall through to 500,
+	// which is the opposite of what wrapping is for.
+	code := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, syscall.EINVAL), errors.Is(err, syscall.ERANGE):
+		code = http.StatusBadRequest
+	case errors.Is(err, syscall.ENOENT):
+		code = http.StatusNotFound
+	case errors.Is(err, syscall.EPERM):
+		code = http.StatusForbidden
+	case errors.Is(err, syscall.EEXIST), errors.Is(err, syscall.EBUSY):
+		code = http.StatusConflict
+	case errors.Is(err, syscall.ENOSPC):
+		// A full table ("no free rung slot") is a capacity refusal, the errno
+		// twin of FaultCapacity — not a controller failure.
+		code = http.StatusServiceUnavailable
+	case errors.Is(err, syscall.ENOSYS):
+		code = http.StatusNotImplemented
+	}
+	writeErrorJSON(w, code, err.Error())
+}
+
+// --- Registry introspection endpoint ---
+
+// registryAPIInfo is the JSON representation of a registered API.
+type registryAPIInfo struct {
+	APIName   string              `json:"api_name"`
+	Instance  string              `json:"instance"`
+	Version   int                 `json:"version"`
+	REST      bool                `json:"rest"`
+	Functions []registryFuncInfo  `json:"functions,omitempty"`
+	Watches   []registryWatchInfo `json:"watches,omitempty"`
+	Commands  []string            `json:"commands,omitempty"`
+	Consumers []string            `json:"consumers,omitempty"`
+}
+
+type registryFuncInfo struct {
+	Name   string `json:"name"`
+	Method string `json:"method,omitempty"`
+	Path   string `json:"path,omitempty"`
+}
+
+type registryWatchInfo struct {
+	Name        string `json:"name"`
+	DefaultRate int    `json:"default_rate_ms"`
+}
+
+func (s *Server) handleRegistryRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErrorJSON(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+
+	apis := s.registry.All()
+	consumers := s.registry.Consumers()
+
+	// Build consumer map: apiName:providerInstance → []consumerInstance
+	consumerMap := make(map[string][]string)
+	for _, c := range consumers {
+		key := c.APIName + ":" + c.ProviderInstance
+		consumerMap[key] = append(consumerMap[key], c.ConsumerInstance)
+	}
+
+	// Build watch info map
+	var watchApis []*WatchAPI
+	if DefaultWatchRegistry() != nil {
+		watchApis = DefaultWatchRegistry().All()
+	}
+	watchMap := make(map[string]*WatchAPI) // key: apiName+"/"+instance
+	for _, wa := range watchApis {
+		watchMap[wa.APIName+"/"+wa.Instance] = wa
+	}
+
+	result := make([]registryAPIInfo, 0, len(apis))
+	for _, api := range apis {
+		info := registryAPIInfo{
+			APIName:  api.APIName,
+			Instance: api.Instance,
+			Version:  api.Version,
+			REST:     api.Meta != nil && api.Meta.RESTExport,
+		}
+
+		// Functions from APIMeta (or the Go-native set, when the provider is a gomod)
+		if api.Meta != nil {
+			for _, fn := range api.RESTFuncs() {
+				path := fn.Path
+				if info.REST && path != "" {
+					path = "/api/v1/" + api.Instance + path
+				}
+				info.Functions = append(info.Functions, registryFuncInfo{
+					Name:   fn.Name,
+					Method: fn.Method,
+					Path:   path,
+				})
+			}
+		}
+
+		// Watch/commands from WatchRegistry
+		wa := watchMap[api.APIName+"/"+api.Instance]
+		if wa != nil {
+			for _, w := range wa.Watches {
+				info.Watches = append(info.Watches, registryWatchInfo{
+					Name:        w.Name,
+					DefaultRate: int(w.DefaultRate / time.Millisecond),
+				})
+			}
+			for _, cmd := range wa.Commands {
+				info.Commands = append(info.Commands, cmd.Name)
+			}
+		}
+
+		// Consumers
+		key := api.APIName + ":" + api.Instance
+		if cs, ok := consumerMap[key]; ok {
+			info.Consumers = cs
+		}
+
+		result = append(result, info)
+	}
+
+	// Include watch-only entries (watches without a matching registry API)
+	matched := make(map[string]bool)
+	for _, api := range apis {
+		matched[api.APIName+"/"+api.Instance] = true
+	}
+	for key, wa := range watchMap {
+		if matched[key] {
+			continue
+		}
+		info := registryAPIInfo{
+			APIName:  wa.APIName,
+			Instance: wa.Instance,
+		}
+		for _, w := range wa.Watches {
+			info.Watches = append(info.Watches, registryWatchInfo{
+				Name:        w.Name,
+				DefaultRate: int(w.DefaultRate / time.Millisecond),
+			})
+		}
+		for _, cmd := range wa.Commands {
+			info.Commands = append(info.Commands, cmd.Name)
+		}
+		result = append(result, info)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}

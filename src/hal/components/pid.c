@@ -15,7 +15,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -39,55 +39,55 @@ typedef enum {
 } Mode;
 
 typedef struct {
-    gomc_hal_bit_t   *enable;
-    gomc_hal_float_t *command;
-    gomc_hal_float_t *commandv;
-    gomc_hal_float_t *feedback;
-    gomc_hal_float_t *feedbackv;
-    gomc_hal_float_t *error;
-    gomc_hal_float_t *output;
-    gomc_hal_bit_t   *saturated;
-    gomc_hal_float_t *saturated_s;
-    gomc_hal_s32_t   *saturated_count;
-    gomc_hal_float_t *pgain;
-    gomc_hal_float_t *igain;
-    gomc_hal_float_t *dgain;
-    gomc_hal_float_t *ff0gain;
-    gomc_hal_float_t *ff1gain;
-    gomc_hal_float_t *ff2gain;
-    gomc_hal_float_t *ff3gain;
-    gomc_hal_float_t *deadband;
-    gomc_hal_float_t *maxerror;
-    gomc_hal_float_t *maxerror_i;
-    gomc_hal_float_t *maxerror_d;
-    gomc_hal_float_t *maxcmd_d;
-    gomc_hal_float_t *maxcmd_dd;
-    gomc_hal_float_t *maxcmd_ddd;
-    gomc_hal_float_t *bias;
-    gomc_hal_float_t *maxoutput;
-    gomc_hal_bit_t   *index_enable;
-    gomc_hal_bit_t   *error_previous_target;
+    stmak_hal_bit_t   *enable;
+    stmak_hal_float_t *command;
+    stmak_hal_float_t *commandv;
+    stmak_hal_float_t *feedback;
+    stmak_hal_float_t *feedbackv;
+    stmak_hal_float_t *error;
+    stmak_hal_float_t *output;
+    stmak_hal_bit_t   *saturated;
+    stmak_hal_float_t *saturated_s;
+    stmak_hal_s32_t   *saturated_count;
+    stmak_hal_float_t *pgain;
+    stmak_hal_float_t *igain;
+    stmak_hal_float_t *dgain;
+    stmak_hal_float_t *ff0gain;
+    stmak_hal_float_t *ff1gain;
+    stmak_hal_float_t *ff2gain;
+    stmak_hal_float_t *ff3gain;
+    stmak_hal_float_t *deadband;
+    stmak_hal_float_t *maxerror;
+    stmak_hal_float_t *maxerror_i;
+    stmak_hal_float_t *maxerror_d;
+    stmak_hal_float_t *maxcmd_d;
+    stmak_hal_float_t *maxcmd_dd;
+    stmak_hal_float_t *maxcmd_ddd;
+    stmak_hal_float_t *bias;
+    stmak_hal_float_t *maxoutput;
+    stmak_hal_bit_t   *index_enable;
+    stmak_hal_bit_t   *error_previous_target;
     /* auto-tune */
-    gomc_hal_float_t *tuneEffort;
-    gomc_hal_u32_t   *tuneCycles;
-    gomc_hal_u32_t   *tuneType;
-    gomc_hal_bit_t   *pTuneMode;
-    gomc_hal_bit_t   *pTuneStart;
+    stmak_hal_float_t *tuneEffort;
+    stmak_hal_u32_t   *tuneCycles;
+    stmak_hal_u32_t   *tuneType;
+    stmak_hal_bit_t   *pTuneMode;
+    stmak_hal_bit_t   *pTuneStart;
     /* debug (may point to hal_malloc'd storage if not exported) */
-    gomc_hal_float_t *error_i;
-    gomc_hal_float_t *error_d;
-    gomc_hal_float_t *cmd_d;
-    gomc_hal_float_t *cmd_dd;
-    gomc_hal_float_t *cmd_ddd;
-    gomc_hal_float_t *ultimateGain;
-    gomc_hal_float_t *ultimatePeriod;
+    stmak_hal_float_t *error_i;
+    stmak_hal_float_t *error_d;
+    stmak_hal_float_t *cmd_d;
+    stmak_hal_float_t *cmd_dd;
+    stmak_hal_float_t *cmd_ddd;
+    stmak_hal_float_t *ultimateGain;
+    stmak_hal_float_t *ultimatePeriod;
 } pid_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     pid_hal_t *hal;
     int debug;
     /* internal state */
@@ -96,8 +96,8 @@ typedef struct {
     double prev_fb;
     double limit_state;
     char prev_ie;
-    gomc_hal_float_t *commandvds;
-    gomc_hal_float_t *feedbackvds;
+    stmak_hal_float_t *commandvds;
+    stmak_hal_float_t *feedbackvds;
     /* auto-tune */
     State state;
     uint32_t cycleCount;
@@ -312,7 +312,7 @@ int New(const cmod_env_t *env, const char *name,
     pid_hal_t *h;
     int r, i;
     int debug = 0;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     for (i = 0; i < argc; i++) {
         if (strncmp(argv[i], "debug=", 6) == 0)
@@ -329,7 +329,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->state = STATE_PID;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(pid_hal_t));
@@ -338,106 +338,106 @@ int New(const cmod_env_t *env, const char *name,
     h = inst->hal;
 
     /* standard pins */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->enable, inst->comp_id, "%s.enable", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->enable, inst->comp_id, "%s.enable", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->command, inst->comp_id, "%s.command", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->command, inst->comp_id, "%s.command", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->commandv, inst->comp_id, "%s.command-deriv", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->commandv, inst->comp_id, "%s.command-deriv", name);
     if (r) goto err;
     inst->commandvds = h->commandv;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->feedback, inst->comp_id, "%s.feedback", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->feedback, inst->comp_id, "%s.feedback", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->feedbackv, inst->comp_id, "%s.feedback-deriv", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->feedbackv, inst->comp_id, "%s.feedback-deriv", name);
     if (r) goto err;
     inst->feedbackvds = h->feedbackv;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->error, inst->comp_id, "%s.error", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->error, inst->comp_id, "%s.error", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->output, inst->comp_id, "%s.output", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->output, inst->comp_id, "%s.output", name);
     if (r) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &h->saturated, inst->comp_id, "%s.saturated", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &h->saturated, inst->comp_id, "%s.saturated", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->saturated_s, inst->comp_id, "%s.saturated-s", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->saturated_s, inst->comp_id, "%s.saturated-s", name);
     if (r) goto err;
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &h->saturated_count, inst->comp_id, "%s.saturated-count", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &h->saturated_count, inst->comp_id, "%s.saturated-count", name);
     if (r) goto err;
 
     /* gains */
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->pgain, inst->comp_id, "%s.Pgain", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->pgain, inst->comp_id, "%s.Pgain", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->igain, inst->comp_id, "%s.Igain", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->igain, inst->comp_id, "%s.Igain", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->dgain, inst->comp_id, "%s.Dgain", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->dgain, inst->comp_id, "%s.Dgain", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->ff0gain, inst->comp_id, "%s.FF0", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->ff0gain, inst->comp_id, "%s.FF0", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->ff1gain, inst->comp_id, "%s.FF1", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->ff1gain, inst->comp_id, "%s.FF1", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->ff2gain, inst->comp_id, "%s.FF2", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->ff2gain, inst->comp_id, "%s.FF2", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->ff3gain, inst->comp_id, "%s.FF3", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->ff3gain, inst->comp_id, "%s.FF3", name);
     if (r) goto err;
 
     /* limits */
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->deadband, inst->comp_id, "%s.deadband", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->deadband, inst->comp_id, "%s.deadband", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxerror, inst->comp_id, "%s.maxerror", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxerror, inst->comp_id, "%s.maxerror", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxerror_i, inst->comp_id, "%s.maxerrorI", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxerror_i, inst->comp_id, "%s.maxerrorI", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxerror_d, inst->comp_id, "%s.maxerrorD", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxerror_d, inst->comp_id, "%s.maxerrorD", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxcmd_d, inst->comp_id, "%s.maxcmdD", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxcmd_d, inst->comp_id, "%s.maxcmdD", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxcmd_dd, inst->comp_id, "%s.maxcmdDD", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxcmd_dd, inst->comp_id, "%s.maxcmdDD", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxcmd_ddd, inst->comp_id, "%s.maxcmdDDD", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxcmd_ddd, inst->comp_id, "%s.maxcmdDDD", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->bias, inst->comp_id, "%s.bias", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->bias, inst->comp_id, "%s.bias", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &h->maxoutput, inst->comp_id, "%s.maxoutput", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &h->maxoutput, inst->comp_id, "%s.maxoutput", name);
     if (r) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->index_enable, inst->comp_id, "%s.index-enable", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->index_enable, inst->comp_id, "%s.index-enable", name);
     if (r) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->error_previous_target, inst->comp_id, "%s.error-previous-target", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->error_previous_target, inst->comp_id, "%s.error-previous-target", name);
     if (r) goto err;
 
     /* auto-tune */
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IO, &h->tuneEffort, inst->comp_id, "%s.tune-effort", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IO, &h->tuneEffort, inst->comp_id, "%s.tune-effort", name);
     if (r) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->tuneCycles, inst->comp_id, "%s.tune-cycles", name);
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->tuneCycles, inst->comp_id, "%s.tune-cycles", name);
     if (r) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->tuneType, inst->comp_id, "%s.tune-type", name);
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->tuneType, inst->comp_id, "%s.tune-type", name);
     if (r) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->pTuneMode, inst->comp_id, "%s.tune-mode", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->pTuneMode, inst->comp_id, "%s.tune-mode", name);
     if (r) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IO, &h->pTuneStart, inst->comp_id, "%s.tune-start", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IO, &h->pTuneStart, inst->comp_id, "%s.tune-start", name);
     if (r) goto err;
 
     /* debug/internal pins */
     if (debug) {
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->error_i, inst->comp_id, "%s.errorI", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->error_i, inst->comp_id, "%s.errorI", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->error_d, inst->comp_id, "%s.errorD", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->error_d, inst->comp_id, "%s.errorD", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->cmd_d, inst->comp_id, "%s.commandD", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->cmd_d, inst->comp_id, "%s.commandD", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->cmd_dd, inst->comp_id, "%s.commandDD", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->cmd_dd, inst->comp_id, "%s.commandDD", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->cmd_ddd, inst->comp_id, "%s.commandDDD", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->cmd_ddd, inst->comp_id, "%s.commandDDD", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->ultimateGain, inst->comp_id, "%s.ultimate-gain", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->ultimateGain, inst->comp_id, "%s.ultimate-gain", name);
         if (r) goto err;
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->ultimatePeriod, inst->comp_id, "%s.ultimate-period", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->ultimatePeriod, inst->comp_id, "%s.ultimate-period", name);
         if (r) goto err;
     } else {
         /* allocate hidden storage */
-        h->error_i = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->error_d = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->cmd_d = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->cmd_dd = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->cmd_ddd = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->ultimateGain = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
-        h->ultimatePeriod = env->hal->malloc(env->hal->ctx, sizeof(gomc_hal_float_t));
+        h->error_i = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->error_d = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->cmd_d = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->cmd_dd = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->cmd_ddd = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->ultimateGain = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
+        h->ultimatePeriod = env->hal->malloc(env->hal->ctx, sizeof(stmak_hal_float_t));
         if (!h->error_i || !h->error_d || !h->cmd_d || !h->cmd_dd ||
             !h->cmd_ddd || !h->ultimateGain || !h->ultimatePeriod)
             goto err;

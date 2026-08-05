@@ -31,31 +31,31 @@
  * @brief HAL data for the EL70x1 stepper terminal.
  */
 typedef struct {
-  gomc_hal_bit_t auto_fault_reset;     /**< Parameter: 1 = automatically reset faults on enable */
+  stmak_hal_bit_t auto_fault_reset;     /**< Parameter: 1 = automatically reset faults on enable */
 
-  gomc_hal_float_t stm_pos_scale;      /**< Parameter: position scale factor (user units / raw count) */
-  gomc_hal_float_t *stm_pos_cmd;       /**< IN: commanded position in user units */
+  stmak_hal_float_t stm_pos_scale;      /**< Parameter: position scale factor (user units / raw count) */
+  stmak_hal_float_t *stm_pos_cmd;       /**< IN: commanded position in user units */
 
-  gomc_hal_float_t auto_reduce_tourque_delay;  /**< Parameter: seconds of idle before auto-reduce-torque fires */
+  stmak_hal_float_t auto_reduce_tourque_delay;  /**< Parameter: seconds of idle before auto-reduce-torque fires */
   long long auto_reduce_tourque_timer;    /**< Internal timer (ns) counting idle time */
 
-  gomc_hal_bit_t *stm_ready_to_enable; /**< OUT: drive ready-to-enable status */
-  gomc_hal_bit_t *stm_ready;           /**< OUT: drive ready status */
-  gomc_hal_bit_t *stm_warning;         /**< OUT: drive warning active */
-  gomc_hal_bit_t *stm_error;           /**< OUT: drive error active */
-  gomc_hal_bit_t *stm_move_pos;        /**< OUT: drive currently moving in positive direction */
-  gomc_hal_bit_t *stm_move_neg;        /**< OUT: drive currently moving in negative direction */
-  gomc_hal_bit_t *stm_torque_reduced;  /**< OUT: reduced torque mode currently active */
-  gomc_hal_bit_t *stm_din1;            /**< OUT: digital input 1 state */
-  gomc_hal_bit_t *stm_din2;            /**< OUT: digital input 2 state */
-  gomc_hal_bit_t *stm_sync_err;        /**< OUT: EtherCAT sync error flag */
-  gomc_hal_bit_t *stm_tx_toggle;       /**< OUT: TxPDO toggle (new data indicator) */
-  gomc_hal_bit_t *stm_enable;          /**< IN: enable the stepper drive */
-  gomc_hal_bit_t *stm_reset;           /**< IN: reset drive faults */
-  gomc_hal_bit_t *stm_reduce_torque;   /**< IN: manually request reduced torque */
-  gomc_hal_s32_t *stm_pos_cmd_raw;     /**< OUT: scaled 32-bit raw position setpoint */
+  stmak_hal_bit_t *stm_ready_to_enable; /**< OUT: drive ready-to-enable status */
+  stmak_hal_bit_t *stm_ready;           /**< OUT: drive ready status */
+  stmak_hal_bit_t *stm_warning;         /**< OUT: drive warning active */
+  stmak_hal_bit_t *stm_error;           /**< OUT: drive error active */
+  stmak_hal_bit_t *stm_move_pos;        /**< OUT: drive currently moving in positive direction */
+  stmak_hal_bit_t *stm_move_neg;        /**< OUT: drive currently moving in negative direction */
+  stmak_hal_bit_t *stm_torque_reduced;  /**< OUT: reduced torque mode currently active */
+  stmak_hal_bit_t *stm_din1;            /**< OUT: digital input 1 state */
+  stmak_hal_bit_t *stm_din2;            /**< OUT: digital input 2 state */
+  stmak_hal_bit_t *stm_sync_err;        /**< OUT: EtherCAT sync error flag */
+  stmak_hal_bit_t *stm_tx_toggle;       /**< OUT: TxPDO toggle (new data indicator) */
+  stmak_hal_bit_t *stm_enable;          /**< IN: enable the stepper drive */
+  stmak_hal_bit_t *stm_reset;           /**< IN: reset drive faults */
+  stmak_hal_bit_t *stm_reduce_torque;   /**< IN: manually request reduced torque */
+  stmak_hal_s32_t *stm_pos_cmd_raw;     /**< OUT: scaled 32-bit raw position setpoint */
 
-  gomc_hal_s32_t stm_pos_cmd_raw_last; /**< Previous raw position command for change detection */
+  stmak_hal_s32_t stm_pos_cmd_raw_last; /**< Previous raw position command for change detection */
 
   unsigned int stm_ready_to_enable_pdo_os; /**< PDO byte offset: ready-to-enable */
   unsigned int stm_ready_to_enable_pdo_bp; /**< Bit position: ready-to-enable */
@@ -211,36 +211,36 @@ static ec_sync_info_t lcec_el7041_0052_syncs[] = {
 
 static const lcec_pindesc_t slave_pins[] = {
   // servo pins
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_ready_to_enable), "%s.%s.%s.srv-ready-to-enable" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_ready),           "%s.%s.%s.srv-ready" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_warning),         "%s.%s.%s.srv-warning" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_error),           "%s.%s.%s.srv-error" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_move_pos),        "%s.%s.%s.srv-move-pos" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_move_neg),        "%s.%s.%s.srv-move-neg" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_torque_reduced),  "%s.%s.%s.srv-torque-reduced" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_din1),            "%s.%s.%s.srv-din1" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_din2),            "%s.%s.%s.srv-din2" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_sync_err),        "%s.%s.%s.srv-sync-error" },
-  { GOMC_HAL_BIT,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_tx_toggle),       "%s.%s.%s.srv-tx-toggle" },
-  { GOMC_HAL_BIT,   GOMC_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_enable),          "%s.%s.%s.srv-enable" },
-  { GOMC_HAL_BIT,   GOMC_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_reset),           "%s.%s.%s.srv-reset" },
-  { GOMC_HAL_BIT,   GOMC_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_reduce_torque),   "%s.%s.%s.srv-reduce-torque" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_pos_cmd),         "%s.%s.%s.srv-pos-cmd" },
-  { GOMC_HAL_S32,   GOMC_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_pos_cmd_raw),     "%s.%s.%s.srv-pos-cmd-raw" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_ready_to_enable), "%s.%s.%s.srv-ready-to-enable" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_ready),           "%s.%s.%s.srv-ready" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_warning),         "%s.%s.%s.srv-warning" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_error),           "%s.%s.%s.srv-error" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_move_pos),        "%s.%s.%s.srv-move-pos" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_move_neg),        "%s.%s.%s.srv-move-neg" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_torque_reduced),  "%s.%s.%s.srv-torque-reduced" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_din1),            "%s.%s.%s.srv-din1" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_din2),            "%s.%s.%s.srv-din2" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_sync_err),        "%s.%s.%s.srv-sync-error" },
+  { STMAK_HAL_BIT,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_tx_toggle),       "%s.%s.%s.srv-tx-toggle" },
+  { STMAK_HAL_BIT,   STMAK_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_enable),          "%s.%s.%s.srv-enable" },
+  { STMAK_HAL_BIT,   STMAK_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_reset),           "%s.%s.%s.srv-reset" },
+  { STMAK_HAL_BIT,   STMAK_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_reduce_torque),   "%s.%s.%s.srv-reduce-torque" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IN,  offsetof(lcec_el70x1_data_t, stm_pos_cmd),         "%s.%s.%s.srv-pos-cmd" },
+  { STMAK_HAL_S32,   STMAK_HAL_OUT, offsetof(lcec_el70x1_data_t, stm_pos_cmd_raw),     "%s.%s.%s.srv-pos-cmd-raw" },
 
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el70x1_data_t, stm_pos_scale),  "%s.%s.%s.srv-pos-scale" },
-  { GOMC_HAL_BIT, GOMC_HAL_RW, offsetof(lcec_el70x1_data_t, auto_fault_reset), "%s.%s.%s.auto-fault-reset" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el70x1_data_t, auto_reduce_tourque_delay), "%s.%s.%s.auto-reduce-torque-delay" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el70x1_data_t, stm_pos_scale),  "%s.%s.%s.srv-pos-scale" },
+  { STMAK_HAL_BIT, STMAK_HAL_RW, offsetof(lcec_el70x1_data_t, auto_fault_reset), "%s.%s.%s.auto-fault-reset" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el70x1_data_t, auto_reduce_tourque_delay), "%s.%s.%s.auto-reduce-torque-delay" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 int lcec_el70x1_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs);
-void lcec_el70x1_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_el70x1_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el70x1_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_el70x1_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise an EL7031 using the full encoder+stepper sync config.

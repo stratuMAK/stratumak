@@ -109,21 +109,21 @@ typedef struct {
 }hm2_sserial_mode_t;
 
 typedef struct {
-    gomc_hal_u32_t *u32_pin;
-    gomc_hal_s32_t *s32_pin;
-    gomc_hal_s32_t *s32_pin2;
-    gomc_hal_float_t *float_pin;
-    gomc_hal_bit_t **bit_pins;
-    gomc_hal_bit_t **bit_pins_not;
-    gomc_hal_bit_t *invert;
-    gomc_hal_bit_t *boolean;
-    gomc_hal_bit_t *boolean2;
-    gomc_hal_float_t maxlim;
-    gomc_hal_float_t minlim;
-    gomc_hal_float_t fullscale;
-    gomc_hal_u32_t u32_param;
-    gomc_hal_bit_t graycode;
-    gomc_hal_bit_t nowrap;
+    stmak_hal_u32_t *u32_pin;
+    stmak_hal_s32_t *s32_pin;
+    stmak_hal_s32_t *s32_pin2;
+    stmak_hal_float_t *float_pin;
+    stmak_hal_bit_t **bit_pins;
+    stmak_hal_bit_t **bit_pins_not;
+    stmak_hal_bit_t *invert;
+    stmak_hal_bit_t *boolean;
+    stmak_hal_bit_t *boolean2;
+    stmak_hal_float_t maxlim;
+    stmak_hal_float_t minlim;
+    stmak_hal_float_t fullscale;
+    stmak_hal_u32_t u32_param;
+    stmak_hal_bit_t graycode;
+    stmak_hal_bit_t nowrap;
     int64_t oldval; // not pins, but this way every pin can have one
     int64_t accum; // these two are only currently used by encoders
     int64_t offset;
@@ -133,20 +133,20 @@ typedef struct {
     int type;
     union {
         long long s64_param;
-        gomc_hal_u32_t u32_param;
-        gomc_hal_s32_t s32_param;
-        gomc_hal_float_t float_param;
-        gomc_hal_bit_t bit_param;
+        stmak_hal_u32_t u32_param;
+        stmak_hal_s32_t s32_param;
+        stmak_hal_float_t float_param;
+        stmak_hal_bit_t bit_param;
     };
     union {
         long long s64_written;
-        gomc_hal_u32_t u32_written;
-        gomc_hal_s32_t s32_written;
-        gomc_hal_float_t float_written;
-        gomc_hal_bit_t bit_written;
+        stmak_hal_u32_t u32_written;
+        stmak_hal_s32_t s32_written;
+        stmak_hal_float_t float_written;
+        stmak_hal_bit_t bit_written;
     };
-    gomc_hal_u32_t timer_num;
-    gomc_hal_bit_t *error;
+    stmak_hal_u32_t timer_num;
+    stmak_hal_bit_t *error;
 }hm2_sserial_params_t;
 
 typedef struct {
@@ -163,8 +163,8 @@ typedef struct {
     hm2_sserial_data_t *globals;
     hm2_sserial_pins_t *pins;
     hm2_sserial_params_t *params;
-    gomc_hal_u32_t serialnumber;
-    gomc_hal_u32_t status, seen_remote_errors;
+    stmak_hal_u32_t serialnumber;
+    stmak_hal_u32_t status, seen_remote_errors;
 
     uint32_t *reg_cs_read;
     uint32_t *reg_cs_write;
@@ -203,18 +203,18 @@ typedef struct {
     uint32_t data_reg_addr;
     uint32_t *data_reg_read;
     uint32_t *data_reg_write;
-    gomc_hal_u32_t *fault_count;
-    gomc_hal_u32_t fault_inc;
-    gomc_hal_u32_t fault_dec;
-    gomc_hal_u32_t fault_lim;
+    stmak_hal_u32_t *fault_count;
+    stmak_hal_u32_t fault_inc;
+    stmak_hal_u32_t fault_dec;
+    stmak_hal_u32_t fault_lim;
     
-    gomc_hal_bit_t *run;
-    gomc_hal_u32_t *state;
-    gomc_hal_u32_t *state2;
-    gomc_hal_u32_t *state3;
-    gomc_hal_s32_t *debug;
-    gomc_hal_u32_t r_index;
-    gomc_hal_u32_t g_index;
+    stmak_hal_bit_t *run;
+    stmak_hal_u32_t *state;
+    stmak_hal_u32_t *state2;
+    stmak_hal_u32_t *state3;
+    stmak_hal_s32_t *debug;
+    stmak_hal_u32_t r_index;
+    stmak_hal_u32_t g_index;
     int doit_err_count;
     int32_t timer;
     bool ever_read;

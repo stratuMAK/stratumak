@@ -23,14 +23,14 @@
 #                 the following error faults the machine off.
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import subprocess
 import time
 import sys
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -60,7 +60,7 @@ PUSH = 5.0
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 c.mode(MODE_MANUAL)
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: st.task_state == STATE_ON and st.task_mode == MODE_MANUAL,
     "machine ON in manual mode",
     detail=lambda st: "task_state=%d task_mode=%d" % (st.task_state, st.task_mode))
@@ -71,13 +71,13 @@ c.state(STATE_OFF)
 # "Machine off, not estopped" reports as STATE_ESTOP_RESET (classic 2.9
 # determineState semantics) — wait for leaving ON, not for a literal
 # STATE_OFF.
-gomc_test.wait_stat(s, lambda st: st.task_state != STATE_ON, "machine OFF",
+stmak_test.wait_stat(s, lambda st: st.task_state != STATE_ON, "machine OFF",
                     detail=lambda st: "task_state=%d" % st.task_state)
 
 halcmd("sets", "j0-push", str(PUSH))
 halcmd("sets", "j0-pushsel", "1")
 
-deadline = time.monotonic() + 5.0 * gomc_test.scale()
+deadline = time.monotonic() + 5.0 * stmak_test.scale()
 while time.monotonic() < deadline:
     if abs(getp("joint.0.motor-pos-cmd") - PUSH) < 1e-6:
         break
@@ -127,7 +127,7 @@ if not ok:
 # not trip it either).
 halcmd("sets", "j0-pushsel", "0")
 c.jog(JOG_INCREMENT, True, 0, 5.0, 2.0)
-deadline = time.monotonic() + 5.0 * gomc_test.scale()
+deadline = time.monotonic() + 5.0 * stmak_test.scale()
 moved = False
 while time.monotonic() < deadline:
     if abs(getp("joint.0.motor-pos-cmd") - (PUSH + 2.0)) < 0.01:

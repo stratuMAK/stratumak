@@ -19,7 +19,7 @@
 #----------------------------------------------------------------------
 
 proc indices_for_trivkins {axes} {
-  # ref: src/emc/kinematics/trivkins.c
+  # ref: src/cnc/kinematics/trivkins.c
   if {"$axes" == ""} {set axes {x y z a b c u v w}}
   set i 0
   foreach a [string tolower $axes] {

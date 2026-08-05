@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API: uses the `gmi` client instead of the removed
+# Ported to the stratuMAK REST/WS API: uses the `gmi` client instead of the removed
 # NML `linuxcnc` module. Motion samples are captured by halsampler (started in
 # test.sh) into motion-samples.log.
 
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 import time, sys, os
 
 SETTLE = 0.4
@@ -30,14 +30,14 @@ def wait_samples_flushed():
     process_samples read a truncated log and mis-report max_x.
     '''
     size0 = os.path.getsize(SAMPLES)
-    gomc_test.wait_until(
+    stmak_test.wait_until(
         lambda: os.path.getsize(SAMPLES) > size0,
         "halsampler to flush %s past %d bytes" % (SAMPLES, size0),
         detail=lambda: "still %d bytes" % os.path.getsize(SAMPLES))
 
 
 def process_samples(z_lev, expected_max_x):
-    # gomc: the sampled joint positions are millimetres (mm-everywhere
+    # stratuMAK: the sampled joint positions are millimetres (mm-everywhere
     # convention); the program/expectations are inch — convert on read.
     MM = 25.4
     res = 0
@@ -115,7 +115,7 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     c.program_open("test.ngc")
     c.auto(AUTO_RUN, 1)
 
-    # No wait_complete() here. gomc's WaitComplete settles on the interpreter
+    # No wait_complete() here. stratuMAK's WaitComplete settles on the interpreter
     # going idle, so after AUTO_RUN it does not return until the PROGRAM ends —
     # and this program is one we deliberately abort part-way through, so it
     # never would. (Classic NML's wait_complete only acked the command, which is
@@ -135,7 +135,7 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     # Bounded: an unbounded wait here hung the whole test run when the server
     # came up without its REST/WS listener (stale instance holding the port) —
     # and would equally hang on any real never-moves bug.
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s, lambda st: st.actual_position[1] >= 1.0,
         "%s: the machine to actually reach Y1.0 (first zig complete)" % msg,
         timeout=30.0,
@@ -152,9 +152,9 @@ def run_and_abort(msg, z_lev, expected_max_x, expected_mode, expected_p, expecte
     return res
 
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 # machine_units(): this config is LINEAR_UNITS=inch and the test's thresholds
 # (Y1.0, max X5.0) are inch, as classic linuxcnc.stat() reported them. Plain
 # gmi.Stat is mm-everywhere, so a bare `>= 1.0` against it means 1 MILLIMETRE —

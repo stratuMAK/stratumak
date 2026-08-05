@@ -290,7 +290,7 @@ image::5-axis-figures/equation__37.png[align="center"]
 
 LinuxCNC includes kinematics modules for the 'xyzac-trt' and 'xyzbc-trt' topologies
 described in the mathematics detailed above.  For interested users, the source code
-is available in the git tree in the 'src/emc/kinematics/' directory.
+is available in the git tree in the 'src/cnc/kinematics/' directory.
 
 Example xyzac-trt and xyzbc-trt simulation configurations are located
 in the Sample Configurations ('configs/sim/axis/vismach/5axis/table-rotary-tilting/')

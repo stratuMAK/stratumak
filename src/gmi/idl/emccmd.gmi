@@ -14,7 +14,7 @@
 # Max valid indices, = EMCMOT_MAX_* - 1. Defined once so the @max literals on the
 # spindle/joint commands below are not hand-typed at every site (the authoritative
 # check against the *configured* count lives in the task layer). Keep in sync with
-# EMCMOT_MAX_SPINDLES / EMCMOT_MAX_JOINTS in src/emc/motion/motion.h.
+# EMCMOT_MAX_SPINDLES / EMCMOT_MAX_JOINTS in src/cnc/motion/motion.h.
 const MAX_SPINDLE_INDEX = 7
 const MAX_JOINT_INDEX = 15
 

@@ -15,7 +15,7 @@
 #ifndef HM2_CORE_API_H
 #define HM2_CORE_API_H
 
-#include "gomc_api.h"
+#include "stmak_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,7 +51,7 @@ typedef struct {
 // --- Registration & Lookup (same pattern as generated GMI headers) ---
 
 static inline int hm2_core_api_register(
-    const gomc_api_t *api,
+    const stmak_api_t *api,
     const char *instance_name,
     const hm2_core_callbacks_t *callbacks)
 {
@@ -60,7 +60,7 @@ static inline int hm2_core_api_register(
 }
 
 static inline const hm2_core_callbacks_t *hm2_core_api_get(
-    const gomc_api_t *api,
+    const stmak_api_t *api,
     const char *instance_name)
 {
     return (const hm2_core_callbacks_t *)api->get_api(

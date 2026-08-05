@@ -23,7 +23,7 @@ load classicladder numRungs=12 numBits=20 numWords=4 numTimers=5 numMonostables=
 addf classicladder.0.refresh        servo-thread 1
 
 # The editor and the variable spy are the classicladder web app, served by
-# gomc-server at /app/classicladder/.
+# stmakd at /app/classicladder/.
 
 # begin to connect physical pins to signals
 # this is EMC's standard motion pinouts

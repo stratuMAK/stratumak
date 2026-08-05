@@ -11,7 +11,7 @@ import sys
 import time
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 
@@ -25,7 +25,7 @@ def wait_until(what, pred, timeout=10.0):
     sys.exit(1)
 
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 
 c.state(STATE_ESTOP_RESET)

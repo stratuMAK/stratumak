@@ -4,7 +4,7 @@ Regression test for remap variable injection/retrieval and scoping:
  (2) variables injected in a remap are deleted at the end of that remap (not
      visible in a sibling remap), including for several remaps in one block.
 
-Re-expressed for gomc: the classic test used Python prologs/epilogs.  gomc removed
+Re-expressed for stmak: the classic test used Python prologs/epilogs.  stmak removed
 the embedded Python interpreter, so the M405/M406/M407 handlers are C interp_ext
 prolog/epilog handlers (cmod test_var_inject) using the interp_ctx set_param /
 get_param accessors.  prologNNN injects #<fooNNN>=42, rmNNN.ngc asserts it is 42

@@ -790,7 +790,7 @@ file. When you close it the program will resume.
 .M110 Example file
 ----
 #!/bin/bash
-eog /home/john/linuxcnc/nc_files/message.png
+eog /home/john/stratumak/nc_files/message.png
 exit 0
 ----
 
@@ -800,7 +800,7 @@ suffix an ampersand to the command.
 .M110 Example display and keep going
 ----
 #!/bin/bash
-eog /home/john/linuxcnc/nc_files/message.png &
+eog /home/john/stratumak/nc_files/message.png &
 exit 0
 ----
 

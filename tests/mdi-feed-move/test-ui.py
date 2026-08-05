@@ -6,7 +6,7 @@
 # cannot link onto the chain. Interp::_execute closes the chain at the end of an
 # MDI execution only on its o-word branch (canon.finish() in rs274ngc_pre.cc),
 # which a plain block never reaches — so after `g1 x y` the move is still
-# buffered when executeMDI returns. gomc then resyncs the canon endpoint from
+# buffered when executeMDI returns. stratuMAK then resyncs the canon endpoint from
 # the machine at the start of the NEXT MDI line, and that resync drops the chain
 # (2.9 GET_EXTERNAL_POSITION -> drop_segments). Net effect before the fix: an MDI
 # feed move was silently discarded — no motion, no error, RCS_DONE.
@@ -16,16 +16,16 @@
 import sys
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 # mm. The config is an inch machine; the gmi client boundary is always mm.
 TOL = 0.01
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 
-gomc_test.wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 # Per joint: this config sets no HOME_SEQUENCE, so "home all" has no sequence
@@ -33,7 +33,7 @@ c.state(STATE_ON)
 for joint in range(3):
     c.home(joint)
 c.wait_complete()
-gomc_test.wait_stat(s, lambda st: all(st.homed[:3]), "all joints homed")
+stmak_test.wait_stat(s, lambda st: all(st.homed[:3]), "all joints homed")
 
 c.mode(MODE_MDI)
 c.mdi("g21 g90 g94 f600")
@@ -41,7 +41,7 @@ c.wait_complete()
 
 
 def at(x, y, why):
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s,
         lambda st: abs(st.position[0] - x) < TOL and abs(st.position[1] - y) < TOL,
         "%s: position to reach (%.3f, %.3f) mm" % (why, x, y),

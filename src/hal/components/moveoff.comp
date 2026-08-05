@@ -470,11 +470,11 @@ FUNCTION(read_inputs) {
             //   2) (no *.resume-inhibit pin) or (-no_resume_inhibit option)
             //      and program resumed with offsets applied
             for (r = 0; r < personality; r++) {
-                GOMC_LOG_ERR(
+                STMAK_LOG_ERR(
                            "Index: %i, offset=%f",
                            r, data.old_out[r]);
             }
-            GOMC_LOG_ERR(
+            STMAK_LOG_ERR(
             "apply_offsets deasserted before offsets removed "
             "moveoff.comp: WARNING"
             );

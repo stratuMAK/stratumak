@@ -137,7 +137,7 @@ Newer versions of Linux will require you to install Glade 3.8.0 - 3.8.6 (you may
 .RIP compiled commands
 Using a compiled from source version of https://wiki.linuxcnc.org/cgi-bin/wiki.pl?Installing_LinuxCNC[LinuxCNC] open a terminal and <<faq:cd,cd>> to the top of the LinuxCNC folder.
 Set up the environment by entering '. ./scripts/rip-environment' now enter 'glade', you see a bunch of warnings in the terminal that you can ignore and the editor should open.
-The stock Gscreen Glade file is in: src/emc/usr_intf/gscreen/ sample skins are in /share/gscreen/skins/.
+The stock Gscreen Glade file is in: src/cnc/usr_intf/gscreen/ sample skins are in /share/gscreen/skins/.
 This should be copied to a configuration folder.
 Or you can make a clean-sheet Glade file by saving it in a configuration folder.
 

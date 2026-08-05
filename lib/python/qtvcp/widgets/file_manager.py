@@ -46,7 +46,7 @@ class FileManager(QWidget, _HalWidgetBase):
         if INFO.PROGRAM_PREFIX is not None:
             self.user_path = os.path.expanduser(INFO.PROGRAM_PREFIX)
         else:
-            self.user_path = (os.path.join(os.path.expanduser('~'), 'linuxcnc/nc_files'))
+            self.user_path = (os.path.join(os.path.expanduser('~'), 'stratumak/nc_files'))
         user = os.path.split(os.path.expanduser('~') )[-1]
 
         # check for Ubuntu/Mint path first

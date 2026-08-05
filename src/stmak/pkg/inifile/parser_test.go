@@ -1,0 +1,891 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package inifile_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+)
+
+// writeFile is a helper that writes content to a file in dir and returns the path.
+func writeFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writeFile %s: %v", path, err)
+	}
+	return path
+}
+
+// --------------------------------------------------------------------------
+// 1. Basic section and key-value parsing
+// --------------------------------------------------------------------------
+
+func TestBasicSectionAndKeyValue(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "basic.ini", `
+[SECTION1]
+KEY1 = value1
+KEY2 = value2
+
+[SECTION2]
+ANOTHER = hello
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	if got := ini.Get("SECTION1", "KEY1"); got != "value1" {
+		t.Errorf("KEY1 = %q, want %q", got, "value1")
+	}
+	if got := ini.Get("SECTION1", "KEY2"); got != "value2" {
+		t.Errorf("KEY2 = %q, want %q", got, "value2")
+	}
+	if got := ini.Get("SECTION2", "ANOTHER"); got != "hello" {
+		t.Errorf("ANOTHER = %q, want %q", got, "hello")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 2. Comments (# and ;)
+// --------------------------------------------------------------------------
+
+func TestComments(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "comments.ini", `
+# This is a comment
+[SECTION]
+; also a comment
+KEY2 = value2 # inline hash comment
+KEY3 = #notacomment
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// A whitespace-preceded '#' starts an inline comment (matches the C
+	// parser's strtod tolerance for numeric values).
+	if got := ini.Get("SECTION", "KEY2"); got != "value2" {
+		t.Errorf("KEY2 = %q, want %q", got, "value2")
+	}
+	// '#' not preceded by whitespace is NOT a comment.
+	if got := ini.Get("SECTION", "KEY3"); got != "#notacomment" {
+		t.Errorf("KEY3 = %q, want %q", got, "#notacomment")
+	}
+}
+
+// A ';' is data, never an inline comment — matching the LinuxCNC C parser
+// (libnml/inifile), which only treats '#'/';' as a comment when it is the first
+// non-whitespace character of a line. Regression: an earlier version stripped
+// at the first ';', silently truncating every ';'-chained MDI_COMMAND.
+func TestSemicolonIsDataNotComment(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "semicolon.ini", `
+[HALUI]
+MDI_COMMAND = G0 Z25;X0 Y0;Z0
+MDI_COMMAND = G53 G0 Z0;G53 G0 X0 Y0
+[TEST]
+; this whole line is a comment
+KEEP = a;b;c
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	cmds := ini.GetAll("HALUI", "MDI_COMMAND")
+	want := []string{"G0 Z25;X0 Y0;Z0", "G53 G0 Z0;G53 G0 X0 Y0"}
+	if len(cmds) != len(want) {
+		t.Fatalf("MDI_COMMAND count = %d, want %d (%q)", len(cmds), len(want), cmds)
+	}
+	for i, w := range want {
+		if cmds[i] != w {
+			t.Errorf("MDI_COMMAND[%d] = %q, want %q", i, cmds[i], w)
+		}
+	}
+	if got := ini.Get("TEST", "KEEP"); got != "a;b;c" {
+		t.Errorf("KEEP = %q, want %q", got, "a;b;c")
+	}
+}
+
+// Backslash line-continuation joins physical lines into one logical value, as
+// the LinuxCNC C parser does (up to MAX_EXTEND_LINES). The backslash is removed
+// and no separator is inserted; leading whitespace on continuation lines is
+// preserved, so shipped patterns like "[DISPLAY] APP = sim_pin \<newline> arg"
+// read as one value.
+func TestBackslashLineContinuation(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "cont.ini", `
+[DISPLAY]
+APP = sim_pin \
+      axis.x.jog-counts \
+      axis.y.jog-counts
+PLAIN = nocontinuation
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := ini.Get("DISPLAY", "APP")
+	want := "sim_pin       axis.x.jog-counts       axis.y.jog-counts"
+	if got != want {
+		t.Errorf("APP = %q, want %q", got, want)
+	}
+	if got := ini.Get("DISPLAY", "PLAIN"); got != "nocontinuation" {
+		t.Errorf("PLAIN = %q, want %q", got, "nocontinuation")
+	}
+}
+
+// A backslash continuation that never terminates within maxExtendLines is an
+// error, matching the C parser's ERR_OVER_EXTENDED.
+func TestBackslashContinuationLimit(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("[S]\nK = start \\\n")
+	for i := 0; i < 25; i++ {
+		b.WriteString("more \\\n")
+	}
+	b.WriteString("end\n")
+	f := writeFile(t, dir, "toolong.ini", b.String())
+	if _, err := inifile.Parse(f); err == nil {
+		t.Fatal("expected error for too many backslash continuations, got nil")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 3. #INCLUDE with relative paths
+// --------------------------------------------------------------------------
+
+func TestIncludeRelative(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "extra.ini", `
+[INCLUDED]
+INC_KEY = incval
+`)
+	f := writeFile(t, dir, "main.ini", `
+[MAIN]
+MAIN_KEY = mainval
+#INCLUDE extra.ini
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	if got := ini.Get("MAIN", "MAIN_KEY"); got != "mainval" {
+		t.Errorf("MAIN_KEY = %q, want %q", got, "mainval")
+	}
+	if got := ini.Get("INCLUDED", "INC_KEY"); got != "incval" {
+		t.Errorf("INC_KEY = %q, want %q", got, "incval")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 4. #INCLUDE with absolute paths
+// --------------------------------------------------------------------------
+
+func TestIncludeAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	incPath := writeFile(t, dir, "abs.ini", `
+[ABSEC]
+ABS = yes
+`)
+	// Write main file that uses an absolute path.
+	f := writeFile(t, dir, "main.ini", "[MAIN]\nFOO = bar\n#INCLUDE "+incPath+"\n")
+
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("ABSEC", "ABS"); got != "yes" {
+		t.Errorf("ABS = %q, want %q", got, "yes")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 5. Nested #INCLUDE
+// --------------------------------------------------------------------------
+
+func TestIncludeNested(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "deep.ini", `
+[DEEP]
+D = deepval
+`)
+	writeFile(t, dir, "middle.ini", `
+[MIDDLE]
+M = middleval
+#INCLUDE deep.ini
+`)
+	f := writeFile(t, dir, "root.ini", `
+[ROOT]
+R = rootval
+#INCLUDE middle.ini
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("ROOT", "R"); got != "rootval" {
+		t.Errorf("R = %q, want %q", got, "rootval")
+	}
+	if got := ini.Get("MIDDLE", "M"); got != "middleval" {
+		t.Errorf("M = %q, want %q", got, "middleval")
+	}
+	if got := ini.Get("DEEP", "D"); got != "deepval" {
+		t.Errorf("D = %q, want %q", got, "deepval")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 6. #INCLUDE with missing file (should error)
+// --------------------------------------------------------------------------
+
+func TestIncludeMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "main.ini", `
+[X]
+K = v
+#INCLUDE nonexistent.ini
+`)
+	_, err := inifile.Parse(f)
+	if err == nil {
+		t.Fatal("expected error for missing #INCLUDE file, got nil")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 7. Repeated keys
+// --------------------------------------------------------------------------
+
+func TestRepeatedKeys(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "rep.ini", `
+[HAL]
+HALFILE = first.hal
+HALFILE = second.hal
+HALFILE = third.hal
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// Get() returns first.
+	if got := ini.Get("HAL", "HALFILE"); got != "first.hal" {
+		t.Errorf("Get HALFILE = %q, want %q", got, "first.hal")
+	}
+
+	// GetAll() returns all.
+	all := ini.GetAll("HAL", "HALFILE")
+	want := []string{"first.hal", "second.hal", "third.hal"}
+	if len(all) != len(want) {
+		t.Fatalf("GetAll len = %d, want %d", len(all), len(want))
+	}
+	for i, v := range all {
+		if v != want[i] {
+			t.Errorf("GetAll[%d] = %q, want %q", i, v, want[i])
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// 8. GetN for numbered access
+// --------------------------------------------------------------------------
+
+func TestGetN(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "getn.ini", `
+[HAL]
+HALFILE = a.hal
+HALFILE = b.hal
+HALFILE = c.hal
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.GetN("HAL", "HALFILE", 1); got != "a.hal" {
+		t.Errorf("GetN 1 = %q, want %q", got, "a.hal")
+	}
+	if got := ini.GetN("HAL", "HALFILE", 2); got != "b.hal" {
+		t.Errorf("GetN 2 = %q, want %q", got, "b.hal")
+	}
+	if got := ini.GetN("HAL", "HALFILE", 3); got != "c.hal" {
+		t.Errorf("GetN 3 = %q, want %q", got, "c.hal")
+	}
+	// Out of range returns empty string.
+	if got := ini.GetN("HAL", "HALFILE", 4); got != "" {
+		t.Errorf("GetN 4 = %q, want %q", got, "")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 9. GetWithFallback
+// --------------------------------------------------------------------------
+
+func TestGetWithFallback(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "fallback.ini", `
+[DISPLAY]
+DISPLAY = axis
+[EMC]
+MACHINE = My Machine
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// First match wins.
+	val, ok := ini.GetWithFallback([][2]string{
+		{"DISPLAY", "DISPLAY"},
+		{"EMC", "DISPLAY"},
+	})
+	if !ok || val != "axis" {
+		t.Errorf("GetWithFallback = %q, %v; want %q, true", val, ok, "axis")
+	}
+
+	// Fallback to second pair when first is absent.
+	val, ok = ini.GetWithFallback([][2]string{
+		{"DISPLAY", "MACHINE"},
+		{"EMC", "MACHINE"},
+	})
+	if !ok || val != "My Machine" {
+		t.Errorf("GetWithFallback fallback = %q, %v; want %q, true", val, ok, "My Machine")
+	}
+
+	// Not found at all.
+	_, ok = ini.GetWithFallback([][2]string{
+		{"MISSING", "KEY"},
+	})
+	if ok {
+		t.Error("GetWithFallback missing: expected ok=false")
+	}
+}
+
+// --------------------------------------------------------------------------
+// 10. Empty values
+// --------------------------------------------------------------------------
+
+func TestEmptyValues(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "empty.ini", `
+[S]
+EMPTY =
+ALSO_EMPTY =    
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("S", "EMPTY"); got != "" {
+		t.Errorf("EMPTY = %q, want empty string", got)
+	}
+	if got := ini.Get("S", "ALSO_EMPTY"); got != "" {
+		t.Errorf("ALSO_EMPTY = %q, want empty string", got)
+	}
+}
+
+// --------------------------------------------------------------------------
+// 11. Whitespace handling around =
+// --------------------------------------------------------------------------
+
+func TestWhitespaceAroundEquals(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "ws.ini", `
+[S]
+A=1
+B = 2
+C  =  3
+D	=	4
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	cases := [][2]string{{"A", "1"}, {"B", "2"}, {"C", "3"}, {"D", "4"}}
+	for _, c := range cases {
+		if got := ini.Get("S", c[0]); got != c[1] {
+			t.Errorf("Get S/%s = %q, want %q", c[0], got, c[1])
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// 12. Variable substitution ([SECTION]KEY patterns)
+// --------------------------------------------------------------------------
+
+func TestSubstitute(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "sub.ini", `
+[EMCMOT]
+SERVO_PERIOD = 1000000
+[TASK]
+CYCLE_TIME = 0.010
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	input := "loadrt motmod servo_period_nsec=[EMCMOT]SERVO_PERIOD task_period=[TASK]CYCLE_TIME"
+	want := "loadrt motmod servo_period_nsec=1000000 task_period=0.010"
+	if got := ini.Substitute(input); got != want {
+		t.Errorf("Substitute:\n got  %q\n want %q", got, want)
+	}
+
+	// Unknown reference is left unchanged.
+	input2 := "something=[MISSING]KEY"
+	if got := ini.Substitute(input2); got != input2 {
+		t.Errorf("Substitute unknown: got %q, want %q", got, input2)
+	}
+}
+
+func TestSubstitute_HyphenatedKey(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "hyphen.ini", `
+[XHC-HB04]
+goto-zero = halui.mdi-command-00
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	input := "setp xhc-hb04.button-pin [XHC-HB04]goto-zero"
+	want := "setp xhc-hb04.button-pin halui.mdi-command-00"
+	if got := ini.Substitute(input); got != want {
+		t.Errorf("Substitute hyphenated key:\n got  %q\n want %q", got, want)
+	}
+}
+
+// --------------------------------------------------------------------------
+// 13. Environment variable expansion in #INCLUDE paths
+// --------------------------------------------------------------------------
+
+func TestIncludeEnvExpansion(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "env.ini", `
+[ENV]
+ENVKEY = envval
+`)
+	t.Setenv("TEST_INC_DIR", dir)
+	f := writeFile(t, dir, "main.ini", "#INCLUDE $TEST_INC_DIR/env.ini\n")
+
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("ENV", "ENVKEY"); got != "envval" {
+		t.Errorf("ENVKEY = %q, want %q", got, "envval")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Extra: missing section/key returns empty string
+// --------------------------------------------------------------------------
+
+func TestMissing(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "x.ini", "[S]\nK = v\n")
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := ini.Get("NOSECTION", "K"); got != "" {
+		t.Errorf("missing section = %q, want empty", got)
+	}
+	if got := ini.Get("S", "NOKEY"); got != "" {
+		t.Errorf("missing key = %q, want empty", got)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Extra: parse error for circular #INCLUDE
+// --------------------------------------------------------------------------
+
+func TestCircularInclude(t *testing.T) {
+	dir := t.TempDir()
+	// a.ini includes b.ini, b.ini includes a.ini
+	writeFile(t, dir, "b.ini", "#INCLUDE a.ini\n")
+	f := writeFile(t, dir, "a.ini", "#INCLUDE b.ini\n")
+
+	_, err := inifile.Parse(f)
+	if err == nil {
+		t.Fatal("expected error for circular #INCLUDE, got nil")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("expected 'circular' in error, got: %v", err)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Extra: inline comment marker ordering
+// --------------------------------------------------------------------------
+
+func TestInlineCommentOrdering(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "order.ini", `
+[S]
+KEY1 = value #comment ; more
+KEY2 = value with;semicolon
+KEY3 = no comment here
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// A whitespace-preceded '#' starts a comment; the trailing ';' is part of
+	// the comment text, so the whole "#comment ; more" is dropped.
+	if got := ini.Get("S", "KEY1"); got != "value" {
+		t.Errorf("KEY1 = %q, want %q", got, "value")
+	}
+	// ';' is data, not a comment (matches the C parser) — value preserved.
+	if got := ini.Get("S", "KEY2"); got != "value with;semicolon" {
+		t.Errorf("KEY2 = %q, want %q", got, "value with;semicolon")
+	}
+	// No comment markers — value preserved as-is.
+	if got := ini.Get("S", "KEY3"); got != "no comment here" {
+		t.Errorf("KEY3 = %q, want %q", got, "no comment here")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Set — update and append
+// --------------------------------------------------------------------------
+
+func TestSet_UpdatesExistingKey(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "set.ini", `
+[EMCMOT]
+EMCMOT = motmod
+SERVO_PERIOD = 1000000
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	updated := ini.Set("EMCMOT", "EMCMOT", "motmod tp=tpmod hp=homemod")
+	if !updated {
+		t.Error("Set: expected true (existing entry updated), got false")
+	}
+	if got := ini.Get("EMCMOT", "EMCMOT"); got != "motmod tp=tpmod hp=homemod" {
+		t.Errorf("Get after Set = %q, want %q", got, "motmod tp=tpmod hp=homemod")
+	}
+	// Other entries in the section must be unaffected.
+	if got := ini.Get("EMCMOT", "SERVO_PERIOD"); got != "1000000" {
+		t.Errorf("SERVO_PERIOD after Set = %q, want %q", got, "1000000")
+	}
+	// Substitute must reflect the updated value.
+	input := "loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD"
+	want := "loadrt motmod tp=tpmod hp=homemod servo_period_nsec=1000000"
+	if got := ini.Substitute(input); got != want {
+		t.Errorf("Substitute after Set:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestSet_AppendsNewKey(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "setnew.ini", `
+[EMCMOT]
+SERVO_PERIOD = 1000000
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	updated := ini.Set("EMCMOT", "EMCMOT", "motmod tp=tpmod hp=homemod")
+	if updated {
+		t.Error("Set: expected false (new entry added), got true")
+	}
+	if got := ini.Get("EMCMOT", "EMCMOT"); got != "motmod tp=tpmod hp=homemod" {
+		t.Errorf("Get new key = %q, want %q", got, "motmod tp=tpmod hp=homemod")
+	}
+}
+
+func TestSet_CreatesNewSection(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "setsec.ini", `
+[OTHER]
+FOO = bar
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	updated := ini.Set("NEWSEC", "NEWKEY", "newval")
+	if updated {
+		t.Error("Set: expected false (new section created), got true")
+	}
+	if got := ini.Get("NEWSEC", "NEWKEY"); got != "newval" {
+		t.Errorf("Get new section/key = %q, want %q", got, "newval")
+	}
+	// Existing section must be unaffected.
+	if got := ini.Get("OTHER", "FOO"); got != "bar" {
+		t.Errorf("OTHER/FOO after Set = %q, want %q", got, "bar")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Provenance tracking: SourceFile and SourceLine
+// --------------------------------------------------------------------------
+
+func TestProvenanceBasic(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "prov.ini", `
+[JOINT_0]
+P = 100
+I = 0.5
+D = 0.01
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	abs, _ := filepath.Abs(f)
+	for i := range ini.Sections {
+		if ini.Sections[i].Name != "JOINT_0" {
+			continue
+		}
+		for j, e := range ini.Sections[i].Entries {
+			if e.SourceFile != abs {
+				t.Errorf("entry %d: SourceFile = %q, want %q", j, e.SourceFile, abs)
+			}
+			if e.SourceLine == 0 {
+				t.Errorf("entry %d (%s): SourceLine = 0, want > 0", j, e.Key)
+			}
+		}
+		// P is on line 3 (blank line 1, [JOINT_0] line 2, P = line 3)
+		if ini.Sections[i].Entries[0].SourceLine != 3 {
+			t.Errorf("P: SourceLine = %d, want 3", ini.Sections[i].Entries[0].SourceLine)
+		}
+	}
+}
+
+func TestProvenanceInclude(t *testing.T) {
+	dir := t.TempDir()
+	incFile := writeFile(t, dir, "included.ini", `[SPINDLE_0]
+MAX_SPEED = 3000
+`)
+	writeFile(t, dir, "main.ini", `[JOINT_0]
+P = 100
+#INCLUDE included.ini
+`)
+	mainPath := filepath.Join(dir, "main.ini")
+	ini, err := inifile.Parse(mainPath)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	absMain, _ := filepath.Abs(mainPath)
+	absInc, _ := filepath.Abs(incFile)
+
+	// Entry from main file.
+	for i := range ini.Sections {
+		if ini.Sections[i].Name == "JOINT_0" {
+			e := ini.Sections[i].Entries[0]
+			if e.SourceFile != absMain {
+				t.Errorf("JOINT_0/P: SourceFile = %q, want %q", e.SourceFile, absMain)
+			}
+		}
+		// Entry from included file.
+		if ini.Sections[i].Name == "SPINDLE_0" {
+			e := ini.Sections[i].Entries[0]
+			if e.SourceFile != absInc {
+				t.Errorf("SPINDLE_0/MAX_SPEED: SourceFile = %q, want %q", e.SourceFile, absInc)
+			}
+			if e.SourceLine != 2 {
+				t.Errorf("SPINDLE_0/MAX_SPEED: SourceLine = %d, want 2", e.SourceLine)
+			}
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// Namespace support
+// --------------------------------------------------------------------------
+
+func TestWithNamespace_Get(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "ns.ini", `
+[TRAJ]
+COORDINATES = XYZ
+MAX_VELOCITY = 100
+
+[mill:TRAJ]
+COORDINATES = XY
+MAX_VELOCITY = 200
+
+[lathe:TRAJ]
+COORDINATES = XZ
+
+[JOINT_0]
+MAX_VELOCITY = 50
+
+[mill:JOINT_0]
+MAX_VELOCITY = 75
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// Without namespace — gets global section
+	if got := ini.Get("TRAJ", "COORDINATES"); got != "XYZ" {
+		t.Errorf("no namespace: TRAJ/COORDINATES = %q, want XYZ", got)
+	}
+
+	// With "mill" namespace — gets mill:TRAJ first
+	mill := ini.WithNamespace("mill")
+	if got := mill.Get("TRAJ", "COORDINATES"); got != "XY" {
+		t.Errorf("mill ns: TRAJ/COORDINATES = %q, want XY", got)
+	}
+	if got := mill.Get("TRAJ", "MAX_VELOCITY"); got != "200" {
+		t.Errorf("mill ns: TRAJ/MAX_VELOCITY = %q, want 200", got)
+	}
+	if got := mill.Get("JOINT_0", "MAX_VELOCITY"); got != "75" {
+		t.Errorf("mill ns: JOINT_0/MAX_VELOCITY = %q, want 75", got)
+	}
+
+	// With "lathe" namespace — gets lathe:TRAJ, falls back to TRAJ for missing keys
+	lathe := ini.WithNamespace("lathe")
+	if got := lathe.Get("TRAJ", "COORDINATES"); got != "XZ" {
+		t.Errorf("lathe ns: TRAJ/COORDINATES = %q, want XZ", got)
+	}
+	// MAX_VELOCITY not in [lathe:TRAJ], falls back to [TRAJ]
+	if got := lathe.Get("TRAJ", "MAX_VELOCITY"); got != "100" {
+		t.Errorf("lathe ns: TRAJ/MAX_VELOCITY = %q, want 100 (fallback)", got)
+	}
+	// JOINT_0 not in lathe namespace, falls back to global
+	if got := lathe.Get("JOINT_0", "MAX_VELOCITY"); got != "50" {
+		t.Errorf("lathe ns: JOINT_0/MAX_VELOCITY = %q, want 50 (fallback)", got)
+	}
+}
+
+func TestWithNamespace_GetAll(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "ns_all.ini", `
+[RS274NGC]
+REMAP = G100
+REMAP = G101
+
+[mill:RS274NGC]
+REMAP = G200
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	mill := ini.WithNamespace("mill")
+	all := mill.GetAll("RS274NGC", "REMAP")
+	// Namespace values first, then global
+	if len(all) != 3 {
+		t.Fatalf("mill GetAll REMAP: got %d values, want 3: %v", len(all), all)
+	}
+	if all[0] != "G200" {
+		t.Errorf("all[0] = %q, want G200 (namespace)", all[0])
+	}
+	if all[1] != "G100" || all[2] != "G101" {
+		t.Errorf("all[1:] = %v, want [G100 G101] (global)", all[1:])
+	}
+}
+
+func TestWithNamespace_GetSection(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "ns_sec.ini", `
+[JOINT_0]
+MIN_LIMIT = -100
+MAX_LIMIT = 100
+
+[mill:JOINT_0]
+MAX_LIMIT = 50
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	mill := ini.WithNamespace("mill")
+	entries := mill.GetSection("JOINT_0")
+	// Should have namespace entry first, then global entries
+	if len(entries) != 3 {
+		t.Fatalf("GetSection got %d entries, want 3: %v", len(entries), entries)
+	}
+	// First entry from [mill:JOINT_0]
+	if entries[0].Key != "MAX_LIMIT" || entries[0].Value != "50" {
+		t.Errorf("entries[0] = %s=%s, want MAX_LIMIT=50", entries[0].Key, entries[0].Value)
+	}
+}
+
+func TestWithNamespace_SourceFilePreserved(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "ns_src.ini", `
+[TRAJ]
+COORDINATES = XYZ
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	ns := ini.WithNamespace("test")
+	if ns.SourceFile() != ini.SourceFile() {
+		t.Errorf("SourceFile mismatch: %q vs %q", ns.SourceFile(), ini.SourceFile())
+	}
+}
+
+func TestWithNamespace_AllSectionsResolved(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "nsall.ini", `
+[EMCIO]
+TOOL_TABLE = mill1.tbl
+
+[mill2:EMCIO]
+TOOL_TABLE = mill2.tbl
+RANDOM_TOOLCHANGER = 1
+
+[HAL]
+HALFILE = x.hal
+`)
+	ini, err := inifile.Parse(f)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// Without a namespace: identical to AllSections.
+	m := ini.AllSectionsResolved()
+	if m["EMCIO"]["TOOL_TABLE"] != "mill1.tbl" || m["EMCIO"]["RANDOM_TOOLCHANGER"] != "" {
+		t.Errorf("un-namespaced view = %v, want the raw sections", m["EMCIO"])
+	}
+
+	// With one: the template's view of [EMCIO] must agree with what a
+	// [EMCIO]KEY substitution will read through Get — a guard like
+	// `{{if ini "EMCIO" "RANDOM_TOOLCHANGER"}}` judged on the raw map would
+	// silently drop the parameter for exactly the namespaced instance.
+	ns := ini.WithNamespace("mill2")
+	m = ns.AllSectionsResolved()
+	for _, key := range []string{"TOOL_TABLE", "RANDOM_TOOLCHANGER"} {
+		if got, want := m["EMCIO"][key], ns.Get("EMCIO", key); got != want {
+			t.Errorf("resolved view [EMCIO]%s = %q, Get = %q; template guard and substitution disagree",
+				key, got, want)
+		}
+	}
+	// Sections without an overlay, and the literal prefixed names, survive.
+	if m["HAL"]["HALFILE"] != "x.hal" {
+		t.Errorf("[HAL] lost in resolution: %v", m["HAL"])
+	}
+	if m["mill2:EMCIO"]["TOOL_TABLE"] != "mill2.tbl" {
+		t.Errorf("literal [mill2:EMCIO] no longer addressable: %v", m["mill2:EMCIO"])
+	}
+}

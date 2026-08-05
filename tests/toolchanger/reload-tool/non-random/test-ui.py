@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# --- gomc compatibility shim (prepended) --------------------------------------
-# Makes the original NML-based driver body run against the gomc REST/WS API:
+# --- stratuMAK compatibility shim (prepended) --------------------------------------
+# Makes the original NML-based driver body run against the stratuMAK REST/WS API:
 #   linuxcnc  -> gmi client (command/stat/error_channel) + gmi.constants
 #   hal       -> halcmd-backed shim; h[sig] reads/writes the io signals the old
 #                userspace test component was connected to.
@@ -10,11 +10,11 @@ import subprocess as _subprocess
 
 # Shared sync helpers: deadline-based waiters, and a Command whose
 # wait_complete() raises on timeout instead of returning -1.
-import gomc_test
+import stmak_test
 
 
 class _LinuxcncCompat:
-    command = staticmethod(gomc_test.Command)
+    command = staticmethod(stmak_test.Command)
     stat = staticmethod(_gmi.Stat)
     error_channel = staticmethod(_gmi.ErrorChannel)
     ini = staticmethod(_gmi.IniFile)
@@ -92,7 +92,7 @@ def verify_stat(tool_in_spindle, tool_from_pocket, pocket_prepped=None):
     want = {'tool_in_spindle': tool_in_spindle, 'tool_from_pocket': tool_from_pocket}
     if pocket_prepped is not None:
         want['pocket_prepped'] = pocket_prepped
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s, lambda st: all(getattr(st, k) == v for k, v in want.items()),
         "status buffer to reach %s" % want,
         detail=lambda st: "got %s" % {k: getattr(st, k) for k in want})
@@ -110,7 +110,7 @@ def wait_for_position(x, y, z):
         return all(abs(st.joint_actual_position[i] - want[i]) < POS_EPSILON
                    for i in range(3))
 
-    gomc_test.wait_stat(
+    stmak_test.wait_stat(
         s, arrived, "joints to arrive at %r (mm)" % (want,),
         detail=lambda st: "at %r" % (tuple(st.joint_actual_position[:3]),))
 
@@ -136,11 +136,11 @@ h.newpin("tool-from-pocket", hal.HAL_S32, hal.HAL_IN)
 
 h.ready()
 
-# gomc: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
+# stratuMAK: no postgui.hal — the shim reads HAL signals directly (no python-ui pins)
 
 
 # Wait for LinuxCNC to initialize itself so the Status buffer stabilizes.
-gomc_test.wait_for_startup(s)
+stmak_test.wait_for_startup(s)
 
 c.state(linuxcnc.STATE_ESTOP_RESET)
 c.state(linuxcnc.STATE_ON)
@@ -310,7 +310,7 @@ assert(h['tool-from-pocket'] == 46)
 
 verify_stat(2, 46, 6)
 
-# gomc: gmi joint positions are reported in millimetres (mm-everywhere
+# stratuMAK: gmi joint positions are reported in millimetres (mm-everywhere
 # convention) and the field is joint_actual_position; TOOL_CHANGE_POSITION is
 # in machine units (inch here). Position settle tolerance widened to the mm
 # scale (classic 1e-10 inch is below the mm-domain arrival deadband).

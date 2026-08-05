@@ -10,10 +10,10 @@
 # fired -- i.e. the C return value was honoured as a queue-buster -- and that
 # the program completed without error.
 set -x
-. ../gomc-driver.sh
+. ../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server test.ini
-gomc_wait_ready
+stmak_start_server test.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

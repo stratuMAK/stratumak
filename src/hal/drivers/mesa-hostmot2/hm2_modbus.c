@@ -31,7 +31,7 @@
 #include "rtapi_byteorder.h"
 #include "hostmot2-serial.h"
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #define HM2_LLIO_NAME "hm2_modbus"
 static const void *hm2_log;
 
@@ -111,7 +111,7 @@ static inline bool mtypeisvalid(unsigned mtype) {
 		!((mtypeformat(mtype) == MBT_A || mtypeformat(mtype) == MBT_B) && mtypetype(mtype) == MBT_F);
 }
 static const uint8_t mtypesize_tab[16] = {1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1};
-static inline unsigned mtypesize(unsigned mtype) GOMC_NONBLOCKING {
+static inline unsigned mtypesize(unsigned mtype) STMAK_NONBLOCKING {
 	return mtypesize_tab[mtypeformat(mtype)];
 }
 
@@ -138,11 +138,11 @@ static inline unsigned mtypesize(unsigned mtype) GOMC_NONBLOCKING {
 #ifndef DEBUG
 #define MSG_DBG(fmt...)		do{}while(0)
 #else
-#define MSG_DBG(fmt...)		do { gomc_log_debugf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
+#define MSG_DBG(fmt...)		do { stmak_log_debugf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
 #endif
-#define MSG_INFO(fmt...)	do { gomc_log_infof(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
-#define MSG_ERR(fmt...)		do { gomc_log_errorf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
-#define MSG_WARN(fmt...)	do { gomc_log_warnf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
+#define MSG_INFO(fmt...)	do { stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
+#define MSG_ERR(fmt...)		do { stmak_log_errorf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
+#define MSG_WARN(fmt...)	do { stmak_log_warnf(hm2_log, HM2_LLIO_NAME, fmt); } while(0)
 
 // State-machine states
 enum {
@@ -189,42 +189,42 @@ typedef union {
 } mb_types64_u;
 
 typedef union {
-	gomc_hal_bit_t b;
-	gomc_hal_s32_t s;
-	gomc_hal_u32_t u;
-	gomc_hal_float_t f;
+	stmak_hal_bit_t b;
+	stmak_hal_s32_t s;
+	stmak_hal_u32_t u;
+	stmak_hal_float_t f;
 } hal_data_u;
 
 typedef struct {
 	hal_data_u	*pin;		// Modbus data pin
 	hal_data_u	*offset;	// Pin offset input
-	gomc_hal_float_t *scale;		// Pin scale input
-	gomc_hal_float_t	*scaled;	// Pin scaled output
+	stmak_hal_float_t *scale;		// Pin scale input
+	stmak_hal_float_t	*scaled;	// Pin scaled output
 } mbt_pin_hal_t;
 
 typedef struct {
-	gomc_hal_bit_t *disable;		// Command disable input
-	gomc_hal_bit_t *disabled;	// Command disable output
-	gomc_hal_bit_t *reset;		// Reset errors and re-enable on rising edge
-	gomc_hal_u32_t *error;		// Command error counter
-	gomc_hal_u32_t *errorcode;	// Last error code
+	stmak_hal_bit_t *disable;		// Command disable input
+	stmak_hal_bit_t *disabled;	// Command disable output
+	stmak_hal_bit_t *reset;		// Reset errors and re-enable on rising edge
+	stmak_hal_u32_t *error;		// Command error counter
+	stmak_hal_u32_t *errorcode;	// Last error code
 } mbt_cmd_hal_t;
 
 typedef struct {
 	mbt_pin_hal_t *pins;	// All data pins
 	mbt_cmd_hal_t *cmds;	// Per command pins
-	gomc_hal_bit_t *suspend;		// Suspend running commands
-	gomc_hal_bit_t *reset;		// Reset command errors and re-enable on rising edge
-	gomc_hal_bit_t *fault;
-	gomc_hal_u32_t *faultcmd;
-	gomc_hal_u32_t *lasterror;
-	gomc_hal_u32_t baudrate;	// RO
-	gomc_hal_u32_t parity;	// RO
-	gomc_hal_u32_t stopbits;	// RO
-	gomc_hal_u32_t icdelay;	// RO Inter character delay
-	gomc_hal_u32_t txdelay;	// RO Inter frame delay for packets sent
-	gomc_hal_u32_t rxdelay;	// RO Inter frame delay for packet end detection in receive
-	gomc_hal_u32_t drvdelay;	// RO Delay before sending data (in bit times)
+	stmak_hal_bit_t *suspend;		// Suspend running commands
+	stmak_hal_bit_t *reset;		// Reset command errors and re-enable on rising edge
+	stmak_hal_bit_t *fault;
+	stmak_hal_u32_t *faultcmd;
+	stmak_hal_u32_t *lasterror;
+	stmak_hal_u32_t baudrate;	// RO
+	stmak_hal_u32_t parity;	// RO
+	stmak_hal_u32_t stopbits;	// RO
+	stmak_hal_u32_t icdelay;	// RO Inter character delay
+	stmak_hal_u32_t txdelay;	// RO Inter frame delay for packets sent
+	stmak_hal_u32_t rxdelay;	// RO Inter frame delay for packet end detection in receive
+	stmak_hal_u32_t drvdelay;	// RO Delay before sending data (in bit times)
 } hm2_modbus_hal_t;
 
 // The command structure and data buffer.
@@ -253,8 +253,8 @@ static inline bool haspinscale(const hm2_modbus_mbccb_type_t *t)  { return 0 != 
 static inline bool haspinclamp(const hm2_modbus_mbccb_type_t *t)  { return 0 != (t->flags & MBCCB_PINF_CLAMP); }
 
 typedef struct {
-	char		name[GOMC_HAL_NAME_LEN];		// What we call ourselves (hm2_modbus.X)
-	char		uart[GOMC_HAL_NAME_LEN];		// The PktUART we attached to (like hm2_5i25.Y.pktuart.Z)
+	char		name[STMAK_HAL_NAME_LEN];		// What we call ourselves (hm2_modbus.X)
+	char		uart[STMAK_HAL_NAME_LEN];		// The PktUART we attached to (like hm2_5i25.Y.pktuart.Z)
 
 	hm2_modbus_mbccb_header_t *mbccb;		// Modbus command control binary
 	ssize_t		mbccbsize;					// Buffer/file size
@@ -314,8 +314,8 @@ typedef struct hm2_modbus_mod {
 } hm2_modbus_mod_t;
 
 // Forward declarations
-static int parse_data_frame(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING;
-static int build_data_frame(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING;
+static int parse_data_frame(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING;
+static int build_data_frame(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING;
 static const uint8_t crctabhi[256] = { // Table of CRC values for high–order byte
 		0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40,
 		0x01, 0xc0, 0x80, 0x41, 0x00, 0xc1, 0x81, 0x40, 0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41,
@@ -354,7 +354,7 @@ static const uint8_t crctablo[256] = { // Table of CRC values for low–order by
 		0x44, 0x84, 0x85, 0x45, 0x87, 0x47, 0x46, 0x86, 0x82, 0x42, 0x43, 0x83, 0x41, 0x81, 0x80, 0x40
 	};
 
-static uint16_t crc_modbus(const uint8_t *buffer, size_t len) GOMC_NONBLOCKING;
+static uint16_t crc_modbus(const uint8_t *buffer, size_t len) STMAK_NONBLOCKING;
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
@@ -502,7 +502,7 @@ static void set_error(hm2_modbus_inst_t *inst, int errcode)
 //
 // Send a Modbus packet after attaching the CRC
 //
-static int send_modbus_pkt(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
+static int send_modbus_pkt(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING
 {
 	hm2_modbus_cmd_t *cc = current_cmd(inst);
 
@@ -548,7 +548,7 @@ static inline void force_resend(hm2_modbus_inst_t *inst)
 // Write flush command sets a specific command data to the current values.
 // Only Modbus write function are pre-calculated.
 //
-static void write_flush_cmd(hm2_modbus_inst_t *inst, unsigned idx) GOMC_NONBLOCKING
+static void write_flush_cmd(hm2_modbus_inst_t *inst, unsigned idx) STMAK_NONBLOCKING
 {
 	if(handling_inits(inst)) {	// Cannot flush init list
 		MSG_ERR("%s: error: Called write_flush_cmd() while handling inits\n", inst->name);
@@ -596,7 +596,7 @@ static void write_flush_cmd(hm2_modbus_inst_t *inst, unsigned idx) GOMC_NONBLOCK
 //
 // Write flush sets all command data to the current values.
 //
-static void write_flush(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
+static void write_flush(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING
 {
 	// We must ensure to handle the command list and not the init list.
 	// This switcheroo sucks but we have no choice as these variables are
@@ -616,7 +616,7 @@ static void write_flush(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
 // A switch to the normal command list is made when it is the end of initlist.
 // Return 0 on a normal switch. Return 1 when the list repeats.
 //
-static inline int next_command(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
+static inline int next_command(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING
 {
 	// While running the init list
 	if(handling_inits(inst)) {
@@ -681,7 +681,7 @@ static inline int next_command(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
 // - change state
 // - new state entry actions
 //
-static inline void set_state(hm2_modbus_inst_t *inst, int newstate) GOMC_NONBLOCKING
+static inline void set_state(hm2_modbus_inst_t *inst, int newstate) STMAK_NONBLOCKING
 {
 #ifdef DEBUG_STATE
 	if(newstate < 0 || newstate >= STATE_LAST || inst->state < 0 || inst->state > STATE_LAST) {
@@ -729,13 +729,13 @@ static inline void set_state(hm2_modbus_inst_t *inst, int newstate) GOMC_NONBLOC
 // Perform a queued reset.
 // The PktUART RX and TX are cleared and reset in the next period.
 //
-static inline void queue_reset(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
+static inline void queue_reset(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING
 {
 	hm2_pktuart_queue_reset(inst->uart);
 	set_state(inst, STATE_RESET_WAIT);
 }
 
-static void do_timeout(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
+static void do_timeout(hm2_modbus_inst_t *inst) STMAK_NONBLOCKING
 {
 	if(inst->timeout < 0) {
 		if(hastimesout(current_cmd(inst))) {
@@ -764,7 +764,7 @@ static void do_timeout(hm2_modbus_inst_t *inst) GOMC_NONBLOCKING
 //   d) read and handle reply
 // That way we can assure no wrong replies being attached to a sent command.
 //
-static void process(void *arg, long period) GOMC_NONBLOCKING
+static void process(void *arg, long period) STMAK_NONBLOCKING
 {
 	hm2_modbus_inst_t *inst = (hm2_modbus_inst_t *)arg;
 
@@ -1478,17 +1478,17 @@ static int build_data_frame(hm2_modbus_inst_t *inst)
 		// The target mtype can only be MBT_AB or MBT_BA (single reg write)
 		CHK_RV(ch_append16(cc, cc->cmd.caddr));
 		switch(cc->typeptr[0].htype) {
-		case GOMC_HAL_BIT:
+		case STMAK_HAL_BIT:
 			CHK_RV(map_u(cc, hal->pins[p].pin->b ? 1 : 0, 0));
 			break;
-		case GOMC_HAL_U32:
+		case STMAK_HAL_U32:
 			switch(mtypetype(cc->typeptr[0].mtype)) {
 			case MBT_U: CHK_RV(map_u(cc, hal->pins[p].pin->u, 0)); break;
 			case MBT_S: CHK_RV(map_s(cc, map_us(hal->pins[p].pin->u), 0)); break;
 			case MBT_F: CHK_RV(map_f(cc, map_uf(hal->pins[p].pin->u), 0)); break;
 			}
 			break;
-		case GOMC_HAL_S32:
+		case STMAK_HAL_S32:
 			if(!haspinscale(&cc->typeptr[0])) {
 				switch(mtypetype(cc->typeptr[0].mtype)) {
 				case MBT_U: CHK_RV(map_u(cc, map_su(hal->pins[p].pin->s), 0)); break;
@@ -1504,7 +1504,7 @@ static int build_data_frame(hm2_modbus_inst_t *inst)
 				}
 			}
 			break;
-		case GOMC_HAL_FLOAT:
+		case STMAK_HAL_FLOAT:
 			if(!haspinscale(&cc->typeptr[0])) {
 				switch(mtypetype(cc->typeptr[0].mtype)) {
 				case MBT_U: CHK_RV(map_u(cc, map_fu(hal->pins[p].pin->f), 0)); break;
@@ -1551,17 +1551,17 @@ static int build_data_frame(hm2_modbus_inst_t *inst)
 				regpos++;
 			}
 			switch(cc->typeptr[i].htype) {
-			case GOMC_HAL_BIT:
+			case STMAK_HAL_BIT:
 				CHK_RV(map_u(cc, hal->pins[p].pin->b ? 1 : 0, i));
 				break;
-			case GOMC_HAL_U32:
+			case STMAK_HAL_U32:
 				switch(mtypetype(cc->typeptr[i].mtype)) {
 				case MBT_U: CHK_RV(map_u(cc, hal->pins[p].pin->u, i)); break;
 				case MBT_S: CHK_RV(map_s(cc, map_us(hal->pins[p].pin->u), i)); break;
 				case MBT_F: CHK_RV(map_f(cc, map_uf(hal->pins[p].pin->u), i)); break;
 				}
 				break;
-			case GOMC_HAL_S32:
+			case STMAK_HAL_S32:
 				if(!haspinscale(&cc->typeptr[i])) {
 					switch(mtypetype(cc->typeptr[i].mtype)) {
 					case MBT_U: CHK_RV(map_u(cc, map_su(hal->pins[p].pin->s), i)); break;
@@ -1577,7 +1577,7 @@ static int build_data_frame(hm2_modbus_inst_t *inst)
 					}
 				}
 				break;
-			case GOMC_HAL_FLOAT:
+			case STMAK_HAL_FLOAT:
 				if(!haspinscale(&cc->typeptr[i])) {
 					switch(mtypetype(cc->typeptr[i].mtype)) {
 					case MBT_U: CHK_RV(map_u(cc, map_fu(hal->pins[p].pin->f), i)); break;
@@ -1946,17 +1946,17 @@ static int parse_data_frame(hm2_modbus_inst_t *inst)
 			}
 
 			switch(cc->typeptr[i].htype) {
-			case GOMC_HAL_BIT:
+			case STMAK_HAL_BIT:
 				hal->pins[p].pin->b = 0 != val64.u;	// Zero maps to false, anything else to true
 				break;
-			case GOMC_HAL_U32:
+			case STMAK_HAL_U32:
 				switch(mtypetype(cc->typeptr[i].mtype)) {
 				case MBT_U:	hal->pins[p].pin->u = unmap32_uu(cc, val64.u, i); break;
 				case MBT_S:	hal->pins[p].pin->u = unmap32_us(cc, val64.s, i); break;
 				case MBT_F:	hal->pins[p].pin->u = unmap32_uf(cc, val64.f, i); break;
 				}
 				break;
-			case GOMC_HAL_S32:
+			case STMAK_HAL_S32:
 				switch(mtypetype(cc->typeptr[i].mtype)) {
 				case MBT_U:	hal->pins[p].pin->s = unmap32_su(cc, val64.u, i); break;
 				case MBT_S:	hal->pins[p].pin->s = unmap32_ss(cc, val64.s, i); break;
@@ -1970,7 +1970,7 @@ static int parse_data_frame(hm2_modbus_inst_t *inst)
 					}
 				}
 				break;
-			case GOMC_HAL_FLOAT:
+			case STMAK_HAL_FLOAT:
 				switch(mtypetype(cc->typeptr[i].mtype)) {
 				case MBT_U:	hal->pins[p].pin->f = val64.u; break;
 				case MBT_S:	hal->pins[p].pin->f = val64.s; break;
@@ -2047,7 +2047,7 @@ static uint16_t crc_modbus(const uint8_t *buffer, size_t len)
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 // Userspace file read
-static ssize_t read_mbccb(const hm2_modbus_inst_t *inst, const gomc_rtapi_t *rtapi, const char *fname, hm2_modbus_mbccb_header_t **pmbccb)
+static ssize_t read_mbccb(const hm2_modbus_inst_t *inst, const stmak_rtapi_t *rtapi, const char *fname, hm2_modbus_mbccb_header_t **pmbccb)
 {
 	if(!pmbccb)
 		return -EINVAL;
@@ -2108,10 +2108,10 @@ retry_read:
 static int check_htype(unsigned type)
 {
 	switch(type) {
-	case GOMC_HAL_BIT:	// not valid in register read/write
-	case GOMC_HAL_U32:
-	case GOMC_HAL_S32:
-	case GOMC_HAL_FLOAT:
+	case STMAK_HAL_BIT:	// not valid in register read/write
+	case STMAK_HAL_U32:
+	case STMAK_HAL_S32:
+	case STMAK_HAL_FLOAT:
 		return 0;
 	}
 	return -1;
@@ -2121,7 +2121,7 @@ static int check_htype(unsigned type)
 // Returns 0 on success and -errno on failure. A message has been printed in
 // case of error.
 //
-static int load_mbccb(hm2_modbus_inst_t *inst, const gomc_rtapi_t *rtapi, const char *fname)
+static int load_mbccb(hm2_modbus_inst_t *inst, const stmak_rtapi_t *rtapi, const char *fname)
 {
 	int rv = -EINVAL;
 
@@ -2393,7 +2393,7 @@ static int load_mbccb(hm2_modbus_inst_t *inst, const gomc_rtapi_t *rtapi, const 
 						inst->name, c, cmdsptr[c].func, cmdsptr[c].cpincnt);
 				goto errout;
 			}
-			// These are implicit GOMC_HAL_BIT
+			// These are implicit STMAK_HAL_BIT
 			break;
 		case MBCMD_R_REGISTERS:
 		case MBCMD_R_INPUTREGS:
@@ -2587,7 +2587,7 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 		return -EINVAL;
 	}
 
-	mod->comp_id = mod->env->hal->init(mod->env->hal->ctx, COMP_NAME, mod->env->dl_handle, GOMC_HAL_COMP_REALTIME);
+	mod->comp_id = mod->env->hal->init(mod->env->hal->ctx, COMP_NAME, mod->env->dl_handle, STMAK_HAL_COMP_REALTIME);
 	if(mod->comp_id < 0) {
 		MSG_ERR(COMP_NAME": hal_init() failed\n");
 		return mod->comp_id;
@@ -2616,13 +2616,13 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 		}
 		// mbccbs= is a configuration path: resolved server-side against the
 		// config directory / HAL library directories and required to stay
-		// inside them (gomc_path.h).  A relative path is now first class — it
+		// inside them (stmak_path.h).  A relative path is now first class — it
 		// used to warn, because nothing anchored it and it silently depended
 		// on the server's working directory.
 		const char *mbccberr = NULL;
 		const char *mbccbpath = mod->env->path->resolve(mod->env->path->ctx,
 		                                                mod->mbccbs[i],
-		                                                GOMC_PATH_READ, &mbccberr);
+		                                                STMAK_PATH_READ, &mbccberr);
 		if(!mbccbpath) {
 			MSG_ERR("%s: error: mbccb file '%s' for instance %d: %s\n", inst->name,
 			        mod->mbccbs[i], i, mbccberr ? mbccberr : "cannot be resolved");
@@ -2685,7 +2685,7 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 		inst->cmds = inst->ninit ? inst->_init : inst->_cmds;
 
 		// Export the HAL process function
-		char pname[GOMC_HAL_NAME_LEN+1];
+		char pname[STMAK_HAL_NAME_LEN+1];
 		snprintf(pname, sizeof(pname), COMP_NAME".%d.process", i);
 		if((retval = mod->env->hal->export_funct(mod->env->hal->ctx, pname, process, inst, 1, 0, mod->comp_id)) < 0) {
 			MSG_ERR("%s: error: Function export failed\n", inst->name);
@@ -2699,19 +2699,19 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 						goto errout; \
 					} \
 				} while(0)
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->baudrate), mod->comp_id, "%s.baudrate", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->parity),   mod->comp_id, "%s.parity", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->stopbits), mod->comp_id, "%s.stopbits", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->icdelay),  mod->comp_id, "%s.icdelay", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->txdelay),  mod->comp_id, "%s.txdelay", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->rxdelay),  mod->comp_id, "%s.rxdelay", inst->name));
-		CHECK(gomc_hal_param_u32_newf(mod->env->hal, GOMC_HAL_RO, &(inst->hal->drvdelay), mod->comp_id, "%s.drivedelay", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->baudrate), mod->comp_id, "%s.baudrate", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->parity),   mod->comp_id, "%s.parity", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->stopbits), mod->comp_id, "%s.stopbits", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->icdelay),  mod->comp_id, "%s.icdelay", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->txdelay),  mod->comp_id, "%s.txdelay", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->rxdelay),  mod->comp_id, "%s.rxdelay", inst->name));
+		CHECK(stmak_hal_param_u32_newf(mod->env->hal, STMAK_HAL_RO, &(inst->hal->drvdelay), mod->comp_id, "%s.drivedelay", inst->name));
 
-		CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_IN,  &(inst->hal->suspend),   mod->comp_id, "%s.suspend", inst->name));
-		CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_IN,  &(inst->hal->reset),     mod->comp_id, "%s.reset", inst->name));
-		CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->fault),     mod->comp_id, "%s.fault", inst->name));
-		CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->faultcmd),  mod->comp_id, "%s.fault-command", inst->name));
-		CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->lasterror), mod->comp_id, "%s.last-error-code", inst->name));
+		CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_IN,  &(inst->hal->suspend),   mod->comp_id, "%s.suspend", inst->name));
+		CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_IN,  &(inst->hal->reset),     mod->comp_id, "%s.reset", inst->name));
+		CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->fault),     mod->comp_id, "%s.fault", inst->name));
+		CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->faultcmd),  mod->comp_id, "%s.fault-command", inst->name));
+		CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->lasterror), mod->comp_id, "%s.last-error-code", inst->name));
 
 		inst->hal->baudrate = inst->cfg_rx.baudrate = inst->cfg_tx.baudrate = inst->mbccb->baudrate;
 		unsigned parity = 0;
@@ -2831,15 +2831,15 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 #define CPTR(x)	((const char *)((x) + 1))
 		for(unsigned c = 0; c < inst->ncmds; c++) {
 			// First create command status pins
-			CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_IN, &(inst->hal->cmds[c].disable),
+			CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_IN, &(inst->hal->cmds[c].disable),
 					mod->comp_id, "%s.command.%02d.disable", inst->name, c));
-			CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->cmds[c].disabled),
+			CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->cmds[c].disabled),
 					mod->comp_id, "%s.command.%02d.disabled", inst->name, c));
-			CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->cmds[c].error),
+			CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->cmds[c].error),
 					mod->comp_id, "%s.command.%02d.errors", inst->name, c));
-			CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->cmds[c].errorcode),
+			CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->cmds[c].errorcode),
 					mod->comp_id, "%s.command.%02d.error-code", inst->name, c));
-			CHECK(gomc_hal_pin_bit_newf(mod->env->hal, GOMC_HAL_IN, &(inst->hal->cmds[c].reset),
+			CHECK(stmak_hal_pin_bit_newf(mod->env->hal, STMAK_HAL_IN, &(inst->hal->cmds[c].reset),
 					mod->comp_id, "%s.command.%02d.reset", inst->name, c));
 
 			hm2_modbus_cmd_t *cc = &inst->_cmds[c];
@@ -2852,96 +2852,96 @@ static int hm2_modbus_init(hm2_modbus_mod_t *mod)
 			}
 
 			// Now create the pins associated with the command
-			int dir = GOMC_HAL_IN;
+			int dir = STMAK_HAL_IN;
 			const uint8_t *dptr = inst->dataptr + cc->cmd.cdataptr;
 			cc->pinref = p;
 			for(int j = 0; j < cc->cmd.cpincnt; j++) {
 				switch(cc->cmd.func) {
 				case MBCMD_R_COILS:
 				case MBCMD_R_INPUTS:
-					dir = GOMC_HAL_OUT;
+					dir = STMAK_HAL_OUT;
 					/* Fallthrough */
 				case MBCMD_W_COIL:
 				case MBCMD_W_COILS:
-					CHECK(gomc_hal_pin_bit_newf(mod->env->hal, dir, (gomc_hal_bit_t**)&(inst->hal->pins[p++]),
+					CHECK(stmak_hal_pin_bit_newf(mod->env->hal, dir, (stmak_hal_bit_t**)&(inst->hal->pins[p++]),
 							mod->comp_id, "%s.%s", inst->name, CPTR(dptr)));
 					break;
 
 				case MBCMD_R_INPUTREGS:
 				case MBCMD_R_REGISTERS:
-					dir = GOMC_HAL_OUT;
+					dir = STMAK_HAL_OUT;
 					/* Fallthrough */
 				case MBCMD_W_REGISTER:	// This has guaranteed pincnt == 1
 				case MBCMD_W_REGISTERS:
 					switch(cc->typeptr[j].htype) {
 					default:
-					case GOMC_HAL_BIT:
-						CHECK(gomc_hal_pin_bit_newf(mod->env->hal, dir, (gomc_hal_bit_t**)&(inst->hal->pins[p++]),
+					case STMAK_HAL_BIT:
+						CHECK(stmak_hal_pin_bit_newf(mod->env->hal, dir, (stmak_hal_bit_t**)&(inst->hal->pins[p++]),
 								mod->comp_id, "%s.%s", inst->name, CPTR(dptr)));
 						break;
 
-					case GOMC_HAL_U32:
-						CHECK(gomc_hal_pin_u32_newf(mod->env->hal, dir, (gomc_hal_u32_t**)&(inst->hal->pins[p++]),
+					case STMAK_HAL_U32:
+						CHECK(stmak_hal_pin_u32_newf(mod->env->hal, dir, (stmak_hal_u32_t**)&(inst->hal->pins[p++]),
 								mod->comp_id, "%s.%s", inst->name, CPTR(dptr)));
 						break;
 
-					case GOMC_HAL_S32:
-						CHECK(gomc_hal_pin_s32_newf(mod->env->hal, dir, (gomc_hal_s32_t**)&(inst->hal->pins[p]),
+					case STMAK_HAL_S32:
+						CHECK(stmak_hal_pin_s32_newf(mod->env->hal, dir, (stmak_hal_s32_t**)&(inst->hal->pins[p]),
 								mod->comp_id, "%s.%s", inst->name, CPTR(dptr)));
 						if(haspinscale(&cc->typeptr[j])) {
-							CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_IN, &(inst->hal->pins[p].scale),
+							CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_IN, &(inst->hal->pins[p].scale),
 									mod->comp_id, "%s.%s.scale", inst->name, CPTR(dptr)));
 							*(inst->hal->pins[p].scale) = 1.0;
-							if(GOMC_HAL_OUT == dir) {
-								CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->pins[p].scaled),
+							if(STMAK_HAL_OUT == dir) {
+								CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->pins[p].scaled),
 										mod->comp_id, "%s.%s.scaled", inst->name, CPTR(dptr)));
 								switch(mtypetype(cc->typeptr[j].mtype)) {
 								case MBT_U:
-									CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_u32_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_u32_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								case MBT_S:
-									CHECK(gomc_hal_pin_s32_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_s32_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_s32_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_s32_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								case MBT_F:
-									CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_float_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_float_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								}
 							} else {
-								CHECK(gomc_hal_pin_s32_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_s32_t**)&(inst->hal->pins[p].offset),
+								CHECK(stmak_hal_pin_s32_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_s32_t**)&(inst->hal->pins[p].offset),
 										mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 							}
 						}
 						p++;
 						break;
-					case GOMC_HAL_FLOAT:
-						CHECK(gomc_hal_pin_float_newf(mod->env->hal, dir, (gomc_hal_float_t**)&(inst->hal->pins[p]),
+					case STMAK_HAL_FLOAT:
+						CHECK(stmak_hal_pin_float_newf(mod->env->hal, dir, (stmak_hal_float_t**)&(inst->hal->pins[p]),
 								mod->comp_id, "%s.%s", inst->name, CPTR(dptr)));
 						if(haspinscale(&cc->typeptr[j])) {
-							CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_IN, &(inst->hal->pins[p].scale),
+							CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_IN, &(inst->hal->pins[p].scale),
 									mod->comp_id, "%s.%s.scale", inst->name, CPTR(dptr)));
 							*(inst->hal->pins[p].scale) = 1.0;
-							if(GOMC_HAL_OUT == dir) {
-								CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_OUT, &(inst->hal->pins[p].scaled),
+							if(STMAK_HAL_OUT == dir) {
+								CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_OUT, &(inst->hal->pins[p].scaled),
 										mod->comp_id, "%s.%s.scaled", inst->name, CPTR(dptr)));
 								switch(mtypetype(cc->typeptr[j].mtype)) {
 								case MBT_U:
-									CHECK(gomc_hal_pin_u32_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_u32_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_u32_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_u32_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								case MBT_S:
-									CHECK(gomc_hal_pin_s32_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_s32_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_s32_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_s32_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								case MBT_F:
-									CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_float_t**)&(inst->hal->pins[p].offset),
+									CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_float_t**)&(inst->hal->pins[p].offset),
 											mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 									break;
 								}
 							} else {
-								CHECK(gomc_hal_pin_float_newf(mod->env->hal, GOMC_HAL_IN, (gomc_hal_float_t**)&(inst->hal->pins[p].offset),
+								CHECK(stmak_hal_pin_float_newf(mod->env->hal, STMAK_HAL_IN, (stmak_hal_float_t**)&(inst->hal->pins[p].offset),
 										mod->comp_id, "%s.%s.offset", inst->name, CPTR(dptr)));
 							}
 							inst->hal->pins[p].offset->f = 0.0;

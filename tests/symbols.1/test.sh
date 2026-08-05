@@ -1,6 +1,6 @@
 #!/bin/bash
 # Symbol export test: test_use1 must resolve a symbol exported by test_define1.
-# Drive a resident gomc-server, run one servo cycle's worth, and read the two
+# Drive a resident stmakd, run one servo cycle's worth, and read the two
 # outputs (checkresult expects define.out nonzero, use.out zero).
 . "$(dirname "$0")/../hal-stream-driver.sh"
 # Build the test comps into cmod/ first — a fresh checkout (CI) doesn't have

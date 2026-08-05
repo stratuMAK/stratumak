@@ -43,7 +43,7 @@ The system enables modules (cmod/gomod) to:
 3. Optionally expose APIs via REST for external clients
 
 All module code works with native structs (C or Go). JSON/REST handling is
-centralized in the gomc-server binary and invisible to modules.
+centralized in the stmakd binary and invisible to modules.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ centralized in the gomc-server binary and invisible to modules.
                             │ JSON/HTTP (localhost:port)
                             ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                         GOMC-SERVER (Go)                                 │
+│                         stratuMAK-SERVER (Go)                            │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │                      HTTP Server Layer                             │  │
@@ -91,7 +91,7 @@ Modules implement pure struct-based APIs:
 - **cmod**: C structs, C function callbacks
 - **gomod**: Go structs, Go function callbacks
 
-All protocol handling (HTTP, JSON) is centralized in the gomc-server binary.
+All protocol handling (HTTP, JSON) is centralized in the stmakd binary.
 
 ### 2. JSON Only at External Boundary
 
@@ -206,14 +206,14 @@ typedef struct {
     // ... other callbacks
 } hal_callbacks_t;
 
-// Register this API implementation with the gomc-server.
+// Register this API implementation with the stmakd.
 // Internally generates Go dispatch wrappers (via cgo) embedded in FuncMeta.
 int hal_api_register(const char *instance_name, const hal_callbacks_t *callbacks);
 ```
 
 ### Generated Go Dispatch Wrappers (internal, from `--server-c`)
 
-These are generated alongside the C header and compiled into the gomc-server binary.
+These are generated alongside the C header and compiled into the stmakd binary.
 They bridge the gap between the uniform `DispatchFunc` signature and C callbacks:
 
 ```go
@@ -511,7 +511,7 @@ func GetAPI(apiName, instance string, requiredVersion int) (unsafe.Pointer, erro
     return api.Callbacks, nil
 }
 
-// For cmod clients — called during module init via gomc_api_t callback table:
+// For cmod clients — called during module init via stmak_api_t callback table:
 // void* get_api(void *ctx, const char *api_name, int version, const char *instance);
 // Returns NULL on not found or version mismatch.
 // The cmod casts the result to kins_callbacks_t* and calls members directly.
@@ -738,7 +738,7 @@ src/gmi/
 ├── DYNAMIC_API_DESIGN.md   # This document
 └── README.md
 
-src/gomc/                   # Go module: github.com/sittner/linuxcnc/src/gomc
+src/stmak/                   # Go module: github.com/stratuMAK/stratumak/src/stmak
 ├── go.mod.in               # Tracked base go.mod (copied to go.mod on fresh build)
 ├── go.mod                   # Runtime go.mod (gitignored, managed by modcompile)
 ├── go.sum                   # Runtime go.sum (gitignored, managed by go toolchain)
@@ -747,7 +747,7 @@ src/gomc/                   # Go module: github.com/sittner/linuxcnc/src/gomc
 ├── .gitignore               # Ignores runtime files: go.mod, go.sum, packages.conf, imports_generated.go
 ├── Submakefile              # Build rules for all Go targets
 ├── cmd/
-│   ├── gomc-server/         # Server binary (compiled-in architecture)
+│   ├── stmakd/         # Server binary (compiled-in architecture)
 │   │   ├── main.go
 │   │   └── imports_generated.go  # Generated blank imports (gitignored)
 │   ├── modcompile/          # Unified tool: .comp + .gmi + gomod management
@@ -773,7 +773,7 @@ src/gomc/                   # Go module: github.com/sittner/linuxcnc/src/gomc
 │   ├── ads/                 # ADS server (moved from external plugin, Phase 2)
 │   ├── adsbridge/           # ADS bridge layer
 │   ├── adsconfig/           # ADS configuration
-│   ├── adsmodule/           # init() registers "ads-server" with gomc registry
+│   ├── adsmodule/           # init() registers "ads-server" with stmak registry
 │   ├── apiserver/           # REST server (Step 1)
 │   │   ├── types.go         # DispatchFunc, FuncMeta, APIMeta, RegisteredAPI
 │   │   ├── registry.go      # Register(), GetAPI(), OnRegister(), OnDefaultRegistryReady()
@@ -781,10 +781,10 @@ src/gomc/                   # Go module: github.com/sittner/linuxcnc/src/gomc
 │   │   ├── *_test.go        # 37 tests
 │   │   └── directtest/      # cmod direct-call simulation tests
 │   ├── config/              # Compile-time config (paths injected via -ldflags)
-│   │   └── paths.go         # EMC2GomcDir, EMC2BinDir, etc.
-│   ├── gomc/                # Server lifecycle
+│   │   └── paths.go         # EMC2StmakDir, EMC2BinDir, etc.
+│   ├── stmak/                # Server lifecycle
 │   │   ├── launcher.go      # Main server struct + startup
-│   │   ├── rest_server.go   # REST API server start/stop ([GMC]REST_ADDR)
+│   │   ├── rest_server.go   # REST API server start/stop ([SERVER]REST_ADDR)
 │   │   └── cleanup.go       # Shutdown sequence
 │   ├── emcgateway/           # DELETED — replaced by Go milltask (internal/task)
 │   ├── halrest/             # Server-side REST handler for halcmd API (Step 4.5)
@@ -810,9 +810,9 @@ src/gomc/                   # Go module: github.com/sittner/linuxcnc/src/gomc
 │           ├── client_go.go         # --client-go: Go REST client generation
 │           └── client_py.go         # --client-python: Python REST client generation
 ├── pkg/
-│   ├── cmodule/             # C module headers (gomc_*.h)
-│   ├── gomc/                # Public registration interface for external packages
-│   │   └── gomc.go          # RegisterModule(), RegisterMeta(), GetFactory(), HasModule()
+│   ├── cmodule/             # C module headers (stmak_*.h)
+│   ├── stmak/                # Public registration interface for external packages
+│   │   └── stmak.go          # RegisterModule(), RegisterMeta(), GetFactory(), HasModule()
 │   ├── inifile/             # INI file parser
 │   └── hal/                 # Go HAL bindings
 │       ├── examples/        # passthrough example
@@ -833,14 +833,14 @@ modules to self-contained cmods using the GMI dynamic API.
 - [x] Code generator (`gmicompile`): `--server-c` producing C headers + Go CGO wrappers
 - [x] Codegen: functions return values directly (not via out-pointer)
 - [x] Codegen: enums passed by value (not pointer)
-- [x] Kinematics: 17 kins modules ported to cmod (in `emc/kinematics/`)
+- [x] Kinematics: 17 kins modules ported to cmod (in `cnc/kinematics/`)
 - [x] Trajectory planner: `tp.c` is self-contained cmod (owns `TP_STRUCT`, registers tp API)
 - [x] Homing: `homing.c` is self-contained cmod (registers home API)
 - [x] Motion controller (`motmod`): consumes tp + home APIs via direct pointer calls
 - [x] Bridge layer removed — `control.c`/`command.c` call `motmod_tp_api->*` directly
 - [x] All wrapper layers eliminated (tpmod.c, homemod.c deleted)
 - [x] Build system: cmod rules in Makefile/Submakefiles, rtlib rules removed
-- [x] Generated code properly gitignored (`src/gomc/.gitignore`)
+- [x] Generated code properly gitignored (`src/stmak/.gitignore`)
 - [x] Kins round-trip Go tests: forward→inverse→compare (trivkins, pumakins)
 - [x] RPY convention test: verifies j1 rotation maps to yaw (C), not roll (A)
 
@@ -874,7 +874,7 @@ modules to self-contained cmods using the GMI dynamic API.
   in their inline helpers — fixed to match legacy posemath behavior.
 
 - **No separate directories needed**: Source lives in standard locations
-  (`emc/kinematics/`, `emc/tp/`, `emc/motion/`). Only the IDL definitions and
+  (`cnc/kinematics/`, `cnc/tp/`, `cnc/motion/`). Only the IDL definitions and
   runtime library need a dedicated `gmi/` directory.
 
 ### Step 1: apiserver Package (COMPLETE)
@@ -994,7 +994,7 @@ Replace the legacy C halcmd/halrmt with a new Go-based halcmd using the REST API
 
 **Deliverables:**
 - [x] New `cmd/halcmd/` in launcher — Go CLI using generated halcmd client
-- [x] Environment variable `GMC_REST_URL` (default: `http://localhost:5080/`)
+- [x] Environment variable `STMAK_REST_URL` (default: `http://localhost:5080/`)
 - [x] Full command compatibility (show, list, getp, setp, gets, sets, newsig, delsig, net, loadrt, etc.)
 - [x] Disable old halcmd/halrmt in build system (`BUILD_GOLANG=yes` guard)
 
@@ -1065,7 +1065,7 @@ cmod + REST API architecture.
 **Architecture:**
 - `manualtoolchange.comp` — cmod (C, RT-capable) handling HAL pins + iocontrol handshake
 - `manualtoolchange.gmi` — IDL defining REST API (GET /state, POST /confirm)
-- Generated dispatch (`manualtoolchange_cgo.go`) — compiled into gomc-server
+- Generated dispatch (`manualtoolchange_cgo.go`) — compiled into stmakd
 - Generated Python client (`manualtoolchange_client.py`) — used by UI
 - `manualtoolchange_ui.py` — Tkinter UI, polls REST, replaces old `hal_manualtoolchange.py`
 
@@ -1075,14 +1075,14 @@ cmod + REST API architecture.
       HAL pins (change, number, change_button, changed), thread function,
       GMI callbacks (`gmi_manualtoolchange_get_state`, `gmi_manualtoolchange_confirm`)
 - [x] Generated `manualtoolchange_api.h` + `manualtoolchange_cgo.go` in
-      `gomc/generated/gmi/manualtoolchange/`
+      `stmak/generated/gmi/manualtoolchange/`
 - [x] Generated `lib/python/gmi/manualtoolchange_client.py` — Python REST client
 - [x] `manualtoolchange_ui.py` (133 lines) — Tkinter UI using generated REST client
 - [x] `gmi/codegen/Submakefile` — build rules for API header, cgo dispatch, Python client
 - [x] `hal/components/Submakefile` — cmod build rule with GMI header dependency
 - [x] `bin/manualtoolchange_ui` — installed UI script
 - [x] Generated cgo uses `internal/apiserver` (correct import path)
-- [x] `packages.conf` entry present — cgo dispatch compiled into gomc-server
+- [x] `packages.conf` entry present — cgo dispatch compiled into stmakd
 - [x] `lib/python/gmi/__init__.py` — hand-written source in `src/gmi/python/`, copied at build time
 - [x] All HAL configs migrated from `hal_manualtoolchange` to `manualtoolchange` cmod
 - [x] `sim_lib.tcl` `use_hal_manualtoolchange` proc updated (3-line cmod form)
@@ -1112,10 +1112,10 @@ all shared memory access from UI processes.
 
 **Architecture: GMI Watch Channel (WebSocket)**
 
-A single persistent WebSocket connection between UI and gomc-server:
+A single persistent WebSocket connection between UI and stmakd:
 
 ```
-axis.py (Tk)                    gomc-server
+axis.py (Tk)                    stmakd
     │                               │
     ├─ REST (1s) ──────────────────►│  tool change, notifications
     │                               │
@@ -1250,7 +1250,7 @@ client.jog_start(axis="x", speed=100.0)
 - [x] GMI parser: `@watch`, `@watch_default_rate` annotations on functions
 - [x] gmicompile `--server-ws`: Go WebSocket subscribe/push handler
 - [x] gmicompile `--client-python-ws`: Python async watch client
-- [x] gomc-server: WebSocket endpoint at `/api/v1/watch`
+- [x] stmakd: WebSocket endpoint at `/api/v1/watch`
 - [x] `axisui.gmi`: IDL with jog/slider/notification watch + set commands
 - [x] axis.py: replace HAL `comp` with WebSocket client (WSCompat + AxisuiWatchThread)
 - [x] axisui.comp: cmod with HAL pins and GMI callbacks
@@ -1270,15 +1270,15 @@ client.jog_start(axis="x", speed=100.0)
 
 Migrated PyVCP from direct HAL shared memory access to REST + WebSocket,
 eliminating the UI's dependency on HAL shared memory. PyVCP panels are now
-pure display/input frontends communicating through the gomc-server.
+pure display/input frontends communicating through the stmakd.
 
 **Architecture:**
 
-A Go module (pyvcpmodule) inside gomc-server owns the HAL component.
+A Go module (pyvcpmodule) inside stmakd owns the HAL component.
 The Python frontend is a pure display client:
 
 ```
-pyvcp (Tk frontend)              gomc-server
+pyvcp (Tk frontend)              stmakd
     │                               │
     ├─ GET /panel/{name} ─────────►│  Fetch panel info + pin defs
     │                               │
@@ -1294,7 +1294,7 @@ pyvcp (Tk frontend)              gomc-server
 **Server-Side: pyvcpmodule**
 
 ```
-src/gomc/internal/pyvcpmodule/
+src/stmak/internal/pyvcpmodule/
 ├── module.go        # init() → RegisterModule("pyvcp", factory)
 │                    # REST dispatch (get_panel), WS watch (watch_pins, set_pin)
 │                    # Panel registry, WatchRegistry for subscriptions
@@ -1303,7 +1303,7 @@ src/gomc/internal/pyvcpmodule/
 ```
 
 Startup flow:
-1. gomc-server loads pyvcpmodule via `[HAL]GOMOD = pyvcp` INI directive
+1. stmakd loads pyvcpmodule via `[HAL]GOMOD = pyvcp` INI directive
 2. Module reads XML path from module config → parses XML → extracts pin definitions
 3. Creates real HAL component with required pins via `pkg/hal/` Go bindings
 4. Registers REST + WebSocket endpoints as API instance "pyvcp"
@@ -1349,7 +1349,7 @@ value is unused since `PyVCPCompat` is self-contained (WebSocket thread).
 **HAL Module Elimination from axis.py:**
 
 With PyVCP migrated, the `hal` Python module is no longer imported by axis.py.
-All HAL queries now go through the gomc REST API via the `gmi` package:
+All HAL queries now go through the stratuMAK REST API via the `gmi` package:
 
 | Old (hal module, needs shared memory) | New (gmi REST) |
 |---------------------------------------|----------------|
@@ -1362,7 +1362,7 @@ All HAL queries now go through the gomc REST API via the `gmi` package:
 Now a hand-written source file (previously an empty `@touch` build artifact).
 Contains central helpers used by axis.py and other UI code:
 
-- `rest_url()` / `ws_url()` — URL helpers from `GMC_REST_URL` env var
+- `rest_url()` / `ws_url()` — URL helpers from `STMAK_REST_URL` env var
 - `component_exists(name)` — `GET /api/v1/halcmd/components?pattern={name}`
 - `pin_has_writer(name)` — `GET /api/v1/halcmd/pins?pattern={name}`, checks `has_writer` field
 
@@ -1380,7 +1380,7 @@ Added `has_writer` field to the pins endpoint to support `pin_has_writer()`:
 - `gmi/codegen/Submakefile`: dedicated copy rule for `__init__.py` (source → build)
 - Other GMI Python targets depend on `$(GMI_INIT_DST)` instead of `@touch`
 - `pyvcp_compat.py` copy rule (same pattern)
-- `packages.conf.in`: pyvcpmodule compiled into gomc-server
+- `packages.conf.in`: pyvcpmodule compiled into stmakd
 
 **INI Configuration:**
 
@@ -1423,7 +1423,7 @@ init (before AXIS starts), so `custom.hal` can `net` pins as a regular HALFILE.
 ### Step 5.4: INI File REST Migration (COMPLETE)
 
 Replace direct INI file parsing in axis.py (`linuxcnc.ini()`) with REST
-queries to gomc-server, eliminating the `liblinuxcnc` C extension dependency
+queries to stmakd, eliminating the `liblinuxcnc` C extension dependency
 for INI access.
 
 **Motivation:**
@@ -1442,11 +1442,11 @@ for INI access.
 
 **Architecture:**
 
-gomc-server already has a full INI parser (`pkg/inifile/`) and the parsed
+stmakd already has a full INI parser (`pkg/inifile/`) and the parsed
 INI is available in the launcher. A new REST module exposes it:
 
 ```
-axis.py                          gomc-server
+axis.py                          stmakd
     │                               │
     ├─ POST /api/v1/ini/query ─────►│  Bulk INI lookup
     │  [{section, key}, ...]        │  returns all values in one response
@@ -1594,7 +1594,7 @@ entirely without rewriting the task controller internals.
 **Architecture: Gateway Pattern**
 
 ```
-axis.py (pure REST/WS)       gomc-server
+axis.py (pure REST/WS)       stmakd
     │                               │
     ├─ WS: watch stat ◄───────────►│  stat push @50ms (position, mode, state)
     │                               │
@@ -1904,9 +1904,9 @@ func get_errors() -> []ErrorMessage
 1. ✅ **IDL files** — `emcstat.gmi`, `emccmd.gmi`, `emcerror.gmi` written with
    all types, enums, and functions. (gmicompile code generation pending)
 
-2. ✅ **C++ NML shim: `emc/nml_intf/nml_shim.cc` + `nml_shim.h`** — `extern "C"`
+2. ✅ **C++ NML shim: `cnc/nml_intf/nml_shim.cc` + `nml_shim.h`** — `extern "C"`
    wrapper around the NML C++ API. Covers stat polling, 25 commands, error
-   polling, init/shutdown lifecycle. Not yet compiled into gomc-server.
+   polling, init/shutdown lifecycle. Not yet compiled into stmakd.
 
 3. ✅ **Gateway gomod: `internal/emcgateway/`** — Hand-written (not yet
    IDL-generated). 4 files: `module.go`, `types.go`, `convert.go`,
@@ -1929,7 +1929,7 @@ func get_errors() -> []ErrorMessage
    - Kept: `linuxcnc.version`, `linuxcnc.positionlogger` (deferred to Step 6)
 
 6. ✅ **Build system** — Remaining work:
-   - Compile `nml_shim.cc` and link into gomc-server (CGO_LDFLAGS) ✅
+   - Compile `nml_shim.cc` and link into stmakd (CGO_LDFLAGS) ✅
    - Task module registers APIs directly at startup (no separate gomod) ✅
    - Canon bridge generated via `--server-go` from `canon.gmi` (143 functions) ✅
 
@@ -1937,7 +1937,7 @@ func get_errors() -> []ErrorMessage
 
 **NML Connection Lifecycle:**
 
-The gateway connects to NML as part of gomc-server startup (same process
+The gateway connects to NML as part of stmakd startup (same process
 that runs the task controller). No external NML socket — it's in-process
 shared memory access, same as the current `linuxcnc.stat()` but from Go
 instead of Python.
@@ -1946,7 +1946,7 @@ instead of Python.
 
 1. **C++ NML bridge**: C shim layer (`nml_shim.cc` + `nml_shim.h`) with
    `extern "C"` wrappers around the NML C++ API. Compiled as a separate
-   object and linked into gomc-server. cgo calls the C shim, not C++ directly.
+   object and linked into stmakd. cgo calls the C shim, not C++ directly.
 
 2. **IDL-generated code**: All three APIs (emcstat, emccmd, emcerror) are
    defined as `.gmi` IDL files and processed by gmicompile. This generates:
@@ -1995,21 +1995,21 @@ instead of Python.
 
 11. **NML process name kept as `xemc`**: The gateway connects to NML as
     process `xemc` (standard NML role name for display clients). Not
-    renamed to `gomc` since NML is being replaced — not worth the churn
+    renamed to `stmak` since NML is being replaced — not worth the churn
     of modifying `linuxcnc.nml` + all custom configs.
 
 **Deliverables:**
 - [x] `gmi/idl/emcstat.gmi` — stat types, enums (TaskMode, TaskState, etc.), watch function
 - [x] `gmi/idl/emccmd.gmi` — command enums (AutoCmd, JogType, SpindleCmd), command functions
 - [x] `gmi/idl/emcerror.gmi` — error types/enums, error watch function
-- [x] `emc/nml_intf/nml_shim.cc` + `nml_shim.h` — C shim wrapping NML C++ API with `extern "C"`
+- [x] `cnc/nml_intf/nml_shim.cc` + `nml_shim.h` — C shim wrapping NML C++ API with `extern "C"`
 - [x] `internal/emcgateway/` — gomod implementing callbacks via cgo→NML shim (DELETED — replaced by internal/task)
 - [x] `src/gmi/python/stat.py` — `Stat` class (watch-based, drop-in for `linuxcnc.stat()`)
 - [x] `src/gmi/python/command.py` — `Command` class (REST/WS, drop-in for `linuxcnc.command()`)
 - [x] `src/gmi/python/error.py` — `ErrorChannel` class (watch-based, drop-in for `linuxcnc.error_channel()`)
 - [x] `src/gmi/python/constants.py` — flat constants for backward compat (`from gmi.constants import *`)
 - [x] `gmi/codegen/Submakefile` — copy rules for Python wrapper files
-- [x] Build system: `nml_shim.cc` in liblinuxcnc.a, `packages.conf` entry, gomc-server deps
+- [x] Build system: `nml_shim.cc` in liblinuxcnc.a, `packages.conf` entry, stmakd deps
 - [x] axis.py — stat/command/error/positionlogger/constants all use `gmi.*`;
       `import linuxcnc` fully removed. GL helpers extracted to standalone
       `_glhelpers.so` C extension (no NML/linuxcnc deps).
@@ -2069,8 +2069,8 @@ Flutter's Linux desktop embedding has fundamental shutdown lifecycle issues
 (multi-threaded engine vs. single-threaded GTK GObject dispose cascade)
 that cannot be cleanly resolved. The web UI approach eliminates native
 dependencies entirely:
-- gomc-server already provides REST + WebSocket APIs
-- Static files served from `share/gomc/webapp/<app>/`
+- stmakd already provides REST + WebSocket APIs
+- Static files served from `share/stmak/webapp/<app>/`
 - Works as local desktop tool (browser window) and remote monitoring
 - Single TypeScript client generator replaces both `--client-dart` and
   `--client-dart-ws` (TypeScript handles both REST and WebSocket natively)
@@ -2147,7 +2147,7 @@ a single TypeScript module with:
 1. [x] **TS codegen in gmicompile** — `--client-ts` flag, generates
        enums, interfaces, REST client, WS client in a single `.ts` file
 2. [x] **Test with existing APIs** — Generate TS clients for `halcmd`
-       and `emcstat`, validate against running gomc-server
+       and `emcstat`, validate against running stmakd
 3. [x] **Output convention** — `src/webapp/<app>/src/generated/<api>.ts`
 
 **Deliverables:**
@@ -2157,14 +2157,14 @@ a single TypeScript module with:
 
 ### Step 5.7: Web App Infrastructure
 
-Add static file serving to gomc-server so Vue web apps can be served
+Add static file serving to stmakd so Vue web apps can be served
 alongside the REST/WebSocket API on the same port.
 
 **URL Scheme:**
 
 ```
 http://localhost:5080/                    → app index (lists available apps)
-http://localhost:5080/app/halscope/       → share/gomc/webapp/halscope/index.html
+http://localhost:5080/app/halscope/       → share/stmak/webapp/halscope/index.html
 http://localhost:5080/app/halscope/assets/→ static files
 http://localhost:5080/api/v1/...          → REST API (unchanged)
 http://localhost:5080/api/v1/watch        → WebSocket (unchanged)
@@ -2172,9 +2172,9 @@ http://localhost:5080/api/v1/watch        → WebSocket (unchanged)
 
 **Directory Layout:**
 
-Build outputs (static files) are installed under `share/gomc/webapp/`:
+Build outputs (static files) are installed under `share/stmak/webapp/`:
 ```
-share/gomc/webapp/
+share/stmak/webapp/
 ├── halscope/
 │   ├── index.html
 │   └── assets/
@@ -2203,7 +2203,7 @@ src/webapp/halscope/
 └── svelte.config.js        ← (not used, Vue project)
 ```
 
-**Implementation in gomc-server:**
+**Implementation in stmakd:**
 
 1. Add `EMC2WebAppDir` to `config/paths.go` (compile-time ldflags)
 2. In `apiserver.NewServer()`, register `http.FileServer` for each app
@@ -2213,18 +2213,18 @@ src/webapp/halscope/
 4. Root `/` serves an index page listing available apps
 
 **RIP vs Installed paths:**
-- RIP: `share/gomc/webapp/` (relative to `EMC2_HOME`)
-- Installed: `$(datadir)/gomc/webapp/`
+- RIP: `share/stmak/webapp/` (relative to `EMC2_HOME`)
+- Installed: `$(datadir)/stmak/webapp/`
 
 **Implementation Plan:**
 
 1. [x] Add `EMC2WebAppDir` config variable + ldflags
 2. [x] Static file handler in `apiserver` with SPA fallback
 3. [x] Root index handler listing discovered apps
-4. [x] Wire into Makefile: `npm run build` → copy `dist/` to `share/gomc/webapp/<name>/`
+4. [x] Wire into Makefile: `npm run build` → copy `dist/` to `share/stmak/webapp/<name>/`
 
 **Deliverables:**
-- [x] Static file serving in gomc-server
+- [x] Static file serving in stmakd
 - [x] Webapp directory convention documented
 - [x] Build system integration (Vite build + install)
 
@@ -2241,11 +2241,11 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
 **New Architecture:**
 
 ```
-  Vue halscope (browser/gmcui)          other clients (future)
+  Vue halscope (browser/stmakui)          other clients (future)
        │                                        │
        └──────── WebSocket + REST ──────────────┘
                           │
-                    gomc-server
+                    stmakd
                           │
                     halscope gomod (internal/halscope/)
                           │
@@ -2258,7 +2258,7 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
 **Key Design Decisions:**
 
 1. **gomod with embedded C RT** — not a separate cmod. The RT sampling code
-   (`halscope_rt.c`) is compiled via cgo into the gomc-server binary. The Go
+   (`halscope_rt.c`) is compiled via cgo into the stmakd binary. The Go
    module (`module.go`) owns the lifecycle, REST/WS API, and state persistence.
    The C code handles only the hot loop: sample capture and trigger detection.
 
@@ -2270,9 +2270,9 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
    Chosen over raw Canvas for built-in zoom/pan, axis labeling, and series
    management. Data is in "divisions" space (-5 to +5 vertical).
 
-4. **gmcui native container** — GTK3+WebKit2 wrapper (~150 LOC) providing a
+4. **stmakui native container** — GTK3+WebKit2 wrapper (~150 LOC) providing a
    native window for the web UI. Detected via `basename(argv[0])` symlink
-   (e.g., `halscope` → `gmcui`). DevTools enabled.
+   (e.g., `halscope` → `stmakui`). DevTools enabled.
 
 5. **State persistence** — Scope configuration (thread, channels, trigger,
    continuous mode) is saved to a JSON file on every config change and on
@@ -2286,7 +2286,7 @@ the RT sampling engine via cgo and serves a Vue 3 web UI.
 **Server-Side Implementation:**
 
 ```
-src/gomc/internal/halscope/
+src/stmak/internal/halscope/
 ├── module.go          # gomod: init(), New(), Start(), Stop(), REST/WS dispatch
 │                      # State save/load, watch loop (100ms status push)
 │                      # Dispatches: configure, set_channel, clear_channel,
@@ -2360,11 +2360,11 @@ src/webapp/halscope/
         └── halscope_watch_client.ts # Generated WS watch client
 ```
 
-**Native Container (gmcui):**
+**Native Container (stmakui):**
 
 ```
-src/emc/usr_intf/gmcui/
-├── gmcui.c        # GTK3+WebKit2, profile table, symlink detection
+src/cnc/usr_intf/stmakui/
+├── stmakui.c        # GTK3+WebKit2, profile table, symlink detection
 └── Submakefile    # Conditional on BUILD_WEBKIT2GTK=yes
 ```
 
@@ -2373,7 +2373,7 @@ Profile table maps symlink names to webapp paths:
 { "halscope", "/app/halscope/", "HAL Oscilloscope", 1280, 800 }
 ```
 
-Build produces `bin/gmcui` + `bin/halscope` symlink. CLI supports
+Build produces `bin/stmakui` + `bin/halscope` symlink. CLI supports
 `--url`, `--title`, `--width`, `--height` for custom use.
 
 **State Persistence Format (version 1):**
@@ -2404,9 +2404,9 @@ Build produces `bin/gmcui` + `bin/halscope` symlink. CLI supports
 | Dependency | Build-time | Runtime | configure.ac check |
 |------------|-----------|---------|-------------------|
 | Node.js + npm | Yes (Vite build) | No | `HAVE_NODEJS` |
-| webkit2gtk-4.1 | Yes (gmcui) | Yes | `HAVE_WEBKIT2GTK` (pkg-config) |
+| webkit2gtk-4.1 | Yes (stmakui) | Yes | `HAVE_WEBKIT2GTK` (pkg-config) |
 
-Both are optional — gomc-server and the web UI work in a browser without them.
+Both are optional — stmakd and the web UI work in a browser without them.
 
 **Completed:**
 - [x] RT sampling engine (`halscope_rt.h` / `halscope_rt.c`) with C unit tests
@@ -2416,7 +2416,7 @@ Both are optional — gomc-server and the web UI work in a browser without them.
 - [x] Generated TypeScript clients (REST + WS watch)
 - [x] Mouse wheel on all sliders, hover tooltip with cursor dot, drag rubberband
 - [x] CSV capture save/load (client-side, with legacy format support)
-- [x] gmcui native WebKit container with halscope symlink
+- [x] stmakui native WebKit container with halscope symlink
 - [x] Old halscope removed: `scope.c`, `scope_*.c`, `scope_rt.c`, `scope_shm.h` (git rm)
 - [x] `scope_rt` RTMODULE removed from Makefile
 - [x] All `loadrt scope_rt` / `loadusr halscope` references cleaned from configs
@@ -2448,11 +2448,11 @@ endpoints already served by `internal/halrest/`.
 **New Architecture:**
 
 ```
-  Vue halshow (browser/gmcui)
+  Vue halshow (browser/stmakui)
        │
        └──── REST (halcmd API at /api/v1/halcmd/...)
                     │
-              gomc-server
+              stmakd
                     │
               internal/halrest/ (existing halcmd REST handler)
 ```
@@ -2511,14 +2511,14 @@ src/webapp/halshow/
   signals + params (previously only pins). Signals with writer pins marked
   `linked: true` to suppress Set button in frontend.
 
-**gmcui Integration:**
+**stmakui Integration:**
 
-Profile entry in `gmcui.c`:
+Profile entry in `stmakui.c`:
 ```c
 { "halshow", "/app/halshow/", "HAL Configuration", 1024, 768 }
 ```
 
-`bin/halshow` symlink → `gmcui` → opens halshow webapp.
+`bin/halshow` symlink → `stmakui` → opens halshow webapp.
 
 **AXIS Menu Integration:**
 
@@ -2542,7 +2542,7 @@ Profile entry in `gmcui.c`:
 - [x] Watch panel: Set dialog, bit toggle, canSet() logic (hides for OUT/linked/RO)
 - [x] Node overview: child pin table, +W per pin, +Watch All
 - [x] halcmd console: parse+execute, history, color-coded output
-- [x] gmcui native container with halshow symlink
+- [x] stmakui native container with halshow symlink
 - [x] AXIS menu integration (`exec halshow &`)
 - [x] Old halshow.tcl, halmeter, and associated files removed
 - [x] Build system cleaned (Submakefiles, debian packaging)
@@ -2562,11 +2562,11 @@ tuning via HAL setp, and saves changes back to the correct INI file(s).
 **New Architecture:**
 
 ```
-  Vue emccalib (browser/gmcui)
+  Vue emccalib (browser/stmakui)
        │
        └──── REST (/api/v1/emccalib/...)
                     │
-              gomc-server
+              stmakd
                     │
               internal/emccalib/ (gomod)
                     │
@@ -2643,7 +2643,7 @@ func revert(section: string, key: string) -> bool
 
 **Backend (`internal/emccalib/module.go`):**
 
-- `init()` registers `"emccalib"` with `gomc.RegisterModule()`
+- `init()` registers `"emccalib"` with `stmak.RegisterModule()`
 - On load: queries the setp interceptor registry for all recorded INI→pin
   mappings, groups by section/suffix, enriches with INI provenance (source file
   + line from `pkg/inifile`)
@@ -2698,14 +2698,14 @@ The file is found via `HALLIB_PATH` resolution.
 - [x] `pkg/inifile` — provenance tracking (`SourceFile`, `SourceLine` per entry)
 - [x] Setp interceptor (`internal/calibreg/`) — record INI→pin mappings during HAL load
 - [x] `gmi/idl/emccalib.gmi` — IDL definition
-- [x] Generated dispatch: `gomc/generated/gmi/emccalibapi/` (server-go output)
+- [x] Generated dispatch: `stmak/generated/gmi/emccalibapi/` (server-go output)
 - [x] Generated TypeScript client: `src/webapp/emccalib/src/generated/`
 - [x] `internal/emccalib/module.go` — gomod implementation
 - [x] `lib/hallib/emccalib.hal` — convenience HAL file
 - [x] `src/webapp/emccalib/` — Vue 3 web app
 - [x] Build integration: `configure.ac` (`--enable-emccalib`), `packages.conf.in`,
       `Submakefile` rules
-- [x] gmcui profile entry + `bin/emccalib` symlink
+- [x] stmakui profile entry + `bin/emccalib` symlink
 - [x] Sim config: `configs/sim/emccalib/` (3-axis servo sim with PID tunables)
 - [x] UI integration: axis, gmoccapy, gscreen, qtvcp, tklinuxcnc menus updated
 - [x] Old Tcl source removed (`tcl/bin/emccalib.tcl`)
@@ -2715,7 +2715,7 @@ The file is found via `HALLIB_PATH` resolution.
 - [ ] Logging/tracing
 - [ ] Performance optimization
 - [ ] Documentation
-- [x] Launcher REST server reads listen URL from INI file (`[GMC]REST_ADDR`, default `localhost:5080`)
+- [x] Launcher REST server reads listen URL from INI file (`[SERVER]REST_ADDR`, default `localhost:5080`)
 
 ## Step 7: Remove Go Plugins — Compile-In Architecture (COMPLETE)
 
@@ -2740,20 +2740,20 @@ natural Go approach.
 
 | Old | New | Reason |
 |-----|-----|--------|
-| `linuxcnc-launcher` | `gomc-server` | Reflects role: server process, not UI launcher |
-| `src/launcher/` | `src/gomc/` | Directory matches binary name |
+| `linuxcnc-launcher` | `stmakd` | Reflects role: server process, not UI launcher |
+| `src/launcher/` | `src/stmak/` | Directory matches binary name |
 | gomod (.so plugin) | gomod (compiled-in Go package) | Same name, but compiled in, not dynamic |
-| `pkg/gomodule/` | `pkg/gomc/` | Registration interface, no plugin machinery |
+| `pkg/gomodule/` | `pkg/stmak/` | Registration interface, no plugin machinery |
 | `gomodules.go` | registry lookup | No more `plugin.Open`, `loadGoPlugin` |
 | `gomod/*.so` | (nothing) | No more plugin .so files |
 | `gmicompile` (standalone) | `modcompile gmi` | Merged into unified tool |
-| `LAUNCHER_*` vars | `GOMC_*` vars | Consistent naming in Submakefile |
-| `EMC2LauncherDir` | `EMC2GomcDir` | Config field matches directory |
+| `LAUNCHER_*` vars | `STMAK_*` vars | Consistent naming in Submakefile |
+| `EMC2LauncherDir` | `EMC2StmakDir` | Config field matches directory |
 
 ### What Was Removed
 
 - `pkg/gomodule/gomodule.go` — Module interface, Factory type
-- `internal/gomc/gomodules.go` — `loadGoPlugin`, `resolveGoModulePath`, etc.
+- `internal/stmak/gomodules.go` — `loadGoPlugin`, `resolveGoModulePath`, etc.
 - `gomod/` directory — no more plugin .so outputs
 - `gomod/` top-level directory — stale build artifacts
 - `share/gomodule/` — stale share directory
@@ -2767,8 +2767,8 @@ natural Go approach.
 
 #### Server Source Layout (Implemented)
 
-The gomc module serves as both development tree and installable build directory.
-For RIP, `EMC2_GOMC_DIR` points to the source tree directly. For installed
+The stratuMAK module serves as both development tree and installable build directory.
+For RIP, `EMC2_STMAK_DIR` points to the source tree directly. For installed
 systems, the source is copied to a share directory.
 
 Runtime files (`go.mod`, `go.sum`, `packages.conf`, `imports_generated.go`) are
@@ -2776,14 +2776,14 @@ gitignored and auto-generated from tracked `.in` base files on fresh checkouts.
 This keeps the git tree clean after `add-gomod`/`rm-gomod` operations.
 
 ```
-src/gomc/                               # = EMC2_GOMC_DIR (RIP)
+src/stmak/                               # = EMC2_STMAK_DIR (RIP)
 ├── go.mod.in                           # Tracked base (no external deps)
 ├── go.mod                              # Runtime (gitignored, copied from .in or managed by modcompile)
 ├── go.sum                              # Runtime (gitignored)
 ├── packages.conf.in                    # Tracked base (core gmi + internal adsmodule)
 ├── packages.conf                       # Runtime (gitignored, managed by modcompile)
 ├── cmd/
-│   ├── gomc-server/
+│   ├── stmakd/
 │   │   ├── main.go
 │   │   └── imports_generated.go        # Generated blank imports (gitignored)
 │   ├── modcompile/                     # Unified tool
@@ -2804,14 +2804,14 @@ src/gomc/                               # = EMC2_GOMC_DIR (RIP)
 │   └── <name>/                         # Copied source + .origin marker, go.mod stripped
 ├── internal/
 │   ├── ads/                            # ads-server (moved in-tree, Phase 2)
-│   ├── adsmodule/                      # init() registers "ads-server" with gomc
+│   ├── adsmodule/                      # init() registers "ads-server" with stmak
 │   ├── apiserver/                      # REST server + registry
 │   ├── config/                         # Compile-time paths (injected via -ldflags -X)
-│   ├── gomc/                           # Server lifecycle
+│   ├── stmak/                           # Server lifecycle
 │   └── gmicompile/                     # .gmi codegen (parser + C/Go/Python generators)
 ├── pkg/
-│   ├── cmodule/                        # C module headers (gomc_*.h)
-│   ├── gomc/                           # Public registration: RegisterModule(), RegisterMeta()
+│   ├── cmodule/                        # C module headers (stmak_*.h)
+│   ├── stmak/                           # Public registration: RegisterModule(), RegisterMeta()
 │   ├── inifile/                        # INI file parser
 │   └── hal/                            # Go HAL bindings
 └── pkgreg/                             # Package registry reader/writer
@@ -2836,10 +2836,10 @@ also calls `ensureRuntimeFiles()` before any registry operation.
 # Format: TYPE IMPORT_PATH
 #
 # TYPE:
-#   gmi     — generated GMI dispatch package (compiled into gomc-server)
-#   gomod   — Go module compiled into gomc-server
+#   gmi     — generated GMI dispatch package (compiled into stmakd)
+#   gomod   — Go module compiled into stmakd
 #
-# IMPORT_PATH — relative path within the gomc module for blank import
+# IMPORT_PATH — relative path within the stmak module for blank import
 
 # Core GMI dispatch (generated, part of this module)
 gmi generated/gmi/kins
@@ -2865,15 +2865,15 @@ package main
 
 import (
     // GMI dispatch packages
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/kins"
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/tp"
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/home"
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/mot"
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/manualtoolchange"
-    _ "github.com/sittner/linuxcnc/src/gomc/generated/gmi/halcmd"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/kins"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/tp"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/home"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/mot"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/manualtoolchange"
+    _ "github.com/stratuMAK/stratumak/src/stmak/generated/gmi/halcmd"
 
     // Go modules
-    _ "github.com/sittner/linuxcnc/src/gomc/internal/adsmodule"
+    _ "github.com/stratuMAK/stratumak/src/stmak/internal/adsmodule"
 )
 ```
 
@@ -2895,7 +2895,7 @@ Build environment queries:
   --cmod-dir      Print cmod installation directory
   --include-dir   Print cmod include directory
   --go            Print Go binary path
-  --print-make-inc  Print Makefile include snippet (GOMC_DIR variable)
+  --print-make-inc  Print Makefile include snippet (STMAK_DIR variable)
 
 .comp compiler:
   --parse FILE         Parse .comp and dump AST (JSON)
@@ -2915,7 +2915,7 @@ GMI code generator:
 
 Package registry:
   list                 List registered packages from packages.conf
-  rebuild              Regenerate imports + rebuild gomc-server
+  rebuild              Regenerate imports + rebuild stmakd
   regenerate-imports   Regenerate imports_generated.go only (for Makefile use)
   add-gomod [-f] DIR   Copy external Go package and rebuild
   rm-gomod NAME        Remove external Go package and rebuild
@@ -2958,12 +2958,12 @@ Examples:
    run "go get <dep>@<version>" for remaining third-party deps
 6. Add "gomod external/<name>" to packages.conf
 7. Regenerate imports_generated.go
-8. Rebuild gomc-server binary
+8. Rebuild stmakd binary
 ```
 
 Key implementation details:
 - External packages' `go.mod` is **not** copied — the package becomes a
-  sub-directory of the gomc module, not a separate module
+  sub-directory of the stratuMAK module, not a separate module
 - Third-party dependencies are merged into the main `go.mod` via `go get`
 - Same-source reinstall is auto-detected via `.origin` file (no `--force` needed)
 - `dirMirror()` is a pure Go replacement for `rsync --delete`, avoiding
@@ -2976,7 +2976,7 @@ Key implementation details:
 2. Remove "gomod external/<name>" from packages.conf
 3. Regenerate imports_generated.go
 4. Run "go mod tidy" to clean up orphaned dependencies
-5. Rebuild gomc-server binary
+5. Rebuild stmakd binary
 ```
 
 #### `modcompile rebuild` Workflow
@@ -2984,7 +2984,7 @@ Key implementation details:
 ```
 1. Read packages.conf
 2. Regenerate imports_generated.go
-3. cd EMC2_GOMC_DIR && go build -ldflags "..." -o $BIN/gomc-server ./cmd/gomc-server/
+3. cd EMC2_STMAK_DIR && go build -ldflags "..." -o $BIN/stmakd ./cmd/stmakd/
 ```
 
 #### `modcompile regenerate-imports` Workflow
@@ -2997,64 +2997,64 @@ Key implementation details:
 This subcommand exists specifically for Makefile use to avoid a race condition:
 with parallel builds (`make -j8`), the `imports_generated.go` rule must not
 trigger a `go build` because GMI codegen targets may not have finished yet.
-The actual build is handled by the `../bin/gomc-server` Makefile target which
+The actual build is handled by the `../bin/stmakd` Makefile target which
 has proper GMI dependencies.
 
 ### Build System Integration (Implemented)
 
-#### Makefile (`gomc/Submakefile`)
+#### Makefile (`stmak/Submakefile`)
 
 ```makefile
 # Runtime files: .in → working copy (on fresh checkout)
-gomc/packages.conf: gomc/packages.conf.in
+stmak/packages.conf: stmak/packages.conf.in
     $(Q)test -f $@ || cp $< $@
 
-gomc/go.mod: gomc/go.mod.in $(wildcard gomc/external/*/go.deps)
+stmak/go.mod: stmak/go.mod.in $(wildcard stmak/external/*/go.deps)
     ...
-    $(Q)cd gomc && $(GO) mod download
+    $(Q)cd stmak && $(GO) mod download
 
 # imports_generated.go uses regenerate-imports (NOT rebuild) to avoid
 # race conditions with parallel builds — GMI codegen may still be running.
 # The generated GMI Go prerequisites ($(GMI_ALL_GEN_GO)) are injected from
 # gmi/codegen/Submakefile so codegen completes before regenerate-imports.
-$(IMPORTS_GENERATED): gomc/packages.conf ../bin/modcompile
+$(IMPORTS_GENERATED): stmak/packages.conf ../bin/modcompile
 
 # Hand-written Go sources only — no generated files (a parse-time wildcard over
-# gomc/generated/ would be empty on a fresh build).  filter-out excludes
+# stmak/generated/ would be empty on a fresh build).  filter-out excludes
 # imports_generated.go to break the circular dependency (modcompile →
-# GOMC_SRC_BASE → imports_generated → modcompile).  gomc/go.mod is deliberately
-# NOT listed here — it is order-only on each binary rule (see '| gomc/go.mod').
-GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/*.go) ...) \
-    gomc/go.mod.in
+# STMAK_SRC_BASE → imports_generated → modcompile).  stmak/go.mod is deliberately
+# NOT listed here — it is order-only on each binary rule (see '| stmak/go.mod').
+STMAK_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard stmak/*.go) ...) \
+    stmak/go.mod.in
 
-# gomc-server: hand-written sources + imports + libs.  Generated GMI Go files
+# stmakd: hand-written sources + imports + libs.  Generated GMI Go files
 # reach it via $(GMI_ALL_GEN_GO), injected from gmi/codegen/Submakefile.
-# go.mod is order-only ('| gomc/go.mod') so a -mod=mod rewrite of it never
+# go.mod is order-only ('| stmak/go.mod') so a -mod=mod rewrite of it never
 # forces a rebuild.
-../bin/gomc-server: $(GOMC_SRC_BASE) $(IMPORTS_GENERATED) \
+../bin/stmakd: $(STMAK_SRC_BASE) $(IMPORTS_GENERATED) \
                     ../lib/libposemath.so ../lib/librs274.so Makefile.inc \
-                    | gomc/go.mod
-    cd gomc && $(GOMC_CGOENV) $(GO) build -ldflags "$(GOMC_LDFLAGS)" \
-        -o $(TOP)/bin/gomc-server ./cmd/gomc-server
+                    | stmak/go.mod
+    cd stmak && $(STMAK_CGOENV) $(GO) build -ldflags "$(STMAK_LDFLAGS)" \
+        -o $(TOP)/bin/stmakd ./cmd/stmakd
 
 # Injected at the end of gmi/codegen/Submakefile (single source for the list):
 $(IMPORTS_GENERATED): $(GMI_ALL_GEN_GO)
-../bin/gomc-server:   $(GMI_ALL_GEN_GO)
+../bin/stmakd:   $(GMI_ALL_GEN_GO)
 ```
 
 Key Makefile design decisions:
-- **`gomc/go.mod` order-only (`| gomc/go.mod`)**: `GOFLAGS=-mod=mod` may rewrite
+- **`stmak/go.mod` order-only (`| stmak/go.mod`)**: `GOFLAGS=-mod=mod` may rewrite
   go.mod on the fly; making it order-only means a bumped mtime never rebuilds a
   binary (which would cascade a modcompile rebuild through every module and GMI
-  header). `gomc/go.mod.in` (the tracked spec) stays a normal prerequisite.
+  header). `stmak/go.mod.in` (the tracked spec) stays a normal prerequisite.
 - **`filter-out` for `IMPORTS_GENERATED`**: Breaks circular dependency where
-  modcompile → GOMC_SRC_BASE → imports_generated → modcompile
+  modcompile → STMAK_SRC_BASE → imports_generated → modcompile
 - **`GMI_ALL_GEN_GO` injected from `gmi/codegen/Submakefile`**: The generated
   GMI Go files are accumulated next to each codegen rule and injected as extra
-  prerequisites of `imports_generated.go` and `gomc-server` — single source, no
-  hand-mirrored list in `gomc/Submakefile`
+  prerequisites of `imports_generated.go` and `stmakd` — single source, no
+  hand-mirrored list in `stmak/Submakefile`
 - **`regenerate-imports` not `rebuild`**: The Makefile rule only generates the
-  imports file, not the binary. The `../bin/gomc-server` target handles the
+  imports file, not the binary. The `../bin/stmakd` target handles the
   actual build with proper prerequisite ordering
 
 #### Environment Variables
@@ -3063,37 +3063,37 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 
 | Variable | RIP Value | Installed Value |
 |----------|-----------|-----------------|
-| `EMC2_GOMC_DIR` | `$EMC2_HOME/src/gomc` | `$prefix/share/linuxcnc/gomc` |
-| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/linuxcnc/cmod` |
+| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/stratumak/stmak` |
+| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/stratumak/cmod` |
 
-#### Submakefile Variables (GOMC_* namespace)
+#### Submakefile Variables (STMAK_* namespace)
 
 | Variable | Purpose |
 |----------|---------|
-| `GOMC_LDFLAGS_PKG` | Go package path for `-ldflags -X` injection |
-| `EMC2_GOMC_DIR` | Install destination for gomc source tree |
-| `GOMC_LDFLAGS` | All `-X` flags for compile-time config |
-| `GOMC_SRC_BASE` | Hand-written Go sources + `go.mod.in` (no generated files) |
-| `GMI_ALL_GEN_GO` | All generated GMI Go files; injected as prerequisites of `imports_generated.go` and `gomc-server` (defined in `gmi/codegen/Submakefile`) |
-| `GOMC_PKG_FILES` | Public package files copied to `share/` for RIP |
+| `STMAK_LDFLAGS_PKG` | Go package path for `-ldflags -X` injection |
+| `EMC2_STMAK_DIR` | Install destination for stratuMAK source tree |
+| `STMAK_LDFLAGS` | All `-X` flags for compile-time config |
+| `STMAK_SRC_BASE` | Hand-written Go sources + `go.mod.in` (no generated files) |
+| `GMI_ALL_GEN_GO` | All generated GMI Go files; injected as prerequisites of `imports_generated.go` and `stmakd` (defined in `gmi/codegen/Submakefile`) |
+| `STMAK_PKG_FILES` | Public package files copied to `share/` for RIP |
 
 Set by `scripts/rip-environment` (RIP) or read from installed paths:
 
 | Variable | RIP Value | Installed Value |
 |----------|-----------|-----------------|
-| `EMC2_GOMC_DIR` | `$EMC2_HOME/src/gomc` | `$prefix/share/linuxcnc/gomc` |
-| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/linuxcnc/cmod` |
+| `EMC2_STMAK_DIR` | `$EMC2_HOME/src/stmak` | `$prefix/share/stratumak/stmak` |
+| `EMC2_CMOD_DIR` | `$EMC2_HOME/cmod` | `$prefix/lib/stratumak/cmod` |
 
 ### Migration Phases (All Complete)
 
 #### Phase 1: Rename + Remove Plugin Infrastructure ✅
 
-- Renamed `linuxcnc-launcher` binary to `gomc-server` (scripts, Submakefile, docs)
-- Renamed `src/launcher/` directory to `src/gomc/`
-- Renamed all `LAUNCHER_*` Submakefile variables to `GOMC_*`
-- Renamed `EMC2LauncherDir` config field to `EMC2GomcDir`
-- Created `pkg/gomc/gomc.go` — registration interface (`RegisterModule`, `GetFactory`, `HasModule`)
-- Replaced `plugin.Open` with `pkg/gomc` registry lookup in `gomodules.go`
+- Renamed `linuxcnc-launcher` binary to `stmakd` (scripts, Submakefile, docs)
+- Renamed `src/launcher/` directory to `src/stmak/`
+- Renamed all `LAUNCHER_*` Submakefile variables to `STMAK_*`
+- Renamed `EMC2LauncherDir` config field to `EMC2StmakDir`
+- Created `pkg/stmak/stmak.go` — registration interface (`RegisterModule`, `GetFactory`, `HasModule`)
+- Replaced `plugin.Open` with `pkg/stmak` registry lookup in `gomodules.go`
 - Removed `-buildmode=plugin` build rules
 - Removed `EMC2_GOMOD_DIR` from config
 
@@ -3102,7 +3102,7 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 - Moved `hal/proto/ads-server/` → `internal/ads/`, `internal/adsbridge/`, `internal/adsconfig/`
 - Created `internal/adsmodule/module.go` with `init()` that registers "ads-server" factory
 - Removed ads-server's separate `go.mod` and `go.work`
-- Blank import in `cmd/gomc-server/main.go` triggers registration
+- Blank import in `cmd/stmakd/main.go` triggers registration
 
 #### Phase 3: Package Registry ✅
 
@@ -3123,9 +3123,9 @@ Set by `scripts/rip-environment` (RIP) or read from installed paths:
 
 #### Phase 5: Installed Build Support ✅
 
-- `modcompile` uses `EMC2GomcDir` (injected via `-ldflags`) for all paths
-- `--gomc-dir` CLI flag with `--launcher-dir` backward compat alias
-- `--print-make-inc` emits `GOMC_DIR` variable for external Makefiles
+- `modcompile` uses `EMC2StmakDir` (injected via `-ldflags`) for all paths
+- `--stmak-dir` CLI flag with `--launcher-dir` backward compat alias
+- `--print-make-inc` emits `STMAK_DIR` variable for external Makefiles
 - Compile-time config propagated to rebuilt binaries via `-ldflags -X`
 
 ### Implementation Findings
@@ -3136,7 +3136,7 @@ original design.
 #### go.work Was Not Needed
 
 The original design called for a `go.work` file to give external packages access
-to the gomc module. In practice, `go.work` was unnecessary because:
+to the stratuMAK module. In practice, `go.work` was unnecessary because:
 - External packages are copied into `external/<name>/` inside the module tree
 - Their `go.mod` is stripped — they become regular sub-packages of the module
 - Third-party dependencies are merged into the main `go.mod` via `go get`
@@ -3147,23 +3147,23 @@ from working normally).
 #### Parallel Build Race Condition
 
 With `make -j8`, the `imports_generated.go` rule originally called
-`modcompile rebuild` which triggered `go build ./cmd/gomc-server`. This raced
+`modcompile rebuild` which triggered `go build ./cmd/stmakd`. This raced
 with GMI codegen targets — `go build` would fail because generated packages
 (like `generated/gmi/tp`) didn't exist yet.
 
 **Fix**: Split into `regenerate-imports` (file generation only, used by Makefile)
 and `rebuild` (generation + build, used interactively). The Makefile's
-`../bin/gomc-server` target has explicit GMI prerequisites and handles the build.
+`../bin/stmakd` target has explicit GMI prerequisites and handles the build.
 
 #### Circular Makefile Dependencies
 
-`GOMC_SRC_BASE` uses `$(wildcard gomc/cmd/*/*.go)` which, after the first build,
+`STMAK_SRC_BASE` uses `$(wildcard stmak/cmd/*/*.go)` which, after the first build,
 picks up `imports_generated.go`. This creates a cycle:
-`modcompile` → `GOMC_SRC_BASE` → `imports_generated.go` → `modcompile`.
+`modcompile` → `STMAK_SRC_BASE` → `imports_generated.go` → `modcompile`.
 
-**Fix**: Define `IMPORTS_GENERATED` before `GOMC_SRC_BASE` and filter it out:
+**Fix**: Define `IMPORTS_GENERATED` before `STMAK_SRC_BASE` and filter it out:
 ```makefile
-GOMC_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard gomc/cmd/*/*.go) ...) ...
+STMAK_SRC_BASE := $(filter-out $(IMPORTS_GENERATED),$(wildcard stmak/cmd/*/*.go) ...) ...
 ```
 
 #### Git Dirty State from Runtime Files
@@ -3181,7 +3181,7 @@ meant the git tree was always dirty after external module operations.
 
 #### External Package go.mod Stripping
 
-External packages can't keep their own `go.mod` inside the gomc module tree —
+External packages can't keep their own `go.mod` inside the stratuMAK module tree —
 Go would treat them as separate modules. Instead:
 - `dirMirror()` copies everything except `go.mod` and `go.sum`
 - Third-party dependencies are extracted from the external `go.mod` via
@@ -3195,39 +3195,39 @@ The `.in` → runtime copy rules use `test -f $@ || cp $< $@` rather than plain
 overwritten on subsequent `make` invocations — the copy only happens when the
 file doesn't exist at all.
 
-#### modcompile Path After `cd gomc`
+#### modcompile Path After `cd stmak`
 
-Submakefile rules that `cd gomc` before running commands need `$(TOP)/bin/modcompile`
+Submakefile rules that `cd stmak` before running commands need `$(TOP)/bin/modcompile`
 (absolute path), not `../bin/modcompile` (which resolves relative to the new CWD,
 giving `src/bin/modcompile` which doesn't exist).
 
 ### Go Package Requirements for `add-gomod` (Implemented)
 
 External Go packages must follow these conventions to be compiled into
-gomc-server:
+stmakd:
 
 1. **`go.mod`** at package root with proper module path
 2. **`init()` function** that registers the package with the server via
-   `gomc.RegisterModule(name, factory)` — the factory returns a `gomc.Module`
+   `stmak.RegisterModule(name, factory)` — the factory returns a `stmak.Module`
    with Start/Stop/Cleanup lifecycle hooks
 3. **No `main` package** — the package is imported, not executed
-4. **Compatible dependencies** — must build with the gomc module's Go version
+4. **Compatible dependencies** — must build with the stratuMAK module's Go version
 
 Example minimal gomod:
 
 ```go
 package mymodule
 
-import "github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
+import "github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 
 func init() {
-    gomc.RegisterModule("mymodule", func(cfg gomc.ModuleConfig) (gomc.Module, error) {
+    stmak.RegisterModule("mymodule", func(cfg stmak.ModuleConfig) (stmak.Module, error) {
         return &myModule{cfg: cfg}, nil
     })
 }
 
 type myModule struct {
-    cfg gomc.ModuleConfig
+    cfg stmak.ModuleConfig
 }
 
 func (m *myModule) Start() error { /* ... */ return nil }
@@ -3235,23 +3235,23 @@ func (m *myModule) Stop()        { /* ... */ }
 func (m *myModule) Cleanup()     { /* ... */ }
 ```
 
-The `gomc-stub/` directory pattern (from `go-comp-template`) provides local
-development with a stub `pkg/gomc` so the package can be developed independently
-and only needs the real gomc module when compiled into gomc-server.
+The `stmak-stub/` directory pattern (from `go-comp-template`) provides local
+development with a stub `pkg/stmak` so the package can be developed independently
+and only needs the real stratuMAK module when compiled into stmakd.
 
 #### External Makefile Integration
 
-External packages use `modcompile --print-make-inc` to get the `GOMC_DIR` variable:
+External packages use `modcompile --print-make-inc` to get the `STMAK_DIR` variable:
 
 ```makefile
 $(eval $(shell modcompile --print-make-inc))
-# Now GOMC_DIR is set to the gomc source directory
+# Now STMAK_DIR is set to the stmak source directory
 
 install:
-    cd $(GOMC_DIR) && $(GOMC_DIR)/../bin/modcompile add-gomod $(CURDIR)
+    cd $(STMAK_DIR) && $(STMAK_DIR)/../bin/modcompile add-gomod $(CURDIR)
 
 uninstall:
-    cd $(GOMC_DIR) && $(GOMC_DIR)/../bin/modcompile rm-gomod $(notdir $(CURDIR))
+    cd $(STMAK_DIR) && $(STMAK_DIR)/../bin/modcompile rm-gomod $(notdir $(CURDIR))
 ```
 
 ### Configure Support for In-Tree Gomods
@@ -3265,7 +3265,7 @@ In-tree Go modules (like ads-server) should be selectable at configure time:
 
 Configure writes the selection to a config file. The build system reads it to
 determine which in-tree gomods are added to `packages.conf` and compiled into
-gomc-server. This mirrors how optional C components (e.g., `--enable-pncconf`)
+stmakd. This mirrors how optional C components (e.g., `--enable-pncconf`)
 work today.
 
 ### Dependency Conflicts Between External Go Packages
@@ -3303,8 +3303,8 @@ dependency will fail at build time."*
 2. ~~**Hot reload**: Can APIs be re-registered while running?~~ **Resolved**: No, lookup at startup only
 3. ~~**Timeout handling**: Per-call timeouts? Global?~~ **Resolved**: No function timeouts, only HTTP transport
 4. ~~**Error codes**: Standardize across Go/C boundary?~~ **Resolved**: errno for inter-module callbacks, GMI_ERR_* for client library
-5. ~~**apiserver visibility**: Should `apiserver` move to `pkg/` for external Go packages, or use a thin `pkg/` registration interface?~~ **Resolved**: Thin `pkg/gomc` registration interface. External packages import `pkg/gomc` for types (`APIMeta`, `FuncMeta`, `RegisterMeta()`) + lifecycle hooks (`RegisterModule()`). `internal/apiserver` stays internal.
-6. ~~**Module lifecycle for gomods**: External Go packages may need Start/Stop lifecycle (like ads-server). Define a registration mechanism in `pkg/` similar to the old `gomodule.Module` but without the plugin baggage?~~ **Resolved**: Mirror the cmod lifecycle. `pkg/gomc.RegisterModule()` registers Start/Stop/Cleanup hooks. The gomc-server calls these at the same lifecycle points it calls cmod equivalents. No plugin.Open — just init()-time registry lookup.
+5. ~~**apiserver visibility**: Should `apiserver` move to `pkg/` for external Go packages, or use a thin `pkg/` registration interface?~~ **Resolved**: Thin `pkg/stmak` registration interface. External packages import `pkg/stmak` for types (`APIMeta`, `FuncMeta`, `RegisterMeta()`) + lifecycle hooks (`RegisterModule()`). `internal/apiserver` stays internal.
+6. ~~**Module lifecycle for gomods**: External Go packages may need Start/Stop lifecycle (like ads-server). Define a registration mechanism in `pkg/` similar to the old `gomodule.Module` but without the plugin baggage?~~ **Resolved**: Mirror the cmod lifecycle. `pkg/stmak.RegisterModule()` registers Start/Stop/Cleanup hooks. The stmakd calls these at the same lifecycle points it calls cmod equivalents. No plugin.Open — just init()-time registry lookup.
 
 ## Design Decisions
 
@@ -3313,8 +3313,8 @@ dependency will fail at build time."*
 API lookup happens during module initialization, not at function call time:
 
 ```c
-// In cmod init function (receives gomc_api_t* from launcher):
-int my_module_init(const gomc_api_t *api) {
+// In cmod init function (receives stmak_api_t* from launcher):
+int my_module_init(const stmak_api_t *api) {
     // Lookup happens here - fails fast if API unavailable or version mismatch
     // Returns opaque pointer, cast to typed callbacks struct
     kins_api = kins_api_get(api, "default");  // wrapper for api->get_api()
@@ -3342,9 +3342,9 @@ int rc = kins_api->forward(joints, &pose, fflags, &iflags);
 Exact version match required at lookup time:
 
 ```c
-// Generated wrapper in <api>_api.h calls through gomc_api_t:
+// Generated wrapper in <api>_api.h calls through stmak_api_t:
 static inline const kins_callbacks_t *kins_api_get(
-    const gomc_api_t *api,
+    const stmak_api_t *api,
     const char *instance_name)
 {
     return (const kins_callbacks_t *)api->get_api(

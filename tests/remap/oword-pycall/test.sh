@@ -1,13 +1,13 @@
 #!/bin/bash
-# Re-expression of the classic Python remap/oword-pycall test on gomc.
+# Re-expression of the classic Python remap/oword-pycall test on stmak.
 # C interp_ext O-words o<square>/o<multiply> are called via MDI.  The second
 # multiply feeds the previous call's #<_value> back in as an argument, so its
 # logged args prove the return value round-tripped into the interpreter.
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server test.ini
-gomc_wait_ready
+stmak_start_server test.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

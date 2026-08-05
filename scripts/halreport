@@ -10,7 +10,7 @@ HAL topology and thread timing, machine state, and logs.
 
 It runs ON the machine, because half of what matters (kernel, distro, INI and
 HAL files, journal) is not reachable over REST. It talks to a running
-gomc-server for the other half, and degrades to the host-only sections when no
+stmakd for the other half, and degrades to the host-only sections when no
 server is up -- a machine that will not start is exactly when a report is
 wanted.
 
@@ -24,7 +24,7 @@ Usage:
     --no-program      do not attach the loaded part program (OPEN_FILE)
     --journal-lines N journal lines to capture (default 2000)
 
-Environment: GMC_REST_URL (default http://127.0.0.1:5080), GMC_INSTANCE.
+Environment: STMAK_REST_URL (default http://127.0.0.1:5080), STMAK_TASK_INSTANCE.
 """
 
 import argparse
@@ -78,7 +78,7 @@ def run(cmd, timeout=15):
 
 
 def rest_url():
-    return os.environ.get("GMC_REST_URL", "http://127.0.0.1:5080").rstrip("/")
+    return os.environ.get("STMAK_REST_URL", "http://127.0.0.1:5080").rstrip("/")
 
 
 def display_url():
@@ -92,7 +92,7 @@ def display_url():
 
 
 def instance():
-    return os.environ.get("GMC_INSTANCE", "milltask")
+    return os.environ.get("STMAK_TASK_INSTANCE", "milltask")
 
 
 def get_json(path):
@@ -177,8 +177,8 @@ def sec_report(rep):
 def sec_version(rep):
     rep.section("VERSION")
     rep.kv("LINUXCNCVERSION", os.environ.get("LINUXCNCVERSION", "<unset>"))
-    exe = shutil.which("gomc-server")
-    rep.kv("gomc-server", exe or "<not on PATH>")
+    exe = shutil.which("stmakd")
+    rep.kv("stmakd", exe or "<not on PATH>")
     top = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     vfile = os.path.join(top, "VERSION")
     if os.path.exists(vfile):
@@ -223,10 +223,10 @@ def sec_host(rep):
     # memlock matters: the RT path prefaults and locks its memory. The limits
     # that count are the server process's own -- under systemd they routinely
     # differ from any interactive shell's.
-    rc, pids = run_rc(["pgrep", "-x", "gomc-server"])
+    rc, pids = run_rc(["pgrep", "-x", "stmakd"])
     if rc == 0 and pids.split():
         pid = pids.split()[0]
-        label = "\ngomc-server limits (/proc/%s/limits%s):" % (
+        label = "\nstmakd limits (/proc/%s/limits%s):" % (
             pid, "" if len(pids.split()) == 1
             else ", first of %d processes" % len(pids.split()))
         try:
@@ -238,7 +238,7 @@ def sec_host(rep):
             rep.text("<unreadable: %s>" % e)
     else:
         rep.text("\nProcess limits (ulimit -a of this shell; no running "
-                 "gomc-server to read /proc/<pid>/limits from):")
+                 "stmakd to read /proc/<pid>/limits from):")
         rep.text(run(["sh", "-c", "ulimit -a"]))
 
 
@@ -248,7 +248,7 @@ def sec_server(rep):
     if err:
         rep.kv("state", "NOT REACHABLE (%s)" % err)
         rep.note("the host sections are still valid; every section below needs "
-                 "a running gomc-server")
+                 "a running stmakd")
         return False
     rep.kv("state", "reachable")
     rep.text(json.dumps(status, indent=2))
@@ -435,20 +435,20 @@ def sec_hal(rep):
 
 def sec_logs(rep, args, tmpdir):
     rep.section("LOGS")
-    # A daemonised gomc-server logs to syslog with the identifier "gomc-server"
+    # A daemonised stmakd logs to syslog with the identifier "stmakd"
     # (internal/daemon/syslog.go). In the foreground it writes to stdout/stderr,
     # wherever the operator redirected them, which this tool cannot know.
-    rc, out = run_rc(["journalctl", "-t", "gomc-server",
+    rc, out = run_rc(["journalctl", "-t", "stmakd",
                       "-n", str(args.journal_lines), "--no-pager"], timeout=60)
     if rc is None:
-        rep.kv("journal -t gomc-server", out)
+        rep.kv("journal -t stmakd", out)
     else:
-        path = os.path.join(tmpdir, "gomc-server.journal")
+        path = os.path.join(tmpdir, "stmakd.journal")
         with open(path, "w") as f:
             f.write(out + "\n")
-        rep.attach("logs/gomc-server.journal", path)
+        rep.attach("logs/stmakd.journal", path)
         lines = out.count("\n") + 1 if out else 0
-        rep.kv("journal -t gomc-server",
+        rep.kv("journal -t stmakd",
                "%d lines" % lines + ("" if rc == 0 else "  (journalctl exit %d)" % rc))
         rep.note("empty can mean the server was not started with -D (foreground "
                  "output goes wherever the operator redirected it), or that this "

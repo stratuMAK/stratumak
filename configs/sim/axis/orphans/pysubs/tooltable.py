@@ -113,7 +113,7 @@ class EmcToolTable(object):
         if an entry was parsed successfully, return a  Tool() instance
         """
         line.rstrip("\n")
-        if re.match('\A\s*T\d+',line):
+        if re.match(r'\A\s*T\d+',line):
             semi = line.find(";")
             if semi != -1:
                 comment = line[semi+1:]
@@ -122,7 +122,7 @@ class EmcToolTable(object):
             entry = line.split(';')[0]
             result = dict()
             for field in entry.split():
-                (name,value)  = re.search('([a-zA-Z])([+-]?\d*\.?\d*)',field).groups()
+                (name,value)  = re.search(r'([a-zA-Z])([+-]?\d*\.?\d*)',field).groups()
                 if name:
                     key = name.upper()
                     result[key] = EmcToolTable.ttype[key](value)

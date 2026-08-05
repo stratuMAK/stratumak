@@ -4,18 +4,18 @@
 # in test-ui.py) is silently swallowed.
 set -e
 
-# gomc full-instance test: milltask -> motion-logger interceptor -> real motmod.
+# stratuMAK full-instance test: milltask -> motion-logger interceptor -> real motmod.
 # The interceptor logs the motctl command stream to out.motion-logger; the driver
 # slices it per sub-test and diffs against expected.*.
 
-. "$(dirname "$0")/../../gomc-driver.sh"
+. "$(dirname "$0")/../../stmak-driver.sh"
 
 rm -f out.motion-logger* result.*
 
-gomc-server -r test.ini &
+stmakd -r test.ini &
 SRV=$!
-GOMC_SRV=$SRV
-export GOMC_SRV
+STMAK_SRV=$SRV
+export STMAK_SRV
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 
 # Wait for milltask to be up, serving, and initialised. test-ui.py goes straight
@@ -23,6 +23,6 @@ trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 # `grep milltask` loop had no failure branch (on expiry the test ran against a
 # dead server) and its trailing `sleep 0.5` guessed at task init instead of
 # asking the status buffer.
-gomc_wait_ready
+stmak_wait_ready
 
 ./test-ui.py

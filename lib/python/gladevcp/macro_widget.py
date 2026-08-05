@@ -55,12 +55,12 @@ class MacroSelect(Gtk.Box, _EMC_ActionBase):
             self.ini = linuxcnc.ini(inifile)
             no_home_required = int(self.ini.find("TRAJ", "NO_FORCE_HOMING") or 0)
             macros =  self.inifile.findall("MACROS", "MACRO")
-            sub_path = self.inifile.find("RS274NGC", "SUBROUTINE_PATH")or '~/linuxcnc/nc_files/macros'
+            sub_path = self.inifile.find("RS274NGC", "SUBROUTINE_PATH")or '~/stratumak/nc_files/macros'
         except:
             self.ini = None
             no_home_required = 1
             macros = None
-            sub_path = '~/linuxcnc/nc_files/macros'
+            sub_path = '~/stratumak/nc_files/macros'
 
         print("\nSELF.INI", self.ini,"\n")
 

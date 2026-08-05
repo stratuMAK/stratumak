@@ -35,7 +35,7 @@
 
 #include <modbus.h>
 
-#include "gomc/pkg/cmodule/gomc_env.h"
+#include "stmak/pkg/cmodule/stmak_env.h"
 
 #define MB2HAL_MAX_LINKS            32
 #define MB2HAL_MAX_DEVICE_LENGTH    32
@@ -77,19 +77,19 @@ typedef enum { retOK, retOKwithWarning, retERR
 // Logging macros — route through the cmod env callbacks.
 // Each takes a module pointer as the first argument.
 #define ERR(m, debug, fmt, args...) do { if((debug) >= debugERR) { \
-    gomc_log_errorf((m)->env->log, (m)->name, "%s ERR: " fmt, fnct_name, ## args); \
+    stmak_log_errorf((m)->env->log, (m)->name, "%s ERR: " fmt, fnct_name, ## args); \
     } } while(0)
 
 #define OK(m, debug, fmt, args...) do { if((debug) >= debugOK) { \
-    gomc_log_infof((m)->env->log, (m)->name, "%s OK: " fmt, fnct_name, ## args); \
+    stmak_log_infof((m)->env->log, (m)->name, "%s OK: " fmt, fnct_name, ## args); \
     } } while(0)
 
 #define DBG(m, debug, fmt, args...) do { if((debug) >= debugDEBUG) { \
-    gomc_log_debugf((m)->env->log, (m)->name, "%s DEBUG: " fmt, fnct_name, ## args); \
+    stmak_log_debugf((m)->env->log, (m)->name, "%s DEBUG: " fmt, fnct_name, ## args); \
     } } while(0)
 
 #define DBGMAX(m, debug, fmt, args...) do { if((debug) >= debugMAX) { \
-    gomc_log_debugf((m)->env->log, (m)->name, "%s DEBUGMAX: " fmt, fnct_name, ## args); \
+    stmak_log_debugf((m)->env->log, (m)->name, "%s DEBUGMAX: " fmt, fnct_name, ## args); \
     } } while(0)
 
 //Modbus transaction structure (mb_tx_t)
@@ -132,12 +132,12 @@ typedef struct {
     double next_time;      //next time for this tx
     double last_time_ok;   //last OK tx time
     //HAL related params
-    char hal_tx_name[GOMC_HAL_NAME_LEN + 1];
-    gomc_hal_float_t **float_value;
-    gomc_hal_s32_t **int_value;
-    gomc_hal_bit_t **bit;
-    gomc_hal_bit_t **bit_inv;
-    gomc_hal_u32_t **num_errors;     //num of acummulated errors (0=last tx OK)
+    char hal_tx_name[STMAK_HAL_NAME_LEN + 1];
+    stmak_hal_float_t **float_value;
+    stmak_hal_s32_t **int_value;
+    stmak_hal_bit_t **bit;
+    stmak_hal_bit_t **bit_inv;
+    stmak_hal_u32_t **num_errors;     //num of acummulated errors (0=last tx OK)
 } mb_tx_t;
 
 //Modbus link structure (mb_link_t)

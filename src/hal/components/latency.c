@@ -53,7 +53,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "latency_api.h"
 #include "latency_ring.h"
 #include "latency_hist.h"
@@ -84,7 +84,7 @@ typedef struct {
     volatile uint32_t *period_ns;   // OUT: nominal thread period
     volatile unsigned *reset;       // IN:  while true, clear stats + re-baseline
 
-    const gomc_rtapi_t *rtapi;      // cached for get_time() in the RT path
+    const stmak_rtapi_t *rtapi;      // cached for get_time() in the RT path
     int64_t  last;                  // previous timestamp
     int      have_last;             // false until the first timestamp is taken
     int32_t  min_v;                 // running min latency
@@ -410,7 +410,7 @@ static bool gmi_latency_reset(void *ctx) {
 
 static void latency_destroy(cmod_t *self) {
     latency_priv_t *priv = (latency_priv_t *)self->priv;
-    const gomc_rtapi_t *rtapi = priv->env.rtapi;
+    const stmak_rtapi_t *rtapi = priv->env.rtapi;
 
     if (priv->io_running) {
         priv->io_stop = 1;
@@ -469,15 +469,15 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -EINVAL;
     }
     if (!env->rtapi) {
-        gomc_log_errorf(env->log, name, "RTAPI not available (need get_time)");
+        stmak_log_errorf(env->log, name, "RTAPI not available (need get_time)");
         return -EINVAL;
     }
     if (!env->api) {
-        gomc_log_errorf(env->log, name, "API registry not available");
+        stmak_log_errorf(env->log, name, "API registry not available");
         return -EINVAL;
     }
 
@@ -503,7 +503,7 @@ int New(const cmod_env_t *env, const char *name,
         return -ENOMEM;
     }
     if (lat_ring_init(&inst->ring, ringbuf, cap) != 0) {
-        gomc_log_errorf(env->log, name, "ring init failed (cap=%u)", cap);
+        stmak_log_errorf(env->log, name, "ring init failed (cap=%u)", cap);
         env->rtapi->free(env->rtapi->ctx, ringbuf);
         env->rtapi->free(env->rtapi->ctx, priv);
         return -EINVAL;
@@ -533,36 +533,36 @@ int New(const cmod_env_t *env, const char *name,
     pthread_mutex_init(&priv->lock, NULL);
 
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        gomc_log_errorf(env->log, name, "hal_init failed");
+        stmak_log_errorf(env->log, name, "hal_init failed");
         retval = -1;
         goto fail;
     }
 
     // Create pins.
-    if ((retval = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT,
             &inst->interval,   priv->comp_id, "%s.interval",   name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT,
             &inst->latency,    priv->comp_id, "%s.latency",    name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT,
             &inst->lat_min,    priv->comp_id, "%s.min",        name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT,
             &inst->lat_max,    priv->comp_id, "%s.max",        name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT,
             &inst->max_jitter, priv->comp_id, "%s.max-jitter", name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT,
             &inst->samples,    priv->comp_id, "%s.samples",    name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT,
+    if ((retval = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT,
             &inst->period_ns,  priv->comp_id, "%s.period",     name)) != 0) goto fail;
-    if ((retval = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN,
+    if ((retval = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN,
             &inst->reset,      priv->comp_id, "%s.reset",      name)) != 0) goto fail;
 
     // Export the RT function (integer-only -> no FP, may run on a nofp thread).
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     latency_funct, inst, 0, 0, priv->comp_id);
     if (retval < 0) {
-        gomc_log_errorf(env->log, name, "function export failed");
+        stmak_log_errorf(env->log, name, "function export failed");
         goto fail;
     }
 
@@ -571,7 +571,7 @@ int New(const cmod_env_t *env, const char *name,
     // Start the non-RT drainer.
     priv->io_stop = 0;
     if (pthread_create(&priv->io_tid, NULL, drain_thread, priv) != 0) {
-        gomc_log_errorf(env->log, name, "pthread_create failed");
+        stmak_log_errorf(env->log, name, "pthread_create failed");
         retval = -1;
         goto fail;
     }
@@ -583,7 +583,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->cb.ctx = priv;
     retval = latency_api_register(env->api, name, &priv->cb);
     if (retval != 0) {
-        gomc_log_errorf(env->log, name, "api register failed: %d", retval);
+        stmak_log_errorf(env->log, name, "api register failed: %d", retval);
         goto fail;
     }
 

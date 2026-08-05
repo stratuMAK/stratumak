@@ -4,12 +4,12 @@
 `internal/halrest` (~659), `internal/inirest` (~87), `internal/mqttbridge` (~861),
 `internal/halscope` (~1035). Phases 4–6 per `PRODUCTION_READINESS.md`. Reviewed together
 because they share one lens: **untrusted-wire allocation/panic → controller death** (the risk
-class the ADS review surfaced — see `gomc-review-learnings` #5) plus goroutine/lifecycle safety.
+class the ADS review surfaced — see `stmak-review-learnings` #5) plus goroutine/lifecycle safety.
 
 **Exposure:** the REST/WS server binds `127.0.0.1:5080` by default but a deployment can set
-`GMC_REST_ADDR` / `[GMC]REST_ADDR` to `0.0.0.0` for a remote HMI. Crucially, the **cross-site
+`STMAK_REST_ADDR` / `[SERVER]REST_ADDR` to `0.0.0.0` for a remote HMI. Crucially, the **cross-site
 WebSocket hijack (N1) works even on the loopback default** — a browser tab is enough. A crash of
-`gomc-server` is an uncontrolled machine stop.
+`stmakd` is an uncontrolled machine stop.
 
 **Method (Tier-2 adversarial):** primary read-through + two independent refutation passes (one on
 `apiserver`, one on `halrest`/`inirest`/`mqttbridge`); `halscope` read directly. Cross-checked
@@ -32,7 +32,7 @@ only sets the ignored `Origin` header), so **any page open in the operator's bro
 not help, and DNS-rebinding defeats it too. This is the previously-flagged API1 ("tighten in
 production"), never enforced. **Fix:** removed `InsecureSkipVerify`; empty `OriginPatterns` now
 means same-origin only (secure default — the bundled UI is same-origin, so it is unaffected). A
-cross-origin HMI opts in via `GMC_REST_ORIGINS` / `[GMC]REST_ORIGINS` (comma-separated;
+cross-origin HMI opts in via `STMAK_REST_ORIGINS` / `[SERVER]REST_ORIGINS` (comma-separated;
 `Server.SetWSOriginPatterns`; `*` allows any origin). Regression test `TestWatchOriginCheck`.
 
 ### N2 — Panic in a spawned push goroutine crashes the whole controller
@@ -72,7 +72,7 @@ governed by these two).
 
 `/debug/pprof/*` was always mounted, no auth: `profile` is a repeatable 30 s CPU-profile DoS, and
 `heap`/`cmdline` leak memory layout, argv, and config — directly reachable if bound `0.0.0.0`.
-**Fix:** pprof now mounts only when `GMC_REST_PPROF=1` (opt-in), keeping it available for field
+**Fix:** pprof now mounts only when `STMAK_REST_PPROF=1` (opt-in), keeping it available for field
 debugging without exposing it by default.
 
 ### N6 — halrest load/unload REST surface reaches the launcher L-3 data race
@@ -84,7 +84,7 @@ debugging without exposing it by default.
 REST calls race each other, since every `net/http` request is its own goroutine) → torn slice /
 double-`dlclose` / UAF. halrest itself adds no unsafe allocation — the danger is purely the
 unlocked launcher state. **This is exactly the open Tier-1 launcher finding L-3**; the fix (a
-locking design that avoids the `gomc_ini_get` `//export` re-entrancy deadlock) belongs there, not
+locking design that avoids the `stmak_ini_get` `//export` re-entrancy deadlock) belongs there, not
 in halrest. Recorded here as confirmation that the REST surface makes L-3 remotely reachable.
 **RESOLVED 2026-07-22 (bookkeeping; the fix landed 2026-07-21).** The full locking fix is in the
 launcher — `arenaMu` around the arena append/free, `modMu` serialising `loadModuleNamed`/
@@ -95,7 +95,7 @@ gate returning `ESHUTDOWN` to stragglers; mutation-verified by `-race` `TestLoad
 **RULING 2026-07-21 (user): runtime REST load/unload IS a supported production path**, so L-3
 gets the FULL locking fix (`arenaMu` around the arena append/free + `modMu` serialising the REST
 handlers, snapshot-under-lock in the shutdown iterators) — not the shrink. Now the
-highest-priority open item. See `gomc-rest-auth-and-loadunload-rulings` (auto-memory).
+highest-priority open item. See `stmak-rest-auth-and-loadunload-rulings` (auto-memory).
 
 ---
 
@@ -134,7 +134,7 @@ highest-priority open item. See `gomc-rest-auth-and-loadunload-rulings` (auto-me
   and that no cap at all is the wrong default for a controller. `internal/apiserver/limits.go`:
   `REST_MAX_CONNECTIONS` (default 256) bounds accepted HTTP connections and
   `REST_MAX_WS_CONNECTIONS` (default 64) bounds concurrent WebSockets, either overridable via
-  `[GMC]` or the environment, `0` = explicitly unlimited. Two caps rather than one because a
+  `[SERVER]` or the environment, `0` = explicitly unlimited. Two caps rather than one because a
   WebSocket *is* a hijacked HTTP connection and holds an accept slot for its whole life, so a
   single cap lets watch clients starve plain REST; the launcher warns when the WS cap is not
   comfortably below the overall one. Covered by `limits_test.go`.
@@ -321,12 +321,12 @@ All fixes mechanical and verified: `go build ./...` clean, `gofmt`/`go vet` clea
 golangci-lint **0 issues**, `go test -race ./internal/apiserver/ ./internal/launcher/...` green.
 
 - **N1** — secure same-origin WS default via `OriginPatterns` (replacing `InsecureSkipVerify`) +
-  `Server.SetWSOriginPatterns` + launcher `GMC_REST_ORIGINS`/`[GMC]REST_ORIGINS` opt-in allow-list.
+  `Server.SetWSOriginPatterns` + launcher `STMAK_REST_ORIGINS`/`[SERVER]REST_ORIGINS` opt-in allow-list.
   Regression test `TestWatchOriginCheck`.
 - **N2** — `recover()` in `pushLoop`/`pushLoopBinary`.
 - **N3** — `http.MaxBytesReader` (8 MiB) on the REST body.
 - **N4** — `ReadHeaderTimeout` + `IdleTimeout` (not `ReadTimeout`/`WriteTimeout`, which would break WS).
-- **N5** — pprof gated behind `GMC_REST_PPROF=1`.
+- **N5** — pprof gated behind `STMAK_REST_PPROF=1`.
 - **N8** — `recover()` in mqttbridge `publishLoop`/`handleMessage`.
 - **Apiserver stream lifecycle** — `streamWg.Add(1)` moved inside `streamMu` (closes a
   shutdown-vs-new-stream window where `Wait()` could return with a cgo call in flight).
@@ -342,8 +342,8 @@ control**, is an OPEN design question, and until it lands the surface **binds lo
 Key decisions: (a) **robustness is intrinsic** — the crash/DoS hardening above stands regardless
 of binding, because the endpoints will be exposed eventually; (b) the auth *mechanism* (authN,
 TLS, coarse allow/deny) is an **external** reverse-proxy / API-gateway (a product, not built into
-gomc); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to gomc's
-command semantics — the expected split is gateway→verified-identity, gomc enforces per-command
+stratuMAK); (c) **caveat:** fine-grained **authZ** cannot live entirely in a gateway blind to stratuMAK's
+command semantics — the expected split is gateway→verified-identity, stratuMAK enforces per-command
 permissions at `handleAPIRequest`/`handleCall` (one thin app-side seam, future work); (d) **N1
 stays required** even with a gateway — cross-site WS hijacking is a browser-origin attack the
 gateway can't see. Belongs in the Safety-boundary / security-model doc.

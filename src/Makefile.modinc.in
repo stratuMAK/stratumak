@@ -71,7 +71,7 @@ RTLIBDIR := @EMC2_HOME@/rtlib
 LIBDIR := @EMC2_HOME@/lib
 else
 prefix := @prefix@
-EXTRA_CFLAGS := $(RTFLAGS) -I@includedir@/linuxcnc
+EXTRA_CFLAGS := $(RTFLAGS) -I@includedir@/stratumak
 RTLIBDIR := @EMC2_RTLIB_DIR@
 LIBDIR := @libdir@
 endif

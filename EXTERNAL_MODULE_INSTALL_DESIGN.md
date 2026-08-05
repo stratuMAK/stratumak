@@ -13,22 +13,22 @@ what it does not cover.
 ```
 $ make install
 /usr/bin/modcompile add-gomod .
-modcompile add-gomod: creating directory: mkdir /usr/share/linuxcnc/gomc/external: permission denied
+modcompile add-gomod: creating directory: mkdir /usr/share/stratumak/stmak/external: permission denied
 ```
 
 Four separate problems sit behind that one message.
 
 **Everything mutable lives under `/usr`, which dpkg owns.** `add-gomod` writes
-module sources into `$(datadir)/linuxcnc/gomc/external/`, regenerates
+module sources into `$(datadir)/stratumak/stmak/external/`, regenerates
 `imports_generated.go` and `packages.conf` in the same tree, and rebuilds the
-server over `/usr/bin/gomc-server`. The next `apt upgrade` overwrites the server
+server over `/usr/bin/stmakd`. The next `apt upgrade` overwrites the server
 and every generated file the package ships, silently unregistering locally added
 modules. No permission scheme fixes this; it is a question of *which* filesystem
 the state lives on.
 
 **The compiler runs as root.** `rebuildServer` passes the final install path
-straight to the compiler (`src/gomc/cmd/modcompile/main.go:641`,
-`go build -o outPath` where `outPath = $(bindir)/gomc-server`). So a privileged
+straight to the compiler (`src/stmak/cmd/modcompile/main.go:641`,
+`go build -o outPath` where `outPath = $(bindir)/stmakd`). So a privileged
 `add-gomod` runs `go build`, cgo, `gcc` and any module-supplied build code as
 root, and lands the Go build and module caches in root's `HOME`. Only the final
 placement needs privilege.
@@ -39,7 +39,7 @@ no capability handling beyond save/restore around the rebuild
 
 **Locally built cmods have the same problem one directory over.**
 `modcompile <x>.comp --install` writes into `$(EMC2_CMOD_DIR)` =
-`/usr/lib/linuxcnc/cmod`, also dpkg-owned. A local `.so` there survives upgrades
+`/usr/lib/stratumak/cmod`, also dpkg-owned. A local `.so` there survives upgrades
 (dpkg only removes what it shipped) but can silently shadow or collide with a
 shipped module of the same name.
 
@@ -56,8 +56,8 @@ cap_sys_nice, cap_sys_rawio, cap_perfmon, cap_sys_admin …
 ```
 
 `cap_sys_admin` and `cap_sys_rawio` are root in all but name. A group-writable
-`gomc-server` makes group membership equivalent to root: write your own bytes
-into the file the kernel then grants those capabilities to. `/usr/lib/linuxcnc/cmod/`
+`stmakd` makes group membership equivalent to root: write your own bytes
+into the file the kernel then grants those capabilities to. `/usr/lib/stratumak/cmod/`
 is the same argument one step removed — those objects are dlopened into that
 process.
 
@@ -65,7 +65,7 @@ process.
 the same escalation, merely deferred. A group member edits the shared tree and
 waits; the next `sudo modcompile rebuild` by an administrator compiles it into a
 capability-bearing binary. Confused deputy, and the deputy is `setcap`. This
-applies to `/var/lib/stratumak/gomc` exactly as much as to anything under
+applies to `/var/lib/stratumak/stmak` exactly as much as to anything under
 `/usr` — being neither dpkg-owned nor itself capability-bearing does not help.
 
 So: **no directory that feeds a privileged build may be writable by an
@@ -95,11 +95,11 @@ and attributable to nobody.
 ### 4.1 Layout
 
 ```
-/usr/libexec/stratumak/gomc-server     pristine, dpkg-owned, never modified
-/var/lib/stratumak/bin/gomc-server     symlink -> the pristine one,
+/usr/libexec/stratumak/stmakd     pristine, dpkg-owned, never modified
+/var/lib/stratumak/bin/stmakd     symlink -> the pristine one,
                                        becomes a real file only after a local rebuild
-/usr/bin/gomc-server                   symlink -> /var/lib/stratumak/bin/gomc-server
-/var/lib/stratumak/gomc/               root:root 0755, derived state
+/usr/bin/stmakd                   symlink -> /var/lib/stratumak/bin/stmakd
+/var/lib/stratumak/stmak/               root:root 0755, derived state
 /var/lib/stratumak/cmod/               root:root 0755, locally built cmods
 ```
 
@@ -108,7 +108,7 @@ the common case an upgrade is live the moment dpkg unpacks the new pristine
 binary, with no recovery logic; and "is this server locally modified?" reduces
 to `test -L`.
 
-Two packaging constraints follow. The `/var/lib/stratumak/bin/gomc-server`
+Two packaging constraints follow. The `/var/lib/stratumak/bin/stmakd`
 symlink must **not** be shipped in the deb's data archive — and not via
 `debian/stratumak.links` either, which will tempt. If dpkg owns that path,
 every upgrade unpack replaces a locally rebuilt real binary with the shipped
@@ -167,13 +167,13 @@ reason the install phase stays privileged even if the build does not.
 ### 4.4 Staleness instead of rebuilding on upgrade
 
 `EMC2Version` is baked in by ldflags, so a locally rebuilt server records the
-version of the tree it was built from. Comparing that against the installed gomc
+version of the tree it was built from. Comparing that against the installed stratuMAK
 tree at startup gives a "your local build is stale, run `modcompile rebuild`"
 signal almost for free, and catches the real hazard: a server built against
-gomc sources from an older release, now facing newer cmods.
+stratuMAK sources from an older release, now facing newer cmods.
 
 A warning may be too weak a floor for that hazard. The cmod ABI carries no
-version stamp today (`gomc_env.h` defines none; only the runtime API registry
+version stamp today (`stmak_env.h` defines none; only the runtime API registry
 is versioned per-API), so a stale server dlopening a cmod built for a newer
 `cmod_env_t` is undefined behaviour with no detection at load time. Give the
 cmod ABI a stamp and have the launcher *refuse* a mismatched cmod; the
@@ -198,7 +198,7 @@ has no `SUDO_UID` to drop to.
 
 | proposal | why not |
 |---|---|
-| `stratumak-dev` group on `gomc-server` or `cmod/` | group membership becomes root via `setcap` (§2) |
+| `stratumak-dev` group on `stmakd` or `cmod/` | group membership becomes root via `setcap` (§2) |
 | `stratumak-dev` group on the shared source tree | same escalation, deferred through the next privileged rebuild (§2) |
 | recompile in `postinst` | slow, needs a toolchain and network, and a failure wedges `apt` (§4.4) |
 | gate upgrade behaviour on whether `-dev` is installed | the two come apart in both directions: `-dev` with no external modules is the plain case, and external modules can outlive `-dev`'s removal — at which point a rebuild is impossible and discarding them silently is worse |
@@ -206,7 +206,7 @@ has no `SUDO_UID` to drop to.
 ## 5. Open questions
 
 **A cmod search path.** `resolveCModulePath` resolves against a single directory
-(`src/gomc/internal/launcher/cmodules.go:348`). Relocating local cmods to
+(`src/stmak/internal/launcher/cmodules.go:348`). Relocating local cmods to
 `/var/lib/stratumak/cmod` needs the launcher to search two, which raises an
 order question: should a local module shadow a shipped one of the same name, or
 be refused as a collision? Refusing is safer and easier to diagnose; shadowing is
@@ -236,8 +236,8 @@ handled there.
    re-exec the build phase as `SUDO_UID` or the dedicated build user (§4.3).
    Fail with *"needs root: try sudo"* rather than a raw
    `mkdir: permission denied`. **This alone unblocks `add-gomod`.**
-2. Introduce `/var/lib/stratumak/gomc`, move `external/` and the generated
-   registry there, `GOMC_DIR` already exists as the override knob.
+2. Introduce `/var/lib/stratumak/stmak`, move `external/` and the generated
+   registry there, `STMAK_DIR` already exists as the override knob.
 3. Move the pristine server to `/usr/libexec/stratumak`, add the two symlinks
    (the `/var` one created by postinst, never shipped — §4.1), postinst setcap,
    teach postinst the three upgrade cases.
@@ -253,7 +253,7 @@ Decisions taken where §4.3 and §5 left a choice, and the places the
 implementation went further or stopped short.
 
 **Collisions are refused** (§5). `resolveCModule` searches
-`/var/lib/stratumak/cmod` and `/usr/lib/linuxcnc/cmod`, and a bare name present
+`/var/lib/stratumak/cmod` and `/usr/lib/stratumak/cmod`, and a bare name present
 in both fails the load naming both files. Deliberate overriding is still
 possible by loading the module by its full path, which bypasses the search
 entirely. No per-module shadowing flag was added; nothing has asked for one yet.
@@ -265,7 +265,7 @@ into the package's own directory and loading it by name gives:
 
 ```
 C module "galv_mixer" is provided by more than one directory:
-/var/lib/stratumak/cmod/galv_mixer.so and /usr/lib/linuxcnc/cmod/galv_mixer.so.
+/var/lib/stratumak/cmod/galv_mixer.so and /usr/lib/stratumak/cmod/galv_mixer.so.
 Remove the one you did not mean, or load the one you did by its full path
 ```
 
@@ -290,7 +290,7 @@ always land on whichever real file is active" — but the reading side does not.
 `getcap` `lstat()`s its argument and silently skips anything that is not a
 regular file, exiting zero with nothing to say, which is indistinguishable
 from "this file has no capabilities". Before the first local rebuild
-`$(bindir)/gomc-server` *is* a symlink onto the package's binary, so the
+`$(bindir)/stmakd` *is* a symlink onto the package's binary, so the
 rebuild read "none" for a file carrying ten, warned that there had been
 nothing to carry over, and installed a server that could not do realtime.
 
@@ -370,16 +370,16 @@ binary.
 
 **Two authoritative directories, not one** (§4.2). `/var/lib/stratumak/modules`
 holds the root-owned copy of each registered module's source and is the source
-of truth; `/var/lib/stratumak/gomc` is the build tree derived from the pristine
+of truth; `/var/lib/stratumak/stmak` is the build tree derived from the pristine
 sources plus those copies, regenerated in full on every rebuild. Deriving it
 each time is what makes an upgrade correct: the pristine sources change under
 it, and a tree that only ever had modules added would keep compiling the
 release it was first built from.
 
-**Behind all of this: the installed gomc tree did not compile, and now does.**
-The note assumes throughout that `$(datadir)/linuxcnc/gomc` can be rebuilt; it
+**Behind all of this: the installed stratuMAK tree did not compile, and now does.**
+The note assumes throughout that `$(datadir)/stratumak/stmak` can be rebuilt; it
 could not, and never could — the permission error in §1 was simply the first
-thing in the way. `gomc-install` shipped only `*.go`, so every cgo package
+thing in the way. `stmak-install` shipped only `*.go`, so every cgo package
 arrived without its C sources, and a dozen headers the build needs were
 installed nowhere. Five separate causes, all now fixed:
 
@@ -388,52 +388,52 @@ installed nowhere. Five separate causes, all now fixed:
    `hal_priv.h`, `rtapi_task.h`, `uspace_common.h`, `canon_interface.hh`,
    `interp_ext.h`, `interp_inspection.hh`, `interp_parameter_def.hh`,
    `interp_parameter_io.hh`, `rs274ngc_interp.hh`, `tp_debug.h`. `saicanon.hh`
-   had moved to `emc/sai/` years ago and the stale path was being swallowed by
+   had moved to `cnc/sai/` years ago and the stale path was being swallowed by
    a `-cp`.
 3. Headers are installed a **second** time under their source-relative path.
-   Several gomc packages include them the way the source tree does
-   (`"hal/hal_priv.h"`, `"emc/rs274ngc/interp_parameter_io.hh"`), which
+   Several stratuMAK packages include them the way the source tree does
+   (`"hal/hal_priv.h"`, `"cnc/rs274ngc/interp_parameter_io.hh"`), which
    resolves against `-Isrc` in a build tree and against nothing at all in a
    flat include directory. Both spellings now work under the one `-I` that
    `cgoFlags` already passes; no new include path had to be invented.
-4. Four C *implementation* files are `#include`d textually — `emc/tp/tc.c`,
-   `blendmath.c`, `spherical_arc.c`, `emc/nml_intf/emcpose.c` — and are
+4. Four C *implementation* files are `#include`d textually — `cnc/tp/tc.c`,
+   `blendmath.c`, `spherical_arc.c`, `cnc/nml_intf/emcpose.c` — and are
    installed alongside the headers as `SRCINCLUDED_SOURCES`. To a tree that
    has to be rebuildable they are headers in everything but name.
 5. `cgoFlags` put its include path in `CGO_CFLAGS`, which never reaches the
    C++ compiler, so `interp_shim.cc` could not find `config.h` while the C
    sources beside it compiled. It is `CGO_CPPFLAGS` now, and the build tree's
-   own parent goes first so that a `"gomc/generated/..."` include resolves
+   own parent goes first so that a `"stmak/generated/..."` include resolves
    against the sources being compiled rather than an installed copy of them.
 
-One collision had to be broken by hand. `emc/rs274ngc/interp_shim.h` and
-`gomc/internal/task/interp_shim.h` were different headers sharing a basename
+One collision had to be broken by hand. `cnc/rs274ngc/interp_shim.h` and
+`stmak/internal/task/interp_shim.h` were different headers sharing a basename
 *and* an include guard, and the flat copy of the first silently won over the
-second's own directory. The gomc one is now `task_interp_shim.h`, guard and
+second's own directory. The stratuMAK one is now `task_interp_shim.h`, guard and
 all — the smaller blast radius of the two, since nothing outside `internal/task`
 referred to it — so no special case remains in the install and neither
 consumer has to qualify anything.
 
 `make` now refuses the situation outright: `check-header-collisions` compares
-the basenames of everything landing in the flat `$(includedir)/linuxcnc`
-against the headers inside the gomc tree, and fails the build naming both
+the basenames of everything landing in the flat `$(includedir)/stratumak`
+against the headers inside the stratuMAK tree, and fails the build naming both
 files. The original cost an afternoon precisely because every error pointed at
 the innocent file.
 
 Two further build-system repairs fell out of the same work. `internal/halscope/
 testrt` is pruned from the install, as `kinstest` already was — shipping `.h`
 files had swept its mock `hal.h` and `rtapi.h` into a runtime package. And
-`GOMC_SRC_BASE` did not glob `*.cc`, although its own comment claimed the
+`STMAK_SRC_BASE` did not glob `*.cc`, although its own comment claimed the
 interp shim was covered, so the one C++ translation unit in the tree was
 exactly the file an edit to which rebuilt nothing.
 
-Verified by staging an install and building `cmd/gomc-server` from it, the way
+Verified by staging an install and building `cmd/stmakd` from it, the way
 the unprivileged build phase would: a complete 27 MB server, from the installed
 tree alone.
 
 **What the Go tests cannot reach.** The privileged half only runs as root on a
 machine where the package is installed, so
-`src/gomc/cmd/modcompile/verify-privileged-rebuild.sh` covers it instead: run
+`src/stmak/cmd/modcompile/verify-privileged-rebuild.sh` covers it instead: run
 it with `sudo` after installing the new `.deb`. It checks that postinst left a
 usable state tree and build account, that `rebuild`, `add-gomod`, `--install`
 and `rm-gomod` all complete, that the capabilities are carried across the
@@ -453,7 +453,7 @@ An out-of-tree module then went through the flow it was designed for, from an
 ordinary project `Makefile`: `make install` builds as the invoking user and
 escalates only for `sudo modcompile add-gomod .`, which records the source,
 rebuilds unprivileged as `stratumak-build`, and reapplies the capabilities.
-That is §1's opening failure — `mkdir /usr/share/linuxcnc/gomc/external:
+That is §1's opening failure — `mkdir /usr/share/stratumak/stmak/external:
 permission denied` — closed.
 
 **`modcompile --install` drops privilege too.** §6 step 5 asked only for the

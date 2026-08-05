@@ -25,7 +25,7 @@
 
 
 
-void hm2_watchdog_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_watchdog_process_tram_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     // if there is no watchdog, then there's nothing to do
     if (hm2->watchdog.num_instances == 0) return;
 
@@ -132,8 +132,8 @@ int hm2_watchdog_parse_md(hostmot2_t *hm2, int md_index) {
     //
 
     // pins
-    r = gomc_hal_pin_bit_newf(hm2->llio->hal, 
-        GOMC_HAL_IO,
+    r = stmak_hal_pin_bit_newf(hm2->llio->hal, 
+        STMAK_HAL_IO,
         &(hm2->watchdog.instance[0].hal.pin.has_bit),
         hm2->llio->comp_id,
         "%s.watchdog.has_bit",
@@ -146,8 +146,8 @@ int hm2_watchdog_parse_md(hostmot2_t *hm2, int md_index) {
     }
 
     // params
-    r = gomc_hal_param_u32_newf(hm2->llio->hal, 
-        GOMC_HAL_RW,
+    r = stmak_hal_param_u32_newf(hm2->llio->hal, 
+        STMAK_HAL_RW,
         &(hm2->watchdog.instance[0].hal.param.timeout_ns),
         hm2->llio->comp_id,
         "%s.watchdog.timeout_ns",
@@ -179,7 +179,7 @@ fail0:
 }
 
 
-void hm2_watchdog_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_watchdog_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     HM2_PRINT("Watchdog: %d\n", hm2->watchdog.num_instances);
     if (hm2->watchdog.num_instances <= 0) return;
@@ -203,7 +203,7 @@ void hm2_watchdog_cleanup(hostmot2_t *hm2) {
 }
 
 
-void hm2_watchdog_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_watchdog_prepare_tram_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if (hm2->watchdog.num_instances <= 0) return;
     hm2->watchdog.reset_reg[0] = 0x5a000000;
 }
@@ -212,7 +212,7 @@ void hm2_watchdog_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 // timeout_s = (timer_counts + 1) / clock_hz
 // (timeout_s * clock_hz) - 1 = timer_counts
 // (timeout_ns * (1 s/1e9 ns) * clock_hz) - 1 = timer_counts
-void hm2_watchdog_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_watchdog_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     uint64_t tmp;
 
     if (hm2->watchdog.num_instances != 1) return;
@@ -244,7 +244,7 @@ void hm2_watchdog_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
 
 // if the user has changed the timeout, sync it out to the watchdog
-void hm2_watchdog_write(hostmot2_t *hm2, long period_ns) GOMC_NONBLOCKING {
+void hm2_watchdog_write(hostmot2_t *hm2, long period_ns) STMAK_NONBLOCKING {
     if (hm2->watchdog.num_instances != 1) return;
 
     // if there are comm problems, wait for the user to fix it

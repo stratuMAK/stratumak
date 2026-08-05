@@ -22,10 +22,10 @@ dev=$(ls "$DIR"/stratumak-dev_*.deb 2>/dev/null | head -1)
 C=$(dpkg-deb -c "$main")
 
 # Controller binary and the pristine/local-rebuild symlink chain.
-echo "$C" | grep -q './usr/libexec/stratumak/gomc-server$' \
-    && ok "gomc-server in libexec" || note "gomc-server missing from libexec"
-echo "$C" | grep -q 'usr/bin/gomc-server -> /var/lib/stratumak/bin/gomc-server' \
-    && ok "bindir symlink chain" || note "usr/bin/gomc-server symlink wrong/missing"
+echo "$C" | grep -q './usr/libexec/stratumak/stmakd$' \
+    && ok "stmakd in libexec" || note "stmakd missing from libexec"
+echo "$C" | grep -q 'usr/bin/stmakd -> /var/lib/stratumak/bin/stmakd' \
+    && ok "bindir symlink chain" || note "usr/bin/stmakd symlink wrong/missing"
 # Nothing under /var may be dpkg-owned: postinst creates it, so an upgrade
 # can never unpack over a locally rebuilt server.
 echo "$C" | awk '{print $6}' | grep -q '^\./var/' \
@@ -49,7 +49,7 @@ echo "$C" | grep -q 'usr/bin/mesambccc' && ok "mesambccc in base" || note "mesam
 
 # The hostmot2 secondary cmods resolve hostmot2.so via DT_RPATH. RUNPATH and
 # $ORIGIN are both ignored under AT_SECURE, i.e. under exactly the file
-# capabilities the postinst applies to gomc-server.
+# capabilities the postinst applies to stmakd.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 dpkg-deb -x "$main" "$tmp"
@@ -59,17 +59,17 @@ for so in hm2_modbus setsserial; do
     d=$(readelf -d "$f")
     echo "$d" | grep -q 'RUNPATH' && note "$so.so has RUNPATH (ignored under AT_SECURE)"
     echo "$d" | grep -q '\$ORIGIN' && note "$so.so rpath contains \$ORIGIN (ignored under AT_SECURE)"
-    echo "$d" | grep -q 'RPATH.*linuxcnc/cmod' \
+    echo "$d" | grep -q 'RPATH.*stratumak/cmod' \
         && ok "$so.so absolute DT_RPATH" || note "$so.so lacks absolute cmod DT_RPATH"
 done
 
 # Kernel-era fossils must stay gone: rtapi.conf has no reader since the
 # migration, and modules/ was the old rtlib location (cmods live in cmod/).
-echo "$C" | grep -q 'etc/linuxcnc/rtapi.conf' && note "dead rtapi.conf shipped" || ok "no rtapi.conf"
-echo "$C" | awk '{print $6}' | grep -q 'linuxcnc/modules/' && note "ghost modules/ directory shipped" || ok "no modules/ ghost dir"
+echo "$C" | grep -q 'etc/stratumak/rtapi.conf' && note "dead rtapi.conf shipped" || ok "no rtapi.conf"
+echo "$C" | awk '{print $6}' | grep -q 'stratumak/modules/' && note "ghost modules/ directory shipped" || ok "no modules/ ghost dir"
 
 # Web UIs are served from EMC2_WEBAPP_DIR; without them every tool is a 404.
-echo "$C" | grep -q 'usr/share/linuxcnc/webapp/halshow/' && ok "webapps shipped" || note "webapps missing"
+echo "$C" | grep -q 'usr/share/stratumak/webapp/halshow/' && ok "webapps shipped" || note "webapps missing"
 
 # Documentation language set: de/en/es/fr, Norwegian dropped by ruling.
 ls "$DIR"/stratumak-doc-nb_* >/dev/null 2>&1 && note "stratumak-doc-nb exists despite nb drop" || ok "no nb doc package"
@@ -82,7 +82,7 @@ done
 if [ -n "$dev" ]; then
     D=$(dpkg-deb -c "$dev")
     echo "$D" | grep -q 'usr/bin/modcompile' && ok "modcompile in -dev" || note "modcompile missing from -dev"
-    echo "$D" | grep -q 'usr/share/linuxcnc/gomc/' && ok "gomc tree in -dev" || note "gomc source tree missing from -dev"
+    echo "$D" | grep -q 'usr/share/stratumak/stmak/' && ok "stmak tree in -dev" || note "stmak source tree missing from -dev"
     dpkg-deb -f "$dev" Depends | grep -q 'libc6' \
         && ok "-dev has shlibs deps" || note "-dev lacks libc6 (shlibs:Depends regressed)"
 fi

@@ -33,7 +33,7 @@ def create_vcp_rest(master, compname="pyvcp"):
     """
         Create a pyVCP panel using REST/WebSocket backend.
 
-        Fetches panel XML and pin definitions from gomc-server,
+        Fetches panel XML and pin definitions from stmakd,
         creates event-driven widgets connected via PyVCPClient.
 
         No polling loop. Server pushes state via WebSocket; widgets

@@ -1,7 +1,7 @@
 # ClassicLadder bit I/O through real HAL pins.
 #
 # The ladder itself is verified exhaustively in Go (see
-# src/gomc/internal/classicladder); what only a running HAL can show is the
+# src/stmak/internal/classicladder); what only a running HAL can show is the
 # layer between them: that in-NN reaches the ladder, that out-NN follows what
 # the ladder computed, and that the module loads its project and exports
 # classicladder.0.refresh under a name a config can addf.

@@ -167,11 +167,11 @@ Usage:
 ----
 
 The bundle contains the text report, the INI file and the local files it names
-(HAL files, tool table, panel XML), the `gomc-server` journal and the tail of
+(HAL files, tool table, panel XML), the `stmakd` journal and the tail of
 `dmesg`.
 
 It talks to a running server for the HAL and machine sections, using
-`GMC_REST_URL` and `GMC_INSTANCE`, and falls back to the host-only sections
+`STMAK_REST_URL` and `STMAK_TASK_INSTANCE`, and falls back to the host-only sections
 when no server is reachable -- a machine that will not start is exactly when a
 report is wanted.
 

@@ -26,7 +26,7 @@
 
 #include <rtapi_list.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hostmot2.h"
 #include "hm2_core_api.h"
 #include "hm2_serial_api.h"
@@ -77,7 +77,7 @@ static int comp_id;
 // functions exported to LinuxCNC
 //
 
-static void hm2_read_request(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_read_request(void *void_hm2, long period) STMAK_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
     hm2->llio->period = period;
 
@@ -95,7 +95,7 @@ static void hm2_read_request(void *void_hm2, long period) GOMC_NONBLOCKING {
         (unsigned long long)hm2->llio->rtapi->get_time(hm2->llio->rtapi->ctx);
 }
 
-static void hm2_read(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_read(void *void_hm2, long period) STMAK_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     if(!hm2->llio->read_requested) hm2_read_request(void_hm2, period);
@@ -126,7 +126,7 @@ static void hm2_read(void *void_hm2, long period) GOMC_NONBLOCKING {
 }
 
 
-static void hm2_write(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_write(void *void_hm2, long period) STMAK_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     // if there are comm problems, wait for the user to fix it
@@ -178,7 +178,7 @@ static void hm2_write(void *void_hm2, long period) GOMC_NONBLOCKING {
 }
 
 
-static void hm2_read_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_read_gpio(void *void_hm2, long period) STMAK_NONBLOCKING {
     (void)period;
     hostmot2_t *hm2 = void_hm2;
 
@@ -189,7 +189,7 @@ static void hm2_read_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
 }
 
 
-static void hm2_write_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
+static void hm2_write_gpio(void *void_hm2, long period) STMAK_NONBLOCKING {
     hostmot2_t *hm2 = void_hm2;
 
     // if there are comm problems, wait for the user to fix it
@@ -210,8 +210,8 @@ static void hm2_write_gpio(void *void_hm2, long period) GOMC_NONBLOCKING {
 // FIXME: the static automatic string makes this function non-reentrant
 // TRUSTED: bounded snprintf("%d.%03d") into a fixed static buffer; used
 // only to format frequencies for log messages (races are display-only).
-GOMC_NONBLOCKING_TRUSTED_BEGIN
-const char *hm2_hz_to_mhz(uint32_t freq_hz) GOMC_NONBLOCKING {
+STMAK_NONBLOCKING_TRUSTED_BEGIN
+const char *hm2_hz_to_mhz(uint32_t freq_hz) STMAK_NONBLOCKING {
     static char mhz_str[20];
     int r;
     int freq_mhz, freq_mhz_fractional;
@@ -226,10 +226,10 @@ const char *hm2_hz_to_mhz(uint32_t freq_hz) GOMC_NONBLOCKING {
 
     return mhz_str;
 }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
 // FIXME: It would be nice if this was more generic
-int hm2_get_bspi(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
+int hm2_get_bspi(hostmot2_t** hm2, const char *name) STMAK_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -243,7 +243,7 @@ int hm2_get_bspi(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
     return -1;
 }
 
-int hm2_get_uart(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
+int hm2_get_uart(hostmot2_t** hm2, const char *name) STMAK_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -256,7 +256,7 @@ int hm2_get_uart(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
     }
     return -1;
 }
-int hm2_get_pktuart(hostmot2_t** hm2, const char *name) GOMC_NONBLOCKING{
+int hm2_get_pktuart(hostmot2_t** hm2, const char *name) STMAK_NONBLOCKING{
     struct rtapi_list_head *ptr;
     int i;
     rtapi_list_for_each(ptr, &hm2_list) {
@@ -1156,7 +1156,7 @@ static void hm2_cleanup(hostmot2_t *hm2) {
 
 
 
-void hm2_print_modules(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_print_modules(hostmot2_t *hm2) STMAK_NONBLOCKING {
     hm2_encoder_print_module(hm2);
     hm2_absenc_print_module(hm2);
     hm2_resolver_print_module(hm2);
@@ -1195,13 +1195,13 @@ static hm2_inst_t *hm2_inst;  // singleton instance
 
 
 static int dummy_queue_write(hm2_lowlevel_io_t *this, uint32_t addr,
-        const void *buffer, int size) GOMC_NONBLOCKING {
+        const void *buffer, int size) STMAK_NONBLOCKING {
     if(size >= 0) return this->write(this, addr, buffer, size);
     return 1; // success
 }
 
 static int dummy_queue_read(hm2_lowlevel_io_t *this, uint32_t addr,
-        void *buffer, int size) GOMC_NONBLOCKING {
+        void *buffer, int size) STMAK_NONBLOCKING {
     if(size >= 0) return this->read(this, addr, buffer, size);
     return 1; // success
 }
@@ -1228,14 +1228,14 @@ int hm2_register(hm2_lowlevel_io_t *llio, char *config_string) {
     {
         int i;
 
-        for (i = 0; i < GOMC_HAL_NAME_LEN+1; i ++) {
+        for (i = 0; i < STMAK_HAL_NAME_LEN+1; i ++) {
             if (llio->name[i] == '\0') break;
             if (!isprint(llio->name[i])) {
                 HM2_ERR_NO_LL("invalid llio name passed in (contains non-printable character)\n");
                 return -EINVAL;
             }
         }
-        if (i == GOMC_HAL_NAME_LEN+1) {
+        if (i == STMAK_HAL_NAME_LEN+1) {
             HM2_ERR_NO_LL("invalid llio name passed in (not NULL terminated)\n");
             return -EINVAL;
         }
@@ -1266,14 +1266,14 @@ int hm2_register(hm2_lowlevel_io_t *llio, char *config_string) {
                 return -EINVAL;
             }
 
-            for (i = 0; i < GOMC_HAL_NAME_LEN+1; i ++) {
+            for (i = 0; i < STMAK_HAL_NAME_LEN+1; i ++) {
                 if (llio->ioport_connector_name[port][i] == '\0') break;
                 if (!isprint(llio->ioport_connector_name[port][i])) {
                     HM2_ERR_NO_LL("invalid llio ioport connector name %d passed in (contains non-printable character)\n", port);
                     return -EINVAL;
                 }
             }
-            if (i == GOMC_HAL_NAME_LEN+1) {
+            if (i == STMAK_HAL_NAME_LEN+1) {
                 HM2_ERR_NO_LL("invalid llio ioport connector name %d passed in (not NULL terminated)\n", port);
                 return -EINVAL;
             }
@@ -1439,7 +1439,7 @@ int hm2_register(hm2_lowlevel_io_t *llio, char *config_string) {
         int r;
         char name[256];
 
-        llio->io_error = (gomc_hal_bit_t *)hm2_inst->env->hal->malloc(hm2_inst->env->hal->ctx, sizeof(gomc_hal_bit_t));
+        llio->io_error = (stmak_hal_bit_t *)hm2_inst->env->hal->malloc(hm2_inst->env->hal->ctx, sizeof(stmak_hal_bit_t));
         if (llio->io_error == NULL) {
             HM2_ERR("out of memory!\n");
             r = -ENOMEM;
@@ -1449,7 +1449,7 @@ int hm2_register(hm2_lowlevel_io_t *llio, char *config_string) {
         (*llio->io_error) = 0;
 
         snprintf(name, sizeof(name), "%s.io_error", llio->name);
-        r = hm2_inst->env->hal->param_new(hm2_inst->env->hal->ctx, name, GOMC_HAL_BIT, GOMC_HAL_RW, (void *)llio->io_error, llio->comp_id);
+        r = hm2_inst->env->hal->param_new(hm2_inst->env->hal->ctx, name, STMAK_HAL_BIT, STMAK_HAL_RW, (void *)llio->io_error, llio->comp_id);
         if (r < 0) {
             HM2_ERR("error adding param '%s', aborting\n", name);
             r = -EINVAL;
@@ -1832,12 +1832,12 @@ static void hm2_destroy(cmod_t *self);
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
-    const gomc_log_t *log = env->log;
+    const stmak_hal_t *hal = env->hal;
+    const stmak_log_t *log = env->log;
     hm2_log = log;
     cmod_t *cmod;
 
-    gomc_log_infof(log, name, "loading Mesa HostMot2 driver version %s\n", HM2_VERSION);
+    stmak_log_infof(log, name, "loading Mesa HostMot2 driver version %s\n", HM2_VERSION);
 
     // Parse module parameters from argv.
     hm2_parse_argv(argc, argv);
@@ -1845,16 +1845,16 @@ int New(const cmod_env_t *env, const char *name,
     // Allocate instance state.
     hm2_inst_t *inst = calloc(1, sizeof(*inst));
     if (!inst) {
-        gomc_log_errorf(log, name, "hostmot2: out of memory\n");
+        stmak_log_errorf(log, name, "hostmot2: out of memory\n");
         return -1;
     }
     inst->env = env;
     inst->name = name;
 
     // Initialize HAL component.
-    comp_id = hal->init(hal->ctx, name, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (comp_id < 0) {
-        gomc_log_errorf(log, name, "hostmot2: hal_init failed\n");
+        stmak_log_errorf(log, name, "hostmot2: hal_init failed\n");
         free(inst);
         return -1;
     }
@@ -1873,14 +1873,14 @@ int New(const cmod_env_t *env, const char *name,
     if (env->api) {
         int r = hm2_core_api_register(env->api, name, &inst->core_api);
         if (r != 0) {
-            gomc_log_errorf(log, name, "hostmot2: failed to register hm2_core API: %d\n", r);
+            stmak_log_errorf(log, name, "hostmot2: failed to register hm2_core API: %d\n", r);
             hal->exit(hal->ctx, comp_id);
             free(inst);
             return -1;
         }
         r = hm2_serial_api_register(env->api, name, &inst->serial_api);
         if (r != 0) {
-            gomc_log_errorf(log, name, "hostmot2: failed to register hm2_serial API: %d\n", r);
+            stmak_log_errorf(log, name, "hostmot2: failed to register hm2_serial API: %d\n", r);
             hal->exit(hal->ctx, comp_id);
             free(inst);
             return -1;
@@ -1910,9 +1910,9 @@ int New(const cmod_env_t *env, const char *name,
 
 static void hm2_destroy(cmod_t *self) {
     hm2_inst_t *inst = (hm2_inst_t *)self->priv;
-    const gomc_log_t *log = inst->env->log;
+    const stmak_log_t *log = inst->env->log;
 
-    gomc_log_infof(log, inst->name, "hostmot2: unloading\n");
+    stmak_log_infof(log, inst->name, "hostmot2: unloading\n");
     inst->env->hal->exit(inst->env->hal->ctx, comp_id);
 
     free(inst);
@@ -1924,7 +1924,7 @@ static void hm2_destroy(cmod_t *self) {
 
 
 // this pushes our idea of what things are like into the FPGA's poor little mind
-void hm2_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     if (hm2->llio->set_force_enqueue)
         hm2->llio->set_force_enqueue(hm2->llio, 1);
     hm2_watchdog_force_write(hm2);

@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include <errno.h>
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "hal_streamer_stream_api.h"
 #include "hal_stream_common.h"
 
@@ -236,32 +236,32 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!cfg_str || !cfg_str[0]) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "streamer requires a 'cfg=' parameter (e.g. cfg=uffb)");
         return -EINVAL;
     }
 
     if (!env->hal) {
-        gomc_log_errorf(env->log, name, "HAL API not available");
+        stmak_log_errorf(env->log, name, "HAL API not available");
         return -EINVAL;
     }
 
     if (!env->api) {
-        gomc_log_errorf(env->log, name, "API registry not available");
+        stmak_log_errorf(env->log, name, "API registry not available");
         return -EINVAL;
     }
 
     // Count and validate pins
     int num_pins = strlen(cfg_str);
     if (num_pins > MAX_PINS) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "too many pins (%d), max is %d", num_pins, MAX_PINS);
         return -EINVAL;
     }
     for (int i = 0; i < num_pins; i++) {
         char c = cfg_str[i];
         if (c != 'f' && c != 'b' && c != 'u' && c != 's') {
-            gomc_log_errorf(env->log, name,
+            stmak_log_errorf(env->log, name,
                             "invalid pin type '%c' in cfg string", c);
             return -EINVAL;
         }
@@ -288,9 +288,9 @@ int New(const cmod_env_t *env, const char *name,
 
     // Initialize HAL component
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        gomc_log_errorf(env->log, name, "hal_init failed");
+        stmak_log_errorf(env->log, name, "hal_init failed");
         free(inst->ring);
         free(priv);
         return -1;
@@ -301,37 +301,37 @@ int New(const cmod_env_t *env, const char *name,
 
     snprintf(pin_name, sizeof(pin_name), "%s.empty", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_BIT, GOMC_HAL_OUT,
+                 STMAK_HAL_BIT, STMAK_HAL_OUT,
                  (void **)&inst->empty, priv->comp_id);
     if (retval != 0) goto fail;
 
     snprintf(pin_name, sizeof(pin_name), "%s.enable", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_BIT, GOMC_HAL_IN,
+                 STMAK_HAL_BIT, STMAK_HAL_IN,
                  (void **)&inst->enable, priv->comp_id);
     if (retval != 0) goto fail;
 
     snprintf(pin_name, sizeof(pin_name), "%s.curr-depth", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_S32, GOMC_HAL_OUT,
+                 STMAK_HAL_S32, STMAK_HAL_OUT,
                  (void **)&inst->curr_depth, priv->comp_id);
     if (retval != 0) goto fail;
 
     snprintf(pin_name, sizeof(pin_name), "%s.underruns", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_S32, GOMC_HAL_IO,
+                 STMAK_HAL_S32, STMAK_HAL_IO,
                  (void **)&inst->underruns, priv->comp_id);
     if (retval != 0) goto fail;
 
     snprintf(pin_name, sizeof(pin_name), "%s.clock", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_BIT, GOMC_HAL_IN,
+                 STMAK_HAL_BIT, STMAK_HAL_IN,
                  (void **)&inst->clock, priv->comp_id);
     if (retval != 0) goto fail;
 
     snprintf(pin_name, sizeof(pin_name), "%s.clock-mode", name);
     retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                 GOMC_HAL_S32, GOMC_HAL_IN,
+                 STMAK_HAL_S32, STMAK_HAL_IN,
                  (void **)&inst->clock_mode, priv->comp_id);
     if (retval != 0) goto fail;
 
@@ -351,24 +351,24 @@ int New(const cmod_env_t *env, const char *name,
 
         switch (cfg_str[n]) {
         case 'f':
-            hal_type = GOMC_HAL_FLOAT;
+            hal_type = STMAK_HAL_FLOAT;
             usefp = 1;
             break;
         case 'b':
-            hal_type = GOMC_HAL_BIT;
+            hal_type = STMAK_HAL_BIT;
             break;
         case 'u':
-            hal_type = GOMC_HAL_U32;
+            hal_type = STMAK_HAL_U32;
             break;
         case 's':
-            hal_type = GOMC_HAL_S32;
+            hal_type = STMAK_HAL_S32;
             break;
         default:
             goto fail;  // unreachable after validation
         }
 
         retval = env->hal->pin_new(env->hal->ctx, pin_name,
-                     hal_type, GOMC_HAL_OUT,
+                     hal_type, STMAK_HAL_OUT,
                      (void **)&inst->pins[n], priv->comp_id);
         if (retval != 0) goto fail;
     }
@@ -377,7 +377,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     update_funct, inst, usefp, 0, priv->comp_id);
     if (retval < 0) {
-        gomc_log_errorf(env->log, name, "function export failed");
+        stmak_log_errorf(env->log, name, "function export failed");
         goto fail;
     }
 
@@ -389,9 +389,9 @@ int New(const cmod_env_t *env, const char *name,
     priv->stream_cb.data_received = on_data_received;
 
     retval = hal_streamer_stream_register(
-        (gomc_api_t *)env->api, name, &priv->stream_cb);
+        (stmak_api_t *)env->api, name, &priv->stream_cb);
     if (retval != 0) {
-        gomc_log_errorf(env->log, name, "stream_register failed: %d", retval);
+        stmak_log_errorf(env->log, name, "stream_register failed: %d", retval);
         goto fail;
     }
 

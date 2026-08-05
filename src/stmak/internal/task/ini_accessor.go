@@ -1,0 +1,144 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package task
+
+// INI accessor bridge: provides C callback functions backed by a Go *inifile.IniFile.
+// The callbacks are called by the C++ interpreter for INI lookups at init time
+// and at runtime (#<_ini[SECTION]KEY> named parameters).
+
+/*
+#include "task_interp_shim.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+// Forward declarations for the Go-exported callbacks.
+// cgo does not emit const qualifiers, so we declare without const here
+// and cast when assigning to the accessor struct. ctx is uintptr_t, not
+// void*: it carries a cgo.Handle integer, and receiving that in a Go
+// unsafe.Pointer parameter puts a non-address value in a GC-scanned
+// pointer slot ("invalid pointer found on stack" when a stack scan hits).
+extern char* goIniAccessorGet(uintptr_t ctx, char *section, char *key);
+extern char* goIniAccessorGetNth(uintptr_t ctx, char *section, char *key, int n);
+
+// Build the accessor struct with Go-implemented callbacks. ctx is a cgo.Handle
+// (an opaque integer) passed as uintptr_t, not void*, so the Go side never
+// converts a uintptr to unsafe.Pointer (bad pointer arithmetic under
+// -d=checkptr / -race); we cast it into the void* ctx field here.
+static inline interp_ini_accessor_t make_ini_accessor(uintptr_t ctx) {
+    interp_ini_accessor_t acc;
+    acc.ctx = (void *)ctx;
+    acc.get = (const char* (*)(void*, const char*, const char*))goIniAccessorGet;
+    acc.get_nth = (const char* (*)(void*, const char*, const char*, int))goIniAccessorGetNth;
+    return acc;
+}
+*/
+import "C"
+import (
+	"fmt"
+	"runtime/cgo"
+	"unsafe"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+)
+
+// iniAccessorHandle wraps a *inifile.IniFile for use as the ctx in C callbacks.
+// It also holds a reusable buffer for returning strings to C (the C code
+// must consume the string before the next call to get/get_nth).
+// iniAccessorHandle wraps a *inifile.IniFile for use as the ctx in C callbacks.
+// It holds a C-allocated buffer for returning strings (the C code must consume
+// the string before the next call to get/get_nth).
+type iniAccessorHandle struct {
+	ini    *inifile.IniFile
+	cbuf   *C.char // C-heap buffer for string returns
+	cbufSz C.size_t
+}
+
+func (h *iniAccessorHandle) free() {
+	if h.cbuf != nil {
+		C.free(unsafe.Pointer(h.cbuf))
+		h.cbuf = nil
+	}
+}
+
+// returnStr copies a Go string into the C-heap buffer and returns it.
+func (h *iniAccessorHandle) returnStr(s string) *C.char {
+	need := C.size_t(len(s) + 1)
+	if need > h.cbufSz {
+		if h.cbuf != nil {
+			C.free(unsafe.Pointer(h.cbuf))
+		}
+		h.cbuf = (*C.char)(C.malloc(need))
+		h.cbufSz = need
+	}
+	C.memcpy(unsafe.Pointer(h.cbuf), unsafe.Pointer(unsafe.StringData(s)), C.size_t(len(s)))
+	*(*C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(h.cbuf)) + uintptr(len(s)))) = 0
+	return h.cbuf
+}
+
+// newIniAccessor creates a C interp_ini_accessor_t backed by the given IniFile.
+// The returned cgo.Handle must be kept alive and eventually deleted.
+func newIniAccessor(ini *inifile.IniFile) (C.interp_ini_accessor_t, cgo.Handle) {
+	h := &iniAccessorHandle{ini: ini}
+	handle := cgo.NewHandle(h)
+	// Pass the handle as an integer, not unsafe.Pointer(uintptr(handle)): a
+	// cgo.Handle is a uintptr and uintptr->unsafe.Pointer is bad pointer
+	// arithmetic under -d=checkptr (enabled by -race).
+	acc := C.make_ini_accessor(C.uintptr_t(handle))
+	return acc, handle
+}
+
+//export goIniAccessorGet
+func goIniAccessorGet(ctx C.uintptr_t, section *C.char, key *C.char) *C.char {
+	h := cgo.Handle(ctx).Value().(*iniAccessorHandle)
+	goSec := C.GoString(section)
+	goKey := C.GoString(key)
+	val := h.ini.Get(goSec, goKey)
+	if val == "" {
+		return nil
+	}
+	return h.returnStr(val)
+}
+
+//export goIniAccessorGetNth
+func goIniAccessorGetNth(ctx C.uintptr_t, section *C.char, key *C.char, n C.int) *C.char {
+	h := cgo.Handle(ctx).Value().(*iniAccessorHandle)
+	goSec := C.GoString(section)
+	goKey := C.GoString(key)
+	val := h.ini.GetN(goSec, goKey, int(n))
+	if val == "" {
+		return nil
+	}
+	return h.returnStr(val)
+}
+
+// IniLoadAccessor loads INI config into the interpreter using the accessor
+// callbacks backed by the given IniFile. This replaces IniLoad(filename).
+func (i *CInterp) IniLoadAccessor(ini *inifile.IniFile) (cgo.Handle, error) {
+	acc, handle := newIniAccessor(ini)
+	rc := int(C.interp_ini_load_accessor(i.handle, &acc))
+	if rc != 0 {
+		handle.Delete()
+		return 0, fmt.Errorf("interp_ini_load_accessor: rc=%d", rc)
+	}
+	return handle, nil
+}
+
+// SetIniAccessor sets the INI accessor for runtime lookups without replacing
+// the ini_load step.  Call this if ini_load was done by file path but you want
+// runtime #<_ini[SEC]KEY> to use the Go accessor.
+func (i *CInterp) SetIniAccessor(ini *inifile.IniFile) cgo.Handle {
+	acc, handle := newIniAccessor(ini)
+	C.interp_set_ini_accessor(i.handle, &acc)
+	return handle
+}
+
+// FreeIniAccessor releases the C buffer and deletes the cgo handle.
+func FreeIniAccessor(handle cgo.Handle) {
+	if handle == 0 {
+		return
+	}
+	h := handle.Value().(*iniAccessorHandle)
+	h.free()
+	handle.Delete()
+}

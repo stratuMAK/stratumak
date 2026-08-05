@@ -560,7 +560,7 @@ Assuming your configuration lives under `/home/user/xxx` and the INI file is `/h
 $ cd /home/user/xxx
 $ mkdir python
 $ cd python
-$ cp /usr/share/linuxcnc/ncfiles/remap_lib/python-stdglue/stdglue.py .
+$ cp /usr/share/stratumak/ncfiles/remap_lib/python-stdglue/stdglue.py .
 $ echo 'from stdglue import *' >remap.py
 $ echo 'import remap' >toplevel.py
 ---------------------------------------------------------------------
@@ -579,7 +579,7 @@ Now verify that LinuxCNC comes up with no error messages - from a terminal windo
 [source,sh]
 ---------------------------------------------------------------------
 $ cd /home/user/xxx
-$ linuxcnc xxx.ini
+$ stmakd xxx.ini
 ---------------------------------------------------------------------
 
 == Remapping tool change-related codes: T, M6, M61
@@ -1173,7 +1173,7 @@ The namespace is expected to be laid out as follows:
 
 === The Interpreter as seen from Python
 
-The interpreter is an existing C++ class ('Interp') defined in 'src/emc/rs274ngc'.
+The interpreter is an existing C++ class ('Interp') defined in 'src/cnc/rs274ngc'.
 Conceptually all `oword.<function>` and `remap.<function>` Python calls are methods of this Interp class,
 although there is no explicit Python definition of this class (it is a 'Boost.Python' wrapper instance)
 and hence receive the as the first parameter `self` which can be used to access internals.
@@ -1495,8 +1495,8 @@ def example(self,*args):
     return INTERP_OK
 ---------------------------------------------------------------------
 
-The actual canon functions are declared in `src/emc/nml_intf/canon.hh` and implemented in `src/emc/task/emccanon.cc`.
-The implementation of the Python functions can be found in `src/emc/rs274ncg/canonmodule.cc`.
+The actual canon functions are declared in `src/cnc/nml_intf/canon.hh` and implemented in `src/cnc/task/emccanon.cc`.
+The implementation of the Python functions can be found in `src/cnc/rs274ncg/canonmodule.cc`.
 
 === Built in modules
 
@@ -1504,13 +1504,13 @@ The following modules are built in:
 
 `interpreter`::
   Exposes internals of the Interp class.
-  See `src/emc/rs274ngc/interpmodule.cc`, and the `tests/remap/introspect` regression test.
+  See `src/cnc/rs274ngc/interpmodule.cc`, and the `tests/remap/introspect` regression test.
 
 `emccanon`::
-  Exposes most calls of  `src/emc/task/emccanon.cc`.
+  Exposes most calls of  `src/cnc/task/emccanon.cc`.
 
 `emctask`::
-  Exposes the `emcStatus` class instance. See `src/emc/task/taskmodule.cc`.
+  Exposes the `emcStatus` class instance. See `src/cnc/task/taskmodule.cc`.
   Not present when using the `gcode` module used for user interfaces - only present in the milltask instance of the interpreter.
 
 [[remap:adding-predefined-named-parameters]]
@@ -1710,7 +1710,7 @@ m|EMC_DEBUG_USER2       m|0x20000000 |user-defined - not interpreted by LinuxCNC
 |===
 
 'or' these flags into the `[EMC]DEBUG` variable as needed.
-For a current list of debug flags see 'src/emc/nml_intf/debugflags.h'.
+For a current list of debug flags see 'src/cnc/nml_intf/debugflags.h'.
 
 === Debugging Embedded Python code
 
@@ -2205,7 +2205,7 @@ You need to have LinuxCNC started from a terminal window to see the results.
 .Interpreter action on a `T`__x__ command
 All the interpreter does is evaluate the toolnumber parameter, looks up its corresponding tooldata index,
 remembers it in the `selected_pocket` variable for later, and queues a canon command (SELECT_TOOL).
-See 'Interp::convert_tool_select' in 'src/emc/rs274/interp_execute.cc'.
+See 'Interp::convert_tool_select' in 'src/cnc/rs274/interp_execute.cc'.
 
 
 .Task action on SELECT_TOOL
@@ -2232,7 +2232,7 @@ You need to understand this fully before you can adapt it.
 It is very relevant to writing a prolog and epilog handler for a remapped M6.
 Remapping an existing codes means you disable the internal steps taken normally, and replicate them as far as needed for your own purposes.
 
-Even if you are not familiar with C, I suggest you look at the 'Interp::convert_tool_change' code in 'src/emc/rs274/interp_convert.cc'.
+Even if you are not familiar with C, I suggest you look at the 'Interp::convert_tool_change' code in 'src/cnc/rs274/interp_convert.cc'.
 
 [[remap:interpreter-action-on-m6]]
 .Interpreter action on a M6 command
@@ -2310,7 +2310,7 @@ An example Python redefinition for `M61` can be found in the `set_tool_number` f
 In the '[EMC]' section of the INI file the 'DEBUG' parameter can be changed to get various levels of debug messages when LinuxCNC is started from a terminal.
 
 ----
-Debug level, 0 means no messages. See src/emc/nml_intf/debugflags.h for others
+Debug level, 0 means no messages. See src/cnc/nml_intf/debugflags.h for others
 DEBUG = 0x00000002 # configuration
 DEBUG = 0x7FFFDEFF # no interp,oword
 DEBUG = 0x00008000 # py only

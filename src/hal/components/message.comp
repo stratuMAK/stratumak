@@ -99,14 +99,14 @@ FUNCTION(_){
     }
     if(show && message != NULL)
     {
-        GOMC_LOG_ERR("%s", message);
+        STMAK_LOG_ERR("%s", message);
     }
 }
  
 EXTRA_SETUP(){
     if(message == NULL || message[0] == '\0')
     {
-        GOMC_LOG_ERR("message parameter is required");
+        STMAK_LOG_ERR("message parameter is required");
         return -EINVAL;
     }
     return 0;

@@ -125,11 +125,6 @@ ifeq ($(RTPREFIX),)
 $(error Makefile.inc must specify RTPREFIX and other variables)
 endif
 
-ifeq ($(TOOL_NML),yes)
-  TOOL_NML_FLAG := -DTOOL_NML
-  $(info TOOL_NML_FLAG =$(TOOL_NML_FLAG))
-else
-endif
 
 cc-option = $(shell if $(CC) $(CFLAGS) $(1) -S -o /dev/null -xc /dev/null \
 	     > /dev/null 2>&1; then echo "$(1)"; fi ;)
@@ -141,7 +136,7 @@ ifeq ($(origin KERNELRELEASE),undefined)
 # The "modules" target is the gateway to the kernel module build.
 build-software: userspace modules
 ifeq ($(RUN_IN_PLACE),yes)
-	@if [ -f ../bin/gomc-server ]; then if ! getcap ../bin/gomc-server 2>/dev/null | grep -q cap_sys_nice; then $(VECHO) "You now need to run 'sudo make setuid' in order to run in place with access to hardware."; fi; fi
+	@if [ -f ../bin/stmakd ]; then if ! getcap ../bin/stmakd 2>/dev/null | grep -q cap_sys_nice; then $(VECHO) "You now need to run 'sudo make setuid' in order to run in place with access to hardware."; fi; fi
 endif
 
 VERSION=$(shell cat ../VERSION)
@@ -185,15 +180,15 @@ SUBDIRS := \
 	hal/hal-ads-server \
 	hal/drivers/ethercat \
     \
-    emc/usr_intf/axis emc/usr_intf/touchy emc/usr_intf/stepconf emc/usr_intf/pncconf \
-    emc/usr_intf/gremlin emc/usr_intf/gscreen emc/usr_intf/pyui emc/usr_intf/qtvcp \
-    emc/usr_intf/gmoccapy emc/usr_intf/qtplasmac emc/usr_intf/mdro\
-    emc/usr_intf/gmcui \
-    emc/usr_intf emc/nml_intf emc/task emc/iotask emc/kinematics emc/tp emc/canterp \
-    emc/motion emc/motion-logger emc/ini emc/rs274ngc emc/sai \
-    emc \
+    cnc/usr_intf/axis cnc/usr_intf/touchy cnc/usr_intf/stepconf cnc/usr_intf/pncconf \
+    cnc/usr_intf/gremlin cnc/usr_intf/gscreen cnc/usr_intf/pyui cnc/usr_intf/qtvcp \
+    cnc/usr_intf/gmoccapy cnc/usr_intf/qtplasmac cnc/usr_intf/mdro\
+    cnc/usr_intf/stmakui \
+    cnc/usr_intf cnc/nml_intf cnc/task cnc/iotask cnc/kinematics cnc/tp \
+    cnc/motion cnc/motion-logger cnc/ini cnc/rs274ngc cnc/sai \
+    cnc \
     \
-    gomc \
+    stmak \
     gmi/codegen \
     webapp \
     \
@@ -280,9 +275,6 @@ CXXFLAGS += -std=gnu++17
 # Silence the warnings just when they occur in files using boost/python.hpp by
 # adding SILENCE_BOOST_INTERNAL_DIAGNOSTICS_FLAGS to the object's EXTRAFLAGS
 SILENCE_BOOST_INTERNAL_DIAGNOSTICS_FLAGS = -DBOOST_ALLOW_DEPRECATED_HEADERS=1 -DBOOST_BIND_GLOBAL_PLACEHOLDERS=1
-CFLAGS   += $(TOOL_NML_FLAG)
-CXXFLAGS += $(TOOL_NML_FLAG)
-
 ifeq ($(RUN_IN_PLACE),yes)
 LDFLAGS := -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) $(LIBTIRPC_LIBS) $(LDFLAGS)
 else
@@ -374,49 +366,47 @@ build-software: $(INFILES)
 # in ../include is used when building external components of linuxcnc.
 SRCHEADERS := \
     config.h \
-    emc/linuxcnc.h \
-    emc/kinematics/cubic.h \
-    emc/kinematics/kinematics.h \
-    emc/kinematics/genhexkins.h \
-    emc/kinematics/genserkins.h \
-    emc/kinematics/pentakins.h \
-    emc/kinematics/pumakins.h \
-    emc/tp/tc.h \
-    emc/tp/tc_types.h \
-    emc/tp/tcq.h \
-    emc/tp/tp_types.h \
-    emc/tp/spherical_arc.h \
-    emc/tp/blendmath.h \
-    emc/tp/tp_debug.h \
-    emc/motion/emcmotcfg.h \
-    emc/motion/motion.h \
-    emc/motion/homing.h \
-    emc/motion/simple_tp.h \
-    emc/motion/state_tag.h \
-    emc/motion/usrmotintf.h \
-    emc/nml_intf/canon.hh \
-    emc/nml_intf/canon_position.hh \
-    emc/nml_intf/emctool.h \
-    emc/nml_intf/emccfg.h \
-    emc/nml_intf/emcglb.h \
-    emc/nml_intf/emcpos.h \
-    emc/nml_intf/emcpose.h \
-    emc/nml_intf/interp_return.hh \
-    emc/nml_intf/motion_types.h \
-    emc/nml_intf/debugflags.h \
-    emc/rs274ngc/interp_internal.hh \
-    emc/rs274ngc/interp_fwd.hh \
-    emc/rs274ngc/interp_base.hh \
-    emc/rs274ngc/canon_interface.hh \
-    emc/rs274ngc/interp_ext.h \
-    emc/rs274ngc/interp_inspection.hh \
-    emc/rs274ngc/interp_parameter_def.hh \
-    emc/rs274ngc/interp_parameter_io.hh \
-    emc/rs274ngc/interp_shim.h \
-    emc/rs274ngc/modal_state.hh \
-    emc/rs274ngc/rs274ngc.hh \
-    emc/rs274ngc/rs274ngc_interp.hh \
-    emc/sai/saicanon.hh \
+    cnc/linuxcnc.h \
+    cnc/kinematics/cubic.h \
+    cnc/kinematics/kinematics.h \
+    cnc/kinematics/genhexkins.h \
+    cnc/kinematics/genserkins.h \
+    cnc/kinematics/pentakins.h \
+    cnc/kinematics/pumakins.h \
+    cnc/tp/tc.h \
+    cnc/tp/tc_types.h \
+    cnc/tp/tcq.h \
+    cnc/tp/tp_types.h \
+    cnc/tp/spherical_arc.h \
+    cnc/tp/blendmath.h \
+    cnc/tp/tp_debug.h \
+    cnc/motion/emcmotcfg.h \
+    cnc/motion/motion.h \
+    cnc/motion/homing.h \
+    cnc/motion/simple_tp.h \
+    cnc/motion/state_tag.h \
+    cnc/motion/usrmotintf.h \
+    cnc/nml_intf/canon.hh \
+    cnc/nml_intf/canon_position.hh \
+    cnc/nml_intf/emctool.h \
+    cnc/nml_intf/emcpos.h \
+    cnc/nml_intf/emcpose.h \
+    cnc/nml_intf/interp_return.hh \
+    cnc/nml_intf/motion_types.h \
+    cnc/nml_intf/debugflags.h \
+    cnc/rs274ngc/interp_internal.hh \
+    cnc/rs274ngc/interp_fwd.hh \
+    cnc/rs274ngc/interp_base.hh \
+    cnc/rs274ngc/canon_interface.hh \
+    cnc/rs274ngc/interp_ext.h \
+    cnc/rs274ngc/interp_inspection.hh \
+    cnc/rs274ngc/interp_parameter_def.hh \
+    cnc/rs274ngc/interp_parameter_io.hh \
+    cnc/rs274ngc/interp_shim.h \
+    cnc/rs274ngc/modal_state.hh \
+    cnc/rs274ngc/rs274ngc.hh \
+    cnc/rs274ngc/rs274ngc_interp.hh \
+    cnc/sai/saicanon.hh \
     hal/hal.h \
     hal/hal_priv.h \
     hal/drivers/mesa-hostmot2/hostmot2-serial.h \
@@ -452,15 +442,15 @@ SRCHEADERS := \
 
 # C files that are #included rather than compiled on their own.
 #
-# The gomc packages wrapping the trajectory planner and pose maths pull these
-# in textually (`#include "emc/tp/tc.c"`), so to a tree that has to be
+# The stmak packages wrapping the trajectory planner and pose maths pull these
+# in textually (`#include "cnc/tp/tc.c"`), so to a tree that has to be
 # rebuildable they are headers in everything but name, and are installed
 # alongside them. Nothing compiles them as translation units.
 SRCINCLUDED_SOURCES := \
-    emc/nml_intf/emcpose.c \
-    emc/tp/blendmath.c \
-    emc/tp/spherical_arc.c \
-    emc/tp/tc.c
+    cnc/nml_intf/emcpose.c \
+    cnc/tp/blendmath.c \
+    cnc/tp/spherical_arc.c \
+    cnc/tp/tc.c
 
 # the "headers" target installs all the header files in ../include
 #
@@ -469,7 +459,7 @@ SRCINCLUDED_SOURCES := \
 # generated GMI headers that a shipped header includes. They stay out of
 # SRCHEADERS because that list also drives the source-relative install and the
 # basename-collision check below — and a generated header already lives inside
-# the gomc tree that check compares against, so listing it there would report
+# the stmak tree that check compares against, so listing it there would report
 # a file as colliding with itself. Submakefiles append; this composes.
 .PHONY: headers
 HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h))) \
@@ -483,35 +473,35 @@ TARGETS += headers
 # No two installed headers may share a basename
 # ---------------------------------------------------------------------------
 #
-# $(includedir)/linuxcnc is a flat namespace: every SRCHEADERS entry lands in
+# $(includedir)/stratumak is a flat namespace: every SRCHEADERS entry lands in
 # it under its basename alone, and that directory is on the include path of
-# everything compiled against LinuxCNC. A gomc package whose own header shares
+# everything compiled against LinuxCNC. A stmak package whose own header shares
 # a basename with one of them does not win by being adjacent -- when cgo
 # compiles it the flat copy is found first, and the package fails on types
-# declared in the file lying next to it. emc/rs274ngc/interp_shim.h and
-# gomc/internal/task/interp_shim.h were exactly that, down to sharing an
+# declared in the file lying next to it. cnc/rs274ngc/interp_shim.h and
+# stmak/internal/task/interp_shim.h were exactly that, down to sharing an
 # include guard, and it cost an afternoon to find because every error pointed
 # at the innocent file.
 #
 # So the build refuses the situation rather than waiting for someone to hit
 # it. Cheap: two sorts over a list of names.
-GOMC_INSTALLED_HEADERS = $(shell cd gomc 2>/dev/null && find . \
+STMAK_INSTALLED_HEADERS = $(shell cd stmak 2>/dev/null && find . \
 	-path './internal/gmi/kinstest' -prune -o \
 	-path './internal/halscope/testrt' -prune -o \
 	-type f \( -name '*.h' -o -name '*.hh' \) -print 2>/dev/null)
 
 .PHONY: check-header-collisions
-# Order-only on the generated GMI headers: GOMC_INSTALLED_HEADERS finds
+# Order-only on the generated GMI headers: STMAK_INSTALLED_HEADERS finds
 # whatever exists when the recipe runs, so on a fresh tree the check must not
 # run before codegen has produced them (a collision involving a generated
 # header would pass once and only fail on the rebuild).
-check-header-collisions: | $(filter gomc/generated/%,$(TARGETS))
+check-header-collisions: | $(filter stmak/generated/%,$(TARGETS))
 check-header-collisions:
 	@flat=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort -u`; \
 	dup=`for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do basename $$h; done | sort | uniq -d`; \
 	if [ -n "$$dup" ]; then \
 	    echo "*** Two SRCHEADERS entries share a basename, so only one of them can" >&2; \
-	    echo "*** reach \$$(includedir)/linuxcnc:" >&2; \
+	    echo "*** reach \$$(includedir)/stratumak:" >&2; \
 	    for d in $$dup; do \
 	        echo "***   $$d:" >&2; \
 	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
@@ -520,22 +510,22 @@ check-header-collisions:
 	    done; \
 	    exit 1; \
 	fi; \
-	gomch=`for h in $(GOMC_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
-	clash=`printf '%s\n' $$flat $$gomch | sort | uniq -d`; \
+	stmakh=`for h in $(STMAK_INSTALLED_HEADERS); do basename $$h; done | sort -u`; \
+	clash=`printf '%s\n' $$flat $$stmakh | sort | uniq -d`; \
 	if [ -n "$$clash" ]; then \
-	    echo "*** A header installed into the flat \$$(includedir)/linuxcnc shares a" >&2; \
-	    echo "*** basename with one inside the gomc tree. The flat copy wins when cgo" >&2; \
+	    echo "*** A header installed into the flat \$$(includedir)/stratumak shares a" >&2; \
+	    echo "*** basename with one inside the stmak tree. The flat copy wins when cgo" >&2; \
 	    echo "*** compiles that package, whichever one it meant:" >&2; \
 	    for c in $$clash; do \
 	        echo "***   $$c:" >&2; \
 	        for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 	            case $$h in */$$c|$$c) echo "***     $$h" >&2 ;; esac; \
 	        done; \
-	        for h in $(GOMC_INSTALLED_HEADERS); do \
-	            case $$h in */$$c|$$c) echo "***     gomc/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
+	        for h in $(STMAK_INSTALLED_HEADERS); do \
+	            case $$h in */$$c|$$c) echo "***     stmak/`echo $$h | sed 's|^\./||'`" >&2 ;; esac; \
 	        done; \
 	    done; \
-	    echo "*** Rename one of them. See src/gomc/internal/task/task_interp_shim.h" >&2; \
+	    echo "*** Rename one of them. See src/stmak/internal/task/task_interp_shim.h" >&2; \
 	    echo "*** for the one that had to be renamed and why." >&2; \
 	    exit 1; \
 	fi
@@ -572,7 +562,7 @@ TARGETS += ../bin/gremlin_view
 	$(Q)(echo "gremlin_view.standalone_gremlin_view()")>>$@
 	$(Q)chmod +x $@
 
-# halshow: now a gmcui web app (symlink created in gmcui/Submakefile)
+# halshow: now a stmakui web app (symlink created in stmakui/Submakefile)
 
 # And make userspace depend on $(TARGETS)
 userspace: $(TARGETS)
@@ -697,7 +687,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # So that nothing is built as root, this rule does not depend on the touched
 # files (Note that files in depends/ might be rebuilt, and there's little that
 # can be done about it)
-# Capabilities required by gomc-server:
+# Capabilities required by stmakd:
 #   cap_net_admin  - EtherCAT: manage network interfaces and settings
 #   cap_net_raw    - EtherCAT: send/receive raw Ethernet frames
 #   cap_ipc_lock   - lock shared memory (mlock) for realtime operation
@@ -723,7 +713,7 @@ pycheck: pycheck-python-files pycheck-python-script
 # (6.12 RT, xdp-native), each with its own error. See
 # EXTERNAL_MODULE_INSTALL_DESIGN.md section 7.
 setuid:
-	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/gomc-server
+	setcap cap_net_admin,cap_net_raw,cap_bpf,cap_ipc_lock,cap_sys_resource,cap_sys_nice,cap_sys_rawio,cap_perfmon,cap_sys_admin,cap_dac_override=ep ../bin/stmakd
 
 # These rules allows a header file from this directory to be installed into
 # ../include.  A pair of rules like these will exist in the Submakefile
@@ -777,13 +767,13 @@ install-docs:
 	$(DIR) $(DESTDIR)$(docsdir)
 	$(FILE) $(addprefix ../docs/,$(DOCS)) $(DESTDIR)$(docsdir)
 	$(FILE) $(DOCS_HELP) $(DESTDIR)$(docsdir)
-	$(FILE) emc/usr_intf/axis/etc/axis_light_background $(DESTDIR)$(docsdir)
-	$(FILE) emc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
+	$(FILE) cnc/usr_intf/axis/etc/axis_light_background $(DESTDIR)$(docsdir)
+	$(FILE) cnc/usr_intf/axis/README $(DESTDIR)$(docsdir)/README.axis
 
 install-dirs:
 	$(DIR) $(DESTDIR)$(EMC2_CMOD_DIR) \
 		$(DESTDIR)$(bindir) $(DESTDIR)$(libdir) \
-		$(DESTDIR)$(includedir)/linuxcnc \
+		$(DESTDIR)$(includedir)/stratumak \
 		$(DESTDIR)$(docsdir) $(DESTDIR)$(ncfilesdir) \
 		$(DESTDIR)$(tcldir)/bin \
 		$(DESTDIR)$(mandir)/man1 \
@@ -803,11 +793,11 @@ install-dirs:
 		$(DESTDIR)$(datadir)/glade/catalogs \
 		$(DESTDIR)$(datadir)/glade/pixmaps/hicolor/22x22/actions \
 		$(DESTDIR)$(datadir)/gtksourceview-4/language-specs \
-		$(DESTDIR)$(datadir)/linuxcnc/stepconf \
-		$(DESTDIR)$(datadir)/linuxcnc/pncconf \
-		$(DESTDIR)$(datadir)/linuxcnc/pncconf/pncconf-help \
-		$(DESTDIR)$(datadir)/linuxcnc/hallib \
-		$(DESTDIR)$(datadir)/linuxcnc/webapp
+		$(DESTDIR)$(datadir)/stratumak/stepconf \
+		$(DESTDIR)$(datadir)/stratumak/pncconf \
+		$(DESTDIR)$(datadir)/stratumak/pncconf/pncconf-help \
+		$(DESTDIR)$(datadir)/stratumak/hallib \
+		$(DESTDIR)$(datadir)/stratumak/webapp
 
 install-common: install-dirs
 	$(FILE) ../docs/man/man1/*.1 $(DESTDIR)$(mandir)/man1
@@ -815,26 +805,26 @@ install-common: install-dirs
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.9, $(wildcard ../docs/man/man9/*.9)) $(DESTDIR)$(mandir)/man9
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
-	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/linuxcnc
-	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/linuxcnc/hallib
+	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/stratumak
+	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/stratumak/hallib
 
 	# install all the sample configs, including subdirs (tar is required on debian systems, and common on others)
 	$(DIR) $(DESTDIR)$(sampleconfsdir)
 	((cd ../configs && tar --exclude CVS --exclude .cvsignore --exclude .gitignore -cf - .) | (cd $(DESTDIR)$(sampleconfsdir) && tar -xf -))
 
-	# install the built web applications, including subdirs. gomc-server serves
+	# install the built web applications, including subdirs. stmakd serves
 	# these from EMC2_WEBAPP_DIR at /app/<name>/; without them every web tool
 	# (halshow, halscope, tooledit, emccalib, latency, classicladder,
 	# linuxcnctop-ui) is a 404 on an installed system. The .build-stamp files
 	# are make bookkeeping, not part of an app.
-	((cd ../share/gomc/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/linuxcnc/webapp && tar -xf -))
+	((cd ../share/stmak/webapp && tar --exclude .build-stamp -cf - .) | (cd $(DESTDIR)$(datadir)/stratumak/webapp && tar -xf -))
 
-	# gomc-server is excluded: gomc-install owns it entirely (libexec copy +
+	# stmakd is excluded: stmak-install owns it entirely (libexec copy +
 	# bindir symlink); installing a flat copy here would race that symlink
 	# under a parallel install.
-	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/gomc-server, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
+	$(EXE) $(filter-out ../bin/test_rtapi_vsnprintf ../bin/stmakd, $(filter ../bin/%,$(TARGETS))) $(DESTDIR)$(bindir)
 	# Several bin/ entries are symlinks onto one binary that picks its app
-	# from argv[0] (the gmcui web-UI front-ends). install(1) dereferences, so
+	# from argv[0] (the stmakui web-UI front-ends). install(1) dereferences, so
 	# the loop above ships a full copy per link; re-create them as links.
 	$(Q)for f in $(filter ../bin/%,$(TARGETS)); do \
 		if [ -L "$$f" ]; then \
@@ -864,52 +854,50 @@ install-common: install-dirs
 	# $(FILE) line above already installed them with install(1) semantics.
 	cp -a $(filter-out %.so.0,$(wildcard ../lib/*.so.[0-9]*)) $(DESTDIR)$(libdir)
 	-ldconfig $(DESTDIR)$(libdir)
-	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/linuxcnc/
+	$(FILE) $(HEADERS) $(DESTDIR)$(includedir)/stratumak/
 	# The same headers again, keeping their source-relative path.
 	#
 	# The flat copies above are what out-of-tree cmods have always used, and
-	# stay. But the gomc packages include a good many of them the way the
+	# stay. But the stmak packages include a good many of them the way the
 	# source tree does -- `#include "hal/hal_priv.h"`, `#include
-	# "emc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
+	# "cnc/rs274ngc/interp_parameter_io.hh"` -- which resolves against
 	# -Isrc in a build tree and against nothing at all in a flat include
-	# directory. That is why the installed gomc tree could not be rebuilt:
+	# directory. That is why the installed stmak tree could not be rebuilt:
 	# not a missing file, a missing shape.
 	#
 	# Both spellings therefore resolve under the one -I that cgoFlags already
-	# passes ($(includedir)/linuxcnc), and no include path had to be invented.
+	# passes ($(includedir)/stratumak), and no include path had to be invented.
 	#
 	# `|| exit 1` on the install, and it is load-bearing: without it a failing
 	# iteration is not the loop's exit status, so a name that no longer exists
 	# passes silently. The flat copies above reach this file through a `-cp`
-	# rule that ignores errors, which is how emc/rs274ngc/saicanon.hh stayed
-	# listed for years after moving to emc/sai/ -- installed nowhere, missed by
+	# rule that ignores errors, which is how cnc/rs274ngc/saicanon.hh stayed
+	# listed for years after moving to cnc/sai/ -- installed nowhere, missed by
 	# nobody until something needed it.
 	$(Q)for h in $(SRCHEADERS) $(SRCINCLUDED_SOURCES); do \
 		d=$$(dirname $$h); \
 		if [ "$$d" != "." ]; then \
-			$(DIR) $(DESTDIR)$(includedir)/linuxcnc/$$d || exit 1; \
+			$(DIR) $(DESTDIR)$(includedir)/stratumak/$$d || exit 1; \
 		fi; \
-		$(FILE) $$h $(DESTDIR)$(includedir)/linuxcnc/$$h || exit 1; \
+		$(FILE) $$h $(DESTDIR)$(includedir)/stratumak/$$h || exit 1; \
 	done
 	$(TREE) $(NC_FILES) $(DESTDIR)$(ncfilesdir)
 	$(EXE) ../nc_files/M101 $(DESTDIR)$(ncfilesdir)
-	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/linuxcnc
+	$(FILE) Makefile.modinc $(DESTDIR)$(datadir)/stratumak
 	$(EXE) $(TCL) $(DESTDIR)$(tcldir)
 	$(FILE) ../tcl/pkgIndex.tcl $(DESTDIR)$(tcldir)
 	$(EXE) $(TCL_BIN) $(DESTDIR)$(tcldir)/bin
-	$(FILE) ../share/linuxcnc/*.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/stepconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/stepconf
-	$(FILE) ../share/linuxcnc/touchy.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/gscreen.glade $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/gscreen2.glade $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../share/stratumak/*.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/stepconf/*.glade $(DESTDIR)$(prefix)/share/stratumak/stepconf
+	$(FILE) ../share/stratumak/touchy.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/gscreen.glade $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/gscreen2.glade $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/gmoccapy/gmoccapy.glade $(DESTDIR)$(prefix)/share/gmoccapy
-	$(FILE) ../share/linuxcnc/pncconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/pncconf
-	$(FILE) ../share/linuxcnc/gremlin_view.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../share/linuxcnc/popupkeyboard.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../configs/common/linuxcnc.nml     $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../configs/common/linuxcnc_big.nml $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
-	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
+	$(FILE) ../share/stratumak/pncconf/*.glade $(DESTDIR)$(prefix)/share/stratumak/pncconf
+	$(FILE) ../share/stratumak/gremlin_view.ui $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../share/stratumak/popupkeyboard.ui $(DESTDIR)$(prefix)/share/stratumak
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/stratumak/pncconf/pncconf-help
+	$(FILE) ../src/cnc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/stratumak/pncconf/pncconf-help
 
 	$(FILE) ../lib/python/gladevcp/hal_python.xml $(DESTDIR)$(datadir)/glade/catalogs/
 	$(FILE) ../share/glade/pixmaps/hicolor/22x22/actions/widget*.png  $(DESTDIR)$(datadir)/glade/pixmaps/hicolor/22x22/actions/
@@ -977,7 +965,7 @@ install-python: install-dirs
 	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(VISMACH_PY)) $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(QTPLASMAC_PY)) $(DESTDIR)$(bindir)
-	$(FILE) ../share/linuxcnc/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../share/stratumak/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/axis/images/*.{png,gif,xbm,ngc} $(DESTDIR)$(datadir)/axis/images
 	$(FILE) ../share/axis/tcl/*.tcl $(DESTDIR)$(datadir)/axis/tcl
 	$(FILE) ../share/gscreen/images/*.gif $(DESTDIR)$(datadir)/gscreen/images
@@ -1018,24 +1006,24 @@ endif # userspace
 # ---------------------------------------------------------------------------
 
 HOMEMOD_CMOD_SRCS := \
-    emc/motion/homing.c
+    cnc/motion/homing.c
 
 HOMEMOD_CMOD_CFLAGS := \
     -fPIC -g -Os -Wall -Wextra \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
-    -Igomc/pkg/cmodule \
-    -Igomc/generated/gmi/home \
-    -Igomc/generated/gmi/mot \
-    -Iemc/motion
+    -Istmak/pkg/cmodule \
+    -Istmak/generated/gmi/home \
+    -Istmak/generated/gmi/mot \
+    -Icnc/motion
 
 HOMEMOD_CMOD_DEPS := \
-    gomc/generated/gmi/home/home_api.h \
-    gomc/generated/gmi/mot/mot_api.h \
-    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
-    $(wildcard emc/motion/homing.h) \
-    $(wildcard emc/motion/motion.h)
+    stmak/generated/gmi/home/home_api.h \
+    stmak/generated/gmi/mot/mot_api.h \
+    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
+    $(wildcard cnc/motion/homing.h) \
+    $(wildcard cnc/motion/motion.h)
 
 ../cmod/homemod.so: $(HOMEMOD_CMOD_SRCS) $(HOMEMOD_CMOD_DEPS) | headers
 	$(ECHO) "Compiling cmod homemod.so"
@@ -1052,7 +1040,7 @@ modules: ../cmod/homemod.so
 # ---------------------------------------------------------------------------
 
 HOMEMOD_CIA402_CMOD_SRCS := \
-    emc/motion/homemod_cia402.c
+    cnc/motion/homemod_cia402.c
 
 ../cmod/homemod_cia402.so: $(HOMEMOD_CIA402_CMOD_SRCS) $(HOMEMOD_CMOD_DEPS) | headers
 	$(ECHO) "Compiling cmod homemod_cia402.so"
@@ -1069,12 +1057,12 @@ modules: ../cmod/homemod_cia402.so
 # ---------------------------------------------------------------------------
 
 TPMOD_CMOD_SRCS := \
-    emc/tp/tp.c \
-    emc/tp/tc.c \
-    emc/tp/tcq.c \
-    emc/tp/spherical_arc.c \
-    emc/tp/blendmath.c \
-    emc/nml_intf/emcpose.c
+    cnc/tp/tp.c \
+    cnc/tp/tc.c \
+    cnc/tp/tcq.c \
+    cnc/tp/spherical_arc.c \
+    cnc/tp/blendmath.c \
+    cnc/nml_intf/emcpose.c
 
 TPMOD_CMOD_CFLAGS := \
     -fPIC -g -Os -Wall -Wextra \
@@ -1082,19 +1070,19 @@ TPMOD_CMOD_CFLAGS := \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
-    -Igomc/pkg/cmodule \
-    -Igomc/generated/gmi/tp \
-    -Igomc/generated/gmi/mot \
-    -Iemc/motion \
-    -Iemc/tp \
+    -Istmak/pkg/cmodule \
+    -Istmak/generated/gmi/tp \
+    -Istmak/generated/gmi/mot \
+    -Icnc/motion \
+    -Icnc/tp \
     -Ilibnml/posemath
 
 TPMOD_CMOD_DEPS := \
-    gomc/generated/gmi/tp/tp_api.h \
-    gomc/generated/gmi/mot/mot_api.h \
-    $(wildcard gomc/pkg/cmodule/gomc_*.h) \
-    $(wildcard emc/tp/*.h) \
-    $(wildcard emc/motion/motion.h)
+    stmak/generated/gmi/tp/tp_api.h \
+    stmak/generated/gmi/mot/mot_api.h \
+    $(wildcard stmak/pkg/cmodule/stmak_*.h) \
+    $(wildcard cnc/tp/*.h) \
+    $(wildcard cnc/motion/motion.h)
 
 ../cmod/tpmod.so: $(TPMOD_CMOD_SRCS) $(TPMOD_CMOD_DEPS) | headers ../lib/libposemath.so
 	$(ECHO) "Compiling cmod tpmod.so"
@@ -1112,18 +1100,18 @@ modules: ../cmod/tpmod.so
 #
 # cmods are built by a dozen Submakefiles, in pattern rules and explicit ones,
 # from .comp sources and hand-written .c alike, and almost none of them listed
-# gomc/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
+# stmak/pkg/cmodule/*.h as a prerequisite. Editing cmod_env_t therefore left
 # most of ../cmod untouched -- the .comp-derived ones only rebuilt because
 # ../bin/modcompile happened to be newer.
 #
 # That was survivable while a mismatch merely meant undefined behaviour nobody
-# could detect. It is not survivable now that gomc_env.h carries an ABI stamp
+# could detect. It is not survivable now that stmak_env.h carries an ABI stamp
 # the launcher enforces: after a bump, every cmod the build skipped would be
 # refused at load with no hint that a rebuild was all it needed.
 #
 # One line rather than a prerequisite added to each of those rules, because
 # the next cmod rule someone writes would not get one.
-CMOD_ENV_HEADERS := $(wildcard gomc/pkg/cmodule/gomc_*.h)
+CMOD_ENV_HEADERS := $(wildcard stmak/pkg/cmodule/stmak_*.h)
 $(filter ../cmod/%.so,$(TARGETS)): $(CMOD_ENV_HEADERS)
 
 # Phony so that it is always rebuilt when requested, not because it

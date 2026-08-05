@@ -16,7 +16,7 @@ contents, transfers files via FoE, requests application-layer state
 changes and rescans the bus.  This is the EtherLab
 .B ethercat
 tool adapted to talk to the master inside
-.BR gomc-server (1)
+.BR stmakd (1)
 through its REST interface instead of a character device.
 .PP
 Commands can be abbreviated as long as they stay unambiguous.
@@ -123,12 +123,12 @@ for command-specific help.
 EtherCAT instance name (default:
 .BR ethercat ).
 .TP
-.B GMC_REST_URL
+.B STMAK_REST_URL
 REST server URL (default:
 .BR http://localhost:5080/ ).
 
 .SH "SEE ALSO"
-.BR gomc-server (1)
+.BR stmakd (1)
 .PP
 The IgH EtherLab EtherCAT master documentation describes the master
 architecture and the command set in full: https://etherlab.org/

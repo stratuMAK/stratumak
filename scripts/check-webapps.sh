@@ -1,5 +1,5 @@
 #!/bin/sh
-# check-webapps.sh — the gomc webapp gate: ESLint + cold vue-tsc type-check +
+# check-webapps.sh — the stratuMAK webapp gate: ESLint + cold vue-tsc type-check +
 # vitest, over the seven non-deferred apps.
 #
 # Self-contained: uses npm/npx directly, needs no RIP build or ./configure, so

@@ -31,29 +31,29 @@ Removed objects:
 - `emcargs.cc` (deleted — NML arg parsing)
 - `emcops.cc` (deleted — stat constructors inlined into `emc_nml.hh`)
 - `modal_state.cc` (moved exclusively to librs274)
-- `canon_position.cc`, `interpl.cc`, `emc_symbol_lookup.cc` (moved to `emc/task/`)
+- `canon_position.cc`, `interpl.cc`, `emc_symbol_lookup.cc` (moved to `cnc/task/`)
 
 **Dead NML clients removed from build:**
 - `tcl/linuxcnc.so` (Tcl extension: `emcsh.cc`, `shcom.cc`) — dead NML
   channel client, was loaded by AXIS via `linuxcnc.tcl`. Load line commented
   out in `linuxcnc.tcl` / `linuxcnc.tcl.in`.
 - `bin/linuxcnclcd` (`emclcd.cc`, `shcom.cc`, `sockets.c`) — dead NML LCD client.
-  Since migrated to `cmod/linuxcnclcd.so` (`emc/usr_intf/linuxcnclcd.c`, still
+  Since migrated to `cmod/linuxcnclcd.so` (`cnc/usr_intf/linuxcnclcd.c`, still
   using `sockets.c`), consuming emcstat/emccmd instead of NML.
 
 **All remaining binaries are libnml-free:**
 `io.so`, `iov2.so`, `milltask.so`, `halui.so`, `rs274`, `emcmodule.so`,
-`motion-logger`, `gomc-server`.
+`motion-logger`, `stmakd`.
 
 **Circular include fix:** Created `emc/tooldata/tooldata_fwd.hh` to break the
 `emc_nml.hh` ↔ `tooldata.hh` circular dependency (needed for inlined
 `EMC_TOOL_STAT` constructor/operator=).
 
 **Lightweight shims replacing libnml functions:**
-- `emc/task/rcs_shim.cc` — `rcs_print` → `vfprintf(stderr)`,
+- `cnc/task/rcs_shim.cc` — `rcs_print` → `vfprintf(stderr)`,
   `etime` → `gettimeofday`, `esleep` → `usleep`, `RCS_TIMER` for milltask
-- `emc/usr_intf/sockets.c` — `rcs_print_error` → `fprintf(stderr)` macro
-- `emc/usr_intf/emcsh.cc` (removed) — had inline `-ini` parsing replacing
+- `cnc/usr_intf/sockets.c` — `rcs_print_error` → `fprintf(stderr)` macro
+- `cnc/usr_intf/emcsh.cc` (removed) — had inline `-ini` parsing replacing
   `emcGetArgs`, `etime` → `gettimeofday`, `esleep` → `usleep`
 
 **StateTag → state_tag_t:** `EMC_TRAJ_CMD_MSG.tag` and `EMC_TRAJ_STAT.tag`
@@ -77,8 +77,8 @@ shared memory structs. `StateTag` remains only in librs274/interpreter.
 
 | Mechanism | Where | How |
 |-----------|-------|-----|
-| M100-M199 | `emctask.cc`, `emctaskmain_gomc.cc` | `fork()+execvp()`, async `waitpid` polling |
-| EMC\_SYSTEM\_CMD | `emctaskmain_gomc.cc` | NML message → same fork/exec (only for M1xx) |
+| M100-M199 | `emctask.cc`, `emctaskmain_stmak.cc` | `fork()+execvp()`, async `waitpid` polling |
+| EMC\_SYSTEM\_CMD | `emctaskmain_stmak.cc` | NML message → same fork/exec (only for M1xx) |
 | POSTTASK\_HALFILE | `taskclass.cc` | `vfork()+execlp("halcmd")`, synchronous |
 
 ### Multi-Instance Blockers (~35 globals)
@@ -118,7 +118,7 @@ without any task dependency.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ gomc-server                                             │
+│ stmakd                                             │
 │                                                         │
 │  ┌──────────────────────┐   ┌────────────────────────┐  │
 │  │ interp_canon_t       │   │ task_ext_t             │  │
@@ -144,7 +144,7 @@ without any task dependency.
 │  └──────────────────────┘                               │
 │                                                         │
 │  Registration lives in librs274.so (per Interp instance)│
-│  milltask exposes GMI pass-through (gomc_interp_ext_t)  │
+│  milltask exposes GMI pass-through (stmak_interp_ext_t)  │
 │  so external cmods/gomods can register handlers         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -376,7 +376,7 @@ line segments and call `straight_feed`). They do NOT go in the canon table.
 Registered by cmod/gomod via the milltask GMI pass-through. The interpreter
 dispatches to these instead of Python. The registration map and dispatch logic
 live in **librs274.so** (per Interp instance). milltask exposes the registration
-functions as a GMI interface (`gomc_interp_ext_t`) so external cmods/gomods
+functions as a GMI interface (`stmak_interp_ext_t`) so external cmods/gomods
 can call them.
 
 ```c
@@ -463,13 +463,13 @@ int interp_ext_register_remap_epilog(void *interp, const char *name,
                                       interp_remap_epilog_fn fn, void *user);
 ```
 
-**Layer 2: milltask GMI pass-through (gomc_interp_ext_t)**
+**Layer 2: milltask GMI pass-through (stmak_interp_ext_t)**
 
 milltask exposes these as a GMI interface. The `ctx` captures the Interp
 pointer; each function simply forwards to the librs274 C API:
 
 ```c
-typedef struct gomc_interp_ext {
+typedef struct stmak_interp_ext {
     void *ctx;
 
     int (*register_oword)(void *ctx, const char *name,
@@ -480,7 +480,7 @@ typedef struct gomc_interp_ext {
                                 interp_remap_body_fn fn, void *user);
     int (*register_remap_epilog)(void *ctx, const char *name,
                                   interp_remap_epilog_fn fn, void *user);
-} gomc_interp_ext_t;
+} stmak_interp_ext_t;
 ```
 
 The `void *user` is stored alongside the function pointer and passed back
@@ -530,7 +530,7 @@ typedef struct {
 // Returns 0 = success, -1 = error, -2 = aborted.
 typedef int (*task_mcode_fn)(task_mcode_ctx_t *ctx);
 
-typedef struct gomc_task_ext {
+typedef struct stmak_task_ext {
     void *ctx;
 
     int (*register_tool_prepare)(void *ctx, task_tool_prepare_fn fn,
@@ -549,7 +549,7 @@ typedef struct gomc_task_ext {
     // Register handler for specific M-code (100-199)
     int (*register_mcode)(void *ctx, int mcode, task_mcode_fn fn,
                            void *user);
-} gomc_task_ext_t;
+} stmak_task_ext_t;
 ```
 
 #### M-code Execution Flow
@@ -595,7 +595,7 @@ or a channel read, providing idiomatic Go abort handling.
 
 ### POSTTASK\_HALFILE
 
-Handled by gomc-server launcher calling internal halcmd directly. No API needed.
+Handled by stmakd launcher calling internal halcmd directly. No API needed.
 
 ### INI Configuration Changes
 
@@ -631,7 +631,7 @@ is removed. `ngc=` continues to work for NGC subroutine bodies.
 **Goal:** Replace ~110 global canon functions with `interp_canon_t`.
 No behavior change — pure refactoring.
 
-1. Define `interp_canon_t` struct in new header `src/emc/nml_intf/interp_canon.h`
+1. Define `interp_canon_t` struct in new header `src/cnc/nml_intf/interp_canon.h`
 2. Implement `emccanon_make_table()` in `emccanon.cc` — creates an
    `interp_canon_t` whose callbacks call the existing global implementations.
    The `ctx` holds pointers to `canon`, `interp_list`, `emcStatus`, etc.
@@ -685,7 +685,7 @@ This is natural because:
   (preview doesn't need prolog/epilog side effects)
 
 **milltask.so** (the only consumer that creates an Interp AND loads cmods)
-exposes a GMI pass-through interface (`gomc_interp_ext_t`) so that external
+exposes a GMI pass-through interface (`stmak_interp_ext_t`) so that external
 cmods/gomods can register handlers. This is a thin wrapper: milltask captures
 the Interp pointer and forwards registration calls to librs274.
 
@@ -703,10 +703,10 @@ the Interp pointer and forwards registration calls to librs274.
 └────────────────────────────────────────────▲──────────────┘
                                              │ links
 ┌────────────────────────────────────────────┴──────────────┐
-│ milltask.so (cmod in gomc-server)                          │
+│ milltask.so (cmod in stmakd)                          │
 │                                                           │
 │  Owns the Interp instance                                 │
-│  Exposes GMI pass-through: gomc_interp_ext_t              │
+│  Exposes GMI pass-through: stmak_interp_ext_t              │
 │    register_oword(ctx, name, fn, user) →                  │
 │        interp->register_oword(name, fn, user)             │
 └────────────────────────────────────────────▲──────────────┘
@@ -720,7 +720,7 @@ the Interp pointer and forwards registration calls to librs274.
 
 #### Implementation Steps
 
-1. Define `interp_ext.h` header in `src/emc/rs274ngc/`:
+1. Define `interp_ext.h` header in `src/cnc/rs274ngc/`:
    - Handler callback typedefs (`interp_oword_fn`, `interp_remap_prolog_fn`, etc.)
    - `interp_ext_ctx_t` struct (context passed to handlers at call time)
    - Return value constants (`INTERP_EXT_OK`, `INTERP_EXT_ERROR`,
@@ -737,7 +737,7 @@ the Interp pointer and forwards registration calls to librs274.
    - `set_error` → set interpreter error message
    - `canon` → pointer to the instance's canon interface
    - `phase` counter for EXECUTE\_FINISH yield/resume
-6. Define `gomc_interp_ext.gmi` — the GMI interface file for the
+6. Define `stmak_interp_ext.gmi` — the GMI interface file for the
    pass-through registration API exposed by milltask.
 7. Implement the pass-through in milltask (thin: capture Interp*, forward).
 8. Port `stdglue.py` (prepare\_prolog, change\_prolog, change\_epilog) to a
@@ -750,7 +750,7 @@ Custom remap prologs/epilogs can be written as cmods/gomods.
 
 **Goal:** Replace Python task overrides and M100-M199 fork/exec.
 
-1. Define `task_ext_t` / `gomc_task_ext_t` header.
+1. Define `task_ext_t` / `stmak_task_ext_t` header.
 2. Replace `TaskWrap` (Boost.Python) with C callback dispatch in
    `taskclass.cc` — each Task virtual method checks for registered handler,
    falls through to default C++ if none.
@@ -763,7 +763,7 @@ Custom remap prologs/epilogs can be written as cmods/gomods.
 6. Remove `user_defined_fmt[]` / `user_defined_function_dirindex[]` from
    `emctask.cc`.
 7. Remove `taskmodule.cc` (Boost.Python bindings).
-8. POSTTASK\_HALFILE: call halcmd internally from gomc-server launcher.
+8. POSTTASK\_HALFILE: call halcmd internally from stmakd launcher.
 9. Remove PLUGIN\_CALL / IO\_PLUGIN\_CALL entirely.
 10. Port iocontrol-v2 Python task class to a cmod (if anyone uses it).
 
@@ -783,7 +783,7 @@ server-side G-code preview that runs concurrently with execution.
    and status reference.
 4. Tool table access goes through canon getters (already done in Phase 1).
 5. ~~Implement **preview canon**~~ — **Done.** `ngcpreview` gomod in
-   `src/gomc/internal/ngcpreview/module.go` implements a recording canon
+   `src/stmak/internal/ngcpreview/module.go` implements a recording canon
    (C callbacks via `canon_callbacks_t`) that stores segments (traverse,
    feed, arc+center+rotation, probe), dwells, and tool changes. Returns
    JSON via REST endpoint `POST /api/v1/ngcpreview/file`.
@@ -792,7 +792,7 @@ server-side G-code preview that runs concurrently with execution.
    (normal NGC sub call, correct geometry), but prolog/epilog/body
    extension callbacks are not invoked. This is correct because preview
    doesn't need side effects, only geometry.
-7. ~~gomc-server exposes preview via REST endpoint~~ — **Done.** Client
+7. ~~stmakd exposes preview via REST endpoint~~ — **Done.** Client
    sends `{filename, initcodes, unitcode}`, server creates preview Interp
    + preview canon, runs interpretation, returns JSON geometry.
 8. ~~Python client module~~ — **Done.** `lib/python/gcode.py` is a pure
@@ -805,7 +805,7 @@ server-side G-code preview that runs concurrently with execution.
    execution canon for the same program (modulo side-effect-only codes).
 
 **Completed items:**
-- `src/gomc/internal/ngcpreview/module.go` — ngcpreview gomod with preview
+- `src/stmak/internal/ngcpreview/module.go` — ngcpreview gomod with preview
   canon (C callbacks via `canon_callbacks_t`). Features:
   - Segment storage: traverse, feed, arc (center+rotation), probe
   - Metric→inches conversion for all linear quantities (positions,
@@ -821,7 +821,7 @@ server-side G-code preview that runs concurrently with execution.
 - `lib/python/gcode.py` — REST client replacing gcodemodule.cc. Sets g5x/g92
   offsets, rotation\_cos/sin, and plane on the Python canon before replaying
   segments. Includes pure-Python `arc_to_segments()` and `calc_extents()`.
-- `src/emc/rs274ngc/gcodemodule.cc` — **deleted** (source removed)
+- `src/cnc/rs274ngc/gcodemodule.cc` — **deleted** (source removed)
 - `lib/python/gcode.so` — **deleted** (build target removed from Submakefile)
 - All `import gcode` consumers work via the new Python module without changes
 - File-scope statics eliminated from interpreter:
@@ -840,7 +840,7 @@ server-side G-code preview that runs concurrently with execution.
 1. ~~Remove `#include <Python.h>` and `#include <boost/python.hpp>` throughout.~~
    Removed by deleting all dead source files below. Python/Boost remain only
    in active UI components (emcmodule.so, delta kins, HAL components).
-2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — gomc packages.conf
+2. ~~Remove `python3-embed` from `packages.conf`.~~ N/A — stratuMAK packages.conf
    never had it. System-level Python/Boost deps stay for UI components.
 3. ~~Remove `libboost_python` from link flags.~~ Already removed from
    librs274 and milltask Submakefiles in Phase 2. Remains only for
@@ -853,20 +853,20 @@ server-side G-code preview that runs concurrently with execution.
 
 **Deleted files:**
 - `src/emc/pythonplugin/` (entire directory: python_plugin.cc, .hh, testpp.cc, Submakefile)
-- `src/emc/task/taskmodule.cc`
-- `src/emc/rs274ngc/canonmodule.cc`
-- `src/emc/rs274ngc/interpmodule.cc`
-- `src/emc/rs274ngc/pyblock.cc`
-- `src/emc/rs274ngc/pyarrays.cc`
-- `src/emc/rs274ngc/pyinterp1.cc`
-- `src/emc/rs274ngc/pyemctypes.cc`
-- `src/emc/rs274ngc/pyparamclass.cc`
-- `src/emc/rs274ngc/interp_python.hh`
-- `src/emc/rs274ngc/boost_pyenum_macros.hh`
-- `src/emc/rs274ngc/paramclass.hh`
-- `src/emc/rs274ngc/array1.hh`
-- `src/emc/rs274ngc/interp_array_types.hh`
-- `src/emc/rs274ngc/gcodemodule.cc` (was untracked; old reference copy)
+- `src/cnc/task/taskmodule.cc`
+- `src/cnc/rs274ngc/canonmodule.cc`
+- `src/cnc/rs274ngc/interpmodule.cc`
+- `src/cnc/rs274ngc/pyblock.cc`
+- `src/cnc/rs274ngc/pyarrays.cc`
+- `src/cnc/rs274ngc/pyinterp1.cc`
+- `src/cnc/rs274ngc/pyemctypes.cc`
+- `src/cnc/rs274ngc/pyparamclass.cc`
+- `src/cnc/rs274ngc/interp_python.hh`
+- `src/cnc/rs274ngc/boost_pyenum_macros.hh`
+- `src/cnc/rs274ngc/paramclass.hh`
+- `src/cnc/rs274ngc/array1.hh`
+- `src/cnc/rs274ngc/interp_array_types.hh`
+- `src/cnc/rs274ngc/gcodemodule.cc` (was untracked; old reference copy)
 - `lib/libpyplugin.so.0` (stale build artifact)
 
 **Build modified:**
@@ -878,62 +878,62 @@ server-side G-code preview that runs concurrently with execution.
 
 **New:**
 - `src/gmi/idl/canon.gmi` — GMI interface definition for canon callback table
-- `src/gomc/generated/gmi/canon/canon_api.h` — generated `canon_callbacks_t` struct
-- `src/emc/rs274ngc/canon_interface.hh` — C++ wrapper class hiding ctx plumbing, type conversions
-- `src/emc/task/emccanon_table.cc` — milltask canon table implementation (populates `canon_callbacks_t`)
-- `src/emc/task/emccanon_table.hh` — `emccanon_get_callbacks()` declaration
+- `src/stmak/generated/gmi/canon/canon_api.h` — generated `canon_callbacks_t` struct
+- `src/cnc/rs274ngc/canon_interface.hh` — C++ wrapper class hiding ctx plumbing, type conversions
+- `src/cnc/task/emccanon_table.cc` — milltask canon table implementation (populates `canon_callbacks_t`)
+- `src/cnc/task/emccanon_table.hh` — `emccanon_get_callbacks()` declaration
 
 **Modified:**
-- `src/emc/rs274ngc/interp_base.hh` — added `set_canon_callbacks()` pure virtual, `canon_callbacks_t` forward decl
-- `src/emc/rs274ngc/rs274ngc_interp.hh` — added `set_canon_callbacks()` override, CanonInterface member
-- `src/emc/rs274ngc/rs274ngc_pre.cc` — `set_canon_callbacks()` implementation
-- `src/emc/sai/saicanon.cc` — own `saicanon_table` for standalone interpreter
-- `src/emc/task/emctask.cc` — calls `set_canon_callbacks(emccanon_get_callbacks())`
+- `src/cnc/rs274ngc/interp_base.hh` — added `set_canon_callbacks()` pure virtual, `canon_callbacks_t` forward decl
+- `src/cnc/rs274ngc/rs274ngc_interp.hh` — added `set_canon_callbacks()` override, CanonInterface member
+- `src/cnc/rs274ngc/rs274ngc_pre.cc` — `set_canon_callbacks()` implementation
+- `src/cnc/sai/saicanon.cc` — own `saicanon_table` for standalone interpreter
+- `src/cnc/task/emctask.cc` — calls `set_canon_callbacks(emccanon_get_callbacks())`
 
 ### Phase 2 — Done
 
 **Removed from librs274.so build** (files still exist for Phase 4 milltask):
-- `src/emc/rs274ngc/interpmodule.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/canonmodule.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/pyparamclass.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/pyemctypes.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/pyinterp1.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/pyblock.cc` — removed from LIBRS274SRCS
-- `src/emc/rs274ngc/pyarrays.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/interpmodule.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/canonmodule.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/pyparamclass.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/pyemctypes.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/pyinterp1.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/pyblock.cc` — removed from LIBRS274SRCS
+- `src/cnc/rs274ngc/pyarrays.cc` — removed from LIBRS274SRCS
 
 **Rewritten (stubs):**
-- `src/emc/rs274ngc/interp_python.cc` — error stubs for pycall/py\_execute/etc.
+- `src/cnc/rs274ngc/interp_python.cc` — error stubs for pycall/py\_execute/etc.
 
 **Modified:**
-- `src/emc/rs274ngc/interp_internal.hh` — removed PYUSABLE, python\_plugin extern, pythis, hollowed pycontext
-- `src/emc/rs274ngc/rs274ngc_pre.cc` — removed Python init/exit/configure
-- `src/emc/rs274ngc/interp_o_word.cc` — CT\_PYTHON\_OWORD\_SUB → error, removed pystuff access
-- `src/emc/rs274ngc/interp_remap.cc` — python= → error, prolog/epilog accepted, removed pydict
-- `src/emc/rs274ngc/interp_namedparams.cc` — PA\_PYTHON → error
-- `src/emc/rs274ngc/interp_setup.cc` — removed pythis init/destructor
-- `src/emc/rs274ngc/Submakefile` — removed py\*.cc, Boost/Python link deps, gcodemodule build target
-- `src/emc/task/taskclass.cc` — removed PyInit\_interpreter/emccanon from builtin\_modules
-- `src/emc/task/emctask.cc` — removed python\_plugin.hh include
+- `src/cnc/rs274ngc/interp_internal.hh` — removed PYUSABLE, python\_plugin extern, pythis, hollowed pycontext
+- `src/cnc/rs274ngc/rs274ngc_pre.cc` — removed Python init/exit/configure
+- `src/cnc/rs274ngc/interp_o_word.cc` — CT\_PYTHON\_OWORD\_SUB → error, removed pystuff access
+- `src/cnc/rs274ngc/interp_remap.cc` — python= → error, prolog/epilog accepted, removed pydict
+- `src/cnc/rs274ngc/interp_namedparams.cc` — PA\_PYTHON → error
+- `src/cnc/rs274ngc/interp_setup.cc` — removed pythis init/destructor
+- `src/cnc/rs274ngc/Submakefile` — removed py\*.cc, Boost/Python link deps, gcodemodule build target
+- `src/cnc/task/taskclass.cc` — removed PyInit\_interpreter/emccanon from builtin\_modules
+- `src/cnc/task/emctask.cc` — removed python\_plugin.hh include
 
 ### Phase 3 — Done
 
 **New:**
-- `src/emc/rs274ngc/interp_ext.h` — thin wrapper with _API_CGO guards around generated interp_ext_api.h + C-linkage declarations
-- `src/emc/rs274ngc/interp_ext.cc` — InterpExtRegistry (per-instance map), ctx accessor implementations, C-linkage exports
-- `src/emc/task/stdglue.c` — reference remap handler cmod (plain C), replaces Python stdglue.py
+- `src/cnc/rs274ngc/interp_ext.h` — thin wrapper with _API_CGO guards around generated interp_ext_api.h + C-linkage declarations
+- `src/cnc/rs274ngc/interp_ext.cc` — InterpExtRegistry (per-instance map), ctx accessor implementations, C-linkage exports
+- `src/cnc/task/stdglue.c` — reference remap handler cmod (plain C), replaces Python stdglue.py
 - `configs/sim/axis/remap/stdglue-cmod/` — test config for stdglue.so
 
 **Modified:**
-- `src/emc/rs274ngc/interp_python.cc` — rewritten: pycall() dispatches to ext registry, maps return codes
-- `src/emc/rs274ngc/interp_o_word.cc` — CT_PYTHON_OWORD_SUB dispatches via ext registry; handler_returned() returns pycall status
-- `src/emc/rs274ngc/interp_internal.hh` — added `int last_status` to pycontext (handler_returned pass-through)
-- `src/emc/rs274ngc/rs274ngc_interp.hh` — added ext_registry pointer + ext dispatch methods
-- `src/emc/rs274ngc/rs274ngc_pre.cc` — ext_registry init in ctor, destroy in dtor
-- `src/emc/rs274ngc/Submakefile` — added interp_ext.cc to LIBRS274SRCS
-- `src/emc/task/emctaskmain_gomc.cc` — milltask New() calls emcTaskPlanCreate() + registers interp_ext_api
-- `src/emc/task/emctask.cc` — split emcTaskPlanInit() into emcTaskPlanCreate() (Interp construction) + emcTaskPlanInit() (init + startup gcode)
-- `src/emc/task/task.hh` — added emcTaskPlanCreate() declaration
-- `src/emc/task/Submakefile` — added stdglue.so build rules
+- `src/cnc/rs274ngc/interp_python.cc` — rewritten: pycall() dispatches to ext registry, maps return codes
+- `src/cnc/rs274ngc/interp_o_word.cc` — CT_PYTHON_OWORD_SUB dispatches via ext registry; handler_returned() returns pycall status
+- `src/cnc/rs274ngc/interp_internal.hh` — added `int last_status` to pycontext (handler_returned pass-through)
+- `src/cnc/rs274ngc/rs274ngc_interp.hh` — added ext_registry pointer + ext dispatch methods
+- `src/cnc/rs274ngc/rs274ngc_pre.cc` — ext_registry init in ctor, destroy in dtor
+- `src/cnc/rs274ngc/Submakefile` — added interp_ext.cc to LIBRS274SRCS
+- `src/cnc/task/emctaskmain_stmak.cc` — milltask New() calls emcTaskPlanCreate() + registers interp_ext_api
+- `src/cnc/task/emctask.cc` — split emcTaskPlanInit() into emcTaskPlanCreate() (Interp construction) + emcTaskPlanInit() (init + startup gcode)
+- `src/cnc/task/task.hh` — added emcTaskPlanCreate() declaration
+- `src/cnc/task/Submakefile` — added stdglue.so build rules
 
 **Design decisions:**
 - interp_ext_api is now GMI-generated (was hand-written, migrated in Phase 4b)
@@ -946,11 +946,11 @@ server-side G-code preview that runs concurrently with execution.
 
 **New:**
 - `src/gmi/idl/mcode_handler.gmi` — GMI interface for M-code handler registration
-- `src/gomc/generated/gmi/mcode_handler/mcode_handler_api.h` — generated mcode_handler_callbacks_t
-- `src/emc/task/test_mcode_handler.c` — test harness for mcode handler cmod
+- `src/stmak/generated/gmi/mcode_handler/mcode_handler_api.h` — generated mcode_handler_callbacks_t
+- `src/cnc/task/test_mcode_handler.c` — test harness for mcode handler cmod
 
 **Modified:**
-- `src/emc/task/emctaskmain_gomc.cc` — registers mcode_handler_api, dispatches M1xx via registered handlers
+- `src/cnc/task/emctaskmain_stmak.cc` — registers mcode_handler_api, dispatches M1xx via registered handlers
 
 ### Phase 4b: GMI Migration of interp_ext + interp_ctx — Done
 
@@ -964,18 +964,18 @@ server-side G-code preview that runs concurrently with execution.
 - `src/gmi/idl/interp_ext.gmi` — @import interp_ctx, 3 callback types, 3 registration functions
 
 **Deleted:**
-- `src/emc/task/mcode_handler_api.h` — replaced by generated mcode_handler_api.h
-- `src/emc/rs274ngc/interp_ext_api.h` — replaced by generated interp_ext_api.h
+- `src/cnc/task/mcode_handler_api.h` — replaced by generated mcode_handler_api.h
+- `src/cnc/rs274ngc/interp_ext_api.h` — replaced by generated interp_ext_api.h
 
 **Modified:**
-- `src/emc/rs274ngc/interp_ext.h` — thin wrapper with _API_CGO guards around generated header
-- `src/emc/rs274ngc/interp_ext.cc` — renamed types (interp_ext_oword_fn_cb, etc.), ctx→get_phase()/get_user() accessors
-- `src/emc/rs274ngc/rs274ngc_interp.hh` — updated callback type names
-- `src/emc/task/stdglue.c` — renamed types, ctx->get_phase(ctx->ctx), ctx->ctx
-- `src/emc/task/emctaskmain_gomc.cc` — renamed types
-- `src/emc/rs274ngc/Submakefile` — -I paths for generated headers (librs274)
-- `src/emc/task/Submakefile` — -Igomc/pkg/cmodule for gomc_api.h
-- `src/emc/sai/Submakefile` — -I paths for generated headers
+- `src/cnc/rs274ngc/interp_ext.h` — thin wrapper with _API_CGO guards around generated header
+- `src/cnc/rs274ngc/interp_ext.cc` — renamed types (interp_ext_oword_fn_cb, etc.), ctx→get_phase()/get_user() accessors
+- `src/cnc/rs274ngc/rs274ngc_interp.hh` — updated callback type names
+- `src/cnc/task/stdglue.c` — renamed types, ctx->get_phase(ctx->ctx), ctx->ctx
+- `src/cnc/task/emctaskmain_stmak.cc` — renamed types
+- `src/cnc/rs274ngc/Submakefile` — -I paths for generated headers (librs274)
+- `src/cnc/task/Submakefile` — -Istmak/pkg/cmodule for stmak_api.h
+- `src/cnc/sai/Submakefile` — -I paths for generated headers
 - `src/gmi/codegen/Submakefile` — codegen rules for mcode_handler, interp_ctx, interp_ext
 
 ### Phase 4 remaining — Done
@@ -983,13 +983,13 @@ server-side G-code preview that runs concurrently with execution.
 **Dead files deleted (were already excluded from build, now removed from tree):**
 - `src/emc/pythonplugin/python_plugin.cc` — deleted (Phase 6)
 - `src/emc/pythonplugin/python_plugin.hh` — deleted (Phase 6)
-- `src/emc/task/taskmodule.cc` — deleted (Phase 6)
+- `src/cnc/task/taskmodule.cc` — deleted (Phase 6)
 
 **Already deleted:**
-- `src/emc/rs274ngc/gcodemodule.cc` — replaced by `lib/python/gcode.py` + server-side ngcpreview
+- `src/cnc/rs274ngc/gcodemodule.cc` — replaced by `lib/python/gcode.py` + server-side ngcpreview
 
 All functional items complete:
-- M100-M199 threaded handler dispatch with abort_fd — done (emctaskmain_gomc.cc)
+- M100-M199 threaded handler dispatch with abort_fd — done (emctaskmain_stmak.cc)
 - fork/exec replaced — no fork/execvp/waitpid remain
 - WAITING_FOR_MCODE_HANDLER state — implemented
 - Task extension API (tool_prepare, coolant, etc.) — not needed as separate API; standard HAL/iocontrol path suffices

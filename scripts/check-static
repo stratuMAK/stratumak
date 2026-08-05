@@ -9,8 +9,8 @@
 #          scripts/).  Gate = error severity; warnings are printed as the
 #          burn-down list but do not fail (dominated by unused loop vars in
 #          the wait-loops — see PRODUCTION_READINESS.md).
-#   c:     cppcheck over the gomc-owned C paths (same ownership list as
-#          check-gomc-cwarnings).  Gate = cppcheck errors/warnings; style is
+#   c:     cppcheck over the stmak-owned C paths (same ownership list as
+#          check-stmak-cwarnings).  Gate = cppcheck errors/warnings; style is
 #          not enabled.  Inherited 2.9 C is deliberately NOT gated.
 #
 # Needs: shellcheck, cppcheck (CI installs them; locally: apt-get install).
@@ -20,10 +20,10 @@ cd "$(dirname "$0")/.."
 MODE="${1:-all}"
 rc=0
 
-SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-gomc-cwarnings scripts/check-static scripts/check-webapps.sh)
+SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-stmak-cwarnings scripts/check-static scripts/check-webapps.sh)
 
-# gomc-owned C (keep in sync with check-gomc-cwarnings)
-C_PATHS="src/gomc/internal/hallib src/gomc/pkg/cmodule src/hal/components src/emc/motion-logger src/emc/task src/emc/sai"
+# stmak-owned C (keep in sync with check-stmak-cwarnings)
+C_PATHS="src/stmak/internal/hallib src/stmak/pkg/cmodule src/hal/components src/cnc/motion-logger src/cnc/task src/cnc/sai"
 
 if [ "$MODE" = shell ] || [ "$MODE" = all ]; then
     echo "== shellcheck (gate: error) =="
@@ -35,11 +35,11 @@ if [ "$MODE" = shell ] || [ "$MODE" = all ]; then
     echo "== shellcheck burn-down (warnings, not gating) =="
     # shellcheck disable=SC2086
     shellcheck -S warning -f gcc $SHELL_FILES | grep -c 'warning:' | \
-        xargs -I{} echo "   {} warning-level findings (make gomc-lint-full analog for shell)"
+        xargs -I{} echo "   {} warning-level findings (make stmak-lint-full analog for shell)"
 fi
 
 if [ "$MODE" = c ] || [ "$MODE" = all ]; then
-    echo "== cppcheck (gate: error+warning, gomc-owned C) =="
+    echo "== cppcheck (gate: error+warning, stmak-owned C) =="
     # --inline-suppr: allow // cppcheck-suppress with a reason at the site.
     # Missing system/generated includes are fine — cppcheck analyzes what it
     # can see; the compiler warning gate covers the fully-preprocessed view.

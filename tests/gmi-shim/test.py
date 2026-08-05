@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""gmi Python shim contract tests against stub servers (no gomc-server).
+"""gmi Python shim contract tests against stub servers (no stmakd).
 
 Pins the fixes from GMI_PYTHON_REVIEW_FINDINGS.md:
   GP-1  tools.put sends the {"entry": {...}} envelope (flat body zeroed the tool)
@@ -214,8 +214,8 @@ class WsStub:
 
 def main():
     rest, rest_port = start_rest_stub()
-    os.environ["GMC_REST_URL"] = f"http://127.0.0.1:{rest_port}"
-    os.environ.pop("GMC_INSTANCE", None)
+    os.environ["STMAK_REST_URL"] = f"http://127.0.0.1:{rest_port}"
+    os.environ.pop("STMAK_TASK_INSTANCE", None)
 
     import gmi
     from gmi.stat import Stat, _relative_position
@@ -269,18 +269,18 @@ def main():
     ok("constants")
 
     # Instance-resolution schema: a client built with no instance follows
-    # GMC_INSTANCE; an explicit instance wins; unset falls back to the default.
+    # STMAK_TASK_INSTANCE; an explicit instance wins; unset falls back to the default.
     # This is the rule AXIS leaned on when it constructed a Command subclass
     # directly — a class hardcoding "milltask" instead posted to a nonexistent
     # instance on a multi-instance server.
     if Command()._base.rsplit("/", 1)[-1] != "milltask":
         fail("instance-resolution", f"unset default = {Command()._base}")
-    os.environ["GMC_INSTANCE"] = "pnp.task"
+    os.environ["STMAK_TASK_INSTANCE"] = "pnp.task"
     if Command()._base.rsplit("/", 1)[-1] != "pnp.task":
-        fail("instance-resolution", "bare client ignored GMC_INSTANCE")
+        fail("instance-resolution", "bare client ignored STMAK_TASK_INSTANCE")
     if Command(instance="explicit")._base.rsplit("/", 1)[-1] != "explicit":
         fail("instance-resolution", "explicit instance did not win")
-    os.environ.pop("GMC_INSTANCE", None)
+    os.environ.pop("STMAK_TASK_INSTANCE", None)
     ok("instance-resolution")
 
     # GP-7: frozen snapshots. Constructor takes a best-effort initial poll.
@@ -365,7 +365,7 @@ def main():
     probe = WsStub().start()
     ws_port = probe.port
     probe.stop()
-    os.environ["GMC_REST_URL"] = f"http://127.0.0.1:{ws_port}"
+    os.environ["STMAK_REST_URL"] = f"http://127.0.0.1:{ws_port}"
 
     stub_holder = {}
 
@@ -437,9 +437,9 @@ def main():
     # and the tool table one made every multi-instance config 404 at 10 Hz.
     # Names now come from the server, which resolved and verified them.
 
-    # The WS phase above repointed GMC_REST_URL at the WS stub's port; these are
+    # The WS phase above repointed STMAK_REST_URL at the WS stub's port; these are
     # REST contracts again.
-    os.environ["GMC_REST_URL"] = f"http://127.0.0.1:{rest_port}"
+    os.environ["STMAK_REST_URL"] = f"http://127.0.0.1:{rest_port}"
 
     rest.info_payload = {
         "peers": {"tooltable": "pnp.tt", "preview": "pnp.task-preview",
@@ -485,14 +485,14 @@ def main():
         fail("info-cached", f"{len(rest.info_requests) - before} extra requests")
     ok("info-cached")
 
-    os.environ["GMC_PREVIEW_INSTANCE"] = "override-preview"
+    os.environ["STMAK_PREVIEW_INSTANCE"] = "override-preview"
     if gmi.preview_instance() != "override-preview":
         fail("info-env-override", "env var did not win over /info")
-    del os.environ["GMC_PREVIEW_INSTANCE"]
+    del os.environ["STMAK_PREVIEW_INSTANCE"]
     ok("info-env-override")
 
     # A server that cannot answer must fail loudly ONCE, not be retried: the
-    # causes (server older than the client, wrong GMC_INSTANCE, task never
+    # causes (server older than the client, wrong STMAK_TASK_INSTANCE, task never
     # started) do not heal, and retrying is how the 10 Hz storm happened.
     gmi.reset_info()
     rest.info_status = 404

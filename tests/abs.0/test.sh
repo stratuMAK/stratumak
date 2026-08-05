@@ -1,6 +1,6 @@
 #!/bin/bash
-# Drive a resident gomc-server to feed abs through a streamer/sampler.
-# See ../filestream-driver.sh for the mechanism (gomc has no userspace comps).
+# Drive a resident stmakd to feed abs through a streamer/sampler.
+# See ../filestream-driver.sh for the mechanism (stratuMAK has no userspace comps).
 . "$(dirname "$0")/../filestream-driver.sh"
 cat > in.txt <<DATA
 0

@@ -7,9 +7,9 @@ usr/share/man/man1/emccalib.1
 usr/share/man/man1/ethercat.1
 usr/share/man/man1/gladevcp.1
 usr/share/man/man1/gladevcp_demo.1
-usr/share/man/man1/gmcui.1
+usr/share/man/man1/stmakui.1
 usr/share/man/man1/gmoccapy.1
-usr/share/man/man1/gomc-server.1
+usr/share/man/man1/stmakd.1
 usr/share/man/man1/gremlin_view.1
 usr/share/man/man1/gs2_vfd.1
 usr/share/man/man1/gscreen.1
@@ -30,7 +30,6 @@ usr/share/man/man1/inivar.1
 usr/share/man/man1/io.1
 usr/share/man/man1/iov2.1
 usr/share/man/man1/latency.1
-usr/share/man/man1/linuxcnc.1
 usr/share/man/man1/latency-test.1
 usr/share/man/man1/lineardelta.1
 usr/share/man/man1/linuxcnc_info.1

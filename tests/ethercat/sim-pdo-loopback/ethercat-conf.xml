@@ -1,5 +1,5 @@
 <!--
-  gomc EtherCAT integration test: PDO value round-trip over the sim transport.
+  stmak EtherCAT integration test: PDO value round-trip over the sim transport.
   The slave (bus.sim) loops its output process data back into its input, so
   writing the output HAL pin (ethercat.0.io.dout) makes the same value appear on
   the input HAL pin (ethercat.0.io.din) after a couple of cycles — exercising

@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc EtherCAT integration test — all-op counts the CONFIGURED slaves only.
+# stratuMAK EtherCAT integration test — all-op counts the CONFIGURED slaves only.
 #
 # The bus carries two slaves; ethercat-conf.xml claims only the first. The
 # unclaimed one answers the scan and stays in PRE-OP forever, so the master's
@@ -20,7 +20,7 @@ halcmd start
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 # wait_pin <pin> <value>: poll until the pin reads the value, on a deadline.
 wait_pin() {
-    local dl=$(( SECONDS + $(gomc_scale 20) ))
+    local dl=$(( SECONDS + $(stmak_scale 20) ))
     while [ $SECONDS -lt $dl ]; do
         [ "$(getp "$1")" = "$2" ] && return 0
         sleep 0.1

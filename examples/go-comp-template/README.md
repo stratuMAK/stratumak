@@ -1,15 +1,15 @@
 # go-comp-template
 
-A skeleton Go module for LinuxCNC's gomc-server.
+A skeleton Go module for LinuxCNC's stmakd.
 
-Go modules are compiled directly into the `gomc-server` binary using
+Go modules are compiled directly into the `stmakd` binary using
 `modcompile add-gomod`. They run in the same process and have direct access
 to HAL shared memory — no inter-process communication required.
 
 ## Overview
 
-The module registers itself at `init()` time via `gomc.RegisterModule()`.
-When gomc-server processes a `load mygomodule` HAL command, it calls the
+The module registers itself at `init()` time via `stmak.RegisterModule()`.
+When stmakd processes a `load mygomodule` HAL command, it calls the
 registered factory function to create an instance.
 
 ```
@@ -34,29 +34,29 @@ source /path/to/linuxcnc/scripts/rip-environment
 # Verify the module compiles:
 make
 
-# Install into gomc-server (copies source, rebuilds binary):
+# Install into stmakd (copies source, rebuilds binary):
 make install
 
-# Remove from gomc-server:
+# Remove from stmakd:
 make uninstall
 ```
 
 `make install` runs `modcompile add-gomod .` which:
-1. Copies your source into `src/gomc/external/mygomodule/`
+1. Copies your source into `src/stmak/external/mygomodule/`
 2. Registers it in `packages.conf`
 3. Regenerates `imports_generated.go`
-4. Rebuilds `gomc-server`
+4. Rebuilds `stmakd`
 
 Reinstalling from the same directory auto-overwrites the previous copy.
 Installing from a different directory requires `modcompile add-gomod --force .`.
 
 ## Module Interface
 
-Your module must call `gomc.RegisterModule` in an `init()` function:
+Your module must call `stmak.RegisterModule` in an `init()` function:
 
 ```go
 func init() {
-    gomc.RegisterModule("mygomodule", newMyGoModule)
+    stmak.RegisterModule("mygomodule", newMyGoModule)
 }
 ```
 
@@ -64,7 +64,7 @@ The factory function creates and initializes the module (including HAL
 component and pin creation):
 
 ```go
-func newMyGoModule(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+func newMyGoModule(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
     // Create HAL component, pins, etc.
     return &myModule{...}, nil
 }
@@ -75,7 +75,7 @@ The `Module` interface has three lifecycle methods:
 | Method      | Called when                              | Use for                                      |
 |-------------|------------------------------------------|----------------------------------------------|
 | `Start()`   | After HAL threads start                  | Start goroutines, open network connections   |
-| `Stop()`    | During gomc-server cleanup               | Stop goroutines, close connections           |
+| `Stop()`    | During stmakd cleanup               | Stop goroutines, close connections           |
 | `Destroy()` | After all modules are stopped            | Release HAL components and allocated memory  |
 
 ## Usage in a HAL file

@@ -31,7 +31,7 @@ else
     # Set $EMC2_HOME to $prefix for tests that depend on it
     export SYSTEM_BUILD=1
     export EMC2_HOME=@EMC2_HOME@
-    export HEADERS=@includedir@/linuxcnc
+    export HEADERS=@includedir@/stratumak
     export LIBDIR=@EMC2_HOME@/lib
     export LINUXCNC_EMCSH=@WISH@
     export REALTIME=@REALTIME@
@@ -65,7 +65,7 @@ if ! command -v lsof > /dev/null 2>&1; then
     exit 2
 fi
 
-# Nearly every test starts a gomc-server, and they all bind the same well-known
+# Nearly every test starts a stmakd, and they all bind the same well-known
 # REST address. A server left over from an earlier run (or a real machine on
 # this host) therefore does not fail one test — it fails every test that starts
 # one, and it fails them *misleadingly*: the server exits on the bind error, so
@@ -74,15 +74,15 @@ fi
 # reads like a code regression and has been mistaken for one. The environment is
 # unusable before the first test runs, so say so once, up front, and stop.
 check_rest_addr_free () {
-    local addr="${GMC_REST_ADDR:-127.0.0.1:5080}"
+    local addr="${STMAK_REST_ADDR:-127.0.0.1:5080}"
     # An overridden server address must reach the CLIENTS too: the gmi
-    # python shim and halcmd resolve GMC_REST_URL with their own hardcoded
-    # 127.0.0.1:5080 default, so "set GMC_REST_ADDR to a free address"
+    # python shim and halcmd resolve STMAK_REST_URL with their own hardcoded
+    # 127.0.0.1:5080 default, so "set STMAK_REST_ADDR to a free address"
     # alone makes every test's server bind the new port while the test's
     # own clients silently talk to whatever squats on 5080 — the exact
     # confusion this check exists to prevent.
-    if [ -n "$GMC_REST_ADDR" ] && [ -z "$GMC_REST_URL" ]; then
-        export GMC_REST_URL="http://$GMC_REST_ADDR"
+    if [ -n "$STMAK_REST_ADDR" ] && [ -z "$STMAK_REST_URL" ]; then
+        export STMAK_REST_URL="http://$STMAK_REST_ADDR"
     fi
     local port="${addr##*:}"
     case "$port" in
@@ -92,8 +92,8 @@ check_rest_addr_free () {
     holder=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)
     [ -n "$holder" ] || return 0
     echo "$0: $addr is already in use by pid $holder ($(ps -o comm= -p "$holder" 2>/dev/null))" 1>&2
-    echo "$0: every test that starts gomc-server would fail to bind it." 1>&2
-    echo "$0: stop that process, or set GMC_REST_ADDR to a free address, then re-run." 1>&2
+    echo "$0: every test that starts stmakd would fail to bind it." 1>&2
+    echo "$0: stop that process, or set STMAK_REST_ADDR to a free address, then re-run." 1>&2
     exit 2
 }
 
@@ -227,7 +227,7 @@ run_tests () {
 	fi
 	NUM=$(($NUM+1))
 	export TEST_DIR=$(readlink -f $testdir)
-	# gomc persists interp params / tool table / halscope state in a per-
+	# stratuMAK persists interp params / tool table / halscope state in a per-
 	# config db/ (sqlite). Classic tests assume a fresh parameter file per
 	# run — wipe the persistence dir so state (G10 offsets/rotations, tool
 	# table edits, spindle snapshots) cannot leak between runs.

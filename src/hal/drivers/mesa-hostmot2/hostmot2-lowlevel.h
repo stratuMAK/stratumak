@@ -26,7 +26,7 @@
 #include <string.h>
 #include "rtapi_pci.h"
 #include "rtapi_firmware.h"
-#include "gomc_env.h"
+#include "stmak_env.h"
 
 #include "bitfile.h"
 
@@ -36,20 +36,20 @@
 //       The others all use rtapi_print_msg()
 //
 
-#define LL_PRINT(fmt, args...)    gomc_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args);
-#define THIS_PRINT(fmt, args...)  gomc_log_infof(this->log, this->name, fmt, ## args);
+#define LL_PRINT(fmt, args...)    stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define THIS_PRINT(fmt, args...)  stmak_log_infof(this->log, this->name, fmt, ## args);
 
-#define LL_PRINT_IF(enable, fmt, args...)  if (enable) { gomc_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args); }
+#define LL_PRINT_IF(enable, fmt, args...)  if (enable) { stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args); }
 
-#define LL_ERR(fmt, args...)   gomc_log_errorf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
-#define LL_WARN(fmt, args...)  gomc_log_warnf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
-#define LL_INFO(fmt, args...)  gomc_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args);
-#define LL_DBG(fmt, args...)   gomc_log_debugf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define LL_ERR(fmt, args...)   stmak_log_errorf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define LL_WARN(fmt, args...)  stmak_log_warnf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define LL_INFO(fmt, args...)  stmak_log_infof(hm2_log, HM2_LLIO_NAME, fmt, ## args);
+#define LL_DBG(fmt, args...)   stmak_log_debugf(hm2_log, HM2_LLIO_NAME, fmt, ## args);
 
-#define THIS_ERR(fmt, args...)   gomc_log_errorf(this->log, this->name, fmt, ## args);
-#define THIS_WARN(fmt, args...)  gomc_log_warnf(this->log, this->name, fmt, ## args);
-#define THIS_INFO(fmt, args...)  gomc_log_infof(this->log, this->name, fmt, ## args);
-#define THIS_DBG(fmt, args...)   gomc_log_debugf(this->log, this->name, fmt, ## args);
+#define THIS_ERR(fmt, args...)   stmak_log_errorf(this->log, this->name, fmt, ## args);
+#define THIS_WARN(fmt, args...)  stmak_log_warnf(this->log, this->name, fmt, ## args);
+#define THIS_INFO(fmt, args...)  stmak_log_infof(this->log, this->name, fmt, ## args);
+#define THIS_DBG(fmt, args...)   stmak_log_debugf(this->log, this->name, fmt, ## args);
 
 
 #define ANYIO_MAX_IOPORT_CONNECTORS (8)
@@ -60,14 +60,14 @@
 // TRUSTED: errno is a thread-local read; strerror() is a static-table
 // lookup for the socket/ioctl errno values seen here.  Error paths only.
 //
-static inline void hm2_rt_clear_errno(void) GOMC_NONBLOCKING;
-static inline int hm2_rt_errno(void) GOMC_NONBLOCKING;
-static inline const char *hm2_rt_strerror(void) GOMC_NONBLOCKING;
-GOMC_NONBLOCKING_TRUSTED_BEGIN
+static inline void hm2_rt_clear_errno(void) STMAK_NONBLOCKING;
+static inline int hm2_rt_errno(void) STMAK_NONBLOCKING;
+static inline const char *hm2_rt_strerror(void) STMAK_NONBLOCKING;
+STMAK_NONBLOCKING_TRUSTED_BEGIN
 static inline void hm2_rt_clear_errno(void) { errno = 0; }
 static inline int hm2_rt_errno(void) { return errno; }
 static inline const char *hm2_rt_strerror(void) { return strerror(errno); }
-GOMC_NONBLOCKING_TRUSTED_END
+STMAK_NONBLOCKING_TRUSTED_END
 
 
 
@@ -82,23 +82,23 @@ typedef struct hm2_lowlevel_io_struct hm2_lowlevel_io_t;
  * as the read/write members below).  Use these for local variables that
  * hold ->write / ->queue_write etc. so the nonblocking type is kept. */
 typedef int (*hm2_llio_read_fn_t)(hm2_lowlevel_io_t *self, uint32_t addr,
-    void *buffer, int size) GOMC_NONBLOCKING;
+    void *buffer, int size) STMAK_NONBLOCKING;
 typedef int (*hm2_llio_write_fn_t)(hm2_lowlevel_io_t *self, uint32_t addr,
-    const void *buffer, int size) GOMC_NONBLOCKING;
+    const void *buffer, int size) STMAK_NONBLOCKING;
 
 // FIXME: this is really a lowlevel io *instance*, or maybe a "board"
 struct hm2_lowlevel_io_struct {
-    char name[GOMC_HAL_NAME_LEN+1];
+    char name[STMAK_HAL_NAME_LEN+1];
     int comp_id;
-    const void *log;  // gomc_log handle
-    const gomc_hal_t *hal;  // gomc_hal handle
-    const gomc_rtapi_t *rtapi;  // gomc_rtapi handle
+    const void *log;  // stmak_log handle
+    const stmak_hal_t *hal;  // stmak_hal handle
+    const stmak_rtapi_t *rtapi;  // stmak_rtapi handle
 
     // these two are required
     // on success these two return TRUE (not zero)
     // on failure they return FALSE (0) and set *self->io_error (below) to TRUE
-    int (*read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING;
-    int (*write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING;
+    int (*read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING;
+    int (*write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING;
 
     // these two are optional
     int (*program_fpga)(hm2_lowlevel_io_t *self, const bitfile_t *bitfile);
@@ -122,21 +122,21 @@ struct hm2_lowlevel_io_struct {
     //   * queue_read and send_queued_reads, in which case send_queued_reads must also
     //     receive and process the reads
     //   * all three
-    int (*queue_read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) GOMC_NONBLOCKING;
-    int (*send_queued_reads)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
-    int (*receive_queued_reads)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
+    int (*queue_read)(hm2_lowlevel_io_t *self, uint32_t addr, void *buffer, int size) STMAK_NONBLOCKING;
+    int (*send_queued_reads)(hm2_lowlevel_io_t *self) STMAK_NONBLOCKING;
+    int (*receive_queued_reads)(hm2_lowlevel_io_t *self) STMAK_NONBLOCKING;
 
     // similarly, it is useful to divide the work of bulk writes into two groups
     //   * queueing the writes
     //   * actually performing the writes
     // these routines are optional; the llio may either provide both of them, or neither
     // (in which case a dummy implementation of ->queue_write delegates to ->write)
-    int (*queue_write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) GOMC_NONBLOCKING;
-    int (*send_queued_writes)(hm2_lowlevel_io_t *self) GOMC_NONBLOCKING;
+    int (*queue_write)(hm2_lowlevel_io_t *self, uint32_t addr, const void *buffer, int size) STMAK_NONBLOCKING;
+    int (*send_queued_writes)(hm2_lowlevel_io_t *self) STMAK_NONBLOCKING;
 
     // setting this to one will enqueue all following writes into a single packet. When set
     // set back to 0, the packet is set.
-    int (*set_force_enqueue)(hm2_lowlevel_io_t *self, int do_enqueue) GOMC_NONBLOCKING;
+    int (*set_force_enqueue)(hm2_lowlevel_io_t *self, int do_enqueue) STMAK_NONBLOCKING;
 
     // 
     // This is a HAL parameter allocated and added to HAL by hostmot2.
@@ -150,7 +150,7 @@ struct hm2_lowlevel_io_struct {
     //   hostmot2 driver call into llio to reset the hardware and start
     //   driving it again.
     // 
-    gomc_hal_bit_t *io_error;
+    stmak_hal_bit_t *io_error;
 
     // this gets set to TRUE by .read-request and cleared by .read, in order
     // to amortize latency on multiple ethernet devices

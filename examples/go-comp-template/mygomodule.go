@@ -1,4 +1,4 @@
-// Package mygomodule is a skeleton Go module for LinuxCNC's gomc-server.
+// Package mygomodule is a skeleton Go module for LinuxCNC's stmakd.
 //
 // Install with:
 //
@@ -13,13 +13,13 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/sittner/linuxcnc/src/gomc/pkg/gomc"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/hal"
-	"github.com/sittner/linuxcnc/src/gomc/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 func init() {
-	gomc.RegisterModule("mygomodule", newMyGoModule)
+	stmak.RegisterModule("mygomodule", newMyGoModule)
 }
 
 // myGoModule is a minimal HAL component that copies an input float pin
@@ -33,7 +33,7 @@ type myGoModule struct {
 	outputF *hal.Pin[float64] // out float64
 }
 
-func newMyGoModule(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (gomc.Module, error) {
+func newMyGoModule(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	m := &myGoModule{
 		logger: logger.With("module", name),
 		name:   name,
@@ -73,7 +73,7 @@ func (m *myGoModule) Start() error {
 	return nil
 }
 
-// Stop shuts down the module gracefully. Called during gomc-server cleanup.
+// Stop shuts down the module gracefully. Called during stmakd cleanup.
 // Stop background goroutines and close connections here.
 func (m *myGoModule) Stop() {
 	m.logger.Info("myGoModule Stop()")

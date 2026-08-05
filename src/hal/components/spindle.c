@@ -16,7 +16,7 @@
  * License: GPL Version 2 or later
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,38 +34,38 @@
 
 /* Per-gear pin structure */
 typedef struct {
-    gomc_hal_float_t *scale;
-    gomc_hal_float_t *min;
-    gomc_hal_float_t *max;
-    gomc_hal_float_t *accel;
-    gomc_hal_float_t *decel;
-    gomc_hal_float_t *speed_tolerance;
-    gomc_hal_float_t *zero_tolerance;
-    gomc_hal_float_t *offset;
-    gomc_hal_bit_t   *select;
+    stmak_hal_float_t *scale;
+    stmak_hal_float_t *min;
+    stmak_hal_float_t *max;
+    stmak_hal_float_t *accel;
+    stmak_hal_float_t *decel;
+    stmak_hal_float_t *speed_tolerance;
+    stmak_hal_float_t *zero_tolerance;
+    stmak_hal_float_t *offset;
+    stmak_hal_bit_t   *select;
 } gear_t;
 
 /* HAL shared memory portion */
 typedef struct {
     /* Input pins */
-    gomc_hal_u32_t   *select_gear;
-    gomc_hal_float_t *commanded_speed;
-    gomc_hal_float_t *actual_speed;
-    gomc_hal_bit_t   *simulate_encoder;
-    gomc_hal_bit_t   *enable;
-    gomc_hal_float_t *spindle_lpf;
+    stmak_hal_u32_t   *select_gear;
+    stmak_hal_float_t *commanded_speed;
+    stmak_hal_float_t *actual_speed;
+    stmak_hal_bit_t   *simulate_encoder;
+    stmak_hal_bit_t   *enable;
+    stmak_hal_float_t *spindle_lpf;
 
     /* Output pins */
-    gomc_hal_float_t *spindle_rpm;
-    gomc_hal_float_t *spindle_rpm_abs;
-    gomc_hal_float_t *output;
-    gomc_hal_u32_t   *current_gear;
-    gomc_hal_bit_t   *at_speed;
-    gomc_hal_bit_t   *forward;
-    gomc_hal_bit_t   *reverse;
-    gomc_hal_bit_t   *brake;
-    gomc_hal_bit_t   *zero_speed;
-    gomc_hal_bit_t   *limited;
+    stmak_hal_float_t *spindle_rpm;
+    stmak_hal_float_t *spindle_rpm_abs;
+    stmak_hal_float_t *output;
+    stmak_hal_u32_t   *current_gear;
+    stmak_hal_bit_t   *at_speed;
+    stmak_hal_bit_t   *forward;
+    stmak_hal_bit_t   *reverse;
+    stmak_hal_bit_t   *brake;
+    stmak_hal_bit_t   *zero_speed;
+    stmak_hal_bit_t   *limited;
 
     /* Per-gear pins */
     gear_t gears[MAX_GEARS];
@@ -76,7 +76,7 @@ typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     inst_hal_t *hal;
     int ngears;
 } inst_t;
@@ -246,39 +246,39 @@ static int add_gear(const cmod_env_t *env, int comp_id, const char *name,
                     int index, gear_t *g) {
     int r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->scale, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->scale, comp_id,
                                 "%s.scale.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->min, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->min, comp_id,
                                 "%s.min.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->max, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->max, comp_id,
                                 "%s.max.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->accel, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->accel, comp_id,
                                 "%s.accel.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->decel, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->decel, comp_id,
                                 "%s.decel.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->speed_tolerance, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->speed_tolerance, comp_id,
                                 "%s.speed-tolerance.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->zero_tolerance, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->zero_tolerance, comp_id,
                                 "%s.zero-tolerance.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &g->offset, comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &g->offset, comp_id,
                                 "%s.offset.%d", name, index);
     if (r != 0) return r;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &g->select, comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &g->select, comp_id,
                               "%s.select.%d", name, index);
     if (r != 0) return r;
 
@@ -322,7 +322,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (numgears < 1 || numgears > MAX_GEARS) {
-        gomc_log_errorf(env->log, name,
+        stmak_log_errorf(env->log, name,
                         "numgears=%d is out of range (1..%d)", numgears, MAX_GEARS);
         return -EINVAL;
     }
@@ -330,7 +330,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate instance */
     inst = env->rtapi->calloc(env->rtapi->ctx, sizeof(*inst));
     if (!inst) {
-        gomc_log_errorf(env->log, name, "failed to allocate instance");
+        stmak_log_errorf(env->log, name, "failed to allocate instance");
         return -ENOMEM;
     }
 
@@ -340,9 +340,9 @@ int New(const cmod_env_t *env, const char *name,
 
     /* Initialize HAL component */
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-        gomc_log_errorf(env->log, name, "hal_init failed");
+        stmak_log_errorf(env->log, name, "hal_init failed");
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;
     }
@@ -350,89 +350,89 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate HAL shared memory */
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(inst_hal_t));
     if (!inst->hal) {
-        gomc_log_errorf(env->log, name, "failed to allocate HAL memory");
+        stmak_log_errorf(env->log, name, "failed to allocate HAL memory");
         goto err;
     }
     memset(inst->hal, 0, sizeof(inst_hal_t));
 
     /* Create input pins */
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->select_gear, inst->comp_id,
             "%s.select-gear", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->commanded_speed, inst->comp_id,
             "%s.commanded-speed", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->actual_speed, inst->comp_id,
             "%s.actual-speed", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->simulate_encoder, inst->comp_id,
             "%s.simulate-encoder", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->enable, inst->comp_id,
             "%s.enable", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN,
             &inst->hal->spindle_lpf, inst->comp_id,
             "%s.spindle-lpf", name);
     if (r != 0) goto err;
 
     /* Create output pins */
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->spindle_rpm, inst->comp_id,
             "%s.spindle-rpm", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->spindle_rpm_abs, inst->comp_id,
             "%s.spindle-rpm-abs", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->output, inst->comp_id,
             "%s.output", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->current_gear, inst->comp_id,
             "%s.current-gear", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->at_speed, inst->comp_id,
             "%s.at-speed", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->forward, inst->comp_id,
             "%s.forward", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->reverse, inst->comp_id,
             "%s.reverse", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->brake, inst->comp_id,
             "%s.brake", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->zero_speed, inst->comp_id,
             "%s.zero-speed", name);
     if (r != 0) goto err;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT,
             &inst->hal->limited, inst->comp_id,
             "%s.limited", name);
     if (r != 0) goto err;

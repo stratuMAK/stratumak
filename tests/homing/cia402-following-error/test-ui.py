@@ -15,13 +15,13 @@
 # FAIL  (pre-fix): machine leaves STATE_ON during homing (motion error).
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import time
 import sys
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -38,7 +38,7 @@ def drain_errors(acc):
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 c.mode(MODE_MANUAL)
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: st.task_state == STATE_ON and st.task_mode == MODE_MANUAL,
     "machine ON in manual mode",
     detail=lambda st: "task_state=%d task_mode=%d" % (st.task_state, st.task_mode))
@@ -53,7 +53,7 @@ drain_errors(errors)  # discard anything stale from bring-up
 # Command drive-internal homing of joint 0.
 c.home(0)
 
-deadline = time.monotonic() + 15.0 * gomc_test.scale()
+deadline = time.monotonic() + 15.0 * stmak_test.scale()
 peak_move = 0.0
 homed = False
 while time.monotonic() < deadline:

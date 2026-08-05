@@ -3,7 +3,7 @@
 import gmi
 from gmi.constants import *
 import linuxcnc_util
-import gomc_test
+import stmak_test
 
 import math
 import time
@@ -169,11 +169,11 @@ def assert_axis_initialized(axis):
     assert(axis['max_position_limit'] == 40.0)
 
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 # This test mirrors classic linuxcnc.stat(), which reports linear values in the
-# machine's configured units (inch here). gomc is mm-everywhere, so read through
+# machine's configured units (inch here). stratuMAK is mm-everywhere, so read through
 # the machine-units view, which converts the internal mm to the config units.
 s = gmi.Stat().machine_units()
 e = gmi.ErrorChannel()
@@ -225,7 +225,7 @@ assert(s.dout == (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 assert(s.dtg == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
 # echo_serial_number intentionally omitted: it is the classic NML command-serial
-# handshake, which gomc (REST/WebSocket, synchronous wait_complete) does not have.
+# handshake, which stratuMAK (REST/WebSocket, synchronous wait_complete) does not have.
 assert(s.enabled == False)
 assert(s.estop == 1)
 assert(s.exec_state == EXEC_DONE)

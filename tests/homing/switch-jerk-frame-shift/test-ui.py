@@ -24,14 +24,14 @@
 #                 the machine faults).
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import subprocess
 import time
 import sys
 
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -50,7 +50,7 @@ def drain_errors():
 c.state(STATE_ESTOP_RESET)
 c.state(STATE_ON)
 c.mode(MODE_MANUAL)
-gomc_test.wait_stat(
+stmak_test.wait_stat(
     s, lambda st: st.task_state == STATE_ON and st.task_mode == MODE_MANUAL,
     "machine ON in manual mode",
     detail=lambda st: "task_state=%d task_mode=%d" % (st.task_state, st.task_mode))
@@ -60,7 +60,7 @@ errors.clear()  # discard anything stale from bring-up
 
 c.home(0)
 
-deadline = time.monotonic() + 20.0 * gomc_test.scale()
+deadline = time.monotonic() + 20.0 * stmak_test.scale()
 homed = False
 while time.monotonic() < deadline:
     s.poll()

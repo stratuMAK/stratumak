@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# remap-io driver, re-expressed for gomc (no embedded Python interp, no python
+# remap-io driver, re-expressed for stratuMAK (no embedded Python interp, no python
 # `hal.component`, and gmi.Stat exposes no dout/din/ain/aout arrays).  It drives
 # the NGC M62-M68 remaps (test-ngc.ini) via gmi MDI and verifies their effect by
 # reading the motion I/O pins with `halcmd getp`.
@@ -14,12 +14,12 @@
 # for real; a broken remap would leave the output pin / #5399 unchanged and fail.
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 import sys, os, time, subprocess
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 
 prev5399 = [0.0]
 

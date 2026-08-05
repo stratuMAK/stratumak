@@ -1,6 +1,6 @@
 # milltask — Goroutine / Shared-State Concurrency Analysis
 
-**Status:** implemented (see *Implementation status* below) · **Date:** 2026-07-09 · **Scope:** `src/gomc/internal/task`
+**Status:** implemented (see *Implementation status* below) · **Date:** 2026-07-09 · **Scope:** `src/stmak/internal/task`
 
 This note summarizes an investigation into the concurrency model of the Go
 `milltask` coordinator: what the goroutine structure is, where the real race

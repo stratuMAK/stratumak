@@ -161,7 +161,7 @@ fail0:
 //
 // Human readable info
 //
-void hm2_pktuart_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING
+void hm2_pktuart_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING
 {
 	int i;
 	HM2_PRINT("PktUART: %d\n", hm2->pktuart.num_instances);
@@ -185,7 +185,7 @@ void hm2_pktuart_cleanup(hostmot2_t *hm2)
 	(void)hm2;
 }
 
-void hm2_pktuart_write(hostmot2_t *hm2) GOMC_NONBLOCKING
+void hm2_pktuart_write(hostmot2_t *hm2) STMAK_NONBLOCKING
 {
 	(void)hm2;
 }
@@ -197,7 +197,7 @@ void hm2_pktuart_write(hostmot2_t *hm2) GOMC_NONBLOCKING
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 // Warn when we know we're gonna crash...
-static void llio_noqueue_warn(const hostmot2_t *hm2) GOMC_NONBLOCKING
+static void llio_noqueue_warn(const hostmot2_t *hm2) STMAK_NONBLOCKING
 {
 	if(pktuart_noqueue_warned)
 		return;
@@ -251,7 +251,7 @@ int hm2_pktuart_setup_rx(const char *name, unsigned int bitrate, unsigned int fi
 //
 // PktUART configuration implementation for TX
 //
-static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) GOMC_NONBLOCKING
+static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) STMAK_NONBLOCKING
 {
 	uint32_t bitrate;
 	uint32_t mode = 0;
@@ -325,7 +325,7 @@ static int config_tx(const char *name, const hostmot2_t* hm2, hm2_pktuart_instan
 //
 // PktUART configuration implementation for RX
 //
-static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) GOMC_NONBLOCKING
+static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instance_t *inst, const hm2_pktuart_config_t *cfg, int queue) STMAK_NONBLOCKING
 {
 	uint32_t bitrate;
 	uint32_t mode = 0;
@@ -407,7 +407,7 @@ static int config_rx(const char *name, const hostmot2_t *hm2, hm2_pktuart_instan
 // Separate configurations are possible for RX and TX. The configuration will
 // be queued if the queue parameter is set to non-zero.
 //
-int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue) GOMC_NONBLOCKING
+int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, const hm2_pktuart_config_t *txcfg, int queue) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r;
@@ -432,7 +432,7 @@ int hm2_pktuart_config(const char *name, const hm2_pktuart_config_t *rxcfg, cons
 	return 0;
 }
 
-static void perform_reset(const char *name, int queue) GOMC_NONBLOCKING
+static void perform_reset(const char *name, int queue) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	hm2_pktuart_instance_t *inst = 0;
@@ -474,7 +474,7 @@ void hm2_pktuart_reset(const char *name)
 // Perform a TX and RX interface reset clearing the FIFOs next time the write
 // queue is sent.
 //
-void hm2_pktuart_queue_reset(const char *name) GOMC_NONBLOCKING
+void hm2_pktuart_queue_reset(const char *name) STMAK_NONBLOCKING
 {
 	perform_reset(name, 1);
 }
@@ -571,7 +571,7 @@ int hm2_pktuart_setup(const char *name, unsigned bitrate, int32_t tx_mode, int32
 // frame_sizes array.
 // Returns the total number of bytes sent.
 //
-int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[]) GOMC_NONBLOCKING
+int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_frames, const uint16_t frame_sizes[]) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int c = 0;
@@ -664,7 +664,7 @@ int hm2_pktuart_send(const char *name, const unsigned char data[], uint8_t *num_
 //
 // This function is DEPRECATED
 //
-int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[]) GOMC_NONBLOCKING
+int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames, uint16_t *max_frame_length, uint16_t frame_sizes[]) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r, c;
@@ -836,7 +836,7 @@ int hm2_pktuart_read(const char *name, unsigned char data[], uint8_t *num_frames
 // next read cycle. Parameter fsizes should be u32 x 16.
 // FIXME: decide how to work out that the data has all been transferred
 //
-int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]) GOMC_NONBLOCKING
+int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]) STMAK_NONBLOCKING
 {
 	// queue as many reads of the FIFO as there are frames
 	hostmot2_t *hm2;
@@ -879,7 +879,7 @@ int hm2_pktuart_queue_get_frame_sizes(const char *name, uint32_t fsizes[]) GOMC_
 // which must have been previously read by hm2_pktuart_queue_get_frame_sizes().
 // Returns the number of frame reads queued.
 //
-int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes) GOMC_NONBLOCKING
+int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int r;
@@ -913,7 +913,7 @@ int hm2_pktuart_queue_read_data(const char *name, uint32_t data[], int bytes) GO
 //
 // Return the current RX status from last tram read
 //
-uint32_t hm2_pktuart_get_rx_status(const char *name) GOMC_NONBLOCKING
+uint32_t hm2_pktuart_get_rx_status(const char *name) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int i = hm2_get_pktuart(&hm2, name);
@@ -927,7 +927,7 @@ uint32_t hm2_pktuart_get_rx_status(const char *name) GOMC_NONBLOCKING
 //
 // Return the current TX status from last tram read
 //
-uint32_t hm2_pktuart_get_tx_status(const char *name) GOMC_NONBLOCKING
+uint32_t hm2_pktuart_get_tx_status(const char *name) STMAK_NONBLOCKING
 {
 	hostmot2_t *hm2;
 	int i = hm2_get_pktuart(&hm2, name);

@@ -1,5 +1,5 @@
 <!--
-  gomc EtherCAT integration test config: runs the lcec driver against the
+  stmak EtherCAT integration test config: runs the lcec driver against the
   in-process simulated bus (transportType="sim"), so the whole driver — scan,
   slave config, PDO mapping to HAL pins, cyclic exchange, AL state machine —
   is exercised with no hardware. "interface" names the bus-description file

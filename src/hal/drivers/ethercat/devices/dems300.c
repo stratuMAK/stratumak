@@ -37,38 +37,38 @@
  * Holds all HAL pin/parameter pointers and internal state for one MS300 slave.
  */
 typedef struct {
-  gomc_hal_float_t *vel_fb_rpm;              /**< Velocity feedback in RPM. */
-  gomc_hal_float_t *vel_fb_rpm_abs;          /**< Absolute value of velocity feedback in RPM. */
-  gomc_hal_float_t *vel_rpm_cmd;             /**< Velocity command in RPM. */
+  stmak_hal_float_t *vel_fb_rpm;              /**< Velocity feedback in RPM. */
+  stmak_hal_float_t *vel_fb_rpm_abs;          /**< Absolute value of velocity feedback in RPM. */
+  stmak_hal_float_t *vel_rpm_cmd;             /**< Velocity command in RPM. */
 
-  gomc_hal_bit_t *stat_switch_on_ready;      /**< Status: drive ready to switch on. */
-  gomc_hal_bit_t *stat_switched_on;          /**< Status: drive switched on. */
-  gomc_hal_bit_t *stat_op_enabled;           /**< Status: operation enabled. */
-  gomc_hal_bit_t *stat_fault;                /**< Status: drive fault active. */
-  gomc_hal_bit_t *stat_volt_enabled;         /**< Status: DC bus voltage enabled. */
-  gomc_hal_bit_t *stat_quick_stoped;         /**< Status: quick stop active. */
-  gomc_hal_bit_t *stat_switch_on_disabled;   /**< Status: switch-on disabled. */
-  gomc_hal_bit_t *stat_warning;              /**< Status: warning present. */
-  gomc_hal_bit_t *stat_remote;               /**< Status: drive in remote control mode. */
-  gomc_hal_bit_t *stat_at_speed;             /**< Status: drive at commanded speed. */
+  stmak_hal_bit_t *stat_switch_on_ready;      /**< Status: drive ready to switch on. */
+  stmak_hal_bit_t *stat_switched_on;          /**< Status: drive switched on. */
+  stmak_hal_bit_t *stat_op_enabled;           /**< Status: operation enabled. */
+  stmak_hal_bit_t *stat_fault;                /**< Status: drive fault active. */
+  stmak_hal_bit_t *stat_volt_enabled;         /**< Status: DC bus voltage enabled. */
+  stmak_hal_bit_t *stat_quick_stoped;         /**< Status: quick stop active. */
+  stmak_hal_bit_t *stat_switch_on_disabled;   /**< Status: switch-on disabled. */
+  stmak_hal_bit_t *stat_warning;              /**< Status: warning present. */
+  stmak_hal_bit_t *stat_remote;               /**< Status: drive in remote control mode. */
+  stmak_hal_bit_t *stat_at_speed;             /**< Status: drive at commanded speed. */
 
-  gomc_hal_bit_t *quick_stop;                /**< Input: assert quick stop. */
-  gomc_hal_bit_t *enable;                    /**< Input: enable drive operation. */
-  gomc_hal_bit_t *fault_reset;               /**< Input: reset active fault. */
-  gomc_hal_bit_t *halt;                      /**< Input: halt drive. */
+  stmak_hal_bit_t *quick_stop;                /**< Input: assert quick stop. */
+  stmak_hal_bit_t *enable;                    /**< Input: enable drive operation. */
+  stmak_hal_bit_t *fault_reset;               /**< Input: reset active fault. */
+  stmak_hal_bit_t *halt;                      /**< Input: halt drive. */
 
-  gomc_hal_s32_t *mode_op_display;           /**< Modes of operation display (read from drive). */
+  stmak_hal_s32_t *mode_op_display;           /**< Modes of operation display (read from drive). */
 
-  gomc_hal_float_t *act_current;             /**< Actual output current in amps. */
-  gomc_hal_u32_t *warn_code;                 /**< Warning code from drive. */
-  gomc_hal_u32_t *error_code;                /**< Error/fault code from drive. */
-  gomc_hal_float_t *drive_temp;              /**< IGBT temperature in degrees C. */
+  stmak_hal_float_t *act_current;             /**< Actual output current in amps. */
+  stmak_hal_u32_t *warn_code;                 /**< Warning code from drive. */
+  stmak_hal_u32_t *error_code;                /**< Error/fault code from drive. */
+  stmak_hal_float_t *drive_temp;              /**< IGBT temperature in degrees C. */
 
-  gomc_hal_u32_t *vel_ramp_up;               /**< Acceleration ramp time in units of 100 ms. */
-  gomc_hal_u32_t *vel_ramp_down;             /**< Deceleration ramp time in units of 100 ms. */
+  stmak_hal_u32_t *vel_ramp_up;               /**< Acceleration ramp time in units of 100 ms. */
+  stmak_hal_u32_t *vel_ramp_down;             /**< Deceleration ramp time in units of 100 ms. */
 
-  gomc_hal_bit_t auto_fault_reset;           /**< Parameter: enable automatic fault reset on enable edge. */
-  gomc_hal_float_t vel_scale;                /**< Parameter: velocity scaling factor (RPM per raw unit). */
+  stmak_hal_bit_t auto_fault_reset;           /**< Parameter: enable automatic fault reset on enable edge. */
+  stmak_hal_float_t vel_scale;                /**< Parameter: velocity scaling factor (RPM per raw unit). */
 
   double vel_scale_old;                 /**< Previous velocity scale value for change detection. */
   double vel_scale_rcpt;                /**< Reciprocal of vel_scale for efficient scaling. */
@@ -88,44 +88,44 @@ typedef struct {
   unsigned int ramp_up_pdo_os;          /**< PDO offset for ramp up time (0x604F). */
   unsigned int ramp_down_pdo_os;        /**< PDO offset for ramp down time (0x6050). */
 
-  gomc_hal_bit_t enable_old;                 /**< Previous enable state for edge detection. */
-  gomc_hal_bit_t internal_fault;             /**< Internal fault flag derived from status word. */
+  stmak_hal_bit_t enable_old;                 /**< Previous enable state for edge detection. */
+  stmak_hal_bit_t internal_fault;             /**< Internal fault flag derived from status word. */
 
   long long auto_fault_reset_delay;     /**< Remaining nanoseconds of auto-reset delay. */
 
 } lcec_dems300_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, vel_fb_rpm), "%s.%s.%s.vel-fb-rpm" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, vel_fb_rpm_abs), "%s.%s.%s.vel-fb-rpm-abs" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switch_on_ready), "%s.%s.%s.stat-switch-on-ready" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switched_on), "%s.%s.%s.stat-switched-on" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_op_enabled), "%s.%s.%s.stat-op-enabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_fault), "%s.%s.%s.stat-fault" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_volt_enabled), "%s.%s.%s.stat-volt-enabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_quick_stoped), "%s.%s.%s.stat-quick-stoped" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switch_on_disabled), "%s.%s.%s.stat-switch-on-disabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_warning), "%s.%s.%s.stat-warning" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_remote), "%s.%s.%s.stat-remote" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, stat_at_speed), "%s.%s.%s.stat-at-speed" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, act_current), "%s.%s.%s.act-current" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, warn_code), "%s.%s.%s.warn-code" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, error_code), "%s.%s.%s.error-code" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_dems300_data_t, drive_temp), "%s.%s.%s.drive-temp" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, quick_stop), "%s.%s.%s.quick-stop" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, enable), "%s.%s.%s.enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, fault_reset), "%s.%s.%s.fault-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, halt), "%s.%s.%s.halt" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, vel_rpm_cmd), "%s.%s.%s.vel-rpm-cmd" },
-  { GOMC_HAL_U32, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, vel_ramp_up), "%s.%s.%s.vel-ramp-up" },
-  { GOMC_HAL_U32, GOMC_HAL_IN, offsetof(lcec_dems300_data_t, vel_ramp_down), "%s.%s.%s.vel-ramp-down" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, vel_fb_rpm), "%s.%s.%s.vel-fb-rpm" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, vel_fb_rpm_abs), "%s.%s.%s.vel-fb-rpm-abs" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switch_on_ready), "%s.%s.%s.stat-switch-on-ready" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switched_on), "%s.%s.%s.stat-switched-on" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_op_enabled), "%s.%s.%s.stat-op-enabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_fault), "%s.%s.%s.stat-fault" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_volt_enabled), "%s.%s.%s.stat-volt-enabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_quick_stoped), "%s.%s.%s.stat-quick-stoped" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_switch_on_disabled), "%s.%s.%s.stat-switch-on-disabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_warning), "%s.%s.%s.stat-warning" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_remote), "%s.%s.%s.stat-remote" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, stat_at_speed), "%s.%s.%s.stat-at-speed" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, act_current), "%s.%s.%s.act-current" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, warn_code), "%s.%s.%s.warn-code" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, error_code), "%s.%s.%s.error-code" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_dems300_data_t, drive_temp), "%s.%s.%s.drive-temp" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, quick_stop), "%s.%s.%s.quick-stop" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, enable), "%s.%s.%s.enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, fault_reset), "%s.%s.%s.fault-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, halt), "%s.%s.%s.halt" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, vel_rpm_cmd), "%s.%s.%s.vel-rpm-cmd" },
+  { STMAK_HAL_U32, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, vel_ramp_up), "%s.%s.%s.vel-ramp-up" },
+  { STMAK_HAL_U32, STMAK_HAL_IN, offsetof(lcec_dems300_data_t, vel_ramp_down), "%s.%s.%s.vel-ramp-down" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_RW, offsetof(lcec_dems300_data_t, auto_fault_reset), "%s.%s.%s.auto-fault-reset" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_dems300_data_t, vel_scale), "%s.%s.%s.vel-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_RW, offsetof(lcec_dems300_data_t, auto_fault_reset), "%s.%s.%s.auto-fault-reset" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_dems300_data_t, vel_scale), "%s.%s.%s.vel-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_dems300_in[] = {
@@ -172,8 +172,8 @@ static ec_sync_info_t lcec_dems300_syncs[] = {
 
 void lcec_dems300_check_scales(lcec_dems300_data_t *hal_data);
 
-void lcec_dems300_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_dems300_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_dems300_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_dems300_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize the Delta MS300 EtherCAT slave driver.

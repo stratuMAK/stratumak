@@ -28,6 +28,7 @@ Build-Depends:
     intltool,
     libboost-python-dev,
     libepoxy-dev,
+    libexpat1-dev,
     libgl-dev | libgl1-mesa-dev,
     libglu1-mesa-dev,
     libgtk-3-dev,
@@ -67,7 +68,7 @@ Build-Depends:
 Build-Depends-Indep:
     @DOC_DEPENDS@,
 Standards-Version: 4.7.2
-Homepage: https://linuxcnc.org/
+Homepage: https://github.com/stratuMAK/stratumak
 Vcs-Browser: https://github.com/LinuxCNC/linuxcnc
 Vcs-Git: https://github.com/LinuxCNC/linuxcnc.git
 Rules-Requires-Root: binary-targets

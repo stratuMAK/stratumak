@@ -30,8 +30,8 @@
  * @brief HAL data for an EL95xx power supply terminal.
  */
 typedef struct {
-  gomc_hal_bit_t *power_ok;              /**< OUT: output voltage within specification */
-  gomc_hal_bit_t *overload;              /**< OUT: output overload condition active */
+  stmak_hal_bit_t *power_ok;              /**< OUT: output voltage within specification */
+  stmak_hal_bit_t *overload;              /**< OUT: output overload condition active */
   unsigned int power_ok_pdo_os;     /**< PDO byte offset: power-ok bit (0x6000:01) */
   unsigned int power_ok_pdo_bp;     /**< Bit position: power-ok bit */
   unsigned int overload_pdo_os;     /**< PDO byte offset: overload bit (0x6000:02) */
@@ -39,15 +39,15 @@ typedef struct {
 } lcec_el95xx_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el95xx_data_t, power_ok), "%s.%s.%s.power-ok" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el95xx_data_t, overload), "%s.%s.%s.overload" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el95xx_data_t, power_ok), "%s.%s.%s.power-ok" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el95xx_data_t, overload), "%s.%s.%s.overload" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
  * @brief Cyclic read: forward declaration.
  */
-void lcec_el95xx_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el95xx_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise an EL95xx power supply terminal.

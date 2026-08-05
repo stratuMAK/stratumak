@@ -5,7 +5,7 @@
 `internal/adsmodule` (~163). Phase 2 (field I/O) per `PRODUCTION_READINESS.md`.
 
 The ADS server implements the Beckhoff **ADS/AMS over TCP** protocol so a TwinCAT HMI can
-read/write HAL pins. It is **net-new gomc code** (no LinuxCNC 2.9 parity oracle), so this
+read/write HAL pins. It is **net-new stratuMAK code** (no LinuxCNC 2.9 parity oracle), so this
 review is correctness / concurrency / robustness / protocol-safety, not parity. **There is no
 end-to-end runtests case** — coverage is unit-test-only (symbols 46, config 43, layout 14,
 xmlgen 17), and none of the existing tests exercise malformed / adversarial packets.
@@ -13,7 +13,7 @@ xmlgen 17), and none of the existing tests exercise malformed / adversarial pack
 **Threat model (the reason severities are high):** the listener binds **`0.0.0.0:48898` by
 default** (`serverconf.go:52`) and the ADS protocol carries **no authentication**. Every
 command handler is therefore reachable by any host that can route to the controller, with no
-credential. A crash of `gomc-server` is a crash of the **motion controller** (uncontrolled
+credential. A crash of `stmakd` is a crash of the **motion controller** (uncontrolled
 machine stop). See A9.
 
 **Method (Tier-2 adversarial):** one primary read-through plus two *independent* AI passes

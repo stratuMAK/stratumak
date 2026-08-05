@@ -43,7 +43,7 @@ gmicompile --client-c halcmd.gmi -o halcmd_client
 > APIs that use those shapes, generate a `--client-go`, `--client-python`, or
 > `--client-ts` client instead.
 
-The compiler is built from Go source in `src/gomc/cmd/gmicompile/`.
+The compiler is built from Go source in `src/stmak/cmd/gmicompile/`.
 
 ### Runtime Library (`libgmi`)
 
@@ -63,7 +63,7 @@ Generated code goes to `src/generated/` (gitignored).
 
 ```bash
 # Build gmicompile
-cd src/gomc && go build ./cmd/gmicompile
+cd src/stmak && go build ./cmd/gmicompile
 
 # Build libgmi (via main Makefile)
 make  # includes src/gmi/lib/Submakefile

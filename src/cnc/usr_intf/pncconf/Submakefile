@@ -1,0 +1,205 @@
+PNCCONF_MODULES = pages build_INI build_HAL private_data tests data
+
+PYTARGETS += ../bin/pncconf  ../lib/python/pncconf/__init__.py $(patsubst %,../lib/python/pncconf/%.py,$(PNCCONF_MODULES)) \
+	../share/stratumak/pncconf/main_page.glade \
+	../share/stratumak/pncconf/help.glade \
+	../share/stratumak/pncconf/mesa0.glade \
+	../share/stratumak/pncconf/mesa1.glade \
+	../share/stratumak/pncconf/start.glade \
+	../share/stratumak/pncconf/external.glade \
+	../share/stratumak/pncconf/base.glade \
+	../share/stratumak/pncconf/screen.glade \
+	../share/stratumak/pncconf/vcp.glade \
+	../share/stratumak/pncconf/ubuttons.glade \
+	../share/stratumak/pncconf/thcad.glade \
+	../share/stratumak/pncconf/x_axis.glade \
+	../share/stratumak/pncconf/x_motor.glade \
+	../share/stratumak/pncconf/y_axis.glade \
+	../share/stratumak/pncconf/y_motor.glade \
+	../share/stratumak/pncconf/z_axis.glade \
+	../share/stratumak/pncconf/z_motor.glade \
+	../share/stratumak/pncconf/a_axis.glade \
+	../share/stratumak/pncconf/a_motor.glade \
+	../share/stratumak/pncconf/s_motor.glade \
+	../share/stratumak/pncconf/options.glade \
+	../share/stratumak/pncconf/realtime.glade \
+	../share/stratumak/pncconf/pport1.glade \
+	../share/stratumak/pncconf/pport2.glade \
+	../share/stratumak/pncconf/dialogs.glade \
+	../share/stratumak/pncconf/finished.glade
+
+PYI18NSRCS += cnc/usr_intf/pncconf/pncconf.py $(patsubst %,cnc/usr_intf/pncconf/%.py,$(PNCCONF_MODULES)) \
+	cnc/usr_intf/pncconf/main_page.glade \
+	cnc/usr_intf/pncconf/help.glade \
+	cnc/usr_intf/pncconf/mesa0.glade \
+	cnc/usr_intf/pncconf/mesa1.glade \
+	cnc/usr_intf/pncconf/start.glade \
+	cnc/usr_intf/pncconf/external.glade \
+	cnc/usr_intf/pncconf/base.glade \
+	cnc/usr_intf/pncconf/screen.glade \
+	cnc/usr_intf/pncconf/vcp.glade \
+	cnc/usr_intf/pncconf/ubuttons.glade \
+	cnc/usr_intf/pncconf/thcad.glade \
+	cnc/usr_intf/pncconf/x_axis.glade \
+	cnc/usr_intf/pncconf/x_motor.glade \
+	cnc/usr_intf/pncconf/y_axis.glade \
+	cnc/usr_intf/pncconf/y_motor.glade \
+	cnc/usr_intf/pncconf/z_axis.glade \
+	cnc/usr_intf/pncconf/z_motor.glade \
+	cnc/usr_intf/pncconf/a_axis.glade \
+	cnc/usr_intf/pncconf/a_motor.glade \
+	cnc/usr_intf/pncconf/s_motor.glade \
+	cnc/usr_intf/pncconf/options.glade \
+	cnc/usr_intf/pncconf/realtime.glade \
+	cnc/usr_intf/pncconf/pport1.glade \
+	cnc/usr_intf/pncconf/pport2.glade \
+	cnc/usr_intf/pncconf/dialogs.glade \
+	cnc/usr_intf/pncconf/finished.glade
+
+../lib/python/pncconf/__init__.py:
+	$(ECHO) building python init $(notdir $@)
+	@mkdir -p ../lib/python/pncconf
+	@touch $@
+
+../lib/python/pncconf/%: cnc/usr_intf/pncconf/%
+	@$(ECHO) Syntax checking python script $(notdir $@)
+	$(Q)$(PYTHON) -m py_compile $<
+	$(ECHO) Copying python script $(notdir $@)
+	$(Q)mkdir -p ../lib/python/pncconf
+	$(Q)cp $< $@
+
+../share/stratumak/pncconf/main_page.glade: cnc/usr_intf/pncconf/main_page.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/mesa0.glade: cnc/usr_intf/pncconf/mesa0.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/mesa1.glade: cnc/usr_intf/pncconf/mesa1.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/finished.glade: cnc/usr_intf/pncconf/finished.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/start.glade: cnc/usr_intf/pncconf/start.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/external.glade: cnc/usr_intf/pncconf/external.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/base.glade: cnc/usr_intf/pncconf/base.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/screen.glade: cnc/usr_intf/pncconf/screen.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/vcp.glade: cnc/usr_intf/pncconf/vcp.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/ubuttons.glade: cnc/usr_intf/pncconf/ubuttons.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/thcad.glade: cnc/usr_intf/pncconf/thcad.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/x_axis.glade: cnc/usr_intf/pncconf/x_axis.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/x_motor.glade: cnc/usr_intf/pncconf/x_motor.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/y_axis.glade: cnc/usr_intf/pncconf/y_axis.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/y_motor.glade: cnc/usr_intf/pncconf/y_motor.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/z_axis.glade: cnc/usr_intf/pncconf/z_axis.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/z_motor.glade: cnc/usr_intf/pncconf/z_motor.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/a_axis.glade: cnc/usr_intf/pncconf/a_axis.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/a_motor.glade: cnc/usr_intf/pncconf/a_motor.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/s_motor.glade: cnc/usr_intf/pncconf/s_motor.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/options.glade: cnc/usr_intf/pncconf/options.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/help.glade: cnc/usr_intf/pncconf/help.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/realtime.glade: cnc/usr_intf/pncconf/realtime.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/pport1.glade: cnc/usr_intf/pncconf/pport1.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/pport2.glade: cnc/usr_intf/pncconf/pport2.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../share/stratumak/pncconf/dialogs.glade: cnc/usr_intf/pncconf/dialogs.glade
+	$(ECHO) Copying glade file $(notdir $@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp -f $< $@
+
+../bin/pncconf: cnc/usr_intf/pncconf/pncconf.py
+	@$(ECHO) Syntax checking python script $(notdir $@)
+	$(Q)$(PYTHON) -m py_compile $<
+	$(ECHO) Copying python script $(notdir $@)
+	$(Q)(echo '#!$(PYTHON)'; sed '1 { /^#!/d; }' $<) > $@.tmp && chmod +x $@.tmp && mv -f $@.tmp $@

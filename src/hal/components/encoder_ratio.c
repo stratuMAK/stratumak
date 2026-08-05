@@ -14,7 +14,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
@@ -32,23 +32,23 @@ static const unsigned char lut[16] = {
 };
 
 typedef struct {
-    gomc_hal_bit_t   *master_A;
-    gomc_hal_bit_t   *master_B;
-    gomc_hal_bit_t   *slave_A;
-    gomc_hal_bit_t   *slave_B;
-    gomc_hal_bit_t   *enable;
-    gomc_hal_float_t *error;
-    gomc_hal_u32_t   *master_ppr;
-    gomc_hal_u32_t   *slave_ppr;
-    gomc_hal_u32_t   *master_teeth;
-    gomc_hal_u32_t   *slave_teeth;
+    stmak_hal_bit_t   *master_A;
+    stmak_hal_bit_t   *master_B;
+    stmak_hal_bit_t   *slave_A;
+    stmak_hal_bit_t   *slave_B;
+    stmak_hal_bit_t   *enable;
+    stmak_hal_float_t *error;
+    stmak_hal_u32_t   *master_ppr;
+    stmak_hal_u32_t   *slave_ppr;
+    stmak_hal_u32_t   *master_teeth;
+    stmak_hal_u32_t   *slave_teeth;
 } er_hal_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     er_hal_t *hal;
     unsigned char master_state;
     unsigned char slave_state;
@@ -116,7 +116,7 @@ int New(const cmod_env_t *env, const char *name,
     inst_t *inst;
     er_hal_t *h;
     int r;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     (void)argc; (void)argv;
 
@@ -129,7 +129,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->output_scale = 1.0;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(er_hal_t));
@@ -137,34 +137,34 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->hal, 0, sizeof(er_hal_t));
     h = inst->hal;
 
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->master_A, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->master_A, inst->comp_id,
                               "%s.master-A", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->master_B, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->master_B, inst->comp_id,
                               "%s.master-B", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->slave_A, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->slave_A, inst->comp_id,
                               "%s.slave-A", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->slave_B, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->slave_B, inst->comp_id,
                               "%s.slave-B", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &h->enable, inst->comp_id,
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &h->enable, inst->comp_id,
                               "%s.enable", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &h->error, inst->comp_id,
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &h->error, inst->comp_id,
                                 "%s.error", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->master_ppr, inst->comp_id,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->master_ppr, inst->comp_id,
                               "%s.master-ppr", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->slave_ppr, inst->comp_id,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->slave_ppr, inst->comp_id,
                               "%s.slave-ppr", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->master_teeth, inst->comp_id,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->master_teeth, inst->comp_id,
                               "%s.master-teeth", name);
     if (r != 0) goto err;
-    r = gomc_hal_pin_u32_newf(env->hal, GOMC_HAL_IO, &h->slave_teeth, inst->comp_id,
+    r = stmak_hal_pin_u32_newf(env->hal, STMAK_HAL_IO, &h->slave_teeth, inst->comp_id,
                               "%s.slave-teeth", name);
     if (r != 0) goto err;
 

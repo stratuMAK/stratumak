@@ -39,58 +39,58 @@
  * @brief HAL data structure for the EL7211 servo terminal.
  */
 typedef struct {
-  gomc_hal_bit_t *enable;              /**< IN: enable the servo drive */
-  gomc_hal_bit_t *enabled;             /**< OUT: drive is enabled (ready + switched-on + operation) */
-  gomc_hal_bit_t *fault;               /**< OUT: drive fault active */
+  stmak_hal_bit_t *enable;              /**< IN: enable the servo drive */
+  stmak_hal_bit_t *enabled;             /**< OUT: drive is enabled (ready + switched-on + operation) */
+  stmak_hal_bit_t *fault;               /**< OUT: drive fault active */
 
-  gomc_hal_bit_t *status_ready;        /**< OUT: CiA-402 status word bit 0 – ready to switch on */
-  gomc_hal_bit_t *status_switched_on;  /**< OUT: CiA-402 status word bit 1 – switched on */
-  gomc_hal_bit_t *status_operation;    /**< OUT: CiA-402 status word bit 2 – operation enabled */
-  gomc_hal_bit_t *status_fault;        /**< OUT: CiA-402 status word bit 3 – fault */
-  gomc_hal_bit_t *status_disabled;     /**< OUT: CiA-402 status word bit 6 – switch on disabled */
-  gomc_hal_bit_t *status_warning;      /**< OUT: CiA-402 status word bit 7 – warning */
-  gomc_hal_bit_t *status_limit_active; /**< OUT: CiA-402 status word bit 11 – internal limit active */
+  stmak_hal_bit_t *status_ready;        /**< OUT: CiA-402 status word bit 0 – ready to switch on */
+  stmak_hal_bit_t *status_switched_on;  /**< OUT: CiA-402 status word bit 1 – switched on */
+  stmak_hal_bit_t *status_operation;    /**< OUT: CiA-402 status word bit 2 – operation enabled */
+  stmak_hal_bit_t *status_fault;        /**< OUT: CiA-402 status word bit 3 – fault */
+  stmak_hal_bit_t *status_disabled;     /**< OUT: CiA-402 status word bit 6 – switch on disabled */
+  stmak_hal_bit_t *status_warning;      /**< OUT: CiA-402 status word bit 7 – warning */
+  stmak_hal_bit_t *status_limit_active; /**< OUT: CiA-402 status word bit 11 – internal limit active */
 
-  gomc_hal_bit_t *err_adc;             /**< OUT: ADC error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_overcurrent;     /**< OUT: overcurrent error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_undervoltage;    /**< OUT: under-voltage error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_overvoltage;     /**< OUT: over-voltage error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_overtemp;        /**< OUT: over-temperature error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_i2t_amp;         /**< OUT: I²t amplifier overload (EL7201-9014 only) */
-  gomc_hal_bit_t *err_i2t_motor;       /**< OUT: I²t motor overload (EL7201-9014 only) */
-  gomc_hal_bit_t *err_encoder;         /**< OUT: encoder error (EL7201-9014 only) */
-  gomc_hal_bit_t *err_watchdog;        /**< OUT: watchdog error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_adc;             /**< OUT: ADC error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_overcurrent;     /**< OUT: overcurrent error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_undervoltage;    /**< OUT: under-voltage error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_overvoltage;     /**< OUT: over-voltage error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_overtemp;        /**< OUT: over-temperature error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_i2t_amp;         /**< OUT: I²t amplifier overload (EL7201-9014 only) */
+  stmak_hal_bit_t *err_i2t_motor;       /**< OUT: I²t motor overload (EL7201-9014 only) */
+  stmak_hal_bit_t *err_encoder;         /**< OUT: encoder error (EL7201-9014 only) */
+  stmak_hal_bit_t *err_watchdog;        /**< OUT: watchdog error (EL7201-9014 only) */
 
-  gomc_hal_bit_t *input_0;             /**< OUT: digital input 0 state (EL7201-9014 only) */
-  gomc_hal_bit_t *input_0_not;         /**< OUT: digital input 0 inverted (EL7201-9014 only) */
-  gomc_hal_bit_t *input_1;             /**< OUT: digital input 1 state (EL7201-9014 only) */
-  gomc_hal_bit_t *input_1_not;         /**< OUT: digital input 1 inverted (EL7201-9014 only) */
-  gomc_hal_bit_t *input_sto;           /**< OUT: STO (safe torque off) input state (EL7201-9014 only) */
+  stmak_hal_bit_t *input_0;             /**< OUT: digital input 0 state (EL7201-9014 only) */
+  stmak_hal_bit_t *input_0_not;         /**< OUT: digital input 0 inverted (EL7201-9014 only) */
+  stmak_hal_bit_t *input_1;             /**< OUT: digital input 1 state (EL7201-9014 only) */
+  stmak_hal_bit_t *input_1_not;         /**< OUT: digital input 1 inverted (EL7201-9014 only) */
+  stmak_hal_bit_t *input_sto;           /**< OUT: STO (safe torque off) input state (EL7201-9014 only) */
 
-  gomc_hal_bit_t *at_speed;            /**< OUT: velocity within at-speed window */
+  stmak_hal_bit_t *at_speed;            /**< OUT: velocity within at-speed window */
 
-  gomc_hal_float_t *vel_cmd;           /**< IN: commanded velocity in user units/s */
-  gomc_hal_float_t *vel_fb;            /**< OUT: actual velocity in user units/s */
-  gomc_hal_float_t *vel_fb_rpm;        /**< OUT: actual velocity in RPM (signed) */
-  gomc_hal_float_t *vel_fb_rpm_abs;    /**< OUT: actual velocity in RPM (absolute) */
-  gomc_hal_s32_t *vel_fb_raw;          /**< OUT: raw 32-bit velocity feedback value */
+  stmak_hal_float_t *vel_cmd;           /**< IN: commanded velocity in user units/s */
+  stmak_hal_float_t *vel_fb;            /**< OUT: actual velocity in user units/s */
+  stmak_hal_float_t *vel_fb_rpm;        /**< OUT: actual velocity in RPM (signed) */
+  stmak_hal_float_t *vel_fb_rpm_abs;    /**< OUT: actual velocity in RPM (absolute) */
+  stmak_hal_s32_t *vel_fb_raw;          /**< OUT: raw 32-bit velocity feedback value */
 
-  gomc_hal_float_t *torque_fb;         /**< OUT: actual torque in user units */
-  gomc_hal_s32_t *torque_fb_raw;       /**< OUT: raw 16-bit torque feedback value */
+  stmak_hal_float_t *torque_fb;         /**< OUT: actual torque in user units */
+  stmak_hal_s32_t *torque_fb_raw;       /**< OUT: raw 16-bit torque feedback value */
 
-  gomc_hal_float_t *vel_cmd_out;       /**< OUT: actual velocity command sent (after clamping) */
-  gomc_hal_s32_t *vel_cmd_out_raw;     /**< OUT: raw 32-bit velocity command sent to drive */
+  stmak_hal_float_t *vel_cmd_out;       /**< OUT: actual velocity command sent (after clamping) */
+  stmak_hal_s32_t *vel_cmd_out_raw;     /**< OUT: raw 32-bit velocity command sent to drive */
 
-  gomc_hal_u32_t *vel_resolution;      /**< OUT: velocity resolution from SDO 0x9010:14 */
-  gomc_hal_u32_t *pos_resolution;      /**< OUT: position resolution from SDO 0x9010:15 */
+  stmak_hal_u32_t *vel_resolution;      /**< OUT: velocity resolution from SDO 0x9010:14 */
+  stmak_hal_u32_t *pos_resolution;      /**< OUT: position resolution from SDO 0x9010:15 */
 
-  gomc_hal_float_t scale;              /**< Parameter: velocity scale (user units → counts/s) */
-  gomc_hal_float_t torque_scale;       /**< Parameter: torque scale (raw counts → user units) */
+  stmak_hal_float_t scale;              /**< Parameter: velocity scale (user units → counts/s) */
+  stmak_hal_float_t torque_scale;       /**< Parameter: torque scale (raw counts → user units) */
 
-  gomc_hal_float_t min_vel;            /**< Parameter: minimum velocity clamp (user units/s) */
-  gomc_hal_float_t max_vel;            /**< Parameter: maximum velocity clamp (user units/s) */
-  gomc_hal_float_t max_accel;          /**< Parameter: maximum acceleration (user units/s²) */
-  gomc_hal_float_t at_speed_window;    /**< Parameter: velocity window for at-speed detection */
+  stmak_hal_float_t min_vel;            /**< Parameter: minimum velocity clamp (user units/s) */
+  stmak_hal_float_t max_vel;            /**< Parameter: maximum velocity clamp (user units/s) */
+  stmak_hal_float_t max_accel;          /**< Parameter: maximum acceleration (user units/s²) */
+  stmak_hal_float_t at_speed_window;    /**< Parameter: velocity window for at-speed detection */
 
   lcec_class_enc_data_t enc;      /**< Encoder sub-class instance */
 
@@ -115,57 +115,57 @@ typedef struct {
 } lcec_el7211_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el7211_data_t, enable), "%s.%s.%s.enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, enabled), "%s.%s.%s.enabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, fault), "%s.%s.%s.fault" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_ready), "%s.%s.%s.status-ready" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_switched_on), "%s.%s.%s.status-switched-on" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_operation), "%s.%s.%s.status-operation" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_fault), "%s.%s.%s.status-fault" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_disabled), "%s.%s.%s.status-disabled" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_warning), "%s.%s.%s.status-warning" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, status_limit_active), "%s.%s.%s.status-limit-active" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IN, offsetof(lcec_el7211_data_t, vel_cmd), "%s.%s.%s.velo-cmd" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_cmd_out), "%s.%s.%s.velo-cmd-out" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_cmd_out_raw), "%s.%s.%s.velo-cmd-out-raw" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb), "%s.%s.%s.velo-fb" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_rpm), "%s.%s.%s.velo-fb-rpm" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_rpm_abs), "%s.%s.%s.velo-fb-rpm-abs" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_raw), "%s.%s.%s.velo-fb-raw" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, torque_fb), "%s.%s.%s.torque-fb" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, torque_fb_raw), "%s.%s.%s.torque-fb-raw" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, at_speed), "%s.%s.%s.at-speed" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, vel_resolution), "%s.%s.%s.vel-resolution" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, pos_resolution), "%s.%s.%s.pos-resolution" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el7211_data_t, enable), "%s.%s.%s.enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, enabled), "%s.%s.%s.enabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, fault), "%s.%s.%s.fault" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_ready), "%s.%s.%s.status-ready" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_switched_on), "%s.%s.%s.status-switched-on" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_operation), "%s.%s.%s.status-operation" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_fault), "%s.%s.%s.status-fault" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_disabled), "%s.%s.%s.status-disabled" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_warning), "%s.%s.%s.status-warning" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, status_limit_active), "%s.%s.%s.status-limit-active" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_el7211_data_t, vel_cmd), "%s.%s.%s.velo-cmd" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_cmd_out), "%s.%s.%s.velo-cmd-out" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_cmd_out_raw), "%s.%s.%s.velo-cmd-out-raw" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb), "%s.%s.%s.velo-fb" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_rpm), "%s.%s.%s.velo-fb-rpm" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_rpm_abs), "%s.%s.%s.velo-fb-rpm-abs" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_fb_raw), "%s.%s.%s.velo-fb-raw" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, torque_fb), "%s.%s.%s.torque-fb" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, torque_fb_raw), "%s.%s.%s.torque-fb-raw" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, at_speed), "%s.%s.%s.at-speed" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, vel_resolution), "%s.%s.%s.vel-resolution" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, pos_resolution), "%s.%s.%s.pos-resolution" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_pins_el7201_9014[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, input_0), "%s.%s.%s.input-0" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, input_0_not), "%s.%s.%s.input-0-not" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, input_1), "%s.%s.%s.input-1" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, input_1_not), "%s.%s.%s.input-1-not" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, input_sto), "%s.%s.%s.input-sto" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_adc), "%s.%s.%s.err-adc" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_overcurrent), "%s.%s.%s.err-overcurrent" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_undervoltage), "%s.%s.%s.err-undervoltage" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_overvoltage), "%s.%s.%s.err-overvoltage" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_overtemp), "%s.%s.%s.err-overtemp" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_i2t_amp), "%s.%s.%s.err-i2t-amp" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_i2t_motor), "%s.%s.%s.err-i2t-motor" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_encoder), "%s.%s.%s.err-encoder" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el7211_data_t, err_watchdog), "%s.%s.%s.err-watchdog" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, input_0), "%s.%s.%s.input-0" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, input_0_not), "%s.%s.%s.input-0-not" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, input_1), "%s.%s.%s.input-1" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, input_1_not), "%s.%s.%s.input-1-not" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, input_sto), "%s.%s.%s.input-sto" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_adc), "%s.%s.%s.err-adc" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_overcurrent), "%s.%s.%s.err-overcurrent" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_undervoltage), "%s.%s.%s.err-undervoltage" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_overvoltage), "%s.%s.%s.err-overvoltage" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_overtemp), "%s.%s.%s.err-overtemp" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_i2t_amp), "%s.%s.%s.err-i2t-amp" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_i2t_motor), "%s.%s.%s.err-i2t-motor" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_encoder), "%s.%s.%s.err-encoder" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el7211_data_t, err_watchdog), "%s.%s.%s.err-watchdog" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, scale), "%s.%s.%s.scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, torque_scale), "%s.%s.%s.torque-scale" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, min_vel), "%s.%s.%s.min-vel" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, max_vel), "%s.%s.%s.max-vel" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, max_accel), "%s.%s.%s.max-accel" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_el7211_data_t, at_speed_window), "%s.%s.%s.at-speed-window" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, scale), "%s.%s.%s.scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, torque_scale), "%s.%s.%s.torque-scale" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, min_vel), "%s.%s.%s.min-vel" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, max_vel), "%s.%s.%s.max-vel" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, max_accel), "%s.%s.%s.max-accel" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_el7211_data_t, at_speed_window), "%s.%s.%s.at-speed-window" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_el7211_in_pos[] = {
@@ -240,9 +240,9 @@ static ec_sync_info_t lcec_el7201_9014_syncs[] = {
 lcec_el7211_data_t *lcec_el7211_alloc_hal(lcec_master_t *master, struct lcec_slave *slave);
 int lcec_el7211_export_pins(lcec_master_t *master, struct lcec_slave *slave, lcec_el7211_data_t *hal_data);
 void lcec_el7211_check_scales(lcec_el7211_data_t *hal_data);
-void lcec_el7211_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_el7201_9014_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_el7211_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el7211_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_el7201_9014_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_el7211_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Allocate and zero HAL memory for the EL7211 data structure.

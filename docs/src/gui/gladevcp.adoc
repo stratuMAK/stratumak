@@ -79,7 +79,7 @@ Run the sample GladeVCP panel integrated into AXIS like PyVCP as follows:
 
 ----
 $ cd configs/sim/axis/gladevcp
-$ linuxcnc gladevcp_panel.ini
+$ stmakd gladevcp_panel.ini
 ----
 
 image::images/example-panel-small.png[]
@@ -88,7 +88,7 @@ Run the same panel, but as a tab inside AXIS:
 
 ----
 $ cd configs/sim/axis/gladevcp
-$ linuxcnc gladevcp_tab.ini
+$ stmakd gladevcp_tab.ini
 ----
 
 image::images/example-tabbed-small.png[]
@@ -108,7 +108,7 @@ probably after creation of manual-example.ui
 
 ----
 $ cd configs/sim/axis
-$ linuxcnc axis.ini &
+$ stmakd axis.ini &
 $ cd gladevcp
 $ gladevcp -c gladevcp -u ./hitcounter.py -H ./manual-example.hal ./manual-example.ui
 ----
@@ -120,7 +120,7 @@ To run this panel inside 'Touchy':
 
 ----
 $ cd configs/sim/touchy/gladevcp
-$ linuxcnc gladevcp_touchy.ini
+$ stmakd gladevcp_touchy.ini
 ----
 
 image::images/touchy-tab-33.png[]
@@ -2805,15 +2805,15 @@ Support is provided for independently installed GladeVCP applications that confo
 
 ----
 $ linuxcnc_var LINUXCNC_AUX_GLADEVCP
-/usr/share/linuxcnc/aux_gladevcp
+/usr/share/stratumak/aux_gladevcp
 $ linuxcnc_var LINUXCNC_AUX_EXAMPLES
-/usr/share/linuxcnc/aux_examples
+/usr/share/stratumak/aux_examples
 ----
 
-The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/linuxcnc/aux_gladevcp) specifies the location for a GladeVCP-compatible Python file(s) and related subdirectories.
+The system directory defined by LINUXCNC_AUX_GLADEVCP (/usr/share/stratumak/aux_gladevcp) specifies the location for a GladeVCP-compatible Python file(s) and related subdirectories.
 The Python file is imported at GladeVCP startup and made available to subsequent GladeVCP applications including embedded usage in supporting GUIs.
 
-The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/linuxcnc/aux_examples) specifies the location of example configuration subdirectories used for auxiliary applications.
+The system directory defined by LINUXCNC_AUX_EXAMPLES (/usr/share/stratumak/aux_examples) specifies the location of example configuration subdirectories used for auxiliary applications.
 See the getting-started/running-linuxcnc section for 'Adding Configuration Selection Items'.
 
 For testing, a runtime specification of auxiliary applications may be specified using the exported environmental variable: GLADEVCP_EXTRAS.
@@ -2825,7 +2825,7 @@ Example:
 export GLADEVCP_EXTRAS=~/mygladevcp:/opt/othergladevcp
 ----
 
-Files found in directories specified with the environmental variable GLADEVCP_EXTRAS supersede identically-named files within subdirectories of the system directory specified by LINUXNC_AUX_GLADEVCP (e.g., /usr/share/linuxcnc/aux_gladevcp).
+Files found in directories specified with the environmental variable GLADEVCP_EXTRAS supersede identically-named files within subdirectories of the system directory specified by LINUXNC_AUX_GLADEVCP (e.g., /usr/share/stratumak/aux_gladevcp).
 This provision allows a developer to test an application by exporting GLADEVCP_EXTRAS to specify a private application directory without removing a system-installed application directory.
 Messages indicating rejected duplicates are printed to stdout.
 

@@ -110,7 +110,7 @@ function defaultRoute(url: string, init?: RequestInit): FakeResponse {
       });
     }
     if (url.endsWith('/debug')) {
-      return res(200, 1); // INFO, the gomc-server default
+      return res(200, 1); // INFO, the stmakd default
     }
     return res(200, []);
   }

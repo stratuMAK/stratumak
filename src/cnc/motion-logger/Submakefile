@@ -1,0 +1,28 @@
+# The classic NML-based userspace bin/motion-logger is not built on stmak (NML is
+# gone). It is replaced by the interceptor cmod below, which milltask loads as
+# its motion module ([EMCMOT]EMCMOT=motion-logger) and which proxies+logs to the
+# real motmod. The old motion-logger.c is kept only as a format reference.
+
+# --- stmak interceptor cmod: motion-logger.so -------------------------------
+# Proxies milltask<->motmod, logging the motctl command stream. Registers
+# motctl/motstat under its own instance name; forwards to the real motmod.
+
+MOTION_LOGGER_CMOD_SRCS := cnc/motion-logger/motion_logger_cmod.c
+
+MOTION_LOGGER_CMOD_CFLAGS := \
+	-fPIC -g -Os -Wall -Wextra -D_GNU_SOURCE \
+	-I. -I../include -Istmak/pkg/cmodule \
+	-Istmak/generated/gmi/motctl -Istmak/generated/gmi/motstat
+
+../cmod/motion-logger.so: $(MOTION_LOGGER_CMOD_SRCS) \
+                   $(wildcard stmak/pkg/cmodule/stmak_*.h) \
+                   stmak/generated/gmi/motctl/motctl_api.h \
+                   stmak/generated/gmi/motstat/motstat_api.h \
+                   | headers
+	$(ECHO) "Compiling cmod motion-logger.so"
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) -shared $(MOTION_LOGGER_CMOD_CFLAGS) $(EXTRA_CFLAGS) \
+	    -o $@ $(MOTION_LOGGER_CMOD_SRCS) $(CMOD_LDFLAGS) -lm
+
+TARGETS += ../cmod/motion-logger.so
+modules: ../cmod/motion-logger.so

@@ -127,14 +127,14 @@ typedef struct ofunc_data {
   double ovalue;
 } the_data;
 
-typedef int ofunc(struct ofunc_data*) GOMC_NONBLOCKING;
+typedef int ofunc(struct ofunc_data*) STMAK_NONBLOCKING;
 static      ofunc func0,func1,func2,func3;
 
 #define OPA_DEBUG
 #undef  OPA_DEBUG
 #ifdef  OPA_DEBUG
   #define dprint(msg,n) do { \
-    GOMC_LOG_INFO("%20s %5d\n",msg,n); \
+    STMAK_LOG_INFO("%20s %5d\n",msg,n); \
   } while (0)
 #else
   #define dprint(msg,n)
@@ -171,7 +171,7 @@ FUNCTION(_) {
         // require an enable_in 0-->1 transition to advance to READY
         if (enable_in) {
             if (!messaged) {
-                GOMC_LOG_ERR(
+                STMAK_LOG_ERR(
                 "eoffset_per_angle: active enable-in not honored at start");
                 messaged = 1;
             }
@@ -264,7 +264,7 @@ FUNCTION(_) {
         dptr->ovalue = 0;
         kcounts      = 0; eoffset_dbg = 0;
         STATE        = STOPPING;
-        GOMC_LOG_ERR(
+        STMAK_LOG_ERR(
              "eoffset_per_angle stopping:func%d problem\n",fnum);
         return;
     }
@@ -283,7 +283,7 @@ static int func0 (struct ofunc_data* d)
     double uangle,divisor;
 
     if (d->fmultiplier <= 2) {
-        // reported by the caller via GOMC_LOG_ERR (no stdio in RT)
+        // reported by the caller via STMAK_LOG_ERR (no stdio in RT)
         return -1;
     }
 
@@ -304,7 +304,7 @@ static int func1 (struct ofunc_data* d)
     double uangle,divisor;
 
     if (d->fmultiplier <= 2) {
-        // reported by the caller via GOMC_LOG_ERR (no stdio in RT)
+        // reported by the caller via STMAK_LOG_ERR (no stdio in RT)
         return -1;
     }
 

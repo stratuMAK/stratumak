@@ -13,7 +13,7 @@ Ejemplos:
 #INCLUDE /home/myname/inc/nombre_de_archivo.inc
 
 3) especificación tilde del archivo :
-#INCLUDE ~/linuxcnc/myincludes/nombre_de_archivo.inc
+#INCLUDE ~/stratumak/myincludes/nombre_de_archivo.inc
 
 Nota:
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Multi-instance client contract: two task stacks, one server.
-. ../gomc-driver.sh
+. ../stmak-driver.sh
 
 set -e
 
@@ -10,16 +10,16 @@ rm -rf db
 rm -f ./*.var ./*.var.bak
 mkdir -p db
 
-gomc_start_server test.ini
+stmak_start_server test.ini
 
-# Readiness is per task: gomc_wait_ready asks one instance's status buffer, and
+# Readiness is per task: stmak_wait_ready asks one instance's status buffer, and
 # with no instance named "milltask" here it must be told which.
-export GMC_INSTANCE=left.task
-gomc_wait_ready
-export GMC_INSTANCE=right.task
-gomc_wait_ready
+export STMAK_TASK_INSTANCE=left.task
+stmak_wait_ready
+export STMAK_TASK_INSTANCE=right.task
+stmak_wait_ready
 
-# NOT exec: that replaces this shell, and with it the EXIT trap gomc_start_server
+# NOT exec: that replaces this shell, and with it the EXIT trap stmak_start_server
 # installed — the server would outlive the test and squat port 5080, failing
 # every later test that starts one.
 python3 ./test-ui.py

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# Ported to gomc: gmi client instead of the removed NML linuxcnc module.
+# Ported to stratuMAK: gmi client instead of the removed NML linuxcnc module.
 import gmi
 from gmi.constants import *
-import gomc_test
+import stmak_test
 import math, time, sys
 
-# gomc_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
+# stmak_test.Command, not gmi.Command: its wait_complete() raises on a timed-out
 # wait instead of returning -1 in a 200 body, so it cannot fail silently.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 
@@ -35,7 +35,7 @@ time.sleep(0.4)
 s.poll()
 print("position: {}".format(s.position))
 # The unit-less MDI runs in the machine's units (G20 on this inch config,
-# matching 2.9); s.position is gomc-mm, so expect 25.4x the MDI numbers.
+# matching 2.9); s.position is stmak-mm, so expect 25.4x the MDI numbers.
 inch = 25.4
 assert(math.fabs(s.position[0] - 0.9 * inch) < 0.0000001)
 assert(math.fabs(s.position[1] - 0.2 * inch) < 0.0000001)

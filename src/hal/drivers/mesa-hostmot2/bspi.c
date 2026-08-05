@@ -100,7 +100,7 @@ fail0:
     return r;
 }
 
-void hm2_bspi_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING
+void hm2_bspi_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING
 {
     int i, j;
     for (i = 0 ; i < hm2->bspi.num_instances ; i++){
@@ -192,7 +192,7 @@ int hm2_bspi_clear_fifo(char * name)
     return r;
 }
 
-int hm2_bspi_write_chan(char* name, int chan, uint32_t val) GOMC_NONBLOCKING
+int hm2_bspi_write_chan(char* name, int chan, uint32_t val) STMAK_NONBLOCKING
 {
     hostmot2_t *hm2;
     uint32_t buff = val;
@@ -271,7 +271,7 @@ int hm2_bspi_setup_chan(char *name, int chan, int cs, int bits, double mhz,
     return 0;
 }
 
-void hm2_bspi_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING{
+void hm2_bspi_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING{
     int i,j;
     if (hm2->bspi.num_instances <= 0) return;
     HM2_PRINT("Buffered SPI: %d\n", hm2->bspi.num_instances);
@@ -339,7 +339,7 @@ int hm2_bspi_set_write_function(char *name, hm2_bspi_xfer_fn_t func, void *subda
 }
 
     
-void hm2_bspi_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING
+void hm2_bspi_process_tram_read(hostmot2_t *hm2, long period) STMAK_NONBLOCKING
 {
     (void)period;
     int i, r;
@@ -355,7 +355,7 @@ void hm2_bspi_process_tram_read(hostmot2_t *hm2, long period) GOMC_NONBLOCKING
     }
 }
 
-void hm2_bspi_prepare_tram_write(hostmot2_t *hm2, long period) GOMC_NONBLOCKING
+void hm2_bspi_prepare_tram_write(hostmot2_t *hm2, long period) STMAK_NONBLOCKING
 {
     (void)period;
     int i, r;

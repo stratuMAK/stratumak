@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc EtherCAT integration test — multi-slave bus on the sim transport.
+# stratuMAK EtherCAT integration test — multi-slave bus on the sim transport.
 #
 # Three CoE slaves (output-only, input-only, bidirectional) at positions 0/1/2.
 # Verifies multi-slave scan and per-position configuration: all three reach OP
@@ -15,7 +15,7 @@ halcmd start
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 pin_exists() { halcmd show pin 2>/dev/null | grep -qw "$1"; }
 
-deadline=$(( SECONDS + $(gomc_scale 20) ))
+deadline=$(( SECONDS + $(stmak_scale 20) ))
 while [ $SECONDS -lt $deadline ]; do
     [ "$(getp ethercat.0.all-op)" = TRUE ] && break
     sleep 0.1
@@ -42,7 +42,7 @@ done
 # PDO round-trip on the third slave (io, loopback): confirms slave 2's offset in
 # the shared domain is correct.
 halcmd setp ethercat.0.io.out 123 >/dev/null 2>&1
-dl=$(( SECONDS + $(gomc_scale 5) ))
+dl=$(( SECONDS + $(stmak_scale 5) ))
 while [ $SECONDS -lt $dl ]; do [ "$(getp ethercat.0.io.in)" = 123 ] && break; sleep 0.05; done
 got=$(getp ethercat.0.io.in)
 echo "io round-trip: out=123 -> in=$got"

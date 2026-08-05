@@ -1,6 +1,6 @@
 ; Test M73: restore both M7 mist and M8 flood after a sub turns them off,
 ; with M73 auto-restore set.  Re-expressed NGC-only: the classic verified the
-; restore with ;py,assert this.params["_mist"/"_flood"]; gomc removed the embedded
+; restore with ;py,assert this.params["_mist"/"_flood"]; stmak removed the embedded
 ; Python interpreter, so the restored state is surfaced as a (debug,...) comment in
 ; the canon trace and confirmed by the MIST_ON/FLOOD_ON calls after the sub returns.
 

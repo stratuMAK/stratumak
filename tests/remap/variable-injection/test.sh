@@ -1,13 +1,13 @@
 #!/bin/bash
-# Re-expression of the classic Python remap/variable-injection test on gomc.
+# Re-expression of the classic Python remap/variable-injection test on stmak.
 # M405/M406/M407 are remapped to C interp_ext prolog/epilog handlers that inject
 # and retrieve a per-remap local named parameter.  The remaps are run singly and
 # then all three in one block (the scoping/several-remaps-in-a-block case).
 set -x
-. ../../gomc-driver.sh
+. ../../stmak-driver.sh
 rm -f sim.var sim.var.bak
-gomc_start_server test.ini
-gomc_wait_ready
+stmak_start_server test.ini
+stmak_wait_ready
 
 (
     echo hello EMC mt 1.0

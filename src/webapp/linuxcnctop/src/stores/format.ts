@@ -1,7 +1,7 @@
 // Flattening and value formatting for the emcstat StatFull snapshot.
 //
 // This is the transliteration of the `maps` dict in the Tk linuxcnctop
-// (src/emc/usr_intf/axis/scripts/linuxcnctop.py): a per-field formatter table
+// (src/cnc/usr_intf/axis/scripts/linuxcnctop.py): a per-field formatter table
 // plus a generic fallback. Two things differ from the Tk original, both
 // because StatFull is a typed nested struct rather than the flat 2.9-named
 // attribute bag the Python gmi.Stat shim exposes:
@@ -148,7 +148,7 @@ const FORMATTERS: Record<string, Formatter> = {
   'state': (v: number) => RCS_NAMES[v] ?? String(v),
   'rcs_status': (v: number) => RCS_NAMES[v] ?? String(v),
   // The EMC_DEBUG_* bitmask. Rendered as the hex an INI [EMC]DEBUG= would
-  // carry. Note this value is inert on gomc — nothing reads the flags; the
+  // carry. Note this value is inert on stmak — nothing reads the flags; the
   // live verbosity knob is the halcmd log level (halshow -> Cmd tab).
   'debug': (v: number) => '0x' + (v >>> 0).toString(16).padStart(8, '0'),
 };

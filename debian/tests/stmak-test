@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# Based on tests/single-step/
+#
+# On stratuMAK, `stmakd` is the server: it serves GMI until signaled and does
+# not launch [DISPLAY] programs (UIs are clients). So: start the server in
+# the background, wait for its REST endpoint, drive the test with the UI
+# client, then shut the server down. The test verdict is the client's.
+
+set -e
+
+cd "$(dirname "$0")"
+
+# Off the default port: a developer machine (or parallel job) may already run
+# a live stmakd on 5080, and the clients would silently talk to it.
+export STMAK_REST_ADDR=127.0.0.1:5077
+export STMAK_REST_URL=http://127.0.0.1:5077
+
+stmakd -r stmak-test.ini &
+SERVER_PID=$!
+
+# Wait for the machine to finish starting up, using the suite's one definition
+# of readiness (stmak_test.wait_for_startup, as tests/stmak-driver.sh does). It
+# polls the same REST API this test drives and tolerates the connection being
+# refused while the server is still binding, so no separate probe is needed —
+# the previous loop shelled out to curl, which neither a minimal Debian system
+# nor the CI container has. python3 is a dependency of the package under test.
+if ! kill -0 $SERVER_PID 2>/dev/null; then
+    echo "error: stmakd exited immediately"
+    exit 1
+fi
+if ! python3 -c '
+import stmak_test
+stmak_test.wait_for_startup(stmak_test.Stat())
+'; then
+    # A server that died explains the failed wait; say which it was.
+    kill -0 $SERVER_PID 2>/dev/null \
+        && echo "error: stmakd did not become ready" \
+        || echo "error: stmakd exited while starting up"
+    kill $SERVER_PID 2>/dev/null || true
+    exit 1
+fi
+
+RC=0
+python3 ./stmak-test-ui.py || RC=$?
+
+kill $SERVER_PID 2>/dev/null || true
+wait $SERVER_PID 2>/dev/null || true
+
+if [ "$RC" != 0 ]; then
+    echo "error: stratuMAK test driver failed (rc=$RC)"
+    exit 1
+fi
+echo "success: stmakd ran successfully."
+exit 0

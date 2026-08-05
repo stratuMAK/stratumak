@@ -10,8 +10,8 @@
 ********************************************************************/
 
 
-#include "gomc_env.h"
-#include "gomc_log.h"
+#include "stmak_env.h"
+#include "stmak_log.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -30,19 +30,19 @@
 #define PINS_PER_HEADER  46
 
 typedef struct {
-    gomc_hal_bit_t* led_pins[4];
-    gomc_hal_bit_t* input_pins[1 + PINS_PER_HEADER * HEADERS]; // array of pointers to bivts
-    gomc_hal_bit_t* output_pins[1 + PINS_PER_HEADER * HEADERS]; // array of pointers to bits
-    gomc_hal_bit_t  *led_inv[4];
-    gomc_hal_bit_t  *input_inv[1 + PINS_PER_HEADER * HEADERS];
-    gomc_hal_bit_t  *output_inv[1 + PINS_PER_HEADER * HEADERS];
+    stmak_hal_bit_t* led_pins[4];
+    stmak_hal_bit_t* input_pins[1 + PINS_PER_HEADER * HEADERS]; // array of pointers to bivts
+    stmak_hal_bit_t* output_pins[1 + PINS_PER_HEADER * HEADERS]; // array of pointers to bits
+    stmak_hal_bit_t  *led_inv[4];
+    stmak_hal_bit_t  *input_inv[1 + PINS_PER_HEADER * HEADERS];
+    stmak_hal_bit_t  *output_inv[1 + PINS_PER_HEADER * HEADERS];
 } port_data_t;
 
 typedef struct {
     cmod_t cmod;
     const cmod_env_t *env;
-    const gomc_log_t *log;
-    const gomc_rtapi_t *rtapi;
+    const stmak_log_t *log;
+    const stmak_rtapi_t *rtapi;
     int comp_id;
 
     port_data_t *port_data;
@@ -68,7 +68,7 @@ int configure_control_module(inst_t *inst) {
     control_module = mmap(0, CONTROL_MODULE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, CONTROL_MODULE_START_ADDR);
 
     if(control_module == MAP_FAILED) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map Control Module: %s", strerror(errno));
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map Control Module: %s", strerror(errno));
         return -errno;
     }
 
@@ -77,7 +77,7 @@ int configure_control_module(inst_t *inst) {
 }
 
 int configure_gpio_port(inst_t *inst, int n) {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     volatile void *cm_per;  // pointer to clock manager registers
     volatile unsigned int *regptr;
     unsigned int regvalue;
@@ -91,7 +91,7 @@ int configure_gpio_port(inst_t *inst, int n) {
     if ( n > 0 ) {
 	cm_per = mmap(0,CM_PER_LEN, PROT_READ | PROT_WRITE, MAP_SHARED, fd, CM_PER_ADDR);
 	if(cm_per == MAP_FAILED) {
-	    gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map Clock Module: %s", strerror(errno));
+	    stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map Clock Module: %s", strerror(errno));
 	    return -errno;
 	}
 	// point at CM_PER_GPIOn_CLKCTRL register for port n
@@ -99,7 +99,7 @@ int configure_gpio_port(inst_t *inst, int n) {
 	regvalue = *regptr;
 	// check for port enabled
 	if ( (regvalue & CM_PER_GPIO_CLKCTRL_MODMODE_MASK ) != CM_PER_GPIO_CLKCTRL_MODMODE_ENABLED ) {
-	    gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: GPIO Port %d is not enabled in device tree", n);
+	    stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: GPIO Port %d is not enabled in device tree", n);
 	    return -ENODEV;
 	}
 	munmap((void *)cm_per, CM_PER_LEN);
@@ -108,7 +108,7 @@ int configure_gpio_port(inst_t *inst, int n) {
     gpio_ports[n]->gpio_addr = mmap(0, GPIO_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, start_addr_for_port(n));
 
     if(gpio_ports[n]->gpio_addr == MAP_FAILED) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map GPIO: %s", strerror(errno));
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: Unable to map GPIO: %s", strerror(errno));
         return -errno;
     }
 
@@ -118,7 +118,7 @@ int configure_gpio_port(inst_t *inst, int n) {
     gpio_ports[n]->datain_reg = gpio_ports[n]->gpio_addr + GPIO_DATAIN;
 
 
-    gomc_log_infof(inst->log, "hal_bb_gpio", "memmapped gpio port %d to %p, oe: %p, set: %p, clr: %p", n, gpio_ports[n]->gpio_addr, gpio_ports[n]->oe_reg, gpio_ports[n]->setdataout_reg, gpio_ports[n]->clrdataout_reg);
+    stmak_log_infof(inst->log, "hal_bb_gpio", "memmapped gpio port %d to %p, oe: %p, set: %p, clr: %p", n, gpio_ports[n]->gpio_addr, gpio_ports[n]->oe_reg, gpio_ports[n]->setdataout_reg, gpio_ports[n]->clrdataout_reg);
 
     close(fd);
     return 0;
@@ -140,8 +140,8 @@ int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
     (void)name;
-    const gomc_hal_t *hal = env->hal;
-    char fname[GOMC_HAL_NAME_LEN + 1];
+    const stmak_hal_t *hal = env->hal;
+    char fname[STMAK_HAL_NAME_LEN + 1];
     int n, retval;
     char *data, *token;
 
@@ -157,9 +157,9 @@ int New(const cmod_env_t *env, const char *name,
     n = 0; // port number... only one for now
 
     // init driver
-    int r = hal->init(hal->ctx, modname, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    int r = hal->init(hal->ctx, modname, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if(r < 0) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: hal_init() failed");
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: hal_init() failed");
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return -1;
     }
@@ -168,7 +168,7 @@ int New(const cmod_env_t *env, const char *name,
     // allocate port memory
     inst->port_data = hal->malloc(hal->ctx, inst->num_ports * sizeof(port_data_t));
     if(inst->port_data == 0) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: hal_malloc() failed");
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: hal_malloc() failed");
         hal->exit(hal->ctx, inst->comp_id);
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return -1;
@@ -193,27 +193,27 @@ int New(const cmod_env_t *env, const char *name,
             data = NULL;
 
             if(user_led_gpio_pins[led].claimed != 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled%d is not available as a GPIO.", led);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled%d is not available as a GPIO.", led);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
             }
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(port_data->led_pins[led]), inst->comp_id, "bb_gpio.userled%d", led);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(port_data->led_pins[led]), inst->comp_id, "bb_gpio.userled%d", led);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled %d could not export pin, err: %d", led, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled %d could not export pin, err: %d", led, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
             }
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(port_data->led_inv[led]), inst->comp_id, "bb_gpio.userled%d-invert", led);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(port_data->led_inv[led]), inst->comp_id, "bb_gpio.userled%d-invert", led);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled %d could not export pin, err: %d", led, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: userled %d could not export pin, err: %d", led, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -253,7 +253,7 @@ int New(const cmod_env_t *env, const char *name,
                 pin += 700;
 
             if(pin < 801 || pin > 946 || (pin > 846 && pin < 901)) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: invalid pin number '%d'.  Valid pins are 801-846 for P8 pins, 901-946 for P9 pins.", pin);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: invalid pin number '%d'.  Valid pins are 801-846 for P8 pins, 901-946 for P9 pins.", pin);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -270,7 +270,7 @@ int New(const cmod_env_t *env, const char *name,
             }
 
             if(bbpin->claimed != 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d is not available as a GPIO.", header, pin);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d is not available as a GPIO.", header, pin);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -279,20 +279,20 @@ int New(const cmod_env_t *env, const char *name,
             data = NULL; // after the first call, subsequent calls to strtok need to be on NULL
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &(port_data->input_pins[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.in-%02d", header, pin);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &(port_data->input_pins[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.in-%02d", header, pin);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
             }
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(port_data->input_inv[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.in-%02d-invert", header, pin);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(port_data->input_inv[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.in-%02d-invert", header, pin);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -316,7 +316,7 @@ int New(const cmod_env_t *env, const char *name,
             bbpin->port = gpio_ports[gpio_num];
 
             configure_pin(bbpin, 'U');
-            gomc_log_infof(inst->log, "hal_bb_gpio", "pin %d maps to pin %d-%d, mode %d", pin, bbpin->port_num, bbpin->pin_num, bbpin->claimed);
+            stmak_log_infof(inst->log, "hal_bb_gpio", "pin %d maps to pin %d-%d, mode %d", pin, bbpin->port_num, bbpin->pin_num, bbpin->claimed);
         }
     }
 
@@ -334,7 +334,7 @@ int New(const cmod_env_t *env, const char *name,
                 pin += 700;
 
             if(pin < 801 || pin > 946 || (pin > 846 && pin < 901)) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: invalid pin number '%d'.  Valid pins are 801-846 for P8 pins, 901-946 for P9 pins.", pin);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: invalid pin number '%d'.  Valid pins are 801-846 for P8 pins, 901-946 for P9 pins.", pin);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -351,7 +351,7 @@ int New(const cmod_env_t *env, const char *name,
             }
 
             if(bbpin->claimed != 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d is not available as a GPIO.", header, pin);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d is not available as a GPIO.", header, pin);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -360,20 +360,20 @@ int New(const cmod_env_t *env, const char *name,
             data = NULL; // after the first call, subsequent calls to strtok need to be on NULL
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(port_data->output_pins[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.out-%02d", header, pin);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(port_data->output_pins[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.out-%02d", header, pin);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
             }
 
             // Add HAL pin
-            retval = gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &(port_data->output_inv[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.out-%02d-invert", header, pin);
+            retval = stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &(port_data->output_inv[pin + (header - 8)*PINS_PER_HEADER]), inst->comp_id, "bb_gpio.p%d.out-%02d-invert", header, pin);
 
             if(retval < 0) {
-                gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
+                stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: pin p%d.%02d could not export pin, err: %d", header, pin, retval);
                 hal->exit(hal->ctx, inst->comp_id);
                 inst->rtapi->free(inst->rtapi->ctx, inst);
                 return -1;
@@ -405,7 +405,7 @@ int New(const cmod_env_t *env, const char *name,
     snprintf(fname, sizeof(fname), "bb_gpio.write");
     retval = hal->export_funct(hal->ctx, fname, write_port, port_data, 0, 0, inst->comp_id);
     if(retval < 0) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: port %d write funct export failed", n);
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: port %d write funct export failed", n);
         hal->exit(hal->ctx, inst->comp_id);
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return -1;
@@ -414,13 +414,13 @@ int New(const cmod_env_t *env, const char *name,
     snprintf(fname, sizeof(fname), "bb_gpio.read");
     retval = hal->export_funct(hal->ctx, fname, read_port, port_data, 0, 0, inst->comp_id);
     if(retval < 0) {
-        gomc_log_errorf(inst->log, "hal_bb_gpio", "ERROR: port %d read funct export failed", n);
+        stmak_log_errorf(inst->log, "hal_bb_gpio", "ERROR: port %d read funct export failed", n);
         hal->exit(hal->ctx, inst->comp_id);
         inst->rtapi->free(inst->rtapi->ctx, inst);
         return -1;
     }
 
-    gomc_log_infof(inst->log, "hal_bb_gpio", "installed driver");
+    stmak_log_infof(inst->log, "hal_bb_gpio", "installed driver");
 
     hal->ready(hal->ctx, inst->comp_id);
 
@@ -432,7 +432,7 @@ int New(const cmod_env_t *env, const char *name,
 
 static void hal_bb_gpio_destroy(cmod_t *self) {
     inst_t *inst = self->priv;
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
 
     hal->exit(hal->ctx, inst->comp_id);
     inst->rtapi->free(inst->rtapi->ctx, inst);

@@ -45,9 +45,9 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
 };
 
 /** @brief Cyclic read callback — delegates to lcec_class_ax5_read(). */
-void lcec_ax5100_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ax5100_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 /** @brief Cyclic write callback — delegates to lcec_class_ax5_write(). */
-void lcec_ax5100_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ax5100_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 int lcec_ax5100_preinit(struct lcec_slave *slave) {
   // check if already initialized

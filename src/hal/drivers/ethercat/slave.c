@@ -30,13 +30,13 @@
 
 /** @brief HAL pin descriptors exported for each slave's EtherCAT AL state. */
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, online), "%s.%s.%s.slave-online" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, operational), "%s.%s.%s.slave-oper" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, state_init), "%s.%s.%s.slave-state-init" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, state_preop), "%s.%s.%s.slave-state-preop" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, state_safeop), "%s.%s.%s.slave-state-safeop" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_slave_state_t, state_op), "%s.%s.%s.slave-state-op" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, online), "%s.%s.%s.slave-online" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, operational), "%s.%s.%s.slave-oper" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, state_init), "%s.%s.%s.slave-state-init" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, state_preop), "%s.%s.%s.slave-state-preop" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, state_safeop), "%s.%s.%s.slave-state-safeop" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_slave_state_t, state_op), "%s.%s.%s.slave-state-op" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -382,7 +382,7 @@ lcec_slave_state_t *lcec_init_slave_state_hal(const cmod_env_t *env, int comp_id
 
   // alloc hal data
   if ((hal_data = env->hal->malloc(env->hal->ctx, sizeof(lcec_slave_state_t))) == NULL) {
-    gomc_log_errorf(env->log, instance_name,
+    stmak_log_errorf(env->log, instance_name,
         "hal_malloc() for %s.%s.%s failed", instance_name, master_name, slave_name);
     return NULL;
   }

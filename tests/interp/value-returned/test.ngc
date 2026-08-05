@@ -1,6 +1,6 @@
 ; O-word subroutine return-value semantics.
 ; Classic verified this.return_value / this.value_returned via inline ;py,
-; asserts; gomc has no embedded Python, so we make #<_value> observable in the
+; asserts; stmak has no embedded Python, so we make #<_value> observable in the
 ; canon stream via a rapid move after each call and check the values.
 
 ; return a value via endsub

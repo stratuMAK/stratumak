@@ -26,7 +26,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <string.h>
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include "sserial.h"
 
 #include "hostmot2-lowlevel.h"
@@ -43,20 +43,20 @@
 // Note: HM2_PRINT() and HM2_PRINT_NO_LL() use rtapi_print(), all the others use rtapi_print_msg()
 //
 
-#define HM2_PRINT_NO_LL(fmt, args...)  gomc_log_infof(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_PRINT_NO_LL(fmt, args...)  stmak_log_infof(hm2_log, HM2_NAME, fmt, ## args)
 
-#define HM2_ERR_NO_LL(fmt, args...)    gomc_log_errorf(hm2_log, HM2_NAME, fmt, ## args)
-#define HM2_WARN_NO_LL(fmt, args...)   gomc_log_warnf(hm2_log, HM2_NAME, fmt, ## args)
-#define HM2_INFO_NO_LL(fmt, args...)   gomc_log_infof(hm2_log, HM2_NAME, fmt, ## args)
-#define HM2_DBG_NO_LL(fmt, args...)    gomc_log_debugf(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_ERR_NO_LL(fmt, args...)    stmak_log_errorf(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_WARN_NO_LL(fmt, args...)   stmak_log_warnf(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_INFO_NO_LL(fmt, args...)   stmak_log_infof(hm2_log, HM2_NAME, fmt, ## args)
+#define HM2_DBG_NO_LL(fmt, args...)    stmak_log_debugf(hm2_log, HM2_NAME, fmt, ## args)
 
 
-#define HM2_PRINT(fmt, args...)  gomc_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_PRINT(fmt, args...)  stmak_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
 
-#define HM2_ERR(fmt, args...)    gomc_log_errorf(hm2->llio->log, hm2->llio->name, fmt, ## args)
-#define HM2_WARN(fmt, args...)   gomc_log_warnf(hm2->llio->log, hm2->llio->name, fmt, ## args)
-#define HM2_INFO(fmt, args...)   gomc_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
-#define HM2_DBG(fmt, args...)    gomc_log_debugf(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_ERR(fmt, args...)    stmak_log_errorf(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_WARN(fmt, args...)   stmak_log_warnf(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_INFO(fmt, args...)   stmak_log_infof(hm2->llio->log, hm2->llio->name, fmt, ## args)
+#define HM2_DBG(fmt, args...)    stmak_log_debugf(hm2->llio->log, hm2->llio->name, fmt, ## args)
 
 
 
@@ -151,7 +151,7 @@
  * hostmot2-serial.h can both carry the definition — keep the two in sync. */
 #ifndef HM2_BSPI_XFER_FN_T_DEFINED
 #define HM2_BSPI_XFER_FN_T_DEFINED
-typedef int (*hm2_bspi_xfer_fn_t)(void *subdata) GOMC_NONBLOCKING;
+typedef int (*hm2_bspi_xfer_fn_t)(void *subdata) STMAK_NONBLOCKING;
 #endif
 
 typedef struct {
@@ -201,15 +201,15 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_bit_t *in;
-            gomc_hal_bit_t *in_not;
-            gomc_hal_bit_t *out;
+            stmak_hal_bit_t *in;
+            stmak_hal_bit_t *in_not;
+            stmak_hal_bit_t *out;
         } pin;
 
         struct {
-            gomc_hal_bit_t is_output;
-            gomc_hal_bit_t is_opendrain;
-            gomc_hal_bit_t invert_output;
+            stmak_hal_bit_t is_output;
+            stmak_hal_bit_t is_opendrain;
+            stmak_hal_bit_t invert_output;
         } param;
 
     } hal;
@@ -288,33 +288,33 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_s32_t *rawcounts;    // raw encoder counts
-            gomc_hal_s32_t *rawlatch;     // raw encoder of latch
-            gomc_hal_s32_t *count;        // (rawcounts - zero_offset)
-            gomc_hal_s32_t *count_latch;  // (rawlatch - zero_offset)
-            gomc_hal_float_t *position;
-            gomc_hal_float_t *position_latch;
-            gomc_hal_float_t *velocity;
-            gomc_hal_float_t *velocity_rpm;
-            gomc_hal_bit_t *reset;
-            gomc_hal_bit_t *index_enable;
-            gomc_hal_bit_t *latch_enable;
-            gomc_hal_bit_t *latch_polarity;
-            gomc_hal_bit_t *quadrature_error;
-            gomc_hal_bit_t *quadrature_error_enable;
-            gomc_hal_bit_t *input_a;
-            gomc_hal_bit_t *input_b;
-            gomc_hal_bit_t *input_idx;
+            stmak_hal_s32_t *rawcounts;    // raw encoder counts
+            stmak_hal_s32_t *rawlatch;     // raw encoder of latch
+            stmak_hal_s32_t *count;        // (rawcounts - zero_offset)
+            stmak_hal_s32_t *count_latch;  // (rawlatch - zero_offset)
+            stmak_hal_float_t *position;
+            stmak_hal_float_t *position_latch;
+            stmak_hal_float_t *velocity;
+            stmak_hal_float_t *velocity_rpm;
+            stmak_hal_bit_t *reset;
+            stmak_hal_bit_t *index_enable;
+            stmak_hal_bit_t *latch_enable;
+            stmak_hal_bit_t *latch_polarity;
+            stmak_hal_bit_t *quadrature_error;
+            stmak_hal_bit_t *quadrature_error_enable;
+            stmak_hal_bit_t *input_a;
+            stmak_hal_bit_t *input_b;
+            stmak_hal_bit_t *input_idx;
         } pin;
 
         struct {
-            gomc_hal_float_t scale;
-            gomc_hal_bit_t index_invert;
-            gomc_hal_bit_t index_mask;
-            gomc_hal_bit_t index_mask_invert;
-            gomc_hal_bit_t counter_mode;
-            gomc_hal_bit_t filter;
-            gomc_hal_float_t vel_timeout;
+            stmak_hal_float_t scale;
+            stmak_hal_bit_t index_invert;
+            stmak_hal_bit_t index_mask;
+            stmak_hal_bit_t index_mask_invert;
+            stmak_hal_bit_t counter_mode;
+            stmak_hal_bit_t filter;
+            stmak_hal_float_t vel_timeout;
 
 
         } param;
@@ -329,8 +329,8 @@ typedef struct {
 
     uint32_t prev_control;
 
-    gomc_hal_bit_t prev_quadrature_error_enable; // shadow for detecting rising edge on the quadrature_error_enable
-    gomc_hal_bit_t reset_quadrature_error; // bit to indicate if we want to reset the quadrature error
+    stmak_hal_bit_t prev_quadrature_error_enable; // shadow for detecting rising edge on the quadrature_error_enable
+    stmak_hal_bit_t reset_quadrature_error; // bit to indicate if we want to reset the quadrature error
 
 
     // these two are the datapoint last time we moved (only valid if state == HM2_ENCODER_MOVING)
@@ -348,10 +348,10 @@ typedef struct {
 // these hal pins affect all encoder instances
 typedef struct {
     struct {
-        gomc_hal_u32_t *sample_frequency;
-        gomc_hal_u32_t *skew;
-        gomc_hal_s32_t *dpll_timer_num;
-	gomc_hal_bit_t *hires_timestamp;
+        stmak_hal_u32_t *sample_frequency;
+        stmak_hal_u32_t *skew;
+        stmak_hal_s32_t *dpll_timer_num;
+	stmak_hal_bit_t *hires_timestamp;
 
     } pin;
 } hm2_encoder_module_global_t;
@@ -384,7 +384,7 @@ typedef struct {
 
     uint32_t timestamp_div_addr;
     uint32_t timestamp_div_reg;  // one register for the whole Function
-    gomc_hal_float_t seconds_per_tsdiv_clock;
+    stmak_hal_float_t seconds_per_tsdiv_clock;
 
     uint32_t timestamp_count_addr;
     uint32_t *timestamp_count_reg;
@@ -445,23 +445,23 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_s32_t *rawcounts;
-            gomc_hal_s32_t *count;
-            gomc_hal_float_t *angle;
-            gomc_hal_float_t *position;
-            gomc_hal_float_t *velocity;
-            gomc_hal_float_t *velocity_rpm;
-            gomc_hal_bit_t *reset;
-            gomc_hal_bit_t *index_enable;
-            gomc_hal_bit_t *error;
-            gomc_hal_float_t *joint_pos_fb;
+            stmak_hal_s32_t *rawcounts;
+            stmak_hal_s32_t *count;
+            stmak_hal_float_t *angle;
+            stmak_hal_float_t *position;
+            stmak_hal_float_t *velocity;
+            stmak_hal_float_t *velocity_rpm;
+            stmak_hal_bit_t *reset;
+            stmak_hal_bit_t *index_enable;
+            stmak_hal_bit_t *error;
+            stmak_hal_float_t *joint_pos_fb;
         } pin;
 
         struct {
-            gomc_hal_float_t scale;
-            gomc_hal_float_t vel_scale;
-            gomc_hal_u32_t index_div;
-            gomc_hal_bit_t use_abs;
+            stmak_hal_float_t scale;
+            stmak_hal_float_t vel_scale;
+            stmak_hal_u32_t index_div;
+            stmak_hal_bit_t use_abs;
         } param;
 
     } hal;
@@ -475,7 +475,7 @@ typedef struct {
 
 typedef struct {
     struct {
-        gomc_hal_float_t excitation_khz;
+        stmak_hal_float_t excitation_khz;
     } param;
 } hm2_resolver_global_t;
 
@@ -504,8 +504,8 @@ typedef struct {
     uint32_t velocity_addr;
     int32_t *velocity_reg;
     
-    gomc_hal_float_t written_khz;
-    gomc_hal_float_t kHz;
+    stmak_hal_float_t written_khz;
+    stmak_hal_float_t kHz;
 
     /* pseudo-absolute init window counter (formerly a function-local
        static in hm2_resolver_process_tram_read — shared across boards) */
@@ -535,15 +535,15 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *value;
-            gomc_hal_bit_t *enable;
+            stmak_hal_float_t *value;
+            stmak_hal_bit_t *enable;
         } pin;
 
         struct {
-            gomc_hal_float_t scale;
-            gomc_hal_bit_t offset_mode;
-            gomc_hal_s32_t output_type; 
-            gomc_hal_bit_t dither;            
+            stmak_hal_float_t scale;
+            stmak_hal_bit_t offset_mode;
+            stmak_hal_s32_t output_type; 
+            stmak_hal_bit_t dither;            
         } param;
 
     } hal;
@@ -570,8 +570,8 @@ typedef struct {
 // these hal params affect all pwmgen instances
 typedef struct {
     struct {
-        gomc_hal_u32_t pwm_frequency;
-        gomc_hal_u32_t pdm_frequency;
+        stmak_hal_u32_t pwm_frequency;
+        stmak_hal_u32_t pdm_frequency;
     } param;
 } hm2_pwmgen_module_global_t;
 
@@ -623,31 +623,31 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *width1;
-            gomc_hal_float_t *width2; 
-            gomc_hal_float_t *filter1;
-            gomc_hal_float_t *filter2;
-            gomc_hal_float_t *rate;
-            gomc_hal_u32_t *trigselect1;
-            gomc_hal_u32_t *trigselect2;
-            gomc_hal_bit_t *trigrise1;
-            gomc_hal_bit_t *trigrise2;
-            gomc_hal_bit_t *trigfall1;
-            gomc_hal_bit_t *trigfall2;
-            gomc_hal_bit_t *retrig1;
-            gomc_hal_bit_t *retrig2;
-            gomc_hal_bit_t *enable1;
-            gomc_hal_bit_t *enable2;
-            gomc_hal_bit_t *reset1;
-            gomc_hal_bit_t *reset2;
-            gomc_hal_bit_t *swtrig1;
-            gomc_hal_bit_t *swtrig2;
-            gomc_hal_bit_t *exttrig1;
-            gomc_hal_bit_t *exttrig2;
-            gomc_hal_bit_t *out1;
-            gomc_hal_bit_t *out2;
+            stmak_hal_float_t *width1;
+            stmak_hal_float_t *width2; 
+            stmak_hal_float_t *filter1;
+            stmak_hal_float_t *filter2;
+            stmak_hal_float_t *rate;
+            stmak_hal_u32_t *trigselect1;
+            stmak_hal_u32_t *trigselect2;
+            stmak_hal_bit_t *trigrise1;
+            stmak_hal_bit_t *trigrise2;
+            stmak_hal_bit_t *trigfall1;
+            stmak_hal_bit_t *trigfall2;
+            stmak_hal_bit_t *retrig1;
+            stmak_hal_bit_t *retrig2;
+            stmak_hal_bit_t *enable1;
+            stmak_hal_bit_t *enable2;
+            stmak_hal_bit_t *reset1;
+            stmak_hal_bit_t *reset2;
+            stmak_hal_bit_t *swtrig1;
+            stmak_hal_bit_t *swtrig2;
+            stmak_hal_bit_t *exttrig1;
+            stmak_hal_bit_t *exttrig2;
+            stmak_hal_bit_t *out1;
+            stmak_hal_bit_t *out2;
             
-            gomc_hal_s32_t *dpll_timer_num;
+            stmak_hal_s32_t *dpll_timer_num;
         } pin;
 
     } hal;
@@ -695,9 +695,9 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *width;
-            gomc_hal_float_t *scale;
-            gomc_hal_float_t *offset;
+            stmak_hal_float_t *width;
+            stmak_hal_float_t *scale;
+            stmak_hal_float_t *offset;
         } pin;
 
     } hal;
@@ -707,7 +707,7 @@ typedef struct {
 // this hal pin affects all rcpwmgen instances
 typedef struct {
     struct {
-        gomc_hal_float_t *rate;
+        stmak_hal_float_t *rate;
     } pin;
 } hm2_rcpwmgen_module_global_t;
 
@@ -744,31 +744,31 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_bit_t *filt_data[32];
-            gomc_hal_bit_t *raw_data[32];
-            gomc_hal_bit_t *filt_data_not[32];
-            gomc_hal_bit_t *raw_data_not[32];
-            gomc_hal_bit_t *slow[32] ;
-            gomc_hal_s32_t *enc0_count; 
-            gomc_hal_s32_t *enc1_count; 
-            gomc_hal_s32_t *enc2_count; 
-            gomc_hal_s32_t *enc3_count;
-            gomc_hal_bit_t *enc0_reset; 
-            gomc_hal_bit_t *enc1_reset; 
-            gomc_hal_bit_t *enc2_reset; 
-            gomc_hal_bit_t *enc3_reset; 
+            stmak_hal_bit_t *filt_data[32];
+            stmak_hal_bit_t *raw_data[32];
+            stmak_hal_bit_t *filt_data_not[32];
+            stmak_hal_bit_t *raw_data_not[32];
+            stmak_hal_bit_t *slow[32] ;
+            stmak_hal_s32_t *enc0_count; 
+            stmak_hal_s32_t *enc1_count; 
+            stmak_hal_s32_t *enc2_count; 
+            stmak_hal_s32_t *enc3_count;
+            stmak_hal_bit_t *enc0_reset; 
+            stmak_hal_bit_t *enc1_reset; 
+            stmak_hal_bit_t *enc2_reset; 
+            stmak_hal_bit_t *enc3_reset; 
              		
         } pin;
 
         struct {
-            gomc_hal_u32_t scan_rate;
-            gomc_hal_u32_t slow_scans; 
-            gomc_hal_u32_t fast_scans; 		
-            gomc_hal_bit_t enc0_mode; 
-            gomc_hal_bit_t enc1_mode; 
-            gomc_hal_bit_t enc2_mode; 
-            gomc_hal_bit_t enc3_mode; 
-            gomc_hal_u32_t scan_width; 	    	
+            stmak_hal_u32_t scan_rate;
+            stmak_hal_u32_t slow_scans; 
+            stmak_hal_u32_t fast_scans; 		
+            stmak_hal_bit_t enc0_mode; 
+            stmak_hal_bit_t enc1_mode; 
+            stmak_hal_bit_t enc2_mode; 
+            stmak_hal_bit_t enc3_mode; 
+            stmak_hal_u32_t scan_width; 	    	
         } param;
 
     } hal;
@@ -839,30 +839,30 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_bit_t *filt_data[32];
-            gomc_hal_bit_t *raw_data[32];
-            gomc_hal_bit_t *filt_data_not[32];
-            gomc_hal_bit_t *raw_data_not[32];
-            gomc_hal_bit_t *slow[32] ;
-            gomc_hal_s32_t *enc0_count; 
-            gomc_hal_s32_t *enc1_count; 
-            gomc_hal_s32_t *enc2_count; 
-            gomc_hal_s32_t *enc3_count; 		
-            gomc_hal_bit_t *enc0_reset; 
-            gomc_hal_bit_t *enc1_reset; 
-            gomc_hal_bit_t *enc2_reset; 
-            gomc_hal_bit_t *enc3_reset; 
+            stmak_hal_bit_t *filt_data[32];
+            stmak_hal_bit_t *raw_data[32];
+            stmak_hal_bit_t *filt_data_not[32];
+            stmak_hal_bit_t *raw_data_not[32];
+            stmak_hal_bit_t *slow[32] ;
+            stmak_hal_s32_t *enc0_count; 
+            stmak_hal_s32_t *enc1_count; 
+            stmak_hal_s32_t *enc2_count; 
+            stmak_hal_s32_t *enc3_count; 		
+            stmak_hal_bit_t *enc0_reset; 
+            stmak_hal_bit_t *enc1_reset; 
+            stmak_hal_bit_t *enc2_reset; 
+            stmak_hal_bit_t *enc3_reset; 
         } pin;
 
         struct {
-            gomc_hal_u32_t scan_rate;
-            gomc_hal_u32_t slow_scans; 
-            gomc_hal_u32_t fast_scans; 		
-            gomc_hal_bit_t enc0_mode; 
-            gomc_hal_bit_t enc1_mode; 
-            gomc_hal_bit_t enc2_mode; 
-            gomc_hal_bit_t enc3_mode; 
-            gomc_hal_u32_t scan_width; 	    	
+            stmak_hal_u32_t scan_rate;
+            stmak_hal_u32_t slow_scans; 
+            stmak_hal_u32_t fast_scans; 		
+            stmak_hal_bit_t enc0_mode; 
+            stmak_hal_bit_t enc1_mode; 
+            stmak_hal_bit_t enc2_mode; 
+            stmak_hal_bit_t enc3_mode; 
+            stmak_hal_u32_t scan_width; 	    	
         } param;
 
     } hal;
@@ -933,44 +933,44 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *accx_cmd;
-            gomc_hal_float_t *accy_cmd;
-            gomc_hal_float_t *velx_cmd;
-            gomc_hal_float_t *vely_cmd;
-            gomc_hal_float_t *posx_cmd;
-            gomc_hal_float_t *posy_cmd;
-            gomc_hal_float_t *velx_fb;
-            gomc_hal_float_t *vely_fb;
-            gomc_hal_float_t *posx_fb;
-            gomc_hal_float_t *posy_fb;
-            gomc_hal_float_t *posx_scale;
-            gomc_hal_float_t *posy_scale;
-            gomc_hal_bit_t 	*enable;
-            gomc_hal_u32_t 	*controlx;
-            gomc_hal_u32_t 	*controly;
-            gomc_hal_u32_t 	*commandx;
-            gomc_hal_u32_t 	*commandy;
-            gomc_hal_bit_t 	*mode18bitx;
-            gomc_hal_bit_t 	*mode18bity;
-            gomc_hal_bit_t 	*commandmodex;
-            gomc_hal_bit_t 	*commandmodey;
-            gomc_hal_u32_t 	*status;
-            gomc_hal_bit_t 	*posx_overflow;
-            gomc_hal_bit_t 	*posy_overflow;
-            gomc_hal_bit_t 	*velx_overflow;
-            gomc_hal_bit_t 	*vely_overflow;
+            stmak_hal_float_t *accx_cmd;
+            stmak_hal_float_t *accy_cmd;
+            stmak_hal_float_t *velx_cmd;
+            stmak_hal_float_t *vely_cmd;
+            stmak_hal_float_t *posx_cmd;
+            stmak_hal_float_t *posy_cmd;
+            stmak_hal_float_t *velx_fb;
+            stmak_hal_float_t *vely_fb;
+            stmak_hal_float_t *posx_fb;
+            stmak_hal_float_t *posy_fb;
+            stmak_hal_float_t *posx_scale;
+            stmak_hal_float_t *posy_scale;
+            stmak_hal_bit_t 	*enable;
+            stmak_hal_u32_t 	*controlx;
+            stmak_hal_u32_t 	*controly;
+            stmak_hal_u32_t 	*commandx;
+            stmak_hal_u32_t 	*commandy;
+            stmak_hal_bit_t 	*mode18bitx;
+            stmak_hal_bit_t 	*mode18bity;
+            stmak_hal_bit_t 	*commandmodex;
+            stmak_hal_bit_t 	*commandmodey;
+            stmak_hal_u32_t 	*status;
+            stmak_hal_bit_t 	*posx_overflow;
+            stmak_hal_bit_t 	*posy_overflow;
+            stmak_hal_bit_t 	*velx_overflow;
+            stmak_hal_bit_t 	*vely_overflow;
         } pin;
 
     } hal;
 
 
     //previous MPG counts for this instance	
-    gomc_hal_float_t prev_accx_cmd;	
-    gomc_hal_float_t prev_accy_cmd;	
-    gomc_hal_float_t prev_velx_cmd;	
-    gomc_hal_float_t prev_vely_cmd;	
-    gomc_hal_float_t prev_posx_cmd;	
-    gomc_hal_float_t prev_posy_cmd;	
+    stmak_hal_float_t prev_accx_cmd;	
+    stmak_hal_float_t prev_accy_cmd;	
+    stmak_hal_float_t prev_velx_cmd;	
+    stmak_hal_float_t prev_vely_cmd;	
+    stmak_hal_float_t prev_posx_cmd;	
+    stmak_hal_float_t prev_posy_cmd;	
 
  
 } hm2_xy2mod_instance_t;
@@ -978,8 +978,8 @@ typedef struct {
 // these hal params affect all xy2mod instances
 typedef struct {
     struct {
-        gomc_hal_s32_t *dpll_rtimer_num;
-        gomc_hal_s32_t *dpll_wtimer_num;
+        stmak_hal_s32_t *dpll_rtimer_num;
+        stmak_hal_s32_t *dpll_wtimer_num;
     } pin;
 } hm2_xy2mod_module_global_t;
 
@@ -1046,18 +1046,18 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *Avalue;
-            gomc_hal_float_t *Bvalue;
-            gomc_hal_float_t *Cvalue;
-            gomc_hal_bit_t *fault;
-            gomc_hal_bit_t *enable;
+            stmak_hal_float_t *Avalue;
+            stmak_hal_float_t *Bvalue;
+            stmak_hal_float_t *Cvalue;
+            stmak_hal_bit_t *fault;
+            stmak_hal_bit_t *enable;
         } pin;
 
         struct {
-            gomc_hal_float_t scale;
-            gomc_hal_float_t deadzone;
-            gomc_hal_bit_t faultpolarity;
-            gomc_hal_float_t sampletime;
+            stmak_hal_float_t scale;
+            stmak_hal_float_t deadzone;
+            stmak_hal_bit_t faultpolarity;
+            stmak_hal_float_t sampletime;
         } param;
 
     } hal;
@@ -1073,7 +1073,7 @@ typedef struct {
 
 typedef struct {
     struct {
-        gomc_hal_u32_t pwm_frequency; // One PWM rate for all instances
+        stmak_hal_u32_t pwm_frequency; // One PWM rate for all instances
     } param;
 } hm2_tp_pwmgen_global_hal_t;
 
@@ -1159,49 +1159,49 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_float_t *position_cmd;
-            gomc_hal_float_t *velocity_cmd;
-            gomc_hal_s32_t *counts;
-            gomc_hal_float_t *position_fb;
-            gomc_hal_float_t *position_latch;
-            gomc_hal_float_t *velocity_fb;
-            gomc_hal_bit_t *enable;
-            gomc_hal_bit_t *control_type;   // 0="position control", 1="velocity control"
-            gomc_hal_bit_t *position_reset; // reset position when true
-            gomc_hal_bit_t *index_enable;	
-            gomc_hal_bit_t *index_polarity;
-            gomc_hal_bit_t *latch_enable;
-            gomc_hal_bit_t *latch_polarity;
+            stmak_hal_float_t *position_cmd;
+            stmak_hal_float_t *velocity_cmd;
+            stmak_hal_s32_t *counts;
+            stmak_hal_float_t *position_fb;
+            stmak_hal_float_t *position_latch;
+            stmak_hal_float_t *velocity_fb;
+            stmak_hal_bit_t *enable;
+            stmak_hal_bit_t *control_type;   // 0="position control", 1="velocity control"
+            stmak_hal_bit_t *position_reset; // reset position when true
+            stmak_hal_bit_t *index_enable;	
+            stmak_hal_bit_t *index_polarity;
+            stmak_hal_bit_t *latch_enable;
+            stmak_hal_bit_t *latch_polarity;
 
             // debug pins
-            gomc_hal_float_t *dbg_ff_vel;
-            gomc_hal_float_t *dbg_vel_error;
-            gomc_hal_float_t *dbg_s_to_match;
-            gomc_hal_float_t *dbg_err_at_match;
-            gomc_hal_s32_t *dbg_step_rate;
-            gomc_hal_float_t *dbg_pos_minus_prev_cmd;
+            stmak_hal_float_t *dbg_ff_vel;
+            stmak_hal_float_t *dbg_vel_error;
+            stmak_hal_float_t *dbg_s_to_match;
+            stmak_hal_float_t *dbg_err_at_match;
+            stmak_hal_s32_t *dbg_step_rate;
+            stmak_hal_float_t *dbg_pos_minus_prev_cmd;
         } pin;
 
         struct {
-            gomc_hal_float_t position_scale;
-            gomc_hal_float_t maxvel;
-            gomc_hal_float_t maxaccel;
+            stmak_hal_float_t position_scale;
+            stmak_hal_float_t maxvel;
+            stmak_hal_float_t maxaccel;
 
-            gomc_hal_u32_t steplen;
-            gomc_hal_u32_t stepspace;
-            gomc_hal_u32_t dirsetup;
-            gomc_hal_u32_t dirhold;
+            stmak_hal_u32_t steplen;
+            stmak_hal_u32_t stepspace;
+            stmak_hal_u32_t dirsetup;
+            stmak_hal_u32_t dirhold;
 
-            gomc_hal_u32_t step_type;
-            gomc_hal_bit_t swap_step_dir;
-            gomc_hal_u32_t table[5]; // the Fifth Element is used as a very crude hash
+            stmak_hal_u32_t step_type;
+            stmak_hal_bit_t swap_step_dir;
+            stmak_hal_u32_t table[5]; // the Fifth Element is used as a very crude hash
         } param;
 
     } hal;
 
     // this variable holds the previous position command, for
     // computing the feedforward velocity
-    gomc_hal_float_t old_position_cmd;
+    stmak_hal_float_t old_position_cmd;
 
     uint32_t prev_accumulator;
 
@@ -1229,7 +1229,7 @@ typedef struct {
 // these hal params affect all stepgen instances
 typedef struct {
     struct {
-        gomc_hal_s32_t *dpll_timer_num;
+        stmak_hal_s32_t *dpll_timer_num;
     } pin;
 } hm2_stepgen_module_global_t;
 
@@ -1289,13 +1289,13 @@ typedef struct {
     int conf_flag[16];
     uint16_t cd_addr;
     uint16_t count_addr;
-    gomc_hal_u32_t *count;
+    stmak_hal_u32_t *count;
     int num_frames;
     uint32_t clock_freq;
     uint16_t base_address;
     uint32_t register_stride;
     uint32_t instance_stride;
-    char name[GOMC_HAL_NAME_LEN+1];
+    char name[STMAK_HAL_NAME_LEN+1];
     hm2_bspi_xfer_fn_t read_function;
     hm2_bspi_xfer_fn_t write_function;
     void *subdata;
@@ -1331,7 +1331,7 @@ typedef struct {
     uint32_t rx3_addr;
     uint32_t rx4_addr;
     uint32_t rx_mode_addr;
-    char name[GOMC_HAL_NAME_LEN+1];
+    char name[STMAK_HAL_NAME_LEN+1];
 } hm2_uart_instance_t;
 
 typedef struct {
@@ -1380,16 +1380,16 @@ typedef struct {
 //
 
 typedef struct {
-    gomc_hal_float_t *time1_us;
-    gomc_hal_float_t *time2_us;
-    gomc_hal_float_t *time3_us;
-    gomc_hal_float_t *time4_us;
-    gomc_hal_float_t *base_freq;
-    gomc_hal_float_t *phase_error;
-    gomc_hal_u32_t *plimit;
-    gomc_hal_u32_t *ddssize;
-    gomc_hal_u32_t *time_const;
-    gomc_hal_u32_t *prescale;
+    stmak_hal_float_t *time1_us;
+    stmak_hal_float_t *time2_us;
+    stmak_hal_float_t *time3_us;
+    stmak_hal_float_t *time4_us;
+    stmak_hal_float_t *base_freq;
+    stmak_hal_float_t *phase_error;
+    stmak_hal_u32_t *plimit;
+    stmak_hal_u32_t *ddssize;
+    stmak_hal_u32_t *time_const;
+    stmak_hal_u32_t *prescale;
 } hm2_dpll_pins_t ;
 
 typedef struct {
@@ -1428,11 +1428,11 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_bit_t *has_bit;
+            stmak_hal_bit_t *has_bit;
         } pin;
 
         struct {
-            gomc_hal_u32_t timeout_ns;
+            stmak_hal_u32_t timeout_ns;
         } param;
 
     } hal;
@@ -1466,7 +1466,7 @@ typedef struct {
 //
 
 typedef struct {
-        gomc_hal_bit_t *led;
+        stmak_hal_bit_t *led;
     } hm2_led_instance_t ;
 
 typedef struct {
@@ -1491,9 +1491,9 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_u32_t *rate;
-            gomc_hal_bit_t *out[32];
-            gomc_hal_bit_t *invert[32];
+            stmak_hal_u32_t *rate;
+            stmak_hal_bit_t *out[32];
+            stmak_hal_bit_t *invert[32];
         } pin;
 
     } hal;
@@ -1524,8 +1524,8 @@ typedef struct {
     struct {
 
         struct {
-            gomc_hal_bit_t *out[32];
-            gomc_hal_bit_t *invert[32];
+            stmak_hal_bit_t *out[32];
+            stmak_hal_bit_t *invert[32];
         } pin;
 
     } hal;
@@ -1554,14 +1554,14 @@ typedef struct {
 typedef struct {
     struct {
         struct {
-            gomc_hal_u32_t *read_address;
-            gomc_hal_u32_t *read_data;
+            stmak_hal_u32_t *read_address;
+            stmak_hal_u32_t *read_data;
 
-            gomc_hal_u32_t *write_address;
-            gomc_hal_u32_t *write_data;
-            gomc_hal_bit_t *write_strobe;
+            stmak_hal_u32_t *write_address;
+            stmak_hal_u32_t *write_data;
+            stmak_hal_bit_t *write_strobe;
 
-            gomc_hal_bit_t *dump_state;
+            stmak_hal_bit_t *dump_state;
         } pin;
     } hal;
 } hm2_raw_t;

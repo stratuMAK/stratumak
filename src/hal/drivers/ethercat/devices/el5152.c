@@ -33,21 +33,21 @@
  * @brief Per-channel HAL pins and PDO mapping data for one EL5152 encoder channel.
  */
 typedef struct {
-  gomc_hal_bit_t *index;               /**< HAL IN: Z-index signal (active high); rising edge triggers latch if index_ena is set. */
-  gomc_hal_bit_t *index_ena;           /**< HAL IO: enable index latch; cleared automatically when index event is processed. */
-  gomc_hal_bit_t *reset;               /**< HAL IN: reset the relative position counter to zero. */
-  gomc_hal_bit_t *ina;                 /**< HAL OUT: current state of encoder input A (PDO 0x6000/0x09). */
-  gomc_hal_bit_t *inb;                 /**< HAL OUT: current state of encoder input B (PDO 0x6000/0x0a). */
-  gomc_hal_bit_t *expol_stall;         /**< HAL OUT: extrapolation stall flag — encoder stopped during extrapolation (PDO 0x6000/0x08). */
-  gomc_hal_bit_t *tx_toggle;           /**< HAL OUT: TxPDO toggle bit; alternates each new PDO (PDO 0x1800/0x09 or 0x1804/0x09). */
-  gomc_hal_bit_t *set_raw_count;       /**< HAL IO: pulse high to preset the hardware counter; cleared when acknowledged. */
-  gomc_hal_s32_t *set_raw_count_val;   /**< HAL IN: value to load into the counter when set_raw_count is asserted. */
-  gomc_hal_s32_t *raw_count;           /**< HAL OUT: raw 32-bit counter value from the terminal (PDO 0x6000/0x11). */
-  gomc_hal_u32_t *raw_period;          /**< HAL OUT: raw 32-bit period measurement from the terminal (PDO 0x6000/0x14). */
-  gomc_hal_s32_t *count;               /**< HAL OUT: relative position count (zeroed on reset or index event). */
-  gomc_hal_float_t *pos_scale;         /**< HAL IO: counts per user unit; reciprocal applied internally. */
-  gomc_hal_float_t *pos;               /**< HAL OUT: scaled position in user units. */
-  gomc_hal_float_t *period;            /**< HAL OUT: encoder period in seconds (raw_period * LCEC_EL5152_PERIOD_SCALE). */
+  stmak_hal_bit_t *index;               /**< HAL IN: Z-index signal (active high); rising edge triggers latch if index_ena is set. */
+  stmak_hal_bit_t *index_ena;           /**< HAL IO: enable index latch; cleared automatically when index event is processed. */
+  stmak_hal_bit_t *reset;               /**< HAL IN: reset the relative position counter to zero. */
+  stmak_hal_bit_t *ina;                 /**< HAL OUT: current state of encoder input A (PDO 0x6000/0x09). */
+  stmak_hal_bit_t *inb;                 /**< HAL OUT: current state of encoder input B (PDO 0x6000/0x0a). */
+  stmak_hal_bit_t *expol_stall;         /**< HAL OUT: extrapolation stall flag — encoder stopped during extrapolation (PDO 0x6000/0x08). */
+  stmak_hal_bit_t *tx_toggle;           /**< HAL OUT: TxPDO toggle bit; alternates each new PDO (PDO 0x1800/0x09 or 0x1804/0x09). */
+  stmak_hal_bit_t *set_raw_count;       /**< HAL IO: pulse high to preset the hardware counter; cleared when acknowledged. */
+  stmak_hal_s32_t *set_raw_count_val;   /**< HAL IN: value to load into the counter when set_raw_count is asserted. */
+  stmak_hal_s32_t *raw_count;           /**< HAL OUT: raw 32-bit counter value from the terminal (PDO 0x6000/0x11). */
+  stmak_hal_u32_t *raw_period;          /**< HAL OUT: raw 32-bit period measurement from the terminal (PDO 0x6000/0x14). */
+  stmak_hal_s32_t *count;               /**< HAL OUT: relative position count (zeroed on reset or index event). */
+  stmak_hal_float_t *pos_scale;         /**< HAL IO: counts per user unit; reciprocal applied internally. */
+  stmak_hal_float_t *pos;               /**< HAL OUT: scaled position in user units. */
+  stmak_hal_float_t *period;            /**< HAL OUT: encoder period in seconds (raw_period * LCEC_EL5152_PERIOD_SCALE). */
 
   unsigned int set_count_pdo_os;          /**< Byte offset of the set-counter command bit in output process data. */
   unsigned int set_count_pdo_bp;          /**< Bit position of the set-counter command within the byte. */
@@ -81,22 +81,22 @@ typedef struct {
 } lcec_el5152_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el5152_chan_t, index), "%s.%s.%s.enc-%d-index" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_el5152_chan_t, index_ena), "%s.%s.%s.enc-%d-index-enable" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el5152_chan_t, reset), "%s.%s.%s.enc-%d-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, ina), "%s.%s.%s.enc-%d-ina" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, inb), "%s.%s.%s.enc-%d-inb" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, expol_stall), "%s.%s.%s.enc-%d-expol-stall" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, tx_toggle), "%s.%s.%s.enc-%d-tx-toggle" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_el5152_chan_t, set_raw_count), "%s.%s.%s.enc-%d-set-raw-count" },
-  { GOMC_HAL_S32, GOMC_HAL_IN, offsetof(lcec_el5152_chan_t, set_raw_count_val), "%s.%s.%s.enc-%d-set-raw-count-val" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, raw_count), "%s.%s.%s.enc-%d-raw-count" },
-  { GOMC_HAL_S32, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, count), "%s.%s.%s.enc-%d-count" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, raw_period), "%s.%s.%s.enc-%d-raw-period" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, pos), "%s.%s.%s.enc-%d-pos" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_OUT, offsetof(lcec_el5152_chan_t, period), "%s.%s.%s.enc-%d-period" },
-  { GOMC_HAL_FLOAT, GOMC_HAL_IO, offsetof(lcec_el5152_chan_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el5152_chan_t, index), "%s.%s.%s.enc-%d-index" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_el5152_chan_t, index_ena), "%s.%s.%s.enc-%d-index-enable" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el5152_chan_t, reset), "%s.%s.%s.enc-%d-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, ina), "%s.%s.%s.enc-%d-ina" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, inb), "%s.%s.%s.enc-%d-inb" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, expol_stall), "%s.%s.%s.enc-%d-expol-stall" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, tx_toggle), "%s.%s.%s.enc-%d-tx-toggle" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_el5152_chan_t, set_raw_count), "%s.%s.%s.enc-%d-set-raw-count" },
+  { STMAK_HAL_S32, STMAK_HAL_IN, offsetof(lcec_el5152_chan_t, set_raw_count_val), "%s.%s.%s.enc-%d-set-raw-count-val" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, raw_count), "%s.%s.%s.enc-%d-raw-count" },
+  { STMAK_HAL_S32, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, count), "%s.%s.%s.enc-%d-count" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, raw_period), "%s.%s.%s.enc-%d-raw-period" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, pos), "%s.%s.%s.enc-%d-pos" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_OUT, offsetof(lcec_el5152_chan_t, period), "%s.%s.%s.enc-%d-period" },
+  { STMAK_HAL_FLOAT, STMAK_HAL_IO, offsetof(lcec_el5152_chan_t, pos_scale), "%s.%s.%s.enc-%d-pos-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static ec_pdo_entry_info_t lcec_el5152_channel1_in[] = {
@@ -175,8 +175,8 @@ static ec_sync_info_t lcec_el5152_syncs[] = {
     {0xff}
 };
 
-void lcec_el5152_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
-void lcec_el5152_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el5152_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+void lcec_el5152_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise the EL5152 EtherCAT slave driver.

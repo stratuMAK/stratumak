@@ -4,7 +4,7 @@
 # Streamer: receives data from WebSocket, outputs to HAL pins
 #
 # Test procedure:
-#   1. Start: gomc-server configs/sim/stream-test/stream-test.ini
+#   1. Start: stmakd configs/sim/stream-test/stream-test.ini
 #   2. Read sampler: halsampler sampler
 #      → should print lines like "1.000000 0.500000 0.000000" at 1kHz
 #   3. Write streamer: echo "3.14 2.71 1.0" | halstreamer streamer

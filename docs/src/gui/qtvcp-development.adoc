@@ -44,7 +44,7 @@ Inside the folder would be:
 
 == QtVCP Startup To Shutdown
 
-*QtVCP source* is located in `+src/emc/usr_intf/qtvcp+` folder of LinuxCNC source tree.
+*QtVCP source* is located in `+src/cnc/usr_intf/qtvcp+` folder of LinuxCNC source tree.
 
 === QtVCP Startup
 

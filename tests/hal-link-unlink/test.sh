@@ -2,7 +2,7 @@
 # hal_lib pin link/unlink value-preservation semantics.
 #
 # Classic drove this via the Python `hal` module, which created a userspace
-# component with its own pins.  gomc has no userspace components (an external
+# component with its own pins.  stratuMAK has no userspace components (an external
 # process cannot create HAL pins), so we load a stock comp — tristate_float,
 # which has a float IN pin `in` and a float IO pin `out` — into a resident
 # server and drive the identical sequence with halcmd.  Verifies, per pin:

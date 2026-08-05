@@ -30,8 +30,8 @@
  * @brief Per-channel HAL data for one EL1904 safe digital input.
  */
 typedef struct {
-  gomc_hal_bit_t *fsoe_in;     /**< HAL output pin: FSoE safe digital input state. */
-  gomc_hal_bit_t *fsoe_in_not; /**< HAL output pin: Inverted FSoE safe digital input state. */
+  stmak_hal_bit_t *fsoe_in;     /**< HAL output pin: FSoE safe digital input state. */
+  stmak_hal_bit_t *fsoe_in_not; /**< HAL output pin: Inverted FSoE safe digital input state. */
 
   unsigned int fsoe_in_os; /**< Byte offset of the safe input bit in the process data image. */
   unsigned int fsoe_in_bp; /**< Bit position within fsoe_in_os. */
@@ -41,13 +41,13 @@ typedef struct {
  * @brief Complete HAL data structure for the EL1904.
  */
 typedef struct {
-  gomc_hal_u32_t *fsoe_master_cmd;    /**< HAL output: FSoE master command word. */
-  gomc_hal_u32_t *fsoe_master_crc;    /**< HAL output: FSoE master CRC. */
-  gomc_hal_u32_t *fsoe_master_connid; /**< HAL output: FSoE master connection ID. */
+  stmak_hal_u32_t *fsoe_master_cmd;    /**< HAL output: FSoE master command word. */
+  stmak_hal_u32_t *fsoe_master_crc;    /**< HAL output: FSoE master CRC. */
+  stmak_hal_u32_t *fsoe_master_connid; /**< HAL output: FSoE master connection ID. */
 
-  gomc_hal_u32_t *fsoe_slave_cmd;    /**< HAL output: FSoE slave command word. */
-  gomc_hal_u32_t *fsoe_slave_crc;    /**< HAL output: FSoE slave CRC. */
-  gomc_hal_u32_t *fsoe_slave_connid; /**< HAL output: FSoE slave connection ID. */
+  stmak_hal_u32_t *fsoe_slave_cmd;    /**< HAL output: FSoE slave command word. */
+  stmak_hal_u32_t *fsoe_slave_crc;    /**< HAL output: FSoE slave CRC. */
+  stmak_hal_u32_t *fsoe_slave_connid; /**< HAL output: FSoE slave connection ID. */
 
   lcec_el1904_data_in_t inputs[LCEC_EL1904_INPUT_COUNT]; /**< Per-channel safe input data. */
 
@@ -62,19 +62,19 @@ typedef struct {
 } lcec_el1904_data_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_cmd), "%s.%s.%s.fsoe-master-cmd" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_crc), "%s.%s.%s.fsoe-master-crc" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_connid), "%s.%s.%s.fsoe-master-connid" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_cmd), "%s.%s.%s.fsoe-slave-cmd" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_crc), "%s.%s.%s.fsoe-slave-crc" },
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_connid), "%s.%s.%s.fsoe-slave-connid" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_cmd), "%s.%s.%s.fsoe-master-cmd" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_crc), "%s.%s.%s.fsoe-master-crc" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_master_connid), "%s.%s.%s.fsoe-master-connid" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_cmd), "%s.%s.%s.fsoe-slave-cmd" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_crc), "%s.%s.%s.fsoe-slave-crc" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1904_data_t, fsoe_slave_connid), "%s.%s.%s.fsoe-slave-connid" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_in_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1904_data_in_t, fsoe_in), "%s.%s.%s.fsoe-in-%d" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1904_data_in_t, fsoe_in_not), "%s.%s.%s.fsoe-in-%d-not" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1904_data_in_t, fsoe_in), "%s.%s.%s.fsoe-in-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1904_data_in_t, fsoe_in_not), "%s.%s.%s.fsoe-in-%d-not" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const LCEC_CONF_FSOE_T fsoe_conf = {
@@ -88,7 +88,7 @@ static const LCEC_CONF_FSOE_T fsoe_conf = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1904_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1904_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Pre-initialise the EL1904 slave (sets FSoE configuration).

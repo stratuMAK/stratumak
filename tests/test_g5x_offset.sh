@@ -73,7 +73,7 @@ echo "G54 X offset in var file: $G54_X"
 echo ""
 
 # --- Start server ---
-echo "Starting gomc-server..."
+echo "Starting stmakd..."
 scripts/linuxcnc "$INI" > /tmp/test_g5x.log 2>&1 &
 SERVER_PID=$!
 wait_for_server

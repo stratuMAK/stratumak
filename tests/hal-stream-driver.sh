@@ -3,8 +3,8 @@
 #
 # Background: the classic sampler/streamer HAL tests used
 #   loadusr -w sh <feed-streamer> ; start ; loadusr -w halsampler -n N
-# from inside a self-contained test.hal.  gomc has no userspace HAL components,
-# so those tests now run a resident gomc-server and drive it with the
+# from inside a self-contained test.hal.  stratuMAK has no userspace HAL components,
+# so those tests now run a resident stmakd and drive it with the
 # halstreamer/halsampler REST/WebSocket clients from this shell driver.
 #
 # Usage in a test.sh:
@@ -17,11 +17,11 @@
 #     hal_run                         # start threads, wait for the samples, stop
 #
 # The critical ordering: halsampler must connect before 'halcmd start', because
-# gomc's sampler stream delivers live samples from connect time (it is not a
+# stratuMAK's sampler stream delivers live samples from connect time (it is not a
 # replay of the sampler component's FIFO history).
 
-# Deadlines below honour GOMC_TEST_TIMEOUT_SCALE via gomc_scale.
-. "$(dirname "${BASH_SOURCE[0]}")/gomc-scale.sh"
+# Deadlines below honour STMAK_TEST_TIMEOUT_SCALE via stmak_scale.
+. "$(dirname "${BASH_SOURCE[0]}")/stmak-scale.sh"
 
 _HAL_SRVPID=""
 _HAL_SAMPLER_PID=""
@@ -35,7 +35,7 @@ hal_cleanup() {
     wait 2>/dev/null
 }
 
-# hal_start_server <halfile>: launch a resident gomc-server on the given HAL
+# hal_start_server <halfile>: launch a resident stmakd on the given HAL
 # file (which must set up comps/wiring/threads but NOT call 'start') and wait
 # until its REST API is accepting commands.
 #
@@ -45,13 +45,13 @@ hal_cleanup() {
 # under `#!/bin/bash` with no `set -e` a dead server sailed straight on into the
 # test body, which then reported a confusing diff instead of "no server".
 hal_start_server() {
-    gomc-server -r -f "$1" --serve &
+    stmakd -r -f "$1" --serve &
     _HAL_SRVPID=$!
-    gomc_add_exit_trap hal_cleanup
+    stmak_add_exit_trap hal_cleanup
     # Deadline, not an iteration count: each pass also forks halcmd, so 100
     # iterations of `sleep 0.1` is well over 10s of real time on a loaded runner.
     local budget waitend
-    budget=$(gomc_scale 30)
+    budget=$(stmak_scale 30)
     waitend=$((SECONDS + budget))
     while [ $SECONDS -lt $waitend ]; do
         halcmd show comp >/dev/null 2>&1 && return 0
@@ -111,7 +111,7 @@ hal_run() {
         # missed (or the stream stalls) it would otherwise block forever and
         # hang the whole suite, so cap it and fail loudly instead.
         local i ticks
-        ticks=$(gomc_scale "${_HAL_SAMPLE_TIMEOUT:-100}")   # 100 * 0.1s = 10s (× scale)
+        ticks=$(stmak_scale "${_HAL_SAMPLE_TIMEOUT:-100}")   # 100 * 0.1s = 10s (× scale)
         for i in $(seq "$ticks"); do
             kill -0 "$_HAL_SAMPLER_PID" 2>/dev/null || break
             sleep 0.1

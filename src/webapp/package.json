@@ -1,8 +1,8 @@
 {
-  "name": "gomc-webapps-lint",
+  "name": "stmak-webapps-lint",
   "private": true,
   "version": "0.0.0",
-  "description": "Shared ESLint toolchain + config for the gomc webapps (lint tooling only; each app builds independently). Versions pinned exact for a deterministic gate without a committed lockfile.",
+  "description": "Shared ESLint toolchain + config for the stmak webapps (lint tooling only; each app builds independently). Versions pinned exact for a deterministic gate without a committed lockfile.",
   "type": "module",
   "scripts": {
     "lint": "eslint ."

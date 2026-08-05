@@ -1,6 +1,6 @@
-# GOMC — Golang Machine Controller
+# stratuMAK — Machine Controller
 
-> **Working title.** GOMC is an effort to push the high-value but aged concepts of
+> stratuMAK is an effort to push the high-value but aged concepts of
 > EMC/LinuxCNC to the forefront of modern industrial automation — without carrying
 > the burden of decades-old compatibility constraints.
 
@@ -16,14 +16,14 @@ What has aged is the surrounding infrastructure: NML message passing from the
 and an architecture that resists incremental modernization. Every attempt to
 improve one layer pulls in the weight of all others.
 
-GOMC takes a different path: **preserve the proven control concepts, rewrite the
+stratuMAK takes a different path: **preserve the proven control concepts, rewrite the
 plumbing.**
 
 ## Technical Approach
 
 ### Single-Process, Mixed Go/C Architecture
 
-GOMC runs as a single process with a unified address space:
+stratuMAK runs as a single process with a unified address space:
 
 - **Go runtime** handles non-real-time tasks: REST API, G-code interpretation,
   trajectory planning, configuration, MQTT, persistence
@@ -53,7 +53,7 @@ The short answer: **Go never runs in the real-time path.**
   role, but with compile-time type checking, real concurrency, and refactoring
   safety that an interpreted language cannot offer.
 - **A powerful standard ecosystem.** HTTP/WebSocket servers, TLS, JSON, MQTT,
-  databases — the entire modern API surface of GOMC is standard-library-grade
+  databases — the entire modern API surface of stratuMAK is standard-library-grade
   Go, with no dependency sprawl.
 - **Single static binary.** No interpreter, no virtualenv, no version drift on
   the deployment machine.
@@ -136,7 +136,7 @@ non-RT functions in a single component:
 database persistence, protocol gateways). Full access to Go's ecosystem,
 goroutines, and standard library.
 
-Both types share the same HAL signal namespace and are managed by the gomc
+Both types share the same HAL signal namespace and are managed by the stratuMAK
 server process.
 
 ### EtherCAT Fieldbus
@@ -147,8 +147,10 @@ Native EtherCAT support via IGH EtherLab Master with:
 - CiA 402 drive profile state machine
 - FSoE (Fail Safe over EtherCAT) support
 
-Currently requires the `uspace` branch from
-https://github.com/sittner/ethercat.
+The IgH master is a submodule of this repository
+(https://github.com/stratuMAK/ethercat, at `src/hal/drivers/ethercat/master`).
+The build bootstraps, configures, builds and installs it into the build tree
+itself — there is nothing to install separately and nothing to enable.
 
 ### Web-Based Tooling
 
@@ -182,7 +184,7 @@ semantics.
 
 - **Not a fork that tries to stay compatible.** INI files, NML tools, and the
   old Python/Tcl interfaces are deliberately not carried forward.
-- **Not a competing project.** GOMC builds directly on LinuxCNC's proven
+- **Not a competing project.** stratuMAK builds directly on LinuxCNC's proven
   motion control, trajectory planning, and G-code interpretation. We acknowledge
   and respect the decades of engineering in that codebase.
 - **Not starting from scratch.** The rs274ngc interpreter, trajectory planner,
@@ -200,8 +202,8 @@ semantics.
 ## Building
 
 ```bash
-git clone -b gomc https://github.com/sittner/linuxcnc.git linuxcnc
-cd linuxcnc
+git clone -b main https://github.com/stratuMAK/stratumak.git stratumak
+cd stratumak
 git submodule update --init
 
 # Install build dependencies (Debian/Ubuntu)
@@ -224,14 +226,14 @@ A future goal is migration to CMake.
 **Terminal 1 — start the server:**
 
 ```bash
-cd linuxcnc
-./bin/gomc-server configs/sim/axis/axis_mm.ini
+cd stratumak
+./bin/stmakd configs/sim/axis/axis_mm.ini
 ```
 
 **Terminal 2 — start a UI client (as many as you like):**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
 axis
 ```
@@ -241,39 +243,39 @@ additional configuration.
 
 ## Multi-Instance Demo
 
-A single gomc-server process can host multiple independent CNC instances.
+A single stmakd process can host multiple independent CNC instances.
 Multiple UI clients can connect to the same or different instances
 simultaneously — state updates are synchronized in real time.
 
 **Terminal 1 — start the server with multi-instance config:**
 
 ```bash
-cd linuxcnc
-./bin/gomc-server configs/sim/axis/multiinst/multiinst.ini
+cd stratumak
+./bin/stmakd configs/sim/axis/multiinst/multiinst.ini
 ```
 
 **Terminal 2 — Axis client connected to mill1:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill1 axis
+STMAK_TASK_INSTANCE=mill1 axis
 ```
 
 **Terminal 3 — second Axis client, also connected to mill1:**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill1 axis
+STMAK_TASK_INSTANCE=mill1 axis
 ```
 
 **Terminal 4 — Axis client connected to mill2 (independent instance):**
 
 ```bash
-cd linuxcnc
+cd stratumak
 . scripts/rip-environment
-GMC_INSTANCE=mill2 axis
+STMAK_TASK_INSTANCE=mill2 axis
 ```
 
 **Things to try:**
@@ -292,10 +294,10 @@ GMC_INSTANCE=mill2 axis
 This project contains code under multiple open source licenses:
 
 - **GPL-2.0** — inherited LinuxCNC code (motion, HAL, interpreter, drivers, etc.)
-  and new `src/gomc` components by Sascha Ittner. See [COPYING](COPYING).
-- **LGPL-2.0** — HAL library (`hal_lib.c`, `gomc_hal.h`), originally by
+  and new `src/stmak` components by Sascha Ittner. See [COPYING](COPYING).
+- **LGPL-2.0** — HAL library (`hal_lib.c`, `stmak_hal.h`), originally by
   John Kasunich. See [COPYING.more](COPYING.more).
-- **LGPL-2.1** — RTAPI interface (`gomc_rtapi.h`) originally by John Kasunich
+- **LGPL-2.1** — RTAPI interface (`stmak_rtapi.h`) originally by John Kasunich
   and Paul Corner; GMI library headers (`src/gmi/lib/`) by Sascha Ittner.
 - **LGPL-2.1+** — Classic Ladder RT engine, originally by Marc Le Douarain.
 
@@ -303,7 +305,7 @@ See individual source file headers for per-file license and copyright details.
 
 ## Status
 
-**Lab-prototype stage.** GOMC has completed the automated half of a structured
+**Lab-prototype stage.** stratuMAK has completed the automated half of a structured
 production-readiness program and is moving onto supervised prototype machines.
 Not yet suitable for unattended production use.
 
@@ -332,7 +334,7 @@ Known limitations — read before deploying:
   network. Keep it on loopback or an isolated machine network. The plan is an
   external authentication gateway plus fine-grained in-process authorization —
   designed, not yet built.
-- **Safety.** GOMC is not a safety component. Operator protection must be
+- **Safety.** stratuMAK is not a safety component. Operator protection must be
   implemented in certified external hardware, independent of this software —
   see [SAFETY_BOUNDARY.md](SAFETY_BOUNDARY.md).
 - **Pending.** The review program's final human sign-off pass runs alongside
@@ -340,7 +342,7 @@ Known limitations — read before deploying:
   multi-day certification soak still to come.
 - **Deferred subsystems.** ClassicLadder is mid-rework; GladeVCP/QtVCP UIs are
   not ported; some shipped example configurations still await migration to the
-  gomc model.
+  stratuMAK model.
 
 The scope of this architectural migration — touching hundreds of files across
 real-time control, build system, HAL drivers, and UI — would not have been

@@ -15,7 +15,7 @@
  * License: GPL Version 2
  */
 
-#include "gomc_env.h"
+#include "stmak_env.h"
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -54,19 +54,19 @@ static const unsigned char num_phases_lut[] =
 #define DOWN_PIN  1
 
 typedef struct {
-    gomc_hal_bit_t   *enable;
-    gomc_hal_bit_t   *phase[5];
-    gomc_hal_s32_t   *count;
-    gomc_hal_float_t *pos_cmd;
-    gomc_hal_float_t *vel_cmd;
-    gomc_hal_float_t *pos_fb;
+    stmak_hal_bit_t   *enable;
+    stmak_hal_bit_t   *phase[5];
+    stmak_hal_s32_t   *count;
+    stmak_hal_float_t *pos_cmd;
+    stmak_hal_float_t *vel_cmd;
+    stmak_hal_float_t *pos_fb;
 } sg_pins_t;
 
 typedef struct {
     cmod_t base;
     const cmod_env_t *env;
     int comp_id;
-    char name[GOMC_HAL_NAME_LEN + 1];
+    char name[STMAK_HAL_NAME_LEN + 1];
     sg_pins_t *pins;
     /* stepping configuration */
     int step_type;
@@ -402,7 +402,7 @@ int New(const cmod_env_t *env, const char *name,
     int r, i, n;
     int step_type = 0;
     int pos_mode = 1;
-    char buf[GOMC_HAL_NAME_LEN + 1];
+    char buf[STMAK_HAL_NAME_LEN + 1];
 
     for (i = 0; i < argc; i++) {
         if (strncmp(argv[i], "step_type=", 10) == 0)
@@ -434,7 +434,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->recip_dt = 1.0 / inst->dt;
 
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
-                                   GOMC_HAL_COMP_REALTIME);
+                                   STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) goto err;
 
     inst->pins = env->hal->malloc(env->hal->ctx, sizeof(sg_pins_t));
@@ -443,73 +443,73 @@ int New(const cmod_env_t *env, const char *name,
     p = inst->pins;
 
     /* enable */
-    r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_IN, &p->enable, inst->comp_id, "%s.enable", name);
+    r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_IN, &p->enable, inst->comp_id, "%s.enable", name);
     if (r) goto err;
 
     /* position feedback */
-    r = gomc_hal_pin_s32_newf(env->hal, GOMC_HAL_OUT, &p->count, inst->comp_id, "%s.counts", name);
+    r = stmak_hal_pin_s32_newf(env->hal, STMAK_HAL_OUT, &p->count, inst->comp_id, "%s.counts", name);
     if (r) goto err;
-    r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_OUT, &p->pos_fb, inst->comp_id, "%s.position-fb", name);
+    r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_OUT, &p->pos_fb, inst->comp_id, "%s.position-fb", name);
     if (r) goto err;
 
     /* command pin depends on mode */
     if (pos_mode) {
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &p->pos_cmd, inst->comp_id, "%s.position-cmd", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &p->pos_cmd, inst->comp_id, "%s.position-cmd", name);
         if (r) goto err;
     } else {
-        r = gomc_hal_pin_float_newf(env->hal, GOMC_HAL_IN, &p->vel_cmd, inst->comp_id, "%s.velocity-cmd", name);
+        r = stmak_hal_pin_float_newf(env->hal, STMAK_HAL_IN, &p->vel_cmd, inst->comp_id, "%s.velocity-cmd", name);
         if (r) goto err;
     }
 
     /* output pins depend on step type */
     if (step_type == 0) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &p->phase[STEP_PIN], inst->comp_id, "%s.step", name);
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &p->phase[STEP_PIN], inst->comp_id, "%s.step", name);
         if (r) goto err;
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &p->phase[DIR_PIN], inst->comp_id, "%s.dir", name);
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &p->phase[DIR_PIN], inst->comp_id, "%s.dir", name);
         if (r) goto err;
     } else if (step_type == 1) {
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &p->phase[UP_PIN], inst->comp_id, "%s.up", name);
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &p->phase[UP_PIN], inst->comp_id, "%s.up", name);
         if (r) goto err;
-        r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &p->phase[DOWN_PIN], inst->comp_id, "%s.down", name);
+        r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &p->phase[DOWN_PIN], inst->comp_id, "%s.down", name);
         if (r) goto err;
     } else {
         inst->num_phases = num_phases_lut[step_type - 2];
         inst->cycle_max = cycle_len_lut[step_type - 2] - 1;
         inst->lut = &master_lut[step_type - 2][0];
         for (n = 0; n < inst->num_phases; n++) {
-            r = gomc_hal_pin_bit_newf(env->hal, GOMC_HAL_OUT, &p->phase[n],
+            r = stmak_hal_pin_bit_newf(env->hal, STMAK_HAL_OUT, &p->phase[n],
                 inst->comp_id, "%s.phase-%c", name, n + 'A');
             if (r) goto err;
         }
     }
 
     /* timing params as HAL params */
-    r = gomc_hal_param_u32_newf(env->hal, GOMC_HAL_RW, &inst->step_len, inst->comp_id, "%s.steplen", name);
+    r = stmak_hal_param_u32_newf(env->hal, STMAK_HAL_RW, &inst->step_len, inst->comp_id, "%s.steplen", name);
     if (r) goto err;
     if (step_type < 2) {
-        r = gomc_hal_param_u32_newf(env->hal, GOMC_HAL_RW, &inst->step_space, inst->comp_id, "%s.stepspace", name);
+        r = stmak_hal_param_u32_newf(env->hal, STMAK_HAL_RW, &inst->step_space, inst->comp_id, "%s.stepspace", name);
         if (r) goto err;
     }
     if (step_type == 0) {
-        r = gomc_hal_param_u32_newf(env->hal, GOMC_HAL_RW, &inst->dir_setup, inst->comp_id, "%s.dirsetup", name);
+        r = stmak_hal_param_u32_newf(env->hal, STMAK_HAL_RW, &inst->dir_setup, inst->comp_id, "%s.dirsetup", name);
         if (r) goto err;
-        r = gomc_hal_param_u32_newf(env->hal, GOMC_HAL_RW, &inst->dir_hold_dly, inst->comp_id, "%s.dirhold", name);
+        r = stmak_hal_param_u32_newf(env->hal, STMAK_HAL_RW, &inst->dir_hold_dly, inst->comp_id, "%s.dirhold", name);
         if (r) goto err;
     } else {
-        r = gomc_hal_param_u32_newf(env->hal, GOMC_HAL_RW, &inst->dir_hold_dly, inst->comp_id, "%s.dirdelay", name);
+        r = stmak_hal_param_u32_newf(env->hal, STMAK_HAL_RW, &inst->dir_hold_dly, inst->comp_id, "%s.dirdelay", name);
         if (r) goto err;
     }
 
     /* scaling and motion params */
-    r = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW, &inst->pos_scale, inst->comp_id, "%s.position-scale", name);
+    r = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW, &inst->pos_scale, inst->comp_id, "%s.position-scale", name);
     if (r) goto err;
-    r = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW, &inst->maxvel, inst->comp_id, "%s.maxvel", name);
+    r = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW, &inst->maxvel, inst->comp_id, "%s.maxvel", name);
     if (r) goto err;
-    r = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RW, &inst->maxaccel, inst->comp_id, "%s.maxaccel", name);
+    r = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW, &inst->maxaccel, inst->comp_id, "%s.maxaccel", name);
     if (r) goto err;
-    r = gomc_hal_param_float_newf(env->hal, GOMC_HAL_RO, &inst->freq, inst->comp_id, "%s.frequency", name);
+    r = stmak_hal_param_float_newf(env->hal, STMAK_HAL_RO, &inst->freq, inst->comp_id, "%s.frequency", name);
     if (r) goto err;
-    r = gomc_hal_param_s32_newf(env->hal, GOMC_HAL_RO, &inst->rawcount, inst->comp_id, "%s.rawcounts", name);
+    r = stmak_hal_param_s32_newf(env->hal, STMAK_HAL_RO, &inst->rawcount, inst->comp_id, "%s.rawcounts", name);
     if (r) goto err;
 
     /* defaults */

@@ -1,7 +1,7 @@
-# Thread-scheduling test, ported to gomc.
+# Thread-scheduling test, ported to stmak.
 #
 # Classic drove `loadrt threads name1=fast period1=100000 name2=slow
-# period2=1000000` + threadtest + a userspace halsampler.  gomc declares threads
+# period2=1000000` + threadtest + a userspace halsampler.  stratuMAK declares threads
 # with `newthread` and has no userspace comps, so the counter is captured with
 # the file-backed `filestream` cmod (../filestream-driver.sh) instead of halsampler.
 #

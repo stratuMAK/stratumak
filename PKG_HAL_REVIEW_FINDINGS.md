@@ -1,6 +1,6 @@
 # pkg/hal — Review Findings (Tier 1)
 
-**Module:** `src/gomc/pkg/hal` (~900 non-test LOC) — the Go↔C HAL binding layer every
+**Module:** `src/stmak/pkg/hal` (~900 non-test LOC) — the Go↔C HAL binding layer every
 non-RT HAL interaction crosses. **Tier 1** per `PRODUCTION_READINESS.md` (binding layer;
 focus: pin/signal lifecycle, type conversions, thread interaction, error propagation).
 
@@ -56,8 +56,8 @@ serialization; **M1** will later collapse that to atomics behind this same barri
 
 **Two facts verified during the fix (both worse than the original adjudication assumed):**
 
-1. *Consequence is silent corruption, not a fail-fast segfault.* gomc links a **vendored** HAL
-   (`src/gomc/internal/hallib/hal_lib.c` + `uspace_rtapi_lib.c`), not `src/hal/hal_lib.c`. The
+1. *Consequence is silent corruption, not a fail-fast segfault.* stratuMAK links a **vendored** HAL
+   (`src/stmak/internal/hallib/hal_lib.c` + `uspace_rtapi_lib.c`), not `src/hal/hal_lib.c`. The
    userspace HAL arena is a plain `malloc()`'d 1 MiB block (`HAL_SIZE`), **not** SysV/POSIX shm.
    On the last `hal_exit` it is `free()`'d but stays **mapped** — RT hardening sets
    `mallopt(M_MMAP_MAX,0)` + `M_TRIM_THRESHOLD,-1` (`uspace_rtapi_lib.c:379,383`), so glibc never
@@ -93,12 +93,12 @@ pin access against teardown.
 *Failure scenario:* during shutdown, goroutine A holds a `*Pin` and calls `Set()` while
 goroutine B calls `comp.Exit()`. A's `**ptrPtr` write lands in a pin slot HAL has just freed
 (→ logical corruption of a recycled slot), or — if this is the last component and the HAL
-data segment is released — touches unmapped memory (→ SIGSEGV). gomc's whole premise is
+data segment is released — touches unmapped memory (→ SIGSEGV). stratuMAK's whole premise is
 goroutine concurrency, so the window is materially wider than in a classic single-threaded C
 comp, and nothing in the type surface warns the caller.
 
 *Adjudication:* the race is real and confirmed. The exact consequence needs one verification:
-does `gomc-server` keep the HAL data segment mapped for process lifetime (→ corruption, not
+does `stmakd` keep the HAL data segment mapped for process lifetime (→ corruption, not
 segfault) or release it on last `hal_exit` (→ segfault)? **Human to verify + decide the
 contract:** either enforce "all pin access ceases before Exit()" at call sites, or add a
 component-liveness flag Pin checks under a barrier.
@@ -215,19 +215,19 @@ per Set → GC pressure/jitter on what should be a bare shared-memory read/write
 the type once at `NewPin` (store typed getter/setter closures or a type tag), not a runtime
 `any()` round-trip per access. (Also removes the per-access type-switch duplication.)
 
-### M6 — String `Set()` calls reader-only `hal_port_clear` from the writer side (breaks SPSC); framing is gomc-private
+### M6 — String `Set()` calls reader-only `hal_port_clear` from the writer side (breaks SPSC); framing is stmak-private
 `pin.go:234-240`; C at `hal_lib.c` (`hal_port_clear` advances the *read* index), contract at `hal.h:916-919`
-**CONFIRMED (contract) / PLAUSIBLE (impact only with a non-gomc peer)**
+**CONFIRMED (contract) / PLAUSIBLE (impact only with a non-stmak peer)**
 
 `Set` does `halPortClear` then `halPortWrite`, but `hal_port_clear` is documented "should only be
 called by a reader" (it moves the read pointer). So the writer mutates the reader's index,
 violating the single-producer/single-consumer invariant the port atomics assume. Within a
-closed gomc-only graph (writers only `Set`, readers only `Get`/peek) the read index is written by
+closed stmak-only graph (writers only `Set`, readers only `Get`/peek) the read index is written by
 one serialized goroutine, so the only visible artifact is an occasional transient empty read —
 **but** if a real C HAL component is `net`-linked to the same port signal, two entities write the
-read index → corrupt readable/writable accounting. Also note the 4-byte length framing is a gomc
+read index → corrupt readable/writable accounting. Also note the 4-byte length framing is a stratuMAK
 invention no C HAL peer understands. **Human to decide:** use the port as intended (writer writes,
-reader commits), or document these string pins as gomc-private and stop clearing from the writer.
+reader commits), or document these string pins as stmak-private and stop clearing from the writer.
 
 ### M7 — `NewPin` accepts `HAL_PORT && IO`, which C rejects; doc lists `IO` as universally valid
 `pin.go:67-104`; C rejects at `hal_lib.c:707`

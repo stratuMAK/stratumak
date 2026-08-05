@@ -117,7 +117,7 @@ esac
 
 TARGET=uspace
 EXTRA_RECOMMENDS=hostmot2-firmware-all
-MODULE_PATH=usr/lib/linuxcnc/modules
+MODULE_PATH=usr/lib/stratumak/modules
 MODULE_EXT=.so
 KERNEL_DEPENDS=libudev-dev,iptables
 KERNEL_DEPENDS_BUILD=libudev-dev

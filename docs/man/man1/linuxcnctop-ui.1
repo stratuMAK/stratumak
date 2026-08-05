@@ -32,10 +32,10 @@ field, with recently changed values highlighted. Above the list are a filter
 box (matching both field names and values), the update rate, a Freeze button, a
 raw\-JSON view and Copy All.
 
-It is a \fBgmcui\fR(1) symlink onto the \fIlinuxcnctop\fR web application, which
+It is a \fBstmakui\fR(1) symlink onto the \fIlinuxcnctop\fR web application, which
 the running controller serves at \fI/app/linuxcnctop/\fR \(em the same page can
-be opened in any browser. The server comes from \fB$GMC_REST_URL\fR (default
-http://127.0.0.1:5080) and the task instance from \fB$GMC_INSTANCE\fR (default
+be opened in any browser. The server comes from \fB$STMAK_REST_URL\fR (default
+http://127.0.0.1:5080) and the task instance from \fB$STMAK_TASK_INSTANCE\fR (default
 \fImilltask\fR).
 
 Lengths are displayed in millimetres, the unit the controller keeps internally,
@@ -48,7 +48,7 @@ arguments it does not recognise, including the legacy \fB\-ini\fR \fIINIFILE\fR.
 .SH OPTIONS
 .TP
 \fB\-\-url\fR \fIURL\fR
-Server URL, overriding \fB$GMC_REST_URL\fR.
+Server URL, overriding \fB$STMAK_REST_URL\fR.
 .TP
 \fB\-\-title\fR \fITITLE\fR
 Window title.
@@ -57,13 +57,13 @@ Window title.
 Initial window size in pixels.
 .SH ENVIRONMENT
 .TP
-.B GMC_REST_URL
+.B STMAK_REST_URL
 Base URL of the controller's REST API.
 .TP
-.B GMC_INSTANCE
+.B STMAK_TASK_INSTANCE
 Task instance to display.
 .SH "SEE ALSO"
-\fBlinuxcnctop(1)\fR, \fBgmcui(1)\fR, \fBLinuxCNC(1)\fR
+\fBlinuxcnctop(1)\fR, \fBstmakui(1)\fR, \fBLinuxCNC(1)\fR
 
 Much more information about LinuxCNC and HAL is available in the LinuxCNC
 and HAL User Manuals, found at /usr/share/doc/LinuxCNC/.

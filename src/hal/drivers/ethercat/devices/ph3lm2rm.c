@@ -37,15 +37,15 @@
 #include "../classes/class_enc.h"
 
 typedef struct {
-  gomc_hal_bit_t *latch_ena_pos;   /**< Enable positive-edge latch output pin. */
-  gomc_hal_bit_t *latch_ena_neg;   /**< Enable negative-edge latch output pin. */
+  stmak_hal_bit_t *latch_ena_pos;   /**< Enable positive-edge latch output pin. */
+  stmak_hal_bit_t *latch_ena_neg;   /**< Enable negative-edge latch output pin. */
 
-  gomc_hal_bit_t *error;           /**< Encoder error status output pin. */
-  gomc_hal_bit_t *latch_valid;     /**< Latch position valid output pin. */
-  gomc_hal_bit_t *latch_state;     /**< Latch state output pin. */
-  gomc_hal_bit_t *latch_state_not; /**< Inverted latch state output pin. */
+  stmak_hal_bit_t *error;           /**< Encoder error status output pin. */
+  stmak_hal_bit_t *latch_valid;     /**< Latch position valid output pin. */
+  stmak_hal_bit_t *latch_state;     /**< Latch state output pin. */
+  stmak_hal_bit_t *latch_state_not; /**< Inverted latch state output pin. */
 
-  gomc_hal_float_t scale;          /**< Position scale parameter (user units per encoder count). */
+  stmak_hal_float_t scale;          /**< Position scale parameter (user units per encoder count). */
 
   lcec_class_enc_data_t enc;  /**< Generic encoder class data for position tracking. */
 
@@ -67,13 +67,13 @@ typedef struct {
 typedef struct {
   lcec_ph3lm2rm_enc_data_t ch; /**< Base encoder channel data. */
 
-  gomc_hal_u32_t *signal_level;         /**< Raw signal level output pin. */
+  stmak_hal_u32_t *signal_level;         /**< Raw signal level output pin. */
 
-  gomc_hal_bit_t *signal_level_warn;    /**< Signal level warning output pin. */
-  gomc_hal_bit_t *signal_level_err;     /**< Signal level error output pin. */
+  stmak_hal_bit_t *signal_level_warn;    /**< Signal level warning output pin. */
+  stmak_hal_bit_t *signal_level_err;     /**< Signal level error output pin. */
 
-  gomc_hal_u32_t signal_level_warn_val; /**< Warning threshold parameter. */
-  gomc_hal_u32_t signal_level_err_val;  /**< Error threshold parameter. */
+  stmak_hal_u32_t signal_level_warn_val; /**< Warning threshold parameter. */
+  stmak_hal_u32_t signal_level_err_val;  /**< Error threshold parameter. */
 
   unsigned int signal_level_os;    /**< PDO byte offset — signal level value. */
 } lcec_ph3lm2rm_lm_data_t;
@@ -82,7 +82,7 @@ typedef struct {
 typedef struct {
   lcec_ph3lm2rm_enc_data_t ch; /**< Base encoder channel data. */
 
-  gomc_hal_bit_t *latch_sel_idx;        /**< Index latch select output pin. */
+  stmak_hal_bit_t *latch_sel_idx;        /**< Index latch select output pin. */
 
   unsigned int latch_sel_idx_os;   /**< PDO byte offset — latch select index. */
   unsigned int latch_sel_idx_bp;   /**< PDO bit position — latch select index. */
@@ -93,8 +93,8 @@ typedef struct {
   lcec_ph3lm2rm_lm_data_t lms[LCEC_PH3LM2RM_LM_COUNT]; /**< Linear-motor channel data array. */
   lcec_ph3lm2rm_rm_data_t rms[LCEC_PH3LM2RM_RM_COUNT]; /**< Rotary-motor channel data array. */
 
-  gomc_hal_bit_t *err_reset;   /**< Error reset input pin. */
-  gomc_hal_bit_t *sync_locked; /**< Synchronisation locked status output pin. */
+  stmak_hal_bit_t *err_reset;   /**< Error reset input pin. */
+  stmak_hal_bit_t *sync_locked; /**< Synchronisation locked status output pin. */
 
   unsigned int err_reset_os;    /**< PDO byte offset — error reset bit. */
   unsigned int err_reset_bp;    /**< PDO bit position — error reset bit. */
@@ -103,42 +103,42 @@ typedef struct {
 } lcec_ph3lm2rm_data_t;
 
 static const lcec_pindesc_t enc_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_ph3lm2rm_enc_data_t, latch_ena_pos), "%s.%s.%s.%s-latch-ena-pos" },
-  { GOMC_HAL_BIT, GOMC_HAL_IO, offsetof(lcec_ph3lm2rm_enc_data_t, latch_ena_neg), "%s.%s.%s.%s-latch-ena-neg" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, error), "%s.%s.%s.%s-error" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_valid), "%s.%s.%s.%s-latch-valid" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_state), "%s.%s.%s.%s-latch-state" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_state_not), "%s.%s.%s.%s-latch-state-not" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_ph3lm2rm_enc_data_t, latch_ena_pos), "%s.%s.%s.%s-latch-ena-pos" },
+  { STMAK_HAL_BIT, STMAK_HAL_IO, offsetof(lcec_ph3lm2rm_enc_data_t, latch_ena_neg), "%s.%s.%s.%s-latch-ena-neg" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, error), "%s.%s.%s.%s-error" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_valid), "%s.%s.%s.%s-latch-valid" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_state), "%s.%s.%s.%s-latch-state" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_enc_data_t, latch_state_not), "%s.%s.%s.%s-latch-state-not" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t enc_params[] = {
-  { GOMC_HAL_FLOAT, GOMC_HAL_RW, offsetof(lcec_ph3lm2rm_enc_data_t, scale), "%s.%s.%s.%s-scale" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_FLOAT, STMAK_HAL_RW, offsetof(lcec_ph3lm2rm_enc_data_t, scale), "%s.%s.%s.%s-scale" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t lm_pins[] = {
-  { GOMC_HAL_U32, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level), "%s.%s.%s.%s-signal-level" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_warn), "%s.%s.%s.%s-signal-level-warn" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_err), "%s.%s.%s.%s-signal-level-err" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level), "%s.%s.%s.%s-signal-level" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_warn), "%s.%s.%s.%s-signal-level-warn" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_err), "%s.%s.%s.%s-signal-level-err" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t lm_params[] = {
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_warn_val), "%s.%s.%s.%s-signal-level-warn-val" },
-  { GOMC_HAL_U32, GOMC_HAL_RW, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_err_val), "%s.%s.%s.%s-signal-level-err-val" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_warn_val), "%s.%s.%s.%s-signal-level-warn-val" },
+  { STMAK_HAL_U32, STMAK_HAL_RW, offsetof(lcec_ph3lm2rm_lm_data_t, signal_level_err_val), "%s.%s.%s.%s-signal-level-err-val" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t rm_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_ph3lm2rm_rm_data_t, latch_sel_idx), "%s.%s.%s.%s-latch-sel-idx" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_ph3lm2rm_rm_data_t, latch_sel_idx), "%s.%s.%s.%s-latch-sel-idx" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_ph3lm2rm_data_t, err_reset), "%s.%s.%s.err-reset" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_ph3lm2rm_data_t, sync_locked), "%s.%s.%s.sync-locked" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_ph3lm2rm_data_t, err_reset), "%s.%s.%s.err-reset" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_ph3lm2rm_data_t, sync_locked), "%s.%s.%s.sync-locked" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /** @brief Initialise encoder HAL pins and parameters for one channel. */
@@ -149,12 +149,12 @@ int lcec_ph3lm2rm_lm_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_ent
 int lcec_ph3lm2rm_rm_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs, int idx, lcec_ph3lm2rm_rm_data_t *hal_data, const char *pfx);
 
 /** @brief HAL read function — update all LM/RM channels from PDO data. */
-void lcec_ph3lm2rm_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ph3lm2rm_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 /** @brief HAL write function — write latch/error-reset bits to PDO data. */
-void lcec_ph3lm2rm_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_ph3lm2rm_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /** @brief Update one encoder channel from process-data image. */
-void lcec_ph3lm2rm_enc_read(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch) GOMC_NONBLOCKING;
+void lcec_ph3lm2rm_enc_read(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch) STMAK_NONBLOCKING;
 /** @brief Write one encoder channel's latch-enable bits to process-data image. */
 void lcec_ph3lm2rm_enc_write(uint8_t *pd, lcec_ph3lm2rm_enc_data_t *ch);
 
@@ -169,7 +169,7 @@ int lcec_ph3lm2rm_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t
   lcec_master_t *master = slave->master;
   const cmod_env_t *env = master->env;
   lcec_ph3lm2rm_data_t *hal_data;
-  char pfx[GOMC_HAL_NAME_LEN];
+  char pfx[STMAK_HAL_NAME_LEN];
   int err;
   int i;
   lcec_ph3lm2rm_rm_data_t *rm;
@@ -198,13 +198,13 @@ int lcec_ph3lm2rm_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t
 
   // init subclasses
   for (i=0, lm = hal_data->lms; i<LCEC_PH3LM2RM_LM_COUNT; i++, lm++) {
-    snprintf(pfx, GOMC_HAL_NAME_LEN, "lm%d", i);
+    snprintf(pfx, STMAK_HAL_NAME_LEN, "lm%d", i);
     if ((err = lcec_ph3lm2rm_lm_init(slave, pdo_entry_regs, 0x10 + i, lm, pfx)) != 0) {
       return err;
     }
   }
   for (i=0, rm = hal_data->rms; i<LCEC_PH3LM2RM_RM_COUNT; i++, rm++) {
-    snprintf(pfx, GOMC_HAL_NAME_LEN, "rm%d", i);
+    snprintf(pfx, STMAK_HAL_NAME_LEN, "rm%d", i);
     if ((err = lcec_ph3lm2rm_rm_init(slave, pdo_entry_regs, 0x20 + i, rm, pfx)) != 0) {
       return err;
     }

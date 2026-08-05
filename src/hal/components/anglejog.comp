@@ -1,4 +1,4 @@
-// based on src/emc/motion/simple_tp.c Author: jmkasunich
+// based on src/cnc/motion/simple_tp.c Author: jmkasunich
 component anglejog """Jog two axes (or joints) at an angle
 
 This component accepts a dynamic counts-in input (typically from a
@@ -150,12 +150,12 @@ FUNCTION(_) {
                 if (   iscale_factor >= MIN_ISCALE_FACTOR
                     && iscale_factor <= MAX_ISCALE_FACTOR) {
                     ifactor = iscale_factor;
-                    GOMC_LOG_DBG("new ifactor=%d\n",ifactor);
+                    STMAK_LOG_DBG("new ifactor=%d\n",ifactor);
                     new_ifactor = 1;
                     gave_msg = 0;
                 } else {
                     if (!gave_msg) {
-                        GOMC_LOG_DBG("BOGUS iscale_factor=%d (min=%d max=%d)\n"
+                        STMAK_LOG_DBG("BOGUS iscale_factor=%d (min=%d max=%d)\n"
                         ,ifactor,MIN_ISCALE_FACTOR,MAX_ISCALE_FACTOR);
                         gave_msg = 1;
                     }

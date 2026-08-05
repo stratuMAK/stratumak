@@ -1,0 +1,50 @@
+
+EMCMODULESRCS := cnc/usr_intf/axis/extensions/emcmodule.cc
+TOGLMODULESRCS := cnc/usr_intf/axis/extensions/_toglmodule.c
+GLHELPERSSRCS := cnc/usr_intf/axis/extensions/glhelpers.cc
+PYSRCS += $(EMCMODULESRCS) $(TOGLMODULESRCS) $(GLHELPERSSRCS)
+
+EMCMODULE := ../lib/python/linuxcnc.so
+TOGLMODULE := ../lib/python/_togl.so
+GLHELPERSMODULE := ../lib/python/_glhelpers.so
+
+$(call TOOBJSDEPS, $(TOGLMODULESRCS)) : EXTRAFLAGS = $(ULFLAGS) $(TCL_CFLAGS)
+
+$(call TOOBJSDEPS, $(EMCMODULESRCS)) : Makefile.inc
+
+# libiniparse linked -l-style, not as a .so.0 path in $^ — see mb2hal's
+# Submakefile for the clang driver trap behind this shape.
+$(EMCMODULE): $(call TOOBJS, $(EMCMODULESRCS)) \
+              ../lib/libiniparse.so.0
+	$(ECHO) Linking python module $(notdir $@)
+	$(Q)$(CXX) $(LDFLAGS) -shared -o $@ $(filter %.o,$^) -L../lib -l:libiniparse.so.0 -lm -lepoxy
+
+$(TOGLMODULE): $(call TOOBJS, $(TOGLMODULESRCS))
+	$(ECHO) Linking python module $(notdir $@)
+	$(Q)$(CC) $(LDFLAGS) -shared -o $@ $(TCL_CFLAGS) $^ -L/usr/X11R6/lib -lX11 -lepoxy -lXmu $(TCL_LIBS)
+
+$(GLHELPERSMODULE): $(call TOOBJS, $(GLHELPERSSRCS))
+	$(ECHO) Linking python module $(notdir $@)
+	$(Q)$(CXX) $(LDFLAGS) -shared -o $@ $^ -lm -lepoxy
+
+PYTARGETS += $(EMCMODULE) $(TOGLMODULE) $(GLHELPERSMODULE)
+
+# linuxcnctop keeps its 2.9 CLI: a launcher that prints the status with -t and
+# otherwise execs bin/linuxcnctop-ui (a stmakui symlink onto the web app).
+# debuglevel is gone: the EMC_DEBUG_* bitmask it set is inert on stmak — the live
+# verbosity knob is the halcmd log level, exposed in halshow.
+PYSCRIPTS := axis.py axis-remote.py linuxcnctop.py manualtoolchange_ui.py \
+	mdi.py image-to-gcode.py lintini.py teach-in.py tracking-test.py
+PYBIN := $(patsubst %.py,../bin/%,$(PYSCRIPTS))
+PYTARGETS += $(PYBIN)
+
+
+$(PYBIN): ../bin/%: cnc/usr_intf/axis/scripts/%.py
+	@$(ECHO) Syntax checking python script $(notdir $@)
+	$(Q)$(PYTHON) -m py_compile $<
+	$(ECHO) Copying python script $(notdir $@)
+	$(Q)(echo '#!$(PYTHON)'; sed '1 { /^#!/d; }' $<) > $@.tmp && chmod +x $@.tmp && mv -f $@.tmp $@
+
+PYI18NSRCS += $(addprefix cnc/usr_intf/axis/scripts/, $(PYSCRIPTS))  \
+	../lib/python/propertywindow.py \
+	../share/axis/tcl/axis.tcl

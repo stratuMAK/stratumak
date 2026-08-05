@@ -1,5 +1,5 @@
 #!/bin/sh
-# Verify an external client program builds and links against the gomc
+# Verify an external client program builds and links against the stratuMAK
 # control-API client library (libgmi).  This replaces the classic NML client
 # build check (which linked the now-removed -lnml -llinuxcnc).
 #

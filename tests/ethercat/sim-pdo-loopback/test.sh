@@ -1,5 +1,5 @@
 #!/bin/bash
-# gomc EtherCAT integration test — PDO value round-trip on the sim transport.
+# stratuMAK EtherCAT integration test — PDO value round-trip on the sim transport.
 #
 # The loopback slave (bus.sim) echoes output process data (SM2) into input
 # process data (SM3), so writing the output PDO HAL pin makes the same value
@@ -15,7 +15,7 @@ halcmd start
 getp() { halcmd getp "$1" 2>/dev/null | awk '{print $NF}'; }
 
 # Wait for OP first (nothing round-trips before the master reaches OP).
-deadline=$(( SECONDS + $(gomc_scale 15) ))
+deadline=$(( SECONDS + $(stmak_scale 15) ))
 while [ $SECONDS -lt $deadline ]; do
     [ "$(getp ethercat.0.all-op)" = TRUE ] && break
     sleep 0.1
@@ -29,7 +29,7 @@ fail=0
 roundtrip() {
     local val=$1 got
     halcmd setp ethercat.0.io.dout "$val" >/dev/null 2>&1
-    local dl=$(( SECONDS + $(gomc_scale 5) ))
+    local dl=$(( SECONDS + $(stmak_scale 5) ))
     while [ $SECONDS -lt $dl ]; do
         got=$(getp ethercat.0.io.din)
         [ "$got" = "$val" ] && break

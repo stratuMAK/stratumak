@@ -1,6 +1,6 @@
 # These are binaries that interact with hardware.
 #
-# gomc-server uses Linux capabilities (setcap) for realtime
+# stmakd uses Linux capabilities (setcap) for realtime
 # privileges instead of setuid.
 
 # One package ships all project libraries; splitting per-soname packages for
@@ -12,10 +12,10 @@
 # hm2_modbus.so/setsserial.so resolve hostmot2.so (same private cmod
 # directory, deliberately no SONAME) via an absolute DT_RPATH. The directory
 # is no loader default and must not be: these are plugins, not public
-# libraries. $ORIGIN is not usable — gomc-server runs with file capabilities
+# libraries. $ORIGIN is not usable — stmakd runs with file capabilities
 # (AT_SECURE), where the loader ignores it.
-@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/linuxcnc/cmod [usr/lib/linuxcnc/cmod/hm2_modbus.so]
-@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/linuxcnc/cmod [usr/lib/linuxcnc/cmod/setsserial.so]
+@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/stratumak/cmod [usr/lib/stratumak/cmod/hm2_modbus.so]
+@MAIN_PACKAGE_NAME@: custom-library-search-path RPATH /usr/lib/stratumak/cmod [usr/lib/stratumak/cmod/setsserial.so]
 
 # Legacy gmoccapy icon set: a handful of its fixed-size PNGs are not exactly
 # the size of their directory. Upstream artwork, cosmetic only.
@@ -38,7 +38,7 @@
 @MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/halsampler]
 @MAIN_PACKAGE_NAME@: shared-library-lacks-prerequisites [usr/bin/halstreamer]
 
-# No override for /usr/bin/gomc-server pointing into /var/lib/stratumak, nor
+# No override for /usr/bin/stmakd pointing into /var/lib/stratumak, nor
 # for the pristine binary living in /usr/libexec: lintian objects to neither,
 # and four overrides written on the assumption that it would were three
 # invented tag names (alien-tag, an error in its own right) and one that never

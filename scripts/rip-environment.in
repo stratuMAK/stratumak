@@ -42,7 +42,7 @@ case "$0" in
 			    $0 command...
 			such as
 			    $0 halrun foo.hal
-			    $0 linuxcnc configs/.../foo.ini
+			    $0 stmakd configs/.../foo.ini
 		EOF
 	exit 1
         fi ;;
@@ -68,9 +68,9 @@ LINUXCNCVERSION="@EMC2VERSION@"; export LINUXCNCVERSION
 LINUXCNC_NCFILES_DIR="@EMC2_NCFILES_DIR@"; export LINUXCNC_NCFILES_DIR
 LINUXCNC_TCL_DIR="@EMC2_TCL_DIR@"; export LINUXCNC_TCL_DIR
 LINUXCNC_EMCSH=@WISH@; export LINUXCNC_EMCSH
-# modcompile bakes in the INSTALLED gomc location, which a run-in-place tree
-# does not have; point it at this tree's source instead. See config.GomcDir().
-GOMC_DIR=$EMC2_HOME/src/gomc; export GOMC_DIR
+# modcompile bakes in the INSTALLED stratuMAK location, which a run-in-place tree
+# does not have; point it at this tree's source instead. See config.StmakDir().
+STMAK_DIR=$EMC2_HOME/src/stmak; export STMAK_DIR
 PATH=@EMC2_BIN_DIR@:$EMC2_HOME/scripts:$EMC2_HOME/tcl:"$PATH"
 GLADE_ICON_THEME_PATH=$EMC2_HOME/share/glade/pixmaps:"$GLADE_ICON_THEME_PATH"; export GLADE_ICON_THEME_PATH
 
@@ -112,7 +112,7 @@ if ! $as_command; then
     # TODO: if these completion directives give trouble for any versions
     # of bash actively in use, protect them with checks of BASH_VERSINFO
     if [ $BASH_VERSINFO -eq 2 ]; then
-        complete -o dirnames -f -X '!*.ini' gomc-server axis mdi
+        complete -o dirnames -f -X '!*.ini' stmakd axis mdi
         complete -o dirnames -f -X '!*.hal' halrun halcmd
         complete -W 'start stop restart status' realtime
         complete -C "halcmd -C" halcmd
@@ -123,7 +123,7 @@ if ! $as_command; then
             *) COMPREPLY=($(compgen -o plusdirs -f -X '!*.ini' -- "$2"))
             esac
         }
-        complete -o plusdirs -F _iningc gomc-server axis
+        complete -o plusdirs -F _iningc stmakd axis
         complete -o plusdirs -f -X '!*.ini' mdi
         complete -o plusdirs -f -X '!*.hal' halrun halcmd
         complete -W 'start stop restart status' realtime

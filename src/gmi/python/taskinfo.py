@@ -104,7 +104,7 @@ def fetch(rest_url: str, instance: str) -> TaskInfo:
         detail = f"HTTP {e.code}"
         if e.code == 404:
             detail += (" — no such instance, or a server too old to serve"
-                       " /info (check GMC_INSTANCE)")
+                       " /info (check STMAK_TASK_INSTANCE)")
             _failure[instance] = InfoUnavailable(f"GET {url} failed: {detail}")
             raise _failure[instance] from e
         # Any other status (a 503 while a runtime load settles, a proxy 502)

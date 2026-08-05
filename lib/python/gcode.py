@@ -67,7 +67,7 @@ def parse(filename, canon, *args):
               f"the preview server; using the stock interpreter", file=sys.stderr)
 
     # Connect to the REST server
-    base_url = os.environ.get("GMC_REST_URL", "http://localhost:5080")
+    base_url = os.environ.get("STMAK_REST_URL", "http://localhost:5080")
     import gmi
     client = NgcpreviewClient(base_url, instance=gmi.preview_instance())
 
@@ -253,7 +253,7 @@ def eval_expression(expr):
     dialogs. Returns (ok, result) where result is a float when ok is True,
     or an error string when ok is False.
     """
-    base_url = os.environ.get("GMC_REST_URL", "http://localhost:5080")
+    base_url = os.environ.get("STMAK_REST_URL", "http://localhost:5080")
     import gmi
     client = NgcpreviewClient(base_url, instance=gmi.preview_instance())
     try:

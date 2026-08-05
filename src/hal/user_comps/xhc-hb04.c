@@ -24,8 +24,8 @@
    Cmod port: hand-written cmod for XHC-HB04 wireless MPG pendant.
  */
 
-#include "gomc_env.h"
-#include "gomc_user.h"
+#include "stmak_env.h"
+#include "stmak_user.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -90,35 +90,35 @@ typedef struct {
 } xhc_button_t;
 
 typedef struct {
-    gomc_hal_float_t *x_wc, *y_wc, *z_wc, *a_wc;
-    gomc_hal_float_t *x_mc, *y_mc, *z_mc, *a_mc;
-    gomc_hal_float_t *feedrate_override, *feedrate;
-    gomc_hal_float_t *spindle_override, *spindle_rps;
-    gomc_hal_bit_t *button_pin[NB_MAX_BUTTONS];
-    gomc_hal_bit_t *jog_enable_off;
-    gomc_hal_bit_t *jog_enable_x;
-    gomc_hal_bit_t *jog_enable_y;
-    gomc_hal_bit_t *jog_enable_z;
-    gomc_hal_bit_t *jog_enable_a;
-    gomc_hal_bit_t *jog_enable_feedrate;
-    gomc_hal_bit_t *jog_enable_spindle;
-    gomc_hal_float_t *jog_scale;
-    gomc_hal_s32_t *jog_counts, *jog_counts_neg;
-    gomc_hal_float_t *jog_velocity;
-    gomc_hal_float_t *jog_max_velocity;
-    gomc_hal_float_t *jog_increment;
-    gomc_hal_bit_t *jog_plus_x, *jog_plus_y, *jog_plus_z, *jog_plus_a;
-    gomc_hal_bit_t *jog_minus_x, *jog_minus_y, *jog_minus_z, *jog_minus_a;
-    gomc_hal_bit_t *stepsize_up;
-    gomc_hal_bit_t *stepsize_down;
-    gomc_hal_s32_t *stepsize;
-    gomc_hal_bit_t *sleeping;
-    gomc_hal_bit_t *connected;
-    gomc_hal_bit_t *require_pendant;
-    gomc_hal_bit_t *inch_icon;
-    gomc_hal_bit_t *zero_x, *zero_y, *zero_z, *zero_a;
-    gomc_hal_bit_t *gotozero_x, *gotozero_y, *gotozero_z, *gotozero_a;
-    gomc_hal_bit_t *half_x, *half_y, *half_z, *half_a;
+    stmak_hal_float_t *x_wc, *y_wc, *z_wc, *a_wc;
+    stmak_hal_float_t *x_mc, *y_mc, *z_mc, *a_mc;
+    stmak_hal_float_t *feedrate_override, *feedrate;
+    stmak_hal_float_t *spindle_override, *spindle_rps;
+    stmak_hal_bit_t *button_pin[NB_MAX_BUTTONS];
+    stmak_hal_bit_t *jog_enable_off;
+    stmak_hal_bit_t *jog_enable_x;
+    stmak_hal_bit_t *jog_enable_y;
+    stmak_hal_bit_t *jog_enable_z;
+    stmak_hal_bit_t *jog_enable_a;
+    stmak_hal_bit_t *jog_enable_feedrate;
+    stmak_hal_bit_t *jog_enable_spindle;
+    stmak_hal_float_t *jog_scale;
+    stmak_hal_s32_t *jog_counts, *jog_counts_neg;
+    stmak_hal_float_t *jog_velocity;
+    stmak_hal_float_t *jog_max_velocity;
+    stmak_hal_float_t *jog_increment;
+    stmak_hal_bit_t *jog_plus_x, *jog_plus_y, *jog_plus_z, *jog_plus_a;
+    stmak_hal_bit_t *jog_minus_x, *jog_minus_y, *jog_minus_z, *jog_minus_a;
+    stmak_hal_bit_t *stepsize_up;
+    stmak_hal_bit_t *stepsize_down;
+    stmak_hal_s32_t *stepsize;
+    stmak_hal_bit_t *sleeping;
+    stmak_hal_bit_t *connected;
+    stmak_hal_bit_t *require_pendant;
+    stmak_hal_bit_t *inch_icon;
+    stmak_hal_bit_t *zero_x, *zero_y, *zero_z, *zero_a;
+    stmak_hal_bit_t *gotozero_x, *gotozero_y, *gotozero_z, *gotozero_a;
+    stmak_hal_bit_t *half_x, *half_y, *half_z, *half_a;
 } xhc_hal_t;
 
 typedef struct {
@@ -166,13 +166,13 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
     if (!inst->button_cfg_file) return 0;
 
     // I=<file> is a configuration path: resolved server-side and required to
-    // stay inside the config / HAL library directories (gomc_path.h).
+    // stay inside the config / HAL library directories (stmak_path.h).
     const char *reserr = NULL;
     const char *cfgpath = inst->env->path->resolve(inst->env->path->ctx,
                                                    inst->button_cfg_file,
-                                                   GOMC_PATH_READ, &reserr);
+                                                   STMAK_PATH_READ, &reserr);
     if (!cfgpath) {
-        gomc_log_errorf(inst->env->log, "xhc-hb04",
+        stmak_log_errorf(inst->env->log, "xhc-hb04",
             "button config %s: %s\n", inst->button_cfg_file,
             reserr ? reserr : "cannot be resolved");
         return -1;
@@ -180,7 +180,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
 
     FILE *fd = fopen(cfgpath, "r");
     if (!fd) {
-        gomc_log_errorf(inst->env->log, "xhc-hb04",
+        stmak_log_errorf(inst->env->log, "xhc-hb04",
             "cannot open button config: %s\n", cfgpath);
         return -1;
     }
@@ -191,7 +191,7 @@ static int read_button_cfg(xhc_hb04_inst_t *inst) {
            (bt = ini_find(fd, "BUTTON", "XHC-HB04", nb_buttons + 1)) != NULL) {
         if (sscanf(bt, "%x:%255s", &inst->xhc.buttons[nb_buttons].code,
                    inst->xhc.buttons[nb_buttons].pin_name) != 2) {
-            gomc_log_errorf(inst->env->log, "xhc-hb04",
+            stmak_log_errorf(inst->env->log, "xhc-hb04",
                 "button config syntax error: %s\n", bt);
             fclose(fd);
             return -1;
@@ -468,22 +468,22 @@ static void *xhc_hb04_loop(void *arg) {
     *(xhc->hal->stepsize) = inst->stepsize_sequence[0];
     *(xhc->hal->require_pendant) = inst->wait_for_pendant ? 1 : 0;
 
-    while (!gomc_should_exit(inst->exit_fd)) {
+    while (!stmak_should_exit(inst->exit_fd)) {
         /* Wait after reconnect */
         if (uctx.do_reconnect) {
             struct pollfd pfd = { .fd = inst->exit_fd, .events = POLLIN };
             poll(&pfd, 1, 5000);
-            if (gomc_should_exit(inst->exit_fd)) break;
+            if (stmak_should_exit(inst->exit_fd)) break;
             uctx.do_reconnect = 0;
         }
 
         int r = libusb_init(&ctx);
         if (r < 0) {
-            gomc_log_errorf(inst->env->log, "xhc-hb04", "libusb_init failed\n");
+            stmak_log_errorf(inst->env->log, "xhc-hb04", "libusb_init failed\n");
             break;
         }
 
-        gomc_log_infof(inst->env->log, "xhc-hb04", "waiting for XHC-HB04 device\n");
+        stmak_log_infof(inst->env->log, "xhc-hb04", "waiting for XHC-HB04 device\n");
         *(xhc->hal->connected) = 0;
 
         /* Poll for device */
@@ -498,28 +498,28 @@ static void *xhc_hb04_loop(void *arg) {
                 poll(&pfd, 1, 1000);
                 wait_count++;
                 if (inst->wait_for_pendant && wait_count > 10) {
-                    gomc_log_errorf(inst->env->log, "xhc-hb04",
+                    stmak_log_errorf(inst->env->log, "xhc-hb04",
                         "pendant not found, timeout\n");
                     libusb_exit(ctx);
                     return NULL;
                 }
             }
-        } while (!dev_handle && !gomc_should_exit(inst->exit_fd));
+        } while (!dev_handle && !stmak_should_exit(inst->exit_fd));
 
-        if (gomc_should_exit(inst->exit_fd)) {
+        if (stmak_should_exit(inst->exit_fd)) {
             libusb_exit(ctx);
             break;
         }
 
         if (dev_handle) {
-            gomc_log_infof(inst->env->log, "xhc-hb04", "found XHC-HB04 device\n");
+            stmak_log_infof(inst->env->log, "xhc-hb04", "found XHC-HB04 device\n");
 
             if (libusb_kernel_driver_active(dev_handle, 0) == 1)
                 libusb_detach_kernel_driver(dev_handle, 0);
 
             r = libusb_claim_interface(dev_handle, 0);
             if (r < 0) {
-                gomc_log_errorf(inst->env->log, "xhc-hb04",
+                stmak_log_errorf(inst->env->log, "xhc-hb04",
                     "libusb_claim_interface failed: %s\n", libusb_strerror(r));
                 libusb_close(dev_handle);
                 libusb_exit(ctx);
@@ -536,7 +536,7 @@ static void *xhc_hb04_loop(void *arg) {
             *(xhc->hal->connected) = 1;
             xhc_set_display(dev_handle, inst);
 
-            while (!gomc_should_exit(inst->exit_fd) && !uctx.do_reconnect) {
+            while (!stmak_should_exit(inst->exit_fd) && !uctx.do_reconnect) {
                 struct timeval tv = { .tv_sec = 0, .tv_usec = 30000 };
                 libusb_handle_events_timeout(ctx, &tv);
                 compute_velocity(inst);
@@ -545,9 +545,9 @@ static void *xhc_hb04_loop(void *arg) {
             }
 
             *(xhc->hal->connected) = 0;
-            gomc_log_infof(inst->env->log, "xhc-hb04", "connection lost\n");
+            stmak_log_infof(inst->env->log, "xhc-hb04", "connection lost\n");
 
-            if (*(xhc->hal->require_pendant) && !gomc_should_exit(inst->exit_fd)) {
+            if (*(xhc->hal->require_pendant) && !stmak_should_exit(inst->exit_fd)) {
                 /* Exit if pendant required but lost */
                 libusb_cancel_transfer(transfer_in);
                 struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
@@ -580,7 +580,7 @@ static void *xhc_hb04_loop(void *arg) {
  * -------------------------------------------------------------------------- */
 
 static int create_hal_pins(xhc_hb04_inst_t *inst) {
-    const gomc_hal_t *hal = inst->env->hal;
+    const stmak_hal_t *hal = inst->env->hal;
     xhc_t *xhc = &inst->xhc;
     int r = 0;
     const char *modname = "xhc-hb04";
@@ -589,78 +589,78 @@ static int create_hal_pins(xhc_hb04_inst_t *inst) {
     if (!xhc->hal) return -1;
     memset(xhc->hal, 0, sizeof(xhc_hal_t));
 
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->x_mc, inst->comp_id, "%s.x.pos-absolute", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->y_mc, inst->comp_id, "%s.y.pos-absolute", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->z_mc, inst->comp_id, "%s.z.pos-absolute", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->a_mc, inst->comp_id, "%s.a.pos-absolute", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->x_mc, inst->comp_id, "%s.x.pos-absolute", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->y_mc, inst->comp_id, "%s.y.pos-absolute", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->z_mc, inst->comp_id, "%s.z.pos-absolute", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->a_mc, inst->comp_id, "%s.a.pos-absolute", modname);
 
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->x_wc, inst->comp_id, "%s.x.pos-relative", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->y_wc, inst->comp_id, "%s.y.pos-relative", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->z_wc, inst->comp_id, "%s.z.pos-relative", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->a_wc, inst->comp_id, "%s.a.pos-relative", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->x_wc, inst->comp_id, "%s.x.pos-relative", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->y_wc, inst->comp_id, "%s.y.pos-relative", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->z_wc, inst->comp_id, "%s.z.pos-relative", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->a_wc, inst->comp_id, "%s.a.pos-relative", modname);
 
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->feedrate, inst->comp_id, "%s.feed-value", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->feedrate_override, inst->comp_id, "%s.feed-override", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->spindle_rps, inst->comp_id, "%s.spindle-rps", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &xhc->hal->spindle_override, inst->comp_id, "%s.spindle-override", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->feedrate, inst->comp_id, "%s.feed-value", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->feedrate_override, inst->comp_id, "%s.feed-override", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->spindle_rps, inst->comp_id, "%s.spindle-rps", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &xhc->hal->spindle_override, inst->comp_id, "%s.spindle-override", modname);
 
     for (int i = 0; i < NB_MAX_BUTTONS; i++) {
         if (!xhc->buttons[i].pin_name[0]) continue;
-        r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->button_pin[i], inst->comp_id,
+        r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->button_pin[i], inst->comp_id,
             "%s.%s", modname, xhc->buttons[i].pin_name);
         if (strcmp("button-zero", xhc->buttons[i].pin_name) == 0) {
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->zero_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->zero_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->zero_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->zero_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->zero_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->zero_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->zero_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->zero_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
         }
         if (strcmp("button-goto-zero", xhc->buttons[i].pin_name) == 0) {
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->gotozero_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->gotozero_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->gotozero_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->gotozero_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->gotozero_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->gotozero_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->gotozero_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->gotozero_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
         }
         if (strcmp("button-half", xhc->buttons[i].pin_name) == 0) {
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->half_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->half_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->half_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
-            r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->half_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->half_x, inst->comp_id, "%s.%s-x", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->half_y, inst->comp_id, "%s.%s-y", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->half_z, inst->comp_id, "%s.%s-z", modname, xhc->buttons[i].pin_name);
+            r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->half_a, inst->comp_id, "%s.%s-a", modname, xhc->buttons[i].pin_name);
         }
         if (strcmp("button-step", xhc->buttons[i].pin_name) == 0)
             xhc->button_step = xhc->buttons[i].code;
     }
 
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->sleeping, inst->comp_id, "%s.sleeping", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->connected, inst->comp_id, "%s.connected", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN,  &xhc->hal->stepsize_up, inst->comp_id, "%s.stepsize-up", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN,  &xhc->hal->stepsize_down, inst->comp_id, "%s.stepsize-down", modname);
-    r |= gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &xhc->hal->stepsize, inst->comp_id, "%s.stepsize", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->require_pendant, inst->comp_id, "%s.require_pendant", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN,  &xhc->hal->inch_icon, inst->comp_id, "%s.inch-icon", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->sleeping, inst->comp_id, "%s.sleeping", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->connected, inst->comp_id, "%s.connected", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN,  &xhc->hal->stepsize_up, inst->comp_id, "%s.stepsize-up", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN,  &xhc->hal->stepsize_down, inst->comp_id, "%s.stepsize-down", modname);
+    r |= stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &xhc->hal->stepsize, inst->comp_id, "%s.stepsize", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->require_pendant, inst->comp_id, "%s.require_pendant", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN,  &xhc->hal->inch_icon, inst->comp_id, "%s.inch-icon", modname);
 
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_off, inst->comp_id, "%s.jog.enable-off", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_x, inst->comp_id, "%s.jog.enable-x", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_y, inst->comp_id, "%s.jog.enable-y", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_z, inst->comp_id, "%s.jog.enable-z", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_a, inst->comp_id, "%s.jog.enable-a", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_feedrate, inst->comp_id, "%s.jog.enable-feed-override", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_enable_spindle, inst->comp_id, "%s.jog.enable-spindle-override", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_off, inst->comp_id, "%s.jog.enable-off", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_x, inst->comp_id, "%s.jog.enable-x", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_y, inst->comp_id, "%s.jog.enable-y", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_z, inst->comp_id, "%s.jog.enable-z", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_a, inst->comp_id, "%s.jog.enable-a", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_feedrate, inst->comp_id, "%s.jog.enable-feed-override", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_enable_spindle, inst->comp_id, "%s.jog.enable-spindle-override", modname);
 
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_scale, inst->comp_id, "%s.jog.scale", modname);
-    r |= gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_counts, inst->comp_id, "%s.jog.counts", modname);
-    r |= gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_counts_neg, inst->comp_id, "%s.jog.counts-neg", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_scale, inst->comp_id, "%s.jog.scale", modname);
+    r |= stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_counts, inst->comp_id, "%s.jog.counts", modname);
+    r |= stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_counts_neg, inst->comp_id, "%s.jog.counts-neg", modname);
 
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_velocity, inst->comp_id, "%s.jog.velocity", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN,  &xhc->hal->jog_max_velocity, inst->comp_id, "%s.jog.max-velocity", modname);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_increment, inst->comp_id, "%s.jog.increment", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_plus_x, inst->comp_id, "%s.jog.plus-x", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_minus_x, inst->comp_id, "%s.jog.minus-x", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_plus_y, inst->comp_id, "%s.jog.plus-y", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_minus_y, inst->comp_id, "%s.jog.minus-y", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_plus_z, inst->comp_id, "%s.jog.plus-z", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_minus_z, inst->comp_id, "%s.jog.minus-z", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_plus_a, inst->comp_id, "%s.jog.plus-a", modname);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_OUT, &xhc->hal->jog_minus_a, inst->comp_id, "%s.jog.minus-a", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_velocity, inst->comp_id, "%s.jog.velocity", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN,  &xhc->hal->jog_max_velocity, inst->comp_id, "%s.jog.max-velocity", modname);
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_increment, inst->comp_id, "%s.jog.increment", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_plus_x, inst->comp_id, "%s.jog.plus-x", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_minus_x, inst->comp_id, "%s.jog.minus-x", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_plus_y, inst->comp_id, "%s.jog.plus-y", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_minus_y, inst->comp_id, "%s.jog.minus-y", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_plus_z, inst->comp_id, "%s.jog.plus-z", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_minus_z, inst->comp_id, "%s.jog.minus-z", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_plus_a, inst->comp_id, "%s.jog.plus-a", modname);
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_OUT, &xhc->hal->jog_minus_a, inst->comp_id, "%s.jog.minus-a", modname);
 
     return r;
 }
@@ -756,7 +756,7 @@ int New(const cmod_env_t *env, const char *name,
     parse_args(inst, argc, argv);
 
     inst->comp_id = env->hal->init(env->hal->ctx, "xhc-hb04",
-                                   env->dl_handle, GOMC_HAL_COMP_USER);
+                                   env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->comp_id < 0) {
         free(inst->button_cfg_file);
         env->rtapi->free(env->rtapi->ctx, inst);

@@ -5,7 +5,7 @@ done under Tier-1 hotspot #4):
 
 - `pkg/inifile` — INI parser (**highest risk**: every customer INI must load identically)
 - `internal/pkgreg` — packages.conf registry + imports_generated.go codegen (build-time)
-- `cmd/gomc-server` — process entry point + flag parsing (thin wrapper over launcher)
+- `cmd/stmakd` — process entry point + flag parsing (thin wrapper over launcher)
 - `internal/config` — compile-time ldflags path vars
 
 Method: primary read-through + oracle comparison against the LinuxCNC 2.9 C parser
@@ -28,13 +28,13 @@ numeric conversion uses `strtod` (stops at the first non-numeric byte).
 
 ### I-1 (parity, HIGH — FIXED): backslash line-continuation was not implemented
 2.9 joins a physical line ending in `\` with the following line(s), up to
-`MAX_EXTEND_LINES` (20). gomc's parser treated every physical line separately, so a
+`MAX_EXTEND_LINES` (20). stratuMAK's parser treated every physical line separately, so a
 continued value was truncated at the `\` and the continuation lines were dropped as
 "unknown lines".
 
 - **Impact:** shipped configs use this — **158 non-comment lines across the config tree**,
   notably the `[DISPLAY]APP = sim_pin \` multi-arg launcher pattern (`ini_hal_demo.ini`,
-  the `ja_tests`, moveoff, qtdragon, …). gomc read `APP` as `sim_pin \` and silently lost
+  the `ja_tests`, moveoff, qtdragon, …). stratuMAK read `APP` as `sim_pin \` and silently lost
   every argument.
 - **Fix (`parser.go` `parseFile`):** a trailing `\` (tested on the untrimmed line, so
   `\`+whitespace is *not* a continuation — matching the C parser's last-byte test) joins
@@ -49,10 +49,10 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
 **factually false**: the 2.9 C parser never strips `;` inline.
 
 - **Impact:** `;` is legitimate **data** — `MDI_COMMAND = G0 Z25;X0 Y0;Z0` chains G-code
-  moves (standard user-button feature in Touchy/Axis/QtDragon/HALUI). gomc silently
+  moves (standard user-button feature in Touchy/Axis/QtDragon/HALUI). stratuMAK silently
   truncated it to `G0 Z25`. **36 shipped occurrences.** A grep of the whole config tree
   found **zero** configs using `;` as an inline comment, so the "feature" was pure downside.
-- **Why `#` stripping was kept:** gomc converts INI numbers with `strconv`/`fmt.Sscanf`.
+- **Why `#` stripping was kept:** stratuMAK converts INI numbers with `strconv`/`fmt.Sscanf`.
   `parseFloat` (`config.go`) uses `Sscanf("%f")`, which is already `strtod`-lenient, so a
   whitespace-preceded `#` on a numeric value (`MAX_VELOCITY = 5 # note`) is handled either
   way. Keeping the narrow, whitespace-preceded `#` strip reproduces 2.9's effective numeric
@@ -71,8 +71,8 @@ Its doc claimed *"Per LinuxCNC convention: a ';' anywhere ... starts an inline c
 
 ### I-3 (parity, LOW — DOCUMENTED, not fixed)
 An `#INCLUDE`d file that *continues* a section without repeating its `[HEADER]` lands its
-keys in an anonymous section under gomc's structural parse, whereas 2.9's textual include
-expansion (`handle_includes`, mirrored by gomc's own `WriteExpanded`) would concatenate
+keys in an anonymous section under stratuMAK's structural parse, whereas 2.9's textual include
+expansion (`handle_includes`, mirrored by stratuMAK's own `WriteExpanded`) would concatenate
 them into the current section. Niche (includes normally carry their own headers); the fix
 has its own reordering risk. Left as a known LOW divergence.
 
@@ -116,7 +116,7 @@ means for discovery. Rationale recorded at the regex.
 
 ---
 
-## cmd/gomc-server — clean; 2 LOW notes (F5 fixed 2026-07-22, F4 left as-is)
+## cmd/stmakd — clean; 2 LOW notes (F5 fixed 2026-07-22, F4 left as-is)
 Thin wrapper over `internal/launcher` (Tier-1-reviewed). Flag/arg handling is correct;
 `-H` validation short-circuits safely; `-d` out-of-range is rejected by `SetDebug`;
 `runtime.LockOSThread()` in `init()` is correct and documented (Boost.Python thread-state).
@@ -171,14 +171,14 @@ Pure ldflags-injected string vars, no logic — but the *injection* is the risk 
 it was untested: `paths_test.go` only asserted that 15 of the 24 vars default to empty.
 - **C-1 (dead `-X`, FIXED):** `go build -ldflags -X pkg.Name=v` **silently does nothing**
   when `Name` does not exist in `pkg` — no warning, no error. The Submakefile injected
-  `-X '$(GOMC_LDFLAGS_PKG).DefaultNmlFile=$(DEFAULT_NMLFILE)'`, and **no Go code has ever
-  declared `DefaultNmlFile`** (an NML-era leftover; gomc has no NML). Removed. Nothing read
+  `-X '$(STMAK_LDFLAGS_PKG).DefaultNmlFile=$(DEFAULT_NMLFILE)'`, and **no Go code has ever
+  declared `DefaultNmlFile`** (an NML-era leftover; stratuMAK has no NML). Removed. Nothing read
   it, so there is no behaviour change — the point is the class: a renamed or removed
   variable leaves the build green while the value it was meant to carry is empty at runtime.
 - **Tests:** `TestLdflagsInjectionTargetsExist` parses the Submakefile's `-X` flags and the
   `paths.go` declarations and fails on any injection with no target (mutation-verified by
   re-adding the `DefaultNmlFile` line), also checking each `-X` is qualified with
-  `$(GOMC_LDFLAGS_PKG)` rather than a literal package path.
+  `$(STMAK_LDFLAGS_PKG)` rather than a literal package path.
   `TestUninjectedVarsAreDocumented` covers the other direction — a declared-but-never-
   injected var is always empty in a real build, legitimate only where the doc comment
   describes a fallback (`Tclsh` → PATH lookup). `TestPathsDefaultValues` is now driven off
@@ -191,5 +191,5 @@ it was untested: `paths_test.go` only asserted that 15 of the 24 vars default to
 
 ## Matrix outcome
 `pkg/inifile`, `internal/pkgreg`: L R F U RC ✅ (FP — / not applicable), S ◐ (human sign).
-`cmd/gomc-server`, `internal/config`: L R F RC ✅ (no fixes needed / clean), U ◐, S ◐.
+`cmd/stmakd`, `internal/config`: L R F RC ✅ (no fixes needed / clean), U ◐, S ◐.
 **Phase 3 review complete** — all rows reviewed; launcher/daemon done under hotspot #4.

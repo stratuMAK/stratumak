@@ -63,8 +63,8 @@ pin out float resistance "Computed resistance of the thermistor.";
 #include <poll.h>
 
 void user_mainloop(void) {
-    int efd = GOMC_EXIT_FD();
-    while (!GOMC_SHOULD_EXIT()) {
+    int efd = STMAK_EXIT_FD();
+    while (!STMAK_SHOULD_EXIT()) {
         FOR_ALL_INSTS() {
             double t0_k = t0_c + 273.15;
             double r_inf;

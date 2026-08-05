@@ -2,7 +2,7 @@
 # A component whose init returns an error must fail to load.
 #
 # Classic used `option rtapi_app no` + a custom rtapi_app_main() returning
-# -ERANGE.  gomc has no rtapi_app / rt-userspace split -- a cmod's New() is its
+# -ERANGE.  stratuMAK has no rtapi_app / rt-userspace split -- a cmod's New() is its
 # init -- so the component fails its init via a failing EXTRA_SETUP instead.
 # When New() returns non-zero, `load` must fail (launcher: "factory returned
 # error code").

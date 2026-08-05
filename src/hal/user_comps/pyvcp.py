@@ -29,7 +29,7 @@
     (default: "pyvcp").
 
     myfile.xml is accepted for backwards compatibility but ignored;
-    the panel XML is fetched from gomc-server which loads the panel
+    the panel XML is fetched from stmakd which loads the panel
     via "load pyvcp" in a HAL file.
 
     -g option allows setting of the initial size and/or position of the panel
@@ -47,7 +47,7 @@ import getopt
 def usage():
     """ prints the usage message """
     print("Usage: pyvcp [-g WIDTHxHEIGHT+XOFFSET+YOFFSET] [-c panel_name] [myfile.xml]")
-    print("Connects to a pyvcp panel already loaded on gomc-server.")
+    print("Connects to a pyvcp panel already loaded on stmakd.")
     print("If the panel name is not specified, 'pyvcp' is used.")
     print("-g options are in pixel units, XOFFSET/YOFFSET is referenced from top left of screen")
     print("use -g WIDTHxHEIGHT for just setting size or -g +XOFFSET+YOFFSET for just position")

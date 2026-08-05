@@ -26,10 +26,10 @@
  * @brief Per-channel HAL data for one EL1859 input/output pair.
  */
 typedef struct {
-  gomc_hal_bit_t *in;       /**< HAL output pin: digital input state. */
-  gomc_hal_bit_t *in_not;   /**< HAL output pin: inverted digital input state. */
-  gomc_hal_bit_t *out;      /**< HAL input pin: digital output command. */
-  gomc_hal_bit_t invert;    /**< HAL parameter: invert output polarity when non-zero. */
+  stmak_hal_bit_t *in;       /**< HAL output pin: digital input state. */
+  stmak_hal_bit_t *in_not;   /**< HAL output pin: inverted digital input state. */
+  stmak_hal_bit_t *out;      /**< HAL input pin: digital output command. */
+  stmak_hal_bit_t invert;    /**< HAL parameter: invert output polarity when non-zero. */
   unsigned int pdo_in_os;  /**< Byte offset of the input PDO entry in the process data image. */
   unsigned int pdo_in_bp;  /**< Bit position within pdo_in_os. */
   unsigned int pdo_out_os; /**< Byte offset of the output PDO entry in the process data image. */
@@ -38,15 +38,15 @@ typedef struct {
 } lcec_el1859_pin_t;
 
 static const lcec_pindesc_t slave_pins[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1859_pin_t, in), "%s.%s.%s.din-%d" },
-  { GOMC_HAL_BIT, GOMC_HAL_OUT, offsetof(lcec_el1859_pin_t, in_not), "%s.%s.%s.din-%d-not" },
-  { GOMC_HAL_BIT, GOMC_HAL_IN, offsetof(lcec_el1859_pin_t, out), "%s.%s.%s.dout-%d" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1859_pin_t, in), "%s.%s.%s.din-%d" },
+  { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_el1859_pin_t, in_not), "%s.%s.%s.din-%d-not" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_el1859_pin_t, out), "%s.%s.%s.dout-%d" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 static const lcec_pindesc_t slave_params[] = {
-  { GOMC_HAL_BIT, GOMC_HAL_RW, offsetof(lcec_el1859_pin_t, invert), "%s.%s.%s.dout-%d-invert" },
-  { GOMC_HAL_TYPE_UNSPECIFIED, GOMC_HAL_DIR_UNSPECIFIED, -1, NULL }
+  { STMAK_HAL_BIT, STMAK_HAL_RW, offsetof(lcec_el1859_pin_t, invert), "%s.%s.%s.dout-%d-invert" },
+  { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 /**
@@ -54,14 +54,14 @@ static const lcec_pindesc_t slave_params[] = {
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1859_read(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1859_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief EtherCAT cyclic write callback — writes digital output values to process data.
  * @param slave  Pointer to the lcec slave structure.
  * @param period Servo period in nanoseconds (unused).
  */
-void lcec_el1859_write(struct lcec_slave *slave, long period) GOMC_NONBLOCKING;
+void lcec_el1859_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialize the EL1859 digital I/O combo slave.

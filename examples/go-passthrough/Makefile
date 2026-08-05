@@ -2,8 +2,8 @@
 #
 # Usage:
 #   make            - verify the module compiles locally
-#   make install    - copy into gomc, register, and rebuild gomc-server
-#   make uninstall  - remove from gomc and rebuild gomc-server
+#   make install    - copy into stmak, register, and rebuild stmakd
+#   make uninstall  - remove from stmak and rebuild stmakd
 #   make clean      - remove local build artifacts
 
 MODULE_NAME ?= passthrough
@@ -27,17 +27,17 @@ check-env:
 compile: check-env go.work
 	@echo "Compiling $(MODULE_NAME)..."
 	CGO_ENABLED=1 \
-	CGO_LDFLAGS="-Wl,-rpath,$(GOMC_LIB_DIR)" \
+	CGO_LDFLAGS="-Wl,-rpath,$(STMAK_LIB_DIR)" \
 	GOTOOLCHAIN=local \
-	$(GOMC_GO) build ./...
+	$(STMAK_GO) build ./...
 	@echo "$(MODULE_NAME) compiles OK"
 
 go.work: go.mod
 	@rm -f go.work go.work.sum
-	GOTOOLCHAIN=local $(GOMC_GO) work init
-	GOTOOLCHAIN=local $(GOMC_GO) work use .
-	GOTOOLCHAIN=local $(GOMC_GO) work edit \
-		-replace github.com/sittner/linuxcnc/src/gomc=$(GOMC_DIR)
+	GOTOOLCHAIN=local $(STMAK_GO) work init
+	GOTOOLCHAIN=local $(STMAK_GO) work use .
+	GOTOOLCHAIN=local $(STMAK_GO) work edit \
+		-replace github.com/stratuMAK/stratumak/src/stmak=$(STMAK_DIR)
 
 install: check-env compile
 	$(MODCOMPILE) add-gomod .

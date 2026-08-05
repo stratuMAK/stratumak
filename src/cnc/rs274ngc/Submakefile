@@ -1,0 +1,65 @@
+INCLUDES += emc cnc/rs274ngc
+
+LIBRS274SRCS := $(addprefix cnc/rs274ngc/, \
+	interp_arc.cc \
+	interp_array.cc \
+	interp_base.cc \
+	interp_check.cc \
+	interp_convert.cc \
+	interp_queue.cc \
+	interp_cycles.cc \
+	interp_execute.cc \
+	interp_ext.cc \
+	interp_find.cc \
+	interp_internal.cc \
+	interp_inverse.cc \
+	interp_read.cc \
+	interp_write.cc \
+	interp_o_word.cc \
+	interp_g7x.cc \
+	modal_state.cc \
+	nurbs_additional_functions.cc \
+	interp_namedparams.cc \
+	interp_python.cc \
+	interp_remap.cc \
+	interp_setup.cc \
+	interp_parameter_io.cc \
+	rs274ngc_pre.cc \
+	interp_inspection.cc \
+	interp_shim.cc)
+USERSRCS += $(LIBRS274SRCS)
+
+$(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-fPIC
+$(call TOOBJSDEPS, $(LIBRS274SRCS)) : EXTRAFLAGS+=-Istmak/generated/gmi/interp_ext -Istmak/generated/gmi/interp_ctx
+
+# interp_internal.hh includes canon_interface.hh which includes the generated canon_api.h
+$(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/canon/canon_api.h
+$(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/interp_ext/interp_ext_api.h stmak/generated/gmi/interp_ctx/interp_ctx_api.h
+
+# interp_ext.h is installed into the flat include directory, and its first act
+# is #include "interp_ext_api.h" — a generated header that lived only inside
+# the stmak tree, so the header we shipped could not be compiled by anyone who
+# had only the include directory we gave them (the in-tree build and modcompile
+# both pass -I into stmak/generated, which is why nothing noticed). Ship the
+# closure next to it: interp_ext_api.h -> interp_ctx_api.h -> stmak_api.h.
+../include/interp_ext_api.h: stmak/generated/gmi/interp_ext/interp_ext_api.h
+	$(Q)cp $< $@
+../include/interp_ctx_api.h: stmak/generated/gmi/interp_ctx/interp_ctx_api.h
+	$(Q)cp $< $@
+../include/stmak_api.h: stmak/pkg/cmodule/stmak_api.h
+	$(Q)cp $< $@
+EXTRA_FLAT_HEADERS += ../include/interp_ext_api.h ../include/interp_ctx_api.h \
+	../include/stmak_api.h
+
+TARGETS += ../lib/librs274.so ../lib/librs274.so.0
+
+../lib/librs274.so.0: $(patsubst %.cc,objects/%.o,$(LIBRS274SRCS))
+	$(ECHO) Linking $(notdir $@)
+	@mkdir -p ../lib
+	@rm -f $@
+	$(CXX) -g $(LDFLAGS) -Wl,-soname,$(notdir $@) -shared -o $@ $^ -lstdc++
+
+$(patsubst ./cnc/rs274ngc/%,../include/%,$(wildcard ./cnc/rs274ngc/*.h)): ../include/%.h: ./cnc/rs274ngc/%.h
+	cp $^ $@
+$(patsubst ./cnc/rs274ngc/%,../include/%,$(wildcard ./cnc/rs274ngc/*.hh)): ../include/%.hh: ./cnc/rs274ngc/%.hh
+	cp $^ $@

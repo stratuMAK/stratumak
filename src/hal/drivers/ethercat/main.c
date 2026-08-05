@@ -36,13 +36,13 @@
 #include "conf_priv.h"
 
 /** @brief Static log context for the EtherCAT library log callback. */
-static const gomc_log_t *lcec_log_g;
+static const stmak_log_t *lcec_log_g;
 /** @brief Static component name for the EtherCAT library log callback. */
 static const char *lcec_name_g;
 
 #ifdef EC_USPACE_MASTER
 /**
- * @brief Log callback that forwards EtherCAT library messages to the gomc log ring.
+ * @brief Log callback that forwards EtherCAT library messages to the stratuMAK log ring.
  */
 static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
   char buf[256];
@@ -54,22 +54,22 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
     buf[--len] = '\0';
   }
 
-  // map syslog levels to gomc log levels
+  // map syslog levels to stratuMAK log levels
   switch (level) {
   case 0: // LOG_EMERG
   case 1: // LOG_ALERT
   case 2: // LOG_CRIT
   case 3: // LOG_ERR
-    gomc_log_errorf(lcec_log_g, lcec_name_g, "%s", buf);
+    stmak_log_errorf(lcec_log_g, lcec_name_g, "%s", buf);
     break;
   case 4: // LOG_WARNING
-    gomc_log_warnf(lcec_log_g, lcec_name_g, "%s", buf);
+    stmak_log_warnf(lcec_log_g, lcec_name_g, "%s", buf);
     break;
   case 7: // LOG_DEBUG
-    gomc_log_debugf(lcec_log_g, lcec_name_g, "%s", buf);
+    stmak_log_debugf(lcec_log_g, lcec_name_g, "%s", buf);
     break;
   default: // LOG_NOTICE, LOG_INFO
-    gomc_log_infof(lcec_log_g, lcec_name_g, "%s", buf);
+    stmak_log_infof(lcec_log_g, lcec_name_g, "%s", buf);
     break;
   }
 }
@@ -78,8 +78,8 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
 static int lcec_parse_config(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf);
 static void lcec_clear_config(lcec_rt_context_t *ctx);
 
-static void lcec_read_all(void *arg, long period) GOMC_NONBLOCKING;
-static void lcec_write_all(void *arg, long period) GOMC_NONBLOCKING;
+static void lcec_read_all(void *arg, long period) STMAK_NONBLOCKING;
+static void lcec_write_all(void *arg, long period) STMAK_NONBLOCKING;
 
 /**
  * @brief Initialise the EtherCAT RT component.
@@ -97,7 +97,7 @@ int lcec_rt_init(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf) {
   int slave_count;
   lcec_master_t *master;
   lcec_slave_t *slave;
-  char name[GOMC_HAL_NAME_LEN + 1];
+  char name[STMAK_HAL_NAME_LEN + 1];
   ec_pdo_entry_reg_t *pdo_entry_regs;
   lcec_slave_sdoconf_t *sdo_config;
   lcec_slave_idnconf_t *idn_config;
@@ -245,19 +245,19 @@ int lcec_rt_init(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf) {
     }
 
     // init hal data
-    snprintf(name, GOMC_HAL_NAME_LEN, "%s.%s", ctx->instance_name, master->name);
+    snprintf(name, STMAK_HAL_NAME_LEN, "%s.%s", ctx->instance_name, master->name);
     if ((master->hal_data = lcec_init_master_hal(env, ctx->comp_id, name, 0)) == NULL) {
       goto fail1;
     }
 
     // export read function
-    snprintf(name, GOMC_HAL_NAME_LEN, "%s.%s.read", ctx->instance_name, master->name);
+    snprintf(name, STMAK_HAL_NAME_LEN, "%s.%s.read", ctx->instance_name, master->name);
     if (env->hal->export_funct(env->hal->ctx, name, lcec_read_master, master, 0, 0, ctx->comp_id) != 0) {
       LCEC_CTX_ERR(ctx, "master %s read funct export failed", master->name);
       goto fail1;
     }
     // export write function
-    snprintf(name, GOMC_HAL_NAME_LEN, "%s.%s.write", ctx->instance_name, master->name);
+    snprintf(name, STMAK_HAL_NAME_LEN, "%s.%s.write", ctx->instance_name, master->name);
     if (env->hal->export_funct(env->hal->ctx, name, lcec_write_master, master, 0, 0, ctx->comp_id) != 0) {
       LCEC_CTX_ERR(ctx, "master %s write funct export failed", master->name);
       goto fail1;
@@ -265,13 +265,13 @@ int lcec_rt_init(lcec_rt_context_t *ctx, LCEC_CONF_OUTBUF_T *buf) {
   }
 
   // export read-all function
-  snprintf(name, GOMC_HAL_NAME_LEN, "%s.read-all", ctx->instance_name);
+  snprintf(name, STMAK_HAL_NAME_LEN, "%s.read-all", ctx->instance_name);
   if (env->hal->export_funct(env->hal->ctx, name, lcec_read_all, ctx, 0, 0, ctx->comp_id) != 0) {
     LCEC_CTX_ERR(ctx, "read-all funct export failed");
     goto fail1;
   }
   // export write-all function
-  snprintf(name, GOMC_HAL_NAME_LEN, "%s.write-all", ctx->instance_name);
+  snprintf(name, STMAK_HAL_NAME_LEN, "%s.write-all", ctx->instance_name);
   if (env->hal->export_funct(env->hal->ctx, name, lcec_write_all, ctx, 0, 0, ctx->comp_id) != 0) {
     LCEC_CTX_ERR(ctx, "write-all funct export failed");
     goto fail1;
@@ -324,12 +324,12 @@ int lcec_rt_start(lcec_rt_context_t *ctx)  {
     if (master->ref_clock_sync_cycles >= 0) {
       lcec_dc_init_r2m(master);
     } else {
-#ifdef GOMC_RTAPI_TASK_PLL_SUPPORT
+#ifdef STMAK_RTAPI_TASK_PLL_SUPPORT
       lcec_dc_init_m2r(master);
 #else
       LCEC_CTX_ERR(ctx,
           "master %s: M2R DC sync mode not available"
-          " (GOMC_RTAPI_TASK_PLL_SUPPORT missing).", master->name);
+          " (STMAK_RTAPI_TASK_PLL_SUPPORT missing).", master->name);
       return -EINVAL;
 #endif
     }

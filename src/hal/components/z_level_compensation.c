@@ -30,10 +30,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "gomc_env.h"
-#include "gomc_hal.h"
-#include "gomc_rtapi.h"
-#include "gomc_log.h"
+#include "stmak_env.h"
+#include "stmak_hal.h"
+#include "stmak_rtapi.h"
+#include "stmak_log.h"
 #include "z_level_compensation_api.h"
 
 #define COMP_NAME "z_level_compensation"
@@ -48,14 +48,14 @@
 
 typedef struct {
     /* HAL pins */
-    gomc_hal_bit_t   *enable_in;
-    gomc_hal_bit_t   *clear;
-    gomc_hal_float_t *x_pos;
-    gomc_hal_float_t *y_pos;
-    gomc_hal_float_t *z_pos;
-    gomc_hal_float_t *fade_height;
-    gomc_hal_s32_t   *counts;
-    gomc_hal_float_t *scale;
+    stmak_hal_bit_t   *enable_in;
+    stmak_hal_bit_t   *clear;
+    stmak_hal_float_t *x_pos;
+    stmak_hal_float_t *y_pos;
+    stmak_hal_float_t *z_pos;
+    stmak_hal_float_t *fade_height;
+    stmak_hal_s32_t   *counts;
+    stmak_hal_float_t *scale;
 } hal_pins_t;
 
 typedef struct {
@@ -168,7 +168,7 @@ static double idw_interpolate(const double *xs, const double *ys,
 static int build_grid(inst_t *inst, const double *xs, const double *ys,
                       const double *zs, int n)
 {
-    const gomc_rtapi_t *rtapi = inst->env->rtapi;
+    const stmak_rtapi_t *rtapi = inst->env->rtapi;
 
     /* Find bounding box */
     double xmin = xs[0], xmax = xs[0];
@@ -188,7 +188,7 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
     inst->y_steps = inst->y_max - inst->y_min + 1;
 
     if (inst->x_steps > MAX_GRID_DIM || inst->y_steps > MAX_GRID_DIM) {
-        gomc_log_errorf(inst->env->log, COMP_NAME,
+        stmak_log_errorf(inst->env->log, COMP_NAME,
                         "grid too large: %d x %d (max %d)",
                         inst->x_steps, inst->y_steps, MAX_GRID_DIM);
         return -1;
@@ -209,7 +209,7 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
     int nx, ny;
     double x0, y0, dx, dy;
     if (detect_regular_grid(xs, ys, n, &nx, &ny, &x0, &y0, &dx, &dy)) {
-        gomc_log_infof(inst->env->log, COMP_NAME,
+        stmak_log_infof(inst->env->log, COMP_NAME,
                        "regular input grid %dx%d, spacing %.1fx%.1f",
                        nx, ny, dx, dy);
 
@@ -254,7 +254,7 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
         }
     } else {
         /* Scattered points — use IDW to fill each grid cell */
-        gomc_log_infof(inst->env->log, COMP_NAME,
+        stmak_log_infof(inst->env->log, COMP_NAME,
                        "scattered input (%d points), using IDW", n);
         for (int gy = 0; gy < inst->y_steps; gy++) {
             double qy = inst->y_min + gy;
@@ -267,7 +267,7 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
     }
 
     inst->grid_valid = 1;
-    gomc_log_infof(inst->env->log, COMP_NAME,
+    stmak_log_infof(inst->env->log, COMP_NAME,
                    "grid loaded: %d x %d mm, bounds [%d..%d, %d..%d]",
                    inst->x_steps, inst->y_steps,
                    inst->x_min, inst->x_max, inst->y_min, inst->y_max);
@@ -282,12 +282,12 @@ static int load_probe_map(inst_t *inst, const char *filename)
 {
     /* The probe-map filename arrives over the GMI load() call, i.e. straight
        off the REST surface, so it is resolved server-side and required to stay
-       inside the config / HAL library directories (gomc_path.h). */
+       inside the config / HAL library directories (stmak_path.h). */
     const char *reserr = NULL;
     const char *path = inst->env->path->resolve(inst->env->path->ctx, filename,
-                                                GOMC_PATH_READ, &reserr);
+                                                STMAK_PATH_READ, &reserr);
     if (!path) {
-        gomc_log_errorf(inst->env->log, COMP_NAME,
+        stmak_log_errorf(inst->env->log, COMP_NAME,
                         "probe file %s: %s", filename,
                         reserr ? reserr : "cannot be resolved");
         inst->grid_valid = 0;
@@ -296,7 +296,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
 
     FILE *f = fopen(path, "r");
     if (!f) {
-        gomc_log_errorf(inst->env->log, COMP_NAME,
+        stmak_log_errorf(inst->env->log, COMP_NAME,
                         "cannot open probe file: %s", path);
         inst->grid_valid = 0;
         return -1;
@@ -321,7 +321,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
         if (n >= cap) {
             cap *= 2;
             if (cap > MAX_PROBE_POINTS) {
-                gomc_log_errorf(inst->env->log, COMP_NAME,
+                stmak_log_errorf(inst->env->log, COMP_NAME,
                                 "too many probe points (max %d)",
                                 MAX_PROBE_POINTS);
                 goto fail;
@@ -340,12 +340,12 @@ static int load_probe_map(inst_t *inst, const char *filename)
     f = NULL;
 
     if (n < 3) {
-        gomc_log_errorf(inst->env->log, COMP_NAME,
+        stmak_log_errorf(inst->env->log, COMP_NAME,
                         "too few probe points (%d, need at least 3)", n);
         goto fail;
     }
 
-    gomc_log_infof(inst->env->log, COMP_NAME,
+    stmak_log_infof(inst->env->log, COMP_NAME,
                    "read %d probe points from %s", n, filename);
 
     int ret = build_grid(inst, xs, ys, zs, n);
@@ -353,7 +353,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
     return ret;
 
 oom:
-    gomc_log_errorf(inst->env->log, COMP_NAME, "out of memory loading probe map");
+    stmak_log_errorf(inst->env->log, COMP_NAME, "out of memory loading probe map");
 fail:
     free(xs); free(ys); free(zs);
     if (f) fclose(f);
@@ -371,11 +371,11 @@ static bool gmi_z_level_compensation_load(void *ctx, const char *filename,
     inst_t *inst = (inst_t *)ctx;
 
     if (!filename || filename[0] == '\0') {
-        gomc_log_errorf(inst->env->log, COMP_NAME, "load: empty filename");
+        stmak_log_errorf(inst->env->log, COMP_NAME, "load: empty filename");
         return false;
     }
     if (scale <= 0.0) {
-        gomc_log_errorf(inst->env->log, COMP_NAME,
+        stmak_log_errorf(inst->env->log, COMP_NAME,
                         "load: scale must be positive (got %g)", scale);
         return false;
     }
@@ -391,7 +391,7 @@ static bool gmi_z_level_compensation_load(void *ctx, const char *filename,
 static bool gmi_z_level_compensation_unload(void *ctx)
 {
     inst_t *inst = (inst_t *)ctx;
-    const gomc_rtapi_t *rtapi = inst->env->rtapi;
+    const stmak_rtapi_t *rtapi = inst->env->rtapi;
 
     inst->grid_valid = 0;
     if (inst->grid) {
@@ -400,7 +400,7 @@ static bool gmi_z_level_compensation_unload(void *ctx)
     }
     *inst->pins->counts = 0;
 
-    gomc_log_infof(inst->env->log, COMP_NAME, "probe map unloaded");
+    stmak_log_infof(inst->env->log, COMP_NAME, "probe map unloaded");
     return true;
 }
 
@@ -493,7 +493,7 @@ static void compensate_funct(void *arg, long period)
 static void inst_destroy(cmod_t *self)
 {
     inst_t *inst = (inst_t *)self;
-    const gomc_rtapi_t *rtapi = inst->env->rtapi;
+    const stmak_rtapi_t *rtapi = inst->env->rtapi;
 
     if (inst->grid)
         rtapi->free(rtapi->ctx, inst->grid);
@@ -509,8 +509,8 @@ static void inst_destroy(cmod_t *self)
 int New(const cmod_env_t *env, const char *name,
         int argc, const char **argv, cmod_t **out)
 {
-    const gomc_hal_t *hal = env->hal;
-    const gomc_rtapi_t *rtapi = env->rtapi;
+    const stmak_hal_t *hal = env->hal;
+    const stmak_rtapi_t *rtapi = env->rtapi;
     (void)argc;
     (void)argv;
 
@@ -522,7 +522,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->out_scale = 0.001;  /* default until load() is called */
 
     /* Init HAL component */
-    int cid = hal->init(hal->ctx, name, env->dl_handle, GOMC_HAL_COMP_REALTIME);
+    int cid = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (cid < 0) goto err;
     inst->comp_id = cid;
 
@@ -532,21 +532,21 @@ int New(const cmod_env_t *env, const char *name,
 
     /* Create pins */
     int r = 0;
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &inst->pins->enable_in, cid,
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &inst->pins->enable_in, cid,
                                 "%s.enable-in", name);
-    r |= gomc_hal_pin_bit_newf(hal, GOMC_HAL_IN, &inst->pins->clear, cid,
+    r |= stmak_hal_pin_bit_newf(hal, STMAK_HAL_IN, &inst->pins->clear, cid,
                                 "%s.clear", name);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &inst->pins->x_pos, cid,
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &inst->pins->x_pos, cid,
                                   "%s.x-pos", name);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &inst->pins->y_pos, cid,
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &inst->pins->y_pos, cid,
                                   "%s.y-pos", name);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &inst->pins->z_pos, cid,
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &inst->pins->z_pos, cid,
                                   "%s.z-pos", name);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_IN, &inst->pins->fade_height, cid,
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_IN, &inst->pins->fade_height, cid,
                                   "%s.fade-height", name);
-    r |= gomc_hal_pin_s32_newf(hal, GOMC_HAL_OUT, &inst->pins->counts, cid,
+    r |= stmak_hal_pin_s32_newf(hal, STMAK_HAL_OUT, &inst->pins->counts, cid,
                                 "%s.counts", name);
-    r |= gomc_hal_pin_float_newf(hal, GOMC_HAL_OUT, &inst->pins->scale, cid,
+    r |= stmak_hal_pin_float_newf(hal, STMAK_HAL_OUT, &inst->pins->scale, cid,
                                   "%s.scale", name);
     if (r) goto err;
 
@@ -557,7 +557,7 @@ int New(const cmod_env_t *env, const char *name,
         inst->api_cb.unload = gmi_z_level_compensation_unload;
         r = z_level_compensation_api_register(env->api, name, &inst->api_cb);
         if (r) {
-            gomc_log_errorf(env->log, COMP_NAME,
+            stmak_log_errorf(env->log, COMP_NAME,
                             "failed to register GMI API: %d", r);
             goto err;
         }

@@ -26,10 +26,8 @@ share/menus/CNC.menu
 share/desktop-directories/linuxcnc-cnc.directory
 share/desktop-directories/linuxcnc-ref.directory
 share/desktop-directories/linuxcnc-doc.directory
-share/linuxcnc/launcher/
+share/stratumak/launcher/
 src/modules.order
-/configs/*/emc.nml
-!/configs/common/emc.nml
 /docs/src/source-highlight/local
 lib/python/gremlin.py
 lib/python/qt5_graphics.py
@@ -64,9 +62,9 @@ configs/**/halshow.preferences
 configs/**/halscope_state.json
 
 # Web app build outputs
-share/gomc/
+share/stmak/
 src/hal/classicladder/classicladder-standalone
-src/share/gomc/webapp/
+src/share/stmak/webapp/
 *.la
 share/bash-completion/
 # Go and npm caches for Debian builds (see debian/rules)

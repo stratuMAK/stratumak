@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# Ported to the gomc REST/WS API (gmi). The old userspace hal.component that
+# Ported to the stratuMAK REST/WS API (gmi). The old userspace hal.component that
 # simulated the toolchanger is replaced by an `h` shim that reads/writes the
 # io handshake signals via halcmd (tool-prepare/tool-prepared/tool-change/
 # tool-changed/tool-number/tool-prep-number/tool-prep-pocket). Interp vars are
 # still read via a (debug,...) -> OPERATOR_DISPLAY message on the error channel.
 
 import gmi
-import gomc_test
+import stmak_test
 from gmi.constants import *
 
 import time
@@ -32,11 +32,11 @@ class HalShim:
 
 h = HalShim()
 
-# gomc_test.Command, not gmi.Command: gmi's wait_complete() reports a timed-out
+# stmak_test.Command, not gmi.Command: gmi's wait_complete() reports a timed-out
 # wait as -1 in a normal 200 body, so the bare c.wait_complete() calls below
 # would silently proceed against an unsettled machine.  The strict subclass
 # raises at the point the sync was actually lost.
-c = gomc_test.Command()
+c = stmak_test.Command()
 s = gmi.Stat()
 e = gmi.ErrorChannel()
 

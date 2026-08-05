@@ -203,7 +203,7 @@ Multiple #INCLUDE directives are supported.
 #INCLUDE ../parallel/joint_1.inc
 #INCLUDE below/joint_2.inc
 #INCLUDE /home/myusername/myincludes/display.inc
-#INCLUDE ~/linuxcnc/myincludes/rs274ngc.inc
+#INCLUDE ~/stratumak/myincludes/rs274ngc.inc
 ----
 
 The #INCLUDE directives are supported for one level of expansion only -- an included file may not include additional files.
@@ -224,7 +224,7 @@ Do _not_ use a file extension of '.ini' for included files.
 * `MACHINE = My Controller` - This is the name of the controller, which is printed out at the top of most graphical interfaces.
   You can put whatever you want here as long as you make it a single line long.
 * `DEBUG = 0` - Debug level 0 means no messages will be printed when LinuxCNC is run from a <<faq:terminal,terminal>>.
-  Debug flags are usually only useful to developers. See src/emc/nml_intf/debugflags.h for other settings.
+  Debug flags are usually only useful to developers. See src/cnc/nml_intf/debugflags.h for other settings.
 
 [[sub:ini:sec:display]]
 === [DISPLAY] Section
@@ -279,7 +279,7 @@ Descriptions of the interfaces are in the Interfaces section of the User Manual.
 * `MAX_SPINDLE_0_SPEED = 20000` - The maximum RPM that can be manually selected.
   On multi spindle machine there will be entries for each spindle number. Only used by the QtVCP-based user interfaces.
   - _deprecated_ - use the [SPINDLE_n] section instead.
-* `PROGRAM_PREFIX = ~/linuxcnc/nc_files` - The default directory for G-code files, named subroutines, and user-defined M-codes.
+* `PROGRAM_PREFIX = ~/stratumak/nc_files` - The default directory for G-code files, named subroutines, and user-defined M-codes.
   The `PROGRAM_PREFIX` directory is searched before the directories listed in `[RS274]SUBROUTINE_PATH` and `[RS274]USER_M_PATH`.
 * `INTRO_GRAPHIC = emc2.gif` - The image shown on the splash screen.
 * `INTRO_TIME = 5` - The maximum time to show the splash screen, in seconds.
@@ -434,7 +434,7 @@ An example of a custom G-code converter located in the linuxcnc directory.
 [source,{ini}]
 ----
 PROGRAM_EXTENSION = .gcode 3D Printer
-  gcode = /home/mill/linuxcnc/convert.py
+  gcode = /home/mill/stratumak/convert.py
 ----
 
 NOTE: The program file associated with an extension must have either the full path to the program or be located in a directory that is on the system path.
@@ -600,7 +600,7 @@ For more information on the motion controller see the <<sec:motion,Motion>> sect
 * `HOMEMOD =` _alternate_homing_module_ [home_parms=value]
   The HOMEMOD variable is optional.  If specified, use a specified (user-built) module instead of the default (homemod).
   Module parameters (home_parms) may be included if supported by the named module.
-  The setting may be overridden from the command line using the -m option ($ linuxcnc -h).
+  The setting may be overridden from the command line using the -m option ($ stmakd -h).
 
 [[sub:ini:sec:task]]
 === [TASK] Section
@@ -881,7 +881,7 @@ LinuxCNC will not know your joint travel limits when using `NO_FORCE_HOMING = 1`
 * `TPMOD =` _alternate_trajectory_planning module_ [tp_parms=value] +
   The `TPMOD` variable is optional.  If specified, use a specified (user-built) module instead of the default (tpmod).
   Module parameters (tp_parms) may be included if supported by the named module.
-  The setting may be overridden from the command line using the -t option ($ linuxcnc -h).
+  The setting may be overridden from the command line using the -t option ($ stmakd -h).
 * `NO_PROBE_JOG_ERROR = 0` - Allow to bypass probe tripped check when you jog manually.
 * `NO_PROBE_HOME_ERROR = 0` - Allow to bypass probe tripped check when homing is in progress.
 

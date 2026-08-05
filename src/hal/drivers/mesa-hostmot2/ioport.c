@@ -195,11 +195,11 @@ void hm2_ioport_cleanup(hostmot2_t *hm2) {
 }
 
 
-static int do_alias(const gomc_hal_t *hal, const char *orig_base,
+static int do_alias(const stmak_hal_t *hal, const char *orig_base,
         const char *alias_base, const char *suffix,
         int (*funct)(void *, const char *, const char *)) {
-    char orig_name[GOMC_HAL_NAME_LEN];
-    char alias_name[GOMC_HAL_NAME_LEN];
+    char orig_name[STMAK_HAL_NAME_LEN];
+    char alias_name[STMAK_HAL_NAME_LEN];
     snprintf(orig_name, sizeof(orig_name), "%s%s", orig_base, suffix);
     snprintf(alias_name, sizeof(alias_name), "%s%s", alias_base, suffix);
     return funct(hal->ctx, orig_name, alias_name);
@@ -239,8 +239,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
         //
 
         // pins
-        r = gomc_hal_pin_bit_newf(hm2->llio->hal, 
-            GOMC_HAL_OUT,
+        r = stmak_hal_pin_bit_newf(hm2->llio->hal, 
+            STMAK_HAL_OUT,
             &(hm2->pin[i].instance->hal.pin.in),
             hm2->llio->comp_id,
             "%s.gpio.%03d.in",
@@ -252,8 +252,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
             return -EINVAL;
         }
 
-        r = gomc_hal_pin_bit_newf(hm2->llio->hal, 
-            GOMC_HAL_OUT,
+        r = stmak_hal_pin_bit_newf(hm2->llio->hal, 
+            STMAK_HAL_OUT,
             &(hm2->pin[i].instance->hal.pin.in_not),
             hm2->llio->comp_id,
             "%s.gpio.%03d.in_not",
@@ -275,8 +275,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
             || (hm2->pin[i].direction_at_start == HM2_PIN_DIR_IS_OUTPUT)
         ) {
 
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, 
-                GOMC_HAL_RW,
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, 
+                STMAK_HAL_RW,
                 &(hm2->pin[i].instance->hal.param.invert_output),
                 hm2->llio->comp_id,
                 "%s.gpio.%03d.invert_output",
@@ -288,8 +288,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
                 return -EINVAL;
             }
 
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, 
-                GOMC_HAL_RW,
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, 
+                STMAK_HAL_RW,
                 &(hm2->pin[i].instance->hal.param.is_opendrain),
                 hm2->llio->comp_id,
                 "%s.gpio.%03d.is_opendrain",
@@ -312,8 +312,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
 
         if (hm2->pin[i].gtag == HM2_GTAG_IOPORT) {
 
-            r = gomc_hal_pin_bit_newf(hm2->llio->hal, 
-                GOMC_HAL_IN,
+            r = stmak_hal_pin_bit_newf(hm2->llio->hal, 
+                STMAK_HAL_IN,
                 &(hm2->pin[i].instance->hal.pin.out),
                 hm2->llio->comp_id,
                 "%s.gpio.%03d.out",
@@ -328,8 +328,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
             *(hm2->pin[i].instance->hal.pin.out) = 0;
 
             // parameters
-            r = gomc_hal_param_bit_newf(hm2->llio->hal, 
-                GOMC_HAL_RW,
+            r = stmak_hal_param_bit_newf(hm2->llio->hal, 
+                STMAK_HAL_RW,
                 &(hm2->pin[i].instance->hal.param.is_output),
                 hm2->llio->comp_id,
                 "%s.gpio.%03d.is_output",
@@ -353,8 +353,8 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
 	    int this_instance = -1;
 	    int total_instances = 0;
 	    count_instances(hm2, i, &this_instance, &total_instances);
-            char orig_base[GOMC_HAL_NAME_LEN];
-            char alias_base[GOMC_HAL_NAME_LEN];
+            char orig_base[STMAK_HAL_NAME_LEN];
+            char alias_base[STMAK_HAL_NAME_LEN];
             size_t ret = snprintf(orig_base, sizeof(orig_base),
                 "%s.gpio.%03d",
                 hm2->llio->name,
@@ -407,7 +407,7 @@ int hm2_ioport_gpio_export_hal(hostmot2_t *hm2) {
 
 
 
-void hm2_ioport_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_print_module(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int i;
     HM2_PRINT("IO Ports: %d\n", hm2->ioport.num_instances);
     if (hm2->ioport.num_instances <= 0) return;
@@ -432,27 +432,27 @@ void hm2_ioport_print_module(hostmot2_t *hm2) GOMC_NONBLOCKING {
 
 
 
-static void hm2_ioport_force_write_ddr(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_ioport_force_write_ddr(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.ddr_addr, hm2->ioport.ddr_reg, size);
     memcpy(hm2->ioport.written_ddr, hm2->ioport.ddr_reg, size);
 }
 
 
-static void hm2_ioport_force_write_output_invert(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_ioport_force_write_output_invert(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.output_invert_addr, hm2->ioport.output_invert_reg, size);
     memcpy(hm2->ioport.written_output_invert, hm2->ioport.output_invert_reg, size);
 }
 
 
-static void hm2_ioport_force_write_open_drain(hostmot2_t *hm2) GOMC_NONBLOCKING {
+static void hm2_ioport_force_write_open_drain(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
     hm2->llio->write(hm2->llio, hm2->ioport.open_drain_addr, hm2->ioport.open_drain_reg, size);
     memcpy(hm2->ioport.written_open_drain, hm2->ioport.open_drain_reg, size);
 }
 
-void hm2_ioport_initialize_ddr(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_initialize_ddr(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -507,7 +507,7 @@ void hm2_ioport_update(hostmot2_t *hm2) {
 }
 
 
-void hm2_ioport_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_force_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int size = hm2->ioport.num_instances * sizeof(uint32_t);
 
     hm2_ioport_update(hm2);
@@ -521,7 +521,7 @@ void hm2_ioport_force_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 }
 
 
-void hm2_ioport_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
 
     hm2_ioport_update(hm2);
@@ -570,7 +570,7 @@ void hm2_ioport_gpio_tram_write_init(hostmot2_t *hm2) {
 // this function sets the HAL pins based on the values in the data_read register buffer
 //
 
-void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -581,7 +581,7 @@ void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
         for (port_pin = 0; port_pin < (int)hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
-            gomc_hal_bit_t bit;
+            stmak_hal_bit_t bit;
 
             bit = (hm2->ioport.data_read_reg[port] >> port_pin) & 0x1;
             *hm2->pin[io_pin].instance->hal.pin.in = bit;
@@ -598,7 +598,7 @@ void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
 // the data_write buffer will get written to the TRAM and thus to the ioport data register by the caller
 // 
 
-void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -620,7 +620,7 @@ void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
 }
 
 
-void hm2_ioport_gpio_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_gpio_read(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
     int port_pin;
 
@@ -639,7 +639,7 @@ void hm2_ioport_gpio_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
         for (port_pin = 0; port_pin < (int)hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
-            gomc_hal_bit_t bit;
+            stmak_hal_bit_t bit;
 
             if (hm2->pin[io_pin].direction != HM2_PIN_DIR_IS_INPUT) continue;
 
@@ -651,7 +651,7 @@ void hm2_ioport_gpio_read(hostmot2_t *hm2) GOMC_NONBLOCKING {
 }
 
 
-void hm2_ioport_gpio_write(hostmot2_t *hm2) GOMC_NONBLOCKING {
+void hm2_ioport_gpio_write(hostmot2_t *hm2) STMAK_NONBLOCKING {
     int port;
     int port_pin;
 

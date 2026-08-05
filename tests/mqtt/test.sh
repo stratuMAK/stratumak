@@ -1,17 +1,17 @@
 #!/bin/bash
-# mqtt test ported to the gomc mqtt-bridge module.
+# mqtt test ported to the stratuMAK mqtt-bridge module.
 #
 # Classic loaded the userspace `mqtt-publisher --dryrun` HAL comp and its DISPLAY
 # (display.py) turned the machine on, homed, moved, and waited for the
 # `mqtt-publisher.lastpublish` pin to tick — proving publication happened without
-# needing a real broker.  gomc's equivalent is the `mqtt-bridge` module
+# needing a real broker.  stratuMAK's equivalent is the `mqtt-bridge` module
 # (internal/mqttbridge); it gained a matching `dryrun` mode + a `publish-count`
 # liveness pin.  Here we load it in dryrun, turn the machine on and jog via gmi,
 # then confirm publish-count advances (i.e. the bridge is publishing).
 set -e
 rm -f simulator.var simulator.var.bak
 
-gomc-server -r simulator.ini >server.log 2>&1 &
+stmakd -r simulator.ini >server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; wait 2>/dev/null' EXIT
 

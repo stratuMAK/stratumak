@@ -50,12 +50,12 @@ FUNCTION(_) {
     if ( divisor > -deadband && divisor < 0 ) {
         out = ( dividend / -deadband );
         if (!error_msg)
-            GOMC_LOG_WARN("DIV2 DIVISOR IS TOO CLOSE TO -ZERO, THEREFORE -DEADBAND IS USED. INCREASE THE DIVISOR, in1.");
+            STMAK_LOG_WARN("DIV2 DIVISOR IS TOO CLOSE TO -ZERO, THEREFORE -DEADBAND IS USED. INCREASE THE DIVISOR, in1.");
         error_msg = 1;
     } else if (divisor >= 0 && divisor < deadband) {
         out = ( dividend / deadband );
         if (!error_msg)
-            GOMC_LOG_WARN("DIV2 DIVISOR IS TOO CLOSE TO +ZERO, THEREFORE +DEADBAND IS USED. INCREASE THE DIVISOR, in1.");
+            STMAK_LOG_WARN("DIV2 DIVISOR IS TOO CLOSE TO +ZERO, THEREFORE +DEADBAND IS USED. INCREASE THE DIVISOR, in1.");
         error_msg = 1;
     } else {
         out = ( dividend / divisor );

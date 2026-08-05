@@ -1,6 +1,6 @@
 # internal/ngcpreview — Tier-2 review findings
 
-Module: `src/gomc/internal/ngcpreview` (server-side G-code preview; replaces the
+Module: `src/stmak/internal/ngcpreview` (server-side G-code preview; replaces the
 classic in-process `gcode` C extension) plus its hand-written Python adapter
 `lib/python/gcode.py`. Classic oracle: 2.9 `gcodemodule.cc`. Reviewed 2026-07-23
 (one adversarial pass, every HIGH re-verified by hand before fixing). Prior
@@ -36,7 +36,7 @@ modal state as initcodes after `task_plan_synch`. Wire unit space is **inches**
   SUBROUTINE_PATH / PROGRAM_PREFIX / RANDOM_TOOLCHANGER / WRAPPED_ROTARY /
   arc tolerances — a remapped M6 or an o-call from SUBROUTINE_PATH failed in
   the preview while the machine executes it fine. **Fix:**
-  `interp_shim_set_ini_accessor` added to `emc/rs274ngc/interp_shim.{h,cc}`
+  `interp_shim_set_ini_accessor` added to `cnc/rs274ngc/interp_shim.{h,cc}`
   (mirrors `_setup.ini_accessor`), Go bridge `ini_accessor.go` (own //export
   names — cgo exports are binary-global), wired before init from the module's
   namespace INI. Mutation test: SUBROUTINE_PATH o-call previews with the INI,

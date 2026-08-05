@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# gomc port: hm2_test is a userspace cmod that logs IDROM validation errors to
-# gomc-server's stderr (not the kernel dmesg), and gomc's one-shot halrun does
+# stratuMAK port: hm2_test is a userspace cmod that logs IDROM validation errors to
+# stmakd's stderr (not the kernel dmesg), and stratuMAK's one-shot halrun does
 # not substitute $(TEST_PATTERN) from the environment — so we generate a HAL
 # file per pattern with a literal test_pattern=N, capture stderr, and grep it
-# for the expected message.  gomc logs the message body without the classic
+# for the expected message.  stratuMAK logs the message body without the classic
 # "hm2/hm2_test.0: " prefix (that is a separate component= tag), so we strip the
 # prefix before grepping but print the full pattern to match ./expected.
 
