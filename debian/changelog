@@ -1,3 +1,26 @@
+stratumak (0.1.1) UNRELEASED; urgency=medium
+
+  * Release builds now take the plain version from the release tag. Tagging
+    v0.1.0 and building it produced 0.1.0+git<count>.g<sha>: the snapshot
+    suffix, which dpkg sorts *above* 0.1.0, so the release ranked below every
+    snapshot leading up to it. debian/update-dch-from-git now also checks the
+    tag against debian/changelog and VERSION and stops the build when they
+    disagree, rather than shipping a package whose version names a different
+    release than the tag it was built from.
+  * modcompile add-gomod no longer copies an external Go module's development
+    stubs into the stratuMAK source tree. It reads the directories from the
+    module's own local replace directives and excludes them from the copy, and
+    a reinstall removes stubs an earlier version left behind. They had been
+    copied in and kept out of the build only because such a stub carries its
+    own go.mod -- deleting that file would have compiled the stubs into stmakd
+    beside the pkg/hal and pkg/inifile they shadow.
+  * modcompile no longer tests external requirements against the pre-rename
+    github.com/sittner/linuxcnc/ module path, which nothing has matched since
+    the rename. A module that dropped its local replace would have written a
+    self-require into stratuMAK's go.mod.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Thu, 06 Aug 2026 12:06:46 +0200
+
 stratumak (0.1.0) UNRELEASED; urgency=medium
 
   * First release under the project's own name. stratumak is derived from
