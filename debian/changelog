@@ -1,3 +1,27 @@
+stratumak (0.1.2) UNRELEASED; urgency=medium
+
+  * stratumak-dev now ships every generated GMI service header on the include
+    path. Only interp_ctx_api.h and interp_ext_api.h reached it before, so an
+    out-of-tree component talking to any other service failed to compile on a
+    header the package already contained -- under share/stratumak/stmak/
+    generated/, which is on no include path. Nothing else about the packaging
+    changes; the headers follow from being in the installed header list.
+  * The branding images moved out of the source-tree root to
+    share/stratumak/images/. Installed paths and file names are unchanged:
+    they still land flat in share/stratumak, so existing configurations,
+    including those naming linuxcnc.gif as INTRO_GRAPHIC, are unaffected.
+  * stepconf and pncconf resolve the wizard image and the application icon
+    from that directory first, falling back to the installed layout as before.
+    A run-in-place tree no longer stages a second copy of linuxcnc-wizard.gif.
+  * Test coverage is now measured from the runtests integration suite driving
+    a real stmakd, and reported for C and Go separately. Instrumentation is
+    opt-in (COVERAGE=1) with no default, and no package build passes it, so a
+    released binary is never instrumented.
+  * README_LINUXCNC.md is removed. It was upstream's project readme, and the
+    build instructions it was cited for are in docs/INSTALL.adoc.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Thu, 06 Aug 2026 17:27:54 +0200
+
 stratumak (0.1.1) UNRELEASED; urgency=medium
 
   * Release builds now take the plain version from the release tag. Tagging
