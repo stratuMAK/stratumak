@@ -1159,12 +1159,29 @@ func cmdAddGomod(dir string, force bool) {
 		os.Exit(1)
 	}
 
+	extMod := readExtGoMod(goModPath)
+
 	// Mirror source directory into external/<name>/, excluding build artifacts
 	// and module boundary files (the copy becomes a sub-package of the stratuMAK module).
 	excludeSet := map[string]bool{
 		".git": true, "go.work": true, "go.work.sum": true,
 		"go.mod": true, "go.sum": true,
 	}
+
+	// Also exclude the module's local replace targets. Those directories hold
+	// development stubs for packages this tree provides for real, so they have
+	// no business in the production source tree: the copy is built as part of
+	// the stratuMAK module, where the replace directive that made them mean
+	// anything is gone and the genuine packages resolve instead.
+	//
+	// Until now a stub survived here only because it carried its own go.mod,
+	// which quietly put it in a nested module and out of the parent's package
+	// loading. That is an accident to rely on — delete the nested go.mod and
+	// the stubs get compiled into stmakd alongside the packages they shadow.
+	for dir := range extMod.localReplaceDirs(absDir) {
+		excludeSet[dir] = true
+	}
+
 	if err := dirMirror(absDir, extDir, excludeSet); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile add-gomod: copying files: %v\n", err)
 		os.Exit(1)
@@ -1172,7 +1189,7 @@ func cmdAddGomod(dir string, force bool) {
 
 	// Extract third-party dependencies from the external module's go.mod
 	// and write them to go.deps for the regenerate-gomod step.
-	writeGoDeps(goModPath, extDir)
+	writeGoDeps(extMod, extDir)
 
 	// Write .origin to track where the source came from.
 	if err := os.WriteFile(originFile, []byte(absDir+"\n"), 0644); err != nil {
@@ -1228,16 +1245,26 @@ func removeStaleExternals(skipName string) {
 	}
 }
 
-// writeGoDeps extracts require directives from an external module's go.mod
-// and writes them to <extDir>/go.deps for use by regenerate-gomod.
-func writeGoDeps(extGoModPath, extDir string) {
+// extGoMod is the part of an external module's go.mod that add-gomod acts on.
+type extGoMod struct {
+	Require []struct {
+		Path    string
+		Version string
+	}
+	Replace []struct {
+		Old struct{ Path string }
+		New struct{ Path string }
+	}
+}
+
+// readExtGoMod parses an external module's go.mod via `go mod edit -json`.
+func readExtGoMod(goModPath string) *extGoMod {
 	gobin := config.GoBinary
 	if gobin == "" {
 		gobin = "go"
 	}
 
-	// Parse external go.mod.
-	editCmd := exec.Command(gobin, "mod", "edit", "-json", extGoModPath)
+	editCmd := exec.Command(gobin, "mod", "edit", "-json", goModPath)
 	editCmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	out, err := editCmd.Output()
 	if err != nil {
@@ -1245,36 +1272,79 @@ func writeGoDeps(extGoModPath, extDir string) {
 		os.Exit(1)
 	}
 
-	var modInfo struct {
-		Require []struct {
-			Path    string
-			Version string
-		}
-		Replace []struct {
-			Old struct{ Path string }
-			New struct{ Path string }
-		}
-	}
-	if err := json.Unmarshal(out, &modInfo); err != nil {
+	var m extGoMod
+	if err := json.Unmarshal(out, &m); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile add-gomod: parsing external go.mod: %v\n", err)
 		os.Exit(1)
 	}
+	return &m
+}
 
-	// Collect local replace targets to skip (stub dirs, etc.)
-	localReplaces := make(map[string]bool)
-	for _, r := range modInfo.Replace {
-		if strings.HasPrefix(r.New.Path, ".") || strings.HasPrefix(r.New.Path, "/") {
-			localReplaces[r.Old.Path] = true
+// isLocalReplace reports whether a replace target names a directory rather
+// than a module version — the form `=> ./stub` or `=> /abs/path`.
+func isLocalReplace(target string) bool {
+	return strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/")
+}
+
+// localReplacePaths returns the set of module paths the external go.mod
+// replaces with a local directory.
+func (m *extGoMod) localReplacePaths() map[string]bool {
+	paths := make(map[string]bool)
+	for _, r := range m.Replace {
+		if isLocalReplace(r.New.Path) {
+			paths[r.Old.Path] = true
 		}
 	}
+	return paths
+}
 
-	// Build go.deps file content.
+// localReplaceDirs returns those local replace targets that live inside
+// moduleDir, as paths relative to it — the directories dirMirror must skip.
+//
+// A target outside moduleDir is not ours to exclude: it was never going to be
+// copied. One that resolves to moduleDir itself is reported and ignored, since
+// honouring it would exclude the whole module.
+func (m *extGoMod) localReplaceDirs(moduleDir string) map[string]bool {
+	dirs := make(map[string]bool)
+	for _, r := range m.Replace {
+		if !isLocalReplace(r.New.Path) {
+			continue
+		}
+		target := r.New.Path
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(moduleDir, target)
+		}
+		rel, err := filepath.Rel(moduleDir, target)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue // outside the mirrored tree
+		}
+		if rel == "." {
+			fmt.Fprintf(os.Stderr,
+				"modcompile add-gomod: warning: %s is replaced by the module directory itself; not excluding\n",
+				r.Old.Path)
+			continue
+		}
+		dirs[rel] = true
+	}
+	return dirs
+}
+
+// writeGoDeps records an external module's third-party requirements in
+// <extDir>/go.deps for the regenerate-gomod step.
+//
+// Two kinds of requirement are deliberately left out. A module replaced by a
+// local directory is a development stub, and the directory backing it is not
+// copied into the tree. And stratuMAK itself is what the copy is being compiled
+// into: emitting that would have the module require itself.
+func writeGoDeps(m *extGoMod, extDir string) {
+	localReplaces := m.localReplacePaths()
+
 	var deps []string
-	for _, req := range modInfo.Require {
+	for _, req := range m.Require {
 		if localReplaces[req.Path] {
 			continue
 		}
-		if strings.HasPrefix(req.Path, "github.com/sittner/linuxcnc/") {
+		if req.Path == pkgreg.GoModule || strings.HasPrefix(req.Path, pkgreg.GoModule+"/") {
 			continue
 		}
 		deps = append(deps, req.Path+" "+req.Version)
@@ -1395,7 +1465,14 @@ func goModTidyIn(dir string) error {
 
 // dirMirror copies srcDir into dstDir, mirroring the contents exactly.
 // Files in dstDir that don't exist in srcDir are deleted (except .origin).
-// Top-level entries whose name is in exclude are skipped during copy.
+//
+// exclude holds slash-free-or-nested paths relative to srcDir; a matching entry
+// is skipped during copy, and a matching directory is skipped whole. Matching
+// the relative path rather than just the first segment is what lets a caller
+// exclude a nested stub directory without also excluding its parent.
+//
+// An excluded entry never enters srcSet, so phase 2 deletes any copy a previous
+// run left behind — that is what retires an already-installed stub.
 func dirMirror(srcDir, dstDir string, exclude map[string]bool) error {
 	// Phase 1: copy / update files from src → dst.
 	srcSet := make(map[string]bool) // relative paths present in source
@@ -1408,9 +1485,8 @@ func dirMirror(srcDir, dstDir string, exclude map[string]bool) error {
 			return nil
 		}
 
-		// Skip excluded top-level entries.
-		topLevel := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-		if exclude[topLevel] {
+		// Skip excluded entries.
+		if exclude[rel] {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}

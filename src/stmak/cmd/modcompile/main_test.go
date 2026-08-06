@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
 // These tests cover the parts of the modcompile CLI that are pure logic: the
@@ -233,12 +235,19 @@ func TestCopyFile(t *testing.T) {
 
 // TestDirMirror covers the two-phase mirror: new/changed files are copied in,
 // files that disappeared from the source are deleted from the destination, and
-// excluded top-level entries are left alone in both directions.
+// excluded entries are left alone in both directions. Exclusion matches the
+// path relative to the source root, so a nested directory can be excluded
+// without taking its parent with it.
 func TestDirMirror(t *testing.T) {
 	base := t.TempDir()
 	src := filepath.Join(base, "src")
 	dst := filepath.Join(base, "dst")
-	for _, d := range []string{src, dst, filepath.Join(src, "pkg"), filepath.Join(src, "skipme")} {
+	for _, d := range []string{
+		src, dst,
+		filepath.Join(src, "pkg"),
+		filepath.Join(src, "skipme"),
+		filepath.Join(src, "keep", "nested"),
+	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", d, err)
 		}
@@ -252,22 +261,25 @@ func TestDirMirror(t *testing.T) {
 	write(filepath.Join(src, "a.go"), "package a")
 	write(filepath.Join(src, "pkg", "b.go"), "package b")
 	write(filepath.Join(src, "skipme", "c.go"), "package c")
+	write(filepath.Join(src, "keep", "d.go"), "package d")
+	write(filepath.Join(src, "keep", "nested", "e.go"), "package e")
 	// A file only in the destination — must be removed by the mirror.
 	write(filepath.Join(dst, "stale.go"), "package stale")
 	// The .origin marker is preserved by contract.
 	write(filepath.Join(dst, ".origin"), "/somewhere")
 
-	exclude := map[string]bool{"skipme": true}
+	exclude := map[string]bool{"skipme": true, filepath.Join("keep", "nested"): true}
 	if err := dirMirror(src, dst, exclude); err != nil {
 		t.Fatalf("dirMirror: %v", err)
 	}
 
-	for _, rel := range []string{"a.go", "pkg/b.go", ".origin"} {
+	// "keep/d.go" proves excluding keep/nested did not exclude its parent.
+	for _, rel := range []string{"a.go", "pkg/b.go", "keep/d.go", ".origin"} {
 		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
 			t.Errorf("%s missing from the mirror: %v", rel, err)
 		}
 	}
-	for _, rel := range []string{"stale.go", "skipme"} {
+	for _, rel := range []string{"stale.go", "skipme", "keep/nested"} {
 		if _, err := os.Stat(filepath.Join(dst, rel)); err == nil {
 			t.Errorf("%s should not be present in the mirror", rel)
 		}
@@ -311,5 +323,116 @@ func TestPrintMakeInc(t *testing.T) {
 
 	if !strings.Contains(out, "=") {
 		t.Errorf("printMakeInc produced no assignments:\n%s", out)
+	}
+}
+
+// TestLocalReplaceDirs covers the mapping from an external module's local
+// replace directives to the directories the mirror must skip. Only targets
+// inside the module are ours to exclude, and the module root itself never is —
+// honouring that would exclude everything.
+func TestLocalReplaceDirs(t *testing.T) {
+	moduleDir := "/home/dev/formula"
+	m := &extGoMod{}
+	add := func(old, new string) {
+		var r struct {
+			Old struct{ Path string }
+			New struct{ Path string }
+		}
+		r.Old.Path = old
+		r.New.Path = new
+		m.Replace = append(m.Replace, r)
+	}
+	add("example.com/stub", "./stmak-stub")            // direct child
+	add("example.com/deep", "./internal/fake")         // nested child
+	add("example.com/abs", moduleDir+"/absolute-stub") // absolute, inside
+	add("example.com/outside", "../shared-stub")       // outside the tree
+	add("example.com/elsewhere", "/opt/other")         // absolute, outside
+	add("example.com/self", ".")                       // the module root
+	add("example.com/versioned", "example.com/other")  // not a local replace
+
+	got := m.localReplaceDirs(moduleDir)
+	want := map[string]bool{
+		"stmak-stub":                      true,
+		filepath.Join("internal", "fake"): true,
+		"absolute-stub":                   true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("localReplaceDirs() = %v; want %v", got, want)
+	}
+	for dir := range want {
+		if !got[dir] {
+			t.Errorf("localReplaceDirs() missing %q (got %v)", dir, got)
+		}
+	}
+}
+
+// TestWriteGoDeps covers the two requirements deliberately left out of go.deps:
+// a module backed by a local stub directory, and stratuMAK itself — emitting
+// the latter would have the module require the module it is compiled into.
+func TestWriteGoDeps(t *testing.T) {
+	m := &extGoMod{}
+	addReq := func(path, version string) {
+		var r struct {
+			Path    string
+			Version string
+		}
+		r.Path, r.Version = path, version
+		m.Require = append(m.Require, r)
+	}
+	addRep := func(old, new string) {
+		var r struct {
+			Old struct{ Path string }
+			New struct{ Path string }
+		}
+		r.Old.Path, r.New.Path = old, new
+		m.Replace = append(m.Replace, r)
+	}
+
+	addReq("github.com/eclipse/paho.golang", "v0.22.0")
+	addReq(pkgreg.GoModule, "v0.0.0")
+	addReq(pkgreg.GoModule+"/pkg/hal", "v0.0.0")
+	addReq("example.com/stubbed", "v1.0.0")
+	addReq("gopkg.in/yaml.v3", "v3.0.1")
+	addRep(pkgreg.GoModule, "./stmak-stub")
+	addRep("example.com/stubbed", "./other-stub")
+
+	dir := t.TempDir()
+	writeGoDeps(m, dir)
+
+	data, err := os.ReadFile(filepath.Join(dir, "go.deps"))
+	if err != nil {
+		t.Fatalf("reading go.deps: %v", err)
+	}
+	got := string(data)
+
+	for _, want := range []string{
+		"github.com/eclipse/paho.golang v0.22.0",
+		"gopkg.in/yaml.v3 v3.0.1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("go.deps missing %q; got:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{pkgreg.GoModule, "example.com/stubbed"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("go.deps must not carry %q; got:\n%s", unwanted, got)
+		}
+	}
+}
+
+// TestWriteGoDepsRemovesStale covers the case where a module that once had
+// third-party requirements no longer does: the old go.deps must go, or the
+// stratuMAK go.mod keeps being regenerated with dependencies nothing needs.
+func TestWriteGoDepsRemovesStale(t *testing.T) {
+	dir := t.TempDir()
+	depsPath := filepath.Join(dir, "go.deps")
+	if err := os.WriteFile(depsPath, []byte("stale.example/dep v1.0.0\n"), 0o644); err != nil {
+		t.Fatalf("seeding go.deps: %v", err)
+	}
+
+	writeGoDeps(&extGoMod{}, dir)
+
+	if _, err := os.Stat(depsPath); !os.IsNotExist(err) {
+		t.Errorf("stale go.deps survived (stat error: %v)", err)
 	}
 }
