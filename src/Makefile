@@ -125,6 +125,33 @@ ifeq ($(RTPREFIX),)
 $(error Makefile.inc must specify RTPREFIX and other variables)
 endif
 
+# ---------------------------------------------------------------------------
+# Coverage instrumentation (opt-in)
+# ---------------------------------------------------------------------------
+#
+# COVERAGE=1 instruments the C build so the runtests suite reports what it
+# actually reaches. It is a make variable and not a configure option on
+# purpose: a package build never passes it, so an instrumented object cannot
+# reach a shipped artifact by any path. Do not give it a default here.
+#
+# It hangs off CC/CXX rather than CFLAGS because the C in this tree is compiled
+# through half a dozen separate flag lists -- CMOD_COMP_CFLAGS, CMOD_KINS_CFLAGS,
+# CMOD_HOME_CFLAGS, HOMEMOD_CMOD_CFLAGS, TPMOD_CMOD_CFLAGS and the main CFLAGS --
+# and every one of them is handed to $(CC). Putting the flag in the compiler
+# itself covers all of them, the shared libraries, and the link step (--coverage
+# pulls in -lgcov), and it reaches the cgo half of stmakd for free, since
+# stmak/Submakefile passes CC="$(CC)" through STMAK_CGOENV.
+#
+# -fprofile-update=atomic is required, not tidiness: HAL runs cyclic components
+# on SCHED_FIFO threads while the Go side runs its own, and the default
+# non-atomic counter updates would race and lose counts. It is the C
+# counterpart of -covermode=atomic on the Go build.
+ifeq ($(COVERAGE),1)
+COVERAGE_FLAGS := --coverage -fprofile-update=atomic
+CC += $(COVERAGE_FLAGS)
+CXX += $(COVERAGE_FLAGS)
+endif
+
 
 cc-option = $(shell if $(CC) $(CFLAGS) $(1) -S -o /dev/null -xc /dev/null \
 	     > /dev/null 2>&1; then echo "$(1)"; fi ;)
@@ -452,15 +479,46 @@ SRCINCLUDED_SOURCES := \
     cnc/tp/spherical_arc.c \
     cnc/tp/tc.c
 
+# ---------------------------------------------------------------------------
+# Generated GMI API headers reach the flat include directory
+# ---------------------------------------------------------------------------
+#
+# A .comp that talks to a GMI service includes that service's generated header
+# by basename — mcode_handler_api.h, tp_api.h — and out-of-tree components are
+# compiled with the include path modcompile reports, which is the flat
+# directory and the cmod headers, nothing else.
+#
+# Only the two headers a shipped header happened to include were being copied
+# there, so every other service's header existed on disk, was shipped in the
+# -dev package under share/stratumak/stmak/generated/, and still could not be
+# included: nothing put its directory on any include path. Building such a
+# component failed on "mcode_handler_api.h: No such file or directory" while
+# the file sat in the installed package.
+#
+# All of them are copied now. Each GMI module adds its own header to TARGETS,
+# so the list follows codegen automatically and a new service needs no change
+# here. The rules are generated per header rather than as one pattern rule
+# because the directory is not derivable from the basename —
+# hal_sampler/hal_sampler_stream_api.h is not hal_sampler_stream/.
+GMI_GEN_API_HEADERS := $(filter stmak/generated/gmi/%_api.h,$(TARGETS))
+
+define GMI_FLAT_API_HEADER_RULE
+../include/$(notdir $(1)): $(1)
+	$$(Q)cp $$< $$@
+endef
+$(foreach h,$(GMI_GEN_API_HEADERS),$(eval $(call GMI_FLAT_API_HEADER_RULE,$(h))))
+
+EXTRA_FLAT_HEADERS += $(patsubst %,../include/%,$(notdir $(GMI_GEN_API_HEADERS)))
+
 # the "headers" target installs all the header files in ../include
 #
 # EXTRA_FLAT_HEADERS carries the ones that must reach the flat include
 # directory without being SRCHEADERS entries: the libgmi public API, and the
-# generated GMI headers that a shipped header includes. They stay out of
-# SRCHEADERS because that list also drives the source-relative install and the
-# basename-collision check below — and a generated header already lives inside
-# the stmak tree that check compares against, so listing it there would report
-# a file as colliding with itself. Submakefiles append; this composes.
+# generated GMI headers. They stay out of SRCHEADERS because that list also
+# drives the source-relative install and the basename-collision check below —
+# and a generated header already lives inside the stmak tree that check
+# compares against, so listing it there would report a file as colliding with
+# itself. Submakefiles append; this composes.
 .PHONY: headers
 HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h))) \
 	$(EXTRA_FLAT_HEADERS)
@@ -805,7 +863,27 @@ install-common: install-dirs
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.9, $(wildcard ../docs/man/man9/*.9)) $(DESTDIR)$(mandir)/man9
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
-	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/stratumak
+	# Branding images. The source directory moved out of the repo root; the
+	# installed layout deliberately did not follow it, and stays flat in
+	# share/stratumak.
+	#
+	# Two reasons. It is the packaged interface -- stepconf and pncconf carry
+	# absolute /usr/share/stratumak fallbacks, and anything outside this tree
+	# that refers to these files refers to them there. And INTRO_GRAPHIC, which
+	# stepconf and pncconf write into every config they generate and which the
+	# shipped sim configs set, names linuxcnc.gif with no directory. Nothing
+	# in this tree reads that key today -- tcl/bin/popimage takes a path
+	# argument and no caller resolves the setting -- so it constrains nothing
+	# at the moment, but the configs carrying it are already in the field.
+	#
+	# In a run-in-place tree the wizards read straight out of images/; there is
+	# no copy of these staged anywhere.
+	#
+	# This covers linuxcnc-wizard.gif too, which install-python used to install
+	# separately -- install-common is the only path to install-python, so the
+	# two ran together and the separate line was a second copy of this one.
+	# The .xcf master beside them is deliberately not matched by this glob.
+	$(FILE) ../share/stratumak/images/*.png ../share/stratumak/images/*.gif $(DESTDIR)$(datadir)/stratumak
 	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/stratumak/hallib
 
 	# install all the sample configs, including subdirs (tar is required on debian systems, and common on others)
@@ -965,7 +1043,6 @@ install-python: install-dirs
 	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(VISMACH_PY)) $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(QTPLASMAC_PY)) $(DESTDIR)$(bindir)
-	$(FILE) ../share/stratumak/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/axis/images/*.{png,gif,xbm,ngc} $(DESTDIR)$(datadir)/axis/images
 	$(FILE) ../share/axis/tcl/*.tcl $(DESTDIR)$(datadir)/axis/tcl
 	$(FILE) ../share/gscreen/images/*.gif $(DESTDIR)$(datadir)/gscreen/images

@@ -179,11 +179,33 @@ STMAK_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_
 # also break build reproducibility; nothing reads it.
 STMAK_BUILDMODE := -buildmode=pie -buildvcs=false
 
+# Coverage instrumentation for the Go half of stmakd (opt-in, COVERAGE=1 —
+# see the block in src/Makefile for why this is a make variable and not a
+# configure option).
+#
+# This is whole-binary coverage (go build -cover, Go 1.20+), not `go test`
+# coverage: what we want to measure is the runtests suite driving the real
+# stmakd, not the unit tests. Each run writes counter files into $GOCOVERDIR,
+# which scripts/collect-coverage merges with `go tool covdata`.
+#
+# -coverpkg=./... is what makes it cover the whole module rather than just
+# cmd/stmakd, which is nearly empty. -covermode=atomic because stmakd is
+# heavily threaded; the default mode races.
+#
+# -tags gcov compiles in the explicit __gcov_dump() call at the end of main.
+# It is not optional: the Go runtime exits with exit_group and never runs C
+# atexit handlers, so without it libgcov discards every counter for the C
+# linked in through cgo and the C half of the report comes out empty.
+# See cmd/stmakd/gcov_dump.go.
+ifeq ($(COVERAGE),1)
+STMAK_GOCOVER := -cover -covermode=atomic -coverpkg=./... -tags gcov
+endif
+
 # Build the stmakd binary.  Generated GMI Go prerequisites are injected
 # by gmi/codegen/Submakefile ($(GMI_ALL_GEN_GO)).
 ../bin/stmakd: $(STMAK_SRC_BASE) $(IMPORTS_GENERATED) ../lib/libposemath.so ../lib/librs274.so Makefile.inc | stmak/go.mod
 	$(ECHO) Building stmakd
-	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/stmakd ./cmd/stmakd
+	$(Q)cd stmak && $(STMAK_CGOENV) $(GO) build $(STMAK_BUILDMODE) $(STMAK_GOCOVER) -ldflags "$(STMAK_LDFLAGS)" -o $(TOP)/bin/stmakd ./cmd/stmakd
 
 # ---------------------------------------------------------------------------
 # ADS XML generator tool — built from cmd/ads-xml-gen within the stmak module

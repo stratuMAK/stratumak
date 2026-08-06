@@ -1,0 +1,54 @@
+# Codecov configuration.
+#
+# Coverage here comes from one place: the runtests integration suite driving a
+# real instrumented stmakd in the rip-and-test job. It is not unit-test
+# coverage, and it is deliberately not a merge gate -- see `informational`
+# below.
+
+coverage:
+  precision: 1
+  round: down
+  # A tree this size moves by fractions of a percent per PR, and a fork that
+  # inherits a large C codebase starts from a low absolute number. Neither is
+  # a useful thing to block a merge on, so both checks report without ever
+  # failing. Revisit once there is enough history to know what a real
+  # regression looks like here.
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# The two halves are reported separately: c is largely inherited LinuxCNC code,
+# go is stmak-owned and newer, and a single blended figure tracks neither.
+#
+# carryforward keeps the last known value for a flag when a run does not upload
+# it, so a transient upload failure reads as "unchanged" rather than as a
+# coverage collapse. The failure itself is not hidden by this -- the upload step
+# goes red in CI when it fails.
+flags:
+  c:
+    carryforward: true
+  go:
+    carryforward: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true
+
+# Paths with no source to attribute coverage to, or that are not production
+# code. src/objects is the build tree: the C generated from .comp components
+# lands there, so its coverage is real but points at files that exist only
+# after a build and have no counterpart in git.
+ignore:
+  - "tests/**"
+  - "docs/**"
+  - "share/**"
+  - "configs/**"
+  - "nc_files/**"
+  - "debian/**"
+  - "src/objects/**"
+  - "**/*_test.go"
+  - "src/stmak/generated/**"

@@ -42,14 +42,15 @@ $(call TOOBJSDEPS, $(LIBRS274SRCS)): stmak/generated/gmi/interp_ext/interp_ext_a
 # had only the include directory we gave them (the in-tree build and modcompile
 # both pass -I into stmak/generated, which is why nothing noticed). Ship the
 # closure next to it: interp_ext_api.h -> interp_ctx_api.h -> stmak_api.h.
-../include/interp_ext_api.h: stmak/generated/gmi/interp_ext/interp_ext_api.h
-	$(Q)cp $< $@
-../include/interp_ctx_api.h: stmak/generated/gmi/interp_ctx/interp_ctx_api.h
-	$(Q)cp $< $@
+# interp_ext_api.h and interp_ctx_api.h used to be copied here by hand, as the
+# two generated GMI headers a shipped header pulls in. src/Makefile now copies
+# every generated GMI header to the flat include directory, so listing them
+# again here would only duplicate a recipe make would then warn about.
+#
+# stmak_api.h stays: it is a cmod header from stmak/pkg/cmodule, not generated.
 ../include/stmak_api.h: stmak/pkg/cmodule/stmak_api.h
 	$(Q)cp $< $@
-EXTRA_FLAT_HEADERS += ../include/interp_ext_api.h ../include/interp_ctx_api.h \
-	../include/stmak_api.h
+EXTRA_FLAT_HEADERS += ../include/stmak_api.h
 
 TARGETS += ../lib/librs274.so ../lib/librs274.so.0
 

@@ -70,3 +70,12 @@ share/bash-completion/
 # Go and npm caches for Debian builds (see debian/rules)
 /.gomodcache/
 /.npmcache/
+
+# Coverage artefacts (COVERAGE=1 builds; see src/Makefile and
+# scripts/collect-coverage). gcc drops .gcno beside the object it describes,
+# which for cmods means cmod/ rather than src/, so these are not confined to
+# the build directories the rest of this file covers.
+*.gcno
+*.gcda
+*.gcov
+/coverage/

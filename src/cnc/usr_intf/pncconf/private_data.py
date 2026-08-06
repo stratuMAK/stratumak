@@ -74,7 +74,12 @@ class Private_Data:
         self._METRIC = 1
 
         self.DATADIR = linuxcnc.SHARE + "/stratumak/pncconf"
-        self.WIZARD = os.path.join(self.DATADIR, "linuxcnc-wizard.gif")
+        # Where the branding images are kept in the source tree. An installed
+        # tree has them flat in share/stratumak, which later candidates cover.
+        self.IMAGEDIR = os.path.join(os.path.abspath(BIN), "..", "share", "stratumak", "images")
+        self.WIZARD = os.path.join(self.IMAGEDIR, "linuxcnc-wizard.gif")
+        if not os.path.isfile(self.WIZARD):
+            self.WIZARD = os.path.join(self.DATADIR, "linuxcnc-wizard.gif")
         if not os.path.isfile(self.WIZARD):
             self.WIZARD = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
         if not os.path.isfile(self.WIZARD):
@@ -84,7 +89,9 @@ class Private_Data:
             self.WIZARD = os.path.join(wizdir, "linuxcnc-wizard.gif")
 
         self.ICONDIR = os.path.join(os.path.abspath(BIN), "..")
-        self.LINUXCNCICON = os.path.join(self.ICONDIR, "linuxcncicon.png")
+        self.LINUXCNCICON = os.path.join(self.IMAGEDIR, "linuxcncicon.png")
+        if not os.path.isfile(self.LINUXCNCICON):
+            self.LINUXCNCICON = os.path.join(self.ICONDIR, "linuxcncicon.png")
         if not os.path.isfile(self.LINUXCNCICON):
             self.LINUXCNCICON = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
         if not os.path.isfile(self.LINUXCNCICON):

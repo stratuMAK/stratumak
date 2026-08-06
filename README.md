@@ -1,5 +1,19 @@
 # stratuMAK — a toolkit for building machine controls
 
+[![Build CI][badge-ci]][ci]
+[![Coverage: C][badge-cov-c]][codecov]
+[![Coverage: Go][badge-cov-go]][codecov]
+[![License: GPL-2.0][badge-gpl]][copying]
+[![Parts: LGPL-2.1][badge-lgpl]][copying-more]
+
+![CNC][badge-cnc]
+![Machine Control][badge-machine-control]
+![Motion Control][badge-motion-control]
+![EtherCAT][badge-ethercat]
+![Real-Time][badge-realtime]
+![PLC][badge-plc]
+![Automation][badge-automation]
+
 > stratuMAK is the infrastructure a machine control needs — real-time
 > execution, hardware abstraction, typed APIs, configuration, tooling — so that
 > building one means working on the machine instead of on the plumbing.
@@ -307,7 +321,7 @@ cd stratumak
 axis
 ```
 
-See [README_LINUXCNC.md](README_LINUXCNC.md) for full build options and
+See [docs/INSTALL.adoc](docs/INSTALL.adoc) for full build options and
 additional configuration.
 
 ## Contributing
@@ -428,3 +442,24 @@ feasible for a small team without massive AI-assisted development (GitHub
 Copilot, Claude). This enabled rapid prototyping, large-scale refactoring, and
 the adversarial review program at a scale that would otherwise require years
 of manual effort.
+
+<!----------------------------------------------------------------------------->
+
+[ci]: https://github.com/stratuMAK/stratumak/actions/workflows/ci.yml
+[codecov]: https://codecov.io/gh/stratuMAK/stratumak
+[copying]: COPYING
+[copying-more]: COPYING.more
+
+[badge-ci]: https://github.com/stratuMAK/stratumak/actions/workflows/ci.yml/badge.svg?branch=main
+[badge-cov-c]: https://codecov.io/gh/stratuMAK/stratumak/branch/main/graph/badge.svg?flag=c&label=coverage%20C
+[badge-cov-go]: https://codecov.io/gh/stratuMAK/stratumak/branch/main/graph/badge.svg?flag=go&label=coverage%20Go
+[badge-gpl]: https://img.shields.io/badge/license-GPL--2.0-blue?style=flat-square
+[badge-lgpl]: https://img.shields.io/badge/parts-LGPL--2.1-blue?style=flat-square
+
+[badge-cnc]: https://img.shields.io/badge/CNC-4c566a?style=flat-square
+[badge-machine-control]: https://img.shields.io/badge/machine_control-4c566a?style=flat-square
+[badge-motion-control]: https://img.shields.io/badge/motion_control-4c566a?style=flat-square
+[badge-ethercat]: https://img.shields.io/badge/EtherCAT-4c566a?style=flat-square
+[badge-realtime]: https://img.shields.io/badge/real--time-4c566a?style=flat-square
+[badge-plc]: https://img.shields.io/badge/PLC-4c566a?style=flat-square
+[badge-automation]: https://img.shields.io/badge/automation-4c566a?style=flat-square
