@@ -125,6 +125,33 @@ ifeq ($(RTPREFIX),)
 $(error Makefile.inc must specify RTPREFIX and other variables)
 endif
 
+# ---------------------------------------------------------------------------
+# Coverage instrumentation (opt-in)
+# ---------------------------------------------------------------------------
+#
+# COVERAGE=1 instruments the C build so the runtests suite reports what it
+# actually reaches. It is a make variable and not a configure option on
+# purpose: a package build never passes it, so an instrumented object cannot
+# reach a shipped artifact by any path. Do not give it a default here.
+#
+# It hangs off CC/CXX rather than CFLAGS because the C in this tree is compiled
+# through half a dozen separate flag lists -- CMOD_COMP_CFLAGS, CMOD_KINS_CFLAGS,
+# CMOD_HOME_CFLAGS, HOMEMOD_CMOD_CFLAGS, TPMOD_CMOD_CFLAGS and the main CFLAGS --
+# and every one of them is handed to $(CC). Putting the flag in the compiler
+# itself covers all of them, the shared libraries, and the link step (--coverage
+# pulls in -lgcov), and it reaches the cgo half of stmakd for free, since
+# stmak/Submakefile passes CC="$(CC)" through STMAK_CGOENV.
+#
+# -fprofile-update=atomic is required, not tidiness: HAL runs cyclic components
+# on SCHED_FIFO threads while the Go side runs its own, and the default
+# non-atomic counter updates would race and lose counts. It is the C
+# counterpart of -covermode=atomic on the Go build.
+ifeq ($(COVERAGE),1)
+COVERAGE_FLAGS := --coverage -fprofile-update=atomic
+CC += $(COVERAGE_FLAGS)
+CXX += $(COVERAGE_FLAGS)
+endif
+
 
 cc-option = $(shell if $(CC) $(CFLAGS) $(1) -S -o /dev/null -xc /dev/null \
 	     > /dev/null 2>&1; then echo "$(1)"; fi ;)

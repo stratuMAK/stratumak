@@ -80,7 +80,13 @@ func main() {
 	// Must precede any HAL or component initialization.
 	halcmd.RtapiInitializeApp()
 
-	os.Exit(run(os.Args[1:]))
+	code := run(os.Args[1:])
+
+	// Flush gcov counters before the runtime exits. A no-op unless built
+	// -tags gcov; see gcov_dump.go for why it cannot be left to atexit.
+	gcovDump()
+
+	os.Exit(code)
 }
 
 func run(args []string) int {

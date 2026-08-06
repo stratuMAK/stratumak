@@ -49,17 +49,51 @@ jobs:
       with:
         go-version: '1.24.x'
         cache: false
+    # COVERAGE=1 instruments this build so the suite below reports what it
+    # reaches. It rides the run that was happening anyway rather than adding a
+    # second one. The flag is a make variable with no default (see the block in
+    # src/Makefile), and the package jobs build from clean sources without it,
+    # so nothing instrumented can reach a shipped artifact.
+    #
+    # rip-and-test-clang runs this same suite uninstrumented on every push to
+    # main, so an uninstrumented full-suite run still exists, at no extra cost.
     - name: Build RIP & test
+      env:
+        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: |
         set -x
         sudo apt-get install -y eatmydata
         eatmydata ./scripts/travis-install-build-deps.sh
+        eatmydata sudo apt-get install -y lcov
+        mkdir -p "$GOCOVERDIR"
         cd src
         eatmydata ./autogen.sh
         eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
-        eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
+        eatmydata make COVERAGE=1 -O -j$((1+$(nproc))) default pycheck V=1
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
+    - name: Collect coverage
+      # Coverage is reporting, not a gate: a failure here must not turn a green
+      # suite red. The suite's own result is the pass/fail signal.
+      if: always()
+      continue-on-error: true
+      env:
+        GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
+      run: ./scripts/collect-coverage
+    - name: Upload coverage to Codecov
+      if: always()
+      continue-on-error: true
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/c.info,./coverage/go.txt
+        flags: runtests
+        name: rip-and-test
+        # disable_search: only the two reports collect-coverage produced should
+        # be uploaded. Left on, the action also sweeps the tree and finds the
+        # raw .gcov/.info leftovers, double-counting them under a second name.
+        disable_search: true
+        fail_ci_if_error: false
     - name: Upload failure logs
       if: failure()
       uses: actions/upload-artifact@v4
