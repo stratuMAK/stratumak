@@ -12,6 +12,53 @@ fi
 DEB_VERSION=$(git show HEAD:debian/changelog | head -1 | sed 's/.*(\(.*\)).*/\1/')
 BASE_VERSION=${DEB_VERSION%%+git*}
 
+# A commit carrying a release tag is a release, and its packages take the plain
+# version: 0.1.0, not 0.1.0+git31788.g4075edfc153b. The suffix exists to tell
+# snapshots apart and to keep them sorting below the release they lead up to,
+# and dpkg orders "0.1.0+git..." *above* "0.1.0" — so leaving it on a release
+# would both mislabel the package and make the release look like an upgrade
+# from itself.
+#
+# --match keeps this to release-shaped tags. Without it any tag on the commit
+# would be read as a release, and an unrelated one would fail the check below.
+RELEASE_TAG=$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)
+
+if [ -n "$RELEASE_TAG" ]; then
+    NEW_DEB_VERSION=${RELEASE_TAG#v}
+
+    # The tag and the changelog must agree. They are set by hand, in separate
+    # steps, and when they disagree the package silently carries a version that
+    # names a different release than the tag it was built from.
+    if [ "$NEW_DEB_VERSION" != "$BASE_VERSION" ]; then
+        echo "tag $RELEASE_TAG and debian/changelog ($DEB_VERSION) disagree." >&2
+        echo "Set the changelog version to $NEW_DEB_VERSION, or move the tag." >&2
+        exit 1
+    fi
+
+    # VERSION feeds EMC2VERSION, which is what the UIs report. A release whose
+    # package and UI claim different versions is a support problem later.
+    FILE_VERSION=$(git show HEAD:VERSION | tr -d '[:space:]')
+    if [ "$FILE_VERSION" != "$NEW_DEB_VERSION" ]; then
+        echo "tag $RELEASE_TAG and VERSION ($FILE_VERSION) disagree." >&2
+        echo "Set VERSION to $NEW_DEB_VERSION, or move the tag." >&2
+        exit 1
+    fi
+
+    # The changelog already names this version, so there is no entry to add.
+    # Finalise it if it is still UNRELEASED: the build stamps the distribution
+    # from this line, and a release must not go out marked unreleased.
+    # set -e is not in force yet, so check dch explicitly: a silent failure
+    # here would exit 0 having left the release marked UNRELEASED.
+    if git show HEAD:debian/changelog | head -1 | grep -q 'UNRELEASED'; then
+        if ! dch -r --nomultimaint ""; then
+            echo "dch -r failed; debian/changelog is still UNRELEASED" >&2
+            exit 1
+        fi
+    fi
+    echo "release $RELEASE_TAG: debian/changelog stays at $NEW_DEB_VERSION"
+    exit 0
+fi
+
 GIT_COUNT=$(git rev-list --count HEAD)
 GIT_SHA=$(git rev-parse --short=12 HEAD)
 NEW_DEB_VERSION="${BASE_VERSION}+git${GIT_COUNT}.g${GIT_SHA}"
