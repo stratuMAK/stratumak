@@ -198,7 +198,19 @@ jobs:
     - uses: actions/setup-node@v7
       with:
         node-version: '20'
+    # GOTOOLCHAIN=auto for this step only. setup-go v6 and later export
+    # GOTOOLCHAIN=local, which is what we want for the project itself -- the Go
+    # version is pinned above precisely so a build never pauses to fetch a
+    # toolchain -- but this step builds a lint tool, not the project, and
+    # golangci-lint's own module requires a newer Go than the one we pin. Under
+    # GOTOOLCHAIN=local, go install refuses instead of fetching what the tool
+    # needs, and the step fails with "requires go >= 1.25.0".
+    #
+    # Scoped to the step so the pinned toolchain still governs everything that
+    # compiles stratuMAK.
     - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/stmak/Submakefile)
+      env:
+        GOTOOLCHAIN: auto
       run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
     - name: Build RIP
       run: |
