@@ -19,7 +19,7 @@ STEPCONF_GLADEFILES := \
 	axisa.glade \
 	finished.glade \
 
-PYTARGETS += ../bin/stepconf  ../lib/python/stepconf/__init__.py ../share/stratumak/linuxcnc-wizard.gif $(patsubst %,../lib/python/stepconf/%.py,$(STEPCONF_MODULES)) \
+PYTARGETS += ../bin/stepconf  ../lib/python/stepconf/__init__.py $(patsubst %,../lib/python/stepconf/%.py,$(STEPCONF_MODULES)) \
 	$(patsubst %, ../share/stratumak/stepconf/%, $(STEPCONF_GLADEFILES)) \
 
 PYI18NSRCS += cnc/usr_intf/stepconf/stepconf.py $(patsubst %,cnc/usr_intf/stepconf/%.py,$(STEPCONF_MODULES)) \
@@ -41,14 +41,6 @@ PYI18NSRCS += cnc/usr_intf/stepconf/stepconf.py $(patsubst %,cnc/usr_intf/stepco
 	$(ECHO) Copying glade file $(notdir $@)
 	$(Q)mkdir -p $(dir $@)
 	$(Q)cp -f $< $@
-
-# stepconf and pncconf load the wizard image from the share directory itself,
-# not from images/ (stepconf.py joins it onto datadir, pncconf onto DATADIR),
-# so a run-in-place tree still needs the copy one level up. qtvcp is unrelated
-# here: it has its own copy under lib/python/qtvcp/widgets/widget_icons/.
-../share/stratumak/linuxcnc-wizard.gif: ../share/stratumak/images/linuxcnc-wizard.gif
-	$(ECHO) Copying $(notdir $@)
-	$(Q)cp $< $@
 
 ../bin/stepconf: cnc/usr_intf/stepconf/stepconf.py
 	@$(ECHO) Syntax checking python script $(notdir $@)

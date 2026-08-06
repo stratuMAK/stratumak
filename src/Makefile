@@ -832,12 +832,21 @@ install-common: install-dirs
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.9, $(wildcard ../docs/man/man9/*.9)) $(DESTDIR)$(mandir)/man9
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
-	# Branding images. They install flat into share/stratumak/ because that is
-	# where they are looked up from: INTRO_GRAPHIC names linuxcnc.gif with no
-	# directory, in every config stepconf and pncconf generate and in the sim
-	# configs shipped here, and stepconf and pncconf join linuxcnc-wizard.gif
-	# onto that same directory. The source moved out of the repo root; the
-	# installed layout must not follow it.
+	# Branding images. The source directory moved out of the repo root; the
+	# installed layout deliberately did not follow it, and stays flat in
+	# share/stratumak.
+	#
+	# Two reasons. It is the packaged interface -- stepconf and pncconf carry
+	# absolute /usr/share/stratumak fallbacks, and anything outside this tree
+	# that refers to these files refers to them there. And INTRO_GRAPHIC, which
+	# stepconf and pncconf write into every config they generate and which the
+	# shipped sim configs set, names linuxcnc.gif with no directory. Nothing
+	# in this tree reads that key today -- tcl/bin/popimage takes a path
+	# argument and no caller resolves the setting -- so it constrains nothing
+	# at the moment, but the configs carrying it are already in the field.
+	#
+	# In a run-in-place tree the wizards read straight out of images/; there is
+	# no copy of these staged anywhere.
 	#
 	# This covers linuxcnc-wizard.gif too, which install-python used to install
 	# separately -- install-common is the only path to install-python, so the

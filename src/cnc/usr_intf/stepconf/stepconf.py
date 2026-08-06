@@ -88,15 +88,22 @@ gettext.bindtextdomain(domain, LOCALEDIR)
 
 datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "stratumak","stepconf")
 main_datadir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "share", "stratumak")
-wizard = os.path.join(datadir, "linuxcnc-wizard.gif")
+# Where the branding images are kept in the source tree. An installed tree has
+# them flat in share/stratumak instead, which the later candidates cover.
+imagedir = os.path.join(main_datadir, "images")
+wizard = os.path.join(imagedir, "linuxcnc-wizard.gif")
+if not os.path.isfile(wizard):
+    wizard = os.path.join(datadir, "linuxcnc-wizard.gif")
 if not os.path.isfile(wizard):
     wizard = os.path.join(main_datadir, "linuxcnc-wizard.gif")
 if not os.path.isfile(wizard):
-    print("cannot find linuxcnc-wizard.gif, looked in %s and %s" % (datadir, main_datadir))
+    print("cannot find linuxcnc-wizard.gif, looked in %s, %s and %s" % (imagedir, datadir, main_datadir))
     sys.exit(1)
 
 icondir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..")
-linuxcncicon = os.path.join(icondir, "linuxcncicon.png")
+linuxcncicon = os.path.join(imagedir, "linuxcncicon.png")
+if not os.path.isfile(linuxcncicon):
+    linuxcncicon = os.path.join(icondir, "linuxcncicon.png")
 if not os.path.isfile(linuxcncicon):
     linuxcncicon = os.path.join("/etc/stratumak/linuxcnc-wizard.gif")
 if not os.path.isfile(linuxcncicon):
