@@ -479,15 +479,46 @@ SRCINCLUDED_SOURCES := \
     cnc/tp/spherical_arc.c \
     cnc/tp/tc.c
 
+# ---------------------------------------------------------------------------
+# Generated GMI API headers reach the flat include directory
+# ---------------------------------------------------------------------------
+#
+# A .comp that talks to a GMI service includes that service's generated header
+# by basename — mcode_handler_api.h, tp_api.h — and out-of-tree components are
+# compiled with the include path modcompile reports, which is the flat
+# directory and the cmod headers, nothing else.
+#
+# Only the two headers a shipped header happened to include were being copied
+# there, so every other service's header existed on disk, was shipped in the
+# -dev package under share/stratumak/stmak/generated/, and still could not be
+# included: nothing put its directory on any include path. Building such a
+# component failed on "mcode_handler_api.h: No such file or directory" while
+# the file sat in the installed package.
+#
+# All of them are copied now. Each GMI module adds its own header to TARGETS,
+# so the list follows codegen automatically and a new service needs no change
+# here. The rules are generated per header rather than as one pattern rule
+# because the directory is not derivable from the basename —
+# hal_sampler/hal_sampler_stream_api.h is not hal_sampler_stream/.
+GMI_GEN_API_HEADERS := $(filter stmak/generated/gmi/%_api.h,$(TARGETS))
+
+define GMI_FLAT_API_HEADER_RULE
+../include/$(notdir $(1)): $(1)
+	$$(Q)cp $$< $$@
+endef
+$(foreach h,$(GMI_GEN_API_HEADERS),$(eval $(call GMI_FLAT_API_HEADER_RULE,$(h))))
+
+EXTRA_FLAT_HEADERS += $(patsubst %,../include/%,$(notdir $(GMI_GEN_API_HEADERS)))
+
 # the "headers" target installs all the header files in ../include
 #
 # EXTRA_FLAT_HEADERS carries the ones that must reach the flat include
 # directory without being SRCHEADERS entries: the libgmi public API, and the
-# generated GMI headers that a shipped header includes. They stay out of
-# SRCHEADERS because that list also drives the source-relative install and the
-# basename-collision check below — and a generated header already lives inside
-# the stmak tree that check compares against, so listing it there would report
-# a file as colliding with itself. Submakefiles append; this composes.
+# generated GMI headers. They stay out of SRCHEADERS because that list also
+# drives the source-relative install and the basename-collision check below —
+# and a generated header already lives inside the stmak tree that check
+# compares against, so listing it there would report a file as colliding with
+# itself. Submakefiles append; this composes.
 .PHONY: headers
 HEADERS := $(patsubst %,../include/%,$(foreach h,$(SRCHEADERS),$(notdir $h))) \
 	$(EXTRA_FLAT_HEADERS)
