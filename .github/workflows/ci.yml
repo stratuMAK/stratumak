@@ -80,6 +80,15 @@ jobs:
       env:
         GOCOVERDIR: ${{ github.workspace }}/coverage/gocov
       run: ./scripts/collect-coverage
+    # continue-on-error keeps a failed upload from gating the merge; the job
+    # still concludes success. fail_ci_if_error makes the step itself go red
+    # so the failure is visible in the run.
+    #
+    # The two together are deliberate, and the first run taught the lesson:
+    # with fail_ci_if_error false as well, an upload that reached Codecov with
+    # nothing to show still reported success, and the only way to find out the
+    # report had never been ingested was to ask Codecov's API directly. A
+    # non-gating step still has to say when it did not do its job.
     - name: Upload coverage to Codecov
       if: always()
       continue-on-error: true
@@ -93,7 +102,7 @@ jobs:
         # be uploaded. Left on, the action also sweeps the tree and finds the
         # raw .gcov/.info leftovers, double-counting them under a second name.
         disable_search: true
-        fail_ci_if_error: false
+        fail_ci_if_error: true
     - name: Upload failure logs
       if: failure()
       uses: actions/upload-artifact@v4
