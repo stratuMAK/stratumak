@@ -37,7 +37,7 @@ jobs:
       env:
         GITHUB_CONTEXT: ${{ toJson(github) }}
       run: echo "$GITHUB_CONTEXT"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
     # Pin the Go toolchain: the apt go on the runner is older than go.mod
     # requires, so without this every fresh run downloads a toolchain from
     # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       with:
         go-version: '1.24.x'
         cache: false
@@ -89,18 +89,35 @@ jobs:
     # nothing to show still reported success, and the only way to find out the
     # report had never been ingested was to ask Codecov's API directly. A
     # non-gating step still has to say when it did not do its job.
-    - name: Upload coverage to Codecov
+    #
+    # Uploaded as two flags rather than one. The C and Go halves are at very
+    # different stages -- the C is largely inherited, the Go is stmak-owned and
+    # newer -- so a single blended number tracks neither of them: it moves for
+    # reasons you cannot attribute, and the inherited C dominates it.
+    #
+    # disable_search on both: only the report named here should be uploaded.
+    # Left on, the action also sweeps the tree, finds the raw .gcno/.info
+    # leftovers, and double-counts them under a second name.
+    - name: Upload C coverage to Codecov
       if: always()
       continue-on-error: true
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./coverage/c.info,./coverage/go.txt
-        flags: runtests
-        name: rip-and-test
-        # disable_search: only the two reports collect-coverage produced should
-        # be uploaded. Left on, the action also sweeps the tree and finds the
-        # raw .gcov/.info leftovers, double-counting them under a second name.
+        files: ./coverage/c.info
+        flags: c
+        name: rip-and-test-c
+        disable_search: true
+        fail_ci_if_error: true
+    - name: Upload Go coverage to Codecov
+      if: always()
+      continue-on-error: true
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/go.txt
+        flags: go
+        name: rip-and-test-go
         disable_search: true
         fail_ci_if_error: true
     - name: Upload failure logs
@@ -123,7 +140,7 @@ jobs:
       env:
         GITHUB_CONTEXT: ${{ toJson(github) }}
       run: echo "$GITHUB_CONTEXT"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
@@ -131,14 +148,14 @@ jobs:
     # The RT function-effects check downloads a pinned clang (see
     # scripts/rt-clang.sh) — cache it so post-merge runs don't re-download.
     - name: Cache pinned RT-check clang
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/stratumak-rt-clang
         key: rt-clang-22.1.8-${{ runner.arch }}
     # Pin the Go toolchain: the apt go on the runner is older than go.mod
     # requires, so without this every fresh run downloads a toolchain from
     # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       with:
         go-version: '1.24.x'
         cache: false
@@ -167,18 +184,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
     - run: git fetch --recurse-submodules=no https://github.com/linuxcnc/linuxcnc +refs/tags/*:refs/tags/*
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       with:
         go-version: '1.24.x'
         # go.sum is build-generated (not in the repo), so setup-go's automatic
         # cache keying cannot work; the module cache is small enough to skip.
         cache: false
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v7
       with:
         node-version: '20'
     - name: Install golangci-lint (pinned — keep in sync with GOLANGCI_LINT_VERSION in src/stmak/Submakefile)
@@ -221,7 +238,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install analyzers
@@ -242,7 +259,7 @@ jobs:
       env:
         GITHUB_CONTEXT: ${{ toJson(github) }}
       run: echo "$GITHUB_CONTEXT"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
@@ -250,7 +267,7 @@ jobs:
     # Pin the Go toolchain: the apt go on the runner is older than go.mod
     # requires, so without this every fresh run downloads a toolchain from
     # golang.org mid-build — a recurring network-flake surface.
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       with:
         go-version: '1.24.x'
         cache: false
@@ -296,7 +313,7 @@ jobs:
         apt-get --yes --quiet install eatmydata
         eatmydata apt-get --yes --quiet install --no-install-suggests \
             git lsb-release python3 devscripts lintian
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Build Debian packages
@@ -380,7 +397,7 @@ jobs:
         # Install stuff needed to check out the linuxcnc repo and turn it into a debian source package.
         eatmydata apt-get --yes --quiet install --no-install-suggests git lsb-release python3 devscripts
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
       with:
         # "fetch-depth: 0" fetches all of history, this is needed by
         # our build system to determine the version from tags
@@ -493,7 +510,7 @@ jobs:
         # Install stuff needed to check out the linuxcnc repo and turn it into a debian source package.
         eatmydata apt-get --yes --quiet install --no-install-suggests git lsb-release python3 devscripts
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
       with:
         # "fetch-depth: 0" fetches all of history, this is needed by
         # our build system to determine the version from tags

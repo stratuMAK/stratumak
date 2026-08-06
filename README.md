@@ -1,7 +1,8 @@
 # stratuMAK — a toolkit for building machine controls
 
 [![Build CI][badge-ci]][ci]
-[![Coverage][badge-coverage]][codecov]
+[![Coverage: C][badge-cov-c]][codecov]
+[![Coverage: Go][badge-cov-go]][codecov]
 [![License: GPL-2.0][badge-gpl]][copying]
 [![Parts: LGPL-2.1][badge-lgpl]][copying-more]
 
@@ -450,7 +451,8 @@ of manual effort.
 [copying-more]: COPYING.more
 
 [badge-ci]: https://github.com/stratuMAK/stratumak/actions/workflows/ci.yml/badge.svg?branch=main
-[badge-coverage]: https://codecov.io/gh/stratuMAK/stratumak/branch/main/graph/badge.svg
+[badge-cov-c]: https://codecov.io/gh/stratuMAK/stratumak/branch/main/graph/badge.svg?flag=c&label=coverage%20C
+[badge-cov-go]: https://codecov.io/gh/stratuMAK/stratumak/branch/main/graph/badge.svg?flag=go&label=coverage%20Go
 [badge-gpl]: https://img.shields.io/badge/license-GPL--2.0-blue?style=flat-square
 [badge-lgpl]: https://img.shields.io/badge/parts-LGPL--2.1-blue?style=flat-square
 

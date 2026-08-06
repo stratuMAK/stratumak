@@ -21,6 +21,19 @@ coverage:
       default:
         informational: true
 
+# The two halves are reported separately: c is largely inherited LinuxCNC code,
+# go is stmak-owned and newer, and a single blended figure tracks neither.
+#
+# carryforward keeps the last known value for a flag when a run does not upload
+# it, so a transient upload failure reads as "unchanged" rather than as a
+# coverage collapse. The failure itself is not hidden by this -- the upload step
+# goes red in CI when it fails.
+flags:
+  c:
+    carryforward: true
+  go:
+    carryforward: true
+
 comment:
   layout: "reach, diff, flags, files"
   require_changes: true
