@@ -805,7 +805,18 @@ install-common: install-dirs
 	$(FILE) $(filter-out %/skeleton.3rtapi, $(wildcard ../docs/man/man3/*.3rtapi)) $(DESTDIR)$(mandir)/man3
 	$(FILE) $(filter-out %/skeleton.9, $(wildcard ../docs/man/man9/*.9)) $(DESTDIR)$(mandir)/man9
 	$(FILE) objects/*.msg $(DESTDIR)$(tcldir)/msgs
-	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/stratumak
+	# Branding images. They install flat into share/stratumak/ because that is
+	# where they are looked up from: INTRO_GRAPHIC names linuxcnc.gif with no
+	# directory, in every config stepconf and pncconf generate and in the sim
+	# configs shipped here, and stepconf and pncconf join linuxcnc-wizard.gif
+	# onto that same directory. The source moved out of the repo root; the
+	# installed layout must not follow it.
+	#
+	# This covers linuxcnc-wizard.gif too, which install-python used to install
+	# separately -- install-common is the only path to install-python, so the
+	# two ran together and the separate line was a second copy of this one.
+	# The .xcf master beside them is deliberately not matched by this glob.
+	$(FILE) ../share/stratumak/images/*.png ../share/stratumak/images/*.gif $(DESTDIR)$(datadir)/stratumak
 	$(FILE) ../lib/hallib/*   $(DESTDIR)$(datadir)/stratumak/hallib
 
 	# install all the sample configs, including subdirs (tar is required on debian systems, and common on others)
@@ -965,7 +976,6 @@ install-python: install-dirs
 	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(VISMACH_PY)) $(DESTDIR)$(bindir)
 	$(EXE) $(patsubst %.py,../bin/%,$(QTPLASMAC_PY)) $(DESTDIR)$(bindir)
-	$(FILE) ../share/stratumak/linuxcnc-wizard.gif $(DESTDIR)$(prefix)/share/stratumak
 	$(FILE) ../share/axis/images/*.{png,gif,xbm,ngc} $(DESTDIR)$(datadir)/axis/images
 	$(FILE) ../share/axis/tcl/*.tcl $(DESTDIR)$(datadir)/axis/tcl
 	$(FILE) ../share/gscreen/images/*.gif $(DESTDIR)$(datadir)/gscreen/images

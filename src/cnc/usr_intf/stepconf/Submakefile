@@ -42,7 +42,11 @@ PYI18NSRCS += cnc/usr_intf/stepconf/stepconf.py $(patsubst %,cnc/usr_intf/stepco
 	$(Q)mkdir -p $(dir $@)
 	$(Q)cp -f $< $@
 
-../share/stratumak/linuxcnc-wizard.gif: ../linuxcnc-wizard.gif
+# stepconf and pncconf load the wizard image from the share directory itself,
+# not from images/ (stepconf.py joins it onto datadir, pncconf onto DATADIR),
+# so a run-in-place tree still needs the copy one level up. qtvcp is unrelated
+# here: it has its own copy under lib/python/qtvcp/widgets/widget_icons/.
+../share/stratumak/linuxcnc-wizard.gif: ../share/stratumak/images/linuxcnc-wizard.gif
 	$(ECHO) Copying $(notdir $@)
 	$(Q)cp $< $@
 
