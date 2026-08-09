@@ -596,7 +596,7 @@ rationale are in [EXTERNAL_MODULE_INSTALL_DESIGN.md](EXTERNAL_MODULE_INSTALL_DES
 | Go unit tests | `make stmak-test` | `go vet` + `go test` (202 test files) |
 | Race detector | `make stmak-test-race` | nightly |
 | Go lint / format | `make stmak-lint`, `stmak-fmt-check` | pinned golangci-lint v2.12.2, standard linter set |
-| C warnings | `scripts/check-stmak-cwarnings` | stmak-owned C paths |
+| C warnings | `./configure --enable-werror` (every CI build job); `-Werror` is unconditional for modules `modcompile` compiles | the whole tree, the .comp-derived modules, and every external/user module |
 | Static checks | `scripts/check-static` | shell + C analyzers |
 | RT effects | `make rt-effects-check` | clang function-effects over the RT path (§7) |
 | Web apps | `scripts/check-webapps.sh` | lint + type-check + unit tests |

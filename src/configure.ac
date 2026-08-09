@@ -1691,6 +1691,36 @@ AC_SUBST([ETHERCAT_CFLAGS])
 AC_SUBST([ETHERCAT_LIBS])
 
 ##############################################################################
+# Treat compiler warnings as errors (opt-in)                                 #
+##############################################################################
+# Last thing before AC_OUTPUT, deliberately: every AC_CHECK/AC_*_IFELSE test
+# above compiles a throwaway program, and several of them are expected to warn.
+# Adding -Werror any earlier makes those probes fail and silently turns off the
+# features they detect.
+#
+# Opt-in rather than always-on: a developer's compiler is not the CI compiler,
+# and a newer gcc growing a new warning must not stop them building. CI passes
+# it (see .github/workflows/ci.yml), so the tree is held warning-free there.
+#
+# CWARNFLAGS carries the same value to modcompile, which compiles the loadable
+# modules itself and never sees CFLAGS. Without it, --enable-werror would cover
+# the objects make builds and miss every cmod -- which is the majority of this
+# tree's C.
+AC_ARG_ENABLE(werror,
+    AS_HELP_STRING([--enable-werror],
+        [Treat compiler warnings as errors (-Werror), for C, C++ and modules.]),
+    [enable_werror=$enableval],
+    [enable_werror=no])
+
+CWARNFLAGS=""
+if test "x$enable_werror" = "xyes"; then
+    CFLAGS="${CFLAGS:+$CFLAGS }-Werror"
+    CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-Werror"
+    CWARNFLAGS="-Werror"
+fi
+AC_SUBST([CWARNFLAGS])
+
+##############################################################################
 # files that get created by ./configure                                      #
 ##############################################################################
 #AC_CONFIG_FILES([../configs/rtapi.conf ../configs/emc.conf ../configs/hal.conf config.h])

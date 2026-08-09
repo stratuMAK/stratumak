@@ -14,9 +14,24 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
 )
 
-// Generate writes the complete C source for pkg to w.
+// Generate writes the complete C source for pkg to w, with no #line
+// directives. Use GenerateTo when the output's filename is known.
 func Generate(w io.Writer, pkg *ast.Package) error {
-	g := &generator{w: w, comp: &pkg.Component}
+	return GenerateTo(w, pkg, "")
+}
+
+// GenerateTo writes the complete C source for pkg to w, where outName is the
+// path w will be saved as.
+//
+// Knowing that path is what makes #line directives possible: the user's C is
+// bracketed by a directive naming the .comp it came from and one naming
+// outName, so the compiler, gdb and gcov attribute user code to the .comp the
+// developer edits and generated code to the generated file. Without the name
+// there is no way to switch back, and a half-mapped file reports generated
+// code against .comp lines that do not exist -- worse than not mapping at all,
+// so an empty outName emits no directives.
+func GenerateTo(w io.Writer, pkg *ast.Package, outName string) error {
+	g := &generator{w: w, comp: &pkg.Component, outName: outName}
 	return g.generate()
 }
 
@@ -28,6 +43,12 @@ type generator struct {
 	w    io.Writer
 	comp *ast.Component
 	err  error
+
+	// outName is the path the generated C will be saved as; empty disables
+	// #line emission. line counts newlines written so far, which is what
+	// a directive returning to outName has to name.
+	outName string
+	line    int
 }
 
 func (g *generator) generate() error {
@@ -81,12 +102,17 @@ func (g *generator) ensureMcodeConsume() {
 		ast.GMIConsumeEntry{API: "mcode_handler", From: "milltask"})
 }
 
-// printf writes formatted text, tracking any write error.
+// printf writes formatted text, tracking any write error and the output line
+// count. The count has to be exact: a #line directive returning to the
+// generated file names the line the compiler should resume at, and an
+// off-by-one there misreports every diagnostic after it.
 func (g *generator) printf(format string, args ...interface{}) {
 	if g.err != nil {
 		return
 	}
-	_, g.err = fmt.Fprintf(g.w, format, args...)
+	s := fmt.Sprintf(format, args...)
+	g.line += strings.Count(s, "\n")
+	_, g.err = io.WriteString(g.w, s)
 }
 
 // ---------------------------------------------------------------------------
@@ -691,36 +717,76 @@ func (g *generator) needsAutoWrap() bool {
 // splitUserCode separates #include directives from the rest of the user code.
 // This allows includes to be processed before convenience macros (avoiding macro
 // name clashes with function parameters like 'data' in modbus.h).
-func (g *generator) splitUserCode() (includes string, body string) {
+// srcLine is a line of verbatim C together with its line number in the .comp
+// it came from. The number has to travel with the text because the two halves
+// are emitted far apart in the output and, worse, are not contiguous in the
+// input: hoisting the #includes out of the body leaves a gap at every line
+// they used to occupy, and each gap needs its own #line directive.
+type srcLine struct {
+	text string
+	no   int
+}
+
+func (g *generator) splitUserCode() (includes, body []srcLine) {
 	if g.comp.VerbatimC == "" {
-		return "", ""
+		return nil, nil
 	}
 
-	var incLines []string
-	var bodyLines []string
-
-	lines := strings.Split(g.comp.VerbatimC, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#include") {
-			incLines = append(incLines, line)
+	first := g.comp.VerbatimCPos.Line
+	for i, line := range strings.Split(g.comp.VerbatimC, "\n") {
+		sl := srcLine{text: line, no: first + i}
+		if strings.HasPrefix(strings.TrimSpace(line), "#include") {
+			includes = append(includes, sl)
 		} else {
-			bodyLines = append(bodyLines, line)
+			body = append(body, sl)
 		}
 	}
+	return includes, body
+}
 
-	return strings.Join(incLines, "\n"), strings.Join(bodyLines, "\n")
+// lineDirectives reports whether #line emission is possible: it needs both a
+// .comp to point at and a generated filename to point back to.
+func (g *generator) lineDirectives() bool {
+	return g.outName != "" && g.comp.VerbatimCPos.File != ""
+}
+
+// emitUserLines writes user code, bracketed by #line directives when they are
+// available, with a fresh directive wherever the source line numbers jump.
+func (g *generator) emitUserLines(lines []srcLine) {
+	if !g.lineDirectives() {
+		for _, l := range lines {
+			g.printf("%s\n", l.text)
+		}
+		return
+	}
+
+	prev := 0
+	for i, l := range lines {
+		// A directive says "the NEXT line is line N of file F", so it goes
+		// before the line it describes -- at the start, and at every gap.
+		if i == 0 || l.no != prev+1 {
+			g.printf("#line %d %s\n", l.no, cStringLiteral(g.comp.VerbatimCPos.File))
+		}
+		g.printf("%s\n", l.text)
+		prev = l.no
+	}
+
+	// Back to the generated file. The directive itself occupies the next
+	// physical line (g.line+1), so the line after it is g.line+2. g.line is
+	// read before printf updates it.
+	g.printf("#line %d %s\n", g.line+2, cStringLiteral(g.outName))
 }
 
 func (g *generator) emitUserIncludes() {
 	includes, _ := g.splitUserCode()
-	if includes == "" {
+	if len(includes) == 0 {
 		return
 	}
 	g.printf("/* ---------------------------------------------------------------------------\n")
 	g.printf(" * User includes (emitted before convenience macros)\n")
 	g.printf(" * ------------------------------------------------------------------------- */\n\n")
-	g.printf("%s\n\n", includes)
+	g.emitUserLines(includes)
+	g.printf("\n")
 }
 
 func (g *generator) emitUserCodeBody() {
@@ -728,13 +794,18 @@ func (g *generator) emitUserCodeBody() {
 	g.printf("/* ---------------------------------------------------------------------------\n")
 	g.printf(" * User code\n")
 	g.printf(" * ------------------------------------------------------------------------- */\n\n")
-	if body == "" {
+	if len(body) == 0 {
 		return
 	}
 	if g.needsAutoWrap() {
-		g.printf("FUNCTION(%s){\n%s\n}\n\n", g.comp.Functions[0].Name, body)
+		// The brace lines are generated, so they stay outside the mapped
+		// region: only the body between them belongs to the .comp.
+		g.printf("FUNCTION(%s){\n", g.comp.Functions[0].Name)
+		g.emitUserLines(body)
+		g.printf("}\n\n")
 	} else {
-		g.printf("%s\n\n", body)
+		g.emitUserLines(body)
+		g.printf("\n")
 	}
 }
 

@@ -4,6 +4,8 @@ package cgen
 
 import (
 	"bytes"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -152,5 +154,93 @@ MCODE(101) {
 	si := strings.Index(out, "inst_start")
 	if si < 0 || !strings.Contains(out[si:], "mcode_handler_api_get(") {
 		t.Errorf("mcode_handler lookup must be inside inst_start; generated:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// #line directives
+// ---------------------------------------------------------------------------
+
+// genTo is gen for the path that knows its output filename, which is what
+// enables #line emission.
+func genTo(t *testing.T, name, src, outName string) string {
+	t.Helper()
+	pkg, err := comp.Parse(name, src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := GenerateTo(&buf, pkg, outName); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	return buf.String()
+}
+
+// lineSrc has its verbatim C starting at a known line, with an #include in the
+// middle of the body. The include is hoisted to a different part of the output,
+// which splits the body into two non-contiguous runs — the case that needs a
+// second #line directive rather than one at the top.
+const lineSrc = `component tc "t";
+pin in bit ok;
+function _;
+license "GPL";
+;;
+FUNCTION(_) { int a = 1; (void)a;
+#include <math.h>
+(void)fabs(1.0); }
+`
+
+// The ";;" is line 5, so verbatim C starts at line 6.
+const wantFirstUserLine = 6
+
+func TestGenerate_LineDirectivesMapToComp(t *testing.T) {
+	out := genTo(t, "hal/components/tc.comp", lineSrc, "objects/cmod/tc.c")
+
+	want := `#line ` + strconv.Itoa(wantFirstUserLine) + ` "hal/components/tc.comp"`
+	if !strings.Contains(out, want) {
+		t.Errorf("generated C lacks %q\n--- output ---\n%s", want, out)
+	}
+	// The #include sits on line 7 and is emitted in the includes region.
+	if want := `#line 7 "hal/components/tc.comp"`; !strings.Contains(out, want) {
+		t.Errorf("hoisted #include not mapped: missing %q", want)
+	}
+	// Body resumes at line 8, after the hoisted include left a gap.
+	if want := `#line 8 "hal/components/tc.comp"`; !strings.Contains(out, want) {
+		t.Errorf("body after the hoisted include not re-mapped: missing %q", want)
+	}
+}
+
+// TestGenerate_LineDirectivesResumeCorrectly checks the arithmetic that is
+// easiest to get wrong and hardest to notice: every directive returning to the
+// generated file must name the line that physically follows it, or every
+// diagnostic in generated code after that point is misreported.
+func TestGenerate_LineDirectivesResumeCorrectly(t *testing.T) {
+	out := genTo(t, "hal/components/tc.comp", lineSrc, "objects/cmod/tc.c")
+
+	found := 0
+	for i, line := range strings.Split(out, "\n") {
+		var n int
+		if _, err := fmt.Sscanf(line, `#line %d "objects/cmod/tc.c"`, &n); err != nil {
+			continue
+		}
+		found++
+		// i is 0-based, so this directive is physical line i+1 and the
+		// next line is i+2.
+		if want := i + 2; n != want {
+			t.Errorf("resume directive on physical line %d says line %d; want %d", i+1, n, want)
+		}
+	}
+	if found == 0 {
+		t.Fatalf("no resume directives found\n--- output ---\n%s", out)
+	}
+}
+
+// Without an output name there is nothing to switch back to, so the generator
+// must emit no directives at all rather than a one-way mapping that would
+// attribute generated code to .comp lines that do not exist.
+func TestGenerate_NoLineDirectivesWithoutOutputName(t *testing.T) {
+	out := gen(t, lineSrc)
+	if strings.Contains(out, "#line") {
+		t.Errorf("Generate emitted #line directives without an output name:\n%s", out)
 	}
 }

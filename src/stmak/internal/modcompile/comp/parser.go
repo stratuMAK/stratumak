@@ -33,6 +33,19 @@ func Parse(filename, src string) (*ast.Package, error) {
 
 	p.pkg.Component.VerbatimC = userCode
 
+	// Where that verbatim C starts in the .comp, so the backend can emit
+	// #line directives and the compiler reports user code against the file
+	// the developer edits.  Every splitComp branch returns userCode as a
+	// literal suffix of src, so the offset is just the length difference --
+	// no branch-by-branch line arithmetic to keep in step with splitComp.
+	if userCode != "" {
+		p.pkg.Component.VerbatimCPos = ast.Pos{
+			File: filename,
+			Line: 1 + strings.Count(src[:len(src)-len(userCode)], "\n"),
+			Col:  1,
+		}
+	}
+
 	// Reject unsupported RTAPI_MP_ARRAY_* macros.
 	// cmod/gomod allows multiple 'load' commands with different parameters instead.
 	for _, macro := range []string{"RTAPI_MP_ARRAY_STRING", "RTAPI_MP_ARRAY_INT"} {

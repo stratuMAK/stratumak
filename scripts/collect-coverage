@@ -48,10 +48,19 @@ mkdir -p "$OUTDIR"
 #             disagreement about line attribution, not bad counter data
 #
 # --no-external keeps /usr headers out. The excludes drop the test tree and
-# the generated cmod C: the latter is real coverage, but it maps to
-# objects/cmod/*.c, which is a build artefact with no counterpart in git, so
-# Codecov could only report it as a file it cannot show. The hand-written C
-# (HAL core, motion, interpreter, drivers) is unaffected and is the bulk.
+# the generated cmod C, which is a build artefact with no counterpart in git,
+# so Codecov could only report it as a file it cannot show.
+#
+# Since modcompile emits #line directives, a component's coverage is split
+# between two names: the lines the developer wrote are attributed to the .comp
+# itself, and only the generator's own boilerplate stays under objects/cmod/.
+# The .comp is tracked, so it survives the exclude below and IS reported --
+# deliberately. That is the coverage the exclude used to throw away for want of
+# a file Codecov could display, and it is a real increase in what the report
+# covers, not a change in what the tests exercise.
+#
+# The hand-written C (HAL core, motion, interpreter, drivers) is unaffected and
+# is the bulk.
 if command -v lcov >/dev/null 2>&1; then
 	echo "collect-coverage: capturing C coverage with $(lcov --version 2>&1 | head -1)"
 	# Two directories, not one. The cmod components are compiled straight from
