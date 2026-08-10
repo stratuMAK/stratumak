@@ -37,6 +37,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
+| D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 
 ---
 
@@ -524,6 +525,7 @@ pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
 | 19 | `ALT_PICKER_SEQUENCE` | next job must originate from held station (§8) |
 | 20 | `AUTO_DISABLED` | start-job while auto-enable is low (§6.4) |
 | 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
+| 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
 
 ---
 
@@ -532,22 +534,47 @@ pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
 Targeting: to bring picker N over (x, y), command
 (x − `picker.N.x-offset`, y − `picker.N.y-offset`); both pickers share Z (D10).
 
-Behavior on **place to proc** when `has-material` is set: instead of erroring,
-route picker 1 over the station, run the pick-proc sequence with picker 1
-(including the release handshake), retract, then place picker 0's part
-normally. The module records `altHeld = {stationID}` (persisted if
-persistence is on).
+The pickers are symmetrical (D3); roles are **not** fixed (D20). The module
+tracks a held-material record per picker: `held[N] = none | {stationID}`
+(persisted if persistence is on). Reference flow (from the concept review;
+"picker A/B" because either physical picker can take either role):
 
-While `altHeld` is set, the next job **must** use that station as origin
-(else error `ALT_PICKER_SEQUENCE`). Such a job skips the physical pick —
-the material is already in picker 1 — and executes its place sequence with
-picker 1's offsets, then clears `altHeld`.
+1. Both pickers empty. Job tray→procA: picker A picks from the tray.
+2. At procA (occupied): picker B removes procA's finished part — `held[B] =
+   {procA}` — then picker A places its part. Next job must originate at procA.
+3. Job procA→procB: physical pick skipped (picker B already holds procA's
+   part). At procB (occupied): picker A removes procB's part — `held[A] =
+   {procB}` — then picker B places. Next job must originate at procB.
+4. Job procB→tray: pick skipped (picker A holds it); picker A places the
+   processed part into a free tray slot. Both pickers empty again.
 
-Manual interplay (§6.4, resolved O8): a manual open of picker 1 marks the
-held material as removed but retains the station id; a following manual
-close samples the picker feedback after pick-settle-time — material gripped
-again (not fully closed) → the `altHeld` record is restored with the
-retained station id; gripped nothing (`closed` high) → `altHeld` is cleared.
+Rules:
+
+- **Pick phase**: if a picker holds material from the job's origin station,
+  the physical pick is skipped and that picker becomes the placer.
+  Otherwise a free picker (picker 0 preferred when both are free) runs the
+  pick sequence at the origin with its own offsets.
+- **Swap at an occupied dest proc** (`has-material` set): the other, free
+  picker first removes the occupant — pick-proc sequence with its offsets;
+  the `release` handshake stays asserted from the removal through the
+  following place (no re-clamp in between) — and records `held = {dest}`.
+  Then the placer places the job's material; `has-material` stays true.
+- **Place phase**: always executed by the picker holding the job's
+  material, with its offsets.
+- **Sequence constraint**: while any picker holds swap-removed material,
+  the next job must use that station as origin (error
+  `ALT_PICKER_SEQUENCE`).
+- **Free-picker requirement**: a physical pick or a swap needs *a* free
+  picker at that moment — any one, not a specific one (resolved R2). None
+  free → error `NO_FREE_PICKER`. A well-formed job sequence can never hit
+  this; it guards against manual intervention.
+
+Manual interplay (§6.4, resolved O8): a manual open of a picker with a held
+record marks the material as removed but retains the station id; a
+following manual close samples the picker feedback after pick-settle-time —
+material gripped again (not fully closed) → the record is restored with the
+retained station id; gripped nothing (`closed` high) → the record is
+cleared.
 
 ---
 
@@ -563,7 +590,7 @@ retained station id; gripped nothing (`closed` high) → `altHeld` is cleared.
   Scenarios: full pick→place cycle, empty-slot probing to tray-empty,
   autohome-on-first-job, busy-gated wait (incl. auto-enable abort),
   error+error-reset, estop mid-move, persistence restore,
-  alternating-picker swap.
+  alternating-picker chain (the §8 reference flow).
 - **Latency check**: assert plan time < 100 ms in the integration run (D13).
 
 ## 10. Delivery order
@@ -588,11 +615,10 @@ external abort); O5 → D15 (wait positions folded into proc stations with a
 `busy` pin, replacing free-standing wait stations); O6 → D19; O7 → D18;
 O8 → manual picker-1 handling in §8.
 
-Remaining:
+R1 and R2 were resolved in the second review round (2026-08-10): R1 —
+confirmed; normally the PLC only issues a job once the station is done, the
+gating stays for completeness. R2 — rejected as stated: with alternating
+pickers only *one* picker must be free for a pick action; superseded by the
+generalized per-picker model and the `NO_FREE_PICKER` guard (D20, §8).
 
-- **R1** Busy gating is also applied to pick-from-proc approaches (sampled
-  at job start), not only before placing — confirm.
-- **R2** Proposed job-start validation: picker 0 must be free (close output
-  low, `opened` feedback high) before a pick action — a manually closed
-  picker 0 holding material would otherwise look like a successful pick and
-  double-pick. Would add error id 22 `PICKER_NOT_READY`.
+No open points remain.
