@@ -23,7 +23,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D3 | Picker x/y offsets | HAL **params** (RW float), symmetrical on both pickers (`picker.0` defaults 0/0). |
 | D4 | Tray/station z-offsets | HAL **pins** (float, in), as originally specced — wireable (e.g. height sensor). |
 | D5 | Alternating-picker enable | **Module load arg** `pickers=2` — no wiring auto-detection (Go HAL API has no writer/connectivity query, and an explicit arg is deterministic). |
-| D6 | Tray/station state persistence | Optional, via `persist_sqlite` GMI API. Enabled by load arg `persistence_instance=<name>`; **no default lookup** — absent arg means in-memory only. |
+| D6 | Tray/station state persistence | Optional, via `persist_sqlite` GMI API. Enabled by load arg `persist_instance=<name>` (the spelling every other module uses for the persist API); **no default lookup** — absent arg means in-memory only. |
 | D7 | Dead zones | **Convex-only** for v1, hard validation error on concave input. |
 | D8 | Tray reset pins | Two pins per tray station: `set-full` → all slots = current `process-step` pin value; `set-empty` → all slots = −1. (The earlier third pin `set-process-step` is merged into `set-full`.) |
 | D9 | Slot search | Tracked slot state is authoritative for *which* slots to try; the picker material-present feedback (closed = gripped nothing) only validates and corrects it. |
@@ -40,6 +40,8 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 | D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
+| D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene is scaled to mm when the planners are built; `CLEARANCE`, like every INI length, is already mm by then (converted at parse time — scaling it again would square the factor). Everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
+| D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
 
 ---
 
@@ -60,7 +62,7 @@ load motmod   <pnp.mot>  num_joints=3 kins_instance=pnp.kins \
                          tp_instance=pnp.tp home_instance=pnp.home
 load persist_sqlite <persist> db=/var/lib/stmak/pnp.db          # optional
 load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2 \
-                         persistence_instance=persist
+                         persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
 ```
@@ -69,9 +71,9 @@ Load args (parsed `key=value` like `internal/task/module.go`):
 
 | Arg | Default | Meaning |
 |-----|---------|---------|
-| `motion_instance` | `motmod` | motctl/motstat provider instance |
+| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/motstat provider instance (INI fallback like milltask's) |
 | `pickers` | `1` | `1` or `2`; `2` enables the alternating-picker logic |
-| `persistence_instance` | *(unset)* | persist API instance; unset = in-memory state only |
+| `persist_instance` | *(unset)* | persist API instance; unset = in-memory state only |
 
 ### 2.2 Source layout
 
@@ -214,7 +216,7 @@ Deltas worth carrying into later phases:
 
 ---
 
-## 5. Phase 2 — Module skeleton, config, HAL interface
+## 5. Phase 2 — Module skeleton, config, HAL interface *(implemented)*
 
 ### 5.1 INI schema
 
@@ -347,6 +349,93 @@ normalized to HAL-conventional dashes.
 | `release` | bit | out | request fixture release/unclamp |
 | `released` | bit | in | fixture released feedback (state-checked, not edge) |
 
+### 5.3 As built (2026-08-10)
+
+`internal/pnptask/`: `module.go config.go stations.go pins.go` plus
+`config_test.go stations_test.go module_test.go link_test.go`, registered in
+`packages.conf` as `gomod internal/pnptask @GOMOD:PNPTASK_GO@` with the
+matching `--enable-pnptask-go` configure flag (default yes),
+`BUILD_PNPTASK_GO` and the `STMAK_BUILD_FLAGS` entry. Verified against a real
+`stmakd` run: `load pnptask <pnp.task> pickers=2` exports the whole §5.2 tree
+(48 pins, 7 params) and `halcmd show param` reads the INI-seeded values back.
+
+- The HAL component is created in the **factory**, not in `Start`: the `net`
+  lines that wire an instance run immediately after its load line. A factory
+  that fails after creating the component exits it again — the launcher only
+  tears down modules whose factory returned one.
+- Load args are validated strictly: an unknown key, a missing `=`, `pickers`
+  outside {1,2} or an empty instance name all fail the load. A mistyped
+  `picker=2` would otherwise surface much later as a missing HAL pin.
+- Config parsing is strict too — a malformed number, a missing required key or
+  an unreadable `DEADZONE_FILE` fails the load rather than defaulting. Beyond
+  the checks §5.1 lists, section indices must run gap-free from 0 (a lost
+  `[PNPTASK_TRAY_1]` is a typo, not a config with one station fewer), station
+  ids are unique across trays *and* procs, id 0 is refused (an unconnected u32
+  pin reads 0), `LAST_X`/`LAST_Y` and `WAIT_X`/`WAIT_Y` are all-or-nothing,
+  `ROWS`/`COLS` must both be 0 or both positive, a route override must name
+  known stations and may not repeat a pair, and `[TRAJ]COORDINATES` must carry
+  at least X, Y and Z.
+- Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
+  three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
+  (= use the `[TRAJ]` defaults), `RELEASE_TIMEOUT` 5 s, `HOME_TIMEOUT` 30 s,
+  `MAX_UNPOPULATED` 1, `DIR_MODE` `C+R+`, `ROWS`/`COLS` 1 (single position).
+  A timeout defaulting to "forever" would turn a stuck fixture into a hung job
+  with nothing on the error pin.
+- Lengths and linear velocities convert machine units → mm at parse time
+  (D23); times stay seconds, `ANGLE` becomes radians (D24).
+- `Start` resolves the motion stack — `GetAPIFor("motctl"/"motstat",
+  motion_instance, 1)`, wrapped in the generated clients — so a load line
+  naming an instance no motmod provides, or one at another API version, fails
+  startup instead of surfacing as a nil client at the first job. **This lookup
+  belongs in `Start`, not in the factory:** the launcher runs every module's
+  constructor (where a provider registers its API) before it starts any of
+  them, so a motmod loaded on a *later* HAL line is registered by the time
+  `Start` runs — verified by loading pnptask ahead of its own motion stack.
+  Resolving it in the factory would instead impose a HAL-file ordering rule
+  and fail on any config that did not happen to obey it. The pins go the other
+  way, created in the factory because the `net` lines execute right after the
+  load line, so the two halves of the module deliberately live in different
+  lifecycle stages. Pushing the motmod configuration (§6.1) stays phase 3.
+- Deferred per the phase split: the `errors.go` id table (§7.5, with the job
+  engine). `error-id` exists and reads 0.
+
+**Startup planner construction** (`planners.go`, added on top of the above):
+every `DEADZONE_FILE` is loaded and its `Planner` built at load time, which
+also completes the §5.1 validation — the geometric half needs the eroded
+boundary and the offset zones, so it could not run before.
+
+- The drawings are read in machine units and the scene is scaled to mm in
+  place before `NewPlanner` (D23). The clearance is *not* scaled there — it
+  is an INI length, already converted at parse time. Scaling the geometry
+  rather than the query points keeps every later comparison — `CheckPoint`,
+  `Plan`, the route it returns — in one unit system. A dead zone drawn as a
+  circle carries `Center`/`Radius` that `NewPlanner` offsets analytically, so
+  those scale with the polygon or the planner would guard a circle somewhere
+  else entirely.
+- Validated against **every** configured drawing, not just the selected one:
+  `deadzone-select` picks at job start, so a position valid in only some of
+  them is a job that fails on the machine. Checked are each proc `X/Y`, each
+  `WAIT_X/WAIT_Y`, and every tray slot — all of them, because a dead zone can
+  sit inside a tray's footprint without touching a corner. The error names the
+  INI section and keys, the drawing and the coordinate.
+- This is *position* validation, not route validation: whether a given pair of
+  stations has a collision-free route between them is only knowable per pair
+  and stays a job-time `PLANNING_FAILED`.
+- `TrayDef.SlotPos`/`SlotCount` (the D24 grid interpolation) land here because
+  the slot check needs them. Slot *state* — the `[]int32`, the direction-mode
+  iteration and the probing counters — stays in phase 4.
+- Cost on the sim config: ~3 ms for a 36-node scene, once per file at load.
+
+**Sim config** (`tests/pnptask/`): `pnptask.ini`, `pnptask.hal`, `zones.dxf`
+and `zones_alt.dxf` — a 600×500 mm gantry with two pickers, two tray stations
+(a 10×4 grid and a single-position bin), two process stations and two
+dead-zone drawings, motion looped back and home switches always made. It is
+the config phase 7's integration suite drives; what it exercises today is the
+load path end to end (59 pins, 7 params, both drawings validated). The job
+handshake and the picker/fixture feedback are deliberately unwired — those are
+PLC signals, and simulating them is phase 7. The directory carries no
+`test.hal`/`test.sh`, so `runtests` ignores it.
+
 ---
 
 ## 6. Phase 3 — Machine control
@@ -450,7 +539,7 @@ Pick search (D9): iterate in direction-mode order over slots with
 
 ### 7.2 Persistence (`persist.go`, optional per D6)
 
-If `persistence_instance` is set: `open(namespace)` at Start with namespace =
+If `persist_instance` is set: `open(namespace)` at Start with namespace =
 instance name sanitized to `[A-Za-z0-9_]+` (dots → underscores, e.g.
 `pnp_task`). Persisted on every change, restored at Start:
 
@@ -644,7 +733,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 
 0. `pkg/hal` params (independent) — **done** (#10)
 1. `pkg/pnproute` (independent) — **done**
-2. module skeleton + config + pins (loads in sim, no motion)
+2. module skeleton + config + pins (loads in sim, no motion) — **done**
 3. machine control + config push + autohoming (moves in sim)
 4. stations/trays/persistence
 5. job engine, single picker, end-to-end sim green
