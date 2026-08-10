@@ -160,6 +160,12 @@ func (c *Component) Ready() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Same guard as create(): after Exit() the component id is freed and may
+	// have been recycled, so hal_ready(c.id) could mark an unrelated,
+	// still-initializing component ready.
+	if c.exited {
+		return newError("Ready", ErrComponentExited.Message, ErrComponentExited.Code)
+	}
 	if c.ready {
 		return newError("Ready", ErrAlreadyReady.Message, ErrAlreadyReady.Code)
 	}

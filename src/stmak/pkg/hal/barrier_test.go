@@ -71,6 +71,11 @@ func TestCreateAfterExit(t *testing.T) {
 	if _, err := hal.NewParam[float64](comp, "p", hal.RW); !errors.Is(err, hal.ErrComponentExited) {
 		t.Errorf("NewParam after Exit: got %v, want ErrComponentExited", err)
 	}
+	// Ready must be refused too: the freed id may have been recycled, and
+	// hal_ready on it could mark an unrelated component ready prematurely.
+	if err := comp.Ready(); !errors.Is(err, hal.ErrComponentExited) {
+		t.Errorf("Ready after Exit: got %v, want ErrComponentExited", err)
+	}
 }
 
 // TestPinCreateGuard is the pin-side counterpart of TestParamValidation's
