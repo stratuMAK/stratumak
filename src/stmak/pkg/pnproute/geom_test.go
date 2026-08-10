@@ -211,7 +211,7 @@ func TestPointInPolygonEdgeCounts(t *testing.T) {
 
 func TestSegBlockedByPolygon(t *testing.T) {
 	sq := Polygon{{0, 0}, {10, 0}, {10, 10}, {0, 10}}
-	core := inflate(sq, -DefaultCoreErode)
+	core := erodeConvex(sq, DefaultCoreErode)
 	tests := []struct {
 		name    string
 		a, b    Point
@@ -229,6 +229,31 @@ func TestSegBlockedByPolygon(t *testing.T) {
 				t.Fatalf("segBlockedByPolygon = %v, want %v", got, tc.blocked)
 			}
 		})
+	}
+}
+
+// TestDiscretizeEllipsePartialArc guards the arc endpoint: a partial arc's
+// ring must include the t=end vertex, or the closing chord starts one sample
+// early and carves the last slice out of the dead zone (the unsafe direction).
+func TestDiscretizeEllipsePartialArc(t *testing.T) {
+	// Upper half of an ellipse with major radius 100 (along +X) and minor 50,
+	// closed by the chord between (100,0) and (-100,0).
+	poly := discretizeEllipse(Point{0, 0}, Point{100, 0}, 0.5, 0, math.Pi, 96)
+	if got, want := len(poly), 97; got != want {
+		t.Fatalf("partial arc has %d vertices, want %d (endpoint included)", got, want)
+	}
+	// A point inside the drawn zone just short of the arc end (t=pi).
+	if p := (Point{-99.5, 0.5}); !pointInPolygon(p, poly) {
+		t.Fatalf("interior point %v near the arc end is outside the discretized zone", p)
+	}
+
+	// A full ellipse still closes on itself without a duplicated seam vertex.
+	full := discretizeEllipse(Point{0, 0}, Point{100, 0}, 0.5, 0, 2*math.Pi, 96)
+	if got, want := len(full), 96; got != want {
+		t.Fatalf("full ellipse has %d vertices, want %d", got, want)
+	}
+	if full[0].dist(full[len(full)-1]) < dupEps {
+		t.Fatal("full ellipse repeats its seam vertex")
 	}
 }
 

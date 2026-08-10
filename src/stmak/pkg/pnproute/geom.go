@@ -109,15 +109,34 @@ func pointInPolygon(p Point, poly Polygon) bool {
 	return inside
 }
 
+// geomEps is the shared tolerance of the intersection predicates, as a length
+// in machine units (mm): a point closer than this to a line counts as on it.
+// The predicates compare *signed distances* (cross products normalized by the
+// segment length), not raw cross products — a raw cross product scales with
+// the square of the coordinate magnitude, so an absolute epsilon on it would
+// make grazing/blocking decisions depend on where in the envelope the geometry
+// sits.
+const geomEps = 1e-9
+
+// signedDist returns the signed distance of p from the line through a and b
+// (positive on the left of a->b), or 0 when ab is degenerate.
+func signedDist(a, b, p Point) float64 {
+	l := a.dist(b)
+	if l < geomEps {
+		return 0
+	}
+	return cross(a, b, p) / l
+}
+
 // segProperIntersect reports whether segments ab and cd cross at a point that
 // is interior to both. Touching at a shared endpoint or collinear grazing
 // returns false (allowed under zero clearance).
 func segProperIntersect(a, b, c, d Point) bool {
-	d1 := cross(c, d, a)
-	d2 := cross(c, d, b)
-	d3 := cross(a, b, c)
-	d4 := cross(a, b, d)
-	const eps = 1e-9
+	d1 := signedDist(c, d, a)
+	d2 := signedDist(c, d, b)
+	d3 := signedDist(a, b, c)
+	d4 := signedDist(a, b, d)
+	const eps = geomEps
 	return ((d1 > eps && d2 < -eps) || (d1 < -eps && d2 > eps)) &&
 		((d3 > eps && d4 < -eps) || (d3 < -eps && d4 > eps))
 }
@@ -126,9 +145,9 @@ func segProperIntersect(a, b, c, d Point) bool {
 // included. Used for distance metrics, where a shared endpoint means zero
 // distance — unlike segProperIntersect, which answers the clearance question.
 func segIntersect(a, b, c, d Point) bool {
-	d1, d2 := cross(c, d, a), cross(c, d, b)
-	d3, d4 := cross(a, b, c), cross(a, b, d)
-	const eps = 1e-12
+	d1, d2 := signedDist(c, d, a), signedDist(c, d, b)
+	d3, d4 := signedDist(a, b, c), signedDist(a, b, d)
+	const eps = geomEps
 	if ((d1 > eps && d2 < -eps) || (d1 < -eps && d2 > eps)) &&
 		((d3 > eps && d4 < -eps) || (d3 < -eps && d4 > eps)) {
 		return true
@@ -188,17 +207,6 @@ func segCrossesBoundary(a, b Point, boundary Polygon, samples int) bool {
 		}
 	}
 	return false
-}
-
-// centroid returns the average of a polygon's vertices.
-func centroid(poly Polygon) Point {
-	var c Point
-	for _, p := range poly {
-		c.X += p.X
-		c.Y += p.Y
-	}
-	n := float64(len(poly))
-	return Point{c.X / n, c.Y / n}
 }
 
 // signedArea returns the signed area of a polygon (positive when CCW).
@@ -306,31 +314,6 @@ func lineIntersect(p1, d1, p2, d2 Point) (Point, bool) {
 	return Point{p1.X + d1.X*t, p1.Y + d1.Y*t}, true
 }
 
-// inflate grows (margin > 0) or erodes (margin < 0) a convex polygon by moving
-// each vertex radially relative to the centroid. Approximate; used only for the
-// small numerical core erosion, where exactness does not matter.
-func inflate(poly Polygon, margin float64) Polygon {
-	if margin == 0 {
-		return poly.Clone()
-	}
-	c := centroid(poly)
-	out := make(Polygon, len(poly))
-	for i, p := range poly {
-		v := p.sub(c)
-		l := math.Hypot(v.X, v.Y)
-		if l < 1e-9 {
-			out[i] = p
-			continue
-		}
-		s := (l + margin) / l
-		if s < 0 {
-			s = 0
-		}
-		out[i] = Point{c.X + v.X*s, c.Y + v.Y*s}
-	}
-	return out
-}
-
 // discretizeCircle returns a polygon approximating a circle. The polygon
 // circumscribes it — its edges run tangent to the circle at distance r — so the
 // approximation errs on the side of a slightly larger obstacle. An inscribed
@@ -359,8 +342,17 @@ func discretizeEllipse(center, majorRel Point, ratio, start, end float64, segmen
 	if end <= start {
 		end += 2 * math.Pi
 	}
-	poly := make(Polygon, 0, segments)
-	for i := 0; i < segments; i++ {
+	// A full ellipse closes on itself, so t=end would repeat t=start and the
+	// loop stops one short. A partial arc does NOT: its ring is closed by the
+	// chord between the two ends, so the t=end vertex must be emitted —
+	// dropping it would close the chord from the second-to-last sample and
+	// carve the arc's whole last slice out of the dead zone.
+	last := segments - 1
+	if full := math.Abs((end-start)-2*math.Pi) < 1e-9; !full {
+		last = segments
+	}
+	poly := make(Polygon, 0, last+1)
+	for i := 0; i <= last; i++ {
 		t := start + (end-start)*float64(i)/float64(segments)
 		ex := major * math.Cos(t)
 		ey := minor * math.Sin(t)

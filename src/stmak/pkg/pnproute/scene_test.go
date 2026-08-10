@@ -144,7 +144,24 @@ func TestLoadDXF_Invalid(t *testing.T) {
 		{
 			name:    "mirrored extrusion",
 			body:    dxfFile(square("outer limits"), withPair(circleEnt("deadzones", 50, 50, 10), 230, "-1.0")),
-			wantErr: "mirrored extrusion",
+			wantErr: "object coordinate system",
+		},
+		{
+			// A tilted OCS is as wrong as a mirrored one: the entity's 10/20
+			// coordinates are not world coordinates, so the zone would load at
+			// the wrong position and guard nothing.
+			name: "tilted extrusion",
+			body: dxfFile(square("outer limits"),
+				withPair(withPair(circleEnt("deadzones", 50, 50, 10), 210, "0.707"), 230, "0.707")),
+			wantErr: "object coordinate system",
+		},
+		{
+			// A sweep of ~1e-7 rad discretizes into a sliver enclosing no
+			// area; the same ring drawn as a polyline is already rejected, and
+			// the ellipse branch must not be a way around that check.
+			name:    "degenerate ellipse sweep",
+			body:    dxfFile(square("outer limits"), ellipseEnt("deadzones", 50, 50, 30, 0, 0.5, 1.0, 1.0000001)),
+			wantErr: "degenerate",
 		},
 		{
 			name:    "unsupported entity on the dead-zone layer",
@@ -206,6 +223,15 @@ func lwPolyline(layer string, closed bool, xy ...float64) string {
 
 func circleEnt(layer string, x, y, r float64) string {
 	return fmt.Sprintf("0\nCIRCLE\n8\n%s\n10\n%f\n20\n%f\n40\n%f\n", layer, x, y, r)
+}
+
+// ellipseEnt renders an ELLIPSE from its center, major-axis endpoint (relative
+// to the center), axis ratio and start/end parameters.
+func ellipseEnt(layer string, cx, cy, mx, my, ratio, start, end float64) string {
+	// %g, not %f: the start/end parameters need full precision (a degenerate
+	// sweep like 1e-7 rad would round to zero decimals under %f).
+	return fmt.Sprintf("0\nELLIPSE\n8\n%s\n10\n%g\n20\n%g\n11\n%g\n21\n%g\n40\n%g\n41\n%g\n42\n%g\n",
+		layer, cx, cy, mx, my, ratio, start, end)
 }
 
 // withPair appends one group-code pair to an entity.

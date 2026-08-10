@@ -197,17 +197,36 @@ func checkNoBulge(pairs []pair) error {
 	return nil
 }
 
-// checkPlanar rejects entities drawn in a mirrored object coordinate system
-// (extrusion direction -Z). Their group-code coordinates are not world
-// coordinates, and reading them as such mirrors the shape about the Y axis.
+// checkPlanar rejects entities drawn in a nontrivial object coordinate system
+// (extrusion direction other than +Z, group codes 210/220/230). Their
+// group-code coordinates are OCS, not world coordinates: a mirrored OCS (-Z)
+// flips the shape about the Y axis, and a tilted one places it somewhere else
+// entirely — either way the loaded dead zone would silently guard the wrong
+// region.
 func checkPlanar(e entity) error {
+	ex, ey, ez := 0.0, 0.0, 1.0 // the default extrusion is +Z (OCS == WCS)
 	for _, p := range e.pairs {
-		if p.code != 230 {
+		var dst *float64
+		switch p.code {
+		case 210:
+			dst = &ex
+		case 220:
+			dst = &ey
+		case 230:
+			dst = &ez
+		default:
 			continue
 		}
-		if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil && v < 0 {
-			return fmt.Errorf("uses a mirrored extrusion direction (OCS); re-export it in world coordinates")
+		if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil {
+			*dst = v
 		}
+	}
+	// Only the direction matters (any positive multiple of +Z leaves OCS equal
+	// to WCS), so normalize before comparing.
+	l := math.Sqrt(ex*ex + ey*ey + ez*ez)
+	const eps = 1e-9
+	if l < eps || math.Abs(ex)/l > eps || math.Abs(ey)/l > eps || ez < 0 {
+		return fmt.Errorf("uses an object coordinate system (extrusion %g,%g,%g); re-export it in world coordinates", ex, ey, ez)
 	}
 	return nil
 }

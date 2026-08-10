@@ -135,24 +135,43 @@ func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error) {
 
 	p := &Planner{scene: s, clearance: clearance, opt: o}
 
-	p.boundary = erodeConvex(s.Outer, clearance)
-	if err := usableBoundary(p.boundary, s.Outer, clearance); err != nil {
+	// Validate the scene here, not only in LoadDXF: a Scene is an exported
+	// type, and a hand-built one (phase 2 constructs them around the DXF path)
+	// must not silently produce a planner that guards nothing. The offset and
+	// visibility machinery is only correct for simple convex rings (D7).
+	outer := dedupeRing(s.Outer)
+	if err := checkConvex(outer); err != nil {
+		return nil, fmt.Errorf("pnproute: outer limit %v", err)
+	}
+
+	p.boundary = erodeConvex(outer, clearance)
+	if err := usableBoundary(p.boundary, outer, clearance); err != nil {
 		return nil, fmt.Errorf("pnproute: clearance %.3f is too large for the outer limit: %v", clearance, err)
 	}
 
 	p.obstacles = make([]obstacle, len(s.Deadzones))
 	for i, dz := range s.Deadzones {
+		poly := dedupeRing(dz.Poly)
+		if err := checkConvex(poly); err != nil {
+			return nil, fmt.Errorf("pnproute: dead zone %d %v", i, err)
+		}
 		var edge Polygon
 		if dz.Kind == ShapeCircle {
+			if dz.Radius <= 0 {
+				return nil, fmt.Errorf("pnproute: dead zone %d: circle has radius %v", i, dz.Radius)
+			}
 			// A circle's offset is a bigger circle: taking it analytically keeps
 			// the node count at the discretization instead of doubling it.
-			edge = discretizeCircle(dz.Center, dz.Radius+clearance, len(dz.Poly))
+			edge = discretizeCircle(dz.Center, dz.Radius+clearance, len(poly))
 		} else {
-			edge = offsetConvexOut(dz.Poly, clearance, o.offsetArcStep)
+			edge = offsetConvexOut(poly, clearance, o.offsetArcStep)
 		}
 		p.obstacles[i] = obstacle{
-			edge:   edge,
-			core:   inflate(edge, -o.coreErode),
+			edge: edge,
+			// The exact inward offset keeps the documented grazing band width
+			// (coreErode) on every edge; a centroid-scaling approximation would
+			// thin it on the long sides of elongated zones.
+			core:   erodeConvex(edge, o.coreErode),
 			bounds: boundsOf(edge),
 		}
 	}
@@ -300,8 +319,17 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 		return nil, err
 	}
 
+	// The straight segment, when free, is provably shortest (its length is the
+	// Euclidean lower bound of any route), so the graph work can be skipped
+	// entirely. This is the common case for a pick-and-place move that does
+	// not cross a zone's clearance shadow.
+	if p.visible(start, goal) {
+		return p.assembleRoute([]Point{start, goal}, goal), nil
+	}
+
 	// Wire the two query points into the static graph: one segment test per
-	// static node each, instead of rebuilding the graph.
+	// static node each, instead of rebuilding the graph. The direct start-goal
+	// edge was ruled out above.
 	n := len(p.nodes)
 	startVis := make([]float64, n)
 	goalVis := make([]float64, n)
@@ -313,10 +341,6 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 		if p.visible(goal, nd) {
 			goalVis[i] = goal.dist(nd)
 		}
-	}
-	direct := -1.0
-	if p.visible(start, goal) {
-		direct = start.dist(goal)
 	}
 
 	startIdx, goalIdx := n, n+1
@@ -353,9 +377,6 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 					relax(u, v, w)
 				}
 			}
-			if direct >= 0 {
-				relax(u, goalIdx, direct)
-			}
 			continue
 		}
 		for _, a := range p.adj[u] {
@@ -383,11 +404,16 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 		}
 	}
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
+		path[i], path[j] = path[j], path[i] // backtracking built it goal-first
 	}
-	// A query point sitting on a graph node would enter the path twice. Drop
-	// the repeat: a zero-length leg is not something the motion stream should
-	// ever see, and a start that equals the goal collapses to one waypoint.
+	return p.assembleRoute(path, goal), nil
+}
+
+// assembleRoute turns a raw waypoint sequence into a Route with its metrics.
+// A query point sitting on a graph node — or a start equal to the goal —
+// would enter the path twice; the repeat is dropped, because a zero-length leg
+// is not something the motion stream should ever see.
+func (p *Planner) assembleRoute(path []Point, goal Point) *Route {
 	kept := path[:1]
 	for _, pt := range path[1:] {
 		if pt.dist(kept[len(kept)-1]) >= 1e-9 {
@@ -397,19 +423,18 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 	if len(kept) > 1 {
 		kept[len(kept)-1] = goal // keep the goal exact, node or not
 	}
-	path = kept
 
-	curv := pathCurvatures(path)
+	curv := pathCurvatures(kept)
 	route := &Route{
-		Waypoints: path,
+		Waypoints: kept,
 		Curv:      curv,
 		MinRadius: minRadius(curv),
-		MinClear:  pathClearance(path, p.scene.Deadzones, p.opt.segSamples),
+		MinClear:  pathClearance(kept, p.scene.Deadzones, p.opt.segSamples),
 	}
-	for i := 1; i < len(path); i++ {
-		route.Length += path[i-1].dist(path[i])
+	for i := 1; i < len(kept); i++ {
+		route.Length += kept[i-1].dist(kept[i])
 	}
-	return route, nil
+	return route
 }
 
 // pathClearance returns the closest the route comes to any true (un-offset)
@@ -422,8 +447,15 @@ func pathClearance(path []Point, zones []Shape, samples int) float64 {
 		nz := len(z.Poly)
 		for i := 0; i+1 < len(path); i++ {
 			a, b := path[i], path[i+1]
-			if zb.gapToSegment(a, b) >= worst {
-				continue // cannot beat the running minimum
+			// The gap is a lower bound on the *distance*, never on the
+			// penetration depth: it is 0 whenever the boxes touch. So it may
+			// only prune while it is positive — a positive gap proves this pair
+			// cannot penetrate at all and cannot beat a running minimum below
+			// it. Pruning on gap >= worst alone would stop all measurement as
+			// soon as worst went negative and under-report the deepest cut,
+			// zone-order dependently.
+			if g := zb.gapToSegment(a, b); g > 0 && g >= worst {
+				continue
 			}
 			d := math.Inf(1)
 			for j := 0; j < nz; j++ {

@@ -83,6 +83,10 @@ func TestNewPlannerBuildsGraph(t *testing.T) {
 
 func TestNewPlannerRejectsBadInput(t *testing.T) {
 	scene := loadScene(t, "testdata/cad_export.dxf")
+	// Scene is an exported type, so NewPlanner must validate hand-built scenes
+	// as strictly as LoadDXF validates drawings — an invalid zone that loads
+	// silently is a zone that guards nothing.
+	outer := Polygon{{0, 0}, {200, 0}, {200, 200}, {0, 200}}
 	tests := []struct {
 		name      string
 		scene     *Scene
@@ -97,6 +101,20 @@ func TestNewPlannerRejectsBadInput(t *testing.T) {
 		{"too few samples", scene, 10, []Option{WithSegmentSamples(1)}, "segment samples"},
 		{"zero core erosion", scene, 10, []Option{WithCoreErode(0)}, "core erosion"},
 		{"zero arc step", scene, 10, []Option{WithOffsetArcStep(0)}, "arc step"},
+		{"hand-built concave outer limit",
+			&Scene{Outer: Polygon{{0, 0}, {100, 0}, {100, 100}, {50, 100}, {50, 50}, {0, 50}}},
+			10, nil, "outer limit is not convex"},
+		{"hand-built circle without a ring",
+			&Scene{Outer: outer, Deadzones: []Shape{{Kind: ShapeCircle, Center: Point{100, 100}, Radius: 30}}},
+			10, nil, "dead zone 0"},
+		{"hand-built zero-radius circle",
+			&Scene{Outer: outer, Deadzones: []Shape{{Kind: ShapeCircle, Center: Point{100, 100},
+				Poly: discretizeCircle(Point{100, 100}, 30, 32)}}},
+			10, nil, "circle has radius"},
+		{"hand-built concave dead zone",
+			&Scene{Outer: outer, Deadzones: []Shape{{Kind: ShapePolyline,
+				Poly: Polygon{{10, 10}, {40, 10}, {40, 40}, {25, 40}, {25, 25}, {10, 25}}}}},
+			10, nil, "dead zone 0 is not convex"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +126,27 @@ func TestNewPlannerRejectsBadInput(t *testing.T) {
 				t.Fatalf("NewPlanner: got %v, want error containing %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestPathClearanceOrderIndependent guards the bounding-box prune: the gap is
+// a lower bound on the distance, never on the penetration depth, so it must
+// stop pruning once the running minimum is negative — otherwise MinClear
+// reports whichever penetration happens to be measured first.
+func TestPathClearanceOrderIndependent(t *testing.T) {
+	shallow := Shape{Kind: ShapePolyline, Poly: Polygon{{0, 0}, {10, 0}, {10, 10}, {0, 10}}}
+	deep := Shape{Kind: ShapePolyline, Poly: Polygon{{20, 0}, {60, 0}, {60, 40}, {20, 40}}}
+	// The first leg cuts 0.5 into the shallow zone; the second ends at the
+	// deep zone's center, 20 inside.
+	path := []Point{{-5, 9.5}, {15, 9.5}, {40, 20}}
+
+	a := pathClearance(path, []Shape{shallow, deep}, DefaultSegmentSamples)
+	b := pathClearance(path, []Shape{deep, shallow}, DefaultSegmentSamples)
+	if a != b {
+		t.Fatalf("MinClear depends on zone order: %v vs %v", a, b)
+	}
+	if a > -19 {
+		t.Fatalf("MinClear = %v, want about -20 (the deepest penetration)", a)
 	}
 }
 

@@ -143,9 +143,14 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			if err := checkPlanar(e); err != nil {
 				return nil, fmt.Errorf("pnproute: dead-zone circle %v", err)
 			}
+			// Discretized rings pass the same validation as drawn polylines: a
+			// dead zone that loads without error must actually guard its area.
+			poly := dedupeRing(discretizeCircle(c, r, o.arcSegments))
+			if err := checkConvex(poly); err != nil {
+				return nil, fmt.Errorf("pnproute: dead-zone circle at (%.3f,%.3f) %v", c.X, c.Y, err)
+			}
 			scene.Deadzones = append(scene.Deadzones, Shape{
-				Kind: ShapeCircle, Center: c, Radius: r,
-				Poly: discretizeCircle(c, r, o.arcSegments),
+				Kind: ShapeCircle, Center: c, Radius: r, Poly: poly,
 			})
 
 		case "ELLIPSE":
@@ -165,10 +170,15 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			end := valFloatDefault(e, 42, 2*math.Pi)
 			// A partial ellipse arc is closed by the chord between its ends;
 			// that ring is still convex, and erring on the larger area is the
-			// safe direction for an obstacle.
+			// safe direction for an obstacle. The ring validation below catches
+			// degenerate definitions the parameter checks cannot — e.g. a
+			// near-zero sweep whose ring encloses no area.
+			poly := dedupeRing(discretizeEllipse(c, majorRel, ratio, start, end, o.arcSegments))
+			if err := checkConvex(poly); err != nil {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) %v", c.X, c.Y, err)
+			}
 			scene.Deadzones = append(scene.Deadzones, Shape{
-				Kind: ShapeEllipse, Center: c,
-				Poly: discretizeEllipse(c, majorRel, ratio, start, end, o.arcSegments),
+				Kind: ShapeEllipse, Center: c, Poly: poly,
 			})
 
 		default:
