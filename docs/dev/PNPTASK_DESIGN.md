@@ -23,7 +23,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D3 | Picker x/y offsets | HAL **params** (RW float), symmetrical on both pickers (`picker.0` defaults 0/0). |
 | D4 | Tray/station z-offsets | HAL **pins** (float, in), as originally specced — wireable (e.g. height sensor). |
 | D5 | Alternating-picker enable | **Module load arg** `pickers=2` — no wiring auto-detection (Go HAL API has no writer/connectivity query, and an explicit arg is deterministic). |
-| D6 | Tray/station state persistence | Optional, via `persist_sqlite` GMI API. Enabled by load arg `persistence_instance=<name>`; **no default lookup** — absent arg means in-memory only. |
+| D6 | Tray/station state persistence | Optional, via `persist_sqlite` GMI API. Enabled by load arg `persist_instance=<name>` (the spelling every other module uses for the persist API); **no default lookup** — absent arg means in-memory only. |
 | D7 | Dead zones | **Convex-only** for v1, hard validation error on concave input. |
 | D8 | Tray reset pins | Two pins per tray station: `set-full` → all slots = current `process-step` pin value; `set-empty` → all slots = −1. (The earlier third pin `set-process-step` is merged into `set-full`.) |
 | D9 | Slot search | Tracked slot state is authoritative for *which* slots to try; the picker material-present feedback (closed = gripped nothing) only validates and corrects it. |
@@ -40,7 +40,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 | D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
-| D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene (and `CLEARANCE`) is scaled to mm when the planners are built, so everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
+| D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene is scaled to mm when the planners are built; `CLEARANCE`, like every INI length, is already mm by then (converted at parse time — scaling it again would square the factor). Everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
 | D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
 
 ---
@@ -62,7 +62,7 @@ load motmod   <pnp.mot>  num_joints=3 kins_instance=pnp.kins \
                          tp_instance=pnp.tp home_instance=pnp.home
 load persist_sqlite <persist> db=/var/lib/stmak/pnp.db          # optional
 load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2 \
-                         persistence_instance=persist
+                         persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
 ```
@@ -71,9 +71,9 @@ Load args (parsed `key=value` like `internal/task/module.go`):
 
 | Arg | Default | Meaning |
 |-----|---------|---------|
-| `motion_instance` | `motmod` | motctl/motstat provider instance |
+| `motion_instance` | `[EMCMOT]MOTION_INSTANCE`, then `motmod` | motctl/motstat provider instance (INI fallback like milltask's) |
 | `pickers` | `1` | `1` or `2`; `2` enables the alternating-picker logic |
-| `persistence_instance` | *(unset)* | persist API instance; unset = in-memory state only |
+| `persist_instance` | *(unset)* | persist API instance; unset = in-memory state only |
 
 ### 2.2 Source layout
 
@@ -405,7 +405,8 @@ also completes the §5.1 validation — the geometric half needs the eroded
 boundary and the offset zones, so it could not run before.
 
 - The drawings are read in machine units and the scene is scaled to mm in
-  place before `NewPlanner` (D23), clearance included. Scaling the geometry
+  place before `NewPlanner` (D23). The clearance is *not* scaled there — it
+  is an INI length, already converted at parse time. Scaling the geometry
   rather than the query points keeps every later comparison — `CheckPoint`,
   `Plan`, the route it returns — in one unit system. A dead zone drawn as a
   circle carries `Center`/`Radius` that `NewPlanner` offsets analytically, so
@@ -538,7 +539,7 @@ Pick search (D9): iterate in direction-mode order over slots with
 
 ### 7.2 Persistence (`persist.go`, optional per D6)
 
-If `persistence_instance` is set: `open(namespace)` at Start with namespace =
+If `persist_instance` is set: `open(namespace)` at Start with namespace =
 instance name sanitized to `[A-Za-z0-9_]+` (dots → underscores, e.g.
 `pnp_task`). Persisted on every change, restored at Start:
 

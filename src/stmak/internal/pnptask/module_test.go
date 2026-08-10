@@ -162,7 +162,7 @@ func TestFactoryTwoPickers(t *testing.T) {
 	setupPaths(t)
 	name := testInstanceName(t)
 	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, name,
-		"pickers=2", "motion_instance=pnp.mot", "persistence_instance=persist")
+		"pickers=2", "motion_instance=pnp.mot", "persist_instance=persist")
 
 	if m.pickers != 2 || m.motInstance != "pnp.mot" || m.persistInstance != "persist" {
 		t.Errorf("load args = pickers %d, motion %q, persist %q",
@@ -290,6 +290,24 @@ Z_PICK = 5.0
 				t.Errorf("error = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestMotionInstanceFromINI covers the milltask-compatible fallback: the
+// motion instance may come from [EMCMOT]MOTION_INSTANCE so a shared HAL file
+// does not hardcode it, and the load arg still wins over the INI.
+func TestMotionInstanceFromINI(t *testing.T) {
+	setupPaths(t)
+	text := trajSection + "[EMCMOT]\nMOTION_INSTANCE = ini.mot\n" + pnptaskSection + stationSections
+
+	m := mustLoadModule(t, text, testInstanceName(t))
+	if m.motInstance != "ini.mot" {
+		t.Errorf("motion instance = %q, want the INI's %q", m.motInstance, "ini.mot")
+	}
+
+	m = mustLoadModule(t, text, testInstanceName(t), "motion_instance=arg.mot")
+	if m.motInstance != "arg.mot" {
+		t.Errorf("motion instance = %q, want the load arg's %q (arg wins over INI)", m.motInstance, "arg.mot")
 	}
 }
 

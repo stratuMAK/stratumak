@@ -14,13 +14,15 @@
 // Usage in a HAL file:
 //
 //	load pnptask <pnp.task> motion_instance=pnp.mot pickers=2 \
-//	                        persistence_instance=persist
+//	                        persist_instance=persist
 //
 // Load arguments:
-//   - motion_instance=<name>       motctl/motstat provider (default "motmod")
-//   - pickers=<1|2>                2 enables the alternating-picker logic (D5)
-//   - persistence_instance=<name>  persist API instance; unset = in-memory
-//     state only (D6, no default lookup)
+//   - motion_instance=<name>   motctl/motstat provider; falls back to
+//     [EMCMOT]MOTION_INSTANCE in the INI (like milltask), then "motmod"
+//   - pickers=<1|2>            2 enables the alternating-picker logic (D5)
+//   - persist_instance=<name>  persist API instance, spelled like every other
+//     module's persist arg; unset = in-memory state only (D6, no default
+//     lookup)
 //
 // Configuration lives in the [PNPTASK*] INI sections, resolved through the
 // instance namespace ([pnp.task:PNPTASK] with fallback to [PNPTASK]) — see
@@ -102,14 +104,22 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	}
 
 	m := &pnptaskModule{
-		name:        name,
-		logger:      logger,
-		ini:         ini.WithNamespace(name),
-		motInstance: defaultMotionInstance,
-		pickers:     1,
+		name:    name,
+		logger:  logger,
+		ini:     ini.WithNamespace(name),
+		pickers: 1,
 	}
 	if err := m.parseArgs(args); err != nil {
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
+	}
+	// Like milltask, the motion instance may come from the INI so a shared HAL
+	// file does not have to hardcode it per instance; the load arg still wins.
+	if m.motInstance == "" {
+		if v := strings.TrimSpace(m.ini.Get("EMCMOT", "MOTION_INSTANCE")); v != "" {
+			m.motInstance = v
+		} else {
+			m.motInstance = defaultMotionInstance
+		}
 	}
 
 	cfg, err := LoadConfig(m.ini)
@@ -156,7 +166,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	logger.Info("pnptask configured",
 		"motion_instance", m.motInstance,
 		"pickers", m.pickers,
-		"persistence_instance", m.persistInstance,
+		"persist_instance", m.persistInstance,
 		"trays", len(cfg.Trays),
 		"procs", len(cfg.Procs),
 		"traydefs", len(cfg.TrayDefs),
@@ -192,9 +202,13 @@ func (m *pnptaskModule) parseArgs(args []string) error {
 				return fmt.Errorf("pickers=%q: must be 1 or 2", v)
 			}
 			m.pickers = n
-		case "persistence_instance":
+		case "persist_instance":
+			// The same spelling task, tooltable, halscope and ngcpreview use
+			// for the same persist API — parseArgs hard-rejects unknown keys,
+			// so a divergent spelling here would fail every HAL line written
+			// by analogy with those modules.
 			if v == "" {
-				return fmt.Errorf("persistence_instance=: empty instance name")
+				return fmt.Errorf("persist_instance=: empty instance name")
 			}
 			m.persistInstance = v
 		default:

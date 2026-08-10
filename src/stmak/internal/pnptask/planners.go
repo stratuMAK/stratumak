@@ -24,9 +24,11 @@ type plannerSet struct {
 // newPlanners loads every dead-zone drawing, builds its planner and validates
 // every taught position against all of them.
 //
-// The drawings describe the same coordinates as the INI (D23), so they are read
-// in machine units and scaled to the internal mm here, along with the clearance
-// the planner is built at.
+// The drawings describe the same coordinates as the INI (D23), so they are
+// read in machine units and scaled to the internal mm here. cfg.Clearance is
+// NOT scaled here: like every INI length it was already converted to mm by
+// the config loader — scaling it again would square the factor on a non-mm
+// machine.
 func newPlanners(cfg *Config) (*plannerSet, error) {
 	s := &plannerSet{files: cfg.DeadzoneFiles}
 	for i, path := range cfg.DeadzoneFiles {

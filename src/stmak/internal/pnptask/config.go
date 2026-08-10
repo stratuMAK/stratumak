@@ -179,7 +179,11 @@ var axisOrder = []rune{'X', 'Y', 'Z', 'A', 'B', 'C', 'U', 'V', 'W'}
 // with them (design §5.1); the files are resolved here so a typo in a path
 // still fails at load rather than at the first job.
 func LoadConfig(ini *inifile.IniFile) (*Config, error) {
-	r := &iniReader{ini: ini, units: parseLinearUnits(ini.Get("TRAJ", "LINEAR_UNITS"))}
+	units, err := parseLinearUnits(ini.Get("TRAJ", "LINEAR_UNITS"))
+	if err != nil {
+		return nil, err
+	}
+	r := &iniReader{ini: ini, units: units}
 	cfg := &Config{LinearUnits: r.units}
 
 	axes, err := parseCoordinates(ini.Get("TRAJ", "COORDINATES"))
@@ -192,11 +196,11 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.AutoHome = r.boolean(sec, "AUTOHOME", false)
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
-	cfg.BlendTolerance = r.length(sec, "BLEND_TOLERANCE", 0)
-	cfg.MoveVel = r.length(sec, "MOVE_VEL", 0)
-	cfg.MoveAcc = r.length(sec, "MOVE_ACC", 0)
-	cfg.ZVel = r.length(sec, "Z_VEL", 0)
-	cfg.ZAcc = r.length(sec, "Z_ACC", 0)
+	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
+	cfg.MoveVel = r.lengthNonNeg(sec, "MOVE_VEL", 0)
+	cfg.MoveAcc = r.lengthNonNeg(sec, "MOVE_ACC", 0)
+	cfg.ZVel = r.lengthNonNeg(sec, "Z_VEL", 0)
+	cfg.ZAcc = r.lengthNonNeg(sec, "Z_ACC", 0)
 	cfg.PosSettleTime = r.duration(sec, "POS_SETTLE_TIME", 0)
 	cfg.PickSettleTime = r.duration(sec, "PICK_SETTLE_TIME", 0)
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
@@ -234,7 +238,7 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 // selector value the deadzone-select pin carries, so the list is kept in file
 // order and never sorted or deduplicated.
 func loadDeadzoneFiles(ini *inifile.IniFile, cfg *Config) error {
-	files := ini.GetAll("PNPTASK", "DEADZONE_FILE")
+	files := deadzoneFileValues(ini)
 	if len(files) == 0 {
 		// The outer limit lives in the DXF as well, so "no dead-zone file" is
 		// not "no dead zones" — it is a machine with no known boundary, which
@@ -254,6 +258,37 @@ func loadDeadzoneFiles(ini *inifile.IniFile, cfg *Config) error {
 			return fmt.Errorf("[PNPTASK]DEADZONE_FILE #%d (%q): %w", i, f, err)
 		}
 		cfg.DeadzoneFiles = append(cfg.DeadzoneFiles, path)
+	}
+	return nil
+}
+
+// deadzoneFileValues collects the DEADZONE_FILE lines with override semantics:
+// if the namespaced [<ns>:PNPTASK] section defines any, they *replace* the
+// global [PNPTASK] ones. GetAll would concatenate the two views — but this
+// list is what the deadzone-select pin indexes, so an instance overriding the
+// drawings must not have a foreign instance's files appended under selector
+// values it never asked for (module.go's namespace doc promises override
+// semantics for the whole [PNPTASK*] configuration).
+func deadzoneFileValues(ini *inifile.IniFile) []string {
+	names := []string{"PNPTASK"}
+	if ns := ini.Namespace(); ns != "" {
+		names = []string{ns + ":PNPTASK", "PNPTASK"}
+	}
+	for _, name := range names {
+		var vals []string
+		for i := range ini.Sections {
+			if ini.Sections[i].Name != name {
+				continue
+			}
+			for _, e := range ini.Sections[i].Entries {
+				if e.Key == "DEADZONE_FILE" {
+					vals = append(vals, e.Value)
+				}
+			}
+		}
+		if len(vals) > 0 {
+			return vals
+		}
 	}
 	return nil
 }
@@ -328,30 +363,63 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 	return nil
 }
 
-// checkGridPitch rejects a grid whose slots would collapse onto each other.
-// Last-First is resolved in the frame Angle rotates into, so an angle that puts
-// the whole span onto one of the two grid axes leaves the other with zero pitch
-// — every slot of that index would sit on top of its neighbour, which is a
-// mis-taught tray and not something to discover by driving to it.
+// checkGridPitch rejects a mis-taught grid — one whose FIRST/LAST/ANGLE
+// combination cannot describe the tray the section claims (D24: this is a
+// config error, not something to discover by driving to it). Last−First is
+// resolved in the frame Angle rotates into; two things can go wrong there:
+//
+//   - a multi-slot axis with a per-slot pitch below any physical tray's
+//     (an ANGLE typo like 89.9° for 90° collapses a 100 mm span to a
+//     0.02 mm pitch — the total span still looks nonzero, so the pitch,
+//     not the span, is what must be checked), or
+//   - a *single*-slot axis with a span component at all: one slot has no
+//     pitch to absorb it, so slot (COLS−1, ROWS−1) would silently miss the
+//     taught LAST by exactly that component.
 func checkGridPitch(sec string, d TrayDef) error {
 	if !d.HasLast || d.Endless() {
 		return nil
 	}
 	dx, dy := gridSpan(d)
-	if d.Cols > 1 && math.Abs(dx) < gridPitchEpsilon {
-		return fmt.Errorf("[%s]: COLS = %d but the column pitch is zero (FIRST/LAST and ANGLE = %g° describe a grid with no column spacing)",
-			sec, d.Cols, d.Angle*180/math.Pi)
+	if d.Cols > 1 && math.Abs(dx)/float64(d.Cols-1) < gridMinPitch {
+		return fmt.Errorf("[%s]: COLS = %d over a column span of %g mm is a pitch below %g mm (FIRST/LAST and ANGLE = %g° describe collapsed columns)",
+			sec, d.Cols, math.Abs(dx), gridMinPitch, d.Angle*180/math.Pi)
 	}
-	if d.Rows > 1 && math.Abs(dy) < gridPitchEpsilon {
-		return fmt.Errorf("[%s]: ROWS = %d but the row pitch is zero (FIRST/LAST and ANGLE = %g° describe a grid with no row spacing)",
-			sec, d.Rows, d.Angle*180/math.Pi)
+	if d.Rows > 1 && math.Abs(dy)/float64(d.Rows-1) < gridMinPitch {
+		return fmt.Errorf("[%s]: ROWS = %d over a row span of %g mm is a pitch below %g mm (FIRST/LAST and ANGLE = %g° describe collapsed rows)",
+			sec, d.Rows, math.Abs(dy), gridMinPitch, d.Angle*180/math.Pi)
+	}
+	if d.Cols == 1 && math.Abs(dx) > gridAxisEpsilon {
+		return fmt.Errorf("[%s]: COLS = 1 but LAST sits %g mm along the column axis; with one column LAST must lie on the row axis — set ANGLE = %.4g so both taught corners are slots",
+			sec, math.Abs(dx), suggestedAngle(d, AxisRow))
+	}
+	if d.Rows == 1 && math.Abs(dy) > gridAxisEpsilon {
+		return fmt.Errorf("[%s]: ROWS = 1 but LAST sits %g mm off the column axis; with one row LAST must lie on the column axis — set ANGLE = %.4g so both taught corners are slots",
+			sec, math.Abs(dy), suggestedAngle(d, AxisCol))
 	}
 	return nil
 }
 
-// gridPitchEpsilon is the span below which a grid axis counts as collapsed, in
-// mm. A tray whose corner slots are a micron apart is a typo either way.
-const gridPitchEpsilon = 1e-6
+// suggestedAngle is the ANGLE (degrees) that puts the whole LAST−FIRST span
+// onto the given grid axis — what a single-row (axis = column) or
+// single-column (axis = row) tray needs for LAST to land on its last slot.
+func suggestedAngle(d TrayDef, axis SlotAxis) float64 {
+	a := math.Atan2(d.Last.Y-d.First.Y, d.Last.X-d.First.X)
+	if axis == AxisRow {
+		a -= math.Pi / 2
+	}
+	return a * 180 / math.Pi
+}
+
+const (
+	// gridMinPitch is the smallest plausible slot-to-slot distance, in mm.
+	// Neighbouring slots closer than this are a mis-taught grid (typically a
+	// degenerate ANGLE), not a real tray — even micro-component waffle trays
+	// pitch well above it. Raise it here if that assumption ever breaks.
+	gridMinPitch = 0.1
+	// gridAxisEpsilon is how much span a one-slot axis may carry, in mm:
+	// only floating-point residue of the frame rotation, not a real offset.
+	gridAxisEpsilon = 1e-6
+)
 
 // loadStations parses [PNPTASK_TRAY_n] and [PNPTASK_PROC_n]. Station ids share
 // one namespace across both kinds: origin-id and dest-id name a station without
@@ -488,6 +556,13 @@ func sectionIndices(ini *inifile.IniFile, prefix string) ([]int, error) {
 		if err != nil || n < 0 {
 			return nil, fmt.Errorf("[%s]: section index %q is not a number", s.Name, rest)
 		}
+		// Only the canonical spelling counts: "00" or "+1" would parse to an
+		// index that the loaders re-read under the canonical name, so the
+		// aliased section's own content would silently vanish — and two
+		// sections aliasing one index would drop one of them entirely.
+		if rest != strconv.Itoa(n) {
+			return nil, fmt.Errorf("[%s]: section index %q is not in canonical form, write [%s_%d]", s.Name, rest, prefix, n)
+		}
 		found[n] = true
 	}
 	idxs := make([]int, 0, len(found))
@@ -567,8 +642,11 @@ func (r *iniReader) float(section, key string, def float64) float64 {
 		return def
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		r.fail("[%s]%s = %q: not a number", section, key, s)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		// ParseFloat happily accepts "NaN" and "Inf", but no station
+		// coordinate, height or limit means anything non-finite — and NaN
+		// additionally slides through every comparison-based guard below.
+		r.fail("[%s]%s = %q: not a finite number", section, key, s)
 		return def
 	}
 	return v
@@ -593,6 +671,24 @@ func (r *iniReader) length(section, key string, def float64) float64 {
 
 func (r *iniReader) lengthReq(section, key string) float64 {
 	return r.machineToMM(r.floatReq(section, key))
+}
+
+// lengthNonNeg reads a length-typed value that has no meaningful negative — a
+// tolerance, velocity or acceleration. A sign typo would otherwise slip
+// through comparisons written for positive values (a negative BLEND_TOLERANCE
+// vacuously passes the CLEARANCE guard) and reach the motion stack. The value
+// is checked in machine units, before conversion, so the message shows what
+// the INI says.
+func (r *iniReader) lengthNonNeg(section, key string, def float64) float64 {
+	if !r.has(section, key) {
+		return def
+	}
+	raw := r.float(section, key, 0)
+	if raw < 0 {
+		r.fail("[%s]%s = %g: must not be negative", section, key, raw)
+		return def
+	}
+	return r.machineToMM(raw)
 }
 
 // duration reads a time in seconds. Negative is rejected: every use is a dwell
@@ -670,19 +766,24 @@ func (r *iniReader) machineToMM(v float64) float64 {
 	return v / r.units
 }
 
-// parseLinearUnits mirrors milltask's reading of [TRAJ]LINEAR_UNITS: the result
-// is machine units per mm.
-func parseLinearUnits(s string) float64 {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+// parseLinearUnits reads [TRAJ]LINEAR_UNITS; the result is machine units per
+// mm. It accepts what milltask accepts, but an unrecognized value is an error
+// rather than milltask's silent mm fallback: a typo like "inches" quietly
+// meaning mm scales *everything* — stations, heights, velocities and the DXF
+// scenes — self-consistently 25.4x wrong, which no later validation can see.
+func parseLinearUnits(s string) (float64, error) {
+	trimmed := strings.TrimSpace(s)
+	switch strings.ToLower(trimmed) {
 	case "":
-		return 1.0 // mm default
+		return 1.0, nil // mm default
 	case "mm", "metric":
-		return 1.0
+		return 1.0, nil
 	case "in", "inch", "imperial":
-		return 1.0 / 25.4
+		return 1.0 / 25.4, nil
 	}
-	if v, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil && v > 0 {
-		return v
+	v, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || v <= 0 || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("[TRAJ]LINEAR_UNITS = %q: expected mm, in or a positive units-per-mm number", trimmed)
 	}
-	return 1.0
+	return v, nil
 }

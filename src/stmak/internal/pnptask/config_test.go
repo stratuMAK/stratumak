@@ -331,6 +331,13 @@ Z_PICK = 5.0
 	if len(cfg.Procs) != 1 || cfg.Procs[0].ID != 77 {
 		t.Errorf("procs = %+v, want the namespaced station 77", cfg.Procs)
 	}
+	// Override, not concatenation: the namespaced DEADZONE_FILE lines replace
+	// the global ones. GetAll would append both, and this list is indexed by
+	// the deadzone-select pin — a concatenated foreign entry would be
+	// selectable under a value the instance never configured.
+	if len(cfg.DeadzoneFiles) != 1 || filepath.Base(cfg.DeadzoneFiles[0]) != zonesB {
+		t.Errorf("deadzone files = %v, want exactly the namespaced [%s]", cfg.DeadzoneFiles, zonesB)
+	}
 
 	// The same INI read without the namespace is the other instance's view.
 	other, err := loadTestConfig(t, text, "other.task")
@@ -339,6 +346,9 @@ Z_PICK = 5.0
 	}
 	if other.MoveHeight != 30 || other.Procs[0].ID != 20 {
 		t.Errorf("unnamespaced view = %g / %+v, want the global 30 / station 20", other.MoveHeight, other.Procs)
+	}
+	if len(other.DeadzoneFiles) != 1 || filepath.Base(other.DeadzoneFiles[0]) != zonesA {
+		t.Errorf("other view deadzone files = %v, want exactly the global [%s]", other.DeadzoneFiles, zonesA)
 	}
 }
 
@@ -372,7 +382,26 @@ func TestLoadConfigErrors(t *testing.T) {
 		name: "malformed number",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = high\nCLEARANCE = 10.0\nDEADZONE_FILE = zones_a.dxf\n" +
 			stationSections,
-		want: "not a number",
+		want: "not a finite number",
+	}, {
+		name: "non-finite number",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = NaN\nCLEARANCE = 10.0\nDEADZONE_FILE = zones_a.dxf\n" +
+			stationSections,
+		want: "not a finite number",
+	}, {
+		name: "unknown LINEAR_UNITS",
+		ini:  "[TRAJ]\nCOORDINATES = XYZ\nLINEAR_UNITS = inches\n" + pnptaskSection + stationSections,
+		want: "LINEAR_UNITS",
+	}, {
+		name: "negative blend tolerance",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = -8\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: "BLEND_TOLERANCE = -8: must not be negative",
+	}, {
+		name: "negative velocity",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nMOVE_VEL = -500\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: "MOVE_VEL = -500: must not be negative",
 	}, {
 		name: "negative dwell",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nRELEASE_TIME = -1\n" +
@@ -522,6 +551,20 @@ Z_PICK = 2.5
 `,
 		want: `section index "O" is not a number`,
 	}, {
+		// "_00" parses to index 0 but is re-read under the canonical "_0"
+		// name, so its content would silently vanish behind the real _0.
+		name: "aliased section index",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+
+[PNPTASK_TRAY_00]
+ID = 11
+Z_PICK = 2.5
+`,
+		want: "not in canonical form",
+	}, {
 		name: "collapsed grid axis",
 		ini: trajSection + pnptaskSection + `
 [PNPTASK_TRAYDEF_0]
@@ -537,7 +580,45 @@ LAST_Y = 400.0
 ID = 10
 Z_PICK = 2.5
 `,
-		want: "row pitch is zero",
+		want: "collapsed rows",
+	}, {
+		// A near-degenerate ANGLE leaves a total span that looks healthy but a
+		// per-slot pitch far below any real tray's.
+		name: "degenerate grid angle",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 4
+COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 100.2
+LAST_Y = 500.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "collapsed columns",
+	}, {
+		// One row has no pitch to absorb a cross-axis span: LAST would not be
+		// a slot (D24), so a tilted single-row tray must state its ANGLE.
+		name: "single-row tray with off-axis LAST",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 1
+COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 280.0
+LAST_Y = 404.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "with one row LAST must lie on the column axis",
 	}, {
 		name: "zero MAX_UNPOPULATED",
 		ini: trajSection + pnptaskSection + `

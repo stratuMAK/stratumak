@@ -12,11 +12,13 @@ load motmod   <pnp.mot>  num_joints=3 kins_instance=pnp.kins \
 
 # The task. pickers=2 exports the second picker and enables the alternating
 # picker logic; drop it (or pass pickers=1) for the single-picker machine.
+# The motion instance comes from [EMCMOT]MOTION_INSTANCE in the INI; a
+# motion_instance= load arg would override it.
 #
 # Deliberately loaded AFTER its motion stack for readability only: pnptask
 # resolves motctl/motstat in Start, which the launcher runs once every module
 # has been constructed, so the load order of these lines does not matter.
-load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2
+load pnptask  <pnp.task> pickers=2
 
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
