@@ -2206,7 +2206,12 @@ int Interp::ini_load(const char * /*filename*/)
     const char *val = _setup.ini_accessor.get(
         _setup.ini_accessor.ctx, "RS274NGC", "PARAMETER_FILE");
     if (val != NULL && strlen(val) < sizeof(parameter_file_name)) {
-        strncpy(parameter_file_name, val, sizeof(parameter_file_name));
+        // Bound is size-1, not size: the guard above already proves val fits
+        // with room for the terminator, but a strncpy whose bound equals the
+        // destination size is the pattern that can leave it unterminated, and
+        // -Wstringop-truncation flags it without correlating the two. The
+        // array is zero-initialised, so the terminator is guaranteed.
+        strncpy(parameter_file_name, val, sizeof(parameter_file_name) - 1);
         logDebug("found PARAMETER_FILE:%s:", parameter_file_name);
     } else {
         logDebug("did not find PARAMETER_FILE");

@@ -282,13 +282,19 @@ elif ! test `$CC -dumpversion | cut -d '.' -f 1` -gt 2 ; then
   AC_MSG_ERROR([Compilers older than gcc 3.x are no longer supported])
 fi
 
-# Set flags for C and C++ if supported
-for commonflag in -Wno-stringop-truncation ; do
-  if echo "int main() { return 0;}" | $CC -Werror $commonflag -E - > /dev/null; then
-    CFLAGS="${CFLAGS:+$CFLAGS }$flag"
-    CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }$flag"
-  fi
-done
+# There was a loop here that meant to add -Wno-stringop-truncation but appended
+# $flag where the loop variable was $commonflag, so it appended nothing and the
+# warning was never suppressed. Deleted rather than repaired, deliberately.
+#
+# Repairing it would disable the warning tree-wide, and it earns its keep: with
+# --enable-werror it caught the one strncpy in this tree whose bound equalled
+# its destination size (rs274ngc_pre.cc, Interp::ini_load). Exactly one site
+# fires across the whole tree, so fixing the call site is cheaper than going
+# blind to the class. Note it only reproduces under COVERAGE=1 -- the
+# instrumentation changes inlining enough for gcc to see the bound.
+#
+# If a future compiler makes this class noisy, prefer a targeted suppression at
+# the site over restoring a tree-wide -Wno-.
 
 AC_MSG_CHECKING([for usability of linux/hidraw.h])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([[
