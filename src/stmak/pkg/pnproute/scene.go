@@ -209,7 +209,10 @@ func LoadDXFFile(path string, opts ...LoadOption) (*Scene, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pnproute: %w", err)
 	}
-	defer f.Close()
+	// Read-only: Close can only report an error about buffered writes, of
+	// which there are none, so dropping it is explicit rather than global
+	// (see .golangci.yml — no blanket errcheck exclusion for Close).
+	defer func() { _ = f.Close() }()
 
 	scene, err := LoadDXF(f, opts...)
 	if err != nil {
