@@ -116,6 +116,17 @@ var (
 		Message: "HAL_PORT write failed (pin not linked to a sized port signal?)",
 	}
 
+	// ErrNameExists indicates a pin or parameter with this fully-qualified
+	// name was already created on the component. The duplicate is rejected on
+	// the Go side before any HAL shared memory is allocated: HAL shm is a
+	// bump allocator with no free, so a duplicate that only failed inside
+	// hal_pin_new/hal_param_new would permanently leak the already-allocated
+	// value cell (see Component.create).
+	ErrNameExists = &Error{
+		Code:    -17, // -EEXIST
+		Message: "pin or parameter name already exists on this component",
+	}
+
 	// ErrComponentExited indicates a pin was accessed after its owning
 	// component was released with Exit(). The pin's HAL shared memory has been
 	// freed, so the access is refused rather than dereferencing freed memory
