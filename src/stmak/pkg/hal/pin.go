@@ -74,45 +74,35 @@ type Pin[T PinValue] struct {
 //	pin, err := NewPin[bool](comp, "enable", hal.In)
 //	pin, err := NewPin[int32](comp, "count", hal.Out)
 func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], error) {
-	if c == nil {
-		return nil, newError("NewPin", "component is nil", -22)
-	}
-
-	if name == "" {
-		return nil, newError("NewPin", ErrInvalidName.Message, ErrInvalidName.Code)
+	fullName, err := qualifyName(c, "NewPin", name)
+	if err != nil {
+		return nil, err
 	}
 
 	if dir != In && dir != Out && dir != IO {
 		return nil, newError("NewPin", "invalid direction", -22)
 	}
 
-	// Build fully-qualified pin name
-	fullName := fmt.Sprintf("%s.%s", c.Name(), name)
-	if len(fullName) > NameLen {
-		return nil, newError("NewPin", ErrInvalidName.Message, ErrInvalidName.Code)
-	}
-
 	// Map the generic type parameter T to its HAL type, then create the pin via
 	// the single halPinNew wrapper (dispatched C-side by hal_type_t).
-	var typ PinType
-	var zeroValue T
-	switch any(zeroValue).(type) {
-	case bool:
-		typ = TypeBit
-	case float64:
-		typ = TypeFloat
-	case int32:
-		typ = TypeS32
-	case uint32:
-		typ = TypeU32
-	case string:
-		typ = TypePort
-	default:
+	typ, ok := pinTypeOf[T]()
+	if !ok {
 		return nil, newError("NewPin", "unsupported pin type", -22)
 	}
 
-	ptr, err := halPinNew(fullName, dir, c.id, typ)
-	if err != nil {
+	// The creation guard rejects duplicates and ready/exited components before
+	// the pointer slot is allocated (HAL shm has no free), and holds the
+	// component write lock across halPinNew so the C call can never race
+	// Component.Exit() into a freed component id.
+	var ptr unsafe.Pointer
+	if err := c.create("NewPin", fullName, func() error {
+		p, err := halPinNew(fullName, dir, c.id, typ)
+		if err != nil {
+			return err
+		}
+		ptr = p
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -306,22 +296,10 @@ func (p *Pin[T]) Direction() Direction {
 
 // Type returns the HAL type of the pin.
 func (p *Pin[T]) Type() PinType {
-	// Use type assertion to determine the HAL type
-	var t T
-	switch any(t).(type) {
-	case bool:
-		return TypeBit
-	case float64:
-		return TypeFloat
-	case int32:
-		return TypeS32
-	case uint32:
-		return TypeU32
-	case string:
-		return TypePort
-	default:
-		return -1 // Should never happen due to PinValue constraint
+	if typ, ok := pinTypeOf[T](); ok {
+		return typ
 	}
+	return -1 // Should never happen due to PinValue constraint
 }
 
 // String returns a string representation of the pin.
