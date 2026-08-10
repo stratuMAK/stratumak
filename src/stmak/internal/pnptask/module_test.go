@@ -110,7 +110,8 @@ func TestFactoryExportsPins(t *testing.T) {
 		// Picker 0.
 		"picker.0.close", "picker.0.opened", "picker.0.closed", "picker.0.missing",
 		"picker.0.manual-open", "picker.0.manual-close",
-		"picker.0.pos-x", "picker.0.pos-y", "picker.0.x-offset", "picker.0.y-offset",
+		"picker.0.pos-x", "picker.0.pos-y", "picker.0.pos-x-mu", "picker.0.pos-y-mu",
+		"picker.0.x-offset", "picker.0.y-offset",
 		// Stations, addressed by their INI id.
 		"tray.10.tray-id", "tray.10.set-full", "tray.10.set-empty",
 		"tray.10.z-offset", "tray.10.empty", "tray.10.full",

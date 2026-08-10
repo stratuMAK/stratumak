@@ -407,6 +407,12 @@ func TestLoadConfigErrors(t *testing.T) {
 		ini:  "[TRAJ]\nCOORDINATES = XYZ\nLINEAR_UNITS = inches\n" + pnptaskSection + stationSections,
 		want: "LINEAR_UNITS",
 	}, {
+		// NaN passes both "v <= 0" and the Inf check; as the unit scale it
+		// would poison every converted length and defeat every guard.
+		name: "NaN LINEAR_UNITS",
+		ini:  "[TRAJ]\nCOORDINATES = XYZ\nLINEAR_UNITS = nan\n" + pnptaskSection + stationSections,
+		want: "LINEAR_UNITS",
+	}, {
 		name: "negative blend tolerance",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = -8\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,

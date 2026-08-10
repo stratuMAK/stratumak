@@ -169,6 +169,38 @@ func TestLoadDXF_Invalid(t *testing.T) {
 			wantErr: "unsupported entity LINE",
 		},
 		{
+			// A filled hatch is the natural CAD idiom for a keep-out AREA;
+			// whitelisting it as annotation would load fewer zones than drawn.
+			name:    "hatch on the dead-zone layer",
+			body:    dxfFile(square("outer limits"), "0\nHATCH\n8\ndeadzones\n"),
+			wantErr: "HATCH",
+		},
+		{
+			// Group code 90 declares the vertex count; fewer actual vertices
+			// mean a truncated/corrupt export whose zone is smaller than drawn.
+			name: "vertex count mismatch",
+			body: dxfFile(square("outer limits"),
+				"0\nLWPOLYLINE\n8\ndeadzones\n90\n4\n70\n1\n10\n10.0\n20\n10.0\n10\n40.0\n20\n10.0\n10\n40.0\n20\n40.0\n"),
+			wantErr: "declares 4 vertices but carries 3",
+		},
+		{
+			name:    "circle without a center",
+			body:    dxfFile(square("outer limits"), "0\nCIRCLE\n8\ndeadzones\n40\n10.0\n"),
+			wantErr: "no center",
+		},
+		{
+			// ENTITIES never closed: the file was cut off between records, and
+			// the entities collected so far may be an incomplete drawing.
+			name:    "truncated between entities",
+			body:    "0\nSECTION\n2\nENTITIES\n" + square("outer limits"),
+			wantErr: "not closed with ENDSEC",
+		},
+		{
+			name:    "truncated mid-record",
+			body:    dxfFile(square("outer limits")) + "999\n",
+			wantErr: "has no value",
+		},
+		{
 			name:    "circle without a radius",
 			body:    dxfFile(square("outer limits"), circleEnt("deadzones", 50, 50, 0)),
 			wantErr: "radius",

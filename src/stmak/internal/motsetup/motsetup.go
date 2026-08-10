@@ -355,9 +355,19 @@ func pushJoint(ini *inifile.IniFile, joint int32, u units, mc MotionConfig, res 
 
 	// Leadscrew / screw-error compensation ([JOINT_n]COMP_FILE). Loaded before
 	// activation, matching C++ which pushes the table to motion at startup.
+	// The triplets are lengths in machine units like every other value in this
+	// section, so they get the same conversion on the way to the mm-internal
+	// controller. (The C++ path and the milltask port this was extracted from
+	// pushed them raw — inch-machine compensation was silently 25.4x off.)
 	if compFile := ini.Get(section, "COMP_FILE"); compFile != "" {
 		compType := getIntOr(ini, section, "COMP_FILE_TYPE", 0)
-		if err := LoadJointComp(joint, compFile, compType, mc.SetJointComp); err != nil {
+		setComp := func(j int32, nominal, fwd, rev float64) error {
+			return mc.SetJointComp(j,
+				u.toMMLinear(nominal, linear),
+				u.toMMLinear(fwd, linear),
+				u.toMMLinear(rev, linear))
+		}
+		if err := LoadJointComp(joint, compFile, compType, setComp); err != nil {
 			return linear, fmt.Errorf("COMP_FILE %q: %w", compFile, err)
 		}
 	}

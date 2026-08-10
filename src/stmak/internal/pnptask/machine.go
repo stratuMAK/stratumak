@@ -36,6 +36,22 @@ var (
 	// declare the motion controller gone. A single failure is an expected
 	// split read; a full second of them means the RT side died or detached.
 	commFailureTicks = 100
+
+	// statusStaleTicks is how many cycles the last good status snapshot keeps
+	// serving after failed reads. A single failed read is an expected split
+	// read (see commFailureTicks) and must not glitch state derived from the
+	// snapshot — the homed pin dropping for one cycle, a jog aborted and
+	// re-issued. 10 cycles is 100 ms of staleness, conservative because
+	// nothing in the machine state changes uncommanded faster than the estop
+	// chain, which has its own pin.
+	statusStaleTicks = 10
+
+	// homingSettleTicks is how many consecutive cycles "no joint homing" must
+	// hold before it counts as the end of the homing sequence. motmod's homing
+	// FSM has a 1-2 servo-cycle window between HOME_SEQUENCE groups in which
+	// no joint reports Homing; a single snapshot landing in that window is a
+	// group handover, not a finished sequence.
+	homingSettleTicks = 5
 )
 
 // motionControl is the motctl subset this module commands. It is an interface,
@@ -117,6 +133,7 @@ type control struct {
 	// Machine state as this module sees it.
 	estopped bool // estop-on was high and the teardown has run
 	enabled  bool // motion is enabled and machine-is-on is set
+	enabling bool // enable() is waiting for motion to confirm; see abortCheck
 
 	// Jog state per configured axis: which way each axis is currently being
 	// jogged (0 = not jogging), so a held pin does not re-issue JogCont every
@@ -146,6 +163,10 @@ func newControl(m *pnptaskModule) *control {
 }
 
 func (c *control) start() {
+	// Prime the edge detector before the loop goroutine exists: any pin
+	// written after start returns is then a real change, while levels already
+	// present now are stale boot state (see primeEdges).
+	c.primeEdges()
 	c.ticker = time.NewTicker(pollInterval)
 	go c.run()
 }
@@ -216,11 +237,12 @@ func (c *control) sample() {
 	}
 	c.in.jogSpeed = p.jogSpeed.Get()
 
-	// The first cycle compares against a zeroed previous reading, so an input
-	// already high at startup counts as a rising edge. That is deliberate for
-	// machine-on: a PLC that holds it high across a stmakd restart is asking
-	// for the machine, and waiting for an edge that already happened would
-	// leave it off with nothing to show why.
+	// machine-on's first cycle deliberately compares against a zeroed previous
+	// reading, so held high at startup it counts as a rising edge: a PLC that
+	// holds it high across a stmakd restart is asking for the machine, and
+	// waiting for an edge that already happened would leave it off with
+	// nothing to show why. The one-shot inputs (home, error-reset, manual
+	// open/close) go the other way — see primeEdges.
 	c.rise.machineOn = c.in.machineOn && !c.prev.machineOn
 	c.rise.home = c.in.home && !c.prev.home
 	c.rise.errorReset = c.in.errorReset && !c.prev.errorReset
@@ -231,14 +253,36 @@ func (c *control) sample() {
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
 		c.commErrors++
-		c.statusOK = false
 	} else {
 		c.commErrors = 0
-		c.statusOK = true
 		c.status = st
 	}
+	// A failed read keeps serving the last good snapshot for a bounded number
+	// of cycles (statusStaleTicks) instead of invalidating it outright: a
+	// single split read must not glitch the homed pin low or abort a running
+	// jog. Beyond the tolerance the snapshot is stale and everything derived
+	// from it turns conservative; commFailureTicks then declares motion gone.
+	c.statusOK = c.commErrors <= statusStaleTicks
 	if fb, err := c.m.ms.GetPosFb(); err == nil {
 		c.posFb = fb
+	}
+}
+
+// primeEdges seeds the edge detector with the current pin state, so a one-shot
+// input already high when the loop starts does NOT fire on the first cycle.
+// home, error-reset and the manual picker pins are requests for an action; a
+// PLC that latches them across a stmakd restart is not re-issuing them, and
+// acting on the stale level would home the machine or close a picker at boot
+// with nobody asking (D25/§5.2 specify rising-edge semantics). machine-on is
+// deliberately NOT primed — it is the standing request for the machine, and
+// its boot edge is wanted (see sample).
+func (c *control) primeEdges() {
+	p := c.m.pins
+	c.in.home = p.home.Get()
+	c.in.errorReset = p.errorReset.Get()
+	for i := range p.pickers {
+		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
+		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
 	}
 }
 
@@ -293,7 +337,16 @@ func (c *control) updateMachine() error {
 
 	switch {
 	case c.rise.machineOn && !c.enabled:
-		return c.enable()
+		err := c.enable()
+		var f *pnpFault
+		if errors.As(err, &f) && f.id == errMachineOff {
+			// machine-on was withdrawn while the enable was in flight: the
+			// request is gone, so this is a cancellation, not a fault — the
+			// machine simply stays off (see abortCheck's enabling clause).
+			c.m.logger.Info("pnptask: machine-on withdrawn during enable, staying off")
+			return nil
+		}
+		return err
 	case !c.in.machineOn && c.enabled:
 		c.disable("machine-on dropped")
 	}
@@ -327,6 +380,12 @@ func (c *control) enable() error {
 	if err := c.m.mc.Enable(); err != nil {
 		return faultf(errMotionError, "enabling motion: %v", err)
 	}
+	// enabling arms abortCheck's machine-on clause for the wait below: without
+	// it, a machine-on withdrawn during this wait could not cancel the enable
+	// (c.enabled is still false), and machine-is-on would pulse true against
+	// the withdrawn request.
+	c.enabling = true
+	defer func() { c.enabling = false }()
 	if err := c.waitUntil(errMotionError, motionEnableTimeout, "motion to report enabled",
 		func() bool { return c.statusOK && c.status.Enabled != 0 }); err != nil {
 		// Stay off and report rather than flapping on and off.
@@ -374,13 +433,19 @@ func (c *control) publish() {
 	p.machineIsOn.Set(c.enabled && !c.estopped)
 	p.homed.Set(c.allHomed())
 
-	// Position teach (D21): where each picker actually is, in machine
-	// coordinates. Targeting commands (x - offset), so the picker sits at
-	// (feedback + offset).
+	// Position teach (D21): where each picker actually is. Targeting commands
+	// (x - offset), so the picker sits at (feedback + offset). The plain pins
+	// carry mm like every float pin (D23); the -mu pair carries machine units
+	// (D26) — the value the INI wants, since its lengths are parsed as machine
+	// units. LinearUnits is machine units per mm, so mu = mm * LinearUnits.
 	for i := range p.pickers {
 		pk := &p.pickers[i]
-		pk.posX.Set(c.posFb.X + pk.xOffset.Get())
-		pk.posY.Set(c.posFb.Y + pk.yOffset.Get())
+		x := c.posFb.X + pk.xOffset.Get()
+		y := c.posFb.Y + pk.yOffset.Get()
+		pk.posX.Set(x)
+		pk.posY.Set(y)
+		pk.posXMu.Set(x * c.m.cfg.LinearUnits)
+		pk.posYMu.Set(y * c.m.cfg.LinearUnits)
 	}
 }
 
@@ -388,8 +453,10 @@ func (c *control) publish() {
 // Homing (§6.3)
 // ---------------------------------------------------------------------------
 
-// allHomed reports whether every configured joint is homed. A stale status
-// (the read failed this cycle) is never reported as homed: this gates motion.
+// allHomed reports whether every configured joint is homed. The snapshot may
+// be up to statusStaleTicks old (a split read must not glitch this — the homed
+// pin and the jog gate hang off it); a snapshot staler than that is never
+// reported as homed, because this gates motion.
 func (c *control) allHomed() bool {
 	if !c.statusOK {
 		return false
@@ -449,18 +516,29 @@ func (c *control) runHoming() error {
 	// Two ways to be done: everything homed, or the sequence stopped without
 	// getting there (a joint faulted, a home switch never made). Watching for
 	// the second is what turns a failed home into an error the operator can
-	// see now instead of a HOME_TIMEOUT one HOME_TIMEOUT later.
+	// see now instead of a HOME_TIMEOUT one HOME_TIMEOUT later. "Stopped" must
+	// hold for homingSettleTicks consecutive cycles: between HOME_SEQUENCE
+	// groups motmod briefly reports no joint homing, and a single snapshot in
+	// that handover window is not the end of the sequence.
 	started := false
+	idle := 0
 	timeout := time.Duration(c.m.cfg.HomeTimeout * float64(time.Second))
 	err := c.waitUntil(errHomingFailed, timeout, "homing to complete", func() bool {
 		switch {
+		case !c.statusOK:
+			return false // a stale snapshot proves nothing either way
 		case c.allHomed():
 			return true
 		case c.anyHoming():
 			started = true
+			idle = 0
 			return false
 		default:
-			return started
+			if !started {
+				return false
+			}
+			idle++
+			return idle >= homingSettleTicks
 		}
 	})
 	if err != nil {
@@ -665,7 +743,7 @@ func (c *control) abortCheck() error {
 		c.enterEstop()
 		return faultf(errEstop, "estop")
 	}
-	if c.enabled && !c.in.machineOn {
+	if (c.enabled || c.enabling) && !c.in.machineOn {
 		c.disable("machine-on dropped")
 		return faultf(errMachineOff, "machine-on dropped")
 	}

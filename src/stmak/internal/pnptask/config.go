@@ -812,7 +812,10 @@ func parseLinearUnits(s string) (float64, error) {
 		return 1.0 / 25.4, nil
 	}
 	v, err := strconv.ParseFloat(trimmed, 64)
-	if err != nil || v <= 0 || math.IsInf(v, 0) {
+	// NaN needs its own check: it fails BOTH comparisons below ("v <= 0" is
+	// false for NaN), and as the unit scale it would poison every converted
+	// length while sliding through every comparison-based guard downstream.
+	if err != nil || v <= 0 || math.IsInf(v, 0) || math.IsNaN(v) {
 		return 0, fmt.Errorf("[TRAJ]LINEAR_UNITS = %q: expected mm, in or a positive units-per-mm number", trimmed)
 	}
 	return v, nil

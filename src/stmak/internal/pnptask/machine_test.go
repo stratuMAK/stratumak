@@ -35,6 +35,13 @@ type fakeMotion struct {
 	homingCycles int  // how many status reads report "homing" before homed
 	statusErr    error
 
+	// homingGapFrom/homingGapLen script a HOME_SEQUENCE group handover: for
+	// homingGapLen status reads, starting when the countdown reaches
+	// homingGapFrom, no joint reports Homing although the sequence is still
+	// running — the window motmod exposes between sequence groups.
+	homingGapFrom int
+	homingGapLen  int
+
 	// Recorded calls.
 	calls    []string
 	jogs     []jogCall
@@ -67,10 +74,23 @@ func (f *fakeMotion) GetStatus() (motstat.MotionStatus, error) {
 	}
 	if f.homingCycles > 0 {
 		f.homingCycles--
-		if f.homingCycles == 0 {
+		inGap := f.homingGapFrom > 0 &&
+			f.homingCycles <= f.homingGapFrom && f.homingCycles > f.homingGapFrom-f.homingGapLen
+		switch {
+		case f.homingCycles == 0:
 			for j := 0; j < f.numJoints; j++ {
 				f.st.Joints[j].Homing = 0
 				f.st.Joints[j].Homed = 1
+			}
+		case inGap:
+			for j := 0; j < f.numJoints; j++ {
+				f.st.Joints[j].Homing = 0
+			}
+		default:
+			for j := 0; j < f.numJoints; j++ {
+				if f.st.Joints[j].Homed == 0 {
+					f.st.Joints[j].Homing = 1
+				}
 			}
 		}
 	}
@@ -503,15 +523,37 @@ func TestHomeSequence(t *testing.T) {
 
 	f.setBit(f.m.pins.home, true)
 	f.eventually("homed", func() bool { return f.bit("homed") })
+	// The homed pin is published one cycle before the mode switch back to
+	// coord is commanded, so wait for the call rather than racing that gap.
+	f.eventually("SetCoord after homing", func() bool { return f.mot.called("SetCoord") })
 
-	if !f.mot.called("SetFree") || !f.mot.called("JointHome") || !f.mot.called("SetCoord") {
-		t.Errorf("home sequence calls = %v, want SetFree, JointHome, SetCoord", f.mot.callList())
+	if !f.mot.called("SetFree") || !f.mot.called("JointHome") {
+		t.Errorf("home sequence calls = %v, want SetFree and JointHome", f.mot.callList())
 	}
 	if len(f.mot.homeCmds) != 1 || f.mot.homeCmds[0] != -1 {
 		t.Errorf("home commands = %v, want a single home-all (-1)", f.mot.homeCmds)
 	}
 	// Level, not edge: holding the pin high must not re-home every cycle.
 	f.consistently("no repeated homing", func() bool { return f.mot.callCount("JointHome") == 1 })
+}
+
+// A HOME_SEQUENCE group handover — a short window in which no joint reports
+// Homing although the sequence is still running — must not be mistaken for a
+// finished sequence: the "stopped homing" observation has to hold for
+// homingSettleTicks before it counts (a spurious HOMING_FAILED here faulted a
+// perfectly healthy multi-group homing).
+func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
+	f := newMachineFixture(t)
+	f.mot.homingCycles = 60
+	f.mot.homingGapFrom = 30
+	f.mot.homingGapLen = homingSettleTicks - 2 // shorter than the settle window
+	f.machineOn()
+
+	f.setBit(f.m.pins.home, true)
+	f.eventually("homed through the group handover", func() bool { return f.bit("homed") })
+	if f.bit("error") {
+		t.Errorf("error latched during a homing group handover (error-id %v)", f.get("error-id"))
+	}
 }
 
 // A home that never completes ends as HOMING_FAILED rather than as a machine
@@ -537,6 +579,85 @@ func TestHomeRequiresMachineOn(t *testing.T) {
 	f := newMachineFixture(t)
 	f.setBit(f.m.pins.home, true)
 	f.eventually("MACHINE_OFF", func() bool { return f.get("error-id") == float64(errMachineOff) })
+}
+
+// Withdrawing machine-on while the enable is still waiting for motion to
+// confirm must cancel the enable: no machine-is-on pulse against the withdrawn
+// request, and no latched fault — the PLC changed its mind, nothing failed.
+func TestEnableCancelledByMachineOnDrop(t *testing.T) {
+	f := newMachineFixture(t)
+	// Motion never confirms, so the enable keeps waiting until the request is
+	// withdrawn. The wait must outlive any scheduling hiccup (race-detector
+	// runs slow the goroutines), or the timeout fault would race the
+	// cancellation this test is about; fastLoop's cleanup restores it.
+	motionEnableTimeout = 10 * time.Second
+	f.mot.refuseEnable = true
+
+	f.setBit(f.m.pins.machineOn, true)
+	f.eventually("Enable commanded", func() bool { return f.mot.called("Enable") })
+	f.setBit(f.m.pins.machineOn, false)
+
+	f.eventually("Disable commanded", func() bool { return f.mot.called("Disable") })
+	f.consistently("stays off with no fault", func() bool {
+		return !f.bit("machine-is-on") && !f.bit("error")
+	})
+}
+
+// One-shot inputs held high when the loop starts are stale levels, not fresh
+// requests: home, error-reset and the manual picker pins must not fire on the
+// first cycle. machine-on is the deliberate exception — held high across a
+// restart it re-enables the machine (D26).
+func TestHeldInputsAtStartupAreNotEdges(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	name := testInstanceName(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name)
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+
+	// The PLC's latched state from before the restart: everything high.
+	m.pins.machineOn.Set(true)
+	m.pins.home.Set(true)
+	m.pins.autoEnable.Set(false)
+	m.pins.pickers[0].manualClose.Set(true)
+
+	if err := m.startControl(); err != nil {
+		t.Fatalf("startControl: %v", err)
+	}
+	t.Cleanup(m.Stop)
+	f := &machineFixture{t: t, m: m, mot: mot, name: name}
+
+	// machine-on's boot edge is wanted...
+	f.eventually("machine on from the held level", func() bool { return f.bit("machine-is-on") })
+	// ...but the one-shot requests are not.
+	f.consistently("no homing and no picker close from stale levels", func() bool {
+		return f.mot.callCount("JointHome") == 0 && !f.bit("picker.0.close")
+	})
+
+	// A real edge after startup still works.
+	f.pulse(f.m.pins.home)
+	f.eventually("homed on a fresh edge", func() bool { return f.bit("homed") })
+}
+
+// A transient status-read failure — an expected split read — must not glitch
+// state derived from the snapshot: the homed pin stays high and a running jog
+// is not aborted and re-issued.
+func TestStatusGlitchDoesNotDisturbHomedOrJog(t *testing.T) {
+	f := newMachineFixture(t)
+	f.homed()
+	f.setBit(f.m.pins.autoEnable, false)
+	f.setFloat(f.m.pins.jogSpeed, 100)
+	f.setBit(f.m.pins.jog[0].pos, true)
+	f.eventually("jog started", func() bool { return f.mot.callCount("JogCont") == 1 })
+
+	// A glitch well inside the staleness tolerance.
+	f.mot.setStatusErr(fmt.Errorf("split read"))
+	time.Sleep(time.Duration(statusStaleTicks/2) * pollInterval)
+	f.mot.setStatusErr(nil)
+
+	f.consistently("jog undisturbed and homed held", func() bool {
+		return f.mot.callCount("JogAbort") == 0 && f.bit("homed")
+	})
 }
 
 // Jog: manual mode only, clamped to the axis maximum, one JogCont per press and
@@ -627,7 +748,8 @@ func TestManualPickers(t *testing.T) {
 }
 
 // The teach pins report where each picker is: feedback plus that picker's
-// offset (D21). Targeting commands (x - offset), so this is its inverse.
+// offset (D21). Targeting commands (x - offset), so this is its inverse. On a
+// metric machine the -mu (machine unit, D26) pins carry the same values.
 func TestPickerTeachPositions(t *testing.T) {
 	f := newMachineFixture(t, "pickers=2")
 	// The offsets are taught with halcmd setp; here, directly.
@@ -640,6 +762,22 @@ func TestPickerTeachPositions(t *testing.T) {
 	})
 	if got := f.get("picker.1.pos-y"); got != 185 {
 		t.Errorf("picker.1.pos-y = %g, want 185 (200 + -15)", got)
+	}
+	if x, y := f.get("picker.1.pos-x-mu"), f.get("picker.1.pos-y-mu"); x != 140 || y != 185 {
+		t.Errorf("metric -mu teach pins = %g/%g, want 140/185 (equal to the mm pins)", x, y)
+	}
+}
+
+// On an inch machine the -mu teach pins carry machine units — the value the
+// INI wants — while the plain pins keep the internal mm (D23/D26). Pasting the
+// mm pins into the INI was the 25.4x teach hole of the phase-3 review.
+func TestPickerTeachPositionsInchMachine(t *testing.T) {
+	f := newMachineFixtureWith(t, func(cfg *Config) { cfg.LinearUnits = 1.0 / 25.4 })
+	f.mot.setPosFb(254, 508) // mm feedback: 10 by 20 inches
+
+	f.eventually("teach positions", func() bool { return f.get("picker.0.pos-x") == 254 })
+	if x, y := f.get("picker.0.pos-x-mu"), f.get("picker.0.pos-y-mu"); x != 10 || y != 20 {
+		t.Errorf("inch -mu teach pins = %g/%g, want 10/20 (machine units)", x, y)
 	}
 }
 

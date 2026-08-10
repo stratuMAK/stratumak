@@ -4,8 +4,11 @@ package motsetup
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 )
 
@@ -24,6 +27,7 @@ type recMotionConfig struct {
 	axisVel, axisAcc                    map[int32]float64
 	worldHome                           Pose
 	trajVelLimit, trajAcc               float64
+	jointComp                           []compTriplet
 }
 
 func newRec() *recMotionConfig {
@@ -74,6 +78,10 @@ func (r *recMotionConfig) SetAxisVelLimit(a int32, vel, ext float64) error {
 }
 func (r *recMotionConfig) SetAxisAccLimit(a int32, acc, ext float64) error {
 	r.axisAcc[a] = acc
+	return nil
+}
+func (r *recMotionConfig) SetJointComp(_ int32, nom, fwd, rev float64) error {
+	r.jointComp = append(r.jointComp, compTriplet{nom, fwd, rev})
 	return nil
 }
 func (r *recMotionConfig) SetWorldHome(p Pose) error   { r.worldHome = p; return nil }
@@ -145,6 +153,37 @@ HOME_FINAL_VEL=0.3
 		if !closeTo(c.got, c.want) {
 			t.Errorf("%s = %g, want %g (x25.4)", c.name, c.got, c.want)
 		}
+	}
+}
+
+// COMP_FILE triplets are lengths in machine units like everything else in the
+// joint section, and get the same conversion — the milltask code this package
+// was extracted from pushed them raw, leaving inch-machine leadscrew
+// compensation silently 25.4x off.
+func TestPushJoint_InchCompFileScaledToMM(t *testing.T) {
+	dir := t.TempDir()
+	pathres.SetDefaultForTest(t, dir)
+	// Type 1: the values are trims and pass through LoadJointComp unchanged,
+	// so what the recorder sees is exactly the file times the conversion.
+	if err := os.WriteFile(filepath.Join(dir, "comp.txt"), []byte("1.0 0.002 -0.003\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ini, err := inifile.ParseString(`[JOINT_0]
+TYPE=LINEAR
+COMP_FILE=comp.txt
+COMP_FILE_TYPE=1
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	res := &Result{}
+	rec := newRec()
+	if _, err := pushJoint(ini, 0, inchUnits, rec, res); err != nil {
+		t.Fatalf("pushJoint: %v", err)
+	}
+	want := []compTriplet{{1.0 * inch, 0.002 * inch, -0.003 * inch}}
+	if !approxComp(rec.jointComp, want) {
+		t.Errorf("comp triplets = %v, want %v (x25.4)", rec.jointComp, want)
 	}
 }
 
