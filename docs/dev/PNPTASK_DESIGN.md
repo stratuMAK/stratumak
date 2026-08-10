@@ -3,7 +3,8 @@
 Status: **draft for review** (2026-08-08)
 Branch: `add-pnptask`
 
-A gomod that replaces `milltask` for pick-and-place machines. No NGC/G-code:
+A task gomod for pick-and-place machines — not a `milltask` replacement, but
+a sibling task implementation for a different use case. No NGC/G-code:
 motion is generated dynamically from station definitions, tray grids and a
 dead-zone route planner. Jobs are commanded purely over HAL pins so the module
 integrates with a PLC/hardware world without any UI dependency.
@@ -31,6 +32,11 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D12 | Job model | Strictly one job at a time via the `start-job` handshake. No queueing. |
 | D13 | Planning latency | Plan time adds to cycle time (planning starts at the `start-job` edge). Budget: **< 100 ms**; precompute everything static (Phase 1). |
 | D14 | Manual mode | `auto-enable` input pin: low → new jobs rejected, manual jog + manual picker control enabled; a running job **finishes first** (no abort) when it goes low. Picker `close` outputs keep their state across machine-off (held material stays held); they are cleared on estop. Manual picker control works even with the machine off, but not during estop. |
+| D15 | Wait positions | No free-standing wait-point stations. A process station optionally defines `WAIT_X`/`WAIT_Y` and has a `busy` input pin; a job targeting a busy station waits there (holding the material) until `busy` clears. `auto-enable` going low aborts the wait (error `WAIT_ABORTED`). |
+| D16 | Abort semantics | No abort request besides estop and machine-off. Externally clearing `start-job` mid-job is ignored. |
+| D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
+| D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
+| D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 
 ---
 
@@ -202,18 +208,16 @@ DEADZONE_FILE = zones_b.dxf
 ID = 1
 ROWS = 4                      # ROWS=0 and COLS=0 -> endless tray, first pos only
 COLS = 10
-FIRST_X = 0.0                 # slot (0,0), relative to the tray station position
-FIRST_Y = 0.0
-LAST_X = 90.0                 # slot (COLS-1, ROWS-1); grid linearly interpolated
-LAST_Y = 30.0
+FIRST_X = 120.0               # slot (0,0), absolute machine coordinates (D17)
+FIRST_Y = 400.0
+LAST_X = 210.0                # slot (COLS-1, ROWS-1); optional — omit for a
+LAST_Y = 430.0                #   single-position tray (reject bin, transfer)
 ANGLE = 0.0                   # optional rotation of the grid around FIRST, degrees
 DIR_MODE = C+R+~              # iteration order: C/R, +/-, optional ~ meander
 MAX_UNPOPULATED = 3           # successive empty picks before tray declared empty
 
-[PNPTASK_TRAY_0]              # tray *station* (physical location)
-ID = 10                       # station id — unique across trays/procs/waits
-X = 120.0
-Y = 400.0
+[PNPTASK_TRAY_0]              # tray *station* — no X/Y of its own (D17)
+ID = 10                       # station id — unique across trays and procs
 Z_PICK = 2.5                  # base pick Z (D10); z-offset pin adds to this
 
 [PNPTASK_PROC_0]              # process station
@@ -221,11 +225,8 @@ ID = 20
 X = 300.0
 Y = 200.0
 Z_PICK = 5.0
-
-[PNPTASK_WAIT_0]              # wait point (Z stays at movement height)
-ID = 30
-X = 10.0
-Y = 10.0
+WAIT_X = 250.0                # optional wait position (D15); omit to wait in
+WAIT_Y = 150.0                #   place while the station is busy
 
 [PNPTASK_ROUTE_0]             # optional per-pair movement-height override
 ORIGIN = 10
@@ -234,10 +235,10 @@ MOVE_HEIGHT = 15.0
 ```
 
 Startup validation (fail the load, don't limp): duplicate ids; unknown
-`DIR_MODE`; every station/slot/wait coordinate must lie inside the eroded
-boundary and outside every offset dead zone **of every configured dead-zone
-file**; `CLEARANCE > BLEND_TOLERANCE`; tray-def grids with ROWS/COLS > 1 but
-FIRST == LAST.
+`DIR_MODE`; every proc/wait coordinate and every TRAYDEF slot position
+(absolute machine coordinates, D17) must lie inside the eroded boundary and
+outside every offset dead zone **of every configured dead-zone file**;
+`CLEARANCE > BLEND_TOLERANCE`; tray-def grids with ROWS/COLS > 1 but no LAST.
 
 ### 5.2 HAL pins and params
 
@@ -257,7 +258,7 @@ normalized to HAL-conventional dashes.
 | `process-step` | u32 | in | latched at `start-job` edge |
 | `origin-id` | u32 | in | latched at `start-job` edge |
 | `dest-id` | u32 | in | latched at `start-job` edge |
-| `start-job` | bit | io | rising edge starts a job; reset by module on finish/error |
+| `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
 | `busy` | bit | out | job executing |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
@@ -290,7 +291,7 @@ normalized to HAL-conventional dashes.
 
 | Pin | Type | Dir | Function |
 |-----|------|-----|----------|
-| `tray-id` | u32 | in | selects the TRAYDEF; change resets slot state |
+| `tray-id` | u32 | in | selects the TRAYDEF; change resets all slots to −1 (D17) |
 | `set-full` | bit | in | edge: all slots := `process-step` pin value (D8) |
 | `set-empty` | bit | in | edge: all slots := −1 |
 | `z-offset` | float | in | added to Z_PICK (default 0.0) |
@@ -302,6 +303,7 @@ normalized to HAL-conventional dashes.
 | Pin | Type | Dir | Function |
 |-----|------|-----|----------|
 | `z-offset` | float | in | added to Z_PICK (default 0.0) |
+| `busy` | bit | in | station busy; gates the approach — see busy gating, §7.4 (D15) |
 | `has-material` | bit | out | owned by pnptask; restored from persistence if configured |
 | `release` | bit | out | request fixture release/unclamp |
 | `released` | bit | in | fixture released feedback (state-checked, not edge) |
@@ -361,9 +363,7 @@ Jog (manual mode, idle, machine on, no estop):
 - `jog-<a>-pos`/`-neg` high → `JogCont(axis, ±jog-speed, teleop)`; falling
   edge (or both pins high, or any enabling condition lost) → `JogAbort`.
   `jog-speed` is latched at jog start and clamped to `[AXIS_*]MAX_VELOCITY`.
-- Homed → teleop axis jog; unhomed → joint-mode jog after `SetFree()`
-  (1:1 joint↔axis with trivkins) so the machine can be moved before homing
-  (open point O7). Returning to auto mode restores `SetCoord()`.
+- Jog requires homed joints (D18); while unhomed the jog pins are ignored.
 
 Manual picker control (manual mode, idle):
 
@@ -375,7 +375,7 @@ Manual picker control (manual mode, idle):
   stays held. Only estop clears them (§6.2).
 - Manual intervention can invalidate the tracked world state (slot states,
   `has-material`); the operator resyncs via `set-full`/`set-empty`.
-  A manual open of picker 1 clears the `altHeld` record (§8, open point O8).
+  Manual picker-1 changes update the `altHeld` record (§8).
 
 ---
 
@@ -385,15 +385,16 @@ Manual picker control (manual mode, idle):
 
 Slot state per tray station: `[]int32`, `-1` = empty, `0` = unprocessed,
 `>0` = processed at that step. Grid positions: bilinear interpolation of
-FIRST→LAST by (col, row) index, optional ANGLE rotation around FIRST, all
-relative to the station X/Y. Direction mode parsed into an iterator
+FIRST→LAST by (col, row) index, optional ANGLE rotation around FIRST; all
+coordinates are absolute machine coordinates — tray stations have no X/Y of
+their own (D17). A missing LAST makes a single-position tray (always
+pick/place at FIRST). Direction mode parsed into an iterator
 (`C|R`, `+|-` each, optional `~` meander) — pure function, fully unit-tested.
 Endless trays (ROWS=COLS=0): single position, state tracking reduced to the
 probing counter; never "full", never "empty" by bookkeeping (only by probing).
 
 State transitions: `set-full`/`set-empty` edges (D8); `tray-id` pin change →
-same effect as `set-full` (new tray assumed populated with the current
-`process-step` value — **open point O3**).
+all slots := −1, the startup state (D17).
 
 Pick search (D9): iterate in direction-mode order over slots with
 `state == process-step`; physical miss (closed-after-pick) marks the slot
@@ -440,19 +441,34 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
   deadzone-select.
 - VALIDATE: ids exist; action combo legal; preconditions (tray not
   empty/full, `has-material` state) — errors §7.5.
-- EXECUTE runs the action sequence; every wait polls abort conditions
-  (`estop-on`, `machine-on` falling, `start-job` cleared externally →
-  **open point O4**).
+- EXECUTE runs the action sequence; every wait polls abort conditions —
+  `estop-on` and `machine-on` falling only; an external clear of `start-job`
+  is ignored (D16). Routes are planned per movement leg (to origin, optional
+  wait leg, to dest) just before the leg executes (each within the <100 ms
+  budget, D13). The busy-wait additionally aborts when `auto-enable` goes low
+  (D15, error `WAIT_ABORTED`).
 - FINISH: `start-job` := 0, `busy` := 0. ERROR: additionally `error` := 1,
   `error-id` set. `error-reset` edge clears both (only outside EXECUTE).
 
 Action selection from latched ids:
 
-| origin \ dest | tray | proc | wait |
-|---|---|---|---|
-| **tray** | pick-tray + place-tray | pick-tray + place-proc | move-to-wait (origin ignored, O5) |
-| **proc** | pick-proc + place-tray | pick-proc + place-proc | move-to-wait |
-| **wait** | `INVALID_ROUTE` | `INVALID_ROUTE` | move-to-wait |
+| origin \ dest | tray | proc |
+|---|---|---|
+| **tray** | pick-tray + place-tray | pick-tray + place-proc |
+| **proc** | pick-proc + place-tray | pick-proc + place-proc |
+
+There are no free-standing wait stations (D15): waiting is part of a job
+against a busy process station.
+
+**Busy gating (D15):** when the dest is a proc station, its `busy` pin is
+sampled once the pick leg completes: low → route directly to the station;
+high → route to the station's wait position (or hold at movement height if
+none is configured), wait for `busy` to go low, then route to the station.
+The same gating applies before a pick-from-proc approach, sampled at job
+start (**R1**). The release/released handshake remains the authoritative
+synchronization; busy-waiting only keeps the head out of the station area
+and saves travel time. `auto-enable` going low aborts the wait (error
+`WAIT_ABORTED`) — the picker keeps holding its material for manual handling.
 
 Sequences (normalized from the spec; all Z values = station `Z_PICK` +
 `z-offset` pin; "settle" = the respective param):
@@ -464,24 +480,23 @@ high → slot physically empty: `close` := 0, wait `opened` (pick-settle
 timeout), Z up, next candidate per §7.1 probing; success → `missing` := 0,
 Z up.
 
-**pick from proc** — validate `has-material`; retract; route XY to station;
-Z down; pos-settle; `close` := 1; pick-settle; `opened` high → error
-`PICKER_CLOSE_FAILED`; `closed` high → material vanished, error
-`PROC_NO_MATERIAL`; `release` := 1, wait `released` high (RELEASE_TIMEOUT →
-error `RELEASE_TIMEOUT`); `has-material` := 0; Z up; `release` := 0 after
-retract (open point O6).
+**pick from proc** — validate `has-material`; busy gating (see above);
+retract; route XY to station; Z down; pos-settle; `close` := 1; pick-settle;
+`opened` high → error `PICKER_CLOSE_FAILED`; `closed` high → material
+vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
+(RELEASE_TIMEOUT → error `RELEASE_TIMEOUT`); `has-material` := 0; Z up;
+`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
 `PLACE_FAILED`; release-time dwell; slot := process-step; Z up.
 
 **place to proc** — validate `!has-material` (single-picker mode; §8 for
-alternating); `release` := 1; retract; route XY to station; wait `released`
-high; Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
-`PLACE_FAILED`; release-time dwell; `has-material` := 1; Z up; `release` := 0
-(O6).
-
-**move to wait** — retract; route XY to wait point. No Z descent.
+alternating); busy gating (see above); `release` := 1; route XY to station;
+wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle; `close` := 0;
+pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
+`has-material` := 1; Z up; `release` := 0, wait `released` low
+(RELEASE_TIMEOUT, D19).
 
 ### 7.5 Error-id table (`errors.go`)
 
@@ -494,7 +509,7 @@ high; Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
 | 4 | `HOMING_FAILED` | autohoming timeout/fault |
 | 5 | `INVALID_ORIGIN` | unknown origin-id |
 | 6 | `INVALID_DEST` | unknown dest-id |
-| 7 | `INVALID_ROUTE` | illegal origin/dest combo |
+| 7 | `INVALID_ROUTE` | reserved — currently unused (every tray/proc pairing is legal) |
 | 8 | `INVALID_DEADZONE_SELECT` | selector out of range |
 | 9 | `PLANNING_FAILED` | no route (start/goal blocked) |
 | 10 | `INVALID_TRAY_ID` | tray-id pin matches no TRAYDEF |
@@ -507,8 +522,8 @@ high; Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
 | 17 | `RELEASE_TIMEOUT` | proc `released` wait timed out |
 | 18 | `MOTION_ERROR` | motctl/motstat comm failure or fault |
 | 19 | `ALT_PICKER_SEQUENCE` | next job must originate from held station (§8) |
-| 20 | `JOB_ABORTED` | start-job cleared externally mid-job (O4) |
-| 21 | `AUTO_DISABLED` | start-job while auto-enable is low (§6.4) |
+| 20 | `AUTO_DISABLED` | start-job while auto-enable is low (§6.4) |
+| 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
 
 ---
 
@@ -528,6 +543,12 @@ While `altHeld` is set, the next job **must** use that station as origin
 the material is already in picker 1 — and executes its place sequence with
 picker 1's offsets, then clears `altHeld`.
 
+Manual interplay (§6.4, resolved O8): a manual open of picker 1 marks the
+held material as removed but retains the station id; a following manual
+close samples the picker feedback after pick-settle-time — material gripped
+again (not fully closed) → the `altHeld` record is restored with the
+retained station id; gripped nothing (`closed` high) → `altHeld` is cleared.
+
 ---
 
 ## 9. Phase 7 — Testing
@@ -540,8 +561,9 @@ picker 1's offsets, then clears `altHeld`.
   with `timedelay`-based HAL logic (close → closed/opened feedback with
   configurable delay and scriptable "slot empty" injection via test pins).
   Scenarios: full pick→place cycle, empty-slot probing to tray-empty,
-  autohome-on-first-job, error+error-reset, estop mid-move, persistence
-  restore, alternating-picker swap.
+  autohome-on-first-job, busy-gated wait (incl. auto-enable abort),
+  error+error-reset, estop mid-move, persistence restore,
+  alternating-picker swap.
 - **Latency check**: assert plan time < 100 ms in the integration run (D13).
 
 ## 10. Delivery order
@@ -557,23 +579,20 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 6. alternating picker
 7. integration suite + docs polish
 
-## 11. Open points
+## 11. Review resolutions and remaining points
 
-- **O1** Interpretation check: z-offsets stay *pins* (D4) while picker
-  x/y-offsets and times are *params* (D2/D3) — confirm this split matches
-  intent ("pins for the offsets" in the discussion referred to z-offsets).
-- **O2** TRAYDEF FIRST/LAST coordinates are **relative to the tray station
-  X/Y** (assumed; allows one geometry def at multiple stations) — confirm.
-- **O3** `tray-id` pin change resets slots like `set-full` (assumed) —
-  alternatively reset to all-unprocessed (0)?
-- **O4** Clearing `start-job` externally mid-job is treated as an abort
-  request (`JOB_ABORTED`) — confirm.
-- **O5** move-to-wait ignores origin-id (assumed) — alternatively require
-  origin == dest == wait id.
-- **O6** `release` deassert timing at action end (after retract), without
-  waiting for `released` to drop — confirm.
-- **O7** Jog while unhomed falls back to joint-mode jog (`SetFree()` +
-  `JogCont` on the joint, 1:1 with trivkins) — or should jog be refused
-  until homed?
-- **O8** Manual open of picker 1 clears the alternating-picker `altHeld`
-  record (operator removed the material) — confirm.
+Open points O1–O8 of the first draft were resolved in review (2026-08-10):
+O1 → split confirmed (D2–D4); O2 → D17 (absolute TRAYDEF coordinates, no
+station X/Y); O3 → D17 (tray-id change resets to empty); O4 → D16 (no
+external abort); O5 → D15 (wait positions folded into proc stations with a
+`busy` pin, replacing free-standing wait stations); O6 → D19; O7 → D18;
+O8 → manual picker-1 handling in §8.
+
+Remaining:
+
+- **R1** Busy gating is also applied to pick-from-proc approaches (sampled
+  at job start), not only before placing — confirm.
+- **R2** Proposed job-start validation: picker 0 must be free (close output
+  low, `opened` feedback high) before a pick action — a manually closed
+  picker 0 holding material would otherwise look like a successful pick and
+  double-pick. Would add error id 22 `PICKER_NOT_READY`.
