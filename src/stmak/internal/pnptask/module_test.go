@@ -201,6 +201,19 @@ func TestFactoryErrors(t *testing.T) {
 		{name: "non-numeric pickers", ini: good, args: []string{"pickers=both"}, want: "must be 1 or 2"},
 		{name: "empty motion instance", ini: good, args: []string{"motion_instance="}, want: "empty instance name"},
 		{name: "bad config", ini: trajSection + pnptaskSection, want: "no stations configured"},
+		{
+			// The geometric validation runs at load too, so a station taught
+			// outside the machine limits never reaches a job.
+			name: "station outside the machine limits",
+			ini: trajSection + pnptaskSection + `
+[PNPTASK_PROC_0]
+ID = 20
+X = 700.0
+Y = 200.0
+Z_PICK = 5.0
+`,
+			want: "outside the outer limit",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

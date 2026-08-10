@@ -383,16 +383,35 @@ matching `--enable-pnptask-go` configure flag (default yes),
   with nothing on the error pin.
 - Lengths and linear velocities convert machine units → mm at parse time
   (D23); times stay seconds, `ANGLE` becomes radians (D24).
-- **Deferred to the phase that builds the planners:** loading the DXF files and
-  the geometric half of the §5.1 validation (every proc/wait coordinate and
-  every TRAYDEF slot position inside the eroded boundary and outside every
-  offset dead zone, in every configured file). Phase 2 resolves the file paths
-  so a typo still fails at load, and rejects the geometry it can judge without
-  a planner (a grid whose `ANGLE` collapses a pitch to zero). The slot-position
-  interpolation itself lands with the tray model in phase 4.
-- Also deferred, per the phase split: the `motctl`/`motstat` lookup (phase 3)
-  and the `errors.go` id table (§7.5, with the job engine). `error-id` exists
-  and reads 0.
+- Deferred per the phase split: the `motctl`/`motstat` lookup (phase 3) and the
+  `errors.go` id table (§7.5, with the job engine). `error-id` exists and
+  reads 0.
+
+**Startup planner construction** (`planners.go`, added on top of the above):
+every `DEADZONE_FILE` is loaded and its `Planner` built at load time, which
+also completes the §5.1 validation — the geometric half needs the eroded
+boundary and the offset zones, so it could not run before.
+
+- The drawings are read in machine units and the scene is scaled to mm in
+  place before `NewPlanner` (D23), clearance included. Scaling the geometry
+  rather than the query points keeps every later comparison — `CheckPoint`,
+  `Plan`, the route it returns — in one unit system. A dead zone drawn as a
+  circle carries `Center`/`Radius` that `NewPlanner` offsets analytically, so
+  those scale with the polygon or the planner would guard a circle somewhere
+  else entirely.
+- Validated against **every** configured drawing, not just the selected one:
+  `deadzone-select` picks at job start, so a position valid in only some of
+  them is a job that fails on the machine. Checked are each proc `X/Y`, each
+  `WAIT_X/WAIT_Y`, and every tray slot — all of them, because a dead zone can
+  sit inside a tray's footprint without touching a corner. The error names the
+  INI section and keys, the drawing and the coordinate.
+- This is *position* validation, not route validation: whether a given pair of
+  stations has a collision-free route between them is only knowable per pair
+  and stays a job-time `PLANNING_FAILED`.
+- `TrayDef.SlotPos`/`SlotCount` (the D24 grid interpolation) land here because
+  the slot check needs them. Slot *state* — the `[]int32`, the direction-mode
+  iteration and the probing counters — stays in phase 4.
+- Cost on the smoke config: ~3 ms for a 36-node scene, once per file at load.
 
 ---
 

@@ -353,15 +353,6 @@ func checkGridPitch(sec string, d TrayDef) error {
 // mm. A tray whose corner slots are a micron apart is a typo either way.
 const gridPitchEpsilon = 1e-6
 
-// gridSpan returns Last-First expressed in the tray's own (Angle-rotated)
-// frame: the total travel along the column and the row axis of the grid.
-func gridSpan(d TrayDef) (col, row float64) {
-	dx := d.Last.X - d.First.X
-	dy := d.Last.Y - d.First.Y
-	s, c := math.Sincos(-d.Angle)
-	return dx*c - dy*s, dx*s + dy*c
-}
-
 // loadStations parses [PNPTASK_TRAY_n] and [PNPTASK_PROC_n]. Station ids share
 // one namespace across both kinds: origin-id and dest-id name a station without
 // saying which kind it is, so a duplicate would make the action selection of

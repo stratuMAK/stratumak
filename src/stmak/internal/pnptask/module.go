@@ -59,6 +59,10 @@ type pnptaskModule struct {
 	ini    *inifile.IniFile // namespaced view: [<name>:SECTION] over [SECTION]
 	cfg    *Config
 
+	// planners is one route planner per DEADZONE_FILE, built once at load
+	// time and immutable afterwards (see plannerSet).
+	planners *plannerSet
+
 	comp *hal.Component
 	pins *pinSet
 
@@ -97,6 +101,16 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	}
 	m.cfg = cfg
 
+	// Build the route planners and finish the configuration validation against
+	// them, before anything HAL-side exists: a station taught inside a dead
+	// zone is a config error, and finding it here costs one failed load rather
+	// than a job that dies mid-cycle with a part in the picker.
+	planners, err := newPlanners(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("pnptask %q: %w", name, err)
+	}
+	m.planners = planners
+
 	// The HAL component is created in the factory, not in Start: the "net"
 	// lines that wire this instance run immediately after the load line, long
 	// before any module is started, and they can only link pins that already
@@ -130,6 +144,11 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		"procs", len(cfg.Procs),
 		"traydefs", len(cfg.TrayDefs),
 		"deadzone_files", len(cfg.DeadzoneFiles))
+	for i, pl := range planners.planners {
+		logger.Debug("route planner built",
+			"index", i, "file", planners.files[i],
+			"nodes", pl.NodeCount(), "edges", pl.EdgeCount())
+	}
 
 	return m, nil
 }

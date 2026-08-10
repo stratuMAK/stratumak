@@ -4,8 +4,64 @@ package pnptask
 
 import (
 	"fmt"
+	"math"
 	"strings"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
+
+// SlotCount returns how many slots the tray has. An endless tray and a
+// single-position tray both have exactly one.
+func (d TrayDef) SlotCount() int {
+	if d.Endless() {
+		return 1
+	}
+	return d.Rows * d.Cols
+}
+
+// SlotPos returns the absolute machine coordinates of slot (col, row).
+//
+// The grid axes are tilted by Angle and the two pitches come from LAST−FIRST
+// expressed in that rotated frame (D24), so slot (Cols−1, Rows−1) lands exactly
+// on LAST at any angle. A tray without LAST — endless or single-position — has
+// one position, at FIRST.
+//
+// Out-of-range indices are not rejected here: the callers (config validation
+// and the slot search) iterate the tray's own extent, and clamping or erroring
+// on an index would only hide a bug in them.
+func (d TrayDef) SlotPos(col, row int) pnproute.Point {
+	if !d.HasLast {
+		return d.First
+	}
+	dx, dy := gridSpan(d)
+	local := pnproute.Point{
+		X: dx * gridFraction(col, d.Cols),
+		Y: dy * gridFraction(row, d.Rows),
+	}
+	s, c := math.Sincos(d.Angle)
+	return pnproute.Point{
+		X: d.First.X + local.X*c - local.Y*s,
+		Y: d.First.Y + local.X*s + local.Y*c,
+	}
+}
+
+// gridFraction is how far along an axis index i sits, 0 at the first slot and 1
+// at the last. A one-slot axis has no span to divide, so it stays at 0.
+func gridFraction(i, n int) float64 {
+	if n < 2 {
+		return 0
+	}
+	return float64(i) / float64(n-1)
+}
+
+// gridSpan returns Last−First expressed in the tray's own (Angle-rotated)
+// frame: the total travel along the column and the row axis of the grid.
+func gridSpan(d TrayDef) (col, row float64) {
+	dx := d.Last.X - d.First.X
+	dy := d.Last.Y - d.First.Y
+	s, c := math.Sincos(-d.Angle)
+	return dx*c - dy*s, dx*s + dy*c
+}
 
 // SlotAxis names one of the two indices of a tray grid.
 type SlotAxis int

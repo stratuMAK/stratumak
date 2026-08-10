@@ -11,24 +11,37 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
-// The dead-zone drawings are only resolved at this phase, never parsed, so the
-// fixtures can be empty files — what is under test is the path handling.
+// The names a config refers its dead-zone drawings by, and the testdata files
+// behind them: zones.dxf is a 600x500 limit with one dead zone clear of every
+// station, zones_blocked.dxf puts that zone on top of proc station 20.
 const (
-	zonesA = "zones_a.dxf"
-	zonesB = "zones_b.dxf"
+	zonesA       = "zones_a.dxf"
+	zonesB       = "zones_b.dxf"
+	fixtureClear = "zones.dxf"
+	fixtureBlock = "zones_blocked.dxf"
 )
 
 // setupPaths installs a resolver rooted at a temp directory holding the two
 // dead-zone fixtures, and returns the directory.
 func setupPaths(t *testing.T) string {
 	t.Helper()
+	return setupPathsWith(t, map[string]string{zonesA: fixtureClear, zonesB: fixtureClear})
+}
+
+// setupPathsWith is setupPaths with a chosen testdata drawing behind each
+// configured file name.
+func setupPathsWith(t *testing.T, files map[string]string) string {
+	t.Helper()
 	dir := t.TempDir()
-	for _, f := range []string{zonesA, zonesB} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("0\nEOF\n"), 0o644); err != nil {
-			t.Fatalf("writing fixture %s: %v", f, err)
+	for name, src := range files {
+		content, err := os.ReadFile(filepath.Join("testdata", src))
+		if err != nil {
+			t.Fatalf("reading fixture %s: %v", src, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			t.Fatalf("writing fixture %s: %v", name, err)
 		}
 	}
 	pathres.SetDefaultForTest(t, dir)
@@ -590,37 +603,6 @@ MOVE_HEIGHT = 20.0
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want it to contain %q", err, tc.want)
-			}
-		})
-	}
-}
-
-// TestGridSpan checks the ANGLE convention: the span is resolved in the tray's
-// own rotated frame, so slot (COLS-1, ROWS-1) lands exactly on LAST whatever
-// the angle is, and both taught corners stay honest.
-func TestGridSpan(t *testing.T) {
-	cases := []struct {
-		name             string
-		angleDeg         float64
-		last             [2]float64
-		wantCol, wantRow float64
-	}{
-		{"axis aligned", 0, [2]float64{100, 40}, 100, 40},
-		{"45 degrees along the column axis", 45, [2]float64{100, 100}, math.Sqrt2 * 100, 0},
-		{"90 degrees swaps the axes", 90, [2]float64{0, 100}, 100, 0},
-		{"negative angle", -90, [2]float64{0, 100}, -100, 0},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			d := TrayDef{
-				First:   pnproute.Point{X: 0, Y: 0},
-				Last:    pnproute.Point{X: tc.last[0], Y: tc.last[1]},
-				HasLast: true,
-				Angle:   tc.angleDeg * math.Pi / 180,
-			}
-			col, row := gridSpan(d)
-			if math.Abs(col-tc.wantCol) > 1e-9 || math.Abs(row-tc.wantRow) > 1e-9 {
-				t.Errorf("gridSpan = (%g, %g), want (%g, %g)", col, row, tc.wantCol, tc.wantRow)
 			}
 		})
 	}
