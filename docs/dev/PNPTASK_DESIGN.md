@@ -729,6 +729,80 @@ pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
 | 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
 | 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
 
+### 7.6 As built — the model (2026-08-11)
+
+`internal/pnptask/stations.go` (the runtime half, on top of the phase-1 grid
+geometry) and `persist.go`, plus `stations_test.go`/`persist_test.go`. The world
+model — tray contents, process-station occupancy, per-picker held material — is
+built in the factory next to the pins it publishes on, seeded from those pins
+and from persistence when the control loop starts, and owned by the control
+goroutine from then on like everything else in §6.5.
+
+- **Slot states are `int64`, not the design's `int32`.** The step comes off a u32
+  pin, so with `int32` a step above 2^31 would wrap negative and 2^32−1 would
+  collide with the −1 that means "empty" — a PLC word read as "this slot is
+  free". Four bytes per slot is not worth that.
+- **The DIR_MODE order is precomputed** per tray geometry as a permutation of the
+  linear slot indices, once at load. That is also what makes the probing
+  correction of D9 cheap to express: "continue after the slot that turned out to
+  be empty" is a position in a list rather than a resumed nested loop. Meander
+  flips on the *pass number*, not the geometric row index, so a pass always ends
+  where the next one starts whichever end the secondary direction started from.
+  Places take the first free slot **in the same order** — a place that ignored it
+  would scatter material across a tray a later pick then travels back and forth
+  over.
+- **A tray with no geometry reports neither `empty` nor `full`.** tray-id 0 (the
+  value an unwired u32 pin reads, and the reason config.go refuses station id 0)
+  means "not told yet": there is no slot state to report on, and a pin that
+  guessed either way would send a PLC refilling a tray or diverting production.
+  The actionable signal for that state is the `INVALID_TRAY_ID` a job raises.
+- The `empty` pin is measured against the **live** `process-step` pin, not a
+  job's latched copy: between jobs there is no latched step, and this pin is what
+  the PLC reads to decide what to command next. `set-full` uses the same live
+  value (D8).
+- `set-full`/`set-empty` join `home`, `error-reset` and the manual picker pins as
+  edges primed against their startup state (D26) — a level latched across a
+  stmakd restart would otherwise wipe or forge the slot state that was just
+  restored. `tray-id` is primed for the mirror-image reason: `world.start` has
+  already selected the geometry it names, so treating the boot value as a
+  *change* would reset what the restore just installed.
+- **The held-material records are per picker from the start** (D20), and the
+  engine asks `freePicker()`/`holderOf(station)` rather than indexing 0.
+  Estop clears them all: the close outputs have just dropped (D14), so whatever
+  was gripped is on the table and the records would be fiction. A manual open
+  clears the one picker's record for the same reason; §8's refinement (retain the
+  station id so a following manual close can restore it) belongs to phase 6.
+- **Persistence** (`persist.go`, D6): namespace = instance name with everything
+  outside `[A-Za-z0-9_]` replaced (`pnp.task` → `pnp_task`), keys `tray.<id>`,
+  `proc.<id>` and `held_material`. The last one is the design's `alt_picker`
+  renamed after what D20 made it store — one record per picker, each naming its
+  picker explicitly so a load line changed between `pickers=1` and `pickers=2`
+  cannot shift a record onto the wrong picker.
+  - Writes are **coalesced per control cycle** rather than issued per assignment:
+    the several changes of one pick cost one write, and nothing is ever more than
+    10 ms behind. The flush hangs off `tick`, not `step`, so it keeps running
+    through the long actions of a job.
+  - A storage failure is logged and swallowed. The machine's state is the tracked
+    model, not the database; losing a write costs state at the next restart,
+    which is strictly better than aborting a cycle with a part in the picker over
+    a locked sqlite file. Failing to *open* the namespace does fail `Start` —
+    that one was asked for on the load line.
+  - The probing state (the successive-miss counter and the "declared empty by
+    probing" flag) is deliberately **not** persisted, as §7.2's record shape
+    implies: it is a conclusion drawn from physical feedback, and re-deriving it
+    costs one probing pass, while restoring it could leave a refilled tray
+    declared empty with nothing in the record to justify it.
+  - A record is only adopted for the geometry it was written under, and only if
+    it still fits it: an unknown TRAYDEF or a changed slot count discards it
+    rather than stretching stored slots over a grid they no longer describe.
+  - **One refinement over §7.2:** a `tray-id` pin reading 0 at restore time is
+    treated as "not told yet", not as a mismatch. The PLC that drives that pin
+    has typically not written it when stmakd starts, so comparing against it
+    would discard the tray state at every single restart — the one thing
+    persistence exists to prevent. The record is held pending and adopted the
+    moment `tray-id` names the geometry it was recorded under; any *other* id
+    discards it immediately, as specified.
+
 ---
 
 ## 8. Phase 6 — Alternating picker (`pickers=2`)

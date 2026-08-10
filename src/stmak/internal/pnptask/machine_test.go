@@ -321,24 +321,43 @@ MAX_VELOCITY = 300
 `
 
 func newMachineFixture(t *testing.T, args ...string) *machineFixture {
-	return newMachineFixtureWith(t, nil, args...)
+	return newMachineFixtureOpts(t, fixtureOpts{args: args})
 }
 
-// newMachineFixtureWith loads a module, hands it a scripted motion stack and
-// starts the control loop. tweak adjusts the configuration before the loop
-// exists — after it, cfg belongs to the control goroutine.
+// newMachineFixtureWith is newMachineFixture with a configuration tweak.
 func newMachineFixtureWith(t *testing.T, tweak func(*Config), args ...string) *machineFixture {
+	return newMachineFixtureOpts(t, fixtureOpts{tweak: tweak, args: args})
+}
+
+// fixtureOpts are the hooks a case needs before the control loop exists: after
+// it starts, the config and the world model belong to the control goroutine.
+type fixtureOpts struct {
+	// tweak adjusts the parsed configuration.
+	tweak func(*Config)
+	// prep runs last, with the pins exported and the motion stack plugged in but
+	// the loop not yet started — where a test seeds pins or attaches
+	// persistence.
+	prep func(*testing.T, *pnptaskModule)
+	args []string
+}
+
+// newMachineFixtureOpts loads a module, hands it a scripted motion stack and
+// starts the control loop.
+func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	t.Helper()
 	fastLoop(t)
 	setupPaths(t)
 	name := testInstanceName(t)
-	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, args...)
-	if tweak != nil {
-		tweak(m.cfg)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, o.args...)
+	if o.tweak != nil {
+		o.tweak(m.cfg)
 	}
 
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
+	if o.prep != nil {
+		o.prep(t, m)
+	}
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
@@ -399,6 +418,16 @@ func (f *machineFixture) consistently(what string, cond func() bool) {
 			f.t.Fatalf("%s: stopped holding after %d cycles", what, i)
 		}
 	}
+}
+
+// stopped joins the control goroutine and hands back the world model. Reading
+// the model while the loop runs would be a data race — it belongs to that
+// goroutine — so a test that has to inspect it stops the module first. Stop
+// tolerates being called again by the fixture's cleanup.
+func (f *machineFixture) stopped() *world {
+	f.t.Helper()
+	f.m.Stop()
+	return f.m.world
 }
 
 // machineOn brings the fixture to the state most cases start from: enabled and

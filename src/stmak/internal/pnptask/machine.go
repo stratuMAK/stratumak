@@ -98,8 +98,20 @@ type inputs struct {
 	home       bool
 	errorReset bool
 
+	// processStep is read every cycle, not only at a job's latch: the tray
+	// "empty" outputs are "no slot matching a pick" and the set-full edge writes
+	// this value into every slot, both of which are about the step the PLC is
+	// asking about right now.
+	processStep uint32
+
 	pickerOpen  []bool
 	pickerClose []bool
+
+	// Per tray station, parallel to pins.trays: the selected geometry and the
+	// two state-reset requests (D8).
+	trayID       []uint32
+	traySetFull  []bool
+	traySetEmpty []bool
 
 	jogPos   []bool
 	jogNeg   []bool
@@ -142,13 +154,16 @@ type control struct {
 }
 
 func newControl(m *pnptaskModule) *control {
-	pickers, axes := len(m.pins.pickers), len(m.pins.jog)
+	pickers, axes, trays := len(m.pins.pickers), len(m.pins.jog), len(m.pins.trays)
 	mk := func() inputs {
 		return inputs{
-			pickerOpen:  make([]bool, pickers),
-			pickerClose: make([]bool, pickers),
-			jogPos:      make([]bool, axes),
-			jogNeg:      make([]bool, axes),
+			pickerOpen:   make([]bool, pickers),
+			pickerClose:  make([]bool, pickers),
+			trayID:       make([]uint32, trays),
+			traySetFull:  make([]bool, trays),
+			traySetEmpty: make([]bool, trays),
+			jogPos:       make([]bool, axes),
+			jogNeg:       make([]bool, axes),
 		}
 	}
 	return &control{
@@ -190,10 +205,10 @@ func (c *control) run() {
 }
 
 // tick waits for the next cycle and performs the work every state owes: read
-// the inputs, publish the outputs that mirror state. It reports false when the
-// module is shutting down — which is why every wait in this file goes through
-// it. A wait that polled its own timer would both outlive Stop and freeze the
-// teach pins for the seconds it runs.
+// the inputs, publish the outputs that mirror state, persist what changed. It
+// reports false when the module is shutting down — which is why every wait in
+// this file goes through it. A wait that polled its own timer would both outlive
+// Stop and freeze the teach pins for the seconds it runs.
 func (c *control) tick() bool {
 	select {
 	case <-c.stop:
@@ -201,6 +216,11 @@ func (c *control) tick() bool {
 	case <-c.ticker.C:
 		c.sample()
 		c.publish()
+		// Persisting from here rather than from step() is what keeps the state
+		// of a long action durable: the actions of a job tick through this
+		// function, so a slot emptied halfway through a pick is written within
+		// one cycle instead of at the end of the job.
+		c.m.world.flush()
 		return true
 	}
 }
@@ -221,15 +241,24 @@ func (c *control) sample() {
 	c.prev.errorReset = c.in.errorReset
 	copy(c.prev.pickerOpen, c.in.pickerOpen)
 	copy(c.prev.pickerClose, c.in.pickerClose)
+	copy(c.prev.trayID, c.in.trayID)
+	copy(c.prev.traySetFull, c.in.traySetFull)
+	copy(c.prev.traySetEmpty, c.in.traySetEmpty)
 
 	c.in.estop = p.estopOn.Get()
 	c.in.machineOn = p.machineOn.Get()
 	c.in.autoEnable = p.autoEnable.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
+	c.in.processStep = p.processStep.Get()
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
 		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
+	}
+	for i := range p.trays {
+		c.in.trayID[i] = p.trays[i].trayID.Get()
+		c.in.traySetFull[i] = p.trays[i].setFull.Get()
+		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
 	}
 	for i := range p.jog {
 		c.in.jogPos[i] = p.jog[i].pos.Get()
@@ -249,6 +278,10 @@ func (c *control) sample() {
 	for i := range p.pickers {
 		c.rise.pickerOpen[i] = c.in.pickerOpen[i] && !c.prev.pickerOpen[i]
 		c.rise.pickerClose[i] = c.in.pickerClose[i] && !c.prev.pickerClose[i]
+	}
+	for i := range p.trays {
+		c.rise.traySetFull[i] = c.in.traySetFull[i] && !c.prev.traySetFull[i]
+		c.rise.traySetEmpty[i] = c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i]
 	}
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
@@ -270,12 +303,17 @@ func (c *control) sample() {
 
 // primeEdges seeds the edge detector with the current pin state, so a one-shot
 // input already high when the loop starts does NOT fire on the first cycle.
-// home, error-reset and the manual picker pins are requests for an action; a
-// PLC that latches them across a stmakd restart is not re-issuing them, and
-// acting on the stale level would home the machine or close a picker at boot
-// with nobody asking (D25/§5.2 specify rising-edge semantics). machine-on is
-// deliberately NOT primed — it is the standing request for the machine, and
-// its boot edge is wanted (see sample).
+// home, error-reset, the manual picker pins and the tray set-full/set-empty
+// pins are requests for an action; a PLC that latches them across a stmakd
+// restart is not re-issuing them, and acting on the stale level would home the
+// machine, close a picker or wipe a tray's slot state at boot with nobody asking
+// (D25/D26/§5.2 specify rising-edge semantics). machine-on is deliberately NOT
+// primed — it is the standing request for the machine, and its boot edge is
+// wanted (see sample).
+//
+// tray-id is primed for the same reason from the other direction: it is a level,
+// and world.start has already selected the geometry it names, so treating the
+// boot value as a *change* would reset the slot state that was just restored.
 func (c *control) primeEdges() {
 	p := c.m.pins
 	c.in.home = p.home.Get()
@@ -283,6 +321,11 @@ func (c *control) primeEdges() {
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
 		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
+	}
+	for i := range p.trays {
+		c.in.trayID[i] = p.trays[i].trayID.Get()
+		c.in.traySetFull[i] = p.trays[i].setFull.Get()
+		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
 	}
 }
 
@@ -300,6 +343,11 @@ func (c *control) step() {
 	if c.rise.errorReset {
 		c.clearError()
 	}
+
+	// The tray state resets are the operator's way to resync the model with the
+	// physical world (§6.4), so they are honored in both modes — a tray refilled
+	// by hand is exactly the situation manual mode exists for.
+	c.updateStations()
 
 	// The homing request is honored in both modes (D25): in auto mode a PLC
 	// that wants the machine homed before its first job should not have to
@@ -370,6 +418,10 @@ func (c *control) enterEstop() {
 	for i := range c.m.pins.pickers {
 		c.m.pins.pickers[i].close.Set(false)
 	}
+	// The close outputs just went low, so whatever was gripped is on the table:
+	// the held-material records (D20) describe a world that no longer exists and
+	// would otherwise send the next job to place a part nobody is holding.
+	c.m.world.clearAllHeld()
 	c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers released")
 }
 
@@ -425,13 +477,77 @@ func (c *control) motionLost() {
 	c.raise(faultf(errMotionError, "motion controller not responding (%d consecutive status reads failed)", c.commErrors))
 }
 
+// ---------------------------------------------------------------------------
+// Station state (§7.1)
+// ---------------------------------------------------------------------------
+
+// updateStations applies the tray station inputs of this cycle: the tray-id
+// selector and the two slot-state reset edges (D8).
+func (c *control) updateStations() {
+	for i, t := range c.m.world.trays {
+		if c.in.trayID[i] != c.prev.trayID[i] {
+			c.selectTray(t, c.in.trayID[i])
+		}
+		switch {
+		case c.rise.traySetFull[i] && c.rise.traySetEmpty[i]:
+			// Both edges in one cycle: a contradictory request, ignored — the
+			// same treatment the manual picker pins get.
+			c.m.logger.Debug("pnptask: tray set-full and set-empty in the same cycle, ignored",
+				"station", t.cfg.ID)
+		case c.rise.traySetFull[i]:
+			t.setAll(int64(c.in.processStep))
+			c.m.logger.Info("pnptask: tray declared full",
+				"station", t.cfg.ID, "process_step", c.in.processStep, "slots", len(t.slots))
+		case c.rise.traySetEmpty[i]:
+			t.setAll(slotEmpty)
+			c.m.logger.Info("pnptask: tray declared empty",
+				"station", t.cfg.ID, "slots", len(t.slots))
+		}
+	}
+}
+
+// selectTray follows a tray-id change: the tray in the station is a different
+// one, so its slot state starts empty again (D17).
+func (c *control) selectTray(t *trayState, id uint32) {
+	if !t.selectDef(id) {
+		if id != 0 {
+			// Not fatal here — the id is a PLC value, not configuration. The
+			// station simply has no geometry, and a job against it raises
+			// INVALID_TRAY_ID with the id in the log.
+			c.m.logger.Warn("pnptask: tray-id names no TRAYDEF",
+				"station", t.cfg.ID, "tray_id", id)
+			t.pending = nil
+			return
+		}
+		// Back to "not told yet" (an unwired or reset selector). A pending
+		// restored record is kept: nothing has contradicted it yet.
+		c.m.logger.Info("pnptask: tray-id cleared, station has no geometry", "station", t.cfg.ID)
+		return
+	}
+	// A restored record that was waiting for its tray-id (see world.restore) is
+	// adopted the moment the pin names the geometry it was recorded under.
+	if t.pending != nil && t.pending.TrayID == id {
+		rec := *t.pending
+		t.pending = nil
+		if c.m.world.adoptTray(t, rec) {
+			c.m.logger.Info("pnptask: tray state restored",
+				"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
+			return
+		}
+	}
+	t.pending = nil
+	c.m.logger.Info("pnptask: tray changed, slot state reset",
+		"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
+}
+
 // publish writes the outputs that simply mirror state. It runs from tick, so it
-// keeps running through a homing wait or (later) a job action — a teach pin
-// that froze while the machine moved would be worse than useless.
+// keeps running through a homing wait or a job action — a teach pin that froze
+// while the machine moved would be worse than useless.
 func (c *control) publish() {
 	p := c.m.pins
 	p.machineIsOn.Set(c.enabled && !c.estopped)
 	p.homed.Set(c.allHomed())
+	c.m.world.publish(int64(c.in.processStep))
 
 	// Position teach (D21): where each picker actually is. Targeting commands
 	// (x - offset), so the picker sits at (feedback + offset). The plain pins
@@ -702,6 +818,12 @@ func (c *control) manualPickers() {
 			c.m.logger.Debug("pnptask: picker manual-open and manual-close in the same cycle, ignored", "picker", i)
 		case open:
 			c.m.pins.pickers[i].close.Set(false)
+			// Whatever the picker held has been let go, so its held-material
+			// record goes with it (D20). §8's refinement — retaining the station
+			// id so a following manual close can restore the record if material
+			// was gripped again — is part of the alternating-picker phase; here
+			// an opened picker simply holds nothing.
+			c.m.world.clearHeld(i)
 		case close:
 			c.m.pins.pickers[i].close.Set(true)
 		}

@@ -29,13 +29,15 @@
 // config.go and docs/dev/PNPTASK_DESIGN.md §5.1. The HAL interface is in
 // pins.go.
 //
-// This is phase 3 of the design document: the module loads, validates its
+// This is phase 4 of the design document: the module loads, validates its
 // configuration, exports its complete HAL interface, pushes the machine
 // configuration into motmod and runs the machine — estop/enable sequencing,
 // homing, and manual mode with jogging, manual picker control and the position
-// teach outputs (machine.go). Stations, the job engine and the
-// alternating-picker logic follow in the later phases; nothing here starts a
-// job yet.
+// teach outputs (machine.go) — and it tracks the world the jobs of phase 5 will
+// act on: tray slot states, process-station occupancy and per-picker held
+// material (stations.go), optionally backed by persist_sqlite (persist.go).
+// The job engine and the alternating-picker logic follow in the later phases;
+// nothing here starts a job yet.
 package pnptask
 
 import (
@@ -83,6 +85,12 @@ type pnptaskModule struct {
 
 	comp *hal.Component
 	pins *pinSet
+
+	// world is the runtime model behind the station pins: tray contents, process
+	// station occupancy and the per-picker held-material records (§7.1). Built
+	// in the factory alongside the pins it publishes on, seeded from them (and
+	// from persistence) when the control loop starts.
+	world *world
 
 	// The motion stack this instance drives, resolved in Start (see there for
 	// why not in the factory). They are interfaces rather than the generated
@@ -171,6 +179,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
 	m.pins = pins
+	m.world = newWorld(cfg, pins, m.pickers, logger)
 
 	if err := comp.Ready(); err != nil {
 		_ = comp.Exit()
@@ -261,6 +270,17 @@ func (m *pnptaskModule) Start() error {
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
 	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
 
+	// Optional state persistence (D6): no default lookup, an absent load arg
+	// means in-memory state only. Resolved here for the same reason the motion
+	// stack is — the provider may be loaded on a later HAL line.
+	if m.persistInstance != "" {
+		store, err := openPersist(m.name, m.persistInstance, persistNamespace(m.name), m.logger)
+		if err != nil {
+			return fmt.Errorf("pnptask %q: %w", m.name, err)
+		}
+		m.world.persist = store
+	}
+
 	return m.startControl()
 }
 
@@ -292,6 +312,10 @@ func (m *pnptaskModule) startControl() error {
 	}
 	m.limits = limits
 
+	// Seed the station model from its pins and from persistence before the loop
+	// exists: from here on the model belongs to the control goroutine.
+	m.world.start()
+
 	m.ctl = newControl(m)
 	m.ctl.start()
 
@@ -306,11 +330,17 @@ func (m *pnptaskModule) startControl() error {
 // Stop must tolerate never having been started — the launcher stops every
 // loaded module even when a peer's Start failed first.
 func (m *pnptaskModule) Stop() {
-	if m.ctl == nil {
-		return
+	if m.ctl != nil {
+		m.ctl.shutdown()
+		m.ctl = nil
 	}
-	m.ctl.shutdown()
-	m.ctl = nil
+	if m.world != nil && m.world.persist != nil {
+		// The loop is gone, so nothing else will write: flush whatever its last
+		// cycles changed before the handle closes.
+		m.world.flush()
+		m.world.persist.close()
+		m.world.persist = nil
+	}
 }
 
 func (m *pnptaskModule) Destroy() {
