@@ -197,22 +197,20 @@ func registerFakeMotion(t *testing.T, instance string) {
 	}
 }
 
-// TestFactoryStartStop checks the lifecycle contract: Start after a successful
-// factory, and a Stop that survives never having been started.
-func TestFactoryStartStop(t *testing.T) {
+// TestStopBeforeStart: the launcher stops every module it loaded, including
+// ones whose Start never ran because a peer failed first.
+func TestStopBeforeStart(t *testing.T) {
 	setupPaths(t)
-	registerFakeMotion(t, "pnp.mot")
 	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t),
 		"motion_instance=pnp.mot")
-	m.Stop() // legal before Start — the launcher stops everything it loaded
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if m.mc == nil || m.ms == nil {
-		t.Error("Start did not resolve the motctl/motstat clients")
-	}
 	m.Stop()
+	m.Stop() // and twice, for the launcher that is not sure either
 }
+
+// The successful half of Start — the configuration push and the control loop —
+// is covered in machine_test.go against a scripted motion stack: past the
+// callback-table lookup, Start is startControl, and a fake provider's callback
+// table cannot be called through the C ABI.
 
 // TestStartRequiresMotion covers the other half of resolving the motion stack
 // in Start: a load line naming an instance that no motmod provides has to fail

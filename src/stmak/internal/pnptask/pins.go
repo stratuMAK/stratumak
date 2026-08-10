@@ -22,6 +22,10 @@ type pinSet struct {
 	machineIsOn *hal.Pin[bool] // out: motion enabled and not estopped
 	autoEnable  *hal.Pin[bool] // in:  high = auto mode, low = manual mode
 	homed       *hal.Pin[bool] // out: all joints homed
+	// home is the operator's homing request (D25). Without it a machine with
+	// AUTOHOME = 0 could never be homed at all: jobs would refuse with
+	// NOT_HOMED and the jog pins are ignored while unhomed (D18).
+	home *hal.Pin[bool] // in: rising edge homes all joints
 
 	// Manual jog, one pair per [TRAJ]COORDINATES axis.
 	jog      []jogPins
@@ -118,6 +122,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.machineIsOn = mkPin[bool](b, "machine-is-on", hal.Out)
 	p.autoEnable = mkPin[bool](b, "auto-enable", hal.In)
 	p.homed = mkPin[bool](b, "homed", hal.Out)
+	p.home = mkPin[bool](b, "home", hal.In)
 
 	for _, ax := range cfg.Axes {
 		letter := strings.ToLower(string(ax.Letter))

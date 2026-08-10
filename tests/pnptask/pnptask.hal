@@ -47,6 +47,20 @@ setp pnp.task.machine-on 1
 # manual picker control.
 setp pnp.task.auto-enable 1
 
+# Homing is requested on a rising edge of "home" (D25) and, once the job engine
+# lands, automatically at the first job because AUTOHOME = 1. With nothing
+# wired here, home the machine by hand:
+#
+#     halcmd setp pnp.task.home 1 ; halcmd setp pnp.task.home 0
+#     halcmd show pin pnp.task.homed
+#
+# Jogging then works with auto-enable low:
+#
+#     halcmd setp pnp.task.auto-enable 0
+#     halcmd setp pnp.task.jog-speed 100
+#     halcmd setp pnp.task.jog-x-pos 1     # ... and 0 to stop
+setp pnp.task.home 0
+
 # --- Not wired here ---------------------------------------------------------
 #
 # The picker feedback (picker.N.opened / .closed), the process stations'
