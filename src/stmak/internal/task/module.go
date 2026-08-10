@@ -21,6 +21,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/tooltable"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -148,7 +149,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		numJoints := getIntOr(ini, "KINS", "JOINTS", 3)
 		numSpindles := getIntOr(ini, "TRAJ", "SPINDLES", 1)
 		coord := ini.Get("TRAJ", "COORDINATES")
-		axisMask := parseAxisMask(coord)
+		axisMask := motsetup.ParseAxisMask(coord)
 		mdiCmds := ini.GetAll("HALUI", "MDI_COMMAND")
 		hu, err := newHalUI(m.haluiPrefix, numJoints, numSpindles, axisMask, mdiCmds)
 		if err != nil {

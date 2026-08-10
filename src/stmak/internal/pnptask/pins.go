@@ -22,6 +22,10 @@ type pinSet struct {
 	machineIsOn *hal.Pin[bool] // out: motion enabled and not estopped
 	autoEnable  *hal.Pin[bool] // in:  high = auto mode, low = manual mode
 	homed       *hal.Pin[bool] // out: all joints homed
+	// home is the operator's homing request (D25). Without it a machine with
+	// AUTOHOME = 0 could never be homed at all: jobs would refuse with
+	// NOT_HOMED and the jog pins are ignored while unhomed (D18).
+	home *hal.Pin[bool] // in: rising edge homes all joints
 
 	// Manual jog, one pair per [TRAJ]COORDINATES axis.
 	jog      []jogPins
@@ -74,9 +78,17 @@ type pickerPins struct {
 	manualClose *hal.Pin[bool] // in:  rising edge closes, manual mode only
 
 	// posX/posY report where this picker actually is (feedback + offset), for
-	// UI display and manual position teaching (D21).
+	// UI display and manual position teaching (D21). Like every float pin they
+	// carry the internal millimetres (D23).
 	posX *hal.Pin[float64]
 	posY *hal.Pin[float64]
+
+	// posXMu/posYMu are the same positions in *machine units* (D26, "-mu"
+	// suffix): the teach workflow pastes these into the INI, which is written
+	// in machine units — pasting the mm pins would be 25.4x off on an inch
+	// machine. On a metric machine both pairs carry the same value.
+	posXMu *hal.Pin[float64]
+	posYMu *hal.Pin[float64]
 
 	xOffset *hal.Param[float64] // this picker's XY offset from the machine position
 	yOffset *hal.Param[float64]
@@ -118,6 +130,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.machineIsOn = mkPin[bool](b, "machine-is-on", hal.Out)
 	p.autoEnable = mkPin[bool](b, "auto-enable", hal.In)
 	p.homed = mkPin[bool](b, "homed", hal.Out)
+	p.home = mkPin[bool](b, "home", hal.In)
 
 	for _, ax := range cfg.Axes {
 		letter := strings.ToLower(string(ax.Letter))
@@ -156,6 +169,8 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 			manualClose: mkPin[bool](b, pre+"manual-close", hal.In),
 			posX:        mkPin[float64](b, pre+"pos-x", hal.Out),
 			posY:        mkPin[float64](b, pre+"pos-y", hal.Out),
+			posXMu:      mkPin[float64](b, pre+"pos-x-mu", hal.Out),
+			posYMu:      mkPin[float64](b, pre+"pos-y-mu", hal.Out),
 			xOffset:     mkParam[float64](b, pre+"x-offset", hal.RW),
 			yOffset:     mkParam[float64](b, pre+"y-offset", hal.RW),
 		})

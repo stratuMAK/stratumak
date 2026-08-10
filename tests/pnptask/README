@@ -13,6 +13,20 @@ with no hardware and no realtime privileges.
     halcmd show pin pnp.task        # the whole HAL interface
     halcmd show param pnp.task      # the tuning knobs (settle times, offsets)
 
+The machine comes up enabled (machine-on is held high in the HAL file). To home
+it and jog it around:
+
+    halcmd setp pnp.task.home 1     # rising edge: home all joints
+    halcmd setp pnp.task.home 0
+    halcmd show pin pnp.task.homed
+
+    halcmd setp pnp.task.auto-enable 0   # manual mode
+    halcmd setp pnp.task.jog-speed 100
+    halcmd setp pnp.task.jog-x-pos 1
+    halcmd setp pnp.task.jog-x-pos 0
+
+    halcmd show pin pnp.task.picker      # picker.N.pos-x/pos-y follow the jog
+
 Files
 -----
 
@@ -50,7 +64,8 @@ released signals — are what a PLC drives, and they are left unconnected here.
 The scripted simulation of them (grippers with a settling delay, injectable
 "the slot was empty" misses) comes with the integration suite, phase 7 of
 docs/dev/PNPTASK_DESIGN.md. Until then this config is what it says on the tin: a
-machine that loads, validates its whole configuration and exposes its interface.
+machine that loads, validates its whole configuration, homes, jogs and drives
+its pickers by hand — everything up to a job.
 
 This directory holds no test.hal/test.sh, so `runtests` ignores it; it is a
 config to run and to build the integration test on, not a test itself.

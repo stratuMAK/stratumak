@@ -29,10 +29,13 @@
 // config.go and docs/dev/PNPTASK_DESIGN.md §5.1. The HAL interface is in
 // pins.go.
 //
-// This is phase 2 of the design document: the module loads, validates its
-// configuration and exports its complete HAL interface. Machine control,
-// stations, the job engine and the alternating-picker logic follow in the
-// later phases; nothing here commands motion yet.
+// This is phase 3 of the design document: the module loads, validates its
+// configuration, exports its complete HAL interface, pushes the machine
+// configuration into motmod and runs the machine — estop/enable sequencing,
+// homing, and manual mode with jogging, manual picker control and the position
+// teach outputs (machine.go). Stations, the job engine and the
+// alternating-picker logic follow in the later phases; nothing here starts a
+// job yet.
 package pnptask
 
 import (
@@ -45,6 +48,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -81,9 +85,19 @@ type pnptaskModule struct {
 	pins *pinSet
 
 	// The motion stack this instance drives, resolved in Start (see there for
-	// why not in the factory).
-	mc *motctl.MotctlClient
-	ms *motstat.MotstatClient
+	// why not in the factory). They are interfaces rather than the generated
+	// clients so the control loop can be tested against a scripted motion
+	// stack; Start assigns the real ones.
+	mc motionControl
+	ms motionStatus
+
+	// limits are the machine limits pushed to motmod at Start, kept for the
+	// clamping this module has to do itself (jog velocity, and the per-move
+	// vel/acc of the later phases).
+	limits *motsetup.Result
+
+	// ctl is the control loop; nil until Start.
+	ctl *control
 
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to
@@ -218,10 +232,8 @@ func (m *pnptaskModule) parseArgs(args []string) error {
 	return nil
 }
 
-// Start resolves the motion stack this instance drives. Pushing the motmod
-// configuration and starting the poll loop arrive with the machine-control
-// phase; what Start already guarantees is that the motion instance named on
-// the load line exists and speaks the expected API version.
+// Start resolves the motion stack this instance drives, pushes the machine
+// configuration into it and starts the control loop.
 //
 // This lookup belongs in Start and *not* in the factory. The launcher runs
 // every module's constructor — where a provider registers its API — before it
@@ -249,13 +261,57 @@ func (m *pnptaskModule) Start() error {
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
 	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
 
-	m.logger.Info("pnptask started", "motion_instance", m.motInstance)
+	return m.startControl()
+}
+
+// startControl pushes the machine configuration into motmod and starts the
+// control loop.
+//
+// It is split from Start at exactly the C ABI boundary: above it is the
+// callback-table lookup, which cannot run without a real provider, and below it
+// everything goes through the motionControl/motionStatus interfaces — which is
+// what lets the whole machine state machine be exercised against a scripted
+// motion stack instead of only in a live sim.
+func (m *pnptaskModule) startControl() error {
+	// Push the machine configuration ([TRAJ], [JOINT_n], [AXIS_*]) into motmod
+	// before anything can command a move — motion starts with zeroed limits,
+	// and a move commanded against those goes nowhere or, worse, everywhere.
+	// The INI view is the namespaced one, so a two-machine config can give each
+	// instance its own [<instance>:JOINT_0] without renaming sections.
+	//
+	// No spindles: a pick-and-place machine has none, and pushing defaults for
+	// one would be configuration nobody wrote.
+	limits, err := motsetup.Push(m.ini, motsetup.Options{
+		NumJoints:   m.cfg.NumJoints,
+		NumSpindles: 0,
+		AxisMask:    m.cfg.AxisMask(),
+		LinearUnits: m.cfg.LinearUnits,
+	}, m.mc)
+	if err != nil {
+		return fmt.Errorf("pnptask %q: pushing motion configuration: %w", m.name, err)
+	}
+	m.limits = limits
+
+	m.ctl = newControl(m)
+	m.ctl.start()
+
+	m.logger.Info("pnptask started",
+		"motion_instance", m.motInstance,
+		"joints", m.cfg.NumJoints,
+		"max_velocity", limits.MaxVelocity,
+		"max_acceleration", limits.MaxAcceleration)
 	return nil
 }
 
 // Stop must tolerate never having been started — the launcher stops every
-// loaded module even when a peer's Start failed first. Nothing runs yet.
-func (m *pnptaskModule) Stop() {}
+// loaded module even when a peer's Start failed first.
+func (m *pnptaskModule) Stop() {
+	if m.ctl == nil {
+		return
+	}
+	m.ctl.shutdown()
+	m.ctl = nil
+}
 
 func (m *pnptaskModule) Destroy() {
 	if m.comp != nil {

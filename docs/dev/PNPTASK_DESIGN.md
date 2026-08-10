@@ -38,10 +38,12 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
-| D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
+| D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. **Teaching into the INI uses the `-mu` siblings** (D26): the INI is written in machine units. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
 | D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene is scaled to mm when the planners are built; `CLEARANCE`, like every INI length, is already mm by then (converted at parse time — scaling it again would square the factor). Everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
 | D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
+| D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
+| D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 
 ---
 
@@ -81,6 +83,7 @@ Load args (parsed `key=value` like `internal/task/module.go`):
 src/stmak/pkg/hal/param.go              Phase 0: HAL param support (+ cgo.go additions)
 src/stmak/pkg/pnproute/                 Phase 1: planner package (lifted from pnp-route-test)
     geom.go  plan.go  dxf.go  scene.go  scene_test.go plan_test.go testdata/
+src/stmak/internal/motsetup/            Phase 3: shared INI -> motmod config push
 src/stmak/internal/pnptask/             Phases 2–6: the module
     module.go        registration, factory, load args, lifecycle
     config.go        INI schema parsing + validation
@@ -224,6 +227,8 @@ All sections resolve through `ini.WithNamespace(instanceName)`
 (`[pnp.task:PNPTASK]` with fallback to `[PNPTASK]`). Standard `[TRAJ]`,
 `[KINS]`, `[JOINT_n]`, `[AXIS_*]` sections are consumed for the motmod config
 push exactly as milltask does (units: machine units in INI, **mm internally**).
+`[KINS]JOINTS` is **required** here rather than defaulted: it decides which
+joints are activated and which have to report homed.
 
 ```ini
 [PNPTASK]
@@ -303,6 +308,7 @@ normalized to HAL-conventional dashes.
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, latched at job start |
+| `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 
 **Global params (RW, initial values from INI)**
@@ -323,8 +329,10 @@ normalized to HAL-conventional dashes.
 | `picker.N.missing` | pin | bit | out | set when a pick found no material / tray exhausted; cleared on successful pick and on error-reset |
 | `picker.N.manual-open` | pin | bit | in | rising edge: `close` := 0 (manual mode only, §6.4) |
 | `picker.N.manual-close` | pin | bit | in | rising edge: `close` := 1 (manual mode only, §6.4) |
-| `picker.N.pos-x` | pin | float | out | picker position in machine coordinates: feedback X + `x-offset` (D21) |
-| `picker.N.pos-y` | pin | float | out | picker position in machine coordinates: feedback Y + `y-offset` (D21) |
+| `picker.N.pos-x` | pin | float | out | picker position, mm: feedback X + `x-offset` (D21/D23) |
+| `picker.N.pos-y` | pin | float | out | picker position, mm: feedback Y + `y-offset` (D21/D23) |
+| `picker.N.pos-x-mu` | pin | float | out | same position in machine units — the value to paste into the INI (D26) |
+| `picker.N.pos-y-mu` | pin | float | out | same position in machine units (D26) |
 | `picker.N.x-offset` | param | float RW | | XY offset vs. machine position (picker.0 default 0) |
 | `picker.N.y-offset` | param | float RW | | |
 
@@ -438,7 +446,7 @@ PLC signals, and simulating them is phase 7. The directory carries no
 
 ---
 
-## 6. Phase 3 — Machine control
+## 6. Phase 3 — Machine control *(implemented)*
 
 ### 6.1 motmod config push
 
@@ -448,11 +456,17 @@ push `[JOINT_n]`/`[AXIS_*]` position/vel/acc/jerk limits,
 `SetupArcBlends` from `ARC_BLEND_*` — the same push milltask does in
 `internal/task/config.go` / `inihal.go`.
 
-Preferred: extract the push into a shared `internal/motsetup` package used by
-both milltask and pnptask. Fallback if the extraction turns out invasive:
-copy the ~300 relevant lines and note the duplication. Decide at
-implementation time; the extraction is a separate reviewable commit either
-way.
+Decided at implementation time (2026-08-10) in favour of the preferred option:
+the push lives in a shared **`internal/motsetup`** package, extracted from
+milltask in its own commit. `motsetup.Push(ini, Options, MotionConfig)` takes
+the joint/spindle counts, the axis mask and the unit scale, and returns the
+derived values the caller needs afterwards — the mm trajectory limits and the
+per-joint/per-axis maxima for jog clamping and vel/acc blending — rather than
+leaving each caller to re-derive them from the INI, which is how two unit
+systems drift apart. `Options.NumSpindles = 0` skips the spindle push, which
+is what pnptask passes. What stayed in milltask is what is task policy rather
+than machine configuration: the canon's modal units, the interpreter startup
+code, the tool-change position and the MDI queue depth.
 
 ### 6.2 Enable/estop state machine (`machine.go`)
 
@@ -473,6 +487,10 @@ On the first job (or any job with unhomed joints): if `AUTOHOME=1` —
 `HOME_SEQUENCE`), poll `Joints[j].Homed` until all homed or `HOME_TIMEOUT`
 (error `HOMING_FAILED`), then `SetCoord()`. If `AUTOHOME=0` and unhomed →
 error `NOT_HOMED`. Template: `internal/tasktest/tests.go` `ensureHomed`.
+
+The same sequence is what the `home` pin runs (D25) — that one homes on an
+explicit request and so ignores `AUTOHOME`, which governs only whether a *job*
+may home the machine on its own.
 
 ### 6.4 Manual mode (`auto-enable`, D14)
 
@@ -511,6 +529,56 @@ Manual picker control (manual mode, idle):
 - Manual intervention can invalidate the tracked world state (slot states,
   `has-material`); the operator resyncs via `set-full`/`set-empty`.
   Manual picker-1 changes update the `altHeld` record (§8).
+
+
+### 6.5 As built (2026-08-10)
+
+`internal/pnptask/machine.go` (the control loop) and `errors.go` (the §7.5 id
+table), plus `machine_test.go`; `internal/motsetup/` for §6.1. Verified against
+a real `stmakd tests/pnptask/pnptask.ini` run: the machine enables itself from
+the held `machine-on` level, homes on a `home` pulse, jogs under `auto-enable`
+low with `picker.N.pos-x` tracking the motion (`122` on X, `162` on picker 1
+with a 40 mm offset param), stops a Y jog at the pushed soft limit, releases a
+manually closed picker on estop, and refuses to come back until `machine-on`
+is cycled.
+
+- **One goroutine owns everything.** The module runs a single 100 Hz control
+  loop; no state in it is locked because nothing else touches it. Long
+  operations (the enable handshake, homing, and the job actions of the later
+  phases) do not run *beside* the loop — they run *inside* it, ticking the
+  same cycle through `waitUntil`, so every one of them re-samples the inputs
+  and re-runs the abort check every 10 ms. That is what makes "an estop ends
+  any wait" structural rather than something each wait has to remember.
+- **Every input is sampled once per cycle** into one snapshot, and the
+  decisions of that cycle read only the snapshot. The first version read the
+  jog pins live inside the jog handler while `auto-enable` came from the
+  snapshot, and the race detector duly caught a cycle that jogged in auto
+  mode: it had a stale `auto-enable` and a fresh jog pin.
+- **Clearing estop does not re-enable the machine.** `machine-on` has to be
+  cycled: a level still high from before the estop is not a request to start
+  moving again. A level already high at *startup*, on the other hand, is —
+  the first cycle compares against a zeroed previous reading, so a PLC that
+  holds `machine-on` across a stmakd restart gets its machine back.
+- **`machine-is-on` is only set once motion reports itself enabled.** The PLC
+  interlocks on that pin; setting it on the `Enable()` ack would advertise a
+  machine that motion refused (a tripped limit, say). An enable that never
+  confirms disables again and raises `MOTION_ERROR`.
+- Faults are latched **first-error-wins**: a follow-up caused by the first one
+  must not overwrite the cause the operator needs. `error-reset` clears the
+  latch and the per-picker `missing` flags with it.
+- Homing watches for the sequence *stopping* as well as for the timeout, so a
+  joint that faults or never makes its switch fails now rather than one
+  `HOME_TIMEOUT` later.
+- Motion mode is managed per operation: free to home, teleop to jog, coord to
+  rest (and, in phase 5, to move). The switch is re-sent every cycle while
+  waiting, because motion rejects one while it is not in position.
+- `Start` splits at the C ABI boundary: it resolves the callback tables and
+  then calls `startControl`, which pushes the configuration and starts the
+  loop through the `motionControl`/`motionStatus` interfaces. That split is
+  what lets the whole state machine be unit-tested against a scripted motion
+  stack — a fake provider's callback table cannot be called through cgo.
+- On `Stop` the loop aborts any jog, aborts and disables motion, but leaves
+  the picker outputs alone (D14): whatever is held stays held.
 
 ---
 
@@ -734,7 +802,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 0. `pkg/hal` params (independent) — **done** (#10)
 1. `pkg/pnproute` (independent) — **done**
 2. module skeleton + config + pins (loads in sim, no motion) — **done**
-3. machine control + config push + autohoming (moves in sim)
+3. machine control + config push + autohoming (moves in sim) — **done**
 4. stations/trays/persistence
 5. job engine, single picker, end-to-end sim green
 6. alternating picker

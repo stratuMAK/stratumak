@@ -63,6 +63,8 @@ func TestNewPlanners(t *testing.T) {
 func TestPlannersScaleToMM(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, `
+[KINS]
+JOINTS = 3
 [TRAJ]
 COORDINATES = XYZ
 LINEAR_UNITS = inch
