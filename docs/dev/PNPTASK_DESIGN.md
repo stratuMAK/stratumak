@@ -39,6 +39,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 | D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
+| D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
 
 ---
 
@@ -138,7 +139,7 @@ Deliverable: standalone PR — useful independent of pnptask.
 
 ---
 
-## 4. Phase 1 — Route planner package `pkg/pnproute`
+## 4. Phase 1 — Route planner package `pkg/pnproute` *(implemented)*
 
 Lift `geom.go` + `plan.go` + `dxf.go` from `~/source/pnp-route-test` (they are
 already pure stdlib) into `src/stmak/pkg/pnproute`. Changes on top of the
@@ -176,6 +177,40 @@ func (p *Planner) Plan(start, goal Point) (*Route, error)        // job-time: in
 Not in scope for v1 (documented as such in the package doc): concave zones,
 dynamic/time-varying zones, arc output primitives (the TP's blending handles
 corner smoothing — see §7.3).
+
+**As built** (2026-08-10) — `doc.go geom.go dxf.go scene.go plan.go` plus
+`geom_test.go scene_test.go plan_test.go` and `testdata/{cad_export,mixed}.dxf`:
+
+```go
+func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error)   // WithArcSegments
+func LoadDXFFile(path string, opts ...LoadOption) (*Scene, error)
+func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error)
+                        // WithSegmentSamples / WithCoreErode / WithOffsetArcStep
+func (p *Planner) Plan(start, goal Point) (*Route, error)
+func (p *Planner) CheckPoint(pt Point) error   // for the §5.1 position validation
+func (p *Planner) Boundary() Polygon           // eroded limit, for UI/diagnostics
+func (p *Planner) OffsetZones() []Polygon
+func (p *Planner) Scene() *Scene; Clearance() float64; NodeCount(); EdgeCount() int
+var ErrOutsideLimit, ErrInDeadzone, ErrNoRoute error   // all → PLANNING_FAILED (§7.5)
+```
+
+Deltas worth carrying into later phases:
+
+- Shape rules follow D22: closed + convex, no axis-alignment requirement.
+  Overlapping dead zones are allowed (shortest paths only bend at convex
+  corners, so the individual offset rings still carry every usable corner).
+- Offsets and arc discretization are deliberately **conservative**: corner arcs
+  circumscribe the true offset and circles/ellipses circumscribe the drawn
+  shape, so the achieved margin is never smaller than the requested clearance.
+- The loader rejects rather than guesses: unsupported entities on a recognized
+  layer, bulge (arc) polyline segments and mirrored-OCS entities are errors, so
+  a drawn zone can never be silently dropped or shrunk. Old-style
+  `POLYLINE`/`VERTEX` geometry is read as well as `LWPOLYLINE`.
+- `Planner` is immutable after construction and safe for concurrent use.
+- Measured on an i5-8250U: `NewPlanner` ≈ 20 ms (once per dead-zone file at
+  startup), `Plan` ≈ 1 ms — two orders under the D13 budget. `go test` carries
+  the 190-route battery, a shortest-path cross-check against the prototype's
+  lazy-visibility Dijkstra, a median-latency assertion and benchmarks.
 
 ---
 
@@ -607,8 +642,8 @@ cleared.
 
 Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 
-0. `pkg/hal` params (independent)
-1. `pkg/pnproute` (independent)
+0. `pkg/hal` params (independent) — **done** (#10)
+1. `pkg/pnproute` (independent) — **done**
 2. module skeleton + config + pins (loads in sim, no motion)
 3. machine control + config push + autohoming (moves in sim)
 4. stations/trays/persistence
