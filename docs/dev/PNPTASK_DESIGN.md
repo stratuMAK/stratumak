@@ -40,6 +40,8 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 | D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
+| D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene (and `CLEARANCE`) is scaled to mm when the planners are built, so everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
+| D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
 
 ---
 
@@ -214,7 +216,7 @@ Deltas worth carrying into later phases:
 
 ---
 
-## 5. Phase 2 — Module skeleton, config, HAL interface
+## 5. Phase 2 — Module skeleton, config, HAL interface *(implemented)*
 
 ### 5.1 INI schema
 
@@ -346,6 +348,51 @@ normalized to HAL-conventional dashes.
 | `has-material` | bit | out | owned by pnptask; restored from persistence if configured |
 | `release` | bit | out | request fixture release/unclamp |
 | `released` | bit | in | fixture released feedback (state-checked, not edge) |
+
+### 5.3 As built (2026-08-10)
+
+`internal/pnptask/`: `module.go config.go stations.go pins.go` plus
+`config_test.go stations_test.go module_test.go link_test.go`, registered in
+`packages.conf` as `gomod internal/pnptask @GOMOD:PNPTASK_GO@` with the
+matching `--enable-pnptask-go` configure flag (default yes),
+`BUILD_PNPTASK_GO` and the `STMAK_BUILD_FLAGS` entry. Verified against a real
+`stmakd` run: `load pnptask <pnp.task> pickers=2` exports the whole §5.2 tree
+(48 pins, 7 params) and `halcmd show param` reads the INI-seeded values back.
+
+- The HAL component is created in the **factory**, not in `Start`: the `net`
+  lines that wire an instance run immediately after its load line. A factory
+  that fails after creating the component exits it again — the launcher only
+  tears down modules whose factory returned one.
+- Load args are validated strictly: an unknown key, a missing `=`, `pickers`
+  outside {1,2} or an empty instance name all fail the load. A mistyped
+  `picker=2` would otherwise surface much later as a missing HAL pin.
+- Config parsing is strict too — a malformed number, a missing required key or
+  an unreadable `DEADZONE_FILE` fails the load rather than defaulting. Beyond
+  the checks §5.1 lists, section indices must run gap-free from 0 (a lost
+  `[PNPTASK_TRAY_1]` is a typo, not a config with one station fewer), station
+  ids are unique across trays *and* procs, id 0 is refused (an unconnected u32
+  pin reads 0), `LAST_X`/`LAST_Y` and `WAIT_X`/`WAIT_Y` are all-or-nothing,
+  `ROWS`/`COLS` must both be 0 or both positive, a route override must name
+  known stations and may not repeat a pair, and `[TRAJ]COORDINATES` must carry
+  at least X, Y and Z.
+- Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
+  three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
+  (= use the `[TRAJ]` defaults), `RELEASE_TIMEOUT` 5 s, `HOME_TIMEOUT` 30 s,
+  `MAX_UNPOPULATED` 1, `DIR_MODE` `C+R+`, `ROWS`/`COLS` 1 (single position).
+  A timeout defaulting to "forever" would turn a stuck fixture into a hung job
+  with nothing on the error pin.
+- Lengths and linear velocities convert machine units → mm at parse time
+  (D23); times stay seconds, `ANGLE` becomes radians (D24).
+- **Deferred to the phase that builds the planners:** loading the DXF files and
+  the geometric half of the §5.1 validation (every proc/wait coordinate and
+  every TRAYDEF slot position inside the eroded boundary and outside every
+  offset dead zone, in every configured file). Phase 2 resolves the file paths
+  so a typo still fails at load, and rejects the geometry it can judge without
+  a planner (a grid whose `ANGLE` collapses a pitch to zero). The slot-position
+  interpolation itself lands with the tray model in phase 4.
+- Also deferred, per the phase split: the `motctl`/`motstat` lookup (phase 3)
+  and the `errors.go` id table (§7.5, with the job engine). `error-id` exists
+  and reads 0.
 
 ---
 
@@ -644,7 +691,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 
 0. `pkg/hal` params (independent) — **done** (#10)
 1. `pkg/pnproute` (independent) — **done**
-2. module skeleton + config + pins (loads in sim, no motion)
+2. module skeleton + config + pins (loads in sim, no motion) — **done**
 3. machine control + config push + autohoming (moves in sim)
 4. stations/trays/persistence
 5. job engine, single picker, end-to-end sim green
