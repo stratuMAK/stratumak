@@ -423,7 +423,17 @@ boundary and the offset zones, so it could not run before.
 - `TrayDef.SlotPos`/`SlotCount` (the D24 grid interpolation) land here because
   the slot check needs them. Slot *state* — the `[]int32`, the direction-mode
   iteration and the probing counters — stays in phase 4.
-- Cost on the smoke config: ~3 ms for a 36-node scene, once per file at load.
+- Cost on the sim config: ~3 ms for a 36-node scene, once per file at load.
+
+**Sim config** (`tests/pnptask/`): `pnptask.ini`, `pnptask.hal`, `zones.dxf`
+and `zones_alt.dxf` — a 600×500 mm gantry with two pickers, two tray stations
+(a 10×4 grid and a single-position bin), two process stations and two
+dead-zone drawings, motion looped back and home switches always made. It is
+the config phase 7's integration suite drives; what it exercises today is the
+load path end to end (59 pins, 7 params, both drawings validated). The job
+handshake and the picker/fixture feedback are deliberately unwired — those are
+PLC signals, and simulating them is phase 7. The directory carries no
+`test.hal`/`test.sh`, so `runtests` ignores it.
 
 ---
 
