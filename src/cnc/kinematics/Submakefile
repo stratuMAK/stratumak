@@ -34,7 +34,7 @@ GMI_KINS_INCLUDE := stmak/pkg/cmodule
 GMI_KINS_API_INCLUDE := stmak/generated/gmi/kins
 GMI_KINS_COMMON := cnc/kinematics
 
-GMI_KINS_CFLAGS = -fPIC -g -Os -Wall -Wextra -shared \
+GMI_KINS_CFLAGS = -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) -shared \
     -I $(GMI_KINS_INCLUDE) \
     -I $(GMI_KINS_API_INCLUDE) \
     -I $(GMI_KINS_COMMON)

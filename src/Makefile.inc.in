@@ -115,6 +115,12 @@ CPPFLAGS = @CPPFLAGS@
 CXXFLAGS = @CXXFLAGS@
 CFLAGS = @CFLAGS@
 LDFLAGS = @LDFLAGS@
+# Warning-control flags from --enable-werror, already part of CFLAGS/CXXFLAGS
+# above. Carried separately because modcompile compiles the loadable modules
+# itself, without CFLAGS, and needs to be told the policy (see the
+# config.CWarnFlags -X injection in stmak/Submakefile), and because the cgo
+# C in stmak/ is compiled through CGO_CFLAGS rather than CFLAGS.
+CWARNFLAGS = @CWARNFLAGS@
 # Shared link flags for cmod .so files — fail on unresolved symbols
 CMOD_LDFLAGS = $(LDFLAGS) -Wl,--no-undefined
 RANLIB = @RANLIB@

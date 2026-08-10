@@ -26,7 +26,7 @@ LINUXCNCLCD_CMOD_SRCS := \
     cnc/usr_intf/sockets.c
 
 LINUXCNCLCD_CMOD_CFLAGS := \
-    -fPIC -g -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) \
     -D_GNU_SOURCE \
     -I. -I../include \
     -Istmak/pkg/cmodule \

@@ -127,10 +127,25 @@ Examples:
 
 // Compiler/linker settings
 const (
-	defaultCC      = "gcc"
-	defaultCXX     = "g++"
-	defaultCFlags  = "-fPIC -g -Os -Wall"
-	defaultLDFlags = "-shared -lm"
+	defaultCC     = "gcc"
+	defaultCXX    = "g++"
+	defaultCFlags = "-fPIC -g -Os -Wall"
+	// defaultCWarnFlags is the warning policy every module modcompile
+	// compiles is held to, and it is a built-in default rather than a
+	// configure-time one on purpose.
+	//
+	// The modules shipped in this tree are built by make with -Werror (see
+	// the CMOD_*_CFLAGS rules in hal/components/Submakefile). A module that
+	// arrives later -- an external package, or a user's own .comp -- is
+	// compiled here instead, by a modcompile that on a packaged system was
+	// built without --enable-werror. Taking the policy from configure would
+	// therefore hold in-tree modules to one standard and every external one
+	// to none, which is the gap this closes: same source, same rules,
+	// whichever route compiled it.
+	//
+	// $STMAK_CWARNFLAGS is the opt-out for a module that cannot meet it yet.
+	defaultCWarnFlags = "-Werror"
+	defaultLDFlags    = "-shared -lm"
 )
 
 // resolveCC returns the C compiler command: $CC from the environment wins,
@@ -145,6 +160,40 @@ func resolveCC() string {
 		return cc
 	}
 	return defaultCC
+}
+
+// resolveCWarnFlags returns the warning-control flags to append after -Wall
+// when compiling a module, in precedence order:
+//
+//	$STMAK_CWARNFLAGS   the caller's choice, including set-empty (the opt-out)
+//	config.CWarnFlags   a configure-time policy, when the tree set one
+//	defaultCWarnFlags   -Werror, the standard every module is held to
+//
+// LookupEnv, not Getenv: "" is a meaningful value here, and the difference
+// between unset and set-empty is exactly the opt-out.
+func resolveCWarnFlags() []string {
+	if v, ok := os.LookupEnv(config.CWarnFlagsEnv); ok {
+		return strings.Fields(v)
+	}
+	if v := strings.TrimSpace(config.CWarnFlags); v != "" {
+		return strings.Fields(v)
+	}
+	return strings.Fields(defaultCWarnFlags)
+}
+
+// moduleCFlags is the compile flag string for a module: the fixed base plus
+// the resolved warning policy.
+//
+// One function feeds all three consumers -- compileToSO, --cflags and
+// --print-make-inc -- so they cannot drift. A project that builds its own
+// module with $(STMAK_CFLAGS) has to be held to the same standard as
+// `modcompile --install` applies to the same source; advertising a weaker set
+// than we enforce would just relocate the gap rather than close it.
+func moduleCFlags() string {
+	if w := resolveCWarnFlags(); len(w) > 0 {
+		return defaultCFlags + " " + strings.Join(w, " ")
+	}
+	return defaultCFlags
 }
 
 // resolveCXX is resolveCC for the C++ compiler (cgo CXX when rebuilding
@@ -169,7 +218,7 @@ func main() {
 	switch os.Args[1] {
 	case "--cflags":
 		// Both include roots: the cmod API headers, and LinuxCNC's own.
-		fmt.Printf("-I%s -I%s %s\n", config.EMC2CmodIncludeDir, linuxcncIncludeDir(), defaultCFlags)
+		fmt.Printf("-I%s -I%s %s\n", config.EMC2CmodIncludeDir, linuxcncIncludeDir(), moduleCFlags())
 		return
 	case "--ldflags":
 		fmt.Println(defaultLDFlags)
@@ -408,13 +457,16 @@ func processFile(path, mode, outputFile string) error {
 
 	case "--preprocess":
 		if outputFile == "" {
+			// Writing to a pipe: the eventual filename is unknowable, so
+			// the output carries no #line directives (see cgen.GenerateTo).
+			// The build passes -o for exactly this reason.
 			return cgen.Generate(os.Stdout, pkg)
 		}
 		f, err := os.Create(outputFile)
 		if err != nil {
 			return err
 		}
-		if err := cgen.Generate(f, pkg); err != nil {
+		if err := cgen.GenerateTo(f, pkg, outputFile); err != nil {
 			_ = f.Close()
 			return err
 		}
@@ -528,8 +580,13 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 		"-I"+linuxcncIncludeDir(),
 	)
 	args = append(args, extraIncludes...)
+	args = append(args, "-fPIC", "-g", "-Os", "-Wall")
+	// After -Wall so it can promote those warnings: "-Werror" when the tree
+	// was configured with --enable-werror, nothing otherwise. The modules
+	// shipped in the tree get it from make instead; this path is the one
+	// external modules and hand-compiled .comp files take.
+	args = append(args, resolveCWarnFlags()...)
 	args = append(args,
-		"-fPIC", "-g", "-Os", "-Wall",
 		// Fortify 3 to match the rest of the build (src/Makefile DEBUG) and
 		// the Ubuntu CI runners' builtin default; -U first because Ubuntu's
 		// gcc predefines it.
@@ -561,8 +618,13 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 	tmpCPath := tmpFile.Name()
 	defer func() { _ = os.Remove(tmpCPath) }()
 
-	// Generate C code
-	if err := cgen.Generate(tmpFile, pkg); err != nil {
+	// Generate C code. GenerateTo, not Generate: this is the path an
+	// external module takes, and without the #line directives every
+	// diagnostic in it points into a temp file that is deleted on the way
+	// out -- naming a line the author cannot go and look at. The temp path
+	// is only ever the target of the "back to generated code" half; the
+	// author's own lines resolve to their .comp.
+	if err := cgen.GenerateTo(tmpFile, pkg, tmpCPath); err != nil {
 		_ = tmpFile.Close()
 		return fmt.Errorf("generating C: %w", err)
 	}
@@ -682,7 +744,7 @@ func printMakeInc() {
 		// Same two roots --cflags prints: a project compiling a cmod by hand
 		// with $(STMAK_CFLAGS) needs LinuxCNC's headers as much as modcompile
 		// does.
-		config.EMC2CmodIncludeDir, linuxcncIncludeDir(), defaultCFlags,
+		config.EMC2CmodIncludeDir, linuxcncIncludeDir(), moduleCFlags(),
 		defaultLDFlags,
 		cmodInstallDir(),
 		config.EMC2CmodIncludeDir,
