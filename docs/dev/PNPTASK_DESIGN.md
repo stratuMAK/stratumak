@@ -803,8 +803,18 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 1. `pkg/pnproute` (independent) — **done**
 2. module skeleton + config + pins (loads in sim, no motion) — **done**
 3. machine control + config push + autohoming (moves in sim) — **done**
-4. stations/trays/persistence
-5. job engine, single picker, end-to-end sim green
+4. +5. stations/trays/persistence **and** the job engine (single picker,
+   end-to-end sim green), implemented together (decided 2026-08-11): the
+   model/engine seam — slot search order, probing corrections (D9), slot
+   marking, `has-material` transitions, persistence write points — is where
+   the design risk sits, and the model's only meaningful end-to-end
+   verification is the engine consuming it; both also share the scripted
+   picker-feedback harness. Kept as **two commit series** on one branch
+   (model + persistence first, then the engine) so the pre-merge review can
+   run in two passes, and the model half stays independently mergeable if it
+   stabilizes early. The engine must use the per-picker held-record structure
+   of D20 wherever it means "the picker holding the job's material" — no
+   hardcoded picker 0 — so phase 6 only adds behavior.
 6. alternating picker
 7. integration suite + docs polish
 
