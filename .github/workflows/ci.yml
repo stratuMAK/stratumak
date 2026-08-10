@@ -68,7 +68,7 @@ jobs:
         mkdir -p "$GOCOVERDIR"
         cd src
         eatmydata ./autogen.sh
-        eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
+        eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make COVERAGE=1 -O -j$((1+$(nproc))) default pycheck V=1
         # Note that the package build covers html docs
         eatmydata ../scripts/rip-environment runtests -p
@@ -167,7 +167,7 @@ jobs:
         sudo eatmydata apt-get install -y clang
         cd src
         eatmydata ./autogen.sh
-        CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
+        CC=clang CXX=clang++ eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default pycheck V=1
         # RT path verification: clang function-effects analysis over the
         # RTAPI/HAL core and every generated component (warnings = errors).
@@ -176,10 +176,16 @@ jobs:
         eatmydata ../scripts/rip-environment runtests -p
 
   # stmak gate: build + Go vet/tests + pinned lint (no NEW findings vs the
-  # stmak merge base) + fmt + C-warning gate on stmak-owned paths. The make
-  # targets are the source of truth (src/stmak/Submakefile); this job only
-  # orchestrates them. The full runtests suite runs once per PR, in
-  # rip-and-test (which uploads the failure logs).
+  # stmak merge base) + fmt. The make targets are the source of truth
+  # (src/stmak/Submakefile); this job only orchestrates them. The full runtests
+  # suite runs once per PR, in rip-and-test (which uploads the failure logs).
+  #
+  # C warnings are no longer gated by a separate step: every build job passes
+  # --enable-werror, so the compiler fails on a warning wherever it appears.
+  # That replaced scripts/check-stmak-cwarnings, which grepped this job's build
+  # log for six path prefixes and could only ever cover what those prefixes
+  # matched -- notably NOT the .comp-derived modules, which the compiler reports
+  # against their generated objects/cmod/*.c path.
   stmak:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -219,11 +225,9 @@ jobs:
         eatmydata ./scripts/travis-install-build-deps.sh
         cd src
         eatmydata ./autogen.sh
-        eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps
+        eatmydata ./configure --with-realtime=uspace --disable-check-runtime-deps --enable-werror
         eatmydata make -O -j$((1+$(nproc))) default V=1 2>&1 | tee ../build.log
         test "${PIPESTATUS[0]}" -eq 0
-    - name: C warning gate (stmak-owned paths)
-      run: ./scripts/check-stmak-cwarnings build.log
     - name: Go tests + lint + fmt gate
       run: |
         export PATH="$PATH:$HOME/go/bin"

@@ -93,6 +93,12 @@ type Component struct {
 	// VerbatimC holds the raw C code from after the ";;" separator
 	// in .comp files.  Empty for ST modules.
 	VerbatimC string
+
+	// VerbatimCPos is where VerbatimC's first line sits in the .comp file.
+	// The backend turns it into #line directives so the compiler, gdb and
+	// gcov report user code against the .comp the developer wrote rather
+	// than the generated C nobody keeps.  Zero when there is no verbatim C.
+	VerbatimCPos Pos
 }
 
 // GMIConsumeEntry describes a consumed API with an optional default provider instance.

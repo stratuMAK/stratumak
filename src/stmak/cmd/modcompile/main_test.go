@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
@@ -193,6 +194,85 @@ func TestResolveCompilers(t *testing.T) {
 	t.Setenv("CXX", "   ")
 	if got := resolveCXX(); strings.TrimSpace(got) == "" {
 		t.Error("resolveCXX with a blank CXX returned a blank compiler")
+	}
+}
+
+// unsetEnv removes a variable for the rest of the test. t.Setenv cannot
+// express "unset", which is the state this test has to distinguish from
+// set-empty, and t.Cleanup restores whatever the process started with.
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	prev, had := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(key, prev)
+		}
+	})
+}
+
+// TestResolveCWarnFlags covers the warning-policy override that carries
+// --enable-werror into a module compile. The distinction that matters is
+// unset (use the configure-time value) versus set-empty (the developer's
+// opt-out inside a tree that WAS configured with --enable-werror) — a
+// Getenv-based implementation cannot tell those apart and would ignore the
+// opt-out.
+func TestResolveCWarnFlags(t *testing.T) {
+	orig := config.CWarnFlags
+	t.Cleanup(func() { config.CWarnFlags = orig })
+	config.CWarnFlags = "-Werror"
+
+	t.Setenv(config.CWarnFlagsEnv, "")
+	if got := resolveCWarnFlags(); len(got) != 0 {
+		t.Errorf("set-empty %s = %q; want no flags (the opt-out)", config.CWarnFlagsEnv, got)
+	}
+
+	unsetEnv(t, config.CWarnFlagsEnv)
+	if got := resolveCWarnFlags(); len(got) != 1 || got[0] != "-Werror" {
+		t.Errorf("unset %s = %q; want the baked-in [-Werror]", config.CWarnFlagsEnv, got)
+	}
+
+	// Multi-flag values split on whitespace, so they reach exec as separate
+	// argv entries rather than one unparsable argument.
+	t.Setenv(config.CWarnFlagsEnv, "-Werror -Wextra")
+	if got := resolveCWarnFlags(); len(got) != 2 || got[1] != "-Wextra" {
+		t.Errorf("multi-flag override = %q; want [-Werror -Wextra]", got)
+	}
+
+	// A modcompile built without a configure-time policy -- which is every
+	// packaged one -- still enforces the built-in default. This is what
+	// holds an external module to the same standard as an in-tree one.
+	config.CWarnFlags = ""
+	unsetEnv(t, config.CWarnFlagsEnv)
+	if got := resolveCWarnFlags(); len(got) != 1 || got[0] != "-Werror" {
+		t.Errorf("unconfigured modcompile = %q; want the built-in [-Werror]", got)
+	}
+
+	// The opt-out has to survive that fallback, or a module that cannot
+	// meet the standard yet would have no way out.
+	t.Setenv(config.CWarnFlagsEnv, "")
+	if got := resolveCWarnFlags(); len(got) != 0 {
+		t.Errorf("opt-out with no configure policy = %q; want no flags", got)
+	}
+}
+
+// TestModuleCFlagsMatchesEnforcement pins the invariant that the flags
+// modcompile advertises to out-of-tree projects are the flags it would apply
+// itself. If these drift, a module compiled by a project's own Makefile is
+// held to a weaker standard than the same file passed to modcompile --install.
+func TestModuleCFlagsMatchesEnforcement(t *testing.T) {
+	orig := config.CWarnFlags
+	t.Cleanup(func() { config.CWarnFlags = orig })
+	config.CWarnFlags = ""
+	unsetEnv(t, config.CWarnFlagsEnv)
+
+	got := moduleCFlags()
+	for _, want := range append(strings.Fields(defaultCFlags), "-Werror") {
+		if !strings.Contains(got, want) {
+			t.Errorf("moduleCFlags() = %q; missing %q", got, want)
+		}
 	}
 }
 

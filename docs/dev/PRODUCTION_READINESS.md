@@ -30,13 +30,35 @@ cross-cutting item below points at its §3.
    (10 obsolete module-loading over-limit xfails were removed, maintainer ruling — see the ledger §3b.)
    `tests/DISPOSITION.md` is the authoritative ledger. CI is the authority for the count: any
    local `runtests.log` in the tree is an untracked scratch artifact and goes stale immediately.
-2. **CI gates** — DONE (2026-07-13; runtests dedup 2026-07-15): `ci.yml` `stmak` job = build +
-   C-warning gate (owned paths, `scripts/check-stmak-cwarnings`) + `make stmak-check` (vet, tests,
+2. **CI gates** — DONE (2026-07-13; runtests dedup 2026-07-15; C warnings 2026-08-08): `ci.yml`
+   `stmak` job = build + `make stmak-check` (vet, tests,
    pinned golangci-lint v2.12.2 with a no-NEW-findings merge-base gate, fmt). The full runtests
    suite runs once per PR in `rip-and-test` (as the name says), which now uploads the
    failure-log artifacts; both jobs are intended required checks.
    `nightly-stmak.yml` = `stmak-test-race` + runtests against a race-built stmakd.
    First `-race` sweep over the full module found+fixed a data race (ads notification test mock).
+   **C warnings — DONE (2026-08-08).** Every CI build job configures with `--enable-werror`, so a
+   warning fails the compile wherever it occurs. This replaced `scripts/check-stmak-cwarnings`,
+   which grepped the `stmak` job's build log for six owned path prefixes. Two holes closed with it:
+   the clang job ran no C-warning gate at all, and the `.comp`-derived modules were never covered —
+   the compiler reports those against their generated `objects/cmod/*.c` path, which the prefix list
+   could not match. `--enable-werror` also reaches the modules (via `CWARNFLAGS` →
+   `config.CWarnFlags`, since modcompile compiles them itself and never sees `CFLAGS`) and the cgo
+   C (via `CGO_CFLAGS`). Adopted at zero cost: all 326 compile commands the build issues were
+   measured warning-free under `-Wall` first. Opt-in for the tree's own build, so developer builds
+   stay warning-tolerant and a distro rebuild on a newer compiler cannot break (`debian/rules` does
+   not pass it).
+   **External and user modules are not opt-in.** Anything `modcompile` compiles — an external
+   package, or a hand-written `.comp` — gets `-Werror` from modcompile's own built-in default, not
+   from configure. Taking it from configure would have held in-tree modules to one standard and
+   every module arriving later to none, since a packaged modcompile is built without the flag. The
+   same value is what `--cflags`/`--print-make-inc` advertise, so a project driving its own
+   Makefile is held to the standard modcompile would apply to the same file. `$STMAK_CWARNFLAGS=""`
+   is the single opt-out, for a module that cannot meet it yet. `package-gate.sh extcomp` exercises
+   this path against the installed package.
+   **Not yet gated: `-Wextra`** — 979 findings tree-wide, of which 922 are `-Wunused-parameter`
+   (701) and `-Wmissing-field-initializers` (221); the substantive remainder is 57, dominated by
+   24 `-Wsign-compare` in HAL components. A scoped burn-down, not a blocker.
    **Branch protection on `main` — DONE** (required checks configured on GitHub: stmak + rip-and-test).
    **Lint burn-down (legacy baseline, `make stmak-lint-full`).** ⚠ **Baseline was wrong (69):**
    golangci-lint's default `max-issues-per-linter=50` capped the display, so errcheck was

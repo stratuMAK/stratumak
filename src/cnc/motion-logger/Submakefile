@@ -10,7 +10,7 @@
 MOTION_LOGGER_CMOD_SRCS := cnc/motion-logger/motion_logger_cmod.c
 
 MOTION_LOGGER_CMOD_CFLAGS := \
-	-fPIC -g -Os -Wall -Wextra -D_GNU_SOURCE \
+	-fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) -D_GNU_SOURCE \
 	-I. -I../include -Istmak/pkg/cmodule \
 	-Istmak/generated/gmi/motctl -Istmak/generated/gmi/motstat
 

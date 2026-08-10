@@ -31,6 +31,7 @@ func currentValues() map[string]string {
 		"GoBinary":           config.GoBinary,
 		"CCompiler":          config.CCompiler,
 		"CxxCompiler":        config.CxxCompiler,
+		"CWarnFlags":         config.CWarnFlags,
 		"EMC2ConfigPath":     config.EMC2ConfigPath,
 		"EMC2NCFilesDir":     config.EMC2NCFilesDir,
 		"EMC2LangDir":        config.EMC2LangDir,

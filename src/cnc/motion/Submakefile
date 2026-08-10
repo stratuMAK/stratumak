@@ -24,7 +24,7 @@ MOTMOD_CMOD_SRCS := \
     cnc/kinematics/cubic.c
 
 MOTMOD_CMOD_CFLAGS := \
-    -fPIC -g -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) \
     -DUSPACE -D_GNU_SOURCE -Drealtime -DSEQUENTIAL_SUPPORT \
     -DMOTMOD_INTERNAL \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \

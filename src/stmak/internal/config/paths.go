@@ -63,6 +63,28 @@ var (
 	// stmakd; the CXX environment variable still takes precedence.
 	CxxCompiler string
 
+	// CWarnFlags holds the warning-control flags the tree was configured
+	// with -- "-Werror" when configure was given --enable-werror, empty
+	// otherwise. modcompile appends them after its own -Wall when it
+	// compiles a module.
+	//
+	// This is the out-of-tree half of the policy. The modules shipped in
+	// this tree are compiled by make (the CMOD_*_CFLAGS rules in
+	// hal/components/Submakefile, which carry $(CWARNFLAGS) directly);
+	// modcompile compiles the ones that arrive later -- an external module,
+	// or a user's own .comp -- and it runs as a standalone binary that never
+	// sees a Makefile, so the value has to be baked in.
+	//
+	// Empty is the normal case, including on a packaged system: modcompile
+	// falls back to its own -Werror default, so a module is held to the
+	// same standard regardless of how the modcompile compiling it was
+	// configured. This field exists to let a tree specify something other
+	// than that default, not to enable it.
+	//
+	// $STMAK_CWARNFLAGS overrides both, and is the escape hatch for a
+	// module that cannot meet the standard yet.
+	CWarnFlags string
+
 	// EMC2ConfigPath is the colon-separated list of config search directories (@LINUXCNC_CONFIG_PATH@).
 	EMC2ConfigPath string
 
@@ -131,6 +153,10 @@ var (
 // "where is LinuxCNC" variable is set. The same name is what modcompile hands
 // to out-of-tree cmod projects as the STMAK_DIR make variable.
 const StmakDirEnv = "STMAK_DIR"
+
+// CWarnFlagsEnv is the environment variable that overrides the baked-in
+// CWarnFlags. Set it empty to compile a module without the tree's -Werror.
+const CWarnFlagsEnv = "STMAK_CWARNFLAGS"
 
 // StmakDir returns the stratuMAK Go module source directory: $STMAK_DIR when set,
 // otherwise the installed location baked in at build time.

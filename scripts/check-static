@@ -1,17 +1,26 @@
 #!/bin/bash
 # check-static [shell|c|all]
 #
-# Scoped, ENFORCING static analysis for the code this fork owns — unlike the
-# old upstream cppcheck job (advisory, tree-wide, and calling scripts that
-# didn't exist here).
+# Scoped, ENFORCING static analysis for the code this fork owns.
+#
+# The 2.9 branch this fork fetched from ran cppcheck tree-wide but with
+# continue-on-error, calling a scripts/cppcheck.sh that does not exist on that
+# branch — so it gated nothing.  Upstream master has since made its job
+# enforcing and tree-wide; ours is enforcing but scoped, which is a narrower
+# claim, not a stronger one.  Widening it is a burn-down against ~170k lines of
+# inherited C, tracked in docs/dev/PRODUCTION_READINESS.md.
 #
 #   shell: shellcheck over the fork-owned shell scripts (test drivers,
 #          scripts/).  Gate = error severity; warnings are printed as the
 #          burn-down list but do not fail (dominated by unused loop vars in
 #          the wait-loops — see docs/dev/PRODUCTION_READINESS.md).
-#   c:     cppcheck over the stmak-owned C paths (same ownership list as
-#          check-stmak-cwarnings).  Gate = cppcheck errors/warnings; style is
-#          not enabled.  Inherited 2.9 C is deliberately NOT gated.
+#   c:     cppcheck over the stmak-owned C paths.  Gate = cppcheck
+#          errors/warnings; style is not enabled.  Inherited 2.9 C is
+#          deliberately NOT gated.
+#
+# Compiler warnings are NOT gated here: every CI build job configures with
+# --enable-werror, so the compiler itself fails on one, in every path, without
+# needing a path list to keep in sync.
 #
 # Needs: shellcheck, cppcheck (CI installs them; locally: apt-get install).
 set -u
@@ -20,9 +29,9 @@ cd "$(dirname "$0")/.."
 MODE="${1:-all}"
 rc=0
 
-SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-stmak-cwarnings scripts/check-static scripts/check-webapps.sh)
+SHELL_FILES=$(git ls-files 'tests/*.sh' 'tests/**/*.sh' scripts/halrun scripts/check-static scripts/check-webapps.sh)
 
-# stmak-owned C (keep in sync with check-stmak-cwarnings)
+# stmak-owned C
 C_PATHS="src/stmak/internal/hallib src/stmak/pkg/cmodule src/hal/components src/cnc/motion-logger src/cnc/task src/cnc/sai"
 
 if [ "$MODE" = shell ] || [ "$MODE" = all ]; then

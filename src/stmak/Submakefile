@@ -70,6 +70,7 @@ STMAK_LDFLAGS := \
     -X '$(STMAK_LDFLAGS_PKG).GoBinary=$(GO)' \
     -X '$(STMAK_LDFLAGS_PKG).CCompiler=$(CC)' \
     -X '$(STMAK_LDFLAGS_PKG).CxxCompiler=$(CXX)' \
+    -X '$(STMAK_LDFLAGS_PKG).CWarnFlags=$(CWARNFLAGS)' \
     -X '$(STMAK_LDFLAGS_PKG).EMC2ConfigPath=$(LINUXCNC_CONFIG_PATH)' \
     -X '$(STMAK_LDFLAGS_PKG).EMC2NCFilesDir=$(EMC2_NCFILES_DIR)' \
     -X '$(STMAK_LDFLAGS_PKG).EMC2LangDir=$(EMC2_LANG_DIR)' \
@@ -150,7 +151,10 @@ $(IMPORTS_GENERATED): stmak/packages.conf ../bin/modcompile
 # LDFLAGS never reach the Go external link on their own.
 # LIB_DIR is $(EMC2_HOME)/lib, defined in Makefile.inc.
 # CGO_CFLAGS: cgo defaults to "-g -O2"; add fortify 3 so local cgo-compiled C
-# gets the same diagnostics as Ubuntu CI runners (builtin fortify).
+# gets the same diagnostics as Ubuntu CI runners (builtin fortify), plus
+# $(CWARNFLAGS) so --enable-werror covers the cgo C too. cgo does not see
+# CFLAGS, so without this the flag would reach the make-built objects and the
+# modules but skip hallib and pkg/cmodule.
 # GOFLAGS=-mod=mod lets a build complete go.mod/go.sum on the fly.  It is
 # required here: a complete go.mod depends on imports_generated.go, which
 # depends on modcompile, which depends on go.mod — a cycle, so go.mod cannot be
@@ -167,7 +171,7 @@ $(IMPORTS_GENERATED): stmak/packages.conf ../bin/modcompile
 ifeq ($(RUN_IN_PLACE),yes)
 STMAK_CGO_RPATH := -Wl,-rpath,$(LIB_DIR)
 endif
-STMAK_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CGO_LDFLAGS="$(STMAK_CGO_RPATH) -Wl,--disable-new-dtags -Wl,-z,relro -Wl,-z,now" GOFLAGS=-mod=mod
+STMAK_CGOENV := CC="$(CC)" CXX="$(CXX)" CGO_CFLAGS="-g -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 $(CWARNFLAGS)" CGO_LDFLAGS="$(STMAK_CGO_RPATH) -Wl,--disable-new-dtags -Wl,-z,relro -Wl,-z,now" GOFLAGS=-mod=mod
 
 # All Go binaries build as PIE: the cgo ones pick up full RELRO through the
 # linker flags above, the pure-Go ones stop being statically-linked oddities

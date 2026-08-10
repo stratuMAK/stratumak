@@ -282,13 +282,19 @@ elif ! test `$CC -dumpversion | cut -d '.' -f 1` -gt 2 ; then
   AC_MSG_ERROR([Compilers older than gcc 3.x are no longer supported])
 fi
 
-# Set flags for C and C++ if supported
-for commonflag in -Wno-stringop-truncation ; do
-  if echo "int main() { return 0;}" | $CC -Werror $commonflag -E - > /dev/null; then
-    CFLAGS="${CFLAGS:+$CFLAGS }$flag"
-    CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }$flag"
-  fi
-done
+# There was a loop here that meant to add -Wno-stringop-truncation but appended
+# $flag where the loop variable was $commonflag, so it appended nothing and the
+# warning was never suppressed. Deleted rather than repaired, deliberately.
+#
+# Repairing it would disable the warning tree-wide, and it earns its keep: with
+# --enable-werror it caught the one strncpy in this tree whose bound equalled
+# its destination size (rs274ngc_pre.cc, Interp::ini_load). Exactly one site
+# fires across the whole tree, so fixing the call site is cheaper than going
+# blind to the class. Note it only reproduces under COVERAGE=1 -- the
+# instrumentation changes inlining enough for gcc to see the bound.
+#
+# If a future compiler makes this class noisy, prefer a targeted suppression at
+# the site over restoring a tree-wide -Wno-.
 
 AC_MSG_CHECKING([for usability of linux/hidraw.h])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([[
@@ -1689,6 +1695,36 @@ fi
 
 AC_SUBST([ETHERCAT_CFLAGS])
 AC_SUBST([ETHERCAT_LIBS])
+
+##############################################################################
+# Treat compiler warnings as errors (opt-in)                                 #
+##############################################################################
+# Last thing before AC_OUTPUT, deliberately: every AC_CHECK/AC_*_IFELSE test
+# above compiles a throwaway program, and several of them are expected to warn.
+# Adding -Werror any earlier makes those probes fail and silently turns off the
+# features they detect.
+#
+# Opt-in rather than always-on: a developer's compiler is not the CI compiler,
+# and a newer gcc growing a new warning must not stop them building. CI passes
+# it (see .github/workflows/ci.yml), so the tree is held warning-free there.
+#
+# CWARNFLAGS carries the same value to modcompile, which compiles the loadable
+# modules itself and never sees CFLAGS. Without it, --enable-werror would cover
+# the objects make builds and miss every cmod -- which is the majority of this
+# tree's C.
+AC_ARG_ENABLE(werror,
+    AS_HELP_STRING([--enable-werror],
+        [Treat compiler warnings as errors (-Werror), for C, C++ and modules.]),
+    [enable_werror=$enableval],
+    [enable_werror=no])
+
+CWARNFLAGS=""
+if test "x$enable_werror" = "xyes"; then
+    CFLAGS="${CFLAGS:+$CFLAGS }-Werror"
+    CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-Werror"
+    CWARNFLAGS="-Werror"
+fi
+AC_SUBST([CWARNFLAGS])
 
 ##############################################################################
 # files that get created by ./configure                                      #

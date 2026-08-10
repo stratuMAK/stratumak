@@ -1086,7 +1086,7 @@ HOMEMOD_CMOD_SRCS := \
     cnc/motion/homing.c
 
 HOMEMOD_CMOD_CFLAGS := \
-    -fPIC -g -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -I. -I../include \
@@ -1142,7 +1142,7 @@ TPMOD_CMOD_SRCS := \
     cnc/nml_intf/emcpose.c
 
 TPMOD_CMOD_CFLAGS := \
-    -fPIC -g -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos \
     -fno-strict-aliasing -fwrapv \

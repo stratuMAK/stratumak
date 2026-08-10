@@ -49,7 +49,7 @@ HM2_CORE_SRCS := \
     $(HM2_DIR)/xy2mod.c
 
 HM2_CMOD_CFLAGS := \
-    -fPIC -g -Os -Wall -Wextra \
+    -fPIC -g -Os -Wall -Wextra $(CWARNFLAGS) \
     -DUSPACE -D_GNU_SOURCE -Drealtime \
     -fno-strict-aliasing -fwrapv \
     -Irtapi/pci \
