@@ -383,9 +383,21 @@ matching `--enable-pnptask-go` configure flag (default yes),
   with nothing on the error pin.
 - Lengths and linear velocities convert machine units → mm at parse time
   (D23); times stay seconds, `ANGLE` becomes radians (D24).
-- Deferred per the phase split: the `motctl`/`motstat` lookup (phase 3) and the
-  `errors.go` id table (§7.5, with the job engine). `error-id` exists and
-  reads 0.
+- `Start` resolves the motion stack — `GetAPIFor("motctl"/"motstat",
+  motion_instance, 1)`, wrapped in the generated clients — so a load line
+  naming an instance no motmod provides, or one at another API version, fails
+  startup instead of surfacing as a nil client at the first job. **This lookup
+  belongs in `Start`, not in the factory:** the launcher runs every module's
+  constructor (where a provider registers its API) before it starts any of
+  them, so a motmod loaded on a *later* HAL line is registered by the time
+  `Start` runs — verified by loading pnptask ahead of its own motion stack.
+  Resolving it in the factory would instead impose a HAL-file ordering rule
+  and fail on any config that did not happen to obey it. The pins go the other
+  way, created in the factory because the `net` lines execute right after the
+  load line, so the two halves of the module deliberately live in different
+  lifecycle stages. Pushing the motmod configuration (§6.1) stays phase 3.
+- Deferred per the phase split: the `errors.go` id table (§7.5, with the job
+  engine). `error-id` exists and reads 0.
 
 **Startup planner construction** (`planners.go`, added on top of the above):
 every `DEADZONE_FILE` is loaded and its `Planner` built at load time, which

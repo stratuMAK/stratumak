@@ -9,7 +9,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unsafe"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -173,16 +175,79 @@ func TestFactoryTwoPickers(t *testing.T) {
 	}
 }
 
+// fakeCallbacks stands in for a provider's C callback table. Start only wraps
+// the pointer in a typed client and never dereferences it, so a dummy non-nil
+// value is enough — the same stand-in apiserver's own tests use.
+var fakeCallbacks = unsafe.Pointer(&struct{}{})
+
+// registerFakeMotion registers a motctl/motstat provider under the given
+// instance name, the way motmod does when it loads.
+func registerFakeMotion(t *testing.T, instance string) {
+	t.Helper()
+	prev := apiserver.DefaultRegistry()
+	reg := apiserver.NewRegistry()
+	apiserver.SetDefaultRegistry(reg)
+	t.Cleanup(func() { apiserver.SetDefaultRegistry(prev) })
+
+	if err := reg.RegisterNoREST("motctl", motctlVersion, instance, fakeCallbacks); err != nil {
+		t.Fatalf("registering fake motctl: %v", err)
+	}
+	if err := reg.RegisterNoREST("motstat", motstatVersion, instance, fakeCallbacks); err != nil {
+		t.Fatalf("registering fake motstat: %v", err)
+	}
+}
+
 // TestFactoryStartStop checks the lifecycle contract: Start after a successful
 // factory, and a Stop that survives never having been started.
 func TestFactoryStartStop(t *testing.T) {
 	setupPaths(t)
-	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t))
+	registerFakeMotion(t, "pnp.mot")
+	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t),
+		"motion_instance=pnp.mot")
 	m.Stop() // legal before Start — the launcher stops everything it loaded
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	if m.mc == nil || m.ms == nil {
+		t.Error("Start did not resolve the motctl/motstat clients")
+	}
 	m.Stop()
+}
+
+// TestStartRequiresMotion covers the other half of resolving the motion stack
+// in Start: a load line naming an instance that no motmod provides has to fail
+// startup, not surface as a nil client at the first job.
+func TestStartRequiresMotion(t *testing.T) {
+	setupPaths(t)
+	registerFakeMotion(t, "pnp.mot")
+	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t),
+		"motion_instance=typo.mot")
+	err := m.Start()
+	if err == nil {
+		t.Fatal("Start succeeded with an unknown motion_instance")
+	}
+	if !strings.Contains(err.Error(), "motctl API lookup (typo.mot)") {
+		t.Errorf("error = %v, want it to name the missing motctl provider", err)
+	}
+}
+
+// TestStartRejectsVersionMismatch: a provider registered at another API version
+// is refused rather than called through a mismatched ABI.
+func TestStartRejectsVersionMismatch(t *testing.T) {
+	setupPaths(t)
+	prev := apiserver.DefaultRegistry()
+	reg := apiserver.NewRegistry()
+	apiserver.SetDefaultRegistry(reg)
+	t.Cleanup(func() { apiserver.SetDefaultRegistry(prev) })
+	if err := reg.RegisterNoREST("motctl", motctlVersion+1, "pnp.mot", fakeCallbacks); err != nil {
+		t.Fatalf("registering fake motctl: %v", err)
+	}
+
+	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t),
+		"motion_instance=pnp.mot")
+	if err := m.Start(); err == nil {
+		t.Fatal("Start accepted a motctl provider of the wrong version")
+	}
 }
 
 func TestFactoryErrors(t *testing.T) {

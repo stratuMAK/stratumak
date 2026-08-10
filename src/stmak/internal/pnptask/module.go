@@ -38,7 +38,11 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"unsafe"
 
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -51,6 +55,14 @@ func init() {
 // defaultMotionInstance is the motmod instance a load line without
 // motion_instance= drives — the same default milltask uses.
 const defaultMotionInstance = "motmod"
+
+// The GMI versions this module is built against; a provider registered at any
+// other version is refused rather than called through a mismatched ABI. Same
+// versions milltask requires of the same two APIs.
+const (
+	motctlVersion  = 1
+	motstatVersion = 1
+)
 
 // pnptaskModule is one loaded pnptask instance.
 type pnptaskModule struct {
@@ -65,6 +77,11 @@ type pnptaskModule struct {
 
 	comp *hal.Component
 	pins *pinSet
+
+	// The motion stack this instance drives, resolved in Start (see there for
+	// why not in the factory).
+	mc *motctl.MotctlClient
+	ms *motstat.MotstatClient
 
 	// motInstance and persistInstance are resolved in the later phases; they
 	// are parsed here so a typo on the load line is at least recorded next to
@@ -187,11 +204,38 @@ func (m *pnptaskModule) parseArgs(args []string) error {
 	return nil
 }
 
-// Start is where the motion stack gets configured and the poll loop starts;
-// both arrive with the machine-control phase. The module is fully loaded and
-// wired at this point, which is what phase 2 delivers.
+// Start resolves the motion stack this instance drives. Pushing the motmod
+// configuration and starting the poll loop arrive with the machine-control
+// phase; what Start already guarantees is that the motion instance named on
+// the load line exists and speaks the expected API version.
+//
+// This lookup belongs in Start and *not* in the factory. The launcher runs
+// every module's constructor — where a provider registers its API — before it
+// starts any of them, so a motmod loaded on a LATER line of the HAL file is
+// registered by the time Start runs. Resolving it in the factory would instead
+// impose a HAL-file ordering rule (motmod strictly before pnptask) and fail
+// with a confusing "no such API" on any config that does not happen to obey
+// it. The HAL pins go the other way — they are created in the factory, because
+// the "net" lines that link them execute right after the load line — so the
+// two halves of this module deliberately live in different lifecycle stages.
 func (m *pnptaskModule) Start() error {
-	m.logger.Info("pnptask started")
+	reg := apiserver.DefaultRegistry()
+	if reg == nil {
+		return fmt.Errorf("pnptask %q: no API registry available", m.name)
+	}
+
+	motctlCbs, err := reg.GetAPIFor(m.name, "motctl", m.motInstance, motctlVersion)
+	if err != nil {
+		return fmt.Errorf("pnptask %q: motctl API lookup (%s): %w", m.name, m.motInstance, err)
+	}
+	motstatCbs, err := reg.GetAPIFor(m.name, "motstat", m.motInstance, motstatVersion)
+	if err != nil {
+		return fmt.Errorf("pnptask %q: motstat API lookup (%s): %w", m.name, m.motInstance, err)
+	}
+	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
+	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
+
+	m.logger.Info("pnptask started", "motion_instance", m.motInstance)
 	return nil
 }
 
