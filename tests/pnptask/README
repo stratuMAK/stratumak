@@ -1,0 +1,56 @@
+pnptask simulation config
+=========================
+
+A runnable pick-and-place machine for the pnptask module: a 600 x 500 mm XYZ
+gantry with two pickers, two tray stations, two process stations and two
+dead-zone drawings. Everything is simulated — position feedback is looped back
+from the command and the home switches are always made — so it runs anywhere,
+with no hardware and no realtime privileges.
+
+    cd tests/pnptask
+    stmakd pnptask.ini
+
+    halcmd show pin pnp.task        # the whole HAL interface
+    halcmd show param pnp.task      # the tuning knobs (settle times, offsets)
+
+Files
+-----
+
+    pnptask.ini      machine + [PNPTASK*] configuration
+    pnptask.hal      motion stack, the task, and the simulated machine
+    zones.dxf        travel envelope and permanent obstacles (deadzone-select 0)
+    zones_alt.dxf    the same envelope plus a fixture plate (deadzone-select 1)
+
+The drawings are read in machine units, the same coordinates the INI stations
+are taught in. Layer "Outer Limits" carries the envelope, layer "deadzones" the
+obstacles; both must be closed and convex.
+
+The layout
+----------
+
+    tray station 10   component tray   TRAYDEF 1: 10 x 4 grid, (100,380)..(280,440)
+    tray station 11   output tray      TRAYDEF 2: single position at (60,60)
+    proc station 20   press            (300,200), waits out "busy" at (250,120)
+    proc station 21   test             (450,250)
+    dead zone         frame post       (340,300)..(420,370)
+    dead zone         cable anchor     (500,60)..(560,140)
+    dead zone         fixture plate    (150,150)..(220,260)   [zones_alt.dxf only]
+
+Which tray geometry a tray station uses is a runtime choice: set its tray-id pin
+to a TRAYDEF ID. Both drawings are validated against every taught position when
+the module loads, so a station moved into an obstacle fails the load rather than
+a job.
+
+What is not wired
+-----------------
+
+The job handshake (process-step, origin-id, dest-id, start-job) and the machine
+side of it — picker opened/closed feedback, the process stations' busy and
+released signals — are what a PLC drives, and they are left unconnected here.
+The scripted simulation of them (grippers with a settling delay, injectable
+"the slot was empty" misses) comes with the integration suite, phase 7 of
+docs/dev/PNPTASK_DESIGN.md. Until then this config is what it says on the tin: a
+machine that loads, validates its whole configuration and exposes its interface.
+
+This directory holds no test.hal/test.sh, so `runtests` ignores it; it is a
+config to run and to build the integration test on, not a test itself.

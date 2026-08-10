@@ -1,0 +1,57 @@
+# pnptask simulation: its own motion stack plus the task module.
+#
+# No io/iocontrol instance is loaded — a pick-and-place machine has no
+# toolchanger, and pnptask sequences estop/enable against motctl itself.
+
+# Motion stack for this instance.
+load tpmod    <pnp.tp>   mot_instance=pnp.mot
+load homemod  <pnp.home.0,pnp.home.1,pnp.home.2> mot_instance=pnp.mot
+load trivkins <pnp.kins> coordinates=XYZ
+load motmod   <pnp.mot>  num_joints=3 kins_instance=pnp.kins \
+                         tp_instance=pnp.tp home_instance=pnp.home
+
+# The task. pickers=2 exports the second picker and enables the alternating
+# picker logic; drop it (or pass pickers=1) for the single-picker machine.
+# The motion instance comes from [EMCMOT]MOTION_INSTANCE in the INI; a
+# motion_instance= load arg would override it.
+#
+# Deliberately loaded AFTER its motion stack for readability only: pnptask
+# resolves motctl/motstat in Start, which the launcher runs once every module
+# has been constructed, so the load order of these lines does not matter.
+load pnptask  <pnp.task> pickers=2
+
+addf pnp.mot.motion-command-handler servo-thread
+addf pnp.mot.motion-controller      servo-thread
+
+# --- Simulated machine ------------------------------------------------------
+
+# Position loop-back: the commanded position is the feedback.
+net pnp-x-pos pnp.mot.joint.0.motor-pos-cmd => pnp.mot.joint.0.motor-pos-fb
+net pnp-y-pos pnp.mot.joint.1.motor-pos-cmd => pnp.mot.joint.1.motor-pos-fb
+net pnp-z-pos pnp.mot.joint.2.motor-pos-cmd => pnp.mot.joint.2.motor-pos-fb
+
+# Instant home: the switch is always made, so a home search finishes at once.
+setp pnp.home.joint.0.home-sw-in 1
+setp pnp.home.joint.1.home-sw-in 1
+setp pnp.home.joint.2.home-sw-in 1
+
+# --- Machine control --------------------------------------------------------
+
+# Nothing simulates an estop chain here, so hold pnptask's estop input low and
+# ask for the machine to be enabled. A real config wires estop-on to the chain
+# and machine-on to the operator's button (or a PLC output).
+setp pnp.task.estop-on   0
+setp pnp.task.machine-on 1
+
+# Auto mode: start-job edges are accepted. Pull this low for manual jogging and
+# manual picker control.
+setp pnp.task.auto-enable 1
+
+# --- Not wired here ---------------------------------------------------------
+#
+# The picker feedback (picker.N.opened / .closed), the process stations'
+# busy/released handshake and the job handshake itself (process-step, origin-id,
+# dest-id, start-job) are what a PLC drives. The scripted simulation of those —
+# grippers with a settling delay and injectable "slot was empty" misses — comes
+# with the integration suite (phase 7 of docs/dev/PNPTASK_DESIGN.md). Until then
+# they read 0, which is a machine that is simply never asked to do anything.
