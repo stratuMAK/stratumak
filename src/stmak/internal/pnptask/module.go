@@ -29,15 +29,20 @@
 // config.go and docs/dev/PNPTASK_DESIGN.md §5.1. The HAL interface is in
 // pins.go.
 //
-// This is phase 4 of the design document: the module loads, validates its
+// This is phase 5 of the design document. The module loads and validates its
 // configuration, exports its complete HAL interface, pushes the machine
-// configuration into motmod and runs the machine — estop/enable sequencing,
-// homing, and manual mode with jogging, manual picker control and the position
-// teach outputs (machine.go) — and it tracks the world the jobs of phase 5 will
-// act on: tray slot states, process-station occupancy and per-picker held
-// material (stations.go), optionally backed by persist_sqlite (persist.go).
-// The job engine and the alternating-picker logic follow in the later phases;
-// nothing here starts a job yet.
+// configuration into motmod and runs the machine (machine.go: estop/enable
+// sequencing, homing, and manual mode with jogging, manual picker control and the
+// position teach outputs); it tracks the world jobs act on (stations.go: tray slot
+// states, process-station occupancy and the per-picker held-material records),
+// optionally backed by persist_sqlite (persist.go); and it runs jobs commanded
+// over the start-job handshake (job.go, actions.go, motion.go).
+//
+// One picker is used per job, but no code names a picker: the pick takes whichever
+// one is free and the place is performed by the one holding the job's material
+// (D20). What phase 6 adds is the alternating-picker *decisions* — skipping the
+// pick when a picker already holds the origin's material, and swapping the
+// occupant out of a busy process station.
 package pnptask
 
 import (

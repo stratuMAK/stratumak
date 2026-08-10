@@ -803,6 +803,84 @@ goroutine from then on like everything else in §6.5.
     moment `tray-id` names the geometry it was recorded under; any *other* id
     discards it immediately, as specified.
 
+### 7.7 As built — the engine (2026-08-11)
+
+`internal/pnptask/motion.go job.go actions.go` plus `job_test.go`, wired into the
+§6.5 control loop: a job runs *inside* it, ticking the same cycle through every
+wait, so estop and machine-off end it wherever it stands without any action
+having to remember that. Verified against a real `stmakd tests/pnptask/pnptask.ini`
+run: `set-full` fills the component tray, a `start-job` for 10 → 20 autohomes the
+machine and completes the pick/place cycle (`has-material` set, a slot consumed,
+`error-id` 0), and 20 → 11 empties the press into the single-position output tray.
+
+- **Nothing is addressed as "picker 0".** The pick asks `world.freePicker()`, the
+  job records which picker came away holding the material, and the place uses
+  that record with that picker's offsets (D20). `TestJobUsesTheHoldingPicker`
+  runs a whole job on picker 1 — offsets applied, picker 0 untouched — on a
+  `pickers=2` instance where picker 0 was loaded by hand. Phase 6 adds the
+  *decisions* (skip the pick when a picker already holds the origin's material,
+  swap at an occupied dest) without moving any of this.
+- **One frame, converted once.** Station coordinates, tray corners and the
+  dead-zone drawings all describe where a *picker* is; `commandFor` subtracts the
+  offset at the last step before a move is dispatched (§8), and route planning
+  and station geometry never learn which picker is moving.
+- **The eroded outer limit has to contain wherever the machine can be parked.**
+  A route's start point is checked like any other (`Plan` → `ErrOutsideLimit`), so
+  a machine homed at the corner of its axis range has no valid start and its
+  first job dies with `PLANNING_FAILED`. That is the drawing's job to prevent:
+  `tests/pnptask/zones.dxf` now draws the envelope wider than the axis soft
+  limits (−20..620 × −20..520 against 0..600 × 0..500) so the 12 mm erosion still
+  covers the whole reachable range. Documented in the sim README and covered by
+  `TestJobPlanningFailed`.
+- **The commanded position is tracked, not re-read.** A route's segments are
+  dispatched back to back so the TP can blend them, so status still describes the
+  first while the last is queued; `cmdPos` carries the module's own notion and is
+  re-anchored from `GetPosCmd` once per job, because a manual jog moves the
+  machine without going through motion.go.
+- **A zero settle time still costs one control cycle.** Every dwell is followed by
+  a check of the picker or fixture feedback, and that feedback comes out of the
+  input snapshot — returning without ticking would have the check judge a sample
+  taken before the command it is checking, so a machine with the settle times
+  left at 0 would fail every pick with `PICKER_CLOSE_FAILED`.
+- **`start-job` is armed, not edge-detected.** It has to be seen low before it
+  counts as a request: a level latched across a stmakd restart is not a job
+  (D26), and a pin linked to a signal the PLC keeps driving high reads high again
+  on the cycle after the module clears it — still the same request.
+- **`start-job` is sampled before the parameters it carries.** The PLC writes
+  origin-id/dest-id/process-step/deadzone-select and *then* raises the request;
+  this loop is not synchronised with whatever writes those pins, so reading the
+  request first is what guarantees a job is never latched with the previous job's
+  parameters.
+- **Rising edges are latched, not per-cycle.** This was a real bug the job engine
+  exposed: the long operations tick the loop themselves, so they advance the edge
+  detector many times before `step()` looks again, and any button pressed during a
+  job or a homing sequence was sampled by a nested tick and silently gone. Edges
+  now accumulate and each consumer clears the one it acts on; auto mode
+  *discards* the manual-control edges rather than storing them up (§6.4). The
+  tray-id selector is compared against the geometry the model has actually
+  selected, for the same reason.
+- **The diagnosis is published before the handshake completes.** `busy` low with
+  `start-job` cleared is the PLC's cue to look at `error-id`, so the error pins
+  are written first.
+- **A job is refused while an error is latched.** Faults latch first-error-wins
+  (§6.5), so a job started with the latch set could fail with nothing to show for
+  it — its id would be swallowed by the one already there. `start-job` is cleared
+  with the original error still on the pin, which says exactly what happened, and
+  `error-reset` is what the PLC owes before the next job.
+- Homing runs *after* validation: a job naming an unknown station is refused
+  without the machine having moved first.
+- `has-material` and the held record are written together and before the retract,
+  so a job aborted mid-lift leaves a world that still says where the part is. A
+  pick from a proc station that finds the fixture empty clears `has-material` on
+  its way to `PROC_NO_MATERIAL`: the next job must not be sent for a part that is
+  not there.
+- The picker-open wait of the probing retry reports `PLACE_FAILED` (16, "opened
+  stayed low") — §7.4 fixes the *timeout* for that wait but not its id, and a
+  picker commanded open that does not open is literally what that code says.
+- **The tray reset requests survive a job.** A `set-full` pressed while a job runs
+  is applied as soon as the loop is back to its own decisions — never in the
+  middle of a slot search, and never dropped.
+
 ---
 
 ## 8. Phase 6 — Alternating picker (`pickers=2`)
@@ -878,7 +956,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 2. module skeleton + config + pins (loads in sim, no motion) — **done**
 3. machine control + config push + autohoming (moves in sim) — **done**
 4. +5. stations/trays/persistence **and** the job engine (single picker,
-   end-to-end sim green), implemented together (decided 2026-08-11): the
+   end-to-end sim green) — **done**; implemented together (decided 2026-08-11): the
    model/engine seam — slot search order, probing corrections (D9), slot
    marking, `has-material` transitions, persistence write points — is where
    the design risk sits, and the model's only meaningful end-to-end

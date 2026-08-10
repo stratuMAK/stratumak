@@ -469,6 +469,11 @@ type procState struct {
 	cfg  ProcStation
 	pins *procPins
 
+	// idx is this station's position in the config (and so in the control loop's
+	// per-station input slices), kept so a sequence holding a *procState can
+	// still read the busy/released feedback of this cycle's snapshot.
+	idx int
+
 	hasMaterial bool
 	dirty       bool
 }
@@ -544,7 +549,7 @@ func newWorld(cfg *Config, pins *pinSet, pickers int, logger *slog.Logger) *worl
 		w.byID[t.cfg.ID] = &station{id: t.cfg.ID, tray: t}
 	}
 	for i := range cfg.Procs {
-		p := &procState{cfg: cfg.Procs[i], pins: &pins.procs[i]}
+		p := &procState{cfg: cfg.Procs[i], pins: &pins.procs[i], idx: i}
 		w.procs = append(w.procs, p)
 		w.byID[p.cfg.ID] = &station{id: p.cfg.ID, proc: p}
 	}

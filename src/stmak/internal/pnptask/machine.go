@@ -71,12 +71,23 @@ type motionControl interface {
 	JointHome(joint int32) error
 	JogCont(num int32, vel float64, isTeleop int32) error
 	JogAbort(num int32, isTeleop int32) error
+
+	// Job motion (§7.3). Every move is a straight line: there are no arcs to
+	// command, the planner's corners are rounded by the TP's blending.
+	SetTermCond(cond int32, tolerance float64) error
+	SetLine(pos motctl.Pose, vel, iniMaxvel, acc float64,
+		motionType, id int32, feedMmPerMin float64, indexerJnum int32) error
 }
 
 // motionStatus is the motstat subset this module reads.
 type motionStatus interface {
 	GetStatus() (motstat.MotionStatus, error)
 	GetPosFb() (motstat.Pose, error)
+	// GetPosCmd is where a job's route planning starts from (§7.3). It is read
+	// once per job rather than per cycle: the commanded position runs ahead of
+	// the machine while the TP queue drains, and everything a job commands is
+	// tracked from this anchor (see seedCmdPos).
+	GetPosCmd() (motstat.Pose, error)
 }
 
 // The generated clients are what Start actually plugs in; assert the shapes
@@ -98,14 +109,27 @@ type inputs struct {
 	home       bool
 	errorReset bool
 
-	// processStep is read every cycle, not only at a job's latch: the tray
-	// "empty" outputs are "no slot matching a pick" and the set-full edge writes
-	// this value into every slot, both of which are about the step the PLC is
-	// asking about right now.
-	processStep uint32
+	// The job handshake. processStep is read every cycle, not only at a job's
+	// latch: the tray "empty" outputs are "no slot matching a pick" and the
+	// set-full edge writes this value into every slot, both of which are about
+	// the step the PLC is asking about right now.
+	processStep    uint32
+	originID       uint32
+	destID         uint32
+	deadzoneSelect uint32
+	startJob       bool
 
 	pickerOpen  []bool
 	pickerClose []bool
+
+	// Per picker, parallel to pins.pickers: the gripper feedback the pick and
+	// place sequences read.
+	pickerOpened []bool
+	pickerClosed []bool
+
+	// Per process station, parallel to pins.procs.
+	procBusy     []bool
+	procReleased []bool
 
 	// Per tray station, parallel to pins.trays: the selected geometry and the
 	// two state-reset requests (D8).
@@ -129,10 +153,20 @@ type control struct {
 	stop   chan struct{}
 	done   chan struct{}
 
-	// This cycle's inputs, the previous cycle's (for edge detection) and the
-	// rising edges between them.
+	// This cycle's inputs and the previous cycle's, for edge detection.
 	in   inputs
 	prev inputs
+
+	// rise holds rising edges that have not been acted on yet. They are
+	// *latched*, not per-cycle: the long operations of this module — the enable
+	// handshake, homing, every action of a job — run inside the loop and tick it
+	// themselves (§6.5), so each of them advances the edge detector many times
+	// before step() looks again. A per-cycle edge pressed during one of those
+	// would be sampled by a nested tick and gone by the time anything could act
+	// on it, which is a button press silently doing nothing.
+	//
+	// Each consumer clears the flag it acts on (see take), and auto mode discards
+	// the manual-control edges rather than storing them up (§6.4).
 	rise inputs
 
 	// The motion side of this cycle: one status snapshot and the feedback
@@ -151,17 +185,33 @@ type control struct {
 	// jogged (0 = not jogging), so a held pin does not re-issue JogCont every
 	// cycle and a released one aborts exactly once.
 	jogDir []int
+
+	// cmdPos is the position the module has commanded so far, tracked so a
+	// route's segments can be dispatched back to back without waiting for status
+	// (see seedCmdPos). motionDispatched says whether anything has been commanded
+	// since the last drain; moveID is the serial the moves carry into status.
+	cmdPos           motctl.Pose
+	motionDispatched bool
+	moveID           int32
+
+	// jobArmed is the start-job handshake's state: see jobRequest.
+	jobArmed bool
 }
 
 func newControl(m *pnptaskModule) *control {
 	pickers, axes, trays := len(m.pins.pickers), len(m.pins.jog), len(m.pins.trays)
+	procs := len(m.pins.procs)
 	mk := func() inputs {
 		return inputs{
 			pickerOpen:   make([]bool, pickers),
 			pickerClose:  make([]bool, pickers),
+			pickerOpened: make([]bool, pickers),
+			pickerClosed: make([]bool, pickers),
 			trayID:       make([]uint32, trays),
 			traySetFull:  make([]bool, trays),
 			traySetEmpty: make([]bool, trays),
+			procBusy:     make([]bool, procs),
+			procReleased: make([]bool, procs),
 			jogPos:       make([]bool, axes),
 			jogNeg:       make([]bool, axes),
 		}
@@ -175,6 +225,16 @@ func newControl(m *pnptaskModule) *control {
 		rise:   mk(),
 		jogDir: make([]int, len(m.pins.jog)),
 	}
+}
+
+// take consumes a latched edge: it reports whether the edge was pending and
+// clears it, so one press produces exactly one action.
+func take(edge *bool) bool {
+	if !*edge {
+		return false
+	}
+	*edge = false
+	return true
 }
 
 func (c *control) start() {
@@ -241,7 +301,6 @@ func (c *control) sample() {
 	c.prev.errorReset = c.in.errorReset
 	copy(c.prev.pickerOpen, c.in.pickerOpen)
 	copy(c.prev.pickerClose, c.in.pickerClose)
-	copy(c.prev.trayID, c.in.trayID)
 	copy(c.prev.traySetFull, c.in.traySetFull)
 	copy(c.prev.traySetEmpty, c.in.traySetEmpty)
 
@@ -250,15 +309,32 @@ func (c *control) sample() {
 	c.in.autoEnable = p.autoEnable.Get()
 	c.in.home = p.home.Get()
 	c.in.errorReset = p.errorReset.Get()
+	// start-job is read BEFORE the parameters it carries, and that order matters:
+	// the PLC writes origin-id, dest-id, process-step and deadzone-select and
+	// *then* raises start-job. This loop is not synchronised with whatever writes
+	// those pins, so a sample can straddle the PLC's update — and reading the
+	// request first means that a request we see high was raised before the
+	// parameter reads that follow it, so the job is never latched with the
+	// parameters of the previous one.
+	c.in.startJob = p.startJob.Get()
 	c.in.processStep = p.processStep.Get()
+	c.in.originID = p.originID.Get()
+	c.in.destID = p.destID.Get()
+	c.in.deadzoneSelect = p.deadzoneSelect.Get()
 	for i := range p.pickers {
 		c.in.pickerOpen[i] = p.pickers[i].manualOpen.Get()
 		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
+		c.in.pickerOpened[i] = p.pickers[i].opened.Get()
+		c.in.pickerClosed[i] = p.pickers[i].closed.Get()
 	}
 	for i := range p.trays {
 		c.in.trayID[i] = p.trays[i].trayID.Get()
 		c.in.traySetFull[i] = p.trays[i].setFull.Get()
 		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
+	}
+	for i := range p.procs {
+		c.in.procBusy[i] = p.procs[i].busy.Get()
+		c.in.procReleased[i] = p.procs[i].released.Get()
 	}
 	for i := range p.jog {
 		c.in.jogPos[i] = p.jog[i].pos.Get()
@@ -271,17 +347,20 @@ func (c *control) sample() {
 	// holds it high across a stmakd restart is asking for the machine, and
 	// waiting for an edge that already happened would leave it off with
 	// nothing to show why. The one-shot inputs (home, error-reset, manual
-	// open/close) go the other way — see primeEdges.
-	c.rise.machineOn = c.in.machineOn && !c.prev.machineOn
-	c.rise.home = c.in.home && !c.prev.home
-	c.rise.errorReset = c.in.errorReset && !c.prev.errorReset
+	// open/close, the tray resets) go the other way — see primeEdges.
+	//
+	// The edges are OR-ed into the latches rather than assigned: see the rise
+	// field for why they have to survive a nested tick.
+	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn)
+	c.rise.home = c.rise.home || (c.in.home && !c.prev.home)
+	c.rise.errorReset = c.rise.errorReset || (c.in.errorReset && !c.prev.errorReset)
 	for i := range p.pickers {
-		c.rise.pickerOpen[i] = c.in.pickerOpen[i] && !c.prev.pickerOpen[i]
-		c.rise.pickerClose[i] = c.in.pickerClose[i] && !c.prev.pickerClose[i]
+		c.rise.pickerOpen[i] = c.rise.pickerOpen[i] || (c.in.pickerOpen[i] && !c.prev.pickerOpen[i])
+		c.rise.pickerClose[i] = c.rise.pickerClose[i] || (c.in.pickerClose[i] && !c.prev.pickerClose[i])
 	}
 	for i := range p.trays {
-		c.rise.traySetFull[i] = c.in.traySetFull[i] && !c.prev.traySetFull[i]
-		c.rise.traySetEmpty[i] = c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i]
+		c.rise.traySetFull[i] = c.rise.traySetFull[i] || (c.in.traySetFull[i] && !c.prev.traySetFull[i])
+		c.rise.traySetEmpty[i] = c.rise.traySetEmpty[i] || (c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i])
 	}
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
@@ -311,9 +390,9 @@ func (c *control) sample() {
 // primed — it is the standing request for the machine, and its boot edge is
 // wanted (see sample).
 //
-// tray-id is primed for the same reason from the other direction: it is a level,
-// and world.start has already selected the geometry it names, so treating the
-// boot value as a *change* would reset the slot state that was just restored.
+// tray-id needs no priming: it is a level, and updateStations compares it against
+// the geometry the model has actually selected — which world.start has already
+// taken from this same pin, so the boot value is by construction not a change.
 func (c *control) primeEdges() {
 	p := c.m.pins
 	c.in.home = p.home.Get()
@@ -323,10 +402,12 @@ func (c *control) primeEdges() {
 		c.in.pickerClose[i] = p.pickers[i].manualClose.Get()
 	}
 	for i := range p.trays {
-		c.in.trayID[i] = p.trays[i].trayID.Get()
 		c.in.traySetFull[i] = p.trays[i].setFull.Get()
 		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
 	}
+	// start-job is not edge-detected but armed (see jobRequest), and it starts
+	// disarmed: a level held high across a restart is not a request for that job.
+	c.jobArmed = false
 }
 
 // step is one cycle's decisions. Order matters: the machine state is settled
@@ -340,7 +421,7 @@ func (c *control) step() {
 	if err := c.updateMachine(); err != nil {
 		c.raise(err)
 	}
-	if c.rise.errorReset {
+	if take(&c.rise.errorReset) {
 		c.clearError()
 	}
 
@@ -353,7 +434,7 @@ func (c *control) step() {
 	// that wants the machine homed before its first job should not have to
 	// drop auto-enable to ask for it, and in manual mode it is the only way to
 	// get an AUTOHOME = 0 machine homed enough to jog.
-	if c.rise.home {
+	if take(&c.rise.home) {
 		if err := c.runHoming(); err != nil && !errors.Is(err, errStopping) {
 			c.raise(err)
 		}
@@ -361,12 +442,30 @@ func (c *control) step() {
 
 	if c.in.autoEnable {
 		// Auto mode: the manual controls are inert, and a jog left running by
-		// the mode switch must not stay running (§6.4).
+		// the mode switch must not stay running (§6.4). The manual edges are
+		// *discarded* rather than latched: a button pressed in auto mode is
+		// ignored, not queued up for the next switch to manual.
 		c.stopJogs()
+		for i := range c.rise.pickerOpen {
+			c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
+		}
+		if c.jobRequest() {
+			// The job runs to completion inside this call, ticking this same
+			// loop: that is what makes an estop end it wherever it is (§6.5).
+			c.runJobHandshake()
+		}
 		return
 	}
 	c.manualPickers()
 	c.jog()
+	if c.jobRequest() {
+		// §6.4: in manual mode a job request is refused, latched like any other
+		// error, and the handshake is completed so the PLC is not left waiting —
+		// the error first, so the cleared start-job it reacts to is already
+		// accompanied by the reason.
+		c.raise(faultf(errAutoDisabled, "start-job while auto-enable is low"))
+		c.m.pins.startJob.Set(false)
+	}
 }
 
 // updateMachine is the estop/enable sequencing of §6.2.
@@ -383,8 +482,8 @@ func (c *control) updateMachine() error {
 		c.m.logger.Info("pnptask: estop cleared, machine-on must be cycled to enable")
 	}
 
-	switch {
-	case c.rise.machineOn && !c.enabled:
+	switch requested := take(&c.rise.machineOn); {
+	case requested && !c.enabled:
 		err := c.enable()
 		var f *pnpFault
 		if errors.As(err, &f) && f.id == errMachineOff {
@@ -485,20 +584,25 @@ func (c *control) motionLost() {
 // selector and the two slot-state reset edges (D8).
 func (c *control) updateStations() {
 	for i, t := range c.m.world.trays {
-		if c.in.trayID[i] != c.prev.trayID[i] {
+		// The selector is compared against what the *model* has selected, not
+		// against the previous sample: a nested tick would have moved the previous
+		// sample on (see the rise field), and the model's id is the honest answer
+		// to "is this still the tray we are tracking".
+		if c.in.trayID[i] != t.trayID {
 			c.selectTray(t, c.in.trayID[i])
 		}
+		full, empty := take(&c.rise.traySetFull[i]), take(&c.rise.traySetEmpty[i])
 		switch {
-		case c.rise.traySetFull[i] && c.rise.traySetEmpty[i]:
-			// Both edges in one cycle: a contradictory request, ignored — the
-			// same treatment the manual picker pins get.
-			c.m.logger.Debug("pnptask: tray set-full and set-empty in the same cycle, ignored",
+		case full && empty:
+			// Both requested: a contradictory pair, ignored — the same treatment
+			// the manual picker pins get.
+			c.m.logger.Debug("pnptask: tray set-full and set-empty both requested, ignored",
 				"station", t.cfg.ID)
-		case c.rise.traySetFull[i]:
+		case full:
 			t.setAll(int64(c.in.processStep))
 			c.m.logger.Info("pnptask: tray declared full",
 				"station", t.cfg.ID, "process_step", c.in.processStep, "slots", len(t.slots))
-		case c.rise.traySetEmpty[i]:
+		case empty:
 			t.setAll(slotEmpty)
 			c.m.logger.Info("pnptask: tray declared empty",
 				"station", t.cfg.ID, "slots", len(t.slots))
@@ -811,7 +915,7 @@ func (c *control) manualPickers() {
 		return
 	}
 	for i := range c.m.pins.pickers {
-		open, close := c.rise.pickerOpen[i], c.rise.pickerClose[i]
+		open, close := take(&c.rise.pickerOpen[i]), take(&c.rise.pickerClose[i])
 		switch {
 		case open && close:
 			// Both edges in one cycle: a contradictory command, ignored.
@@ -918,5 +1022,6 @@ func (c *control) park() {
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
 	c.m.pins.machineIsOn.Set(false)
+	c.m.pins.busy.Set(false)
 	c.m.logger.Debug("pnptask control loop stopped")
 }

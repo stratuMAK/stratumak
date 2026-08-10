@@ -21,6 +21,18 @@ type plannerSet struct {
 	planners []*pnproute.Planner
 }
 
+// at returns the planner the deadzone-select pin names. The selector is a PLC
+// value, so an index past the configured list is a job error (§7.5), not a
+// configuration failure — and never a silent fallback to drawing 0, which would
+// plan travel around obstacles the operator did not choose.
+func (s *plannerSet) at(index uint32) (*pnproute.Planner, error) {
+	if uint64(index) >= uint64(len(s.planners)) {
+		return nil, faultf(errInvalidDeadzoneSelect,
+			"deadzone-select %d: only %d dead-zone file(s) are configured", index, len(s.planners))
+	}
+	return s.planners[index], nil
+}
+
 // newPlanners loads every dead-zone drawing, builds its planner and validates
 // every taught position against all of them.
 //
