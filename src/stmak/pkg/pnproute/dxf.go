@@ -34,7 +34,10 @@ func readPairs(r io.Reader) ([]pair, error) {
 	for sc.Scan() {
 		codeLine := strings.TrimSpace(sc.Text())
 		if !sc.Scan() {
-			break
+			// A group code with no value line is a file cut off mid-record.
+			// Failing loudly matters here: a truncated drawing that loads as
+			// "whatever fit" is a dead zone smaller than the one drawn.
+			return nil, fmt.Errorf("truncated: group code %q at end of input has no value", codeLine)
 		}
 		valLine := strings.TrimRight(sc.Text(), "\r")
 		code, err := strconv.Atoi(codeLine)
@@ -49,7 +52,12 @@ func readPairs(r io.Reader) ([]pair, error) {
 // entitiesInSection collects the entities of the ENTITIES section. Sections are
 // tracked by their 0/SECTION + 2/<name> header rather than by the name alone,
 // so a value that merely reads "ENTITIES" elsewhere in the file cannot open one.
-func entitiesInSection(pairs []pair) []entity {
+//
+// An ENTITIES section still open at end of input is an error: DXF closes every
+// section with ENDSEC, so a missing one means the file was truncated between
+// records — and the entities already collected may be an incomplete picture of
+// the drawing (a dead zone missing entirely is as unsafe as one loaded small).
+func entitiesInSection(pairs []pair) ([]entity, error) {
 	var ents []entity
 	var cur *entity
 	inEntities, expectName := false, false
@@ -106,8 +114,11 @@ func entitiesInSection(pairs []pair) []entity {
 		}
 		cur.pairs = append(cur.pairs, p)
 	}
+	if inEntities {
+		return nil, fmt.Errorf("truncated: the ENTITIES section is not closed with ENDSEC")
+	}
 	flush()
-	return ents
+	return ents, nil
 }
 
 func valString(e entity, code int) string {
@@ -120,6 +131,35 @@ func valString(e entity, code int) string {
 }
 
 func valFloat(e entity, code int) float64 { return valFloatDefault(e, code, 0) }
+
+// valFloatOK reads a float group code and reports whether it was present and
+// parseable. Geometry-defining codes (a circle's center, say) go through this
+// rather than valFloat: a default of 0 would silently relocate the shape to
+// the origin instead of failing.
+func valFloatOK(e entity, code int) (float64, bool) {
+	for _, p := range e.pairs {
+		if p.code == code {
+			if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil {
+				return v, true
+			}
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// valIntDefault reads an integer group code, returning def when absent or
+// malformed.
+func valIntDefault(e entity, code int, def int) int {
+	for _, p := range e.pairs {
+		if p.code == code {
+			if v, err := strconv.Atoi(strings.TrimSpace(p.val)); err == nil {
+				return v
+			}
+		}
+	}
+	return def
+}
 
 func valFloatDefault(e entity, code int, def float64) float64 {
 	for _, p := range e.pairs {
@@ -178,6 +218,13 @@ func polylineVertices(e entity) (Polygon, bool, error) {
 				haveX = false
 			}
 		}
+	}
+	// An LWPOLYLINE declares its vertex count (group code 90). A mismatch
+	// means vertices were lost — a truncated or corrupt export — and a
+	// polygon smaller than declared is a dead zone that guards less than the
+	// drawing shows.
+	if want := valIntDefault(e, 90, -1); want >= 0 && want != len(poly) {
+		return nil, false, fmt.Errorf("declares %d vertices but carries %d (truncated or corrupt file?)", want, len(poly))
 	}
 	return poly, closed, nil
 }

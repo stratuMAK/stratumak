@@ -72,10 +72,14 @@ const (
 // entity types that may sit on a recognized layer without describing geometry.
 // Anything else there is an error: silently dropping a shape the drawing calls
 // a dead zone is exactly the failure this package must not have.
+// HATCH is deliberately NOT in this list: a filled hatch is the natural CAD
+// idiom for marking an *area*, so one sitting on the dead-zone layer most
+// likely IS the keep-out — silently ignoring it would load a drawing with
+// fewer zones than it shows. It gets a dedicated error instead.
 var annotationEntities = map[string]bool{
 	"TEXT": true, "MTEXT": true, "ATTDEF": true, "ATTRIB": true,
 	"DIMENSION": true, "LEADER": true, "MLEADER": true, "POINT": true,
-	"HATCH": true, "VIEWPORT": true,
+	"VIEWPORT": true,
 }
 
 // LoadDXF parses the ENTITIES section of a DXF drawing and returns the
@@ -95,7 +99,10 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pnproute: reading DXF: %w", err)
 	}
-	ents := entitiesInSection(pairs)
+	ents, err := entitiesInSection(pairs)
+	if err != nil {
+		return nil, fmt.Errorf("pnproute: reading DXF: %w", err)
+	}
 
 	scene := &Scene{}
 	outerCount := 0
@@ -135,7 +142,15 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			if isOuter {
 				return nil, fmt.Errorf("pnproute: the outer limit must be a closed polyline, found a CIRCLE on layer %q", LayerOuterLimit)
 			}
-			c := Point{valFloat(e, 10), valFloat(e, 20)}
+			// The center is required, not defaulted: a missing group code
+			// falling back to 0 would silently relocate the zone to the
+			// origin and leave the real hazard unguarded.
+			cx, okx := valFloatOK(e, 10)
+			cy, oky := valFloatOK(e, 20)
+			if !okx || !oky {
+				return nil, fmt.Errorf("pnproute: dead-zone circle has no center (group codes 10/20 missing or malformed)")
+			}
+			c := Point{cx, cy}
 			r := valFloat(e, 40)
 			if r <= 0 {
 				return nil, fmt.Errorf("pnproute: dead-zone circle at (%.3f,%.3f) has radius %.3f", c.X, c.Y, r)
@@ -160,7 +175,12 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 			if err := checkPlanar(e); err != nil {
 				return nil, fmt.Errorf("pnproute: dead-zone ellipse %v", err)
 			}
-			c := Point{valFloat(e, 10), valFloat(e, 20)}
+			cx, okx := valFloatOK(e, 10)
+			cy, oky := valFloatOK(e, 20)
+			if !okx || !oky {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse has no center (group codes 10/20 missing or malformed)")
+			}
+			c := Point{cx, cy}
 			majorRel := Point{valFloat(e, 11), valFloat(e, 21)}
 			ratio := valFloat(e, 40)
 			if math.Hypot(majorRel.X, majorRel.Y) <= 0 || ratio <= 0 || ratio > 1 {
@@ -184,6 +204,9 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 		default:
 			if annotationEntities[e.typ] {
 				continue
+			}
+			if e.typ == "HATCH" {
+				return nil, fmt.Errorf("pnproute: a HATCH on the %s layer cannot be read; draw the region's outline as a closed polyline (the fill is only decoration)", what)
 			}
 			allowed := "closed polylines, circles and ellipses"
 			if isOuter {

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
@@ -42,6 +43,10 @@ type Config struct {
 	// Axes are the [TRAJ]COORDINATES axes, in canonical XYZABCUVW order. They
 	// determine which jog pins exist.
 	Axes []Axis
+
+	// NumJoints is [KINS]JOINTS: how many [JOINT_n] sections are pushed to
+	// motmod and how many have to report homed before the machine may move.
+	NumJoints int
 
 	AutoHome       bool
 	MoveHeight     float64
@@ -149,6 +154,18 @@ type RouteOverride struct {
 	MoveHeight float64
 }
 
+// AxisMask is the [TRAJ]COORDINATES axis bitmask motmod is configured with
+// (X=1, Y=2, Z=4, …), derived from the already-validated axis list rather than
+// re-parsed from the INI so the pins and the pushed configuration can never
+// disagree about which axes exist.
+func (c *Config) AxisMask() int32 {
+	var mask int32
+	for _, ax := range c.Axes {
+		mask |= 1 << ax.Index
+	}
+	return mask
+}
+
 // Axis is one axis of [TRAJ]COORDINATES.
 type Axis struct {
 	Letter rune  // 'X', 'Y', …; lower-cased for the HAL pin name
@@ -191,6 +208,19 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 		return nil, err
 	}
 	cfg.Axes = axes
+
+	// [KINS]JOINTS is required rather than defaulted: it decides which joints
+	// are activated and which have to be homed, and a default that happens to
+	// be too small would leave a joint unconfigured and never homed — a machine
+	// that moves one axis into a hard stop rather than one that fails to load.
+	cfg.NumJoints = r.integer("KINS", "JOINTS", 0)
+	if err := r.err; err != nil {
+		return nil, err
+	}
+	if cfg.NumJoints < 1 || cfg.NumJoints > motsetup.MaxJoints {
+		return nil, fmt.Errorf("[KINS]JOINTS = %d: must be between 1 and %d",
+			cfg.NumJoints, motsetup.MaxJoints)
+	}
 
 	const sec = "PNPTASK"
 	cfg.AutoHome = r.boolean(sec, "AUTOHOME", false)
@@ -782,7 +812,10 @@ func parseLinearUnits(s string) (float64, error) {
 		return 1.0 / 25.4, nil
 	}
 	v, err := strconv.ParseFloat(trimmed, 64)
-	if err != nil || v <= 0 || math.IsInf(v, 0) {
+	// NaN needs its own check: it fails BOTH comparisons below ("v <= 0" is
+	// false for NaN), and as the unit scale it would poison every converted
+	// length while sliding through every comparison-based guard downstream.
+	if err != nil || v <= 0 || math.IsInf(v, 0) || math.IsNaN(v) {
 		return 0, fmt.Errorf("[TRAJ]LINEAR_UNITS = %q: expected mm, in or a positive units-per-mm number", trimmed)
 	}
 	return v, nil

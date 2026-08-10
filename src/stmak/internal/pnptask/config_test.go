@@ -49,6 +49,8 @@ func setupPathsWith(t *testing.T, files map[string]string) string {
 }
 
 const trajSection = `
+[KINS]
+JOINTS = 3
 [TRAJ]
 COORDINATES = XYZ
 LINEAR_UNITS = mm
@@ -254,6 +256,8 @@ Z_PICK = 2.5
 func TestLoadConfigInchMachine(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, `
+[KINS]
+JOINTS = 3
 [TRAJ]
 COORDINATES = XYZ
 LINEAR_UNITS = inch
@@ -365,6 +369,16 @@ func TestLoadConfigErrors(t *testing.T) {
 		ini:  trajSection + "[PNPTASK]\nCLEARANCE = 10.0\nDEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "MOVE_HEIGHT is required",
 	}, {
+		// A defaulted joint count that happened to be too small would leave a
+		// joint unconfigured and never homed.
+		name: "missing [KINS]JOINTS",
+		ini:  "[TRAJ]\nCOORDINATES = XYZ\n" + pnptaskSection + stationSections,
+		want: "[KINS]JOINTS = 0",
+	}, {
+		name: "more joints than motion has",
+		ini:  "[KINS]\nJOINTS = 99\n[TRAJ]\nCOORDINATES = XYZ\n" + pnptaskSection + stationSections,
+		want: "[KINS]JOINTS = 99",
+	}, {
 		name: "clearance not above blend tolerance",
 		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = 2.0\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
@@ -391,6 +405,12 @@ func TestLoadConfigErrors(t *testing.T) {
 	}, {
 		name: "unknown LINEAR_UNITS",
 		ini:  "[TRAJ]\nCOORDINATES = XYZ\nLINEAR_UNITS = inches\n" + pnptaskSection + stationSections,
+		want: "LINEAR_UNITS",
+	}, {
+		// NaN passes both "v <= 0" and the Inf check; as the unit scale it
+		// would poison every converted length and defeat every guard.
+		name: "NaN LINEAR_UNITS",
+		ini:  "[TRAJ]\nCOORDINATES = XYZ\nLINEAR_UNITS = nan\n" + pnptaskSection + stationSections,
 		want: "LINEAR_UNITS",
 	}, {
 		name: "negative blend tolerance",
