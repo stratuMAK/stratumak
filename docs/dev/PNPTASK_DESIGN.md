@@ -38,6 +38,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
+| D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position in machine coordinates (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. |
 
 ---
 
@@ -285,6 +286,8 @@ normalized to HAL-conventional dashes.
 | `picker.N.missing` | pin | bit | out | set when a pick found no material / tray exhausted; cleared on successful pick and on error-reset |
 | `picker.N.manual-open` | pin | bit | in | rising edge: `close` := 0 (manual mode only, §6.4) |
 | `picker.N.manual-close` | pin | bit | in | rising edge: `close` := 1 (manual mode only, §6.4) |
+| `picker.N.pos-x` | pin | float | out | picker position in machine coordinates: feedback X + `x-offset` (D21) |
+| `picker.N.pos-y` | pin | float | out | picker position in machine coordinates: feedback Y + `y-offset` (D21) |
 | `picker.N.x-offset` | param | float RW | | XY offset vs. machine position (picker.0 default 0) |
 | `picker.N.y-offset` | param | float RW | | |
 
@@ -374,6 +377,13 @@ Manual picker control (manual mode, idle):
   while `estop-on` is high.
 - Picker `close` outputs are *never* touched by machine-off — held material
   stays held. Only estop clears them (§6.2).
+- **Position teach (D21):** `picker.N.pos-x`/`pos-y` continuously report
+  `GetPosFb()` + the picker's offset params, updated in the module's poll
+  loop (in all modes, not just manual). Teach workflow: mount material in a
+  picker, jog it onto the target position, read the coordinates off these
+  pins (UI display) and enter them as station/TRAYDEF values in the INI.
+  Consistent with the targeting convention in §8: command = target − offset,
+  hence picker position = feedback + offset.
 - Manual intervention can invalidate the tracked world state (slot states,
   `has-material`); the operator resyncs via `set-full`/`set-empty`.
   Manual picker-1 changes update the `altHeld` record (§8).
