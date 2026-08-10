@@ -47,6 +47,23 @@ static inline int go_hal_pin_new(const char* name, hal_pin_dir_t dir, void** ptr
     }
 }
 
+// go_hal_param_new is the parameter counterpart of go_hal_pin_new, dispatching
+// to the typed hal_param_*_new by hal_type_t. There is no HAL_PORT case: a
+// parameter can only be HAL_BIT/HAL_FLOAT/HAL_S32/HAL_U32.
+//
+// Unlike a pin, a parameter takes its data cell address DIRECTLY: parameters
+// are never linked to signals, so HAL never repoints the cell and there is no
+// pointer slot to keep. data_addr is the value cell itself.
+static inline int go_hal_param_new(const char* name, hal_param_dir_t dir, void* data_addr, int comp_id, hal_type_t type) {
+    switch (type) {
+    case HAL_BIT:   return hal_param_bit_new(name, dir, (hal_bit_t*)data_addr, comp_id);
+    case HAL_FLOAT: return hal_param_float_new(name, dir, (hal_float_t*)data_addr, comp_id);
+    case HAL_S32:   return hal_param_s32_new(name, dir, (hal_s32_t*)data_addr, comp_id);
+    case HAL_U32:   return hal_param_u32_new(name, dir, (hal_u32_t*)data_addr, comp_id);
+    default:        return -EINVAL;
+    }
+}
+
 */
 import "C"
 import (
@@ -112,6 +129,35 @@ func halPinNew(name string, dir Direction, compID int, typ PinType) (unsafe.Poin
 	// Return the double-pointer itself — the caller must dereference at access
 	// time because HAL updates the slot when the pin is linked to a signal via net.
 	return ptrPtr, nil
+}
+
+// halParamNew wraps hal_param_*_new() (dispatched C-side by typ via
+// go_hal_param_new) to create a new parameter of the given HAL type. It returns
+// the value cell itself — not a double-pointer as halPinNew does — because a
+// parameter is never linked to a signal, so nothing ever repoints the cell.
+func halParamNew(name string, dir ParamDirection, compID int, typ PinType) (unsafe.Pointer, error) {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+
+	// One hal_data_u-sized cell covers every parameter type. Sizing it to the
+	// widest member is what makes it correctly aligned: hal_malloc aligns by
+	// the requested size, so the 8 bytes of the union give the 8-byte alignment
+	// hal_float_t needs, whatever the actual type is.
+	cell := halMalloc(int(C.sizeof_hal_data_u))
+	if cell == nil {
+		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
+	}
+	// hal_param_*_new explicitly does not initialise *data_addr — the owner is
+	// expected to load a default. Zero the cell so a parameter that is only
+	// ever written from outside still starts from a defined value.
+	C.memset(cell, 0, C.sizeof_hal_data_u)
+
+	ret := C.go_hal_param_new(cName, C.hal_param_dir_t(dir), cell, C.int(compID), C.hal_type_t(typ))
+	if ret < 0 {
+		return nil, halError(int(ret), "hal_param_new")
+	}
+
+	return cell, nil
 }
 
 // halPortWrite writes data bytes to the port referenced by portPtr.

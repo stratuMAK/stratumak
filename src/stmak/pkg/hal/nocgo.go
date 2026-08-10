@@ -56,6 +56,51 @@ func (p *Pin[T]) Direction() Direction { return p.dir }
 // String returns a string representation of the pin.
 func (p *Pin[T]) String() string { return p.name }
 
+// Param stub for non-CGO builds. Provides an in-memory parameter that
+// satisfies the same interface as the CGO-backed Param but does not interact
+// with HAL.
+type Param[T ParamValue] struct {
+	value T
+	name  string
+	dir   ParamDirection
+	typ   PinType
+}
+
+// NewParam creates a stub parameter for non-CGO builds.
+func NewParam[T ParamValue](c *Component, name string, dir ParamDirection) (*Param[T], error) {
+	var zero T
+	var pt PinType
+	switch any(zero).(type) {
+	case bool:
+		pt = TypeBit
+	case float64:
+		pt = TypeFloat
+	case int32:
+		pt = TypeS32
+	case uint32:
+		pt = TypeU32
+	}
+	return &Param[T]{value: zero, name: name, dir: dir, typ: pt}, nil
+}
+
+// Set sets the parameter value.
+func (p *Param[T]) Set(v T) { p.value = v }
+
+// Get returns the parameter value.
+func (p *Param[T]) Get() T { return p.value }
+
+// Type returns the parameter type.
+func (p *Param[T]) Type() PinType { return p.typ }
+
+// Name returns the parameter name.
+func (p *Param[T]) Name() string { return p.name }
+
+// Direction returns the parameter direction.
+func (p *Param[T]) Direction() ParamDirection { return p.dir }
+
+// String returns a string representation of the parameter.
+func (p *Param[T]) String() string { return p.name }
+
 // --- CGO function stubs ---
 // These provide stub implementations of the core unexported hal* functions
 // defined in cgo.go (which is excluded from non-CGO builds). They allow the
