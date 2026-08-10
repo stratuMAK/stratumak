@@ -30,6 +30,16 @@ type Component struct {
 	// further pin access must be refused (see enter/leave).
 	exited bool
 
+	// names records the fully-qualified name of every pin and parameter
+	// created on this component. It backs the early duplicate rejection in
+	// create(): HAL shared memory is a bump allocator with no free, so a
+	// duplicate that only failed inside hal_pin_new/hal_param_new would do so
+	// after the value cell was already — permanently — allocated. Pins and
+	// parameters share the one set; that is stricter than hal_lib's separate
+	// per-kind lists, but a pin and a parameter with the same full name would
+	// be hopelessly confusing in halcmd anyway. Guarded by mu.
+	names map[string]struct{}
+
 	// mu protects the component state and doubles as the component-liveness
 	// barrier: Exit() takes the write lock across hal_exit(), and every pin
 	// Get/Set takes the read lock (via enter/leave) around its shared-memory
@@ -83,9 +93,61 @@ func NewComponent(name string) (*Component, error) {
 		id:    id,
 		name:  name,
 		ready: false,
+		names: make(map[string]struct{}),
 	}
 
 	return comp, nil
+}
+
+// qualifyName validates a new pin/parameter name and builds the
+// fully-qualified "component.name" form. It is the single copy of the
+// name-qualification contract, shared by NewPin and NewParam in both build
+// modes, so the constructors cannot drift in what names they accept.
+func qualifyName(c *Component, op, name string) (string, error) {
+	if c == nil {
+		return "", newError(op, "component is nil", -22)
+	}
+	if name == "" {
+		return "", newError(op, ErrInvalidName.Message, ErrInvalidName.Code)
+	}
+	fullName := c.Name() + "." + name
+	if len(fullName) > NameLen {
+		return "", newError(op, ErrInvalidName.Message, ErrInvalidName.Code)
+	}
+	return fullName, nil
+}
+
+// create runs fn — the HAL-side creation of the pin or parameter fullName —
+// under the component write lock, after checking the component-side
+// preconditions that hal_pin_new/hal_param_new would otherwise only reject
+// *after* the value cell was allocated in HAL shared memory (a bump allocator
+// with no free, so such a rejection permanently leaks the cell): the component
+// must not have exited, must not be marked ready yet, and fullName must be
+// unused on this component. Holding the write lock across fn also serializes
+// creation against Exit(), so fn can never call into HAL with a freed
+// component id. On success the name is recorded for future duplicate checks.
+//
+// fn reads c.id directly rather than through ID() — the lock is already held
+// and Go mutexes are not reentrant.
+func (c *Component) create(op, fullName string, fn func() error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.exited {
+		return newError(op, ErrComponentExited.Message, ErrComponentExited.Code)
+	}
+	if c.ready {
+		return newError(op, ErrAlreadyReady.Message, ErrAlreadyReady.Code)
+	}
+	if _, dup := c.names[fullName]; dup {
+		return newError(op, ErrNameExists.Message, ErrNameExists.Code)
+	}
+
+	if err := fn(); err != nil {
+		return err
+	}
+	c.names[fullName] = struct{}{}
+	return nil
 }
 
 // Ready marks the component as ready for operation.

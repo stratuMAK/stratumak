@@ -238,20 +238,27 @@ func TestParamValidation(t *testing.T) {
 		t.Errorf("NewParam(over-long name): got %v, want ErrInvalidName", err)
 	}
 
+	// Duplicates are refused Go-side (before any HAL shm is allocated — shm is
+	// a bump allocator, a C-side rejection would leak the cell), with the
+	// ErrNameExists sentinel. Pins and parameters share the name set.
 	if _, err := hal.NewParam[float64](comp, "dup", hal.RW); err != nil {
 		t.Fatalf("NewParam(dup): %v", err)
 	}
-	if _, err := hal.NewParam[float64](comp, "dup", hal.RW); err == nil {
-		t.Error("NewParam with a duplicate name: got nil, want an error")
+	if _, err := hal.NewParam[float64](comp, "dup", hal.RW); !errors.Is(err, hal.ErrNameExists) {
+		t.Errorf("NewParam with a duplicate name: got %v, want ErrNameExists", err)
+	}
+	if _, err := hal.NewPin[float64](comp, "dup", hal.Out); !errors.Is(err, hal.ErrNameExists) {
+		t.Errorf("NewPin reusing a param name: got %v, want ErrNameExists", err)
 	}
 
 	// hal_param_new is refused once the component is ready — parameters, like
-	// pins, are declared during construction.
+	// pins, are declared during construction. The guard rejects this Go-side
+	// with the ErrAlreadyReady sentinel.
 	if err := comp.Ready(); err != nil {
 		t.Fatalf("Ready: %v", err)
 	}
-	if _, err := hal.NewParam[float64](comp, "late", hal.RW); err == nil {
-		t.Error("NewParam after Ready(): got nil, want an error")
+	if _, err := hal.NewParam[float64](comp, "late", hal.RW); !errors.Is(err, hal.ErrAlreadyReady) {
+		t.Errorf("NewParam after Ready(): got %v, want ErrAlreadyReady", err)
 	}
 }
 

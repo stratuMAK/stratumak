@@ -115,6 +115,32 @@ type PinValue interface {
 	bool | float64 | int32 | uint32 | string
 }
 
+// pinTypeOf maps a Go value type from the PinValue constraint to its HAL type.
+// It is the single copy of that mapping, shared by NewPin/NewParam and the
+// Type() accessors in both the cgo and non-cgo builds, so the sites cannot
+// drift when a HAL type is added. ok is false only for a type outside the
+// constraint, which the compiler prevents; callers still branch on it so an
+// impossible mapping fails loudly instead of silently yielding type 0.
+// ParamValue's type set is a subset of PinValue's, so parameter constructors
+// instantiate it too (string maps to TypePort, which ParamValue rules out).
+func pinTypeOf[T PinValue]() (typ PinType, ok bool) {
+	var zero T
+	switch any(zero).(type) {
+	case bool:
+		return TypeBit, true
+	case float64:
+		return TypeFloat, true
+	case int32:
+		return TypeS32, true
+	case uint32:
+		return TypeU32, true
+	case string:
+		return TypePort, true
+	default:
+		return 0, false
+	}
+}
+
 // ParamValue is a type constraint for values that can be stored in HAL
 // parameters. It is PinValue minus string: HAL has no HAL_PORT parameter
 // (hal_param_new rejects any type other than HAL_BIT, HAL_FLOAT, HAL_S32 and

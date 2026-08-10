@@ -79,44 +79,36 @@ type Param[T ParamValue] struct {
 //	p, err := NewParam[float64](comp, "settle-time", hal.RW)
 //	p.Set(0.1) // initial value, e.g. from INI
 func NewParam[T ParamValue](c *Component, name string, dir ParamDirection) (*Param[T], error) {
-	if c == nil {
-		return nil, newError("NewParam", "component is nil", -22)
-	}
-
-	if name == "" {
-		return nil, newError("NewParam", ErrInvalidName.Message, ErrInvalidName.Code)
+	fullName, err := qualifyName(c, "NewParam", name)
+	if err != nil {
+		return nil, err
 	}
 
 	if dir != RO && dir != RW {
 		return nil, newError("NewParam", "invalid direction", -22)
 	}
 
-	// Build fully-qualified parameter name
-	fullName := fmt.Sprintf("%s.%s", c.Name(), name)
-	if len(fullName) > NameLen {
-		return nil, newError("NewParam", ErrInvalidName.Message, ErrInvalidName.Code)
-	}
-
 	// Map the generic type parameter T to its HAL type, then create the
 	// parameter via the single halParamNew wrapper (dispatched C-side by
 	// hal_type_t).
-	var typ PinType
-	var zeroValue T
-	switch any(zeroValue).(type) {
-	case bool:
-		typ = TypeBit
-	case float64:
-		typ = TypeFloat
-	case int32:
-		typ = TypeS32
-	case uint32:
-		typ = TypeU32
-	default:
+	typ, ok := pinTypeOf[T]()
+	if !ok {
 		return nil, newError("NewParam", "unsupported parameter type", -22)
 	}
 
-	ptr, err := halParamNew(fullName, dir, c.id, typ)
-	if err != nil {
+	// The creation guard rejects duplicates and ready/exited components before
+	// the value cell is allocated (HAL shm has no free), and holds the
+	// component write lock across halParamNew so the C call can never race
+	// Component.Exit() into a freed component id.
+	var ptr unsafe.Pointer
+	if err := c.create("NewParam", fullName, func() error {
+		p, err := halParamNew(fullName, dir, c.id, typ)
+		if err != nil {
+			return err
+		}
+		ptr = p
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -138,6 +130,14 @@ func NewParam[T ParamValue](c *Component, name string, dir ParamDirection) (*Par
 // This dereferences the parameter's cell in HAL shared memory. If the owning
 // component has already been released with Exit(), that memory is gone; Get
 // then takes no dereference and returns the zero value of T.
+//
+// Concurrency note: the cell is read with a plain (non-atomic) load, mirroring
+// C HAL's volatile-only access model — p.mu is process-local and cannot order
+// this load against an out-of-process writer ("halcmd setp"). On 32-bit
+// targets a concurrent external write to an 8-byte (float) parameter can
+// therefore in principle be observed torn for one read. This is inherited from
+// the HAL ecosystem (pins share it): treat externally-written parameters as
+// tuning knobs, not as synchronization.
 func (p *Param[T]) Get() T {
 	// Liveness barrier: refuse to dereference freed HAL memory if the owning
 	// component has exited (see Component.enter). Held across the whole read.
@@ -219,20 +219,10 @@ func (p *Param[T]) Direction() ParamDirection {
 
 // Type returns the HAL type of the parameter.
 func (p *Param[T]) Type() PinType {
-	// Use type assertion to determine the HAL type
-	var t T
-	switch any(t).(type) {
-	case bool:
-		return TypeBit
-	case float64:
-		return TypeFloat
-	case int32:
-		return TypeS32
-	case uint32:
-		return TypeU32
-	default:
-		return -1 // Should never happen due to the ParamValue constraint
+	if typ, ok := pinTypeOf[T](); ok {
+		return typ
 	}
+	return -1 // Should never happen due to the ParamValue constraint
 }
 
 // String returns a string representation of the parameter.

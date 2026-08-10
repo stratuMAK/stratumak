@@ -118,7 +118,7 @@ func halPinNew(name string, dir Direction, compID int, typ PinType) (unsafe.Poin
 	// fill in (every hal_*_t* has the same size).
 	ptrPtr := halMalloc(int(unsafe.Sizeof(uintptr(0))))
 	if ptrPtr == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
+		return nil, newError("hal_malloc", ErrNoMemory.Message, ErrNoMemory.Code)
 	}
 
 	ret := C.go_hal_pin_new(cName, C.hal_pin_dir_t(dir), (*unsafe.Pointer)(ptrPtr), C.int(compID), C.hal_type_t(typ))
@@ -135,6 +135,11 @@ func halPinNew(name string, dir Direction, compID int, typ PinType) (unsafe.Poin
 // go_hal_param_new) to create a new parameter of the given HAL type. It returns
 // the value cell itself — not a double-pointer as halPinNew does — because a
 // parameter is never linked to a signal, so nothing ever repoints the cell.
+//
+// A failure of go_hal_param_new after halMalloc leaks the cell (HAL shm is a
+// bump allocator, halPinNew shares the constraint): Component.create pre-checks
+// every failure mode reachable through this package (duplicate name, ready or
+// exited component), so this path is not reachable via NewParam in practice.
 func halParamNew(name string, dir ParamDirection, compID int, typ PinType) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
@@ -145,7 +150,7 @@ func halParamNew(name string, dir ParamDirection, compID int, typ PinType) (unsa
 	// hal_float_t needs, whatever the actual type is.
 	cell := halMalloc(int(C.sizeof_hal_data_u))
 	if cell == nil {
-		return nil, newError("hal_malloc", "failed to allocate HAL shared memory", -12)
+		return nil, newError("hal_malloc", ErrNoMemory.Message, ErrNoMemory.Code)
 	}
 	// hal_param_*_new explicitly does not initialise *data_addr — the owner is
 	// expected to load a default. Zero the cell so a parameter that is only

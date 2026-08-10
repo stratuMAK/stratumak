@@ -5,7 +5,10 @@
 
 package hal
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 // errNoCGO is returned by all stub functions when CGO is not available.
 var errNoCGO = errors.New("hal: CGO is required but not available")
@@ -13,36 +16,51 @@ var errNoCGO = errors.New("hal: CGO is required but not available")
 // Pin stub for non-CGO builds. Provides an in-memory pin that satisfies
 // the same interface as the CGO-backed Pin but does not interact with HAL.
 type Pin[T PinValue] struct {
+	// mu serializes Set/Get like the cgo Pin's mutex does, so concurrent use
+	// behaves the same (race-free) in both build modes.
+	mu    sync.RWMutex
 	value T
 	name  string
 	dir   Direction
 	typ   PinType
 }
 
-// NewPin creates a stub pin for non-CGO builds.
+// NewPin creates a stub pin for non-CGO builds. It runs the same validation,
+// name qualification and component creation guard as the cgo constructor so
+// the two build modes agree at the API boundary — including the stored
+// fully-qualified "component.name". Note that NewComponent always fails
+// without cgo, so in practice every call errors on the component check.
 func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], error) {
-	var zero T
-	var pt PinType
-	switch any(zero).(type) {
-	case bool:
-		pt = TypeBit
-	case float64:
-		pt = TypeFloat
-	case int32:
-		pt = TypeS32
-	case uint32:
-		pt = TypeU32
-	case string:
-		pt = TypePort
+	fullName, err := qualifyName(c, "NewPin", name)
+	if err != nil {
+		return nil, err
 	}
-	return &Pin[T]{value: zero, name: name, dir: dir, typ: pt}, nil
+	if dir != In && dir != Out && dir != IO {
+		return nil, newError("NewPin", "invalid direction", -22)
+	}
+	typ, ok := pinTypeOf[T]()
+	if !ok {
+		return nil, newError("NewPin", "unsupported pin type", -22)
+	}
+	if err := c.create("NewPin", fullName, func() error { return nil }); err != nil {
+		return nil, err
+	}
+	return &Pin[T]{name: fullName, dir: dir, typ: typ}, nil
 }
 
 // Set sets the pin value.
-func (p *Pin[T]) Set(v T) { p.value = v }
+func (p *Pin[T]) Set(v T) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.value = v
+}
 
 // Get returns the pin value.
-func (p *Pin[T]) Get() T { return p.value }
+func (p *Pin[T]) Get() T {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.value
+}
 
 // Type returns the pin type.
 func (p *Pin[T]) Type() PinType { return p.typ }
@@ -60,34 +78,49 @@ func (p *Pin[T]) String() string { return p.name }
 // satisfies the same interface as the CGO-backed Param but does not interact
 // with HAL.
 type Param[T ParamValue] struct {
+	// mu serializes Set/Get like the cgo Param's mutex does, so concurrent
+	// use behaves the same (race-free) in both build modes.
+	mu    sync.RWMutex
 	value T
 	name  string
 	dir   ParamDirection
 	typ   PinType
 }
 
-// NewParam creates a stub parameter for non-CGO builds.
+// NewParam creates a stub parameter for non-CGO builds. Like the NewPin stub
+// it runs the same validation, name qualification and component creation guard
+// as the cgo constructor so the two build modes agree at the API boundary.
 func NewParam[T ParamValue](c *Component, name string, dir ParamDirection) (*Param[T], error) {
-	var zero T
-	var pt PinType
-	switch any(zero).(type) {
-	case bool:
-		pt = TypeBit
-	case float64:
-		pt = TypeFloat
-	case int32:
-		pt = TypeS32
-	case uint32:
-		pt = TypeU32
+	fullName, err := qualifyName(c, "NewParam", name)
+	if err != nil {
+		return nil, err
 	}
-	return &Param[T]{value: zero, name: name, dir: dir, typ: pt}, nil
+	if dir != RO && dir != RW {
+		return nil, newError("NewParam", "invalid direction", -22)
+	}
+	typ, ok := pinTypeOf[T]()
+	if !ok {
+		return nil, newError("NewParam", "unsupported parameter type", -22)
+	}
+	if err := c.create("NewParam", fullName, func() error { return nil }); err != nil {
+		return nil, err
+	}
+	return &Param[T]{name: fullName, dir: dir, typ: typ}, nil
 }
 
 // Set sets the parameter value.
-func (p *Param[T]) Set(v T) { p.value = v }
+func (p *Param[T]) Set(v T) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.value = v
+}
 
 // Get returns the parameter value.
-func (p *Param[T]) Get() T { return p.value }
+func (p *Param[T]) Get() T {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.value
+}
 
 // Type returns the parameter type.
 func (p *Param[T]) Type() PinType { return p.typ }
