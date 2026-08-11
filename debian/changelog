@@ -1,3 +1,44 @@
+stratumak (0.1.3) UNRELEASED; urgency=medium
+
+  * A .comp can now declare the external libraries it needs: pkgconfig for a
+    library that ships a .pc file, cflags and ldflags for one that does not.
+    modcompile --compile links them, --deps prints them for a packager to
+    turn into Build-Depends, and a missing module is reported against the
+    line that asked for it rather than as an undefined symbol at load time.
+    Before this, a module needing anything beyond libc and libm had to be
+    built from a Makefile around --preprocess.
+  * cflags and ldflags carry no shell: $(...), backticks and $VAR are
+    refused rather than passed through, because modcompile --install runs as
+    root and a .comp is data. The dynamic-linker tokens $ORIGIN, $LIB and
+    $PLATFORM are allowed, since -Wl,-rpath,$ORIGIN is how a module finds a
+    vendor library shipped beside it.
+  * .comp options are a whitelist now, so an option that is parsed and never
+    read cannot pass silently. extra_compile_args and extra_link_args -- both
+    dropped on the floor until now -- name their replacement and stop the
+    build, as does anything unrecognised. The classic options this tree
+    ignores (fp, personality, default_personality) still build, with a
+    warning; the ones it cannot honour (count_function, constructable,
+    rtapi_app and their kin) are refused with a message saying so.
+    docs/src/hal/comp.adoc's option list is rewritten to match what
+    modcompile actually consults, and the out8 example is ported to it.
+  * An int modparam is parsed with strtol rather than atoi, so ioaddr=0x378
+    reaches the module as 0x378. It had stopped at the 'x' and handed the
+    module 0 with nothing said about it, which is the shape of value an I/O
+    address most often has.
+  * An M100-M199 handler's return value reaches the interpreter again, so a
+    G-code program can read it from #5399 -- that is how a program learns
+    what a handler decided. The getter behind it was a stub returning 0, so
+    the 0-is-success, 32-63-is-a-user-result convention the handler interface
+    documents was written but not wired.
+  * Modules that modcompile builds are compiled with -Werror by default, and
+    --cflags and --print-make-inc advertise the same, so a project driving
+    its own Makefile is held to what modcompile would apply to the same file.
+    $STMAK_CWARNFLAGS is the opt-out. The tree's own build takes the policy
+    from --enable-werror, which CI passes and debian/rules does not, so a
+    distro rebuild on a newer compiler cannot be broken by a new diagnostic.
+
+ -- Sascha Ittner <sascha.ittner@modusoft.de>  Tue, 11 Aug 2026 17:18:22 +0200
+
 stratumak (0.1.2) UNRELEASED; urgency=medium
 
   * stratumak-dev now ships every generated GMI service header on the include
