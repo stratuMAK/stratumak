@@ -97,41 +97,7 @@ typedef struct {
 
   int toggle;             /**< Sync-bit toggled every cycle to signal life to the drive. */
 
-  stmak_hal_bit_t *err_reset;     /**< HAL IN: rising edge clears the drive's latched class-1 diagnostic. */
-  ec_soe_request_t *err_reset_req; /**< Async SoE request used to run the S-0-0099 procedure command. */
-  int err_reset_state;            /**< Progress through the reset procedure — see lcec_class_ax5_err_reset_state_t. */
-  int err_reset_last;             /**< Previous err_reset pin level, for edge detection. */
-
 } lcec_class_ax5_chan_t;
-
-/**
- * @brief IDN S-0-0099, "reset class 1 diagnostic".
- *
- * A SERCOS IDN packs the S/P flag in bit 15, the parameter set in bits 14-12
- * and the block number in bits 11-0, so the standard S-parameter 99 is simply
- * 0x0063.
- */
-#define LCEC_AX5_IDN_RESET_C1D 0x0063
-
-/** @brief Procedure command "set and enable" — starts the command. */
-#define LCEC_AX5_PROC_CMD_SET   0x0003
-/** @brief Procedure command "cancel" — releases the drive for the next one. */
-#define LCEC_AX5_PROC_CMD_CLEAR 0x0000
-
-/**
- * @brief Stages of the S-0-0099 "reset class 1 diagnostic" procedure command.
- *
- * SERCOS procedure commands are two-phase: the master writes "set and enable"
- * to start the command and then writes zero to cancel it again, which is what
- * releases the drive to accept the next one.  Both writes go through the same
- * asynchronous SoE request, so the channel walks these stages one cyclic call
- * at a time rather than blocking the servo thread on a mailbox transfer.
- */
-typedef enum {
-  lcecAx5ErrResetIdle = 0,  /**< No reset in progress. */
-  lcecAx5ErrResetSet,       /**< "Set and enable" write issued; waiting for the drive. */
-  lcecAx5ErrResetClear,     /**< Cancel write issued; waiting for the drive. */
-} lcec_class_ax5_err_reset_state_t;
 
 /**
  * @brief Return the number of PDO entries required by this slave configuration.
@@ -185,19 +151,5 @@ void lcec_class_ax5_read(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) 
  * @param chan   Per-channel data structure for this axis.
  */
 void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) STMAK_NONBLOCKING;
-
-/**
- * @brief Advance the drive's fault-reset procedure command.
- *
- * Called once per cycle from lcec_class_ax5_write().  A rising edge on
- * `srv-err-reset` runs S-0-0099, "reset class 1 diagnostic", which is what
- * clears a latched drive fault; reaching OP again does not.  The transfer is
- * an asynchronous SoE request, so this only ever posts a request and reads
- * back its state — it never waits on the mailbox.
- *
- * @param slave  Pointer to the EtherCAT slave descriptor.
- * @param chan   Per-channel data structure for this axis.
- */
-void lcec_class_ax5_err_reset(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) STMAK_NONBLOCKING;
 
 #endif

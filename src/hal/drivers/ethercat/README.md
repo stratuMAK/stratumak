@@ -86,9 +86,7 @@ See the [`examples/`](examples/) directory for sample configurations.
 
 ---
 
-## Servo drive behaviour (AX5000)
-
-### Shutdown
+## Shutdown
 
 The driver takes the bus out of `OP` before the cyclic task stops. Slaves are
 asked for `PREOP` from the module's `Stop()`, which runs while the realtime
@@ -98,23 +96,11 @@ regardless.
 
 This matters for drives running distributed clocks. If the frames simply stop
 while a drive is still in `OP` with its sync signals armed, the drive sees its
-clock die and latches a synchronisation fault, which then survives the next
-start: reaching `OP` again does not clear a latched class-1 diagnostic.
-
-### Clearing a latched fault
-
-Each AX5000 channel exports `srv-err-reset`. A rising edge runs the SERCOS
-procedure command S-0-0099, "reset class 1 diagnostic", which is what actually
-clears a latched drive fault. Without it the only way out is cycling the
-drive's control voltage.
-
-```
-net drive-fault-reset  ethercat.0.<slave>.<ch>.srv-err-reset
-```
-
-The transfer is an asynchronous SoE request driven from the cyclic task, so it
-never blocks the servo thread; the reset takes a few cycles to complete and
-`srv-fault` reports whether the drive actually cleared.
+clock die and latches a synchronisation fault — and reaching `OP` again does
+not clear a latched class-1 diagnostic, so it survives the next start. The
+driver offers no way to clear one; that takes cycling the drive's control
+voltage. Not provoking the fault in the first place is the whole point of
+taking the bus down in order.
 
 ---
 
