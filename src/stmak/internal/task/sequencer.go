@@ -1187,6 +1187,13 @@ func (c *McodeCmd) Execute(t *Task) error {
 	}); err != nil {
 		return err // aborted during the wait
 	}
+	// Hand the result to the interpreter, which reads it into #5399 on its next
+	// read (rs274ngc_pre.cc read_inputs, under user_defined_flag). Recorded for
+	// every completion, before the classification below: a handler that faults
+	// the program never gets that far, but the value must be in place before
+	// Execute returns for the success paths, because the interpreter resumes as
+	// soon as it does.
+	t.setUserDefinedResult(float64(result))
 	// Propagate a failed handler so the sequencer faults the program instead of
 	// silently continuing (the old fork/exec path made a non-zero exit an
 	// EMC_TASK_EXEC_ERROR). Result convention: 0 = success; 32-63 = user-defined

@@ -1672,6 +1672,15 @@ func (t *Task) inputTimedOut() bool {
 	return t.inputTimeout == 1
 }
 
+// setUserDefinedResult records what the M100-M199 handler that just finished
+// returned. Called from the sequencer goroutine when McodeCmd completes; read
+// on the interpreter side by GetUserDefinedResult.
+func (t *Task) setUserDefinedResult(v float64) {
+	t.mu.Lock()
+	t.userDefinedResult = v
+	t.mu.Unlock()
+}
+
 func (c *WaitInputCmd) Execute(t *Task) error {
 	// Drain preceding motion so the input is sampled at the commanded point.
 	if err := t.waitMotionDone(); err != nil {

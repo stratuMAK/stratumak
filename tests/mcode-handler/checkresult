@@ -1,8 +1,20 @@
 #!/bin/bash
-# The M101 handler logs to the server's stderr (captured in server.log).
+# The handlers log to the server's stderr (captured in server.log), and the
+# (debug,...) expansion of #5399 arrives there as an operator display message.
 D=$(dirname "$1"); LOG="$D/server.log"
 set -e
 grep -q "test_mcode_handler: M101 handler registered" "$LOG"
 grep -q "test_mcode_handler: M101 called, P=2.0000 Q=3.0000" "$LOG"
 grep -q "test_mcode_handler: M101 completed" "$LOG"
 echo "mcode_handler M101 registered, dispatched with P=2 Q=3, and completed"
+
+# M103 returns 42 (in the 32-63 user-defined-result band). The interpreter must
+# store it in #5399 — that is how a G-code program reads a handler's answer.
+# Without it the parameter keeps its previous value and the (debug,...) below
+# prints 0.000000.
+grep -q "test_mcode_handler: M103 called — returning user result 42" "$LOG"
+grep -q " udr=42" "$LOG"
+# ...and again from the block after the call inside an o-word sub, which is
+# where a broken readahead drain would hand back a stale parameter.
+grep -q "sub-udr=42" "$LOG"
+echo "mcode_handler M103 user-defined result 42 reached the interpreter in #5399 (MDI and o-word sub)"

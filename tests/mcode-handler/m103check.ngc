@@ -1,0 +1,10 @@
+( Read an M-code handler's result back the way a real program does: from the )
+( block after the call, inside a subroutine, so the interpreter has to stop )
+( reading ahead at the M-code's INTERP_EXECUTE_FINISH, drain, and only then )
+( fetch #5399. The MDI-only case in test.sh cannot catch a broken drain, )
+( because each MDI line is its own interpreter invocation. )
+o<m103check> sub
+  M103
+  (debug, sub-udr=#5399)
+o<m103check> endsub
+m2

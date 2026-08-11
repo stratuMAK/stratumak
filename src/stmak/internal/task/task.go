@@ -502,6 +502,10 @@ type Task struct {
 	inputTimeout int32  // M66 wait: 0=none/cleared, 1=timed out, 2=waiting
 	heartbeat    int32  // monotonic liveness counter, bumped each BuildStat
 
+	// Result of the most recently completed M100-M199 handler. The interpreter
+	// reads it back into #5399 — see setUserDefinedResult.
+	userDefinedResult float64
+
 	// One-entry decode memo for pinMotionState: consecutive naive-CAM flushed
 	// segments usually share the same modal tag, so cache the last decode and
 	// skip the cgo ActiveModesFromTag round-trip (once per G1 line otherwise).

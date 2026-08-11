@@ -56,6 +56,10 @@ registering through the `mcode_handler` GMI.
 "no handler for M1xx". `USER_M_PATH` is read by nothing — leftover lines in INI
 files are dead keys. Migrating means porting the script to a module.
 
+The result convention carries over: a handler returning 32–63 lands in `#5399`
+for the next block to read, the way the classic script's exit status did. 0 is
+plain success, −2 is "aborted", anything else faults the program.
+
 ### Python task and I/O plugins
 
 `EMC_EXEC_PLUGIN_CALL` / `EMC_IO_PLUGIN_CALL` have no equivalent. There is no
