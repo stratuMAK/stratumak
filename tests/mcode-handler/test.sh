@@ -46,5 +46,9 @@ for i in $(seq 100); do
     grep -q 'sub-udr=' server.log && break
     sleep 0.1
 done
+for i in $(seq 100); do
+    grep -q 'sub-udr=' server.log && break
+    sleep 0.1
+done
 
 exit 0
