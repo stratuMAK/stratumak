@@ -426,8 +426,17 @@ func (c *Canon) GetExternalOffsets() [9]float64 {
 	}
 }
 
+// GetUserDefinedResult returns what the M100-M199 handler that just ran
+// returned. The interpreter stores it into #5399 (rs274ngc_pre.cc read_inputs,
+// under user_defined_flag), which is how a G-code program reads a handler's
+// answer — the convention McodeCmd.Execute documents: 0 = plain success,
+// 32-63 = a user-defined result. read_inputs runs on the next read and asserts
+// the motion queue is empty first, so the handler has always completed and
+// stored its result by the time this is called.
 func (c *Canon) GetUserDefinedResult() (float64, error) {
-	return 0, nil
+	c.task.mu.Lock()
+	defer c.task.mu.Unlock()
+	return c.task.userDefinedResult, nil
 }
 func (c *Canon) GetExternalHalValue(name string) (float64, int32, error) {
 	val, found := hal.LookupValue(name)

@@ -2,9 +2,10 @@
  * test_mcode_handler.c — Test cmod for M-code handler API.
  *
  * Registers a handler for M101 that logs to stderr and returns success
- * (verifies the mcode_handler_api works end-to-end), and a handler for
+ * (verifies the mcode_handler_api works end-to-end), a handler for
  * M102 that deliberately fails (drives the milltask EMC_TASK_EXEC_ERROR
- * fault path — tests/abort/seq-fault-recovery).
+ * fault path — tests/abort/seq-fault-recovery), and a handler for M103 that
+ * returns a user-defined result the interpreter must surface in #5399.
  *
  * Load via INI: [STMAK] CMOD=test_mcode_handler
  *
@@ -52,6 +53,18 @@ static int my_m102_handler(const mcode_handler_mcode_call_t *call, void *user_da
     return 1;
 }
 
+/* Result in the 32-63 "user-defined result" band: the sequencer treats it as
+ * success and the interpreter must store it in #5399, so a G-code program can
+ * branch on what the handler answered. */
+#define TEST_MCODE_USER_RESULT 42
+
+static int my_m103_handler(const mcode_handler_mcode_call_t *call, void *user_data)
+{
+    fprintf(stderr, "test_mcode_handler: M%d called — returning user result %d\n",
+            call->mcode, TEST_MCODE_USER_RESULT);
+    return TEST_MCODE_USER_RESULT;
+}
+
 static int test_mcode_start(cmod_t *self)
 {
     test_mcode_module *m = (test_mcode_module *)self->priv;
@@ -81,6 +94,13 @@ static int test_mcode_start(cmod_t *self)
     }
 
     fprintf(stderr, "test_mcode_handler: M102 failing handler registered\n");
+
+    if (mapi->register_handler(mapi->ctx, 103, my_m103_handler, NULL) != 0) {
+        fprintf(stderr, "test_mcode_handler: failed to register M103 handler\n");
+        return -1;
+    }
+
+    fprintf(stderr, "test_mcode_handler: M103 user-result handler registered\n");
     return 0;
 }
 
