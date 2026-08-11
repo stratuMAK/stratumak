@@ -187,8 +187,11 @@ func requireCModInstallPrivilege() {
 //
 // Parsing and code generation stay with the caller, privileged, on the same
 // grounds as the registry codegen: a .comp is data, and turning it into C runs
-// no part of it. Only gcc is dropped.
-func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []string) error {
+// no part of it. Only gcc is dropped — and, with it, pkg-config: the module's
+// declared dependencies travel unresolved (see encodeDeps) so that the tool
+// that reads .pc files off PKG_CONFIG_PATH runs on the same side of the drop
+// as the compiler that consumes its answer.
+func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []string, deps buildDeps) error {
 	uid, gid, who, err := buildIdentity()
 	if err != nil {
 		return err
@@ -252,6 +255,14 @@ func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []str
 		}
 		args = append(args, inc)
 	}
+	args = append(args, encodeDeps(deps)...)
+
+	// A declared `cflags "-I..."` travels verbatim to the far side of the
+	// privilege drop, where the build identity — deliberately locked out of
+	// user home directories — has to read it. When the mode bits say it
+	// cannot, say so here: the alternative is a bare "Permission denied" from
+	// gcc that names the header but not the mechanism.
+	warnUnreadableIncludes(deps.CFlags, uid, gid, who)
 
 	fmt.Fprintf(os.Stderr, "Compiling %s as %s...\n", soName, who)
 	if err := runAsBuildIdentity(uid, gid, args); err != nil {
@@ -299,6 +310,68 @@ func stageLocalHeaders(srcDir, dst string) error {
 	})
 }
 
+// warnUnreadableIncludes warns about every -I directory in cflags that the
+// build identity cannot reach, before the compile fails on it.
+func warnUnreadableIncludes(cflags []string, uid, gid int, who string) {
+	for _, f := range cflags {
+		dir := strings.TrimPrefix(f, "-I")
+		if dir == f || dir == "" {
+			continue
+		}
+		if buildIdentityCanReadDir(dir, uid, gid) {
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"modcompile: warning: %s is not readable by %s, which the compile runs as;\n"+
+				"  if the compile fails with a permission error, move the headers somewhere\n"+
+				"  world-readable, or compile in place with `modcompile --compile`\n",
+			dir, who)
+	}
+}
+
+// buildIdentityCanReadDir reports whether uid/gid (with no supplementary
+// groups, per buildIdentityCmd) can traverse to dir and read it, judged by
+// the mode bits of dir and every path component above it. Approximate on
+// purpose — an ACL can widen what the bits say — which is why the caller only
+// warns. A path that does not exist passes: the compiler's own error already
+// names it, and there is nothing to add.
+func buildIdentityCanReadDir(dir string, uid, gid int) bool {
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) {
+		return true // resolved inside the staged tree, which is handed over anyway
+	}
+	for p := dir; ; p = filepath.Dir(p) {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return true
+		}
+		// The include directory itself needs read+search; everything above it
+		// only search.
+		need := os.FileMode(0o1)
+		if p == dir {
+			need = 0o5
+		}
+		var granted os.FileMode
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		switch {
+		case !ok:
+			return true
+		case int(st.Uid) == uid:
+			granted = fi.Mode().Perm() >> 6
+		case int(st.Gid) == gid:
+			granted = fi.Mode().Perm() >> 3
+		default:
+			granted = fi.Mode().Perm()
+		}
+		if granted&need != need {
+			return false
+		}
+		if filepath.Dir(p) == p {
+			return true
+		}
+	}
+}
+
 // chownTree hands a whole staged tree to the build identity, which has to own
 // what it is about to compile into: the compiler writes its output beside the
 // sources.
@@ -341,12 +414,74 @@ func phaseMustNotBeRoot(phase string, euid int) error {
 		"this phase exists precisely so that the compiler does not", phase)
 }
 
+// depsMarkerPrefix introduces the module's declared build dependencies in the
+// re-exec argv, as "--deps=<npkgconfig>,<ncflags>,<nldflags>" followed by
+// exactly that many arguments in that order.
+//
+// Counted rather than delimited so that nothing a .comp can write is mistaken
+// for a separator: the lists carry author-supplied strings, and a sentinel
+// they could also spell would be a way to move an argument from one list to
+// another.
+const depsMarkerPrefix = "--deps="
+
+// encodeDeps renders deps as trailing arguments for the re-exec. Empty deps
+// add nothing, so an ordinary module's argv is byte-for-byte what it was.
+func encodeDeps(deps buildDeps) []string {
+	if deps.empty() {
+		return nil
+	}
+	out := []string{fmt.Sprintf("%s%d,%d,%d",
+		depsMarkerPrefix, len(deps.PkgConfig), len(deps.CFlags), len(deps.LDFlags))}
+	out = append(out, deps.PkgConfig...)
+	out = append(out, deps.CFlags...)
+	out = append(out, deps.LDFlags...)
+	return out
+}
+
+// decodeDeps splits the tail of the phase argv back into include paths and
+// build dependencies.
+func decodeDeps(args []string) (includes []string, deps buildDeps, err error) {
+	for i, a := range args {
+		if !strings.HasPrefix(a, depsMarkerPrefix) {
+			continue
+		}
+		// strconv.Atoi rather than Sscanf: the counts must be exactly three
+		// non-negative integers and nothing else — Sscanf would accept
+		// trailing garbage, and a negative count would turn the slicing below
+		// into a panic instead of this diagnostic.
+		fields := strings.Split(a[len(depsMarkerPrefix):], ",")
+		if len(fields) != 3 {
+			return nil, buildDeps{}, fmt.Errorf("malformed %s argument %q", depsMarkerPrefix, a)
+		}
+		var counts [3]int
+		for j, f := range fields {
+			n, aerr := strconv.Atoi(f)
+			if aerr != nil || n < 0 {
+				return nil, buildDeps{}, fmt.Errorf("malformed %s argument %q", depsMarkerPrefix, a)
+			}
+			counts[j] = n
+		}
+		npc, ncf, nld := counts[0], counts[1], counts[2]
+		rest := args[i+1:]
+		if len(rest) != npc+ncf+nld {
+			return nil, buildDeps{}, fmt.Errorf("%s says %d arguments follow, got %d",
+				a, npc+ncf+nld, len(rest))
+		}
+		deps.PkgConfig = rest[:npc]
+		deps.CFlags = rest[npc : npc+ncf]
+		deps.LDFlags = rest[npc+ncf:]
+		return args[:i], deps, nil
+	}
+	return args, buildDeps{}, nil
+}
+
 // cmdCompileCModPhase is the unprivileged half of a cmod install, reached only
 // through the re-exec above.
 func cmdCompileCModPhase(args []string) {
 	if len(args) < 3 {
 		fmt.Fprintln(os.Stderr,
-			"modcompile "+buildCModPhaseArg+": expected <c-file> <out-dir> <so-name> [-Idir...]")
+			"modcompile "+buildCModPhaseArg+": expected <c-file> <out-dir> <so-name> [-Idir...] "+
+				"["+depsMarkerPrefix+"n,n,n <deps...>]")
 		os.Exit(1)
 	}
 	cPath, outDir, soName := args[0], args[1], args[2]
@@ -356,7 +491,13 @@ func cmdCompileCModPhase(args []string) {
 		os.Exit(1)
 	}
 
-	if err := compileToSO(cPath, outDir, soName, args[3:]); err != nil {
+	includes, deps, err := decodeDeps(args[3:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile %s: %v\n", buildCModPhaseArg, err)
+		os.Exit(1)
+	}
+
+	if err := compileToSO(cPath, outDir, soName, includes, deps); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
 		os.Exit(1)
 	}
@@ -763,6 +904,18 @@ func buildIdentityCmd(uid, gid int, bin string, args ...string) *exec.Cmd {
 		"CGO_LDFLAGS=" + cgoLD,
 		"CC=" + resolveCC(),
 		"CXX=" + resolveCXX(),
+	}
+	// pkg-config runs on this side of the drop (see compileCModStaged), so the
+	// variables that steer it have to survive the re-exec: a vendor .pc named
+	// via PKG_CONFIG_PATH under sudo, or a cross build's PKG_CONFIG /
+	// _LIBDIR / _SYSROOT_DIR. Forwarded only when set, so the environment
+	// stays stated in full.
+	for _, k := range []string{
+		"PKG_CONFIG", "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "PKG_CONFIG_SYSROOT_DIR",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
 	}
 	// $STMAK_DIR is absent by construction, and must stay so: it would send the
 	// server build phase back to the pristine tree, silently dropping every

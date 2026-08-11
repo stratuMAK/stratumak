@@ -1825,6 +1825,13 @@ func (t *Task) runProgram(interp Interpreter, startLine int32, runDone chan stru
 	setActiveCanon(t.canon)
 	defer clearActiveCanon()
 
+	// A fresh run must not inherit the previous run's M1xx handler result: the
+	// interpreter stores it into #5399 whenever a user-defined M-code appears
+	// in the program — including one whose McodeCmd the run-from-line seek
+	// below discards, which would otherwise resurface a stale answer at the
+	// resume point.
+	t.setUserDefinedResult(0)
+
 	// Run-from-line: if startLine > 0, read/execute lines without enqueuing
 	// motion commands until we reach startLine (matching C milltask behavior).
 	if startLine > 0 {

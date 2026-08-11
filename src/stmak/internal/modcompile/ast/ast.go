@@ -9,7 +9,10 @@
 // pure functions (used by ST modules).
 package ast
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ---------------------------------------------------------------------------
 // Source positions
@@ -36,6 +39,11 @@ func (p Pos) String() string {
 // Package is the top-level compilation unit produced by a frontend.
 type Package struct {
 	Component Component
+
+	// Warnings are non-fatal frontend diagnostics for the CLI to print —
+	// a declaration that parses but does nothing, so it says so instead of
+	// being quietly dropped.
+	Warnings []string
 
 	// Future ST support: user-defined types, sub-modules, helpers.
 	Types     []TypeDef
@@ -89,6 +97,24 @@ type Component struct {
 	// non-matching target the backend emits a stub that refuses to load
 	// instead of the real module, so packaging still builds everywhere.
 	Archs []string
+
+	// External build dependencies, for a module that links something beyond
+	// the C library and libm.
+	//
+	// PkgConfig is the blessed route: modcompile asks pkg-config for the
+	// flags at compile time, which keeps the .comp declarative (a name, not a
+	// command), makes the dependency inspectable (modcompile --deps) and
+	// cross-compilable (PKG_CONFIG_PATH/_SYSROOT_DIR/_LIBDIR apply).
+	//
+	// CFlags/LDFlags are the escape hatch for a library with no .pc file.
+	// They are literal, split on whitespace, and never handed to a shell —
+	// `modcompile --install` runs as root, so a .comp must stay data rather
+	// than becoming a script.  When neither fits (llvm-config and friends),
+	// build the module from a Makefile with `modcompile --preprocess` plus
+	// --cflags/--ldflags: a Makefile is expected to run programs.
+	PkgConfig []PkgConfigDep
+	CFlags    []string
+	LDFlags   []string
 
 	// VerbatimC holds the raw C code from after the ";;" separator
 	// in .comp files.  Empty for ST modules.
@@ -278,10 +304,29 @@ type Variable struct {
 // Modparam represents a module parameter (becomes argv parsing in cmod).
 type Modparam struct {
 	Pos     Pos
-	Type    string // "int" or "dummy"
+	Type    string // "int", "float", "string" or "dummy"
 	Name    string
 	Default string
 	Doc     string
+}
+
+// PkgConfigDep is one external library named by its pkg-config module.
+type PkgConfigDep struct {
+	Pos Pos
+	// Spec is the module spec exactly as written, which is what pkg-config
+	// is handed: a bare name ("libcurl"), or a name with a version
+	// constraint ("libcurl >= 7.60.0").
+	Spec string
+}
+
+// Name returns the bare module name, without any version constraint — what
+// `modcompile --deps` prints and what a packager turns into a build
+// dependency.
+func (d PkgConfigDep) Name() string {
+	if i := strings.IndexAny(d.Spec, " \t<>=!"); i >= 0 {
+		return d.Spec[:i]
+	}
+	return d.Spec
 }
 
 // ---------------------------------------------------------------------------

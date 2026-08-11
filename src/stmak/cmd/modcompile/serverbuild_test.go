@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
@@ -356,5 +357,94 @@ func TestRegisteredModulesIsEmptyNotAnError(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("registeredModules() = %v, want none", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Build dependencies across the privilege drop
+// ---------------------------------------------------------------------------
+
+// The staged compile hands the module's declared dependencies to the
+// unprivileged half through argv. That encoding is counted rather than
+// delimited, because the lists carry strings the .comp author wrote: a
+// separator they could also spell would be a way to move an argument from one
+// list into another.
+func TestEncodeDecodeDepsRoundTrip(t *testing.T) {
+	includes := []string{"-I/usr/include/stratumak", "-I/stage/foo"}
+	deps := buildDeps{
+		PkgConfig: []string{"libcurl", "libfoo >= 1.2"},
+		CFlags:    []string{"-DA=1", "-I/opt/inc"},
+		LDFlags:   []string{"-L/opt/lib", "-lfoo"},
+	}
+
+	args := append(append([]string(nil), includes...), encodeDeps(deps)...)
+	gotInc, gotDeps, err := decodeDeps(args)
+	if err != nil {
+		t.Fatalf("decodeDeps: %v", err)
+	}
+	if !slices.Equal(gotInc, includes) {
+		t.Errorf("includes = %+v, want %+v", gotInc, includes)
+	}
+	if !slices.Equal(gotDeps.PkgConfig, deps.PkgConfig) {
+		t.Errorf("PkgConfig = %+v, want %+v", gotDeps.PkgConfig, deps.PkgConfig)
+	}
+	if !slices.Equal(gotDeps.CFlags, deps.CFlags) {
+		t.Errorf("CFlags = %+v, want %+v", gotDeps.CFlags, deps.CFlags)
+	}
+	if !slices.Equal(gotDeps.LDFlags, deps.LDFlags) {
+		t.Errorf("LDFlags = %+v, want %+v", gotDeps.LDFlags, deps.LDFlags)
+	}
+}
+
+// A flag that looks like the marker is data, not a separator: the counts say
+// where each list ends, so it lands in the list it was declared in.
+func TestDecodeDepsMarkerLookalikeIsData(t *testing.T) {
+	deps := buildDeps{CFlags: []string{"--deps=9,9,9"}, LDFlags: []string{"-lfoo"}}
+	_, got, err := decodeDeps(encodeDeps(deps))
+	if err != nil {
+		t.Fatalf("decodeDeps: %v", err)
+	}
+	if !slices.Equal(got.CFlags, deps.CFlags) || !slices.Equal(got.LDFlags, deps.LDFlags) {
+		t.Errorf("got CFlags=%+v LDFlags=%+v, want %+v / %+v",
+			got.CFlags, got.LDFlags, deps.CFlags, deps.LDFlags)
+	}
+}
+
+// A module with no declarations must add nothing to the argv, so an ordinary
+// install is byte-for-byte the command it was before this existed.
+func TestEncodeDepsEmptyAddsNothing(t *testing.T) {
+	if got := encodeDeps(buildDeps{}); got != nil {
+		t.Errorf("encodeDeps(empty) = %+v, want nil", got)
+	}
+	inc := []string{"-I/a", "-I/b"}
+	gotInc, gotDeps, err := decodeDeps(inc)
+	if err != nil {
+		t.Fatalf("decodeDeps: %v", err)
+	}
+	if !slices.Equal(gotInc, inc) || !gotDeps.empty() {
+		t.Errorf("got %+v / %+v, want %+v / empty", gotInc, gotDeps, inc)
+	}
+}
+
+func TestDecodeDepsRejectsShortTail(t *testing.T) {
+	if _, _, err := decodeDeps([]string{"--deps=2,0,0", "libcurl"}); err == nil {
+		t.Fatal("expected an error when fewer arguments follow than the count promises")
+	}
+}
+
+// Input validation must answer bad counts with its own diagnostic, never a
+// panic: a negative count used to pass the length check (-1+2+0 == 1) and
+// blow up in the slicing, and Sscanf quietly ignored trailing garbage.
+func TestDecodeDepsRejectsMalformedCounts(t *testing.T) {
+	for _, arg := range []string{
+		"--deps=-1,2,0",
+		"--deps=1,0,0junk",
+		"--deps=1,0",
+		"--deps=1,0,0,0",
+		"--deps=a,b,c",
+	} {
+		if _, _, err := decodeDeps([]string{arg, "x"}); err == nil {
+			t.Errorf("decodeDeps(%q): expected a malformed-argument error", arg)
+		}
 	}
 }

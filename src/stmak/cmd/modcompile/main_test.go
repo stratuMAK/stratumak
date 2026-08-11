@@ -516,3 +516,32 @@ func TestWriteGoDepsRemovesStale(t *testing.T) {
 		t.Errorf("stale go.deps survived (stat error: %v)", err)
 	}
 }
+
+// pkg-config escapes a space inside an install prefix with a backslash;
+// splitting its output on whitespace alone hands gcc a nonexistent include
+// dir and a stray input file.
+func TestSplitPkgConfigOutput(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{"-I/usr/include -lfoo\n", []string{"-I/usr/include", "-lfoo"}},
+		{`-I/opt/Vendor\ SDK/include -L/opt/Vendor\ SDK/lib -lvendor`,
+			[]string{"-I/opt/Vendor SDK/include", "-L/opt/Vendor SDK/lib", "-lvendor"}},
+		{"", nil},
+		{"  \n\t ", nil},
+		// A backslash before anything but a space is an ordinary character.
+		{`-DPATH=a\b`, []string{`-DPATH=a\b`}},
+	} {
+		got := splitPkgConfigOutput(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("splitPkgConfigOutput(%q) = %+v, want %+v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("splitPkgConfigOutput(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
