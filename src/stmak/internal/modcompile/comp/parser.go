@@ -170,6 +170,12 @@ func (p *parser) parseDeclaration() error {
 		return p.parseModparam()
 	case "include":
 		return p.parseInclude()
+	case "pkgconfig":
+		return p.parsePkgConfig()
+	case "cflags":
+		return p.parseBuildFlags("cflags", &p.pkg.Component.CFlags)
+	case "ldflags":
+		return p.parseBuildFlags("ldflags", &p.pkg.Component.LDFlags)
 	case "description":
 		return p.parseDocField(&p.pkg.Component.Description)
 	case "license":
@@ -411,19 +417,34 @@ func (p *parser) parseVariable() error {
 // Option: "option" NAME OptValue ";"
 // ---------------------------------------------------------------------------
 
+// knownOptions are the options the backends actually consult.  Anything else
+// is rejected: an option that parses but is never read is worse than a syntax
+// error, because it fails at load time (or not at all) instead of at compile
+// time, with nothing pointing back at the line that caused it.
+var knownOptions = map[string]bool{
+	"userspace":     true,
+	"extra_setup":   true,
+	"extra_cleanup": true,
+	"data":          true,
+}
+
+// ignoredOptions are classic halcompile options that a .comp may still carry
+// and that mean nothing here.  Accepted so existing components keep building,
+// but each one warns — the whole point of the whitelist is that a declaration
+// never silently does nothing.
+var ignoredOptions = map[string]string{
+	"fp":                  "floating point is a per-function flag on stratuMAK: `function <name> fp;` / `nofp`",
+	"personality":         "personality is inferred from the pins that use it; the option is not needed",
+	"default_personality": "not implemented; pass personality=N on the load line instead",
+}
+
 func (p *parser) parseOption() error {
+	pos := p.cur.Pos
 	p.next() // skip "option"
 
 	name, err := p.expectName()
 	if err != nil {
 		return err
-	}
-
-	// Reject unsupported legacy options.
-	// cmod/gomod is always multi-instance; use multiple 'load' commands instead.
-	if name == "singleton" {
-		return fmt.Errorf("%s: 'option singleton' is not supported in cmod/gomod; "+
-			"use multiple 'load' commands instead (each creates a separate instance)", p.file)
 	}
 
 	val := p.parseOptValue()
@@ -432,8 +453,49 @@ func (p *parser) parseOption() error {
 		return err
 	}
 
+	switch {
+	case knownOptions[name]:
+		// fall through
+
+	// Reject unsupported legacy options.
+	// cmod/gomod is always multi-instance; use multiple 'load' commands instead.
+	case name == "singleton":
+		return fmt.Errorf("%s: 'option singleton' is not supported in cmod/gomod; "+
+			"use multiple 'load' commands instead (each creates a separate instance)", p.file)
+
+	// These two are documented in the classic comp manual and used to be
+	// silently dropped here, which cost the author a mystery undefined symbol
+	// at load time.  Name the replacement.
+	case name == "extra_compile_args":
+		return fmt.Errorf("%s: 'option extra_compile_args' is not supported; use `cflags \"...\";` "+
+			"(or `pkgconfig <module>;` for a pkg-config library)", pos)
+	case name == "extra_link_args":
+		return fmt.Errorf("%s: 'option extra_link_args' is not supported; use `ldflags \"...\";` "+
+			"(or `pkgconfig <module>;` for a pkg-config library)", pos)
+
+	default:
+		if why, ok := ignoredOptions[name]; ok {
+			p.pkg.Warnings = append(p.pkg.Warnings,
+				fmt.Sprintf("%s: 'option %s' is ignored — %s", pos, name, why))
+			break
+		}
+		return fmt.Errorf("%s: unknown option %q; supported: %s",
+			pos, name, knownOptionList())
+	}
+
 	p.pkg.Component.Options[name] = val
 	return nil
+}
+
+// knownOptionList returns the sorted set of accepted option names for error
+// messages.
+func knownOptionList() string {
+	names := make([]string, 0, len(knownOptions))
+	for n := range knownOptions {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +576,94 @@ func (p *parser) parseInclude() error {
 	}
 
 	p.pkg.Component.Includes = append(p.pkg.Component.Includes, header)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// External build dependencies:
+//
+//	"pkgconfig" (NAME | STRING)+ ";"
+//	"cflags"  STRING ";"
+//	"ldflags" STRING ";"
+//
+// ---------------------------------------------------------------------------
+
+// parsePkgConfig parses a pkgconfig declaration naming one or more external
+// libraries by pkg-config module.  A bare name covers the usual case
+// (`pkgconfig libcurl;`, and the scanner's ident rule already admits '-' and
+// '.', so `libusb-1.0` needs no quoting); a version constraint has to be
+// quoted because of the operator (`pkgconfig "libcurl >= 7.60.0";`).
+func (p *parser) parsePkgConfig() error {
+	pos := p.cur.Pos
+	p.next() // skip "pkgconfig"
+
+	var specs []ast.PkgConfigDep
+	for p.cur.Kind == TokIdent || p.cur.Kind == TokString || p.cur.Kind == TokTString {
+		spec := p.cur.Val
+		if p.cur.Kind != TokIdent {
+			spec = strings.TrimSpace(spec)
+			if spec == "" {
+				return p.errorf("empty pkgconfig module spec")
+			}
+		}
+		specs = append(specs, ast.PkgConfigDep{Pos: p.cur.Pos, Spec: spec})
+		p.next()
+	}
+	if len(specs) == 0 {
+		return p.errorf("expected at least one pkg-config module name after 'pkgconfig'")
+	}
+	// A version constraint written unquoted lands here as a stray operator.
+	// Say so, rather than leaving the author with "expected ;".
+	if p.cur.Kind != TokSemi {
+		return fmt.Errorf("%s: pkgconfig: unexpected %s (%q); a version constraint must be "+
+			"quoted, e.g. pkgconfig \"%s >= 1.2.3\";",
+			pos, p.cur.Kind, p.cur.Val, specs[len(specs)-1].Name())
+	}
+	if err := p.expectSemi(); err != nil {
+		return err
+	}
+
+	p.pkg.Component.PkgConfig = append(p.pkg.Component.PkgConfig, specs...)
+	return nil
+}
+
+// parseBuildFlags parses a cflags/ldflags declaration.  The value is a literal
+// string, split on whitespace and passed to the compiler as separate
+// arguments — there is deliberately no shell, no $(...) and no variable
+// expansion: `modcompile --install` runs as root, so a .comp stays data.
+func (p *parser) parseBuildFlags(kw string, dst *[]string) error {
+	pos := p.cur.Pos
+	p.next() // skip the keyword
+
+	if p.cur.Kind != TokString && p.cur.Kind != TokTString {
+		return fmt.Errorf("%s: %s takes a quoted string, e.g. %s \"-I/opt/vendor/include\";",
+			pos, kw, kw)
+	}
+	val := p.cur.Val
+	p.next()
+
+	if err := p.expectSemi(); err != nil {
+		return err
+	}
+
+	fields := strings.Fields(val)
+	if len(fields) == 0 {
+		return fmt.Errorf("%s: empty %s string", pos, kw)
+	}
+	for _, f := range fields {
+		// $(...) / $VAR would need a shell to mean anything, and running one
+		// here would execute the .comp's own text as root under
+		// `sudo modcompile --install`.  Refuse loudly instead of passing the
+		// literal through to the compiler, where it fails obscurely.
+		if strings.ContainsAny(f, "$`") {
+			return fmt.Errorf("%s: %s: %q — command and variable substitution are not "+
+				"supported here (a .comp is not a shell script). Use `pkgconfig <module>;` "+
+				"for a pkg-config library, or build the module from a Makefile with "+
+				"`modcompile --preprocess` plus --cflags/--ldflags",
+				pos, kw, f)
+		}
+		*dst = append(*dst, f)
+	}
 	return nil
 }
 

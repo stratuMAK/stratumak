@@ -286,28 +286,7 @@ r"\fIexample\fB"
 
 === Options
 
-The currently defined options are:
-
-* 'option singleton yes' - (default: no)
-  Do not create a 'count' module parameter, and always create a single instance.
-  With 'singleton', items are named 'component-name.item-name' and without 'singleton', items for numbered instances are named 'component-name.<num>.item-name'.
-* 'option default_count number' - (default: 1)
-  Normally, the module parameter 'count' defaults to 1. If specified, the 'count' will default to this value instead.
-* 'option count_function yes' - (default: no)
-  Normally, the number of instances to create is specified in the module parameter 'count';
-  if 'count_function' is specified, the value returned by the function 'int get_count(void)' is used instead, and the 'count' module parameter is not defined.
-* 'option rtapi_app no' - (default: yes)
-  Normally, the functions `rtapi_app_main()` and `rtapi_app_exit()` are automatically defined.
-  With 'option rtapi_app no', they are not, and must be provided in the C code.
-  Use the following prototypes:
-+
-----
-`int rtapi_app_main(void);`
-
-`void rtapi_app_exit(void);`
-----
-+
-When implementing your own `rtapi_app_main()`, call the function `int export(char *prefix, long extra_arg)` to register the pins, parameters, and functions for `prefix`.
+'modcompile' acts on these options:
 
 * 'option data TYPE' - (default: none) *deprecated* +
   If specified, each instance of the component will have an associated data block of type 'TYPE' (which can be a simple type like 'float' or the name of a type created with 'typedef').
@@ -315,47 +294,75 @@ When implementing your own `rtapi_app_main()`, call the function `int export(cha
 
 * 'option extra_setup yes' - (default: no) +
   If specified, call the function defined by 'EXTRA_SETUP' for each instance.
-  If using the automatically defined 'rtapi_app_main', 'extra_arg' is the number of this instance.
 
 * 'option extra_cleanup yes' - (default: no) +
-  If specified, call the function defined by 'EXTRA_CLEANUP' from the automatically defined 'rtapi_app_exit' or,
-  in case of a detected error, in the automatically defined 'rtapi_app_main'.
+  If specified, call the function defined by 'EXTRA_CLEANUP' when the instance is destroyed.
 
 * 'option userspace yes' - (default: no) +
-  If specified, this file describes a non-realtime (formerly known as "userspace") component, rather than a regular (i.e., realtime) one.
+  If specified, this file describes a non-realtime component rather than a realtime one.
   A non-realtime component may not have functions defined by the 'function' directive.
-  Instead, after all the instances are constructed, the C function `void user_mainloop(void);` is called.
-  When this function returns, the component exits.
-  Typically, 'user_mainloop()' will use 'FOR_ALL_INSTS()' to perform the update action for each instance, then sleep for a short time.
-  Another common action in 'user_mainloop()' may be to call the event handler loop of a GUI toolkit.
 
-* 'option userinit yes' - (default: no) +
-  This option is ignored if the option 'userspace' (see above) is set to 'no'.
-  If 'userinit' is specified, the function 'userinit(argc,argv)' is called before 'rtapi_app_main()' (and thus before the call to 'hal_init()' ).
-  This function may process the commandline arguments or take other actions.
-  Its return type is 'void'; it may call 'exit()' if it wishes to terminate rather than create a HAL component (e.g., because the commandline arguments were invalid).
+If an option's VALUE is not specified, then it is equivalent to specifying 'option … yes'.
 
-* 'option extra_link_args "..."' - (default: "")
-   This option is ignored if the option 'userspace' (see above) is set to 'no'.
-   When linking a non-realtime component, the arguments given are inserted in the link line.
-   Note that because compilation takes place in a temporary directory,
-   "-L." refers to the temporary directory and not the directory where the .comp source file resides.
-   NOTE: 'modcompile' does not act on this option; use `modcompile --ldflags` from your own Makefile instead.
+Any other option is an error, and 'modcompile' says so with the line that
+caused it. An option that parsed but did nothing used to be accepted silently,
+which moved the failure to load time — or to no time at all.
 
-* 'option extra_compile_args "..."' - (default: "")
-   This option is ignored if the option 'userspace' (see above) is set to 'no'.
-   When compiling a non-realtime component, the arguments given are inserted in the compiler command line.
-   NOTE: 'modcompile' does not act on this option; use `modcompile --cflags` from your own Makefile instead.
+Three options from classic 'halcompile' are still accepted so that existing
+components keep building, but each one warns that it does nothing:
+'option fp' (floating point is a per-function flag: `function <name> fp;` /
+`nofp`), 'option personality' (inferred from the pins that use it) and
+'option default_personality' (pass `personality=N` on the 'load' line instead).
 
-* 'option homemod yes' - (default: no) +
-  Module is a custom Homing module loaded using `[EMCMOT]HOMEMOD=`__modulename__ .
+'option singleton' is rejected outright: cmod and gomod are always
+multi-instance, and a second instance is a second 'load' command.
 
-* 'option tpmod yes' - (default: no) +
-  Module is a custom Trajectory Planning (tp) module loaded using `[TRAJ]TPMOD=`__modulename__ .
+[[sec:comp-external-libraries]]
+=== External libraries
 
-If an option's VALUE is not specified, then it is equivalent to specifying 'option … yes'. +
-The result of assigning an inappropriate value to an option is undefined. +
-The result of using any other option is undefined. +
+A component that links something beyond the C library and libm declares it.
+'modcompile' then compiles and links it directly — no external Makefile:
+
+[source,c]
+----
+pkgconfig libcurl;                   // a pkg-config library
+pkgconfig "libcurl >= 7.60.0";       // ...with a version constraint
+pkgconfig libusb-1.0 zlib;           // several at once
+
+cflags  "-DVENDOR_SDK -I/opt/vendor/include";   // a library with no .pc file
+ldflags "-L/opt/vendor/lib -lvendor";
+----
+
+'pkgconfig' is the route to prefer. A bare name needs no quotes (the scanner
+accepts '-' and '.', so 'libusb-1.0' is one name); a version constraint has to
+be quoted, because of the operator. The flags are resolved by
+`$PKG_CONFIG` — 'pkg-config' unless the environment says otherwise — so
+'PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR' and 'PKG_CONFIG_SYSROOT_DIR' apply as
+they do to any other build, which is what makes a cross build work. Declaring
+the dependency also makes it readable: `modcompile --deps foo.comp` prints the
+module names, one per line, for a packager to turn into build dependencies.
+
+'cflags' and 'ldflags' are the escape hatch for a library with no '.pc' file.
+Their value is a literal string, split on whitespace and handed to the
+compiler as separate arguments. There is deliberately no shell: `$(...)`,
+backticks and `$VAR` are rejected rather than passed through, because
+`modcompile --install` runs as root and a '.comp' has to stay data rather than
+become a script.
+
+Placement is 'modcompile''s problem, not the author's: compile flags go after
+the built-in ones, so a module can override a default, and libraries go after
+the object that references them.
+
+When the flags can only come from running a program — 'llvm-config' and
+friends — build the module from a Makefile instead: `modcompile --preprocess`
+emits the C, and `modcompile --cflags` / `--ldflags` give you the rest. A
+Makefile is expected to run programs.
+
+NOTE: an external library belongs on a non-realtime entry point — a triggered
+or threaded function, or an M-code handler. Calling one from a cyclic realtime
+function is caught by the `-Wfunction-effects` realtime check
+(see 'RT_HARDENING_CHECKLIST.md'), which is the point at which a blocking call
+in the servo thread stops being your problem to notice.
 
 === License and Authorship
 
@@ -526,6 +533,12 @@ This component is a driver for a 'fictional' card called "out8", which has 8 pin
 There can be a varying number of such cards in the system, and they can be at various addresses.
 The pin is called 'out_' because 'out' is an identifier used in '<asm/io.h>'.
 It illustrates the use of 'EXTRA_SETUP' and 'EXTRA_CLEANUP' to request an I/O region and then free it in case of error or when the module is unloaded.
+
+NOTE: this example is carried over from classic 'halcompile' and has not been
+ported. 'option count_function' and 'option constructable' do not exist in
+'modcompile' and are rejected, the instance count comes from the names on the
+'load' line instead, and 'EXTRA_SETUP' takes no 'extra_arg'. It is kept for the
+shape of 'EXTRA_SETUP'/'EXTRA_CLEANUP', not as something to copy.
 
 [source,c]
 ----

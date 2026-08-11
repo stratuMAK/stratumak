@@ -12,7 +12,6 @@ pin in float tolerance = 0.5  "The tolerance in degrees for considering the alig
 variable int   last_enable = 0;
 variable int    debounce = 0; // to prevent the in-position triggering with the spindle moving
 
-option fp yes;
 
 function _ "Update \\fBcommand\\fR based on \\fBenable\\fR, \\fBposition\\fR, \\fBmode\\fR and \\fBangle\\fR.";
 author "Michael Haberler";

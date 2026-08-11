@@ -187,8 +187,11 @@ func requireCModInstallPrivilege() {
 //
 // Parsing and code generation stay with the caller, privileged, on the same
 // grounds as the registry codegen: a .comp is data, and turning it into C runs
-// no part of it. Only gcc is dropped.
-func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []string) error {
+// no part of it. Only gcc is dropped — and, with it, pkg-config: the module's
+// declared dependencies travel unresolved (see encodeDeps) so that the tool
+// that reads .pc files off PKG_CONFIG_PATH runs on the same side of the drop
+// as the compiler that consumes its answer.
+func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []string, deps buildDeps) error {
 	uid, gid, who, err := buildIdentity()
 	if err != nil {
 		return err
@@ -252,6 +255,7 @@ func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []str
 		}
 		args = append(args, inc)
 	}
+	args = append(args, encodeDeps(deps)...)
 
 	fmt.Fprintf(os.Stderr, "Compiling %s as %s...\n", soName, who)
 	if err := runAsBuildIdentity(uid, gid, args); err != nil {
@@ -341,12 +345,61 @@ func phaseMustNotBeRoot(phase string, euid int) error {
 		"this phase exists precisely so that the compiler does not", phase)
 }
 
+// depsMarkerPrefix introduces the module's declared build dependencies in the
+// re-exec argv, as "--deps=<npkgconfig>,<ncflags>,<nldflags>" followed by
+// exactly that many arguments in that order.
+//
+// Counted rather than delimited so that nothing a .comp can write is mistaken
+// for a separator: the lists carry author-supplied strings, and a sentinel
+// they could also spell would be a way to move an argument from one list to
+// another.
+const depsMarkerPrefix = "--deps="
+
+// encodeDeps renders deps as trailing arguments for the re-exec. Empty deps
+// add nothing, so an ordinary module's argv is byte-for-byte what it was.
+func encodeDeps(deps buildDeps) []string {
+	if deps.empty() {
+		return nil
+	}
+	out := []string{fmt.Sprintf("%s%d,%d,%d",
+		depsMarkerPrefix, len(deps.PkgConfig), len(deps.CFlags), len(deps.LDFlags))}
+	out = append(out, deps.PkgConfig...)
+	out = append(out, deps.CFlags...)
+	out = append(out, deps.LDFlags...)
+	return out
+}
+
+// decodeDeps splits the tail of the phase argv back into include paths and
+// build dependencies.
+func decodeDeps(args []string) (includes []string, deps buildDeps, err error) {
+	for i, a := range args {
+		if !strings.HasPrefix(a, depsMarkerPrefix) {
+			continue
+		}
+		var npc, ncf, nld int
+		if _, serr := fmt.Sscanf(a[len(depsMarkerPrefix):], "%d,%d,%d", &npc, &ncf, &nld); serr != nil {
+			return nil, buildDeps{}, fmt.Errorf("malformed %s argument %q", depsMarkerPrefix, a)
+		}
+		rest := args[i+1:]
+		if len(rest) != npc+ncf+nld {
+			return nil, buildDeps{}, fmt.Errorf("%s says %d arguments follow, got %d",
+				a, npc+ncf+nld, len(rest))
+		}
+		deps.PkgConfig = rest[:npc]
+		deps.CFlags = rest[npc : npc+ncf]
+		deps.LDFlags = rest[npc+ncf:]
+		return args[:i], deps, nil
+	}
+	return args, buildDeps{}, nil
+}
+
 // cmdCompileCModPhase is the unprivileged half of a cmod install, reached only
 // through the re-exec above.
 func cmdCompileCModPhase(args []string) {
 	if len(args) < 3 {
 		fmt.Fprintln(os.Stderr,
-			"modcompile "+buildCModPhaseArg+": expected <c-file> <out-dir> <so-name> [-Idir...]")
+			"modcompile "+buildCModPhaseArg+": expected <c-file> <out-dir> <so-name> [-Idir...] "+
+				"["+depsMarkerPrefix+"n,n,n <deps...>]")
 		os.Exit(1)
 	}
 	cPath, outDir, soName := args[0], args[1], args[2]
@@ -356,7 +409,13 @@ func cmdCompileCModPhase(args []string) {
 		os.Exit(1)
 	}
 
-	if err := compileToSO(cPath, outDir, soName, args[3:]); err != nil {
+	includes, deps, err := decodeDeps(args[3:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "modcompile %s: %v\n", buildCModPhaseArg, err)
+		os.Exit(1)
+	}
+
+	if err := compileToSO(cPath, outDir, soName, includes, deps); err != nil {
 		fmt.Fprintf(os.Stderr, "modcompile: %v\n", err)
 		os.Exit(1)
 	}

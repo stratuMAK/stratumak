@@ -16,6 +16,7 @@
 //	--view-doc       Generate and display man page.
 //	--compile        Compile to .so in the current directory.
 //	--install        Compile and install to EMC2_CMOD_DIR.
+//	--deps           List the module's pkg-config dependencies, one per line.
 //	-o FILE          Write output to FILE (for --preprocess, --document).
 //
 // Package registry commands:
@@ -39,6 +40,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -75,7 +77,18 @@ Compile options (.comp):
     --view-doc       Generate and display man page in terminal
     --compile        Compile .comp to .so in the current directory
     --install        Compile .comp and install to cmod directory
+    --deps           List the module's pkg-config dependencies, one per line
     -o FILE          Write output to FILE (for --preprocess, --document)
+
+External libraries (.comp declarations):
+    pkgconfig libcurl;                  link a pkg-config library
+    pkgconfig "libcurl >= 7.60.0";      ...with a version constraint
+    cflags  "-I/opt/vendor/include";    literal flags, for a library with
+    ldflags "-L/opt/vendor/lib -lfoo";  no .pc file
+    $PKG_CONFIG overrides the pkg-config command; PKG_CONFIG_PATH and
+    friends apply as usual. There is no shell: no $(...), no variables.
+    For flags only a program can produce, build the module from a Makefile
+    with --preprocess plus --cflags/--ldflags.
 
 GMI code generation (.gmi):
     modcompile gmi --parse file.gmi
@@ -326,6 +339,7 @@ func main() {
 		"--view-doc":   true,
 		"--compile":    true,
 		"--install":    true,
+		"--deps":       true,
 	}
 
 	args := os.Args[1:]
@@ -449,11 +463,27 @@ func processFile(path, mode, outputFile string) error {
 		return fmt.Errorf("%s: component name %q does not match file name (expected %q)", path, pkg.Component.Name, base)
 	}
 
+	// A declaration that parses but does nothing gets said out loud. Printed
+	// before the mode runs, so it precedes any compiler output it might
+	// explain.
+	for _, w := range pkg.Warnings {
+		fmt.Fprintf(os.Stderr, "modcompile: warning: %s\n", w)
+	}
+
 	switch mode {
 	case "--parse":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(pkg)
+
+	case "--deps":
+		// One pkg-config module name per line, no version constraints: this is
+		// for a packager turning a module's declarations into build
+		// dependencies, and nothing else is machine-readable from here.
+		for _, d := range pkg.Component.PkgConfig {
+			fmt.Println(d.Name())
+		}
+		return nil
 
 	case "--preprocess":
 		if outputFile == "" {
@@ -556,11 +586,72 @@ func linuxcncIncludeDir() string {
 	return filepath.Join(config.EMC2Home, "include", "stratumak")
 }
 
+// buildDeps carries a module's declared external build dependencies from its
+// .comp (pkgconfig / cflags / ldflags) down to the compile.
+//
+// The pkg-config module specs travel unresolved so that pkg-config runs at the
+// same point the compiler does — in particular on the far side of the
+// privilege drop, where `sudo modcompile --install` puts gcc.
+type buildDeps struct {
+	PkgConfig []string // module specs, e.g. "libcurl" or "libcurl >= 7.60.0"
+	CFlags    []string // literal, already split
+	LDFlags   []string // literal, already split
+}
+
+func (d buildDeps) empty() bool {
+	return len(d.PkgConfig) == 0 && len(d.CFlags) == 0 && len(d.LDFlags) == 0
+}
+
+// depsFrom lifts the declarations out of a parsed component.
+func depsFrom(c *ast.Component) buildDeps {
+	d := buildDeps{CFlags: c.CFlags, LDFlags: c.LDFlags}
+	for _, p := range c.PkgConfig {
+		d.PkgConfig = append(d.PkgConfig, p.Spec)
+	}
+	return d
+}
+
+// resolvePkgConfig asks pkg-config what the named modules need. what is
+// "--cflags" or "--libs".
+//
+// $PKG_CONFIG wins over plain pkg-config, which is the hook a cross build
+// reaches for (alongside PKG_CONFIG_PATH / _LIBDIR / _SYSROOT_DIR, which the
+// tool reads itself) — the same reason resolveCC honours $CC.
+func resolvePkgConfig(specs []string, what string) ([]string, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	pc := strings.Fields(strings.TrimSpace(os.Getenv("PKG_CONFIG")))
+	if len(pc) == 0 {
+		pc = []string{"pkg-config"}
+	}
+
+	args := append([]string(nil), pc[1:]...)
+	args = append(args, "--print-errors", what)
+	args = append(args, specs...)
+
+	out, err := exec.Command(pc[0], args...).Output()
+	if err != nil {
+		detail := ""
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			detail = ": " + strings.TrimSpace(string(ee.Stderr))
+		} else if errors.Is(err, exec.ErrNotFound) {
+			detail = ": pkg-config is not installed"
+		}
+		return nil, fmt.Errorf("pkg-config %s %s failed%s\n"+
+			"the module declares `pkgconfig %s;` — install that library's development "+
+			"package, or point PKG_CONFIG_PATH at its .pc file",
+			what, strings.Join(specs, " "), detail, specs[0])
+	}
+	return strings.Fields(string(out)), nil
+}
+
 // compileToSO compiles a C source file to a shared object in outDir.
 // extraIncludes provides additional -I paths (e.g. for GMI API headers).
 // soName overrides the output .so base name (without extension); if empty,
 // it is derived from the cPath filename.
-func compileToSO(cPath string, outDir string, soName string, extraIncludes []string) error {
+func compileToSO(cPath string, outDir string, soName string, extraIncludes []string, deps buildDeps) error {
 	if soName == "" {
 		soName = strings.TrimSuffix(filepath.Base(cPath), ".c")
 	}
@@ -569,6 +660,15 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 	// Ensure output directory exists
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
+	}
+
+	pcCFlags, err := resolvePkgConfig(deps.PkgConfig, "--cflags")
+	if err != nil {
+		return err
+	}
+	pcLibs, err := resolvePkgConfig(deps.PkgConfig, "--libs")
+	if err != nil {
+		return err
 	}
 
 	// The compiler command may carry arguments (e.g. "gcc -m32").
@@ -591,11 +691,22 @@ func compileToSO(cPath string, outDir string, soName string, extraIncludes []str
 		// the Ubuntu CI runners' builtin default; -U first because Ubuntu's
 		// gcc predefines it.
 		"-U_FORTIFY_SOURCE", "-D_FORTIFY_SOURCE=3",
+	)
+	// The module's own compile flags go last of the flags, so a module can
+	// override a default above (later wins for -f/-W and friends).
+	args = append(args, pcCFlags...)
+	args = append(args, deps.CFlags...)
+	args = append(args,
 		"-shared",
 		"-o", soPath,
 		cPath,
-		"-lm",
 	)
+	// Libraries after the object that references them — the one ordering rule
+	// a module author should not have to know, which is why these are
+	// declarations rather than a string the author has to place.
+	args = append(args, deps.LDFlags...)
+	args = append(args, pcLibs...)
+	args = append(args, "-lm")
 
 	cmd := exec.Command(cc[0], args...)
 	cmd.Stdout = os.Stdout
@@ -653,7 +764,8 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 		gmiIncludes = append(gmiIncludes, "-I"+d)
 	}
 
-	return compileCMod(tmpCPath, filepath.Dir(compPath), outDir, pkg.Component.Name, gmiIncludes)
+	return compileCMod(tmpCPath, filepath.Dir(compPath), outDir, pkg.Component.Name, gmiIncludes,
+		depsFrom(&pkg.Component))
 }
 
 // compileCMod runs the C compiler over a cmod source and puts the .so in
@@ -666,18 +778,18 @@ func compileComp(compPath string, pkg *ast.Package, outDir string) error {
 // source with the same privileges and deserves the same treatment. A
 // run-in-place tree has no second identity, and an unprivileged caller is
 // already the answer, so both compile straight through.
-func compileCMod(cPath, srcDir, outDir, soName string, extraIncludes []string) error {
+func compileCMod(cPath, srcDir, outDir, soName string, extraIncludes []string, deps buildDeps) error {
 	if soName == "" {
 		soName = strings.TrimSuffix(filepath.Base(cPath), ".c")
 	}
 	if config.LocalCModDir() == "" || os.Geteuid() != 0 {
-		return compileToSO(cPath, outDir, soName, extraIncludes)
+		return compileToSO(cPath, outDir, soName, extraIncludes, deps)
 	}
 	// The staged path shares the build cache with every other privileged
 	// operation; two concurrent compiles would tear each other's staging.
 	// Idempotent, so an --install that already holds the lock is unaffected.
 	acquireBuildLock("--compile")
-	return compileCModStaged(cPath, srcDir, outDir, soName, extraIncludes)
+	return compileCModStaged(cPath, srcDir, outDir, soName, extraIncludes, deps)
 }
 
 // compileCFile compiles a hand-written cmod .c file directly to a .so.
@@ -687,8 +799,10 @@ func compileCFile(cPath string, outDir string) error {
 		return err
 	}
 	// Add the .c's own directory so a relative #include "local.h" resolves.
+	// A hand-written .c has no .comp to declare dependencies in; it belongs to
+	// a Makefile if it needs any.
 	dir := filepath.Dir(absCPath)
-	return compileCMod(absCPath, dir, outDir, "", []string{"-I" + dir})
+	return compileCMod(absCPath, dir, outDir, "", []string{"-I" + dir}, buildDeps{})
 }
 
 // cgoFlags returns the include and link flags a build of the stratuMAK Go packages

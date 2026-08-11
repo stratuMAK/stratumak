@@ -8,7 +8,6 @@ pin out bit out-##[32:personality];
 author "Andy Pugh";
 license "GPL2+";
 function _ nofp;
-option personality yes;
 ;;
 int i;
 for (i = 0; i < personality ; i++){

@@ -515,3 +515,159 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// ---------------------------------------------------------------------------
+// External build dependencies: pkgconfig / cflags / ldflags
+// ---------------------------------------------------------------------------
+
+const buildDepsPreamble = `component test "test";
+pin out bit x;
+function _;
+license "GPL";
+`
+
+func parseBuildDeps(t *testing.T, decls string) *ast.Package {
+	t.Helper()
+	pkg, err := Parse("test.comp", buildDepsPreamble+decls+"\n;;\n")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	return pkg
+}
+
+func TestParsePkgConfig(t *testing.T) {
+	// A bare name, several on one line, and a quoted version constraint. The
+	// scanner's ident rule already admits '-' and '.', so libusb-1.0 needs no
+	// quotes; the constraint does, because of the operator.
+	pkg := parseBuildDeps(t, `pkgconfig libcurl;
+pkgconfig libusb-1.0 zlib;
+pkgconfig "libfoo >= 1.2.3";`)
+
+	got := pkg.Component.PkgConfig
+	want := []string{"libcurl", "libusb-1.0", "zlib", "libfoo >= 1.2.3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d deps, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].Spec != w {
+			t.Errorf("dep %d = %q, want %q", i, got[i].Spec, w)
+		}
+	}
+	// Name() strips the constraint — that is what --deps prints.
+	if n := got[3].Name(); n != "libfoo" {
+		t.Errorf("Name() = %q, want %q", n, "libfoo")
+	}
+	if n := got[1].Name(); n != "libusb-1.0" {
+		t.Errorf("Name() = %q, want %q", n, "libusb-1.0")
+	}
+}
+
+func TestParsePkgConfigUnquotedConstraintRejected(t *testing.T) {
+	_, err := Parse("test.comp", buildDepsPreamble+"pkgconfig libcurl >= 7.60;\n;;\n")
+	if err == nil {
+		t.Fatal("expected error for an unquoted version constraint")
+	}
+	// The message has to name the fix, not just complain about the token.
+	if !strings.Contains(err.Error(), "must be") || !strings.Contains(err.Error(), "quoted") {
+		t.Errorf("error should say the constraint must be quoted: %v", err)
+	}
+}
+
+func TestParsePkgConfigEmptyRejected(t *testing.T) {
+	if _, err := Parse("test.comp", buildDepsPreamble+"pkgconfig;\n;;\n"); err == nil {
+		t.Fatal("expected error for a pkgconfig with no module")
+	}
+}
+
+func TestParseCFlagsLDFlags(t *testing.T) {
+	pkg := parseBuildDeps(t, `cflags "-DVENDOR -I/opt/vendor/include";
+ldflags "-L/opt/vendor/lib -lvendor";`)
+
+	if !equalStrings(pkg.Component.CFlags, []string{"-DVENDOR", "-I/opt/vendor/include"}) {
+		t.Errorf("CFlags = %+v", pkg.Component.CFlags)
+	}
+	if !equalStrings(pkg.Component.LDFlags, []string{"-L/opt/vendor/lib", "-lvendor"}) {
+		t.Errorf("LDFlags = %+v", pkg.Component.LDFlags)
+	}
+}
+
+// Shell substitution is refused rather than passed through: `modcompile
+// --install` runs as root, so a .comp must stay data, not become a script.
+func TestParseBuildFlagsRejectSubstitution(t *testing.T) {
+	for _, decl := range []string{
+		`cflags "$(pkg-config --cflags libcurl)";`,
+		`ldflags "$(pkg-config --libs libcurl)";`,
+		"ldflags \"-L`pwd`/lib\";",
+		`cflags "-I$HOME/include";`,
+	} {
+		_, err := Parse("test.comp", buildDepsPreamble+decl+"\n;;\n")
+		if err == nil {
+			t.Errorf("%s: expected rejection", decl)
+			continue
+		}
+		if !strings.Contains(err.Error(), "pkgconfig") {
+			t.Errorf("%s: error should point at pkgconfig: %v", decl, err)
+		}
+	}
+}
+
+func TestParseBuildFlagsRequireString(t *testing.T) {
+	if _, err := Parse("test.comp", buildDepsPreamble+"cflags -DFOO;\n;;\n"); err == nil {
+		t.Fatal("expected error for an unquoted cflags value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Option whitelist
+// ---------------------------------------------------------------------------
+
+// The classic manual documents these two; modcompile used to accept and drop
+// them, which cost the author an undefined symbol at load time instead of an
+// error at compile time.
+func TestParseLegacyBuildOptionsRejected(t *testing.T) {
+	for opt, want := range map[string]string{
+		"extra_compile_args": "cflags",
+		"extra_link_args":    "ldflags",
+	} {
+		src := buildDepsPreamble + "option " + opt + " \"-lcurl\";\n;;\n"
+		_, err := Parse("test.comp", src)
+		if err == nil {
+			t.Errorf("option %s: expected rejection", opt)
+			continue
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("option %s: error should name %q: %v", opt, want, err)
+		}
+	}
+}
+
+func TestParseUnknownOptionRejected(t *testing.T) {
+	_, err := Parse("test.comp", buildDepsPreamble+"option nosuchoption yes;\n;;\n")
+	if err == nil {
+		t.Fatal("expected error for an unknown option")
+	}
+	// The message lists what is accepted, so a typo is self-correcting.
+	if !strings.Contains(err.Error(), "extra_setup") {
+		t.Errorf("error should list the supported options: %v", err)
+	}
+}
+
+// Options that classic halcompile had and stratuMAK ignores stay accepted, so
+// existing components keep building — but they warn, because the point of the
+// whitelist is that no declaration silently does nothing.
+func TestParseIgnoredOptionsWarn(t *testing.T) {
+	for _, opt := range []string{"fp yes", "personality", "default_personality 32"} {
+		pkg, err := Parse("test.comp", buildDepsPreamble+"option "+opt+";\n;;\n")
+		if err != nil {
+			t.Errorf("option %s: unexpected error: %v", opt, err)
+			continue
+		}
+		if len(pkg.Warnings) != 1 {
+			t.Errorf("option %s: got %d warnings, want 1: %+v", opt, len(pkg.Warnings), pkg.Warnings)
+			continue
+		}
+		if !strings.Contains(pkg.Warnings[0], "ignored") {
+			t.Errorf("option %s: warning should say it is ignored: %q", opt, pkg.Warnings[0])
+		}
+	}
+}
