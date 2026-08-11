@@ -210,4 +210,20 @@ void lcec_rt_cleanup(lcec_rt_context_t *ctx);
 int lcec_rt_start(lcec_rt_context_t *ctx);
 void lcec_rt_stop(lcec_rt_context_t *ctx);
 
+/**
+ * @brief Walk the bus out of OP while the cyclic task is still running.
+ *
+ * Requests PREOP for every configured slave and waits, bounded, for them to
+ * leave OP.  Must be called while the RT thread still calls read_all/write_all:
+ * the master carries the state change out on those cycles, so this is the only
+ * window in which the bus can be brought down in an orderly way.
+ *
+ * A slave that is dropped from OP by the frames simply stopping sees its
+ * distributed-clock sync die with it — a servo drive reports that as a
+ * synchronisation fault and latches it.
+ *
+ * @param ctx  Per-instance context.
+ */
+void lcec_rt_bus_down(lcec_rt_context_t *ctx);
+
 #endif

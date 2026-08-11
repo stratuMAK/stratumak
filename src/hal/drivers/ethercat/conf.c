@@ -519,7 +519,18 @@ static int lcec_conf_start(cmod_t *self) {
 }
 
 static void lcec_conf_stop(cmod_t *self) {
-  // NOP
+  lcec_conf_module *m = (lcec_conf_module *)self->priv;
+
+  // Take the bus out of OP here, while the RT thread is still cycling: the
+  // master needs those cycles to perform the state change, and Stop() runs
+  // before the thread barrier.  Deactivating instead would tear the domain
+  // out from under functions that are still executing, which is why the
+  // deactivate stays in Destroy() below.
+  //
+  // Without this the frames simply stop while every slave is still in OP with
+  // its distributed clock armed, and a servo drive latches a synchronisation
+  // fault on the way down.
+  lcec_rt_bus_down(&m->rt_ctx);
 }
 
 static void lcec_conf_destroy(cmod_t *self) {

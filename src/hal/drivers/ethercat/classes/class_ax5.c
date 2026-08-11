@@ -45,6 +45,7 @@ static const lcec_pindesc_t slave_pins[] = {
   { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_class_ax5_chan_t, halted), "%s.%s.%s.%ssrv-halted" },
   { STMAK_HAL_BIT, STMAK_HAL_OUT, offsetof(lcec_class_ax5_chan_t, fault), "%s.%s.%s.%ssrv-fault" },
   { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, halt), "%s.%s.%s.%ssrv-halt" },
+  { STMAK_HAL_BIT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, err_reset), "%s.%s.%s.%ssrv-err-reset" },
   { STMAK_HAL_FLOAT, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, velo_cmd), "%s.%s.%s.%ssrv-velo-cmd" },
 
   { STMAK_HAL_U32, STMAK_HAL_IN, offsetof(lcec_class_ax5_chan_t, status), "%s.%s.%s.%ssrv-status" },
@@ -213,6 +214,24 @@ int lcec_class_ax5_init(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry
       return err;
     }
   }
+
+  // Asynchronous request used by the cyclic task to run the S-0-0099
+  // "reset class 1 diagnostic" procedure command.  A latched drive fault --
+  // a synchronisation error after the master went away, say -- survives a
+  // reconnect and a fresh trip to OP; only this clears it, short of cycling
+  // the drive's control voltage.
+  //
+  // A NULL request is not fatal: the pin still exists and asserting it simply
+  // reports that the drive cannot be reset this way, which is better than
+  // refusing to load the whole bus over an optional facility.
+  chan->err_reset_req = ecrt_slave_config_create_soe_request(
+      slave->config, index, LCEC_AX5_IDN_RESET_C1D, 2);
+  if (chan->err_reset_req == NULL) {
+    LCEC_ERR(master, "%s: failed to create the S-0-0099 fault-reset request; "
+        "%ssrv-err-reset will not work\n", slave->name, pfx);
+  }
+  chan->err_reset_state = lcecAx5ErrResetIdle;
+  chan->err_reset_last = 0;
 
   // init pins
   *(chan->drive_on) = 1;
@@ -394,4 +413,75 @@ void lcec_class_ax5_write(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan)
   EC_WRITE_S32(&pd[chan->vel_cmd_pdo_os], (int32_t)velo_cmd_raw);
 
   chan->toggle = !chan->toggle;
+
+  lcec_class_ax5_err_reset(slave, chan);
+}
+
+/**
+ * @brief Drive the S-0-0099 "reset class 1 diagnostic" procedure command.
+ *
+ * Called once per cycle from lcec_class_ax5_write().  A rising edge on
+ * `srv-err-reset` starts the two-phase procedure command; each phase is one
+ * asynchronous SoE transfer, so the state machine advances a step per cycle
+ * instead of blocking the servo thread on a mailbox round trip.
+ *
+ * The edge is sampled every cycle, so holding the pin high resets once rather
+ * than hammering the drive.
+ *
+ * @param slave  EtherCAT slave descriptor (for logging).
+ * @param chan   Per-channel data structure for this axis.
+ */
+void lcec_class_ax5_err_reset(struct lcec_slave *slave, lcec_class_ax5_chan_t *chan) {
+  lcec_master_t *master = slave->master;
+  int trigger;
+
+  trigger = *(chan->err_reset) && !chan->err_reset_last;
+  chan->err_reset_last = *(chan->err_reset);
+
+  if (chan->err_reset_req == NULL) {
+    if (trigger) {
+      LCEC_ERR(master, "%s: fault reset requested but no SoE request is available\n", slave->name);
+    }
+    return;
+  }
+
+  switch (chan->err_reset_state) {
+  case lcecAx5ErrResetIdle:
+    if (!trigger) {
+      return;
+    }
+    EC_WRITE_U16(ecrt_soe_request_data(chan->err_reset_req), LCEC_AX5_PROC_CMD_SET);
+    ecrt_soe_request_write(chan->err_reset_req);
+    chan->err_reset_state = lcecAx5ErrResetSet;
+    return;
+
+  case lcecAx5ErrResetSet:
+    switch (ecrt_soe_request_state(chan->err_reset_req)) {
+    case EC_REQUEST_BUSY:
+      return;
+    case EC_REQUEST_SUCCESS:
+      // Command accepted; cancel it so the drive will take the next one.
+      EC_WRITE_U16(ecrt_soe_request_data(chan->err_reset_req), LCEC_AX5_PROC_CMD_CLEAR);
+      ecrt_soe_request_write(chan->err_reset_req);
+      chan->err_reset_state = lcecAx5ErrResetClear;
+      return;
+    default:
+      LCEC_ERR(master, "%s: fault reset (S-0-0099) rejected by the drive\n", slave->name);
+      chan->err_reset_state = lcecAx5ErrResetIdle;
+      return;
+    }
+
+  case lcecAx5ErrResetClear:
+    if (ecrt_soe_request_state(chan->err_reset_req) == EC_REQUEST_BUSY) {
+      return;
+    }
+    // Whether or not the cancel was acknowledged there is nothing further to
+    // do; the drive's own fault pin reports whether the error actually went.
+    chan->err_reset_state = lcecAx5ErrResetIdle;
+    return;
+
+  default:
+    chan->err_reset_state = lcecAx5ErrResetIdle;
+    return;
+  }
 }
