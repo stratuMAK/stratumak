@@ -133,7 +133,9 @@ license "GPL";
 		t.Fatalf("Parse error: %v", err)
 	}
 	opts := pkg.Component.Options
-	if opts["extra_setup"] != "1" {
+	// A bare flag option normalizes to "yes" — the spelling docgen tests for,
+	// while cgen tests mere presence.
+	if opts["extra_setup"] != "yes" {
 		t.Errorf("extra_setup = %q", opts["extra_setup"])
 	}
 	if opts["data"] != "internal" {
@@ -668,6 +670,110 @@ func TestParseIgnoredOptionsWarn(t *testing.T) {
 		}
 		if !strings.Contains(pkg.Warnings[0], "ignored") {
 			t.Errorf("option %s: warning should say it is ignored: %q", opt, pkg.Warnings[0])
+		}
+		// Warned, and not stored: an option nothing reads must not surface in
+		// --parse output as if it did something.
+		if len(pkg.Component.Options) != 0 {
+			t.Errorf("option %s: stored despite being ignored: %+v", opt, pkg.Component.Options)
+		}
+	}
+}
+
+// Classic options with no counterpart here fail with a message that names
+// what happened to each, not the bare "unknown option" a typo gets: all of
+// these parsed silently on earlier releases, so the error is the migration
+// pointer.
+func TestParseUnsupportedClassicOptionsNamed(t *testing.T) {
+	for _, opt := range []string{
+		"count_function", "default_count 4", "constructable",
+		"rtapi_app no", "userinit", "homemod", "tpmod",
+	} {
+		_, err := Parse("test.comp", buildDepsPreamble+"option "+opt+";\n;;\n")
+		if err == nil {
+			t.Errorf("option %s: expected rejection", opt)
+			continue
+		}
+		if !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("option %s: error should say it is not supported: %v", opt, err)
+		}
+		if strings.Contains(err.Error(), "unknown option") {
+			t.Errorf("option %s: recognized classic option got the typo message: %v", opt, err)
+		}
+	}
+}
+
+// Flag options must mean what they say: cgen tests presence and docgen tests
+// "yes", so an unvalidated value would let `option userspace no;` silently
+// build a userspace component. Truthy spellings normalize to "yes", falsy
+// ones to absent, anything else is an error.
+func TestParseBoolOptionValues(t *testing.T) {
+	for _, val := range []string{"", " yes", " 1", " true"} {
+		pkg, err := Parse("test.comp", `component test "test";
+pin out bit x;
+license "GPL";
+option userspace`+val+";\n;;\n")
+		if err != nil {
+			t.Errorf("option userspace%s: unexpected error: %v", val, err)
+			continue
+		}
+		if got := pkg.Component.Options["userspace"]; got != "yes" {
+			t.Errorf("option userspace%s: stored as %q, want %q", val, got, "yes")
+		}
+	}
+	for _, val := range []string{" no", " 0", " false"} {
+		pkg, err := Parse("test.comp", buildDepsPreamble+"option userspace"+val+";\n;;\n")
+		if err != nil {
+			t.Errorf("option userspace%s: unexpected error: %v", val, err)
+			continue
+		}
+		if _, ok := pkg.Component.Options["userspace"]; ok {
+			t.Errorf("option userspace%s: the explicit default must not be stored", val)
+		}
+	}
+	if _, err := Parse("test.comp", buildDepsPreamble+"option extra_setup maybe;\n;;\n"); err == nil {
+		t.Error("expected rejection of a flag option with a non-boolean value")
+	}
+}
+
+// A data block needs a type; a bare `option data;` would send parseOptValue's
+// "1" default into the generated C as a type name.
+func TestParseDataOptionNeedsValue(t *testing.T) {
+	if _, err := Parse("test.comp", buildDepsPreamble+"option data;\n;;\n"); err == nil {
+		t.Error("expected rejection of 'option data' without a type")
+	}
+}
+
+// The linker's own dynamic string tokens are literals, not shell
+// substitution: -Wl,-rpath,$ORIGIN is the standard way a module locates a
+// vendor .so shipped beside it, and needs no shell to mean that.
+func TestParseBuildFlagsAllowLinkerTokens(t *testing.T) {
+	pkg := parseBuildDeps(t, `ldflags "-L/opt/vendor/lib -lvendor -Wl,-rpath,$ORIGIN";
+cflags "-DRPATH=${ORIGIN}/lib";`)
+	if !equalStrings(pkg.Component.LDFlags,
+		[]string{"-L/opt/vendor/lib", "-lvendor", "-Wl,-rpath,$ORIGIN"}) {
+		t.Errorf("LDFlags = %+v", pkg.Component.LDFlags)
+	}
+	// $ORIGINAL is a variable that merely starts like the token.
+	if _, err := Parse("test.comp", buildDepsPreamble+`ldflags "-Wl,-rpath,$ORIGINAL";`+"\n;;\n"); err == nil {
+		t.Error("expected rejection of $ORIGINAL (a variable, not the $ORIGIN token)")
+	}
+}
+
+// pkg-config's grammar takes comma lists, so a comma spec would compile — but
+// --deps prints one name per declaration and would silently drop the second
+// module from the dependency report.
+func TestParsePkgConfigCommaRejected(t *testing.T) {
+	for _, decl := range []string{
+		`pkgconfig "libcurl, zlib";`,
+		`pkgconfig "libcurl >= 7.60.0, zlib";`,
+	} {
+		_, err := Parse("test.comp", buildDepsPreamble+decl+"\n;;\n")
+		if err == nil {
+			t.Errorf("%s: expected rejection", decl)
+			continue
+		}
+		if !strings.Contains(err.Error(), "one module per spec") {
+			t.Errorf("%s: error should name the rule: %v", decl, err)
 		}
 	}
 }

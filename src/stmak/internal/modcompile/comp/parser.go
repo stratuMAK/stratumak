@@ -428,6 +428,17 @@ var knownOptions = map[string]bool{
 	"data":          true,
 }
 
+// boolOptions are the known options that are flags: a value, if present, must
+// spell yes or no.  Normalized here because the backends disagree on
+// truthiness (cgen tests presence, docgen tests == "yes"): a truthy value is
+// stored as "yes", a falsy one is not stored at all, and anything else is an
+// error instead of silently meaning yes.
+var boolOptions = map[string]bool{
+	"userspace":     true,
+	"extra_setup":   true,
+	"extra_cleanup": true,
+}
+
 // ignoredOptions are classic halcompile options that a .comp may still carry
 // and that mean nothing here.  Accepted so existing components keep building,
 // but each one warns — the whole point of the whitelist is that a declaration
@@ -436,6 +447,21 @@ var ignoredOptions = map[string]string{
 	"fp":                  "floating point is a per-function flag on stratuMAK: `function <name> fp;` / `nofp`",
 	"personality":         "personality is inferred from the pins that use it; the option is not needed",
 	"default_personality": "not implemented; pass personality=N on the load line instead",
+}
+
+// unsupportedOptions are classic halcompile options with no counterpart here.
+// Recognized by name so the error can say what happened to each, instead of
+// the bare "unknown option" a typo gets: every one of these parsed silently
+// on earlier releases, and a component carrying one deserves a pointer at the
+// migration rather than a dead end.
+var unsupportedOptions = map[string]string{
+	"count_function": "cmod/gomod is always multi-instance — every 'load' command creates instances, so there is no count to compute",
+	"default_count":  "cmod/gomod is always multi-instance — every 'load' command creates instances, so there is no count to default",
+	"constructable":  "cmod/gomod is always multi-instance — every 'load' command creates instances",
+	"rtapi_app":      "modcompile always generates the module entry points; put per-instance setup in EXTRA_SETUP (`option extra_setup;`)",
+	"userinit":       "put argv handling in EXTRA_SETUP (`option extra_setup;`), which receives argc/argv",
+	"homemod":        "custom homing modules are not built from a .comp",
+	"tpmod":          "custom trajectory-planning modules are not built from a .comp",
 }
 
 func (p *parser) parseOption() error {
@@ -455,13 +481,13 @@ func (p *parser) parseOption() error {
 
 	switch {
 	case knownOptions[name]:
-		// fall through
+		// Validated and stored below.
 
 	// Reject unsupported legacy options.
 	// cmod/gomod is always multi-instance; use multiple 'load' commands instead.
 	case name == "singleton":
 		return fmt.Errorf("%s: 'option singleton' is not supported in cmod/gomod; "+
-			"use multiple 'load' commands instead (each creates a separate instance)", p.file)
+			"use multiple 'load' commands instead (each creates a separate instance)", pos)
 
 	// These two are documented in the classic comp manual and used to be
 	// silently dropped here, which cost the author a mystery undefined symbol
@@ -475,12 +501,37 @@ func (p *parser) parseOption() error {
 
 	default:
 		if why, ok := ignoredOptions[name]; ok {
+			// Warned about, and deliberately not stored: an option nothing
+			// reads has no business surfacing in --parse output as if it did
+			// something.
 			p.pkg.Warnings = append(p.pkg.Warnings,
 				fmt.Sprintf("%s: 'option %s' is ignored — %s", pos, name, why))
-			break
+			return nil
+		}
+		if why, ok := unsupportedOptions[name]; ok {
+			return fmt.Errorf("%s: 'option %s' is not supported in cmod/gomod; %s",
+				pos, name, why)
 		}
 		return fmt.Errorf("%s: unknown option %q; supported: %s",
 			pos, name, knownOptionList())
+	}
+
+	if boolOptions[name] {
+		switch val {
+		case "1", "yes", "true":
+			val = "yes"
+		case "0", "no", "false":
+			// The explicit default.  Stored as absent, which is the shape the
+			// backends test for.
+			return nil
+		default:
+			return fmt.Errorf("%s: 'option %s' is a flag: expected yes or no, got %q",
+				pos, name, val)
+		}
+	} else if name == "data" && val == "1" {
+		// parseOptValue's bare-option default; a data block needs a C type.
+		return fmt.Errorf("%s: 'option data' needs a value: the C type of the "+
+			"per-instance data block", pos)
 	}
 
 	p.pkg.Component.Options[name] = val
@@ -606,6 +657,14 @@ func (p *parser) parsePkgConfig() error {
 				return p.errorf("empty pkgconfig module spec")
 			}
 		}
+		// pkg-config's own grammar takes comma-separated module lists, so a
+		// comma spec would compile — but each PkgConfigDep is one module to
+		// everything else here (`--deps` prints one name per declaration), so
+		// the second module would silently vanish from the dependency report.
+		if strings.Contains(spec, ",") {
+			return fmt.Errorf("%s: pkgconfig: %q — one module per spec; separate modules "+
+				"with spaces: pkgconfig libcurl zlib;", p.cur.Pos, spec)
+		}
 		specs = append(specs, ast.PkgConfigDep{Pos: p.cur.Pos, Spec: spec})
 		p.next()
 	}
@@ -651,11 +710,11 @@ func (p *parser) parseBuildFlags(kw string, dst *[]string) error {
 		return fmt.Errorf("%s: empty %s string", pos, kw)
 	}
 	for _, f := range fields {
-		// $(...) / $VAR would need a shell to mean anything, and running one
-		// here would execute the .comp's own text as root under
+		// $(...) / $VAR / `...` would need a shell to mean anything, and
+		// running one here would execute the .comp's own text as root under
 		// `sudo modcompile --install`.  Refuse loudly instead of passing the
 		// literal through to the compiler, where it fails obscurely.
-		if strings.ContainsAny(f, "$`") {
+		if hasShellSubstitution(f) {
 			return fmt.Errorf("%s: %s: %q — command and variable substitution are not "+
 				"supported here (a .comp is not a shell script). Use `pkgconfig <module>;` "+
 				"for a pkg-config library, or build the module from a Makefile with "+
@@ -665,6 +724,55 @@ func (p *parser) parseBuildFlags(kw string, dst *[]string) error {
 		*dst = append(*dst, f)
 	}
 	return nil
+}
+
+// linkerDollarTokens are the dynamic string tokens the runtime linker expands
+// by itself — no shell involved — so -Wl,-rpath,$ORIGIN, the standard way a
+// module finds a vendor .so shipped beside it, must pass the substitution
+// check.
+var linkerDollarTokens = []string{"ORIGIN", "LIB", "PLATFORM"}
+
+// hasShellSubstitution reports whether a build flag contains something only a
+// shell (or make) would expand — $VAR, ${VAR}, $(...), backticks — as opposed
+// to the linker tokens above, braced or bare.
+func hasShellSubstitution(f string) bool {
+	for i := 0; i < len(f); i++ {
+		switch f[i] {
+		case '`':
+			return true
+		case '$':
+			rest := f[i+1:]
+			braced := strings.HasPrefix(rest, "{")
+			if braced {
+				rest = rest[1:]
+			}
+			var tok string
+			for _, t := range linkerDollarTokens {
+				if strings.HasPrefix(rest, t) {
+					tok = t
+					break
+				}
+			}
+			if tok == "" {
+				return true
+			}
+			rest = rest[len(tok):]
+			if braced {
+				if !strings.HasPrefix(rest, "}") {
+					return true
+				}
+			} else if rest != "" && (isIdentChar(rest[0])) {
+				// $ORIGINAL is a variable, not the $ORIGIN token.
+				return true
+			}
+			i = len(f) - len(rest) - 1
+		}
+	}
+	return false
+}
+
+func isIdentChar(c byte) bool {
+	return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
 }
 
 // ---------------------------------------------------------------------------

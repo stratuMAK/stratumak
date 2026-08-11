@@ -245,10 +245,12 @@ func TestGenerate_NoLineDirectivesWithoutOutputName(t *testing.T) {
 	}
 }
 
-// An int modparam must be parsed with strtol base 0, not atoi: an I/O address
-// is written ioaddr=0x378, and atoi stops at the 'x' and yields 0 silently —
-// the module then runs against port 0 with nothing to say why.  The personality
-// parser has always done this; the modparams did not.
+// An int modparam must be parsed with strtol, not atoi: an I/O address is
+// written ioaddr=0x378, and atoi stops at the 'x' and yields 0 silently — the
+// module then runs against port 0 with nothing to say why.  Not base 0 though:
+// that reads a zero-padded decimal (addr=0500) as octal, silently, which is
+// the failure mode the hex fix exists to prevent.  The base comes from the
+// prefix: 16 with 0x/0X, 10 otherwise.
 func TestGenerate_IntModparamAcceptsHex(t *testing.T) {
 	src := `component tc "t";
 pin in bit ok;
@@ -262,7 +264,10 @@ FUNCTION(_) { }
 	if strings.Contains(out, "atoi(argv[i]") {
 		t.Errorf("int modparam still parsed with atoi (hex silently becomes 0); generated:\n%s", out)
 	}
-	if !strings.Contains(out, `strtol(argv[i] + 7, NULL, 0)`) {
-		t.Errorf("int modparam not parsed with strtol base 0; generated:\n%s", out)
+	if strings.Contains(out, `NULL, 0)`) {
+		t.Errorf("int modparam parsed with strtol base 0 (zero-padded decimal becomes octal); generated:\n%s", out)
+	}
+	if !strings.Contains(out, `? 16 : 10`) {
+		t.Errorf("int modparam not parsed as hex-or-decimal; generated:\n%s", out)
 	}
 }

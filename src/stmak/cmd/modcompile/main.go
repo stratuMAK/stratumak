@@ -644,7 +644,35 @@ func resolvePkgConfig(specs []string, what string) ([]string, error) {
 			"package, or point PKG_CONFIG_PATH at its .pc file",
 			what, strings.Join(specs, " "), detail, specs[0])
 	}
-	return strings.Fields(string(out)), nil
+	return splitPkgConfigOutput(string(out)), nil
+}
+
+// splitPkgConfigOutput splits pkg-config's output into arguments: like
+// strings.Fields, except that a backslash-escaped space — which pkg-config
+// emits for an install prefix containing one — stays inside its argument,
+// unescaped. Any other backslash is an ordinary character.
+func splitPkgConfigOutput(out string) []string {
+	var args []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() > 0 {
+			args = append(args, b.String())
+			b.Reset()
+		}
+	}
+	for i := 0; i < len(out); i++ {
+		switch c := out[i]; {
+		case c == '\\' && i+1 < len(out) && out[i+1] == ' ':
+			b.WriteByte(' ')
+			i++
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			flush()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	flush()
+	return args
 }
 
 // compileToSO compiles a C source file to a shared object in outDir.

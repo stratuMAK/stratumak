@@ -9,7 +9,10 @@
 // pure functions (used by ST modules).
 package ast
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ---------------------------------------------------------------------------
 // Source positions
@@ -320,10 +323,8 @@ type PkgConfigDep struct {
 // `modcompile --deps` prints and what a packager turns into a build
 // dependency.
 func (d PkgConfigDep) Name() string {
-	for i, r := range d.Spec {
-		if r == ' ' || r == '\t' || r == '<' || r == '>' || r == '=' || r == '!' {
-			return d.Spec[:i]
-		}
+	if i := strings.IndexAny(d.Spec, " \t<>=!"); i >= 0 {
+		return d.Spec[:i]
 	}
 	return d.Spec
 }

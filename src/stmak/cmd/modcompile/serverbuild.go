@@ -257,6 +257,13 @@ func compileCModStaged(cPath, srcDir, outDir, soName string, extraIncludes []str
 	}
 	args = append(args, encodeDeps(deps)...)
 
+	// A declared `cflags "-I..."` travels verbatim to the far side of the
+	// privilege drop, where the build identity — deliberately locked out of
+	// user home directories — has to read it. When the mode bits say it
+	// cannot, say so here: the alternative is a bare "Permission denied" from
+	// gcc that names the header but not the mechanism.
+	warnUnreadableIncludes(deps.CFlags, uid, gid, who)
+
 	fmt.Fprintf(os.Stderr, "Compiling %s as %s...\n", soName, who)
 	if err := runAsBuildIdentity(uid, gid, args); err != nil {
 		return fmt.Errorf("compiling %s: %w", soName, err)
@@ -301,6 +308,68 @@ func stageLocalHeaders(srcDir, dst string) error {
 		}
 		return copyFile(path, target, 0644)
 	})
+}
+
+// warnUnreadableIncludes warns about every -I directory in cflags that the
+// build identity cannot reach, before the compile fails on it.
+func warnUnreadableIncludes(cflags []string, uid, gid int, who string) {
+	for _, f := range cflags {
+		dir := strings.TrimPrefix(f, "-I")
+		if dir == f || dir == "" {
+			continue
+		}
+		if buildIdentityCanReadDir(dir, uid, gid) {
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"modcompile: warning: %s is not readable by %s, which the compile runs as;\n"+
+				"  if the compile fails with a permission error, move the headers somewhere\n"+
+				"  world-readable, or compile in place with `modcompile --compile`\n",
+			dir, who)
+	}
+}
+
+// buildIdentityCanReadDir reports whether uid/gid (with no supplementary
+// groups, per buildIdentityCmd) can traverse to dir and read it, judged by
+// the mode bits of dir and every path component above it. Approximate on
+// purpose — an ACL can widen what the bits say — which is why the caller only
+// warns. A path that does not exist passes: the compiler's own error already
+// names it, and there is nothing to add.
+func buildIdentityCanReadDir(dir string, uid, gid int) bool {
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) {
+		return true // resolved inside the staged tree, which is handed over anyway
+	}
+	for p := dir; ; p = filepath.Dir(p) {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return true
+		}
+		// The include directory itself needs read+search; everything above it
+		// only search.
+		need := os.FileMode(0o1)
+		if p == dir {
+			need = 0o5
+		}
+		var granted os.FileMode
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		switch {
+		case !ok:
+			return true
+		case int(st.Uid) == uid:
+			granted = fi.Mode().Perm() >> 6
+		case int(st.Gid) == gid:
+			granted = fi.Mode().Perm() >> 3
+		default:
+			granted = fi.Mode().Perm()
+		}
+		if granted&need != need {
+			return false
+		}
+		if filepath.Dir(p) == p {
+			return true
+		}
+	}
 }
 
 // chownTree hands a whole staged tree to the build identity, which has to own
@@ -376,10 +445,23 @@ func decodeDeps(args []string) (includes []string, deps buildDeps, err error) {
 		if !strings.HasPrefix(a, depsMarkerPrefix) {
 			continue
 		}
-		var npc, ncf, nld int
-		if _, serr := fmt.Sscanf(a[len(depsMarkerPrefix):], "%d,%d,%d", &npc, &ncf, &nld); serr != nil {
+		// strconv.Atoi rather than Sscanf: the counts must be exactly three
+		// non-negative integers and nothing else — Sscanf would accept
+		// trailing garbage, and a negative count would turn the slicing below
+		// into a panic instead of this diagnostic.
+		fields := strings.Split(a[len(depsMarkerPrefix):], ",")
+		if len(fields) != 3 {
 			return nil, buildDeps{}, fmt.Errorf("malformed %s argument %q", depsMarkerPrefix, a)
 		}
+		var counts [3]int
+		for j, f := range fields {
+			n, aerr := strconv.Atoi(f)
+			if aerr != nil || n < 0 {
+				return nil, buildDeps{}, fmt.Errorf("malformed %s argument %q", depsMarkerPrefix, a)
+			}
+			counts[j] = n
+		}
+		npc, ncf, nld := counts[0], counts[1], counts[2]
 		rest := args[i+1:]
 		if len(rest) != npc+ncf+nld {
 			return nil, buildDeps{}, fmt.Errorf("%s says %d arguments follow, got %d",
@@ -822,6 +904,18 @@ func buildIdentityCmd(uid, gid int, bin string, args ...string) *exec.Cmd {
 		"CGO_LDFLAGS=" + cgoLD,
 		"CC=" + resolveCC(),
 		"CXX=" + resolveCXX(),
+	}
+	// pkg-config runs on this side of the drop (see compileCModStaged), so the
+	// variables that steer it have to survive the re-exec: a vendor .pc named
+	// via PKG_CONFIG_PATH under sudo, or a cross build's PKG_CONFIG /
+	// _LIBDIR / _SYSROOT_DIR. Forwarded only when set, so the environment
+	// stays stated in full.
+	for _, k := range []string{
+		"PKG_CONFIG", "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "PKG_CONFIG_SYSROOT_DIR",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
 	}
 	// $STMAK_DIR is absent by construction, and must stay so: it would send the
 	// server build phase back to the pristine tree, silently dropping every

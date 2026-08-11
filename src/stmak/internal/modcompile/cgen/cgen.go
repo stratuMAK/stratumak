@@ -1043,10 +1043,13 @@ func (g *generator) emitNew() {
 			g.printf("            inst->_mp_%s = atof(argv[i] + %d);\n", mp.Name, len(mp.Name)+1)
 			g.printf("    }\n\n")
 		default:
-			// Integer modparam: store as int in inst.  strtol base 0, like the
-			// personality parser above, so hex works: an I/O address is written
-			// ioaddr=0x378, and atoi stops at the 'x' and hands back 0 without
-			// a word.
+			// Integer modparam: store as int in inst.  strtol rather than atoi
+			// so hex works: an I/O address is written ioaddr=0x378, and atoi
+			// stops at the 'x' and hands back 0 without a word.  The base is
+			// picked from the prefix instead of letting base 0 do it, because
+			// base 0 reads a zero-padded decimal (addr=0500) as octal — the
+			// same silent-wrong-value the hex fix exists to prevent — and
+			// atoi always took such values as decimal.
 			g.printf("    inst->_mp_%s = ", mp.Name)
 			if mp.Default != "" {
 				g.printf("%s;\n", mp.Default)
@@ -1054,9 +1057,13 @@ func (g *generator) emitNew() {
 				g.printf("0;\n")
 			}
 			g.printf("    for (int i = 0; i < argc; i++) {\n")
-			g.printf("        if (strncmp(argv[i], \"%s=\", %d) == 0)\n", mp.Name, len(mp.Name)+1)
-			g.printf("            inst->_mp_%s = (int)strtol(argv[i] + %d, NULL, 0);\n",
-				mp.Name, len(mp.Name)+1)
+			g.printf("        if (strncmp(argv[i], \"%s=\", %d) == 0) {\n", mp.Name, len(mp.Name)+1)
+			g.printf("            const char *v = argv[i] + %d;\n", len(mp.Name)+1)
+			g.printf("            int s = (v[0] == '+' || v[0] == '-');\n")
+			g.printf("            /* hex with 0x/0X, decimal otherwise (never octal) */\n")
+			g.printf("            inst->_mp_%s = (int)strtol(v, NULL,\n", mp.Name)
+			g.printf("                (v[s] == '0' && (v[s+1] == 'x' || v[s+1] == 'X')) ? 16 : 10);\n")
+			g.printf("        }\n")
 			g.printf("    }\n\n")
 		}
 	}

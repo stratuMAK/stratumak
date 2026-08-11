@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/config"
@@ -381,16 +382,16 @@ func TestEncodeDecodeDepsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeDeps: %v", err)
 	}
-	if !equalStringSlices(gotInc, includes) {
+	if !slices.Equal(gotInc, includes) {
 		t.Errorf("includes = %+v, want %+v", gotInc, includes)
 	}
-	if !equalStringSlices(gotDeps.PkgConfig, deps.PkgConfig) {
+	if !slices.Equal(gotDeps.PkgConfig, deps.PkgConfig) {
 		t.Errorf("PkgConfig = %+v, want %+v", gotDeps.PkgConfig, deps.PkgConfig)
 	}
-	if !equalStringSlices(gotDeps.CFlags, deps.CFlags) {
+	if !slices.Equal(gotDeps.CFlags, deps.CFlags) {
 		t.Errorf("CFlags = %+v, want %+v", gotDeps.CFlags, deps.CFlags)
 	}
-	if !equalStringSlices(gotDeps.LDFlags, deps.LDFlags) {
+	if !slices.Equal(gotDeps.LDFlags, deps.LDFlags) {
 		t.Errorf("LDFlags = %+v, want %+v", gotDeps.LDFlags, deps.LDFlags)
 	}
 }
@@ -403,7 +404,7 @@ func TestDecodeDepsMarkerLookalikeIsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeDeps: %v", err)
 	}
-	if !equalStringSlices(got.CFlags, deps.CFlags) || !equalStringSlices(got.LDFlags, deps.LDFlags) {
+	if !slices.Equal(got.CFlags, deps.CFlags) || !slices.Equal(got.LDFlags, deps.LDFlags) {
 		t.Errorf("got CFlags=%+v LDFlags=%+v, want %+v / %+v",
 			got.CFlags, got.LDFlags, deps.CFlags, deps.LDFlags)
 	}
@@ -420,7 +421,7 @@ func TestEncodeDepsEmptyAddsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeDeps: %v", err)
 	}
-	if !equalStringSlices(gotInc, inc) || !gotDeps.empty() {
+	if !slices.Equal(gotInc, inc) || !gotDeps.empty() {
 		t.Errorf("got %+v / %+v, want %+v / empty", gotInc, gotDeps, inc)
 	}
 }
@@ -431,14 +432,19 @@ func TestDecodeDepsRejectsShortTail(t *testing.T) {
 	}
 }
 
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+// Input validation must answer bad counts with its own diagnostic, never a
+// panic: a negative count used to pass the length check (-1+2+0 == 1) and
+// blow up in the slicing, and Sscanf quietly ignored trailing garbage.
+func TestDecodeDepsRejectsMalformedCounts(t *testing.T) {
+	for _, arg := range []string{
+		"--deps=-1,2,0",
+		"--deps=1,0,0junk",
+		"--deps=1,0",
+		"--deps=1,0,0,0",
+		"--deps=a,b,c",
+	} {
+		if _, _, err := decodeDeps([]string{arg, "x"}); err == nil {
+			t.Errorf("decodeDeps(%q): expected a malformed-argument error", arg)
 		}
 	}
-	return true
 }

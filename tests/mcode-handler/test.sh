@@ -37,12 +37,11 @@ stmak_wait_ready
 
 # Do NOT send 'shutdown': `set wait done` returns before the async M101 handler
 # finishes its ~0.5s of work, and shutting down here would abort the in-flight
-# handler (it logs "aborted" instead of "completed").  Wait for the handler to
-# finish (checkresult greps server.log for it); the EXIT trap tears the server down.
-for i in $(seq 100); do
-    grep -qE 'M101 (completed|aborted)' server.log && break
-    sleep 0.1
-done
+# handler (it logs "aborted" instead of "completed").  Waiting for the last MDI
+# line's output is enough: the M-codes run in program order, so by the time the
+# o<m103check> sub has printed sub-udr=, M101 has long since logged its
+# completion (checkresult greps server.log for both); the EXIT trap tears the
+# server down.
 for i in $(seq 100); do
     grep -q 'sub-udr=' server.log && break
     sleep 0.1

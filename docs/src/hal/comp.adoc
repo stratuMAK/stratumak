@@ -135,35 +135,31 @@ or it is called by other components that have their own respective triggers.
 .Example HAL script for installing a component (ddt) and executing it every millisecond.
 ----
 newthread servo-thread 1000000
-loadrt ddt
+load ddt <ddt.0>
 addf ddt.0 servo-thread
 ----
 
-More information on `loadrt` and `addf` can be found in the
+More information on `load` and `addf` can be found in the
 <<cha:basic-hal-reference,HAL Basics>>.
 
 To test your component you can follow the examples in the <<cha:hal-tutorial,HAL Tutorial>>.
 
 == Definitions
 
-* *component* - A component is a single real-time module, which is loaded with `Halcmd loadrt`.
+* *component* - A component is a single real-time module, which is loaded with `halcmd load`.
   One `.comp` file specifies one component. The component name and file name must match.
 
 * *instance* - A component can have zero or more instances.
   Each instance of a component is created equal (they all have the same pins, parameters,
   functions, and data) but behave independently when their pins, parameters, and data have different values.
 
-* *singleton* - It is possible for a component to be a "singleton", in which case exactly one instance is created.
-  It seldom makes sense to write a 'singleton' component, unless there can literally only be a single object of that kind in the system
-  (for instance, a component whose purpose is to provide a pin with the current UNIX time, or a hardware driver for the internal PC speaker).
-
 == Instance creation
 
-For a singleton, the one instance is created when the component is loaded.
-
-For a non-singleton, the 'count' module parameter determines how many numbered instances are created.
-If 'count' is not specified, the 'names' module parameter determines how many named instances are created.
-If neither 'count' nor 'names' is specified, a single numbered instance is created.
+Instances are created when the component is loaded, and are named on the
+'load' line: `load ddt <d1,d2,d3>` creates three. Classic comp's 'singleton',
+'count=' and 'names=' schemes do not exist here — a component that would have
+been a singleton is simply loaded once, and more instances are more names (or
+further 'load' commands).
 
 == Implicit Parameters
 
@@ -472,20 +468,18 @@ to allow for a variable number of input pins to each logic gate and to allow for
 'Personality' is given per instance when the module is loaded, and instance storage is allocated at that point, so there is no compile-time ceiling on the number of items and no switch to raise one.
 Hexadecimal forms work as well as decimal, for example `personality=0x102`.
 
-When using components with personality, normal usage is to specify a personality item for *each* specified component instance.
+When using components with personality, each instance is given its
+personality on its own 'load' line.
 Example for 3 instances of the logic component:
 
 [source,{hal}]
 ----
-loadrt logic names=and4,or3,nand5, personality=0x104,0x203,0x805
+load logic <and4>  personality=0x104
+load logic <or3>   personality=0x203
+load logic <nand5> personality=0x805
 ----
 
-[NOTE]
-If a loadrt line specifies more instances than personalities,
-the instances with unspecified personalities are assigned a personality of 0.
-If the requested number of instances exceeds the number of allowed personalities,
-personalities are assigned by indexing modulo the number of allowed personalities.
-A message is printed denoting such assignments.
+An instance loaded without a personality gets a personality of 0.
 
 == Examples
 
@@ -645,14 +639,16 @@ FUNCTION(_) {
 }
 ----
 
-A typical load line for this component might be
+Typical load lines for this component might be
 
 [source,{hal}]
 ----
-loadrt logic count=3 personality=0x102,0x305,0x503
+load logic <logic.0> personality=0x102
+load logic <logic.1> personality=0x305
+load logic <logic.2> personality=0x503
 ----
 
-which creates the following pins:
+which create the following pins:
 
 - A 2-input AND gate: `logic.0.and`, `logic.0.in-00`, `logic.0.in-01`
 - 5-input AND and OR gates: `logic.1.and`, `logic.1.or`, `logic.1.in-00`, `logic.1.in-01`, `logic.1.in-02`, `logic.1.in-03`, `logic.1.in-04`,
