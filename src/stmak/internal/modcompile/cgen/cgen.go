@@ -1043,7 +1043,10 @@ func (g *generator) emitNew() {
 			g.printf("            inst->_mp_%s = atof(argv[i] + %d);\n", mp.Name, len(mp.Name)+1)
 			g.printf("    }\n\n")
 		default:
-			// Integer modparam: store as int in inst.
+			// Integer modparam: store as int in inst.  strtol base 0, like the
+			// personality parser above, so hex works: an I/O address is written
+			// ioaddr=0x378, and atoi stops at the 'x' and hands back 0 without
+			// a word.
 			g.printf("    inst->_mp_%s = ", mp.Name)
 			if mp.Default != "" {
 				g.printf("%s;\n", mp.Default)
@@ -1052,7 +1055,8 @@ func (g *generator) emitNew() {
 			}
 			g.printf("    for (int i = 0; i < argc; i++) {\n")
 			g.printf("        if (strncmp(argv[i], \"%s=\", %d) == 0)\n", mp.Name, len(mp.Name)+1)
-			g.printf("            inst->_mp_%s = atoi(argv[i] + %d);\n", mp.Name, len(mp.Name)+1)
+			g.printf("            inst->_mp_%s = (int)strtol(argv[i] + %d, NULL, 0);\n",
+				mp.Name, len(mp.Name)+1)
 			g.printf("    }\n\n")
 		}
 	}

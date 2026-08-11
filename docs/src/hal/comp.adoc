@@ -531,61 +531,26 @@ FUNCTION(_) { sin_ = sin(theta); cos_ = cos(theta); }
 
 This component is a driver for a 'fictional' card called "out8", which has 8 pins of digital output which are treated as a single 8-bit value.
 There can be a varying number of such cards in the system, and they can be at various addresses.
-The pin is called 'out_' because 'out' is an identifier used in '<asm/io.h>'.
-It illustrates the use of 'EXTRA_SETUP' and 'EXTRA_CLEANUP' to request an I/O region and then free it in case of error or when the module is unloaded.
+The pin is called 'out_' because 'out' is an identifier used by the I/O macros.
+It illustrates a per-instance module parameter, and 'EXTRA_SETUP' / 'EXTRA_CLEANUP' bringing the hardware to a known state and putting it back.
 
-NOTE: this example is carried over from classic 'halcompile' and has not been
-ported. 'option count_function' and 'option constructable' do not exist in
-'modcompile' and are rejected, the instance count comes from the names on the
-'load' line instead, and 'EXTRA_SETUP' takes no 'extra_arg'. It is kept for the
-shape of 'EXTRA_SETUP'/'EXTRA_CLEANUP', not as something to copy.
+One instance per card, each given its address on its own 'load' line — that is
+what replaces the classic 'count' parameter and 'get_count()':
+
+----
+load out8 <out8.0> ioaddr=0x378
+load out8 <out8.1> ioaddr=0x278
+----
+
+There is no I/O region to request. stratuMAK takes 'iopl(3)' once during RTAPI
+startup, for which it needs the 'cap_sys_rawio' capability, so every instance
+can already reach the port; 'rtapi_request_region' survives only as a no-op for
+source compatibility. If that capability is missing the port access faults, as
+it does for any other port-I/O driver in the tree.
 
 [source,c]
 ----
-component out8;
-pin out unsigned out_ "Output value; only low 8 bits are used";
-param r unsigned ioaddr;
-
-function _;
-
-option count_function;
-option extra_setup;
-option extra_cleanup;
-option constructable no;
-
-license "GPL"; // indicates GPL v2 or later
-;;
-#include <asm/io.h>
-
-#define MAX 8
-int io[MAX] = {0,};
-RTAPI_MP_ARRAY_INT(io, MAX, "I/O addresses of out8 boards");
-
-int get_count(void) {
-    int i = 0;
-    for(i=0; i<MAX && io[i]; i++) { /* Nothing */ }
-    return i;
-}
-
-EXTRA_SETUP() {
-    if(!rtapi_request_region(io[extra_arg], 1, "out8")) {
-        // set this I/O port to 0 so that EXTRA_CLEANUP does not release the IO
-        // ports that were never requested.
-        io[extra_arg] = 0;
-        return -EBUSY;
-    }
-    ioaddr = io[extra_arg];
-    return 0;
-}
-
-EXTRA_CLEANUP() {
-    int i;
-    for(i=0; i < MAX && io[i]; i++) {
-        rtapi_release_region(io[i], 1);
-    }
-}
-
-FUNCTION(_) { outb(out_, ioaddr); }
+include::out8.comp[]
 ----
 
 === hal_loop

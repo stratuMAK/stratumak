@@ -244,3 +244,25 @@ func TestGenerate_NoLineDirectivesWithoutOutputName(t *testing.T) {
 		t.Errorf("Generate emitted #line directives without an output name:\n%s", out)
 	}
 }
+
+// An int modparam must be parsed with strtol base 0, not atoi: an I/O address
+// is written ioaddr=0x378, and atoi stops at the 'x' and yields 0 silently —
+// the module then runs against port 0 with nothing to say why.  The personality
+// parser has always done this; the modparams did not.
+func TestGenerate_IntModparamAcceptsHex(t *testing.T) {
+	src := `component tc "t";
+pin in bit ok;
+modparam int ioaddr = 0 "I/O port address";
+function _;
+license "GPL";
+;;
+FUNCTION(_) { }
+`
+	out := gen(t, src)
+	if strings.Contains(out, "atoi(argv[i]") {
+		t.Errorf("int modparam still parsed with atoi (hex silently becomes 0); generated:\n%s", out)
+	}
+	if !strings.Contains(out, `strtol(argv[i] + 7, NULL, 0)`) {
+		t.Errorf("int modparam not parsed with strtol base 0; generated:\n%s", out)
+	}
+}
