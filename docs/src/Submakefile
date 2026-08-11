@@ -629,7 +629,18 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 # Hack to avoid ../../../src/ style include which do not work with
 # translated documents.  Copy the ini file where the documentation
 # build can find it without ../.. paths.
-.include-stamp: hal/user_comps/mb2hal/mb2hal_HOWTO.ini cnc/usr_intf/gmoccapy/release_notes.txt
+#
+# hal/out8.comp is the same problem from the other direction: it already lives
+# under docs/src, but po4a writes only the files po4a.cfg lists into src/$lang,
+# and that list is documents -- so the translated hal/comp.adoc carries the
+# `include::out8.comp[]` line with no such file beside it, asciideps exits on
+# the missing include, and the build stops before any translated HTML.  A
+# verbatim copy rather than a po4a [type: Text_def] entry (which is how
+# gui/panelui_handler.py reaches the language trees): this is a C listing
+# included to keep the manual and the compiled example from drifting, so
+# offering it to translators could only corrupt it.
+.include-stamp: hal/user_comps/mb2hal/mb2hal_HOWTO.ini cnc/usr_intf/gmoccapy/release_notes.txt \
+		$(DOC_SRCDIR)/hal/out8.comp
 	(set -x; set -e; \
 	cp -f hal/user_comps/mb2hal/mb2hal_HOWTO.ini $(DOC_DIR)/src/drivers/;\
 	mkdir -p $(DOC_DIR)/html/drivers/; \
@@ -646,6 +657,8 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 		mkdir -p $(DOC_DIR)/html/$$lang/gui/; \
 		cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/src/$$lang/gui/gmoccapy_release_notes.txt ; \
 		cp -f cnc/usr_intf/gmoccapy/release_notes.txt $(DOC_DIR)/html/$$lang/gui/gmoccapy_release_notes.txt ; \
+		mkdir -p $(DOC_DIR)/src/$$lang/hal/; \
+		cp -f $(DOC_SRCDIR)/hal/out8.comp $(DOC_DIR)/src/$$lang/hal/ ; \
 	done) > $@.new && mv $@.new $@
 
 # Copy all images used by translated adoc files into the directories
