@@ -647,7 +647,7 @@ func TestTrayResetsDuringHomingSnapshotAndLastWin(t *testing.T) {
 	tray.trayID.Set(1)
 	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
 
-	f.mot.homingCycles = 1000 // ~1 s of homing at the test poll rate
+	f.mot.setHomingCycles(1000) // ~1 s of homing at the test poll rate
 	f.machineOn()
 	f.setBit(f.m.pins.home, true)
 	f.eventually("homing started", func() bool { return f.mot.called("JointHome") })

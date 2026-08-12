@@ -297,6 +297,20 @@ func (f *fakeMotion) setStatusErr(err error) {
 	f.statusErr = err
 }
 
+// setHomingCycles scripts the homing duration while the loop may already be
+// reading — the counter lives under the same mutex GetStatus takes.
+func (f *fakeMotion) setHomingCycles(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.homingCycles = n
+}
+
+func (f *fakeMotion) setHomingGap(from, length int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.homingGapFrom, f.homingGapLen = from, length
+}
+
 func (f *fakeMotion) called(name string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -730,9 +744,8 @@ func TestHomeSequence(t *testing.T) {
 // perfectly healthy multi-group homing).
 func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 	f := newMachineFixture(t)
-	f.mot.homingCycles = 60
-	f.mot.homingGapFrom = 30
-	f.mot.homingGapLen = homingSettleTicks - 2 // shorter than the settle window
+	f.mot.setHomingCycles(60)
+	f.mot.setHomingGap(30, homingSettleTicks-2) // gap shorter than the settle window
 	f.machineOn()
 
 	f.setBit(f.m.pins.home, true)
@@ -747,7 +760,7 @@ func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 func TestHomeTimeoutAndErrorReset(t *testing.T) {
 	f := newMachineFixtureWith(t, func(cfg *Config) { cfg.HomeTimeout = 0.05 })
 	// Homing that runs "forever": more cycles than the timeout allows.
-	f.mot.homingCycles = 1 << 30
+	f.mot.setHomingCycles(1 << 30)
 	f.machineOn()
 
 	f.setBit(f.m.pins.home, true)

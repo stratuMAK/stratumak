@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
@@ -570,9 +571,16 @@ type world struct {
 	procs []*procState
 	byID  map[uint32]*station
 
-	// held is indexed by picker number (D20).
-	held      []heldMaterial
-	heldDirty bool
+	// held is indexed by picker number (D20). pickerClose holds the close
+	// output of each picker, parallel to held: the restore path re-drives a
+	// restored record's grip through it (see world.restore). restoredHeld
+	// marks the records that came from storage — the only ones the one-shot
+	// grip validation (verifyRestoredHeld) may judge, because only they had
+	// their close output re-driven from the record.
+	held         []heldMaterial
+	heldDirty    bool
+	pickerClose  []*hal.Pin[bool]
+	restoredHeld []bool
 
 	// persist is nil unless persist_instance= was given (D6: no default lookup,
 	// absent means in-memory only).
@@ -585,9 +593,13 @@ type world struct {
 // model to exist first.
 func newWorld(cfg *Config, pins *pinSet, pickers int, logger *slog.Logger) *world {
 	w := &world{
-		logger: logger,
-		byID:   make(map[uint32]*station, len(cfg.Trays)+len(cfg.Procs)),
-		held:   make([]heldMaterial, pickers),
+		logger:       logger,
+		byID:         make(map[uint32]*station, len(cfg.Trays)+len(cfg.Procs)),
+		held:         make([]heldMaterial, pickers),
+		restoredHeld: make([]bool, pickers),
+	}
+	for n := 0; n < pickers; n++ {
+		w.pickerClose = append(w.pickerClose, pins.pickers[n].close)
 	}
 
 	defs := make(map[uint32]*trayGeometry, len(cfg.TrayDefs))

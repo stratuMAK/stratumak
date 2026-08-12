@@ -334,20 +334,17 @@ func TestPersistStoreMissingKey(t *testing.T) {
 	t.Cleanup(store.close)
 
 	var rec trayRecord
-	if store.load(trayKey(10), &rec) {
-		t.Error("load of an unwritten key reported state")
+	if got := store.load(trayKey(10), &rec); got != loadMissing {
+		t.Errorf("load of an unwritten key = %v, want loadMissing", got)
 	}
-	// A value that is not the record it should be is also "no usable state":
-	// discarding it is the only alternative to guessing.
+	// A value that is not the record it should be is a FAILED read, not
+	// "start empty": it may be a format a newer binary wrote, and the one
+	// thing worse than not restoring it would be overwriting it.
 	store.store(trayKey(10), "not a tray record")
-	if store.load(trayKey(10), &rec) {
-		t.Error("load of an unparsable value reported state")
-	}
+	loadEventually(t, store, trayKey(10), &rec, loadFailed)
 
 	store.store(trayKey(10), trayRecord{TrayID: 3, Slots: []int64{slotEmpty, 7}})
-	if !store.load(trayKey(10), &rec) {
-		t.Fatal("load of a written record reported nothing")
-	}
+	loadEventually(t, store, trayKey(10), &rec, loadOK)
 	if rec.TrayID != 3 || len(rec.Slots) != 2 || rec.Slots[1] != 7 {
 		t.Errorf("round trip = %+v", rec)
 	}
@@ -355,11 +352,183 @@ func TestPersistStoreMissingKey(t *testing.T) {
 	// A nil store is what "no persist_instance=" looks like from the caller's
 	// side: every method has to tolerate it.
 	var absent *persistStore
-	if absent.load("anything", &rec) {
-		t.Error("nil store reported state")
+	if got := absent.load("anything", &rec); got != loadMissing {
+		t.Errorf("nil store load = %v, want loadMissing", got)
 	}
 	absent.store("anything", rec)
 	absent.close()
+}
+
+// loadEventually polls a load until the writer goroutine has landed the value
+// (store hands writes to it asynchronously, so a test cannot read back in the
+// same breath).
+func loadEventually(t *testing.T, p *persistStore, key string, v any, want loadResult) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := p.load(key, v)
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("load(%s) never returned %v (last %v)", key, want, got)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestRestoredHeldPartStillThere: a restored held record re-drives the picker
+// close output (D14's intent for a short restart), and when the gripper
+// feedback confirms the part is still gripped, the record stands.
+func TestRestoredHeldPartStillThere(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_heldok"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.world.setHeld(0, 20)
+		}),
+	})
+	first.m.Stop()
+
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
+		}),
+	})
+	sim := newMachineSim(second) // default: a close command grips material
+	defer sim.shutdown()
+
+	second.eventually("close re-driven from the record", func() bool {
+		return second.bit("picker.0.close")
+	})
+	second.consistently("record and grip stand", func() bool {
+		return second.bit("picker.0.close")
+	})
+	w := second.stopped()
+	if !w.held[0].present || w.held[0].station != 20 {
+		t.Errorf("held record = %+v, want material from station 20", w.held[0])
+	}
+}
+
+// TestRestoredHeldPartGone: the part was lost in the downtime — the gripper
+// closes onto nothing. The record is cleared and the picker opened (with a
+// warning naming the station), instead of every job being refused
+// NO_FREE_PICKER over a phantom part.
+func TestRestoredHeldPartGone(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_heldgone"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.world.setHeld(0, 20)
+		}),
+	})
+	first.m.Stop()
+
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
+		}),
+	})
+	// The gripper sim with one miss pre-armed, so the re-driven close "grips
+	// nothing" — built by hand because the first close command happens during
+	// startControl, before a stock sim could be configured.
+	sim := &machineSim{
+		f: second, stop: make(chan struct{}), done: make(chan struct{}),
+		lastClose: make([]bool, 1), gripMiss: make([]bool, 1), missesLeft: 1,
+	}
+	sim.step()
+	go sim.run()
+	t.Cleanup(sim.shutdown)
+
+	second.eventually("phantom record cleared and picker opened", func() bool {
+		return !second.bit("picker.0.close")
+	})
+	w := second.stopped()
+	if w.held[0].present {
+		t.Error("the held record survived a grip that found nothing")
+	}
+}
+
+// TestPersistNamespaceCollision: the lossy sanitization can map two instance
+// names onto one namespace, and persist_sqlite would silently hand both the
+// same handle — a load-time error is the honest outcome.
+func TestPersistNamespaceCollision(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+
+	s1, err := openPersist("pnp.0", persistName, persistNamespace("pnp.0"), testLogger())
+	if err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	if _, err := openPersist("pnp_0", persistName, persistNamespace("pnp_0"), testLogger()); err == nil {
+		t.Fatal("a colliding namespace opened without error")
+	}
+	s1.close()
+	// Released with its owner: the name is usable again.
+	s2, err := openPersist("pnp_0", persistName, persistNamespace("pnp_0"), testLogger())
+	if err != nil {
+		t.Fatalf("open after release: %v", err)
+	}
+	s2.close()
+}
+
+// TestFailedRestoreReadDoesNotOverwrite: a record that cannot be read (here:
+// unparsable, the same path a transiently locked database takes) must survive
+// the run untouched — the restore disarms the flush instead of letting fresh
+// empty state overwrite what may be intact.
+func TestFailedRestoreReadDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_badread"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.pins.processStep.Set(5)
+		}),
+	})
+	first.pulse(first.m.pins.trays[0].setFull)
+	first.eventually("tray full", func() bool { return first.bit("tray.10.full") })
+	first.m.Stop()
+
+	// Corrupt the record the way a newer binary's format would look to this one.
+	raw, err := openPersist("corruptor", persistName, ns, testLogger())
+	if err != nil {
+		t.Fatalf("openPersist: %v", err)
+	}
+	if _, err := raw.db.SetEntry(raw.handle, trayKey(10), "not json"); err != nil {
+		t.Fatalf("SetEntry: %v", err)
+	}
+	raw.close()
+
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+		}),
+	})
+	second.consistently("nothing restored from the unreadable record", func() bool {
+		return !second.bit("tray.10.full")
+	})
+	second.m.Stop()
+
+	// The unreadable record is still there, byte for byte: this run did not
+	// flush its fresh-empty state over it.
+	check, err := openPersist("checker", persistName, ns, testLogger())
+	if err != nil {
+		t.Fatalf("openPersist: %v", err)
+	}
+	defer check.close()
+	e, err := check.db.GetEntry(check.handle, trayKey(10))
+	if err != nil {
+		t.Fatalf("GetEntry: %v", err)
+	}
+	if e.Value != "not json" {
+		t.Errorf("the unreadable record was overwritten: %q", e.Value)
+	}
 }
 
 // TestHeldRecordCodec pins the wire format of the held-material records: they

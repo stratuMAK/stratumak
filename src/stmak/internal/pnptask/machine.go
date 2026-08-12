@@ -253,8 +253,46 @@ func (c *control) start() {
 	// written after start returns is then a real change, while levels already
 	// present now are stale boot state (see primeEdges).
 	c.primeEdges()
+	// Restored held records re-drove their close outputs (world.restore);
+	// schedule the one-shot grip validation for after the pick settle time
+	// has given the gripper feedback a chance to arrive. Only records that
+	// came from storage are flagged — a record seeded any other way made no
+	// claim about the close output and is not ours to judge.
+	for n := range c.m.world.restoredHeld {
+		if c.m.world.restoredHeld[n] {
+			settle := int(c.m.pins.pickSettleTime.Get()/pollInterval.Seconds()) + 2
+			c.heldVerify = settle
+			break
+		}
+	}
 	c.ticker = time.NewTicker(pollInterval)
 	go c.run()
+}
+
+// verifyRestoredHeld is the one-shot check behind a restored held record: the
+// record claims a part, the re-driven close output claims a grip — the gripper
+// feedback now says whether the part is actually there. Fully closed (or never
+// left opened) means it is not: the part was lost in the downtime, so the
+// record is cleared and the picker opened, with a warning naming the station
+// the part came from — the alternative was refusing every job with
+// NO_FREE_PICKER over a phantom part, with nothing telling the operator why.
+func (c *control) verifyRestoredHeld() {
+	for n := range c.m.world.restoredHeld {
+		if !c.m.world.restoredHeld[n] {
+			continue
+		}
+		c.m.world.restoredHeld[n] = false
+		if !c.m.world.held[n].present {
+			continue // estop or a manual open already resolved it
+		}
+		if c.in.pickerClosed[n] || c.in.pickerOpened[n] {
+			station := c.m.world.held[n].station
+			c.m.world.clearHeld(n)
+			c.m.pins.pickers[n].close.Set(false)
+			c.m.logger.Warn("pnptask: restored held material is gone, record cleared — there is a part to find",
+				"picker", n, "station", station)
+		}
+	}
 }
 
 // shutdown asks the loop to finish and waits for it. Safe to call on a control
@@ -459,6 +497,12 @@ func (c *control) step() {
 	if c.commErrors >= commFailureTicks {
 		c.motionLost()
 		return
+	}
+	if c.heldVerify > 0 {
+		c.heldVerify--
+		if c.heldVerify == 0 {
+			c.verifyRestoredHeld()
+		}
 	}
 	if err := c.updateMachine(); err != nil {
 		c.raise(err)
