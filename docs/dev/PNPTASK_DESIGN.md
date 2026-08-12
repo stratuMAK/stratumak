@@ -1000,13 +1000,30 @@ restoring a swap record.
 - **The manual close is judged, not assumed.** A retained station id is restored
   only if the gripper feedback says the picker closed onto something; fully
   closed means it gripped nothing and the operator has the part. A picker that
-  never actuated at all decides nothing and keeps the id retained for the next
-  attempt. The countdown to that judgement hangs off the control loop like
-  `verifyRestoredHeld`'s rather than blocking it, and estop cancels it along with
-  the records (D14).
-- **A retained id leaves the picker free.** It is a memory of where the material
-  came from, not a reservation: an operator who takes a part out by hand has
-  freed that picker for the engine, and the next job may use it.
+  never actuated at all decides nothing — the judgement RE-ARMS (warned once)
+  until the gripper answers, because the close output is still standing over a
+  retained part and abandoning the question would leave a loaded picker the
+  engine believes free the moment the gripper does close. The countdown hangs
+  off the control loop rather than blocking it, cancels itself whenever the
+  record it judges is gone, and estop cancels it along with the records (D14).
+- **Retention is a reservation, not a memory** (phase-6 review, 2026-08-12;
+  this reverses the first build's "leaves the picker free" rule). A retained
+  record is a manual intervention in progress: the part is in the operator's
+  hands and the next close decides where it went. Until then the picker counts
+  occupied, **every job is refused** (with a message naming the picker and the
+  pending close), the swap obligation stays armed, and the record — with its
+  station and swap flag — **persists across a restart** (restored retained,
+  close output left low, the operator's close still judges). A second open
+  press is idempotent; a close that grips nothing clears the record and returns
+  the picker to the engine. The free-the-picker workflow is therefore: open,
+  take the part, close on the empty gripper, open — four presses that leave an
+  honest world instead of a race window.
+- **The sequence constraint accepts any standing swap obligation.** Normally
+  one exists; a place that fails after its swap-out leaves two (both parts
+  really are in pickers), and a job from either station is the recovery. A
+  skipPick job into its own occupied origin — a self-exchange that would
+  ping-pong two parts forever — is refused; putting a part back is valid once
+  the station is free.
 
 ---
 

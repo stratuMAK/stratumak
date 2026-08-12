@@ -234,12 +234,12 @@ func newControl(m *pnptaskModule) *control {
 		}
 	}
 	return &control{
-		m:           m,
-		stop:        make(chan struct{}),
-		done:        make(chan struct{}),
-		in:          mk(),
-		prev:        mk(),
-		rise:        mk(),
+		m:                m,
+		stop:             make(chan struct{}),
+		done:             make(chan struct{}),
+		in:               mk(),
+		prev:             mk(),
+		rise:             mk(),
 		jogDir:           make([]int, len(m.pins.jog)),
 		trayPending:      make([]*int64, trays),
 		manualGrip:       make([]int, pickers),

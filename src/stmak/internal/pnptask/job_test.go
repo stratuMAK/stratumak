@@ -46,6 +46,13 @@ type machineSim struct {
 }
 
 func newMachineSim(f *machineFixture) *machineSim {
+	return newMachineSimOpts(f, nil)
+}
+
+// newMachineSimOpts is newMachineSim with a hook that runs before the first
+// step(): for knobs that must be armed before the sim ever publishes, like a
+// pre-armed miss judging a close command that was issued during startControl.
+func newMachineSimOpts(f *machineFixture, prep func(*machineSim)) *machineSim {
 	n := len(f.m.pins.pickers)
 	s := &machineSim{
 		f:            f,
@@ -55,6 +62,9 @@ func newMachineSim(f *machineFixture) *machineSim {
 		gripMiss:     make([]bool, n),
 		lastRelease:  make([]bool, len(f.m.pins.procs)),
 		releaseRises: make([]int, len(f.m.pins.procs)),
+	}
+	if prep != nil {
+		prep(s)
 	}
 	s.step() // publish the resting state before the loop can sample it
 	go s.run()

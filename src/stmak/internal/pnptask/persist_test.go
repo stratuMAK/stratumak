@@ -433,18 +433,9 @@ func TestRestoredHeldPartGone(t *testing.T) {
 			m.pins.pickSettleTime.Set(10 * pollInterval.Seconds())
 		}),
 	})
-	// The gripper sim with one miss pre-armed, so the re-driven close "grips
-	// nothing" — built by hand because the first close command happens during
-	// startControl, before a stock sim could be configured.
-	sim := &machineSim{
-		f: second, stop: make(chan struct{}), done: make(chan struct{}),
-		lastClose: make([]bool, 1), gripMiss: make([]bool, 1), missesLeft: 1,
-		lastRelease:  make([]bool, len(second.m.pins.procs)),
-		releaseRises: make([]int, len(second.m.pins.procs)),
-	}
-	sim.step()
-	go sim.run()
-	t.Cleanup(sim.shutdown)
+	// One miss pre-armed via the constructor hook, so the close command the
+	// restore issued during startControl is judged as "gripped nothing".
+	newMachineSimOpts(second, func(s *machineSim) { s.missesLeft = 1 })
 
 	second.eventually("phantom record cleared and picker opened", func() bool {
 		return !second.bit("picker.0.close")

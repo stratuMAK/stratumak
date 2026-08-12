@@ -38,13 +38,13 @@ type job struct {
 	//
 	// skipPick says a picker already holds material from the origin — the flow
 	// of §8 steps 3 and 4, where the part was taken out by the previous job's
-	// swap — so there is nothing to pick and holder is that picker. Otherwise
+	// swap — so there is nothing to pick; runPick re-asks holderOf for which
+	// picker that is, at the moment the answer is used (D20). Otherwise the
 	// holder is decided by the pick itself, from whichever picker is free.
 	//
 	// swap says the destination process station is occupied and the occupant has
 	// to come out first, with a second picker.
 	skipPick bool
-	holder   int
 	swap     bool
 }
 
@@ -215,7 +215,7 @@ func (c *control) validateJob(j *job) error {
 
 	// §8's pick phase: a picker already holding the origin's material makes the
 	// physical pick unnecessary, and that picker is the one that will place.
-	j.holder, j.skipPick = c.m.world.holderOf(j.originID)
+	_, j.skipPick = c.m.world.holderOf(j.originID)
 
 	if err := c.checkOrigin(j); err != nil {
 		return err
@@ -354,9 +354,19 @@ func (c *control) moveHeight(origin, dest uint32) float64 {
 // pick, and that picker is the placer.
 func (c *control) runPick(j *job) (int, error) {
 	if j.skipPick {
+		// Re-asked here rather than cached in the job (D20's "where the
+		// answer is used"): a cached picker number would read as a plausible
+		// picker 0 on any path that forgot to check skipPick first.
+		pk, ok := c.m.world.holderOf(j.originID)
+		if !ok {
+			// Validation saw a holder and it is gone — only an intervention
+			// between validate and here could do that; reported, not assumed.
+			return 0, faultf(errNoFreePicker,
+				"no picker holds the material of station %d anymore", j.originID)
+		}
 		c.m.logger.Info("pnptask: pick skipped, a picker already holds the origin's material",
-			"station", j.originID, "picker", j.holder)
-		return j.holder, nil
+			"station", j.originID, "picker", pk)
+		return pk, nil
 	}
 	// Validation already established that one is free; re-asking is how the
 	// picker is chosen rather than assumed (D20, "picker 0 preferred when both
