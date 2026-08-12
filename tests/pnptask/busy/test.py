@@ -77,12 +77,17 @@ pnpdrv.check(not s["proc.20.has-material"], "the station never received it")
 m.set("auto-enable", True)
 m.clear_error()
 m.set_busy(20, False)
-m.miss(0, -1)
+# A canary rather than -1: pnpsim never decrements at -1, so "miss-left still
+# -1" would hold whether zero or a hundred closes happened. A positive count
+# is consumed by any close — miss-left staying put is the proof none did (and
+# a close that DID happen would also derail the job into a probing walk).
+m.miss(0, 1)
 
 err = m.run_job(10, 20)
 pnpdrv.check_eq(err, 0, "re-commanding the job places the held material")
 pnpdrv.check(m.get("proc.20.has-material"), "the press holds it, with no second pick")
-pnpdrv.check_eq(m.sim_get("0.gripper.miss-left"), -1,
+pnpdrv.check_eq(m.sim_get("0.gripper.miss-left"), 1,
                 "no close happened at the tray — the pick was skipped")
+m.miss(0, 0)
 
 pnpdrv.done()

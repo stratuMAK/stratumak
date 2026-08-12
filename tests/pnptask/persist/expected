@@ -14,7 +14,8 @@ PASS the restored close output found the part still in the gripper
 PASS the tray is not declared empty by a stale conclusion
 PASS the restored material is placed without a pick
 PASS the test station received it
-PASS the picker never closed on anything — its part was already there
+PASS gripper 0 never closed on anything
+PASS gripper 1 never closed on anything
 ALL OK
 PASS a wiped machine's press is empty
 PASS its output tray is empty

@@ -38,10 +38,11 @@ pnp_wipe_state() {
 # the persistence scenario uses for its second start.
 pnp_start() {
     local wipe=1 log=()
+    PNP_LOG="server.log"
     while true; do
         case "$1" in
             --keep-state) wipe=0; shift ;;
-            --log) log=(--log "$2"); shift 2 ;;
+            --log) log=(--log "$2"); PNP_LOG="$2"; shift 2 ;;
             *) break ;;
         esac
     done
@@ -57,7 +58,7 @@ pnp_wait_ready() {
 
     if [ -n "$STMAK_SRV" ] && ! kill -0 "$STMAK_SRV" 2>/dev/null; then
         stmak_bind_failure
-        stmak_fail "server exited before it became ready; see $PWD/server.log"
+        stmak_fail "server exited before it became ready; see $PWD/${PNP_LOG:-server.log}"
     fi
 
     if ! python3 -c '
@@ -67,7 +68,7 @@ import pnpdrv
 pnpdrv.Machine().wait_ready(timeout=float(sys.argv[2]))
 ' "$PNP_DIR" "$timeout"; then
         stmak_bind_failure
-        stmak_fail "pnptask did not bring the machine up within ${timeout}s; see $PWD/server.log"
+        stmak_fail "pnptask did not bring the machine up within ${timeout}s; see $PWD/${PNP_LOG:-server.log}"
     fi
 }
 

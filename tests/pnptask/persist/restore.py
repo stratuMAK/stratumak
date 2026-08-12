@@ -28,13 +28,19 @@ pnpdrv.check(m.holding(held[0]),
 pnpdrv.check(not s["tray.10.empty"], "the tray is not declared empty by a stale conclusion")
 
 # The record names the station the material came from, so the job that carries
-# it away skips its pick. Grippers that grip nothing prove no pick happened.
+# it away skips its pick. A positive miss canary on each gripper proves it: any
+# close would consume one (and derail the job besides), so miss-left staying
+# put means no close happened anywhere. (-1 would be vacuous — pnpsim never
+# decrements it.)
 m.reset_sim()
-m.miss(0, -1)
-m.miss(1, -1)
+m.miss(0, 1)
+m.miss(1, 1)
 pnpdrv.check_eq(m.run_job(10, 21), 0, "the restored material is placed without a pick")
 pnpdrv.check(m.get("proc.21.has-material"), "the test station received it")
-pnpdrv.check_eq(m.sim_get("%d.gripper.miss-left" % held[0]), -1,
-                "the picker never closed on anything — its part was already there")
+pnpdrv.check_eq(m.sim_get("0.gripper.miss-left"), 1,
+                "gripper 0 never closed on anything")
+pnpdrv.check_eq(m.sim_get("1.gripper.miss-left"), 1,
+                "gripper 1 never closed on anything")
+m.reset_sim()
 
 pnpdrv.done()

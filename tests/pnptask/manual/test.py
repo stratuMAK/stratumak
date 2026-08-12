@@ -96,9 +96,10 @@ m.wait(lambda s: s["picker.%d.close" % pk], "the picker to close on nothing")
 m.wait_manual_judged()
 pnpdrv.check(not m.holding(pk), "the gripper gripped nothing")
 
-# The fourth press of §8.1's workflow: the picker is free now, and open is how
-# it is handed back to the engine ready to pick.
-m.pulse("picker.%d.manual-open" % pk)
+# §8.1's workflow ends here: gripping nothing IS the verdict, so the module
+# reopens the picker itself — no further press, the machine comes back ready
+# to pick.
+m.wait(lambda s: not s["picker.%d.close" % pk], "the verdict to reopen the picker")
 m.wait_gripper(pk, False)
 m.set("auto-enable", True)
 m.reset_sim()

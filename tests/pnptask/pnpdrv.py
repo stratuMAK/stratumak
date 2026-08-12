@@ -9,7 +9,10 @@ report format the `expected` files are compared against.
 Pins are reached over the halcmd REST API rather than by forking `halcmd`:
 a fork costs tens of milliseconds per pin, and these scenarios read whole pin
 trees in loops. `snapshot()` fetches every pin of a component in one request,
-which is also the only way to read several pins as one consistent sample.
+which is also the only way to read several pins as one consistent sample. The
+wire protocol lives in the GENERATED client (gmi.halcmd_client, from
+src/gmi/idl/halcmd.gmi — D27's "the generated GMI REST client"), so a change
+to the IDL updates this suite together with every other consumer.
 
 Usage from a scenario driver (pnpdrv.sh's `pnp_run` puts this directory on
 PYTHONPATH)::
@@ -24,14 +27,13 @@ PYTHONPATH)::
     pnpdrv.done()
 """
 
-import json
 import sys
 import time
 import urllib.error
-import urllib.request
 
 import gmi
 import stmak_test
+from gmi.halcmd_client import APIError, HalcmdClient
 
 # The component names of the sim config. Scenario drivers name pins relative to
 # the task ("error-id") or to a sim instance ("0.gripper.miss-count"); the full
@@ -63,10 +65,10 @@ REARM_LOW = 0.05
 # happens — there is no "it did not move" event to wait for.
 CONTROL_CYCLE = 0.01
 
-# How long to allow for a manual close to be judged (§8.1). PICK_SETTLE_TIME in
-# the sim config is 0.1 s and the countdown adds a couple of control cycles on
-# top; this is that, with room to spare on a loaded runner.
-MANUAL_JUDGE = 0.5
+# The log lines updateManualGrip writes when it judges a manual close (§8.1).
+# The verdict is a record, not a pin, so the server log is where it becomes
+# observable — see Machine.wait_manual_judged.
+_JUDGED_MARKERS = ("held record restored", "held record is gone")
 
 
 class Error(Exception):
@@ -115,24 +117,21 @@ def done():
 
 # ─── pin access ──────────────────────────────────────────────────────────────
 
-
-def _api():
-    return gmi.rest_url() + "/api/v1/halcmd"
+_client = None
 
 
-def _request(url, method="GET", body=None, timeout=10):
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, method=method)
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read()
-    return json.loads(raw) if raw else None
+def _halcmd():
+    """The generated halcmd REST client, created on first use (the server may
+    not be up when this module is imported)."""
+    global _client
+    if _client is None:
+        _client = HalcmdClient(gmi.rest_url(), timeout=10)
+    return _client
 
 
 def _decode(info):
     """Turn a PinInfo's string value into a Python value of the pin's type."""
-    value, typ = info["value"], info["type"]
+    value, typ = info.value, info.type
     if typ == "bit":
         return value == "TRUE"
     if typ == "float":
@@ -143,9 +142,9 @@ def _decode(info):
 def raw_get(name):
     """Read one HAL pin by its full name."""
     try:
-        return _decode(_request("%s/pin/%s" % (_api(), name)))
-    except urllib.error.HTTPError as e:
-        raise Error("reading pin %s: %s" % (name, e.read().decode(errors="replace"))) from e
+        return _decode(_halcmd().get_pin(name))
+    except APIError as e:
+        raise Error("reading pin %s: %s" % (name, e)) from e
 
 
 def raw_set(name, value):
@@ -153,15 +152,14 @@ def raw_set(name, value):
     if isinstance(value, bool):
         value = "1" if value else "0"
     try:
-        _request("%s/pin/%s" % (_api(), name), method="PUT", body={"value": str(value)})
-    except urllib.error.HTTPError as e:
-        raise Error("writing pin %s: %s" % (name, e.read().decode(errors="replace"))) from e
+        _halcmd().set_pin(name, str(value))
+    except APIError as e:
+        raise Error("writing pin %s: %s" % (name, e)) from e
 
 
 def raw_snapshot(pattern):
     """Read every pin matching a glob, as one request: {name: value}."""
-    pins = _request("%s/pins?pattern=%s" % (_api(), pattern))
-    return {p["name"]: _decode(p) for p in pins}
+    return {p.name: _decode(p) for p in _halcmd().list_pins(pattern)}
 
 
 # ─── the machine ─────────────────────────────────────────────────────────────
@@ -169,6 +167,11 @@ def raw_snapshot(pattern):
 
 class Machine:
     """The pnptask instance of the sim config, and the sim behind it."""
+
+    def __init__(self):
+        # How many manual-close judgements this machine has waited out; see
+        # wait_manual_judged.
+        self._judged = 0
 
     # ── naming ──
 
@@ -241,17 +244,30 @@ class Machine:
         """
         time.sleep(n * CONTROL_CYCLE)
 
-    def wait_manual_judged(self):
-        """Give the module time to judge a manual close against the gripper.
+    def wait_manual_judged(self, log="server.log"):
+        """Wait for the module to judge a manual close against the gripper.
 
         §8.1: a manual close over a retained record is judged once the gripper
         feedback has settled — pick-settle-time later, in the control loop. The
-        verdict is not published on any pin (it is a record, not an output), so
-        there is nothing to poll: what follows is a fixed wait long enough to
-        cover the settle countdown, and the assertion is made on the next job's
-        behaviour, which is where the record actually matters.
+        verdict is a record, not a pin, but the module LOGS it ("held record
+        restored" / "held record is gone"), so the wait polls the server log
+        for one more verdict line than this Machine has already waited out.
+        A polled wait, unlike the fixed sleep it replaces, honours
+        STMAK_TEST_TIMEOUT_SCALE like every other deadline in the suite.
         """
-        time.sleep(MANUAL_JUDGE)
+        self._judged += 1
+        want = self._judged
+
+        def _seen():
+            try:
+                with open(log, errors="replace") as f:
+                    data = f.read()
+            except OSError:
+                return False
+            return sum(data.count(m) for m in _JUDGED_MARKERS) >= want
+
+        stmak_test.wait_until(_seen, "manual close %d to be judged (%s)" % (want, log),
+                              interval=0.05)
 
     def _state(self):
         """The pins a failing wait wants named — the machine in one line."""
@@ -275,7 +291,7 @@ class Machine:
         def _up():
             try:
                 return self.get("machine-is-on")
-            except (urllib.error.URLError, OSError, Error):
+            except (urllib.error.URLError, OSError, Error, APIError):
                 return False
 
         return stmak_test.wait_until(_up, "the pnptask machine to come up",
