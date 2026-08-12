@@ -1,0 +1,139 @@
+component pnpsim "Simulated pick-and-place gripper and fixture, for driving pnptask without hardware";
+
+description """
+One instance simulates the two field devices a \\fBpnptask\\fR station pair needs:
+a \\fBgripper\\fR (a picker's close command and its opened/closed feedback) and a
+\\fBfixture\\fR (a process station's release request and its released feedback).
+Both halves are independent \\(em wire the ones you need and leave the rest
+unlinked. A machine with two pickers and two process stations therefore loads
+two instances:
+
+.IP
+.nf
+load pnpsim <pnp.sim.0,pnp.sim.1>
+addf pnp.sim.0 servo-thread
+addf pnp.sim.1 servo-thread
+
+net p0-close  pnp.task.picker.0.close  => pnp.sim.0.gripper.close
+net p0-opened pnp.sim.0.gripper.opened => pnp.task.picker.0.opened
+net p0-closed pnp.sim.0.gripper.closed => pnp.task.picker.0.closed
+.fi
+
+.PP
+The gripper models the one thing a pick-and-place task cannot be tested without:
+the difference between closing onto a part and closing onto nothing. Feedback
+follows the command after \\fBgripper.settle-time\\fR, and lands on one of two
+states \\(em \\fBopened\\fR high (released), or \\fBopened\\fR low with
+\\fBclosed\\fR saying what it found: low means the jaws stopped on a part, high
+means they met each other and the position was empty.
+
+.PP
+Which of the two a close produces is scripted with \\fBgripper.miss-count\\fR:
+0 (the default) grips a part every time, N makes the next N closes find nothing,
+and \\-1 makes every close find nothing. The counter reloads whenever the pin's
+value changes, so a driver arms a run of misses by writing the count and re-arms
+by writing it again. \\fBgripper.miss-left\\fR reports what is left of it.
+
+.PP
+\\fBgripper.stuck\\fR and \\fBfixture.stuck\\fR freeze the feedback where it
+stands, which is how the fault paths are reached: a gripper that never actuates
+raises PICKER_CLOSE_FAILED in pnptask, a fixture that never answers raises
+RELEASE_TIMEOUT.
+""";
+
+see_also """\\fBpnptask\\fR(9), docs/dev/PNPTASK_DESIGN.md and the simulation
+config in tests/pnptask/.""";
+
+// --- gripper ---------------------------------------------------------------
+
+pin in bit gripper.close "Close command, from the picker's \\fBclose\\fR output.";
+pin out bit gripper.opened = 1 """Opened feedback. High while the gripper is
+released; the initial state.""";
+pin out bit gripper.closed """Fully-closed feedback: high when the jaws met each
+other, which after a pick means the position held nothing.""";
+pin out bit gripper.holding "High while the gripper holds a part.";
+
+pin in signed gripper.miss-count = 0 """How many of the next closes grip nothing:
+0 = none, N = the next N, \\-1 = all of them. Reloaded whenever the value
+changes.""";
+pin out signed gripper.miss-left "Closes still scheduled to grip nothing.";
+pin in bit gripper.stuck """Freeze the gripper feedback where it stands \\(em a
+gripper with no air on it.""";
+pin in float gripper.settle-time = 0.05 """Seconds between a close/open command
+and the feedback that answers it.""";
+
+// --- fixture ---------------------------------------------------------------
+
+pin in bit fixture.release "Release/unclamp request, from the station's \\fBrelease\\fR output.";
+pin out bit fixture.released "Released feedback; follows the request after \\fBfixture.release-time\\fR.";
+pin in bit fixture.stuck "Freeze the released feedback where it stands.";
+pin in float fixture.release-time = 0.02 "Seconds the fixture takes to follow its request.";
+
+variable double grip_timer;
+variable double fix_timer;
+// settled is the command the gripper feedback currently reflects, which is not
+// the same as the command pin while a transition is being timed out.
+variable int settled;
+variable int part;
+variable int misses;
+variable int miss_req;
+
+function _ "Advance both simulations by one servo period.";
+
+license "GPL";
+author "Sascha Ittner";
+;;
+
+FUNCTION(_) {
+    // The miss schedule reloads on a *change* of the request pin, not on every
+    // cycle: the driver writes a count once and the countdown below owns it
+    // from there. Writing the same count again is how a run is re-armed.
+    if (gripper_miss_count != miss_req) {
+        miss_req = gripper_miss_count;
+        misses = miss_req;
+    }
+
+    if (gripper_stuck) {
+        // Nothing actuates: the command may change, the feedback does not, and
+        // the settle timer starts over when the freeze is lifted.
+        grip_timer = 0.0;
+    } else if ((gripper_close != 0) != (settled != 0)) {
+        grip_timer += fperiod;
+        if (grip_timer >= gripper_settle_time) {
+            grip_timer = 0.0;
+            settled = (gripper_close != 0);
+            if (settled) {
+                // Closing. A scheduled miss makes the jaws meet each other;
+                // -1 keeps missing without counting down.
+                part = 1;
+                if (misses != 0) {
+                    part = 0;
+                    if (misses > 0) misses--;
+                }
+            } else {
+                part = 0;
+            }
+        }
+    } else {
+        grip_timer = 0.0;
+    }
+
+    // Derived rather than assigned at the transitions, so the pins are correct
+    // on the very first cycle too (a gripper starts opened, holding nothing).
+    gripper_opened = !settled;
+    gripper_closed = settled && !part;
+    gripper_holding = part;
+    gripper_miss_left = misses;
+
+    if (fixture_stuck) {
+        fix_timer = 0.0;
+    } else if ((fixture_release != 0) != (fixture_released != 0)) {
+        fix_timer += fperiod;
+        if (fix_timer >= fixture_release_time) {
+            fix_timer = 0.0;
+            fixture_released = (fixture_release != 0);
+        }
+    } else {
+        fix_timer = 0.0;
+    }
+}
