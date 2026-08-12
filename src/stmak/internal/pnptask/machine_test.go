@@ -617,6 +617,69 @@ func TestEstopClearRequiresMachineOnCycle(t *testing.T) {
 	f.eventually("back on after cycling machine-on", func() bool { return f.bit("machine-is-on") })
 }
 
+// A machine-on edge made DURING estop is not a request that survives it: the
+// post-estop rule is a fresh cycle (§6.2), and a latched pre-reset edge powering
+// the servos the instant the estop chain closes is a restart-interlock hole.
+func TestMachineOnEdgeDuringEstopNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.machineOn()
+	f.setBit(f.m.pins.estopOn, true)
+	f.eventually("off in estop", func() bool { return !f.bit("machine-is-on") })
+
+	// The PLC cycles machine-on while estop is still active.
+	f.pulse(f.m.pins.machineOn)
+	time.Sleep(10 * pollInterval)
+
+	f.setBit(f.m.pins.estopOn, false)
+	f.consistently("stays off after estop clears", func() bool { return !f.bit("machine-is-on") })
+
+	// A cycle made after the estop cleared is the real request.
+	f.pulse(f.m.pins.machineOn)
+	f.eventually("enabled by a post-estop cycle", func() bool { return f.bit("machine-is-on") })
+}
+
+// A manual picker press during estop must not actuate when estop clears: the
+// pickers were just force-opened on purpose (D14), and a stale re-grip closes a
+// gripper over a workspace someone may be clearing.
+func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.setBit(f.m.pins.autoEnable, false)
+	f.setBit(f.m.pins.estopOn, true)
+	time.Sleep(10 * pollInterval)
+
+	f.pulse(f.m.pins.pickers[0].manualClose)
+	time.Sleep(10 * pollInterval)
+
+	f.setBit(f.m.pins.estopOn, false)
+	f.consistently("press during estop stays dead after clear", func() bool {
+		return !f.bit("picker.0.close")
+	})
+
+	f.pulse(f.m.pins.pickers[0].manualClose)
+	f.eventually("fresh press closes", func() bool { return f.bit("picker.0.close") })
+}
+
+// An error-reset pulsed while NO fault is latched is a no-op, not a stored
+// credit: it must not clear a fault raised later (the PLC would see a failed
+// job with clean error pins and call it success).
+func TestErrorResetWithoutFaultNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.pulse(f.m.pins.errorReset)
+	time.Sleep(10 * pollInterval)
+	f.setBit(f.m.pins.errorReset, false)
+
+	// Now a fault: homing with the machine off.
+	f.setBit(f.m.pins.home, true)
+	f.eventually("MACHINE_OFF latched", func() bool { return f.get("error-id") == float64(errMachineOff) })
+	f.consistently("the pre-fault reset pulse does not clear it", func() bool {
+		return f.bit("error")
+	})
+
+	// A reset made with the fault present clears it.
+	f.pulse(f.m.pins.errorReset)
+	f.eventually("cleared by a real reset", func() bool { return !f.bit("error") })
+}
+
 // machine-on going low keeps whatever the pickers hold (D14): only estop drops
 // material.
 func TestMachineOffKeepsPickerState(t *testing.T) {

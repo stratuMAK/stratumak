@@ -196,6 +196,16 @@ type control struct {
 
 	// jobArmed is the start-job handshake's state: see jobRequest.
 	jobArmed bool
+
+	// trayPending is the latched tray reset request per station (D8): the
+	// value every slot is to get, snapshotted at press time (set-full carries
+	// the process-step the operator saw). nil = nothing pending; a later press
+	// overwrites an earlier one. See the latch gating in sample.
+	trayPending []*int64
+
+	// heldVerify counts down to the one-shot validation of restored held
+	// records against the picker feedback; see verifyRestoredHeld.
+	heldVerify int
 }
 
 func newControl(m *pnptaskModule) *control {
@@ -217,13 +227,14 @@ func newControl(m *pnptaskModule) *control {
 		}
 	}
 	return &control{
-		m:      m,
-		stop:   make(chan struct{}),
-		done:   make(chan struct{}),
-		in:     mk(),
-		prev:   mk(),
-		rise:   mk(),
-		jogDir: make([]int, len(m.pins.jog)),
+		m:           m,
+		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
+		in:          mk(),
+		prev:        mk(),
+		rise:        mk(),
+		jogDir:      make([]int, len(m.pins.jog)),
+		trayPending: make([]*int64, trays),
 	}
 }
 
@@ -349,18 +360,49 @@ func (c *control) sample() {
 	// nothing to show why. The one-shot inputs (home, error-reset, manual
 	// open/close, the tray resets) go the other way — see primeEdges.
 	//
-	// The edges are OR-ed into the latches rather than assigned: see the rise
-	// field for why they have to survive a nested tick.
-	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn)
-	c.rise.home = c.rise.home || (c.in.home && !c.prev.home)
-	c.rise.errorReset = c.rise.errorReset || (c.in.errorReset && !c.prev.errorReset)
+	// The edges are OR-ed into the latches rather than assigned (see the rise
+	// field), and each latch is GATED AT PRESS TIME: sample() runs on every
+	// nested tick, so this cycle's inputs are exactly the context the press
+	// happened in, and a press that was invalid then must not be remembered
+	// into a context where it would fire unrequested. A machine-on edge during
+	// estop must not enable the machine at estop clear (the post-estop cycle
+	// rule of §6.2); a home press during estop must not home on reset; an
+	// error-reset with no fault latched must not pre-clear a fault raised
+	// later; and a manual picker press outside manual mode is ignored, not
+	// queued (§6.4). What the latch is FOR — a valid press surviving a long
+	// job's nested ticks — is untouched: those presses pass their gate.
+	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn && !c.in.estop)
+	c.rise.home = c.rise.home || (c.in.home && !c.prev.home && !c.in.estop)
+	c.rise.errorReset = c.rise.errorReset ||
+		(c.in.errorReset && !c.prev.errorReset && c.m.pins.errorFlag.Get())
+	manualOK := !c.in.estop && !c.in.autoEnable
 	for i := range p.pickers {
-		c.rise.pickerOpen[i] = c.rise.pickerOpen[i] || (c.in.pickerOpen[i] && !c.prev.pickerOpen[i])
-		c.rise.pickerClose[i] = c.rise.pickerClose[i] || (c.in.pickerClose[i] && !c.prev.pickerClose[i])
+		c.rise.pickerOpen[i] = c.rise.pickerOpen[i] ||
+			(manualOK && c.in.pickerOpen[i] && !c.prev.pickerOpen[i])
+		c.rise.pickerClose[i] = c.rise.pickerClose[i] ||
+			(manualOK && c.in.pickerClose[i] && !c.prev.pickerClose[i])
 	}
+	// The tray resets latch a pending VALUE, not a boolean: set-full means "all
+	// slots become the process step the operator saw when pressing", so the
+	// step is snapshotted at press time — consuming it later with a process
+	// step the PLC has meanwhile staged for its next job would mark the whole
+	// tray wrongly. Later presses overwrite earlier ones (last wins); only two
+	// edges in the SAME sample are a genuinely contradictory pair, ignored like
+	// the picker branch ignores its own.
 	for i := range p.trays {
-		c.rise.traySetFull[i] = c.rise.traySetFull[i] || (c.in.traySetFull[i] && !c.prev.traySetFull[i])
-		c.rise.traySetEmpty[i] = c.rise.traySetEmpty[i] || (c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i])
+		full := c.in.traySetFull[i] && !c.prev.traySetFull[i]
+		empty := c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i]
+		switch {
+		case full && empty:
+			c.m.logger.Debug("pnptask: tray set-full and set-empty in the same cycle, ignored",
+				"station", c.m.world.trays[i].cfg.ID)
+		case full:
+			v := int64(c.in.processStep)
+			c.trayPending[i] = &v
+		case empty:
+			v := slotEmpty
+			c.trayPending[i] = &v
+		}
 	}
 
 	if st, err := c.m.ms.GetStatus(); err != nil {
@@ -442,9 +484,11 @@ func (c *control) step() {
 
 	if c.in.autoEnable {
 		// Auto mode: the manual controls are inert, and a jog left running by
-		// the mode switch must not stay running (§6.4). The manual edges are
-		// *discarded* rather than latched: a button pressed in auto mode is
-		// ignored, not queued up for the next switch to manual.
+		// the mode switch must not stay running (§6.4). Presses made IN auto
+		// mode were never latched (the gate in sample); the discard here kills
+		// the other direction — a press made in manual mode whose latch was
+		// still pending when the PLC switched to auto. Either way, a press
+		// outside manual mode's reach is ignored, not queued.
 		c.stopJogs()
 		for i := range c.rise.pickerOpen {
 			c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
@@ -508,6 +552,17 @@ func (c *control) enterEstop() {
 	}
 	c.estopped = true
 	c.enabled = false
+	// Latches from before the estop die with it: a machine-on, home or manual
+	// picker press that was valid when made must not fire into the post-estop
+	// world — leaving estop requires fresh requests (§6.2). The latch gating in
+	// sample() stops NEW presses during the estop; this stops the ones already
+	// pending when it hit. error-reset deliberately survives: clearing a fault
+	// is valid in estop, and its gate (a fault was latched) still held.
+	c.rise.machineOn = false
+	c.rise.home = false
+	for i := range c.rise.pickerOpen {
+		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
+	}
 	c.clearJogState()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
@@ -589,60 +644,33 @@ func (c *control) updateStations() {
 		// sample on (see the rise field), and the model's id is the honest answer
 		// to "is this still the tray we are tracking".
 		if c.in.trayID[i] != t.trayID {
-			c.selectTray(t, c.in.trayID[i])
+			c.m.world.applyTrayID(t, c.in.trayID[i])
 		}
-		full, empty := take(&c.rise.traySetFull[i]), take(&c.rise.traySetEmpty[i])
-		switch {
-		case full && empty:
-			// Both requested: a contradictory pair, ignored — the same treatment
-			// the manual picker pins get.
-			c.m.logger.Debug("pnptask: tray set-full and set-empty both requested, ignored",
+		v := c.trayPending[i]
+		if v == nil {
+			continue
+		}
+		c.trayPending[i] = nil
+		if t.geom == nil {
+			// A phantom success would be worse than a refusal: with no
+			// geometry there are no slots to set, and persisting the "result"
+			// would clobber a record that may still be the only surviving
+			// state (set tray-id before the resets).
+			c.m.logger.Warn("pnptask: tray reset ignored, station has no geometry",
 				"station", t.cfg.ID)
-		case full:
-			t.setAll(int64(c.in.processStep))
-			c.m.logger.Info("pnptask: tray declared full",
-				"station", t.cfg.ID, "process_step", c.in.processStep, "slots", len(t.slots))
-		case empty:
-			t.setAll(slotEmpty)
+			continue
+		}
+		t.setAll(*v)
+		if *v == slotEmpty {
 			c.m.logger.Info("pnptask: tray declared empty",
 				"station", t.cfg.ID, "slots", len(t.slots))
+		} else {
+			c.m.logger.Info("pnptask: tray declared full",
+				"station", t.cfg.ID, "process_step", *v, "slots", len(t.slots))
 		}
 	}
 }
 
-// selectTray follows a tray-id change: the tray in the station is a different
-// one, so its slot state starts empty again (D17).
-func (c *control) selectTray(t *trayState, id uint32) {
-	if !t.selectDef(id) {
-		if id != 0 {
-			// Not fatal here — the id is a PLC value, not configuration. The
-			// station simply has no geometry, and a job against it raises
-			// INVALID_TRAY_ID with the id in the log.
-			c.m.logger.Warn("pnptask: tray-id names no TRAYDEF",
-				"station", t.cfg.ID, "tray_id", id)
-			t.pending = nil
-			return
-		}
-		// Back to "not told yet" (an unwired or reset selector). A pending
-		// restored record is kept: nothing has contradicted it yet.
-		c.m.logger.Info("pnptask: tray-id cleared, station has no geometry", "station", t.cfg.ID)
-		return
-	}
-	// A restored record that was waiting for its tray-id (see world.restore) is
-	// adopted the moment the pin names the geometry it was recorded under.
-	if t.pending != nil && t.pending.TrayID == id {
-		rec := *t.pending
-		t.pending = nil
-		if c.m.world.adoptTray(t, rec) {
-			c.m.logger.Info("pnptask: tray state restored",
-				"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
-			return
-		}
-	}
-	t.pending = nil
-	c.m.logger.Info("pnptask: tray changed, slot state reset",
-		"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
-}
 
 // publish writes the outputs that simply mirror state. It runs from tick, so it
 // keeps running through a homing wait or a job action — a teach pin that froze

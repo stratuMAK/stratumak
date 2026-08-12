@@ -280,6 +280,13 @@ func (w *world) flush() {
 		if !t.dirty {
 			continue
 		}
+		if t.geom == nil {
+			// A geometry-less station has no state worth a record, and a
+			// {TrayID: 0} write would destroy the one that may still be valid
+			// on disk (a selector dropout parks the state, see applyTrayID).
+			t.dirty = false
+			continue
+		}
 		t.dirty = false
 		w.persist.store(trayKey(t.cfg.ID), trayRecord{TrayID: t.trayID, Slots: t.slots})
 	}

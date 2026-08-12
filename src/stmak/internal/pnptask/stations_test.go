@@ -636,6 +636,84 @@ func TestTrayBothResetPinsAtOnce(t *testing.T) {
 	})
 }
 
+// TestTrayResetsDuringHomingSnapshotAndLastWin: a reset pressed while a long
+// operation keeps step() from running must (a) apply the process-step the
+// operator saw at press time, not the one the PLC staged later for its next
+// job, and (b) let a later press overwrite an earlier one instead of the two
+// colliding as a "contradictory pair" at consumption.
+func TestTrayResetsDuringHomingSnapshotAndLastWin(t *testing.T) {
+	f := newMachineFixture(t)
+	tray := f.m.pins.trays[0]
+	tray.trayID.Set(1)
+	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
+
+	f.mot.homingCycles = 1000 // ~1 s of homing at the test poll rate
+	f.machineOn()
+	f.setBit(f.m.pins.home, true)
+	f.eventually("homing started", func() bool { return f.mot.called("JointHome") })
+
+	// Operator: empty... no, full of step-3 material (the correction wins).
+	f.pulse(tray.setEmpty)
+	time.Sleep(5 * pollInterval)
+	f.m.pins.processStep.Set(3)
+	f.pulse(tray.setFull)
+	time.Sleep(5 * pollInterval)
+	// The PLC stages the step for its NEXT job while homing still runs.
+	f.m.pins.processStep.Set(4)
+
+	f.eventually("homed", func() bool { return f.bit("homed") })
+	// Slots carry the press-time step 3: full, and "empty" is true for the
+	// staged step 4 but false once the PLC asks about step 3 again.
+	f.eventually("full of step-3 material", func() bool {
+		return f.bit("tray.10.full") && f.bit("tray.10.empty")
+	})
+	f.m.pins.processStep.Set(3)
+	f.eventually("has step-3 material", func() bool {
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty")
+	})
+}
+
+// TestTrayIDBlipKeepsState: a selector dropout (PLC reboot while stmakd runs,
+// tray-id X -> 0 -> X) is not a tray change — the live slot state is parked and
+// adopted back, exactly like a restart parks a restored record.
+func TestTrayIDBlipKeepsState(t *testing.T) {
+	f := newMachineFixture(t)
+	tray := f.m.pins.trays[0]
+	tray.trayID.Set(1)
+	f.m.pins.processStep.Set(1)
+	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
+	f.pulse(tray.setFull)
+	f.eventually("full", func() bool { return f.bit("tray.10.full") })
+
+	tray.trayID.Set(0)
+	f.eventually("geometry parked", func() bool {
+		return !f.bit("tray.10.full") && !f.bit("tray.10.empty")
+	})
+	tray.trayID.Set(1)
+	f.eventually("state adopted back after the blip", func() bool { return f.bit("tray.10.full") })
+	f.consistently("still full of step-1 material", func() bool {
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty")
+	})
+}
+
+// TestTrayResetWithoutGeometryIgnored: set-full/set-empty on a station whose
+// tray-id names no geometry is a refusal, not a phantom success — there are no
+// slots to set, and "success" would clobber the persisted record.
+func TestTrayResetWithoutGeometryIgnored(t *testing.T) {
+	f := newMachineFixture(t)
+	tray := f.m.pins.trays[0]
+
+	f.pulse(tray.setFull)
+	f.consistently("no geometry, nothing declared", func() bool {
+		return !f.bit("tray.10.full") && !f.bit("tray.10.empty")
+	})
+
+	w := f.stopped()
+	if w.trays[0].dirty {
+		t.Error("a geometry-less reset armed a persistence write")
+	}
+}
+
 // TestEstopClearsHeldRecords: estop drops the picker outputs (D14), so whatever
 // they held is on the table and the held records would be fiction.
 func TestEstopClearsHeldRecords(t *testing.T) {

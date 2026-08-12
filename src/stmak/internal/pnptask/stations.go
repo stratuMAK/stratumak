@@ -313,18 +313,70 @@ type trayState struct {
 // selectDef points the station at the geometry tray-id names and starts it from
 // the empty state (D17: a tray-id change resets all slots to -1, which is also
 // the startup state). It reports whether the id named a known TRAYDEF.
+//
+// The geometry-less branch deliberately does NOT mark the state dirty: there is
+// no state worth a record, and flush skips geometry-less stations anyway — a
+// {TrayID: garbage} write would only ever destroy a record that may still be
+// the valid one (see applyTrayID for the id-0 case, which never even reaches
+// this function).
 func (t *trayState) selectDef(id uint32) bool {
 	t.trayID = id
 	t.geom = t.defs[id]
 	if t.geom == nil {
 		t.slots = nil
 		t.misses, t.probedEmpty = 0, false
-		t.dirty = true
 		return false
 	}
 	t.slots = make([]int64, t.geom.def.SlotCount())
 	t.resetSlots()
 	return true
+}
+
+// applyTrayID is the single owner of the tray-id policy: what a new selector
+// value means for the station's live state, its pending record and the
+// persistence. The control loop routes every pin change through here, and the
+// restore path shares its adoption half (adoptTray), so the rule cannot drift
+// between the two.
+func (w *world) applyTrayID(t *trayState, id uint32) {
+	if id == t.trayID {
+		return
+	}
+	if id == 0 {
+		// "Not told yet" — an unwired selector, or a PLC rebooting while
+		// stmakd keeps running. That is a dropout, not a tray change: the live
+		// state is parked as pending exactly like a restart parks the restored
+		// record, so the id coming back adopts it unchanged — and nothing is
+		// marked dirty, because the persisted record has to survive the blip
+		// too (it may be the only copy if stmakd dies mid-blip).
+		if t.geom != nil {
+			t.pending = &trayRecord{TrayID: t.trayID, Slots: append([]int64(nil), t.slots...)}
+		}
+		t.trayID, t.geom, t.slots = 0, nil, nil
+		t.misses, t.probedEmpty = 0, false
+		w.logger.Info("pnptask: tray-id cleared, station has no geometry", "station", t.cfg.ID)
+		return
+	}
+	// A record waiting for its tray-id — restored at boot, or parked by the
+	// dropout branch above — is adopted the moment the pin names the geometry
+	// it was recorded under.
+	if t.pending != nil && t.pending.TrayID == id {
+		rec := *t.pending
+		t.pending = nil
+		if w.adoptTray(t, rec) {
+			w.logger.Info("pnptask: tray state restored",
+				"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
+			return
+		}
+	}
+	t.pending = nil
+	if !t.selectDef(id) {
+		// Not fatal — the id is a PLC value, not configuration. The station
+		// simply has no geometry, and a job against it raises INVALID_TRAY_ID.
+		w.logger.Warn("pnptask: tray-id names no TRAYDEF", "station", t.cfg.ID, "tray_id", id)
+		return
+	}
+	w.logger.Info("pnptask: tray changed, slot state reset",
+		"station", t.cfg.ID, "tray_id", id, "slots", len(t.slots))
 }
 
 // resetSlots empties every slot and forgets the probing history.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
@@ -169,6 +170,85 @@ func TestPersistenceTrayIDMismatchDiscards(t *testing.T) {
 	if w.trays[0].trayID != 2 {
 		t.Errorf("tray-id = %d after the change, want 2", w.trays[0].trayID)
 	}
+}
+
+// TestPersistenceSurvivesTrayIDBlip: a selector dropout while the machine runs
+// must not cost the persisted record — the X->0->X blip parks the live state,
+// and the flush never writes a geometry-less station.
+func TestPersistenceSurvivesTrayIDBlip(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_blip"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.pins.processStep.Set(5)
+		}),
+	})
+	first.pulse(first.m.pins.trays[0].setFull)
+	first.eventually("tray full", func() bool { return first.bit("tray.10.full") })
+
+	// The PLC reboots: the selector reads 0 for a while, then comes back.
+	first.m.pins.trays[0].trayID.Set(0)
+	first.eventually("geometry parked", func() bool { return !first.bit("tray.10.full") })
+	first.m.pins.trays[0].trayID.Set(1)
+	first.eventually("state back after the blip", func() bool { return first.bit("tray.10.full") })
+	first.m.Stop()
+
+	// A restart still finds the full tray: neither the blip nor its flushes
+	// overwrote the record.
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.pins.processStep.Set(5)
+		}),
+	})
+	second.eventually("restored full tray", func() bool { return second.bit("tray.10.full") })
+}
+
+// TestGeometrylessResetKeepsRecord: a PLC init sequence that pulses set-empty
+// before writing tray-id (a real boot ordering) must not destroy the record a
+// restart just parked as pending.
+func TestGeometrylessResetKeepsRecord(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_geomless"
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.pins.processStep.Set(5)
+		}),
+	})
+	first.pulse(first.m.pins.trays[0].setFull)
+	first.eventually("tray full", func() bool { return first.bit("tray.10.full") })
+	first.m.Stop()
+
+	// Restart with the selector still unwritten; the PLC pulses set-empty
+	// before it writes tray-id.
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.processStep.Set(5)
+		}),
+	})
+	second.pulse(second.m.pins.trays[0].setEmpty)
+	time.Sleep(20 * pollInterval)
+	// tray-id arrives late: the pending record is adopted, not the reset.
+	second.m.pins.trays[0].trayID.Set(1)
+	second.eventually("record adopted despite the early reset", func() bool {
+		return second.bit("tray.10.full")
+	})
+	second.m.Stop()
+
+	// And it survived on disk, too.
+	third := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.pins.processStep.Set(5)
+		}),
+	})
+	third.eventually("record still on disk", func() bool { return third.bit("tray.10.full") })
 }
 
 // TestPersistencePendingTrayID covers the refinement over the design document: a
