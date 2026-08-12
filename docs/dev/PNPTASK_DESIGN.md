@@ -1030,7 +1030,7 @@ restoring a swap record.
 
 ---
 
-## 9. Phase 7 — Testing
+## 9. Phase 7 — Testing *(implemented)*
 
 - **Unit** (no HAL): direction-mode iterator, grid interpolation, slot
   search/probing, action selection, error mapping, persistence codec;
@@ -1061,6 +1061,77 @@ restoring a swap record.
   retention round trip (§8.1).
 - **Latency check**: assert plan time < 100 ms in the integration run (D13).
 
+### 9.1 As built (2026-08-12)
+
+`src/hal/components/pnpsim.comp` (the simulated field devices), the rewired
+`tests/pnptask/` config with `pnpdrv.sh`/`pnpdrv.py`, and nine scenario
+directories under it — `cycle probing homing busy errors estop persist
+altpicker manual` — each a standard runtests test (`test.sh` + a Python driver
++ `expected`). One addition to the module itself: the `plan-time` out pin
+(§5.2), because D13's budget was the one thing §9 asks for that nothing
+published.
+
+The scenario list above maps one-to-one onto those directories with one split:
+autohome-on-first-job is asserted in `cycle/`, where the first job homes the
+machine on its own, because a machine can only be unhomed once per start;
+`homing/` takes the other half — the explicit `home` request of D25 and the
+manual mode that needs it.
+
+- **The scenarios are separate runtests directories, all driving one config.**
+  Per-directory pass/fail is what makes a failing suite readable, and stmakd
+  chdirs to the INI's directory, so a scenario in `tests/pnptask/<name>/`
+  running `stmakd ../pnptask.ini` shares the trays, the drawings and the
+  persistence db with all the others. Wiping that shared state is therefore
+  `pnpdrv.sh`'s job, not runtests' per-testdir `rm -rf db`.
+- **`pnpsim` carries one gripper and one fixture per instance**, so the sim's
+  two pickers and two process stations are two instances. Not because they
+  belong together physically — they do not — but because a comp per device
+  would have been two comps for four pins each, and a comp with counts would
+  have needed the personality-nibble encoding of `logic` to say "two of one and
+  two of the other". Unused halves stay unlinked and cost nothing.
+- **The gripper is the only part of the machine that had to be simulated
+  rather than wired.** Everything else the sim needs is a HAL primitive or a
+  pin the driver writes: `busy` is an unconnected input, the position loop-back
+  is a `net`, home switches are `setp`. What no wiring can express is the
+  difference between closing onto a part and closing onto nothing — the D9
+  probing correction, and the reason a pick-and-place task exists. It is
+  scripted with `gripper.miss-count`: N misses, or −1 for all of them, reloaded
+  whenever the value changes.
+- **Feedback settles a `settle-time` after the command.** Looping the command
+  straight back — what the phase-2 config did — would let a machine with
+  PICK_SETTLE_TIME at 0 pass tests a real one fails (§7.7's "a zero settle time
+  still costs one control cycle" is exactly that bug from the other side).
+- **The drivers reach pins over the halcmd REST API, not by forking halcmd.**
+  A fork costs tens of milliseconds and these drivers poll in loops;
+  `GET /pins?pattern=pnp.task.*` also returns the whole tree as *one* sample,
+  which is the only way to assert on several pins that are changing together.
+  `stmak_test.wait_until` still supplies the deadline discipline (and
+  `STMAK_TEST_TIMEOUT_SCALE`); what could not be reused is
+  `stmak_test.getp`/`wait_pin`, which read *signals* via `halcmd gets` — most
+  pnptask pins are unlinked, and `wait_ready` cannot ask a GMI status buffer
+  pnptask does not have. Readiness here is `machine-is-on` going high.
+- **`start-job` is driven low before every job, not just raised.** It is armed
+  rather than edge-detected (§7.7), and the module clearing it at the end of
+  the previous job is not enough: a driver that raises it again inside the same
+  10 ms control cycle is a job the module never sees.
+- **A skipped pick is proved by making the gripper unable to pick.** "The
+  material was already held, so no pick happened" has no pin to read; setting
+  `miss-count = -1` for the job gives it one — a job that approached the tray
+  would walk it to TRAY_EMPTY instead of completing. The same trick shows the
+  restored held record in `persist/` is real.
+- **The persistence scenario runs three servers**: one that does the work, one
+  restarted on the state it left, and one started with the state wiped. Without
+  the third, every assertion in the second would also pass on a machine that
+  simply comes up that way.
+- **`plan-time` reports the slowest plan of a job, not the latest.** A job
+  plans one route per leg, so a pin carrying only the last one cannot be
+  sampled from outside — the interesting number is the worst case, and it is
+  reset at the `start-job` edge so it always describes one job. Measured on the
+  sim config: ~10 µs per plan, four orders under D13's budget.
+- Assertions print one `PASS <label>` line each and the directory's `expected`
+  file is the list of them, so a diff names the step that stopped rather than
+  a boolean. `done()` refuses to sign off a scenario that asserted nothing.
+
 ## 10. Delivery order
 
 Each phase is a separately reviewable PR against `add-pnptask`/`main`:
@@ -1082,7 +1153,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
    of D20 wherever it means "the picker holding the job's material" — no
    hardcoded picker 0 — so phase 6 only adds behavior.
 6. alternating picker — **done**
-7. integration suite + docs polish
+7. integration suite + docs polish — **done**
 
 ## 11. Review resolutions and remaining points
 

@@ -1,0 +1,16 @@
+PASS a job whose first two slots are empty still completes
+PASS both scripted misses were consumed by real approaches
+PASS the third slot's part reached the press
+PASS a pick that succeeded after probing leaves 'missing' low
+PASS the part moved on to the output tray
+PASS a tray whose slots are all physically empty raises TRAY_EMPTY
+PASS the tray's 'empty' output is set once probing declared it finished
+PASS the picker's 'missing' output marks the pick that found nothing
+PASS the error flag is latched
+PASS the picker was left open, not clamped on nothing
+PASS the press stayed empty
+PASS a job started with the latch set is refused, error unchanged
+PASS error-reset cleared the picker's missing flag with the latch
+PASS set-full withdraws the empty conclusion
+PASS the refilled tray serves jobs again
+ALL OK

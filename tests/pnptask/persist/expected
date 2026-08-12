@@ -1,0 +1,23 @@
+PASS a part reached the press
+PASS a second part reached the output tray
+PASS the third job was aborted holding its material
+PASS the press holds a part
+PASS the output tray is full
+PASS the component tray is part used
+PASS a picker holds material
+ALL OK
+PASS the press's occupancy came back
+PASS the output tray's slot state came back
+PASS the component tray came back part used
+PASS one picker's held-material record came back
+PASS the restored close output found the part still in the gripper
+PASS the tray is not declared empty by a stale conclusion
+PASS the restored material is placed without a pick
+PASS the test station received it
+PASS the picker never closed on anything — its part was already there
+ALL OK
+PASS a wiped machine's press is empty
+PASS its output tray is empty
+PASS its component tray is empty
+PASS no picker claims to hold anything
+ALL OK
