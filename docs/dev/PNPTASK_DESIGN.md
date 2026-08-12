@@ -44,6 +44,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
 | D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
+| D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
 
 ---
 
@@ -95,8 +96,9 @@ src/stmak/internal/pnptask/             Phases 2–6: the module
     actions.go       action-class sequences (pick/place/move)
     motion.go        motion streaming, waitMotionDone, limits
     errors.go        error-id table
-src/stmak/internal/pnptasktest/         Phase 7: scripted integration tests (tasktest pattern)
-tests/pnptask/                          sim config (ini/hal/dxf) for the integration run
+src/hal/components/pnpsim.comp          Phase 7: the shared simulation cmod (D27)
+tests/pnptask/                          sim config (ini/hal/dxf) + per-scenario
+                                        Python drivers for runtests (D27)
 ```
 
 Registered in `packages.conf` as `gomod internal/pnptask @GOMOD:PNPTASK_GO@`
@@ -1032,14 +1034,26 @@ restoring a swap record.
 - **Unit** (no HAL): direction-mode iterator, grid interpolation, slot
   search/probing, action selection, error mapping, persistence codec;
   `pkg/pnproute` fixtures + latency benchmark (Phase 1).
-- **Integration**: `internal/pnptasktest` gomod (tasktest pattern) driving a
-  sim config in `tests/pnptask/` — trivkins XYZ sim stack, pickers simulated
-  with `timedelay`-based HAL logic (close → closed/opened feedback with
-  configurable delay and scriptable "slot empty" injection via test pins).
+- **Integration** (D27, decided 2026-08-12 — replaces the first draft's
+  `internal/pnptasktest` gomod): per-scenario **Python drivers plus one shared
+  simulation cmod** (`pnpsim`), run by the standard runtests harness over the
+  sim config in `tests/pnptask/`. pnptask's whole surface is HAL pins, so the
+  driver commands jobs over the handshake pins and asserts pin outcomes; the
+  sim cmod provides the machine physics on the servo thread — gripper
+  close → opened/closed feedback with a settling delay, fixture
+  release/released, busy scripting, and "next close grips nothing" miss
+  injection, all as pins the driver flips between jobs. A test gomod would
+  gate runtests on a `@GOMOD:*@` build flag; cmods compile unconditionally.
+  If halcmd-per-poke proves too slow, the driver creates its own HAL
+  component via the Python hal bindings — in-process pin access, still no
+  gomod. The exhaustive logic coverage stays in the Go unit tests with the
+  scripted motion stack; this level exists to exercise the REAL stack:
+  motmod/TP/homemod in RT, real persist_sqlite, real HAL wiring.
   Scenarios: full pick→place cycle, empty-slot probing to tray-empty,
   autohome-on-first-job, busy-gated wait (incl. auto-enable abort),
   error+error-reset, estop mid-move, persistence restore,
-  alternating-picker chain (the §8 reference flow).
+  alternating-picker chain (the §8 reference flow), manual-handling
+  retention round trip (§8.1).
 - **Latency check**: assert plan time < 100 ms in the integration run (D13).
 
 ## 10. Delivery order
