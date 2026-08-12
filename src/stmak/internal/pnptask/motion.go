@@ -53,25 +53,13 @@ func (c *control) pickerOffset(pk int) pnproute.Point {
 	return pnproute.Point{X: p.xOffset.Get(), Y: p.yOffset.Get()}
 }
 
-// commandFor is the machine position that puts picker pk over a target: the
-// targeting convention of §8, command = target − offset.
-//
-// Everything taught — station coordinates, tray corners, the dead-zone drawings
-// (D23) — lives in one frame, the frame a picker's position is expressed in. The
-// conversion to machine coordinates happens here and nowhere else, at the last
-// step before a move is commanded, so route planning and station geometry never
-// have to know which picker is being moved.
-func (c *control) commandFor(pk int, target pnproute.Point) pnproute.Point {
-	off := c.pickerOffset(pk)
-	return pnproute.Point{X: target.X - off.X, Y: target.Y - off.Y}
-}
-
-// pickerAt is where picker pk sits given the position the module has commanded —
-// the inverse of commandFor, and the start point a route is planned from.
-func (c *control) pickerAt(pk int) pnproute.Point {
-	off := c.pickerOffset(pk)
-	return pnproute.Point{X: c.cmdPos.X + off.X, Y: c.cmdPos.Y + off.Y}
-}
+// The targeting convention of §8: command = target − offset, and the picker
+// sits at commanded + offset. Everything taught — station coordinates, tray
+// corners, the dead-zone drawings (D23) — lives in one frame, the frame a
+// picker's position is expressed in; the conversion to machine coordinates
+// happens inside travel() and nowhere else, from ONE offset snapshot per leg,
+// so route planning and station geometry never have to know which picker is
+// being moved and a mid-leg setp cannot warp a planned polyline.
 
 // ---------------------------------------------------------------------------
 // Commanded-position tracking
@@ -109,11 +97,27 @@ func toMotctlPose(p motstat.Pose) motctl.Pose {
 
 // line commands one straight move to an absolute pose at the requested velocity
 // and acceleration, both capped by what the participating axes can do. A move
-// that displaces nothing is dropped rather than queued.
+// that displaces nothing is dropped rather than queued; a move that displaces
+// something but has no usable limits is a FAULT, never a silent drop — a
+// silently skipped Z stroke runs the pick at travel height, grips nothing, and
+// marks good slots empty one after another.
 func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
-	vel, acc := c.moveLimits(c.cmdPos, to, velReq, accReq)
-	if vel <= 0 || acc <= 0 {
+	if !isFinite(to.X) || !isFinite(to.Y) || !isFinite(to.Z) {
+		// A NaN/Inf target reaches this point through the float input pins
+		// (a z-offset wired to a broken sensor value, say); motion must never
+		// see it, and NaN would also slip every comparison below.
+		return faultf(errMotionError,
+			"move target (%v, %v, %v) is not finite — check the z-offset and picker offset inputs",
+			to.X, to.Y, to.Z)
+	}
+	vel, acc, moved := c.moveLimits(c.cmdPos, to, velReq, accReq)
+	if !moved {
 		return nil
+	}
+	if vel <= 0 || acc <= 0 {
+		return faultf(errMotionError,
+			"the axis limits leave no usable velocity/acceleration for the move to (%.3f, %.3f, %.3f) — check [AXIS_*]MAX_VELOCITY/MAX_ACCELERATION",
+			to.X, to.Y, to.Z)
 	}
 	c.moveID++
 	// iniMaxvel is the same as vel: there is no feed override to scale here, so
@@ -126,13 +130,18 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 	return nil
 }
 
+func isFinite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+
 // moveLimits blends the requested velocity and acceleration against the per-axis
 // maxima, so no axis is asked for more than its own limit while the axes stay
 // coordinated. A request of 0 means "no override": the [TRAJ] defaults apply,
 // which is what MOVE_VEL/MOVE_ACC = 0 and Z_VEL/Z_ACC = 0 mean in the INI.
 //
-// A move with no displacement returns zeroes, which is how line drops it.
-func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel, acc float64) {
+// moved separates "nothing to do" from "cannot do it": a move with no
+// displacement returns moved=false and line drops it, while real displacement
+// with zero limits comes back moved=true and zeroed limits, which line faults
+// on.
+func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel, acc float64, moved bool) {
 	d := [3]float64{
 		math.Abs(to.X - from.X),
 		math.Abs(to.Y - from.Y),
@@ -142,11 +151,17 @@ func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel,
 		if d[i] < moveFuzz {
 			d[i] = 0
 		}
+		if d[i] > 0 {
+			moved = true
+		}
+	}
+	if !moved {
+		return 0, 0, false
 	}
 	velMax := blendAxisLimit(d, c.m.limits.AxisMaxVel[:])
 	accMax := blendAxisLimit(d, c.m.limits.AxisMaxAcc[:])
 	if velMax <= 0 || accMax <= 0 {
-		return 0, 0
+		return 0, 0, true
 	}
 	vel = velReq
 	if vel <= 0 {
@@ -162,7 +177,7 @@ func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel,
 	if acc <= 0 || accMax < acc {
 		acc = accMax
 	}
-	return vel, acc
+	return vel, acc, true
 }
 
 // blendAxisLimit is the coordinated limit for a displacement d under per-axis
@@ -202,7 +217,12 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
-	start := c.pickerAt(pk)
+	// One offset snapshot for the whole leg: the route below is planned as one
+	// rigid polyline around the dead-zone clearances, and a halcmd setp landing
+	// between two waypoint dispatches must shift the next leg, not warp this
+	// one mid-flight. (D3's "read live" means per leg, not per waypoint.)
+	off := c.pickerOffset(pk)
+	start := pnproute.Point{X: c.cmdPos.X + off.X, Y: c.cmdPos.Y + off.Y}
 	route, err := j.planner.Plan(start, target)
 	if err != nil {
 		return faultf(errPlanningFailed,
@@ -213,9 +233,8 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
 	}
 	for _, wp := range route.Waypoints {
-		cmd := c.commandFor(pk, wp)
 		to := c.cmdPos
-		to.X, to.Y, to.Z = cmd.X, cmd.Y, j.height
+		to.X, to.Y, to.Z = wp.X-off.X, wp.Y-off.Y, j.height
 		// The first waypoint is where the picker already is, so its line drops
 		// itself in moveLimits; a Z still off the movement height is corrected by
 		// it rather than left for the next leg to trip over.
@@ -284,13 +303,21 @@ func (c *control) waitMotionDone() error {
 		}
 	} else {
 		// Motion was dispatched: skip a few cycles so the servo thread has
-		// published it before the first in-position check.
-		for i := 0; i < dispatchSettleTicks; i++ {
+		// published it before the first in-position check. Only cycles whose
+		// status read SUCCEEDED count — a failed read re-serves the last
+		// snapshot, and enough of those spanning the dispatch would hand the
+		// drain check below the pre-dispatch picture (Inpos=1, queue empty),
+		// letting the full-stop barrier pass while the machine is still
+		// moving. Failed reads lengthen this wait; they can never shorten it.
+		for settled := 0; settled < dispatchSettleTicks; {
 			if !c.tick() {
 				return errStopping
 			}
 			if err := c.abortCheck(); err != nil {
 				return err
+			}
+			if c.commErrors == 0 {
+				settled++
 			}
 		}
 	}

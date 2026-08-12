@@ -48,6 +48,7 @@ package pnptask
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -164,6 +165,9 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
 	m.planners = planners
+	for _, w := range planners.homeWarnings(cfg) {
+		logger.Warn("pnptask: " + w)
+	}
 
 	// The HAL component is created in the factory, not in Start: the "net"
 	// lines that wire this instance run immediately after the load line, long
@@ -314,6 +318,18 @@ func (m *pnptaskModule) startControl() error {
 	}, m.mc)
 	if err != nil {
 		return fmt.Errorf("pnptask %q: pushing motion configuration: %w", m.name, err)
+	}
+	// The pushed per-axis limits are what every move's velocity blend divides
+	// by, and motsetup's reader is deliberately lenient — an explicit
+	// [AXIS_*]MAX_VELOCITY = 0 (or nan) would otherwise surface only at the
+	// first job, as a fault that does not name the key. The three linear axes
+	// this module moves are checked here. (!(v > 0) also catches NaN.)
+	for i, letter := range []byte{'X', 'Y', 'Z'} {
+		vel, acc := limits.AxisMaxVel[i], limits.AxisMaxAcc[i]
+		if !(vel > 0) || math.IsInf(vel, 0) || !(acc > 0) || math.IsInf(acc, 0) {
+			return fmt.Errorf("pnptask %q: [AXIS_%c]MAX_VELOCITY/MAX_ACCELERATION must be positive and finite (got %v / %v)",
+				m.name, letter, vel, acc)
+		}
 	}
 	m.limits = limits
 

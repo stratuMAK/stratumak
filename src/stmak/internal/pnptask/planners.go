@@ -98,6 +98,23 @@ func scalePoly(p pnproute.Polygon, factor float64) {
 	}
 }
 
+// homeWarnings names every drawing the homed position cannot start a route in.
+// A warning, not an error: a machine that is jogged off the home corner before
+// its first job is legitimate — but the operator gets told at load, with the
+// cause, instead of at commissioning by a PLANNING_FAILED that only names
+// coordinates.
+func (s *plannerSet) homeWarnings(cfg *Config) []string {
+	var out []string
+	for i, pl := range s.planners {
+		if err := pl.CheckPoint(cfg.Home); err != nil {
+			out = append(out, fmt.Sprintf(
+				"the homed position (%.3f, %.3f) cannot start a route in dead-zone file %d (%s): %v — the first job after homing will fail with PLANNING_FAILED unless the machine is jogged clear first; widen the outer limit (it must cover the home switch positions with CLEARANCE to spare)",
+				cfg.Home.X, cfg.Home.Y, i, s.files[i], err))
+		}
+	}
+	return out
+}
+
 // checkPositions is the geometric half of the startup validation (§5.1): every
 // position the module can ever drive to must be inside the eroded outer limit
 // and outside every offset dead zone, in *every* configured drawing — the

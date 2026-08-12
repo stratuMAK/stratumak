@@ -3,6 +3,7 @@
 package pnptask
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -430,6 +431,60 @@ func TestJobMoveLimits(t *testing.T) {
 	}
 	if !sawTravel || !sawZ {
 		t.Errorf("job dispatched travel = %v, Z strokes = %v; want both", sawTravel, sawZ)
+	}
+}
+
+// TestJobNaNZOffsetFaults: a non-finite move target (a z-offset pin wired to a
+// broken sensor) is a fault, never a silently skipped stroke — the silent skip
+// ran the pick at travel height and marked good slots empty one after another.
+func TestJobNaNZOffsetFaults(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.tray().zOffset.Set(math.NaN())
+
+	f.runJob(10, 20, 0)
+	f.requireError("a NaN pick height", errMotionError)
+	if f.bit("tray.10.empty") {
+		t.Error("the faulted job emptied the tray model")
+	}
+}
+
+// TestWaitMotionDoneIgnoresStaleSnapshotAfterDispatch: the dispatch settle
+// counts only cycles whose status read succeeded. Failed reads re-serve the
+// last snapshot — five of them spanning a dispatch would otherwise hand the
+// drain check the PRE-dispatch picture (standing still, queue empty) and let
+// the full-stop barrier pass while the machine is still moving.
+func TestWaitMotionDoneIgnoresStaleSnapshotAfterDispatch(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+
+	c := newControl(m)
+	c.ticker = time.NewTicker(pollInterval)
+	defer c.ticker.Stop()
+	c.sample() // one good pre-dispatch snapshot: standing still, queue empty
+
+	// The dispatch happens; every following read fails, so the loop keeps
+	// serving the stale pre-dispatch snapshot within statusStaleTicks.
+	c.motionDispatched = true
+	mot.setInFlight(5)
+	mot.setStatusErr(fmt.Errorf("split read"))
+
+	done := make(chan error, 1)
+	go func() { done <- c.waitMotionDone() }()
+	select {
+	case err := <-done:
+		t.Fatalf("waitMotionDone returned (%v) on a stale pre-dispatch snapshot", err)
+	case <-time.After(30 * pollInterval):
+	}
+
+	// Reads recover: the settle counts up, the move drains, the wait ends.
+	mot.setStatusErr(nil)
+	if err := <-done; err != nil {
+		t.Fatalf("waitMotionDone after recovery: %v", err)
 	}
 }
 

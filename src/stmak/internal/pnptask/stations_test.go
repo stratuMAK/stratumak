@@ -411,13 +411,15 @@ func TestEndlessTray(t *testing.T) {
 	if ts.emptyFor(0) {
 		t.Error("an endless tray reported empty before any probing")
 	}
-	// A pick is worth exactly one attempt: there is no second position to try.
+	// The single position is retried after a miss: only probing may end the
+	// search (§7.1) — bailing after one attempt turned every transient
+	// mis-feed into a latched TRAY_EMPTY while the empty pin stayed low.
 	slot, next, ok := ts.nextPick(0, 0)
 	if !ok || slot != 0 {
 		t.Fatalf("endless pick = %d, %v", slot, ok)
 	}
-	if _, _, ok := ts.nextPick(0, next); ok {
-		t.Error("an endless tray offered a second position")
+	if s, _, ok := ts.nextPick(0, next); !ok || s != 0 {
+		t.Error("an endless tray refused to retry its position before probing declared it empty")
 	}
 	// A place is always possible, and does not record a state that would then
 	// have to be picked at a matching step.
@@ -434,6 +436,35 @@ func TestEndlessTray(t *testing.T) {
 		t.Error("probing did not declare an endless tray empty")
 	}
 	nearPoint(t, "endless position", ts.slotPos(0), pnproute.Point{X: 50, Y: 60})
+}
+
+// TestEndlessTrayRetriesUntilProbedEmpty: MAX_UNPOPULATED bounds the retries of
+// the single position, and only its exhaustion — never a single miss — ends the
+// search.
+func TestEndlessTrayRetriesUntilProbedEmpty(t *testing.T) {
+	ts := newTestTray(t, TrayDef{
+		ID: 2, Rows: 0, Cols: 0,
+		First:          pnproute.Point{X: 50, Y: 60},
+		MaxUnpopulated: 3,
+	})
+	from := 0
+	for i := 0; i < 3; i++ {
+		if ts.probedEmpty {
+			t.Fatalf("probed empty after %d of 3 misses", i)
+		}
+		slot, next, ok := ts.nextPick(0, from)
+		if !ok || slot != 0 {
+			t.Fatalf("miss %d: nextPick = %d, %v — the position must stay on offer", i, slot, ok)
+		}
+		ts.markEmpty(0)
+		from = next
+	}
+	if !ts.probedEmpty {
+		t.Fatal("MAX_UNPOPULATED misses did not declare the tray empty")
+	}
+	if _, _, ok := ts.nextPick(0, from); ok {
+		t.Error("a probed-empty endless tray still offered its position")
+	}
 }
 
 // TestTraySlotPos checks the linear-index to grid mapping the slot search hands

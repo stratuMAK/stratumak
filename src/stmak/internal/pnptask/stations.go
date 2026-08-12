@@ -418,12 +418,12 @@ func (t *trayState) nextPick(step int64, from int) (slot, next int, ok bool) {
 		return 0, 0, false
 	}
 	if t.endless() {
-		// One position, no bookkeeping: it is worth exactly one attempt per
-		// search, and only probing can say it is empty.
-		if from > 0 {
-			return 0, 0, false
-		}
-		return 0, 1, true
+		// One position, no bookkeeping: the same position is worth retrying
+		// after a miss — only probing can say the tray is empty (§7.1), and
+		// the probedEmpty check above is what ends the retries. Bailing after
+		// one miss would turn every transient mis-feed into a latched
+		// TRAY_EMPTY while the tray's own empty pin stays low.
+		return 0, from + 1, true
 	}
 	for p := from; p < len(t.geom.order); p++ {
 		if s := t.geom.order[p]; t.slots[s] == step {

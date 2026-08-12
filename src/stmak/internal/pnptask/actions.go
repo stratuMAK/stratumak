@@ -12,7 +12,7 @@ import (
 // (§6.5) so an estop or a machine-off ends the action wherever it is.
 //
 // None of them takes "the picker" for granted: the picker index is a parameter,
-// its offsets are applied by commandFor, and its feedback is read out of this
+// its offsets are applied inside travel, and its feedback is read out of this
 // cycle's input snapshot at that index. That is what D20 asks for — with one
 // picker the index never varies, with two the same code serves either role.
 

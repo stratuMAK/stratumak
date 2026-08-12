@@ -310,6 +310,37 @@ func TestMotionInstanceFromINI(t *testing.T) {
 	}
 }
 
+// TestStartControlRejectsUnusableAxisLimits: motsetup's reader is lenient, so
+// an explicit [AXIS_*]MAX_VELOCITY = 0 (or nan) survives the push — and would
+// otherwise surface only at the first job, as a fault that does not name the
+// key. startControl validates the three linear axes and names the section.
+func TestStartControlRejectsUnusableAxisLimits(t *testing.T) {
+	fastLoop(t)
+	setupPaths(t)
+	brokenAxes := `
+[AXIS_X]
+MAX_VELOCITY = 800
+MAX_ACCELERATION = 4000
+[AXIS_Y]
+MAX_VELOCITY = 500
+MAX_ACCELERATION = 4000
+[AXIS_Z]
+MAX_VELOCITY = 0
+MAX_ACCELERATION = 3000
+`
+	m := mustLoadModule(t, trajSection+brokenAxes+pnptaskSection+stationSections, testInstanceName(t))
+	mot := newFakeMotion(m.cfg.NumJoints)
+	m.mc, m.ms = mot, mot
+	err := m.startControl()
+	if err == nil {
+		m.Stop()
+		t.Fatal("startControl accepted [AXIS_Z]MAX_VELOCITY = 0")
+	}
+	if !strings.Contains(err.Error(), "[AXIS_Z]") {
+		t.Errorf("error %v does not name the offending section", err)
+	}
+}
+
 // TestFactoryWithoutINI covers the halrun case: no INI file at all. Every
 // station and limit comes out of the INI, so this has to fail with a clear
 // message rather than a nil dereference.

@@ -297,6 +297,15 @@ func (f *fakeMotion) setStatusErr(err error) {
 	f.statusErr = err
 }
 
+// setInFlight scripts a move in progress: status reports not-in-position for
+// the given number of reads, then drained.
+func (f *fakeMotion) setInFlight(cycles int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moving = cycles
+	f.st.Inpos, f.st.QueueDepth = 0, 1
+}
+
 // setHomingCycles scripts the homing duration while the loop may already be
 // reading — the counter lives under the same mutex GetStatus takes.
 func (f *fakeMotion) setHomingCycles(n int) {
