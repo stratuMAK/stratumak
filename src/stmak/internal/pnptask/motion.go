@@ -8,22 +8,29 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
-// Motion constants shared with the C side. They are spelled out here rather than
-// imported because the generated GMI carries the calls, not the enums.
+// Motion constants shared with the C side — the single mirror lives in
+// internal/motsetup, shared with milltask.
 const (
-	// motionTypeTraverse is EMC_MOTION_TYPE_TRAVERSE: every move this module
-	// makes is a rapid. There is no programmed feed rate on a pick-and-place
-	// machine — the speeds come from the INI and the axis limits.
-	motionTypeTraverse = 1
+	// motionTypeTraverse: every move this module makes is a rapid. There is no
+	// programmed feed rate on a pick-and-place machine — the speeds come from
+	// the INI and the axis limits.
+	motionTypeTraverse = motsetup.MotionTypeTraverse
 
-	// The TP termination conditions (tp.h). Travel blends its corners
-	// parabolically within BLEND_TOLERANCE; a Z stroke stops exactly, because a
-	// pick starts and ends at a standstill.
-	tpTermCondStop      = 0 // TC_TERM_COND_STOP
-	tpTermCondParabolic = 2 // TC_TERM_COND_PARABOLIC
+	// The TP termination conditions. Travel blends its corners parabolically
+	// within BLEND_TOLERANCE; a Z stroke stops exactly, because a pick starts
+	// and ends at a standstill.
+	tpTermCondStop      = motsetup.TPTermCondStop
+	tpTermCondParabolic = motsetup.TPTermCondParabolic
+
+	// moveFuzz is the smallest displacement worth commanding, in mm (the
+	// shared CART_FUZZ mirror): a "move" below it is numerical residue of a
+	// coordinate computation and would cost a queue entry and a blend for no
+	// motion.
+	moveFuzz = motsetup.CartFuzz
 )
 
 var (
@@ -33,12 +40,6 @@ var (
 	// standing still — the same stale-inpos race milltask's waitMotionDone skips
 	// past (sequencer.go).
 	dispatchSettleTicks = 5
-
-	// moveFuzz is the smallest displacement worth commanding, in mm. It matches
-	// CART_FUZZ in posemath.h, which is what the C++ canon drops moves against:
-	// a "move" below it is numerical residue of a coordinate computation and
-	// would cost a queue entry and a blend for no motion.
-	moveFuzz = 1.0e-8
 )
 
 // ---------------------------------------------------------------------------
@@ -182,21 +183,14 @@ func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel,
 
 // blendAxisLimit is the coordinated limit for a displacement d under per-axis
 // maxima: the slowest axis sets the time the move takes, and the limit is the
-// path length over that time. It is internal/task/motionlimits.go's blendLimit
-// reduced to the three linear axes this module moves.
+// path length over that time. The computation is the shared C++ canon port in
+// internal/motsetup, restricted to the three linear axes this module moves.
 func blendAxisLimit(d [3]float64, max []float64) float64 {
-	tmax := 0.0
-	for i := range d {
-		if d[i] > 0 && max[i] > 0 {
-			if t := d[i] / max[i]; t > tmax {
-				tmax = t
-			}
-		}
-	}
-	if tmax <= 0 {
-		return 0
-	}
-	return math.Sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]) / tmax
+	var d9, m9 [9]float64
+	copy(d9[:], d[:])
+	copy(m9[:], max)
+	limit, _ := motsetup.BlendLimit(d9, m9, true, false)
+	return limit
 }
 
 // ---------------------------------------------------------------------------

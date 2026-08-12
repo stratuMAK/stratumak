@@ -5,6 +5,8 @@ package pnptask
 import (
 	"fmt"
 	"time"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // The four action sequences of §7.4. Each one is written as the design document
@@ -108,6 +110,28 @@ func highLow(v bool) string {
 	return "low"
 }
 
+// approach is §7.4's shared approach phrase — "retract; route XY; Z down;
+// pos-settle" — written once so a change to the recipe (an extra abort
+// re-check, a settle rule) cannot silently miss one of the sequences.
+// placeToProc keeps its own interleaved shape: it opens the fixture before
+// travelling and waits for it between travel and descent.
+//
+// z is evaluated by the caller at the call, which is where the z-offset pin
+// belongs: the offset is a correction (a height sensor, a tray shim) applied
+// to the approach that is about to happen, not latched with the job.
+func (c *control) approach(j *job, pk int, target pnproute.Point, z float64) error {
+	if err := c.retract(j.height); err != nil {
+		return err
+	}
+	if err := c.travel(j, pk, target); err != nil {
+		return err
+	}
+	if err := c.zStroke(z); err != nil {
+		return err
+	}
+	return c.dwell(c.m.pins.posSettleTime.Get())
+}
+
 // ---------------------------------------------------------------------------
 // Busy gating (D15)
 // ---------------------------------------------------------------------------
@@ -182,19 +206,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		}
 		from = next
 
-		if err := c.retract(j.height); err != nil {
-			return err
-		}
-		if err := c.travel(j, pk, t.slotPos(slot)); err != nil {
-			return err
-		}
-		// The pick height is read here, not latched with the job: the z-offset pin
-		// is a correction (a height sensor, a tray shim), and it belongs to the
-		// approach that is about to happen.
-		if err := c.zStroke(t.cfg.ZPick + t.pins.zOffset.Get()); err != nil {
-			return err
-		}
-		if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
+		if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
 			return err
 		}
 		grip, err := c.closeAndCheck(pk)
@@ -250,16 +262,7 @@ func (c *control) pickFromProc(j *job, pk int) (err error) {
 			c.requestRelease(s, false)
 		}
 	}()
-	if err := c.retract(j.height); err != nil {
-		return err
-	}
-	if err := c.travel(j, pk, s.cfg.Pos); err != nil {
-		return err
-	}
-	if err := c.zStroke(s.cfg.ZPick + s.pins.zOffset.Get()); err != nil {
-		return err
-	}
-	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
+	if err := c.approach(j, pk, s.cfg.Pos, s.cfg.ZPick+s.pins.zOffset.Get()); err != nil {
 		return err
 	}
 	grip, err := c.closeAndCheck(pk)
@@ -309,16 +312,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if !ok {
 		return faultf(errTrayFull, "station %d has no free slot", t.cfg.ID)
 	}
-	if err := c.retract(j.height); err != nil {
-		return err
-	}
-	if err := c.travel(j, pk, t.slotPos(slot)); err != nil {
-		return err
-	}
-	if err := c.zStroke(t.cfg.ZPick + t.pins.zOffset.Get()); err != nil {
-		return err
-	}
-	if err := c.dwell(c.m.pins.posSettleTime.Get()); err != nil {
+	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
 		return err
 	}
 	if err := c.openAndCheck(pk); err != nil {

@@ -265,9 +265,9 @@ func (f *jobFixture) clearError() {
 	f.m.pins.errorReset.Set(false)
 }
 
-// xyzAt finds the first dispatched move that reached the given XY and returns
-// the Z values commanded there, in order — enough to check "down to the pick
-// height, back up to the movement height" without pinning the exact move count.
+// zAtXY returns the Z values commanded at the given XY, in dispatch order —
+// enough to check "down to the pick height, back up to the movement height"
+// without pinning the exact move count.
 func zAtXY(moves []moveCall, x, y float64) []float64 {
 	var zs []float64
 	for _, m := range moves {

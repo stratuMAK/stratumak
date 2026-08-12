@@ -28,16 +28,6 @@ type job struct {
 	planner *pnproute.Planner
 	height  float64
 
-	// holder is the picker holding this job's material: the one that performs the
-	// place (D20). -1 until the pick assigns it.
-	//
-	// It is a field and not the constant 0 because picker roles are not fixed.
-	// With one picker the answer never varies, but the question is still asked
-	// where the design asks it, which is what keeps phase 6 additive: there the
-	// pick can be *skipped* because a picker already holds material from the
-	// origin, and holder then comes from world.holderOf(originID).
-	holder int
-
 	// originBusy is a pick-from-proc origin's busy state as sampled at job start
 	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
 	originBusy bool
@@ -133,10 +123,11 @@ func (c *control) runJob() error {
 	if err := c.seedCmdPos(); err != nil {
 		return err
 	}
-	if err := c.runPick(j); err != nil {
+	holder, err := c.runPick(j)
+	if err != nil {
 		return err
 	}
-	return c.runPlace(j)
+	return c.runPlace(j, holder)
 }
 
 // latchJob captures the request pins. The values come from this cycle's input
@@ -149,7 +140,6 @@ func (c *control) latchJob() *job {
 		originID: c.in.originID,
 		destID:   c.in.destID,
 		deadzone: c.in.deadzoneSelect,
-		holder:   -1,
 	}
 }
 
@@ -263,15 +253,19 @@ func (c *control) moveHeight(origin, dest uint32) float64 {
 	return c.m.cfg.MoveHeight
 }
 
-// runPick performs the job's pick and records which picker came away holding the
-// material.
-func (c *control) runPick(j *job) error {
+// runPick performs the job's pick and returns the picker that came away
+// holding the material — the one that will place (D20). Roles are not fixed:
+// with one picker the answer never varies, but the question is still asked
+// where the design asks it, which is what keeps phase 6 additive — there the
+// physical pick can be *skipped* because a picker already holds material from
+// the origin, and this function then returns world.holderOf(j.originID).
+func (c *control) runPick(j *job) (int, error) {
 	// Validation already established that one is free; re-asking is how the
 	// picker is chosen rather than assumed (D20, "picker 0 preferred when both
 	// are free").
 	pk, ok := c.m.world.freePicker()
 	if !ok {
-		return faultf(errNoFreePicker, "no picker is free to pick at station %d", j.originID)
+		return 0, faultf(errNoFreePicker, "no picker is free to pick at station %d", j.originID)
 	}
 	var err error
 	if j.origin.isTray() {
@@ -280,25 +274,16 @@ func (c *control) runPick(j *job) error {
 		err = c.pickFromProc(j, pk)
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	// The picker that picked is the one holding the job's material. Phase 6's
-	// skipped pick sets this from world.holderOf(j.originID) instead — which is
-	// why the place phase reads this field and never a picker number.
-	j.holder = pk
-	return nil
+	return pk, nil
 }
 
 // runPlace performs the job's place, with the picker holding the job's material
 // (D20) and that picker's own offsets.
-func (c *control) runPlace(j *job) error {
-	if j.holder < 0 {
-		// Unreachable: runPick assigns it on every success path. Reported rather
-		// than panicked because this runs the machine.
-		return faultf(errNoFreePicker, "no picker holds the material of the job from station %d", j.originID)
-	}
+func (c *control) runPlace(j *job, holder int) error {
 	if j.dest.isTray() {
-		return c.placeToTray(j, j.holder)
+		return c.placeToTray(j, holder)
 	}
-	return c.placeToProc(j, j.holder)
+	return c.placeToProc(j, holder)
 }
