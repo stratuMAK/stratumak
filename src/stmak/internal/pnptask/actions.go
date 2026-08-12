@@ -236,11 +236,20 @@ func (c *control) pickFromTray(j *job, pk int) error {
 // pickFromProc takes the material out of a process station: grip it, then have
 // the fixture unclamp before lifting, and confirm the fixture is holding again on
 // the way out (D19).
-func (c *control) pickFromProc(j *job, pk int) error {
+func (c *control) pickFromProc(j *job, pk int) (err error) {
 	s := j.origin.proc
 	if err := c.busyGate(j, pk, s, j.originBusy); err != nil {
 		return err
 	}
+	// Whatever goes wrong from here on, the fixture must not stay commanded
+	// open (D19: a station left open is a station whose own process runs
+	// unclamped). Fire-and-forget — an errored action may be estopped, and
+	// waiting for feedback belongs to the success path alone.
+	defer func() {
+		if err != nil {
+			c.requestRelease(s, false)
+		}
+	}()
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
@@ -269,6 +278,13 @@ func (c *control) pickFromProc(j *job, pk int) error {
 	}
 
 	if err := c.setRelease(s, true); err != nil {
+		// The picker is closed around a part the fixture never confirmed
+		// releasing: the part belongs to the fixture, so the picker lets go
+		// (best effort — no feedback wait on an error path) and has-material
+		// stays true. Leaving the picker clamped while the world called it
+		// free would send the next job's retract tearing the part out of a
+		// closed fixture.
+		c.m.pins.pickers[pk].close.Set(false)
 		return err
 	}
 	// The material is in the picker and out of the fixture's hands: both records
@@ -308,15 +324,21 @@ func (c *control) placeToTray(j *job, pk int) error {
 	if err := c.openAndCheck(pk); err != nil {
 		return err
 	}
-	// The dwell is before the state changes and before the retract: the part has
-	// to have settled into the slot, not still be leaning on the picker.
-	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
-		return err
-	}
+	// The records move the moment "opened" confirms — that is the physical
+	// commit point: an open picker cannot take the part back, so an abort
+	// during the settle dwell below must find a world that already says where
+	// the part is. Committing after the dwell lost the part from the model
+	// exactly when an estop hit mid-dwell, and the next job stacked a second
+	// part onto the invisible one.
 	t.markPlaced(slot, j.step)
 	c.m.world.clearHeld(pk)
 	c.m.logger.Debug("pnptask: placed into tray",
 		"station", t.cfg.ID, "slot", slot, "picker", pk, "process_step", j.step)
+	// The dwell is before the retract: the part has to have settled into the
+	// slot, not still be leaning on the picker.
+	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
+		return err
+	}
 	return c.zStroke(j.height)
 }
 
@@ -329,7 +351,7 @@ func (c *control) placeToTray(j *job, pk int) error {
 // The fixture is asked to open *before* the travel and only waited for on
 // arrival: the head must not come down onto a clamp that is still closed, and
 // there is no reason to stand still while the fixture opens.
-func (c *control) placeToProc(j *job, pk int) error {
+func (c *control) placeToProc(j *job, pk int) (err error) {
 	s := j.dest.proc
 	// Sampled now, with the pick leg complete, which is where §7.4 puts the
 	// gating for a place-to-proc.
@@ -337,6 +359,12 @@ func (c *control) placeToProc(j *job, pk int) error {
 		return err
 	}
 	c.requestRelease(s, true)
+	// See pickFromProc: no error path may leave the fixture commanded open.
+	defer func() {
+		if err != nil {
+			c.requestRelease(s, false)
+		}
+	}()
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
@@ -355,12 +383,14 @@ func (c *control) placeToProc(j *job, pk int) error {
 	if err := c.openAndCheck(pk); err != nil {
 		return err
 	}
-	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
-		return err
-	}
+	// Records at the "opened" confirmation, before the dwell — the physical
+	// commit point; see placeToTray.
 	s.setHasMaterial(true)
 	c.m.world.clearHeld(pk)
 	c.m.logger.Debug("pnptask: placed into station", "station", s.cfg.ID, "picker", pk)
+	if err := c.dwell(c.m.pins.releaseTime.Get()); err != nil {
+		return err
+	}
 	if err := c.zStroke(j.height); err != nil {
 		return err
 	}

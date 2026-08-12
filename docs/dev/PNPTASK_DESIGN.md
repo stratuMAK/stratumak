@@ -692,14 +692,25 @@ vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
-`PLACE_FAILED`; release-time dwell; slot := process-step; Z up.
+`PLACE_FAILED`; **slot := process-step** (the records commit at the `opened`
+confirmation — the physical commit point, since an open picker cannot take
+the part back; an abort during the dwell must find a world that already says
+where the part is); release-time dwell; Z up.
 
 **place to proc** — validate `!has-material` (single-picker mode; §8 for
 alternating); busy gating (see above); `release` := 1; route XY to station;
 wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle; `close` := 0;
-pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
-`has-material` := 1; Z up; `release` := 0, wait `released` low
-(RELEASE_TIMEOUT, D19).
+pick-settle; `opened` low → error `PLACE_FAILED`; **`has-material` := 1**
+(records at the `opened` confirmation, as above); release-time dwell; Z up;
+`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+
+**Release cleanup (phase 4/5 review):** no error path may leave a station's
+`release` request standing — every proc action withdraws it on the way out of
+a failed sequence (without waiting for feedback), and estop/shutdown drive all
+`release` outputs low alongside the picker releases. A pick-from-proc whose
+release wait fails *after* a confirmed grip opens the picker again: the
+fixture never confirmed letting go, so the part belongs to the fixture and
+`has-material` stays true.
 
 ### 7.5 Error-id table (`errors.go`)
 

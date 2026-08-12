@@ -862,6 +862,77 @@ func TestJobReleaseTimeout(t *testing.T) {
 
 	jf.runJob(10, 20, 0)
 	jf.requireError("a fixture that never reports released", errReleaseTimeout)
+	// The failed action withdrew its release request: no error path may leave
+	// the fixture commanded open (D19).
+	jf.consistently("release withdrawn after the fault", func() bool {
+		return !jf.bit("proc.20.release")
+	})
+}
+
+// TestPickFromProcReleaseFailureKeepsWorldTruthful: a release wait that fails
+// AFTER the grip confirmed means the fixture never let go — the part belongs to
+// the fixture. The picker must open again (not leave clamped around a part the
+// world calls free), has-material stays set, and no held record is written.
+func TestPickFromProcReleaseFailureKeepsWorldTruthful(t *testing.T) {
+	jf := newJobFixtureOpts(t, fixtureOpts{
+		tweak: func(cfg *Config) { cfg.ReleaseTimeout = 0.05 },
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+			m.world.procs[0].setHasMaterial(true)
+		},
+	})
+	jf.homed()
+	jf.mot.setPos(100, 100, 60)
+	jf.sim.set(func(s *machineSim) { s.fixtureStuck = true })
+
+	jf.runJob(20, 10, 0) // pick from the proc station, place into the tray
+	jf.requireError("fixture held the part through the release wait", errReleaseTimeout)
+
+	jf.consistently("release withdrawn and picker open", func() bool {
+		return !jf.bit("proc.20.release") && !jf.bit("picker.0.close")
+	})
+	if !jf.bit("proc.20.has-material") {
+		t.Error("has-material dropped although the fixture never released the part")
+	}
+	w := jf.stopped()
+	if w.held[0].present {
+		t.Error("a held record was written for a part the fixture kept")
+	}
+}
+
+// TestEstopDuringPlaceDwellKeepsRecords: the records commit the moment "opened"
+// confirms — the part physically left the picker — so an estop during the
+// release-time dwell must not lose it from the model (a lost record is a second
+// part stacked onto the invisible one by the next job).
+func TestEstopDuringPlaceDwellKeepsRecords(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+	// A wide dwell so the estop lands inside it.
+	f.m.pins.releaseTime.Set(100 * pollInterval.Seconds())
+
+	f.m.pins.startJob.Set(false)
+	time.Sleep(10 * pollInterval)
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+
+	// The record rises at the "opened" confirmation, while the dwell still runs.
+	f.eventually("has-material committed before the dwell ends", func() bool {
+		return f.bit("proc.20.has-material")
+	})
+	f.setBit(f.m.pins.estopOn, true)
+	f.eventually("job ended by the estop", func() bool { return !f.bit("busy") })
+	f.requireError("estop mid-dwell", errEstop)
+
+	f.consistently("the placed part stays in the model", func() bool {
+		return f.bit("proc.20.has-material")
+	})
+	w := f.stopped()
+	if w.held[0].present {
+		t.Error("the held record survived a place whose part left the picker")
+	}
 }
 
 // TestJobPlanningFailed: a machine parked outside the eroded travel envelope has

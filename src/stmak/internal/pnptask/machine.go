@@ -572,6 +572,11 @@ func (c *control) enterEstop() {
 	for i := range c.m.pins.pickers {
 		c.m.pins.pickers[i].close.Set(false)
 	}
+	// The fixture release requests go low with it: a request an aborted action
+	// left standing would hold a station's clamp open indefinitely (D19).
+	for i := range c.m.pins.procs {
+		c.m.pins.procs[i].release.Set(false)
+	}
 	// The close outputs just went low, so whatever was gripped is on the table:
 	// the held-material records (D20) describe a world that no longer exists and
 	// would otherwise send the next job to place a part nobody is holding.
@@ -670,7 +675,6 @@ func (c *control) updateStations() {
 		}
 	}
 }
-
 
 // publish writes the outputs that simply mirror state. It runs from tick, so it
 // keeps running through a homing wait or a job action — a teach pin that froze
@@ -1049,6 +1053,11 @@ func (c *control) park() {
 	c.stopJogs()
 	_ = c.m.mc.Abort()
 	_ = c.m.mc.Disable()
+	// A shutdown mid-action must not leave a fixture commanded open (D19); the
+	// picker outputs stay untouched — whatever is held stays held (D14).
+	for i := range c.m.pins.procs {
+		c.m.pins.procs[i].release.Set(false)
+	}
 	c.m.pins.machineIsOn.Set(false)
 	c.m.pins.busy.Set(false)
 	c.m.logger.Debug("pnptask control loop stopped")
