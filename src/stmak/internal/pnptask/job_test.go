@@ -26,6 +26,14 @@ type machineSim struct {
 	lastClose []bool
 	gripMiss  []bool
 
+	// lastRelease/releaseRises track each process station's release request.
+	// Counting the rises is how §8's "no re-clamp in between" is observed: the
+	// module waits for released to follow every change it makes, so the sim
+	// cannot miss one — two rises within a job mean the fixture was closed and
+	// opened again between the swap and the place.
+	lastRelease  []bool
+	releaseRises []int
+
 	// missesLeft makes the next N close commands report "closed onto nothing",
 	// which is how an empty tray slot presents itself (§5.2).
 	missesLeft int
@@ -40,11 +48,13 @@ type machineSim struct {
 func newMachineSim(f *machineFixture) *machineSim {
 	n := len(f.m.pins.pickers)
 	s := &machineSim{
-		f:         f,
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
-		lastClose: make([]bool, n),
-		gripMiss:  make([]bool, n),
+		f:            f,
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+		lastClose:    make([]bool, n),
+		gripMiss:     make([]bool, n),
+		lastRelease:  make([]bool, len(f.m.pins.procs)),
+		releaseRises: make([]int, len(f.m.pins.procs)),
 	}
 	s.step() // publish the resting state before the loop can sample it
 	go s.run()
@@ -107,10 +117,30 @@ func (s *machineSim) step() {
 		}
 	}
 	for i := range p.procs {
+		want := p.procs[i].release.Get()
+		if want && !s.lastRelease[i] {
+			s.releaseRises[i]++
+		}
+		s.lastRelease[i] = want
 		if s.fixtureStuck {
 			continue
 		}
-		p.procs[i].released.Set(p.procs[i].release.Get())
+		p.procs[i].released.Set(want)
+	}
+}
+
+// releaseRiseCount is how often a station's release request has been raised.
+func (s *machineSim) releaseRiseCount(i int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.releaseRises[i]
+}
+
+func (s *machineSim) resetReleaseRises() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.releaseRises {
+		s.releaseRises[i] = 0
 	}
 }
 
@@ -369,7 +399,7 @@ func TestJobProcToTray(t *testing.T) {
 // one here, so a correct engine picks and places with it and applies its offsets.
 func TestJobUsesTheHoldingPicker(t *testing.T) {
 	// Picker 0 is loaded (a manual intervention, say), so the free picker is 1.
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 21) }, "pickers=2")
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 21, false) }, "pickers=2")
 	f.m.pins.pickers[1].xOffset.Set(40)
 	f.m.pins.pickers[1].yOffset.Set(-15)
 	f.selectTray(1)
@@ -621,7 +651,7 @@ func TestJobValidationRefusals(t *testing.T) {
 		},
 		{
 			name: "no free picker",
-			seed: func(w *world) { w.setHeld(0, 21) },
+			seed: func(w *world) { w.setHeld(0, 21, false) },
 			setup: func(f *jobFixture) {
 				f.selectTray(1)
 				f.fillTray(0)

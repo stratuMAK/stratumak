@@ -206,6 +206,10 @@ type control struct {
 	// heldVerify counts down to the one-shot validation of restored held
 	// records against the picker feedback; see verifyRestoredHeld.
 	heldVerify int
+
+	// manualGrip counts down, per picker, to the validation of a manual close
+	// against the gripper feedback (§8's manual interplay); 0 = nothing pending.
+	manualGrip []int
 }
 
 func newControl(m *pnptaskModule) *control {
@@ -235,6 +239,7 @@ func newControl(m *pnptaskModule) *control {
 		rise:        mk(),
 		jogDir:      make([]int, len(m.pins.jog)),
 		trayPending: make([]*int64, trays),
+		manualGrip:  make([]int, pickers),
 	}
 }
 
@@ -260,8 +265,7 @@ func (c *control) start() {
 	// claim about the close output and is not ours to judge.
 	for n := range c.m.world.restoredHeld {
 		if c.m.world.restoredHeld[n] {
-			settle := int(c.m.pins.pickSettleTime.Get()/pollInterval.Seconds()) + 2
-			c.heldVerify = settle
+			c.heldVerify = settleTicks(c.m.pins.pickSettleTime.Get())
 			break
 		}
 	}
@@ -504,6 +508,10 @@ func (c *control) step() {
 			c.verifyRestoredHeld()
 		}
 	}
+	// Runs in both modes: a mode switch between the manual close and the moment
+	// its feedback settles must not leave the record undecided, and the engine
+	// reads that record on the very next job.
+	c.updateManualGrip()
 	if err := c.updateMachine(); err != nil {
 		c.raise(err)
 	}
@@ -623,7 +631,12 @@ func (c *control) enterEstop() {
 	}
 	// The close outputs just went low, so whatever was gripped is on the table:
 	// the held-material records (D20) describe a world that no longer exists and
-	// would otherwise send the next job to place a part nobody is holding.
+	// would otherwise send the next job to place a part nobody is holding. The
+	// retained ids of §8 go with them — a manual close whose grip was still
+	// being judged has just been undone by the same estop.
+	for i := range c.manualGrip {
+		c.manualGrip[i] = 0
+	}
 	c.m.world.clearAllHeld()
 	c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers released")
 }
@@ -998,14 +1011,66 @@ func (c *control) manualPickers() {
 			c.m.logger.Debug("pnptask: picker manual-open and manual-close in the same cycle, ignored", "picker", i)
 		case open:
 			c.m.pins.pickers[i].close.Set(false)
-			// Whatever the picker held has been let go, so its held-material
-			// record goes with it (D20). §8's refinement — retaining the station
-			// id so a following manual close can restore the record if material
-			// was gripped again — is part of the alternating-picker phase; here
-			// an opened picker simply holds nothing.
-			c.m.world.clearHeld(i)
+			// Whatever the picker held has been let go, so it no longer holds
+			// material (D20) — but where that material came from is retained
+			// (§8), because the operator opening a picker to reseat a part is
+			// about to close it again on the same part. A close still waiting
+			// to be judged is cancelled: it describes a grip that has just been
+			// undone.
+			c.manualGrip[i] = 0
+			c.m.world.releaseHeld(i)
 		case close:
 			c.m.pins.pickers[i].close.Set(true)
+			// §8: whether that grip restores the retained record depends on what
+			// the gripper feedback says once it has settled, which is a few
+			// cycles from now — see updateManualGrip.
+			if c.m.world.held[i].retained {
+				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
+			}
+		}
+	}
+}
+
+// settleTicks is a settle time in control cycles, with a margin for the
+// feedback to arrive within the cycle it is read in. It is what turns the
+// pick-settle-time param into the countdowns this file waits out without
+// blocking the loop.
+func settleTicks(seconds float64) int {
+	return int(seconds/pollInterval.Seconds()) + 2
+}
+
+// updateManualGrip judges a manual close against the gripper feedback (§8's
+// manual interplay). A picker that was opened by hand keeps the station id of
+// the material it let go of; closing it again on that same material has to
+// restore the record, or the engine would send a loaded picker to pick.
+//
+// The feedback says which of the two happened: fully closed means the jaws met
+// each other rather than a part, so the part is gone and the retained id with
+// it. Anything in between is material, and the record comes back.
+func (c *control) updateManualGrip() {
+	for i := range c.manualGrip {
+		if c.manualGrip[i] == 0 {
+			continue
+		}
+		c.manualGrip[i]--
+		if c.manualGrip[i] > 0 {
+			continue
+		}
+		switch {
+		case c.in.pickerOpened[i]:
+			// The picker never actuated. Nothing was decided, so nothing
+			// changes: the id stays retained for the next attempt.
+			c.m.logger.Debug("pnptask: manual close did not actuate the picker", "picker", i)
+		case c.in.pickerClosed[i]:
+			if station, ok := c.m.world.dropRetained(i); ok {
+				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone",
+					"picker", i, "station", station)
+			}
+		default:
+			if station, ok := c.m.world.restoreHeld(i); ok {
+				c.m.logger.Info("pnptask: manual close gripped material, held record restored",
+					"picker", i, "station", station)
+			}
 		}
 	}
 }

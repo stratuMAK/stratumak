@@ -456,6 +456,9 @@ type fixtureOpts struct {
 	// persistence.
 	prep func(*testing.T, *pnptaskModule)
 	args []string
+	// ini is appended to the fixture INI — for the cases that need a station
+	// the shared config does not have (§8's chain needs two process stations).
+	ini string
 }
 
 // newMachineFixtureOpts loads a module, hands it a scripted motion stack and
@@ -465,7 +468,7 @@ func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	fastLoop(t)
 	setupPaths(t)
 	name := testInstanceName(t)
-	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, o.args...)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections+o.ini, name, o.args...)
 	if o.tweak != nil {
 		o.tweak(m.cfg)
 	}
@@ -497,6 +500,16 @@ func (f *machineFixture) pulse(pin *hal.Pin[bool]) {
 	pin.Set(false)
 	time.Sleep(10 * pollInterval)
 	pin.Set(true)
+}
+
+// press is pulse followed by the release — a whole button press. The high half
+// is held for a handful of cycles: a level the loop never samples is no edge,
+// so a caller that has no observable effect to wait for cannot simply drive the
+// pin low again.
+func (f *machineFixture) press(pin *hal.Pin[bool]) {
+	f.pulse(pin)
+	time.Sleep(10 * pollInterval)
+	pin.Set(false)
 }
 
 func (f *machineFixture) get(pin string) float64 {

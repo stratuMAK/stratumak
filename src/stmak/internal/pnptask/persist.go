@@ -61,6 +61,11 @@ type heldRecords struct {
 type heldRecord struct {
 	Picker  int    `json:"picker"`
 	Station uint32 `json:"station"`
+	// Swap carries §8's sequence constraint across a restart: material a swap
+	// took out of a process station still has to be carried away by a job from
+	// that station, and a restart that forgot which record was a swap would
+	// let the next job leave it in the picker indefinitely.
+	Swap bool `json:"swap,omitempty"`
 }
 
 // persistRetryDelay is how long the writer backs off after a failed SetEntry
@@ -404,7 +409,7 @@ func (w *world) restore() {
 				w.heldDirty = true
 				continue
 			}
-			w.held[r.Picker] = heldMaterial{present: true, station: r.Station}
+			w.held[r.Picker] = heldMaterial{present: true, station: r.Station, swap: r.Swap}
 			// D14's intent for a short restart: the part is meant to stay
 			// held, but a process restart re-exports the close output at its
 			// zero value. Re-drive it from the record — and let the control
@@ -478,7 +483,9 @@ func (w *world) flush() {
 		rec := heldRecords{}
 		for n := range w.held {
 			if w.held[n].present {
-				rec.Pickers = append(rec.Pickers, heldRecord{Picker: n, Station: w.held[n].station})
+				rec.Pickers = append(rec.Pickers, heldRecord{
+					Picker: n, Station: w.held[n].station, Swap: w.held[n].swap,
+				})
 			}
 		}
 		w.persist.store(persistHeldKey, rec)
