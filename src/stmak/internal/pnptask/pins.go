@@ -42,6 +42,14 @@ type pinSet struct {
 	startJob *hal.Pin[bool]
 	busy     *hal.Pin[bool]
 
+	// planTime is the slowest route plan of the current (or last) job, in
+	// seconds — the D13 budget made observable from outside. A job plans one
+	// route per leg, so a pin carrying only the *latest* one could not be
+	// sampled reliably from a PLC or a test: the interesting number is the
+	// worst case, and it is reset when a job latches so it always describes
+	// one job.
+	planTime *hal.Pin[float64]
+
 	// Error latch.
 	errorFlag  *hal.Pin[bool]   // out
 	errorID    *hal.Pin[uint32] // out, 0 = none
@@ -148,6 +156,7 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.deadzoneSelect = mkPin[uint32](b, "deadzone-select", hal.In)
 	p.startJob = mkPin[bool](b, "start-job", hal.IO)
 	p.busy = mkPin[bool](b, "busy", hal.Out)
+	p.planTime = mkPin[float64](b, "plan-time", hal.Out)
 
 	p.errorFlag = mkPin[bool](b, "error", hal.Out)
 	p.errorID = mkPin[uint32](b, "error-id", hal.Out)

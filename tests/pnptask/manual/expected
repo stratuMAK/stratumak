@@ -1,0 +1,16 @@
+PASS a part reached the press
+PASS a second job swapped it out for a fresh one
+PASS one picker holds the swapped-out part
+PASS with the swap obligation standing, other origins are refused
+PASS the gripper physically let the part go
+PASS a retained record refuses every job, including the obligated one
+PASS pressing open again changes nothing
+PASS the gripper closed onto the part
+PASS the record is back, obligation and all — other origins refused again
+PASS and the obligated job places the restored part
+PASS the test station received it
+PASS another swap loads a picker again
+PASS a picker holds the swapped-out part
+PASS the gripper gripped nothing
+PASS the record is gone with the part: jobs run again, obligation and all
+ALL OK

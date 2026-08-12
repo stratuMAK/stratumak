@@ -636,11 +636,9 @@ func (c *control) enterEstop() {
 	// The close outputs just went low, so whatever was gripped is on the table:
 	// the held-material records (D20) describe a world that no longer exists and
 	// would otherwise send the next job to place a part nobody is holding. The
-	// retained ids of §8 go with them — a manual close whose grip was still
-	// being judged has just been undone by the same estop.
-	for i := range c.manualGrip {
-		c.manualGrip[i] = 0
-	}
+	// retained ids of §8.1 go with them; any grip judgement still counting
+	// down dies with its record — updateManualGrip cancels itself when the
+	// record it judges is gone, so no clearing site owes it a manual zero.
 	c.m.world.clearAllHeld()
 	c.m.logger.Warn("pnptask: estop — motion aborted and disabled, pickers released")
 }
@@ -1088,7 +1086,14 @@ func (c *control) updateManualGrip() {
 			c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
-				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone",
+				// The close output goes low with the record: leaving the jaws
+				// commanded shut on a picker the engine now counts free would
+				// send the next job's closeAndCheck against an already-closed
+				// gripper — which reads "closed" whatever sits under the head
+				// and falsely empties good slots (the same reconciliation
+				// verifyRestoredHeld does for a vanished restored part).
+				c.m.pins.pickers[i].close.Set(false)
+				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone and the picker reopened",
 					"picker", i, "station", station)
 			}
 		default:

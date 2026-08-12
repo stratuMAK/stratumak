@@ -44,6 +44,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
 | D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
+| D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
 
 ---
 
@@ -95,8 +96,9 @@ src/stmak/internal/pnptask/             Phases 2–6: the module
     actions.go       action-class sequences (pick/place/move)
     motion.go        motion streaming, waitMotionDone, limits
     errors.go        error-id table
-src/stmak/internal/pnptasktest/         Phase 7: scripted integration tests (tasktest pattern)
-tests/pnptask/                          sim config (ini/hal/dxf) for the integration run
+src/hal/components/pnpsim.comp          Phase 7: the shared simulation cmod (D27)
+tests/pnptask/                          sim config (ini/hal/dxf) + per-scenario
+                                        Python drivers for runtests (D27)
 ```
 
 Registered in `packages.conf` as `gomod internal/pnptask @GOMOD:PNPTASK_GO@`
@@ -304,6 +306,7 @@ normalized to HAL-conventional dashes.
 | `dest-id` | u32 | in | latched at `start-job` edge |
 | `start-job` | bit | io | rising edge starts a job; reset by module on finish/error; external clears mid-job are ignored (D16) |
 | `busy` | bit | out | job executing |
+| `plan-time` | float | out | slowest route plan of the current/last job, seconds; reset at the `start-job` edge (phase 7 — D13's budget, made observable) |
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
@@ -1014,33 +1017,134 @@ restoring a swap record.
   pending close), the swap obligation stays armed, and the record — with its
   station and swap flag — **persists across a restart** (restored retained,
   close output left low, the operator's close still judges). A second open
-  press is idempotent; a close that grips nothing clears the record and returns
-  the picker to the engine. The free-the-picker workflow is therefore: open,
-  take the part, close on the empty gripper, open — four presses that leave an
-  honest world instead of a race window.
+  press is idempotent; a close that grips nothing clears the record AND
+  reopens the picker (phase-7 review — jaws left commanded shut on a free
+  picker would make the next job's grip check read "closed" whatever sits
+  under the head). The free-the-picker workflow is therefore three presses:
+  open, take the part, close on the empty gripper — the verdict opens it
+  again itself.
 - **The sequence constraint accepts any standing swap obligation.** Normally
   one exists; a place that fails after its swap-out leaves two (both parts
   really are in pickers), and a job from either station is the recovery. A
   skipPick job into its own occupied origin — a self-exchange that would
   ping-pong two parts forever — is refused; putting a part back is valid once
-  the station is free.
+  the station is free. The *non*-skipPick station-to-itself job stays allowed
+  on purpose (phase-7 review): it is the **re-seat operation** — pick the part
+  out, put it back down — the one way a PLC can re-clamp a part without a
+  second station, and a bug looping it cycles one part in place without losing
+  anything.
+- **skipPick matches the material, not just the station** (phase-7 review).
+  Held records carry the process step the picking job declared; a skipPick
+  whose latched step mismatches a known step is refused — matching by station
+  alone silently delivered a step-0 part as step-3 material and corrupted the
+  tray model behind it. A swap's removed occupant has an unknown step (the
+  model never tracked what the earlier place put there) and is exempt: the
+  obligated carry-away job runs whatever step the PLC declares. The step (and
+  its known flag) persists with the record.
 
 ---
 
-## 9. Phase 7 — Testing
+## 9. Phase 7 — Testing *(implemented)*
 
 - **Unit** (no HAL): direction-mode iterator, grid interpolation, slot
   search/probing, action selection, error mapping, persistence codec;
   `pkg/pnproute` fixtures + latency benchmark (Phase 1).
-- **Integration**: `internal/pnptasktest` gomod (tasktest pattern) driving a
-  sim config in `tests/pnptask/` — trivkins XYZ sim stack, pickers simulated
-  with `timedelay`-based HAL logic (close → closed/opened feedback with
-  configurable delay and scriptable "slot empty" injection via test pins).
+- **Integration** (D27, decided 2026-08-12 — replaces the first draft's
+  `internal/pnptasktest` gomod): per-scenario **Python drivers plus one shared
+  simulation cmod** (`pnpsim`), run by the standard runtests harness over the
+  sim config in `tests/pnptask/`. pnptask's whole surface is HAL pins, so the
+  driver commands jobs over the handshake pins and asserts pin outcomes; the
+  sim cmod provides the machine physics on the servo thread — gripper
+  close → opened/closed feedback with a settling delay, fixture
+  release/released, busy scripting, and "next close grips nothing" miss
+  injection, all as pins the driver flips between jobs. A test gomod would
+  gate runtests on a `@GOMOD:*@` build flag; cmods compile unconditionally.
+  Pin access from the driver: `halcmd` invocations, or — the pattern the
+  existing tool tests use (`tests/rsh2gmi.py`, `lib/python/stmak_test.py`) —
+  the generated **GMI REST client** against the rest-exported `halcmd` API.
+  There are no Python HAL bindings and no userspace comps in stratuMAK: every
+  HAL component lives inside stmakd, which is exactly why the simulation half
+  is a cmod and the driver never owns pins of its own.
+  The exhaustive logic coverage stays in the Go unit tests with the
+  scripted motion stack; this level exists to exercise the REAL stack:
+  motmod/TP/homemod in RT, real persist_sqlite, real HAL wiring.
   Scenarios: full pick→place cycle, empty-slot probing to tray-empty,
   autohome-on-first-job, busy-gated wait (incl. auto-enable abort),
   error+error-reset, estop mid-move, persistence restore,
-  alternating-picker chain (the §8 reference flow).
+  alternating-picker chain (the §8 reference flow), manual-handling
+  retention round trip (§8.1).
 - **Latency check**: assert plan time < 100 ms in the integration run (D13).
+
+### 9.1 As built (2026-08-12)
+
+`src/hal/components/pnpsim.comp` (the simulated field devices), the rewired
+`tests/pnptask/` config with `pnpdrv.sh`/`pnpdrv.py`, and nine scenario
+directories under it — `cycle probing homing busy errors estop persist
+altpicker manual` — each a standard runtests test (`test.sh` + a Python driver
++ `expected`). One addition to the module itself: the `plan-time` out pin
+(§5.2), because D13's budget was the one thing §9 asks for that nothing
+published.
+
+The scenario list above maps one-to-one onto those directories with one split:
+autohome-on-first-job is asserted in `cycle/`, where the first job homes the
+machine on its own, because a machine can only be unhomed once per start;
+`homing/` takes the other half — the explicit `home` request of D25 and the
+manual mode that needs it.
+
+- **The scenarios are separate runtests directories, all driving one config.**
+  Per-directory pass/fail is what makes a failing suite readable, and stmakd
+  chdirs to the INI's directory, so a scenario in `tests/pnptask/<name>/`
+  running `stmakd ../pnptask.ini` shares the trays, the drawings and the
+  persistence db with all the others. Wiping that shared state is therefore
+  `pnpdrv.sh`'s job, not runtests' per-testdir `rm -rf db`.
+- **`pnpsim` carries one gripper and one fixture per instance**, so the sim's
+  two pickers and two process stations are two instances. Not because they
+  belong together physically — they do not — but because a comp per device
+  would have been two comps for four pins each, and a comp with counts would
+  have needed the personality-nibble encoding of `logic` to say "two of one and
+  two of the other". Unused halves stay unlinked and cost nothing.
+- **The gripper is the only part of the machine that had to be simulated
+  rather than wired.** Everything else the sim needs is a HAL primitive or a
+  pin the driver writes: `busy` is an unconnected input, the position loop-back
+  is a `net`, home switches are `setp`. What no wiring can express is the
+  difference between closing onto a part and closing onto nothing — the D9
+  probing correction, and the reason a pick-and-place task exists. It is
+  scripted with `gripper.miss-count`: N misses, or −1 for all of them, reloaded
+  whenever the value changes.
+- **Feedback settles a `settle-time` after the command.** Looping the command
+  straight back — what the phase-2 config did — would let a machine with
+  PICK_SETTLE_TIME at 0 pass tests a real one fails (§7.7's "a zero settle time
+  still costs one control cycle" is exactly that bug from the other side).
+- **The drivers reach pins over the halcmd REST API, not by forking halcmd.**
+  A fork costs tens of milliseconds and these drivers poll in loops;
+  `GET /pins?pattern=pnp.task.*` also returns the whole tree as *one* sample,
+  which is the only way to assert on several pins that are changing together.
+  `stmak_test.wait_until` still supplies the deadline discipline (and
+  `STMAK_TEST_TIMEOUT_SCALE`); what could not be reused is
+  `stmak_test.getp`/`wait_pin`, which read *signals* via `halcmd gets` — most
+  pnptask pins are unlinked, and `wait_ready` cannot ask a GMI status buffer
+  pnptask does not have. Readiness here is `machine-is-on` going high.
+- **`start-job` is driven low before every job, not just raised.** It is armed
+  rather than edge-detected (§7.7), and the module clearing it at the end of
+  the previous job is not enough: a driver that raises it again inside the same
+  10 ms control cycle is a job the module never sees.
+- **A skipped pick is proved by making the gripper unable to pick.** "The
+  material was already held, so no pick happened" has no pin to read; setting
+  `miss-count = -1` for the job gives it one — a job that approached the tray
+  would walk it to TRAY_EMPTY instead of completing. The same trick shows the
+  restored held record in `persist/` is real.
+- **The persistence scenario runs three servers**: one that does the work, one
+  restarted on the state it left, and one started with the state wiped. Without
+  the third, every assertion in the second would also pass on a machine that
+  simply comes up that way.
+- **`plan-time` reports the slowest plan of a job, not the latest.** A job
+  plans one route per leg, so a pin carrying only the last one cannot be
+  sampled from outside — the interesting number is the worst case, and it is
+  reset at the `start-job` edge so it always describes one job. Measured on the
+  sim config: ~10 µs per plan, four orders under D13's budget.
+- Assertions print one `PASS <label>` line each and the directory's `expected`
+  file is the list of them, so a diff names the step that stopped rather than
+  a boolean. `done()` refuses to sign off a scenario that asserted nothing.
 
 ## 10. Delivery order
 
@@ -1063,7 +1167,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
    of D20 wherever it means "the picker holding the job's material" — no
    hardcoded picker 0 — so phase 6 only adds behavior.
 6. alternating picker — **done**
-7. integration suite + docs polish
+7. integration suite + docs polish — **done**
 
 ## 11. Review resolutions and remaining points
 

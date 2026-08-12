@@ -216,7 +216,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		if grip == gripHolding {
 			picker.missing.Set(false)
 			t.markPicked(slot)
-			c.m.world.setHeld(pk, j.origin.id, false)
+			c.m.world.setHeld(pk, j.origin.id, false, j.step, true)
 			c.m.logger.Debug("pnptask: picked from tray",
 				"station", t.cfg.ID, "slot", slot, "picker", pk)
 			return c.zStroke(j.height)
@@ -308,7 +308,11 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap bool) error 
 	// station really is empty, and an estop landing in that window has to leave
 	// a model that says so.
 	s.setHasMaterial(false)
-	c.m.world.setHeld(pk, s.cfg.ID, swap)
+	// The job's own pick takes the material the PLC asked for, so its step is
+	// the latched one; a swap removes whatever occupied the station, whose
+	// step the model never tracked — unknown, and exempt from the skipPick
+	// step check.
+	c.m.world.setHeld(pk, s.cfg.ID, swap, j.step, !swap)
 	if err := c.zStroke(j.height); err != nil {
 		return err
 	}

@@ -71,6 +71,13 @@ type heldRecord struct {
 	// swap obligation) must survive — a restart mid-reseat that forgot it
 	// would count the picker free and drop the sequence constraint.
 	Retained bool `json:"retained,omitempty"`
+	// Step/StepKnown carry the material's process step (see
+	// heldMaterial.step): a restart must not turn known material into
+	// anything-goes material for the skipPick step check. Absent fields read
+	// as step 0 unknown, which is the safe direction — no check, exactly as
+	// records written before these fields existed behaved.
+	Step      int64 `json:"step,omitempty"`
+	StepKnown bool  `json:"step_known,omitempty"`
 }
 
 // persistRetryDelay is how long the writer backs off after a failed SetEntry
@@ -422,12 +429,19 @@ func (w *world) restore() {
 				// still counts occupied, the swap obligation survives, and
 				// the operator's next manual close judges the outcome exactly
 				// as it would have without the restart.
-				w.held[r.Picker] = heldMaterial{station: r.Station, swap: r.Swap, retained: true}
+				w.held[r.Picker] = heldMaterial{
+					station: r.Station, swap: r.Swap,
+					step: r.Step, stepKnown: r.StepKnown,
+					retained: true,
+				}
 				w.logger.Info("pnptask: manual handling restored, close the picker to resolve it",
 					"picker", r.Picker, "station", r.Station)
 				continue
 			}
-			w.held[r.Picker] = heldMaterial{present: true, station: r.Station, swap: r.Swap}
+			w.held[r.Picker] = heldMaterial{
+				present: true, station: r.Station, swap: r.Swap,
+				step: r.Step, stepKnown: r.StepKnown,
+			}
 			// D14's intent for a short restart: the part is meant to stay
 			// held, but a process restart re-exports the close output at its
 			// zero value. Re-drive it from the record — and let the control
@@ -504,6 +518,7 @@ func (w *world) flush() {
 				rec.Pickers = append(rec.Pickers, heldRecord{
 					Picker: n, Station: w.held[n].station, Swap: w.held[n].swap,
 					Retained: w.held[n].retained,
+					Step:     w.held[n].step, StepKnown: w.held[n].stepKnown,
 				})
 			}
 		}

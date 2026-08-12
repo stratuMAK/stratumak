@@ -68,6 +68,9 @@ Files
     pnptask.hal      motion stack, the task, and the simulated machine
     zones.dxf        travel envelope and permanent obstacles (deadzone-select 0)
     zones_alt.dxf    the same envelope plus a fixture plate (deadzone-select 1)
+    pnpdrv.sh        server lifecycle for the scenario tests
+    pnpdrv.py        pin access and job helpers for the scenario drivers
+    db/              persisted state (scratch — delete it for a fresh machine)
 
 The drawings are read in machine units, the same coordinates the INI stations
 are taught in. Layer "Outer Limits" carries the envelope, layer "deadzones" the
@@ -98,21 +101,52 @@ a job.
 What the simulated machine does
 -------------------------------
 
-The gripper feedback is the inverse of the close command and "closed" (which
-after a pick means the gripper found nothing) is held low, so every pick finds a
-part and every place lets go. The fixtures' released feedback follows their
-release request at once, and neither process station is ever busy. Each tray
-station's tray-id is set in the HAL file, which a PLC would do when a tray is
-loaded.
+The field devices are two `pnpsim` instances (pnpsim(9)), one per
+picker/process-station pair: instance 0 carries picker 0's gripper and station
+20's fixture, instance 1 carries picker 1's and station 21's. Out of the box
+every close finds a part, every fixture answers its release request after a few
+milliseconds, and neither station is ever busy — a machine that runs jobs.
 
-That is enough to drive whole jobs, but it is not the machine a test wants: the
-scripted version — grippers with a settling delay, injectable "the slot was
-empty" misses, busy stations, and the assertions over all of it — is the
-integration suite, phase 7 of docs/dev/PNPTASK_DESIGN.md.
+The knobs that make it misbehave on purpose are pins, so a test (or you, with
+halcmd) can flip them between jobs:
 
-The job handshake itself (process-step, origin-id, dest-id, start-job) is left
-unconnected, because that is what a PLC drives and what the commands above poke
-by hand.
+    halcmd setp pnp.sim.0.gripper.miss-count 2   # the next 2 closes grip nothing
+    halcmd setp pnp.sim.0.gripper.miss-count -1  # ... and -1 means every close
+    halcmd setp pnp.sim.0.gripper.stuck 1        # a gripper that never actuates
+    halcmd setp pnp.sim.0.fixture.stuck 1        # a clamp that never answers
+    halcmd setp pnp.task.proc.20.busy 1          # the station is working
 
-This directory holds no test.hal/test.sh, so `runtests` ignores it; it is a
-config to run and to build the integration test on, not a test itself.
+A miss run of -1 walks the tray until MAX_UNPOPULATED successive picks have
+found nothing, which is how the tray declares itself empty (error-id 11).
+
+Each tray station's tray-id is set in the HAL file, which a PLC would do when a
+tray is loaded. The job handshake itself (process-step, origin-id, dest-id,
+start-job) is left unconnected, because that is what a PLC drives and what the
+commands above poke by hand.
+
+Tray contents, station occupancy and held material are persisted (into db/ next
+to this file, by persist_sqlite) and restored at the next start. Delete db/ for
+a machine that comes up with empty trays and empty stations.
+
+The scenario directories
+------------------------
+
+    cycle/      a whole pick -> place cycle, and D13's plan-time budget
+    probing/    empty slots corrected by the gripper, up to TRAY_EMPTY (D9)
+    homing/     the home request and manual jog (D18, D25)
+    busy/       busy gating, the wait position, the auto-enable abort (D15)
+    errors/     the error ids of §7.5 and the error-reset that clears them
+    estop/      an estop mid-job and the way back to a running machine (D14)
+    persist/    the tracked world surviving a restart (D6)
+    altpicker/  the alternating-picker reference flow of §8
+    manual/     the manual-handling retention round trip of §8.1
+
+Each is a `runtests` test: a test.sh that starts stmakd on this config and a
+Python driver that commands jobs over the handshake pins and asserts what came
+back. They share pnpdrv.sh (server lifecycle) and pnpdrv.py (pin access over
+the halcmd REST API) from this directory. Run them all with
+
+    scripts/runtests tests/pnptask
+
+This directory itself holds no test.hal/test.sh, so `runtests` ignores it: it is
+the config the scenarios drive, and a machine to run by hand.

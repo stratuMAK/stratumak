@@ -409,7 +409,7 @@ func TestJobProcToTray(t *testing.T) {
 // one here, so a correct engine picks and places with it and applies its offsets.
 func TestJobUsesTheHoldingPicker(t *testing.T) {
 	// Picker 0 is loaded (a manual intervention, say), so the free picker is 1.
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 21, false) }, "pickers=2")
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 21, false, 0, true) }, "pickers=2")
 	f.m.pins.pickers[1].xOffset.Set(40)
 	f.m.pins.pickers[1].yOffset.Set(-15)
 	f.selectTray(1)
@@ -661,7 +661,7 @@ func TestJobValidationRefusals(t *testing.T) {
 		},
 		{
 			name: "no free picker",
-			seed: func(w *world) { w.setHeld(0, 21, false) },
+			seed: func(w *world) { w.setHeld(0, 21, false, 0, true) },
 			setup: func(f *jobFixture) {
 				f.selectTray(1)
 				f.fillTray(0)
@@ -1128,4 +1128,36 @@ func TestTrayResetDuringAJobIsNotLost(t *testing.T) {
 	f.eventually("the request to be honoured after the job", func() bool {
 		return f.bit("tray.10.empty") && !f.bit("tray.10.full")
 	})
+}
+
+// TestJobPublishesPlanTime: plan-time carries the slowest route plan of the job
+// that just ran (§5.2), which is what makes D13's budget assertable from
+// outside — and it belongs to one job, so the next job's latch resets it.
+func TestJobPublishesPlanTime(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	if got := f.get("plan-time"); got != 0 {
+		t.Errorf("plan-time = %v before any job, want 0", got)
+	}
+
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc")
+
+	plan := f.get("plan-time")
+	if plan <= 0 {
+		t.Errorf("plan-time = %v after a job that planned several legs, want > 0", plan)
+	}
+	if plan >= 0.1 {
+		t.Errorf("plan-time = %v s, over D13's 100 ms budget on a fixture scene", plan)
+	}
+
+	// A job refused before it plans anything reports no planning, rather than
+	// leaving the previous job's number standing for the PLC to read.
+	f.runJob(99, 20, 0)
+	f.requireError("unknown origin", errInvalidOrigin)
+	if got := f.get("plan-time"); got != 0 {
+		t.Errorf("plan-time = %v after a job that never planned, want 0", got)
+	}
 }
