@@ -30,9 +30,11 @@ means they met each other and the position was empty.
 .PP
 Which of the two a close produces is scripted with \\fBgripper.miss-count\\fR:
 0 (the default) grips a part every time, N makes the next N closes find nothing,
-and \\-1 makes every close find nothing. The counter reloads whenever the pin's
-value changes, so a driver arms a run of misses by writing the count and re-arms
-by writing it again. \\fBgripper.miss-left\\fR reports what is left of it.
+and \\-1 makes every close find nothing. The counter reloads only when the
+pin's \\fIvalue changes\\fR \\(em a pin is a level, so writing the value it
+already carries is invisible. To re-arm a fresh run of the same length, write 0
+first and then the count. \\fBgripper.miss-left\\fR reports what is left of the
+current run.
 
 .PP
 \\fBgripper.stuck\\fR and \\fBfixture.stuck\\fR freeze the feedback where it
@@ -87,7 +89,9 @@ author "Sascha Ittner";
 FUNCTION(_) {
     // The miss schedule reloads on a *change* of the request pin, not on every
     // cycle: the driver writes a count once and the countdown below owns it
-    // from there. Writing the same count again is how a run is re-armed.
+    // from there. A pin is a level — writing the value it already carries is
+    // invisible here — so re-arming a run of the same length means writing 0
+    // first, then the count (the man text says the same).
     if (gripper_miss_count != miss_req) {
         miss_req = gripper_miss_count;
         misses = miss_req;
