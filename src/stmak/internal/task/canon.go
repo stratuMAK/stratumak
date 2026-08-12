@@ -12,6 +12,7 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/canon"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/tooltable"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 )
 
@@ -39,11 +40,12 @@ const (
 	CanonContinuous = 3
 )
 
-// TP termination conditions (must match tc_types.h).
+// TP termination conditions — the single tc_types.h mirror lives in
+// internal/motsetup, shared with pnptask.
 const (
-	tpTermCondStop      = 0 // TC_TERM_COND_STOP
-	tpTermCondExact     = 1 // TC_TERM_COND_EXACT
-	tpTermCondParabolic = 2 // TC_TERM_COND_PARABOLIC (blend)
+	tpTermCondStop      = motsetup.TPTermCondStop
+	tpTermCondExact     = motsetup.TPTermCondExact
+	tpTermCondParabolic = motsetup.TPTermCondParabolic
 
 	// defaultBlendTolMM is the default blending tolerance the C canon's
 	// INIT_CANON asserts at every Interp::init: 0.001 inch on an inch machine,

@@ -57,6 +57,41 @@ func TestNewPlanners(t *testing.T) {
 	}
 }
 
+// TestHomeWarnings: a homed position the drawings cannot start a route from is
+// named at load — a warning, not an error (a machine jogged clear before its
+// first job is legitimate), so commissioning learns the cause instead of
+// meeting a PLANNING_FAILED that only names coordinates.
+func TestHomeWarnings(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	set, err := newPlanners(cfg)
+	if err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+
+	// The default home (0,0) sits at the fixture drawing's corner, inside the
+	// eroded band: both drawings warn.
+	if warns := set.homeWarnings(cfg); len(warns) != 2 {
+		t.Errorf("home (0,0): %d warnings, want 2: %q", len(warns), warns)
+	}
+
+	// A home inside the usable region is silent.
+	cfg.Home = pnproute.Point{X: 100, Y: 100}
+	if warns := set.homeWarnings(cfg); len(warns) != 0 {
+		t.Errorf("home (100,100): unexpected warnings %q", warns)
+	}
+}
+
+// TestConfigReadsHomePosition: [JOINT_0]HOME/[JOINT_1]HOME feed Config.Home in
+// machine units.
+func TestConfigReadsHomePosition(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+"[JOINT_0]\nHOME = 25\n[JOINT_1]\nHOME = 35\n"+pnptaskSection+stationSections)
+	if cfg.Home.X != 25 || cfg.Home.Y != 35 {
+		t.Errorf("Home = %+v, want (25, 35)", cfg.Home)
+	}
+}
+
 // TestPlannersScaleToMM checks D23: the drawings are in machine units, so on an
 // inch machine both the scene and the clearance have to be scaled to the
 // internal mm — otherwise every station would sit far outside a 600 mm limit.

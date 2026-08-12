@@ -692,14 +692,25 @@ vanished, error `PROC_NO_MATERIAL`; `release` := 1, wait `released` high
 
 **place to tray** — validate free slot; retract; route XY to free slot;
 Z down; pos-settle; `close` := 0; pick-settle; `opened` low → error
-`PLACE_FAILED`; release-time dwell; slot := process-step; Z up.
+`PLACE_FAILED`; **slot := process-step** (the records commit at the `opened`
+confirmation — the physical commit point, since an open picker cannot take
+the part back; an abort during the dwell must find a world that already says
+where the part is); release-time dwell; Z up.
 
 **place to proc** — validate `!has-material` (single-picker mode; §8 for
 alternating); busy gating (see above); `release` := 1; route XY to station;
 wait `released` high (RELEASE_TIMEOUT); Z down; pos-settle; `close` := 0;
-pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
-`has-material` := 1; Z up; `release` := 0, wait `released` low
-(RELEASE_TIMEOUT, D19).
+pick-settle; `opened` low → error `PLACE_FAILED`; **`has-material` := 1**
+(records at the `opened` confirmation, as above); release-time dwell; Z up;
+`release` := 0, wait `released` low (RELEASE_TIMEOUT, D19).
+
+**Release cleanup (phase 4/5 review):** no error path may leave a station's
+`release` request standing — every proc action withdraws it on the way out of
+a failed sequence (without waiting for feedback), and estop/shutdown drive all
+`release` outputs low alongside the picker releases. A pick-from-proc whose
+release wait fails *after* a confirmed grip opens the picker again: the
+fixture never confirmed letting go, so the part belongs to the fixture and
+`has-material` stays true.
 
 ### 7.5 Error-id table (`errors.go`)
 
@@ -728,6 +739,158 @@ pick-settle; `opened` low → error `PLACE_FAILED`; release-time dwell;
 | 20 | `AUTO_DISABLED` | start-job while auto-enable is low (§6.4) |
 | 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
 | 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
+
+### 7.6 As built — the model (2026-08-11)
+
+`internal/pnptask/stations.go` (the runtime half, on top of the phase-1 grid
+geometry) and `persist.go`, plus `stations_test.go`/`persist_test.go`. The world
+model — tray contents, process-station occupancy, per-picker held material — is
+built in the factory next to the pins it publishes on, seeded from those pins
+and from persistence when the control loop starts, and owned by the control
+goroutine from then on like everything else in §6.5.
+
+- **Slot states are `int64`, not the design's `int32`.** The step comes off a u32
+  pin, so with `int32` a step above 2^31 would wrap negative and 2^32−1 would
+  collide with the −1 that means "empty" — a PLC word read as "this slot is
+  free". Four bytes per slot is not worth that.
+- **The DIR_MODE order is precomputed** per tray geometry as a permutation of the
+  linear slot indices, once at load. That is also what makes the probing
+  correction of D9 cheap to express: "continue after the slot that turned out to
+  be empty" is a position in a list rather than a resumed nested loop. Meander
+  flips on the *pass number*, not the geometric row index, so a pass always ends
+  where the next one starts whichever end the secondary direction started from.
+  Places take the first free slot **in the same order** — a place that ignored it
+  would scatter material across a tray a later pick then travels back and forth
+  over.
+- **A tray with no geometry reports neither `empty` nor `full`.** tray-id 0 (the
+  value an unwired u32 pin reads, and the reason config.go refuses station id 0)
+  means "not told yet": there is no slot state to report on, and a pin that
+  guessed either way would send a PLC refilling a tray or diverting production.
+  The actionable signal for that state is the `INVALID_TRAY_ID` a job raises.
+- The `empty` pin is measured against the **live** `process-step` pin, not a
+  job's latched copy: between jobs there is no latched step, and this pin is what
+  the PLC reads to decide what to command next. `set-full` uses the same live
+  value (D8).
+- `set-full`/`set-empty` join `home`, `error-reset` and the manual picker pins as
+  edges primed against their startup state (D26) — a level latched across a
+  stmakd restart would otherwise wipe or forge the slot state that was just
+  restored. `tray-id` is primed for the mirror-image reason: `world.start` has
+  already selected the geometry it names, so treating the boot value as a
+  *change* would reset what the restore just installed.
+- **The held-material records are per picker from the start** (D20), and the
+  engine asks `freePicker()`/`holderOf(station)` rather than indexing 0.
+  Estop clears them all: the close outputs have just dropped (D14), so whatever
+  was gripped is on the table and the records would be fiction. A manual open
+  clears the one picker's record for the same reason; §8's refinement (retain the
+  station id so a following manual close can restore it) belongs to phase 6.
+- **Persistence** (`persist.go`, D6): namespace = instance name with everything
+  outside `[A-Za-z0-9_]` replaced (`pnp.task` → `pnp_task`), keys `tray.<id>`,
+  `proc.<id>` and `held_material`. The last one is the design's `alt_picker`
+  renamed after what D20 made it store — one record per picker, each naming its
+  picker explicitly so a load line changed between `pickers=1` and `pickers=2`
+  cannot shift a record onto the wrong picker.
+  - Writes are **coalesced per control cycle** rather than issued per assignment:
+    the several changes of one pick cost one write, and nothing is ever more than
+    10 ms behind. The flush hangs off `tick`, not `step`, so it keeps running
+    through the long actions of a job.
+  - A storage failure is logged and swallowed. The machine's state is the tracked
+    model, not the database; losing a write costs state at the next restart,
+    which is strictly better than aborting a cycle with a part in the picker over
+    a locked sqlite file. Failing to *open* the namespace does fail `Start` —
+    that one was asked for on the load line.
+  - The probing state (the successive-miss counter and the "declared empty by
+    probing" flag) is deliberately **not** persisted, as §7.2's record shape
+    implies: it is a conclusion drawn from physical feedback, and re-deriving it
+    costs one probing pass, while restoring it could leave a refilled tray
+    declared empty with nothing in the record to justify it.
+  - A record is only adopted for the geometry it was written under, and only if
+    it still fits it: an unknown TRAYDEF or a changed slot count discards it
+    rather than stretching stored slots over a grid they no longer describe.
+  - **One refinement over §7.2:** a `tray-id` pin reading 0 at restore time is
+    treated as "not told yet", not as a mismatch. The PLC that drives that pin
+    has typically not written it when stmakd starts, so comparing against it
+    would discard the tray state at every single restart — the one thing
+    persistence exists to prevent. The record is held pending and adopted the
+    moment `tray-id` names the geometry it was recorded under; any *other* id
+    discards it immediately, as specified.
+
+### 7.7 As built — the engine (2026-08-11)
+
+`internal/pnptask/motion.go job.go actions.go` plus `job_test.go`, wired into the
+§6.5 control loop: a job runs *inside* it, ticking the same cycle through every
+wait, so estop and machine-off end it wherever it stands without any action
+having to remember that. Verified against a real `stmakd tests/pnptask/pnptask.ini`
+run: `set-full` fills the component tray, a `start-job` for 10 → 20 autohomes the
+machine and completes the pick/place cycle (`has-material` set, a slot consumed,
+`error-id` 0), and 20 → 11 empties the press into the single-position output tray.
+
+- **Nothing is addressed as "picker 0".** The pick asks `world.freePicker()`, the
+  job records which picker came away holding the material, and the place uses
+  that record with that picker's offsets (D20). `TestJobUsesTheHoldingPicker`
+  runs a whole job on picker 1 — offsets applied, picker 0 untouched — on a
+  `pickers=2` instance where picker 0 was loaded by hand. Phase 6 adds the
+  *decisions* (skip the pick when a picker already holds the origin's material,
+  swap at an occupied dest) without moving any of this.
+- **One frame, converted once.** Station coordinates, tray corners and the
+  dead-zone drawings all describe where a *picker* is; `commandFor` subtracts the
+  offset at the last step before a move is dispatched (§8), and route planning
+  and station geometry never learn which picker is moving.
+- **The eroded outer limit has to contain wherever the machine can be parked.**
+  A route's start point is checked like any other (`Plan` → `ErrOutsideLimit`), so
+  a machine homed at the corner of its axis range has no valid start and its
+  first job dies with `PLANNING_FAILED`. That is the drawing's job to prevent:
+  `tests/pnptask/zones.dxf` now draws the envelope wider than the axis soft
+  limits (−20..620 × −20..520 against 0..600 × 0..500) so the 12 mm erosion still
+  covers the whole reachable range. Documented in the sim README and covered by
+  `TestJobPlanningFailed`.
+- **The commanded position is tracked, not re-read.** A route's segments are
+  dispatched back to back so the TP can blend them, so status still describes the
+  first while the last is queued; `cmdPos` carries the module's own notion and is
+  re-anchored from `GetPosCmd` once per job, because a manual jog moves the
+  machine without going through motion.go.
+- **A zero settle time still costs one control cycle.** Every dwell is followed by
+  a check of the picker or fixture feedback, and that feedback comes out of the
+  input snapshot — returning without ticking would have the check judge a sample
+  taken before the command it is checking, so a machine with the settle times
+  left at 0 would fail every pick with `PICKER_CLOSE_FAILED`.
+- **`start-job` is armed, not edge-detected.** It has to be seen low before it
+  counts as a request: a level latched across a stmakd restart is not a job
+  (D26), and a pin linked to a signal the PLC keeps driving high reads high again
+  on the cycle after the module clears it — still the same request.
+- **`start-job` is sampled before the parameters it carries.** The PLC writes
+  origin-id/dest-id/process-step/deadzone-select and *then* raises the request;
+  this loop is not synchronised with whatever writes those pins, so reading the
+  request first is what guarantees a job is never latched with the previous job's
+  parameters.
+- **Rising edges are latched, not per-cycle.** This was a real bug the job engine
+  exposed: the long operations tick the loop themselves, so they advance the edge
+  detector many times before `step()` looks again, and any button pressed during a
+  job or a homing sequence was sampled by a nested tick and silently gone. Edges
+  now accumulate and each consumer clears the one it acts on; auto mode
+  *discards* the manual-control edges rather than storing them up (§6.4). The
+  tray-id selector is compared against the geometry the model has actually
+  selected, for the same reason.
+- **The diagnosis is published before the handshake completes.** `busy` low with
+  `start-job` cleared is the PLC's cue to look at `error-id`, so the error pins
+  are written first.
+- **A job is refused while an error is latched.** Faults latch first-error-wins
+  (§6.5), so a job started with the latch set could fail with nothing to show for
+  it — its id would be swallowed by the one already there. `start-job` is cleared
+  with the original error still on the pin, which says exactly what happened, and
+  `error-reset` is what the PLC owes before the next job.
+- Homing runs *after* validation: a job naming an unknown station is refused
+  without the machine having moved first.
+- `has-material` and the held record are written together and before the retract,
+  so a job aborted mid-lift leaves a world that still says where the part is. A
+  pick from a proc station that finds the fixture empty clears `has-material` on
+  its way to `PROC_NO_MATERIAL`: the next job must not be sent for a part that is
+  not there.
+- The picker-open wait of the probing retry reports `PLACE_FAILED` (16, "opened
+  stayed low") — §7.4 fixes the *timeout* for that wait but not its id, and a
+  picker commanded open that does not open is literally what that code says.
+- **The tray reset requests survive a job.** A `set-full` pressed while a job runs
+  is applied as soon as the loop is back to its own decisions — never in the
+  middle of a slot search, and never dropped.
 
 ---
 
@@ -803,8 +966,18 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
 1. `pkg/pnproute` (independent) — **done**
 2. module skeleton + config + pins (loads in sim, no motion) — **done**
 3. machine control + config push + autohoming (moves in sim) — **done**
-4. stations/trays/persistence
-5. job engine, single picker, end-to-end sim green
+4. +5. stations/trays/persistence **and** the job engine (single picker,
+   end-to-end sim green) — **done**; implemented together (decided 2026-08-11): the
+   model/engine seam — slot search order, probing corrections (D9), slot
+   marking, `has-material` transitions, persistence write points — is where
+   the design risk sits, and the model's only meaningful end-to-end
+   verification is the engine consuming it; both also share the scripted
+   picker-feedback harness. Kept as **two commit series** on one branch
+   (model + persistence first, then the engine) so the pre-merge review can
+   run in two passes, and the model half stays independently mergeable if it
+   stabilizes early. The engine must use the per-picker held-record structure
+   of D20 wherever it means "the picker holding the job's material" — no
+   hardcoded picker 0 — so phase 6 only adds behavior.
 6. alternating picker
 7. integration suite + docs polish
 
