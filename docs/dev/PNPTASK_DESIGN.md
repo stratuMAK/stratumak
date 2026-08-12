@@ -1044,9 +1044,13 @@ restoring a swap record.
   release/released, busy scripting, and "next close grips nothing" miss
   injection, all as pins the driver flips between jobs. A test gomod would
   gate runtests on a `@GOMOD:*@` build flag; cmods compile unconditionally.
-  If halcmd-per-poke proves too slow, the driver creates its own HAL
-  component via the Python hal bindings — in-process pin access, still no
-  gomod. The exhaustive logic coverage stays in the Go unit tests with the
+  Pin access from the driver: `halcmd` invocations, or — the pattern the
+  existing tool tests use (`tests/rsh2gmi.py`, `lib/python/stmak_test.py`) —
+  the generated **GMI REST client** against the rest-exported `halcmd` API.
+  There are no Python HAL bindings and no userspace comps in stratuMAK: every
+  HAL component lives inside stmakd, which is exactly why the simulation half
+  is a cmod and the driver never owns pins of its own.
+  The exhaustive logic coverage stays in the Go unit tests with the
   scripted motion stack; this level exists to exercise the REAL stack:
   motmod/TP/homemod in RT, real persist_sqlite, real HAL wiring.
   Scenarios: full pick→place cycle, empty-slot probing to tray-empty,
