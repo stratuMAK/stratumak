@@ -560,18 +560,29 @@ type heldMaterial struct {
 	present bool
 	station uint32
 
+	// step is the process step of the held material, as the job that picked it
+	// declared it (the latched process-step pin). stepKnown is false for
+	// swap-removed material — the occupant's step is whatever the earlier
+	// place put there, which the model does not track. A skipPick job whose
+	// latched step mismatches a known step is refused: matching by station
+	// alone silently delivered a step-0 part as step-3 material.
+	step      int64
+	stepKnown bool
+
 	// swap marks material a swap took out of an occupied process station (§8).
 	// That part has nowhere else to be: the station is running its process on
 	// the piece that replaced it, so until a job carries it away no other job
-	// may run (see swapHeld).
+	// may run (see swapStations).
 	swap bool
 
 	// retained says station/swap describe material a MANUAL open let go of
-	// (§8's manual interplay): the record itself is gone — the picker holds
-	// nothing — but the station id is kept so a following manual close that
-	// grips something again restores the record rather than inventing one with
-	// no origin. A retained record leaves the picker free, which is what it
-	// physically is.
+	// (§8.1): the part is out of the picker in an operator's hands, and the
+	// station id (and swap obligation) is kept so the following manual close
+	// can be judged — grips material again → the record is restored; grips
+	// nothing → it is dropped. A retained record is a RESERVATION: the picker
+	// counts occupied (see occupied) and jobs are refused until the close
+	// decides, because a job grabbing the picker inside that window would
+	// drive a possibly loaded gripper into a pick.
 	retained bool
 }
 
@@ -739,12 +750,17 @@ func (w *world) swapStations() []uint32 {
 }
 
 // setHeld records that picker n now holds material from that station. swap says
-// the material came out of a station a place is about to fill again (§8).
-func (w *world) setHeld(n int, station uint32, swap bool) {
+// the material came out of a station a place is about to fill again (§8); step
+// is the material's process step where the picking job knew it (stepKnown),
+// which a later skipPick is checked against.
+func (w *world) setHeld(n int, station uint32, swap bool, step int64, stepKnown bool) {
 	if n < 0 || n >= len(w.held) {
 		return
 	}
-	w.held[n] = heldMaterial{present: true, station: station, swap: swap}
+	w.held[n] = heldMaterial{
+		present: true, station: station, swap: swap,
+		step: step, stepKnown: stepKnown,
+	}
 	w.heldDirty = true
 }
 
@@ -774,7 +790,12 @@ func (w *world) releaseHeld(n int) {
 	if n < 0 || n >= len(w.held) || !w.held[n].present {
 		return
 	}
-	w.held[n] = heldMaterial{station: w.held[n].station, swap: w.held[n].swap, retained: true}
+	h := w.held[n]
+	w.held[n] = heldMaterial{
+		station: h.station, swap: h.swap,
+		step: h.step, stepKnown: h.stepKnown,
+		retained: true,
+	}
 	w.heldDirty = true
 }
 
@@ -786,7 +807,10 @@ func (w *world) restoreHeld(n int) (uint32, bool) {
 		return 0, false
 	}
 	h := w.held[n]
-	w.held[n] = heldMaterial{present: true, station: h.station, swap: h.swap}
+	w.held[n] = heldMaterial{
+		present: true, station: h.station, swap: h.swap,
+		step: h.step, stepKnown: h.stepKnown,
+	}
 	w.heldDirty = true
 	return h.station, true
 }

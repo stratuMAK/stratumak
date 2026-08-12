@@ -1017,16 +1017,30 @@ restoring a swap record.
   pending close), the swap obligation stays armed, and the record — with its
   station and swap flag — **persists across a restart** (restored retained,
   close output left low, the operator's close still judges). A second open
-  press is idempotent; a close that grips nothing clears the record and returns
-  the picker to the engine. The free-the-picker workflow is therefore: open,
-  take the part, close on the empty gripper, open — four presses that leave an
-  honest world instead of a race window.
+  press is idempotent; a close that grips nothing clears the record AND
+  reopens the picker (phase-7 review — jaws left commanded shut on a free
+  picker would make the next job's grip check read "closed" whatever sits
+  under the head). The free-the-picker workflow is therefore three presses:
+  open, take the part, close on the empty gripper — the verdict opens it
+  again itself.
 - **The sequence constraint accepts any standing swap obligation.** Normally
   one exists; a place that fails after its swap-out leaves two (both parts
   really are in pickers), and a job from either station is the recovery. A
   skipPick job into its own occupied origin — a self-exchange that would
   ping-pong two parts forever — is refused; putting a part back is valid once
-  the station is free.
+  the station is free. The *non*-skipPick station-to-itself job stays allowed
+  on purpose (phase-7 review): it is the **re-seat operation** — pick the part
+  out, put it back down — the one way a PLC can re-clamp a part without a
+  second station, and a bug looping it cycles one part in place without losing
+  anything.
+- **skipPick matches the material, not just the station** (phase-7 review).
+  Held records carry the process step the picking job declared; a skipPick
+  whose latched step mismatches a known step is refused — matching by station
+  alone silently delivered a step-0 part as step-3 material and corrupted the
+  tray model behind it. A swap's removed occupant has an unknown step (the
+  model never tracked what the earlier place put there) and is exempt: the
+  obligated carry-away job runs whatever step the PLC declares. The step (and
+  its known flag) persists with the record.
 
 ---
 

@@ -109,7 +109,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 			// has-material and the held record have no pin to set them from;
 			// the job engine is what moves them in real life.
 			m.world.procs[0].setHasMaterial(true)
-			m.world.setHeld(0, 20, false)
+			m.world.setHeld(0, 20, false, 0, true)
 		}),
 	})
 	// Fill the tray at step 5 through the pins, which is how an operator does it.
@@ -387,7 +387,7 @@ func TestRestoredHeldPartStillThere(t *testing.T) {
 
 	first := newMachineFixtureOpts(t, fixtureOpts{
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.world.setHeld(0, 20, false)
+			m.world.setHeld(0, 20, false, 0, true)
 		}),
 	})
 	first.m.Stop()
@@ -423,7 +423,7 @@ func TestRestoredHeldPartGone(t *testing.T) {
 
 	first := newMachineFixtureOpts(t, fixtureOpts{
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.world.setHeld(0, 20, false)
+			m.world.setHeld(0, 20, false, 0, true)
 		}),
 	})
 	first.m.Stop()
@@ -546,7 +546,7 @@ func TestHeldRecordCodec(t *testing.T) {
 	}
 	for _, r := range rec.Pickers {
 		if r.Picker < len(w.held) {
-			w.setHeld(r.Picker, r.Station, r.Swap)
+			w.setHeld(r.Picker, r.Station, r.Swap, r.Step, r.StepKnown)
 		}
 	}
 	if w.held[0].present {

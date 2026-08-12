@@ -54,7 +54,7 @@ func newAltFixture(t *testing.T, seed func(*world)) *jobFixture {
 // that picker, and the origin is never touched.
 func TestAltPickSkippedWhenAPickerHoldsTheOrigin(t *testing.T) {
 	// Picker 1 holds material that came from the tray station.
-	f := newAltFixture(t, func(w *world) { w.setHeld(1, 10, false) })
+	f := newAltFixture(t, func(w *world) { w.setHeld(1, 10, false, 0, true) })
 	f.m.pins.pickers[1].xOffset.Set(40)
 
 	f.runJob(10, 20, 0)
@@ -91,13 +91,40 @@ func TestAltPickSkippedWhenAPickerHoldsTheOrigin(t *testing.T) {
 // business failing on the origin's state — it never goes there. An empty tray
 // is exactly that case: the part it would have picked is already in the picker.
 func TestAltPickSkipNeedsNoOriginPrecondition(t *testing.T) {
-	f := newAltFixture(t, func(w *world) { w.setHeld(0, 10, false) })
+	f := newAltFixture(t, func(w *world) { w.setHeld(0, 10, false, 0, true) })
 	f.pulse(f.tray().setEmpty)
 	f.eventually("tray empty", func() bool { return f.bit("tray.10.empty") })
 
 	f.runJob(10, 20, 0)
 	f.requireOK("a skipped pick from an empty tray")
 	if !f.bit("proc.20.has-material") {
+		t.Error("the station holds nothing after the place")
+	}
+}
+
+// TestSkipPickRefusesWrongStep: the held record matches by station AND by
+// process step where the step is known — a re-dispatched job asking for a
+// different step must be refused, not silently served the wrong part.
+func TestSkipPickRefusesWrongStep(t *testing.T) {
+	f := newAltFixture(t, func(w *world) { w.setHeld(1, 10, false, 0, true) })
+
+	f.runJob(10, 20, 3) // the held part is step 0, the job asks for step 3
+	f.requireError("a skipPick whose step mismatches the held material", errInvalidOrigin)
+	f.clearError()
+
+	f.runJob(10, 20, 0)
+	f.requireOK("the matching step places the held part")
+}
+
+// TestSkipPickSwapMaterialIsStepExempt: a swap's removed occupant has an
+// unknown step (the model never tracked what the earlier place put there), so
+// the obligated carry-away job runs whatever step the PLC declares for it.
+func TestSkipPickSwapMaterialIsStepExempt(t *testing.T) {
+	f := newAltFixture(t, func(w *world) { w.setHeld(1, 20, true, 0, false) })
+
+	f.runJob(20, 21, 7)
+	f.requireOK("the swap obligation is served regardless of the declared step")
+	if !f.bit("proc.21.has-material") {
 		t.Error("the station holds nothing after the place")
 	}
 }
@@ -186,7 +213,7 @@ func TestAltSwapSequenceConstraint(t *testing.T) {
 func TestAltSwapNeedsAFreePicker(t *testing.T) {
 	f := newAltFixture(t, func(w *world) {
 		w.procs[0].setHasMaterial(true)
-		w.setHeld(1, 99, false) // a picker loaded by hand, from nowhere in this config
+		w.setHeld(1, 99, false, 0, true) // a picker loaded by hand, from nowhere in this config
 	})
 	f.eventually("has-material published", func() bool { return f.bit("proc.20.has-material") })
 
@@ -312,7 +339,7 @@ func TestAltPickerReferenceFlow(t *testing.T) {
 // the record the machine started with — otherwise the engine would send a loaded
 // picker to pick.
 func TestManualOpenRetainsTheStationAndCloseRestoresIt(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) }, "pickers=2")
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) }, "pickers=2")
 	f.setBit(f.m.pins.autoEnable, false) // manual mode (§6.4)
 
 	f.press(f.m.pins.pickers[0].manualOpen)
@@ -338,7 +365,7 @@ func TestManualOpenRetainsTheStationAndCloseRestoresIt(t *testing.T) {
 // a picker closed onto nothing gripped nothing, so the retained id describes a
 // part the operator now has in their hand, and the machine must forget it.
 func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) }, "pickers=2")
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) }, "pickers=2")
 	f.setBit(f.m.pins.autoEnable, false)
 
 	f.press(f.m.pins.pickers[0].manualOpen)
@@ -349,7 +376,12 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	f.eventually("the picker to report fully closed", func() bool {
 		return f.m.pins.pickers[0].closed.Get()
 	})
-	time.Sleep(30 * pollInterval)
+	// The verdict reopens the picker along with dropping the record: a free
+	// picker whose jaws stayed commanded shut would make the next job's
+	// closeAndCheck read "closed" whatever sits under the head.
+	f.eventually("the picker reopened with the verdict", func() bool {
+		return !f.bit("picker.0.close")
+	})
 
 	w := f.stopped()
 	if w.held[0].present || w.held[0].retained {
@@ -365,7 +397,7 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 // hole of the phase-6 review: a job could grab a picker whose part was about to
 // be re-gripped.)
 func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 99, false) })
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 99, false, 0, true) })
 	f.selectTray(1)
 	f.fillTray(0)
 
@@ -402,7 +434,7 @@ func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 // open picker is physically a no-op and must not wipe the retained id — the
 // close that follows still restores the record, station and all.
 func TestManualOpenTwiceKeepsRetained(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) })
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) })
 	f.setBit(f.m.pins.autoEnable, false)
 
 	f.press(f.m.pins.pickers[0].manualOpen)
@@ -429,7 +461,7 @@ func TestRetainedRecordSurvivesRestart(t *testing.T) {
 	first := newJobFixtureOpts(t, fixtureOpts{
 		args: []string{"pickers=2"},
 		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
-			m.world.setHeld(1, 20, true) // swap-removed material from station 20
+			m.world.setHeld(1, 20, true, 0, true) // swap-removed material from station 20
 		}),
 	})
 	first.setBit(first.m.pins.autoEnable, false)
@@ -471,7 +503,7 @@ func TestRetainedRecordSurvivesRestart(t *testing.T) {
 // judgement re-arms instead of silently giving up, and decides once the
 // gripper answers.
 func TestSlowGripperKeepsJudging(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) })
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) })
 	f.setBit(f.m.pins.autoEnable, false)
 
 	f.press(f.m.pins.pickers[0].manualOpen)
@@ -497,7 +529,7 @@ func TestSlowGripperKeepsJudging(t *testing.T) {
 // from either station, and two ordinary jobs put the world back together.
 func TestFailedPlaceLeavesTwoRecoverableSwaps(t *testing.T) {
 	f := newAltFixture(t, func(w *world) {
-		w.setHeld(1, 20, true)          // picker 1: swap material from station 20
+		w.setHeld(1, 20, true, 0, true) // picker 1: swap material from station 20
 		w.procs[1].setHasMaterial(true) // station 21 occupied
 	})
 
@@ -536,7 +568,7 @@ func TestFailedPlaceLeavesTwoRecoverableSwaps(t *testing.T) {
 // mis-sequence.
 func TestSelfExchangeRefused(t *testing.T) {
 	f := newAltFixture(t, func(w *world) {
-		w.setHeld(1, 20, true)          // picker 1 holds what came out of 20
+		w.setHeld(1, 20, true, 0, true) // picker 1 holds what came out of 20
 		w.procs[0].setHasMaterial(true) // and 20 is occupied again
 	})
 	f.runJob(20, 20, 0)
@@ -547,7 +579,7 @@ func TestSelfExchangeRefused(t *testing.T) {
 // the end of whatever manual handling was in progress — a retained id would
 // otherwise resurrect a part the operator has since taken away.
 func TestEstopClearsARetainedRecord(t *testing.T) {
-	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) }, "pickers=2")
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false, 0, true) }, "pickers=2")
 	f.setBit(f.m.pins.autoEnable, false)
 
 	f.press(f.m.pins.pickers[0].manualOpen)

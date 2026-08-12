@@ -509,7 +509,7 @@ func TestHeldMaterialRecords(t *testing.T) {
 	}
 
 	// Picker 0 takes material from station 10: the next free picker is 1.
-	w.setHeld(0, 10, false)
+	w.setHeld(0, 10, false, 0, true)
 	if n, ok := w.freePicker(); !ok || n != 1 {
 		t.Errorf("freePicker = %d, %v; want picker 1", n, ok)
 	}
@@ -522,7 +522,7 @@ func TestHeldMaterialRecords(t *testing.T) {
 
 	// Picker 1 removes an occupant from station 20 — the §8 swap. Now no picker
 	// is free, and each station has its own holder.
-	w.setHeld(1, 20, false)
+	w.setHeld(1, 20, false, 0, true)
 	if _, ok := w.freePicker(); ok {
 		t.Error("freePicker found one with both pickers loaded")
 	}
@@ -546,7 +546,7 @@ func TestHeldMaterialRecords(t *testing.T) {
 	}
 	// Out-of-range indices are ignored rather than panicking: they can only come
 	// from a persisted record written by a differently configured instance.
-	w.setHeld(5, 10, false)
+	w.setHeld(5, 10, false, 0, true)
 	w.clearHeld(-1)
 }
 
@@ -751,7 +751,7 @@ func TestEstopClearsHeldRecords(t *testing.T) {
 	f := newMachineFixtureOpts(t, fixtureOpts{
 		args: []string{"pickers=2"},
 		prep: func(_ *testing.T, m *pnptaskModule) {
-			m.world.setHeld(1, 20, false)
+			m.world.setHeld(1, 20, false, 0, true)
 			m.pins.pickers[1].close.Set(true)
 		},
 	})
@@ -771,7 +771,7 @@ func TestEstopClearsHeldRecords(t *testing.T) {
 func TestManualOpenClearsHeldRecord(t *testing.T) {
 	f := newMachineFixtureOpts(t, fixtureOpts{
 		prep: func(_ *testing.T, m *pnptaskModule) {
-			m.world.setHeld(0, 10, false)
+			m.world.setHeld(0, 10, false, 0, true)
 			m.pins.pickers[0].close.Set(true)
 		},
 	})

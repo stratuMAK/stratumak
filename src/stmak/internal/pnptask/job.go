@@ -224,7 +224,19 @@ func (c *control) validateJob(j *job) error {
 
 	// §8's pick phase: a picker already holding the origin's material makes the
 	// physical pick unnecessary, and that picker is the one that will place.
-	_, j.skipPick = c.m.world.holderOf(j.originID)
+	// The material has to BE what the job asks for, though: the record matches
+	// by station, and where its process step is known (any pick the PLC
+	// commanded; a swap's removed occupant is unknown) a mismatching request
+	// is refused — matching by station alone would deliver a step-0 part as
+	// step-3 material with no error and a corrupted tray model behind it.
+	if pk, ok := c.m.world.holderOf(j.originID); ok {
+		j.skipPick = true
+		if h := c.m.world.held[pk]; h.stepKnown && h.step != j.step {
+			return faultf(errInvalidOrigin,
+				"picker %d holds step-%d material from station %d, the job asks for step %d",
+				pk, h.step, j.originID, j.step)
+		}
+	}
 
 	if err := c.checkOrigin(j); err != nil {
 		return err
@@ -312,7 +324,12 @@ func (c *control) checkDest(j *job) error {
 	}
 	// A job from a process station to itself takes the occupant out on the way
 	// in, so by the time the place happens the station is free — there is
-	// nothing to swap out.
+	// nothing to swap out. This is DELIBERATELY allowed (phase-7 review): it
+	// is the re-seat operation — pick the part out, put it back down — the one
+	// way a PLC can re-clamp a part without a second station. A PLC bug
+	// looping it cycles one part in place, which is wasteful but loses
+	// nothing; the skipPick variant below is refused because it additionally
+	// exchanges two parts and re-runs processes on finished material.
 	if !j.skipPick && j.originID == j.destID {
 		return nil
 	}
