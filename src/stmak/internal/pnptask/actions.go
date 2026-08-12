@@ -216,7 +216,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		if grip == gripHolding {
 			picker.missing.Set(false)
 			t.markPicked(slot)
-			c.m.world.setHeld(pk, j.origin.id)
+			c.m.world.setHeld(pk, j.origin.id, false)
 			c.m.logger.Debug("pnptask: picked from tray",
 				"station", t.cfg.ID, "slot", slot, "picker", pk)
 			return c.zStroke(j.height)
@@ -245,9 +245,8 @@ func (c *control) pickFromTray(j *job, pk int) error {
 // pick from proc (§7.4)
 // ---------------------------------------------------------------------------
 
-// pickFromProc takes the material out of a process station: grip it, then have
-// the fixture unclamp before lifting, and confirm the fixture is holding again on
-// the way out (D19).
+// pickFromProc takes the material out of a process station as the job's pick:
+// busy-gated (§7.4, R1), and with the fixture clamped again on the way out.
 func (c *control) pickFromProc(j *job, pk int) (err error) {
 	s := j.origin.proc
 	if err := c.busyGate(j, pk, s, j.originBusy); err != nil {
@@ -262,6 +261,18 @@ func (c *control) pickFromProc(j *job, pk int) (err error) {
 			c.requestRelease(s, false)
 		}
 	}()
+	return c.removeFromProc(j, pk, s, false)
+}
+
+// removeFromProc is the shared body of §7.4's "pick from proc": grip the part,
+// then have the fixture unclamp before lifting. It serves both the job's own
+// pick and §8's swap, which differ only in what happens to the release request
+// afterwards — see the swap parameter — and in the busy gating, which is the
+// caller's business (the swap's destination was already gated by placeToProc).
+//
+// The caller owns the error-path release withdrawal (D19), because on the swap
+// path the request outlives this function.
+func (c *control) removeFromProc(j *job, pk int, s *procState, swap bool) error {
 	if err := c.approach(j, pk, s.cfg.Pos, s.cfg.ZPick+s.pins.zOffset.Get()); err != nil {
 		return err
 	}
@@ -292,11 +303,21 @@ func (c *control) pickFromProc(j *job, pk int) (err error) {
 	}
 	// The material is in the picker and out of the fixture's hands: both records
 	// move together, before the lift, so an abort during the retract leaves a
-	// world that says where the part is.
+	// world that says where the part is. has-material drops even on the swap
+	// path, where the place is about to set it again: between the two the
+	// station really is empty, and an estop landing in that window has to leave
+	// a model that says so.
 	s.setHasMaterial(false)
-	c.m.world.setHeld(pk, j.origin.id)
+	c.m.world.setHeld(pk, s.cfg.ID, swap)
 	if err := c.zStroke(j.height); err != nil {
 		return err
+	}
+	if swap {
+		// The fixture stays commanded open (§8: "no re-clamp in between"). The
+		// placer is on its way to the nest the removed part has just left, and
+		// a clamp cycling shut on an empty nest and open again is both wasted
+		// time and one more chance for the fixture to fail.
+		return nil
 	}
 	return c.setRelease(s, false)
 }
@@ -348,17 +369,29 @@ func (c *control) placeToTray(j *job, pk int) error {
 func (c *control) placeToProc(j *job, pk int) (err error) {
 	s := j.dest.proc
 	// Sampled now, with the pick leg complete, which is where §7.4 puts the
-	// gating for a place-to-proc.
+	// gating for a place-to-proc. The gate covers the swap below as well: that
+	// is an approach to this same station, and keeping the head out of a station
+	// that is still working is exactly what the gating is for.
 	if err := c.busyGate(j, pk, s, c.in.procBusy[s.idx]); err != nil {
 		return err
 	}
-	c.requestRelease(s, true)
-	// See pickFromProc: no error path may leave the fixture commanded open.
+	// See removeFromProc: no error path may leave the fixture commanded open —
+	// including the swap's, whose release request outlives the removal.
 	defer func() {
 		if err != nil {
 			c.requestRelease(s, false)
 		}
 	}()
+	// §8's swap: the station is occupied, so its occupant comes out with the
+	// free picker before this job's material goes in. The release the removal
+	// raised is deliberately left standing — it is what the place below would
+	// ask for anyway, so its waitReleased finds the fixture already open.
+	if s.hasMaterial {
+		if err := c.swapOut(j, pk, s); err != nil {
+			return err
+		}
+	}
+	c.requestRelease(s, true)
 	if err := c.retract(j.height); err != nil {
 		return err
 	}
@@ -390,4 +423,33 @@ func (c *control) placeToProc(j *job, pk int) (err error) {
 	}
 	// Clamp again and confirm it (D19) — the station now holds the part.
 	return c.setRelease(s, false)
+}
+
+// ---------------------------------------------------------------------------
+// The swap (§8)
+// ---------------------------------------------------------------------------
+
+// swapOut empties an occupied destination station with the free picker so the
+// placer can put the job's material in (§8).
+//
+// The removed part stays in that picker and is recorded as swap-removed, which
+// is what makes the *next* job's origin mandatory: the station is about to run
+// its process on the piece that replaced it, so the picker is the only place
+// the removed part can be until a job carries it away (see validateJob).
+//
+// Which picker does the removing is asked here rather than assigned by the
+// caller (D20): the placer is holding the job's material, so it is not free,
+// and any other free one will do. Validation counted them at job start; this
+// re-asks because that is where the answer is used.
+func (c *control) swapOut(j *job, holder int, s *procState) error {
+	pk, ok := c.m.world.freePicker()
+	if !ok {
+		return faultf(errNoFreePicker,
+			"station %d is occupied and no picker is free to take the part out", s.cfg.ID)
+	}
+	c.m.logger.Info("pnptask: swapping the occupant out of a station",
+		"station", s.cfg.ID, "picker", pk, "placer", holder)
+	// The busy gating already happened in placeToProc — this is an approach to
+	// the same station in the same job.
+	return c.removeFromProc(j, pk, s, true)
 }

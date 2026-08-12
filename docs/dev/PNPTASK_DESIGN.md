@@ -894,7 +894,7 @@ machine and completes the pick/place cycle (`has-material` set, a slot consumed,
 
 ---
 
-## 8. Phase 6 — Alternating picker (`pickers=2`)
+## 8. Phase 6 — Alternating picker (`pickers=2`) *(implemented)*
 
 Targeting: to bring picker N over (x, y), command
 (x − `picker.N.x-offset`, y − `picker.N.y-offset`); both pickers share Z (D10).
@@ -941,6 +941,90 @@ material gripped again (not fully closed) → the record is restored with the
 retained station id; gripped nothing (`closed` high) → the record is
 cleared.
 
+### 8.1 As built (2026-08-12)
+
+No new file: the phase is the three §8 decisions added to `job.go`
+(`validateJob`/`checkDest`/`runPick`), the swap sequence in `actions.go`, the
+retained-record half of `manualPickers` in `machine.go` and the record shape in
+`stations.go`/`persist.go`, plus `altpicker_test.go`. Phases 4/5 had already put
+the per-picker held record and `freePicker`/`holderOf` in place (§7.7), so this
+adds *decisions* rather than plumbing — no call site learned which picker it is
+working with. Verified against a real `stmakd tests/pnptask/pnptask.ini` run:
+the §8 reference flow end to end on the sim's two process stations
+(`10→20`, `10→20` swapping, `20→21`, `10→20`, `20→21` swapping, `21→11`), the
+`ALT_PICKER_SEQUENCE` refusal in between, and the manual open/close round trip
+restoring a swap record.
+
+- **`removeFromProc` is the pick-from-proc sequence, shared with the swap.** The
+  two differ in exactly two places: the busy gating (the swap's station was
+  already gated by the place it belongs to) and what happens to the release
+  request at the end. Writing the swap as its own sequence would have meant two
+  copies of the grip/unclamp/lift order, which is the part of this module a
+  divergence would be most expensive in.
+- **The fixture is opened once for both halves of a swap.** The removal leaves
+  `release` standing (§8: "no re-clamp in between") and the place's own
+  `requestRelease` is then a no-op whose `waitReleased` returns at once. A clamp
+  cycling shut on an empty nest and open again is wasted cycle time and one more
+  chance for the fixture to fail. The test asserts the *count* of release
+  rises over the job, which the fake fixture cannot miss: the module waits for
+  `released` to follow every change it makes.
+- **`has-material` does drop between the removal and the place**, for the few
+  hundred ms they span, although §8 says it "stays true". Net-effect-true would
+  have meant lying about the window: the station really is empty in it, and an
+  estop landing there has to leave a model that says so — the removed part is in
+  a picker, and the next job must not be sent to a fixture for it. The pin is
+  the module's own model of the station, not a PLC handshake, and the PLC is not
+  making decisions off it while `busy` is high.
+- **The free-picker requirement is counted, not asked.** A job into an occupied
+  process station needs two free pickers — one to carry its material, one to
+  take the occupant out — so `checkPickers` compares `freeCount()` against what
+  the job's plan needs. Asking `freePicker()` twice, once per leg, would have
+  discovered the second answer at the swap, with a part already in the air.
+- **The sequence constraint keys off the swap flag, not off "a picker is
+  loaded".** Only swap-removed material has nowhere else to be — its station is
+  running its process on the piece that replaced it. Material left in a picker by
+  an aborted job (a `WAIT_ABORTED`, a machine-off) carries no such obligation,
+  and with two pickers the other one can keep working. The flag is persisted
+  (`"swap"` in the held record), because a restart that forgot which record was a
+  swap would let the next job strand the part indefinitely.
+- **§8's first rule is not gated on `pickers=2`.** A single-picker machine
+  reaches it too, and there it is the recovery path the design otherwise lacks: a
+  job aborted after its pick leaves the material in the picker, and re-commanding
+  the same job now completes it instead of refusing with `NO_FREE_PICKER`. An
+  occupied *destination* stays `PROC_HAS_MATERIAL` on such a machine (§7.4) —
+  with one picker there is no second one to take the occupant out, and the
+  refusal says what the operator has to do about it.
+- **A skipped pick has no origin preconditions.** The job never goes near the
+  station, so an empty tray or a `has-material` that has since been cleared is
+  not its problem — the material it carries is already in a picker.
+- **The manual close is judged, not assumed.** A retained station id is restored
+  only if the gripper feedback says the picker closed onto something; fully
+  closed means it gripped nothing and the operator has the part. A picker that
+  never actuated at all decides nothing — the judgement RE-ARMS (warned once)
+  until the gripper answers, because the close output is still standing over a
+  retained part and abandoning the question would leave a loaded picker the
+  engine believes free the moment the gripper does close. The countdown hangs
+  off the control loop rather than blocking it, cancels itself whenever the
+  record it judges is gone, and estop cancels it along with the records (D14).
+- **Retention is a reservation, not a memory** (phase-6 review, 2026-08-12;
+  this reverses the first build's "leaves the picker free" rule). A retained
+  record is a manual intervention in progress: the part is in the operator's
+  hands and the next close decides where it went. Until then the picker counts
+  occupied, **every job is refused** (with a message naming the picker and the
+  pending close), the swap obligation stays armed, and the record — with its
+  station and swap flag — **persists across a restart** (restored retained,
+  close output left low, the operator's close still judges). A second open
+  press is idempotent; a close that grips nothing clears the record and returns
+  the picker to the engine. The free-the-picker workflow is therefore: open,
+  take the part, close on the empty gripper, open — four presses that leave an
+  honest world instead of a race window.
+- **The sequence constraint accepts any standing swap obligation.** Normally
+  one exists; a place that fails after its swap-out leaves two (both parts
+  really are in pickers), and a job from either station is the recovery. A
+  skipPick job into its own occupied origin — a self-exchange that would
+  ping-pong two parts forever — is refused; putting a part back is valid once
+  the station is free.
+
 ---
 
 ## 9. Phase 7 — Testing
@@ -978,7 +1062,7 @@ Each phase is a separately reviewable PR against `add-pnptask`/`main`:
    stabilizes early. The engine must use the per-picker held-record structure
    of D20 wherever it means "the picker holding the job's material" — no
    hardcoded picker 0 — so phase 6 only adds behavior.
-6. alternating picker
+6. alternating picker — **done**
 7. integration suite + docs polish
 
 ## 11. Review resolutions and remaining points

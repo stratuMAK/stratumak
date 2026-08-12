@@ -559,6 +559,20 @@ type heldMaterial struct {
 	// material came from, which is what the §8 sequence constraint is about.
 	present bool
 	station uint32
+
+	// swap marks material a swap took out of an occupied process station (§8).
+	// That part has nowhere else to be: the station is running its process on
+	// the piece that replaced it, so until a job carries it away no other job
+	// may run (see swapHeld).
+	swap bool
+
+	// retained says station/swap describe material a MANUAL open let go of
+	// (§8's manual interplay): the record itself is gone — the picker holds
+	// nothing — but the station id is kept so a following manual close that
+	// grips something again restores the record rather than inventing one with
+	// no origin. A retained record leaves the picker free, which is what it
+	// physically is.
+	retained bool
 }
 
 // world is the module's model of everything it tracks: tray contents, process
@@ -647,20 +661,57 @@ func (w *world) start() {
 	w.restore()
 }
 
+// occupied reports whether the picker is unavailable to the engine: it holds
+// material, or an operator is mid-way through handling the material it let go
+// of (retained, §8.1). A retained picker counts as occupied on purpose — the
+// next manual close is what decides whether the part is back, and a job
+// grabbing the picker inside that window would drive a possibly loaded gripper
+// into a pick.
+func (h heldMaterial) occupied() bool { return h.present || h.retained }
+
 // freePicker returns a picker that holds nothing, lowest number first (§8:
 // picker 0 is preferred when both are free). Only *a* free picker is needed for
 // a pick, not a specific one (D20).
 func (w *world) freePicker() (int, bool) {
 	for n := range w.held {
-		if !w.held[n].present {
+		if !w.held[n].occupied() {
 			return n, true
 		}
 	}
 	return 0, false
 }
 
+// freeCount is how many pickers hold nothing. The job engine needs it as a
+// number rather than as one answer: a job into an occupied process station
+// takes two free pickers (§8) — one to carry the job's material, one to take
+// the occupant out — and finding that out at the swap would mean discovering it
+// with a part already in the air.
+func (w *world) freeCount() int {
+	free := 0
+	for n := range w.held {
+		if !w.held[n].occupied() {
+			free++
+		}
+	}
+	return free
+}
+
+// retainedPicker returns the first picker whose record is retained — a manual
+// intervention in progress (§8.1). Jobs are refused while one exists: the part
+// is in an operator's hands and the next manual close is what decides where it
+// went; a world in that limbo has nothing a job can safely reason about.
+func (w *world) retainedPicker() (picker int, station uint32, ok bool) {
+	for n := range w.held {
+		if w.held[n].retained {
+			return n, w.held[n].station, true
+		}
+	}
+	return 0, 0, false
+}
+
 // holderOf returns the picker holding material that came from that station, if
-// any. This is the question the place phase asks (D20) — never "picker 0".
+// any. This is the question the place phase asks (D20) — never "picker 0" — and
+// the question §8's pick phase asks to find out that there is nothing to pick.
 func (w *world) holderOf(station uint32) (int, bool) {
 	for n := range w.held {
 		if w.held[n].present && w.held[n].station == station {
@@ -670,26 +721,92 @@ func (w *world) holderOf(station uint32) (int, bool) {
 	return 0, false
 }
 
-// setHeld records that picker n now holds material from that station.
-func (w *world) setHeld(n int, station uint32) {
+// swapStations lists every station a swap took material out of while a picker
+// still holds (or retains, §8.1) it — §8's sequence constraint keys off these.
+// Normally at most one exists: a swap needs a free picker and the swapping
+// picker is not free afterwards. A place that fails AFTER its swap-out leaves
+// two — both parts really are in pickers, each with its obligation — and the
+// constraint then accepts a job from either station, which is exactly the
+// recovery: carry one of them away, then the other.
+func (w *world) swapStations() []uint32 {
+	var out []uint32
+	for n := range w.held {
+		if w.held[n].occupied() && w.held[n].swap {
+			out = append(out, w.held[n].station)
+		}
+	}
+	return out
+}
+
+// setHeld records that picker n now holds material from that station. swap says
+// the material came out of a station a place is about to fill again (§8).
+func (w *world) setHeld(n int, station uint32, swap bool) {
 	if n < 0 || n >= len(w.held) {
 		return
 	}
-	w.held[n] = heldMaterial{present: true, station: station}
+	w.held[n] = heldMaterial{present: true, station: station, swap: swap}
 	w.heldDirty = true
 }
 
-// clearHeld forgets picker n's held material — it was placed, or released.
+// clearHeld forgets picker n's record entirely — the material was placed, or
+// the estop dropped it. A retained id (see releaseHeld) goes with it.
 func (w *world) clearHeld(n int) {
+	if n < 0 || n >= len(w.held) || w.held[n] == (heldMaterial{}) {
+		return
+	}
+	// Retained records are persisted too (§8.1), so clearing one is as much a
+	// storage change as clearing a present one.
+	w.heldDirty = w.heldDirty || w.held[n].occupied()
+	w.held[n] = heldMaterial{}
+}
+
+// releaseHeld is the manual open of §8: the material has left the picker, but
+// where it came from is kept, so a following manual close that grips something
+// again can restore the record instead of leaving the engine with a loaded
+// picker it believes to be empty.
+//
+// Idempotent: a second open press on an already-open picker is physically a
+// no-op and must not touch the record — wiping an already-retained id here
+// would erase the station (and the swap obligation) behind the operator's
+// back, and the eventual close would have nothing to restore. A picker that
+// holds nothing and retains nothing stays empty.
+func (w *world) releaseHeld(n int) {
 	if n < 0 || n >= len(w.held) || !w.held[n].present {
 		return
 	}
-	w.held[n] = heldMaterial{}
+	w.held[n] = heldMaterial{station: w.held[n].station, swap: w.held[n].swap, retained: true}
 	w.heldDirty = true
 }
 
+// restoreHeld puts a retained record back: the picker was closed again by hand
+// and its feedback says it gripped material, so it is the same part it let go
+// of a moment ago (§8).
+func (w *world) restoreHeld(n int) (uint32, bool) {
+	if n < 0 || n >= len(w.held) || !w.held[n].retained {
+		return 0, false
+	}
+	h := w.held[n]
+	w.held[n] = heldMaterial{present: true, station: h.station, swap: h.swap}
+	w.heldDirty = true
+	return h.station, true
+}
+
+// dropRetained forgets a retained id: the manual close gripped nothing, so the
+// part really is gone from the machine's world and the operator has it.
+func (w *world) dropRetained(n int) (uint32, bool) {
+	if n < 0 || n >= len(w.held) || !w.held[n].retained {
+		return 0, false
+	}
+	station := w.held[n].station
+	w.held[n] = heldMaterial{}
+	w.heldDirty = true
+	return station, true
+}
+
 // clearAllHeld forgets every held record. Estop opens all pickers (D14), so
-// whatever they held is on the table now and the records would be fiction.
+// whatever they held is on the table now and the records would be fiction —
+// including the retained ids, which describe material an operator was in the
+// middle of handling.
 func (w *world) clearAllHeld() {
 	for n := range w.held {
 		w.clearHeld(n)

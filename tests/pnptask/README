@@ -31,6 +31,22 @@ jobs by hand. Tell it what the trays hold, then command one:
     halcmd setp pnp.task.dest-id   11
     halcmd setp pnp.task.start-job 1
 
+The config loads with pickers=2, so the alternating picker of §8 is active.
+Commanding 10 -> 20 a second time, with the press still holding the first part,
+runs a swap: the free picker takes the finished part out, the other one puts the
+new one in, and the press never stands empty. The removed part is then in a
+picker, and the next job has to be the one that carries it away — any other
+origin is refused with error-id 19 (ALT_PICKER_SEQUENCE):
+
+    halcmd setp pnp.task.origin-id 10 ; halcmd setp pnp.task.dest-id 20
+    halcmd setp pnp.task.start-job 0 ; halcmd setp pnp.task.start-job 1
+
+    halcmd show pin pnp.task.picker.1.close   # the swapped-out part is held here
+
+    halcmd setp pnp.task.origin-id 20 ; halcmd setp pnp.task.dest-id 21
+    halcmd setp pnp.task.start-job 0 ; halcmd setp pnp.task.start-job 1
+                                              # no pick: the part is already held
+
 The first job homes the machine itself (AUTOHOME = 1). To home it and jog it
 around by hand instead:
 

@@ -61,6 +61,16 @@ type heldRecords struct {
 type heldRecord struct {
 	Picker  int    `json:"picker"`
 	Station uint32 `json:"station"`
+	// Swap carries §8's sequence constraint across a restart: material a swap
+	// took out of a process station still has to be carried away by a job from
+	// that station, and a restart that forgot which record was a swap would
+	// let the next job leave it in the picker indefinitely.
+	Swap bool `json:"swap,omitempty"`
+	// Retained carries a manual intervention across a restart (§8.1): the
+	// part is out of the picker in an operator's hands, and its station (and
+	// swap obligation) must survive — a restart mid-reseat that forgot it
+	// would count the picker free and drop the sequence constraint.
+	Retained bool `json:"retained,omitempty"`
 }
 
 // persistRetryDelay is how long the writer backs off after a failed SetEntry
@@ -404,7 +414,20 @@ func (w *world) restore() {
 				w.heldDirty = true
 				continue
 			}
-			w.held[r.Picker] = heldMaterial{present: true, station: r.Station}
+			if r.Retained {
+				// A restart mid manual handling (§8.1): the part was out of
+				// the picker in an operator's hands. The close output stays
+				// low — there is nothing to grip until someone puts the part
+				// back — and the record comes back retained, so the picker
+				// still counts occupied, the swap obligation survives, and
+				// the operator's next manual close judges the outcome exactly
+				// as it would have without the restart.
+				w.held[r.Picker] = heldMaterial{station: r.Station, swap: r.Swap, retained: true}
+				w.logger.Info("pnptask: manual handling restored, close the picker to resolve it",
+					"picker", r.Picker, "station", r.Station)
+				continue
+			}
+			w.held[r.Picker] = heldMaterial{present: true, station: r.Station, swap: r.Swap}
 			// D14's intent for a short restart: the part is meant to stay
 			// held, but a process restart re-exports the close output at its
 			// zero value. Re-drive it from the record — and let the control
@@ -477,8 +500,11 @@ func (w *world) flush() {
 		w.heldDirty = false
 		rec := heldRecords{}
 		for n := range w.held {
-			if w.held[n].present {
-				rec.Pickers = append(rec.Pickers, heldRecord{Picker: n, Station: w.held[n].station})
+			if w.held[n].occupied() {
+				rec.Pickers = append(rec.Pickers, heldRecord{
+					Picker: n, Station: w.held[n].station, Swap: w.held[n].swap,
+					Retained: w.held[n].retained,
+				})
 			}
 		}
 		w.persist.store(persistHeldKey, rec)

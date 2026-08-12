@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -31,6 +32,20 @@ type job struct {
 	// originBusy is a pick-from-proc origin's busy state as sampled at job start
 	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
 	originBusy bool
+
+	// The §8 plan, decided in validation so a job is refused before it moves
+	// rather than in the middle of a sequence.
+	//
+	// skipPick says a picker already holds material from the origin — the flow
+	// of §8 steps 3 and 4, where the part was taken out by the previous job's
+	// swap — so there is nothing to pick; runPick re-asks holderOf for which
+	// picker that is, at the moment the answer is used (D20). Otherwise the
+	// holder is decided by the pick itself, from whichever picker is free.
+	//
+	// swap says the destination process station is occupied and the occupant has
+	// to come out first, with a second picker.
+	skipPick bool
+	swap     bool
 }
 
 // jobRequest is the start-job handshake (§7.4, D12: one job at a time, no
@@ -174,24 +189,74 @@ func (c *control) validateJob(j *job) error {
 	j.planner = planner
 	j.height = c.moveHeight(j.originID, j.destID)
 
+	// §8.1: a retained record is a manual intervention in progress — the part
+	// is out of the picker in an operator's hands, and the next manual close
+	// is what decides where it went. No job runs against a world in that
+	// limbo: the picker is not free, the material is not placeable, and the
+	// swap obligation may be attached to it.
+	if picker, station, ok := c.m.world.retainedPicker(); ok {
+		return faultf(errNoFreePicker,
+			"picker %d is mid manual handling (material from station %d was let go and not re-judged); close the picker — on the part to restore it, empty to clear it — before the next job",
+			picker, station)
+	}
+
+	// §8's sequence constraint. Material a swap took out of a process station is
+	// homeless: the station is running its process on the piece that replaced
+	// it, and the picker holding it is the only place it can be. The next job
+	// therefore has to be one that carries it away. Normally a single swap
+	// record exists; a place that failed after its swap-out leaves two (both
+	// parts really are in pickers, each with its obligation), and a job from
+	// either station is the way back.
+	if stations := c.m.world.swapStations(); len(stations) > 0 && !slices.Contains(stations, j.originID) {
+		return faultf(errAltPickerSeq,
+			"pickers hold material removed from station(s) %v; the next job must originate at one of them, not at %d",
+			stations, j.originID)
+	}
+
+	// §8's pick phase: a picker already holding the origin's material makes the
+	// physical pick unnecessary, and that picker is the one that will place.
+	_, j.skipPick = c.m.world.holderOf(j.originID)
+
 	if err := c.checkOrigin(j); err != nil {
 		return err
 	}
 	if err := c.checkDest(j); err != nil {
 		return err
 	}
+	return c.checkPickers(j)
+}
 
-	// A physical pick needs *a* free picker — any one, not a specific one (D20).
-	// A well-formed job sequence can never hit this; what it guards against is
-	// manual intervention that left a picker loaded.
-	if _, ok := c.m.world.freePicker(); !ok {
-		return faultf(errNoFreePicker, "no picker is free to pick at station %d", j.originID)
+// checkPickers is §8's free-picker requirement, counted rather than asked as a
+// yes/no: a physical pick needs one free picker and a swap needs another, and a
+// job that finds that out at the swap would discover it with a part in the air.
+// Which picker takes which role is decided at the moment it is needed (D20) —
+// any free one will do.
+//
+// A well-formed job sequence can never hit this; what it guards against is
+// manual intervention that left a picker loaded.
+func (c *control) checkPickers(j *job) error {
+	need := 0
+	if !j.skipPick {
+		need++
+	}
+	if j.swap {
+		need++
+	}
+	if free := c.m.world.freeCount(); free < need {
+		return faultf(errNoFreePicker,
+			"job %d -> %d needs %d free picker(s), %d of %d are free",
+			j.originID, j.destID, need, free, len(c.m.world.held))
 	}
 	return nil
 }
 
 // checkOrigin is the pick-side precondition: something to pick has to be there.
+// A job whose pick is skipped has no origin preconditions at all — it never
+// goes near the station, and the material it carries is already in a picker.
 func (c *control) checkOrigin(j *job) error {
+	if j.skipPick {
+		return nil
+	}
 	if j.origin.isTray() {
 		t := j.origin.tray
 		if t.geom == nil {
@@ -232,13 +297,39 @@ func (c *control) checkDest(j *job) error {
 		}
 		return nil
 	}
-	// Single-picker semantics (§7.4): an occupied process station has to be
-	// emptied by a job of its own first. Phase 6 replaces this refusal with the
-	// swap of §8, where the free picker removes the occupant before the placer
-	// places.
-	if s := j.dest.proc; s.hasMaterial {
+	s := j.dest.proc
+	if !s.hasMaterial {
+		return nil
+	}
+	// A job from a process station to itself takes the occupant out on the way
+	// in, so by the time the place happens the station is free — there is
+	// nothing to swap out.
+	if !j.skipPick && j.originID == j.destID {
+		return nil
+	}
+	// The skipPick variant of the same pair is a different animal: the job's
+	// material already came OUT of this station (a previous swap), and the
+	// station is occupied by the piece that replaced it. Running it would be a
+	// self-exchange — pull the occupant, put the old part back, re-arm the
+	// sequence constraint — which no flow in §8 describes; a repeating PLC bug
+	// would ping-pong the same two parts and re-run the process on an
+	// already-processed piece forever. Refused like every other mis-sequence.
+	if j.skipPick && j.originID == j.destID {
+		return faultf(errProcHasMaterial,
+			"station %d is occupied and the job's material was removed from it; putting it back is only valid once the station is free",
+			s.cfg.ID)
+	}
+	// Single-picker semantics (§7.4): with one picker an occupied process
+	// station has to be emptied by a job of its own first, because the only
+	// picker there is already carries this job's material.
+	if len(c.m.world.held) < 2 {
 		return faultf(errProcHasMaterial, "destination station %d already holds material", s.cfg.ID)
 	}
+	// Two pickers: this is §8's swap. The free picker takes the occupant out and
+	// keeps it, the placer puts the job's material in, and the *next* job has to
+	// be the one that carries the removed part away (see the sequence constraint
+	// in validateJob).
+	j.swap = true
 	return nil
 }
 
@@ -255,11 +346,28 @@ func (c *control) moveHeight(origin, dest uint32) float64 {
 
 // runPick performs the job's pick and returns the picker that came away
 // holding the material — the one that will place (D20). Roles are not fixed:
-// with one picker the answer never varies, but the question is still asked
-// where the design asks it, which is what keeps phase 6 additive — there the
-// physical pick can be *skipped* because a picker already holds material from
-// the origin, and this function then returns world.holderOf(j.originID).
+// with one picker the answer never varies, but the question is asked where the
+// design asks it.
+//
+// §8's pick phase: when a picker already holds material from the origin — the
+// part a previous job's swap took out of that station — there is nothing to
+// pick, and that picker is the placer.
 func (c *control) runPick(j *job) (int, error) {
+	if j.skipPick {
+		// Re-asked here rather than cached in the job (D20's "where the
+		// answer is used"): a cached picker number would read as a plausible
+		// picker 0 on any path that forgot to check skipPick first.
+		pk, ok := c.m.world.holderOf(j.originID)
+		if !ok {
+			// Validation saw a holder and it is gone — only an intervention
+			// between validate and here could do that; reported, not assumed.
+			return 0, faultf(errNoFreePicker,
+				"no picker holds the material of station %d anymore", j.originID)
+		}
+		c.m.logger.Info("pnptask: pick skipped, a picker already holds the origin's material",
+			"station", j.originID, "picker", pk)
+		return pk, nil
+	}
 	// Validation already established that one is free; re-asking is how the
 	// picker is chosen rather than assumed (D20, "picker 0 preferred when both
 	// are free").
