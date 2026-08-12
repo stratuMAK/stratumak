@@ -86,6 +86,24 @@ See the [`examples/`](examples/) directory for sample configurations.
 
 ---
 
+## Shutdown
+
+The driver takes the bus out of `OP` before the cyclic task stops. Slaves are
+asked for `PREOP` from the module's `Stop()`, which runs while the realtime
+thread is still cycling — the master needs those cycles to carry the
+transition out — and the wait is bounded, after which shutdown proceeds
+regardless.
+
+This matters for drives running distributed clocks. If the frames simply stop
+while a drive is still in `OP` with its sync signals armed, the drive sees its
+clock die and latches a synchronisation fault — and reaching `OP` again does
+not clear a latched class-1 diagnostic, so it survives the next start. The
+driver offers no way to clear one; that takes cycling the drive's control
+voltage. Not provoking the fault in the first place is the whole point of
+taking the bus down in order.
+
+---
+
 ## EtherCAT Master Support
 
 | Mode | Status |

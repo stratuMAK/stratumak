@@ -35,6 +35,13 @@
 #include "priv.h"
 #include "conf_priv.h"
 
+// Requesting a slave state is not part of the realtime ecrt_ API; it lives in
+// the tool interface, which operates on the same master handle (this is what
+// the `ethercat` CLI and the REST diagnostics use).
+#include "ecrt_tool.h"
+
+#include <unistd.h>
+
 /** @brief Static log context for the EtherCAT library log callback. */
 static const stmak_log_t *lcec_log_g;
 /** @brief Static component name for the EtherCAT library log callback. */
@@ -375,6 +382,93 @@ void lcec_rt_stop(lcec_rt_context_t *ctx)  {
       ecrt_master_deactivate(master->master);
     }
   }
+}
+
+/**
+ * @brief How long lcec_rt_bus_down() waits for the bus to leave OP.
+ *
+ * Generous on purpose.  The wait ends as soon as the last slave has left OP,
+ * so the bound only bites when something is genuinely stuck — and the cost of
+ * being too impatient is exactly the fault this function exists to avoid,
+ * whereas the cost of being too patient is a slow shutdown in a case that is
+ * already going wrong.  The master drives these transitions from its slave
+ * FSM a few slaves per cycle, so a long bus takes appreciably longer than one
+ * transition's worth of time.
+ */
+#define LCEC_BUS_DOWN_TIMEOUT_MS 5000
+/** @brief Poll interval while waiting for slaves to leave OP. */
+#define LCEC_BUS_DOWN_POLL_US    10000
+
+void lcec_rt_bus_down(lcec_rt_context_t *ctx) {
+  lcec_master_t *master;
+  lcec_slave_t *slave;
+  ec_tool_slave_state_t req;
+  ec_slave_config_state_t state;
+  int requested = 0;
+  int waited_ms = 0;
+  int still_op = 0;
+
+  // Ask every configured slave to leave OP.  ecrt_tool_set_slave_state() only
+  // records the request; the master's slave FSM carries it out on the cyclic
+  // send/receive the RT thread is still driving.  That is why this belongs in
+  // Stop() and not in the Destroy() on the far side of the thread barrier —
+  // there, no frame would ever go out to perform it.
+  for (master = ctx->first_master; master != NULL; master = master->next) {
+    // A master that was never activated has no process data and no cyclic
+    // task to carry a transition; asking would only burn the timeout.
+    if (master->master == NULL || master->process_data == NULL) {
+      continue;
+    }
+    for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+      if (slave->config == NULL) {
+        continue;
+      }
+      req.slave_position = slave->index;
+      req.al_state = EC_AL_STATE_PREOP;
+      if (ecrt_tool_set_slave_state(master->master, &req) == 0) {
+        requested = 1;
+      }
+    }
+  }
+
+  if (!requested) {
+    return;
+  }
+
+  LCEC_CTX_INFO(ctx, "bringing the bus down to PREOP before stopping the cyclic task");
+
+  // Wait for the transitions to actually reach the wire.  Bounded: a slave
+  // that will not leave OP must not hold up shutdown, and the deactivate in
+  // lcec_rt_stop() still catches whatever is left.
+  while (waited_ms < LCEC_BUS_DOWN_TIMEOUT_MS) {
+    still_op = 0;
+    for (master = ctx->first_master; master != NULL; master = master->next) {
+      if (master->master == NULL || master->process_data == NULL) {
+        continue;
+      }
+      for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+        if (slave->config == NULL) {
+          continue;
+        }
+        // al_state is the slave's actual application-layer state, which is the
+        // thing that matters here; the config's "operational" flag answers a
+        // subtly different question (was it *this* configuration that brought
+        // the slave up).
+        if (ecrt_slave_config_state(slave->config, &state) == 0
+            && state.al_state == EC_AL_STATE_OP) {
+          still_op++;
+        }
+      }
+    }
+    if (still_op == 0) {
+      return;
+    }
+    usleep(LCEC_BUS_DOWN_POLL_US);
+    waited_ms += LCEC_BUS_DOWN_POLL_US / 1000;
+  }
+
+  LCEC_CTX_WARN(ctx, "%d slave(s) still in OP after %d ms; stopping anyway "
+      "(they may report a synchronisation fault)", still_op, LCEC_BUS_DOWN_TIMEOUT_MS);
 }
 
 
