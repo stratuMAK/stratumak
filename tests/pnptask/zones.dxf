@@ -1,9 +1,17 @@
 999
-pnptask sim: 600 x 500 mm travel envelope with the two permanent obstacles.
+pnptask sim: the travel envelope (-20..620 x -20..520) and the two obstacles.
 999
 Layer "Outer Limits" carries the envelope, layer "deadzones" the obstacles.
 999
 Everything is closed, convex and in machine units (mm here) -- see D7/D22/D23.
+999
+The envelope is deliberately wider than the axis soft limits (0..600 x 0..500):
+999
+CLEARANCE erodes it by 12 mm, and a route's start and goal have to lie inside
+999
+the eroded boundary -- including the position the machine is parked at when a
+999
+job starts, which after homing is the corner of the axis range.
 0
 SECTION
 2
@@ -17,21 +25,21 @@ Outer Limits
 70
 1
 10
-0.0
+-20.0
 20
-0.0
+-20.0
 10
-600.0
+620.0
 20
-0.0
+-20.0
 10
-600.0
+620.0
 20
-500.0
+520.0
 10
-0.0
+-20.0
 20
-500.0
+520.0
 0
 LWPOLYLINE
 8

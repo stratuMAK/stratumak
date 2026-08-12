@@ -25,8 +25,9 @@ import (
 type fakeMotion struct {
 	mu sync.Mutex
 
-	st    motstat.MotionStatus
-	posFb motstat.Pose
+	st     motstat.MotionStatus
+	posFb  motstat.Pose
+	posCmd motstat.Pose
 
 	numJoints int
 
@@ -34,6 +35,12 @@ type fakeMotion struct {
 	refuseEnable bool // Enable() is accepted but never shows up in status
 	homingCycles int  // how many status reads report "homing" before homed
 	statusErr    error
+
+	// moveCycles is how many status reads a dispatched move stays in flight
+	// before it reports drained; 0 completes it instantly, which is what most
+	// cases want (they are about the sequence, not about the travel time).
+	moveCycles int
+	moving     int
 
 	// homingGapFrom/homingGapLen script a HOME_SEQUENCE group handover: for
 	// homingGapLen status reads, starting when the countdown reaches
@@ -43,9 +50,11 @@ type fakeMotion struct {
 	homingGapLen  int
 
 	// Recorded calls.
-	calls    []string
-	jogs     []jogCall
-	homeCmds []int32
+	calls     []string
+	jogs      []jogCall
+	homeCmds  []int32
+	moves     []moveCall
+	termConds []termCall
 }
 
 type jogCall struct {
@@ -54,9 +63,26 @@ type jogCall struct {
 	stop bool
 }
 
+// moveCall is one dispatched SetLine: where to and under which limits.
+type moveCall struct {
+	pos      motctl.Pose
+	vel      float64
+	acc      float64
+	id       int32
+	termCond int32
+}
+
+type termCall struct {
+	cond      int32
+	tolerance float64
+}
+
 func newFakeMotion(numJoints int) *fakeMotion {
 	f := &fakeMotion{numJoints: numJoints}
 	f.st.MotionState = motstat.MOTION_DISABLED
+	// A machine standing still with an empty queue, which is what every job
+	// starts from.
+	f.st.Inpos = 1
 	return f
 }
 
@@ -71,6 +97,12 @@ func (f *fakeMotion) GetStatus() (motstat.MotionStatus, error) {
 	defer f.mu.Unlock()
 	if f.statusErr != nil {
 		return motstat.MotionStatus{}, f.statusErr
+	}
+	if f.moving > 0 {
+		f.moving--
+		if f.moving == 0 {
+			f.st.Inpos, f.st.QueueDepth = 1, 0
+		}
 	}
 	if f.homingCycles > 0 {
 		f.homingCycles--
@@ -101,6 +133,12 @@ func (f *fakeMotion) GetPosFb() (motstat.Pose, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.posFb, nil
+}
+
+func (f *fakeMotion) GetPosCmd() (motstat.Pose, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.posCmd, nil
 }
 
 // --- motctl: the commands the control loop issues ---
@@ -172,6 +210,38 @@ func (f *fakeMotion) JogCont(num int32, vel float64, _ int32) error {
 	return nil
 }
 
+func (f *fakeMotion) SetTermCond(cond int32, tolerance float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("SetTermCond")
+	f.termConds = append(f.termConds, termCall{cond: cond, tolerance: tolerance})
+	return nil
+}
+
+// SetLine takes the machine to the commanded pose. The position is applied at
+// once — what these cases are about is which moves a job makes, in which order and
+// under which limits, not how the machine gets there; moveCycles is for the one
+// case that needs a move still in flight.
+func (f *fakeMotion) SetLine(pos motctl.Pose, vel, _, acc float64, _, id int32, _ float64, _ int32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("SetLine")
+	term := int32(-1)
+	if n := len(f.termConds); n > 0 {
+		term = f.termConds[n-1].cond
+	}
+	f.moves = append(f.moves, moveCall{pos: pos, vel: vel, acc: acc, id: id, termCond: term})
+	f.posCmd = motstat.Pose{X: pos.X, Y: pos.Y, Z: pos.Z}
+	f.posFb = f.posCmd
+	if f.moveCycles > 0 {
+		f.moving = f.moveCycles
+		f.st.Inpos, f.st.QueueDepth = 0, 1
+	} else {
+		f.st.Inpos, f.st.QueueDepth = 1, 0
+	}
+	return nil
+}
+
 func (f *fakeMotion) JogAbort(num int32, _ int32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -227,6 +297,29 @@ func (f *fakeMotion) setStatusErr(err error) {
 	f.statusErr = err
 }
 
+// setInFlight scripts a move in progress: status reports not-in-position for
+// the given number of reads, then drained.
+func (f *fakeMotion) setInFlight(cycles int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moving = cycles
+	f.st.Inpos, f.st.QueueDepth = 0, 1
+}
+
+// setHomingCycles scripts the homing duration while the loop may already be
+// reading — the counter lives under the same mutex GetStatus takes.
+func (f *fakeMotion) setHomingCycles(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.homingCycles = n
+}
+
+func (f *fakeMotion) setHomingGap(from, length int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.homingGapFrom, f.homingGapLen = from, length
+}
+
 func (f *fakeMotion) called(name string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -255,6 +348,8 @@ func (f *fakeMotion) resetCalls() {
 	defer f.mu.Unlock()
 	f.calls = nil
 	f.jogs = nil
+	f.moves = nil
+	f.termConds = nil
 }
 
 func (f *fakeMotion) lastJog() (jogCall, bool) {
@@ -276,6 +371,28 @@ func (f *fakeMotion) setPosFb(x, y float64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posFb.X, f.posFb.Y = x, y
+}
+
+// setPos parks the machine at a position, feedback and command alike — where a
+// homing sequence would leave it.
+func (f *fakeMotion) setPos(x, y, z float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posCmd = motstat.Pose{X: x, Y: y, Z: z}
+	f.posFb = f.posCmd
+}
+
+// moveList is the dispatched moves, copied under the lock.
+func (f *fakeMotion) moveList() []moveCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]moveCall(nil), f.moves...)
+}
+
+func (f *fakeMotion) setMoveCycles(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moveCycles = n
 }
 
 // machineFixture is a loaded module with a scripted motion stack and a running
@@ -321,24 +438,43 @@ MAX_VELOCITY = 300
 `
 
 func newMachineFixture(t *testing.T, args ...string) *machineFixture {
-	return newMachineFixtureWith(t, nil, args...)
+	return newMachineFixtureOpts(t, fixtureOpts{args: args})
 }
 
-// newMachineFixtureWith loads a module, hands it a scripted motion stack and
-// starts the control loop. tweak adjusts the configuration before the loop
-// exists — after it, cfg belongs to the control goroutine.
+// newMachineFixtureWith is newMachineFixture with a configuration tweak.
 func newMachineFixtureWith(t *testing.T, tweak func(*Config), args ...string) *machineFixture {
+	return newMachineFixtureOpts(t, fixtureOpts{tweak: tweak, args: args})
+}
+
+// fixtureOpts are the hooks a case needs before the control loop exists: after
+// it starts, the config and the world model belong to the control goroutine.
+type fixtureOpts struct {
+	// tweak adjusts the parsed configuration.
+	tweak func(*Config)
+	// prep runs last, with the pins exported and the motion stack plugged in but
+	// the loop not yet started — where a test seeds pins or attaches
+	// persistence.
+	prep func(*testing.T, *pnptaskModule)
+	args []string
+}
+
+// newMachineFixtureOpts loads a module, hands it a scripted motion stack and
+// starts the control loop.
+func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	t.Helper()
 	fastLoop(t)
 	setupPaths(t)
 	name := testInstanceName(t)
-	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, args...)
-	if tweak != nil {
-		tweak(m.cfg)
+	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections, name, o.args...)
+	if o.tweak != nil {
+		o.tweak(m.cfg)
 	}
 
 	mot := newFakeMotion(m.cfg.NumJoints)
 	m.mc, m.ms = mot, mot
+	if o.prep != nil {
+		o.prep(t, m)
+	}
 	if err := m.startControl(); err != nil {
 		t.Fatalf("startControl: %v", err)
 	}
@@ -399,6 +535,16 @@ func (f *machineFixture) consistently(what string, cond func() bool) {
 			f.t.Fatalf("%s: stopped holding after %d cycles", what, i)
 		}
 	}
+}
+
+// stopped joins the control goroutine and hands back the world model. Reading
+// the model while the loop runs would be a data race — it belongs to that
+// goroutine — so a test that has to inspect it stops the module first. Stop
+// tolerates being called again by the fixture's cleanup.
+func (f *machineFixture) stopped() *world {
+	f.t.Helper()
+	f.m.Stop()
+	return f.m.world
 }
 
 // machineOn brings the fixture to the state most cases start from: enabled and
@@ -494,6 +640,69 @@ func TestEstopClearRequiresMachineOnCycle(t *testing.T) {
 	f.eventually("back on after cycling machine-on", func() bool { return f.bit("machine-is-on") })
 }
 
+// A machine-on edge made DURING estop is not a request that survives it: the
+// post-estop rule is a fresh cycle (§6.2), and a latched pre-reset edge powering
+// the servos the instant the estop chain closes is a restart-interlock hole.
+func TestMachineOnEdgeDuringEstopNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.machineOn()
+	f.setBit(f.m.pins.estopOn, true)
+	f.eventually("off in estop", func() bool { return !f.bit("machine-is-on") })
+
+	// The PLC cycles machine-on while estop is still active.
+	f.pulse(f.m.pins.machineOn)
+	time.Sleep(10 * pollInterval)
+
+	f.setBit(f.m.pins.estopOn, false)
+	f.consistently("stays off after estop clears", func() bool { return !f.bit("machine-is-on") })
+
+	// A cycle made after the estop cleared is the real request.
+	f.pulse(f.m.pins.machineOn)
+	f.eventually("enabled by a post-estop cycle", func() bool { return f.bit("machine-is-on") })
+}
+
+// A manual picker press during estop must not actuate when estop clears: the
+// pickers were just force-opened on purpose (D14), and a stale re-grip closes a
+// gripper over a workspace someone may be clearing.
+func TestManualPickerPressDuringEstopNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.setBit(f.m.pins.autoEnable, false)
+	f.setBit(f.m.pins.estopOn, true)
+	time.Sleep(10 * pollInterval)
+
+	f.pulse(f.m.pins.pickers[0].manualClose)
+	time.Sleep(10 * pollInterval)
+
+	f.setBit(f.m.pins.estopOn, false)
+	f.consistently("press during estop stays dead after clear", func() bool {
+		return !f.bit("picker.0.close")
+	})
+
+	f.pulse(f.m.pins.pickers[0].manualClose)
+	f.eventually("fresh press closes", func() bool { return f.bit("picker.0.close") })
+}
+
+// An error-reset pulsed while NO fault is latched is a no-op, not a stored
+// credit: it must not clear a fault raised later (the PLC would see a failed
+// job with clean error pins and call it success).
+func TestErrorResetWithoutFaultNotLatched(t *testing.T) {
+	f := newMachineFixture(t)
+	f.pulse(f.m.pins.errorReset)
+	time.Sleep(10 * pollInterval)
+	f.setBit(f.m.pins.errorReset, false)
+
+	// Now a fault: homing with the machine off.
+	f.setBit(f.m.pins.home, true)
+	f.eventually("MACHINE_OFF latched", func() bool { return f.get("error-id") == float64(errMachineOff) })
+	f.consistently("the pre-fault reset pulse does not clear it", func() bool {
+		return f.bit("error")
+	})
+
+	// A reset made with the fault present clears it.
+	f.pulse(f.m.pins.errorReset)
+	f.eventually("cleared by a real reset", func() bool { return !f.bit("error") })
+}
+
 // machine-on going low keeps whatever the pickers hold (D14): only estop drops
 // material.
 func TestMachineOffKeepsPickerState(t *testing.T) {
@@ -544,9 +753,8 @@ func TestHomeSequence(t *testing.T) {
 // perfectly healthy multi-group homing).
 func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 	f := newMachineFixture(t)
-	f.mot.homingCycles = 60
-	f.mot.homingGapFrom = 30
-	f.mot.homingGapLen = homingSettleTicks - 2 // shorter than the settle window
+	f.mot.setHomingCycles(60)
+	f.mot.setHomingGap(30, homingSettleTicks-2) // gap shorter than the settle window
 	f.machineOn()
 
 	f.setBit(f.m.pins.home, true)
@@ -561,7 +769,7 @@ func TestHomeSurvivesSequenceGroupHandover(t *testing.T) {
 func TestHomeTimeoutAndErrorReset(t *testing.T) {
 	f := newMachineFixtureWith(t, func(cfg *Config) { cfg.HomeTimeout = 0.05 })
 	// Homing that runs "forever": more cycles than the timeout allows.
-	f.mot.homingCycles = 1 << 30
+	f.mot.setHomingCycles(1 << 30)
 	f.machineOn()
 
 	f.setBit(f.m.pins.home, true)
@@ -707,6 +915,11 @@ func TestJogGates(t *testing.T) {
 
 	f.homed()
 	f.setBit(f.m.pins.autoEnable, true)
+	// Give the mode switch a cycle before the jog pin goes high: writing both
+	// between two reads of one sample would have the loop act on a manual-mode
+	// jog request it is about to be told to ignore, which is this test's own
+	// race, not the module's.
+	time.Sleep(10 * pollInterval)
 	f.setBit(f.m.pins.jog[0].pos, true)
 	f.consistently("no jog in auto mode", func() bool { return f.mot.callCount("JogCont") == 0 })
 

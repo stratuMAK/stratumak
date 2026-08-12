@@ -29,18 +29,26 @@
 // config.go and docs/dev/PNPTASK_DESIGN.md §5.1. The HAL interface is in
 // pins.go.
 //
-// This is phase 3 of the design document: the module loads, validates its
+// This is phase 5 of the design document. The module loads and validates its
 // configuration, exports its complete HAL interface, pushes the machine
-// configuration into motmod and runs the machine — estop/enable sequencing,
-// homing, and manual mode with jogging, manual picker control and the position
-// teach outputs (machine.go). Stations, the job engine and the
-// alternating-picker logic follow in the later phases; nothing here starts a
-// job yet.
+// configuration into motmod and runs the machine (machine.go: estop/enable
+// sequencing, homing, and manual mode with jogging, manual picker control and the
+// position teach outputs); it tracks the world jobs act on (stations.go: tray slot
+// states, process-station occupancy and the per-picker held-material records),
+// optionally backed by persist_sqlite (persist.go); and it runs jobs commanded
+// over the start-job handshake (job.go, actions.go, motion.go).
+//
+// One picker is used per job, but no code names a picker: the pick takes whichever
+// one is free and the place is performed by the one holding the job's material
+// (D20). What phase 6 adds is the alternating-picker *decisions* — skipping the
+// pick when a picker already holds the origin's material, and swapping the
+// occupant out of a busy process station.
 package pnptask
 
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -83,6 +91,12 @@ type pnptaskModule struct {
 
 	comp *hal.Component
 	pins *pinSet
+
+	// world is the runtime model behind the station pins: tray contents, process
+	// station occupancy and the per-picker held-material records (§7.1). Built
+	// in the factory alongside the pins it publishes on, seeded from them (and
+	// from persistence) when the control loop starts.
+	world *world
 
 	// The motion stack this instance drives, resolved in Start (see there for
 	// why not in the factory). They are interfaces rather than the generated
@@ -151,6 +165,9 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
 	m.planners = planners
+	for _, w := range planners.homeWarnings(cfg) {
+		logger.Warn("pnptask: " + w)
+	}
 
 	// The HAL component is created in the factory, not in Start: the "net"
 	// lines that wire this instance run immediately after the load line, long
@@ -171,6 +188,7 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 		return nil, fmt.Errorf("pnptask %q: %w", name, err)
 	}
 	m.pins = pins
+	m.world = newWorld(cfg, pins, m.pickers, logger)
 
 	if err := comp.Ready(); err != nil {
 		_ = comp.Exit()
@@ -261,6 +279,17 @@ func (m *pnptaskModule) Start() error {
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
 	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
 
+	// Optional state persistence (D6): no default lookup, an absent load arg
+	// means in-memory state only. Resolved here for the same reason the motion
+	// stack is — the provider may be loaded on a later HAL line.
+	if m.persistInstance != "" {
+		store, err := openPersist(m.name, m.persistInstance, persistNamespace(m.name), m.logger)
+		if err != nil {
+			return fmt.Errorf("pnptask %q: %w", m.name, err)
+		}
+		m.world.persist = store
+	}
+
 	return m.startControl()
 }
 
@@ -290,7 +319,23 @@ func (m *pnptaskModule) startControl() error {
 	if err != nil {
 		return fmt.Errorf("pnptask %q: pushing motion configuration: %w", m.name, err)
 	}
+	// The pushed per-axis limits are what every move's velocity blend divides
+	// by, and motsetup's reader is deliberately lenient — an explicit
+	// [AXIS_*]MAX_VELOCITY = 0 (or nan) would otherwise surface only at the
+	// first job, as a fault that does not name the key. The three linear axes
+	// this module moves are checked here. (!(v > 0) also catches NaN.)
+	for i, letter := range []byte{'X', 'Y', 'Z'} {
+		vel, acc := limits.AxisMaxVel[i], limits.AxisMaxAcc[i]
+		if !(vel > 0) || math.IsInf(vel, 0) || !(acc > 0) || math.IsInf(acc, 0) {
+			return fmt.Errorf("pnptask %q: [AXIS_%c]MAX_VELOCITY/MAX_ACCELERATION must be positive and finite (got %v / %v)",
+				m.name, letter, vel, acc)
+		}
+	}
 	m.limits = limits
+
+	// Seed the station model from its pins and from persistence before the loop
+	// exists: from here on the model belongs to the control goroutine.
+	m.world.start()
 
 	m.ctl = newControl(m)
 	m.ctl.start()
@@ -306,11 +351,17 @@ func (m *pnptaskModule) startControl() error {
 // Stop must tolerate never having been started — the launcher stops every
 // loaded module even when a peer's Start failed first.
 func (m *pnptaskModule) Stop() {
-	if m.ctl == nil {
-		return
+	if m.ctl != nil {
+		m.ctl.shutdown()
+		m.ctl = nil
 	}
-	m.ctl.shutdown()
-	m.ctl = nil
+	if m.world != nil && m.world.persist != nil {
+		// The loop is gone, so nothing else will write: flush whatever its last
+		// cycles changed before the handle closes.
+		m.world.flush()
+		m.world.persist.close()
+		m.world.persist = nil
+	}
 }
 
 func (m *pnptaskModule) Destroy() {

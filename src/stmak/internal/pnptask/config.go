@@ -76,6 +76,15 @@ type Config struct {
 	// line order — that order is what the deadzone-select pin indexes.
 	DeadzoneFiles []string
 
+	// Home is the homed XY position ([JOINT_0]HOME / [JOINT_1]HOME, mm; the
+	// X/Y joints map 1:1 to the X/Y axes with trivkins, which is the
+	// kinematics this module's stack uses). The first job after homing plans
+	// its route from here, so a home position the drawings cannot start a
+	// route from is warned about at load (see plannerSet.homeWarnings) —
+	// otherwise every deployment rediscovers it at commissioning as a
+	// PLANNING_FAILED that names coordinates instead of the cause.
+	Home pnproute.Point
+
 	TrayDefs []TrayDef
 	Trays    []TrayStation
 	Procs    []ProcStation
@@ -236,6 +245,12 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.ReleaseTime = r.duration(sec, "RELEASE_TIME", 0)
 	cfg.ReleaseTimeout = r.duration(sec, "RELEASE_TIMEOUT", defaultReleaseTimeout)
 	cfg.HomeTimeout = r.duration(sec, "HOME_TIMEOUT", defaultHomeTimeout)
+	// [JOINT_n]HOME is otherwise motsetup's business; the X/Y values are read
+	// here too because the homed position is where the first job's route
+	// starts (see Config.Home). Absent keys default to 0, exactly as motmod
+	// homes them.
+	cfg.Home.X = r.length("JOINT_0", "HOME", 0)
+	cfg.Home.Y = r.length("JOINT_1", "HOME", 0)
 	if err := r.err; err != nil {
 		return nil, err
 	}

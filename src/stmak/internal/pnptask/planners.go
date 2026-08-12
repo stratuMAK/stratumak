@@ -21,6 +21,18 @@ type plannerSet struct {
 	planners []*pnproute.Planner
 }
 
+// at returns the planner the deadzone-select pin names. The selector is a PLC
+// value, so an index past the configured list is a job error (§7.5), not a
+// configuration failure — and never a silent fallback to drawing 0, which would
+// plan travel around obstacles the operator did not choose.
+func (s *plannerSet) at(index uint32) (*pnproute.Planner, error) {
+	if uint64(index) >= uint64(len(s.planners)) {
+		return nil, faultf(errInvalidDeadzoneSelect,
+			"deadzone-select %d: only %d dead-zone file(s) are configured", index, len(s.planners))
+	}
+	return s.planners[index], nil
+}
+
 // newPlanners loads every dead-zone drawing, builds its planner and validates
 // every taught position against all of them.
 //
@@ -84,6 +96,23 @@ func scalePoly(p pnproute.Polygon, factor float64) {
 		p[i].X *= factor
 		p[i].Y *= factor
 	}
+}
+
+// homeWarnings names every drawing the homed position cannot start a route in.
+// A warning, not an error: a machine that is jogged off the home corner before
+// its first job is legitimate — but the operator gets told at load, with the
+// cause, instead of at commissioning by a PLANNING_FAILED that only names
+// coordinates.
+func (s *plannerSet) homeWarnings(cfg *Config) []string {
+	var out []string
+	for i, pl := range s.planners {
+		if err := pl.CheckPoint(cfg.Home); err != nil {
+			out = append(out, fmt.Sprintf(
+				"the homed position (%.3f, %.3f) cannot start a route in dead-zone file %d (%s): %v — the first job after homing will fail with PLANNING_FAILED unless the machine is jogged clear first; widen the outer limit (it must cover the home switch positions with CLEARANCE to spare)",
+				cfg.Home.X, cfg.Home.Y, i, s.files[i], err))
+		}
+	}
+	return out
 }
 
 // checkPositions is the geometric half of the startup validation (§5.1): every

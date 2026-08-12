@@ -1,0 +1,289 @@
+// Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
+// License: GPL Version 2
+package pnptask
+
+import (
+	"errors"
+
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
+)
+
+// job is one latched job command plus the state its action sequences share.
+//
+// Everything the PLC can change is captured at the start-job edge (§7.4): a job
+// that re-read origin-id halfway through would be a job whose destination changed
+// under it. What is deliberately *not* latched is the tuning params and the
+// z-offset pins — those are corrections to the machine, and a correction made
+// while a job runs should apply to it.
+type job struct {
+	// The latched request.
+	step     int64
+	originID uint32
+	destID   uint32
+	deadzone uint32
+
+	// Resolved from the request.
+	origin  *station
+	dest    *station
+	planner *pnproute.Planner
+	height  float64
+
+	// originBusy is a pick-from-proc origin's busy state as sampled at job start
+	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
+	originBusy bool
+}
+
+// jobRequest is the start-job handshake (§7.4, D12: one job at a time, no
+// queueing). start-job is a level the PLC raises and the module clears, and it
+// has to be seen low again before it counts as a new request:
+//
+//   - a level already high when the loop starts is not a request (D26) — a PLC
+//     that latched it across a stmakd restart is not asking for that job again;
+//   - a pin linked to a signal the PLC keeps driving high reads high again on the
+//     cycle after the module cleared it, and that is still the same request.
+//
+// An external clear *during* a job is ignored simply by not being looked at
+// (D16): the job runs inside the control loop and this is only reached when the
+// module is idle.
+func (c *control) jobRequest() bool {
+	if !c.in.startJob {
+		c.jobArmed = true
+		return false
+	}
+	if !c.jobArmed {
+		return false
+	}
+	c.jobArmed = false
+	return true
+}
+
+// runJobHandshake is one whole job: run it, publish its outcome, and complete the
+// handshake whichever way it went.
+func (c *control) runJobHandshake() {
+	if c.m.pins.errorFlag.Get() {
+		// Faults latch first-error-wins (§6.5), so a job started with the latch
+		// set could fail with nothing to show for it — its error id would be
+		// swallowed by the one already there. Refuse instead, and complete the
+		// handshake: start-job cleared with error still high says exactly what
+		// happened, and error-reset is what the PLC owes before the next job.
+		c.m.logger.Warn("pnptask: start-job refused, an error is still latched",
+			"error_id", c.m.pins.errorID.Get())
+		c.m.pins.startJob.Set(false)
+		return
+	}
+
+	c.m.pins.busy.Set(true)
+	err := c.runJob()
+
+	// The diagnosis is published *before* the handshake completes: busy going low
+	// with start-job cleared is what tells the PLC to look, and it must not find
+	// the error pins still describing the previous job.
+	switch {
+	case err == nil:
+		c.m.logger.Info("pnptask: job complete",
+			"origin", c.m.pins.originID.Get(), "dest", c.m.pins.destID.Get())
+	case errors.Is(err, errStopping):
+		// The module is shutting down mid-job. Not a machine fault: the pins are
+		// cleared so a restart does not inherit a job that is no longer running,
+		// but nothing is latched (raise ignores it anyway).
+		c.m.logger.Warn("pnptask: job abandoned, module stopping")
+	default:
+		c.raise(err)
+	}
+
+	c.m.pins.busy.Set(false)
+	c.m.pins.startJob.Set(false)
+}
+
+// runJob is the job state machine of §7.4:
+// LATCH -> VALIDATE -> [HOME] -> PLAN/EXECUTE -> FINISH.
+//
+// Homing comes after validation, not before: a job with an unknown station id is
+// refused without first moving the machine, which is what an operator watching
+// a mis-configured PLC expects to see. Planning is not a phase of its own — each
+// leg plans its own route just before it runs (§7.4), because the wait leg of a
+// busy-gated job is not known until the station has been sampled.
+func (c *control) runJob() error {
+	j := c.latchJob()
+	c.m.logger.Info("pnptask: job start",
+		"origin", j.originID, "dest", j.destID, "process_step", j.step,
+		"deadzone_select", j.deadzone)
+
+	if err := c.validateJob(j); err != nil {
+		return err
+	}
+	// The movement height is only known once the stations resolve, so it is
+	// logged here rather than with the request.
+	c.m.logger.Debug("pnptask: job accepted",
+		"origin", j.originID, "dest", j.destID, "move_height", j.height,
+		"origin_is_tray", j.origin.isTray(), "dest_is_tray", j.dest.isTray())
+	if err := c.ensureHomed(); err != nil {
+		return err
+	}
+	if err := c.seedCmdPos(); err != nil {
+		return err
+	}
+	holder, err := c.runPick(j)
+	if err != nil {
+		return err
+	}
+	return c.runPlace(j, holder)
+}
+
+// latchJob captures the request pins. The values come from this cycle's input
+// snapshot, like every other decision in the loop (§6.5) — and that snapshot read
+// start-job before the parameters it carries, so they belong to this request and
+// not to the previous one (see sample).
+func (c *control) latchJob() *job {
+	return &job{
+		step:     int64(c.in.processStep),
+		originID: c.in.originID,
+		destID:   c.in.destID,
+		deadzone: c.in.deadzoneSelect,
+	}
+}
+
+// validateJob is §7.4's VALIDATE: the ids exist, the dead-zone selector is in
+// range, and the stations are in a state that can serve the job. Every failure
+// here happens before the machine moves.
+func (c *control) validateJob(j *job) error {
+	// The machine has to be there at all. Both of these are abort conditions
+	// during the job as well (abortCheck), but a job started against a machine
+	// that is off would otherwise fail at its first mode switch, reported as
+	// MOTION_ERROR instead of as the plain truth.
+	if c.estopped {
+		return faultf(errEstop, "cannot start a job: estop is active")
+	}
+	if !c.enabled {
+		return faultf(errMachineOff, "cannot start a job: machine is off")
+	}
+
+	j.origin = c.m.world.station(j.originID)
+	if j.origin == nil {
+		return faultf(errInvalidOrigin, "origin-id %d: no such station", j.originID)
+	}
+	j.dest = c.m.world.station(j.destID)
+	if j.dest == nil {
+		return faultf(errInvalidDest, "dest-id %d: no such station", j.destID)
+	}
+
+	planner, err := c.m.planners.at(j.deadzone)
+	if err != nil {
+		return err
+	}
+	j.planner = planner
+	j.height = c.moveHeight(j.originID, j.destID)
+
+	if err := c.checkOrigin(j); err != nil {
+		return err
+	}
+	if err := c.checkDest(j); err != nil {
+		return err
+	}
+
+	// A physical pick needs *a* free picker — any one, not a specific one (D20).
+	// A well-formed job sequence can never hit this; what it guards against is
+	// manual intervention that left a picker loaded.
+	if _, ok := c.m.world.freePicker(); !ok {
+		return faultf(errNoFreePicker, "no picker is free to pick at station %d", j.originID)
+	}
+	return nil
+}
+
+// checkOrigin is the pick-side precondition: something to pick has to be there.
+func (c *control) checkOrigin(j *job) error {
+	if j.origin.isTray() {
+		t := j.origin.tray
+		if t.geom == nil {
+			return faultf(errInvalidTrayID, "origin station %d: tray-id %d matches no TRAYDEF",
+				t.cfg.ID, t.trayID)
+		}
+		if t.emptyFor(j.step) {
+			return faultf(errTrayEmpty, "origin station %d: no slot holds step-%d material",
+				t.cfg.ID, j.step)
+		}
+		return nil
+	}
+	s := j.origin.proc
+	if !s.hasMaterial {
+		return faultf(errProcNoMaterial, "origin station %d holds no material", s.cfg.ID)
+	}
+	// Sampled here, at job start, which is where §7.4 (R1) puts the gating for a
+	// pick-from-proc: normally the PLC only commands the job once the station is
+	// done, and the gating exists for the case where it does not.
+	j.originBusy = c.in.procBusy[s.idx]
+	return nil
+}
+
+// checkDest is the place-side precondition: somewhere to put it.
+//
+// The check is a snapshot taken before the pick, which matters for the one job
+// shape where the two interact: a tray-to-itself job on a completely full tray is
+// refused with TRAY_FULL even though its own pick would free a slot.
+func (c *control) checkDest(j *job) error {
+	if j.dest.isTray() {
+		t := j.dest.tray
+		if t.geom == nil {
+			return faultf(errInvalidTrayID, "destination station %d: tray-id %d matches no TRAYDEF",
+				t.cfg.ID, t.trayID)
+		}
+		if t.full() {
+			return faultf(errTrayFull, "destination station %d has no free slot", t.cfg.ID)
+		}
+		return nil
+	}
+	// Single-picker semantics (§7.4): an occupied process station has to be
+	// emptied by a job of its own first. Phase 6 replaces this refusal with the
+	// swap of §8, where the free picker removes the occupant before the placer
+	// places.
+	if s := j.dest.proc; s.hasMaterial {
+		return faultf(errProcHasMaterial, "destination station %d already holds material", s.cfg.ID)
+	}
+	return nil
+}
+
+// moveHeight is the travel height for this station pair: the global MOVE_HEIGHT
+// unless a [PNPTASK_ROUTE_n] override names the pair (§7.3).
+func (c *control) moveHeight(origin, dest uint32) float64 {
+	for _, r := range c.m.cfg.Routes {
+		if r.Origin == origin && r.Dest == dest {
+			return r.MoveHeight
+		}
+	}
+	return c.m.cfg.MoveHeight
+}
+
+// runPick performs the job's pick and returns the picker that came away
+// holding the material — the one that will place (D20). Roles are not fixed:
+// with one picker the answer never varies, but the question is still asked
+// where the design asks it, which is what keeps phase 6 additive — there the
+// physical pick can be *skipped* because a picker already holds material from
+// the origin, and this function then returns world.holderOf(j.originID).
+func (c *control) runPick(j *job) (int, error) {
+	// Validation already established that one is free; re-asking is how the
+	// picker is chosen rather than assumed (D20, "picker 0 preferred when both
+	// are free").
+	pk, ok := c.m.world.freePicker()
+	if !ok {
+		return 0, faultf(errNoFreePicker, "no picker is free to pick at station %d", j.originID)
+	}
+	var err error
+	if j.origin.isTray() {
+		err = c.pickFromTray(j, pk)
+	} else {
+		err = c.pickFromProc(j, pk)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return pk, nil
+}
+
+// runPlace performs the job's place, with the picker holding the job's material
+// (D20) and that picker's own offsets.
+func (c *control) runPlace(j *job, holder int) error {
+	if j.dest.isTray() {
+		return c.placeToTray(j, holder)
+	}
+	return c.placeToProc(j, holder)
+}

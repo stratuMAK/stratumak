@@ -35,6 +35,36 @@ setp pnp.home.joint.0.home-sw-in 1
 setp pnp.home.joint.1.home-sw-in 1
 setp pnp.home.joint.2.home-sw-in 1
 
+# Grippers: "opened" is the inverse of the close command, and "closed" (which
+# after a pick means the gripper found nothing) stays low, so every pick succeeds
+# and every place lets go. That is a gripper with no settling delay and a tray
+# that is never short a part — enough to drive a whole job by hand; the scripted
+# version with a delay and injectable misses comes with the integration suite
+# (phase 7).
+load not <pnp-picker-0-opened,pnp-picker-1-opened>
+addf pnp-picker-0-opened servo-thread
+addf pnp-picker-1-opened servo-thread
+
+net pnp-p0-close  pnp.task.picker.0.close => pnp-picker-0-opened.in
+net pnp-p0-opened pnp-picker-0-opened.out => pnp.task.picker.0.opened
+net pnp-p1-close  pnp.task.picker.1.close => pnp-picker-1-opened.in
+net pnp-p1-opened pnp-picker-1-opened.out => pnp.task.picker.1.opened
+setp pnp.task.picker.0.closed 0
+setp pnp.task.picker.1.closed 0
+
+# Fixtures: the clamp follows its request at once, and neither station is ever
+# busy. A real config wires "released" to the clamp's sensor and "busy" to the
+# process the station runs.
+net pnp-proc20-release pnp.task.proc.20.release => pnp.task.proc.20.released
+net pnp-proc21-release pnp.task.proc.21.release => pnp.task.proc.21.released
+setp pnp.task.proc.20.busy 0
+setp pnp.task.proc.21.busy 0
+
+# Which tray geometry each station holds. A real config has the PLC set these
+# when a tray is loaded; a change resets the station's slot state (D17).
+setp pnp.task.tray.10.tray-id 1
+setp pnp.task.tray.11.tray-id 2
+
 # --- Machine control --------------------------------------------------------
 
 # Nothing simulates an estop chain here, so hold pnptask's estop input low and
@@ -47,9 +77,9 @@ setp pnp.task.machine-on 1
 # manual picker control.
 setp pnp.task.auto-enable 1
 
-# Homing is requested on a rising edge of "home" (D25) and, once the job engine
-# lands, automatically at the first job because AUTOHOME = 1. With nothing
-# wired here, home the machine by hand:
+# Homing is requested on a rising edge of "home" (D25) and automatically at the
+# first job, because AUTOHOME = 1. With nothing wired here, home the machine by
+# hand:
 #
 #     halcmd setp pnp.task.home 1 ; halcmd setp pnp.task.home 0
 #     halcmd show pin pnp.task.homed
@@ -61,11 +91,20 @@ setp pnp.task.auto-enable 1
 #     halcmd setp pnp.task.jog-x-pos 1     # ... and 0 to stop
 setp pnp.task.home 0
 
-# --- Not wired here ---------------------------------------------------------
+# --- Running a job ----------------------------------------------------------
 #
-# The picker feedback (picker.N.opened / .closed), the process stations'
-# busy/released handshake and the job handshake itself (process-step, origin-id,
-# dest-id, start-job) are what a PLC drives. The scripted simulation of those —
-# grippers with a settling delay and injectable "slot was empty" misses — comes
-# with the integration suite (phase 7 of docs/dev/PNPTASK_DESIGN.md). Until then
-# they read 0, which is a machine that is simply never asked to do anything.
+# The job handshake (process-step, origin-id, dest-id, start-job) is what a PLC
+# drives; here it is left unconnected so it can be driven by hand. Tell the module
+# what the trays hold, then command a job:
+#
+#     halcmd setp pnp.task.process-step 0
+#     halcmd setp pnp.task.tray.10.set-full 1   # tray 10 is full of step-0 parts
+#     halcmd setp pnp.task.origin-id 10
+#     halcmd setp pnp.task.dest-id   20
+#     halcmd setp pnp.task.start-job 1          # cleared by the module when done
+#     halcmd show pin pnp.task.error
+#
+# Then 20 -> 11 moves the finished part into the output tray. The scripted
+# version of all of this — grippers with a settling delay, injectable "the slot
+# was empty" misses, and the assertions — is the integration suite, phase 7 of
+# docs/dev/PNPTASK_DESIGN.md.
