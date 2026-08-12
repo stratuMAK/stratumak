@@ -208,8 +208,11 @@ type control struct {
 	heldVerify int
 
 	// manualGrip counts down, per picker, to the validation of a manual close
-	// against the gripper feedback (§8's manual interplay); 0 = nothing pending.
-	manualGrip []int
+	// against the gripper feedback (§8's manual interplay); 0 = nothing
+	// pending. manualGripWarned keeps the not-actuated warning to one per
+	// close request (the judgement re-arms until the gripper answers).
+	manualGrip       []int
+	manualGripWarned []bool
 }
 
 func newControl(m *pnptaskModule) *control {
@@ -237,9 +240,10 @@ func newControl(m *pnptaskModule) *control {
 		in:          mk(),
 		prev:        mk(),
 		rise:        mk(),
-		jogDir:      make([]int, len(m.pins.jog)),
-		trayPending: make([]*int64, trays),
-		manualGrip:  make([]int, pickers),
+		jogDir:           make([]int, len(m.pins.jog)),
+		trayPending:      make([]*int64, trays),
+		manualGrip:       make([]int, pickers),
+		manualGripWarned: make([]bool, pickers),
 	}
 }
 
@@ -1018,6 +1022,7 @@ func (c *control) manualPickers() {
 			// to be judged is cancelled: it describes a grip that has just been
 			// undone.
 			c.manualGrip[i] = 0
+			c.manualGripWarned[i] = false
 			c.m.world.releaseHeld(i)
 		case close:
 			c.m.pins.pickers[i].close.Set(true)
@@ -1026,6 +1031,7 @@ func (c *control) manualPickers() {
 			// cycles from now — see updateManualGrip.
 			if c.m.world.held[i].retained {
 				c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
+				c.manualGripWarned[i] = false
 			}
 		}
 	}
@@ -1052,15 +1058,34 @@ func (c *control) updateManualGrip() {
 		if c.manualGrip[i] == 0 {
 			continue
 		}
+		if !c.m.world.held[i].retained {
+			// The record this countdown was judging is gone — an estop, a
+			// restore validation, anything that cleared it. Cancelling here,
+			// at the single consumer, is what keeps the pending judgement
+			// consistent with the record without every clearing site having
+			// to know about it.
+			c.manualGrip[i] = 0
+			continue
+		}
 		c.manualGrip[i]--
 		if c.manualGrip[i] > 0 {
 			continue
 		}
 		switch {
 		case c.in.pickerOpened[i]:
-			// The picker never actuated. Nothing was decided, so nothing
-			// changes: the id stays retained for the next attempt.
-			c.m.logger.Debug("pnptask: manual close did not actuate the picker", "picker", i)
+			// The picker has not actuated: a slow gripper, or one with its
+			// air off. The close output is still high over a retained part,
+			// so the judgement is RE-ARMED rather than abandoned — dropping
+			// it would leave a loaded picker the moment the gripper does
+			// close, with no record and no error. Warned once per request;
+			// the auto path faults the same feedback as PICKER_CLOSE_FAILED,
+			// the manual path keeps the operator, who is present, informed.
+			if !c.manualGripWarned[i] {
+				c.manualGripWarned[i] = true
+				c.m.logger.Warn("pnptask: manual close has not actuated the picker, still waiting for the grip",
+					"picker", i)
+			}
+			c.manualGrip[i] = settleTicks(c.m.pins.pickSettleTime.Get())
 		case c.in.pickerClosed[i]:
 			if station, ok := c.m.world.dropRetained(i); ok {
 				c.m.logger.Info("pnptask: manual close gripped nothing, the held record is gone",

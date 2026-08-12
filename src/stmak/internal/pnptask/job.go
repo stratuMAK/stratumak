@@ -4,6 +4,7 @@ package pnptask
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -188,14 +189,28 @@ func (c *control) validateJob(j *job) error {
 	j.planner = planner
 	j.height = c.moveHeight(j.originID, j.destID)
 
+	// §8.1: a retained record is a manual intervention in progress — the part
+	// is out of the picker in an operator's hands, and the next manual close
+	// is what decides where it went. No job runs against a world in that
+	// limbo: the picker is not free, the material is not placeable, and the
+	// swap obligation may be attached to it.
+	if picker, station, ok := c.m.world.retainedPicker(); ok {
+		return faultf(errNoFreePicker,
+			"picker %d is mid manual handling (material from station %d was let go and not re-judged); close the picker — on the part to restore it, empty to clear it — before the next job",
+			picker, station)
+	}
+
 	// §8's sequence constraint. Material a swap took out of a process station is
 	// homeless: the station is running its process on the piece that replaced
 	// it, and the picker holding it is the only place it can be. The next job
-	// therefore has to be the one that carries it away.
-	if station, ok := c.m.world.swapHeld(); ok && station != j.originID {
+	// therefore has to be one that carries it away. Normally a single swap
+	// record exists; a place that failed after its swap-out leaves two (both
+	// parts really are in pickers, each with its obligation), and a job from
+	// either station is the way back.
+	if stations := c.m.world.swapStations(); len(stations) > 0 && !slices.Contains(stations, j.originID) {
 		return faultf(errAltPickerSeq,
-			"a picker holds material removed from station %d; the next job must originate there, not at %d",
-			station, j.originID)
+			"pickers hold material removed from station(s) %v; the next job must originate at one of them, not at %d",
+			stations, j.originID)
 	}
 
 	// §8's pick phase: a picker already holding the origin's material makes the
@@ -291,6 +306,18 @@ func (c *control) checkDest(j *job) error {
 	// nothing to swap out.
 	if !j.skipPick && j.originID == j.destID {
 		return nil
+	}
+	// The skipPick variant of the same pair is a different animal: the job's
+	// material already came OUT of this station (a previous swap), and the
+	// station is occupied by the piece that replaced it. Running it would be a
+	// self-exchange — pull the occupant, put the old part back, re-arm the
+	// sequence constraint — which no flow in §8 describes; a repeating PLC bug
+	// would ping-pong the same two parts and re-run the process on an
+	// already-processed piece forever. Refused like every other mis-sequence.
+	if j.skipPick && j.originID == j.destID {
+		return faultf(errProcHasMaterial,
+			"station %d is occupied and the job's material was removed from it; putting it back is only valid once the station is free",
+			s.cfg.ID)
 	}
 	// Single-picker semantics (§7.4): with one picker an occupied process
 	// station has to be emptied by a job of its own first, because the only

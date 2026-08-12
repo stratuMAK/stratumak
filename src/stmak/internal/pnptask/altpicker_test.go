@@ -174,8 +174,8 @@ func TestAltSwapSequenceConstraint(t *testing.T) {
 		t.Error("the second station holds nothing after the place")
 	}
 	w := f.stopped()
-	if _, ok := w.swapHeld(); ok {
-		t.Error("a swap record survived the job that carried the part away")
+	if ss := w.swapStations(); len(ss) != 0 {
+		t.Errorf("swap records for %v survived the job that carried the part away", ss)
 	}
 }
 
@@ -357,10 +357,14 @@ func TestManualCloseOnNothingClearsTheRecord(t *testing.T) {
 	}
 }
 
-// TestManualOpenFreesThePickerForTheEngine: the record an operator opened away
-// leaves the picker free, so a job can use it — the retained id is a memory, not
-// a reservation.
-func TestManualOpenFreesThePickerForTheEngine(t *testing.T) {
+// TestManualHandlingBlocksJobsUntilJudged (§8.1): a manual open puts the record
+// into retention — a manual intervention in progress, a reservation, not a mere
+// memory. Jobs are refused until a manual close judges the outcome; a close
+// that grips nothing clears the record, and only then is the picker the
+// engine's again. (Counting the picker free while retained was the settle-race
+// hole of the phase-6 review: a job could grab a picker whose part was about to
+// be re-gripped.)
+func TestManualHandlingBlocksJobsUntilJudged(t *testing.T) {
 	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 99, false) })
 	f.selectTray(1)
 	f.fillTray(0)
@@ -370,13 +374,173 @@ func TestManualOpenFreesThePickerForTheEngine(t *testing.T) {
 	f.requireError("a job with the only picker loaded", errNoFreePicker)
 	f.clearError()
 
-	// The operator takes the part out by hand.
+	// The operator opens the picker: retention. Jobs are still refused — the
+	// part is in the operator's hands and nothing is decided yet.
 	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualOpen)
+	f.setBit(f.m.pins.autoEnable, true)
+	f.runJob(10, 20, 0)
+	f.requireError("a job while the picker is mid manual handling", errNoFreePicker)
+	f.clearError()
+
+	// The operator keeps the part: a close onto nothing judges the record gone.
+	f.sim.set(func(s *machineSim) { s.missesLeft = 1 })
+	f.setBit(f.m.pins.autoEnable, false)
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.eventually("the record judged empty and cleared", func() bool {
+		return !f.bit("error") // no pin shows the record; the job below is the proof
+	})
+	time.Sleep(20 * pollInterval) // let the grip judgement expire
 	f.press(f.m.pins.pickers[0].manualOpen)
 	f.setBit(f.m.pins.autoEnable, true)
 
 	f.runJob(10, 20, 0)
-	f.requireOK("a job after the picker was emptied by hand")
+	f.requireOK("a job after the manual handling was resolved")
+}
+
+// TestManualOpenTwiceKeepsRetained (§8.1): a second open press on an already
+// open picker is physically a no-op and must not wipe the retained id — the
+// close that follows still restores the record, station and all.
+func TestManualOpenTwiceKeepsRetained(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) })
+	f.setBit(f.m.pins.autoEnable, false)
+
+	f.press(f.m.pins.pickers[0].manualOpen)
+	f.press(f.m.pins.pickers[0].manualOpen) // the idempotent second press
+	// The part goes back in; the sim's default close grips material.
+	f.press(f.m.pins.pickers[0].manualClose)
+	time.Sleep(20 * pollInterval) // the grip judgement window
+
+	w := f.stopped()
+	if !w.held[0].present || w.held[0].station != 10 {
+		t.Errorf("held record after open/open/close = %+v, want restored material from station 10", w.held[0])
+	}
+}
+
+// TestRetainedRecordSurvivesRestart (§8.1): a restart in the middle of a manual
+// intervention must not forget the loaded picker or the swap obligation — the
+// record comes back retained, jobs stay refused, and the operator's close still
+// judges the outcome.
+func TestRetainedRecordSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_retained"
+
+	first := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.world.setHeld(1, 20, true) // swap-removed material from station 20
+		}),
+	})
+	first.setBit(first.m.pins.autoEnable, false)
+	first.press(first.m.pins.pickers[1].manualOpen)
+	first.m.Stop()
+
+	second := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		prep: withPersist(persistName, ns, nil),
+	})
+	second.homed()
+	second.mot.setPos(100, 100, 60)
+	second.selectTray(1)
+	second.fillTray(0)
+
+	// Mid-handling: jobs are refused, and the close output was NOT re-driven
+	// (the part is in the operator's hands, not the picker).
+	if second.bit("picker.1.close") {
+		t.Error("a retained record re-drove the close output")
+	}
+	second.runJob(10, 20, 0)
+	second.requireError("a job while the restored handling is unresolved", errNoFreePicker)
+
+	// The operator closes onto the part: record, station and swap obligation
+	// are back.
+	second.clearError()
+	second.setBit(second.m.pins.autoEnable, false)
+	second.press(second.m.pins.pickers[1].manualClose)
+	time.Sleep(20 * pollInterval)
+
+	w := second.stopped()
+	if !w.held[1].present || w.held[1].station != 20 || !w.held[1].swap {
+		t.Errorf("held record after the restart and close = %+v, want swap material from station 20", w.held[1])
+	}
+}
+
+// TestSlowGripperKeepsJudging (§8.1): a gripper that has not actuated when the
+// settle window expires is still a close request over a retained part — the
+// judgement re-arms instead of silently giving up, and decides once the
+// gripper answers.
+func TestSlowGripperKeepsJudging(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) { w.setHeld(0, 10, false) })
+	f.setBit(f.m.pins.autoEnable, false)
+
+	f.press(f.m.pins.pickers[0].manualOpen)
+	// The gripper answers nothing: opened stays high through several settle
+	// windows.
+	f.sim.set(func(s *machineSim) { s.jammedClosed = true })
+	f.press(f.m.pins.pickers[0].manualClose)
+	time.Sleep(40 * pollInterval)
+
+	// The air comes back; the grip completes and the record is restored.
+	f.sim.set(func(s *machineSim) { s.jammedClosed = false })
+	time.Sleep(40 * pollInterval)
+
+	w := f.stopped()
+	if !w.held[0].present || w.held[0].station != 10 {
+		t.Errorf("held record after a slow grip = %+v, want restored material from station 10", w.held[0])
+	}
+}
+
+// TestFailedPlaceLeavesTwoRecoverableSwaps: a place that fails after its
+// swap-out leaves BOTH pickers holding swap material — both parts really are in
+// pickers, each with its obligation. The sequence constraint then accepts a job
+// from either station, and two ordinary jobs put the world back together.
+func TestFailedPlaceLeavesTwoRecoverableSwaps(t *testing.T) {
+	f := newAltFixture(t, func(w *world) {
+		w.setHeld(1, 20, true)          // picker 1: swap material from station 20
+		w.procs[1].setHasMaterial(true) // station 21 occupied
+	})
+
+	// The job that should carry 20's material into 21: the swap-out succeeds,
+	// the place fails (the picker will not open).
+	f.sim.set(func(s *machineSim) { s.jammedOpen = true })
+	f.runJob(20, 21, 0)
+	f.requireError("a place that could not open the picker", errPlaceFailed)
+	f.sim.set(func(s *machineSim) { s.jammedOpen = false })
+	f.clearError()
+
+	// Both obligations stand: a job from an unrelated origin is refused...
+	f.runJob(10, 20, 0)
+	f.requireError("an unrelated job with two swap obligations standing", errAltPickerSeq)
+	f.clearError()
+
+	// ...but a job from either swap station recovers. First 21's part goes
+	// into the free station 20, then 20's part into the now-free station 21.
+	f.runJob(21, 20, 0)
+	f.requireOK("carrying the removed occupant of 21 away")
+	f.runJob(20, 21, 0)
+	f.requireOK("retrying the original job")
+
+	w := f.stopped()
+	if ss := w.swapStations(); len(ss) != 0 {
+		t.Errorf("swap obligations %v survived the recovery", ss)
+	}
+	if !f.bit("proc.21.has-material") {
+		t.Error("station 21 holds nothing after the recovered place")
+	}
+}
+
+// TestSelfExchangeRefused: a job whose material came OUT of an occupied station
+// and whose destination is that same station would swap the parts back and
+// forth forever — no §8 flow describes it, so it is refused like every other
+// mis-sequence.
+func TestSelfExchangeRefused(t *testing.T) {
+	f := newAltFixture(t, func(w *world) {
+		w.setHeld(1, 20, true)          // picker 1 holds what came out of 20
+		w.procs[0].setHasMaterial(true) // and 20 is occupied again
+	})
+	f.runJob(20, 20, 0)
+	f.requireError("a self-exchange on an occupied station", errProcHasMaterial)
 }
 
 // TestEstopClearsARetainedRecord: estop opens every picker (D14), which is also
