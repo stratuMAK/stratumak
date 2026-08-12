@@ -197,6 +197,18 @@ func blendAxisLimit(d [3]float64, max []float64) float64 {
 // The legs a job is made of (§7.3)
 // ---------------------------------------------------------------------------
 
+// notePlanTime publishes the job's worst route-planning latency on plan-time
+// (D13's < 100 ms budget, made observable from outside — see pins.go). Timed on
+// the failing path too: a plan that fails still cost the time it took, and a
+// PLANNING_FAILED that took 300 ms is worth seeing.
+func (c *control) notePlanTime(j *job, d time.Duration) {
+	if d <= j.planMax {
+		return
+	}
+	j.planMax = d
+	c.m.pins.planTime.Set(d.Seconds())
+}
+
 // travel moves picker pk to a target in the taught frame, at the job's movement
 // height, along a route planned around the dead zones.
 //
@@ -217,7 +229,9 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 	// one mid-flight. (D3's "read live" means per leg, not per waypoint.)
 	off := c.pickerOffset(pk)
 	start := pnproute.Point{X: c.cmdPos.X + off.X, Y: c.cmdPos.Y + off.Y}
+	planStart := time.Now()
 	route, err := j.planner.Plan(start, target)
+	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
 		return faultf(errPlanningFailed,
 			"no route for picker %d from (%.3f, %.3f) to (%.3f, %.3f): %v",

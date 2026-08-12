@@ -5,6 +5,7 @@ package pnptask
 import (
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
@@ -46,6 +47,11 @@ type job struct {
 	// to come out first, with a second picker.
 	skipPick bool
 	swap     bool
+
+	// planMax is the longest route plan this job has run, published on the
+	// plan-time pin (D13). Kept on the job because that is the span it
+	// describes — one job's worst case, not the module's since startup.
+	planMax time.Duration
 }
 
 // jobRequest is the start-job handshake (§7.4, D12: one job at a time, no
@@ -150,6 +156,9 @@ func (c *control) runJob() error {
 // start-job before the parameters it carries, so they belong to this request and
 // not to the previous one (see sample).
 func (c *control) latchJob() *job {
+	// plan-time describes one job (see pins.go), so the previous job's worst
+	// case goes with the previous job.
+	c.m.pins.planTime.Set(0)
 	return &job{
 		step:     int64(c.in.processStep),
 		originID: c.in.originID,

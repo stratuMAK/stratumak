@@ -1129,3 +1129,35 @@ func TestTrayResetDuringAJobIsNotLost(t *testing.T) {
 		return f.bit("tray.10.empty") && !f.bit("tray.10.full")
 	})
 }
+
+// TestJobPublishesPlanTime: plan-time carries the slowest route plan of the job
+// that just ran (§5.2), which is what makes D13's budget assertable from
+// outside — and it belongs to one job, so the next job's latch resets it.
+func TestJobPublishesPlanTime(t *testing.T) {
+	f := newJobFixture(t)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	if got := f.get("plan-time"); got != 0 {
+		t.Errorf("plan-time = %v before any job, want 0", got)
+	}
+
+	f.runJob(10, 20, 0)
+	f.requireOK("tray -> proc")
+
+	plan := f.get("plan-time")
+	if plan <= 0 {
+		t.Errorf("plan-time = %v after a job that planned several legs, want > 0", plan)
+	}
+	if plan >= 0.1 {
+		t.Errorf("plan-time = %v s, over D13's 100 ms budget on a fixture scene", plan)
+	}
+
+	// A job refused before it plans anything reports no planning, rather than
+	// leaving the previous job's number standing for the PLC to read.
+	f.runJob(99, 20, 0)
+	f.requireError("unknown origin", errInvalidOrigin)
+	if got := f.get("plan-time"); got != 0 {
+		t.Errorf("plan-time = %v after a job that never planned, want 0", got)
+	}
+}
