@@ -90,9 +90,15 @@ m.wait(lambda s: not s["picker.%d.close" % pk], "the picker to open")
 
 # The part is in the operator's hands now, so the close finds nothing — which is
 # what the sim's miss injection is: a gripper that meets its own jaws.
+#
+# On this verdict the close output is high only from the press to the
+# judgement — one pick-settle-time, ~120 ms, most of it already spent inside
+# pulse() — so watching for the transient high is a race a polled driver
+# loses on a loaded host. The judgement itself is the observable: the module
+# only judges a close it commanded, so the verdict landing in the log proves
+# the picker closed without racing the pin.
 m.miss(pk, -1)
 m.pulse("picker.%d.manual-close" % pk)
-m.wait(lambda s: s["picker.%d.close" % pk], "the picker to close on nothing")
 m.wait_manual_judged()
 pnpdrv.check(not m.holding(pk), "the gripper gripped nothing")
 

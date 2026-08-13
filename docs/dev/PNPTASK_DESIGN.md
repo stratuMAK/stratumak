@@ -194,6 +194,7 @@ func LoadDXFFile(path string, opts ...LoadOption) (*Scene, error)
 func NewPlanner(s *Scene, clearance float64, opts ...Option) (*Planner, error)
                         // WithSegmentSamples / WithCoreErode / WithOffsetArcStep
 func (p *Planner) Plan(start, goal Point) (*Route, error)
+func (p *Planner) Metrics(r *Route) *Route     // fills Curv/MinRadius/MinClear on demand (§12)
 func (p *Planner) CheckPoint(pt Point) error   // for the §5.1 position validation
 func (p *Planner) Boundary() Polygon           // eroded limit, for UI/diagnostics
 func (p *Planner) OffsetZones() []Polygon
@@ -742,6 +743,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 20 | `AUTO_DISABLED` | start-job while auto-enable is low (§6.4) |
 | 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
 | 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
+| 23 | `PICKER_OPEN_FAILED` | close withdrawn on the pick side but `opened` never came back (§12) |
 
 ### 7.6 As built — the model (2026-08-11)
 
@@ -888,9 +890,11 @@ machine and completes the pick/place cycle (`has-material` set, a slot consumed,
   pick from a proc station that finds the fixture empty clears `has-material` on
   its way to `PROC_NO_MATERIAL`: the next job must not be sent for a part that is
   not there.
-- The picker-open wait of the probing retry reports `PLACE_FAILED` (16, "opened
-  stayed low") — §7.4 fixes the *timeout* for that wait but not its id, and a
-  picker commanded open that does not open is literally what that code says.
+- The picker-open wait of the probing retry reports `PICKER_OPEN_FAILED` (23;
+  §12 — this reverses the first build's reuse of `PLACE_FAILED`): both callers
+  of that wait are on the pick side, where "opened stayed low" is a jammed
+  gripper at the *origin*, and a PLC keyed on the documented place-side id
+  would send the operator to inspect the wrong station.
 - **The tray reset requests survive a job.** A `set-full` pressed while a job runs
   is applied as soon as the loop is back to its own decisions — never in the
   middle of a slot search, and never dropped.
@@ -1184,4 +1188,116 @@ gating stays for completeness. R2 — rejected as stated: with alternating
 pickers only *one* picker must be free for a pick action; superseded by the
 generalized per-picker model and the `NO_FREE_PICKER` guard (D20, §8).
 
-No open points remain.
+No open points remain (§12 carries the post-review TODO list).
+
+---
+
+## 12. Final pre-lab review (2026-08-13)
+
+A whole-branch review (conceptual pass + verified multi-agent implementation
+pass) before the first lab-machine run: 13 confirmed findings. Ten are fixed on
+the branch; the rest are the TODOs below.
+
+### 12.1 Fixed
+
+- **Motion self-disable watchdog** (`machine.go checkMotionEnabled`): motion
+  reporting itself disabled while the module believes the machine on — a
+  following error, an amp fault, a hard limit, an external enable drop, all of
+  which latch in motmod — now drops `machine-is-on`, latches `MOTION_ERROR`
+  and aborts a running job at the next wait cycle. Before, the trip surfaced
+  only whenever the next `SetLine` happened to be refused, with the PLC
+  interlock pin still high and a running job parked in a timeout-free motion
+  wait. Debounced over 3 fresh status reads, the same defense in depth as
+  milltask's `monitor.go`. `machine-on` must be cycled afterwards, exactly
+  like after an estop.
+- **Comm-outage presses are dropped, not deferred** (`machine.go motionLost`):
+  the rise latches (machine-on, home, manual picker) and the pending tray
+  resets are cleared every cycle the outage lasts — a manual-close pressed at
+  a machine that looks dead must not snap the gripper shut minutes later when
+  comm recovers. Same rule as the estop teardown; error-reset survives for the
+  same reason it survives there.
+- **Restored-held records gate the first job** (`settleRestoredHeld`, called
+  from `runJob`): the one-shot grip verification of §7.6 counted down in
+  `step()`, which a job blocks — a start-job inside the settle window
+  validated against records nothing had verified, and a part lost in the
+  downtime became a phantom place. A job now waits out any pending
+  verification (abortable like every wait) before validation reads the world.
+- **`markPlaced` clears the probing state** (`stations.go`): material the
+  module itself placed refutes a probed-empty verdict; the latch surviving a
+  place left an endless place-then-pick transfer station permanently refusing
+  picks with `TRAY_EMPTY` until a manual reset.
+- **Tray-to-itself places exclude the just-picked slot** (`freeSlot(exclude)`):
+  putting the part back into the slot the same job emptied is a
+  successful-looking physical no-op a compacting PLC would loop on forever;
+  the place now lands in the next free slot in order. (The proc-to-itself
+  re-seat of §8.1 is untouched — there the "no-op" re-clamps the part, which
+  is its purpose.)
+- **`PICKER_OPEN_FAILED` (23)** replaces the pick-side reuse of
+  `PLACE_FAILED` in `waitPickerOpen` (§7.5/§7.7).
+- **Targets are checked against the pushed axis limits before dispatch**
+  (`motion.go checkTargetInLimits`, `motsetup.Result.AxisMinPos/MaxPos`):
+  motion rejects an out-of-range line anyway, but only with a bare command
+  status — the fault now names the axis, the value and the limits, and points
+  at the picker offsets and z-offset inputs, because those shift a validated
+  taught position into machine coordinates the load-time validation never sees
+  (command = target − offset; see the TODO below).
+- **DXF loading rejects malformed geometry values** (`pkg/pnproute`): the
+  LWPOLYLINE/VERTEX coordinates, the closed flag, the vertex count, bulge,
+  extrusion, circle radius and the ellipse axis/ratio/sweep all error on a
+  malformed value instead of silently defaulting (a corrupted vertex loaded a
+  differently-shaped zone with no error — routes were planned through the
+  missing half). "Absent" stays legal where the format allows it; "present but
+  unparseable" never is.
+- **Route metrics off the `Plan` hot path** (`pkg/pnproute`): `Curv`,
+  `MinRadius` and `MinClear` were computed on every plan — including the
+  O(zones × segments × samples) clearance scan — and read by nothing but
+  tests. They now fill on demand via `Planner.Metrics(route)`.
+- **`manual/` scenario de-raced** (`tests/pnptask/manual/test.py`): the
+  gripped-nothing check observed a ~10–25 ms close-high window through a
+  polling REST client; it now waits on the module's own verdict marker
+  (`wait_manual_judged`) plus the stable post-conditions, which subsume the
+  transient.
+
+### 12.2 Migration note
+
+`internal/motsetup` converts `COMP_FILE` leadscrew-compensation triplets
+machine-units → mm before `SetJointComp` (phase 3, fixing a pre-existing
+milltask bug). Correct for the mm-internal stack — but on a deployed **inch**
+machine whose COMP_FILE values were tuned against the old raw push, the same
+file's trims change by 25.4× after the upgrade. Any release notes for the
+milltask side must carry this.
+
+### 12.3 TODO — deferred, needs a design decision or a broader refactor
+
+- **Per-picker reachability validation.** All geometric validation (§5.1) runs
+  in the shared taught frame; what is commanded is target − picker offset with
+  the live z-offset added, so each picker's reachable envelope is the soft
+  limits shifted by its offset, and a station near the envelope edge can be
+  reachable for one picker and not the other — surfacing as an intermittent
+  mid-job `MOTION_ERROR` depending on which picker happened to be free. The
+  pre-dispatch check (§12.1) makes the failure diagnosable; validation at
+  job-validate time (every leg endpoint minus every candidate picker's
+  offset, plus Z_PICK + z-offset and MOVE_HEIGHT against the Z limits) would
+  refuse before moving. Until then the lab rule is: keep every taught
+  position, minus either picker's offset, inside the soft limits — i.e. draw
+  the DXF outer limit inside the *intersection* of both pickers' envelopes.
+- **Operator resync for proc `has-material`.** Trays have `set-full` /
+  `set-empty`; process stations have nothing, although §6.4 promises a
+  manual-intervention resync. "Model occupied / fixture empty" self-corrects
+  (`PROC_NO_MATERIAL` clears the flag); the inverse — an operator hand-loads
+  a fixture the model thinks free — sends the next place-to-proc down onto
+  the occupant. Needs a decision: a pair of edge pins per proc station
+  (mirroring the tray resets, honored in both modes), or a documented
+  operating rule that hand-loaded fixtures must be hand-unloaded.
+- **One owner for machine-unit handling.** `parseLinearUnits` exists three
+  times (task and ngcpreview silently default to mm, pnptask errors),
+  machine-units→mm conversion four times, and the lenient INI accessors are
+  copied between `motsetup/ini.go` and `task/config.go`. motsetup — created
+  precisely to end unit drift — should export one copy all four packages use;
+  divergence here is a silent 25.4× disagreement between motion limits and
+  station geometry.
+- **Minor, noted:** a `home` press during a job is latched (gated only on
+  estop) and runs the homing sequence the moment the job completes — a PLC
+  glitch on that pin becomes a surprise homing run. If that ever bites,
+  gate the latch on "idle" at press time like the manual-picker edges are
+  gated on manual mode.
