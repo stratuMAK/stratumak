@@ -247,6 +247,19 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 	if err := c.setMotionMode(motstat.MOTION_COORD); err != nil {
 		return err
 	}
+	// The scene is read here, not at job start: deadzone-select describes the
+	// machine as it is right now, and a leg that begins after the machine
+	// changed (a sphere opened while the job waited out a busy station) has to
+	// be planned around the obstacles that are there for *this* leg. Like the
+	// offset below it is one snapshot for the whole leg — the route is a rigid
+	// polyline, so a selector change between two waypoint dispatches belongs to
+	// the next leg, not to the middle of this one.
+	planner, err := c.m.planners.at(c.in.deadzoneSelect)
+	if err != nil {
+		return err
+	}
+	j.deadzone = c.in.deadzoneSelect
+
 	// One offset snapshot for the whole leg: the route below is planned as one
 	// rigid polyline around the dead-zone clearances, and a halcmd setp landing
 	// between two waypoint dispatches must shift the next leg, not warp this
@@ -254,12 +267,12 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 	off := c.pickerOffset(pk)
 	start := pnproute.Point{X: c.cmdPos.X + off.X, Y: c.cmdPos.Y + off.Y}
 	planStart := time.Now()
-	route, err := j.planner.Plan(start, target)
+	route, err := planner.Plan(start, target)
 	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
 		return faultf(errPlanningFailed,
-			"no route for picker %d from (%.3f, %.3f) to (%.3f, %.3f): %v",
-			pk, start.X, start.Y, target.X, target.Y, err)
+			"no route for picker %d from (%.3f, %.3f) to (%.3f, %.3f) in dead-zone file %d: %v",
+			pk, start.X, start.Y, target.X, target.Y, j.deadzone, err)
 	}
 	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)

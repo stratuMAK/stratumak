@@ -6,29 +6,36 @@ import (
 	"errors"
 	"slices"
 	"time"
-
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // job is one latched job command plus the state its action sequences share.
 //
 // Everything the PLC can change is captured at the start-job edge (§7.4): a job
 // that re-read origin-id halfway through would be a job whose destination changed
-// under it. What is deliberately *not* latched is the tuning params and the
-// z-offset pins — those are corrections to the machine, and a correction made
-// while a job runs should apply to it.
+// under it. What is deliberately *not* latched is the tuning params, the
+// z-offset pins and deadzone-select — those describe the machine rather than the
+// request, and a machine that changes while a job runs has to be driven as it is.
 type job struct {
 	// The latched request.
 	step     int64
 	originID uint32
 	destID   uint32
+
+	// deadzone is the scene the most recently planned leg was planned against,
+	// kept for the logs. The selector itself is read live, per leg: it says
+	// which drawing describes the machine *now*, and the machine can change
+	// underneath a job. A fixture inside a sphere is unreachable while the
+	// sphere is closed, so the job waits the station out at its wait position;
+	// the sphere then opens, the PLC selects the other drawing and clears busy,
+	// and the leg into the station is planned against the scene that now
+	// applies. Latching the selector would plan that leg around an obstacle
+	// that is no longer there (see control.travel).
 	deadzone uint32
 
 	// Resolved from the request.
-	origin  *station
-	dest    *station
-	planner *pnproute.Planner
-	height  float64
+	origin *station
+	dest   *station
+	height float64
 
 	// originBusy is a pick-from-proc origin's busy state as sampled at job start
 	// (§7.4, R1). The dest's is sampled later, once the pick leg is done.
@@ -204,11 +211,13 @@ func (c *control) validateJob(j *job) error {
 		return faultf(errInvalidDest, "dest-id %d: no such station", j.destID)
 	}
 
-	planner, err := c.m.planners.at(j.deadzone)
-	if err != nil {
+	// The selector is only range-checked here — the planner it names is
+	// resolved per leg (see job.deadzone). A job started with a selector that
+	// names no drawing at all is still refused before the machine moves; one
+	// that goes out of range mid-job faults the leg that finds it.
+	if _, err := c.m.planners.at(c.in.deadzoneSelect); err != nil {
 		return err
 	}
-	j.planner = planner
 	j.height = c.moveHeight(j.originID, j.destID)
 
 	// §8.1: a retained record is a manual intervention in progress — the part

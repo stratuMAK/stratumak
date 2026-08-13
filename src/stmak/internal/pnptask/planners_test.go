@@ -135,13 +135,38 @@ Z_PICK = 0.25
 	}
 }
 
+// TestPlannersAllowStationBlockedInOneScene pins the "at least one scene" rule:
+// a station a dead zone covers in one drawing but not in another is a legal
+// machine — a fixture inside a sphere that has to open before the picker may
+// enter it is exactly that. deadzone-select says which scene applies, every leg
+// is planned against the scene of the moment, and a job into the station simply
+// has to run while the scene that frees it is selected.
+func TestPlannersAllowStationBlockedInOneScene(t *testing.T) {
+	// zones_b puts a dead zone over proc station 20; zones_a leaves it clear.
+	setupPathsWith(t, map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock})
+	cfg := mustLoad(t, trajSection+pnptaskSection+stationSections)
+	set, err := newPlanners(cfg)
+	if err != nil {
+		t.Fatalf("newPlanners: %v", err)
+	}
+	// The two scenes have to actually disagree about it, or the case proves
+	// nothing: free in file 0, blocked in file 1.
+	pos := cfg.Procs[0].Pos
+	if err := set.planners[0].CheckPoint(pos); err != nil {
+		t.Errorf("station rejected by the clear drawing: %v", err)
+	}
+	if err := set.planners[1].CheckPoint(pos); err == nil {
+		t.Error("the blocked drawing accepted the station; the fixture no longer covers it")
+	}
+}
+
 func TestPlannersRejectBadPositions(t *testing.T) {
-	// The blocked fixture puts a dead zone over proc station 20, and only in
-	// the *second* configured file — a position has to be usable in every
-	// drawing the deadzone-select pin can pick.
-	blockedInSecondFile := func(t *testing.T) {
+	// Blocked in *every* configured drawing: the one case where a station
+	// inside a dead zone is still a configuration error, because no selector
+	// value can ever free it.
+	blockedEverywhere := func(t *testing.T) {
 		t.Helper()
-		setupPathsWith(t, map[string]string{zonesA: fixtureClear, zonesB: fixtureBlock})
+		setupPathsWith(t, map[string]string{zonesA: fixtureBlock, zonesB: fixtureBlock})
 	}
 	clearZones := func(t *testing.T) {
 		t.Helper()
@@ -155,8 +180,8 @@ func TestPlannersRejectBadPositions(t *testing.T) {
 		want    string
 		wantErr error
 	}{{
-		name:    "proc station inside a dead zone",
-		setup:   blockedInSecondFile,
+		name:    "proc station inside a dead zone in every drawing",
+		setup:   blockedEverywhere,
 		ini:     trajSection + pnptaskSection + stationSections,
 		want:    "[PNPTASK_PROC_0]X/Y",
 		wantErr: pnproute.ErrInDeadzone,
@@ -238,11 +263,15 @@ Z_PICK = 2.5
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("error = %v, want it to wrap %v", err, tc.wantErr)
 			}
-			// The message has to say which drawing rejected the position:
-			// with several configured, "it is in a dead zone" alone leaves the
-			// operator to guess which one.
-			if !strings.Contains(err.Error(), "dead-zone file") {
-				t.Errorf("error = %v, want it to name the dead-zone file", err)
+			// The message has to say that no drawing accepts the position and
+			// name one that rejected it: "it is in a dead zone" alone leaves
+			// the operator to guess whether some other scene would have freed
+			// it, and which drawing to go and look at.
+			if !strings.Contains(err.Error(), "usable in none of") {
+				t.Errorf("error = %v, want it to say the position is usable in no drawing", err)
+			}
+			if !strings.Contains(err.Error(), zonesA) {
+				t.Errorf("error = %v, want it to name the drawing that rejected it", err)
 			}
 		})
 	}

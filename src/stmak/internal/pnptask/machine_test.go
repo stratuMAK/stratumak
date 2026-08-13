@@ -461,6 +461,12 @@ type fixtureOpts struct {
 	// ini is appended to the fixture INI — for the cases that need a station
 	// the shared config does not have (§8's chain needs two process stations).
 	ini string
+	// files is the testdata drawing behind each configured dead-zone file name,
+	// for the cases where the two scenes have to disagree. Nil is both clear.
+	// It has to be an option rather than a call before the fixture: the
+	// planners are built when the module loads, so the drawings must already be
+	// in place by then.
+	files map[string]string
 }
 
 // newMachineFixtureOpts loads a module, hands it a scripted motion stack and
@@ -468,7 +474,11 @@ type fixtureOpts struct {
 func newMachineFixtureOpts(t *testing.T, o fixtureOpts) *machineFixture {
 	t.Helper()
 	fastLoop(t)
-	setupPaths(t)
+	if o.files != nil {
+		setupPathsWith(t, o.files)
+	} else {
+		setupPaths(t)
+	}
 	name := testInstanceName(t)
 	m := mustLoadModule(t, trajSection+machineIniAxes+pnptaskSection+stationSections+o.ini, name, o.args...)
 	if o.tweak != nil {

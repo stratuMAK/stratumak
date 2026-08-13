@@ -117,46 +117,71 @@ func (s *plannerSet) homeWarnings(cfg *Config) []string {
 
 // checkPositions is the geometric half of the startup validation (§5.1): every
 // position the module can ever drive to must be inside the eroded outer limit
-// and outside every offset dead zone, in *every* configured drawing — the
-// deadzone-select pin picks the drawing at job start, so a position that is
-// only valid in some of them is a job that fails on the machine.
+// and outside every offset dead zone of *at least one* configured drawing.
+//
+// At least one, not all: a station may deliberately sit inside a dead zone of
+// one scene and be reachable only in another. A fixture inside a sphere that
+// has to open before the picker may enter it is exactly that, and
+// deadzone-select is how the PLC says which scene the machine is in — each leg
+// is planned against the scene that applies when the leg starts
+// (control.travel), so a station blocked in the scene of the moment is a job
+// that waits, not a machine that is mis-configured. A position that is inside
+// no scene at all is the one that can never be driven to, and that is a
+// configuration error.
 //
 // Checking taught positions is not the same as checking routes: a reachable
 // position can still turn out to have no collision-free route to some other
-// station. Those are only knowable per pair and stay a job-time
-// PLANNING_FAILED; what this rules out is the position itself being
-// unreachable, which is a configuration error and belongs here.
+// station, in some scenes or in all of them. Those are only knowable per pair
+// and stay a job-time PLANNING_FAILED; what this rules out is the position
+// itself being unreachable everywhere.
 func (s *plannerSet) checkPositions(cfg *Config) error {
-	for i, pl := range s.planners {
-		where := fmt.Sprintf("dead-zone file %d (%s)", i, s.files[i])
-
-		for _, p := range cfg.Procs {
-			sec := p.Section
-			if err := pl.CheckPoint(p.Pos); err != nil {
-				return fmt.Errorf("[%s]X/Y: %s: %w", sec, where, err)
+	// check reports whether pt is usable in any scene and, if it is not, why
+	// the first drawing rejected it. One representative reason reads better
+	// than the same complaint repeated per file — a position outside the
+	// machine is rejected by every drawing for the same reason anyway.
+	check := func(what string, pt pnproute.Point) error {
+		var first error
+		for _, pl := range s.planners {
+			err := pl.CheckPoint(pt)
+			if err == nil {
+				return nil
 			}
-			if p.HasWait {
-				if err := pl.CheckPoint(p.Wait); err != nil {
-					return fmt.Errorf("[%s]WAIT_X/WAIT_Y: %s: %w", sec, where, err)
-				}
+			if first == nil {
+				first = err
 			}
 		}
+		if first == nil {
+			return nil // no drawings at all; loadDeadzoneFiles already refuses that
+		}
+		return fmt.Errorf("%s: (%.3f, %.3f) is usable in none of the %d dead-zone drawing(s); in %s: %w",
+			what, pt.X, pt.Y, len(s.planners), s.files[0], first)
+	}
 
-		for _, d := range cfg.TrayDefs {
-			sec := d.Section
-			if !d.HasLast {
-				if err := pl.CheckPoint(d.First); err != nil {
-					return fmt.Errorf("[%s]FIRST_X/FIRST_Y: %s: %w", sec, where, err)
-				}
-				continue
+	for _, p := range cfg.Procs {
+		if err := check(fmt.Sprintf("[%s]X/Y", p.Section), p.Pos); err != nil {
+			return err
+		}
+		if p.HasWait {
+			if err := check(fmt.Sprintf("[%s]WAIT_X/WAIT_Y", p.Section), p.Wait); err != nil {
+				return err
 			}
-			// Every slot, not just the four corners: a dead zone can sit in
-			// the middle of a tray's footprint without touching its corners.
-			for row := 0; row < d.Rows; row++ {
-				for col := 0; col < d.Cols; col++ {
-					if err := pl.CheckPoint(d.SlotPos(col, row)); err != nil {
-						return fmt.Errorf("[%s] slot (col %d, row %d): %s: %w", sec, col, row, where, err)
-					}
+		}
+	}
+
+	for _, d := range cfg.TrayDefs {
+		if !d.HasLast {
+			if err := check(fmt.Sprintf("[%s]FIRST_X/FIRST_Y", d.Section), d.First); err != nil {
+				return err
+			}
+			continue
+		}
+		// Every slot, not just the four corners: a dead zone can sit in the
+		// middle of a tray's footprint without touching its corners.
+		for row := 0; row < d.Rows; row++ {
+			for col := 0; col < d.Cols; col++ {
+				what := fmt.Sprintf("[%s] slot (col %d, row %d)", d.Section, col, row)
+				if err := check(what, d.SlotPos(col, row)); err != nil {
+					return err
 				}
 			}
 		}

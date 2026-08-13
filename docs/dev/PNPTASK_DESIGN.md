@@ -333,7 +333,7 @@ normalized to HAL-conventional dashes.
 | `error` | bit | out | latched error flag |
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
-| `deadzone-select` | u32 | in | index into DEADZONE_FILE list, latched at job start |
+| `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 
@@ -446,12 +446,15 @@ boundary and the offset zones, so it could not run before.
   circle carries `Center`/`Radius` that `NewPlanner` offsets analytically, so
   those scale with the polygon or the planner would guard a circle somewhere
   else entirely.
-- Validated against **every** configured drawing, not just the selected one:
-  `deadzone-select` picks at job start, so a position valid in only some of
-  them is a job that fails on the machine. Checked are each proc `X/Y`, each
-  `WAIT_X/WAIT_Y`, and every tray slot — all of them, because a dead zone can
-  sit inside a tray's footprint without touching a corner. The error names the
-  INI section and keys, the drawing and the coordinate.
+- Validated against **at least one** configured drawing, not all of them: a
+  station may deliberately sit inside a dead zone of one scene and be reachable
+  only in another (a fixture inside an enclosure that has to open first), and
+  `deadzone-select` is how the PLC says which scene applies right now. A
+  position usable in *no* scene is the one that can never be driven to, and
+  that fails the load. Checked are each proc `X/Y`, each `WAIT_X/WAIT_Y`, and
+  every tray slot — all of them, because a dead zone can sit inside a tray's
+  footprint without touching a corner. The error names the INI section and
+  keys, the coordinate, and one drawing that rejected it.
 - This is *position* validation, not route validation: whether a given pair of
   stations has a collision-free route between them is only knowable per pair
   and stays a job-time `PLANNING_FAILED`.
@@ -657,7 +660,13 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
 - Per-move vel/acc capped by axis maxima (port `internal/task/motionlimits.go`
   `straightLimits`).
 - Route planning input: current commanded position (`GetPosCmd`) → target XY.
-  Planner selected by the latched `deadzone-select` (invalid index → error).
+  Planner selected by `deadzone-select` **as read when the leg starts**, not as
+  latched at job start (invalid index → error on that leg): the selector
+  describes the machine now, and the machine can change under a job — a job
+  waits out a busy station at its wait position, the enclosure around it opens,
+  the PLC selects the other drawing and clears busy, and the leg into the
+  station is planned against the scene that now applies. Like the picker
+  offset it is one snapshot per leg, never per waypoint.
   Movement height = global MOVE_HEIGHT unless a `[PNPTASK_ROUTE_n]` override
   matches the latched (origin, dest) pair. If the current Z is below the
   movement height (e.g. after an aborted job), the job starts with a Z retract.
@@ -666,8 +675,9 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
 
 `IDLE → LATCH → VALIDATE → [HOME] → PLAN → EXECUTE → FINISH/ERROR`
 
-- LATCH on `start-job` rising edge: origin-id, dest-id, process-step,
-  deadzone-select.
+- LATCH on `start-job` rising edge: origin-id, dest-id, process-step.
+  `deadzone-select` is deliberately not latched — it is range-checked in
+  VALIDATE and read again per movement leg (§7.3).
 - VALIDATE: ids exist; action combo legal; preconditions (tray not
   empty/full, `has-material` state) — errors §7.5.
 - EXECUTE runs the action sequence; every wait polls abort conditions —

@@ -1230,3 +1230,72 @@ func TestJobGatedOnRestoredHeldVerification(t *testing.T) {
 		t.Error("the phantom part was placed — has-material is set")
 	}
 }
+
+// TestJobPlansEachLegAgainstTheCurrentScene is the sequence a machine whose
+// fixture sits inside a movable enclosure runs: the station is unreachable
+// while the enclosure is closed, so the job waits it out at the wait position,
+// the enclosure then opens, the PLC selects the drawing that describes the open
+// machine and clears busy, and the leg into the station is planned against
+// *that* scene. Latching deadzone-select at job start would plan this last leg
+// around an obstacle that is no longer there and fail with PLANNING_FAILED.
+func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
+	// Drawing 0 covers proc station 20 with a dead zone, drawing 1 is clear:
+	// the station is only reachable while drawing 1 is selected.
+	f := newJobFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: fixtureBlock, zonesB: fixtureClear},
+	})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	// Enclosure closed, station busy.
+	f.m.pins.deadzoneSelect.Set(0)
+	f.proc().busy.Set(true)
+
+	f.m.pins.startJob.Set(false)
+	time.Sleep(10 * pollInterval)
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.mot.resetCalls()
+	f.m.pins.startJob.Set(true)
+
+	// The job picks and parks at the wait position (250, 150) — planned in the
+	// closed scene, where the station itself could not have been reached.
+	f.eventually("the head to reach the wait position", func() bool {
+		for _, m := range f.mot.moveList() {
+			if math.Abs(m.pos.X-250) < 1e-6 && math.Abs(m.pos.Y-150) < 1e-6 {
+				return true
+			}
+		}
+		return false
+	})
+	if f.bit("start-job") == false {
+		t.Fatal("the job finished before the station was freed")
+	}
+
+	// The enclosure opens: the other drawing describes the machine now, and the
+	// station is free.
+	f.m.pins.deadzoneSelect.Set(1)
+	f.proc().busy.Set(false)
+
+	f.eventually("the job handshake to complete", func() bool { return !f.bit("start-job") })
+	f.eventually("busy to clear", func() bool { return !f.bit("busy") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("a job whose destination was freed by a scene change")
+
+	if !f.bit("proc.20.has-material") {
+		t.Error("the part never reached the station")
+	}
+	// And the last leg really did drive into the once-blocked station.
+	reached := false
+	for _, m := range f.mot.moveList() {
+		if math.Abs(m.pos.X-300) < 1e-6 && math.Abs(m.pos.Y-200) < 1e-6 {
+			reached = true
+		}
+	}
+	if !reached {
+		t.Errorf("no move to the station at (300, 200); moves = %v", f.mot.moveList())
+	}
+}
