@@ -151,7 +151,13 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 				return nil, fmt.Errorf("pnproute: dead-zone circle has no center (group codes 10/20 missing or malformed)")
 			}
 			c := Point{cx, cy}
-			r := valFloat(e, 40)
+			// The radius is required for the same reason: a malformed value
+			// defaulting to 0 would be rejected as "radius 0" — a misdiagnosis
+			// pointing the user at the wrong problem.
+			r, okr := valFloatOK(e, 40)
+			if !okr {
+				return nil, fmt.Errorf("pnproute: dead-zone circle at (%.3f,%.3f) has no radius (group code 40 missing or malformed)", c.X, c.Y)
+			}
 			if r <= 0 {
 				return nil, fmt.Errorf("pnproute: dead-zone circle at (%.3f,%.3f) has radius %.3f", c.X, c.Y, r)
 			}
@@ -181,13 +187,35 @@ func LoadDXF(r io.Reader, opts ...LoadOption) (*Scene, error) {
 				return nil, fmt.Errorf("pnproute: dead-zone ellipse has no center (group codes 10/20 missing or malformed)")
 			}
 			c := Point{cx, cy}
-			majorRel := Point{valFloat(e, 11), valFloat(e, 21)}
-			ratio := valFloat(e, 40)
+			// The major axis and ratio are required like the center is: a
+			// malformed component defaulting to 0 would silently load a
+			// different ellipse — axis (30,40) with a corrupt code 21 becomes
+			// (30,0) — instead of failing the drawing.
+			mx, okmx := valFloatOK(e, 11)
+			my, okmy := valFloatOK(e, 21)
+			if !okmx || !okmy {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) has no major-axis endpoint (group codes 11/21 missing or malformed)", c.X, c.Y)
+			}
+			majorRel := Point{mx, my}
+			ratio, okr := valFloatOK(e, 40)
+			if !okr {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) has no axis ratio (group code 40 missing or malformed)", c.X, c.Y)
+			}
 			if math.Hypot(majorRel.X, majorRel.Y) <= 0 || ratio <= 0 || ratio > 1 {
 				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) has a degenerate axis definition", c.X, c.Y)
 			}
-			start := valFloatDefault(e, 41, 0)
-			end := valFloatDefault(e, 42, 2*math.Pi)
+			// The sweep parameters are genuinely optional — a full ellipse may
+			// omit them — but a value the file carries and the loader cannot
+			// read is still an error: guessing would close a partial arc into
+			// the wrong ring.
+			start, err := valFloatOpt(e, 41, 0)
+			if err != nil {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) %v", c.X, c.Y, err)
+			}
+			end, err := valFloatOpt(e, 42, 2*math.Pi)
+			if err != nil {
+				return nil, fmt.Errorf("pnproute: dead-zone ellipse at (%.3f,%.3f) %v", c.X, c.Y, err)
+			}
 			// A partial ellipse arc is closed by the chord between its ends;
 			// that ring is still convex, and erring on the larger area is the
 			// safe direction for an obstacle. The ring validation below catches

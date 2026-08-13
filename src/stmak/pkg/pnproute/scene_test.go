@@ -210,6 +210,70 @@ func TestLoadDXF_Invalid(t *testing.T) {
 			body:    dxfFile(circleEnt("outer limits", 50, 50, 10)),
 			wantErr: "must be a closed polyline",
 		},
+
+		// Corrupted numeric values. Every geometry-bearing group code must be
+		// rejected when malformed, never defaulted to 0: a rectangle with one
+		// corrupted vertex X would otherwise load as a triangle guarding half
+		// the drawn area, and an ellipse axis (30,40) with a corrupted code 21
+		// would load as (30,0) — silently, in both cases.
+		{
+			name: "corrupted LWPOLYLINE vertex coordinate",
+			body: dxfFile(square("outer limits"),
+				"0\nLWPOLYLINE\n8\ndeadzones\n90\n4\n70\n1\n10\n0.0\n20\n0.0\n10\n1O\n20\n0.0\n10\n10.0\n20\n10.0\n10\n0.0\n20\n10.0\n"),
+			wantErr: "dead zone polyline vertex 1 has a malformed coordinate",
+		},
+		{
+			name: "corrupted POLYLINE vertex coordinate",
+			body: dxfFile(square("outer limits"),
+				"0\nPOLYLINE\n8\ndeadzones\n70\n1\n0\nVERTEX\n8\ndeadzones\n10\n10.0\n20\n1O.0\n"+
+					"0\nVERTEX\n8\ndeadzones\n10\n40.0\n20\n10.0\n0\nVERTEX\n8\ndeadzones\n10\n40.0\n20\n40.0\n0\nSEQEND\n"),
+			wantErr: "dead zone polyline vertex 0 has a missing or malformed coordinate",
+		},
+		{
+			name: "corrupted closed flag",
+			body: dxfFile(square("outer limits"),
+				"0\nLWPOLYLINE\n8\ndeadzones\n90\n3\n70\n1x\n10\n10.0\n20\n10.0\n10\n40.0\n20\n10.0\n10\n40.0\n20\n40.0\n"),
+			wantErr: "malformed flags value",
+		},
+		{
+			name: "corrupted vertex count",
+			body: dxfFile(square("outer limits"),
+				"0\nLWPOLYLINE\n8\ndeadzones\n90\nfour\n70\n1\n10\n10.0\n20\n10.0\n10\n40.0\n20\n10.0\n10\n40.0\n20\n40.0\n"),
+			wantErr: "for group code 90",
+		},
+		{
+			name:    "corrupted bulge value",
+			body:    dxfFile(square("outer limits"), withPair(lwPolyline("deadzones", true, 10, 10, 40, 10, 40, 40), 42, "0.5x")),
+			wantErr: "malformed bulge value",
+		},
+		{
+			name:    "corrupted extrusion value",
+			body:    dxfFile(square("outer limits"), withPair(circleEnt("deadzones", 50, 50, 10), 230, "-1..0")),
+			wantErr: "malformed extrusion value",
+		},
+		{
+			name:    "corrupted circle radius",
+			body:    dxfFile(square("outer limits"), "0\nCIRCLE\n8\ndeadzones\n10\n50\n20\n50\n40\n1O\n"),
+			wantErr: "dead-zone circle at (50.000,50.000) has no radius",
+		},
+		{
+			name: "corrupted ellipse major-axis endpoint",
+			body: dxfFile(square("outer limits"),
+				"0\nELLIPSE\n8\ndeadzones\n10\n50\n20\n50\n11\n30\n21\n4O\n40\n0.5\n41\n0\n42\n6.283185307179586\n"),
+			wantErr: "dead-zone ellipse at (50.000,50.000) has no major-axis endpoint",
+		},
+		{
+			name: "corrupted ellipse axis ratio",
+			body: dxfFile(square("outer limits"),
+				"0\nELLIPSE\n8\ndeadzones\n10\n50\n20\n50\n11\n30\n21\n40\n40\n0.5x\n41\n0\n42\n6.283185307179586\n"),
+			wantErr: "dead-zone ellipse at (50.000,50.000) has no axis ratio",
+		},
+		{
+			name: "corrupted ellipse sweep parameter",
+			body: dxfFile(square("outer limits"),
+				"0\nELLIPSE\n8\ndeadzones\n10\n50\n20\n50\n11\n30\n21\n40\n40\n0.5\n41\n0\n42\n6.2O\n"),
+			wantErr: "for group code 42",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

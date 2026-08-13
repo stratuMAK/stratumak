@@ -234,7 +234,9 @@ func assertRoute(t *testing.T, p *Planner, start, goal Point, r *Route) {
 		t.Fatalf("route length %.9f does not match its legs (%.9f)", r.Length, sum)
 	}
 	// Offsets and arc discretization are both conservative, so the achieved
-	// margin must reach the clearance — bar floating-point noise.
+	// margin must reach the clearance — bar floating-point noise. Plan leaves
+	// the metrics unset; Metrics fills them on demand.
+	p.Metrics(r)
 	if len(p.scene.Deadzones) > 0 && r.MinClear < p.clearance-1e-6 {
 		t.Fatalf("route comes within %.3f of a dead zone, clearance is %.3f", r.MinClear, p.clearance)
 	}
@@ -381,7 +383,7 @@ func TestPlanTrivialCases(t *testing.T) {
 	if len(route.Waypoints) != 2 || math.Abs(route.Length-start.dist(goal)) > 1e-9 {
 		t.Fatalf("clear line of sight produced %d waypoints (%.3f long)", len(route.Waypoints), route.Length)
 	}
-	if !math.IsInf(route.MinRadius, 1) {
+	if !math.IsInf(p.Metrics(route).MinRadius, 1) {
 		t.Fatalf("straight route reports a turn radius of %.3f", route.MinRadius)
 	}
 }
@@ -398,7 +400,7 @@ func TestPlanRoundsCorners(t *testing.T) {
 	if len(route.Waypoints) < 4 {
 		t.Fatalf("route around the zone has %d waypoints: %v", len(route.Waypoints), route.Waypoints)
 	}
-	if route.MinRadius < p.clearance-0.5 {
+	if p.Metrics(route).MinRadius < p.clearance-0.5 {
 		t.Fatalf("min turn radius %.3f is tighter than the clearance %.3f", route.MinRadius, p.clearance)
 	}
 }

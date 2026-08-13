@@ -64,13 +64,17 @@ func WithOffsetArcStep(rad float64) Option {
 	return func(o *plannerOptions) { o.offsetArcStep = rad }
 }
 
-// Route is a planned path between two points.
+// Route is a planned path between two points. [Planner.Plan] fills only what
+// the motion stream consumes — Waypoints and Length. The diagnostic metrics
+// (Curv, MinRadius, MinClear) stay zero until [Planner.Metrics] computes them:
+// the clearance scan behind them costs far more than the plan itself, so it is
+// paid only where the numbers are actually read.
 type Route struct {
 	Waypoints []Point   // polyline from start to goal, both included
 	Length    float64   // arc length
-	Curv      []float64 // per-waypoint curvature (1/radius), 0 at the ends
-	MinRadius float64   // smallest turn radius, the speed bottleneck; Inf if straight
-	MinClear  float64   // closest the route comes to any dead zone; Inf if there are none
+	Curv      []float64 // per-waypoint curvature (1/radius), 0 at the ends; set by [Planner.Metrics]
+	MinRadius float64   // smallest turn radius, the speed bottleneck; Inf if straight; set by [Planner.Metrics]
+	MinClear  float64   // closest the route comes to any dead zone; Inf if there are none; set by [Planner.Metrics]
 }
 
 // obstacle pairs a dead zone's offset edge polygon with an eroded core used for
@@ -409,10 +413,12 @@ func (p *Planner) Plan(start, goal Point) (*Route, error) {
 	return p.assembleRoute(path, goal), nil
 }
 
-// assembleRoute turns a raw waypoint sequence into a Route with its metrics.
-// A query point sitting on a graph node — or a start equal to the goal —
-// would enter the path twice; the repeat is dropped, because a zero-length leg
-// is not something the motion stream should ever see.
+// assembleRoute turns a raw waypoint sequence into a Route. A query point
+// sitting on a graph node — or a start equal to the goal — would enter the
+// path twice; the repeat is dropped, because a zero-length leg is not
+// something the motion stream should ever see. The diagnostic metrics are
+// left for [Planner.Metrics]: Plan runs at the start-job edge under the D13
+// latency budget, and the clearance scan is O(zones × segments × samples).
 func (p *Planner) assembleRoute(path []Point, goal Point) *Route {
 	kept := path[:1]
 	for _, pt := range path[1:] {
@@ -424,17 +430,25 @@ func (p *Planner) assembleRoute(path []Point, goal Point) *Route {
 		kept[len(kept)-1] = goal // keep the goal exact, node or not
 	}
 
-	curv := pathCurvatures(kept)
-	route := &Route{
-		Waypoints: kept,
-		Curv:      curv,
-		MinRadius: minRadius(curv),
-		MinClear:  pathClearance(kept, p.scene.Deadzones, p.opt.segSamples),
-	}
+	route := &Route{Waypoints: kept}
 	for i := 1; i < len(kept); i++ {
 		route.Length += kept[i-1].dist(kept[i])
 	}
 	return route
+}
+
+// Metrics computes r's diagnostic metrics in place — per-waypoint curvature,
+// the minimum turn radius and the clearance actually achieved — and returns r
+// for chaining. They are not computed by [Planner.Plan]: the clearance scan
+// costs O(zones × segments × samples) while the production consumer of a
+// route reads only the waypoints, so the price is paid only where the numbers
+// are wanted (diagnostics, tests). The route must come from this planner —
+// MinClear is measured against the planner's own dead zones.
+func (p *Planner) Metrics(r *Route) *Route {
+	r.Curv = pathCurvatures(r.Waypoints)
+	r.MinRadius = minRadius(r.Curv)
+	r.MinClear = pathClearance(r.Waypoints, p.scene.Deadzones, p.opt.segSamples)
+	return r
 }
 
 // pathClearance returns the closest the route comes to any true (un-offset)

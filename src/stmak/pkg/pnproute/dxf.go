@@ -130,12 +130,10 @@ func valString(e entity, code int) string {
 	return ""
 }
 
-func valFloat(e entity, code int) float64 { return valFloatDefault(e, code, 0) }
-
 // valFloatOK reads a float group code and reports whether it was present and
 // parseable. Geometry-defining codes (a circle's center, say) go through this
-// rather than valFloat: a default of 0 would silently relocate the shape to
-// the origin instead of failing.
+// rather than a defaulting accessor: a default of 0 would silently relocate
+// the shape to the origin instead of failing.
 func valFloatOK(e entity, code int) (float64, bool) {
 	for _, p := range e.pairs {
 		if p.code == code {
@@ -148,28 +146,34 @@ func valFloatOK(e entity, code int) (float64, bool) {
 	return 0, false
 }
 
-// valIntDefault reads an integer group code, returning def when absent or
-// malformed.
-func valIntDefault(e entity, code int, def int) int {
+// valFloatOpt reads a genuinely optional float group code: an absent code
+// yields def, but a present-yet-malformed value is still an error — optional
+// never licenses the loader to guess at a value the file does carry.
+func valFloatOpt(e entity, code int, def float64) (float64, error) {
 	for _, p := range e.pairs {
 		if p.code == code {
-			if v, err := strconv.Atoi(strings.TrimSpace(p.val)); err == nil {
-				return v
+			v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64)
+			if err != nil {
+				return 0, fmt.Errorf("has a malformed value %q for group code %d", p.val, code)
 			}
+			return v, nil
 		}
 	}
-	return def
+	return def, nil
 }
 
-func valFloatDefault(e entity, code int, def float64) float64 {
+// valIntOpt is valFloatOpt for integer group codes.
+func valIntOpt(e entity, code int, def int) (int, error) {
 	for _, p := range e.pairs {
 		if p.code == code {
-			if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil {
-				return v
+			v, err := strconv.Atoi(strings.TrimSpace(p.val))
+			if err != nil {
+				return 0, fmt.Errorf("has a malformed value %q for group code %d", p.val, code)
 			}
+			return v, nil
 		}
 	}
-	return def
+	return def, nil
 }
 
 // polylineVertices extracts the vertices of an LWPOLYLINE (10/20 pairs on the
@@ -179,24 +183,37 @@ func polylineVertices(e entity) (Polygon, bool, error) {
 	if err := checkPlanar(e); err != nil {
 		return nil, false, err
 	}
+	// A malformed closed flag must not read as "open": the flag decides whether
+	// the ring is a polygon at all, so a value the file carries but the loader
+	// cannot read is rejected, not guessed at.
 	closed := false
 	for _, p := range e.pairs {
 		if p.code == 70 {
-			if f, err := strconv.Atoi(strings.TrimSpace(p.val)); err == nil {
-				closed = f&1 == 1
+			f, err := strconv.Atoi(strings.TrimSpace(p.val))
+			if err != nil {
+				return nil, false, fmt.Errorf("has a malformed flags value %q (group code 70)", p.val)
 			}
+			closed = f&1 == 1
 		}
 	}
 	if e.typ == "POLYLINE" {
 		poly := make(Polygon, 0, len(e.verts))
-		for _, v := range e.verts {
+		for i, v := range e.verts {
 			if err := checkPlanar(v); err != nil {
 				return nil, false, err
 			}
 			if err := checkNoBulge(v.pairs); err != nil {
 				return nil, false, err
 			}
-			poly = append(poly, Point{valFloat(v, 10), valFloat(v, 20)})
+			// Coordinates are required, not defaulted: a missing or malformed
+			// value falling back to 0 would silently drag the vertex onto an
+			// axis and reshape the ring the zone guards.
+			x, okx := valFloatOK(v, 10)
+			y, oky := valFloatOK(v, 20)
+			if !okx || !oky {
+				return nil, false, fmt.Errorf("vertex %d has a missing or malformed coordinate (group codes 10/20)", i)
+			}
+			poly = append(poly, Point{x, y})
 		}
 		return poly, closed, nil
 	}
@@ -208,13 +225,18 @@ func polylineVertices(e entity) (Polygon, bool, error) {
 	var haveX bool
 	for _, p := range e.pairs {
 		switch p.code {
-		case 10:
-			x, _ = strconv.ParseFloat(strings.TrimSpace(p.val), 64)
-			haveX = true
-		case 20:
-			if haveX {
-				y, _ := strconv.ParseFloat(strings.TrimSpace(p.val), 64)
-				poly = append(poly, Point{x, y})
+		case 10, 20:
+			// Reject, don't guess: reading a corrupted coordinate as 0 would
+			// silently move this vertex onto an axis — a rectangle with one
+			// corrupted corner loads as a triangle guarding half the area.
+			v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64)
+			if err != nil {
+				return nil, false, fmt.Errorf("vertex %d has a malformed coordinate %q (group code %d)", len(poly), p.val, p.code)
+			}
+			if p.code == 10 {
+				x, haveX = v, true
+			} else if haveX {
+				poly = append(poly, Point{x, v})
 				haveX = false
 			}
 		}
@@ -222,8 +244,13 @@ func polylineVertices(e entity) (Polygon, bool, error) {
 	// An LWPOLYLINE declares its vertex count (group code 90). A mismatch
 	// means vertices were lost — a truncated or corrupt export — and a
 	// polygon smaller than declared is a dead zone that guards less than the
-	// drawing shows.
-	if want := valIntDefault(e, 90, -1); want >= 0 && want != len(poly) {
+	// drawing shows. The count is optional in principle, but one the file
+	// carries and the loader cannot read is an error like any other.
+	want, err := valIntOpt(e, 90, -1)
+	if err != nil {
+		return nil, false, err
+	}
+	if want >= 0 && want != len(poly) {
 		return nil, false, fmt.Errorf("declares %d vertices but carries %d (truncated or corrupt file?)", want, len(poly))
 	}
 	return poly, closed, nil
@@ -237,7 +264,13 @@ func checkNoBulge(pairs []pair) error {
 		if p.code != 42 {
 			continue
 		}
-		if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil && math.Abs(v) > 1e-12 {
+		// A malformed bulge must not read as "no bulge": if the value really
+		// was an arc, the straight chord silently shrinks the shape.
+		v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64)
+		if err != nil {
+			return fmt.Errorf("has a malformed bulge value %q (group code 42)", p.val)
+		}
+		if math.Abs(v) > 1e-12 {
 			return fmt.Errorf("has a bulge (arc) segment; explode arcs into straight segments before exporting")
 		}
 	}
@@ -264,9 +297,14 @@ func checkPlanar(e entity) error {
 		default:
 			continue
 		}
-		if v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64); err == nil {
-			*dst = v
+		// A malformed component must not fall back to the +Z default: if the
+		// entity really is in an OCS, its coordinates are not world coordinates
+		// and the shape would silently load somewhere else.
+		v, err := strconv.ParseFloat(strings.TrimSpace(p.val), 64)
+		if err != nil {
+			return fmt.Errorf("has a malformed extrusion value %q (group code %d)", p.val, p.code)
 		}
+		*dst = v
 	}
 	// Only the direction matters (any positive multiple of +Z leaves OCS equal
 	// to WCS), so normalize before comparing.
