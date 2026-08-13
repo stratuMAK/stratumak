@@ -116,6 +116,13 @@ type Result struct {
 
 	AxisMaxVel [MaxAxes]float64
 	AxisMaxAcc [MaxAxes]float64
+
+	// The pushed axis position limits (mm for linear axes). Kept so a caller
+	// that generates its own motion can refuse an out-of-range target with a
+	// descriptive error before dispatch — motion rejects such a command, but
+	// only with a bare command status.
+	AxisMinPos [MaxAxes]float64
+	AxisMaxPos [MaxAxes]float64
 }
 
 // Push reads the machine sections of ini and configures mc: trajectory limits
@@ -143,7 +150,7 @@ func Push(ini *inifile.IniFile, opts Options, mc MotionConfig) (*Result, error) 
 		if opts.AxisMask&(1<<a) == 0 {
 			continue
 		}
-		if err := pushAxis(ini, a, u, mc); err != nil {
+		if err := pushAxis(ini, a, u, mc, res); err != nil {
 			return nil, fmt.Errorf("axis %d config: %w", a, err)
 		}
 		// Cached for jog clamping and the canon's per-move vel/acc blending
@@ -376,7 +383,7 @@ func pushJoint(ini *inifile.IniFile, joint int32, u units, mc MotionConfig, res 
 	return linear, mc.JointActivate(joint)
 }
 
-func pushAxis(ini *inifile.IniFile, axis int32, u units, mc MotionConfig) error {
+func pushAxis(ini *inifile.IniFile, axis int32, u units, mc MotionConfig, res *Result) error {
 	section := AxisSection(axis)
 
 	// Linearity by axis letter/index: X,Y,Z,U,V,W are linear (length, scaled to
@@ -389,6 +396,8 @@ func pushAxis(ini *inifile.IniFile, axis int32, u units, mc MotionConfig) error 
 	if err := mc.SetAxisPositionLimits(axis, minLimit, maxLimit); err != nil {
 		return err
 	}
+	res.AxisMinPos[axis] = minLimit
+	res.AxisMaxPos[axis] = maxLimit
 
 	// Ext offset ratio (reduces available vel/acc for the axis proper)
 	avRatio := getFloatOr(ini, section, "OFFSET_AV_RATIO", 0)

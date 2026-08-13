@@ -232,10 +232,10 @@ MAX_ACCELERATION=100
 		t.Fatalf("parse: %v", err)
 	}
 	rec := newRec()
-	if err := pushAxis(ini, 2, inchUnits, rec); err != nil { // Z
+	if err := pushAxis(ini, 2, inchUnits, rec, &Result{}); err != nil { // Z
 		t.Fatalf("pushAxis Z: %v", err)
 	}
-	if err := pushAxis(ini, 3, inchUnits, rec); err != nil { // A
+	if err := pushAxis(ini, 3, inchUnits, rec, &Result{}); err != nil { // A
 		t.Fatalf("pushAxis A: %v", err)
 	}
 	// Z (linear) scaled
