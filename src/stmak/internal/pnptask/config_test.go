@@ -274,6 +274,37 @@ MOVE_HEIGHT = 15.0
 	}
 }
 
+// TestLoadConfigDefaultTrayDef checks the optional tray-id seed: present it is
+// the TRAYDEF id it names, absent it is 0, which is what tells the pin builder
+// to leave the selector alone.
+func TestLoadConfigDefaultTrayDef(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAYDEF_MATERIAL]
+ID = 3
+FIRST_X = 50.0
+FIRST_Y = 50.0
+
+[PNPTASK_TRAY_FIXED]
+ID = 10
+Z_PICK = 2.5
+DEFAULT_TRAYDEF = 3
+
+[PNPTASK_TRAY_SELECTED]
+ID = 11
+Z_PICK = 2.5
+`)
+	if len(cfg.Trays) != 2 {
+		t.Fatalf("trays = %+v, want 2", cfg.Trays)
+	}
+	if cfg.Trays[0].DefaultTrayDef != 3 {
+		t.Errorf("DEFAULT_TRAYDEF = %d, want 3", cfg.Trays[0].DefaultTrayDef)
+	}
+	if cfg.Trays[1].DefaultTrayDef != 0 {
+		t.Errorf("omitted DEFAULT_TRAYDEF = %d, want 0 (no seed)", cfg.Trays[1].DefaultTrayDef)
+	}
+}
+
 // TestLoadConfigNamedSectionOverlay checks that a namespaced section overlaying
 // a named global one stays *one* station: the two views are the same section,
 // and counting it twice would export a second set of HAL pins for it.
@@ -505,6 +536,36 @@ func TestLoadConfigErrors(t *testing.T) {
 		name: "no stations",
 		ini:  trajSection + pnptaskSection,
 		want: "no stations configured",
+	}, {
+		// A seed that names nothing would sit on the pin as an id no geometry
+		// matches, and only the first job against the station would say so.
+		name: "unknown DEFAULT_TRAYDEF",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+FIRST_X = 1.0
+FIRST_Y = 2.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+DEFAULT_TRAYDEF = 7
+`,
+		want: "DEFAULT_TRAYDEF = 7: no TRAYDEF has that ID",
+	}, {
+		name: "DEFAULT_TRAYDEF zero",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+FIRST_X = 1.0
+FIRST_Y = 2.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+DEFAULT_TRAYDEF = 0
+`,
+		want: "id 0 is reserved",
 	}, {
 		name: "duplicate id across kinds",
 		ini: trajSection + pnptaskSection + `

@@ -602,6 +602,35 @@ func TestTraySelectionPins(t *testing.T) {
 	}
 }
 
+// TestTrayDefaultTrayDef drives a station whose tray-id nobody wires:
+// DEFAULT_TRAYDEF seeds the pin, so the station comes up with geometry and is
+// usable without a selector. The fixture's own tray 10 has no default and is
+// the control — it stays geometry-less right next to it.
+func TestTrayDefaultTrayDef(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{ini: `
+[PNPTASK_TRAY_FIXED]
+ID = 11
+Z_PICK = 2.5
+DEFAULT_TRAYDEF = 1
+`})
+	// TRAYDEF 1 is the 10x4 grid: 40 empty slots, so empty and not full — the
+	// state a freshly selected geometry starts in, reached with nothing wired.
+	f.eventually("seeded station has geometry", func() bool {
+		return f.bit("tray.11.empty") && !f.bit("tray.11.full")
+	})
+	f.consistently("unseeded station still has none", func() bool {
+		return !f.bit("tray.10.empty") && !f.bit("tray.10.full")
+	})
+	w := f.stopped()
+	if w.trays[1].geom == nil || w.trays[1].trayID != 1 {
+		t.Errorf("seeded station: tray-id = %d, geom = %v; want 1 with geometry",
+			w.trays[1].trayID, w.trays[1].geom)
+	}
+	if w.trays[0].geom != nil {
+		t.Error("the station without a DEFAULT_TRAYDEF selected a geometry")
+	}
+}
+
 // TestTraySetFullFollowsProcessStep pins D8: set-full writes the *current*
 // process-step pin value into every slot, and "empty" is measured against the
 // step the PLC is asking about.

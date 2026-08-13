@@ -138,6 +138,16 @@ type TrayStation struct {
 	Section string
 	ID      uint32
 	ZPick   float64
+
+	// DefaultTrayDef is the TrayDef id the station's tray-id pin is seeded
+	// with, or 0 for none. A station that only ever holds one tray geometry
+	// has nothing to select at runtime, and without a seed its selector would
+	// sit at the unwired 0 — no geometry, every job refused — until someone
+	// wires a constant to it. Seeding the *pin* rather than defaulting the
+	// value keeps id 0 meaning "not told yet" (D17) for the stations that do
+	// select at runtime: a PLC dropping its selector must still park the
+	// station, not silently fall back to a default tray.
+	DefaultTrayDef uint32
 }
 
 // ProcStation is one [PNPTASK_PROC_x] section: a fixed process station.
@@ -472,6 +482,14 @@ const (
 func loadStations(r *iniReader, cfg *Config) error {
 	seen := make(map[uint32]string)
 
+	// loadTrayDefs has already run, so a DEFAULT_TRAYDEF can be checked
+	// against the definitions it names here rather than surfacing as an
+	// INVALID_TRAY_ID at the first job that touches the station.
+	knownDefs := make(map[uint32]bool, len(cfg.TrayDefs))
+	for _, d := range cfg.TrayDefs {
+		knownDefs[d.ID] = true
+	}
+
 	traySecs, err := sectionNames(r.ini, "PNPTASK_TRAY")
 	if err != nil {
 		return err
@@ -480,8 +498,16 @@ func loadStations(r *iniReader, cfg *Config) error {
 		s := TrayStation{Section: sec}
 		s.ID = r.stationID(sec, "ID")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
+		if r.has(sec, "DEFAULT_TRAYDEF") {
+			// stationID's checks are the right ones: the key carries a
+			// TRAYDEF id, and 0 is as reserved here as it is there.
+			s.DefaultTrayDef = r.stationID(sec, "DEFAULT_TRAYDEF")
+		}
 		if err := r.err; err != nil {
 			return err
+		}
+		if s.DefaultTrayDef != 0 && !knownDefs[s.DefaultTrayDef] {
+			return fmt.Errorf("[%s]DEFAULT_TRAYDEF = %d: no TRAYDEF has that ID", sec, s.DefaultTrayDef)
 		}
 		if prev, dup := seen[s.ID]; dup {
 			return fmt.Errorf("[%s]ID = %d: already used by [%s]", sec, s.ID, prev)

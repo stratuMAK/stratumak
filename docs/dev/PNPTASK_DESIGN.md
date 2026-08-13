@@ -278,6 +278,8 @@ MAX_UNPOPULATED = 3           # successive empty picks before tray declared empt
 [PNPTASK_TRAY_0]              # tray *station* — no X/Y of its own (D17)
 ID = 10                       # station id — unique across trays and procs
 Z_PICK = 2.5                  # base pick Z (D10); z-offset pin adds to this
+DEFAULT_TRAYDEF = 1           # optional: seeds the tray-id pin, for a station
+                              #   that only ever holds this one geometry
 
 [PNPTASK_PROC_0]              # process station
 ID = 20
@@ -294,10 +296,18 @@ MOVE_HEIGHT = 15.0
 ```
 
 Startup validation (fail the load, don't limp): duplicate ids; unknown
-`DIR_MODE`; every proc/wait coordinate and every TRAYDEF slot position
-(absolute machine coordinates, D17) must lie inside the eroded boundary and
-outside every offset dead zone **of every configured dead-zone file**;
-`CLEARANCE > BLEND_TOLERANCE`; tray-def grids with ROWS/COLS > 1 but no LAST.
+`DIR_MODE`; a `DEFAULT_TRAYDEF` that no TRAYDEF's ID matches; every proc/wait
+coordinate and every TRAYDEF slot position (absolute machine coordinates, D17)
+must lie inside the eroded boundary and outside every offset dead zone **of
+every configured dead-zone file**; `CLEARANCE > BLEND_TOLERANCE`; tray-def
+grids with ROWS/COLS > 1 but no LAST.
+
+`DEFAULT_TRAYDEF` is a **pin seed**, not a fallback value: it is written to the
+station's `tray-id` pin when the pins are exported (before the instance's `net`
+lines, so a wired selector overwrites it and an unwired one keeps it), exactly
+as a `halcmd setp` would. Defaulting the *value* instead would cost id 0 its
+meaning — a PLC dropping its selector has to park the station, not silently
+fall back to a tray (§7.1).
 
 ### 5.2 HAL pins and params
 
@@ -356,7 +366,7 @@ normalized to HAL-conventional dashes.
 
 | Pin | Type | Dir | Function |
 |-----|------|-----|----------|
-| `tray-id` | u32 | in | selects the TRAYDEF; change resets all slots to −1 (D17) |
+| `tray-id` | u32 | in | selects the TRAYDEF; change resets all slots to −1 (D17). Seeded from `DEFAULT_TRAYDEF` if the section has one, so an unwired selector can still name a geometry |
 | `set-full` | bit | in | edge: all slots := `process-step` pin value (D8) |
 | `set-empty` | bit | in | edge: all slots := −1 |
 | `z-offset` | float | in | added to Z_PICK (default 0.0) |

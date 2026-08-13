@@ -207,6 +207,43 @@ func TestPersistenceSurvivesTrayIDBlip(t *testing.T) {
 	second.eventually("restored full tray", func() bool { return second.bit("tray.10.full") })
 }
 
+// TestPersistenceSeededTrayRestores: a station whose tray-id comes from
+// DEFAULT_TRAYDEF restores its slots at boot instead of parking them pending.
+// The seed is on the pin before the loop starts, so restore compares the
+// record against a real tray-id rather than the "not told yet" 0 — which is
+// what makes the state of a station nobody wires survive a restart.
+func TestPersistenceSeededTrayRestores(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_seeded"
+	const seeded = `
+[PNPTASK_TRAY_FIXED]
+ID = 11
+Z_PICK = 2.5
+DEFAULT_TRAYDEF = 1
+`
+
+	first := newMachineFixtureOpts(t, fixtureOpts{
+		ini: seeded,
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.processStep.Set(5)
+		}),
+	})
+	first.eventually("seeded tray has geometry", func() bool { return first.bit("tray.11.empty") })
+	first.pulse(first.m.pins.trays[1].setFull)
+	first.eventually("tray full", func() bool { return first.bit("tray.11.full") })
+	first.m.Stop()
+
+	// Nothing touches the selector on the way back up.
+	second := newMachineFixtureOpts(t, fixtureOpts{
+		ini: seeded,
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.processStep.Set(5)
+		}),
+	})
+	second.eventually("restored full tray", func() bool { return second.bit("tray.11.full") })
+}
+
 // TestGeometrylessResetKeepsRecord: a PLC init sequence that pulses set-empty
 // before writing tray-id (a real boot ordering) must not destroy the record a
 // restart just parked as pending.

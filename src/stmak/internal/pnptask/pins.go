@@ -222,6 +222,17 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
 
+	// DEFAULT_TRAYDEF seeds the tray-id pin, exactly as a halcmd setp would.
+	// This runs before the instance's net lines, so it only ever decides what
+	// an *unwired* selector reads: linking the pin to a signal points it at
+	// that signal and the seed is gone, which is what a station that does
+	// select its geometry at runtime needs.
+	for i, t := range cfg.Trays {
+		if t.DefaultTrayDef != 0 {
+			p.trays[i].trayID.Set(t.DefaultTrayDef)
+		}
+	}
+
 	return p, nil
 }
 
