@@ -302,7 +302,7 @@ func TestTrayPickAndPlace(t *testing.T) {
 	}
 
 	// Places fill the first empty slot in the same order and stamp the step.
-	slot, ok := ts.freeSlot()
+	slot, ok := ts.freeSlot(-1)
 	if !ok || slot != 0 {
 		t.Fatalf("freeSlot = %d, %v; want slot 0", slot, ok)
 	}
@@ -314,13 +314,13 @@ func TestTrayPickAndPlace(t *testing.T) {
 	if s, _, ok := ts.nextPick(2, 0); !ok || s != 0 {
 		t.Errorf("step-2 pick = %d, %v; want slot 0", s, ok)
 	}
-	if s, ok := ts.freeSlot(); !ok || s != 1 {
+	if s, ok := ts.freeSlot(-1); !ok || s != 1 {
 		t.Errorf("freeSlot after one place = %d, %v; want slot 1", s, ok)
 	}
 
 	// Fill the rest: the tray reports full and offers no place.
 	for {
-		s, ok := ts.freeSlot()
+		s, ok := ts.freeSlot(-1)
 		if !ok {
 			break
 		}
@@ -423,7 +423,7 @@ func TestEndlessTray(t *testing.T) {
 	}
 	// A place is always possible, and does not record a state that would then
 	// have to be picked at a matching step.
-	if _, ok := ts.freeSlot(); !ok {
+	if _, ok := ts.freeSlot(-1); !ok {
 		t.Error("an endless tray refused a place")
 	}
 	ts.markPlaced(0, 7)
@@ -782,5 +782,45 @@ func TestManualOpenClearsHeldRecord(t *testing.T) {
 	w := f.stopped()
 	if w.held[0].present {
 		t.Error("the held-material record survived a manual open")
+	}
+}
+
+// TestMarkPlacedClearsProbing: material the module itself placed refutes a
+// probed-empty verdict. A tray latched empty by probing that stayed latched
+// through a place would refuse every later pick with TRAY_EMPTY — an endless
+// place-then-pick transfer station would be permanently dead.
+func TestMarkPlacedClearsProbing(t *testing.T) {
+	d := grid3x2()
+	d.MaxUnpopulated = 2
+	ts := newTestTray(t, d)
+	ts.setAll(0)
+
+	ts.markEmpty(0)
+	ts.markEmpty(1)
+	if !ts.probedEmpty || !ts.emptyFor(0) {
+		t.Fatalf("probing did not latch: misses = %d, probedEmpty = %v", ts.misses, ts.probedEmpty)
+	}
+
+	ts.markPlaced(0, 0)
+	if ts.probedEmpty || ts.misses != 0 {
+		t.Errorf("after a place: misses = %d, probedEmpty = %v, want 0/false", ts.misses, ts.probedEmpty)
+	}
+	if ts.emptyFor(0) {
+		t.Error("the tray still reports empty for the step that was just placed")
+	}
+	if slot, _, ok := ts.nextPick(0, 0); !ok || slot != 0 {
+		t.Errorf("nextPick = %d, %v; want the placed slot 0", slot, ok)
+	}
+
+	// The endless tray has no slot state, only the probing counter — the same
+	// rule applies: a place re-arms the retries.
+	et := newTestTray(t, TrayDef{ID: 2, First: pnproute.Point{X: 50, Y: 50}, MaxUnpopulated: 1, Dir: defaultDirMode})
+	et.markEmpty(0)
+	if !et.probedEmpty {
+		t.Fatal("endless tray did not latch probed-empty")
+	}
+	et.markPlaced(0, 3)
+	if et.probedEmpty || et.emptyFor(3) {
+		t.Error("the endless tray stayed probed-empty although material was placed into it")
 	}
 }

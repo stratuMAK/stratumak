@@ -48,6 +48,10 @@ type job struct {
 	skipPick bool
 	swap     bool
 
+	// pickedSlot is the tray slot the job's own pick emptied, −1 until a tray
+	// pick succeeds. A tray-to-itself place excludes it (see placeToTray).
+	pickedSlot int
+
 	// planMax is the longest route plan this job has run, published on the
 	// plan-time pin (D13). Kept on the job because that is the span it
 	// describes — one job's worst case, not the module's since startup.
@@ -130,6 +134,14 @@ func (c *control) runJob() error {
 		"origin", j.originID, "dest", j.destID, "process_step", j.step,
 		"deadzone_select", j.deadzone)
 
+	// A held record restored from persistence must be verified against the
+	// gripper feedback before anything trusts it. The countdown normally runs
+	// in step(), but a start-job arriving inside the settle window reaches this
+	// point first — and validation below would read the unverified record,
+	// skipPick on a part that fell out during the downtime, and place a phantom.
+	if err := c.settleRestoredHeld(); err != nil {
+		return err
+	}
 	if err := c.validateJob(j); err != nil {
 		return err
 	}
@@ -160,10 +172,11 @@ func (c *control) latchJob() *job {
 	// case goes with the previous job.
 	c.m.pins.planTime.Set(0)
 	return &job{
-		step:     int64(c.in.processStep),
-		originID: c.in.originID,
-		destID:   c.in.destID,
-		deadzone: c.in.deadzoneSelect,
+		step:       int64(c.in.processStep),
+		originID:   c.in.originID,
+		destID:     c.in.destID,
+		deadzone:   c.in.deadzoneSelect,
+		pickedSlot: -1,
 	}
 }
 

@@ -42,6 +42,7 @@ const (
 	errAutoDisabled    errorID = 20 // start-job while auto-enable is low
 	errWaitAborted     errorID = 21 // busy-wait aborted by auto-enable going low
 	errNoFreePicker    errorID = 22 // a pick or swap needs a free picker, none is
+	errPickerOpenFail  errorID = 23 // close withdrawn but opened never came back
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -70,6 +71,7 @@ var errorNames = map[errorID]string{
 	errAutoDisabled:          "AUTO_DISABLED",
 	errWaitAborted:           "WAIT_ABORTED",
 	errNoFreePicker:          "NO_FREE_PICKER",
+	errPickerOpenFail:        "PICKER_OPEN_FAILED",
 }
 
 func (id errorID) String() string {

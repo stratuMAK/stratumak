@@ -111,6 +111,9 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 			"move target (%v, %v, %v) is not finite — check the z-offset and picker offset inputs",
 			to.X, to.Y, to.Z)
 	}
+	if err := c.checkTargetInLimits(to); err != nil {
+		return err
+	}
 	vel, acc, moved := c.moveLimits(c.cmdPos, to, velReq, accReq)
 	if !moved {
 		return nil
@@ -132,6 +135,27 @@ func (c *control) line(to motctl.Pose, velReq, accReq float64) error {
 }
 
 func isFinite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+// checkTargetInLimits refuses a target outside the pushed axis position limits
+// before it is dispatched. Motion would reject the command anyway (inRange),
+// but only with a bare command status — this names the axis, the value and the
+// limits, and points at the inputs that can push a taught position out of
+// range: the geometric validation at load runs in the taught frame, while what
+// is commanded is target − picker offset with the live z-offset added, so a
+// picker's offset can carry a station near the envelope edge past a soft limit
+// for that picker only, intermittently by which picker happens to be free.
+func (c *control) checkTargetInLimits(to motctl.Pose) error {
+	vals := [3]float64{to.X, to.Y, to.Z}
+	for i, letter := range [3]string{"X", "Y", "Z"} {
+		min, max := c.m.limits.AxisMinPos[i], c.m.limits.AxisMaxPos[i]
+		if vals[i] < min-moveFuzz || vals[i] > max+moveFuzz {
+			return faultf(errMotionError,
+				"move target %s = %.3f mm is outside the axis limits [%.3f, %.3f] — check the station coordinates against the picker x/y-offset params and the z-offset inputs",
+				letter, vals[i], min, max)
+		}
+	}
+	return nil
+}
 
 // moveLimits blends the requested velocity and acceleration against the per-axis
 // maxima, so no axis is asked for more than its own limit while the axes stay

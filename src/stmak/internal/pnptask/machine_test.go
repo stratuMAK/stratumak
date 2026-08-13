@@ -5,12 +5,14 @@ package pnptask
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
 
@@ -1070,5 +1072,104 @@ func TestEnsureHomed(t *testing.T) {
 	}
 	if len(mot.callList()) != 0 {
 		t.Errorf("ensureHomed re-homed an already homed machine: %v", mot.callList())
+	}
+}
+
+// setSelfDisabled simulates motion tripping on its own — a following error, an
+// amp fault, a hard limit: status reports disabled without this module having
+// commanded it.
+func (f *fakeMotion) setSelfDisabled() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.st.Enabled = 0
+	f.st.MotionState = motstat.MOTION_DISABLED
+}
+
+// TestMotionSelfDisableDetected: motion disabling itself while the machine is
+// on must drop machine-is-on (the pin the PLC interlocks on) and latch
+// MOTION_ERROR now — not whenever the next command happens to be refused.
+// machine-on then has to be cycled, exactly like after an estop.
+func TestMotionSelfDisableDetected(t *testing.T) {
+	f := newMachineFixture(t)
+	f.machineOn()
+
+	f.mot.setSelfDisabled()
+	f.eventually("machine-is-on to drop", func() bool { return !f.bit("machine-is-on") })
+	f.eventually("MOTION_ERROR to latch", func() bool {
+		return f.bit("error") && errorID(f.get("error-id")) == errMotionError
+	})
+
+	// The machine-on level is still high from before the trip; that is not a
+	// request to start moving again.
+	f.consistently("the stale level must not re-enable", func() bool {
+		return !f.bit("machine-is-on")
+	})
+
+	// Cycling machine-on is.
+	f.setBit(f.m.pins.machineOn, false)
+	time.Sleep(10 * pollInterval)
+	f.setBit(f.m.pins.machineOn, true)
+	f.eventually("the machine back on after the cycle", func() bool { return f.bit("machine-is-on") })
+}
+
+// TestCommOutageDropsLatchedPresses: an operator press made while the motion
+// controller is unreachable must not fire when comm recovers — the machine
+// looked dead when the button was pushed, and a gripper snapping shut minutes
+// later is the same surprise the estop teardown already rules out.
+func TestCommOutageDropsLatchedPresses(t *testing.T) {
+	f := newMachineFixture(t)
+	// Manual mode (auto-enable unwired reads low); manual picker control works
+	// with the machine off, which is exactly what makes a press during an
+	// outage plausible.
+	f.mot.setStatusErr(errors.New("rt side gone"))
+	f.eventually("the outage to be declared", func() bool {
+		return f.bit("error") && errorID(f.get("error-id")) == errMotionError
+	})
+
+	f.press(f.m.pins.pickers[0].manualClose)
+
+	f.mot.setStatusErr(nil)
+	f.consistently("the stale press must not fire on recovery", func() bool {
+		return !f.bit("picker.0.close")
+	})
+
+	// A fresh press after recovery works: the outage dropped the press, not the
+	// control.
+	f.press(f.m.pins.pickers[0].manualClose)
+	f.eventually("a fresh press to close the picker", func() bool { return f.bit("picker.0.close") })
+}
+
+// TestCheckTargetInLimits: a target outside the pushed axis position limits is
+// refused before dispatch with a fault that names the axis — motion would
+// reject the command anyway, but only with a bare command status.
+func TestCheckTargetInLimits(t *testing.T) {
+	limits := &motsetup.Result{}
+	limits.AxisMinPos = [motsetup.MaxAxes]float64{0, -10, 0}
+	limits.AxisMaxPos = [motsetup.MaxAxes]float64{600, 500, 80}
+	c := &control{m: &pnptaskModule{limits: limits}}
+
+	if err := c.checkTargetInLimits(motctl.Pose{X: 300, Y: -10, Z: 80}); err != nil {
+		t.Fatalf("an in-limit target was refused: %v", err)
+	}
+	cases := []struct {
+		pose   motctl.Pose
+		letter string
+	}{
+		{motctl.Pose{X: -40, Y: 100, Z: 30}, "X"},
+		{motctl.Pose{X: 300, Y: 520, Z: 30}, "Y"},
+		{motctl.Pose{X: 300, Y: 100, Z: -5}, "Z"},
+	}
+	for _, tc := range cases {
+		err := c.checkTargetInLimits(tc.pose)
+		if err == nil {
+			t.Fatalf("target %+v passed the limit check", tc.pose)
+		}
+		var pf *pnpFault
+		if !errors.As(err, &pf) || pf.id != errMotionError {
+			t.Fatalf("target %+v: fault = %v, want MOTION_ERROR", tc.pose, err)
+		}
+		if !strings.Contains(pf.msg, tc.letter+" = ") {
+			t.Errorf("target %+v: message %q does not name axis %s", tc.pose, pf.msg, tc.letter)
+		}
 	}
 }

@@ -52,6 +52,16 @@ var (
 	// no joint reports Homing; a single snapshot landing in that window is a
 	// group handover, not a finished sequence.
 	homingSettleTicks = 5
+
+	// motionDisabledTicks is how many consecutive fresh status reads must show
+	// motion disabled, while this module believes it enabled, before that
+	// counts as a self-disable (following error, amp fault, hard limit, an
+	// external enable drop — all of which latch in motmod). enable() commits
+	// c.enabled only on a *published* Enabled=1, so a single honest sample
+	// would already be trustworthy; the debounce is the same defense in depth
+	// milltask's monitor keeps (monitor.go checkMotionEnabled), for 30 ms of
+	// detection latency.
+	motionDisabledDebounce = 3
 )
 
 // motionControl is the motctl subset this module commands. It is an interface,
@@ -181,6 +191,11 @@ type control struct {
 	enabled  bool // motion is enabled and machine-is-on is set
 	enabling bool // enable() is waiting for motion to confirm; see abortCheck
 
+	// motionDisabled counts consecutive fresh status reads showing motion
+	// disabled while enabled is still true — the self-disable watchdog
+	// (see motionDisabledDebounce and motionSelfDisabled).
+	motionDisabled int
+
 	// Jog state per configured axis: which way each axis is currently being
 	// jogged (0 = not jogging), so a held pin does not re-issue JogCont every
 	// cycle and a released one aborts exactly once.
@@ -301,6 +316,28 @@ func (c *control) verifyRestoredHeld() {
 				"picker", n, "station", station)
 		}
 	}
+}
+
+// settleRestoredHeld runs any pending restored-held validation to completion
+// before the caller may trust the held records. The countdown normally ticks in
+// step(), but a job blocks step() for its whole duration — a start-job arriving
+// inside the settle window would otherwise validate against records nothing has
+// verified yet (runJob is the caller). The wait is bounded by the settle ticks
+// scheduled at start and still runs the abort check every cycle.
+func (c *control) settleRestoredHeld() error {
+	for c.heldVerify > 0 {
+		if !c.tick() {
+			return errStopping
+		}
+		if err := c.abortCheck(); err != nil {
+			return err
+		}
+		c.heldVerify--
+		if c.heldVerify == 0 {
+			c.verifyRestoredHeld()
+		}
+	}
+	return nil
 }
 
 // shutdown asks the loop to finish and waits for it. Safe to call on a control
@@ -456,6 +493,16 @@ func (c *control) sample() {
 	} else {
 		c.commErrors = 0
 		c.status = st
+		// The self-disable watchdog counts only fresh reads: a failed read
+		// re-serves the last snapshot and proves nothing either way. It counts
+		// only while this module believes the machine is on — its own disable
+		// paths reset the counter by clearing enabled.
+		switch {
+		case c.enabled && st.Enabled == 0:
+			c.motionDisabled++
+		default:
+			c.motionDisabled = 0
+		}
 	}
 	// A failed read keeps serving the last good snapshot for a bounded number
 	// of cycles (statusStaleTicks) instead of invalidating it outright: a
@@ -582,6 +629,10 @@ func (c *control) updateMachine() error {
 		c.m.logger.Info("pnptask: estop cleared, machine-on must be cycled to enable")
 	}
 
+	if err := c.checkMotionEnabled(); err != nil {
+		return err
+	}
+
 	switch requested := take(&c.rise.machineOn); {
 	case requested && !c.enabled:
 		err := c.enable()
@@ -682,6 +733,27 @@ func (c *control) disable(reason string) {
 	c.m.logger.Info("pnptask: machine off", "reason", reason)
 }
 
+// checkMotionEnabled is the self-disable watchdog: motion reporting itself
+// disabled while this module still believes the machine is on means motion
+// tripped on its own — a following error, an amp fault, a hard limit, an
+// external enable drop, all of which latch in motmod (milltask's monitor
+// watches for the same thing, monitor.go checkMotionEnabled). The machine is
+// taken off the books immediately: machine-is-on is the pin the PLC interlocks
+// on, and leaving it high would advertise a machine that no longer exists —
+// while a running job would sit in a timeout-free motion wait until something
+// unrelated ended it. It runs from updateMachine for an idle machine and from
+// abortCheck for one inside a wait. machine-on has to be cycled afterwards,
+// exactly like after an estop: the level still high from before the trip is
+// not a request to start moving again.
+func (c *control) checkMotionEnabled() error {
+	if !c.enabled || c.motionDisabled < motionDisabledDebounce {
+		return nil
+	}
+	c.disable("motion disabled itself")
+	return faultf(errMotionError,
+		"motion disabled itself (following error, amp fault, hard limit or an external enable drop) — cycle machine-on once the cause is fixed")
+}
+
 // motionLost handles a motion controller that stopped answering. There is
 // nothing left to command — Disable would go to the same dead interface — so
 // this only publishes the fault and drops machine-is-on, which is what the PLC
@@ -691,6 +763,20 @@ func (c *control) motionLost() {
 		c.enabled = false
 		c.clearJogState()
 		c.m.pins.machineIsOn.Set(false)
+	}
+	// Presses made during the outage die with it, every cycle it lasts:
+	// step() returns right after this call, so no consumer runs while comm is
+	// down, but sample() keeps latching edges — and an operator's manual-close
+	// on a machine that appears dead must not fire the gripper shut minutes
+	// later when comm happens to recover (same rule as enterEstop's latch
+	// clearing; error-reset survives for the same reason it survives there).
+	c.rise.machineOn = false
+	c.rise.home = false
+	for i := range c.rise.pickerOpen {
+		c.rise.pickerOpen[i], c.rise.pickerClose[i] = false, false
+	}
+	for i := range c.trayPending {
+		c.trayPending[i] = nil
 	}
 	c.raise(faultf(errMotionError, "motion controller not responding (%d consecutive status reads failed)", c.commErrors))
 }
@@ -1143,6 +1229,9 @@ func (c *control) abortCheck() error {
 	if (c.enabled || c.enabling) && !c.in.machineOn {
 		c.disable("machine-on dropped")
 		return faultf(errMachineOff, "machine-on dropped")
+	}
+	if err := c.checkMotionEnabled(); err != nil {
+		return err
 	}
 	if c.commErrors >= commFailureTicks {
 		return faultf(errMotionError, "motion controller stopped responding")

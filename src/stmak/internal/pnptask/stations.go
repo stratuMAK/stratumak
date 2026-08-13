@@ -437,7 +437,13 @@ func (t *trayState) nextPick(step int64, from int) (slot, next int, ok bool) {
 // same order as picks: it is the order the tray is meant to be worked through,
 // and a place that ignored it would scatter material across a tray a later pick
 // then travels back and forth over.
-func (t *trayState) freeSlot() (slot int, ok bool) {
+//
+// exclude names a linear slot index the place must not use, or -1: a
+// tray-to-itself job passes the slot its own pick just emptied, because
+// putting the part back where it came from is a successful-looking physical
+// no-op — a PLC compacting a tray with such jobs would loop on it forever.
+// Endless trays have only the one position, so there is nothing to exclude.
+func (t *trayState) freeSlot(exclude int) (slot int, ok bool) {
 	if t.geom == nil {
 		return 0, false
 	}
@@ -445,7 +451,7 @@ func (t *trayState) freeSlot() (slot int, ok bool) {
 		return 0, true
 	}
 	for _, s := range t.geom.order {
-		if t.slots[s] == slotEmpty {
+		if t.slots[s] == slotEmpty && s != exclude {
 			return s, true
 		}
 	}
@@ -475,11 +481,16 @@ func (t *trayState) markPicked(slot int) {
 	t.dirty = true
 }
 
-// markPlaced records material placed into a slot at the job's process step.
+// markPlaced records material placed into a slot at the job's process step. The
+// probing state clears with it: material demonstrably went in, so a tray that
+// probing declared empty is empty no longer — a latch that survived the place
+// would keep refusing picks from a tray the module itself just refilled, which
+// permanently deadlocks a place-then-pick transfer station.
 func (t *trayState) markPlaced(slot int, step int64) {
 	if t.geom != nil && !t.endless() {
 		t.slots[slot] = step
 	}
+	t.misses, t.probedEmpty = 0, false
 	t.dirty = true
 }
 

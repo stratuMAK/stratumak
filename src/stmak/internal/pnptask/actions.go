@@ -65,9 +65,14 @@ func (c *control) openAndCheck(pk int) error {
 // waitPickerOpen waits for a picker commanded open to report it, bounded by the
 // pick settle time (§7.4). It is the probing retry's exit: a picker that will not
 // open cannot be sent down onto the next candidate slot.
+//
+// The failure is PICKER_OPEN_FAILED, not PLACE_FAILED: both callers are on the
+// pick side (the probing retry, the empty-fixture recovery), where "opened
+// stayed low" is a jammed gripper at the origin — a PLC keyed on the place-side
+// id would send the operator to inspect the wrong station.
 func (c *control) waitPickerOpen(pk int) error {
 	c.m.pins.pickers[pk].close.Set(false)
-	return c.waitUntil(errPlaceFailed, settleTimeout(c.m.pins.pickSettleTime.Get()),
+	return c.waitUntil(errPickerOpenFail, settleTimeout(c.m.pins.pickSettleTime.Get()),
 		fmt.Sprintf("picker %d to open", pk), func() bool { return c.in.pickerOpened[pk] })
 }
 
@@ -216,6 +221,7 @@ func (c *control) pickFromTray(j *job, pk int) error {
 		if grip == gripHolding {
 			picker.missing.Set(false)
 			t.markPicked(slot)
+			j.pickedSlot = slot
 			c.m.world.setHeld(pk, j.origin.id, false, j.step, true)
 			c.m.logger.Debug("pnptask: picked from tray",
 				"station", t.cfg.ID, "slot", slot, "picker", pk)
@@ -331,11 +337,23 @@ func (c *control) removeFromProc(j *job, pk int, s *procState, swap bool) error 
 // ---------------------------------------------------------------------------
 
 // placeToTray puts the held material into the first free slot.
+//
+// A tray-to-itself job must not use the slot its own pick just emptied: putting
+// the part back where it came from completes "successfully" having moved
+// nothing, and a PLC compacting a tray with such jobs would loop on that no-op
+// forever. The exclusion cannot starve the place — the pick only empties a slot
+// that held material, so the free slot checkDest saw is necessarily a different
+// one; the TRAY_FULL below is a defensive branch, not a reachable outcome of a
+// validated job.
 func (c *control) placeToTray(j *job, pk int) error {
 	t := j.dest.tray
-	slot, ok := t.freeSlot()
+	exclude := -1
+	if j.originID == j.destID {
+		exclude = j.pickedSlot
+	}
+	slot, ok := t.freeSlot(exclude)
 	if !ok {
-		return faultf(errTrayFull, "station %d has no free slot", t.cfg.ID)
+		return faultf(errTrayFull, "station %d has no free slot besides the one this job emptied", t.cfg.ID)
 	}
 	if err := c.approach(j, pk, t.slotPos(slot), t.cfg.ZPick+t.pins.zOffset.Get()); err != nil {
 		return err

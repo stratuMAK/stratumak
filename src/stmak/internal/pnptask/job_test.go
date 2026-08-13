@@ -1161,3 +1161,72 @@ func TestJobPublishesPlanTime(t *testing.T) {
 		t.Errorf("plan-time = %v after a job that never planned, want 0", got)
 	}
 }
+
+// TestTrayToItselfMovesThePart: a tray-to-itself job must not put the part back
+// into the slot its own pick just emptied — that is a successful-looking
+// physical no-op a compacting PLC would loop on forever. The place lands in the
+// next free slot instead.
+func TestTrayToItselfMovesThePart(t *testing.T) {
+	f := newJobFixtureSeeded(t, func(w *world) {
+		w.setHeld(0, 20, false, 0, true)
+	})
+	f.selectTray(1)
+
+	// The seeded held material goes into the empty tray first: the first slot
+	// of the DIR_MODE order.
+	f.runJob(20, 10, 0)
+	f.requireOK("placing the held material into the tray")
+
+	// The only material now sits in the first slot of the order and every slot
+	// after it is free — the shape where an unexcluded freeSlot returns the
+	// very slot the pick empties.
+	f.runJob(10, 10, 0)
+	f.requireOK("the tray-to-itself job")
+
+	w := f.stopped()
+	tr := w.trays[0]
+	first, second := tr.geom.order[0], tr.geom.order[1]
+	if tr.slots[first] != slotEmpty {
+		t.Errorf("slot %d still holds %d — the part went back where it came from", first, tr.slots[first])
+	}
+	if tr.slots[second] != 0 {
+		t.Errorf("slot %d = %d, want the moved part (step 0)", second, tr.slots[second])
+	}
+}
+
+// TestJobGatedOnRestoredHeldVerification: a start-job arriving inside the
+// restored-held settle window must wait for the grip verification instead of
+// trusting the unverified record — a part lost in the downtime would otherwise
+// be "placed" as a phantom, marking a station occupied by nothing.
+func TestJobGatedOnRestoredHeldVerification(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{
+		prep: func(_ *testing.T, m *pnptaskModule) {
+			// A held record as a restore would leave it: present, flagged for
+			// verification, the close output re-driven.
+			m.world.setHeld(0, 20, false, 0, true)
+			m.world.restoredHeld[0] = true
+			m.pins.pickers[0].close.Set(true)
+			// A long settle keeps the verification window open while the test
+			// commands its job into it.
+			m.pins.pickSettleTime.Set(float64(1000) * pollInterval.Seconds())
+			m.pins.posSettleTime.Set(0)
+			m.pins.releaseTime.Set(0)
+			m.pins.autoEnable.Set(true)
+		},
+	})
+	// The pre-armed miss judges the re-driven close as "gripped nothing": the
+	// part is gone.
+	sim := newMachineSimOpts(f, func(s *machineSim) { s.missesLeft = 1 })
+	jf := &jobFixture{machineFixture: f, sim: sim}
+	jf.homed()
+	jf.mot.setPos(100, 100, 60)
+
+	// Straight into the settle window: put the "held" material back into its
+	// own free station — the job an unverified record would run as a phantom
+	// place, setting has-material on an empty fixture.
+	jf.runJob(20, 20, 0)
+	jf.requireError("a job on a phantom record", errProcNoMaterial)
+	if jf.bit("proc.20.has-material") {
+		t.Error("the phantom part was placed — has-material is set")
+	}
+}
