@@ -221,6 +221,80 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+// TestLoadConfigNamedSections checks that a station section may be named
+// instead of numbered. The name is only ever echoed in diagnostics — every
+// reference between sections, the HAL pins and the persisted state all key off
+// the ID — so this pins that the loader carries the name as written and that
+// numeric names still work as plain names: no ordering, no gap-free run.
+func TestLoadConfigNamedSections(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAYDEF_MATERIAL]
+ID = 1
+ROWS = 4
+COLS = 10
+FIRST_X = 120.0
+FIRST_Y = 400.0
+LAST_X = 210.0
+LAST_Y = 430.0
+
+[PNPTASK_TRAY_MATERIAL_IN]
+ID = 10
+Z_PICK = 2.5
+
+[PNPTASK_TRAY_7]
+ID = 11
+Z_PICK = 2.5
+
+[PNPTASK_PROC_COATER]
+ID = 20
+X = 300.0
+Y = 200.0
+Z_PICK = 5.0
+
+[PNPTASK_ROUTE_IN_TO_COATER]
+ORIGIN = 10
+DEST = 20
+MOVE_HEIGHT = 15.0
+`)
+	if len(cfg.TrayDefs) != 1 || cfg.TrayDefs[0].Section != "PNPTASK_TRAYDEF_MATERIAL" {
+		t.Errorf("traydefs = %+v, want one named PNPTASK_TRAYDEF_MATERIAL", cfg.TrayDefs)
+	}
+	// A numeric name alongside a word one, neither of them index 0.
+	if len(cfg.Trays) != 2 ||
+		cfg.Trays[0].Section != "PNPTASK_TRAY_MATERIAL_IN" || cfg.Trays[0].ID != 10 ||
+		cfg.Trays[1].Section != "PNPTASK_TRAY_7" || cfg.Trays[1].ID != 11 {
+		t.Errorf("trays = %+v", cfg.Trays)
+	}
+	if len(cfg.Procs) != 1 || cfg.Procs[0].Section != "PNPTASK_PROC_COATER" || cfg.Procs[0].ID != 20 {
+		t.Errorf("procs = %+v", cfg.Procs)
+	}
+	if len(cfg.Routes) != 1 || cfg.Routes[0].Section != "PNPTASK_ROUTE_IN_TO_COATER" {
+		t.Errorf("routes = %+v", cfg.Routes)
+	}
+}
+
+// TestLoadConfigNamedSectionOverlay checks that a namespaced section overlaying
+// a named global one stays *one* station: the two views are the same section,
+// and counting it twice would export a second set of HAL pins for it.
+func TestLoadConfigNamedSectionOverlay(t *testing.T) {
+	setupPaths(t)
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAY_MATERIAL]
+ID = 10
+Z_PICK = 2.5
+
+[pnp.task:PNPTASK_TRAY_MATERIAL]
+Z_PICK = 4.0
+`)
+	if len(cfg.Trays) != 1 {
+		t.Fatalf("trays = %+v, want the overlay to stay one station", cfg.Trays)
+	}
+	if cfg.Trays[0].ZPick != 4.0 {
+		t.Errorf("Z_PICK = %g, want the namespaced 4.0 to win", cfg.Trays[0].ZPick)
+	}
+}
+
 // TestLoadConfigDefaults pins the values an INI that omits every optional key
 // gets — a timeout that silently defaults to "forever" would turn a stuck
 // fixture into a hung job.
@@ -472,17 +546,13 @@ Z_PICK = 2.5
 `,
 		want: "id 0 is reserved",
 	}, {
-		name: "section numbering gap",
+		name: "empty section name",
 		ini: trajSection + pnptaskSection + `
-[PNPTASK_TRAY_0]
+[PNPTASK_TRAY_]
 ID = 10
 Z_PICK = 2.5
-
-[PNPTASK_TRAY_2]
-ID = 11
-Z_PICK = 2.5
 `,
-		want: "[PNPTASK_TRAY_1] is missing",
+		want: "section name is empty",
 	}, {
 		name: "unknown DIR_MODE",
 		ini: trajSection + pnptaskSection + `
@@ -563,27 +633,15 @@ Z_PICK = 2.5
 `,
 		want: "must not define LAST_X/LAST_Y",
 	}, {
-		name: "non-numeric section index",
+		// A section name is never parsed, but a header that came out wrong is
+		// still a header the config did not mean to write.
+		name: "malformed section name",
 		ini: trajSection + pnptaskSection + `
-[PNPTASK_TRAY_O]
+[PNPTASK_TRAY_MATERIAL IN]
 ID = 10
 Z_PICK = 2.5
 `,
-		want: `section index "O" is not a number`,
-	}, {
-		// "_00" parses to index 0 but is re-read under the canonical "_0"
-		// name, so its content would silently vanish behind the real _0.
-		name: "aliased section index",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_TRAY_0]
-ID = 10
-Z_PICK = 2.5
-
-[PNPTASK_TRAY_00]
-ID = 11
-Z_PICK = 2.5
-`,
-		want: "not in canonical form",
+		want: `section name "MATERIAL IN" may only contain`,
 	}, {
 		name: "collapsed grid axis",
 		ini: trajSection + pnptaskSection + `

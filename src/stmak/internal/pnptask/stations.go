@@ -90,7 +90,7 @@ func (a SlotAxis) other() SlotAxis {
 	return AxisRow
 }
 
-// DirMode is a parsed [PNPTASK_TRAYDEF_n]DIR_MODE: the order slots are visited
+// DirMode is a parsed [PNPTASK_TRAYDEF_x]DIR_MODE: the order slots are visited
 // in when a pick looks for material or a place looks for a free slot.
 //
 // The syntax is two axis tokens, each an axis letter (C or R) followed by a

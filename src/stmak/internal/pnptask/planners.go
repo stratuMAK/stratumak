@@ -131,7 +131,7 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 		where := fmt.Sprintf("dead-zone file %d (%s)", i, s.files[i])
 
 		for _, p := range cfg.Procs {
-			sec := fmt.Sprintf("PNPTASK_PROC_%d", p.Index)
+			sec := p.Section
 			if err := pl.CheckPoint(p.Pos); err != nil {
 				return fmt.Errorf("[%s]X/Y: %s: %w", sec, where, err)
 			}
@@ -143,7 +143,7 @@ func (s *plannerSet) checkPositions(cfg *Config) error {
 		}
 
 		for _, d := range cfg.TrayDefs {
-			sec := fmt.Sprintf("PNPTASK_TRAYDEF_%d", d.Index)
+			sec := d.Section
 			if !d.HasLast {
 				if err := pl.CheckPoint(d.First); err != nil {
 					return fmt.Errorf("[%s]FIRST_X/FIRST_Y: %s: %w", sec, where, err)

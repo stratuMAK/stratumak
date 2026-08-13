@@ -91,12 +91,12 @@ type Config struct {
 	Routes   []RouteOverride
 }
 
-// TrayDef is one [PNPTASK_TRAYDEF_n] section: the *geometry* of a tray, picked
+// TrayDef is one [PNPTASK_TRAYDEF_x] section: the *geometry* of a tray, picked
 // at runtime by a tray station's tray-id pin (D17). Tray geometry is expressed
 // in absolute machine coordinates, so a tray station carries no X/Y of its own.
 type TrayDef struct {
-	Index int    // n in [PNPTASK_TRAYDEF_n], for diagnostics
-	ID    uint32 // value a tray-id pin must carry to select this definition
+	Section string // section name as written, for diagnostics
+	ID      uint32 // value a tray-id pin must carry to select this definition
 
 	// Rows/Cols is the grid size. Both zero means an endless tray: a single
 	// position at First whose fill state is only ever known by probing.
@@ -131,21 +131,21 @@ type TrayDef struct {
 // position, no slot bookkeeping, emptiness only ever established by probing.
 func (d TrayDef) Endless() bool { return d.Rows == 0 && d.Cols == 0 }
 
-// TrayStation is one [PNPTASK_TRAY_n] section: a station that holds a tray.
+// TrayStation is one [PNPTASK_TRAY_x] section: a station that holds a tray.
 // Its geometry comes from whichever TrayDef its tray-id pin selects, so all it
 // contributes itself is the pick height and its HAL pins.
 type TrayStation struct {
-	Index int
-	ID    uint32
-	ZPick float64
+	Section string
+	ID      uint32
+	ZPick   float64
 }
 
-// ProcStation is one [PNPTASK_PROC_n] section: a fixed process station.
+// ProcStation is one [PNPTASK_PROC_x] section: a fixed process station.
 type ProcStation struct {
-	Index int
-	ID    uint32
-	Pos   pnproute.Point
-	ZPick float64
+	Section string
+	ID      uint32
+	Pos     pnproute.Point
+	ZPick   float64
 
 	// Wait is where a job waits out a busy station (D15). Without one the job
 	// waits where it stands, at movement height.
@@ -153,11 +153,11 @@ type ProcStation struct {
 	HasWait bool
 }
 
-// RouteOverride is one [PNPTASK_ROUTE_n] section: a movement height that
+// RouteOverride is one [PNPTASK_ROUTE_x] section: a movement height that
 // applies to travel between one specific station pair instead of the global
 // MOVE_HEIGHT.
 type RouteOverride struct {
-	Index      int
+	Section    string
 	Origin     uint32
 	Dest       uint32
 	MoveHeight float64
@@ -338,16 +338,15 @@ func deadzoneFileValues(ini *inifile.IniFile) []string {
 	return nil
 }
 
-// loadTrayDefs parses every [PNPTASK_TRAYDEF_n] section.
+// loadTrayDefs parses every [PNPTASK_TRAYDEF_x] section.
 func loadTrayDefs(r *iniReader, cfg *Config) error {
-	idxs, err := sectionIndices(r.ini, "PNPTASK_TRAYDEF")
+	secs, err := sectionNames(r.ini, "PNPTASK_TRAYDEF")
 	if err != nil {
 		return err
 	}
-	seen := make(map[uint32]int, len(idxs))
-	for _, n := range idxs {
-		sec := fmt.Sprintf("PNPTASK_TRAYDEF_%d", n)
-		d := TrayDef{Index: n}
+	seen := make(map[uint32]string, len(secs))
+	for _, sec := range secs {
+		d := TrayDef{Section: sec}
 		d.ID = r.stationID(sec, "ID")
 		d.Rows = r.integer(sec, "ROWS", defaultTrayRowsAndCols)
 		d.Cols = r.integer(sec, "COLS", defaultTrayRowsAndCols)
@@ -373,9 +372,9 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 		}
 
 		if prev, dup := seen[d.ID]; dup {
-			return fmt.Errorf("[%s]ID = %d: already used by [PNPTASK_TRAYDEF_%d]", sec, d.ID, prev)
+			return fmt.Errorf("[%s]ID = %d: already used by [%s]", sec, d.ID, prev)
 		}
-		seen[d.ID] = n
+		seen[d.ID] = sec
 
 		if d.Rows < 0 || d.Cols < 0 {
 			return fmt.Errorf("[%s]: ROWS (%d) and COLS (%d) must not be negative", sec, d.Rows, d.Cols)
@@ -466,20 +465,19 @@ const (
 	gridAxisEpsilon = 1e-6
 )
 
-// loadStations parses [PNPTASK_TRAY_n] and [PNPTASK_PROC_n]. Station ids share
+// loadStations parses [PNPTASK_TRAY_x] and [PNPTASK_PROC_x]. Station ids share
 // one namespace across both kinds: origin-id and dest-id name a station without
 // saying which kind it is, so a duplicate would make the action selection of
 // §7.4 ambiguous.
 func loadStations(r *iniReader, cfg *Config) error {
 	seen := make(map[uint32]string)
 
-	trayIdxs, err := sectionIndices(r.ini, "PNPTASK_TRAY")
+	traySecs, err := sectionNames(r.ini, "PNPTASK_TRAY")
 	if err != nil {
 		return err
 	}
-	for _, n := range trayIdxs {
-		sec := fmt.Sprintf("PNPTASK_TRAY_%d", n)
-		s := TrayStation{Index: n}
+	for _, sec := range traySecs {
+		s := TrayStation{Section: sec}
 		s.ID = r.stationID(sec, "ID")
 		s.ZPick = r.lengthReq(sec, "Z_PICK")
 		if err := r.err; err != nil {
@@ -492,13 +490,12 @@ func loadStations(r *iniReader, cfg *Config) error {
 		cfg.Trays = append(cfg.Trays, s)
 	}
 
-	procIdxs, err := sectionIndices(r.ini, "PNPTASK_PROC")
+	procSecs, err := sectionNames(r.ini, "PNPTASK_PROC")
 	if err != nil {
 		return err
 	}
-	for _, n := range procIdxs {
-		sec := fmt.Sprintf("PNPTASK_PROC_%d", n)
-		s := ProcStation{Index: n}
+	for _, sec := range procSecs {
+		s := ProcStation{Section: sec}
 		s.ID = r.stationID(sec, "ID")
 		s.Pos.X = r.lengthReq(sec, "X")
 		s.Pos.Y = r.lengthReq(sec, "Y")
@@ -523,14 +520,14 @@ func loadStations(r *iniReader, cfg *Config) error {
 	}
 
 	if len(cfg.Trays) == 0 && len(cfg.Procs) == 0 {
-		return fmt.Errorf("no stations configured: at least one [PNPTASK_TRAY_n] or [PNPTASK_PROC_n] section is required")
+		return fmt.Errorf("no stations configured: at least one [PNPTASK_TRAY_x] or [PNPTASK_PROC_x] section is required")
 	}
 	return nil
 }
 
-// loadRoutes parses [PNPTASK_ROUTE_n], the per-pair movement-height overrides.
+// loadRoutes parses [PNPTASK_ROUTE_x], the per-pair movement-height overrides.
 func loadRoutes(r *iniReader, cfg *Config) error {
-	idxs, err := sectionIndices(r.ini, "PNPTASK_ROUTE")
+	secs, err := sectionNames(r.ini, "PNPTASK_ROUTE")
 	if err != nil {
 		return err
 	}
@@ -542,10 +539,9 @@ func loadRoutes(r *iniReader, cfg *Config) error {
 		known[s.ID] = true
 	}
 	type pair struct{ origin, dest uint32 }
-	seen := make(map[pair]int, len(idxs))
-	for _, n := range idxs {
-		sec := fmt.Sprintf("PNPTASK_ROUTE_%d", n)
-		o := RouteOverride{Index: n}
+	seen := make(map[pair]string, len(secs))
+	for _, sec := range secs {
+		o := RouteOverride{Section: sec}
 		o.Origin = r.stationID(sec, "ORIGIN")
 		o.Dest = r.stationID(sec, "DEST")
 		o.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
@@ -560,65 +556,80 @@ func loadRoutes(r *iniReader, cfg *Config) error {
 		}
 		p := pair{o.Origin, o.Dest}
 		if prev, dup := seen[p]; dup {
-			return fmt.Errorf("[%s]: route %d -> %d already overridden by [PNPTASK_ROUTE_%d]",
+			return fmt.Errorf("[%s]: route %d -> %d already overridden by [%s]",
 				sec, o.Origin, o.Dest, prev)
 		}
-		seen[p] = n
+		seen[p] = sec
 		cfg.Routes = append(cfg.Routes, o)
 	}
 	return nil
 }
 
-// sectionIndices returns the n of every [<prefix>_n] section present, in
-// ascending order. The indices must form a gap-free run from 0: a config that
-// numbers its stations 0, 1, 3 has almost certainly lost section 2 to a typo,
-// and silently running with one station fewer than the file describes is the
-// kind of quiet loss this loader exists to prevent.
+// sectionNames returns the base name of every [<prefix>_<name>] section
+// present, in the order the file lists them.
+//
+// The <name> is free-form and carries no meaning: nothing downstream keys off
+// it. A station is identified by its ID everywhere it matters — origin-id and
+// dest-id name one, the route overrides reference one, the HAL pins are named
+// after one and the persisted slot state is filed under one — and a tray
+// definition is selected by the value on a tray-id pin, again its ID. So the
+// name is purely how the section reads, and a config is free to write
+// [PNPTASK_TRAY_MATERIAL] instead of [PNPTASK_TRAY_0] and describe the machine
+// in the machine's own words. Numeric names still work; they are just names,
+// no longer indices, so they need not start at 0 or run without gaps.
 //
 // A prefix is matched against the *base* section name, so a namespaced
-// [pnp.task:PNPTASK_TRAY_0] counts as tray 0 exactly like the global section
-// it overlays.
-func sectionIndices(ini *inifile.IniFile, prefix string) ([]int, error) {
+// [pnp.task:PNPTASK_TRAY_0] is the same tray as the global section it
+// overlays and is returned once, under the base name every value lookup uses.
+func sectionNames(ini *inifile.IniFile, prefix string) ([]string, error) {
 	nsPrefix := ""
 	if ns := ini.Namespace(); ns != "" {
 		nsPrefix = ns + ":"
 	}
-	found := make(map[int]bool)
+	var names []string
+	seen := make(map[string]bool)
 	for _, s := range ini.Sections {
 		name := s.Name
 		if nsPrefix != "" {
 			name = strings.TrimPrefix(name, nsPrefix)
 		}
-		rest, ok := strings.CutPrefix(name, prefix+"_")
-		if !ok || rest == "" {
+		suffix, ok := strings.CutPrefix(name, prefix+"_")
+		if !ok {
 			continue
 		}
-		// The prefixes are distinct enough that nothing else lands here —
-		// "PNPTASK_TRAYDEF_0" does not start with "PNPTASK_TRAY_" — so a
-		// suffix that is not a number is a typo, and skipping it quietly would
-		// drop the whole section.
-		n, err := strconv.Atoi(rest)
-		if err != nil || n < 0 {
-			return nil, fmt.Errorf("[%s]: section index %q is not a number", s.Name, rest)
+		// The prefixes stay distinct now that names are free-form —
+		// "PNPTASK_TRAYDEF_x" does not start with "PNPTASK_TRAY_" — so
+		// anything landing here was meant to be a section of this kind, and
+		// skipping a malformed one quietly would drop the whole section.
+		if err := checkSectionName(s.Name, suffix); err != nil {
+			return nil, err
 		}
-		// Only the canonical spelling counts: "00" or "+1" would parse to an
-		// index that the loaders re-read under the canonical name, so the
-		// aliased section's own content would silently vanish — and two
-		// sections aliasing one index would drop one of them entirely.
-		if rest != strconv.Itoa(n) {
-			return nil, fmt.Errorf("[%s]: section index %q is not in canonical form, write [%s_%d]", s.Name, rest, prefix, n)
+		if seen[name] {
+			continue
 		}
-		found[n] = true
+		seen[name] = true
+		names = append(names, name)
 	}
-	idxs := make([]int, 0, len(found))
-	for n := 0; n < len(found); n++ {
-		if !found[n] {
-			return nil, fmt.Errorf("[%s_*]: sections must be numbered from 0 without gaps ([%s_%d] is missing)",
-				prefix, prefix, n)
-		}
-		idxs = append(idxs, n)
+	return names, nil
+}
+
+// checkSectionName rejects a [<prefix>_<name>] whose name is not a plain
+// identifier. The name is never parsed, only echoed in diagnostics, so the
+// check is about catching a mistyped section header rather than about the
+// value: an empty name is a dangling underscore, and a space or a bracket in
+// there is a section header that did not come out the way it was meant to.
+func checkSectionName(section, name string) error {
+	if name == "" {
+		return fmt.Errorf("[%s]: section name is empty", section)
 	}
-	return idxs, nil
+	for _, c := range name {
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '_', c == '-':
+		default:
+			return fmt.Errorf("[%s]: section name %q may only contain letters, digits, '_' and '-'", section, name)
+		}
+	}
+	return nil
 }
 
 // parseCoordinates turns [TRAJ]COORDINATES into the axis list the jog pins are

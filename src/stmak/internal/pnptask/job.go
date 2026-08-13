@@ -373,7 +373,7 @@ func (c *control) checkDest(j *job) error {
 }
 
 // moveHeight is the travel height for this station pair: the global MOVE_HEIGHT
-// unless a [PNPTASK_ROUTE_n] override names the pair (§7.3).
+// unless a [PNPTASK_ROUTE_x] override names the pair (§7.3).
 func (c *control) moveHeight(origin, dest uint32) float64 {
 	for _, r := range c.m.cfg.Routes {
 		if r.Origin == origin && r.Dest == dest {

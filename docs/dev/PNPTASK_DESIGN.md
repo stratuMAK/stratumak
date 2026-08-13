@@ -233,6 +233,18 @@ push exactly as milltask does (units: machine units in INI, **mm internally**).
 `[KINS]JOINTS` is **required** here rather than defaulted: it decides which
 joints are activated and which have to report homed.
 
+The suffix of a `[PNPTASK_TRAYDEF_x]`, `[PNPTASK_TRAY_x]`, `[PNPTASK_PROC_x]`
+or `[PNPTASK_ROUTE_x]` section is a **free-form name**, not an index — letters,
+digits, `_` and `-`. Nothing downstream reads it: a station is identified by
+its `ID` everywhere it matters (`origin-id`/`dest-id`, the route overrides, the
+HAL pin names, the persisted slot state) and a tray definition is selected by
+the value a `tray-id` pin carries. So a config may write
+`[PNPTASK_TRAYDEF_MATERIAL]` or `[PNPTASK_PROC_COATER]` and describe the
+machine in the machine's own words; the name is what the diagnostics quote
+back. Numeric names still work — they are just names now, so they need not
+start at 0 or run without gaps. The example below stays numbered because the
+rest of this document refers to its stations by number.
+
 ```ini
 [PNPTASK]
 AUTOHOME = 1                  # home unhomed joints on first job
@@ -380,8 +392,8 @@ matching `--enable-pnptask-go` configure flag (default yes),
   `picker=2` would otherwise surface much later as a missing HAL pin.
 - Config parsing is strict too — a malformed number, a missing required key or
   an unreadable `DEADZONE_FILE` fails the load rather than defaulting. Beyond
-  the checks §5.1 lists, section indices must run gap-free from 0 (a lost
-  `[PNPTASK_TRAY_1]` is a typo, not a config with one station fewer), station
+  the checks §5.1 lists, a section name must be a plain identifier (a header
+  that came out as `[PNPTASK_TRAY_MATERIAL IN]` is a typo, not a station), the
   ids are unique across trays *and* procs, id 0 is refused (an unconnected u32
   pin reads 0), `LAST_X`/`LAST_Y` and `WAIT_X`/`WAIT_Y` are all-or-nothing,
   `ROWS`/`COLS` must both be 0 or both positive, a route override must name
