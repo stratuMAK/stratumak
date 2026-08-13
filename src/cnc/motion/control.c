@@ -1959,32 +1959,22 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
         **  3) kins module misbehavior
         **  4) poorly tuned servo motion (not detected by ferror settings)
         **
-        ** Non-identity kins can often be switched to joint mode to recover
-        ** using the '$' shortcut provided by the gui.
-        ** Guis may not provide a means to recover for identity kins except
-        ** by unhoming/jogging/rehoming.  (For trivkins, using kinstype=both
-        ** can be used as a workaround).
-        **
+        ** Recovery differs by kins type — non-identity kins can usually be
+        ** switched to joint mode ('$' in most guis), identity kins often need
+        ** unhoming/jogging/rehoming (or trivkins kinstype=both).  C milltask
+        ** logged that advice as a second operator message per trip; it belongs
+        ** in the manual, not on the panel, so only the trip itself is reported
+        ** here — one message, naming the joint and the limit it exceeded.
         */
 	    for (joint_num = 0; joint_num < inst->config->numJoints; joint_num++) {
 	        if (joint_limit[joint_num][0] == 1) {
                     joint = &inst->joints[joint_num];
                     stmak_log_errorf(inst->log, inst->name, _("Exceeded NEGATIVE soft limit (%.5f) on joint %d"),
                                   joint->min_pos_limit, joint_num);
-                    if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                        stmak_log_errorf(inst->log, inst->name, _("Joint must be unhomed, jogged into limits, rehomed"));
-                    } else {
-                        stmak_log_errorf(inst->log, inst->name, _("Hint: switch to joint mode to jog off soft limit"));
-                    }
                 } else if (joint_limit[joint_num][1] == 1) {
                     joint = &inst->joints[joint_num];
                     stmak_log_errorf(inst->log, inst->name, _("Exceeded POSITIVE soft limit (%.5f) on joint %d"),
                                   joint->max_pos_limit,joint_num);
-                    if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                        stmak_log_errorf(inst->log, inst->name, _("Joint must be unhomed, jogged into limits, rehomed"));
-                    } else {
-                        stmak_log_errorf(inst->log, inst->name, _("Hint: switch to joint mode to jog off soft limit"));
-                    }
                 }
 	    }
 	    SET_MOTION_ERROR_FLAG(1);
