@@ -111,7 +111,7 @@ func (l *Launcher) doCleanup() {
 	// already not cycling, in which case waiting longer changes nothing and the
 	// late stops should still run.
 	if l.halComp != nil {
-		if err := halcmd.WaitCycleAdvance(halcmd.GetMaxCycleCount()); err != nil {
+		if err := halcmd.WaitCycleAdvance(); err != nil {
 			l.logger.Debug("cycle advance before late stop did not complete", "err", err)
 		}
 	}

@@ -84,7 +84,6 @@ func halSave(_ string) ([]string, error)    { return nil, ErrNoCGO }
 func halSetLogRing(_ unsafe.Pointer)        {}
 func halClearMsgHandler()                   {}
 func halDelFunctsByComp(_ int) (int, error) { return 0, ErrNoCGO }
-func halGetMaxCycleCount() uint32           { return 0 }
-func halWaitCycleAdvance(_ uint32) error    { return ErrNoCGO }
+func halWaitCycleAdvance() error            { return ErrNoCGO }
 func halFindCompID(_ string) int            { return 0 }
 func rtapiIsRealtime() bool                 { return false }

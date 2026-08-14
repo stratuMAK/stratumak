@@ -323,6 +323,10 @@ static void cmod_call_late_stop(cmod_t *m) {
     m->LateStop(m);
 }
 
+static int cmod_has_late_stop(cmod_t *m) {
+    return m->LateStop != NULL;
+}
+
 static void cmod_call_destroy(cmod_t *m) {
     if (!m->Destroy) return;
     m->Destroy(m);
@@ -790,6 +794,13 @@ func cmodStop(cm *cModule) {
 // cmodLateStop calls LateStop() on a single cmod.
 func cmodLateStop(cm *cModule) {
 	C.cmod_call_late_stop(cm.mod)
+}
+
+// cmodHasLateStop reports whether a cmod registered a LateStop() phase.  The
+// unload path uses it to skip the cycle wait ahead of a phase that does not
+// exist.
+func cmodHasLateStop(cm *cModule) bool {
+	return C.cmod_has_late_stop(cm.mod) != 0
 }
 
 // cmodDestroy calls Destroy() on a single cmod.

@@ -2373,53 +2373,73 @@ int hal_del_functs_by_comp_ex(int comp_id, char *err, int errlen)
     return removed;
 }
 
-/* hal_get_max_cycle_count returns the maximum cycle_count across all threads.
-   Used for unload synchronization: wait for this value to advance. */
-unsigned int hal_get_max_cycle_count(void)
+/* hal_wait_cycle_advance waits until every thread has completed a full cycle
+   that STARTED after this call was entered.  Each thread is measured against
+   its own counter: a single shared baseline (the old interface took the
+   maximum across threads) can never be reached by any thread slower than the
+   fastest one, so in a multi-rate configuration the wait would always time
+   out and the guarantee silently degraded to a fixed sleep.
+
+   cycle_count is incremented at the END of a cycle, so an advance of one may
+   be a cycle that was already in flight — and had already run its functions —
+   when the caller's writes landed.  Only the second increment proves a cycle
+   that observed those writes has run to completion, hence the +2.
+
+   The timeout is sized from the slowest thread (two of its periods plus a
+   scheduling margin) with a 100ms floor.  A thread that disappears from the
+   thread list while waiting is complete by definition: deleted threads run
+   nothing.  Returns 0 on success, -ETIMEDOUT otherwise. */
+#define HAL_CYCLE_WAIT_MAX_THREADS 32
+
+int hal_wait_cycle_advance(void)
 {
     hal_thread_t *thread;
-    unsigned int max = 0;
+    hal_thread_t *waited[HAL_CYCLE_WAIT_MAX_THREADS];
+    unsigned int base[HAL_CYCLE_WAIT_MAX_THREADS];
+    long long timeout_us = 100000; /* floor: 100ms */
+    long long elapsed_us = 0;
+    int n = 0, j;
 
     if (hal_data == 0) return 0;
 
     rtapi_mutex_get(&(hal_data->mutex));
     thread = hal_data->thread_list_ptr;
-    while (thread != NULL) {
-	unsigned int c = __sync_fetch_and_add(&thread->cycle_count, 0);
-	if (c > max) max = c;
+    while (thread != NULL && n < HAL_CYCLE_WAIT_MAX_THREADS) {
+	long long need_us = 2 * (thread->period / 1000) + 100000;
+	waited[n] = thread;
+	base[n] = __sync_fetch_and_add(&thread->cycle_count, 0);
+	n++;
+	if (need_us > timeout_us) timeout_us = need_us;
 	thread = thread->next_ptr;
     }
     rtapi_mutex_give(&(hal_data->mutex));
-    return max;
-}
 
-/* hal_wait_cycle_advance waits until all threads have advanced their
-   cycle_count past the given baseline.  Returns 0 on success, -ETIMEDOUT
-   if 100ms passes without all threads advancing. */
-int hal_wait_cycle_advance(unsigned int baseline)
-{
-    hal_thread_t *thread;
-    int i;
-
-    if (hal_data == 0) return 0;
-
-    for (i = 0; i < 1000; i++) {  /* up to 100ms in 100us steps */
+    for (;;) {
 	int all_advanced = 1;
 	rtapi_mutex_get(&(hal_data->mutex));
-	thread = hal_data->thread_list_ptr;
-	while (thread != NULL) {
-	    unsigned int c = __sync_fetch_and_add(&thread->cycle_count, 0);
-	    if (c <= baseline) {
+	for (j = 0; j < n; j++) {
+	    int present = 0;
+	    thread = hal_data->thread_list_ptr;
+	    while (thread != NULL) {
+		if (thread == waited[j]) {
+		    present = 1;
+		    break;
+		}
+		thread = thread->next_ptr;
+	    }
+	    if (!present) continue;
+	    unsigned int c = __sync_fetch_and_add(&waited[j]->cycle_count, 0);
+	    if (c - base[j] < 2) {  /* unsigned, wrap-safe */
 		all_advanced = 0;
 		break;
 	    }
-	    thread = thread->next_ptr;
 	}
 	rtapi_mutex_give(&(hal_data->mutex));
 	if (all_advanced) return 0;
+	if (elapsed_us >= timeout_us) return -ETIMEDOUT;
 	usleep(100);
+	elapsed_us += 100;
     }
-    return -ETIMEDOUT;
 }
 
 int hal_del_funct_from_thread(const char *funct_name, const char *thread_name)

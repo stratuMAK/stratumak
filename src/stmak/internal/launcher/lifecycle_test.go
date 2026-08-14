@@ -482,6 +482,34 @@ func TestLateStopGoModules_RunsAfterEveryStop(t *testing.T) {
 	}
 }
 
+// TestUnloadGoModule_RunsLateStop pins the runtime-unload half of the second
+// stop phase. The shutdown path in doCleanup got the LateStop wiring when the
+// phase was introduced, but a REST unload takes unloadGoModule/unloadCModule
+// instead — and skipping the phase there deactivates the EtherCAT master with
+// every slave still in OP, the exact failure LateStop exists to prevent.
+func TestUnloadGoModule_RunsLateStop(t *testing.T) {
+	var log []string
+	var mu sync.Mutex
+
+	transport := &lateRecorder{phaseRecorder{log: &log, mu: &mu, name: "bus"}}
+
+	l := testLauncher()
+	l.goModules = append(l.goModules, &goModule{mod: transport, name: "bus"})
+
+	if err := l.unloadGoModule("bus"); err != nil {
+		t.Fatalf("unloadGoModule: %v", err)
+	}
+
+	mu.Lock()
+	got := strings.Join(log, ",")
+	mu.Unlock()
+
+	want := "bus:stop,bus:latestop,bus:destroy"
+	if got != want {
+		t.Errorf("phase order = %q, want %q", got, want)
+	}
+}
+
 // TestLateStopGoModules_SkipsNonImplementors keeps LateStop optional: a module
 // that does not implement stmak.LateStopper must simply be passed over, so
 // adding the phase cannot disturb existing modules.
