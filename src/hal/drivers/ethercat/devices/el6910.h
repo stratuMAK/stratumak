@@ -69,16 +69,12 @@
 /** @brief Module parameter ID: HAL pin name for a standard output bit. */
 #define LCEC_EL6910_PARAM_STDOUT_NAME LCEC_EL1918_LOGIC_PARAM_STDOUT_NAME
 
-/**
- * @brief Pre-initialise the EL6910 logic terminal slave.
- *
- * Counts module parameters to determine the total PDO entry count before
- * the EtherCAT master is started.
- *
- * @param slave Pointer to the lcec slave structure.
- * @return 0 on success, negative errno on failure.
+/*
+ * There is no lcec_el6910_preinit: pre-initialisation is independent of the
+ * FSoE object base, so the typelist row uses lcec_el1918_logic_preinit
+ * directly — the same do-not-duplicate reasoning as the parameter aliases
+ * above.
  */
-int lcec_el6910_preinit(struct lcec_slave *slave);
 
 /**
  * @brief Initialize the EL6910 TwinSAFE logic terminal slave.

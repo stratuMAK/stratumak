@@ -181,13 +181,15 @@ static int export_std_pins(struct lcec_slave *slave, int pid, stmak_hal_bit_t **
  * @brief Shared pre-initialisation for the TwinSAFE logic terminals.
  *
  * Counts the configured FSoE slaves and standard I/O bits to derive the PDO
- * entry count. Independent of the FSoE object base, so both devices use it
- * unchanged.
+ * entry count. Independent of the FSoE object base, so both devices use this
+ * one exported function directly in their typelist rows — unlike init, there
+ * is no per-device constant to bind, so a second entry point would only be a
+ * body to keep in sync.
  *
  * @param slave Pointer to the lcec slave structure.
  * @return 0 on success, negative errno on failure.
  */
-static int fslogic_preinit(struct lcec_slave *slave) {
+int lcec_el1918_logic_preinit(struct lcec_slave *slave) {
   lcec_master_t *master = slave->master;
   lcec_slave_modparam_t *p;
   int index, stdin_count, stdout_count;
@@ -366,16 +368,8 @@ static int fslogic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_
   return 0;
 }
 
-int lcec_el1918_logic_preinit(struct lcec_slave *slave) {
-  return fslogic_preinit(slave);
-}
-
 int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
   return fslogic_init(comp_id, slave, pdo_entry_regs, LCEC_EL1918_LOGIC_FSOE_OFS);
-}
-
-int lcec_el6910_preinit(struct lcec_slave *slave) {
-  return fslogic_preinit(slave);
 }
 
 int lcec_el6910_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
