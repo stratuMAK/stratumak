@@ -84,7 +84,7 @@ typedef struct {
   int fsoe_count;                     /**< Number of configured FsoE slaves */
 
   stmak_hal_u32_t *control;                 /**< Control word written to the EL6900 (0xF200:01) */
-  stmak_hal_u32_t *state;                   /**< State word read from the EL6900 (0xF100:01, bits 0-1) */
+  stmak_hal_u32_t *state;                   /**< Safety project state read from the EL6900 (0xF100:01, 3 bit enum) */
   stmak_hal_bit_t *login_active;            /**< TRUE when at least one FsoE connection is active */
   stmak_hal_bit_t *input_size_missmatch;    /**< TRUE when input PDO size mismatch detected */
   stmak_hal_bit_t *output_size_missmatch;   /**< TRUE when output PDO size mismatch detected */
@@ -359,7 +359,8 @@ void lcec_el6900_read(struct lcec_slave *slave, long period) {
   struct lcec_slave *fsoe_slave;
   const LCEC_CONF_FSOE_T *fsoeConf;
 
-  *(hal_data->state) = EC_READ_U8(&pd[hal_data->state_os]) & 0x03;
+  // 0xf100:01 is a 3 bit enum: 0=OFFLINE 1=RUN 2=STOP 3=START 4=RESTORE 7=FAULT
+  *(hal_data->state) = EC_READ_U8(&pd[hal_data->state_os]) & 0x07;
   *(hal_data->login_active) = EC_READ_BIT(&pd[hal_data->login_active_os], hal_data->login_active_bp);
   *(hal_data->input_size_missmatch) = EC_READ_BIT(&pd[hal_data->input_size_missmatch_os], hal_data->input_size_missmatch_bp);
   *(hal_data->output_size_missmatch) = EC_READ_BIT(&pd[hal_data->output_size_missmatch_os], hal_data->output_size_missmatch_bp);
