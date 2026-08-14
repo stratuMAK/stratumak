@@ -1525,14 +1525,9 @@ func halDelFunctsByComp(compID int) (int, error) {
 	return int(ret), nil
 }
 
-// halGetMaxCycleCount returns the maximum cycle_count across all threads.
-func halGetMaxCycleCount() uint32 {
-	return uint32(C.hal_get_max_cycle_count())
-}
-
-// halWaitCycleAdvance waits for all threads to advance past baseline.
-func halWaitCycleAdvance(baseline uint32) error {
-	ret := C.hal_wait_cycle_advance(C.uint(baseline))
+// halWaitCycleAdvance waits for every thread to complete a full cycle.
+func halWaitCycleAdvance() error {
+	ret := C.hal_wait_cycle_advance()
 	return halError(int(ret), "hal_wait_cycle_advance", "")
 }
 

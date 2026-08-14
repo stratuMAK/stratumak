@@ -23,6 +23,7 @@ LCEC_RT_SRCS := \
     $(LCEC_DIR)/devices/el1xxx.c \
     $(LCEC_DIR)/devices/el1252.c \
     $(LCEC_DIR)/devices/el1859.c \
+    $(LCEC_DIR)/devices/el1918.c \
     $(LCEC_DIR)/devices/el1904.c \
     $(LCEC_DIR)/devices/el1918_logic.c \
     $(LCEC_DIR)/devices/el2202.c \

@@ -17,7 +17,7 @@ import (
 )
 
 // Module is the lifecycle interface for Go modules compiled into the server.
-// Mirrors the cmod lifecycle: factory → Start → Stop → Destroy.
+// Mirrors the cmod lifecycle: factory → Start → Stop → (LateStop) → Destroy.
 //
 // Lifecycle contract (the launcher relies on all four points):
 //
@@ -45,6 +45,21 @@ type Module interface {
 	Start() error
 	Stop()
 	Destroy()
+}
+
+// LateStopper is an optional extension of Module. A module that owns the
+// transport other modules' shutdown depends on implements it to tear that
+// transport down only after every module's Stop has run: whatever a peer
+// writes during Stop reaches the outside world only while the carrier is
+// still up, and Stop order alone cannot express that, being merely the
+// reverse of load order.
+//
+// The launcher waits for every realtime thread to complete a full cycle
+// between the two phases, so values written during Stop have been put on the
+// wire before LateStop runs. Same contract as Stop otherwise: safe without a
+// preceding Start, called at most once, always before Destroy.
+type LateStopper interface {
+	LateStop()
 }
 
 // Factory creates a new Module instance. Called by the launcher when a HAL

@@ -38,7 +38,7 @@ The project consists of two main components:
 | **Beckhoff Analog Output** | EL40x1, EL40x2, EL40x8, EL41x2, EL41x4 |
 | **Beckhoff Encoder Terminals** | EL5002, EL5021, EL5032, EL5101, EL5122, EL5151, EL5152 |
 | **Beckhoff Motor Terminals** | EL7041-1000, EL70x1, EL7211, EL7342, EL7411, EM7004 |
-| **Beckhoff Safety (TwinSAFE)** | EL1904, EL1918, EL2904, EL6900 |
+| **Beckhoff Safety (TwinSAFE)** | EL1904, EL1918, EL2904, EL6900, EL6910 |
 | **Beckhoff Power Supply** | EL95xx (EL9505–EL9515) |
 | **Beckhoff Servo Drives** | AX5100, AX5200, AX5805 |
 | **Third-Party Servo Drives** | Stoeber MDS5000 (`stmds5k`), Delta ASDA (`deasda`), Omron G5 (`omrg5`) |

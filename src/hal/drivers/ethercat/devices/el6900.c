@@ -84,7 +84,7 @@ typedef struct {
   int fsoe_count;                     /**< Number of configured FsoE slaves */
 
   stmak_hal_u32_t *control;                 /**< Control word written to the EL6900 (0xF200:01) */
-  stmak_hal_u32_t *state;                   /**< State word read from the EL6900 (0xF100:01, bits 0-1) */
+  stmak_hal_u32_t *state;                   /**< Safety project state read from the EL6900 (0xF100:01, 3 bit enum) */
   stmak_hal_bit_t *login_active;            /**< TRUE when at least one FsoE connection is active */
   stmak_hal_bit_t *input_size_missmatch;    /**< TRUE when input PDO size mismatch detected */
   stmak_hal_bit_t *output_size_missmatch;   /**< TRUE when output PDO size mismatch detected */
@@ -259,7 +259,7 @@ int lcec_el6900_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
     LCEC_ERR(master, "hal_malloc() for slave %s.%s failed", master->name, slave->name);
     return -EIO;
   }
-  memset(hal_data, 0, sizeof(lcec_el6900_data_t));
+  memset(hal_data, 0, sizeof(lcec_el6900_data_t) + fsoe_idx * sizeof(lcec_el6900_fsoe_t));
   hal_data->fsoe_count = fsoe_idx;
   slave->hal_data = hal_data;
 
@@ -276,16 +276,16 @@ int lcec_el6900_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   }
 
   // map and export stdios
+  // note: LCEC_PDO_INIT() advances the caller's registration pointer, so
+  // pdo_entry_regs must not be adjusted here
   hal_data->std_ins_count = init_std_pdos(slave, pdo_entry_regs, LCEC_EL6900_PARAM_STDIN_NAME, hal_data->std_ins, 0xf201, STMAK_HAL_IN);
   if (hal_data->std_ins_count < 0) {
     return hal_data->std_ins_count;
   }
-  pdo_entry_regs += hal_data->std_ins_count;
   hal_data->std_outs_count = init_std_pdos(slave, pdo_entry_regs, LCEC_EL6900_PARAM_STDOUT_NAME, hal_data->std_outs, 0xf101, STMAK_HAL_OUT);
   if (hal_data->std_outs_count < 0) {
     return hal_data->std_outs_count;
   }
-  pdo_entry_regs += hal_data->std_outs_count;
 
   // map and export fsoe slave data
   for (fsoe_idx = 0, fsoe_data = hal_data->fsoe, p = slave->modparams; p != NULL && p->id >= 0; p++) {
@@ -359,7 +359,8 @@ void lcec_el6900_read(struct lcec_slave *slave, long period) {
   struct lcec_slave *fsoe_slave;
   const LCEC_CONF_FSOE_T *fsoeConf;
 
-  *(hal_data->state) = EC_READ_U8(&pd[hal_data->state_os]) & 0x03;
+  // 0xf100:01 is a 3 bit enum: 0=OFFLINE 1=RUN 2=STOP 3=START 4=RESTORE 7=FAULT
+  *(hal_data->state) = EC_READ_U8(&pd[hal_data->state_os]) & 0x07;
   *(hal_data->login_active) = EC_READ_BIT(&pd[hal_data->login_active_os], hal_data->login_active_bp);
   *(hal_data->input_size_missmatch) = EC_READ_BIT(&pd[hal_data->input_size_missmatch_os], hal_data->input_size_missmatch_bp);
   *(hal_data->output_size_missmatch) = EC_READ_BIT(&pd[hal_data->output_size_missmatch_os], hal_data->output_size_missmatch_bp);

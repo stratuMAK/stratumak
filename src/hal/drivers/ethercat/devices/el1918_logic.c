@@ -1,9 +1,42 @@
 /**
  * @file el1918_logic.c
- * @brief Driver implementation for Beckhoff EL1918 TwinSAFE logic terminal.
+ * @brief Driver implementation for the Beckhoff TwinSAFE logic terminals.
  *
  * Manages dynamic FSoE slave associations, configurable standard I/O bits,
- * and the EL1918 internal state/cycle-counter PDOs.
+ * and the internal state/cycle-counter PDOs.
+ *
+ * This implementation serves both the EL1918 logic part and the EL6910, which
+ * share the whole second-generation TwinSAFE logic layout: state and cycle
+ * counter in 0xf100:01/:02, standard I/O packed into single bytes at 0xf788:00
+ * and 0xf688:00, and one six byte FSoE message per connection laid out as
+ * [cmd][data][crc][connid]. They differ in one constant only: the EL1918
+ * carries eight local safe inputs on 0x6000/0x7000 and therefore places its
+ * logic connections at 0x6080/0x7080, while the EL6910 has no local safe I/O
+ * and starts at 0x6000/0x7000. See @c LCEC_EL1918_LOGIC_FSOE_OFS and
+ * @c LCEC_EL6910_FSOE_OFS.
+ *
+ * State of testing. The EL6910 path is exercised on hardware. The EL1918 path
+ * is not: it has never run on a logic-licensed EL1918, only the shared code
+ * below has, and via the EL6910. What is known:
+ *
+ *   - The frame layout, the standard I/O bytes and the status PDO are the same
+ *     on both devices; only the connection base differs.
+ *   - On an EL1918-2200, the input-only variant, connection 001 lives at
+ *     0x6080/0x7080. That unit has no logic, so this is its slave-role
+ *     connection to an external master, and it says nothing about how a
+ *     logic-licensed unit numbers its own master-role connections. Do not read
+ *     it as proof that 0x?080 is the first external connection of the logic.
+ *   - It is not known whether the local input modules of a logic unit consume
+ *     a connection slot. Safe data consumed by the terminal's own logic never
+ *     leaves the device and so needs no frame on the wire, which suggests they
+ *     do not, and that connection 001 is the first external slave - the
+ *     assumption this driver makes. If that is wrong, every connection is off
+ *     by one and the first fsoeSlaveIdx has to name the terminal itself.
+ *
+ * The cheap way to settle it is the same one used for the EL6910: bring the
+ * terminal up declared as a generic slave and read back its uploaded PDO map.
+ * If the map holds one more connection than there are external slaves, the
+ * local modules take slot 0.
  *
  * @copyright Copyright (C) 2021-2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
@@ -24,6 +57,7 @@
 
 #include "../lcec.h"
 #include "el1918_logic.h"
+#include "el6910.h"
 
 /**
  * @brief CRC PDO data for one FSoE data channel within a slave connection.
@@ -98,15 +132,27 @@ static const lcec_pindesc_t fsoe_pins[] = {
 };
 
 static const lcec_pindesc_t fsoe_crc_pins[] = {
-  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_master_crc), "%s.%s.%s.fsoe-%d-master-crc" },
-  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_slave_crc), "%s.%s.%s.fsoe-%d-slave-crc" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_master_crc), "%s.%s.%s.fsoe-%d-master-crc%d" },
+  { STMAK_HAL_U32, STMAK_HAL_OUT, offsetof(lcec_el1918_logic_fsoe_crc_t, fsoe_slave_crc), "%s.%s.%s.fsoe-%d-slave-crc%d" },
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
 void lcec_el1918_logic_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 void lcec_el1918_logic_write(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
 
-static int export_std_pins(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs, int pid, stmak_hal_bit_t **pin, int dir) {
+/**
+ * @brief Export HAL pins for the standard I/O bits matching @p pid.
+ *
+ * Only creates pins; the bits share a single packed PDO entry (0xf788/0xf688)
+ * that the caller registers once, so nothing is mapped here.
+ *
+ * @param slave EtherCAT slave structure.
+ * @param pid   Parameter ID to match (STDIN_NAME or STDOUT_NAME).
+ * @param pin   Pin pointer array to fill, in declaration order (bit 0 first).
+ * @param dir   HAL pin direction.
+ * @return Number of pins exported, or a negative error code.
+ */
+static int export_std_pins(struct lcec_slave *slave, int pid, stmak_hal_bit_t **pin, int dir) {
   lcec_master_t *master = slave->master;
   const cmod_env_t *env = master->env;
   lcec_slave_modparam_t *p;
@@ -131,6 +177,18 @@ static int export_std_pins(struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_en
   return count;
 }
 
+/**
+ * @brief Shared pre-initialisation for the TwinSAFE logic terminals.
+ *
+ * Counts the configured FSoE slaves and standard I/O bits to derive the PDO
+ * entry count. Independent of the FSoE object base, so both devices use this
+ * one exported function directly in their typelist rows — unlike init, there
+ * is no per-device constant to bind, so a second entry point would only be a
+ * body to keep in sync.
+ *
+ * @param slave Pointer to the lcec slave structure.
+ * @return 0 on success, negative errno on failure.
+ */
 int lcec_el1918_logic_preinit(struct lcec_slave *slave) {
   lcec_master_t *master = slave->master;
   lcec_slave_modparam_t *p;
@@ -192,7 +250,18 @@ int lcec_el1918_logic_preinit(struct lcec_slave *slave) {
   return 0;
 }
 
-int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
+/**
+ * @brief Shared initialisation for the TwinSAFE logic terminals.
+ *
+ * @param comp_id        HAL component ID.
+ * @param slave          Pointer to the lcec slave structure.
+ * @param pdo_entry_regs PDO entry registration array, advanced in place.
+ * @param fsoe_ofs       Offset of the first FSoE message object within the
+ *                       0x6000/0x7000 ranges (@c LCEC_EL1918_LOGIC_FSOE_OFS
+ *                       or @c LCEC_EL6910_FSOE_OFS).
+ * @return 0 on success, negative errno on failure.
+ */
+static int fslogic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs, unsigned int fsoe_ofs) {
   lcec_master_t *master = slave->master;
   const cmod_env_t *env = master->env;
   lcec_el1918_logic_data_t *hal_data;
@@ -219,7 +288,7 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
     LCEC_ERR(master, "hal_malloc() for slave %s.%s failed", master->name, slave->name);
     return -EIO;
   }
-  memset(hal_data, 0, sizeof(lcec_el1918_logic_data_t));
+  memset(hal_data, 0, sizeof(lcec_el1918_logic_data_t) + fsoe_idx * sizeof(lcec_el1918_logic_fsoe_t));
   hal_data->fsoe_count = fsoe_idx;
   slave->hal_data = hal_data;
 
@@ -233,7 +302,7 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
   }
 
   // map and export stdios
-  hal_data->std_in_count = export_std_pins(slave, pdo_entry_regs, LCEC_EL1918_LOGIC_PARAM_STDIN_NAME, hal_data->std_in_pins, STMAK_HAL_IN);
+  hal_data->std_in_count = export_std_pins(slave, LCEC_EL1918_LOGIC_PARAM_STDIN_NAME, hal_data->std_in_pins, STMAK_HAL_IN);
   if (hal_data->std_in_count < 0) {
     return hal_data->std_in_count;
   }
@@ -241,7 +310,7 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
     LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0xf788, 0x00, &hal_data->std_in_os, NULL);
   }
 
-  hal_data->std_out_count = export_std_pins(slave, pdo_entry_regs, LCEC_EL1918_LOGIC_PARAM_STDOUT_NAME, hal_data->std_out_pins, STMAK_HAL_OUT);
+  hal_data->std_out_count = export_std_pins(slave, LCEC_EL1918_LOGIC_PARAM_STDOUT_NAME, hal_data->std_out_pins, STMAK_HAL_OUT);
   if (hal_data->std_out_count < 0) {
     return hal_data->std_out_count;
   }
@@ -272,10 +341,10 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
       memset(fsoe_data->fsoe_crc, 0, fsoeConf->data_channels * sizeof(lcec_el1918_logic_fsoe_crc_t));
 
       // initialize POD entries
-      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7080 + (fsoe_idx << 4), 0x01, &fsoe_data->fsoe_slave_cmd_os, NULL);
-      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7080 + (fsoe_idx << 4), 0x02, &fsoe_data->fsoe_slave_connid_os, NULL);
-      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6080 + (fsoe_idx << 4), 0x01, &fsoe_data->fsoe_master_cmd_os, NULL);
-      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6080 + (fsoe_idx << 4), 0x02, &fsoe_data->fsoe_master_connid_os, NULL);
+      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7000 + fsoe_ofs + (fsoe_idx << 4), 0x01, &fsoe_data->fsoe_slave_cmd_os, NULL);
+      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7000 + fsoe_ofs + (fsoe_idx << 4), 0x02, &fsoe_data->fsoe_slave_connid_os, NULL);
+      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6000 + fsoe_ofs + (fsoe_idx << 4), 0x01, &fsoe_data->fsoe_master_cmd_os, NULL);
+      LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6000 + fsoe_ofs + (fsoe_idx << 4), 0x02, &fsoe_data->fsoe_master_connid_os, NULL);
 
       // export pins
       if ((err = lcec_pin_newf_list(env, comp_id, fsoe_data, fsoe_pins, master->instance_name, master->name, slave->name, fsoe_idx)) != 0) {
@@ -284,8 +353,8 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
 
       // map CRC PDOS
       for (index = 0, crc = fsoe_data->fsoe_crc; index < fsoeConf->data_channels; index++, crc++) {
-        LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7080 + (fsoe_idx << 4), 0x03 + index, &crc->fsoe_slave_crc_os, NULL);
-        LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6080 + (fsoe_idx << 4), 0x03 + index, &crc->fsoe_master_crc_os, NULL);
+        LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x7000 + fsoe_ofs + (fsoe_idx << 4), 0x03 + index, &crc->fsoe_slave_crc_os, NULL);
+        LCEC_PDO_INIT(pdo_entry_regs, slave->index, slave->vid, slave->pid, 0x6000 + fsoe_ofs + (fsoe_idx << 4), 0x03 + index, &crc->fsoe_master_crc_os, NULL);
         if ((err = lcec_pin_newf_list(env, comp_id, crc, fsoe_crc_pins, master->instance_name, master->name, slave->name, fsoe_idx, index)) != 0) {
           return err;
         }
@@ -297,6 +366,14 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
   }
 
   return 0;
+}
+
+int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
+  return fslogic_init(comp_id, slave, pdo_entry_regs, LCEC_EL1918_LOGIC_FSOE_OFS);
+}
+
+int lcec_el6910_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t **pdo_entry_regs) {
+  return fslogic_init(comp_id, slave, pdo_entry_regs, LCEC_EL6910_FSOE_OFS);
 }
 
 void lcec_el1918_logic_read(struct lcec_slave *slave, long period) {

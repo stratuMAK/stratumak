@@ -9,6 +9,7 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
 	halcmd "github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
 )
 
 // UnloadModule unloads a single module by instance name.  The module is
@@ -122,23 +123,41 @@ func (l *Launcher) unloadCModule(name string) error {
 
 	cm := l.cModules[idx]
 
-	// Step 1: Remove RT functions from threads. Skipped when HAL was never
+	// Step 1: Stop the module while its RT functions are still on the threads —
+	// the lifecycle contract (Start → Stop → LateStop → Destroy) runs both stop
+	// phases ahead of the RT barrier, and the shutdown path in doCleanup does
+	// the same.
+	if cm.started {
+		cmodStop(cm)
+
+		// Step 1b: Second stop phase.  Must run BEFORE the module's RT
+		// functions are removed: the EtherCAT driver's LateStop drives the bus
+		// to PREOP on cycles its own transfer function is still executing, so
+		// removing the functions first would strand the request.  Wait for a
+		// full cycle of every thread first, so what Stop() wrote is on the
+		// wire — same reasoning as between the two phases in doCleanup.
+		if cmodHasLateStop(cm) {
+			if l.halComp != nil {
+				if err := halcmd.WaitCycleAdvance(); err != nil {
+					l.logger.Debug("unload: cycle advance before late stop did not complete", "module", name, "error", err)
+				}
+			}
+			cmodLateStop(cm)
+		}
+	}
+
+	// Step 2: Remove RT functions from threads. Skipped when HAL was never
 	// initialised — see unloadGoModule for why the guard is needed at all.
 	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
-			// Step 2: Wait for cycle barrier.
-			baseline := halcmd.GetMaxCycleCount()
-			if err := halcmd.WaitCycleAdvance(baseline); err != nil {
+			// Step 3: Wait for cycle barrier — nothing still executes the
+			// removed functions past this point.
+			if err := halcmd.WaitCycleAdvance(); err != nil {
 				l.logger.Warn("unload: cycle advance timeout", "module", name, "error", err)
 			}
 		}
-	}
-
-	// Step 3: Stop the module.
-	if cm.started {
-		cmodStop(cm)
 	}
 
 	// Step 4: Remove consumer records (this module as consumer).
@@ -191,21 +210,32 @@ func (l *Launcher) unloadGoModule(name string) error {
 
 	gm := l.goModules[idx]
 
-	// Step 1: Remove RT functions from threads.
+	// Step 1: Stop the module while its RT functions are still on the threads —
+	// same ordering, and for the same reasons, as unloadCModule above.
+	gm.mod.Stop()
+
+	// Step 1b: Second stop phase, for modules that implement it.
+	if ls, ok := gm.mod.(stmak.LateStopper); ok {
+		if l.halComp != nil {
+			if err := halcmd.WaitCycleAdvance(); err != nil {
+				l.logger.Debug("unload: cycle advance before late stop did not complete", "module", name, "error", err)
+			}
+		}
+		ls.LateStop()
+	}
+
+	// Step 2: Remove RT functions from threads.
 	compID := l.halCompID(name)
 	if compID > 0 {
 		removed, _ := halcmd.DelFunctsByComp(compID)
 		if removed > 0 {
-			// Step 2: Wait for cycle barrier.
-			baseline := halcmd.GetMaxCycleCount()
-			if err := halcmd.WaitCycleAdvance(baseline); err != nil {
+			// Step 3: Wait for cycle barrier — nothing still executes the
+			// removed functions past this point.
+			if err := halcmd.WaitCycleAdvance(); err != nil {
 				l.logger.Warn("unload: cycle advance timeout", "module", name, "error", err)
 			}
 		}
 	}
-
-	// Step 3: Stop the module.
-	gm.mod.Stop()
 
 	// Step 4+5: Remove consumer records and unregister APIs (REST + watch),
 	// BEFORE Destroy frees this module's HAL pins.

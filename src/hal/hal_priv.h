@@ -408,12 +408,14 @@ extern hal_funct_t *halpr_find_funct_by_name(const char *name);
 extern int hal_del_functs_by_comp(int comp_id);
 extern int hal_del_functs_by_comp_ex(int comp_id, char *err, int errlen);
 
-/** Returns maximum cycle_count across all threads (for unload sync). */
-extern unsigned int hal_get_max_cycle_count(void);
-
-/** Waits until all thread cycle_counts advance past baseline.
-    Returns 0 on success, -ETIMEDOUT after 100ms. */
-extern int hal_wait_cycle_advance(unsigned int baseline);
+/** Waits until every thread has completed a full cycle that started after
+    this call was entered — each thread measured against its own counter, so
+    the guarantee holds in multi-rate configurations.  Used after removing
+    functions from threads (nothing still executes them) and between the two
+    module stop phases (what Stop() wrote has been put on the wire).
+    Returns 0 on success, -ETIMEDOUT after two periods of the slowest thread
+    (100ms floor). */
+extern int hal_wait_cycle_advance(void);
 
 /** Allocates a HAL component structure */
 extern hal_comp_t *halpr_alloc_comp_struct(void);

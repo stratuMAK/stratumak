@@ -42,6 +42,21 @@
 /** @brief EtherCAT product ID for EL1918 TwinSAFE logic terminal. */
 #define LCEC_EL1918_LOGIC_PID 0x077e3052
 
+/**
+ * @brief Offset of the first FSoE message object inside 0x6000/0x7000.
+ *
+ * The EL1918 carries eight local safe input modules, which occupy 0x6001
+ * through 0x6072 and 0x7002 through 0x7072 at a 0x10 stride, so its FSoE frame
+ * objects start above them at 0x6080/0x7080. Compare @c LCEC_EL6910_FSOE_OFS,
+ * which is zero because the EL6910 has no local safe I/O to make room for.
+ *
+ * Confirmed on an EL1918-2200 (the input-only variant, revision 0x110000),
+ * whose sole connection sits at exactly 0x6080/0x7080. See the note on the
+ * untested logic path in the file comment of el1918_logic.c before relying on
+ * this for a logic-licensed unit.
+ */
+#define LCEC_EL1918_LOGIC_FSOE_OFS 0x0080
+
 /** @brief Base number of PDO entries (state + cycle counter). */
 #define LCEC_EL1918_LOGIC_PDOS 2
 /** @brief PDO entries added when standard inputs are configured. */

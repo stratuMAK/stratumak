@@ -114,7 +114,7 @@ func TestThreadLifecycle(t *testing.T) {
 	// this for its unload synchronisation — it waits for a cycle to pass before
 	// freeing a component's pins, which must work whether or not the functions
 	// are currently enabled.
-	if err := WaitCycleAdvance(GetMaxCycleCount()); err != nil {
+	if err := WaitCycleAdvance(); err != nil {
 		t.Errorf("WaitCycleAdvance before StartThreads: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestThreadLifecycle(t *testing.T) {
 	} else if !res.Threads[0].Running {
 		t.Error("thread Running = false after StartThreads")
 	}
-	if err := WaitCycleAdvance(GetMaxCycleCount()); err != nil {
+	if err := WaitCycleAdvance(); err != nil {
 		t.Errorf("WaitCycleAdvance on running threads: %v", err)
 	}
 
@@ -249,7 +249,7 @@ func TestThreadCreateDeleteCycles(t *testing.T) {
 	if err := CreateThreadCPU(last, period, 0, -1); err != nil {
 		t.Fatalf("final CreateThreadCPU: %v", err)
 	}
-	if err := WaitCycleAdvance(GetMaxCycleCount()); err != nil {
+	if err := WaitCycleAdvance(); err != nil {
 		t.Errorf("final WaitCycleAdvance: %v", err)
 	}
 	if err := StartThreads(); err != nil {

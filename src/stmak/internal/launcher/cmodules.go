@@ -6,7 +6,7 @@
 // C plugins are resolved from EMC2_CMOD_DIR (bare names) and loaded via
 // dlopen/dlsym.  They share the same lifecycle as Go plugins:
 //
-//	New(env, name, args) → Start() → Stop() → Destroy()
+//	New(env, name, args) → Start() → Stop() → LateStop() → Destroy()
 //
 // The launcher provides INI access, logging, HAL and RTAPI to C plugins
 // via the stratuMAK sub-API callback structs in cmod_env_t, so plugins never
@@ -316,6 +316,15 @@ static int cmod_call_start(cmod_t *m) {
 static void cmod_call_stop(cmod_t *m) {
     if (!m->Stop) return;
     m->Stop(m);
+}
+
+static void cmod_call_late_stop(cmod_t *m) {
+    if (!m->LateStop) return;
+    m->LateStop(m);
+}
+
+static int cmod_has_late_stop(cmod_t *m) {
+    return m->LateStop != NULL;
 }
 
 static void cmod_call_destroy(cmod_t *m) {
@@ -711,6 +720,25 @@ func (l *Launcher) stopCModules() {
 	}
 }
 
+// lateStopCModules calls LateStop() on all loaded C plugin modules, in the same
+// reverse order stopCModules uses. Runs after every module's Stop(), so that a
+// module owning the transport others depend on can tear it down only once they
+// have all had their say.
+func (l *Launcher) lateStopCModules() {
+	l.modMu.Lock()
+	snapshot := l.cModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		cm := snapshot[i]
+		// Same guard as stopCModules: a module that was never started must not
+		// be stopped, in either phase.
+		if !cm.started {
+			continue
+		}
+		C.cmod_call_late_stop(cm.mod)
+	}
+}
+
 // arenaAppend records a C allocation in cModArena for later free in
 // destroyCModules. It takes arenaMu only for the append and MUST NOT be called
 // while holding arenaMu across a cgo call (see the arenaMu contract on
@@ -761,6 +789,18 @@ func (l *Launcher) destroyCModules() {
 // cmodStop calls Stop() on a single cmod.
 func cmodStop(cm *cModule) {
 	C.cmod_call_stop(cm.mod)
+}
+
+// cmodLateStop calls LateStop() on a single cmod.
+func cmodLateStop(cm *cModule) {
+	C.cmod_call_late_stop(cm.mod)
+}
+
+// cmodHasLateStop reports whether a cmod registered a LateStop() phase.  The
+// unload path uses it to skip the cycle wait ahead of a phase that does not
+// exist.
+func cmodHasLateStop(cm *cModule) bool {
+	return C.cmod_has_late_stop(cm.mod) != 0
 }
 
 // cmodDestroy calls Destroy() on a single cmod.
