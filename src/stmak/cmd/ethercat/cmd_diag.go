@@ -87,12 +87,23 @@ func diagSlave(client *ethercatclient.EthercatClient, masterIndex *uint32,
 		return fmt.Errorf("slave %d does not provide a diagnosis history (0x10F3)", pos)
 	}
 
+	// The messages live in a ring buffer, so subindex order is only
+	// chronological until it first wraps. Walk it starting at the slot after
+	// the newest one, which is the oldest once wrapped and empty before that.
+	// Timestamps cannot be used to order these: they are the slave's local
+	// time since power-on and restart from zero across a power cycle.
+	count := int(maxMessages)
+	if diagSubFirstMessage+count-1 > 0xff {
+		count = 0x100 - diagSubFirstMessage
+	}
+	start := 0
+	if int(newest) >= diagSubFirstMessage && int(newest) < diagSubFirstMessage+count {
+		start = int(newest) - diagSubFirstMessage + 1
+	}
+
 	shown := 0
-	for i := 0; i < int(maxMessages); i++ {
-		sub := diagSubFirstMessage + i
-		if sub > 0xff {
-			break
-		}
+	for i := 0; i < count; i++ {
+		sub := diagSubFirstMessage + (start+i)%count
 		msg, ok := diagReadMessage(client, masterIndex, pos, uint8(sub))
 		if !ok {
 			continue
