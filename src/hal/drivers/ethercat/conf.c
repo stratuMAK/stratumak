@@ -69,6 +69,7 @@ extern ethercat_callbacks_t gmi_ethercat_callbacks(void);
 #include "devices/stmds5k.h"
 #include "devices/el6900.h"
 #include "devices/el1918_logic.h"
+#include "devices/el6910.h"
 #include "devices/el5002.h"
 #include "devices/el70x1.h"
 #include "devices/el7342.h"
@@ -136,6 +137,13 @@ static const LCEC_CONF_MODPARAM_DESC_T slaveEL1918_LOGICParams[] = {
   { "fsoeSlaveIdx", LCEC_EL1918_LOGIC_PARAM_SLAVEID, MODPARAM_TYPE_U32 } ,
   { "stdInName", LCEC_EL1918_LOGIC_PARAM_STDIN_NAME, MODPARAM_TYPE_STRING } ,
   { "stdOutName", LCEC_EL1918_LOGIC_PARAM_STDOUT_NAME, MODPARAM_TYPE_STRING } ,
+  { NULL }
+};
+
+static const LCEC_CONF_MODPARAM_DESC_T slaveEL6910Params[] = {
+  { "fsoeSlaveIdx", LCEC_EL6910_PARAM_SLAVEID, MODPARAM_TYPE_U32 } ,
+  { "stdInName", LCEC_EL6910_PARAM_STDIN_NAME, MODPARAM_TYPE_STRING } ,
+  { "stdOutName", LCEC_EL6910_PARAM_STDOUT_NAME, MODPARAM_TYPE_STRING } ,
   { NULL }
 };
 
@@ -380,6 +388,7 @@ static const LCEC_CONF_TYPELIST_T slaveTypes[] = {
   // FSoE devices
   { "EL6900", lcecSlaveTypeEL6900, slaveEL6900Params },
   { "EL1918_LOGIC", lcecSlaveTypeEL1918_LOGIC, slaveEL1918_LOGICParams },
+  { "EL6910", lcecSlaveTypeEL6910, slaveEL6910Params },
   { "EL1904", lcecSlaveTypeEL1904, NULL },
   { "EL2904", lcecSlaveTypeEL2904, NULL },
   { "AX5805", lcecSlaveTypeAX5805, NULL },
