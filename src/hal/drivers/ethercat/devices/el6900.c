@@ -259,7 +259,7 @@ int lcec_el6900_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
     LCEC_ERR(master, "hal_malloc() for slave %s.%s failed", master->name, slave->name);
     return -EIO;
   }
-  memset(hal_data, 0, sizeof(lcec_el6900_data_t));
+  memset(hal_data, 0, sizeof(lcec_el6900_data_t) + fsoe_idx * sizeof(lcec_el6900_fsoe_t));
   hal_data->fsoe_count = fsoe_idx;
   slave->hal_data = hal_data;
 
@@ -276,16 +276,16 @@ int lcec_el6900_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   }
 
   // map and export stdios
+  // note: LCEC_PDO_INIT() advances the caller's registration pointer, so
+  // pdo_entry_regs must not be adjusted here
   hal_data->std_ins_count = init_std_pdos(slave, pdo_entry_regs, LCEC_EL6900_PARAM_STDIN_NAME, hal_data->std_ins, 0xf201, STMAK_HAL_IN);
   if (hal_data->std_ins_count < 0) {
     return hal_data->std_ins_count;
   }
-  pdo_entry_regs += hal_data->std_ins_count;
   hal_data->std_outs_count = init_std_pdos(slave, pdo_entry_regs, LCEC_EL6900_PARAM_STDOUT_NAME, hal_data->std_outs, 0xf101, STMAK_HAL_OUT);
   if (hal_data->std_outs_count < 0) {
     return hal_data->std_outs_count;
   }
-  pdo_entry_regs += hal_data->std_outs_count;
 
   // map and export fsoe slave data
   for (fsoe_idx = 0, fsoe_data = hal_data->fsoe, p = slave->modparams; p != NULL && p->id >= 0; p++) {

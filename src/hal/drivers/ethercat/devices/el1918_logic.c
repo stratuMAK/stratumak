@@ -219,7 +219,7 @@ int lcec_el1918_logic_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_r
     LCEC_ERR(master, "hal_malloc() for slave %s.%s failed", master->name, slave->name);
     return -EIO;
   }
-  memset(hal_data, 0, sizeof(lcec_el1918_logic_data_t));
+  memset(hal_data, 0, sizeof(lcec_el1918_logic_data_t) + fsoe_idx * sizeof(lcec_el1918_logic_fsoe_t));
   hal_data->fsoe_count = fsoe_idx;
   slave->hal_data = hal_data;
 
