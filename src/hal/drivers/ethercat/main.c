@@ -408,26 +408,25 @@ void lcec_rt_bus_down(lcec_rt_context_t *ctx) {
   int waited_ms = 0;
   int still_op = 0;
 
-  // Ask every configured slave to leave OP.  ecrt_tool_set_slave_state() only
-  // records the request; the master's slave FSM carries it out on the cyclic
-  // send/receive the RT thread is still driving.  That is why this belongs in
-  // Stop() and not in the Destroy() on the far side of the thread barrier —
-  // there, no frame would ever go out to perform it.
+  // Ask every slave to leave OP, one broadcast request per master:
+  // EC_TOOL_SLAVE_POSITION_ALL records the request for the whole bus under a
+  // single hold of the master lock, so the FSM picks them all up together
+  // instead of whatever a per-slave loop had managed to record so far.
+  // ecrt_tool_set_slave_state() only records the request; the master's slave
+  // FSM carries it out on the cyclic send/receive the RT thread is still
+  // driving.  That is why this belongs in the stop phases and not in the
+  // Destroy() on the far side of the thread barrier — there, no frame would
+  // ever go out to perform it.
   for (master = ctx->first_master; master != NULL; master = master->next) {
     // A master that was never activated has no process data and no cyclic
     // task to carry a transition; asking would only burn the timeout.
     if (master->master == NULL || master->process_data == NULL) {
       continue;
     }
-    for (slave = master->first_slave; slave != NULL; slave = slave->next) {
-      if (slave->config == NULL) {
-        continue;
-      }
-      req.slave_position = slave->index;
-      req.al_state = EC_AL_STATE_PREOP;
-      if (ecrt_tool_set_slave_state(master->master, &req) == 0) {
-        requested = 1;
-      }
+    req.slave_position = EC_TOOL_SLAVE_POSITION_ALL;
+    req.al_state = EC_AL_STATE_PREOP;
+    if (ecrt_tool_set_slave_state(master->master, &req) == 0) {
+      requested = 1;
     }
   }
 
@@ -469,6 +468,26 @@ void lcec_rt_bus_down(lcec_rt_context_t *ctx) {
 
   LCEC_CTX_WARN(ctx, "%d slave(s) still in OP after %d ms; stopping anyway "
       "(they may report a synchronisation fault)", still_op, LCEC_BUS_DOWN_TIMEOUT_MS);
+
+  // Name the stragglers: which slaves refuse the transition is the one fact
+  // that distinguishes the possible causes (a request never carried out
+  // because the cyclic task already stopped looks like input-only slaves
+  // remaining — everything with an output watchdog left OP on its own).
+  for (master = ctx->first_master; master != NULL; master = master->next) {
+    if (master->master == NULL || master->process_data == NULL) {
+      continue;
+    }
+    for (slave = master->first_slave; slave != NULL; slave = slave->next) {
+      if (slave->config == NULL) {
+        continue;
+      }
+      if (ecrt_slave_config_state(slave->config, &state) == 0
+          && state.al_state == EC_AL_STATE_OP) {
+        LCEC_CTX_WARN(ctx, "  still in OP: %s.%s (position %d)",
+            master->name, slave->name, slave->index);
+      }
+    }
+  }
 }
 
 
