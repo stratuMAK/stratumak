@@ -97,6 +97,28 @@ func (l *Launcher) doCleanup() {
 	l.logger.Debug("stopping retain")
 	l.stopRetain()
 
+	// Step 2e — Second stop phase, for modules that own a transport the other
+	// modules' shutdown rides on.  Stop() order is the reverse of load order
+	// and nothing more, so a driver loaded last is stopped first — which is
+	// exactly wrong when motion, stopped later, still has to get a "disable"
+	// out to the drives through it.  LateStop() gives that driver a phase after
+	// everyone else has had their say, still ahead of the RT barrier so the
+	// cycles that carry it are still running.
+	//
+	// Wait for a full cycle of every realtime thread first: what Stop() wrote
+	// is only a value in HAL memory until a thread has run the function that
+	// puts it on the wire.  Best effort — a timeout here means the threads are
+	// already not cycling, in which case waiting longer changes nothing and the
+	// late stops should still run.
+	if l.halComp != nil {
+		if err := halcmd.WaitCycleAdvance(halcmd.GetMaxCycleCount()); err != nil {
+			l.logger.Debug("cycle advance before late stop did not complete", "err", err)
+		}
+	}
+	l.logger.Debug("late-stopping modules")
+	l.lateStopCModules()
+	l.lateStopGoModules()
+
 	// Steps 3–12 require the RTAPI/HAL environment to have been initialized
 	// (RtapiAppInit + hal.NewComponent succeeded).  When startup fails before
 	// that point (e.g. INI file not found), these would crash by accessing

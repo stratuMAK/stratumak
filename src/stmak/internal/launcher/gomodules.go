@@ -78,6 +78,20 @@ func (l *Launcher) stopGoModules() {
 	}
 }
 
+// lateStopGoModules calls LateStop() on the loaded Go modules that implement
+// stmak.LateStopper, in the same reverse order stopGoModules uses. Modules that
+// do not implement it are skipped; see the interface for what it is for.
+func (l *Launcher) lateStopGoModules() {
+	l.modMu.Lock()
+	snapshot := l.goModules
+	l.modMu.Unlock()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		if ls, ok := snapshot[i].mod.(stmak.LateStopper); ok {
+			ls.LateStop()
+		}
+	}
+}
+
 // destroyGoModules calls Destroy() on all loaded Go modules in reverse order.
 // Called after all modules have been stopped to release resources.
 func (l *Launcher) destroyGoModules() {

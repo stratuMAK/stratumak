@@ -419,3 +419,87 @@ func TestServeAPIServer_UnexpectedStopIsFatal(t *testing.T) {
 	}
 	l.stopAPIServer()
 }
+
+// phaseRecorder appends to a shared, ordered log so a test can assert what ran
+// before what across modules, which per-module counters cannot express.
+type phaseRecorder struct {
+	log  *[]string
+	mu   *sync.Mutex
+	name string
+}
+
+func (m *phaseRecorder) record(phase string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	*m.log = append(*m.log, m.name+":"+phase)
+}
+
+func (m *phaseRecorder) Start() error { m.record("start"); return nil }
+func (m *phaseRecorder) Stop()        { m.record("stop") }
+func (m *phaseRecorder) Destroy()     { m.record("destroy") }
+
+// lateRecorder is a phaseRecorder that also implements stmak.LateStopper.
+type lateRecorder struct{ phaseRecorder }
+
+func (m *lateRecorder) LateStop() { m.record("latestop") }
+
+var _ stmak.Module = (*phaseRecorder)(nil)
+var _ stmak.LateStopper = (*lateRecorder)(nil)
+
+// TestLateStopGoModules_RunsAfterEveryStop pins the ordering guarantee the
+// second stop phase exists for: every module's Stop must have run before any
+// LateStop does. Stop order alone is just the reverse of load order, so a
+// module that owns the transport its peers write through — the EtherCAT bus —
+// cannot express "tear down last" with Stop, and taking the bus down early
+// silently swallows motion's disable on the way to the drives.
+func TestLateStopGoModules_RunsAfterEveryStop(t *testing.T) {
+	var log []string
+	var mu sync.Mutex
+
+	// The transport-owning module is loaded LAST, which is the case that
+	// breaks with Stop alone: reverse-order stopping would take it down first.
+	plain := &phaseRecorder{log: &log, mu: &mu, name: "motion"}
+	transport := &lateRecorder{phaseRecorder{log: &log, mu: &mu, name: "bus"}}
+
+	l := testLauncher()
+	l.goModules = append(l.goModules,
+		&goModule{mod: plain, name: "motion"},
+		&goModule{mod: transport, name: "bus"},
+	)
+
+	l.stopGoModules()
+	l.lateStopGoModules()
+
+	mu.Lock()
+	got := strings.Join(log, ",")
+	mu.Unlock()
+
+	// Stops run in reverse load order, so the bus stops first — but its
+	// LateStop must still come after motion's Stop.
+	want := "bus:stop,motion:stop,bus:latestop"
+	if got != want {
+		t.Errorf("phase order = %q, want %q", got, want)
+	}
+}
+
+// TestLateStopGoModules_SkipsNonImplementors keeps LateStop optional: a module
+// that does not implement stmak.LateStopper must simply be passed over, so
+// adding the phase cannot disturb existing modules.
+func TestLateStopGoModules_SkipsNonImplementors(t *testing.T) {
+	var log []string
+	var mu sync.Mutex
+
+	plain := &phaseRecorder{log: &log, mu: &mu, name: "plain"}
+
+	l := testLauncher()
+	l.goModules = append(l.goModules, &goModule{mod: plain, name: "plain"})
+
+	l.lateStopGoModules() // must not panic and must not record anything
+
+	mu.Lock()
+	n := len(log)
+	mu.Unlock()
+	if n != 0 {
+		t.Errorf("late stop recorded %d calls on a non-implementor, want 0", n)
+	}
+}

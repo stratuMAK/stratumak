@@ -529,18 +529,26 @@ static int lcec_conf_start(cmod_t *self) {
   return 0;
 }
 
-static void lcec_conf_stop(cmod_t *self) {
+static void lcec_conf_late_stop(cmod_t *self) {
   lcec_conf_module *m = (lcec_conf_module *)self->priv;
 
   // Take the bus out of OP here, while the RT thread is still cycling: the
-  // master needs those cycles to perform the state change, and Stop() runs
-  // before the thread barrier.  Deactivating instead would tear the domain
-  // out from under functions that are still executing, which is why the
+  // master needs those cycles to perform the state change, and both stop
+  // phases run before the thread barrier.  Deactivating instead would tear the
+  // domain out from under functions that are still executing, which is why the
   // deactivate stays in Destroy() below.
   //
   // Without this the frames simply stop while every slave is still in OP with
   // its distributed clock armed, and a servo drive latches a synchronisation
   // fault on the way down.
+  //
+  // This is LateStop() and not Stop() because the bus is the carrier for every
+  // other module's shutdown.  Stop() order is the reverse of load order, so a
+  // driver loaded last is stopped first, and motion — stopped later, and later
+  // still when it is driven from a Go module — would write its "disable" into
+  // a process image that is no longer going anywhere.  The drives would then
+  // stay energised, which also turns a subsequent STO into a drive fault
+  // rather than a clean stop.
   lcec_rt_bus_down(&m->rt_ctx);
 }
 
@@ -718,7 +726,7 @@ int New(const cmod_env_t *env, const char *name,
 
   // setup cmod lifecycle
   m->base.Start = lcec_conf_start;
-  m->base.Stop = lcec_conf_stop;
+  m->base.LateStop = lcec_conf_late_stop;
   m->base.Destroy = lcec_conf_destroy;
   m->base.priv = m;
 
