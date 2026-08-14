@@ -69,6 +69,8 @@ extern ethercat_callbacks_t gmi_ethercat_callbacks(void);
 #include "devices/stmds5k.h"
 #include "devices/el6900.h"
 #include "devices/el1918_logic.h"
+#include "devices/el6910.h"
+#include "devices/el1918.h"
 #include "devices/el5002.h"
 #include "devices/el70x1.h"
 #include "devices/el7342.h"
@@ -136,6 +138,13 @@ static const LCEC_CONF_MODPARAM_DESC_T slaveEL1918_LOGICParams[] = {
   { "fsoeSlaveIdx", LCEC_EL1918_LOGIC_PARAM_SLAVEID, MODPARAM_TYPE_U32 } ,
   { "stdInName", LCEC_EL1918_LOGIC_PARAM_STDIN_NAME, MODPARAM_TYPE_STRING } ,
   { "stdOutName", LCEC_EL1918_LOGIC_PARAM_STDOUT_NAME, MODPARAM_TYPE_STRING } ,
+  { NULL }
+};
+
+static const LCEC_CONF_MODPARAM_DESC_T slaveEL6910Params[] = {
+  { "fsoeSlaveIdx", LCEC_EL6910_PARAM_SLAVEID, MODPARAM_TYPE_U32 } ,
+  { "stdInName", LCEC_EL6910_PARAM_STDIN_NAME, MODPARAM_TYPE_STRING } ,
+  { "stdOutName", LCEC_EL6910_PARAM_STDOUT_NAME, MODPARAM_TYPE_STRING } ,
   { NULL }
 };
 
@@ -380,6 +389,8 @@ static const LCEC_CONF_TYPELIST_T slaveTypes[] = {
   // FSoE devices
   { "EL6900", lcecSlaveTypeEL6900, slaveEL6900Params },
   { "EL1918_LOGIC", lcecSlaveTypeEL1918_LOGIC, slaveEL1918_LOGICParams },
+  { "EL6910", lcecSlaveTypeEL6910, slaveEL6910Params },
+  { "EL1918", lcecSlaveTypeEL1918, NULL },
   { "EL1904", lcecSlaveTypeEL1904, NULL },
   { "EL2904", lcecSlaveTypeEL2904, NULL },
   { "AX5805", lcecSlaveTypeAX5805, NULL },
@@ -518,18 +529,26 @@ static int lcec_conf_start(cmod_t *self) {
   return 0;
 }
 
-static void lcec_conf_stop(cmod_t *self) {
+static void lcec_conf_late_stop(cmod_t *self) {
   lcec_conf_module *m = (lcec_conf_module *)self->priv;
 
   // Take the bus out of OP here, while the RT thread is still cycling: the
-  // master needs those cycles to perform the state change, and Stop() runs
-  // before the thread barrier.  Deactivating instead would tear the domain
-  // out from under functions that are still executing, which is why the
+  // master needs those cycles to perform the state change, and both stop
+  // phases run before the thread barrier.  Deactivating instead would tear the
+  // domain out from under functions that are still executing, which is why the
   // deactivate stays in Destroy() below.
   //
   // Without this the frames simply stop while every slave is still in OP with
   // its distributed clock armed, and a servo drive latches a synchronisation
   // fault on the way down.
+  //
+  // This is LateStop() and not Stop() because the bus is the carrier for every
+  // other module's shutdown.  Stop() order is the reverse of load order, so a
+  // driver loaded last is stopped first, and motion — stopped later, and later
+  // still when it is driven from a Go module — would write its "disable" into
+  // a process image that is no longer going anywhere.  The drives would then
+  // stay energised, which also turns a subsequent STO into a drive fault
+  // rather than a clean stop.
   lcec_rt_bus_down(&m->rt_ctx);
 }
 
@@ -707,7 +726,7 @@ int New(const cmod_env_t *env, const char *name,
 
   // setup cmod lifecycle
   m->base.Start = lcec_conf_start;
-  m->base.Stop = lcec_conf_stop;
+  m->base.LateStop = lcec_conf_late_stop;
   m->base.Destroy = lcec_conf_destroy;
   m->base.priv = m;
 

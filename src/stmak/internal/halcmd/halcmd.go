@@ -169,15 +169,14 @@ func DelFunctsByComp(compID int) (int, error) {
 	return halDelFunctsByComp(compID)
 }
 
-// WaitCycleAdvance waits until all threads have advanced their cycle counter
-// past the given baseline.  Returns error on timeout (100ms).
-func WaitCycleAdvance(baseline uint32) error {
-	return halWaitCycleAdvance(baseline)
-}
-
-// GetMaxCycleCount returns the current maximum cycle count across all threads.
-func GetMaxCycleCount() uint32 {
-	return halGetMaxCycleCount()
+// WaitCycleAdvance waits until every realtime thread has completed a full
+// cycle that started after the call was entered, each thread measured against
+// its own counter.  After it returns, no thread is still executing a function
+// removed before the call, and values written before the call have been
+// processed by every thread's functions (put on the wire, for a transport).
+// Returns an error on timeout (two periods of the slowest thread, 100ms floor).
+func WaitCycleAdvance() error {
+	return halWaitCycleAdvance()
 }
 
 // FindCompID returns the comp_id for a named HAL component, or 0 if not found.

@@ -46,7 +46,14 @@ extern "C" {
 // previous header would not survive -- a field added to or moved within
 // cmod_env_t or a sub-API struct, a changed callback signature, a changed
 // lifetime guarantee.  Purely additive changes at the END of a structure that
-// old modules never read are the one thing that does not need a bump.
+// old modules never read are the one thing that does not need a bump -- but
+// note that this exemption turns on who allocates the structure, not on where
+// the field goes.  cmod_env_t and the sub-APIs are allocated by the launcher
+// and read by the module, so appending to them is safe.  cmod_t is the other
+// way round: the module allocates it in New() and the launcher reads it, so a
+// module built against an older header hands over a shorter allocation and any
+// new field, however placed, is a read past its end.  Appending to cmod_t is
+// therefore NOT exempt and does need a bump.
 //
 // Why it exists: a locally rebuilt stmakd can be older than the cmods
 // installed beside it (see docs/dev/EXTERNAL_MODULE_INSTALL_DESIGN.md section 4.4).
@@ -54,7 +61,7 @@ extern "C" {
 // undefined behaviour with nothing to detect it at load time -- the symbols
 // all resolve, and the module reads the wrong offsets.  The launcher reads
 // this symbol before it calls New() and refuses a module that disagrees.
-#define CMOD_ABI_VERSION 1
+#define CMOD_ABI_VERSION 2
 
 // Every module carries the stamp automatically, by including this header:
 // the definition is emitted into each translation unit rather than left for a
@@ -107,6 +114,21 @@ typedef struct cmod {
     int  (*Init)(struct cmod *self);
     int  (*Start)(struct cmod *self);
     void (*Stop)(struct cmod *self);
+
+    // Optional second stop phase, may be NULL.  The launcher runs every
+    // module's Stop(), then every module's LateStop(), both still ahead of the
+    // realtime thread barrier.  It exists for modules that own the transport
+    // other modules' shutdown depends on: whatever a module writes during
+    // Stop() only reaches the outside world if the carrier is still running,
+    // and Stop() order alone cannot express that, being merely the reverse of
+    // load order.  The EtherCAT driver uses it to take the bus out of OP only
+    // once motion has had its chance to disable the drives.
+    //
+    // The launcher waits for every realtime thread to complete a full cycle
+    // between the two phases, so values written during Stop() have been put on
+    // the wire before LateStop() runs.
+    void (*LateStop)(struct cmod *self);
+
     void (*Destroy)(struct cmod *self);
     void *priv;
 } cmod_t;

@@ -93,14 +93,32 @@ func cmdStates(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []s
 	positions := parsePositionList(opts.Positions)
 
 	if positions == nil {
-		_, err := client.SetSlaveState(masterIndex, 0xFFFF, ethercatclient.SlaveStateRequest{AlState: stateVal})
-		return err
+		// 0xFFFF is the tool API's all-slaves wildcard (EC_TOOL_SLAVE_POSITION_ALL).
+		return setSlaveState(client, masterIndex, 0xFFFF, stateVal)
 	}
 	for _, pos := range positions {
-		_, err := client.SetSlaveState(masterIndex, pos, ethercatclient.SlaveStateRequest{AlState: stateVal})
-		if err != nil {
+		if err := setSlaveState(client, masterIndex, pos, stateVal); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// setSlaveState requests one state change and surfaces a server-side refusal:
+// the endpoint reports failure as a false result, not an HTTP error, and
+// dropping it silently claims success for a request nothing carried out.
+func setSlaveState(client *ethercatclient.EthercatClient, masterIndex *uint32,
+	pos uint16, stateVal uint8) error {
+
+	ok, err := client.SetSlaveState(masterIndex, pos, ethercatclient.SlaveStateRequest{AlState: stateVal})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if pos == 0xFFFF {
+			return fmt.Errorf("state request refused")
+		}
+		return fmt.Errorf("state request refused for slave %d", pos)
 	}
 	return nil
 }
