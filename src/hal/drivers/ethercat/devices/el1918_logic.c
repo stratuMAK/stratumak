@@ -15,6 +15,29 @@
  * and starts at 0x6000/0x7000. See @c LCEC_EL1918_LOGIC_FSOE_OFS and
  * @c LCEC_EL6910_FSOE_OFS.
  *
+ * State of testing. The EL6910 path is exercised on hardware. The EL1918 path
+ * is not: it has never run on a logic-licensed EL1918, only the shared code
+ * below has, and via the EL6910. What is known:
+ *
+ *   - The frame layout, the standard I/O bytes and the status PDO are the same
+ *     on both devices; only the connection base differs.
+ *   - On an EL1918-2200, the input-only variant, connection 001 lives at
+ *     0x6080/0x7080. That unit has no logic, so this is its slave-role
+ *     connection to an external master, and it says nothing about how a
+ *     logic-licensed unit numbers its own master-role connections. Do not read
+ *     it as proof that 0x?080 is the first external connection of the logic.
+ *   - It is not known whether the local input modules of a logic unit consume
+ *     a connection slot. Safe data consumed by the terminal's own logic never
+ *     leaves the device and so needs no frame on the wire, which suggests they
+ *     do not, and that connection 001 is the first external slave - the
+ *     assumption this driver makes. If that is wrong, every connection is off
+ *     by one and the first fsoeSlaveIdx has to name the terminal itself.
+ *
+ * The cheap way to settle it is the same one used for the EL6910: bring the
+ * terminal up declared as a generic slave and read back its uploaded PDO map.
+ * If the map holds one more connection than there are external slaves, the
+ * local modules take slot 0.
+ *
  * @copyright Copyright (C) 2021-2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
  * This program is free software; you can redistribute it and/or modify
