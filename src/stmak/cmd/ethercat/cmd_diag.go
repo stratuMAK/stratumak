@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -40,7 +42,7 @@ type diagMessage struct {
 func init() {
 	registerCommand(&Command{
 		Name:  "diag",
-		Brief: "Show the diagnosis history of a slave.",
+		Brief: "Show the diagnosis history of the selected slaves.",
 		Run:   cmdDiag,
 	})
 }
@@ -60,8 +62,19 @@ func cmdDiag(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []str
 
 	masterIndex := parseMasterIndex(opts.Masters)
 	positions := parsePositionList(opts.Positions)
-	if positions == nil {
-		positions = []uint16{0}
+	// No -p means all slaves, like the other listing commands. A slave without
+	// the object then gets a notice instead of aborting the walk: a coupler in
+	// slot 0 must not hide the histories of the slaves behind it.
+	allSlaves := positions == nil
+	if allSlaves {
+		master, err := client.GetMaster(masterIndex)
+		if err != nil {
+			return err
+		}
+		positions = make([]uint16, master.SlaveCount)
+		for i := range positions {
+			positions[i] = uint16(i)
+		}
 	}
 
 	for _, pos := range positions {
@@ -69,22 +82,38 @@ func cmdDiag(client *ethercatclient.EthercatClient, opts *GlobalOpts, args []str
 			fmt.Printf("=== Slave %d ===\n", pos)
 		}
 		if err := diagSlave(client, masterIndex, pos, texts); err != nil {
+			if allSlaves && errors.Is(err, errNoDiagHistory) {
+				fmt.Println(err)
+				continue
+			}
 			return err
 		}
 	}
 	return nil
 }
 
+// errNoDiagHistory marks a slave that answers 0x10F3 with an SDO abort, i.e.
+// one that does not implement the diagnosis history object.
+var errNoDiagHistory = errors.New("does not provide a diagnosis history (0x10F3)")
+
 func diagSlave(client *ethercatclient.EthercatClient, masterIndex *uint32,
 	pos uint16, texts map[uint16]string) error {
 
 	maxMessages, err := diagReadU8(client, masterIndex, pos, diagSubMaxMessages)
 	if err != nil {
-		return fmt.Errorf("slave %d does not provide a diagnosis history (0x10F3)", pos)
+		return diagHeaderError(pos, err)
 	}
 	newest, err := diagReadU8(client, masterIndex, pos, diagSubNewest)
 	if err != nil {
-		return fmt.Errorf("slave %d does not provide a diagnosis history (0x10F3)", pos)
+		return diagHeaderError(pos, err)
+	}
+
+	// :02 below the first message subindex means no message has ever been
+	// stored; skip the walk that would only rediscover that, one SDO upload
+	// per possible slot.
+	if int(newest) < diagSubFirstMessage {
+		fmt.Println("Diagnosis history is empty.")
+		return nil
 	}
 
 	// The messages live in a ring buffer, so subindex order is only
@@ -147,6 +176,26 @@ func diagTypeName(flags uint16) string {
 	}
 }
 
+// diagHeaderError classifies a failed read of the 0x10F3 header subindices:
+// an SDO abort means the slave has no diagnosis history, while anything else
+// (daemon unreachable, slave offline, short read) is a real failure and must
+// not be misreported as an unsupported object.
+func diagHeaderError(pos uint16, err error) error {
+	var abort sdoAbortError
+	if errors.As(err, &abort) {
+		return fmt.Errorf("slave %d %w", pos, errNoDiagHistory)
+	}
+	return fmt.Errorf("slave %d: reading 0x10F3: %w", pos, err)
+}
+
+// sdoAbortError is an SDO abort answered by the slave, as opposed to a
+// transport failure on the way to it.
+type sdoAbortError uint32
+
+func (e sdoAbortError) Error() string {
+	return fmt.Sprintf("SDO abort code 0x%08x", uint32(e))
+}
+
 func diagReadU8(client *ethercatclient.EthercatClient, masterIndex *uint32,
 	pos uint16, sub uint8) (uint8, error) {
 
@@ -155,7 +204,7 @@ func diagReadU8(client *ethercatclient.EthercatClient, masterIndex *uint32,
 		return 0, err
 	}
 	if result.AbortCode != 0 {
-		return 0, fmt.Errorf("SDO abort code 0x%08x", result.AbortCode)
+		return 0, sdoAbortError(result.AbortCode)
 	}
 	if len(result.Data) < 1 {
 		return 0, fmt.Errorf("short read")
@@ -245,23 +294,10 @@ func diagFormatParams(params []byte) string {
 		pos += size
 	}
 
-	// anything not understood is shown verbatim rather than guessed at
-	if rest := params[pos:]; len(rest) > 0 {
-		trailing := false
-		for _, b := range rest {
-			if b != 0 {
-				trailing = true
-				break
-			}
-		}
-		if trailing {
-			var hex strings.Builder
-			hex.WriteString("raw")
-			for _, b := range rest {
-				fmt.Fprintf(&hex, " %02x", b)
-			}
-			out = append(out, hex.String())
-		}
+	// anything not understood is shown verbatim rather than guessed at;
+	// all-zero padding is not worth a line
+	if rest := params[pos:]; bytes.Count(rest, []byte{0}) != len(rest) {
+		out = append(out, fmt.Sprintf("raw % x", rest))
 	}
 
 	return strings.Join(out, ", ")
