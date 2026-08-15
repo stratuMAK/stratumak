@@ -31,9 +31,13 @@ from gmi.constants import *
 
 TIMEOUT = stmak_test.DEFAULT_TIMEOUT * stmak_test.scale()
 
+# Motion works internally in millimetres whatever the INI is written in: on
+# this inch config a G20 G0 X1.0 puts 25.4 on joint.0.motor-pos-cmd and the
+# 10-inch limit reaches motion as 254. The HAL pins this test writes and reads
+# are in that same frame, so its numbers are mm.
 X = 0
-X_MAX = 10.0          # [JOINT_0]MAX_LIMIT, inches
-OUTSIDE = X_MAX + 0.5
+X_MAX = 254.0         # [JOINT_0]MAX_LIMIT = 10 inch, in motion's millimetres
+OUTSIDE = X_MAX + 12.7
 
 _checks = 0
 
@@ -138,30 +142,30 @@ sets("hand-sel", 0)
 time.sleep(0.2)
 check(joint_pos() > X_MAX,
       "the axis really is outside its soft limit",
-      "joint 0 at %.3f, limit %.1f" % (joint_pos(), X_MAX))
+      "joint 0 at %.3f mm, limit %.1f mm" % (joint_pos(), X_MAX))
 
 # ── the way back ────────────────────────────────────────────────────────────
 
 before = joint_pos()
-c.jog(JOG_CONTINUOUS, 0, X, -1.0)
+c.jog(JOG_CONTINUOUS, 0, X, -25.0)
 time.sleep(1.0)
 c.jog(JOG_STOP, 0, X)
 time.sleep(0.5)
 moved_back = before - joint_pos()
-check(moved_back > 0.1,
+check(moved_back > 1.0,
       "jogging back toward the valid range moves the axis",
-      "moved %.3f, wanted more than 0.1" % moved_back)
+      "moved %.3f mm, wanted more than 1" % moved_back)
 
 # And the limit still holds from the inside. A teleop jog targets the limit
 # itself, so "further out" is not something a jog can ask for -- what has to be
 # true is that jogging toward a limit stops at it.
-c.jog(JOG_CONTINUOUS, 0, X, 1.0)
-time.sleep(3.0)
+c.jog(JOG_CONTINUOUS, 0, X, 25.0)
+time.sleep(4.0)
 c.jog(JOG_STOP, 0, X)
 time.sleep(0.5)
 check(joint_pos() <= X_MAX + 0.001,
       "jogging toward the limit stops at it",
-      "joint 0 ended at %.4f, limit %.1f" % (joint_pos(), X_MAX))
+      "joint 0 ended at %.4f mm, limit %.1f mm" % (joint_pos(), X_MAX))
 
 if _checks != 5:
     print("expected 5 checks, made %d" % _checks)
