@@ -1996,7 +1996,9 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
         && GET_MOTION_TELEOP_FLAG()
         && inst->status->on_soft_limit ) {
         SET_MOTION_ERROR_FLAG(1);
-        axis_jog_abort_all(ai, 1);
+        // Only the jogs heading further out: the ones heading back in are how
+        // the machine leaves this state (see axis_jog_abort_outward).
+        axis_jog_abort_outward(ai, 1);
     }
     if (ext_offset_teleop_limit || ext_offset_coord_limit) {
         *(inst->hal_data->eoffset_limited) = 1;

@@ -366,6 +366,25 @@ bool axis_jog_abort_all(axis_inst_t *ai, bool immediate)
     return aborted;
 }
 
+// axis_jog_abort_outward aborts only the jogs that would carry an axis further
+// outside its own limits. A jog whose target lies inside them is the way back
+// in, and aborting that one every cycle is what leaves an axis pushed past a
+// soft limit with no way home short of unhoming and rehoming.
+bool axis_jog_abort_outward(axis_inst_t *ai, bool immediate)
+{
+    int n;
+    bool aborted = 0;
+    for (n = 0; n < EMCMOT_MAX_AXIS; n++) {
+        emcmot_axis_t *axis = &ai->axis_array[n];
+        double target = axis->teleop_tp.pos_cmd;
+        if (!axis->teleop_tp.enable) { continue; }
+        if (target > axis->max_pos_limit || target < axis->min_pos_limit) {
+            if (axis_jog_abort(ai, n, immediate)) {aborted = 1;}
+        }
+    }
+    return aborted;
+}
+
 bool axis_jog_is_active(axis_inst_t *ai)
 {
     int n;
@@ -653,15 +672,23 @@ static int update_teleop_with_check(axis_inst_t *ai, int axis_num, simple_tp_t *
     if  ( (0 == axis->max_pos_limit) && (0 == axis->min_pos_limit) ) {
         return 0;
     }
-    if  ( (axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos)
-          >= axis->max_pos_limit) {
+    // Undo an update that carries the axis *further* out, not every update made
+    // while it is out. An axis can be outside its limits without having been
+    // driven there -- an operator can push any joint whose amps are off -- and
+    // undoing the move back in as well leaves it frozen in place, recoverable
+    // only by unhoming and rehoming. Which way the update went is the whole
+    // question, so it is measured rather than inferred from where the axis
+    // ended up: delta is what this planner just contributed.
+    double sum = axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos;
+    double delta = the_tp->curr_pos - save_curr_pos;
+
+    if  ( sum >= axis->max_pos_limit && delta > 0) {
         // positive error, restore save_curr_pos
         the_tp->curr_pos = save_curr_pos;
         the_tp->curr_vel = 0;
         return 1;
     }
-    if  ( (axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos)
-           <= axis->min_pos_limit) {
+    if  ( sum <= axis->min_pos_limit && delta < 0) {
         // negative error, restore save_curr_pos
         the_tp->curr_pos = save_curr_pos;
         the_tp->curr_vel = 0;

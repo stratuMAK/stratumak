@@ -29,6 +29,7 @@ void axis_jog_cont(axis_inst_t *ai, int axis_num, double vel, long servo_period)
 void axis_jog_incr(axis_inst_t *ai, int axis_num, double offset, double vel, long servo_period) STMAK_NONBLOCKING;
 void axis_jog_abs(axis_inst_t *ai, int axis_num, double offset, double vel) STMAK_NONBLOCKING;
 bool axis_jog_abort_all(axis_inst_t *ai, bool immediate) STMAK_NONBLOCKING;
+bool axis_jog_abort_outward(axis_inst_t *ai, bool immediate) STMAK_NONBLOCKING;
 bool axis_jog_abort(axis_inst_t *ai, int axis_num, bool immediate) STMAK_NONBLOCKING;
 bool axis_jog_is_active(axis_inst_t *ai) STMAK_NONBLOCKING;
 

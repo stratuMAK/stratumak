@@ -77,14 +77,15 @@ pnpdrv.check(moved_back > 1.0,
              "jogging back toward the valid range moves the axis",
              "moved %.2f mm, wanted more than 1" % moved_back)
 
-before = m.joint_pos(X)
+# And the limit still holds from the inside. A teleop jog targets the limit
+# itself, so "further out" is not something a jog can even ask for -- what has
+# to be true is that jogging toward the limit stops at it.
 m.set("jog-x-pos", True)
-m.cycles(50)
+m.cycles(300)
 m.set("jog-x-pos", False)
-m.cycles(10)
-moved_out = m.joint_pos(X) - before
-pnpdrv.check(moved_out < 0.5,
-             "jogging further out does not move the axis",
-             "moved %.2f mm further out" % moved_out)
+m.cycles(20)
+pnpdrv.check(m.joint_pos(X) <= X_MAX + 0.01,
+             "jogging toward the limit stops at it",
+             lambda: "joint 0 ended at %.3f, limit %.1f" % (m.joint_pos(X), X_MAX))
 
 pnpdrv.done()

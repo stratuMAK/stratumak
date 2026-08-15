@@ -914,7 +914,20 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	        clearHomes(inst, joint_num);
             } else {
                 // TELEOP  JOG_CONT
-                if (GET_MOTION_ERROR_FLAG()) { break; }
+                //
+                // Being outside a soft limit forbids a direction, not jogging.
+                // axis_jog_cont targets the limit itself (axis.c), so a jog
+                // started from outside heads back into range whichever way it
+                // is asked for -- and refusing it outright leaves the operator
+                // with a powered axis and no way to move it, which is the only
+                // way out of the state the trip is complaining about. Joint
+                // mode has always drawn this distinction (joint_jog_ok above);
+                // teleop rejected every motion error, so a soft-limit trip
+                // locked the very axis it had just reported.
+                //
+                // Other motion faults do not need catching here: they clear
+                // 'enabling', the machine disables, and the "Can't jog joint
+                // when not enabled" check above already refuses the jog.
                 for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
                     joint = &inst->joints[joint_num];
                     if (joint != 0) { joint->free_tp.enable = 0; }
