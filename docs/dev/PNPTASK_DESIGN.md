@@ -34,14 +34,14 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D14 | Manual mode | `auto-enable` input pin: low → new jobs rejected, manual jog + manual picker control enabled; a running job **finishes first** (no abort) when it goes low. Picker `close` outputs keep their state across machine-off (held material stays held); they are cleared on estop. Manual picker control works even with the machine off, but not during estop. |
 | D15 | Wait positions | No free-standing wait-point stations. A process station optionally defines `WAIT_X`/`WAIT_Y` and has a `busy` input pin; a job targeting a busy station waits there (holding the material) until `busy` clears. `auto-enable` going low aborts the wait (error `WAIT_ABORTED`). |
 | D16 | Abort semantics | No abort request besides estop and machine-off. Externally clearing `start-job` mid-job is ignored. |
-| D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
+| D17 | Tray geometry | TRAYDEF `FIRST`/`LAST` are **absolute machine coordinates** (`LAST` optional — single-position tray), `LAST` being the *taught* position of the far corner slot (D24); tray stations have no X/Y of their own, only `Z_PICK` and pins. A `tray-id` change resets all slots to −1 (the startup state). |
 | D18 | Manual jog | Only when homed — jog pins are ignored while unhomed. |
 | D19 | Release handshake | At action end `release` := 0, then wait for `released` to go **low** (RELEASE_TIMEOUT applies). |
 | D20 | Alternating pickers | Picker roles are not fixed: the free picker performs the next pick/removal, the picker holding the job's material places. Only **one** free picker is required for a pick action; per-picker held-material records replace the single `altHeld`. See the reference flow in §8. |
 | D21 | Position teach | Per-picker `pos-x`/`pos-y` output pins report the picker's position (feedback position + picker offset), for UI display and manual position teaching: the user mounts material in a picker, jogs onto the target, and reads the station/slot coordinates off these pins. **Teaching into the INI uses the `-mu` siblings** (D26): the INI is written in machine units. |
 | D22 | DXF shape rules | Convexity is the *only* shape rule (Phase 1, 2026-08-10). The prototype's extra horizontal/vertical edge requirement is dropped for both the outer limit and dead-zone polylines — with D7 in force it would have meant "axis-aligned rectangles only", and its dead-zone half was a stderr warning a library cannot emit. |
 | D23 | DXF units | The dead-zone drawings are in **machine units**, like the INI — they describe the same coordinates as `FIRST_X`/`PROC X`. The loaded scene is scaled to mm when the planners are built; `CLEARANCE`, like every INI length, is already mm by then (converted at parse time — scaling it again would square the factor). Everything internal stays mm and every HAL float pin carries mm, the way milltask's halui publishes raw internal positions. |
-| D24 | Tray `ANGLE` | `ANGLE` tilts the **grid axes**, it does not rotate a finished grid: the two pitches are derived by expressing `LAST−FIRST` in the rotated frame, `slot(c,r) = FIRST + R(ANGLE)·(dx·c/(COLS−1), dy·r/(ROWS−1))` with `(dx,dy) = R(−ANGLE)·(LAST−FIRST)`. Slot (COLS−1, ROWS−1) therefore lands exactly on `LAST` at any angle — both taught corners stay honest and `ANGLE` only says how the tray sits. An angle that leaves a used axis with zero pitch is a config error. |
+| D24 | Tray geometry fit | The grid is built from its **step widths**, not interpolated between two taught corners: `slot(c,r) = FIRST + R(θ)·(COL_STEP·c, ROW_STEP·r)`. The tilt θ is **derived, never configured** — it is the angle from the corner the steps compute, `(COL_STEP·(COLS−1), ROW_STEP·(ROWS−1))`, to the taught `LAST−FIRST`, bearing on `FIRST`. A rotation cannot change a vector's length, so whatever separation is left between the rotated corner and `LAST` is the two descriptions disagreeing (a mistyped step, a mis-taught `LAST`, the wrong `ROWS`/`COLS`): more than `[PNPTASK]POS_TOLERANCE` of it fails the load. Steps are positive and at least 0.1 mm; which way the tray runs on the table is θ's business. A tray without `LAST` has nothing to fit and stays at θ = 0. |
 | D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 | D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
@@ -251,6 +251,8 @@ AUTOHOME = 1                  # home unhomed joints on first job
 MOVE_HEIGHT = 30.0            # global Z movement height
 CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOLERANCE
 BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
+POS_TOLERANCE = 0.1           # how far a computed position may sit from a
+                              #   taught one before the load fails (D24)
 MOVE_VEL = 0                  # XY travel vel/acc; 0 = use [TRAJ] defaults
 MOVE_ACC = 0
 Z_VEL = 50.0                  # Z stroke vel/acc (approach/retract)
@@ -269,9 +271,12 @@ ROWS = 4                      # ROWS=0 and COLS=0 -> endless tray, first pos onl
 COLS = 10
 FIRST_X = 120.0               # slot (0,0), absolute machine coordinates (D17)
 FIRST_Y = 400.0
-LAST_X = 210.0                # slot (COLS-1, ROWS-1); optional — omit for a
-LAST_Y = 430.0                #   single-position tray (reject bin, transfer)
-ANGLE = 0.0                   # optional rotation of the grid around FIRST, degrees
+LAST_X = 210.0                # *taught* position of slot (COLS-1, ROWS-1);
+LAST_Y = 430.0                #   optional — omit for a single-position tray
+                              #   (reject bin, transfer). It fixes the tray's
+                              #   tilt (D24), it does not stretch the grid
+COL_STEP = 10.0               # slot pitch along the column axis; required
+ROW_STEP = 10.0               #   wherever that axis has more than one slot
 DIR_MODE = C+R+~              # iteration order: C/R, +/-, optional ~ meander
 MAX_UNPOPULATED = 3           # successive empty picks before tray declared empty
 
@@ -300,7 +305,9 @@ Startup validation (fail the load, don't limp): duplicate ids; unknown
 coordinate and every TRAYDEF slot position (absolute machine coordinates, D17)
 must lie inside the eroded boundary and outside every offset dead zone **of
 every configured dead-zone file**; `CLEARANCE > BLEND_TOLERANCE`; tray-def
-grids with ROWS/COLS > 1 but no LAST.
+grids with ROWS/COLS > 1 but no LAST, or no step width for such an axis; and
+the D24 fit — the grid a TRAYDEF's step widths describe has to reach its taught
+LAST within `POS_TOLERANCE`.
 
 `DEFAULT_TRAYDEF` is a **pin seed**, not a fallback value: it is written to the
 station's `tray-id` pin when the pins are exported (before the instance's `net`
@@ -406,17 +413,20 @@ matching `--enable-pnptask-go` configure flag (default yes),
   that came out as `[PNPTASK_TRAY_MATERIAL IN]` is a typo, not a station), the
   ids are unique across trays *and* procs, id 0 is refused (an unconnected u32
   pin reads 0), `LAST_X`/`LAST_Y` and `WAIT_X`/`WAIT_Y` are all-or-nothing,
-  `ROWS`/`COLS` must both be 0 or both positive, a route override must name
+  `ROWS`/`COLS` must both be 0 or both positive, an endless tray defines neither
+LAST nor step widths, a route override must name
   known stations and may not repeat a pair, and `[TRAJ]COORDINATES` must carry
   at least X, Y and Z.
 - Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
   three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
   (= use the `[TRAJ]` defaults), `RELEASE_TIMEOUT` 5 s, `HOME_TIMEOUT` 30 s,
   `MAX_UNPOPULATED` 1, `DIR_MODE` `C+R+`, `ROWS`/`COLS` 1 (single position).
+  `MOVE_HEIGHT`, `CLEARANCE` and `POS_TOLERANCE` are required.
   A timeout defaulting to "forever" would turn a stuck fixture into a hung job
   with nothing on the error pin.
 - Lengths and linear velocities convert machine units → mm at parse time
-  (D23); times stay seconds, `ANGLE` becomes radians (D24).
+  (D23) — step widths and `POS_TOLERANCE` included; times stay seconds. The
+  tray tilt is derived in radians and never read from the INI (D24).
 - `Start` resolves the motion stack — `GetAPIFor("motctl"/"motstat",
   motion_instance, 1)`, wrapped in the generated clients — so a load line
   naming an instance no motmod provides, or one at another API version, fails
@@ -458,7 +468,7 @@ boundary and the offset zones, so it could not run before.
 - This is *position* validation, not route validation: whether a given pair of
   stations has a collision-free route between them is only knowable per pair
   and stays a job-time `PLANNING_FAILED`.
-- `TrayDef.SlotPos`/`SlotCount` (the D24 grid interpolation) land here because
+- `TrayDef.SlotPos`/`SlotCount` (the D24 grid layout) land here because
   the slot check needs them. Slot *state* — the `[]int32`, the direction-mode
   iteration and the probing counters — stays in phase 4.
 - Cost on the sim config: ~3 ms for a 36-node scene, once per file at load.
@@ -616,10 +626,10 @@ is cycled.
 ### 7.1 Tray model (`stations.go`)
 
 Slot state per tray station: `[]int32`, `-1` = empty, `0` = unprocessed,
-`>0` = processed at that step. Grid positions: bilinear interpolation of
-FIRST→LAST by (col, row) index, optional ANGLE rotation around FIRST; all
-coordinates are absolute machine coordinates — tray stations have no X/Y of
-their own (D17). A missing LAST makes a single-position tray (always
+`>0` = processed at that step. Grid positions: `COL_STEP`/`ROW_STEP` stepped
+by (col, row) index and turned by the tilt the load derived from the taught
+LAST, bearing on FIRST (D24); all coordinates are absolute machine coordinates
+— tray stations have no X/Y of their own (D17). A missing LAST makes a single-position tray (always
 pick/place at FIRST). Direction mode parsed into an iterator
 (`C|R`, `+|-` each, optional `~` meander) — pure function, fully unit-tested.
 Endless trays (ROWS=COLS=0): single position, state tracking reduced to the

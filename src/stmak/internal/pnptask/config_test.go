@@ -11,6 +11,7 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pathres"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // The names a config refers its dead-zone drawings by, and the testdata files
@@ -62,6 +63,7 @@ AUTOHOME = 1
 MOVE_HEIGHT = 30.0
 CLEARANCE = 10.0
 BLEND_TOLERANCE = 2.0
+POS_TOLERANCE = 0.1
 MOVE_VEL = 500.0
 MOVE_ACC = 2000.0
 Z_VEL = 50.0
@@ -84,6 +86,8 @@ FIRST_X = 120.0
 FIRST_Y = 400.0
 LAST_X = 210.0
 LAST_Y = 430.0
+COL_STEP = 10.0
+ROW_STEP = 10.0
 DIR_MODE = C+R-~
 MAX_UNPOPULATED = 3
 
@@ -145,6 +149,9 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.MoveHeight != 30.0 || cfg.Clearance != 10.0 || cfg.BlendTolerance != 2.0 {
 		t.Errorf("heights/clearance = %g/%g/%g, want 30/10/2", cfg.MoveHeight, cfg.Clearance, cfg.BlendTolerance)
 	}
+	if cfg.PosTolerance != 0.1 {
+		t.Errorf("POS_TOLERANCE = %g, want 0.1", cfg.PosTolerance)
+	}
 	if cfg.MoveVel != 500 || cfg.MoveAcc != 2000 || cfg.ZVel != 50 || cfg.ZAcc != 500 {
 		t.Errorf("vel/acc = %g/%g/%g/%g", cfg.MoveVel, cfg.MoveAcc, cfg.ZVel, cfg.ZAcc)
 	}
@@ -181,6 +188,14 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if !d.HasLast || d.Last.X != 210 || d.Last.Y != 430 {
 		t.Errorf("traydef 0 LAST = %+v (has=%v)", d.Last, d.HasLast)
+	}
+	if d.ColStep != 10 || d.RowStep != 10 {
+		t.Errorf("traydef 0 steps = %g/%g, want 10/10", d.ColStep, d.RowStep)
+	}
+	// 10 columns of 10 mm and 4 rows of 10 mm reach exactly the taught LAST
+	// with no tilt at all, so the derived angle has to come out at zero.
+	if math.Abs(d.Angle) > 1e-12 {
+		t.Errorf("derived ANGLE = %g rad, want 0 for a grid that fits LAST head-on", d.Angle)
 	}
 	if d.MaxUnpopulated != 3 {
 		t.Errorf("MAX_UNPOPULATED = %d, want 3", d.MaxUnpopulated)
@@ -237,6 +252,8 @@ FIRST_X = 120.0
 FIRST_Y = 400.0
 LAST_X = 210.0
 LAST_Y = 430.0
+COL_STEP = 10.0
+ROW_STEP = 10.0
 
 [PNPTASK_TRAY_MATERIAL_IN]
 ID = 10
@@ -335,6 +352,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 [PNPTASK]
 MOVE_HEIGHT = 30.0
 CLEARANCE = 10.0
+POS_TOLERANCE = 0.1
 DEADZONE_FILE = zones_a.dxf
 
 [PNPTASK_TRAY_0]
@@ -370,6 +388,7 @@ LINEAR_UNITS = inch
 [PNPTASK]
 MOVE_HEIGHT = 1.0
 CLEARANCE = 0.5
+POS_TOLERANCE = 0.01
 MOVE_VEL = 2.0
 POS_SETTLE_TIME = 0.1
 DEADZONE_FILE = zones_a.dxf
@@ -382,6 +401,8 @@ FIRST_X = 1.0
 FIRST_Y = 2.0
 LAST_X = 3.0
 LAST_Y = 4.0
+COL_STEP = 2.0
+ROW_STEP = 2.0
 
 [PNPTASK_PROC_0]
 ID = 20
@@ -398,12 +419,83 @@ Z_PICK = 0.25
 	near("MOVE_HEIGHT", cfg.MoveHeight, 25.4)
 	near("CLEARANCE", cfg.Clearance, 12.7)
 	near("MOVE_VEL", cfg.MoveVel, 50.8)
+	near("POS_TOLERANCE", cfg.PosTolerance, 0.254)
 	near("FIRST_X", cfg.TrayDefs[0].First.X, 25.4)
 	near("LAST_Y", cfg.TrayDefs[0].Last.Y, 101.6)
+	// A step width is a length like any other, and the grid it builds has to
+	// land on the converted LAST — an unconverted one would miss it by 25.4x
+	// and the POS_TOLERANCE fit would already have refused the load.
+	near("COL_STEP", cfg.TrayDefs[0].ColStep, 50.8)
+	near("slot(1,1)", cfg.TrayDefs[0].SlotPos(1, 1).Y, 101.6)
 	near("PROC X", cfg.Procs[0].Pos.X, 254)
 	near("Z_PICK", cfg.Procs[0].ZPick, 6.35)
 	// A dwell is a time, not a length: it must survive the conversion intact.
 	near("POS_SETTLE_TIME", cfg.PosSettleTime, 0.1)
+}
+
+// TestLoadConfigTiltedGrid covers the D24 fit: COL_STEP/ROW_STEP build the
+// grid, and LAST only says how the tray sits on the table. The angle is
+// derived from the two corners — never configured — and it bears on FIRST.
+func TestLoadConfigTiltedGrid(t *testing.T) {
+	setupPaths(t)
+	// 5 x 3 slots of 10 mm, so the far corner sits 40 mm along the column axis
+	// and 20 mm along the row axis. Taught at 30 degrees that is
+	// (40cos30 - 20sin30, 40sin30 + 20cos30) = (24.6410, 37.3205) off FIRST.
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 3
+COLS = 5
+FIRST_X = 100.0
+FIRST_Y = 200.0
+LAST_X = 124.6410161514
+LAST_Y = 237.3205080757
+COL_STEP = 10.0
+ROW_STEP = 10.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`)
+	d := cfg.TrayDefs[0]
+	if got := d.Angle * 180 / math.Pi; math.Abs(got-30) > 1e-6 {
+		t.Errorf("derived angle = %g deg, want 30", got)
+	}
+	nearPoint(t, "slot(0,0)", d.SlotPos(0, 0), d.First)
+	nearPoint(t, "slot(4,2)", d.SlotPos(4, 2), d.Last)
+	// One column step along the tilted column axis, not along X.
+	nearPoint(t, "slot(1,0)", d.SlotPos(1, 0), pnproute.Point{X: 108.660254038, Y: 205})
+}
+
+// TestLoadConfigTeachingResidue pins what POS_TOLERANCE buys: a LAST taught a
+// little short of where the step widths put the corner is accepted, and the
+// grid still comes out of the step widths — the corner slot lands where the
+// pitch says, not on the taught point. Interpolating FIRST->LAST instead would
+// smear that teaching error across every slot of the tray.
+func TestLoadConfigTeachingResidue(t *testing.T) {
+	setupPaths(t)
+	// 40 mm of column axis taught 0.05 mm short, well inside the 0.1 mm
+	// POS_TOLERANCE of pnptaskSection.
+	cfg := mustLoad(t, trajSection+pnptaskSection+`
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 1
+COLS = 5
+FIRST_X = 100.0
+FIRST_Y = 200.0
+LAST_X = 139.95
+LAST_Y = 200.0
+COL_STEP = 10.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`)
+	d := cfg.TrayDefs[0]
+	if math.Abs(d.Angle) > 1e-12 {
+		t.Errorf("derived angle = %g rad, want 0 for a tray taught straight along X", d.Angle)
+	}
+	nearPoint(t, "slot(4,0)", d.SlotPos(4, 0), pnproute.Point{X: 140, Y: 200})
 }
 
 // TestLoadConfigNamespace checks that a namespaced section overrides the global
@@ -419,6 +511,7 @@ DEADZONE_FILE = zones_b.dxf
 [PNPTASK]
 MOVE_HEIGHT = 30.0
 CLEARANCE = 10.0
+POS_TOLERANCE = 0.1
 DEADZONE_FILE = zones_a.dxf
 
 [pnp.task:PNPTASK_PROC_0]
@@ -485,16 +578,30 @@ func TestLoadConfigErrors(t *testing.T) {
 		want: "[KINS]JOINTS = 99",
 	}, {
 		name: "clearance not above blend tolerance",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = 2.0\n" +
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 2.0\nBLEND_TOLERANCE = 2.0\nPOS_TOLERANCE = 0.1\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "must be greater than BLEND_TOLERANCE",
 	}, {
+		// The tolerance every taught geometry is judged against is not this
+		// module's to guess at.
+		name: "missing POS_TOLERANCE",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nDEADZONE_FILE = zones_a.dxf\n" +
+			stationSections,
+		want: "POS_TOLERANCE is required",
+	}, {
+		// Zero would demand a taught corner reproduce bit-exactly, which makes
+		// every real grid a config error.
+		name: "zero POS_TOLERANCE",
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0\n" +
+			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
+		want: "POS_TOLERANCE = 0: must be positive",
+	}, {
 		name: "no dead-zone file",
-		ini:  trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\n" + stationSections,
+		ini:  trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\n" + stationSections,
 		want: "at least one dead-zone drawing",
 	}, {
 		name: "dead-zone file not found",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nDEADZONE_FILE = nope.dxf\n" +
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nDEADZONE_FILE = nope.dxf\n" +
 			stationSections,
 		want: "nope.dxf",
 	}, {
@@ -524,12 +631,12 @@ func TestLoadConfigErrors(t *testing.T) {
 		want: "BLEND_TOLERANCE = -8: must not be negative",
 	}, {
 		name: "negative velocity",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nMOVE_VEL = -500\n" +
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nMOVE_VEL = -500\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "MOVE_VEL = -500: must not be negative",
 	}, {
 		name: "negative dwell",
-		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nRELEASE_TIME = -1\n" +
+		ini: trajSection + "[PNPTASK]\nMOVE_HEIGHT = 30.0\nCLEARANCE = 10.0\nPOS_TOLERANCE = 0.1\nRELEASE_TIME = -1\n" +
 			"DEADZONE_FILE = zones_a.dxf\n" + stationSections,
 		want: "must not be negative",
 	}, {
@@ -704,12 +811,96 @@ Z_PICK = 2.5
 `,
 		want: `section name "MATERIAL IN" may only contain`,
 	}, {
-		name: "collapsed grid axis",
+		// An axis with slots to step along has a pitch, and it is the pitch the
+		// grid is built from — there is nothing to fall back on.
+		name: "grid without ROW_STEP",
 		ini: trajSection + pnptaskSection + `
 [PNPTASK_TRAYDEF_0]
 ID = 1
 ROWS = 4
 COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 280.0
+LAST_Y = 430.0
+COL_STEP = 20.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "ROW_STEP is required for a 4-slot axis",
+	}, {
+		name: "step width below the minimum pitch",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 4
+COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 280.0
+LAST_Y = 430.0
+COL_STEP = 0.05
+ROW_STEP = 10.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "COL_STEP = 0.05 mm: a step width must be at least 0.1 mm",
+	}, {
+		// Which way the tray runs on the table is the derived tilt's business;
+		// a negative step would mirror an axis behind the fit's back.
+		name: "negative step width",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 4
+COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 280.0
+LAST_Y = 430.0
+COL_STEP = -20.0
+ROW_STEP = 10.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "a step width must be at least",
+	}, {
+		// The whole point of the fit: no rotation about FIRST turns a
+		// 180 x 30 mm grid into a corner taught 100 x 30 mm away, so the two
+		// descriptions of this tray disagree and the load says so (D24).
+		name: "grid that cannot reach the taught LAST",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 4
+COLS = 10
+FIRST_X = 100.0
+FIRST_Y = 400.0
+LAST_X = 200.0
+LAST_Y = 430.0
+COL_STEP = 20.0
+ROW_STEP = 10.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "more than POS_TOLERANCE",
+	}, {
+		// One slot, so FIRST and LAST are the same position; a LAST anywhere
+		// else means the section was meant to describe a grid.
+		name: "single-slot tray with a LAST elsewhere",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 1
+COLS = 1
 FIRST_X = 100.0
 FIRST_Y = 400.0
 LAST_X = 200.0
@@ -719,45 +910,23 @@ LAST_Y = 400.0
 ID = 10
 Z_PICK = 2.5
 `,
-		want: "collapsed rows",
+		want: "single slot, but LAST sits 100 mm from FIRST",
 	}, {
-		// A near-degenerate ANGLE leaves a total span that looks healthy but a
-		// per-slot pitch far below any real tray's.
-		name: "degenerate grid angle",
+		name: "endless tray with step widths",
 		ini: trajSection + pnptaskSection + `
 [PNPTASK_TRAYDEF_0]
 ID = 1
-ROWS = 4
-COLS = 10
+ROWS = 0
+COLS = 0
 FIRST_X = 100.0
 FIRST_Y = 400.0
-LAST_X = 100.2
-LAST_Y = 500.0
+COL_STEP = 20.0
 
 [PNPTASK_TRAY_0]
 ID = 10
 Z_PICK = 2.5
 `,
-		want: "collapsed columns",
-	}, {
-		// One row has no pitch to absorb a cross-axis span: LAST would not be
-		// a slot (D24), so a tilted single-row tray must state its ANGLE.
-		name: "single-row tray with off-axis LAST",
-		ini: trajSection + pnptaskSection + `
-[PNPTASK_TRAYDEF_0]
-ID = 1
-ROWS = 1
-COLS = 10
-FIRST_X = 100.0
-FIRST_Y = 400.0
-LAST_X = 280.0
-LAST_Y = 404.0
-
-[PNPTASK_TRAY_0]
-ID = 10
-Z_PICK = 2.5
-`,
-		want: "with one row LAST must lie on the column axis",
+		want: "must not define COL_STEP/ROW_STEP",
 	}, {
 		name: "zero MAX_UNPOPULATED",
 		ini: trajSection + pnptaskSection + `

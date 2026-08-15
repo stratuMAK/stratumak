@@ -23,10 +23,10 @@ func (d TrayDef) SlotCount() int {
 
 // SlotPos returns the absolute machine coordinates of slot (col, row).
 //
-// The grid axes are tilted by Angle and the two pitches come from LAST−FIRST
-// expressed in that rotated frame (D24), so slot (Cols−1, Rows−1) lands exactly
-// on LAST at any angle. A tray without LAST — endless or single-position — has
-// one position, at FIRST.
+// The grid is the step widths laid out in the tray's own frame — col·ColStep
+// along the column axis, row·RowStep along the row axis — turned by Angle
+// about FIRST, the tilt the load derived from the taught LAST (D24). A tray
+// without LAST — endless or single-position — has one position, at FIRST.
 //
 // Out-of-range indices are not rejected here: the callers (config validation
 // and the slot search) iterate the tray's own extent, and clamping or erroring
@@ -35,34 +35,15 @@ func (d TrayDef) SlotPos(col, row int) pnproute.Point {
 	if !d.HasLast {
 		return d.First
 	}
-	dx, dy := gridSpan(d)
 	local := pnproute.Point{
-		X: dx * gridFraction(col, d.Cols),
-		Y: dy * gridFraction(row, d.Rows),
+		X: d.ColStep * float64(col),
+		Y: d.RowStep * float64(row),
 	}
 	s, c := math.Sincos(d.Angle)
 	return pnproute.Point{
 		X: d.First.X + local.X*c - local.Y*s,
 		Y: d.First.Y + local.X*s + local.Y*c,
 	}
-}
-
-// gridFraction is how far along an axis index i sits, 0 at the first slot and 1
-// at the last. A one-slot axis has no span to divide, so it stays at 0.
-func gridFraction(i, n int) float64 {
-	if n < 2 {
-		return 0
-	}
-	return float64(i) / float64(n-1)
-}
-
-// gridSpan returns Last−First expressed in the tray's own (Angle-rotated)
-// frame: the total travel along the column and the row axis of the grid.
-func gridSpan(d TrayDef) (col, row float64) {
-	dx := d.Last.X - d.First.X
-	dy := d.Last.Y - d.First.Y
-	s, c := math.Sincos(-d.Angle)
-	return dx*c - dy*s, dx*s + dy*c
 }
 
 // SlotAxis names one of the two indices of a tray grid.

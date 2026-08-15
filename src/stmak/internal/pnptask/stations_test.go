@@ -73,33 +73,50 @@ func TestParseDirModeErrors(t *testing.T) {
 	}
 }
 
-// TestGridSpan checks the ANGLE convention: the span is resolved in the tray's
-// own rotated frame, so slot (COLS-1, ROWS-1) lands exactly on LAST whatever
-// the angle is, and both taught corners stay honest.
-func TestGridSpan(t *testing.T) {
+// TestFitGridAngle checks the D24 fit: the step widths lay the grid out in the
+// tray's own frame and the taught LAST only says how that frame is turned
+// about FIRST. The far corner lands where the pitches put it — LAST is a
+// measurement, not an anchor the grid is stretched onto.
+func TestFitGridAngle(t *testing.T) {
 	cases := []struct {
-		name             string
-		angleDeg         float64
-		last             [2]float64
-		wantCol, wantRow float64
+		name         string
+		last         pnproute.Point
+		wantAngleDeg float64
+		wantErr      bool
 	}{
-		{"axis aligned", 0, [2]float64{100, 40}, 100, 40},
-		{"45 degrees along the column axis", 45, [2]float64{100, 100}, math.Sqrt2 * 100, 0},
-		{"90 degrees swaps the axes", 90, [2]float64{0, 100}, 100, 0},
-		{"negative angle", -90, [2]float64{0, 100}, -100, 0},
+		// A 100 x 40 mm grid (5 x 3 slots of 25 / 20 mm), taught at four
+		// orientations of the same tray.
+		{"axis aligned", pnproute.Point{X: 100, Y: 40}, 0, false},
+		{"turned by 90 degrees", pnproute.Point{X: -40, Y: 100}, 90, false},
+		{"turned by -90 degrees", pnproute.Point{X: 40, Y: -100}, -90, false},
+		{"turned by 180 degrees", pnproute.Point{X: -100, Y: -40}, 180, false},
+		// No rotation about FIRST can shorten the diagonal, so a corner taught
+		// well inside it is a tray the two descriptions disagree about.
+		{"corner out of reach", pnproute.Point{X: 50, Y: 20}, 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := TrayDef{
+				Rows: 3, Cols: 5,
+				ColStep: 25, RowStep: 20,
 				First:   pnproute.Point{X: 0, Y: 0},
-				Last:    pnproute.Point{X: tc.last[0], Y: tc.last[1]},
+				Last:    tc.last,
 				HasLast: true,
-				Angle:   tc.angleDeg * math.Pi / 180,
 			}
-			col, row := gridSpan(d)
-			if math.Abs(col-tc.wantCol) > 1e-9 || math.Abs(row-tc.wantRow) > 1e-9 {
-				t.Errorf("gridSpan = (%g, %g), want (%g, %g)", col, row, tc.wantCol, tc.wantRow)
+			err := fitGridAngle("PNPTASK_TRAYDEF_0", &d, 0.1)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("fitGridAngle accepted a corner at %+v", tc.last)
+				}
+				return
 			}
+			if err != nil {
+				t.Fatalf("fitGridAngle: %v", err)
+			}
+			if got := d.Angle * 180 / math.Pi; math.Abs(got-tc.wantAngleDeg) > 1e-9 {
+				t.Errorf("derived angle = %g deg, want %g", got, tc.wantAngleDeg)
+			}
+			nearPoint(t, "corner slot", d.SlotPos(d.Cols-1, d.Rows-1), tc.last)
 		})
 	}
 }
@@ -113,10 +130,10 @@ func nearPoint(t *testing.T, what string, got, want pnproute.Point) {
 }
 
 func TestSlotPos(t *testing.T) {
-	// A 3x2 grid spanning (100,200) to (300,300): 100 mm column pitch,
-	// 100 mm row pitch.
+	// A 3x2 grid of 100 mm slots at (100,200), reaching (300,300).
 	grid := TrayDef{
 		Rows: 2, Cols: 3,
+		ColStep: 100, RowStep: 100,
 		First:   pnproute.Point{X: 100, Y: 200},
 		Last:    pnproute.Point{X: 300, Y: 300},
 		HasLast: true,
@@ -129,16 +146,16 @@ func TestSlotPos(t *testing.T) {
 		t.Errorf("SlotCount = %d, want 6", n)
 	}
 
-	// The same grid rotated by 90 degrees: the column axis now runs along +Y
-	// and the row axis along -X, and LAST still holds the last slot (D24).
+	// The same tray turned by 90 degrees about FIRST: the column axis now runs
+	// along +Y and the row axis along -X, so the corner slot moves with it
+	// (the taught LAST goes along, which is what the load's fit derived the
+	// angle from).
 	rot := grid
 	rot.Angle = math.Pi / 2
+	rot.Last = pnproute.Point{X: 0, Y: 400}
 	nearPoint(t, "rotated slot(0,0)", rot.SlotPos(0, 0), rot.First)
 	nearPoint(t, "rotated slot(2,1)", rot.SlotPos(2, 1), rot.Last)
-	// Column span in the rotated frame is LAST-FIRST turned by -90 deg:
-	// (200,100) -> (100,-200), so one column step is +50 along the tilted
-	// column axis, which points at +Y.
-	nearPoint(t, "rotated slot(1,0)", rot.SlotPos(1, 0), pnproute.Point{X: 100, Y: 250})
+	nearPoint(t, "rotated slot(1,0)", rot.SlotPos(1, 0), pnproute.Point{X: 100, Y: 300})
 
 	// A single-position tray ignores the indices entirely.
 	single := TrayDef{Rows: 1, Cols: 1, First: pnproute.Point{X: 42, Y: 43}}
@@ -253,6 +270,7 @@ func newTestTray(t *testing.T, d TrayDef) *trayState {
 func grid3x2() TrayDef {
 	return TrayDef{
 		ID: 1, Rows: 2, Cols: 3,
+		ColStep: 100, RowStep: 100,
 		First:   pnproute.Point{X: 100, Y: 200},
 		Last:    pnproute.Point{X: 300, Y: 300},
 		HasLast: true,

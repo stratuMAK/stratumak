@@ -53,6 +53,13 @@ type Config struct {
 	Clearance      float64
 	BlendTolerance float64
 
+	// PosTolerance is how far a *computed* position may sit from the taught
+	// one it has to reproduce before the config is refused ([PNPTASK]
+	// POS_TOLERANCE, required). A tray grid is built from its step widths and
+	// tilted onto its taught LAST (D24); this is how much of the leftover is
+	// teaching noise rather than a wrong config.
+	PosTolerance float64
+
 	// MoveVel/MoveAcc are the XY travel limits, ZVel/ZAcc the ones for the
 	// approach/retract strokes. Zero means "no override" — the [TRAJ] defaults
 	// apply, exactly as the design document specifies for MOVE_VEL/MOVE_ACC.
@@ -103,20 +110,24 @@ type TrayDef struct {
 	Rows int
 	Cols int
 
-	// First is slot (0,0) and Last slot (Cols-1, Rows-1), both absolute
-	// machine coordinates. HasLast is false for a single-position tray (a
-	// reject bin or a transfer place), where every pick and place happens at
-	// First.
+	// First is slot (0,0) and Last the *taught* position of slot
+	// (Cols-1, Rows-1), both absolute machine coordinates. HasLast is false
+	// for a single-position tray (a reject bin or a transfer place), where
+	// every pick and place happens at First.
 	First   pnproute.Point
 	Last    pnproute.Point
 	HasLast bool
 
-	// Angle tilts the grid axes (radians, CCW, from INI degrees). The column
-	// and row directions are rotated by it and the two pitches are derived by
-	// expressing Last-First in that rotated frame, so slot (Cols-1, Rows-1)
-	// lands exactly on Last whatever the angle is — both taught corners stay
-	// honest and Angle only says how the tray sits on the table. At Angle = 0
-	// this degenerates to the plain axis-aligned grid.
+	// ColStep/RowStep are the slot pitches along the tray's own column and row
+	// axis (mm, from COL_STEP/ROW_STEP). The grid is built from these — Last
+	// is not interpolated between, it is the measurement the tilt is fitted to.
+	ColStep float64
+	RowStep float64
+
+	// Angle tilts the grid axes (radians, CCW). It is not configured but
+	// derived at load (D24): the rotation about First that turns the corner
+	// the step widths compute into the taught Last. A tray without Last has
+	// nothing to bear on and stays at 0, the plain axis-aligned grid.
 	Angle float64
 
 	// MaxUnpopulated is how many successive empty picks declare the tray
@@ -246,6 +257,10 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	cfg.MoveHeight = r.lengthReq(sec, "MOVE_HEIGHT")
 	cfg.Clearance = r.lengthReq(sec, "CLEARANCE")
 	cfg.BlendTolerance = r.lengthNonNeg(sec, "BLEND_TOLERANCE", 0)
+	// Required rather than defaulted: it decides which taught geometry the
+	// load accepts, and a default would be this module's guess at how well the
+	// machine it is running on can be taught.
+	cfg.PosTolerance = r.lengthReq(sec, "POS_TOLERANCE")
 	cfg.MoveVel = r.lengthNonNeg(sec, "MOVE_VEL", 0)
 	cfg.MoveAcc = r.lengthNonNeg(sec, "MOVE_ACC", 0)
 	cfg.ZVel = r.lengthNonNeg(sec, "Z_VEL", 0)
@@ -272,6 +287,11 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	if cfg.Clearance <= cfg.BlendTolerance {
 		return nil, fmt.Errorf("[%s]CLEARANCE (%g) must be greater than BLEND_TOLERANCE (%g)",
 			sec, cfg.Clearance, cfg.BlendTolerance)
+	}
+	// Zero would demand that a taught corner reproduce to the last bit of a
+	// float, which no teaching does — every grid would be a config error.
+	if cfg.PosTolerance <= 0 {
+		return nil, fmt.Errorf("[%s]POS_TOLERANCE = %g: must be positive", sec, cfg.PosTolerance)
 	}
 
 	if err := loadDeadzoneFiles(ini, cfg); err != nil {
@@ -371,7 +391,9 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 			d.Last.X = r.lengthReq(sec, "LAST_X")
 			d.Last.Y = r.lengthReq(sec, "LAST_Y")
 		}
-		d.Angle = r.angle(sec, "ANGLE", 0)
+		hasColStep, hasRowStep := r.has(sec, "COL_STEP"), r.has(sec, "ROW_STEP")
+		d.ColStep = r.length(sec, "COL_STEP", 0)
+		d.RowStep = r.length(sec, "ROW_STEP", 0)
 		d.MaxUnpopulated = r.integer(sec, "MAX_UNPOPULATED", defaultMaxUnpopulated)
 		d.Dir, err = parseDirMode(r.str(sec, "DIR_MODE"))
 		if err != nil {
@@ -406,10 +428,19 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 		if d.Endless() && d.HasLast {
 			return fmt.Errorf("[%s]: an endless tray (ROWS = COLS = 0) has a single position at FIRST and must not define LAST_X/LAST_Y", sec)
 		}
+		if d.Endless() && (hasColStep || hasRowStep) {
+			return fmt.Errorf("[%s]: an endless tray (ROWS = COLS = 0) has a single position at FIRST and must not define COL_STEP/ROW_STEP", sec)
+		}
 		if d.MaxUnpopulated < 1 {
 			return fmt.Errorf("[%s]MAX_UNPOPULATED = %d: must be at least 1", sec, d.MaxUnpopulated)
 		}
-		if err := checkGridPitch(sec, d); err != nil {
+		if err := checkStep(sec, "COL_STEP", d.ColStep, d.Cols, hasColStep); err != nil {
+			return err
+		}
+		if err := checkStep(sec, "ROW_STEP", d.RowStep, d.Rows, hasRowStep); err != nil {
+			return err
+		}
+		if err := fitGridAngle(sec, &d, cfg.PosTolerance); err != nil {
 			return err
 		}
 		cfg.TrayDefs = append(cfg.TrayDefs, d)
@@ -417,63 +448,81 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 	return nil
 }
 
-// checkGridPitch rejects a mis-taught grid — one whose FIRST/LAST/ANGLE
-// combination cannot describe the tray the section claims (D24: this is a
-// config error, not something to discover by driving to it). Last−First is
-// resolved in the frame Angle rotates into; two things can go wrong there:
-//
-//   - a multi-slot axis with a per-slot pitch below any physical tray's
-//     (an ANGLE typo like 89.9° for 90° collapses a 100 mm span to a
-//     0.02 mm pitch — the total span still looks nonzero, so the pitch,
-//     not the span, is what must be checked), or
-//   - a *single*-slot axis with a span component at all: one slot has no
-//     pitch to absorb it, so slot (COLS−1, ROWS−1) would silently miss the
-//     taught LAST by exactly that component.
-func checkGridPitch(sec string, d TrayDef) error {
-	if !d.HasLast || d.Endless() {
-		return nil
+// checkStep validates one axis' step width against the number of slots on it.
+// An axis with more than one slot has a pitch and must state it; an axis with
+// one slot has nothing to step and may leave it out.
+func checkStep(sec, key string, step float64, count int, given bool) error {
+	if count > 1 && !given {
+		return fmt.Errorf("[%s]: %s is required for a %d-slot axis (the slot-to-slot distance along it)",
+			sec, key, count)
 	}
-	dx, dy := gridSpan(d)
-	if d.Cols > 1 && math.Abs(dx)/float64(d.Cols-1) < gridMinPitch {
-		return fmt.Errorf("[%s]: COLS = %d over a column span of %g mm is a pitch below %g mm (FIRST/LAST and ANGLE = %g° describe collapsed columns)",
-			sec, d.Cols, math.Abs(dx), gridMinPitch, d.Angle*180/math.Pi)
-	}
-	if d.Rows > 1 && math.Abs(dy)/float64(d.Rows-1) < gridMinPitch {
-		return fmt.Errorf("[%s]: ROWS = %d over a row span of %g mm is a pitch below %g mm (FIRST/LAST and ANGLE = %g° describe collapsed rows)",
-			sec, d.Rows, math.Abs(dy), gridMinPitch, d.Angle*180/math.Pi)
-	}
-	if d.Cols == 1 && math.Abs(dx) > gridAxisEpsilon {
-		return fmt.Errorf("[%s]: COLS = 1 but LAST sits %g mm along the column axis; with one column LAST must lie on the row axis — set ANGLE = %.4g so both taught corners are slots",
-			sec, math.Abs(dx), suggestedAngle(d, AxisRow))
-	}
-	if d.Rows == 1 && math.Abs(dy) > gridAxisEpsilon {
-		return fmt.Errorf("[%s]: ROWS = 1 but LAST sits %g mm off the column axis; with one row LAST must lie on the column axis — set ANGLE = %.4g so both taught corners are slots",
-			sec, math.Abs(dy), suggestedAngle(d, AxisCol))
+	// Positive only: a step is a distance, and which way the tray runs on the
+	// table is what the derived tilt says (D24). A negative one would mirror
+	// the axis behind the fit's back, and anything below the minimum pitch is
+	// a typo rather than a tray.
+	if given && step < gridMinPitch {
+		return fmt.Errorf("[%s]%s = %g mm: a step width must be at least %g mm",
+			sec, key, step, gridMinPitch)
 	}
 	return nil
 }
 
-// suggestedAngle is the ANGLE (degrees) that puts the whole LAST−FIRST span
-// onto the given grid axis — what a single-row (axis = column) or
-// single-column (axis = row) tray needs for LAST to land on its last slot.
-func suggestedAngle(d TrayDef, axis SlotAxis) float64 {
-	a := math.Atan2(d.Last.Y-d.First.Y, d.Last.X-d.First.X)
-	if axis == AxisRow {
-		a -= math.Pi / 2
+// fitGridAngle derives how the tray sits on the table and checks that the grid
+// the section describes is the tray that was taught (D24).
+//
+// The step widths build the grid in the tray's own frame, so its far corner —
+// slot (COLS−1, ROWS−1) — sits at FIRST + (COL_STEP·(COLS−1), ROW_STEP·(ROWS−1))
+// before any rotation. LAST is where that same corner was *measured*, so the
+// angle between the two vectors, bearing on FIRST, is the tray's tilt, and it
+// is the only thing LAST contributes.
+//
+// A rotation cannot change a vector's length, so whatever separation is left
+// after it is the two descriptions disagreeing: a mistyped step width, a
+// mis-taught LAST, or the wrong ROWS/COLS. That is a config error rather than
+// something to discover by driving to the far end of the tray, and
+// POS_TOLERANCE is how much of it is teaching noise.
+func fitGridAngle(sec string, d *TrayDef, tol float64) error {
+	if !d.HasLast || d.Endless() {
+		return nil
 	}
-	return a * 180 / math.Pi
+	nomX := d.ColStep * float64(d.Cols-1)
+	nomY := d.RowStep * float64(d.Rows-1)
+	measX, measY := d.Last.X-d.First.X, d.Last.Y-d.First.Y
+	if nomX == 0 && nomY == 0 {
+		// A 1x1 tray has no diagonal to bear a tilt on: FIRST and LAST are the
+		// same slot, so LAST may only repeat it.
+		if off := math.Hypot(measX, measY); off > tol {
+			return fmt.Errorf("[%s]: a %dx%d tray has a single slot, but LAST sits %g mm from FIRST — more than POS_TOLERANCE (%g mm)",
+				sec, d.Cols, d.Rows, off, tol)
+		}
+		return nil
+	}
+	d.Angle = normalizeAngle(math.Atan2(measY, measX) - math.Atan2(nomY, nomX))
+	corner := d.SlotPos(d.Cols-1, d.Rows-1)
+	if off := math.Hypot(corner.X-d.Last.X, corner.Y-d.Last.Y); off > tol {
+		return fmt.Errorf("[%s]: COLS/ROWS and COL_STEP/ROW_STEP put slot (%d, %d) at (%.4f, %.4f) under the %.4f° tilt they imply, %g mm off the taught LAST (%.4f, %.4f) — more than POS_TOLERANCE (%g mm)",
+			sec, d.Cols-1, d.Rows-1, corner.X, corner.Y, d.Angle*180/math.Pi,
+			off, d.Last.X, d.Last.Y, tol)
+	}
+	return nil
 }
 
-const (
-	// gridMinPitch is the smallest plausible slot-to-slot distance, in mm.
-	// Neighbouring slots closer than this are a mis-taught grid (typically a
-	// degenerate ANGLE), not a real tray — even micro-component waffle trays
-	// pitch well above it. Raise it here if that assumption ever breaks.
-	gridMinPitch = 0.1
-	// gridAxisEpsilon is how much span a one-slot axis may carry, in mm:
-	// only floating-point residue of the frame rotation, not a real offset.
-	gridAxisEpsilon = 1e-6
-)
+// normalizeAngle folds an angle into (-pi, pi], so a tray tilted by a hair
+// reads as -0.06° in a diagnostic rather than as 359.94°.
+func normalizeAngle(a float64) float64 {
+	for a > math.Pi {
+		a -= 2 * math.Pi
+	}
+	for a <= -math.Pi {
+		a += 2 * math.Pi
+	}
+	return a
+}
+
+// gridMinPitch is the smallest plausible slot-to-slot distance, in mm. A step
+// width below it is a typo, not a tray — even micro-component waffle trays
+// pitch well above it. Raise it here if that assumption ever breaks.
+const gridMinPitch = 0.1
 
 // loadStations parses [PNPTASK_TRAY_x] and [PNPTASK_PROC_x]. Station ids share
 // one namespace across both kinds: origin-id and dest-id name a station without
@@ -782,11 +831,6 @@ func (r *iniReader) duration(section, key string, def float64) float64 {
 		return def
 	}
 	return v
-}
-
-// angle reads an angle in degrees and returns radians.
-func (r *iniReader) angle(section, key string, def float64) float64 {
-	return r.float(section, key, def) * math.Pi / 180
 }
 
 func (r *iniReader) integer(section, key string, def int) int {
