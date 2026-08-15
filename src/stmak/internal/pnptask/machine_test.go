@@ -1183,3 +1183,28 @@ func TestCheckTargetInLimits(t *testing.T) {
 		}
 	}
 }
+
+// TestModuleStopDisablesMotion pins what a shutdown owes the drives. park()
+// runs when the control loop leaves and before Stop() returns (run defers the
+// done close, so shutdown's join cannot beat it), and it aborts and disables
+// motion.
+//
+// This is the same guarantee milltask makes in its own Stop, and it is the
+// reason the fieldbus driver's late-stop can take the bus down safely: joints
+// left enabled into that window are joints motion keeps policing while their
+// feedback has stopped arriving, which ends a clean shutdown in "joint N
+// following error".
+func TestModuleStopDisablesMotion(t *testing.T) {
+	f := newMachineFixture(t)
+	f.machineOn()
+	f.mot.resetCalls()
+
+	f.m.Stop()
+
+	if !f.mot.called("Abort") || !f.mot.called("Disable") {
+		t.Errorf("Stop did not abort and disable motion: %v", f.mot.callList())
+	}
+	if f.bit("machine-is-on") {
+		t.Error("machine-is-on is still set after Stop")
+	}
+}

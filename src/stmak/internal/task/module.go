@@ -471,6 +471,19 @@ func (m *milltaskModule) Stop() {
 		// The shared parent goes with the last instance out: Remove refuses
 		// a non-empty directory, which is exactly the point.
 		_ = os.Remove(pathres.FilteredDir())
+
+		// Leave motion disabled. This is the last thing Stop does, after the
+		// sequencer is down, so nothing can re-enable behind it — and it is
+		// deliberately here rather than in Destroy: Stop runs ahead of the
+		// realtime barrier, so the servo cycles that carry the disable out to
+		// the drives are still running, and a cycle advance follows before the
+		// fieldbus driver's LateStop takes the bus down.
+		//
+		// Joints left enabled into that window are joints motion still polices
+		// while their feedback has stopped arriving, which is a shutdown that
+		// ends in "joint N following error" for no reason anyone can act on.
+		_ = m.task.motion.Abort()
+		_ = m.task.motion.Disable()
 	}
 	m.logger.Info("milltask stopping")
 }
