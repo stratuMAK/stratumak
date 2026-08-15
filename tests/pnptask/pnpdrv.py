@@ -85,6 +85,20 @@ class Error(Exception):
 _checks = 0
 
 
+def log_text(path="server.log"):
+    """The server log so far, for the checks that are about what was reported.
+
+    Some of what a scenario asserts is a message that must NOT appear: a fault
+    logged for something the machine did not do is still a fault the operator
+    has to interpret.
+    """
+    try:
+        with open(path, errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
 def check(cond, label, detail=None):
     """Assert `cond`, reporting it as one PASS line. Raises on failure."""
     global _checks
@@ -302,6 +316,25 @@ class Machine:
         return self.wait(lambda s: not s["busy"] and not s["start-job"],
                          "the module to go idle",
                          timeout=JOB_TIMEOUT if timeout is None else timeout)
+
+    # ── the hand (see pnptask.hal) ──
+
+    def joint_pos(self, joint):
+        """A joint's commanded position, in machine units."""
+        return raw_get("pnp.mot.joint.%d.motor-pos-cmd" % joint)
+
+    def hand_hold(self, joint, pos):
+        """Put a hand on a joint: hold it at pos whatever motion commands.
+
+        The amps being off is what makes this physically honest -- an operator
+        can push any de-energised axis, including out past a soft limit.
+        """
+        raw_set("pnp.hand.%d.in1" % joint, pos)
+        raw_set("pnp.hand.%d.sel" % joint, True)
+
+    def hand_release(self, joint):
+        """Let go. The axis stays where the hand left it."""
+        raw_set("pnp.hand.%d.sel" % joint, False)
 
     # ── requests ──
 

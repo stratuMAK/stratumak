@@ -1933,8 +1933,17 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	joint_limit[joint_num][0] = 0;
 	joint_limit[joint_num][1] = 0;
 	
-	/* skip inactive or unhomed axes */
-	if ((!GET_JOINT_ACTIVE_FLAG(joint)) || (!JOINT_HOME_API(joint)->get_homed(JOINT_HOME_API(joint)->ctx))) {
+	/* Skip inactive or unhomed joints -- and every joint while motion is
+	   disabled.  With motion disabled pos_cmd is not a command at all: the
+	   DISABLED case above slaves it to pos_fb so that enabling does not jump
+	   the machine.  Measuring that mirror against the limits reports where
+	   the machine *is*, not what was commanded, and an operator pushing a
+	   de-energised axis out of range by hand is precisely not one of the
+	   planner faults this check exists to catch.  It also has to be left
+	   reachable: the operator needs the axis powered to drive it back. */
+	if (   (!GET_MOTION_ENABLE_FLAG())
+	    || (!GET_JOINT_ACTIVE_FLAG(joint))
+	    || (!JOINT_HOME_API(joint)->get_homed(JOINT_HOME_API(joint)->ctx))) {
 	    continue;
         }
 

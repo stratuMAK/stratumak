@@ -30,10 +30,26 @@ addf pnp.mot.motion-controller      servo-thread
 
 # --- Simulated machine ------------------------------------------------------
 
-# Position loop-back: the commanded position is the feedback.
-net pnp-x-pos pnp.mot.joint.0.motor-pos-cmd => pnp.mot.joint.0.motor-pos-fb
-net pnp-y-pos pnp.mot.joint.1.motor-pos-cmd => pnp.mot.joint.1.motor-pos-fb
-net pnp-z-pos pnp.mot.joint.2.motor-pos-cmd => pnp.mot.joint.2.motor-pos-fb
+# Position loop-back: the commanded position is the feedback -- through a
+# selectable source, so a scenario can put a hand on a de-energised axis.
+#
+# sel = 0 is the plain loopback every other scenario runs on.  sel = 1 holds the
+# axis at in1 whatever the command says, which is what an operator can do to any
+# joint whose amps are off: shove it, including past a soft limit.  Dropping sel
+# again leaves the axis where the hand left it, because the disabled machine's
+# command has been tracking the feedback all along (motion sets pos_cmd =
+# pos_fb while disabled, so enabling does not jump).
+load mux2 <pnp.hand.0,pnp.hand.1,pnp.hand.2>
+addf pnp.hand.0 servo-thread
+addf pnp.hand.1 servo-thread
+addf pnp.hand.2 servo-thread
+
+net pnp-x-cmd pnp.mot.joint.0.motor-pos-cmd => pnp.hand.0.in0
+net pnp-x-fb  pnp.hand.0.out                => pnp.mot.joint.0.motor-pos-fb
+net pnp-y-cmd pnp.mot.joint.1.motor-pos-cmd => pnp.hand.1.in0
+net pnp-y-fb  pnp.hand.1.out                => pnp.mot.joint.1.motor-pos-fb
+net pnp-z-cmd pnp.mot.joint.2.motor-pos-cmd => pnp.hand.2.in0
+net pnp-z-fb  pnp.hand.2.out                => pnp.mot.joint.2.motor-pos-fb
 
 # Instant home: the switch is always made, so a home search finishes at once.
 setp pnp.home.joint.0.home-sw-in 1
