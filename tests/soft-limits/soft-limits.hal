@@ -1,0 +1,27 @@
+load [KINS]KINEMATICS
+load [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+
+# Joint 0's feedback runs through a selectable source, so the test can put a
+# hand on a de-energised axis: sel = 0 is the plain loopback the other joints
+# use, sel = 1 holds the joint at hand-pos whatever motion commands.  That is
+# what an operator can do to any joint whose amps are off -- shove it, past a
+# soft limit included -- and letting go leaves it there, because a disabled
+# machine's command tracks its feedback.
+load mux2 <hand>
+addf hand servo-thread
+net xcmd     joint.0.motor-pos-cmd => hand.in0
+net hand-pos => hand.in1
+net hand-sel => hand.sel
+net xfb      hand.out              => joint.0.motor-pos-fb
+
+net ypos joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net zpos joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+
+net estop-out <= iocontrol.user-enable-out
+net estop-out => iocontrol.emc-enable-in
+
+sets hand-pos 0
+sets hand-sel 0
