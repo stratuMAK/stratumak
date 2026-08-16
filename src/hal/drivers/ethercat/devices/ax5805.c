@@ -3,13 +3,30 @@
  * @brief Driver for the Beckhoff AX5805 TwinSAFE drive option card.
  *
  * The AX5805 is the FSoE safety card for AX5100/AX5200 drives.  It must sit
- * at EtherCAT index (drive_index + 1).  Pre-init locates the drive, inherits
- * its FSoE config, and calculates the PDO count (4 base entries + 3 per data
- * channel).  Init registers all FSoE PDO entries and exports HAL pins for:
+ * at EtherCAT index (drive_index + 1).  Init registers all FSoE PDO entries and
+ * exports HAL pins for:
  *   - fsoe-master-cmd / fsoe-master-connid / fsoe-master-crc[-0/-1]
  *   - fsoe-slave-cmd  / fsoe-slave-connid  / fsoe-slave-crc[-0/-1]
  *   - fsoe-in-sto[-0/-1]  (Safe Torque Off status per axis)
  * The read callback copies FSoE data and updates all HAL pin values.
+ *
+ * @par Configuration
+ * The card is a modular device: object @c 0x2F10 selects the safety process
+ * data module, and that choice decides everything else - the size of the FSoE
+ * frame, whether axis 2 is present, and the contents of the @c 0x1600 /
+ * @c 0x1A00 mappings.  The driver issues no configuration of its own; the whole
+ * parameter set including @c 0x2F10 comes from the TwinCAT export referenced by
+ * @c \<initCmds\>, which is therefore mandatory for this device.  What the
+ * driver does is read the module ident back out of that command list and
+ * declare the matching process image, so the master sizes the domain from the
+ * layout the card will actually have rather than from whatever it happened to
+ * be holding when the bus was scanned.
+ *
+ * Without the declaration the master snapshots the scanned mapping in
+ * ecrt_master_slave_config() (main.c) long before @c 0x2F10 is applied at
+ * PREOP->SAFEOP, so a card that changes mode during start-up comes up with
+ * stale offsets, or refuses SAFEOP outright because the sync-manager length no
+ * longer matches.
  *
  * @copyright Copyright (C) 2018-2026 Sascha Ittner <sascha.ittner@modusoft.de>
  *
@@ -33,10 +50,104 @@
 #include "ax5100.h"
 #include "ax5200.h"
 
+/** @brief Object holding the safety process data module ident (see file header). */
+#define LCEC_AX5805_IDX_MODULE_SEL 0x2F10
+
+/** @brief Axis count encoded in the high word of an @c 0x2F10 module ident. */
+#define LCEC_AX5805_MODULE_AXES(ident) ((ident) >> 16)
+
+/** @brief FSoE configuration for a one-axis safety module: 2-byte data, one channel. */
+static const LCEC_CONF_FSOE_T fsoe_conf_1ch = {
+  .slave_data_len = 2,
+  .master_data_len = 2,
+  .data_channels = 1
+};
+
+/** @brief FSoE configuration for a two-axis safety module: 2-byte data, two channels. */
+static const LCEC_CONF_FSOE_T fsoe_conf_2ch = {
+  .slave_data_len = 2,
+  .master_data_len = 2,
+  .data_channels = 2
+};
+
+/**
+ * @brief One entry of a safety PDO mapping, as declared by the AX5805 ESI.
+ */
+typedef struct {
+  uint16_t index;     /**< Object index, or 0 for a padding bit. */
+  uint8_t  subindex;  /**< Subindex. */
+  uint8_t  bits;      /**< Bit length. */
+} lcec_ax5805_pdo_entry_t;
+
+/* The safety data field of each axis is a full 2 bytes: eight named function
+   bits followed by eight unnamed pad bits.  The pad bits must be declared or
+   everything after them lands at the wrong offset. */
+#define LCEC_AX5805_PAD8 \
+  {0x0000, 0x00, 1}, {0x0000, 0x00, 1}, {0x0000, 0x00, 1}, {0x0000, 0x00, 1}, \
+  {0x0000, 0x00, 1}, {0x0000, 0x00, 1}, {0x0000, 0x00, 1}, {0x0000, 0x00, 1}
+
+/** @brief RxPDO 0x1600 (outputs, master to card), axis 1 block plus its CRC. */
+static const lcec_ax5805_pdo_entry_t rx_axis1[] = {
+  {0x6640, 0x00, 1},  // Axis 1 STO
+  {0x6650, 0x01, 1},  // Axis 1 SS1(1)
+  {0x6670, 0x01, 1},  // Axis 1 SS2(1)
+  {0x6668, 0x01, 1},  // Axis 1 SOS(1)
+  {0x6680, 0x01, 1},  // Axis 1 SSR(1)
+  {0x66d0, 0x00, 1},  // Axis 1 SDI_p
+  {0x66d1, 0x00, 1},  // Axis 1 SDI_n
+  {0x6632, 0x00, 1},  // Axis 1 Error_Ack
+  LCEC_AX5805_PAD8,
+  {0xe700, 0x03, 16}  // FSOE Master CRC_0
+};
+
+/** @brief RxPDO 0x1600, axis 2 block plus its CRC (two-axis module only). */
+static const lcec_ax5805_pdo_entry_t rx_axis2[] = {
+  {0x6e40, 0x00, 1},  // Axis 2 STO
+  {0x6e50, 0x01, 1},  // Axis 2 SS1(1)
+  {0x6e70, 0x01, 1},  // Axis 2 SS2(1)
+  {0x6e68, 0x01, 1},  // Axis 2 SOS(1)
+  {0x6e80, 0x01, 1},  // Axis 2 SSR(1)
+  {0x6ed0, 0x00, 1},  // Axis 2 SDI_p
+  {0x6ed1, 0x00, 1},  // Axis 2 SDI_n
+  {0x6e32, 0x00, 1},  // Axis 2 Error_Ack
+  LCEC_AX5805_PAD8,
+  {0xe700, 0x04, 16}  // FSOE Master CRC_1
+};
+
+/** @brief TxPDO 0x1A00 (inputs, card to master), axis 1 block plus its CRC. */
+static const lcec_ax5805_pdo_entry_t tx_axis1[] = {
+  {0x6640, 0x00, 1},  // Axis 1 STO
+  {0x66e0, 0x01, 1},  // Axis 1 SSM(1)
+  {0x66e0, 0x02, 1},  // Axis 1 SSM(2)
+  {0x6668, 0x01, 1},  // Axis 1 SOS(1)
+  {0x6680, 0x01, 1},  // Axis 1 SSR(1)
+  {0x66d0, 0x00, 1},  // Axis 1 SDI_p
+  {0x66d1, 0x00, 1},  // Axis 1 SDI_n
+  {0x6632, 0x00, 1},  // Axis 1 Error
+  LCEC_AX5805_PAD8,
+  {0xe600, 0x03, 16}  // FSOE Slave CRC_0
+};
+
+/** @brief TxPDO 0x1A00, axis 2 block plus its CRC (two-axis module only). */
+static const lcec_ax5805_pdo_entry_t tx_axis2[] = {
+  {0x6e40, 0x00, 1},  // Axis 2 STO
+  {0x6ee0, 0x01, 1},  // Axis 2 SSM(1)
+  {0x6ee0, 0x02, 1},  // Axis 2 SSM(2)
+  {0x6e68, 0x01, 1},  // Axis 2 SOS(1)
+  {0x6e80, 0x01, 1},  // Axis 2 SSR(1)
+  {0x6ed0, 0x00, 1},  // Axis 2 SDI_p
+  {0x6ed1, 0x00, 1},  // Axis 2 SDI_n
+  {0x6e32, 0x00, 1},  // Axis 2 Error
+  LCEC_AX5805_PAD8,
+  {0xe600, 0x04, 16}  // FSOE Slave CRC_1
+};
+
 /**
  * @brief Internal HAL data for the AX5805 TwinSAFE card.
  */
 typedef struct {
+  lcec_syncs_t syncs;                    /**< Declared sync-manager / PDO layout. */
+
   stmak_hal_u32_t *fsoe_master_cmd;      /**< HAL OUT: FSoE master command byte. */
   stmak_hal_u32_t *fsoe_master_crc0;     /**< HAL OUT: FSoE master CRC for channel 0. */
   stmak_hal_u32_t *fsoe_master_crc1;     /**< HAL OUT: FSoE master CRC for channel 1 (dual-axis only). */
@@ -92,12 +203,43 @@ static const lcec_pindesc_t slave_pins_2ch[] = {
   { STMAK_HAL_TYPE_UNSPECIFIED, STMAK_HAL_DIR_UNSPECIFIED, -1, NULL }
 };
 
-void lcec_ax5805_chancount(struct lcec_slave *slave);
 void lcec_ax5805_read(struct lcec_slave *slave, long period) STMAK_NONBLOCKING;
+
+static int init_syncs(struct lcec_slave *slave, lcec_ax5805_data_t *hal_data);
+
+/**
+ * @brief Find the safety module ident the init commands select.
+ *
+ * Walks the slave's SDO startup-configuration list for @c 0x2F10 and returns
+ * its little-endian U32 value.  The list is built from @c \<initCmds\> (and any
+ * @c \<sdoConfig\>) before proc_preinit runs, so the mode is known in time to
+ * size the process image.
+ *
+ * @param slave  Slave to inspect.
+ * @param ident  Receives the module ident on success.
+ * @return 0 on success, -ENOENT if no usable 0x2F10 command is configured.
+ */
+static int find_module_ident(struct lcec_slave *slave, uint32_t *ident) {
+  lcec_slave_sdoconf_t *sdo;
+
+  for (sdo = slave->sdo_config; sdo != NULL && sdo->index != 0xffff;
+       sdo = (lcec_slave_sdoconf_t *)&sdo->data[sdo->length]) {
+    if (sdo->index != LCEC_AX5805_IDX_MODULE_SEL || sdo->length != 4) {
+      continue;
+    }
+    *ident = ((uint32_t)sdo->data[0]) | ((uint32_t)sdo->data[1] << 8) |
+             ((uint32_t)sdo->data[2] << 16) | ((uint32_t)sdo->data[3] << 24);
+    return 0;
+  }
+
+  return -ENOENT;
+}
 
 int lcec_ax5805_preinit(struct lcec_slave *slave) {
   lcec_master_t *master = slave->master;
   struct lcec_slave *ax5n_slave;
+  uint32_t ident;
+  int axes;
 
   // try to find corresponding ax5n
   ax5n_slave = lcec_slave_by_index(master, slave->index - 1);
@@ -112,15 +254,22 @@ int lcec_ax5805_preinit(struct lcec_slave *slave) {
     return -EINVAL;
   }
 
-  // call AX52xx preinit to solve dependency
-  ax5n_slave->proc_preinit(ax5n_slave);
-
-  // use FSOE config from AX5nxx
-  slave->fsoeConf = ax5n_slave->fsoeConf;
-  if (slave->fsoeConf == NULL) {
-    LCEC_ERR(master, "%s.%s: Corresponding AX5nxx with index %d has no FSOE config.", master->name, slave->name, ax5n_slave->index);
+  // The mode comes from the init commands, not from the drive model: a card in
+  // a dual-axis drive can legitimately run a one-axis safety module, and only
+  // 0x2F10 says which.
+  if (find_module_ident(slave, &ident) != 0) {
+    LCEC_ERR(master, "%s.%s: no 0x2F10 module select configured. The AX5805 needs its TwinCAT"
+        " init command export, referenced with <initCmds filename=\"...\"/>.", master->name, slave->name);
     return -EINVAL;
   }
+
+  axes = LCEC_AX5805_MODULE_AXES(ident);
+  if (axes != 1 && axes != 2) {
+    LCEC_ERR(master, "%s.%s: unsupported 0x2F10 module ident 0x%08x (expected a 1- or 2-axis safety module).",
+        master->name, slave->name, ident);
+    return -EINVAL;
+  }
+  slave->fsoeConf = (axes >= 2) ? &fsoe_conf_2ch : &fsoe_conf_1ch;
 
   // set PDO count
   slave->pdo_entry_count = 4 + 3 * slave->fsoeConf->data_channels;
@@ -170,6 +319,93 @@ int lcec_ax5805_init(int comp_id, struct lcec_slave *slave, ec_pdo_entry_reg_t *
   if ((err = lcec_pin_newf_list(env, comp_id, hal_data, slave_pins, master->instance_name, master->name, slave->name)) != 0) {
     return err;
   }
+
+  // Declare the process image the 0x2F10 module select will produce.  Without
+  // this the master keeps the layout it scanned before the init commands ran.
+  if ((err = init_syncs(slave, hal_data)) != 0) {
+    return err;
+  }
+
+  return 0;
+}
+
+/**
+ * @brief Add one safety PDO entry block to the sync-manager declaration.
+ *
+ * @param syncs    Builder to append to.
+ * @param entries  Entry table.
+ * @param count    Number of entries in @p entries.
+ */
+static void add_entries(lcec_syncs_t *syncs, const lcec_ax5805_pdo_entry_t *entries, size_t count) {
+  size_t i;
+
+  for (i = 0; i < count; i++) {
+    lcec_syncs_add_pdo_entry(syncs, entries[i].index, entries[i].subindex, entries[i].bits);
+  }
+}
+
+/**
+ * @brief Declare the sync managers for the selected safety module.
+ *
+ * Mirrors the module definitions in the AX5805 ESI: SM2 carries the safety
+ * RxPDO 0x1600 plus one standard PDO per axis, SM3 the same on the input side.
+ * The assignment must match the card exactly - 0x1C12 / 0x1C13 are read-only,
+ * so a declaration that disagrees makes the master attempt a write it cannot
+ * do, and the slave configuration fails.
+ *
+ * @param slave     Slave being configured.
+ * @param hal_data  Driver data holding the builder.
+ * @return 0 on success, negative errno on failure.
+ */
+static int init_syncs(struct lcec_slave *slave, lcec_ax5805_data_t *hal_data) {
+  lcec_master_t *master = slave->master;
+  lcec_syncs_t *syncs = &hal_data->syncs;
+  int two_axis = (slave->fsoeConf->data_channels >= 2);
+
+  lcec_syncs_init(syncs, master);
+    lcec_syncs_add_sync(syncs, EC_DIR_OUTPUT, EC_WD_DEFAULT);
+    lcec_syncs_add_sync(syncs, EC_DIR_INPUT, EC_WD_DEFAULT);
+
+    lcec_syncs_add_sync(syncs, EC_DIR_OUTPUT, EC_WD_DEFAULT);
+      lcec_syncs_add_pdo_info(syncs, 0x1600);                    // safety outputs
+        lcec_syncs_add_pdo_entry(syncs, 0xe700, 0x01, 8);        // FSOE command
+        add_entries(syncs, rx_axis1, sizeof(rx_axis1) / sizeof(rx_axis1[0]));
+        if (two_axis) {
+          add_entries(syncs, rx_axis2, sizeof(rx_axis2) / sizeof(rx_axis2[0]));
+        }
+        lcec_syncs_add_pdo_entry(syncs, 0xe700, 0x02, 16);       // FSOE ConnID
+      lcec_syncs_add_pdo_info(syncs, 0x1601);                    // standard outputs, axis 1
+        lcec_syncs_add_pdo_entry(syncs, 0x2050, 0x00, 32);
+        lcec_syncs_add_pdo_entry(syncs, 0x2051, 0x00, 32);
+      if (two_axis) {
+        lcec_syncs_add_pdo_info(syncs, 0x1602);                  // standard outputs, axis 2
+          lcec_syncs_add_pdo_entry(syncs, 0x2850, 0x00, 32);
+          lcec_syncs_add_pdo_entry(syncs, 0x2851, 0x00, 32);
+      }
+
+    lcec_syncs_add_sync(syncs, EC_DIR_INPUT, EC_WD_DEFAULT);
+      lcec_syncs_add_pdo_info(syncs, 0x1a00);                    // safety inputs
+        lcec_syncs_add_pdo_entry(syncs, 0xe600, 0x01, 8);        // FSOE command
+        add_entries(syncs, tx_axis1, sizeof(tx_axis1) / sizeof(tx_axis1[0]));
+        if (two_axis) {
+          add_entries(syncs, tx_axis2, sizeof(tx_axis2) / sizeof(tx_axis2[0]));
+        }
+        lcec_syncs_add_pdo_entry(syncs, 0xe600, 0x02, 16);       // FSOE ConnID
+      lcec_syncs_add_pdo_info(syncs, 0x1a01);                    // standard inputs, axis 1
+        lcec_syncs_add_pdo_entry(syncs, 0x6611, 0x00, 32);
+        lcec_syncs_add_pdo_entry(syncs, 0x6613, 0x00, 32);
+      if (two_axis) {
+        lcec_syncs_add_pdo_info(syncs, 0x1a02);                  // standard inputs, axis 2
+          lcec_syncs_add_pdo_entry(syncs, 0x6e11, 0x00, 32);
+          lcec_syncs_add_pdo_entry(syncs, 0x6e13, 0x00, 32);
+      }
+
+  if (syncs->overflow) {
+    LCEC_ERR(master, "%s.%s: PDO layout exceeds the lcec_syncs_t capacity", master->name, slave->name);
+    return -ENOMEM;
+  }
+
+  slave->sync_info = &syncs->syncs[0];
 
   return 0;
 }
