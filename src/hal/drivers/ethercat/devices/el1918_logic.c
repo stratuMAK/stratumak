@@ -217,6 +217,12 @@ int lcec_el1918_logic_preinit(struct lcec_slave *slave) {
           return -EINVAL;
         }
 
+        if (fsoe_slave->fsoe_conf_template) {
+          LCEC_ERR(master, "%s.%s: slave index %d carries a fsoe option card but is not a fsoe slave itself, use index %d",
+              master->name, slave->name, index, index + 1);
+          return -EINVAL;
+        }
+
         slave->pdo_entry_count += LCEC_EL1918_LOGIC_PARAM_SLAVE_PDOS + LCEC_EL1918_LOGIC_PARAM_SLAVE_CH_PDOS * fsoeConf->data_channels;
         break;
 

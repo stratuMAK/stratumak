@@ -515,6 +515,7 @@ void lcec_syncs_init(lcec_syncs_t *syncs, struct lcec_master *master) {
 void lcec_syncs_add_sync(lcec_syncs_t *syncs, ec_direction_t dir, ec_watchdog_mode_t watchdog_mode) {
   if (syncs->sync_count >= LCEC_MAX_SYNC_COUNT) {
     stmak_log_errorf(syncs->log, syncs->comp_name, "too many syncs (max %d)", LCEC_MAX_SYNC_COUNT);
+    syncs->overflow = 1;
     return;
   }
   syncs->curr_sync = &syncs->syncs[syncs->sync_count];
@@ -549,6 +550,7 @@ void lcec_syncs_add_sync(lcec_syncs_t *syncs, ec_direction_t dir, ec_watchdog_mo
 void lcec_syncs_add_pdo_info(lcec_syncs_t *syncs, uint16_t index) {
   if (syncs->pdo_info_count >= LCEC_MAX_PDO_INFO_COUNT) {
     stmak_log_errorf(syncs->log, syncs->comp_name, "too many PDO infos (max %d)", LCEC_MAX_PDO_INFO_COUNT);
+    syncs->overflow = 1;
     return;
   }
   syncs->curr_pdo_info = &syncs->pdo_infos[syncs->pdo_info_count];
@@ -585,6 +587,7 @@ void lcec_syncs_add_pdo_info(lcec_syncs_t *syncs, uint16_t index) {
 void lcec_syncs_add_pdo_entry(lcec_syncs_t *syncs, uint16_t index, uint8_t subindex, uint8_t bit_length) {
   if (syncs->pdo_entry_count >= LCEC_MAX_PDO_ENTRY_COUNT) {
     stmak_log_errorf(syncs->log, syncs->comp_name, "too many PDO entries (max %d)", LCEC_MAX_PDO_ENTRY_COUNT);
+    syncs->overflow = 1;
     return;
   }
   syncs->curr_pdo_entry = &syncs->pdo_entries[syncs->pdo_entry_count];

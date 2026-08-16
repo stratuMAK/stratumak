@@ -209,8 +209,14 @@ do {                        \
 #define LCEC_FSOE_SIZE(ch_count, data_len) (LCEC_FSOE_CMD_LEN + ch_count * (data_len + LCEC_FSOE_CRC_LEN) + LCEC_FSOE_CONNID_LEN)
 /** @} */ // lcec_fsoe
 
-/** @brief Maximum number of PDO entries that lcec_syncs_t can hold per slave. */
-#define LCEC_MAX_PDO_ENTRY_COUNT 32
+/** @brief Maximum number of PDO entries that lcec_syncs_t can hold per slave.
+ *
+ * Counts entries across all sync managers, which share one array.  The AX5805
+ * sets the ceiling: in two-axis mode SM2 and SM3 carry 40 entries each (a
+ * 36-entry safety PDO plus two 2-entry standard PDOs), so 80 in total.  Most
+ * drivers use fewer than ten.
+ */
+#define LCEC_MAX_PDO_ENTRY_COUNT 96
 /** @brief Maximum number of PDO mappings that lcec_syncs_t can hold per slave. */
 #define LCEC_MAX_PDO_INFO_COUNT  8
 /** @brief Maximum number of sync managers that lcec_syncs_t can describe per slave. */
@@ -529,6 +535,10 @@ typedef struct lcec_slave {
   lcec_slave_modparam_t *modparams;    /**< Array of module parameters terminated by a zero-id entry, or NULL. */
   const LCEC_CONF_FSOE_T *fsoeConf;   /**< FsoE PDO dimension parameters, or NULL if not an FsoE slave. */
   int              is_fsoe_logic;      /**< Non-zero if this slave is an FsoE logic (gateway) device. */
+  int      fsoe_conf_template;         /**< Non-zero if @c fsoeConf describes an option card carried by this
+                                            slave rather than a connection the slave terminates itself.  Set
+                                            by the AX5100 / AX5200 drives for the AX5805 at index+1; such a
+                                            slave must not be named by an @c fsoeSlaveIdx. */
   unsigned int    *fsoe_slave_offset;  /**< Domain image byte offset of the FsoE slave-to-master PDO. */
   unsigned int    *fsoe_master_offset; /**< Domain image byte offset of the FsoE master-to-slave PDO. */
 } lcec_slave_t;
@@ -563,6 +573,11 @@ typedef struct {
 typedef struct {
   const stmak_log_t *log;           /**< Cached log handle for overflow diagnostics. */
   const char       *comp_name;     /**< Component name for log messages. */
+
+  int              overflow;      /**< Set when an add call hit a capacity limit and was dropped.
+                                       The layout is then incomplete and must not be used: check
+                                       this before publishing @c slave->sync_info, or the slave
+                                       comes up with a silently truncated PDO mapping. */
 
   int              sync_count;    /**< Number of sync managers added so far. */
   ec_sync_info_t  *curr_sync;     /**< Pointer to the sync manager currently being populated. */

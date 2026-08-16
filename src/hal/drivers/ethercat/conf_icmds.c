@@ -27,6 +27,12 @@
  *   </EtherCATMailbox>
  * @endcode
  *
+ * TwinCAT exports are consumed as-is: @c Index may be decimal or @c 0x-prefixed,
+ * @c CompleteAccess may be @c "true"/@c "false" or @c "1"/@c "0", @c Data may be
+ * one unbroken hex run of any length, and @c \<Transition\> is accepted and
+ * ignored.  Elements the driver has no use for (@c Comment, @c Timeout, @c Ccs,
+ * @c OpCode, @c Elements, @c Attribute) are skipped.
+ *
  * Successfully parsed commands are appended to the shared output buffer as
  * @ref LCEC_CONF_SDOCONF_T or @ref LCEC_CONF_IDNCONF_T records, and the
  * parent slave's @c sdoConfigLength / @c idnConfigLength accumulators are
@@ -107,6 +113,12 @@ typedef struct {
 
   LCEC_CONF_SDOCONF_T *currSdoConf;  /**< CoE SDO record being filled (inside a CoE InitCmd). */
   LCEC_CONF_IDNCONF_T *currIdnConf;  /**< SoE IDN record being filled (inside a SoE InitCmd). */
+
+  /* Expat splits character data at read-buffer boundaries, so a single <Data>
+     node can arrive as several chunks and the split may land between the two
+     nibbles of a byte.  These carry that half byte across calls. */
+  int dataNibValid;                  /**< Non-zero if @c dataNib holds a pending high nibble. */
+  char dataNib;                      /**< Pending high-nibble character of a split byte. */
 } LCEC_CONF_ICMDS_STATE_T;
 
 static void xml_data_handler(void *data, const XML_Char *s, int len);
@@ -146,6 +158,8 @@ static const LCEC_CONF_XML_HANLDER_T xml_states[] = {
 
 static long int parse_int(LCEC_CONF_ICMDS_STATE_T *state, const char *s, int len, long int min, long int max);
 static int parse_data(LCEC_CONF_ICMDS_STATE_T *state, const char *s, int len);
+static void data_reset(LCEC_CONF_ICMDS_STATE_T *state);
+static int data_pending(LCEC_CONF_ICMDS_STATE_T *state);
 
 /**
  * @brief Parse CoE SDO and SoE IDN init commands from an EtherCAT ESI XML file.
@@ -247,8 +261,8 @@ fail1:
  *  - @c icmdTypeCoeIcmdIndex / @c icmdTypeCoeIcmdSubindex : sets @c index /
  *    @c subindex of the current CoE SDO record.
  *  - @c icmdTypeCoeIcmdData : appends hex-decoded bytes to the SDO payload.
- *  - @c icmdTypeCoeIcmdTrans : validates that transition is "IP" or "PS"
- *    (other states are silently accepted for forward compatibility).
+ *  - @c icmdTypeCoeIcmdTrans : accepted and ignored; CoE init commands are all
+ *    applied at PREOP->SAFEOP (see the note in the handler).
  *  - @c icmdTypeSoeIcmdTrans : maps "IP"→PREOP, "PS"→PREOP, "SO"→SAFEOP.
  *  - @c icmdTypeSoeIcmdDriveno / @c icmdTypeSoeIcmdIdn : fills drive/IDN fields.
  *  - @c icmdTypeSoeIcmdData : appends hex-decoded bytes to the IDN payload.
@@ -264,16 +278,12 @@ static void xml_data_handler(void *data, const XML_Char *s, int len) {
 
   switch (inst->state) {
     case icmdTypeCoeIcmdTrans:
-      if (len == 2) {
-        if (strncmp("IP", s, len) == 0) {
-          return;
-        }
-        if (strncmp("PS", s, len) == 0) {
-          return;
-        }
-      }
-      xml_log_error_fmt(inst, "Invalid Transition state");
-      XML_StopParser(inst->parser, 0);
+      // Accepted and ignored.  ecrt_slave_config_sdo() takes no state argument
+      // (unlike ecrt_slave_config_idn(), see main.c), so every CoE init command
+      // is applied at PREOP->SAFEOP whatever transition the file declares, and
+      // order within the file is the only sequencing available.  Rejecting the
+      // transitions we cannot honour would only make otherwise usable vendor
+      // exports unloadable, so they are let through.
       return;
     case icmdTypeCoeIcmdIndex:
       state->currSdoConf->index = parse_int(state, s, len, 0, 0xffff);
@@ -344,6 +354,7 @@ static void icmdTypeCoeIcmdStart(LCEC_CONF_XML_INST_T *inst, int next, const cha
   state->currSdoConf->confType = lcecConfTypeSdoConfig;
   state->currSdoConf->index = 0xffff;
   state->currSdoConf->subindex = 0xff;
+  data_reset(state);
 
   while (*attr) {
     const char *name = *(attr++);
@@ -351,7 +362,11 @@ static void icmdTypeCoeIcmdStart(LCEC_CONF_XML_INST_T *inst, int next, const cha
 
     // parse CompleteAccess
     if (strcmp(name, "CompleteAccess") == 0) {
-      if (atoi(val)) {
+      // TwinCAT exports write "true"/"false"; the ESI schema and hand-written
+      // files use "1"/"0".  atoi() alone silently reads "true" as 0, which used
+      // to drop complete access and send an oversized payload to a single
+      // subindex.  Accept both spellings.
+      if (atoi(val) || strcasecmp(val, "true") == 0) {
         state->currSdoConf->subindex = LCEC_CONF_SDO_COMPLETE_SUBIDX;
       }
       continue;
@@ -386,6 +401,12 @@ static void icmdTypeCoeIcmdEnd(LCEC_CONF_XML_INST_T *inst, int next) {
     return;
   }
 
+  if (data_pending(state)) {
+    xml_log_error_fmt(inst, "sdoConfig data has an odd number of hex digits");
+    XML_StopParser(inst->parser, 0);
+    return;
+  }
+
   state->currSlave->sdoConfigLength += sizeof(LCEC_CONF_SDOCONF_T) + state->currSdoConf->length;
 }
 
@@ -416,6 +437,7 @@ static void icmdTypeSoeIcmdStart(LCEC_CONF_XML_INST_T *inst, int next, const cha
   state->currIdnConf->drive = 0;
   state->currIdnConf->idn = 0xffff;
   state->currIdnConf->state = 0;
+  data_reset(state);
 }
 
 /**
@@ -439,6 +461,12 @@ static void icmdTypeSoeIcmdEnd(LCEC_CONF_XML_INST_T *inst, int next) {
 
   if (state->currIdnConf->state == 0) {
     xml_log_error_fmt(inst, "idnConfig has no state attribute");
+    XML_StopParser(inst->parser, 0);
+    return;
+  }
+
+  if (data_pending(state)) {
+    xml_log_error_fmt(inst, "idnConfig data has an odd number of hex digits");
     XML_StopParser(inst->parser, 0);
     return;
   }
@@ -492,13 +520,38 @@ static long int parse_int(LCEC_CONF_ICMDS_STATE_T *state, const char *s, int len
 }
 
 /**
+ * @brief Hex digit value of a character.
+ *
+ * @param c  Character to convert.
+ * @return Value 0..15, or -1 if @p c is not a hex digit.
+ */
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+/**
  * @brief Decode hex-encoded binary data and append it to the output buffer.
  *
- * Calls @ref parseHex() twice: first with @p buf == NULL to determine the
- * decoded byte count, then allocates that many bytes via @ref addOutputBuffer()
- * and fills them.  Returns the number of bytes appended so the caller can
- * accumulate a running total in the parent record's @c length field.
- * Stops the parser on invalid hex or allocation failure.
+ * Expat delivers the text of one element as one *or more* character-data
+ * chunks: a node that crosses the @ref BUFFSIZE read boundary in
+ * @ref parseIcmds() is split, and the split may fall between the two nibbles
+ * of a byte.  A pending high nibble is therefore carried in the parser state
+ * across calls (@c dataNibValid / @c dataNib) rather than rejected, which is
+ * what @ref parseHex() would do on its own.  Callers accumulate the returned
+ * byte count in the parent record's @c length field; @ref data_pending()
+ * reports a nibble left dangling at the end of a node.
+ *
+ * As in @ref parseHex(), whitespace is skipped only between bytes, never
+ * between the two nibbles of one byte.
  *
  * @param state  Parser state (provides access to output buffer and parser handle).
  * @param s      Hex character data (not NUL-terminated).
@@ -508,23 +561,74 @@ static long int parse_int(LCEC_CONF_ICMDS_STATE_T *state, const char *s, int len
 static int parse_data(LCEC_CONF_ICMDS_STATE_T *state, const char *s, int len) {
   uint8_t *p;
   int size;
+  int i;
+  int nib;
+  uint8_t tmp;
 
-  // get size
-  size = parseHex(s, len, NULL);
-  if (size < 0) {
-    xml_log_error((LCEC_CONF_XML_INST_T *)state, "Invalid data");
-    XML_StopParser(state->xml.parser, 0);
-    return 0;
+  // count the bytes this chunk completes, including any nibble carried in
+  size = 0;
+  nib = state->dataNibValid;
+  for (i = 0; i < len; i++) {
+    if (!nib && strchr(" \t\r\n", s[i]) != NULL) {
+      continue;
+    }
+    if (hex_nibble(s[i]) < 0) {
+      xml_log_error((LCEC_CONF_XML_INST_T *)state, "Invalid data");
+      XML_StopParser(state->xml.parser, 0);
+      return 0;
+    }
+    if (nib) {
+      size++;
+    }
+    nib = !nib;
   }
 
   // allocate memory
-  p = (uint8_t *) addOutputBuffer(state->outputBuf, size);
-  if (p == NULL) {
-    XML_StopParser(state->xml.parser, 0);
-    return 0;
+  p = NULL;
+  if (size > 0) {
+    p = (uint8_t *) addOutputBuffer(state->outputBuf, size);
+    if (p == NULL) {
+      XML_StopParser(state->xml.parser, 0);
+      return 0;
+    }
   }
 
-  // parse data
-  parseHex(s, len, p);
+  // parse data, holding back a trailing half byte for the next chunk
+  nib = state->dataNibValid;
+  tmp = nib ? (uint8_t) (hex_nibble(state->dataNib) << 4) : 0;
+  for (i = 0; i < len; i++) {
+    if (!nib && strchr(" \t\r\n", s[i]) != NULL) {
+      continue;
+    }
+    if (nib) {
+      *(p++) = tmp | (uint8_t) hex_nibble(s[i]);
+    } else {
+      tmp = (uint8_t) (hex_nibble(s[i]) << 4);
+      state->dataNib = s[i];
+    }
+    nib = !nib;
+  }
+  state->dataNibValid = nib;
+
   return size;
+}
+
+/**
+ * @brief Reset the split-byte carry before a new @c \<Data\> node.
+ *
+ * @param state  Parser state.
+ */
+static void data_reset(LCEC_CONF_ICMDS_STATE_T *state) {
+  state->dataNibValid = 0;
+  state->dataNib = 0;
+}
+
+/**
+ * @brief Report a half byte left over at the end of a @c \<Data\> node.
+ *
+ * @param state  Parser state.
+ * @return Non-zero if the node ended on an odd number of hex digits.
+ */
+static int data_pending(LCEC_CONF_ICMDS_STATE_T *state) {
+  return state->dataNibValid;
 }

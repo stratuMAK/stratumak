@@ -55,8 +55,14 @@ int lcec_ax5100_preinit(struct lcec_slave *slave) {
     return 0;
   }
 
-  // set FSOE conf (this will be used by the corresponding AX5805
+  // Set FSOE conf.  The AX5805 no longer inherits this: it takes its channel
+  // count from the 0x2F10 module select in its own init commands, because the
+  // drive's axis count does not determine the card's safety module.  What is
+  // left here serves diagnostics only - the template flag lets the logic
+  // devices recognise a drive named in an fsoeSlaveIdx and say which index was
+  // probably meant.
   slave->fsoeConf = &fsoe_conf;
+  slave->fsoe_conf_template = 1;
 
   // set pdo count
   slave->pdo_entry_count = lcec_class_ax5_pdos(slave);

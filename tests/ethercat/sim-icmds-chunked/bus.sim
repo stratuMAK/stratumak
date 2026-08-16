@@ -1,0 +1,20 @@
+# CoE mailbox slave used to exercise the <initCmds> CoE parser.
+#
+# 0x2000 is written by an InitCmd whose <Data> node is deliberately placed
+# across the parser's 8 KiB read boundary; 0x2002 by a CompleteAccess="true"
+# command; 0x2004 by a command carrying a <Transition> the driver cannot
+# honour. All three are preset to 0 so a readback proves they were applied.
+slave 0
+  vendor   0x00000E17
+  product  0x51340001
+  revision 0x00010000
+  serial   1
+  mbox_out 0x1000 128
+  mbox_in  0x1080 128
+  sm2      0x1100 8
+  sm3      0x1400 8
+  od       0x1600 0 1 0
+  od       0x1a00 0 1 0
+  od       0x2000 0 4 0
+  od       0x2002 0 4 0
+  od       0x2004 0 4 0
