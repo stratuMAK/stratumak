@@ -52,9 +52,12 @@ int lcec_ax5200_preinit(struct lcec_slave *slave) {
     return 0;
   }
 
-  // Set FSOE conf.  This describes the AX5805 option card that may sit at
-  // index+1 and is inherited by it in lcec_ax5805_preinit(); the drive itself
-  // terminates no FsoE connection, hence the template flag.
+  // Set FSOE conf.  The AX5805 no longer inherits this: it takes its channel
+  // count from the 0x2F10 module select in its own init commands, because the
+  // drive's axis count does not determine the card's safety module.  What is
+  // left here serves diagnostics only - the template flag lets the logic
+  // devices recognise a drive named in an fsoeSlaveIdx and say which index was
+  // probably meant.
   slave->fsoeConf = &fsoe_conf;
   slave->fsoe_conf_template = 1;
 
