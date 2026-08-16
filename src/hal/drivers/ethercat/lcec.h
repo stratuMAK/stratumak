@@ -529,6 +529,10 @@ typedef struct lcec_slave {
   lcec_slave_modparam_t *modparams;    /**< Array of module parameters terminated by a zero-id entry, or NULL. */
   const LCEC_CONF_FSOE_T *fsoeConf;   /**< FsoE PDO dimension parameters, or NULL if not an FsoE slave. */
   int              is_fsoe_logic;      /**< Non-zero if this slave is an FsoE logic (gateway) device. */
+  int      fsoe_conf_template;         /**< Non-zero if @c fsoeConf describes an option card carried by this
+                                            slave rather than a connection the slave terminates itself.  Set
+                                            by the AX5100 / AX5200 drives for the AX5805 at index+1; such a
+                                            slave must not be named by an @c fsoeSlaveIdx. */
   unsigned int    *fsoe_slave_offset;  /**< Domain image byte offset of the FsoE slave-to-master PDO. */
   unsigned int    *fsoe_master_offset; /**< Domain image byte offset of the FsoE master-to-slave PDO. */
 } lcec_slave_t;

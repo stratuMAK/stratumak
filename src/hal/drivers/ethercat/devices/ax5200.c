@@ -52,8 +52,11 @@ int lcec_ax5200_preinit(struct lcec_slave *slave) {
     return 0;
   }
 
-  // set FSOE conf (this will be used by the corresponding AX5805
+  // Set FSOE conf.  This describes the AX5805 option card that may sit at
+  // index+1 and is inherited by it in lcec_ax5805_preinit(); the drive itself
+  // terminates no FsoE connection, hence the template flag.
   slave->fsoeConf = &fsoe_conf;
+  slave->fsoe_conf_template = 1;
 
   // set pdo count
   slave->pdo_entry_count = lcec_class_ax5_pdos(slave) * LCEC_AX5200_CHANS;
