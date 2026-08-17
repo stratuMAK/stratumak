@@ -649,31 +649,47 @@ DEFAULT_TRAYDEF = 1
 	}
 }
 
-// TestTraySetFullFollowsProcessStep pins D8: set-full writes the *current*
-// process-step pin value into every slot, and "empty" is measured against the
-// step the PLC is asking about.
-func TestTraySetFullFollowsProcessStep(t *testing.T) {
+// TestTraySetFullFollowsTrayStep pins D8: set-full writes the tray's OWN step
+// pin into every slot, and avail is measured against that same step. The job
+// request pin has no say in either — a sequencer varies it across the legs of
+// one cascade, and outputs that followed it would change meaning mid-flight.
+func TestTraySetFullFollowsTrayStep(t *testing.T) {
 	f := newMachineFixture(t)
 	tray := f.m.pins.trays[0]
 	tray.trayID.Set(1)
-	f.m.pins.processStep.Set(3)
-	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
+	tray.step.Set(3)
+	// A bare grid: no material anywhere, so nothing to offer and not full.
+	f.eventually("grid selected", func() bool {
+		return f.bit("tray.10.empty") && !f.bit("tray.10.avail") && !f.bit("tray.10.full")
+	})
 
 	f.pulse(tray.setFull)
 	f.eventually("full of step-3 material", func() bool {
-		return f.bit("tray.10.full") && !f.bit("tray.10.empty")
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty") && f.bit("tray.10.avail")
+	})
+	// TRAYDEF 1 is the 10x4 grid the job tests use.
+	if got := f.get("tray.10.count"); got != 40 {
+		t.Errorf("count = %v; want all 40 slots filled", got)
+	}
+
+	// The same tray has nothing to offer a step-4 pick, while still being full
+	// of material and anything but bare.
+	tray.step.Set(4)
+	f.eventually("nothing available at step 4", func() bool {
+		return !f.bit("tray.10.avail") && f.bit("tray.10.full") && !f.bit("tray.10.empty")
 	})
 
-	// The same tray has nothing to offer a step-4 pick, while still being full.
-	f.m.pins.processStep.Set(4)
-	f.eventually("empty for step 4", func() bool {
-		return f.bit("tray.10.empty") && f.bit("tray.10.full")
-	})
+	// The job request pin is not this pin. Moving it changes nothing.
+	f.m.pins.processStep.Set(3)
+	f.consistently("avail ignores the job step", func() bool { return !f.bit("tray.10.avail") })
 
 	f.pulse(tray.setEmpty)
 	f.eventually("emptied", func() bool {
-		return f.bit("tray.10.empty") && !f.bit("tray.10.full")
+		return f.bit("tray.10.empty") && !f.bit("tray.10.full") && !f.bit("tray.10.avail")
 	})
+	if got := f.get("tray.10.count"); got != 0 {
+		t.Errorf("count = %v after set-empty; want 0", got)
+	}
 }
 
 // TestTrayResetPinsHeldAtStartupAreNotEdges covers D26 for the two tray reset
@@ -684,7 +700,7 @@ func TestTrayResetPinsHeldAtStartupAreNotEdges(t *testing.T) {
 		prep: func(_ *testing.T, m *pnptaskModule) {
 			m.pins.trays[0].trayID.Set(1)
 			m.pins.trays[0].setFull.Set(true)
-			m.pins.processStep.Set(1)
+			m.pins.trays[0].step.Set(1)
 		},
 	})
 	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
@@ -733,21 +749,22 @@ func TestTrayResetsDuringHomingSnapshotAndLastWin(t *testing.T) {
 	// Operator: empty... no, full of step-3 material (the correction wins).
 	f.pulse(tray.setEmpty)
 	time.Sleep(5 * pollInterval)
-	f.m.pins.processStep.Set(3)
+	tray.step.Set(3)
 	f.pulse(tray.setFull)
 	time.Sleep(5 * pollInterval)
-	// The PLC stages the step for its NEXT job while homing still runs.
-	f.m.pins.processStep.Set(4)
+	// The tray's step is re-pointed at another kind of material while homing
+	// still runs; the pending reset must carry the value it was pressed with.
+	tray.step.Set(4)
 
 	f.eventually("homed", func() bool { return f.bit("homed") })
-	// Slots carry the press-time step 3: full, and "empty" is true for the
-	// staged step 4 but false once the PLC asks about step 3 again.
+	// Slots carry the press-time step 3: full and not bare, with nothing to
+	// offer the step-4 the pin now names.
 	f.eventually("full of step-3 material", func() bool {
-		return f.bit("tray.10.full") && f.bit("tray.10.empty")
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty") && !f.bit("tray.10.avail")
 	})
-	f.m.pins.processStep.Set(3)
+	tray.step.Set(3)
 	f.eventually("has step-3 material", func() bool {
-		return f.bit("tray.10.full") && !f.bit("tray.10.empty")
+		return f.bit("tray.10.full") && f.bit("tray.10.avail")
 	})
 }
 
@@ -758,7 +775,7 @@ func TestTrayIDBlipKeepsState(t *testing.T) {
 	f := newMachineFixture(t)
 	tray := f.m.pins.trays[0]
 	tray.trayID.Set(1)
-	f.m.pins.processStep.Set(1)
+	tray.step.Set(1)
 	f.eventually("grid selected", func() bool { return f.bit("tray.10.empty") })
 	f.pulse(tray.setFull)
 	f.eventually("full", func() bool { return f.bit("tray.10.full") })
@@ -770,7 +787,7 @@ func TestTrayIDBlipKeepsState(t *testing.T) {
 	tray.trayID.Set(1)
 	f.eventually("state adopted back after the blip", func() bool { return f.bit("tray.10.full") })
 	f.consistently("still full of step-1 material", func() bool {
-		return f.bit("tray.10.full") && !f.bit("tray.10.empty")
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty") && f.bit("tray.10.avail")
 	})
 }
 
@@ -870,4 +887,93 @@ func TestMarkPlacedClearsProbing(t *testing.T) {
 	if et.probedEmpty || et.emptyFor(3) {
 		t.Error("the endless tray stayed probed-empty although material was placed into it")
 	}
+}
+
+// binTraydef is a one-position tray with slots to count: the reject magazine
+// shape, where every part is dropped at the same point but the fill level still
+// has to be known so the station can report full before it overflows.
+const binTraydef = `
+[PNPTASK_TRAYDEF_9]
+ID = 9
+ROWS = 0
+COLS = 0
+CAPACITY = 3
+FIRST_X = 60.0
+FIRST_Y = 60.0
+`
+
+// TestTrayCapacityBinCounts: a CAPACITY bin does the slot bookkeeping a plain
+// endless tray skips. Without it a reject bin can never report full, because
+// every place overwrites the one slot it has — the tray fills up in the machine
+// and stays empty in the model.
+func TestTrayCapacityBinCounts(t *testing.T) {
+	f := newMachineFixtureOpts(t, fixtureOpts{ini: binTraydef})
+	tray := f.m.pins.trays[0]
+	tray.trayID.Set(9)
+	tray.step.Set(2)
+	f.eventually("bin selected", func() bool {
+		return f.bit("tray.10.empty") && !f.bit("tray.10.full") && !f.bit("tray.10.avail")
+	})
+	if got := f.get("tray.10.count"); got != 0 {
+		t.Errorf("count = %v on a fresh bin; want 0", got)
+	}
+
+	f.pulse(tray.setFull)
+	f.eventually("bin filled", func() bool {
+		return f.bit("tray.10.full") && !f.bit("tray.10.empty") && f.bit("tray.10.avail")
+	})
+	if got := f.get("tray.10.count"); got != 3 {
+		t.Errorf("count = %v; want the CAPACITY of 3", got)
+	}
+
+	f.pulse(tray.setEmpty)
+	f.eventually("bin emptied", func() bool {
+		return f.bit("tray.10.empty") && !f.bit("tray.10.full")
+	})
+	if got := f.get("tray.10.count"); got != 0 {
+		t.Errorf("count = %v after emptying; want 0", got)
+	}
+}
+
+// TestTrayPlainEndlessStaysUncounted: CAPACITY defaults to 1, so an endless tray
+// without one behaves exactly as it always has — never full, never bare, no
+// bookkeeping. The default matters more than the feature: every existing config
+// has such a tray and none of them may change behaviour.
+func TestTrayPlainEndlessStaysUncounted(t *testing.T) {
+	f := newMachineFixture(t)
+	tray := f.m.pins.trays[0]
+	tray.trayID.Set(2) // TRAYDEF 2 is the plain endless tray
+	f.consistently("neither full nor empty", func() bool {
+		return !f.bit("tray.10.full") && !f.bit("tray.10.empty") && f.get("tray.10.count") == 0
+	})
+	f.pulse(tray.setFull)
+	f.consistently("still neither", func() bool {
+		return !f.bit("tray.10.full") && !f.bit("tray.10.empty")
+	})
+}
+
+// TestProcResyncPins covers the operator resync the trays have always had
+// (§6.4). "Model occupied, fixture empty" self-corrects at the next pick; the
+// inverse does not, and a fixture hand-loaded while the model thought it free
+// sends the next place-to-proc down onto the occupant.
+func TestProcResyncPins(t *testing.T) {
+	f := newMachineFixture(t)
+	proc := f.m.pins.procs[0]
+	f.consistently("station starts empty", func() bool { return !f.bit("proc.20.has-material") })
+
+	f.pulse(proc.setHasMaterial)
+	f.eventually("station declared occupied", func() bool { return f.bit("proc.20.has-material") })
+
+	f.pulse(proc.setEmpty)
+	f.eventually("station declared empty", func() bool { return !f.bit("proc.20.has-material") })
+
+	// A contradictory pair is ignored rather than resolved on the operator's
+	// behalf, like the tray resets and the manual picker pins.
+	f.pulse(proc.setHasMaterial)
+	f.eventually("occupied again", func() bool { return f.bit("proc.20.has-material") })
+	f.setBit(proc.setHasMaterial, false)
+	f.setBit(proc.setEmpty, false)
+	f.setBit(proc.setHasMaterial, true)
+	f.setBit(proc.setEmpty, true)
+	f.consistently("both edges at once change nothing", func() bool { return f.bit("proc.20.has-material") })
 }

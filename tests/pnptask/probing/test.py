@@ -48,8 +48,8 @@ err = m.run_job(10, 20)
 pnpdrv.check_eq(err, 11, "a tray whose slots are all physically empty raises TRAY_EMPTY")
 
 s = m.snapshot()
-pnpdrv.check(s["tray.10.empty"],
-             "the tray's 'empty' output is set once probing declared it finished")
+pnpdrv.check(not s["tray.10.avail"],
+             "the tray stops offering material once probing declared it finished")
 pnpdrv.check(s["picker.0.missing"],
              "the picker's 'missing' output marks the pick that found nothing")
 pnpdrv.check(s["error"], "the error flag is latched")
@@ -72,7 +72,7 @@ pnpdrv.check(not m.get("picker.0.missing"),
 # is what withdraws it: the operator (or the PLC) says the tray was refilled.
 
 m.fill_tray(10, step=0)
-pnpdrv.check(not m.get("tray.10.empty"), "set-full withdraws the empty conclusion")
+pnpdrv.check(m.get("tray.10.avail"), "set-full withdraws the empty conclusion")
 
 err = m.run_job(10, 20)
 pnpdrv.check_eq(err, 0, "the refilled tray serves jobs again")

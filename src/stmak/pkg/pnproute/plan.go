@@ -301,6 +301,15 @@ func (p *Planner) EdgeCount() int {
 // [ErrOutsideLimit] or [ErrInDeadzone].
 func (p *Planner) CheckPoint(pt Point) error { return p.checkPoint(pt, "point") }
 
+// Clear reports whether pt is outside every offset dead zone of this scene.
+//
+// This is deliberately NOT CheckPoint's boolean twin: the outer limit says
+// where the machine may be *sent*, and a point beyond it is a bad target but
+// still perfectly clear of the obstacles. The question here is the physical
+// one — is the head out of the way — asked by whatever is about to close into
+// a zone, so a machine parked at a limit must not read as "in the way".
+func (p *Planner) Clear(pt Point) bool { return !p.insideAnyObstacleExcept(pt, -1) }
+
 func (p *Planner) checkPoint(pt Point, role string) error {
 	if !pointInPolygon(pt, p.boundary) {
 		return fmt.Errorf("pnproute: %s (%.3f,%.3f) is %w", role, pt.X, pt.Y, ErrOutsideLimit)

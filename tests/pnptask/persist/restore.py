@@ -25,7 +25,7 @@ pnpdrv.check(m.holding(held[0]),
 
 # The probing state is deliberately not persisted (§7.6): it is a conclusion
 # drawn from physical feedback, and re-deriving it costs one probing pass.
-pnpdrv.check(not s["tray.10.empty"], "the tray is not declared empty by a stale conclusion")
+pnpdrv.check(s["tray.10.avail"], "the tray is not declared empty by a stale conclusion")
 
 # The record names the station the material came from, so the job that carries
 # it away skips its pick. A positive miss canary on each gripper proves it: any

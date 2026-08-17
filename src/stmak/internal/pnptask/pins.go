@@ -64,6 +64,15 @@ type pinSet struct {
 	pickers []pickerPins
 	trays   []trayPins
 	procs   []procPins
+
+	// deadzoneFree reports, per configured DEADZONE_FILE and in the same order
+	// the deadzone-select pin indexes them by, whether the machine point is
+	// currently clear of that drawing's zones. It answers a question the
+	// planner cannot: planning keeps the head OUT of a zone, but nothing
+	// retracts a head that is already inside one, and a fixture that closes
+	// around the machine — a sphere, a door, a press — has to know the portal
+	// has left before it moves. Published every cycle, job or no job.
+	deadzoneFree []*hal.Pin[bool]
 }
 
 // jogPins is the manual jog pair of one axis.
@@ -85,6 +94,20 @@ type pickerPins struct {
 	manualOpen  *hal.Pin[bool] // in:  rising edge opens, manual mode only
 	manualClose *hal.Pin[bool] // in:  rising edge closes, manual mode only
 
+	// holds/originID are the picker's contents: whether it is carrying
+	// material and which station that material came from. The model has always
+	// known this and never published it, which left a PLC unable to see the §8
+	// swap obligation — the record that decides which job it is allowed to
+	// command next, and which survives a restart in persistence, so a
+	// sequencer cannot reconstruct it from its own history either. 0 on
+	// originID means "holding nothing"; station ids start at 1.
+	//
+	// A retained record (§8.1 — material a manual open let go of, still in the
+	// operator's hands) reads as holding nothing, because the picker is not
+	// holding it. Jobs are refused for the whole of that window anyway.
+	holds    *hal.Pin[bool]
+	originID *hal.Pin[uint32]
+
 	// posX/posY report where this picker actually is (feedback + offset), for
 	// UI display and manual position teaching (D21). Like every float pin they
 	// carry the internal millimetres (D23).
@@ -103,15 +126,26 @@ type pickerPins struct {
 }
 
 // trayPins is one tray station's interface.
+//
+// step, empty and avail are three answers to what used to be one pin. set-full
+// wrote the *job's* process-step into every slot and empty asked "is there
+// anything at the job's process-step", which made both change meaning whenever
+// a sequencer varied the job step across the legs of one cascade. The tray's
+// own step is now its own input, and the two questions a caller actually has —
+// "is this tray bare" and "has it anything left to process" — are separate
+// outputs.
 type trayPins struct {
 	id uint32
 
 	trayID   *hal.Pin[uint32]  // in:  selects the TRAYDEF; a change resets all slots (D17)
-	setFull  *hal.Pin[bool]    // in:  edge, all slots := process-step (D8)
+	step     *hal.Pin[uint32]  // in:  the tray's own process step, seeded by DEFAULT_STEP
+	setFull  *hal.Pin[bool]    // in:  edge, all slots := step (D8)
 	setEmpty *hal.Pin[bool]    // in:  edge, all slots := -1
 	zOffset  *hal.Pin[float64] // in:  added to Z_PICK
-	empty    *hal.Pin[bool]    // out
-	full     *hal.Pin[bool]    // out
+	empty    *hal.Pin[bool]    // out: every slot is -1 — physically bare
+	avail    *hal.Pin[bool]    // out: a slot holds `step` and probing has not given up
+	full     *hal.Pin[bool]    // out: no free slot
+	count    *hal.Pin[uint32]  // out: slots holding something — a bin's fill level
 }
 
 // procPins is one process station's interface.
@@ -123,6 +157,17 @@ type procPins struct {
 	hasMaterial *hal.Pin[bool]    // out: owned by pnptask, restored from persistence
 	release     *hal.Pin[bool]    // out: request fixture release
 	released    *hal.Pin[bool]    // in:  fixture released feedback
+
+	// setHasMaterial/setEmpty are the operator resync the tray resets have
+	// always had (§6.4). "Model occupied, fixture empty" self-corrects — a pick
+	// that grips nothing clears the flag — but the inverse does not: a fixture
+	// hand-loaded while the model thought it free sends the next place-to-proc
+	// down onto the occupant. set-has-material is also what makes a station
+	// *probe* possible at all: a job may only originate at a station the model
+	// believes occupied, so "assume something is there and go and check" needs
+	// a way to say the first half. Edges, honored in both modes.
+	setHasMaterial *hal.Pin[bool] // in: edge, has-material := true
+	setEmpty       *hal.Pin[bool] // in: edge, has-material := false
 }
 
 // newPins exports the whole pin and param tree on comp and seeds the params
@@ -176,6 +221,8 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 			missing:     mkPin[bool](b, pre+"missing", hal.Out),
 			manualOpen:  mkPin[bool](b, pre+"manual-open", hal.In),
 			manualClose: mkPin[bool](b, pre+"manual-close", hal.In),
+			holds:       mkPin[bool](b, pre+"holds", hal.Out),
+			originID:    mkPin[uint32](b, pre+"origin-id", hal.Out),
 			posX:        mkPin[float64](b, pre+"pos-x", hal.Out),
 			posY:        mkPin[float64](b, pre+"pos-y", hal.Out),
 			posXMu:      mkPin[float64](b, pre+"pos-x-mu", hal.Out),
@@ -190,24 +237,35 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 		p.trays = append(p.trays, trayPins{
 			id:       t.ID,
 			trayID:   mkPin[uint32](b, pre+"tray-id", hal.In),
+			step:     mkPin[uint32](b, pre+"step", hal.In),
 			setFull:  mkPin[bool](b, pre+"set-full", hal.In),
 			setEmpty: mkPin[bool](b, pre+"set-empty", hal.In),
 			zOffset:  mkPin[float64](b, pre+"z-offset", hal.In),
 			empty:    mkPin[bool](b, pre+"empty", hal.Out),
+			avail:    mkPin[bool](b, pre+"avail", hal.Out),
 			full:     mkPin[bool](b, pre+"full", hal.Out),
+			count:    mkPin[uint32](b, pre+"count", hal.Out),
 		})
 	}
 
 	for _, s := range cfg.Procs {
 		pre := fmt.Sprintf("proc.%d.", s.ID)
 		p.procs = append(p.procs, procPins{
-			id:          s.ID,
-			zOffset:     mkPin[float64](b, pre+"z-offset", hal.In),
-			busy:        mkPin[bool](b, pre+"busy", hal.In),
-			hasMaterial: mkPin[bool](b, pre+"has-material", hal.Out),
-			release:     mkPin[bool](b, pre+"release", hal.Out),
-			released:    mkPin[bool](b, pre+"released", hal.In),
+			id:             s.ID,
+			zOffset:        mkPin[float64](b, pre+"z-offset", hal.In),
+			busy:           mkPin[bool](b, pre+"busy", hal.In),
+			hasMaterial:    mkPin[bool](b, pre+"has-material", hal.Out),
+			release:        mkPin[bool](b, pre+"release", hal.Out),
+			released:       mkPin[bool](b, pre+"released", hal.In),
+			setHasMaterial: mkPin[bool](b, pre+"set-has-material", hal.In),
+			setEmpty:       mkPin[bool](b, pre+"set-empty", hal.In),
 		})
+	}
+
+	// One per drawing, indexed exactly as deadzone-select indexes them.
+	for i := range cfg.DeadzoneFiles {
+		p.deadzoneFree = append(p.deadzoneFree,
+			mkPin[bool](b, fmt.Sprintf("deadzone.%d.free", i), hal.Out))
 	}
 
 	if b.err != nil {
@@ -222,14 +280,17 @@ func newPins(comp *hal.Component, cfg *Config, pickers int) (*pinSet, error) {
 	p.pickSettleTime.Set(cfg.PickSettleTime)
 	p.releaseTime.Set(cfg.ReleaseTime)
 
-	// DEFAULT_TRAYDEF seeds the tray-id pin, exactly as a halcmd setp would.
-	// This runs before the instance's net lines, so it only ever decides what
-	// an *unwired* selector reads: linking the pin to a signal points it at
-	// that signal and the seed is gone, which is what a station that does
-	// select its geometry at runtime needs.
+	// DEFAULT_TRAYDEF and DEFAULT_STEP seed their pins, exactly as a halcmd
+	// setp would. This runs before the instance's net lines, so it only ever
+	// decides what an *unwired* pin reads: linking one points it at the signal
+	// and the seed is gone, which is what a station that does select its
+	// geometry — or its step — at runtime needs.
 	for i, t := range cfg.Trays {
 		if t.DefaultTrayDef != 0 {
 			p.trays[i].trayID.Set(t.DefaultTrayDef)
+		}
+		if t.DefaultStep != 0 {
+			p.trays[i].step.Set(t.DefaultStep)
 		}
 	}
 

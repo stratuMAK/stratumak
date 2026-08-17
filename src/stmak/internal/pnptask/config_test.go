@@ -784,6 +784,58 @@ Z_PICK = 2.5
 `,
 		want: "must both be 0 (endless tray) or both be positive",
 	}, {
+		name: "capacity on a grid",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 2
+COLS = 2
+CAPACITY = 8
+FIRST_X = 1.0
+FIRST_Y = 2.0
+LAST_X = 3.0
+LAST_Y = 4.0
+COL_STEP = 2.0
+ROW_STEP = 2.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "CAPACITY applies to an endless tray",
+	}, {
+		name: "capacity of zero",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 0
+COLS = 0
+CAPACITY = 0
+FIRST_X = 1.0
+FIRST_Y = 2.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+`,
+		want: "must be at least 1",
+	}, {
+		name: "negative default step",
+		ini: trajSection + pnptaskSection + `
+[PNPTASK_TRAYDEF_0]
+ID = 1
+ROWS = 0
+COLS = 0
+FIRST_X = 1.0
+FIRST_Y = 2.0
+
+[PNPTASK_TRAY_0]
+ID = 10
+Z_PICK = 2.5
+DEFAULT_STEP = -1
+`,
+		want: "DEFAULT_STEP",
+	}, {
 		name: "endless tray with LAST",
 		ini: trajSection + pnptaskSection + `
 [PNPTASK_TRAYDEF_0]

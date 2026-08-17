@@ -279,12 +279,20 @@ COL_STEP = 10.0               # slot pitch along the column axis; required
 ROW_STEP = 10.0               #   wherever that axis has more than one slot
 DIR_MODE = C+R+~              # iteration order: C/R, +/-, optional ~ meander
 MAX_UNPOPULATED = 3           # successive empty picks before tray declared empty
+CAPACITY = 20                 # endless trays only: slots to count, all of them
+                              #   at FIRST. Turns the one-position tray into a
+                              #   *bin* — a reject magazine parts are dropped
+                              #   into at one point but whose fill level still
+                              #   has to be known. Default 1 = plain endless
 
 [PNPTASK_TRAY_0]              # tray *station* — no X/Y of its own (D17)
 ID = 10                       # station id — unique across trays and procs
 Z_PICK = 2.5                  # base pick Z (D10); z-offset pin adds to this
 DEFAULT_TRAYDEF = 1           # optional: seeds the tray-id pin, for a station
                               #   that only ever holds this one geometry
+DEFAULT_STEP = 0              # optional: seeds the step pin — the process step
+                              #   this tray holds (set-full writes it, avail
+                              #   looks for it)
 
 [PNPTASK_PROC_0]              # process station
 ID = 20
@@ -305,8 +313,9 @@ Startup validation (fail the load, don't limp): duplicate ids; unknown
 coordinate and every TRAYDEF slot position (absolute machine coordinates, D17)
 must lie inside the eroded boundary and outside every offset dead zone **of
 every configured dead-zone file**; `CLEARANCE > BLEND_TOLERANCE`; tray-def
-grids with ROWS/COLS > 1 but no LAST, or no step width for such an axis; and
-the D24 fit — the grid a TRAYDEF's step widths describe has to reach its taught
+grids with ROWS/COLS > 1 but no LAST, or no step width for such an axis; a
+`CAPACITY` on anything but an endless tray, or below 1; a negative
+`DEFAULT_STEP`; and the D24 fit — the grid a TRAYDEF's step widths describe has to reach its taught
 LAST within `POS_TOLERANCE`.
 
 `DEFAULT_TRAYDEF` is a **pin seed**, not a fallback value: it is written to the
@@ -341,6 +350,7 @@ normalized to HAL-conventional dashes.
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
+| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones. Published every cycle from the raw feedback, so something about to close into a zone can tell the head has left |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 
@@ -366,6 +376,8 @@ normalized to HAL-conventional dashes.
 | `picker.N.pos-y` | pin | float | out | picker position, mm: feedback Y + `y-offset` (D21/D23) |
 | `picker.N.pos-x-mu` | pin | float | out | same position in machine units — the value to paste into the INI (D26) |
 | `picker.N.pos-y-mu` | pin | float | out | same position in machine units (D26) |
+| `picker.N.holds` | pin | bit | out | the picker is carrying material |
+| `picker.N.origin-id` | pin | u32 | out | the station that material came from, 0 when holding nothing — the §8 swap obligation, made legible to the PLC that has to honour it |
 | `picker.N.x-offset` | param | float RW | | XY offset vs. machine position (picker.0 default 0) |
 | `picker.N.y-offset` | param | float RW | | |
 
@@ -374,11 +386,14 @@ normalized to HAL-conventional dashes.
 | Pin | Type | Dir | Function |
 |-----|------|-----|----------|
 | `tray-id` | u32 | in | selects the TRAYDEF; change resets all slots to −1 (D17). Seeded from `DEFAULT_TRAYDEF` if the section has one, so an unwired selector can still name a geometry |
-| `set-full` | bit | in | edge: all slots := `process-step` pin value (D8) |
+| `step` | u32 | in | the tray's OWN process step: what `set-full` writes and what `avail` looks for. Seeded from `DEFAULT_STEP`. Deliberately not the job's `process-step` — that says what one job carries and moves from job to job, while this describes what the tray is for |
+| `set-full` | bit | in | edge: all slots := `step` pin value (D8) |
 | `set-empty` | bit | in | edge: all slots := −1 |
 | `z-offset` | float | in | added to Z_PICK (default 0.0) |
-| `empty` | bit | out | no slot matching a pick, or declared empty by probing |
+| `empty` | bit | out | every slot is −1 — the tray is physically bare |
+| `avail` | bit | out | a slot holds `step` and probing has not declared the tray empty — "there is material to process" |
 | `full` | bit | out | no free (−1) slot |
+| `count` | u32 | out | slots holding something — a CAPACITY bin's fill level |
 
 **Per process station (id from INI), prefix `proc.<id>.`**
 
@@ -389,6 +404,8 @@ normalized to HAL-conventional dashes.
 | `has-material` | bit | out | owned by pnptask; restored from persistence if configured |
 | `release` | bit | out | request fixture release/unclamp |
 | `released` | bit | in | fixture released feedback (state-checked, not edge) |
+| `set-has-material` | bit | in | edge: has-material := true. The operator resync §6.4 promised, and what makes a station *probe* possible — a job may only originate at a station the model believes occupied |
+| `set-empty` | bit | in | edge: has-material := false |
 
 ### 5.3 As built (2026-08-10)
 
@@ -633,15 +650,17 @@ LAST, bearing on FIRST (D24); all coordinates are absolute machine coordinates
 — tray stations have no X/Y of their own (D17). A missing LAST makes a single-position tray (always
 pick/place at FIRST). Direction mode parsed into an iterator
 (`C|R`, `+|-` each, optional `~` meander) — pure function, fully unit-tested.
-Endless trays (ROWS=COLS=0): single position, state tracking reduced to the
-probing counter; never "full", never "empty" by bookkeeping (only by probing).
+Endless trays (ROWS=COLS=0): single position. Without `CAPACITY` state tracking
+reduces to the probing counter — never "full", never "empty" by bookkeeping
+(only by probing). With `CAPACITY = N` the one position gets N slots to count,
+so a reject bin reports its fill level and goes "full" before it overflows.
 
 State transitions: `set-full`/`set-empty` edges (D8); `tray-id` pin change →
 all slots := −1, the startup state (D17).
 
 Pick search (D9): iterate in direction-mode order over slots with
 `state == process-step`; physical miss (closed-after-pick) marks the slot
-`-1` and continues; `MAX_UNPOPULATED` successive misses → tray `empty` := 1,
+`-1` and continues; `MAX_UNPOPULATED` successive misses → tray `avail` := 0,
 `picker.N.missing` := 1, error `TRAY_EMPTY`. Place search: first slot with
 `state == -1`, on success `state := process-step`.
 

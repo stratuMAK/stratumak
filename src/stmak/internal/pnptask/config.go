@@ -136,13 +136,28 @@ type TrayDef struct {
 	// empty.
 	MaxUnpopulated int
 
+	// Capacity is how many slots an endless tray has, all of them at First.
+	// It turns the one-position tray into a *bin*: a reject magazine that
+	// parts are dropped into at a single point but whose fill level still has
+	// to be tracked, so the station can report full before it overflows and
+	// the operator can empty it. 1 (the default) is the plain endless tray.
+	// Only meaningful when Endless — a grid's capacity is Rows*Cols.
+	Capacity int
+
 	// Dir is the slot iteration order.
 	Dir DirMode
 }
 
 // Endless reports whether this is an endless tray (ROWS = COLS = 0): one
-// position, no slot bookkeeping, emptiness only ever established by probing.
+// position, whatever its capacity.
 func (d TrayDef) Endless() bool { return d.Rows == 0 && d.Cols == 0 }
+
+// Counted reports whether the tray tracks per-slot state. A grid always does;
+// an endless tray does once CAPACITY gives it slots to count. The plain
+// one-position tray does not — it has a single place to put things and no way
+// to know what is there except by probing, which is what Endless() alone used
+// to mean everywhere.
+func (d TrayDef) Counted() bool { return !d.Endless() || d.Capacity > 1 }
 
 // TrayStation is one [PNPTASK_TRAY_x] section: a station that holds a tray.
 // Its geometry comes from whichever TrayDef its tray-id pin selects, so all it
@@ -161,6 +176,14 @@ type TrayStation struct {
 	// select at runtime: a PLC dropping its selector must still park the
 	// station, not silently fall back to a default tray.
 	DefaultTrayDef uint32
+
+	// DefaultStep seeds the station's step pin — the tray's own process step,
+	// which set-full writes into every slot and which `avail` looks for. It is
+	// deliberately separate from a job's process-step: the job step says what
+	// THIS job carries and changes from job to job, while the tray step
+	// describes what the tray is for and does not. Seeded like DefaultTrayDef,
+	// so a station whose step never varies needs no wiring at all.
+	DefaultStep uint32
 }
 
 // ProcStation is one [PNPTASK_PROC_x] section: a fixed process station.
@@ -397,6 +420,8 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 		d.ColStep = r.length(sec, "COL_STEP", 0)
 		d.RowStep = r.length(sec, "ROW_STEP", 0)
 		d.MaxUnpopulated = r.integer(sec, "MAX_UNPOPULATED", defaultMaxUnpopulated)
+		hasCapacity := r.has(sec, "CAPACITY")
+		d.Capacity = r.integer(sec, "CAPACITY", 1)
 		d.Dir, err = parseDirMode(r.str(sec, "DIR_MODE"))
 		if err != nil {
 			return fmt.Errorf("[%s]DIR_MODE: %w", sec, err)
@@ -432,6 +457,16 @@ func loadTrayDefs(r *iniReader, cfg *Config) error {
 		}
 		if d.Endless() && (hasColStep || hasRowStep) {
 			return fmt.Errorf("[%s]: an endless tray (ROWS = COLS = 0) has a single position at FIRST and must not define COL_STEP/ROW_STEP", sec)
+		}
+		// CAPACITY counts slots at one position, which is only a description a
+		// tray with one position can carry: on a grid the capacity IS ROWS*COLS,
+		// and a second, disagreeing number would silently win or silently lose.
+		if hasCapacity && !d.Endless() {
+			return fmt.Errorf("[%s]: CAPACITY applies to an endless tray (ROWS = COLS = 0); a %dx%d grid holds ROWS*COLS = %d",
+				sec, d.Cols, d.Rows, d.Rows*d.Cols)
+		}
+		if d.Capacity < 1 {
+			return fmt.Errorf("[%s]CAPACITY = %d: must be at least 1", sec, d.Capacity)
 		}
 		if d.MaxUnpopulated < 1 {
 			return fmt.Errorf("[%s]MAX_UNPOPULATED = %d: must be at least 1", sec, d.MaxUnpopulated)
@@ -554,9 +589,18 @@ func loadStations(r *iniReader, cfg *Config) error {
 			// TRAYDEF id, and 0 is as reserved here as it is there.
 			s.DefaultTrayDef = r.stationID(sec, "DEFAULT_TRAYDEF")
 		}
+		// Unlike the ids, 0 is a perfectly good process step (unprocessed
+		// material), so this is a plain read with 0 as its default — only the
+		// negative half has to be refused, because the pin is unsigned and a
+		// -1 would arrive as the four-billion step nothing ever matches.
+		step := r.integer(sec, "DEFAULT_STEP", 0)
 		if err := r.err; err != nil {
 			return err
 		}
+		if step < 0 || int64(step) > int64(math.MaxUint32) {
+			return fmt.Errorf("[%s]DEFAULT_STEP = %d: must be between 0 and %d", sec, step, uint32(math.MaxUint32))
+		}
+		s.DefaultStep = uint32(step)
 		if s.DefaultTrayDef != 0 && !knownDefs[s.DefaultTrayDef] {
 			return fmt.Errorf("[%s]DEFAULT_TRAYDEF = %d: no TRAYDEF has that ID", sec, s.DefaultTrayDef)
 		}

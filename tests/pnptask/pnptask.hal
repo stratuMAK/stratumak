@@ -94,6 +94,13 @@ setp pnp.task.proc.21.busy 0
 setp pnp.task.tray.10.tray-id 1
 setp pnp.task.tray.11.tray-id 2
 
+# What each tray is FOR: the step set-full writes into every slot and the step
+# "avail" looks for. Separate from the job's process-step, which says what one
+# job carries and changes from job to job — station 10 holds raw material and
+# station 11 takes it back finished, and neither description moves.
+setp pnp.task.tray.10.step 0
+setp pnp.task.tray.11.step 1
+
 # --- Machine control --------------------------------------------------------
 
 # Nothing simulates an estop chain here, so hold pnptask's estop input low and
@@ -126,8 +133,9 @@ setp pnp.task.home 0
 # drives; here it is left unconnected so it can be driven by hand. Tell the module
 # what the trays hold, then command a job:
 #
-#     halcmd setp pnp.task.process-step 0
 #     halcmd setp pnp.task.tray.10.set-full 1   # tray 10 is full of step-0 parts
+#     halcmd show pin pnp.task.tray.10.avail    # ... and now has some to offer
+#     halcmd setp pnp.task.process-step 0
 #     halcmd setp pnp.task.origin-id 10
 #     halcmd setp pnp.task.dest-id   20
 #     halcmd setp pnp.task.start-job 1          # cleared by the module when done

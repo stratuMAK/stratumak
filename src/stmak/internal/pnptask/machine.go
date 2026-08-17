@@ -10,6 +10,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // The control loop's timing. They are vars, not consts, so tests can run the
@@ -140,10 +141,15 @@ type inputs struct {
 	// Per process station, parallel to pins.procs.
 	procBusy     []bool
 	procReleased []bool
+	// The operator resync edges, the proc-station counterpart of the tray
+	// resets below.
+	procSetHasMaterial []bool
+	procSetEmpty       []bool
 
-	// Per tray station, parallel to pins.trays: the selected geometry and the
-	// two state-reset requests (D8).
+	// Per tray station, parallel to pins.trays: the selected geometry, the
+	// tray's own process step and the two state-reset requests (D8).
 	trayID       []uint32
+	trayStep     []uint32
 	traySetFull  []bool
 	traySetEmpty []bool
 
@@ -166,6 +172,10 @@ type control struct {
 	// This cycle's inputs and the previous cycle's, for edge detection.
 	in   inputs
 	prev inputs
+
+	// trayStep is publish's scratch buffer for the per-tray steps, reused so a
+	// function that runs every cycle allocates nothing.
+	trayStep []int64
 
 	// rise holds rising edges that have not been acted on yet. They are
 	// *latched*, not per-cycle: the long operations of this module — the enable
@@ -235,17 +245,20 @@ func newControl(m *pnptaskModule) *control {
 	procs := len(m.pins.procs)
 	mk := func() inputs {
 		return inputs{
-			pickerOpen:   make([]bool, pickers),
-			pickerClose:  make([]bool, pickers),
-			pickerOpened: make([]bool, pickers),
-			pickerClosed: make([]bool, pickers),
-			trayID:       make([]uint32, trays),
-			traySetFull:  make([]bool, trays),
-			traySetEmpty: make([]bool, trays),
-			procBusy:     make([]bool, procs),
-			procReleased: make([]bool, procs),
-			jogPos:       make([]bool, axes),
-			jogNeg:       make([]bool, axes),
+			pickerOpen:         make([]bool, pickers),
+			pickerClose:        make([]bool, pickers),
+			pickerOpened:       make([]bool, pickers),
+			pickerClosed:       make([]bool, pickers),
+			trayID:             make([]uint32, trays),
+			trayStep:           make([]uint32, trays),
+			traySetFull:        make([]bool, trays),
+			traySetEmpty:       make([]bool, trays),
+			procBusy:           make([]bool, procs),
+			procReleased:       make([]bool, procs),
+			procSetHasMaterial: make([]bool, procs),
+			procSetEmpty:       make([]bool, procs),
+			jogPos:             make([]bool, axes),
+			jogNeg:             make([]bool, axes),
 		}
 	}
 	return &control{
@@ -397,6 +410,8 @@ func (c *control) sample() {
 	copy(c.prev.pickerClose, c.in.pickerClose)
 	copy(c.prev.traySetFull, c.in.traySetFull)
 	copy(c.prev.traySetEmpty, c.in.traySetEmpty)
+	copy(c.prev.procSetHasMaterial, c.in.procSetHasMaterial)
+	copy(c.prev.procSetEmpty, c.in.procSetEmpty)
 
 	c.in.estop = p.estopOn.Get()
 	c.in.machineOn = p.machineOn.Get()
@@ -423,12 +438,15 @@ func (c *control) sample() {
 	}
 	for i := range p.trays {
 		c.in.trayID[i] = p.trays[i].trayID.Get()
+		c.in.trayStep[i] = p.trays[i].step.Get()
 		c.in.traySetFull[i] = p.trays[i].setFull.Get()
 		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
 	}
 	for i := range p.procs {
 		c.in.procBusy[i] = p.procs[i].busy.Get()
 		c.in.procReleased[i] = p.procs[i].released.Get()
+		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
+		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
 	}
 	for i := range p.jog {
 		c.in.jogPos[i] = p.jog[i].pos.Get()
@@ -466,12 +484,11 @@ func (c *control) sample() {
 			(manualOK && c.in.pickerClose[i] && !c.prev.pickerClose[i])
 	}
 	// The tray resets latch a pending VALUE, not a boolean: set-full means "all
-	// slots become the process step the operator saw when pressing", so the
-	// step is snapshotted at press time — consuming it later with a process
-	// step the PLC has meanwhile staged for its next job would mark the whole
-	// tray wrongly. Later presses overwrite earlier ones (last wins); only two
-	// edges in the SAME sample are a genuinely contradictory pair, ignored like
-	// the picker branch ignores its own.
+	// slots become this tray's process step", snapshotted at press time so a
+	// step pin that moves before the reset is consumed cannot mark the tray
+	// wrongly. Later presses overwrite earlier ones (last wins); only two edges
+	// in the SAME sample are a genuinely contradictory pair, ignored like the
+	// picker branch ignores its own.
 	for i := range p.trays {
 		full := c.in.traySetFull[i] && !c.prev.traySetFull[i]
 		empty := c.in.traySetEmpty[i] && !c.prev.traySetEmpty[i]
@@ -480,11 +497,28 @@ func (c *control) sample() {
 			c.m.logger.Debug("pnptask: tray set-full and set-empty in the same cycle, ignored",
 				"station", c.m.world.trays[i].cfg.ID)
 		case full:
-			v := int64(c.in.processStep)
+			v := int64(c.in.trayStep[i])
 			c.trayPending[i] = &v
 		case empty:
 			v := slotEmpty
 			c.trayPending[i] = &v
+		}
+	}
+	// The proc-station resync (§6.4). Unlike the trays these apply straight
+	// away rather than through a pending value: there is one bit of state per
+	// station and no geometry it has to agree with, so there is nothing to
+	// snapshot and nothing that can be invalidated between press and effect.
+	for i, ps := range c.m.world.procs {
+		set := c.in.procSetHasMaterial[i] && !c.prev.procSetHasMaterial[i]
+		clear := c.in.procSetEmpty[i] && !c.prev.procSetEmpty[i]
+		switch {
+		case set && clear:
+			c.m.logger.Debug("pnptask: proc set-has-material and set-empty in the same cycle, ignored",
+				"station", ps.cfg.ID)
+		case set != clear:
+			ps.setHasMaterial(set)
+			c.m.logger.Info("pnptask: process station state set by operator",
+				"station", ps.cfg.ID, "has_material", set)
 		}
 	}
 
@@ -539,6 +573,10 @@ func (c *control) primeEdges() {
 	for i := range p.trays {
 		c.in.traySetFull[i] = p.trays[i].setFull.Get()
 		c.in.traySetEmpty[i] = p.trays[i].setEmpty.Get()
+	}
+	for i := range p.procs {
+		c.in.procSetHasMaterial[i] = p.procs[i].setHasMaterial.Get()
+		c.in.procSetEmpty[i] = p.procs[i].setEmpty.Get()
 	}
 	// start-job is not edge-detected but armed (see jobRequest), and it starts
 	// disarmed: a level held high across a restart is not a request for that job.
@@ -828,7 +866,14 @@ func (c *control) publish() {
 	p := c.m.pins
 	p.machineIsOn.Set(c.enabled && !c.estopped)
 	p.homed.Set(c.allHomed())
-	c.m.world.publish(int64(c.in.processStep))
+	// Each tray publishes against its OWN step, not the job request pin: a
+	// sequencer varies the job step from leg to leg, and outputs that followed
+	// it would change meaning in the middle of a cascade.
+	c.trayStep = c.trayStep[:0]
+	for i := range p.trays {
+		c.trayStep = append(c.trayStep, int64(c.in.trayStep[i]))
+	}
+	c.m.world.publish(c.trayStep)
 
 	// Position teach (D21): where each picker actually is. Targeting commands
 	// (x - offset), so the picker sits at (feedback + offset). The plain pins
@@ -843,6 +888,34 @@ func (c *control) publish() {
 		pk.posY.Set(y)
 		pk.posXMu.Set(x * c.m.cfg.LinearUnits)
 		pk.posYMu.Set(y * c.m.cfg.LinearUnits)
+
+		// What the picker is carrying. A retained record reads as empty: the
+		// part is in an operator's hands, not in the gripper.
+		h := c.m.world.held[i]
+		pk.holds.Set(h.present)
+		if h.present {
+			pk.originID.Set(h.station)
+		} else {
+			pk.originID.Set(0)
+		}
+	}
+
+	// Dead-zone clearance, per drawing. The machine point is the one to test:
+	// the drawings are already grown by CLEARANCE and drawn to cover the head,
+	// the same envelope the planner routes with — testing a picker's offset
+	// position instead would answer for a point no zone was ever sized against.
+	//
+	// Published from the raw feedback and never from a plan, so it stays
+	// truthful while the machine is jogged, parked or estopped — the states in
+	// which whatever is waiting to close is most likely to be asking. A stale
+	// status reads as not clear: this gates something moving into the machine.
+	for i, pin := range p.deadzoneFree {
+		pl, err := c.m.planners.at(uint32(i))
+		if err != nil {
+			pin.Set(false)
+			continue
+		}
+		pin.Set(c.statusOK && pl.Clear(pnproute.Point{X: c.posFb.X, Y: c.posFb.Y}))
 	}
 }
 

@@ -165,6 +165,17 @@ func TestAltSwapAtOccupiedStation(t *testing.T) {
 	if f.bit("picker.0.close") {
 		t.Error("the placing picker did not let go of the job's material")
 	}
+	// ... and that is legible from outside: the swap obligation is what tells a
+	// sequencer which job it is allowed to command next, and it cannot infer it
+	// from its own history (the record is persisted across a restart).
+	if f.bit("picker.0.holds") || f.get("picker.0.origin-id") != 0 {
+		t.Errorf("picker 0 reports holds=%v origin-id=%v; want empty after placing",
+			f.bit("picker.0.holds"), f.get("picker.0.origin-id"))
+	}
+	if !f.bit("picker.1.holds") || f.get("picker.1.origin-id") != 20 {
+		t.Errorf("picker 1 reports holds=%v origin-id=%v; want material from station 20",
+			f.bit("picker.1.holds"), f.get("picker.1.origin-id"))
+	}
 	w := f.stopped()
 	if w.held[0].present {
 		t.Errorf("the placing picker still holds material: %+v", w.held[0])

@@ -398,12 +398,16 @@ func TestJobProcToTray(t *testing.T) {
 	if f.bit("tray.10.empty") {
 		t.Error("the tray reports empty although a part was placed into it")
 	}
-	// The part is in the tray at step 7, so a step-7 pick finds it and a step-0
-	// pick does not.
+	// The part is in the tray at step 7, so the tray has step-7 material
+	// available and no step-0 material. avail follows the tray's OWN step pin,
+	// not the job request pin — the whole point of it being a separate input.
+	f.m.pins.trays[0].step.Set(0)
+	f.eventually("nothing available at step 0", func() bool { return !f.bit("tray.10.avail") })
+	f.m.pins.trays[0].step.Set(7)
+	f.eventually("step-7 material available", func() bool { return f.bit("tray.10.avail") })
+	// ... and the job request pin moving has no effect on it at all.
 	f.m.pins.processStep.Set(0)
-	f.eventually("empty for step 0", func() bool { return f.bit("tray.10.empty") })
-	f.m.pins.processStep.Set(7)
-	f.eventually("not empty for step 7", func() bool { return !f.bit("tray.10.empty") })
+	f.consistently("avail ignores the job step", func() bool { return f.bit("tray.10.avail") })
 }
 
 // TestJobUsesTheHoldingPicker pins D20 on the single-picker engine: the place is
@@ -677,8 +681,8 @@ func TestJobTrayProbingToEmpty(t *testing.T) {
 	if !f.bit("picker.0.missing") {
 		t.Error("missing is not set after the tray was declared empty")
 	}
-	if !f.bit("tray.10.empty") {
-		t.Error("the tray does not report empty after probing declared it so")
+	if f.bit("tray.10.avail") {
+		t.Error("the tray still offers material after probing declared it empty")
 	}
 
 	// A declared-empty tray refuses the next job outright, without moving.

@@ -1208,3 +1208,31 @@ func TestModuleStopDisablesMotion(t *testing.T) {
 		t.Error("machine-is-on is still set after Stop")
 	}
 }
+
+// TestDeadzoneFreePins: one pin per drawing saying whether the machine point is
+// clear of that scene's zones.
+//
+// The planner answers where the head may be SENT; nothing retracts a head that
+// is already inside a zone, and a fixture that closes into one — a sphere, a
+// door, a press — has to know the portal has left first. Published from the raw
+// feedback, per drawing, so a scene that is about to become the active one can
+// be asked about before it is selected.
+func TestDeadzoneFreePins(t *testing.T) {
+	// Scene 0 puts a zone over proc station 20 at (300,200); scene 1 is clear.
+	f := newMachineFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: fixtureBlock, zonesB: fixtureClear},
+	})
+	if n := len(f.m.pins.deadzoneFree); n != 2 {
+		t.Fatalf("%d dead-zone pins for 2 DEADZONE_FILEs", n)
+	}
+
+	f.mot.setPos(300, 200, 60)
+	f.eventually("inside scene 0's zone, clear of scene 1's", func() bool {
+		return !f.bit("deadzone.0.free") && f.bit("deadzone.1.free")
+	})
+
+	f.mot.setPos(100, 100, 60)
+	f.eventually("clear of both once the head has left", func() bool {
+		return f.bit("deadzone.0.free") && f.bit("deadzone.1.free")
+	})
+}

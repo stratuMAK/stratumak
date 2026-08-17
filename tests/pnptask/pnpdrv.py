@@ -391,10 +391,15 @@ class Machine:
     # ── telling the module what the world holds ──
 
     def fill_tray(self, station, step=0):
-        """Declare every slot of a tray station occupied at `step` (D8)."""
-        self.set("process-step", step)
+        """Declare every slot of a tray station occupied at `step` (D8).
+
+        The step goes on the *tray's* own pin, not the job request pin: the
+        tray's step says what it holds and stays put, while process-step says
+        what one job carries and moves from job to job.
+        """
+        self.set("tray.%d.step" % station, step)
         self.pulse("tray.%d.set-full" % station)
-        self.wait(lambda s: not s["tray.%d.empty" % station],
+        self.wait(lambda s: s["tray.%d.avail" % station],
                   "tray %d to report itself stocked" % station)
 
     # ── the simulated field devices (pnpsim) ──

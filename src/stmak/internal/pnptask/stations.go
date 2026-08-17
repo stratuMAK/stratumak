@@ -12,10 +12,15 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
-// SlotCount returns how many slots the tray has. An endless tray and a
-// single-position tray both have exactly one.
+// SlotCount returns how many slots the tray has. An endless tray has its
+// CAPACITY — 1 unless the section gives it more, in which case every slot is
+// at First and they exist only to be counted. A single-position grid tray has
+// exactly one.
 func (d TrayDef) SlotCount() int {
 	if d.Endless() {
+		if d.Capacity > 1 {
+			return d.Capacity
+		}
 		return 1
 	}
 	return d.Rows * d.Cols
@@ -192,6 +197,18 @@ func parseDirToken(s string) (axis SlotAxis, up bool, rest string, err error) {
 func slotOrder(d TrayDef) []int {
 	if d.SlotCount() <= 1 {
 		return []int{0}
+	}
+	// A CAPACITY bin has slots but no grid to walk: every one of them is at
+	// FIRST, so the only order that exists is the index order. Falling through
+	// to the grid loop below would derive the extents from ROWS/COLS, which are
+	// both 0 here, and hand back an empty order — a tray with slots that can
+	// never be reached.
+	if d.Endless() {
+		order := make([]int, d.SlotCount())
+		for i := range order {
+			order[i] = i
+		}
+		return order
 	}
 	m := d.Dir
 	// The primary axis is the inner loop, so its extent is the inner count.
@@ -375,9 +392,14 @@ func (t *trayState) setAll(v int64) {
 	t.dirty = true
 }
 
-// endless reports whether the selected geometry is an endless tray, whose fill
-// state is only ever known by probing.
+// endless reports whether the selected geometry is an endless tray: one
+// position at FIRST, however many slots it counts there.
 func (t *trayState) endless() bool { return t.geom != nil && t.geom.def.Endless() }
+
+// counted reports whether the station tracks per-slot state. Everything except
+// the plain one-position endless tray does — including a CAPACITY bin, which
+// has one position but a fill level worth knowing.
+func (t *trayState) counted() bool { return t.geom != nil && t.geom.def.Counted() }
 
 // slotPos is the absolute machine position of a linear slot index.
 func (t *trayState) slotPos(slot int) pnproute.Point {
@@ -398,7 +420,7 @@ func (t *trayState) nextPick(step int64, from int) (slot, next int, ok bool) {
 	if t.geom == nil || t.probedEmpty {
 		return 0, 0, false
 	}
-	if t.endless() {
+	if !t.counted() {
 		// One position, no bookkeeping: the same position is worth retrying
 		// after a miss — only probing can say the tray is empty (§7.1), and
 		// the probedEmpty check above is what ends the retries. Bailing after
@@ -428,7 +450,7 @@ func (t *trayState) freeSlot(exclude int) (slot int, ok bool) {
 	if t.geom == nil {
 		return 0, false
 	}
-	if t.endless() {
+	if !t.counted() {
 		return 0, true
 	}
 	for _, s := range t.geom.order {
@@ -442,7 +464,7 @@ func (t *trayState) freeSlot(exclude int) (slot int, ok bool) {
 // markEmpty records that a slot turned out to hold nothing (D9: the physical
 // feedback corrects the tracked state) and counts the miss.
 func (t *trayState) markEmpty(slot int) {
-	if t.geom != nil && !t.endless() {
+	if t.counted() {
 		t.slots[slot] = slotEmpty
 	}
 	t.misses++
@@ -455,7 +477,7 @@ func (t *trayState) markEmpty(slot int) {
 // markPicked records a successful pick: the slot is now empty and the tray is
 // demonstrably not exhausted.
 func (t *trayState) markPicked(slot int) {
-	if t.geom != nil && !t.endless() {
+	if t.counted() {
 		t.slots[slot] = slotEmpty
 	}
 	t.misses, t.probedEmpty = 0, false
@@ -468,19 +490,19 @@ func (t *trayState) markPicked(slot int) {
 // would keep refusing picks from a tray the module itself just refilled, which
 // permanently deadlocks a place-then-pick transfer station.
 func (t *trayState) markPlaced(slot int, step int64) {
-	if t.geom != nil && !t.endless() {
+	if t.counted() {
 		t.slots[slot] = step
 	}
 	t.misses, t.probedEmpty = 0, false
 	t.dirty = true
 }
 
-// full reports whether the tray has no empty slot left. An endless tray is never
-// full and a station with no geometry selected reports neither full nor empty —
-// it has no slot state at all, and the operator's cue for that is the
+// full reports whether the tray has no empty slot left. A plain endless tray is
+// never full and a station with no geometry selected reports neither full nor
+// empty — it has no slot state at all, and the operator's cue for that is the
 // INVALID_TRAY_ID a job raises, not a pin that guesses.
 func (t *trayState) full() bool {
-	if t.geom == nil || t.endless() {
+	if !t.counted() {
 		return false
 	}
 	for _, v := range t.slots {
@@ -489,6 +511,38 @@ func (t *trayState) full() bool {
 		}
 	}
 	return true
+}
+
+// allEmpty reports whether every slot is empty — the tray is physically bare,
+// whatever step anyone is asking about. This is what the empty pin publishes,
+// and it is a different question from emptyFor: a material tray part-filled
+// with finished work is not empty, but it may well have nothing left to
+// process. See avail for that one.
+func (t *trayState) allEmpty() bool {
+	if !t.counted() {
+		return false
+	}
+	for _, v := range t.slots {
+		if v != slotEmpty {
+			return false
+		}
+	}
+	return true
+}
+
+// filled counts the slots holding something — the fill level of a bin, and the
+// only number that makes a one-position reject magazine legible from outside.
+func (t *trayState) filled() int {
+	if !t.counted() {
+		return 0
+	}
+	n := 0
+	for _, v := range t.slots {
+		if v != slotEmpty {
+			n++
+		}
+	}
+	return n
 }
 
 // emptyFor reports whether the tray has nothing to offer a pick at that step,
@@ -500,7 +554,7 @@ func (t *trayState) emptyFor(step int64) bool {
 	if t.probedEmpty {
 		return true
 	}
-	if t.endless() {
+	if !t.counted() {
 		return false
 	}
 	_, _, ok := t.nextPick(step, 0)
@@ -833,14 +887,25 @@ func (w *world) clearAllHeld() {
 // PLC sees a tray fill up slot by slot rather than in one jump at the end of a
 // job.
 //
-// step is the current process-step pin value, which is what "no slot matching a
-// pick" is measured against (§5.2's empty pin). Deliberately the *live* pin and
-// not a job's latched copy: between jobs there is no latched step, and the PLC
-// reads this pin to decide what to command next.
-func (w *world) publish(step int64) {
-	for _, t := range w.trays {
-		t.pins.empty.Set(t.emptyFor(step))
+// trayStep is this cycle's per-tray step pin reading, parallel to w.trays. Each
+// tray's own step — not a job's latched process-step and not the live job
+// request pin — is what avail is measured against: a station's step describes
+// what the tray is FOR, and it has to stay still while a sequencer varies the
+// job step from leg to leg. Reading the job pin here made every one of these
+// outputs change meaning mid-cascade.
+//
+// The picker contents pins are published alongside these, from the control
+// loop's own picker walk (see control.publish).
+func (w *world) publish(trayStep []int64) {
+	for i, t := range w.trays {
+		step := int64(0)
+		if i < len(trayStep) {
+			step = trayStep[i]
+		}
+		t.pins.empty.Set(t.allEmpty())
+		t.pins.avail.Set(!t.emptyFor(step))
 		t.pins.full.Set(t.full())
+		t.pins.count.Set(uint32(t.filled()))
 	}
 	for _, p := range w.procs {
 		p.pins.hasMaterial.Set(p.hasMaterial)
