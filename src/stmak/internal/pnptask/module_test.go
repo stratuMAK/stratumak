@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/stmak"
@@ -22,7 +23,19 @@ import (
 // and a subsequent hal_init then fails — see pkg/hal's TestMain for the full
 // rationale. Keeping one component alive lets each test create and destroy its
 // own instance.
+//
+// RtapiAppInit ahead of it is what the launcher does before any hal_init, and
+// this module needs it specifically: it sets hal_lib's rtapi_pid, which is what
+// makes hal_init_ex(..., COMPONENT_TYPE_REALTIME) actually mark the component
+// realtime. Without it hal_export_funct refuses the dead-zone check with
+// EINVAL ("component is not realtime") and every factory in this package fails.
 func TestMain(m *testing.M) {
+	halcmd.RtapiInitializeApp()
+	if err := halcmd.RtapiAppInit(); err != nil {
+		fmt.Fprintf(os.Stderr, "rtapi app init failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	keep, err := hal.NewComponent("pnptask-test-keepalive")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hal keep-alive init failed: %v\n", err)
@@ -30,6 +43,7 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	_ = keep.Exit()
+	halcmd.RtapiAppCleanup()
 	os.Exit(code)
 }
 
@@ -196,6 +210,11 @@ func registerFakeMotion(t *testing.T, instance string) {
 	if err := reg.RegisterNoREST("motstat", motstatVersion, instance, fakeCallbacks); err != nil {
 		t.Fatalf("registering fake motstat: %v", err)
 	}
+	// mot is the third one motmod registers: the RT-side interface the cyclic
+	// dead-zone check reads the Cartesian position from.
+	if err := reg.RegisterNoREST("mot", motVersion, instance, fakeCallbacks); err != nil {
+		t.Fatalf("registering fake mot: %v", err)
+	}
 }
 
 // TestStopBeforeStart: the launcher stops every module it loaded, including
@@ -227,6 +246,37 @@ func TestStartRequiresMotion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "motctl API lookup (typo.mot)") {
 		t.Errorf("error = %v, want it to name the missing motctl provider", err)
+	}
+}
+
+// TestStartRequiresMotRT: the cyclic dead-zone check reads its position from
+// mot, motmod's RT-side interface, so a motion instance that provides motctl
+// and motstat but no mot has to fail startup too. Degrading instead would leave
+// every deadzone.N.free pin at "not clear" forever — safe, but silently useless
+// to the fixture waiting on it.
+func TestStartRequiresMotRT(t *testing.T) {
+	setupPaths(t)
+	prev := apiserver.DefaultRegistry()
+	reg := apiserver.NewRegistry()
+	apiserver.SetDefaultRegistry(reg)
+	t.Cleanup(func() { apiserver.SetDefaultRegistry(prev) })
+	for _, api := range []struct {
+		name string
+		ver  int
+	}{{"motctl", motctlVersion}, {"motstat", motstatVersion}} {
+		if err := reg.RegisterNoREST(api.name, api.ver, "pnp.mot", fakeCallbacks); err != nil {
+			t.Fatalf("registering fake %s: %v", api.name, err)
+		}
+	}
+
+	m := mustLoadModule(t, trajSection+pnptaskSection+stationSections, testInstanceName(t),
+		"motion_instance=pnp.mot")
+	err := m.Start()
+	if err == nil {
+		t.Fatal("Start succeeded without a mot provider")
+	}
+	if !strings.Contains(err.Error(), "mot API lookup (pnp.mot)") {
+		t.Errorf("error = %v, want it to name the missing mot provider", err)
 	}
 }
 

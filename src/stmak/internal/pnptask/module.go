@@ -56,6 +56,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/apiserver"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/inifile"
@@ -76,6 +77,9 @@ const defaultMotionInstance = "motmod"
 const (
 	motctlVersion  = 1
 	motstatVersion = 1
+	// mot is the motion controller's RT-side interface, consumed only by the
+	// cyclic dead-zone check (for the Cartesian feedback position).
+	motVersion = 2
 )
 
 // pnptaskModule is one loaded pnptask instance.
@@ -91,6 +95,12 @@ type pnptaskModule struct {
 
 	comp *hal.Component
 	pins *pinSet
+
+	// deadzone is the flat scene the cyclic dead-zone check walks, and the
+	// cyclic function's registration. Built in the factory from planners, fed
+	// the motmod callback table in Start, released in Destroy — after the
+	// launcher's RT barrier, never before.
+	deadzone *deadzoneRT
 
 	// world is the runtime model behind the station pins: tray contents, process
 	// station occupancy and the per-picker held-material records (§7.1). Built
@@ -173,7 +183,10 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	// lines that wire this instance run immediately after the load line, long
 	// before any module is started, and they can only link pins that already
 	// exist.
-	comp, err := hal.NewComponent(name)
+	//
+	// It is a REALTIME component because this module exports a cyclic function
+	// (the dead-zone check below); HAL refuses one from a userspace component.
+	comp, err := hal.NewRTComponent(name)
 	if err != nil {
 		return nil, fmt.Errorf("pnptask %q: creating HAL component: %w", name, err)
 	}
@@ -190,8 +203,25 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	m.pins = pins
 	m.world = newWorld(cfg, pins, m.pickers, logger)
 
+	// The dead-zone check runs in the servo cycle, so the geometry it walks is
+	// assembled here — once, out of the planners that already offset the zones
+	// — and the function is exported before Ready, as HAL requires and as the
+	// addf lines that follow this load line expect.
+	dz, err := newDeadzoneRT(planners, pins.deadzoneFree)
+	if err != nil {
+		_ = comp.Exit()
+		return nil, fmt.Errorf("pnptask %q: %w", name, err)
+	}
+	if err := dz.export(comp); err != nil {
+		_ = comp.Exit()
+		dz.free()
+		return nil, fmt.Errorf("pnptask %q: exporting %s: %w", name, deadzoneFunct, err)
+	}
+	m.deadzone = dz
+
 	if err := comp.Ready(); err != nil {
 		_ = comp.Exit()
+		dz.free()
 		return nil, fmt.Errorf("pnptask %q: hal ready: %w", name, err)
 	}
 
@@ -279,6 +309,23 @@ func (m *pnptaskModule) Start() error {
 	m.mc = motctl.NewMotctlClient(unsafe.Pointer(motctlCbs))
 	m.ms = motstat.NewMotstatClient(unsafe.Pointer(motstatCbs))
 
+	// The cyclic dead-zone check needs a Cartesian position, and it takes it
+	// from mot — motmod's RT-side interface, whose accessors are @rt_safe.
+	// motstat, which the Go loop above uses, is the non-RT snapshot interface:
+	// its accessors take the reader mutex and copy the whole status struct, so
+	// the servo thread must not touch them.
+	//
+	// Refused rather than degraded: without it every deadzone.N.free pin would
+	// sit at "not clear" forever, which is safe but silently useless, and the
+	// module already treats a missing motctl/motstat on the same instance as
+	// fatal.
+	motCbs, err := reg.GetAPIFor(m.name, "mot", m.motInstance, motVersion)
+	if err != nil {
+		return fmt.Errorf("pnptask %q: mot API lookup (%s): %w", m.name, m.motInstance, err)
+	}
+	m.deadzone.setMot(unsafe.Pointer(motCbs))
+	m.warnIfDeadzoneUnscheduled()
+
 	// Optional state persistence (D6): no default lookup, an absent load arg
 	// means in-memory state only. Resolved here for the same reason the motion
 	// stack is — the provider may be loaded on a later HAL line.
@@ -364,11 +411,57 @@ func (m *pnptaskModule) Stop() {
 	}
 }
 
+// warnIfDeadzoneUnscheduled says so, loudly and with the line to add, when the
+// dead-zone check is not on any thread.
+//
+// The pins are published by the cyclic function and by nothing else, so a
+// configuration that never addf's it leaves every deadzone.N.free reading "not
+// clear" — the safe direction, and exactly the direction that is impossible to
+// tell from a machine legitimately parked inside a zone. Whatever is waiting to
+// close would simply never move, with nothing in the log to say why. Hence a
+// warning that names the missing line rather than a silent correct-but-useless
+// state.
+//
+// Start is the right moment: every load line has run and the HAL file's addf
+// lines with them, so a function with no users here has none by omission.
+func (m *pnptaskModule) warnIfDeadzoneUnscheduled() {
+	full := m.name + "." + deadzoneFunct
+	res, err := halcmd.Show("funct", full)
+	if err != nil {
+		// Nothing to conclude — say nothing rather than warn about a config
+		// that may be perfectly fine.
+		m.logger.Debug("pnptask: could not check the dead-zone function's thread", "error", err)
+		return
+	}
+	for _, f := range res.Functs {
+		if f.Name == full && f.Users > 0 {
+			return
+		}
+	}
+	m.logger.Warn("pnptask: the dead-zone check is not on any thread, so every "+
+		"deadzone.N.free pin will stay false (\"not clear\"); add it to the servo "+
+		"thread AFTER motion-controller, which is what computes the position it reads",
+		"add", fmt.Sprintf("addf %s servo-thread", full))
+}
+
+// Destroy releases the HAL component and, only then, the memory the cyclic
+// function was walking.
+//
+// The order matters and so does the phase. By the time Destroy runs the
+// launcher has removed this component's functions from every thread and waited
+// for a full cycle of every realtime thread (runtime unload), or stopped the
+// threads synchronously (shutdown) — so nothing is still executing the
+// dead-zone check. Freeing the block any earlier, in Stop for instance, is a
+// use-after-free inside the servo thread.
 func (m *pnptaskModule) Destroy() {
 	if m.comp != nil {
 		if err := m.comp.Exit(); err != nil {
 			m.logger.Debug("pnptask HAL component exit error", "error", err)
 		}
 		m.comp = nil
+	}
+	if m.deadzone != nil {
+		m.deadzone.free()
+		m.deadzone = nil
 	}
 }

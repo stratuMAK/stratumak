@@ -247,6 +247,7 @@ STMAK_PKG_FILES := \
     ../share/stratumak/stmak/pkg/hal/types.go \
     ../share/stratumak/stmak/pkg/hal/errors.go \
     ../share/stratumak/stmak/pkg/hal/cgo.go \
+    ../share/stratumak/stmak/pkg/hal/funct.go \
     ../share/stratumak/stmak/pkg/hal/doc.go \
     ../share/stratumak/stmak/pkg/stmak/stmak.go \
     ../share/stratumak/stmak/pkg/inifile/types.go \

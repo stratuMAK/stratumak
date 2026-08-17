@@ -4,7 +4,7 @@ PASS the third slot's part reached the press
 PASS a pick that succeeded after probing leaves 'missing' low
 PASS the part moved on to the output tray
 PASS a tray whose slots are all physically empty raises TRAY_EMPTY
-PASS the tray's 'empty' output is set once probing declared it finished
+PASS the tray stops offering material once probing declared it finished
 PASS the picker's 'missing' output marks the pick that found nothing
 PASS the error flag is latched
 PASS the picker was left open, not clamped on nothing

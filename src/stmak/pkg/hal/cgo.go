@@ -70,13 +70,24 @@ import (
 	"unsafe"
 )
 
-// halInit wraps hal_init_ex() to create a new HAL userspace component.
+// halInit wraps hal_init_ex() to create a new HAL component, as a userspace
+// component or — when realtime is set — as COMPONENT_TYPE_REALTIME, which is
+// what hal_export_funct requires of a component that exports a cyclic function.
+//
+// dl_handle is nil in both cases: a compiled-in Go module has no .so of its own
+// (see NewRTComponent), and hal_lib only stores the handle for the loader.
+//
 // Returns the component ID on success, or an error on failure.
-func halInit(name string) (int, error) {
+func halInit(name string, realtime bool) (int, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 
-	compID := C.hal_init_ex(cName, nil, C.COMPONENT_TYPE_USER)
+	typ := C.component_type_t(C.COMPONENT_TYPE_USER)
+	if realtime {
+		typ = C.COMPONENT_TYPE_REALTIME
+	}
+
+	compID := C.hal_init_ex(cName, nil, typ)
 	if compID < 0 {
 		return 0, halError(int(compID), "hal_init_ex")
 	}

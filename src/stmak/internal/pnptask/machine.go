@@ -10,7 +10,6 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
-	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // The control loop's timing. They are vars, not consts, so tests can run the
@@ -922,23 +921,12 @@ func (c *control) publish() {
 		}
 	}
 
-	// Dead-zone clearance, per drawing. The machine point is the one to test:
-	// the drawings are already grown by CLEARANCE and drawn to cover the head,
-	// the same envelope the planner routes with — testing a picker's offset
-	// position instead would answer for a point no zone was ever sized against.
-	//
-	// Published from the raw feedback and never from a plan, so it stays
-	// truthful while the machine is jogged, parked or estopped — the states in
-	// which whatever is waiting to close is most likely to be asking. A stale
-	// status reads as not clear: this gates something moving into the machine.
-	for i, pin := range p.deadzoneFree {
-		pl, err := c.m.planners.at(uint32(i))
-		if err != nil {
-			pin.Set(false)
-			continue
-		}
-		pin.Set(c.statusOK && pl.Clear(pnproute.Point{X: c.posFb.X, Y: c.posFb.Y}))
-	}
+	// Dead-zone clearance is NOT published here. It is computed in the servo
+	// cycle by the cyclic function this module exports (deadzone_rt.go), from
+	// motmod's RT-side Cartesian feedback — a value recomputed every cycle
+	// instead of read off a 10 ms snapshot, for a pin that gates something
+	// physically moving into the machine. Writing the pins here as well would
+	// make two writers of one pin, each overwriting the other at its own rate.
 }
 
 // ---------------------------------------------------------------------------

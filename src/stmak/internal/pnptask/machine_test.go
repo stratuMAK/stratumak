@@ -13,6 +13,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motstat"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/pnptask/dztest"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
 
@@ -1214,9 +1215,14 @@ func TestModuleStopDisablesMotion(t *testing.T) {
 //
 // The planner answers where the head may be SENT; nothing retracts a head that
 // is already inside a zone, and a fixture that closes into one — a sphere, a
-// door, a press — has to know the portal has left first. Published from the raw
-// feedback, per drawing, so a scene that is about to become the active one can
-// be asked about before it is selected.
+// door, a press — has to know the portal has left first. Published per drawing,
+// so a scene that is about to become the active one can be asked about before
+// it is selected.
+//
+// These pins are the module's only ones written from the servo cycle rather
+// than from the control loop, so the test drives that function directly (via
+// dztest) instead of waiting on the loop: what it asserts is the C predicate
+// and the pins it publishes on, which is where the answer now comes from.
 func TestDeadzoneFreePins(t *testing.T) {
 	// Scene 0 puts a zone over proc station 20 at (300,200); scene 1 is clear.
 	f := newMachineFixtureOpts(t, fixtureOpts{
@@ -1226,13 +1232,50 @@ func TestDeadzoneFreePins(t *testing.T) {
 		t.Fatalf("%d dead-zone pins for 2 DEADZONE_FILEs", n)
 	}
 
-	f.mot.setPos(300, 200, 60)
-	f.eventually("inside scene 0's zone, clear of scene 1's", func() bool {
-		return !f.bit("deadzone.0.free") && f.bit("deadzone.1.free")
+	mot := dztest.NewFakeMot()
+	f.m.deadzone.setMot(mot.Ptr())
+	t.Cleanup(func() {
+		f.m.deadzone.setMot(nil)
+		mot.Free()
 	})
 
-	f.mot.setPos(100, 100, 60)
-	f.eventually("clear of both once the head has left", func() bool {
-		return f.bit("deadzone.0.free") && f.bit("deadzone.1.free")
-	})
+	cycle := func() { dztest.Invoke(f.m.deadzone.blk, int64(time.Millisecond)) }
+
+	// Before any cycle the pins are at their zero value, which is "not clear" —
+	// the conservative direction, and the one a configuration that never addf's
+	// the function is left in.
+	if f.bit("deadzone.0.free") || f.bit("deadzone.1.free") {
+		t.Error("a dead-zone pin reads clear before the check has ever run")
+	}
+
+	mot.Set(300, 200, true)
+	cycle()
+	if f.bit("deadzone.0.free") || !f.bit("deadzone.1.free") {
+		t.Errorf("at (300,200): deadzone.0.free = %v, deadzone.1.free = %v; want false, true",
+			f.bit("deadzone.0.free"), f.bit("deadzone.1.free"))
+	}
+
+	mot.Set(100, 100, true)
+	cycle()
+	if !f.bit("deadzone.0.free") || !f.bit("deadzone.1.free") {
+		t.Errorf("at (100,100): deadzone.0.free = %v, deadzone.1.free = %v; want both true",
+			f.bit("deadzone.0.free"), f.bit("deadzone.1.free"))
+	}
+
+	// carte_pos_fb_ok is the interlock's fail-safe: an invalid feedback (joints
+	// not all homed) means the position is meaningless, and a meaningless
+	// position must read as "the head might be in there" — not as the last
+	// clear answer, which is what a naive implementation would leave standing.
+	mot.Set(100, 100, false)
+	cycle()
+	if f.bit("deadzone.0.free") || f.bit("deadzone.1.free") {
+		t.Error("an invalid carte_pos_fb still reads clear; the interlock must fail towards not-clear")
+	}
+
+	// The same applies before Start has resolved motmod at all.
+	f.m.deadzone.setMot(nil)
+	cycle()
+	if f.bit("deadzone.0.free") || f.bit("deadzone.1.free") {
+		t.Error("a dead-zone pin reads clear with no motion provider resolved")
+	}
 }

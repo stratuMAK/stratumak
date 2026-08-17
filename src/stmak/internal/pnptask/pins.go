@@ -71,7 +71,15 @@ type pinSet struct {
 	// planner cannot: planning keeps the head OUT of a zone, but nothing
 	// retracts a head that is already inside one, and a fixture that closes
 	// around the machine — a sphere, a door, a press — has to know the portal
-	// has left before it moves. Published every cycle, job or no job.
+	// has left before it moves.
+	//
+	// These are the only pins this module does not write from Go. They are
+	// published by the cyclic function in the servo thread (deadzone_rt.go),
+	// which is why they are created here but never Set anywhere: their names,
+	// direction and meaning are unchanged, only their freshness — every servo
+	// cycle rather than every control cycle. A configuration that does not addf
+	// that function leaves them at "not clear"; Start warns when it finds none
+	// scheduled.
 	deadzoneFree []*hal.Pin[bool]
 }
 

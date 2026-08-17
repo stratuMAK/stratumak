@@ -127,6 +127,24 @@ var (
 		Message: "pin or parameter name already exists on this component",
 	}
 
+	// ErrNotRealtime indicates ExportFunct was called on a component created
+	// with NewComponent. HAL only accepts a cyclic function from a component
+	// registered as COMPONENT_TYPE_REALTIME (hal_export_funct rejects any
+	// component with a non-zero pid), so the fix is the constructor, not the
+	// call.
+	ErrNotRealtime = &Error{
+		Code:    -22, // -EINVAL
+		Message: "component is not realtime; create it with NewRTComponent to export a function",
+	}
+
+	// ErrNilFunct indicates ExportFunct was given a nil function address. HAL
+	// would store it and the servo thread would call through it on the next
+	// cycle, so it is refused here.
+	ErrNilFunct = &Error{
+		Code:    -22, // -EINVAL
+		Message: "realtime function address is nil",
+	}
+
 	// ErrComponentExited indicates a pin was accessed after its owning
 	// component was released with Exit(). The pin's HAL shared memory has been
 	// freed, so the access is refused rather than dereferencing freed memory

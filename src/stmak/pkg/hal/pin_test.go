@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stratuMAK/stratumak/src/stmak/internal/halcmd"
 	"github.com/stratuMAK/stratumak/src/stmak/pkg/hal"
 )
 
@@ -19,7 +20,21 @@ import (
 // teardown — see the pkg/hal review). Keeping one component alive for the whole
 // run means per-test create/exit cycles (and the Example) never drop the
 // component count to zero, so each can init/exit freely.
+//
+// The two RTAPI initialisations ahead of it are what the launcher does before
+// any hal_init, and the funct tests need both: rtapi_initialize_app falls back
+// to SCHED_OTHER so an unprivileged process can create a thread at all, and
+// RtapiAppInit sets hal_lib's rtapi_pid — which is what makes
+// hal_init_ex(..., COMPONENT_TYPE_REALTIME) actually mark a component realtime
+// (comp->pid == 0). Without it hal_export_funct refuses with "component is not
+// realtime".
 func TestMain(m *testing.M) {
+	halcmd.RtapiInitializeApp()
+	if err := halcmd.RtapiAppInit(); err != nil {
+		fmt.Fprintf(os.Stderr, "rtapi app init failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	keep, err := hal.NewComponent("hal-test-keepalive")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hal keep-alive init failed: %v\n", err)
@@ -27,6 +42,7 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	_ = keep.Exit()
+	halcmd.RtapiAppCleanup()
 	os.Exit(code)
 }
 

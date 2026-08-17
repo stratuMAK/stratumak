@@ -284,6 +284,30 @@ func (p *Pin[T]) TrySet(value T) error {
 	return nil
 }
 
+// RTDataPtr returns the pin's HAL data-pointer slot, for a cyclic function
+// exported with ExportFunct to read or write the pin from the servo thread.
+//
+// The value is a "double pointer": HAL stores the address of the data cell in
+// this slot and REPOINTS it at the signal's cell when the pin is linked with
+// net, so the C side must dereference twice, at access time, exactly as Get and
+// Set do — a cyclic function that caches the inner pointer at init reads the
+// pin's private dummy cell forever and never sees the signal.
+//
+//	hal_bit_t **slot;   // what this returns
+//	**slot = 1;         // publish
+//
+// This is the one escape hatch in an otherwise fully guarded API, and it hands
+// out an address into HAL shared memory with no liveness barrier attached: none
+// of the checks that make Get and Set safe against Component.Exit apply to what
+// C does with the result. That is sound only under the ExportFunct contract —
+// the launcher removes the component's functions and waits for a full RT cycle
+// before Destroy, and Destroy is where Exit belongs — and it is why this is
+// spelled RT rather than offered as a general accessor. Go code has Get and Set
+// and should use them.
+func (p *Pin[T]) RTDataPtr() unsafe.Pointer {
+	return p.ptr
+}
+
 // Name returns the fully-qualified pin name.
 func (p *Pin[T]) Name() string {
 	return p.name

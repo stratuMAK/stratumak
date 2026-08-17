@@ -1,6 +1,7 @@
 # Realtime functions in Go modules
 
-**Status:** draft for review.
+**Status:** implemented. The API is `pkg/hal` (`funct.go`), the first customer is
+pnptask's `deadzone-check`, and the open questions of §7 are answered below.
 **Related:** [`RT_HARDENING_CHECKLIST.md`](RT_HARDENING_CHECKLIST.md),
 [`SAFETY_BOUNDARY.md`](SAFETY_BOUNDARY.md), [`PNPTASK_DESIGN.md`](PNPTASK_DESIGN.md)
 
@@ -110,18 +111,25 @@ project has one realtime story rather than two.
 Only what Go itself calls. Not the raw struct: `pkg/hal` stays idiomatic.
 
 ```go
-// Register a cyclic function. fn is a C function pointer obtained as
-// C.my_rt_funct — there is deliberately no overload taking a Go func.
+// A HAL component that MAY export a function. HAL refuses one from a
+// userspace component, so this is a distinct constructor rather than a flag.
+func NewRTComponent(name string) (*Component, error)
+
+// Register a cyclic function. fn is the address of a C function — there is
+// deliberately no overload taking a Go func.
 func (c *Component) ExportFunct(name string, fn hal.CFunct, arg unsafe.Pointer,
                                 usesFP, reentrant bool) error
 
 // The RT-hardened allocator, for structures a cyclic function walks.
 func RTCalloc(n uintptr) unsafe.Pointer
 func RTFree(p unsafe.Pointer)
+
+// A pin for the cyclic function to publish on: the HAL data-pointer SLOT,
+// dereferenced twice at access time because net repoints it.
+func (p *Pin[T]) RTDataPtr() unsafe.Pointer
 ```
 
-`hal.CFunct` is a named type over `unsafe.Pointer` that only a
-`C.<name>`-derived value can populate in practice. **There must be no code path
+`hal.CFunct` is a named type over `unsafe.Pointer`. **There must be no code path
 that accepts a Go `func`** — that single restriction is what keeps §2's
 invariant structural instead of documentary. The underlying C signature is
 already annotated for the checker:
@@ -131,8 +139,31 @@ already annotated for the checker:
 typedef void (*stmak_hal_funct_t)(void *arg, long period) STMAK_NONBLOCKING;
 ```
 
+One detail the sketch above glossed over and the implementation had to settle:
+cgo cannot take the address of a C function. `C.my_rt_funct` is cgo's own call
+wrapper, whose address means nothing to HAL. So the `.c` file publishes the
+address as an ordinary symbol and Go converts that:
+
+```c
+/* my_rt.c */
+const stmak_hal_funct_t my_rt_funct_fp = my_rt_funct;
+```
+```go
+fn := hal.CFunct(unsafe.Pointer(C.my_rt_funct_fp))
+```
+
+Putting the pointer in the `.c` file rather than the preamble is not
+incidental — it keeps the address-taking inside the translation unit
+`-Wfunction-effects` checks.
+
 `log` and `api` need no equivalent: Go has `slog` and the generated GMI
 bindings.
+
+`NewRTComponent` was not in the original sketch either. It is forced by
+`hal_lib.c`: `hal_export_funct` refuses any component whose `comp->pid` is
+non-zero, and `hal_init_ex(..., COMPONENT_TYPE_USER)` — what `NewComponent`
+has always passed — gives it one. Keeping it a separate constructor rather
+than a flag means a module that does not need RT cannot accidentally claim it.
 
 ### Where the C lives
 
@@ -168,6 +199,32 @@ a module while the machine runs, so this is not a shutdown-only concern: a
 free that races a still-registered function is a use-after-free inside the
 servo thread. The design must state explicitly which side removes the function
 and where the barrier sits; "it works at shutdown" is not sufficient evidence.
+
+**Resolved: the launcher already owns both, and the module owes only one thing.**
+Reading the two paths rather than assuming them:
+
+- Runtime unload (`unload.go` `unloadGoModule`): `Stop` → optional `LateStop` →
+  `DelFunctsByComp(compID)` → `WaitCycleAdvance()` → `Destroy`.
+- Shutdown (`cleanup.go` `doCleanup`): `stopGoModules` → `StopThreads()`, which
+  is synchronous and waits for every thread to go idle → `destroyGoModules`.
+
+Either way nothing is executing the function by the time `Destroy` runs. So the
+module's whole obligation is **`RTFree` in `Destroy`, never in `Stop`** — `Stop`
+runs deliberately ahead of the barrier, so that a module can still write values
+the RT cycle will carry out.
+
+The one thing the module must get right for that to hold: the function has to be
+exported on the module's **own** HAL component, the one named after the
+instance. `unloadGoModule` finds the functions to remove through
+`halcmd.FindCompID(name)`, so a function parked on a second, differently named
+component would survive the unload and keep walking freed memory. That is why
+`NewRTComponent` replaces the module's existing component rather than adding one
+beside it.
+
+`pkg/hal`'s `TestExportFunctOnThread` rehearses the unload order against a real
+HAL thread — including the assertion that the call counter stops moving after
+the barrier and before the free — and pnptask has been unloaded live from a
+running sim.
 
 ## 6. First customer: pnptask's dead-zone clearance
 
@@ -257,30 +314,62 @@ This replaces the earlier sketch of Cartesian *input pins*: no new pins, no
 configuration wiring, no way to mis-wire it, and it is kinematics-correct by
 construction because motmod did the forward kinematics.
 
-## 7. Open questions
+One consequence the sketch did not anticipate: because the cyclic function is
+now the pin's **only** writer, a configuration that never `addf`s it leaves
+`deadzone.N.free` at *not clear* forever. Safe, and indistinguishable from a
+machine legitimately parked inside a zone — so the module checks at `Start`
+whether the function has any thread users and, when it has none, warns with the
+exact line to add. §6's "no configuration changes" was wrong on this one point:
+the `addf` line is new, and pretending otherwise would have made the failure
+silent.
 
-1. **Teardown ownership** (§5). Which side removes the function, where the RT
-   barrier sits, and how runtime unload is covered.
-2. **`usesFP`.** The dead-zone test is floating point throughout, so it must be
-   exported with `uses_fp` set; worth confirming what the flag costs on the
-   platforms in use before making it the default in the wrapper.
-3. **Does `pkg/hal` need the `env` at all?** The wrapper needs a component id
-   and the HAL callback table. `pkg/hal` already holds equivalents internally;
-   whether the C half receives the same `env` pointer the launcher builds for
-   cmods, or one synthesised per Go module, is an implementation choice with
-   consequences for how identical the C really is.
+## 7. Open questions — answered
 
-## 8. Build order
+1. **Teardown ownership** (§5). Answered in §5: the launcher removes the
+   functions and owns the barrier on both paths, the module only frees in
+   `Destroy`, and the function must sit on the module's own component.
+2. **`usesFP`.** It stays an explicit argument of `ExportFunct` rather than
+   acquiring a default, so the question of what the flag costs never has to be
+   answered globally — each call states what its function does. pnptask passes
+   `true`, because the dead-zone test is double arithmetic throughout.
+3. **Does `pkg/hal` need the `env`?** No, and it does not get one. The wrapper
+   calls `hal_export_funct` and `rtapi_calloc` directly, exactly as `pkg/hal`
+   already calls `hal_init_ex` — the callback table in `cmod_env_t` exists so a
+   dlopened `.so` need not link `liblinuxcnchal`, which is not a problem a
+   compiled-in Go module has. What the C half needs from the outside it takes as
+   plain arguments: the GMI callback table (which the Go side resolves through
+   `apiserver.Registry`, so the version check and the consumer record happen
+   where every other lookup's does) and the pin slots from `RTDataPtr`. The C is
+   still identical to cmod C in the way that matters — same headers, same
+   `STMAK_NONBLOCKING` annotations, same review idioms, same checker.
 
-1. `pkg/hal`: `ExportFunct` + `RTCalloc`/`RTFree`, with the no-Go-func
-   restriction and the `.c`-file convention documented at the API.
-2. `make rt-effects-check`: cover Go modules' `.c` translation units. Verify by
-   introducing a deliberately blocking call and confirming the build fails.
-3. A minimal module exercising the path end to end — export, assemble, walk,
-   unload — including the runtime-unload case from §5.
-4. `mot`: the `status_get_carte_pos_fb` accessor (§6), and its implementation
-   annotated `STMAK_NONBLOCKING`.
-5. pnptask: the RT dead-zone function, consuming `mot`, honouring
-   `carte_pos_fb_ok`, and documenting the `addf` ordering requirement.
-6. Re-run the pnptask sim scenarios; they should be indifferent to the change,
-   which is itself the point.
+## 8. Build order — as built
+
+1. `pkg/hal`: `NewRTComponent`, `ExportFunct` + `CFunct`, `RTCalloc`/`RTFree`,
+   `Pin.RTDataPtr`. ✔
+2. `make rt-effects-check`: section 2b now globs **every** `.c` under
+   `src/stmak` and requires each to be either checked with its include flags or
+   explicitly excluded with a reason — coverage is enforced rather than curated,
+   so a new RT file cannot join the tree unnoticed. This also pulled
+   `classicladder_rt.c` in (compiled under the regime; its scan function is not
+   annotated yet, so nothing is verified about it — an honest listing rather
+   than a silent gap). Verified by introducing a `malloc` into
+   `pnp_dz_check` and confirming the diagnostic. ✔
+3. `internal/hallib/rtfuncttest` — a C cyclic function in a real `.c` file, and
+   `pkg/hal`'s tests exporting it, running it on a real HAL thread, and taking
+   it back off through the unload sequence. ✔ (a whole demo *module* was judged
+   redundant once pnptask exercised the same path.)
+4. `mot`: `status_get_carte_pos_fb`, implemented `STMAK_NONBLOCKING` in
+   `motion.c`. Placed with the other status getters, which shifts the callbacks
+   struct, so the API version went 1 → 2 — a stale consumer is then refused at
+   lookup instead of misreading the struct. ✔
+5. pnptask: `pnp_deadzone_rt.c` + `deadzone_rt.go`, consuming `mot`, honouring
+   `carte_pos_fb_ok`, warning when unscheduled. ✔
+6. The pnptask sim scenarios are indifferent to the change (the one failure,
+   `probing`, is a stale `expected` line and fails identically without it).
+   Live: the pins read *not clear* before homing, both clear after, and
+   `deadzone.1.free` alone drops when the head is jogged onto the
+   `zones_alt.dxf` fixture plate — including inside the CLEARANCE offset, not
+   just the drawn rectangle. `deadzone-check.time` is ~300–450 ns against a
+   1 ms servo period. Unloading `pnp.task` from the running machine removed the
+   function and freed the block with no fault. ✔

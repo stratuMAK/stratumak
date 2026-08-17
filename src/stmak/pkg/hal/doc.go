@@ -125,6 +125,50 @@ from INI) before marking itself ready:
 	//     halcmd setp mycomp.settle-time 0.25
 	dwell := settle.Get()
 
+# Realtime Functions
+
+A Go module that needs one cyclic function no longer has to be a C module. It
+contains a C function and registers it — the function itself is C and calls no
+Go, which is what keeps the invariant recorded in
+docs/dev/RT_HARDENING_CHECKLIST.md §0 ("the RT cycle dispatches only C function
+pointers — no Go in the cycle by construction") true by construction rather than
+by convention. Three pieces make that up:
+
+  - NewRTComponent, because HAL only accepts a cyclic function from a
+    COMPONENT_TYPE_REALTIME component.
+  - Component.ExportFunct, which takes a CFunct — the address of a C function —
+    and deliberately offers no overload taking a Go func.
+  - RTCalloc / RTFree, the RT-hardened allocator, for the structure the cyclic
+    function walks. Pin.RTDataPtr hands that structure a pin to publish on.
+
+The division of labour is the one the EtherCAT driver already uses: the
+high-level work happens once at init, in whatever language suits it, and
+assembles a flat structure; the cyclic function then walks that structure and
+nothing else. Sketch:
+
+	// The factory. addf lines run after every load and before any Start, so
+	// the export belongs here — as it does in a cmod's New().
+	comp, err := hal.NewRTComponent(name)
+	free, err := hal.NewPin[bool](comp, "clear", hal.Out)
+
+	scene := hal.RTCalloc(sizeOfScene)      // never Go memory
+	fillFromGo(scene, zones)                // copies; stores no Go pointer
+	setOutputPin(scene, free.RTDataPtr())
+
+	fn := hal.CFunct(unsafe.Pointer(C.my_funct_fp))
+	usesFP, reentrant := true, false
+	err = comp.ExportFunct("check", fn, scene, usesFP, reentrant)
+	err = comp.Ready()
+
+	// Destroy — and only Destroy, which runs after the launcher's RT barrier.
+	_ = comp.Exit()
+	hal.RTFree(scene)
+
+See CFunct for where the C must live (a real .c file, added to
+"make rt-effects-check" in the same change) and ExportFunct for the teardown
+contract. The full design, including why a cgo call into Go from the servo
+thread is not an option, is docs/dev/GOMOD_RT_DESIGN.md.
+
 # Build Requirements
 
 This package uses CGO to interface with the LinuxCNC HAL library. To build

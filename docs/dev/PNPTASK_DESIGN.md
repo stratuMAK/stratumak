@@ -68,7 +68,19 @@ load pnptask  <pnp.task> motion_instance=pnp.mot pickers=2 \
                          persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
+addf pnp.task.deadzone-check        servo-thread
 ```
+
+**`deadzone-check` must come after `motion-controller`.** It is the module's one
+realtime function (see §5.2's `deadzone.N.free`), and it reads the Cartesian
+feedback position that `motion-controller` computes — put earlier in the thread
+it would answer from the previous cycle. One cycle of staleness is harmless, but
+it should be a deliberate ordering rather than an accident of where the line was
+typed.
+
+Omitting the line is not fatal and not silent: the pins stay at *not clear* — the
+conservative direction — and the module logs a warning at start naming the
+missing `addf`.
 
 Load args (parsed `key=value` like `internal/task/module.go`):
 
@@ -96,6 +108,9 @@ src/stmak/internal/pnptask/             Phases 2–6: the module
     actions.go       action-class sequences (pick/place/move)
     motion.go        motion streaming, waitMotionDone, limits
     errors.go        error-id table
+    deadzone_rt.go   assembles the RT scene, exports the cyclic function
+    pnp_deadzone_rt.c/.h  the cyclic function itself (GOMOD_RT_DESIGN.md)
+    dztest/          test-only: fake mot table + a direct call into the funct
 src/hal/components/pnpsim.comp          Phase 7: the shared simulation cmod (D27)
 tests/pnptask/                          sim config (ini/hal/dxf) + per-scenario
                                         Python drivers for runtests (D27)
@@ -350,7 +365,7 @@ normalized to HAL-conventional dashes.
 | `error-id` | u32 | out | error code (§7.5), 0 = none |
 | `error-reset` | bit | in | rising edge clears error/error-id (D11) |
 | `deadzone-select` | u32 | in | index into DEADZONE_FILE list, read per movement leg (§7.3) |
-| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones. Published every cycle from the raw feedback, so something about to close into a zone can tell the head has left |
+| `deadzone.N.free` | bit | out | one per DEADZONE_FILE, same index: the machine point is clear of that drawing's zones, so something about to close into a zone can tell the head has left. The module's only realtime output — computed every servo cycle by `deadzone-check` (§2.1) from motmod's RT-side Cartesian feedback, not from a snapshot. Reads *not clear* whenever that feedback is invalid (joints not all homed) or the function is not on a thread: an interlock that fails has to fail towards "the head might be in there" |
 | `home` | bit | in | rising edge homes all joints (D25); machine on, no estop, both modes |
 | `homed` | bit | out | all joints homed |
 

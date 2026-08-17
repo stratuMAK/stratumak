@@ -28,6 +28,13 @@ load pnptask  <pnp.task> pickers=2 persist_instance=persist
 addf pnp.mot.motion-command-handler servo-thread
 addf pnp.mot.motion-controller      servo-thread
 
+# The dead-zone clearance check, pnptask's one realtime function. It must come
+# AFTER motion-controller: the position it tests is the Cartesian feedback the
+# motion controller computes, so ordering it earlier would answer from the
+# previous cycle. Without this line the deadzone.N.free pins stay at "not clear"
+# and the module warns at start.
+addf pnp.task.deadzone-check        servo-thread
+
 # --- Simulated machine ------------------------------------------------------
 
 # Position loop-back: the commanded position is the feedback -- through a

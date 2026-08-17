@@ -273,6 +273,29 @@ static double gmi_mot_status_get_spindle_speed(void *ctx, int32_t spindle) STMAK
     return inst->status->spindle_status[spindle].speed;
 }
 
+/* The RT-side Cartesian feedback position, for cyclic functions in other
+   modules that need a machine point (docs/dev/GOMOD_RT_DESIGN.md §6).
+
+   No mutex and no copy of the whole status struct — unlike motstat's
+   h_get_pos_fb, which is the non-RT snapshot interface: here the reader and
+   the producer of carte_pos_fb are the same thread, so reading the RT status
+   struct directly is the correct thing to do rather than a shortcut.
+
+   carte_pos_fb_ok is the contract, not decoration.  control.c clears it
+   whenever the forward kinematics could not be run (joints not all homed on a
+   non-identity kinematics), and the pose then holds whatever was last valid.
+   Reporting that as a position would let an interlock read "clear" off a stale
+   point, so the failure is returned and *pos is left untouched. */
+static int32_t gmi_mot_status_get_carte_pos_fb(void *ctx, mot_pose_t *pos) STMAK_NONBLOCKING
+{
+    motmod_inst_t *inst = (motmod_inst_t *)ctx;
+
+    if (!inst->status->carte_pos_fb_ok)
+        return -1;
+    memcpy(pos, &inst->status->carte_pos_fb, sizeof(EmcPose));
+    return 0;
+}
+
 /* --- Status setters --- */
 
 static void gmi_mot_status_set_current_vel(void *ctx, double vel) STMAK_NONBLOCKING
