@@ -61,8 +61,10 @@ type Config struct {
 	PosTolerance float64
 
 	// MoveVel/MoveAcc are the XY travel limits, ZVel/ZAcc the ones for the
-	// approach/retract strokes. Zero means "no override" — the [TRAJ] defaults
-	// apply, exactly as the design document specifies for MOVE_VEL/MOVE_ACC.
+	// approach/retract strokes. All four are PER-AXIS ceilings, not path feeds:
+	// the coordinated path value is what the blend makes of them, so a diagonal
+	// travel runs faster than MOVE_VEL rather than slowing its axes down to it
+	// (motion.go, moveLimits). Zero means "no ceiling beyond the axis limits".
 	MoveVel float64
 	MoveAcc float64
 	ZVel    float64

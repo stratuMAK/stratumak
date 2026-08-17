@@ -253,9 +253,9 @@ CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOL
 BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
-MOVE_VEL = 0                  # XY travel vel/acc; 0 = use [TRAJ] defaults
+MOVE_VEL = 0                  # XY travel vel/acc, PER AXIS; 0 = axis limits only
 MOVE_ACC = 0
-Z_VEL = 50.0                  # Z stroke vel/acc (approach/retract)
+Z_VEL = 50.0                  # Z stroke vel/acc (approach/retract), per axis
 Z_ACC = 500.0
 POS_SETTLE_TIME = 0.1         # initial values of the RW params (D2)
 PICK_SETTLE_TIME = 0.1
@@ -419,7 +419,8 @@ LAST nor step widths, a route override must name
   at least X, Y and Z.
 - Defaults for the optional keys: `AUTOHOME` off, `BLEND_TOLERANCE` and all
   three settle/release times 0, `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` 0
-  (= use the `[TRAJ]` defaults), `RELEASE_TIMEOUT` 5 s, `HOME_TIMEOUT` 30 s,
+  (= no ceiling beyond the `[AXIS_*]` limits), `RELEASE_TIMEOUT` 5 s,
+  `HOME_TIMEOUT` 30 s,
   `MAX_UNPOPULATED` 1, `DIR_MODE` `C+R+`, `ROWS`/`COLS` 1 (single position).
   `MOVE_HEIGHT`, `CLEARANCE` and `POS_TOLERANCE` are required.
   A timeout defaulting to "forever" would turn a stuck fixture into a hung job
@@ -667,8 +668,14 @@ Single writer, plain `set_entry`, no optimistic-concurrency handling needed.
 - Z strokes: separate `SetLine()` at Z_VEL/Z_ACC with a queue drain
   (`Inpos && QueueDepth == 0`, sequencer.go idiom incl. the fresh-dispatch
   tick skip) before and after — picks/places always start from a full stop.
-- Per-move vel/acc capped by axis maxima (port `internal/task/motionlimits.go`
-  `straightLimits`).
+- Per-move vel/acc: `MOVE_VEL`/`MOVE_ACC`/`Z_VEL`/`Z_ACC` are **per-axis**
+  ceilings, lowered onto the `[AXIS_*]` maxima and *then* blended into the
+  coordinated path value (`straightLimits`' blend from
+  `internal/task/motionlimits.go`, fed capped maxima). Unlike milltask, where a
+  cutter needs a constant path feed, a pnp move wants the shortest possible
+  time: the path speed of a diagonal is `MOVE_VEL·√2`, so an axis already at
+  speed keeps it across a corner instead of braking to hold a constant
+  coordinated feed. Every axis still stays inside its own `[AXIS_*]` limit.
 - Route planning input: current commanded position (`GetPosCmd`) → target XY.
   Planner selected by `deadzone-select` **as read when the leg starts**, not as
   latched at job start (invalid index → error on that leg): the selector

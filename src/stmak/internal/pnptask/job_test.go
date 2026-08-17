@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
 )
 
 // machineSim drives the feedback a PLC and the gripper hardware provide: the
@@ -440,37 +443,142 @@ func TestJobUsesTheHoldingPicker(t *testing.T) {
 	}
 }
 
-// TestJobMoveLimits checks that the travel and the Z strokes are commanded under
-// their own INI limits, each capped by the participating axes.
+// TestJobMoveLimits checks that every move a job dispatches keeps each
+// participating axis inside the lower of its [AXIS_*] maximum and the INI
+// ceiling — and that the ceiling is a PER-AXIS one, so a diagonal travel is
+// commanded ABOVE MOVE_VEL rather than braking its axes down to it.
 func TestJobMoveLimits(t *testing.T) {
 	f := newJobFixture(t)
 	f.selectTray(1)
 	f.fillTray(0)
+	// Where the fixture parked the machine: each move's displacement is the step
+	// from the previous target, and the first one starts here.
+	start, err := f.mot.GetPosCmd()
+	if err != nil {
+		t.Fatalf("reading the start position: %v", err)
+	}
 	f.runJob(10, 20, 0)
 	f.requireOK("tray -> proc")
 
-	var sawTravel, sawZ bool
+	// The axis maxima of machineIniAxes, and the INI ceilings of pnptaskSection.
+	axVel := [3]float64{800, 500, 300}
+	axAcc := [3]float64{4000, 4000, 3000}
+	const moveVel, moveAcc = 500.0, 2000.0
+	const zVel, zAcc = 50.0, 500.0
+
+	prev := toMotctlPose(start)
+	var sawTravel, sawZ, sawDiagonal bool
 	for _, m := range f.mot.moveList() {
+		d := [3]float64{
+			math.Abs(m.pos.X - prev.X),
+			math.Abs(m.pos.Y - prev.Y),
+			math.Abs(m.pos.Z - prev.Z),
+		}
+		prev = m.pos
+		length := math.Sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
+		if length == 0 {
+			t.Errorf("move to %+v displaces nothing", m.pos)
+			continue
+		}
+
+		velCeil, accCeil := moveVel, moveAcc
+		what := "travel"
 		switch m.termCond {
 		case tpTermCondParabolic:
 			sawTravel = true
-			// MOVE_VEL/MOVE_ACC are 500/2000 in the test INI, and the Y axis caps
-			// velocity at 500 as well, so the travel runs at its request.
-			if m.vel > 500.0001 || m.acc > 2000.0001 {
-				t.Errorf("travel move at vel %g acc %g, want at most 500/2000", m.vel, m.acc)
-			}
 		case tpTermCondStop:
 			sawZ = true
-			// Z_VEL/Z_ACC are 50/500, and [AXIS_Z] allows 300/3000.
-			if m.vel > 50.0001 || m.acc > 500.0001 {
-				t.Errorf("Z stroke at vel %g acc %g, want at most 50/500", m.vel, m.acc)
-			}
+			velCeil, accCeil, what = zVel, zAcc, "Z stroke"
 		default:
 			t.Errorf("move dispatched under termination condition %d", m.termCond)
+			continue
+		}
+
+		// Per-axis: the path value scaled by the axis's share of the move.
+		var atCeiling bool
+		for i, letter := range []string{"X", "Y", "Z"} {
+			share := d[i] / length
+			v, a := m.vel*share, m.acc*share
+			wantV, wantA := math.Min(axVel[i], velCeil), math.Min(axAcc[i], accCeil)
+			if v > wantV+1e-6 || a > wantA+1e-6 {
+				t.Errorf("%s to %+v runs %s at vel %g acc %g, want at most %g/%g",
+					what, m.pos, letter, v, a, wantV, wantA)
+			}
+			if d[i] > 0 && (v > wantV-1e-6 || a > wantA-1e-6) {
+				atCeiling = true
+			}
+		}
+		// The blend has to be tight: some axis reaches its ceiling, or the move
+		// is slower than it needs to be — which is the whole point here.
+		if !atCeiling {
+			t.Errorf("%s to %+v leaves every axis below its ceiling at vel %g acc %g",
+				what, m.pos, m.vel, m.acc)
+		}
+		// A move that displaces X and Y at once must exceed the per-axis
+		// ceiling on the path: both axes cap at 500, so any diagonal has a path
+		// speed above it. Under the old path-feed reading this was the value
+		// that got clamped, and X gave up speed at every corner.
+		if m.termCond == tpTermCondParabolic && d[0] > 0 && d[1] > 0 {
+			sawDiagonal = true
+			if m.vel <= moveVel {
+				t.Errorf("diagonal travel to %+v commanded at path vel %g, want more than MOVE_VEL = %g",
+					m.pos, m.vel, moveVel)
+			}
 		}
 	}
-	if !sawTravel || !sawZ {
-		t.Errorf("job dispatched travel = %v, Z strokes = %v; want both", sawTravel, sawZ)
+	if !sawTravel || !sawZ || !sawDiagonal {
+		t.Errorf("job dispatched travel = %v, Z strokes = %v, diagonal travel = %v; want all three",
+			sawTravel, sawZ, sawDiagonal)
+	}
+}
+
+// TestMoveLimitsPerAxisCeiling is the corner from §7.3 in isolation: an X-only
+// segment followed by a 45° XY one. The X axis must be commanded at the same
+// speed in both — a pick-and-place move wants the shortest time, not the
+// constant path feed a cutter needs.
+func TestMoveLimitsPerAxisCeiling(t *testing.T) {
+	c := &control{m: &pnptaskModule{limits: &motsetup.Result{
+		MaxVelocity:     600,
+		MaxAcceleration: 3000,
+		AxisMaxVel:      [motsetup.MaxAxes]float64{800, 800, 300},
+		AxisMaxAcc:      [motsetup.MaxAxes]float64{4000, 4000, 3000},
+	}}}
+	const vReq, aReq = 500.0, 2000.0
+	at := func(x, y, z float64) motctl.Pose { return motctl.Pose{X: x, Y: y, Z: z} }
+
+	cases := []struct {
+		name             string
+		from, to         motctl.Pose
+		wantVel, wantAcc float64
+	}{
+		// X alone: path and axis are the same thing, so the ceiling applies as
+		// it always did.
+		{"x only", at(0, 0, 0), at(100, 0, 0), vReq, aReq},
+		// 45°: X keeps vReq and Y comes up alongside it, so the path runs √2
+		// faster. The old path-feed reading returned vReq here and braked X.
+		{"45 degrees", at(0, 0, 0), at(100, 100, 0), vReq * math.Sqrt2, aReq * math.Sqrt2},
+		// Shallow: Y is the short axis, so X still sets the time and the path is
+		// its speed over the cosine.
+		{"shallow", at(0, 0, 0), at(100, 50, 0), vReq * math.Sqrt(1.25), aReq * math.Sqrt(1.25)},
+		// Z below the ceiling caps itself: [AXIS_Z] allows 300, not vReq.
+		{"z limited", at(0, 0, 0), at(0, 0, 100), 300, 2000},
+		// A ceiling of 0 is no ceiling at all: the axis maxima alone.
+		{"no ceiling", at(0, 0, 0), at(100, 0, 0), 800, 4000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			velReq, accReq := vReq, aReq
+			if tc.name == "no ceiling" {
+				velReq, accReq = 0, 0
+			}
+			vel, acc, moved := c.moveLimits(tc.from, tc.to, velReq, accReq)
+			if !moved {
+				t.Fatal("moveLimits reports no displacement")
+			}
+			if math.Abs(vel-tc.wantVel) > 1e-9 || math.Abs(acc-tc.wantAcc) > 1e-9 {
+				t.Errorf("vel/acc = %g/%g, want %g/%g", vel, acc, tc.wantVel, tc.wantAcc)
+			}
+		})
 	}
 }
 

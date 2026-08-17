@@ -96,8 +96,9 @@ func toMotctlPose(p motstat.Pose) motctl.Pose {
 // Move dispatch
 // ---------------------------------------------------------------------------
 
-// line commands one straight move to an absolute pose at the requested velocity
-// and acceleration, both capped by what the participating axes can do. A move
+// line commands one straight move to an absolute pose at the requested per-axis
+// velocity and acceleration, blended by moveLimits into the coordinated path
+// values that keep every participating axis inside its own limit. A move
 // that displaces nothing is dropped rather than queued; a move that displaces
 // something but has no usable limits is a FAULT, never a silent drop — a
 // silently skipped Z stroke runs the pick at travel height, grips nothing, and
@@ -157,10 +158,23 @@ func (c *control) checkTargetInLimits(to motctl.Pose) error {
 	return nil
 }
 
-// moveLimits blends the requested velocity and acceleration against the per-axis
-// maxima, so no axis is asked for more than its own limit while the axes stay
-// coordinated. A request of 0 means "no override": the [TRAJ] defaults apply,
-// which is what MOVE_VEL/MOVE_ACC = 0 and Z_VEL/Z_ACC = 0 mean in the INI.
+// moveLimits turns the requested velocity and acceleration into the coordinated
+// path values for one move, under the per-axis maxima.
+//
+// The request is a PER-AXIS ceiling, not a path feed. This is where a
+// pick-and-place machine parts ways with a milling one: a cutter needs a
+// constant path feed, so milltask caps the *blended* result and every axis
+// slows down to hold it. Here the goal is the shortest possible move time, so
+// an axis that could keep running must keep running — MOVE_VEL/MOVE_ACC and
+// Z_VEL/Z_ACC cap each axis's own maximum, and the path value is whatever falls
+// out of the blend. A travel whose first segment is X-only and whose second is
+// a 45° XY corner leaves X at MOVE_VEL throughout, with the path speed rising
+// to MOVE_VEL·√2 across the corner; read as a path feed, the same corner used
+// to brake X to MOVE_VEL/√2 for no reason.
+//
+// A request of 0 means "no ceiling beyond the axis limits", which is what
+// MOVE_VEL/MOVE_ACC = 0 and Z_VEL/Z_ACC = 0 mean in the INI. A Z stroke moves
+// one axis, so for it the two readings coincide.
 //
 // moved separates "nothing to do" from "cannot do it": a move with no
 // displacement returns moved=false and line drops it, while real displacement
@@ -183,36 +197,40 @@ func (c *control) moveLimits(from, to motctl.Pose, velReq, accReq float64) (vel,
 	if !moved {
 		return 0, 0, false
 	}
-	velMax := blendAxisLimit(d, c.m.limits.AxisMaxVel[:])
-	accMax := blendAxisLimit(d, c.m.limits.AxisMaxAcc[:])
-	if velMax <= 0 || accMax <= 0 {
+	vel = blendAxisLimit(d, cappedAxisLimits(c.m.limits.AxisMaxVel[:], velReq))
+	acc = blendAxisLimit(d, cappedAxisLimits(c.m.limits.AxisMaxAcc[:], accReq))
+	if vel <= 0 || acc <= 0 {
 		return 0, 0, true
 	}
-	vel = velReq
-	if vel <= 0 {
-		vel = c.m.limits.MaxVelocity
-	}
-	if vel <= 0 || velMax < vel {
-		vel = velMax
-	}
-	acc = accReq
-	if acc <= 0 {
-		acc = c.m.limits.MaxAcceleration
-	}
-	if acc <= 0 || accMax < acc {
-		acc = accMax
-	}
 	return vel, acc, true
+}
+
+// cappedAxisLimits lowers the three linear axes' maxima to a per-axis ceiling.
+// A ceiling of 0 is "no ceiling" and leaves them as they are; an axis maximum
+// of 0 stays 0 rather than being raised to the ceiling, so a machine whose
+// [AXIS_*]MAX_VELOCITY/MAX_ACCELERATION is unusable still reaches line's fault
+// instead of quietly running the move at the INI ceiling.
+func cappedAxisLimits(max []float64, ceiling float64) [3]float64 {
+	var out [3]float64
+	copy(out[:], max)
+	if ceiling > 0 {
+		for i, m := range out {
+			if m > ceiling {
+				out[i] = ceiling
+			}
+		}
+	}
+	return out
 }
 
 // blendAxisLimit is the coordinated limit for a displacement d under per-axis
 // maxima: the slowest axis sets the time the move takes, and the limit is the
 // path length over that time. The computation is the shared C++ canon port in
 // internal/motsetup, restricted to the three linear axes this module moves.
-func blendAxisLimit(d [3]float64, max []float64) float64 {
+func blendAxisLimit(d, max [3]float64) float64 {
 	var d9, m9 [9]float64
 	copy(d9[:], d[:])
-	copy(m9[:], max)
+	copy(m9[:], max[:])
 	limit, _ := motsetup.BlendLimit(d9, m9, true, false)
 	return limit
 }
