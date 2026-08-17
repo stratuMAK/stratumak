@@ -173,6 +173,10 @@ type control struct {
 	in   inputs
 	prev inputs
 
+	// procPending is a resync request waiting for the current job to end,
+	// parallel to world.procs — the proc-station twin of trayPending.
+	procPending []*bool
+
 	// trayStep is publish's scratch buffer for the per-tray steps, reused so a
 	// function that runs every cycle allocates nothing.
 	trayStep []int64
@@ -270,6 +274,7 @@ func newControl(m *pnptaskModule) *control {
 		rise:             mk(),
 		jogDir:           make([]int, len(m.pins.jog)),
 		trayPending:      make([]*int64, trays),
+		procPending:      make([]*bool, procs),
 		manualGrip:       make([]int, pickers),
 		manualGripWarned: make([]bool, pickers),
 	}
@@ -504,21 +509,21 @@ func (c *control) sample() {
 			c.trayPending[i] = &v
 		}
 	}
-	// The proc-station resync (§6.4). Unlike the trays these apply straight
-	// away rather than through a pending value: there is one bit of state per
-	// station and no geometry it has to agree with, so there is nothing to
-	// snapshot and nothing that can be invalidated between press and effect.
-	for i, ps := range c.m.world.procs {
+	// The proc-station resync (§6.4), latched exactly like the tray resets and
+	// consumed in updateStations. Applying it here would change the model under
+	// a running job — sample() ticks throughout an action, updateStations does
+	// not — and a fixture that went from occupied to empty mid-place is a lie
+	// the job would then act on.
+	for i := range p.procs {
 		set := c.in.procSetHasMaterial[i] && !c.prev.procSetHasMaterial[i]
 		clear := c.in.procSetEmpty[i] && !c.prev.procSetEmpty[i]
 		switch {
 		case set && clear:
 			c.m.logger.Debug("pnptask: proc set-has-material and set-empty in the same cycle, ignored",
-				"station", ps.cfg.ID)
+				"station", c.m.world.procs[i].cfg.ID)
 		case set != clear:
-			ps.setHasMaterial(set)
-			c.m.logger.Info("pnptask: process station state set by operator",
-				"station", ps.cfg.ID, "has_material", set)
+			v := set
+			c.procPending[i] = &v
 		}
 	}
 
@@ -826,6 +831,7 @@ func (c *control) motionLost() {
 // updateStations applies the tray station inputs of this cycle: the tray-id
 // selector and the two slot-state reset edges (D8).
 func (c *control) updateStations() {
+	c.applyProcResync()
 	for i, t := range c.m.world.trays {
 		// The selector is compared against what the *model* has selected, not
 		// against the previous sample: a nested tick would have moved the previous
@@ -856,6 +862,22 @@ func (c *control) updateStations() {
 			c.m.logger.Info("pnptask: tray declared full",
 				"station", t.cfg.ID, "process_step", *v, "slots", len(t.slots))
 		}
+	}
+}
+
+// applyProcResync consumes the latched operator resync requests. Like the tray
+// resets it runs from step(), so a request pressed during a job takes effect
+// when that job has finished with the model.
+func (c *control) applyProcResync() {
+	for i, v := range c.procPending {
+		if v == nil {
+			continue
+		}
+		c.procPending[i] = nil
+		ps := c.m.world.procs[i]
+		ps.setHasMaterial(*v)
+		c.m.logger.Info("pnptask: process station state set by operator",
+			"station", ps.cfg.ID, "has_material", *v)
 	}
 }
 
