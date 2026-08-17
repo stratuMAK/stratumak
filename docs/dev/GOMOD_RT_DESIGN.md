@@ -202,49 +202,69 @@ One `rtapi->calloc` per module, laid out scenes-then-polys-then-points so a
 single free releases it. The bounds are precomputed at init because that is
 where the cyclic function spends most of its time not doing work.
 
-### The position source, and why it is an open question
+### The position source
 
-The cyclic function cannot ask motstat — that is a GMI call, not RT-safe. It
-needs the position from a HAL pin.
+The cyclic function needs a Cartesian position, and it gets one from GMI —
+which handles realtime by declaration. `@rt_safe` is a first-class IDL
+annotation and gmicompile stamps `STMAK_API_NONBLOCKING` onto the generated
+function-pointer typedef for it (`cgen/server.go:394`), so clang's
+function-effects analysis checks the implementation *and* permits RT callers.
+Calling GMI from a cyclic function is in-pattern, not a workaround: `homing.c`
+already calls `mot->joint_get_pos_fb()` from the RT cycle.
 
-motmod exports `joint.N.pos-fb`, not cartesian axis pins. pnptask's whole
-geometry model is already cartesian XY (stations, trays and the drawings are
-machine coordinates), so on a `trivkins` machine wiring joint pins is exact,
-and on a non-trivial kinematics it is not.
+**Not `motstat`.** That is the non-RT snapshot interface, and its accessors are
+not RT-safe however hot-path they look: `h_get_pos_fb`
+(`motstat_handlers.c:241`) calls `read_status()`, which takes
+`rtapi_mutex_get(&buf->reader_mtx)` and copies the whole `emcmot_status_t`.
+Marking it `@rt_safe` would be a false claim and `-Wfunction-effects` would
+reject the implementation — which is the regime working. pnptask's Go loop
+keeps using it; the cyclic function must not.
 
-Options, to be decided before implementation:
+**Use `mot`.** That is motmod's RT-side interface — the one `homing.c` uses —
+and motmod already maintains the value: `control.c` runs the forward
+kinematics on `joint->pos_fb` into `status->carte_pos_fb` every servo cycle,
+with `carte_pos_fb_ok` saying whether the result means anything.
 
-1. **Require cartesian position input pins** (`pnp.task.pos-x` / `pos-y`), wired
-   by the configuration. Honest and explicit; correct under any kinematics
-   provided the configuration wires something cartesian.
-2. Derive them in the Go loop and hand them to the RT function — defeats the
-   purpose, the value would be 10 ms stale again.
-3. Restrict the feature to trivkins and say so.
+The one addition needed is an accessor for it, mirroring the joint accessors
+that sit beside it:
 
-(1) is the recommendation. It costs the configuration two `net` lines.
+```
+@doc "Get actual Cartesian position (RT-side, no snapshot)"
+@rt_safe "true"
+func status_get_carte_pos_fb(pos: Pose out) -> i32
+```
 
-### A self-check worth having
+reading the RT status struct directly — no mutex, no copy of the full status,
+because an RT reader and the RT producer are the same thread.
 
-An unwired float pin reads 0.0, which is a perfectly legal position — so
-"nobody wired it" is indistinguishable from "the head is at the origin" by
-inspection of the value alone.
+Two consequences worth designing in rather than discovering:
 
-The Go loop still computes the same predicate at 10 ms from motstat. Having it
-compare its answer against the RT pin and warn on *persistent* disagreement
-turns a silent wrong answer into a log line, and continuously validates the
-whole path in the field. Transient disagreement during motion is expected and
-must not warn — the two answers are sampled at different instants, which is the
-entire point of the change.
+- **`addf` order matters.** The check must run *after* `motion-controller` in
+  the servo thread to see this cycle's position rather than the previous one.
+  One cycle of staleness is harmless, but it should be a deliberate ordering in
+  the configuration, not an accident of where the line was typed.
+- **`carte_pos_fb_ok` decides the conservative answer.** When the feedback is
+  not valid — joints not all homed — the position is meaningless, and the pin
+  must publish *not clear*. An interlock that fails must fail towards "the head
+  might be in there".
+
+The alternative, `mot.joint_get_pos_fb` per joint plus `kins.forward` (both
+already `@rt_safe "true"`), also works and needs no new IDL. It is rejected
+only because it recomputes each cycle what motmod has already computed, and
+makes pnptask consume a second api to do it.
+
+This replaces the earlier sketch of Cartesian *input pins*: no new pins, no
+configuration wiring, no way to mis-wire it, and it is kinematics-correct by
+construction because motmod did the forward kinematics.
 
 ## 7. Open questions
 
 1. **Teardown ownership** (§5). Which side removes the function, where the RT
    barrier sits, and how runtime unload is covered.
-2. **Position source** (§6). Recommendation is explicit cartesian input pins.
-3. **`usesFP`.** The dead-zone test is floating point throughout, so it must be
+2. **`usesFP`.** The dead-zone test is floating point throughout, so it must be
    exported with `uses_fp` set; worth confirming what the flag costs on the
    platforms in use before making it the default in the wrapper.
-4. **Does `pkg/hal` need the `env` at all?** The wrapper needs a component id
+3. **Does `pkg/hal` need the `env` at all?** The wrapper needs a component id
    and the HAL callback table. `pkg/hal` already holds equivalents internally;
    whether the C half receives the same `env` pointer the launcher builds for
    cmods, or one synthesised per Go module, is an implementation choice with
@@ -258,6 +278,9 @@ entire point of the change.
    introducing a deliberately blocking call and confirming the build fails.
 3. A minimal module exercising the path end to end — export, assemble, walk,
    unload — including the runtime-unload case from §5.
-4. pnptask: the RT dead-zone function, the position pins, and the §6 self-check.
-5. Re-run the pnptask sim scenarios; they should be indifferent to the change,
+4. `mot`: the `status_get_carte_pos_fb` accessor (§6), and its implementation
+   annotated `STMAK_NONBLOCKING`.
+5. pnptask: the RT dead-zone function, consuming `mot`, honouring
+   `carte_pos_fb_ok`, and documenting the `addf` ordering requirement.
+6. Re-run the pnptask sim scenarios; they should be indifferent to the change,
    which is itself the point.
