@@ -239,6 +239,14 @@ point is clear of drawing N's zones*. No consumer changes, no configuration
 changes. Only the freshness improves — from a 10 ms control-loop poll of a
 motstat snapshot to a value recomputed every servo cycle.
 
+> **The pin is a published contract.** A machine configuration already consumes
+> it — CoatV2conf nets `pnp.task.deadzone.0.free` into the component that owns
+> its optical sphere, and its `tests/cell` rig drives pnptask end to end against
+> the real sequencer. A rename here is a rename there, and the rig is the cheap
+> way to find out. The one thing that IS a configuration change is the `addf`
+> for the cyclic function: it must come after `motion-controller`, and a config
+> that omits it gets "not clear" and a warning rather than a stale answer.
+
 ### What moves
 
 The predicate is already written and is already realtime-shaped —
