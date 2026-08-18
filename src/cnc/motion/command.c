@@ -925,9 +925,15 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
                 // teleop rejected every motion error, so a soft-limit trip
                 // locked the very axis it had just reported.
                 //
-                // Other motion faults do not need catching here: they clear
-                // 'enabling', the machine disables, and the "Can't jog joint
-                // when not enabled" check above already refuses the jog.
+                // A latched motion error is not a reason to refuse the jog
+                // either: not every fault disables the machine (a rejected
+                // SET_LINE latches the flag with the machine still on), and
+                // the jog is contained regardless of the flag -- its target
+                // is clamped to the limits here, the teleop clamp undoes any
+                // outward update, and a trip the axis frame cannot explain
+                // aborts every jog at servo rate (get_pos_cmds). Faults that
+                // do disable the machine are refused by the "Can't jog joint
+                // when not enabled" check above.
                 for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
                     joint = &inst->joints[joint_num];
                     if (joint != 0) { joint->free_tp.enable = 0; }
@@ -1003,7 +1009,14 @@ void emcmotCommandHandler_locked(void *arg, long servo_period) STMAK_NONBLOCKING
 	        clearHomes(inst, joint_num);
             } else {
                 // TELEOP JOG_INCR
-                if (GET_MOTION_ERROR_FLAG()) { break; }
+                //
+                // No motion-error gate, same as JOG_CONT above: a latched
+                // error does not mean the machine is disabled, and the jog is
+                // contained without it. axis_jog_incr refuses any target
+                // outside the limits (as joint-mode incr does), so recovering
+                // from outside a limit takes a continuous jog -- but an
+                // in-range step jog must not be refused over an unrelated
+                // latched fault.
                 axis_jog_incr(ai, inst->command->axis, inst->command->offset, inst->command->vel, servo_period);
                 for (joint_num = 0; joint_num < ALL_JOINTS; joint_num++) {
                     joint = &inst->joints[joint_num];
