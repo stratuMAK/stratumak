@@ -422,6 +422,47 @@ normalized to HAL-conventional dashes.
 | `set-has-material` | bit | in | edge: has-material := true. The operator resync §6.4 promised, and what makes a station *probe* possible — a job may only originate at a station the model believes occupied |
 | `set-empty` | bit | in | edge: has-material := false |
 
+### 5.2.1 Timing contract — hold commands, do not pulse them
+
+**The control loop is not the servo thread.** It runs at `pollInterval`, 10 ms
+(`machine.go`), and every input above is sampled there — the edge-triggered ones
+included. The only exception is `deadzone.N.free`, which a cyclic function
+publishes at servo rate (see `GOMOD_RT_DESIGN.md`).
+
+So a producer running faster than 10 ms — another realtime component, not a PLC
+or a panel button — **must hold a command until it sees the acknowledgement**. A
+pulse of one or two servo cycles can fall entirely between two samples and is
+then lost, with no error anywhere: the module simply never saw it.
+
+Every command pin has something to watch for, which is what makes holding
+practical:
+
+| Command | Held until |
+|---|---|
+| `home` | `homed` |
+| `error-reset` | `error` low |
+| `tray.N.set-full` / `set-empty` | `avail` / `count` change |
+| `proc.N.set-has-material` / `set-empty` | `has-material` follows |
+| `picker.N.manual-open` / `manual-close` | `picker.N.close` follows |
+| `start-job` | the module clears it (see below) |
+
+`start-job` carries one extra rule. The module only accepts a request it has
+watched go **low** first (`jobRequest`, §7.4 D26: a level held across a restart
+is not a request for that job). A producer that clears it and re-raises it
+within a servo cycle or two is invisible — the module sees a level that was
+never low, ignores it, and the requester waits forever for a job that was never
+taken. **Leave it low for at least five loop cycles (50 ms) between jobs.**
+
+Station resets have a second property worth knowing: they are latched when
+sampled but consumed **between jobs** (`updateStations` runs from `step()`, not
+from the `tick()` a running action spins on). A reset pressed mid-job therefore
+takes effect when that job ends, deliberately — so a job cannot have the tray or
+the fixture it is working on changed underneath it.
+
+None of this is a latency limit: holding does not make the module respond any
+sooner, and nothing here is meant to. It is the handshake being explicit, which
+is also what makes it survive a missed cycle or a restart.
+
 ### 5.3 As built (2026-08-10)
 
 `internal/pnptask/`: `module.go config.go stations.go pins.go` plus
