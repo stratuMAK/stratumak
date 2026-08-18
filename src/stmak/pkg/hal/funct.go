@@ -100,6 +100,13 @@ type CFunct unsafe.Pointer
 // executing the function by the time Destroy runs, which is what makes it safe
 // for Destroy to RTFree the structure the function was walking. Freeing it
 // anywhere earlier — in Stop, say — is a use-after-free in the servo thread.
+//
+// That teardown only covers functions exported on the module's own component:
+// the launcher removes functions by the module's component id, so a function
+// parked on a second, differently named component survives a runtime unload
+// and keeps walking freed memory (see NewRTComponent). Likewise, do not call
+// Exit on the component yourself while the function may still be scheduled —
+// leave teardown to the launcher's Destroy sequencing.
 func (c *Component) ExportFunct(name string, fn CFunct, arg unsafe.Pointer, usesFP, reentrant bool) error {
 	fullName, err := qualifyName(c, "ExportFunct", name)
 	if err != nil {

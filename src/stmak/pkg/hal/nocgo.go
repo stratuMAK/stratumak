@@ -63,6 +63,14 @@ func (p *Pin[T]) Get() T {
 	return p.value
 }
 
+// TrySet sets the pin value and returns nil, mirroring the cgo TrySet's
+// signature. The cgo failure mode (HAL_PORT with no backing buffer) does not
+// exist here — the stub pin always has its in-memory cell.
+func (p *Pin[T]) TrySet(v T) error {
+	p.Set(v)
+	return nil
+}
+
 // Type returns the pin type.
 func (p *Pin[T]) Type() PinType { return p.typ }
 

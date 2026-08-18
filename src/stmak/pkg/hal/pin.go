@@ -124,6 +124,13 @@ func NewPin[T PinValue](c *Component, name string, dir Direction) (*Pin[T], erro
 // This dereferences the pointer to HAL shared memory. If the owning component
 // has already been released with Exit(), the pin's HAL memory is gone; Get then
 // takes no dereference and returns the zero value of T.
+//
+// The cell is read with a plain (non-atomic) load, HAL's own concurrency model:
+// the pin mutex serializes Go-side callers only, an RT function writing the
+// cell (through RTDataPtr or a linked signal) never takes it. On 64-bit targets
+// a naturally aligned scalar cannot tear; on 32-bit targets a concurrent RT
+// write to an 8-byte (float) pin can in principle be observed torn, exactly as
+// any C HAL component observes it.
 func (p *Pin[T]) Get() T {
 	// Liveness barrier: refuse to dereference freed HAL memory if the owning
 	// component has exited (see Component.enter). Held across the whole read.

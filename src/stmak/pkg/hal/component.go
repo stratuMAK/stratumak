@@ -122,6 +122,15 @@ func NewComponent(name string) (*Component, error) {
 // Note that HAL only marks a component realtime when hal_lib's rtapi_pid is
 // set, i.e. after RtapiAppInit. In stmakd the launcher has always done that
 // long before a module loads; a test binary must do it itself.
+//
+// The RT component must be the module's own — created under the module's name,
+// replacing (not accompanying) any component the module already registered. On
+// runtime unload the launcher finds the functions to remove through the
+// module's component id; a function exported on a second, differently named
+// component would survive that removal and keep running in the servo thread
+// after Destroy has freed the memory it walks. Nothing here can detect the
+// mistake — pkg/hal does not know the module's name — so this is a contract,
+// not a checked precondition.
 func NewRTComponent(name string) (*Component, error) {
 	return newComponent("NewRTComponent", name, true)
 }
@@ -279,6 +288,14 @@ func (c *Component) Ready() error {
 // of the liveness barrier (see the mu doc). It blocks until every in-flight pin
 // Get/Set has released the read barrier, and marks the component exited before
 // releasing the lock, so no pin access can dereference the freed HAL memory.
+//
+// That barrier covers Go-side access only. If the component has exported a
+// cyclic function (ExportFunct), hal_exit tears the function down while the
+// servo thread may still be executing it — the same race a cmod creates by
+// calling hal_exit early. Do not call Exit while the function can still be
+// scheduled; leave teardown to the launcher, which removes the functions and
+// waits a full thread cycle before the module's Destroy runs (see the
+// ExportFunct doc).
 //
 // This calls hal_exit() via CGO.
 func (c *Component) Exit() error {

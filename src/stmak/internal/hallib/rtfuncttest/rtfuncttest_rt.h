@@ -5,9 +5,15 @@
 //
 // This is the miniature of the layout docs/dev/GOMOD_RT_DESIGN.md §3 describes,
 // and it exists to be verified rather than believed: the Go side assembles it
-// once with hal.RTCalloc, the cyclic function below walks it every cycle and
-// nothing writes it while the threads run, so no lock, no atomic and no
-// double-buffer appears anywhere.
+// once with hal.RTCalloc, and the structure the cyclic function WALKS (polys,
+// points, boxes) is never written while the threads run, so no lock, no atomic
+// and no double-buffer guards it. The two counters at the bottom are the one
+// exception: the cyclic function writes them every cycle and the test polls
+// them from Go. Single aligned-word writer, single reader, values only ever
+// compared for "changed since last look" — a torn read would only ever delay
+// the test's poll loop by a cycle, which is why plain volatile is enough HERE.
+// It is not a pattern to copy for data: a real module publishes runtime values
+// through a HAL pin (as the `out` slot below does), not through shared fields.
 //
 // One allocation holds all three levels — scene, then polygons, then points —
 // so a single hal.RTFree releases the lot.

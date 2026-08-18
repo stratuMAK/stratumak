@@ -112,8 +112,15 @@ void rtft_set_poly(rtft_scene_t *s, int poly, int first, int n)
     rtft_poly_t  *p   = &polys_of(s)[poly];
     rtft_point_t *pts = &points_of(s, s->n)[first];
 
-    p->n    = n;
-    p->pts  = pts;
+    p->n   = n;
+    p->pts = pts;
+    if (n <= 0) {
+        // Mirror the Go-side len(poly) > 0 guard: an empty polygon gets an
+        // inverted box that rejects every query instead of reading pts[-].
+        p->minx = p->miny = 1.0;
+        p->maxx = p->maxy = -1.0;
+        return;
+    }
     p->minx = p->maxx = pts[0].x;
     p->miny = p->maxy = pts[0].y;
     for (int i = 1; i < n; i++) {
