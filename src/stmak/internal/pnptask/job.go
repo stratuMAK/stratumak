@@ -6,6 +6,9 @@ import (
 	"errors"
 	"slices"
 	"time"
+
+	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // job is one latched job command plus the state its action sequences share.
@@ -266,7 +269,81 @@ func (c *control) validateJob(j *job) error {
 	if err := c.checkDest(j); err != nil {
 		return err
 	}
-	return c.checkPickers(j)
+	if err := c.checkPickers(j); err != nil {
+		return err
+	}
+	return c.checkReach(j)
+}
+
+// checkReach is the per-picker reachability validation (once §12.3's first
+// TODO): the load-time geometric validation runs in the taught frame, but what
+// is commanded is endpoint − picker offset in machine coordinates (D28), so
+// each picker's reachable envelope is the axis limits shifted by its own
+// offset — and which picker serves a leg is decided only when the leg runs
+// (D20). Checking every endpoint this job could command against every picker
+// at accept time turns "an intermittent mid-job MOTION_ERROR by whichever
+// picker happened to be free" into a refusal that names the station, the
+// picker and the limit before the machine moves.
+//
+// Deliberately NOT checked here: the dead-zone scene. The selector describes
+// the machine per leg — a job legitimately starts while its destination sits
+// inside a zone of the currently selected drawing, waits at the wait point,
+// and has that leg planned against the drawing the PLC selects after the
+// enclosure opens (D15; pinned by TestJobPlansEachLegAgainstTheCurrentScene).
+// Scene reachability is the leg's own question and stays PLANNING_FAILED at
+// leg time; the axis limits, unlike the scene, do not change mid-job.
+//
+// Endpoints are gathered conservatively — every slot of an involved tray, a
+// proc's position and its wait point — because the slot an action will use is
+// chosen only when it runs. The per-leg pre-dispatch limit check stays as the
+// backstop for what can still drift after accept (offsets and z-offsets are
+// live inputs).
+func (c *control) checkReach(j *job) error {
+	type endpoint struct {
+		station uint32
+		pt      pnproute.Point
+		z       float64 // the deepest Z commanded there
+	}
+	var eps []endpoint
+	add := func(s *station) {
+		if s.isTray() {
+			t := s.tray
+			if t.geom == nil {
+				// No geometry selected: checkOrigin/checkDest own that refusal.
+				return
+			}
+			z := t.cfg.ZPick + t.pins.zOffset.Get()
+			for i := range t.slots {
+				eps = append(eps, endpoint{s.id, t.slotPos(i), z})
+			}
+			return
+		}
+		p := s.proc
+		eps = append(eps, endpoint{s.id, p.cfg.Pos, p.cfg.ZPick + p.pins.zOffset.Get()})
+		if p.cfg.HasWait {
+			eps = append(eps, endpoint{s.id, p.cfg.Wait, j.height})
+		}
+	}
+	add(j.origin)
+	add(j.dest)
+
+	for pk := range c.m.pins.pickers {
+		off := c.pickerOffset(pk)
+		for _, e := range eps {
+			m := pnproute.Point{X: e.pt.X - off.X, Y: e.pt.Y - off.Y}
+			// Both heights commanded there: the travel arrives at the move
+			// height, the stroke descends to the station's Z.
+			for _, z := range [2]float64{j.height, e.z} {
+				if err := c.checkTargetInLimits(motctl.Pose{X: m.X, Y: m.Y, Z: z}); err != nil {
+					f := err.(*pnpFault)
+					return faultf(errUnreachable,
+						"station %d is unreachable for picker %d (offset (%g, %g)): %s",
+						e.station, pk, off.X, off.Y, f.msg)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // checkPickers is §8's free-picker requirement, counted rather than asked as a

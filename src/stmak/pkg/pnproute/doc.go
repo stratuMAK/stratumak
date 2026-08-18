@@ -24,7 +24,11 @@ operation: a larger clearance also buys gentler (faster) corners.
 The route is a polyline; smoothing and timing are left to the trajectory
 planner, which blends corners *inward*, toward the dead zone. Choose the
 clearance as `true safety margin + blend tolerance` so the blended path still
-clears the zone.
+clears the zone. The planner routes a single reference point (the machine
+position); the drawn zones must be valid for that point — the natural way to
+get that is to teach them in machine coordinates, driving the machine along
+the relevant edges, so the outlines embody the physical extent of whatever
+the machine carries.
 
 # Cost split
 

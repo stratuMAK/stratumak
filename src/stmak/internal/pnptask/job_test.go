@@ -11,6 +11,7 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/generated/gmi/motctl"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/motsetup"
+	"github.com/stratuMAK/stratumak/src/stmak/pkg/pnproute"
 )
 
 // machineSim drives the feedback a PLC and the gripper hardware provide: the
@@ -1410,4 +1411,152 @@ func TestJobPlansEachLegAgainstTheCurrentScene(t *testing.T) {
 	if !reached {
 		t.Errorf("no move to the station at (300, 200); moves = %v", f.mot.moveList())
 	}
+}
+
+// segmentCrossesRect reports whether the segment a-b passes through the
+// axis-aligned rectangle (Liang-Barsky clip; a touch on the boundary does not
+// count, which leaves the planner's CLEARANCE margin out of the question).
+func segmentCrossesRect(a, b pnproute.Point, xmin, ymin, xmax, ymax float64) bool {
+	t0, t1 := 0.0, 1.0
+	dx, dy := b.X-a.X, b.Y-a.Y
+	clip := func(p, q float64) bool {
+		if p == 0 {
+			return q >= 0
+		}
+		r := q / p
+		if p < 0 {
+			if r > t1 {
+				return false
+			}
+			if r > t0 {
+				t0 = r
+			}
+			return true
+		}
+		if r < t0 {
+			return false
+		}
+		if r < t1 {
+			t1 = r
+		}
+		return true
+	}
+	return clip(-dx, a.X-xmin) && clip(dx, xmax-a.X) &&
+		clip(-dy, a.Y-ymin) && clip(dy, ymax-a.Y) && t0 < t1
+}
+
+// TestTravelPlansInMachineFrame (D28): dead zones are machine-position
+// geometry — taught by driving the machine — so with a picker offset the
+// planner must route the MACHINE around them. Planning in the pick-point
+// frame and shifting the waypoints afterwards translates the whole polyline
+// by the offset; the fixture drawing puts a zone in the machine-frame
+// corridor between the tray and the press while staying clear of the
+// pick-point corridor, so a route planned in the wrong frame is commanded
+// straight through it.
+func TestTravelPlansInMachineFrame(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		files: map[string]string{zonesA: "zones_between.dxf", zonesB: fixtureClear},
+	})
+	f.m.pins.pickers[0].xOffset.Set(40)
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireOK("a job routed with a picker offset")
+
+	prev := pnproute.Point{X: 100, Y: 100}
+	for _, m := range f.mot.moveList() {
+		cur := pnproute.Point{X: m.pos.X, Y: m.pos.Y}
+		if segmentCrossesRect(prev, cur, 100, 250, 135, 350) {
+			t.Errorf("commanded segment (%.1f, %.1f) -> (%.1f, %.1f) crosses the dead zone",
+				prev.X, prev.Y, cur.X, cur.Y)
+		}
+		prev = cur
+	}
+}
+
+// TestHomePressDuringJobIsIgnored (§12.3, resolved): the home latch is gated
+// on idle at press time, like the manual-picker edges are gated on manual
+// mode. A press while a job runs is ignored rather than deferred — deferred,
+// it fired as a surprise homing sequence the moment the job completed, which
+// turned a PLC glitch on the home line into a homing run. A press while idle
+// still homes.
+func TestHomePressDuringJobIsIgnored(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{})
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+
+	// Park the job at the busy station's wait point: a mid-job window to
+	// press in, with the machine standing still.
+	f.proc().busy.Set(true)
+	f.m.pins.startJob.Set(false)
+	time.Sleep(10 * pollInterval)
+	f.m.pins.originID.Set(10)
+	f.m.pins.destID.Set(20)
+	f.m.pins.processStep.Set(0)
+	f.m.pins.startJob.Set(true)
+	f.eventually("the job to be busy-waiting", func() bool { return f.bit("busy") })
+
+	f.mot.resetCalls()
+	f.press(f.m.pins.home)
+	f.proc().busy.Set(false)
+	f.eventually("the job handshake to complete", func() bool { return !f.bit("start-job") })
+	f.m.pins.startJob.Set(false)
+	f.requireOK("the job around the ignored press")
+	f.consistently("no homing run after the job", func() bool {
+		return f.mot.callCount("JointHome") == 0
+	})
+
+	// The same press while idle homes (runHoming commands home-all even on a
+	// homed machine — D25's re-home).
+	f.press(f.m.pins.home)
+	f.eventually("an idle press to home", func() bool { return f.mot.callCount("JointHome") == 1 })
+}
+
+// TestJobRefusedWhenPickerCannotReach: the per-picker reachability validation
+// (checkReach). What is commanded is endpoint − picker offset, so a picker
+// offset can carry a taught station outside the axis limits for that picker
+// only — refused at job accept with TARGET_UNREACHABLE, before any motion,
+// instead of an intermittent mid-job MOTION_ERROR by whichever picker
+// happened to be free.
+func TestJobRefusedWhenPickerCannotReach(t *testing.T) {
+	f := newJobFixtureOpts(t, fixtureOpts{
+		args: []string{"pickers=2"},
+		ini: `
+[AXIS_X]
+MIN_LIMIT = 0
+MAX_LIMIT = 600
+[AXIS_Y]
+MIN_LIMIT = 0
+MAX_LIMIT = 500
+[AXIS_Z]
+MIN_LIMIT = 0
+MAX_LIMIT = 80
+`,
+	})
+	// The tray's first column sits at X = 120; picker 1's offset puts the
+	// machine at 120 − 130 = −10 for those slots, past the X minimum. Which
+	// picker would actually serve the pick is beside the point (D20 decides
+	// that only when the leg runs): the job is refused for the machine state.
+	f.m.pins.pickers[1].xOffset.Set(130)
+	f.homed()
+	f.mot.setPos(100, 100, 60)
+	f.selectTray(1)
+	f.fillTray(0)
+	f.mot.resetCalls()
+	f.runJob(10, 20, 0)
+	f.requireError("a station outside picker 1's envelope", errUnreachable)
+	if n := len(f.mot.moveList()); n != 0 {
+		t.Errorf("the machine moved %d times before the refusal", n)
+	}
+
+	// Pulled back inside every picker's envelope, the same job runs.
+	f.clearError()
+	f.m.pins.pickers[1].xOffset.Set(20)
+	f.runJob(10, 20, 0)
+	f.requireOK("the same job with a covered offset")
 }

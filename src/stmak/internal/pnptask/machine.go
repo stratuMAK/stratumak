@@ -53,7 +53,7 @@ var (
 	// group handover, not a finished sequence.
 	homingSettleTicks = 5
 
-	// motionDisabledTicks is how many consecutive fresh status reads must show
+	// motionDisabledDebounce is how many consecutive fresh status reads must show
 	// motion disabled, while this module believes it enabled, before that
 	// counts as a self-disable (following error, amp fault, hard limit, an
 	// external enable drop — all of which latch in motmod). enable() commits
@@ -473,11 +473,17 @@ func (c *control) sample() {
 	// estop must not enable the machine at estop clear (the post-estop cycle
 	// rule of §6.2); a home press during estop must not home on reset; an
 	// error-reset with no fault latched must not pre-clear a fault raised
-	// later; and a manual picker press outside manual mode is ignored, not
-	// queued (§6.4). What the latch is FOR — a valid press surviving a long
-	// job's nested ticks — is untouched: those presses pass their gate.
+	// later; a home press while a job runs is ignored, not deferred — the
+	// deferred run arrived as a surprise homing sequence the moment the job
+	// completed, which turns a PLC glitch on that line into a homing run
+	// (§12.3, resolved; busy is this module's own job-in-flight output,
+	// written by this same goroutine); and a manual picker press outside
+	// manual mode is ignored, not queued (§6.4). What the latch is FOR — a
+	// valid press surviving a long job's nested ticks — is untouched: those
+	// presses pass their gate.
 	c.rise.machineOn = c.rise.machineOn || (c.in.machineOn && !c.prev.machineOn && !c.in.estop)
-	c.rise.home = c.rise.home || (c.in.home && !c.prev.home && !c.in.estop)
+	c.rise.home = c.rise.home ||
+		(c.in.home && !c.prev.home && !c.in.estop && !c.m.pins.busy.Get())
 	c.rise.errorReset = c.rise.errorReset ||
 		(c.in.errorReset && !c.prev.errorReset && c.m.pins.errorFlag.Get())
 	manualOK := !c.in.estop && !c.in.autoEnable

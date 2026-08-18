@@ -45,6 +45,7 @@ Reference prototype for the route planner: `~/source/pnp-route-test/`
 | D25 | Homing request | Global `home` input pin, **rising edge**, machine on and no estop, accepted in *both* modes. §6.3's autohoming only fires at the first job (phase 5), which left `AUTOHOME = 0` machines with no way to home at all — jobs refuse with `NOT_HOMED` and the jog pins are ignored while unhomed (D18). Not gated on manual mode: a PLC that wants the machine homed before its first job should not have to drop `auto-enable` to ask. |
 | D26 | Unit pins | Every float pin carries the internal **mm** (D23). Where a pin's value is meant to round-trip into the INI — which is written in **machine units** — a sibling pin with the `-mu` suffix carries the machine-unit value (phase 3 review: the teach pins `picker.N.pos-x-mu`/`pos-y-mu`; on a metric machine both pairs are equal). One-shot request pins (`home`, `error-reset`, `manual-open`/`-close`) are edge-triggered against their *startup* state: a level held high across a stmakd restart is not a new request. `machine-on` is the deliberate exception — it is the standing request for the machine, and holding it high across a restart re-enables. |
 | D27 | Integration harness (2026-08-12) | **No test gomod.** Phase 7 uses a Python driver per scenario plus one shared simulation **cmod**, under the standard runtests harness. The tasktest-gomod pattern was inherited from milltask, whose surface is GMI; pnptask's whole surface is HAL pins (D12), so a gomod buys nothing pin driving cannot do — and a `@GOMOD:*@`-gated test module would make runtests depend on a build flag, while cmods compile unconditionally. The sim cmod owns the machine physics on the servo thread (gripper close→opened/closed with settling delay, fixture release/released, busy scripting, miss injection), its knobs as pins the driver flips between jobs; the Python side owns sequencing and assertions. |
+| D28 | Machine-frame planning + reachability at accept (2026-08-18) | Dead zones and the outer limit are **machine-position geometry**: the operator teaches them by driving the machine and noting machine positions into the DXF, so the outlines already embody the head's physical extent, both pickers included (picker offsets define pick *points*, never outlines). The route planner therefore runs **in machine coordinates per picker** — plan `cmdPos → target − offset` against the scene as-drawn, command the waypoints directly. (Planning in the pick-point frame and shifting the waypoints afterwards translated the polyline by the offset and let the machine cut a zone corner by up to \|offset\|.) On top of that, job **accept** validates every endpoint the job could command (every slot of an involved tray, proc position, wait point; travel height and station Z) minus every picker's offset against the **axis limits** — refusal is `TARGET_UNREACHABLE` (24), naming station, picker and limit, before any motion. The dead-zone *scene* is deliberately not part of that accept check: the selector describes the machine per leg (D15's enclosure workflow starts jobs whose destination is unreachable in the currently selected drawing), so scene reachability stays `PLANNING_FAILED` at leg time. |
 
 ---
 
@@ -264,7 +265,14 @@ rest of this document refers to its stations by number.
 [PNPTASK]
 AUTOHOME = 1                  # home unhomed joints on first job
 MOVE_HEIGHT = 30.0            # global Z movement height
-CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOLERANCE
+CLEARANCE = 10.0              # planner clearance; must cover safety + BLEND_TOLERANCE.
+                              #   Picker offsets play no role here: dead zones
+                              #   are taught in MACHINE-position space (drive
+                              #   the machine to the relevant spots, note the
+                              #   machine positions into the DXF), so the drawn
+                              #   outlines already embody the head's physical
+                              #   extent, both pickers included. The offsets
+                              #   only define the pick points, not outlines.
 BLEND_TOLERANCE = 2.0         # TP term-cond tolerance for XY travel
 POS_TOLERANCE = 0.1           # how far a computed position may sit from a
                               #   taught one before the load fails (D24)
@@ -868,6 +876,7 @@ fixture never confirmed letting go, so the part belongs to the fixture and
 | 21 | `WAIT_ABORTED` | busy-wait aborted by auto-enable going low (D15) |
 | 22 | `NO_FREE_PICKER` | pick or swap needed but no picker is free (§8) |
 | 23 | `PICKER_OPEN_FAILED` | close withdrawn on the pick side but `opened` never came back (§12) |
+| 24 | `TARGET_UNREACHABLE` | job accept: an endpoint − a candidate picker's offset is outside the axis limits (D28) |
 
 ### 7.6 As built — the model (2026-08-11)
 
@@ -1393,35 +1402,31 @@ milltask side must carry this.
 
 ### 12.3 TODO — deferred, needs a design decision or a broader refactor
 
-- **Per-picker reachability validation.** All geometric validation (§5.1) runs
-  in the shared taught frame; what is commanded is target − picker offset with
-  the live z-offset added, so each picker's reachable envelope is the soft
-  limits shifted by its offset, and a station near the envelope edge can be
-  reachable for one picker and not the other — surfacing as an intermittent
-  mid-job `MOTION_ERROR` depending on which picker happened to be free. The
-  pre-dispatch check (§12.1) makes the failure diagnosable; validation at
-  job-validate time (every leg endpoint minus every candidate picker's
-  offset, plus Z_PICK + z-offset and MOVE_HEIGHT against the Z limits) would
-  refuse before moving. Until then the lab rule is: keep every taught
-  position, minus either picker's offset, inside the soft limits — i.e. draw
-  the DXF outer limit inside the *intersection* of both pickers' envelopes.
-- **Operator resync for proc `has-material`.** Trays have `set-full` /
-  `set-empty`; process stations have nothing, although §6.4 promises a
-  manual-intervention resync. "Model occupied / fixture empty" self-corrects
-  (`PROC_NO_MATERIAL` clears the flag); the inverse — an operator hand-loads
-  a fixture the model thinks free — sends the next place-to-proc down onto
-  the occupant. Needs a decision: a pair of edge pins per proc station
-  (mirroring the tray resets, honored in both modes), or a documented
-  operating rule that hand-loaded fixtures must be hand-unloaded.
-- **One owner for machine-unit handling.** `parseLinearUnits` exists three
+- ~~**Per-picker reachability validation.**~~ **Resolved (2026-08-18, D28):**
+  `checkReach` validates every endpoint the job could command, minus every
+  picker's offset, against the axis limits at job accept —
+  `TARGET_UNREACHABLE` (24) names the station, the picker and the limit
+  before any motion. The lab rule (draw the outer limit inside the
+  intersection of both pickers' envelopes) is thereby checked, not just
+  advised. The same decision moved route planning into the machine frame per
+  picker — see D28 for why the dead-zone scene is deliberately NOT part of
+  the accept check (the D15 enclosure workflow).
+- ~~**Operator resync for proc `has-material`.**~~ **Resolved (2026-08-17):**
+  `proc.N.set-has-material` / `set-empty` edge pins, honored in both modes,
+  latched like the tray resets so a press during a job takes effect when the
+  job is done with the model (see §6.4 and applyProcResync).
+- **One owner for machine-unit handling** *(decided 2026-08-18: a dedicated
+  follow-up branch migrates task, ngcpreview and pnptask onto one
+  motsetup-exported implementation, with the strict/lenient split as an
+  option)*. `parseLinearUnits` exists three
   times (task and ngcpreview silently default to mm, pnptask errors),
   machine-units→mm conversion four times, and the lenient INI accessors are
   copied between `motsetup/ini.go` and `task/config.go`. motsetup — created
   precisely to end unit drift — should export one copy all four packages use;
   divergence here is a silent 25.4× disagreement between motion limits and
   station geometry.
-- **Minor, noted:** a `home` press during a job is latched (gated only on
-  estop) and runs the homing sequence the moment the job completes — a PLC
-  glitch on that pin becomes a surprise homing run. If that ever bites,
-  gate the latch on "idle" at press time like the manual-picker edges are
-  gated on manual mode.
+- ~~**Minor, noted:** a `home` press during a job…~~ **Resolved
+  (2026-08-18):** the home latch is gated on idle (no job running) at press
+  time, like the manual-picker edges are gated on manual mode — a press
+  mid-job is ignored, not deferred, so a PLC glitch on the home line can no
+  longer become a surprise homing run at job completion.

@@ -43,6 +43,7 @@ const (
 	errWaitAborted     errorID = 21 // busy-wait aborted by auto-enable going low
 	errNoFreePicker    errorID = 22 // a pick or swap needs a free picker, none is
 	errPickerOpenFail  errorID = 23 // close withdrawn but opened never came back
+	errUnreachable     errorID = 24 // job accept: an endpoint − a candidate picker's offset is outside the scene or the axis limits
 )
 
 // errorNames is the log-side spelling of each id. The pin carries the number;
@@ -72,6 +73,7 @@ var errorNames = map[errorID]string{
 	errWaitAborted:           "WAIT_ABORTED",
 	errNoFreePicker:          "NO_FREE_PICKER",
 	errPickerOpenFail:        "PICKER_OPEN_FAILED",
+	errUnreachable:           "TARGET_UNREACHABLE",
 }
 
 func (id errorID) String() string {

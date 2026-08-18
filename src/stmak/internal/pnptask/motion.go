@@ -142,9 +142,10 @@ func isFinite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 // but only with a bare command status — this names the axis, the value and the
 // limits, and points at the inputs that can push a taught position out of
 // range: the geometric validation at load runs in the taught frame, while what
-// is commanded is target − picker offset with the live z-offset added, so a
-// picker's offset can carry a station near the envelope edge past a soft limit
-// for that picker only, intermittently by which picker happens to be free.
+// is commanded is target − picker offset with the live z-offset added.
+// checkReach asks the same question for every endpoint and every picker at
+// job accept (D28); this per-dispatch check remains the backstop for what can
+// still drift afterwards — the offsets and z-offsets are live inputs.
 func (c *control) checkTargetInLimits(to motctl.Pose) error {
 	vals := [3]float64{to.X, to.Y, to.Z}
 	for i, letter := range [3]string{"X", "Y", "Z"} {
@@ -282,22 +283,33 @@ func (c *control) travel(j *job, pk int, target pnproute.Point) error {
 	// rigid polyline around the dead-zone clearances, and a halcmd setp landing
 	// between two waypoint dispatches must shift the next leg, not warp this
 	// one mid-flight. (D3's "read live" means per leg, not per waypoint.)
+	//
+	// The plan runs in MACHINE coordinates (D28). The dead zones and the outer
+	// limit are machine-position geometry — taught by driving the machine and
+	// noting its positions, outlines that already embody the head's physical
+	// extent, both pickers included. The picker offset only decides the
+	// endpoint: putting picker pk's point on `target` means putting the
+	// machine at target − offset. Planning in the pick-point frame and
+	// shifting the waypoints afterwards (as this code once did) translates
+	// the whole polyline by the offset and lets the machine cut a zone corner
+	// by up to |offset|.
 	off := c.pickerOffset(pk)
-	start := pnproute.Point{X: c.cmdPos.X + off.X, Y: c.cmdPos.Y + off.Y}
+	start := pnproute.Point{X: c.cmdPos.X, Y: c.cmdPos.Y}
+	goal := pnproute.Point{X: target.X - off.X, Y: target.Y - off.Y}
 	planStart := time.Now()
-	route, err := planner.Plan(start, target)
+	route, err := planner.Plan(start, goal)
 	c.notePlanTime(j, time.Since(planStart))
 	if err != nil {
 		return faultf(errPlanningFailed,
-			"no route for picker %d from (%.3f, %.3f) to (%.3f, %.3f) in dead-zone file %d: %v",
-			pk, start.X, start.Y, target.X, target.Y, j.deadzone, err)
+			"no route for picker %d from machine (%.3f, %.3f) to (%.3f, %.3f) (station point (%.3f, %.3f) − offset (%g, %g)) in dead-zone file %d: %v",
+			pk, start.X, start.Y, goal.X, goal.Y, target.X, target.Y, off.X, off.Y, j.deadzone, err)
 	}
 	if err := c.m.mc.SetTermCond(tpTermCondParabolic, c.m.cfg.BlendTolerance); err != nil {
 		return faultf(errMotionError, "setting the blend termination condition: %v", err)
 	}
 	for _, wp := range route.Waypoints {
 		to := c.cmdPos
-		to.X, to.Y, to.Z = wp.X-off.X, wp.Y-off.Y, j.height
+		to.X, to.Y, to.Z = wp.X, wp.Y, j.height
 		// The first waypoint is where the picker already is, so its line drops
 		// itself in moveLimits; a Z still off the movement height is corrected by
 		// it rather than left for the next leg to trip over.
