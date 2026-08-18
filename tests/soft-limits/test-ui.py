@@ -58,6 +58,16 @@ def sets(signal, value):
     subprocess.call(["halcmd", "sets", signal, str(value)])
 
 
+def setp(pin, value):
+    subprocess.call(["halcmd", "setp", pin, str(value)])
+
+
+def getp(pin):
+    """The value only: halcmd prints the whole 'bit OUT name = TRUE' line."""
+    line = subprocess.check_output(["halcmd", "getp", pin]).strip().decode()
+    return line.rsplit("=", 1)[-1].strip()
+
+
 def joint_pos():
     s.poll()
     return s.joint[X]["output"]
@@ -130,6 +140,13 @@ check(not [m for m in msgs if "soft limit" in m],
       "a hand on a disabled axis is not reported as a soft-limit fault",
       "; ".join(m for m in msgs if "soft limit" in m))
 
+# No fault -- but no denial either. The pin is state, not a fault: it is
+# documented as "TRUE if outside a limit", and the machine IS outside one,
+# de-energised or not. A lamp or an interlock chain wired to it must not go
+# dark just because the amps dropped.
+check(getp("motion.on-soft-limit") == "TRUE",
+      "the on-soft-limit pin reports the pushed-out machine while off")
+
 # ── the machine still comes back on ─────────────────────────────────────────
 
 c.state(STATE_ON)
@@ -167,7 +184,55 @@ check(joint_pos() <= X_MAX + 0.001,
       "jogging toward the limit stops at it",
       "joint 0 ended at %.4f mm, limit %.1f mm" % (joint_pos(), X_MAX))
 
-if _checks != 5:
-    print("expected 5 checks, made %d" % _checks)
+# ── a joint limit tightened under the axis ──────────────────────────────────
+#
+# The ini.N halpins move the JOINT limit without touching the axis limit, so
+# the trip becomes invisible in axis frame -- the case where the teleop clamp
+# contains nothing and the RT backstop has to stop the jogs itself
+# (axis_outside_limits in motion). The task monitor cannot stand in for it
+# here: its abort latches after the first trip, so it is exactly the SECOND
+# jog attempt that tells the two apart -- with the backstop it freezes at
+# servo rate, without it it runs off toward the still-wide axis limit.
+
+# Somewhere clearly inside first.
+c.jog(JOG_CONTINUOUS, 0, X, -25.0)
+if not wait_for(lambda: joint_pos() < X_MAX - 25.0, "jogging clear of the limit"):
+    print("could not jog clear; joint 0 at %.3f mm" % joint_pos())
+    sys.exit(1)
+c.jog(JOG_STOP, 0, X)
+time.sleep(0.5)
+
+drain_errors()
+TIGHT = joint_pos() - 12.7  # a joint limit below where the machine stands
+setp("milltask.inihal.0.max_limit", TIGHT)
+msgs = collect_errors(1.0)
+check([m for m in msgs if "soft limit" in m],
+      "tightening the joint limit under the machine reports the trip")
+
+# The first abort (task monitor or backstop) has come and gone; this is the
+# second attempt, heading away from validity but well inside the axis limits.
+before = joint_pos()
+c.jog(JOG_CONTINUOUS, 0, X, 25.0)
+time.sleep(1.0)
+c.jog(JOG_STOP, 0, X)
+time.sleep(0.5)
+check(joint_pos() - before < 1.0,
+      "a jog is stopped by the RT backstop when the trip is joint-frame",
+      "moved %.3f mm past a tripped joint limit" % (joint_pos() - before))
+
+# Restoring the limit clears the trip, and the machine jogs again.
+setp("milltask.inihal.0.max_limit", X_MAX)
+time.sleep(0.5)
+before = joint_pos()
+c.jog(JOG_CONTINUOUS, 0, X, 25.0)
+time.sleep(1.0)
+c.jog(JOG_STOP, 0, X)
+time.sleep(0.5)
+check(joint_pos() - before > 1.0,
+      "restoring the joint limit gives the jogs back",
+      "moved %.3f mm" % (joint_pos() - before))
+
+if _checks != 9:
+    print("expected 9 checks, made %d" % _checks)
     sys.exit(1)
 print("ALL OK")

@@ -1933,16 +1933,18 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	joint_limit[joint_num][0] = 0;
 	joint_limit[joint_num][1] = 0;
 	
-	/* Skip inactive or unhomed joints -- and every joint while motion is
-	   disabled.  With motion disabled pos_cmd is not a command at all: the
-	   DISABLED case above slaves it to pos_fb so that enabling does not jump
-	   the machine.  Measuring that mirror against the limits reports where
-	   the machine *is*, not what was commanded, and an operator pushing a
-	   de-energised axis out of range by hand is precisely not one of the
-	   planner faults this check exists to catch.  It also has to be left
-	   reachable: the operator needs the axis powered to drive it back. */
-	if (   (!GET_MOTION_ENABLE_FLAG())
-	    || (!GET_JOINT_ACTIVE_FLAG(joint))
+	/* Skip inactive or unhomed joints: without a home, pos_cmd is not in
+	   machine coordinates and the limits mean nothing yet.  A disabled
+	   machine is NOT skipped: with motion disabled the DISABLED case above
+	   slaves pos_cmd to pos_fb, so the check measures where the machine
+	   *is* -- which is exactly what the on-soft-limit pin promises ("TRUE
+	   if outside a limit"), an operator pushing a de-energised axis out of
+	   range by hand included.  What a disabled machine must not do is
+	   *fault* over that mirror -- it is not a command, and the axis has to
+	   stay powerable so it can be driven back in -- so the operator
+	   message and the motion-error flag below are gated on enable, while
+	   the pin is not. */
+	if (   (!GET_JOINT_ACTIVE_FLAG(joint))
 	    || (!JOINT_HOME_API(joint)->get_homed(JOINT_HOME_API(joint)->ctx))) {
 	    continue;
         }
@@ -1957,8 +1959,14 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
             onlimit = 1;
         }
     }
-    if ( onlimit ) {
-	if ( ! inst->status->on_soft_limit ) {
+    /* The status flag (and the on-soft-limit pin mirroring it) is live state,
+       refreshed every cycle: TRUE if outside a limit, enabled or not. */
+    inst->status->on_soft_limit = onlimit;
+    /* The fault is enable-gated and edge-latched separately (see
+       emcmot_internal_t.soft_limit_reported): once per trip, and once more on
+       an enable with the machine still outside. */
+    if ( onlimit && GET_MOTION_ENABLE_FLAG() ) {
+	if ( ! inst->internal->soft_limit_reported ) {
         /* Unexpectedly hit a joint soft limit.
         ** Possible causes:
         **  1) a joint positional limit was reduced by an INI halpin
@@ -1987,18 +1995,32 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
                 }
 	    }
 	    SET_MOTION_ERROR_FLAG(1);
-	    inst->status->on_soft_limit = 1;
+	    inst->internal->soft_limit_reported = 1;
 	}
     } else {
-	inst->status->on_soft_limit = 0;
+	inst->internal->soft_limit_reported = 0;
     }
     if (   inst->internal->teleoperating
         && GET_MOTION_TELEOP_FLAG()
+        && GET_MOTION_ENABLE_FLAG()
         && inst->status->on_soft_limit ) {
         SET_MOTION_ERROR_FLAG(1);
-        // Only the jogs heading further out: the ones heading back in are how
-        // the machine leaves this state (see axis_jog_abort_outward).
-        axis_jog_abort_outward(ai, 1);
+        if (axis_outside_limits(ai)) {
+            // The trip is visible in axis frame, so the teleop clamp contains
+            // every jog — targets are always inside the limits, and
+            // update_teleop_with_check undoes any update heading further out.
+            // Cancel only the jogs heading further out (a limit moved under an
+            // active jog): the ones heading back in are how the machine leaves
+            // this state (see axis_jog_abort_outward).
+            axis_jog_abort_outward(ai, 1);
+        } else {
+            // No axis accounts for the trip, so it happened in joint space —
+            // a joint limit tightened by an INI halpin below its axis' limit,
+            // or non-identity kins — where the axis-frame clamps cannot
+            // contain the motion. Stop every jog, at servo rate; the task
+            // monitor's abort is 10 ms and a running task module away.
+            axis_jog_abort_all(ai, 1);
+        }
     }
     if (ext_offset_teleop_limit || ext_offset_coord_limit) {
         *(inst->hal_data->eoffset_limited) = 1;

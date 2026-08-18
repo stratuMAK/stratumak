@@ -370,19 +370,58 @@ bool axis_jog_abort_all(axis_inst_t *ai, bool immediate)
 // outside its own limits. A jog whose target lies inside them is the way back
 // in, and aborting that one every cycle is what leaves an axis pushed past a
 // soft limit with no way home short of unhoming and rehoming.
+//
+// axis_jog_cont and axis_jog_incr never set a target beyond the limits, so
+// this fires only when a limit moved under an active jog (an INI halpin
+// tightening it mid-motion); the routine trips no other case, and callers
+// facing a trip the axis frame cannot explain at all must use
+// axis_jog_abort_all instead (see axis_outside_limits).
 bool axis_jog_abort_outward(axis_inst_t *ai, bool immediate)
 {
     int n;
     bool aborted = 0;
     for (n = 0; n < EMCMOT_MAX_AXIS; n++) {
         emcmot_axis_t *axis = &ai->axis_array[n];
-        double target = axis->teleop_tp.pos_cmd;
+        // Judge the target where the limits are measured: with the external
+        // offset added, matching update_teleop_with_check's sum.
+        double target = axis->teleop_tp.pos_cmd + axis->ext_offset_tp.curr_pos;
         if (!axis->teleop_tp.enable) { continue; }
         if (target > axis->max_pos_limit || target < axis->min_pos_limit) {
             if (axis_jog_abort(ai, n, immediate)) {aborted = 1;}
         }
     }
     return aborted;
+}
+
+// axis_outside_limits reports whether any configured axis sits beyond one of
+// its position limits, external offset included — the same sum
+// update_teleop_with_check clamps. It answers the one question the soft-limit
+// backstop has to ask: can the axis-frame clamp account for (and therefore
+// contain) a joint's limit trip, or did the trip happen in joint space — a
+// joint limit tightened below its axis' limit by an INI halpin, non-identity
+// kins — where this module's clamps cannot see it?
+//
+// "Beyond" is measured with the same epsilon as the joint-space trip check in
+// get_pos_cmds, and deliberately NOT as >=: an axis parked exactly AT a limit
+// (where every completed jog toward it ends) has not left the band, and
+// counting it as outside would let a parked axis mask a joint-frame trip on a
+// different joint.
+bool axis_outside_limits(axis_inst_t *ai)
+{
+    int n;
+    for (n = 0; n < EMCMOT_MAX_AXIS; n++) {
+        emcmot_axis_t *axis = &ai->axis_array[n];
+        // axis letters not in [TRAJ]COORDINATES have both limits == 0
+        if ((0 == axis->max_pos_limit) && (0 == axis->min_pos_limit)) {
+            continue;
+        }
+        double sum = axis->ext_offset_tp.curr_pos + axis->teleop_tp.curr_pos;
+        if (   sum > axis->max_pos_limit + 0.000000000001
+            || sum < axis->min_pos_limit - 0.000000000001) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 bool axis_jog_is_active(axis_inst_t *ai)
