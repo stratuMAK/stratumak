@@ -178,6 +178,9 @@ func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []stri
 	for _, w := range planners.homeWarnings(cfg) {
 		logger.Warn("pnptask: " + w)
 	}
+	for _, w := range cfg.Warnings {
+		logger.Warn("pnptask: " + w)
+	}
 
 	// The HAL component is created in the factory, not in Start: the "net"
 	// lines that wire this instance run immediately after the load line, long

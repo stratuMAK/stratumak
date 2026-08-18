@@ -346,6 +346,36 @@ Z_PICK = 4.0
 // TestLoadConfigDefaults pins the values an INI that omits every optional key
 // gets — a timeout that silently defaults to "forever" would turn a stuck
 // fixture into a hung job.
+// TestLoadConfigKinematicsWarning: pnptask assumes trivkins' identity
+// joint/axis mapping; a declared non-trivkins kinematics cannot be refused
+// (the HAL file decides what actually loads) but must earn a warning, and a
+// declared trivkins — or an INI that stays silent — must not.
+func TestLoadConfigKinematicsWarning(t *testing.T) {
+	setupPaths(t)
+	base := trajSection + pnptaskSection + stationSections
+
+	for _, tc := range []struct {
+		kins string
+		warn bool
+	}{
+		{"", false},
+		{"KINEMATICS = trivkins coordinates=XYZ\n", false},
+		{"KINEMATICS = genserkins\n", true},
+	} {
+		cfg := mustLoad(t, base+"[KINS]\n"+tc.kins)
+		got := false
+		for _, w := range cfg.Warnings {
+			if strings.Contains(w, "KINEMATICS") {
+				got = true
+			}
+		}
+		if got != tc.warn {
+			t.Errorf("[KINS]%q: kinematics warning = %v, want %v (warnings: %q)",
+				tc.kins, got, tc.warn, cfg.Warnings)
+		}
+	}
+}
+
 func TestLoadConfigDefaults(t *testing.T) {
 	setupPaths(t)
 	cfg := mustLoad(t, trajSection+`

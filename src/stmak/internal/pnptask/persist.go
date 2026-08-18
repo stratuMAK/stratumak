@@ -31,6 +31,16 @@ const (
 	persistHeldKey = "held_material"
 )
 
+// persistRecVersion is stamped into every record this build writes ("v":1).
+// Records written before versioning existed carry no field and read back as 0;
+// both 0 and the current version are accepted, because every schema change so
+// far has been additive (absent fields read as their safe zero — see
+// heldRecord.Step). The version exists for the change that additivity cannot
+// cover: a record stamped HIGHER than this build supports is refused untouched
+// in load(), so a downgraded module keeps its hands off state it would
+// misread, instead of half-reading it and flushing the misreading back.
+const persistRecVersion = 1
+
 // trayRecord is the persisted state of one tray station (§7.2). The tray-id is
 // stored with the slots because the slots only mean anything for the geometry
 // they were filled under.
@@ -41,12 +51,14 @@ const (
 // pass, while restoring it could leave a refilled tray declared empty with
 // nothing in the record to justify it.
 type trayRecord struct {
+	V      int     `json:"v"`
 	TrayID uint32  `json:"tray_id"`
 	Slots  []int64 `json:"slots"`
 }
 
 // procRecord is the persisted state of one process station.
 type procRecord struct {
+	V           int  `json:"v"`
 	HasMaterial bool `json:"has_material"`
 }
 
@@ -55,6 +67,7 @@ type procRecord struct {
 // picker explicitly, so a config switched between pickers=1 and pickers=2 cannot
 // silently shift a record onto the wrong picker.
 type heldRecords struct {
+	V       int          `json:"v"`
 	Pickers []heldRecord `json:"pickers"`
 }
 
@@ -235,6 +248,17 @@ func (p *persistStore) load(key string, v any) loadResult {
 		// A missing key reads back as the zero entry with no error (that is the
 		// persist API's contract), so an empty value is simply "never stored".
 		return loadMissing
+	}
+	// Version gate, before the record proper is decoded: a record stamped by a
+	// newer schema must not be half-read (see persistRecVersion). loadFailed is
+	// the right verdict — like an unreadable record, it is kept untouched.
+	var stamp struct {
+		V int `json:"v"`
+	}
+	if err := json.Unmarshal([]byte(e.Value), &stamp); err == nil && stamp.V > persistRecVersion {
+		p.logger.Warn("pnptask: persisted state was written by a newer pnptask, keeping it untouched",
+			"key", key, "record_version", stamp.V, "supported", persistRecVersion)
+		return loadFailed
 	}
 	if err := json.Unmarshal([]byte(e.Value), v); err != nil {
 		p.logger.Warn("pnptask: persisted state is not readable, keeping it untouched",
@@ -501,18 +525,18 @@ func (w *world) flush() {
 			continue
 		}
 		t.dirty = false
-		w.persist.store(trayKey(t.cfg.ID), trayRecord{TrayID: t.trayID, Slots: t.slots})
+		w.persist.store(trayKey(t.cfg.ID), trayRecord{V: persistRecVersion, TrayID: t.trayID, Slots: t.slots})
 	}
 	for _, p := range w.procs {
 		if !p.dirty {
 			continue
 		}
 		p.dirty = false
-		w.persist.store(procKey(p.cfg.ID), procRecord{HasMaterial: p.hasMaterial})
+		w.persist.store(procKey(p.cfg.ID), procRecord{V: persistRecVersion, HasMaterial: p.hasMaterial})
 	}
 	if w.heldDirty {
 		w.heldDirty = false
-		rec := heldRecords{}
+		rec := heldRecords{V: persistRecVersion}
 		for n := range w.held {
 			if w.held[n].occupied() {
 				rec.Pickers = append(rec.Pickers, heldRecord{

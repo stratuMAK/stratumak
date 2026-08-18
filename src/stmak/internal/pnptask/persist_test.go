@@ -561,17 +561,68 @@ func TestFailedRestoreReadDoesNotOverwrite(t *testing.T) {
 	}
 }
 
+// TestNewerRecordVersionRefused: a record stamped by a newer schema than this
+// build supports is not half-read — it is treated like an unreadable record,
+// restored from not at all and left untouched on disk (persistRecVersion).
+func TestNewerRecordVersionRefused(t *testing.T) {
+	dir := t.TempDir()
+	persistName := newTestPersist(t, dir)
+	const ns = "pnptask_newer"
+
+	raw, err := openPersist("seeder", persistName, ns, testLogger())
+	if err != nil {
+		t.Fatalf("openPersist: %v", err)
+	}
+	const newer = `{"v":99,"tray_id":1,"slots":[1,1,1,1]}`
+	if _, err := raw.db.SetEntry(raw.handle, trayKey(10), newer); err != nil {
+		t.Fatalf("SetEntry: %v", err)
+	}
+	raw.close()
+
+	f := newMachineFixtureOpts(t, fixtureOpts{
+		prep: withPersist(persistName, ns, func(m *pnptaskModule) {
+			m.pins.trays[0].trayID.Set(1)
+		}),
+	})
+	f.consistently("nothing restored from the newer-schema record", func() bool {
+		return !f.bit("tray.10.full")
+	})
+	f.m.Stop()
+
+	check, err := openPersist("checker", persistName, ns, testLogger())
+	if err != nil {
+		t.Fatalf("openPersist: %v", err)
+	}
+	defer check.close()
+	e, err := check.db.GetEntry(check.handle, trayKey(10))
+	if err != nil {
+		t.Fatalf("GetEntry: %v", err)
+	}
+	if e.Value != newer {
+		t.Errorf("the newer-schema record was overwritten: %q", e.Value)
+	}
+}
+
 // TestHeldRecordCodec pins the wire format of the held-material records: they
 // name their picker explicitly, so an instance reloaded with a different
 // pickers= count cannot shift a record onto the wrong picker.
 func TestHeldRecordCodec(t *testing.T) {
-	b, err := json.Marshal(heldRecords{Pickers: []heldRecord{{Picker: 1, Station: 20}}})
+	b, err := json.Marshal(heldRecords{V: persistRecVersion, Pickers: []heldRecord{{Picker: 1, Station: 20}}})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	const want = `{"pickers":[{"picker":1,"station":20}]}`
+	const want = `{"v":1,"pickers":[{"picker":1,"station":20}]}`
 	if string(b) != want {
 		t.Errorf("encoded held records = %s, want %s", b, want)
+	}
+
+	// Records from before versioning carry no "v" and must still decode.
+	var old heldRecords
+	if err := json.Unmarshal([]byte(`{"pickers":[{"picker":1,"station":20}]}`), &old); err != nil {
+		t.Fatalf("unmarshal unversioned record: %v", err)
+	}
+	if old.V != 0 || len(old.Pickers) != 1 {
+		t.Errorf("unversioned record = %+v, want V=0 and one picker", old)
 	}
 
 	// A record for a picker the instance does not have is dropped, not shifted.

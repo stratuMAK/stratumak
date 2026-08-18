@@ -98,6 +98,10 @@ type Config struct {
 	Trays    []TrayStation
 	Procs    []ProcStation
 	Routes   []RouteOverride
+
+	// Warnings are load-time findings that do not fail the load; the module
+	// logs them once at Start, next to the home-position warnings.
+	Warnings []string
 }
 
 // TrayDef is one [PNPTASK_TRAYDEF_x] section: the *geometry* of a tray, picked
@@ -275,6 +279,19 @@ func LoadConfig(ini *inifile.IniFile) (*Config, error) {
 	if cfg.NumJoints < 1 || cfg.NumJoints > motsetup.MaxJoints {
 		return nil, fmt.Errorf("[KINS]JOINTS = %d: must be between 1 and %d",
 			cfg.NumJoints, motsetup.MaxJoints)
+	}
+
+	// This module assumes the identity joint→axis mapping everywhere it deals
+	// in joints — the [JOINT_0/1]HOME reads below, the homing sequence, the
+	// jog pins. That is a trivkins property, and the HAL file (not this INI)
+	// decides which kins module actually loads, so a mismatch cannot be
+	// refused here; when the INI *does* declare its kinematics, a non-trivkins
+	// value at least earns a warning instead of a commissioning-time surprise.
+	if kins := strings.Fields(ini.Get("KINS", "KINEMATICS")); len(kins) > 0 && kins[0] != "trivkins" {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(
+			"[KINS]KINEMATICS = %s: pnptask assumes the identity joint/axis mapping of trivkins; "+
+				"with any other kinematics the homed-position warnings and the joint jog pins are wrong",
+			kins[0]))
 	}
 
 	const sec = "PNPTASK"
