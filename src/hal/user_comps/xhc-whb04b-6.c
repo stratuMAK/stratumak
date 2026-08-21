@@ -1274,7 +1274,7 @@ static void usb_callback(struct libusb_transfer *transfer)
         break;
 
     default:
-        stmak_log_errorf(inst->log, COMP_NAME, "USB transfer error: %d", transfer->status);
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "USB transfer error: %d", transfer->status);
         inst->running = false;
         break;
     }
@@ -1290,7 +1290,7 @@ static void *usb_thread_fn(void *arg)
     struct timeval tv;
 
     if (usb_open(inst) < 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "USB open failed, thread exiting");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "USB open failed, thread exiting");
         return NULL;
     }
 
@@ -1322,7 +1322,7 @@ static int usb_open(whb_inst_t *inst)
 {
     int r = libusb_init(&inst->usb_ctx);
     if (r != 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "libusb_init failed: %s", libusb_error_name(r));
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "libusb_init failed: %s", libusb_error_name(r));
         return -1;
     }
 
@@ -1341,7 +1341,7 @@ static int usb_open(whb_inst_t *inst)
             sleep(1);
             wait--;
         } else if (wait == 0) {
-            stmak_log_errorf(inst->log, COMP_NAME, "device not found (timeout)");
+            stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "device not found (timeout)");
             libusb_exit(inst->usb_ctx);
             inst->usb_ctx = NULL;
             return -1;
@@ -1364,7 +1364,7 @@ static int usb_open(whb_inst_t *inst)
 
     r = libusb_claim_interface(inst->usb_dev, 0);
     if (r != 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "claim interface failed: %s", libusb_error_name(r));
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "claim interface failed: %s", libusb_error_name(r));
         libusb_close(inst->usb_dev);
         inst->usb_dev = NULL;
         libusb_exit(inst->usb_ctx);
@@ -1381,7 +1381,7 @@ static int usb_open(whb_inst_t *inst)
 
     r = libusb_submit_transfer(inst->in_transfer);
     if (r != 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "submit transfer failed: %s", libusb_error_name(r));
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "submit transfer failed: %s", libusb_error_name(r));
         libusb_free_transfer(inst->in_transfer);
         inst->in_transfer = NULL;
         libusb_release_interface(inst->usb_dev, 0);
@@ -1437,7 +1437,7 @@ static int whb_Start(cmod_t *self)
     clear_display(inst);
 
     if (pthread_create(&inst->usb_thread, NULL, usb_thread_fn, inst) != 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "failed to create USB thread");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to create USB thread");
         return -1;
     }
 
@@ -1504,14 +1504,14 @@ int New(const cmod_env_t *env, const char *name,
     const stmak_hal_t *hal = env->hal;
     inst->hal_id = hal->init(hal->ctx, COMP_NAME, env->dl_handle, STMAK_HAL_COMP_USER);
     if (inst->hal_id < 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "hal init failed");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal init failed");
         free(inst);
         return -1;
     }
 
     inst->pins = hal->malloc(hal->ctx, sizeof(hal_pins_t));
     if (!inst->pins) {
-        stmak_log_errorf(inst->log, COMP_NAME, "hal malloc failed");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal malloc failed");
         hal->exit(hal->ctx, inst->hal_id);
         free(inst);
         return -1;
@@ -1519,7 +1519,7 @@ int New(const cmod_env_t *env, const char *name,
     memset(inst->pins, 0, sizeof(hal_pins_t));
 
     if (create_hal_pins(inst) < 0) {
-        stmak_log_errorf(inst->log, COMP_NAME, "pin creation failed");
+        stmak_logf(inst->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "pin creation failed");
         hal->exit(hal->ctx, inst->hal_id);
         free(inst);
         return -1;

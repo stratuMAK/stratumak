@@ -1,0 +1,11 @@
+PASS the machine comes up unhomed
+PASS a job in manual mode is refused with AUTO_DISABLED
+PASS an unhomed machine ignores the jog pins
+PASS a home pulse homes the machine in manual mode (D25)
+PASS a homed machine jogs (D18)
+PASS on a metric machine the mm and machine-unit teach pins agree (D26)
+PASS both pickers report the same position while their offsets are 0
+PASS a job on the already-homed machine completes
+PASS the machine is still homed afterwards
+PASS auto mode ignores the jog pins
+ALL OK

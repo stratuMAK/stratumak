@@ -83,7 +83,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!enums_arg || !*enums_arg) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "enum requires enums= argument (e.g. enums=\"D;off;on;error\")");
         return -EINVAL;
     }
@@ -103,7 +103,7 @@ int New(const cmod_env_t *env, const char *name,
         dir = STMAK_HAL_OUT; /* bit pins are outputs (decode) */
         break;
     default:
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "enums string must start with E; or D;");
         env->rtapi->free(env->rtapi->ctx, enums_copy);
         return -EINVAL;
@@ -120,7 +120,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_pins < 1) {
-        stmak_log_errorf(env->log, name, "enum: no enumeration values found");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "enum: no enumeration values found");
         env->rtapi->free(env->rtapi->ctx, enums_copy);
         return -EINVAL;
     }

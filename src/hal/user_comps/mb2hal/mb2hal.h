@@ -77,7 +77,7 @@ typedef enum { retOK, retOKwithWarning, retERR
 // Logging macros — route through the cmod env callbacks.
 // Each takes a module pointer as the first argument.
 #define ERR(m, debug, fmt, args...) do { if((debug) >= debugERR) { \
-    stmak_log_errorf((m)->env->log, (m)->name, "%s ERR: " fmt, fnct_name, ## args); \
+    stmak_logf((m)->env->log, (m)->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s ERR: " fmt, fnct_name, ## args); \
     } } while(0)
 
 #define OK(m, debug, fmt, args...) do { if((debug) >= debugOK) { \

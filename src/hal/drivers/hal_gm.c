@@ -440,13 +440,13 @@ gm_pci_probe(struct rtapi_pci_dev *dev, const struct rtapi_pci_device_id *id)
 
 
         if (pci_bridge_inst->num_boards >= MAX_GM_DEVICES) {
-          stmak_log_errorf(gm_log, "hal_gm","skipping AnyIO board at %s, this driver can only handle %d\n", rtapi_pci_name(dev), MAX_GM_DEVICES);
+          stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER,"skipping AnyIO board at %s, this driver can only handle %d\n", rtapi_pci_name(dev), MAX_GM_DEVICES);
           return -EINVAL;
         }
 
         // NOTE: this enables the board's BARs -- this fixes the Arty bug
         if (rtapi_pci_enable_device(dev)) {
-          stmak_log_errorf(gm_log, "hal_gm","skipping AnyIO board at %s, failed to enable PCI device\n", rtapi_pci_name(dev));
+          stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER,"skipping AnyIO board at %s, failed to enable PCI device\n", rtapi_pci_name(dev));
           return pci_bridge_inst->failed_errno = -ENODEV;
         }
 
@@ -454,7 +454,7 @@ gm_pci_probe(struct rtapi_pci_dev *dev, const struct rtapi_pci_device_id *id)
 	pDevice = gm_hal->malloc(gm_hal->ctx, sizeof(gm_device_t));
 
 	if (pDevice == 0) {
-	  stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR: gm_hal->malloc(gm_hal->ctx, ) failed.\n");
+	  stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR: gm_hal->malloc(gm_hal->ctx, ) failed.\n");
 	  pci_bridge_inst->env->hal->exit(pci_bridge_inst->env->hal->ctx, pci_bridge_inst->driver.comp_id);
 	  return(-ENOMEM);
 	}
@@ -477,7 +477,7 @@ gm_pci_probe(struct rtapi_pci_dev *dev, const struct rtapi_pci_device_id *id)
 	stmak_log_infof(gm_log, "hal_gm", "General Mechatronics: Card ID: 0x%X.\n", pDevice->cardID);
 	
 	if ( (pDevice->cardID & IDmask_card) != cardVersion1 ) {
-	  stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown card detected.\nPlease, download the latest driver.\n");
+	  stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown card detected.\nPlease, download the latest driver.\n");
 	  pci_bridge_inst->env->hal->exit(pci_bridge_inst->env->hal->ctx, pci_bridge_inst->driver.comp_id);
 	  return(-ENODEV);
 	}
@@ -500,7 +500,7 @@ gm_pci_probe(struct rtapi_pci_dev *dev, const struct rtapi_pci_device_id *id)
 	// rtapi_set_msg_level deprecated: (RTAPI_MSG_ALL);
 
 	if(error){
-	  stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: Error exporting pins and parameters.\n");
+	  stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: Error exporting pins and parameters.\n");
 	  pci_bridge_inst->env->hal->exit(pci_bridge_inst->env->hal->ctx, pci_bridge_inst->driver.comp_id);
 	  return -EINVAL;
 	}
@@ -580,7 +580,7 @@ New(const cmod_env_t *env, const char *name,
 	inst->driver.comp_id = env->hal->init(env->hal->ctx, "hal_gm",
 	                                      env->dl_handle, STMAK_HAL_COMP_REALTIME);
 	if (inst->driver.comp_id < 0) {
-          stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR: hal_init() failed.\n");
+          stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR: hal_init() failed.\n");
           env->rtapi->free(env->rtapi->ctx, inst);
           return(-EINVAL);
     	}
@@ -593,7 +593,7 @@ New(const cmod_env_t *env, const char *name,
 	r = rtapi_pci_register_driver(&gm_pci_driver);
 
 	if (r != 0) {
-          stmak_log_errorf(gm_log, "hal_gm","error registering PCI driver\n");
+          stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER,"error registering PCI driver\n");
           env->hal->exit(env->hal->ctx, inst->driver.comp_id);
           pci_bridge_inst = NULL;
           env->rtapi->free(env->rtapi->ctx, inst);
@@ -676,7 +676,7 @@ ExportEncoder(void *arg, int comp_id, int version)
 	      }
 	    break;
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown encoder version.\nPlease, download the latest driver.\n");
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown encoder version.\nPlease, download the latest driver.\n");
 	}
 	return error;
 }
@@ -742,7 +742,7 @@ ExportStepgen(void *arg, int comp_id, int version)
 	    }
 	  break;
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown stepgen version.\nPlease, download the latest driver.\n");
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown stepgen version.\nPlease, download the latest driver.\n");
 	    error = -1;
 	}
 return error;
@@ -799,7 +799,7 @@ ExportDAC(void *arg, int comp_id, int version)
 	      }
 	    break;
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown axis DAC version.\nPlease, download the latest driver.\n");
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown axis DAC version.\nPlease, download the latest driver.\n");
 	    error = -1;
 	}
 	return error;
@@ -1021,12 +1021,12 @@ ExportRS485(void *arg, int comp_id, int version)
 			device->RS485_TeachPad[i].enc_position_scale=1;
 		    break;
 		    default:
-			stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown rs485 module type.\nPlease, download the latest driver.\n");
+			stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown rs485 module type.\nPlease, download the latest driver.\n");
 		}
 	    } 
 	    break;
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown rs485 version.\nPlease, download the latest driver.\n");
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown rs485 version.\nPlease, download the latest driver.\n");
 	}
 	return error;
 }
@@ -1067,7 +1067,7 @@ ExportCAN(void *arg, int comp_id, int version)
 
 	    break;
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics: ERROR, unknown encoder version.\nPlease, download the latest driver.\n");
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics: ERROR, unknown encoder version.\nPlease, download the latest driver.\n");
 	}
 	return error;
 }
@@ -1422,7 +1422,7 @@ CAN_SetBaud(void *arg, stmak_hal_u32_t Baud)
 	    break;
 	    
 	  default:
-	    stmak_log_errorf(gm_log, "hal_gm", "General Mechatronics:Not valid CAN Baud Rate. Supported: 125,250,500 and 1000 kBit/s.\n");  
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "General Mechatronics:Not valid CAN Baud Rate. Supported: 125,250,500 and 1000 kBit/s.\n");  
 	}
 }
 #endif
@@ -1675,7 +1675,7 @@ stepgenCheckParameters(void *arg, long period, unsigned int channel)
 	  if(max_vel < device->stepgen[channel].maxvel) //if stepgen given velocity is higher, then what is possible with step timing parameters
 	  {
 	    device->stepgen[channel].maxvel = max_vel;
-	    stmak_log_errorf(gm_log, "hal_gm", "GM: stepgen.%d.maxvel can not be reached with given 'steplen' and 'stepspace' parameters.\n", channel);
+	    stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "GM: stepgen.%d.maxvel can not be reached with given 'steplen' and 'stepspace' parameters.\n", channel);
 	  }
 	}
       }
@@ -1689,7 +1689,7 @@ stepgenCheckParameters(void *arg, long period, unsigned int channel)
 	
 	if((device->stepgen[channel].steplen > 1900000) || (device->stepgen[channel].dirdelay > 1900000))
 	{
-	  stmak_log_errorf(gm_log, "hal_gm", "GM: stepgen: 'steplen' and 'dirdelay' must be lower than 1 900 000 ns.\n");
+	  stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "GM: stepgen: 'steplen' and 'dirdelay' must be lower than 1 900 000 ns.\n");
 	}
 	pCard->StepGen_time_params[channel] = (temp1 << 16) | (temp2 & 0xFFFF);
       }
@@ -1883,7 +1883,7 @@ RS485(void *arg, long period)
               if(failed == 0) //Msg only first time, do not put 100 error msg
               {
                 failed=1;
-                stmak_log_errorf(gm_log, "hal_gm", "GM: ERROR: RS485 module ID:%2d failed.\n", 2*i);
+                stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "GM: ERROR: RS485 module ID:%2d failed.\n", 2*i);
               }
               *(device->cardMgr.power_fault) = 1;
             }
@@ -1897,7 +1897,7 @@ RS485(void *arg, long period)
               if(failed == 0) //Msg only first time, do not put 100 error msg
               {
                 failed=1; 
-                stmak_log_errorf(gm_log, "hal_gm", "GM: ERROR: RS485 module ID:%2d failed.\n", 2*i+1);
+                stmak_logf(gm_log, "hal_gm", STMAK_LOG_ERROR | STMAK_LOG_OPER, "GM: ERROR: RS485 module ID:%2d failed.\n", 2*i+1);
               }
               *(device->cardMgr.power_fault) = 1;
             }

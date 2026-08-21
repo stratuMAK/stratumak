@@ -55,7 +55,7 @@ modparam string bspi_chan "BSPI channel name (e.g. hm2_5i23.0.bspi.0)";
 #define RTAPI_MSG_WARN  2
 #define RTAPI_MSG_INFO  1
 #define rtapi_print_msg(level, fmt, ...) do { \
-    if ((level) >= RTAPI_MSG_ERR) STMAK_LOG_ERR(fmt, ##__VA_ARGS__); \
+    if ((level) >= RTAPI_MSG_ERR) STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, fmt, ##__VA_ARGS__); \
     else if ((level) >= RTAPI_MSG_WARN) STMAK_LOG_WARN(fmt, ##__VA_ARGS__); \
     else STMAK_LOG_INFO(fmt, ##__VA_ARGS__); \
 } while(0)

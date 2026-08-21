@@ -11,7 +11,8 @@
 //
 // Usage:
 //   stmak_log_infof(env->log, "mycomp", "started %d slaves", n);
-//   stmak_log_errorf(env->log, "mycomp", "init failed: %s", reason);
+//   stmak_logf(env->log, "mycomp", STMAK_LOG_ERROR | STMAK_LOG_OPER,
+//              "init failed: %s", reason);
 
 #ifndef STMAK_LOG_H
 #define STMAK_LOG_H
@@ -43,11 +44,30 @@ typedef enum {
     STMAK_LOG_INFO  = 1,
     STMAK_LOG_WARN  = 2,
     STMAK_LOG_ERROR = 3,
+
+    // "The operator should see this."  A FLAG, not a level, because audience
+    // and severity are independent: a finished batch is worth telling the
+    // operator and is not an error, and an internal consistency failure is an
+    // error they can do nothing about.  Folding the two into one ordered scale
+    // forces a choice between saying what a message MEANS and getting it seen.
+    //
+    // OR it into the level: STMAK_LOG_ERROR | STMAK_LOG_OPER.  The severity
+    // travels with it, so the operator channel can show a fault differently
+    // from a notice (emcerror OPERATOR_ERROR vs OPERATOR_TEXT).
+    //
+    // Everything that compares a level must mask first -- see
+    // STMAK_LOG_SEVERITY.  A raw comparison against a word carrying this bit
+    // passes every filter.
+    STMAK_LOG_OPER  = 0x10,
 } stmak_log_level_t;
 
 // ---------------------------------------------------------------------------
 // Ring buffer slot — fixed-size, cache-line aligned.
 // ---------------------------------------------------------------------------
+
+#define STMAK_LOG_LEVEL_MASK    0x0fu
+#define STMAK_LOG_SEVERITY(l)   ((uint32_t)(l) & STMAK_LOG_LEVEL_MASK)
+#define STMAK_LOG_IS_OPER(l)    (((uint32_t)(l) & (uint32_t)STMAK_LOG_OPER) != 0u)
 
 #define STMAK_LOG_MSG_LEN       216
 #define STMAK_LOG_COMPONENT_LEN (STMAK_RTAPI_NAME_LEN + 1)
@@ -208,6 +228,28 @@ stmak_log_infof(const stmak_log_t *log, const char *component,
     va_end(ap);
 }
 
+// --- the general entry point ---------------------------------------------
+//
+// Takes the whole level word, so a caller composes severity and flags itself:
+//
+//     stmak_logf(log, comp, STMAK_LOG_ERROR | STMAK_LOG_OPER, "...", ...);
+//
+// There is deliberately no stmak_log_oper_errorf, nor any other name encoding
+// a flag.  Names would have to cover the cross-product of levels and flags:
+// one flag already means four extra helpers, a second means sixteen, and each
+// one is a place for the two axes to drift apart.  The four bare-level
+// wrappers below stay because they are the common case and they do NOT
+// multiply -- they are just stmak_logf with a constant.
+
+static inline __attribute__((format(printf, 4, 5))) void
+stmak_logf(const stmak_log_t *log, const char *component,
+           uint32_t level, const char *fmt, ...) STMAK_NONBLOCKING {
+    va_list ap;
+    va_start(ap, fmt);
+    stmak_log_emit(log, (stmak_log_level_t)level, component, fmt, ap);
+    va_end(ap);
+}
+
 static inline __attribute__((format(printf, 3, 4))) void
 stmak_log_warnf(const stmak_log_t *log, const char *component,
                const char *fmt, ...) STMAK_NONBLOCKING {
@@ -217,6 +259,9 @@ stmak_log_warnf(const stmak_log_t *log, const char *component,
     va_end(ap);
 }
 
+// Log-only: an error the operator can do nothing about.  The operator-facing
+// variant above is the usual one; this exists for the rare message that would
+// only be noise on a panel.
 static inline __attribute__((format(printf, 3, 4))) void
 stmak_log_errorf(const stmak_log_t *log, const char *component,
                 const char *fmt, ...) STMAK_NONBLOCKING {

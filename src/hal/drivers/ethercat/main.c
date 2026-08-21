@@ -67,7 +67,7 @@ static void lcec_ec_log_callback(int level, const char *fmt, va_list ap) {
   case 1: // LOG_ALERT
   case 2: // LOG_CRIT
   case 3: // LOG_ERR
-    stmak_log_errorf(lcec_log_g, lcec_name_g, "%s", buf);
+    stmak_logf(lcec_log_g, lcec_name_g, STMAK_LOG_ERROR | STMAK_LOG_OPER, "%s", buf);
     break;
   case 4: // LOG_WARNING
     stmak_log_warnf(lcec_log_g, lcec_name_g, "%s", buf);

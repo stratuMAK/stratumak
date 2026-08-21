@@ -6,7 +6,9 @@
 # error) using the pinned clang provided by scripts/rt-clang.sh:
 #
 #   1. the core RTAPI/HAL library TUs (thread creation, funct dispatch),
-#   2. the halscope RT sampler,
+#   2. every C translation unit of a compiled-in Go module — the halscope RT
+#      sampler and the cyclic functions Go modules export through pkg/hal
+#      (coverage is enforced by glob, not curated: see section 2b),
 #   3. motmod — the motion controller (servo cycle + command handler),
 #   4. tpmod + homemod (+cia402) — trajectory planner and homing,
 #   5. lcec — the EtherCAT driver (masters, slaves, all device drivers),
@@ -65,14 +67,78 @@ check_tu() {
     fi
 }
 
-# --- 1+2. Core RTAPI/HAL library + halscope RT sampler ---------------------
+# --- 1. Core RTAPI/HAL library ---------------------------------------------
 
 CORE_INC="-Isrc/hal -Isrc -Isrc/rtapi -Iinclude"
 check_tu src/stmak/internal/hallib/uspace_rtapi_lib.c   $CORE_INC
 check_tu src/stmak/internal/hallib/uspace_rtapi_string.c $CORE_INC
 check_tu src/stmak/internal/hallib/hal_lib.c            $CORE_INC
-check_tu src/stmak/internal/halscope/halscope_rt.c \
-    $CORE_INC -Isrc/stmak/generated/gmi/halscope -Isrc/stmak/pkg/cmodule
+
+# --- 2b. Go modules — the C translation units of compiled-in Go modules -----
+# A Go module that needs one cyclic function contains a C function and exports
+# it through pkg/hal (docs/dev/GOMOD_RT_DESIGN.md).  That function has to live
+# in a real .c file precisely so this can compile it: a cgo preamble is built
+# by cgo's own invocation and no checker ever sees it.
+#
+# Coverage is enforced, not curated.  EVERY .c file under src/stmak is
+# discovered by glob and looked up below; one that is neither checked nor
+# explicitly excluded fails the run.  A new RT file therefore cannot join the
+# tree without either being verified or being argued about in this function —
+# which is the point, since a checker that quietly stops covering the newest RT
+# code is worse than no checker at all.
+#
+# Echo the include flags for a checked TU; echo nothing and return 1 for one
+# that is deliberately out of scope (with the reason on stderr).
+
+gomod_tu_includes() {
+    case "$1" in
+    # --- checked ---
+    src/stmak/internal/halscope/halscope_rt.c)
+        echo "$CORE_INC -Isrc/stmak/generated/gmi/halscope -Isrc/stmak/pkg/cmodule" ;;
+    src/stmak/internal/hallib/rtfuncttest/rtfuncttest_rt.c)
+        echo "$CORE_INC -Isrc/stmak/pkg/cmodule" ;;
+    src/stmak/internal/pnptask/pnp_deadzone_rt.c)
+        echo "$CORE_INC -Isrc/stmak/pkg/cmodule -Isrc/stmak/generated/gmi/mot" ;;
+    # classicladder's scan function is compiled under the regime but claims
+    # nothing yet: classicladder_refresh carries no STMAK_NONBLOCKING, so the
+    # analysis has nothing to verify.  It is listed here rather than excluded
+    # so that annotating it is a one-line change with the gate already in
+    # place — and so the file cannot drift out of the build's reach.
+    src/stmak/internal/classicladder/classicladder_rt.c)
+        echo "$CORE_INC" ;;
+
+    # --- deliberately out of scope (reason on stdout, exit 1) ---
+    # Already covered above as the core RTAPI/HAL library (section 1).
+    src/stmak/internal/hallib/hal_lib.c|\
+    src/stmak/internal/hallib/uspace_rtapi_lib.c|\
+    src/stmak/internal/hallib/uspace_rtapi_string.c)
+        echo "checked above as the core RTAPI/HAL library"; return 1 ;;
+    # C unit-test harnesses and non-RT support code: never on a HAL thread.
+    src/stmak/internal/halscope/testrt/test_halscope_rt.c)
+        echo "C unit-test harness, built against a mock rtapi"; return 1 ;;
+    src/stmak/internal/classicladder/testdata/oracle/oracle_main.c)
+        echo "standalone oracle that generates test fixtures"; return 1 ;;
+    src/stmak/internal/task/interp_param_io_persist.c)
+        echo "interpreter parameter I/O, userspace only"; return 1 ;;
+    src/stmak/internal/tptest/tp_sources.c)
+        echo "amalgamation unit for the tp test harness"; return 1 ;;
+
+    *) return 2 ;;
+    esac
+}
+
+for tu in $(find src/stmak -name '*.c' | sort); do
+    ans="$(gomod_tu_includes "$tu")" && rc=0 || rc=$?
+    case "$rc" in
+    0)  check_tu "$tu" $ans ;;
+    1)  echo "rt-effects-check: skipping $tu ($ans)"
+        skipped=$((skipped+1)) ;;
+    *)  echo "rt-effects-check: ERROR: unclassified C file under src/stmak: $tu" >&2
+        echo "rt-effects-check: add it to gomod_tu_includes() in $0 — either with" >&2
+        echo "rt-effects-check: its include flags, or with the reason it is not RT" >&2
+        fail=1 ;;
+    esac
+done
 
 # --- 3. motmod — the motion controller cmod --------------------------------
 # Same defines/includes as the motmod.so rule in src/cnc/motion/Submakefile.

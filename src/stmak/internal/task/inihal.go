@@ -358,7 +358,7 @@ func (h *iniHal) check(mc MotionConfig) error {
 			// home change would wipe them and break homing.
 			hp := h.jointHoming[i]
 			if err := mc.SetJointHomingParams(joint, newOffset, newHome,
-				hp.finalVel, hp.searchVel, hp.latchVel, hp.flags, newSeq, hp.volatileHome); err != nil {
+				hp.FinalVel, hp.SearchVel, hp.LatchVel, hp.Flags, newSeq, hp.VolatileHome); err != nil {
 				errs = append(errs, fmt.Errorf("set joint %d homing params: %w", i, err))
 			}
 		}

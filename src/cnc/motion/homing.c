@@ -149,7 +149,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     if (inst->mot->joint_get_on_pos_limit(inst->mot->ctx, jno) ||
         inst->mot->joint_get_on_neg_limit(inst->mot->ctx, jno)) {
         if (!(inst->H.home_flags & HOME_IGNORE_LIMITS)) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d hit limit in home state %d", jno, inst->H.home_state);
             inst->H.home_state = HOME_ABORT;
             return 1;
@@ -157,7 +157,7 @@ static bool home_do_moving_checks(homemod_inst_t *inst)
     }
     if (!inst->mot->joint_get_free_tp_active(inst->mot->ctx, jno)) {
         inst->mot->joint_set_free_tp_enable(inst->mot->ctx, jno, 0);
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "j%d end of move in home state %d", jno, inst->H.home_state);
         inst->H.home_state = HOME_ABORT;
         return 1;
@@ -193,7 +193,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
 
         case HOME_START:
             if (inst->H.home_flags & HOME_IS_SHARED && home_sw_active) {
-                stmak_log_errorf(inst->log, inst->name,
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "Cannot home while shared home switch is closed j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -238,7 +238,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
                     inst->H.home_state = HOME_INDEX_ONLY_START;
                     immediate_state = 1;
                 } else {
-                    stmak_log_errorf(inst->log, inst->name,
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "invalid homing config: non-zero LATCH_VEL needs either SEARCH_VEL or USE_INDEX");
                     inst->H.home_state = HOME_IDLE;
                 }
@@ -247,7 +247,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
                     inst->H.home_state = HOME_INITIAL_SEARCH_START;
                     immediate_state = 1;
                 } else {
-                    stmak_log_errorf(inst->log, inst->name,
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "invalid homing config: non-zero SEARCH_VEL needs LATCH_VEL");
                     inst->H.home_state = HOME_IDLE;
                 }
@@ -337,7 +337,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (!home_sw_active) {
-                stmak_log_errorf(inst->log, inst->name,
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "Home switch inactive before start of backoff move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -367,7 +367,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (home_sw_active) {
-                stmak_log_errorf(inst->log, inst->name,
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "Home switch active before start of latch move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -403,7 +403,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
             }
             inst->H.pause_timer = 0;
             if (!home_sw_active) {
-                stmak_log_errorf(inst->log, inst->name,
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "Home switch inactive before start of latch move j=%d", jno);
                 inst->H.home_state = HOME_IDLE;
                 break;
@@ -565,7 +565,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
             if (inst->mot->joint_get_on_pos_limit(inst->mot->ctx, jno) ||
                 inst->mot->joint_get_on_neg_limit(inst->mot->ctx, jno)) {
                 if (!(inst->H.home_flags & HOME_IGNORE_LIMITS)) {
-                    stmak_log_errorf(inst->log, inst->name,
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "hit limit in home state j=%d", jno);
                     inst->H.home_state = HOME_ABORT;
                     immediate_state = 1;
@@ -611,7 +611,7 @@ static int do_homing_state_machine(homemod_inst_t *inst) STMAK_NONBLOCKING
             break;
 
         default:
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "unknown state '%d' during homing j=%d",
                 inst->H.home_state, jno);
             inst->H.home_state = HOME_ABORT;
@@ -636,7 +636,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     inst->comp_id = comp_id;
 
     if (servo_period < 1e-9) {
-        stmak_log_errorf(inst->log, inst->name, "bad servo_period:%g", servo_period);
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "bad servo_period:%g", servo_period);
         return -1;
     }
     inst->servo_freq = 1.0 / servo_period;
@@ -655,7 +655,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     retval += stmak_hal_pin_bit_newf(inst->hal, STMAK_HAL_IO, &inst->pins.index_enable, comp_id,
                               "%sjoint.%d.index-enable", inst->pin_prefix, inst->jno);
     if (retval != 0) {
-        stmak_log_errorf(inst->log, inst->name, "failed to create HAL pins");
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to create HAL pins");
         return -1;
     }
 
@@ -752,17 +752,17 @@ static int32_t gmi_home_set_unhomed(void *ctx, home_motion_state_t motstate) STM
     (void)motstate;
 
     if (!inst->mot->joint_get_active_flag(inst->mot->ctx, inst->jno)) {
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot unhome inactive joint %d", inst->jno);
         return -1;
     }
     if (inst->H.homing) {
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot unhome while homing, joint %d", inst->jno);
         return -1;
     }
     if (!inst->mot->joint_get_inpos_flag(inst->mot->ctx, inst->jno)) {
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot unhome while moving, joint %d", inst->jno);
         return -1;
     }
@@ -855,7 +855,7 @@ int New(const cmod_env_t *env, const char *name,
     if (dot && dot[1] >= '0' && dot[1] <= '9') {
         inst->jno = atoi(dot + 1);
     } else {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot parse joint number from instance name '%s' (expected 'prefix.N')", name);
         free(inst);
         return -1;
@@ -885,7 +885,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = home_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name, "failed to register home API: %d", rc);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to register home API: %d", rc);
         free(inst);
         return rc;
     }

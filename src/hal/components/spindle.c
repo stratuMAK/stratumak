@@ -322,7 +322,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (numgears < 1 || numgears > MAX_GEARS) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "numgears=%d is out of range (1..%d)", numgears, MAX_GEARS);
         return -EINVAL;
     }
@@ -330,7 +330,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate instance */
     inst = env->rtapi->calloc(env->rtapi->ctx, sizeof(*inst));
     if (!inst) {
-        stmak_log_errorf(env->log, name, "failed to allocate instance");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to allocate instance");
         return -ENOMEM;
     }
 
@@ -342,7 +342,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                    STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-        stmak_log_errorf(env->log, name, "hal_init failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal_init failed");
         env->rtapi->free(env->rtapi->ctx, inst);
         return -1;
     }
@@ -350,7 +350,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate HAL shared memory */
     inst->hal = env->hal->malloc(env->hal->ctx, sizeof(inst_hal_t));
     if (!inst->hal) {
-        stmak_log_errorf(env->log, name, "failed to allocate HAL memory");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to allocate HAL memory");
         goto err;
     }
     memset(inst->hal, 0, sizeof(inst_hal_t));

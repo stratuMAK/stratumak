@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Sascha Ittner <sascha.ittner@modusoft.de>
 // License: GPL Version 2
-package task
+package motsetup
 
 import (
 	"testing"
@@ -40,9 +40,10 @@ func (noopMotionConfig) SetSpindleParams(int32, float64, float64, float64, float
 	return nil
 }
 
-// loadJoint must cache the INI-fixed homing params so a later runtime HAL
-// home/offset/seq change (inihal) can re-push them instead of zeroing them.
-func TestLoadJoint_CachesHomingParams(t *testing.T) {
+// pushJoint must cache the INI-fixed homing params so a later runtime HAL
+// home/offset/seq change (milltask's inihal) can re-push them instead of
+// zeroing them.
+func TestPushJoint_CachesHomingParams(t *testing.T) {
 	ini, err := inifile.ParseString(`[JOINT_0]
 MIN_LIMIT=-10
 MAX_LIMIT=10
@@ -61,19 +62,19 @@ VOLATILE_HOME=1
 		t.Fatalf("parse ini: %v", err)
 	}
 
-	task := &Task{}
-	if err := loadJoint(ini, task, 0, noopMotionConfig{}); err != nil {
-		t.Fatalf("loadJoint: %v", err)
+	res := &Result{}
+	if _, err := pushJoint(ini, 0, units(1.0), noopMotionConfig{}, res); err != nil {
+		t.Fatalf("pushJoint: %v", err)
 	}
 
-	hp := task.jointHoming[0]
-	if hp.finalVel != 3.0 || hp.searchVel != 2.0 || hp.latchVel != 0.5 {
-		t.Errorf("cached vels = %+v, want finalVel=3 searchVel=2 latchVel=0.5", hp)
+	hp := res.JointHoming[0]
+	if hp.FinalVel != 3.0 || hp.SearchVel != 2.0 || hp.LatchVel != 0.5 {
+		t.Errorf("cached vels = %+v, want FinalVel=3 SearchVel=2 LatchVel=0.5", hp)
 	}
-	if hp.flags&1 == 0 { // HOME_IGNORE_LIMITS = 1
-		t.Errorf("cached flags = %d, want HOME_IGNORE_LIMITS bit set", hp.flags)
+	if hp.Flags&1 == 0 { // HOME_IGNORE_LIMITS = 1
+		t.Errorf("cached flags = %d, want HOME_IGNORE_LIMITS bit set", hp.Flags)
 	}
-	if hp.volatileHome != 1 {
-		t.Errorf("cached volatileHome = %d, want 1", hp.volatileHome)
+	if hp.VolatileHome != 1 {
+		t.Errorf("cached volatileHome = %d, want 1", hp.VolatileHome)
 	}
 }

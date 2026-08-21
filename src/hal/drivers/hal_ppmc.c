@@ -489,7 +489,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->comp_id = env->hal->init(env->hal->ctx, "hal_ppmc",
                                    env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-	stmak_log_errorf(ppmc_log, "ppmc", "PPMC: ERROR: hal_init() failed\n");
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, "PPMC: ERROR: hal_init() failed\n");
 	ppmc_bridge_inst = NULL;
 	ppmc_bridge_inst->env->rtapi->free(ppmc_bridge_inst->env->rtapi->ctx, inst);
 	return -1;
@@ -533,7 +533,7 @@ int New(const cmod_env_t *env, const char *name,
         n++;
     }
     if ( n == 0 ) {
-	stmak_log_errorf(ppmc_log, "ppmc", 
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 	    "PPMC: ERROR: no ports specified\n");
 	env->hal->exit(env->hal->ctx, inst->comp_id);
 	ppmc_bridge_inst = NULL;
@@ -555,7 +555,7 @@ int New(const cmod_env_t *env, const char *name,
 	/* allocate memory for bus data - this is not shared memory */
 	bus = ppmc_bridge_inst->env->rtapi->calloc(ppmc_bridge_inst->env->rtapi->ctx, sizeof(bus_data_t));
 	if (bus == 0) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: kmalloc() failed\n");
 	    rv = -1;
 	    /* skip to next bus */
@@ -654,13 +654,13 @@ int New(const cmod_env_t *env, const char *name,
 		}		
 		for ( n = 0; n < MAX_BUS*8 ; n++ ) {
 		  if ( (inst->enc_clock[n] & 0xff) == bus_slot_code) {
-		    //		    stmak_log_errorf(ppmc_log, "ppmc","PPMC detected enc_clock parameter%x\n",enc_clock[n]);
+		    //		    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,"PPMC detected enc_clock parameter%x\n",enc_clock[n]);
 		    if (slot->ver < 4) {
-		      stmak_log_errorf(ppmc_log, "ppmc", 
+		      stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 				      "PPMC encoder does not support adjustable encoder clock, ignoring\n");
 		    }
 		    slot->enc_freq = (inst->enc_clock[n]) >> 8; // the clock selection is in bits 12-8
-		    //		    stmak_log_errorf(ppmc_log, "ppmc","PPMC enc_freq=%x\n",slot->enc_freq);
+		    //		    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,"PPMC enc_freq=%x\n",slot->enc_freq);
 		  }
 		}
 		// can't export encoder until we know if it uses timestamp
@@ -701,7 +701,7 @@ int New(const cmod_env_t *env, const char *name,
 		    }
 		}
 		if ( need_extra_dac && need_extra_dout ) {
-		    stmak_log_errorf(ppmc_log, "ppmc",
+		    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 			"PPMC: ERROR: Can't have extra DAC and DOUT on same slot\n");
 		} else if ( need_extra_dac ) {
 		    rv1 += export_extra_dac(slot, bus);
@@ -736,7 +736,7 @@ int New(const cmod_env_t *env, const char *name,
 		    }
 		}
 		if ( need_extra_dac && need_extra_dout ) {
-		    stmak_log_errorf(ppmc_log, "ppmc",
+		    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 			"PPMC: ERROR: Can't have extra DAC and DOUT on same slot\n");
 		} else if ( need_extra_dac ) {
 		    rv1 += export_extra_dac(slot, bus);
@@ -769,7 +769,7 @@ int New(const cmod_env_t *env, const char *name,
 	    continue;
 	}
 	if ( boards == 0 ) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: no boards found on bus %d, port %04X\n",
 		busnum, inst->port_addr[busnum] );
 	    rv = -1;
@@ -781,7 +781,7 @@ int New(const cmod_env_t *env, const char *name,
 	rv1 = ppmc_hal->export_funct(ppmc_hal->ctx, buf, read_all, &(inst->bus_array[busnum]),
 	    1, 0, inst->comp_id);
 	if (rv1 != 0) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: read funct export failed\n");
 	    rv = -1;
 	    /* skip to next bus */
@@ -791,7 +791,7 @@ int New(const cmod_env_t *env, const char *name,
 	rv1 = ppmc_hal->export_funct(ppmc_hal->ctx, buf, write_all, &(inst->bus_array[busnum]),
 	    1, 0, inst->comp_id);
 	if (rv1 != 0) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: write funct export failed\n");
 	    rv = -1;
 	    /* skip to next bus */
@@ -803,13 +803,13 @@ int New(const cmod_env_t *env, const char *name,
     }
     for ( n = 0 ; n < MAX_BUS*8 ; n++ ) {
 	if ( inst->extradac[n] != -1 ) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: no USC/UPC for extra dac at bus %d, slot %d\n",
 		inst->extradac[n]>>4, inst->extradac[n] & 0x0F );
 	    rv = -1;
 	}
 	if ( inst->extradout[n] != -1 ) {
-	    stmak_log_errorf(ppmc_log, "ppmc",
+	    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 		"PPMC: ERROR: no USC/UPC for extra douts at bus %d, slot %d\n",
 		inst->extradout[n]>>4, inst->extradout[n] & 0x0F );
 	    rv = -1;
@@ -838,7 +838,7 @@ static void ppmc_cleanup(ppmc_inst_t *inst)
     int busnum, n, m;
     bus_data_t *bus;
 
-    stmak_log_errorf(ppmc_log, "ppmc", "PPMC: shutting down\n");
+    stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, "PPMC: shutting down\n");
     for ( busnum = 0 ; busnum < MAX_BUS ; busnum++ ) {
 	/* check to see if memory was allocated for bus */
 	if ( inst->bus_array[busnum] != NULL ) {
@@ -1715,7 +1715,7 @@ static int add_rd_funct(slot_funct_t *funct, slot_data_t *slot,
 			uint32_t cache_bitmap )
 {
     if ( slot->num_rd_functs >= MAX_FUNCT ) {
-	stmak_log_errorf(ppmc_log, "ppmc", 
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 	    "PPMC: ERROR: too many read functions\n");
 	return -1;
     }
@@ -1728,7 +1728,7 @@ static int add_wr_funct(slot_funct_t *funct, slot_data_t *slot,
 			uint32_t cache_bitmap )
 {
     if ( slot->num_wr_functs >= MAX_FUNCT ) {
-	stmak_log_errorf(ppmc_log, "ppmc", 
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, 
 	    "PPMC: ERROR: too many write functions\n");
 	return -1;
     }
@@ -1748,7 +1748,7 @@ static int export_UxC_digin(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the digital input data */
     slot->digin = ppmc_hal->malloc(ppmc_hal->ctx, 16 * sizeof(din_t));
     if (slot->digin == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -1788,7 +1788,7 @@ static int export_UxC_digout(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the digital output data */
     slot->digout = ppmc_hal->malloc(ppmc_hal->ctx, 8 * sizeof(dout_t));
     if (slot->digout == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -1824,7 +1824,7 @@ static int export_PPMC_digin(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the digital input data */
     slot->digin = ppmc_hal->malloc(ppmc_hal->ctx, 18 * sizeof(din_t));  // 18 inputs per unit
     if (slot->digin == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -1892,7 +1892,7 @@ static int export_PPMC_digout(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the digital output data */
     slot->digout = ppmc_hal->malloc(ppmc_hal->ctx, 9 * sizeof(dout_t));              // 8 outputs per board + estop
     if (slot->digout == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -1952,7 +1952,7 @@ static int export_USC_stepgen(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the digital output data */
     slot->stepgen = ppmc_hal->malloc(ppmc_hal->ctx, sizeof(stepgens_t));
     if (slot->stepgen == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -2034,7 +2034,7 @@ static int export_UPC_pwmgen(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the PWM generators */
     slot->pwmgen = ppmc_hal->malloc(ppmc_hal->ctx, sizeof(pwmgens_t));
     if (slot->pwmgen == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -2117,7 +2117,7 @@ static int export_PPMC_DAC(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the DAC */
     slot->DAC = ppmc_hal->malloc(ppmc_hal->ctx, sizeof(DACs_t));
     if (slot->DAC == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -2201,7 +2201,7 @@ static int export_encoders(slot_data_t *slot, bus_data_t *bus)
     /* allocate shared memory for the encoder data */
     slot->encoder = ppmc_hal->malloc(ppmc_hal->ctx, 4 * sizeof(encoder_t));
     if (slot->encoder == 0) {
-        stmak_log_errorf(ppmc_log, "ppmc",
+        stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
         return -1;
     }
@@ -2227,7 +2227,7 @@ static int export_encoders(slot_data_t *slot, bus_data_t *bus)
 	break;
       default:
 	m = 0;
-	stmak_log_errorf(ppmc_log, "ppmc", "PPMC: invalid encoder clock setting.\n");
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER, "PPMC: invalid encoder clock setting.\n");
 	break;
       }
       SelWrt(m, slot->slot_base+ENCCLOCK, slot->port_addr);  // make the setting
@@ -2310,14 +2310,14 @@ static int export_extra_dac(slot_data_t *slot, bus_data_t *bus)
     if (slot->id == 0x40) n=1;
     if (slot->id == 0x50 && slot->ver >= 2) n=1;
     if ( n == 0 ) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: board firmware doesn't support 'extra' port\n");
 	return -1;
     }
     /* allocate shared memory for the DAC */
     slot->extra = ppmc_hal->malloc(ppmc_hal->ctx, sizeof(extra_t));
     if (slot->extra == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }
@@ -2355,7 +2355,7 @@ static int export_extra_dac(slot_data_t *slot, bus_data_t *bus)
     n=0;
     if ((slot->id == 0x10 || slot->id == 0x50) && slot->ver >= 4) n=1;
     if ( n == 0 ) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: board firmware doesn't support encoder timestamp.\n");
 	return -1;
     }
@@ -2375,14 +2375,14 @@ static int export_extra_dout(slot_data_t *slot, bus_data_t *bus)
     if (slot->id == 0x40) n=1;
     if (slot->id == 0x50 && slot->ver >= 2) n=1;
     if ( n == 0 ) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: board firmware doesn't support 'extra' port\n");
 	return -1;
     }
     /* allocate shared memory for the douts */
     slot->extra = ppmc_hal->malloc(ppmc_hal->ctx, sizeof(extra_t));
     if (slot->extra == 0) {
-	stmak_log_errorf(ppmc_log, "ppmc",
+	stmak_logf(ppmc_log, "ppmc", STMAK_LOG_ERROR | STMAK_LOG_OPER,
 	    "PPMC: ERROR: ppmc_hal->malloc(ppmc_hal->ctx, ) failed\n");
 	return -1;
     }

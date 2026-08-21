@@ -65,7 +65,7 @@ static int waitfor(setsserial_inst_t *inst){
         inst->env->rtapi->delay(inst->env->rtapi->ctx, 50000);
         HM2READ(remote->command_reg_addr, buff);
         if (inst->env->rtapi->get_time(inst->env->rtapi->ctx) - starttime > 1000000000){
-            stmak_log_errorf(inst->env->log, "setsserial", "Timeout waiting for CMD to clear\n");
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Timeout waiting for CMD to clear\n");
             return -1;
         }
     } while (buff);
@@ -81,7 +81,7 @@ static int doit(setsserial_inst_t *inst){
     if (waitfor(inst) < 0) return -1;
     HM2READ(remote->data_reg_addr, buff);
     if (buff & (1 << remote->index)){
-        stmak_log_errorf(inst->env->log, "setsserial", "Error flag set after CMD Clear %08x\n",
+        stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Error flag set after CMD Clear %08x\n",
                         buff);
         return -1;
     }
@@ -142,7 +142,7 @@ static int set_nvram_param(setsserial_inst_t *inst, uint32_t addr, uint32_t valu
 fail0: // It's all gone wrong
     buff=0x800; //Stop
     HM2WRITE(remote->command_reg_addr, buff);
-    stmak_log_errorf(inst->env->log, "setsserial",                     "Problem with Smart Serial parameter setting, see dmesg\n");
+    stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER,                     "Problem with Smart Serial parameter setting, see dmesg\n");
     return -1;
 }
 
@@ -470,7 +470,7 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
 
     inst->remote = hm2_get_sserial(&inst->hm2, inst->cmd_list[1]);
     if (!inst->remote) {
-        stmak_log_errorf(inst->env->log, "setsserial",                         "Unable to find sserial remote corresponding to %s\n",
+        stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER,                         "Unable to find sserial remote corresponding to %s\n",
                         inst->cmd_list[1]);
         return -1;
     }
@@ -490,7 +490,7 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
             }
         }
         if (!addr) {
-            stmak_log_errorf(inst->env->log, "setsserial",                             "Unable to find parameter corresponding to %s\n",
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER,                             "Unable to find parameter corresponding to %s\n",
                             inst->cmd_list[1]);
             return -1;
         }
@@ -498,10 +498,10 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
         stmak_log_infof(inst->env->log, "setsserial", "remote name = %s ParamAddr = %x Value = %i\n",
                     remote->name, addr, value);
         if (set_nvram_param(inst, addr, value) < 0) {
-            stmak_log_errorf(inst->env->log, "setsserial", "Parameter setting failed\n");
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Parameter setting failed\n");
             return -1;
         } else {
-            stmak_log_errorf(inst->env->log, "setsserial", "Parameter setting success\n");
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Parameter setting success\n");
             return 0;
         }
     }
@@ -513,15 +513,15 @@ static int setsserial_run(setsserial_inst_t *inst, const char *cmd_str)
             return -EINVAL;
         }
         if (sslbp_flash(inst, inst->cmd_list[2]) < 0){
-            stmak_log_errorf(inst->env->log, "setsserial", "Firmware Flash Failed\n");
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Firmware Flash Failed\n");
             return -1;
         } else {
-            stmak_log_errorf(inst->env->log, "setsserial", "Firmware Flash Success\n");
+            stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "Firmware Flash Success\n");
             return 0;
         }
     }
     else {
-        stmak_log_errorf(inst->env->log, "setsserial",                         "Unknown command or wrong number of parameters to "
+        stmak_logf(inst->env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER,                         "Unknown command or wrong number of parameters to "
                         "setsserial command");
         return -1;
     }
@@ -542,7 +542,7 @@ int New(const cmod_env_t *env, const char *name,
             cmd_str = argv[i] + 4;
     }
     if (!cmd_str) {
-        stmak_log_errorf(env->log, "setsserial", "setsserial: missing cmd= parameter\n");
+        stmak_logf(env->log, "setsserial", STMAK_LOG_ERROR | STMAK_LOG_OPER, "setsserial: missing cmd= parameter\n");
         return -EINVAL;
     }
 
