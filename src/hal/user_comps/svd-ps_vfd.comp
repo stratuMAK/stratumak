@@ -107,7 +107,7 @@ EXTRA_SETUP()
 
     data.ctx = modbus_new_rtu(dev, baud, par, bits, stopbits);
     if (!data.ctx) {
-        STMAK_LOG_ERR("modbus_new_rtu(%s): %s\n", dev, modbus_strerror(errno));
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "modbus_new_rtu(%s): %s\n", dev, modbus_strerror(errno));
         data.init_error = 1;
         return 0;
     }
@@ -116,7 +116,7 @@ EXTRA_SETUP()
     modbus_set_debug(data.ctx, modbus_debug);
 
     if (modbus_connect(data.ctx) != 0) {
-        STMAK_LOG_ERR("unable to connect to %s: %s\n", dev, modbus_strerror(errno));
+        STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_OPER, "unable to connect to %s: %s\n", dev, modbus_strerror(errno));
         modbus_free(data.ctx);
         data.ctx = NULL;
         data.init_error = 1;

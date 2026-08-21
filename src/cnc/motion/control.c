@@ -513,7 +513,7 @@ static void handle_kinematicsSwitch(motmod_inst_t *inst) {
     }
 
     if (motmod_kinematicsSwitch(inst, ctl_switchkins_type)) {
-        stmak_log_errorf(inst->log, inst->name, "kinematicsSwitch() FAIL<%f>\n",
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "kinematicsSwitch() FAIL<%f>\n",
                         *inst->hal_data->switchkins_type);
         SET_MOTION_ERROR_FLAG(1);  // abort
         return; // no updates for abort
@@ -721,7 +721,7 @@ static void process_inputs(motmod_inst_t *inst)
 				*(inst->hal_data->spindle[spindle_num].spindle_orient) = 0;
 				inst->status->spindle_status[spindle_num].orient_fault =
 						*(inst->hal_data->spindle[spindle_num].spindle_orient_fault);
-				stmak_log_errorf(inst->log, inst->name, _("fault %d during orient in progress"),
+				stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("fault %d during orient in progress"),
 						inst->status->spindle_status[spindle_num].orient_fault);
 				inst->status->commandStatus = EMCMOT_COMMAND_INVALID_COMMAND;
 				inst->tp_api->abort(inst->tp_api->ctx);
@@ -741,9 +741,9 @@ static void process_inputs(motmod_inst_t *inst)
         joint_jog_abort_all(inst, *(inst->hal_data->jog_stop_immediate));
         axis_jog_abort_all(ai, *(inst->hal_data->jog_stop_immediate));
         if (*(inst->hal_data->jog_stop_immediate)) {
-          stmak_log_errorf(inst->log, inst->name, "Jog aborted by jog-stop-immediate");
+          stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Jog aborted by jog-stop-immediate");
         } else {
-          stmak_log_errorf(inst->log, inst->name, "Jog aborted by jog-stop");
+          stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Jog aborted by jog-stop");
         }
     }
 }
@@ -905,10 +905,10 @@ static void process_probe_inputs(motmod_inst_t *inst)
             if (probe_suppress) {
                 inst->status->probeTripped = 0;
             } else if(probe_whenclears) {
-                stmak_log_errorf(inst->log, inst->name, _("G38.4 move finished without breaking contact."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("G38.4 move finished without breaking contact."));
                 SET_MOTION_ERROR_FLAG(1);
             } else {
-                stmak_log_errorf(inst->log, inst->name, _("G38.2 move finished without making contact."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("G38.2 move finished without making contact."));
                 SET_MOTION_ERROR_FLAG(1);
             }
         }
@@ -920,7 +920,7 @@ static void process_probe_inputs(motmod_inst_t *inst)
             // running an command
             if (inst->status->motionType != EMC_MOTION_TYPE_PROBING) {
                 inst->tp_api->abort(inst->tp_api->ctx);
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during non-probe move."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during non-probe move."));
                 SET_MOTION_ERROR_FLAG(1);
             }
         } else {
@@ -963,14 +963,14 @@ static void process_probe_inputs(motmod_inst_t *inst)
             }
 
             if(aborted == 1) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during homing motion."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during homing motion."));
             }
 
             if(aborted == 2) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during a joint jog."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during a joint jog."));
             }
             if(aborted == 3) {
-                stmak_log_errorf(inst->log, inst->name, _("Probe tripped during a coordinate jog."));
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Probe tripped during a coordinate jog."));
             }
         }
     }
@@ -988,14 +988,14 @@ static void check_for_faults(motmod_inst_t *inst)
     /* only check enable input if running */
     if ( GET_MOTION_ENABLE_FLAG() != 0 ) {
 	if ( *(inst->hal_data->enable) == 0 ) {
-	    stmak_log_errorf(inst->log, inst->name, _("motion stopped by enable input"));
+	    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("motion stopped by enable input"));
 	    inst->internal->enabling = 0;
 	}
     }
     /* check for spindle ampfifier errors */
     for (spindle_num = 0; spindle_num < inst->config->numSpindles; spindle_num++){
         if(inst->status->spindle_status[spindle_num].fault && GET_MOTION_ENABLE_FLAG()){
-            stmak_log_errorf(inst->log, inst->name, _("spindle %d amplifier fault"), spindle_num);
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("spindle %d amplifier fault"), spindle_num);
             inst->internal->enabling = 0;
         }
     }
@@ -1018,7 +1018,7 @@ static void check_for_faults(motmod_inst_t *inst)
 		    /* trip on limits */
 		    if (!GET_JOINT_ERROR_FLAG(joint)) {
 			/* report the error just this once */
-			stmak_log_errorf(inst->log, inst->name, _("joint %d on limit switch error"),
+			stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d on limit switch error"),
 			    joint_num);
 		    }
 		    SET_JOINT_ERROR_FLAG(joint, 1);
@@ -1031,7 +1031,7 @@ static void check_for_faults(motmod_inst_t *inst)
 		/* joint is faulted, trip */
 		if (!GET_JOINT_ERROR_FLAG(joint)) {
 		    /* report the error just this once */
-		    stmak_log_errorf(inst->log, inst->name, _("joint %d amplifier fault"), joint_num);
+		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d amplifier fault"), joint_num);
 		}
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1041,7 +1041,7 @@ static void check_for_faults(motmod_inst_t *inst)
 	    if (GET_JOINT_FERROR_FLAG(joint)) {
 		if (!GET_JOINT_ERROR_FLAG(joint)) {
 		    /* report the error just this once */
-		    stmak_log_errorf(inst->log, inst->name, _("joint %d following error"), joint_num);
+		    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("joint %d following error"), joint_num);
 		}
 		SET_JOINT_ERROR_FLAG(joint, 1);
 		SET_MOTION_ERROR_FLAG(1);
@@ -1055,7 +1055,7 @@ static void check_for_faults(motmod_inst_t *inst)
     /* Check Miscellaneous faults */
     for (error_num=0; error_num < inst->config->numMiscError; error_num++){
       if(inst->status->misc_error[error_num] && GET_MOTION_ENABLE_FLAG()) {
-        stmak_log_errorf(inst->log, inst->name, _("Motion Stopped by misc error %d"), error_num);
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Motion Stopped by misc error %d"), error_num);
         inst->internal->enabling = 0;
       }
     }
@@ -1099,7 +1099,7 @@ static void set_operating_mode(motmod_inst_t *inst)
     /* check for inst->internal->enabling */
     if (inst->internal->enabling && !GET_MOTION_ENABLE_FLAG()) {
         if (*(inst->hal_data->eoffset_limited)) {
-            stmak_log_errorf(inst->log, inst->name, "Note: Motion enabled after reaching a coordinate "
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Note: Motion enabled after reaching a coordinate "
                         "soft limit with active external offsets");
             *(inst->hal_data->eoffset_limited) = 0;
         }
@@ -1309,17 +1309,17 @@ static void handle_jjogwheels(motmod_inst_t *inst)
 	    break;
 	}
         if (JOINT_HOME_API(joint)->get_needs_unlock_first(JOINT_HOME_API(joint)->ctx) ) {
-            stmak_log_errorf(inst->log, inst->name, "Can't wheel jog locking joint_num=%d",joint_num);
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Can't wheel jog locking joint_num=%d",joint_num);
             continue;
         }
         if (joint->home_sequence < 0) { /* negative = synchronized homing */
             if (inst->config->kinType == KINEMATICS_IDENTITY) {
-                stmak_log_errorf(inst->log, inst->name, 
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, 
                 "Homing is REQUIRED to wheel jog requested coordinate\n"
                 "because joint (%d) home_sequence is synchronized (%d)\n"
                 ,joint_num, joint->home_sequence );
             } else {
-                stmak_log_errorf(inst->log, inst->name, 
+                stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, 
                 "Cannot wheel jog joint %d because home_sequence synchronized (%d)\n"
                 ,joint_num, joint->home_sequence );
             }
@@ -1438,7 +1438,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
            limit becomes max_acc/(cap*servo_period) for the driving joint,
            i.e. higher (less smooth) than requested, but the motion stays
            stable.  Logged only on an actual window change to avoid spam. */
-        stmak_log_errorf(inst->log, inst->name,
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "MOTION: jerk-filter window clamped to cap %d; jerk limited to a "
             "higher (less smooth) value than requested. Raise MAX_JERK or "
             "JERK_FILTER_MAX_WINDOW for smoother motion.\n",
@@ -1456,7 +1456,7 @@ void jerk_filter_recompute_window(motmod_inst_t *inst)
     if (max_window > 0 && nj > 0) {
         if (!inst->jerk_filter.buf || !inst->jerk_filter.sum ||
             nj != inst->jerk_filter.num_joints) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "MOTION: jerk filter buffers not preallocated "
                 "(joints=%d window=%d) - filter disabled\n", nj, max_window);
             inst->jerk_filter.window_size = 0;
@@ -1791,7 +1791,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 		for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
 		    if(!isfinite(positions[joint_num]))
 		    {
-                       stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse gave non-finite joint location on joint %d"),
+                       stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse gave non-finite joint location on joint %d"),
                            joint_num);
                        SET_MOTION_ERROR_FLAG(1);
                        inst->internal->enabling = 0;
@@ -1808,7 +1808,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    }
 	    else
 	    {
-	       stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse failed"));
+	       stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse failed"));
 	       SET_MOTION_ERROR_FLAG(1);
 	       inst->internal->enabling = 0;
 	       break;
@@ -1861,7 +1861,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    for (joint_num = 0; joint_num < NO_OF_KINS_JOINTS; joint_num++) {
 		if(!isfinite(positions[joint_num]))
 		{
-		   stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse gave non-finite joint location on joint %d"),
+		   stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse gave non-finite joint location on joint %d"),
 		         joint_num);
 		   SET_MOTION_ERROR_FLAG(1);
 		   inst->internal->enabling = 0;
@@ -1880,7 +1880,7 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	}
 	else
 	{
-	   stmak_log_errorf(inst->log, inst->name, _("kinematicsInverse failed"));
+	   stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("kinematicsInverse failed"));
 	   SET_MOTION_ERROR_FLAG(1);
 	   inst->internal->enabling = 0;
 	   break;
@@ -1986,11 +1986,11 @@ static void get_pos_cmds(motmod_inst_t *inst, long period)
 	    for (joint_num = 0; joint_num < inst->config->numJoints; joint_num++) {
 	        if (joint_limit[joint_num][0] == 1) {
                     joint = &inst->joints[joint_num];
-                    stmak_log_errorf(inst->log, inst->name, _("Exceeded NEGATIVE soft limit (%.5f) on joint %d"),
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Exceeded NEGATIVE soft limit (%.5f) on joint %d"),
                                   joint->min_pos_limit, joint_num);
                 } else if (joint_limit[joint_num][1] == 1) {
                     joint = &inst->joints[joint_num];
-                    stmak_log_errorf(inst->log, inst->name, _("Exceeded POSITIVE soft limit (%.5f) on joint %d"),
+                    stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, _("Exceeded POSITIVE soft limit (%.5f) on joint %d"),
                                   joint->max_pos_limit,joint_num);
                 }
 	    }

@@ -551,7 +551,7 @@ void switch_to_teleop_mode(motmod_inst_t *inst) {
 
     if (inst->config->kinType != KINEMATICS_IDENTITY) {
         if (!inst->all_homed) {
-            stmak_log_errorf(log, inst->name, "all joints must be homed before going into teleop mode");
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "all joints must be homed before going into teleop mode");
             return;
         }
     }
@@ -595,7 +595,7 @@ static int module_intfc(motmod_inst_t *inst) {
 static int tp_init(motmod_inst_t *inst) {
     const stmak_log_t *log = inst->log;
     if (-1 == inst->tp_api->create(inst->tp_api->ctx, DEFAULT_TC_QUEUE_SIZE,inst->comp_id)) {
-        stmak_log_errorf(log, inst->name, "MOTION: tp_api->create failed\n");
+        stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: tp_api->create failed\n");
         return -1;
     }
     // tpInit is called from tp_api->create
@@ -717,7 +717,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate per-instance state */
     inst = calloc(1, sizeof(*inst));
     if (!inst) {
-        stmak_log_errorf(log, name, "MOTION: failed to allocate instance\n");
+        stmak_logf(log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to allocate instance\n");
         return -1;
     }
     inst->env = env;
@@ -739,7 +739,7 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate per-instance axis state */
     inst->axis_inst = axis_inst_new();
     if (!inst->axis_inst) {
-        stmak_log_errorf(log, inst->name, "MOTION: failed to allocate axis instance\n");
+        stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to allocate axis instance\n");
         free(inst);
         return -1;
     }
@@ -754,14 +754,14 @@ int New(const cmod_env_t *env, const char *name,
     /* Allocate cmod handle */
     cmod = calloc(1, sizeof(*cmod));
     if (!cmod) {
-        stmak_log_errorf(log, inst->name, "MOTION: failed to allocate cmod\n");
+        stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to allocate cmod\n");
         free(inst);
         return -1;
     }
 
     /* Parse module arguments from argv */
     if (parse_argv(inst, argc, argv) != 0) {
-        stmak_log_errorf(log, inst->name, "MOTION: argument parsing failed\n");
+        stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: argument parsing failed\n");
         free(cmod);
         free(inst);
         return -1;
@@ -770,7 +770,7 @@ int New(const cmod_env_t *env, const char *name,
     /* connect to the HAL and RTAPI */
     inst->comp_id = hal->init(hal->ctx, name, env->dl_handle, STMAK_HAL_COMP_REALTIME);
     if (inst->comp_id < 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: hal_init_ex() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: hal_init_ex() failed\n");
 	free(cmod);
 	free(inst);
 	return -1;
@@ -785,7 +785,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->mot_cb = mot_cb;
     retval = mot_api_register(env->api, name, mot_cb);
     if (retval != 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: failed to register mot API: %d\n", retval);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to register mot API: %d\n", retval);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
@@ -798,7 +798,7 @@ int New(const cmod_env_t *env, const char *name,
         motctl_callbacks_t *motctl_cb = calloc(1, sizeof(*motctl_cb));
         motstat_callbacks_t *motstat_cb = calloc(1, sizeof(*motstat_cb));
         if (!motctl_cb || !motstat_cb) {
-            stmak_log_errorf(log, inst->name, "MOTION: failed to allocate motctl/motstat callbacks\n");
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to allocate motctl/motstat callbacks\n");
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -806,7 +806,7 @@ int New(const cmod_env_t *env, const char *name,
         *motctl_cb = motctl_get_callbacks(&mctl_ctx);
         retval = motctl_api_register(env->api, name, motctl_cb);
         if (retval != 0) {
-            stmak_log_errorf(log, inst->name, "MOTION: failed to register motctl API: %d\n", retval);
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to register motctl API: %d\n", retval);
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -814,7 +814,7 @@ int New(const cmod_env_t *env, const char *name,
         *motstat_cb = motstat_get_callbacks(&mstat_ctx);
         retval = motstat_api_register(env->api, name, motstat_cb);
         if (retval != 0) {
-            stmak_log_errorf(log, inst->name, "MOTION: failed to register motstat API: %d\n", retval);
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to register motstat API: %d\n", retval);
             hal->exit(hal->ctx, inst->comp_id);
             return -1;
         }
@@ -826,29 +826,29 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (( inst->num_joints < 1 ) || ( inst->num_joints > EMCMOT_MAX_JOINTS )) {
-	stmak_log_errorf(log, inst->name, "MOTION: inst->num_joints is %d, must be between 1 and %d\n", inst->num_joints, EMCMOT_MAX_JOINTS);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->num_joints is %d, must be between 1 and %d\n", inst->num_joints, EMCMOT_MAX_JOINTS);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
     if (( inst->num_extrajoints < 0 ) || ( inst->num_extrajoints > inst->num_joints )) {
-	stmak_log_errorf(log, inst->name, "\nMOTION: inst->num_extrajoints is %d, must be between 0 and %d\n\n", inst->num_extrajoints, inst->num_joints);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "\nMOTION: inst->num_extrajoints is %d, must be between 0 and %d\n\n", inst->num_extrajoints, inst->num_joints);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
     if (inst->num_extrajoints > 0) {
-	stmak_log_errorf(log, inst->name, "\nMOTION: kinematicjoints=%2d\n            extrajoints=%2d\n           Total joints=%2d\n\n",
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "\nMOTION: kinematicjoints=%2d\n            extrajoints=%2d\n           Total joints=%2d\n\n",
             inst->num_joints-inst->num_extrajoints, inst->num_extrajoints, inst->num_joints);
     }
 
     if (( inst->num_spindles < 0 ) || ( inst->num_spindles > EMCMOT_MAX_SPINDLES )) {
-	stmak_log_errorf(log, inst->name, "MOTION: inst->num_spindles is %d, must be between 0 and %d\n", inst->num_spindles, EMCMOT_MAX_SPINDLES);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->num_spindles is %d, must be between 0 and %d\n", inst->num_spindles, EMCMOT_MAX_SPINDLES);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
     if(inst->num_dio && (inst->names_dout[0] || inst->names_din[0])){
-      stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for digital pins\n");
+      stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: Can't specify both names and number for digital pins\n");
       return -1;
     }
     else if(inst->names_dout[0] || inst->names_din[0]){
@@ -861,13 +861,13 @@ int New(const cmod_env_t *env, const char *name,
 
 
     if (( inst->num_dio < 1 ) || ( inst->num_dio > EMCMOT_MAX_DIO )) {
-	stmak_log_errorf(log, inst->name, "MOTION: inst->num_dio is %d, must be between 1 and %d\n", inst->num_dio, EMCMOT_MAX_DIO);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->num_dio is %d, must be between 1 and %d\n", inst->num_dio, EMCMOT_MAX_DIO);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
   if(inst->num_aio && (inst->names_aout[0] || inst->names_ain[0])){
-    stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for analog pins\n");
+    stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: Can't specify both names and number for analog pins\n");
     return -1;
   }
   else if(inst->names_aout[0] || inst->names_ain[0]){
@@ -879,13 +879,13 @@ int New(const cmod_env_t *env, const char *name,
   }
 
     if (( inst->num_aio < 1 ) || ( inst->num_aio > EMCMOT_MAX_AIO )) {
-	stmak_log_errorf(log, inst->name, "MOTION: inst->num_aio is %d, must be between 1 and %d\n", inst->num_aio, EMCMOT_MAX_AIO);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->num_aio is %d, must be between 1 and %d\n", inst->num_aio, EMCMOT_MAX_AIO);
 	hal->exit(hal->ctx, inst->comp_id);
 	return -1;
     }
 
   if(inst->num_misc_error != -1 && (inst->names_misc_errors[0])){
-    stmak_log_errorf(log, inst->name, "MOTION: Can't specify both names and number for misc error\n");
+    stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: Can't specify both names and number for misc error\n");
     return -1;
   }
   else if(inst->names_misc_errors[0]){
@@ -896,7 +896,7 @@ int New(const cmod_env_t *env, const char *name,
   }
 
   if (( inst->num_misc_error < 0 ) || ( inst->num_misc_error > EMCMOT_MAX_MISC_ERROR )) {
-    stmak_log_errorf(log, inst->name, "MOTION: inst->num_misc_error is %d, must be between 0 and %d\n", inst->num_misc_error, EMCMOT_MAX_MISC_ERROR);
+    stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->num_misc_error is %d, must be between 0 and %d\n", inst->num_misc_error, EMCMOT_MAX_MISC_ERROR);
     hal->exit(hal->ctx, inst->comp_id);
     return -1;
   }
@@ -939,14 +939,14 @@ static int motmod_init(cmod_t *self)
     /* Look up the kinematics API registered by the kins module */
     inst->kins = kins_api_get(env->api, inst->kins_inst_name);
     if (!inst->kins) {
-	stmak_log_errorf(log, inst->name, "MOTION: kinematics API not registered (instance '%s', is kins module loaded?)\n", inst->kins_inst_name);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: kinematics API not registered (instance '%s', is kins module loaded?)\n", inst->kins_inst_name);
 	return -1;
     }
 
     /* Look up the trajectory planner API registered by the tp module */
     inst->tp_api = tp_api_get(env->api, inst->tp_inst_name);
     if (!inst->tp_api) {
-	stmak_log_errorf(log, inst->name, "MOTION: tp API not registered (instance '%s', is tp module loaded?)\n", inst->tp_inst_name);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: tp API not registered (instance '%s', is tp module loaded?)\n", inst->tp_inst_name);
 	return -1;
     }
 
@@ -962,7 +962,7 @@ static int motmod_init(cmod_t *self)
             snprintf(hname, sizeof(hname), "%s.%d", inst->home_inst_prefix, j);
             const home_callbacks_t *hapi = home_api_get(env->api, hname);
             if (!hapi) {
-                stmak_log_errorf(log, inst->name,
+                stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                     "MOTION: home API not registered (instance '%s', is home module loaded?)\n", hname);
                 return -1;
             }
@@ -978,7 +978,7 @@ static int motmod_init(cmod_t *self)
     /* --- Validation (depends on kins) --- */
 
     if ( (inst->num_extrajoints > 0) && (motmod_kinematicsType(inst) != KINEMATICS_BOTH) ) {
-	stmak_log_errorf(log, inst->name, "\nMOTION: nonzero inst->num_extrajoints requires KINEMATICS_BOTH\n\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "\nMOTION: nonzero inst->num_extrajoints requires KINEMATICS_BOTH\n\n");
         return -1;
     }
 
@@ -986,13 +986,13 @@ static int motmod_init(cmod_t *self)
 
     retval = init_hal_io(inst);
     if (retval != 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: init_hal_io() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: init_hal_io() failed\n");
 	return -1;
     }
 
     retval = init_comm_buffers(inst);
     if (retval != 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: init_comm_buffers() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: init_comm_buffers() failed\n");
 	return -1;
     }
 
@@ -1001,7 +1001,7 @@ static int motmod_init(cmod_t *self)
        re-strides within this capacity). */
     retval = jerk_filter_alloc(inst);
     if (retval != 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: jerk_filter_alloc() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: jerk_filter_alloc() failed\n");
 	return -1;
     }
 
@@ -1011,18 +1011,18 @@ static int motmod_init(cmod_t *self)
 
     retval = export_functions(inst);
     if (retval != 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: export_functions() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: export_functions() failed\n");
 	return -1;
     }
 
     /* --- Subsystem initialization --- */
 
     if (module_intfc(inst)) {
-	stmak_log_errorf(log, inst->name, "MOTION: module_intfc() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: module_intfc() failed\n");
 	return -1;
     }
     if (tp_init(inst)) {
-	stmak_log_errorf(log, inst->name, "MOTION: tp_init() failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: tp_init() failed\n");
 	return -1;
     }
 
@@ -1033,7 +1033,7 @@ static int motmod_init(cmod_t *self)
             const home_callbacks_t *hapi = (const home_callbacks_t *)inst->joints[j].home_api;
             if (hapi->init(hapi->ctx, inst->comp_id,
                            inst->config->servoCycleTime) != 0) {
-                stmak_log_errorf(log, inst->name, "MOTION: homing init failed for joint %d\n", j);
+                stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: homing init failed for joint %d\n", j);
                 return -1;
             }
         }
@@ -1107,7 +1107,7 @@ static int init_hal_io(motmod_inst_t *inst)
     /* allocate shared memory for machine data */
     inst->hal_data = hal->malloc(hal->ctx, sizeof(emcmot_hal_data_t));
     if (inst->hal_data == 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: inst->hal_data malloc failed\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: inst->hal_data malloc failed\n");
 	return -1;
     }
 
@@ -1306,7 +1306,7 @@ static int init_hal_io(motmod_inst_t *inst)
     for (n = 0; n < inst->num_spindles; n++) {
         retval = export_spindle(inst, n, &(inst->hal_data->spindle[n]));
         if (retval != 0){
-            stmak_log_errorf(log, inst->name, "MOTION: spindle %d pin export failed", n);
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: spindle %d pin export failed", n);
             return -1;
         }
     }
@@ -1316,7 +1316,7 @@ static int init_hal_io(motmod_inst_t *inst)
         /* export all vars */
         retval = export_joint(inst, n, joint_data);
         if (retval != 0) {
-            stmak_log_errorf(log, inst->name, "MOTION: joint %d pin/param export failed\n", n);
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: joint %d pin/param export failed\n", n);
             return -1;
         }
         *(joint_data->amp_enable) = 0;
@@ -1329,7 +1329,7 @@ static int init_hal_io(motmod_inst_t *inst)
         ejoint_data = &(inst->hal_data->ejoint[n]);
         retval = export_extrajoint(inst, n + inst->num_joints - inst->num_extrajoints,ejoint_data);
         if (retval != 0) {
-            stmak_log_errorf(log, inst->name, "MOTION: ejoint %d pin/param export failed\n", n);
+            stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: ejoint %d pin/param export failed\n", n);
             return -1;
         }
     }
@@ -1467,7 +1467,7 @@ static int init_comm_buffers(motmod_inst_t *inst)
     /* allocate the motion structure (direct memory, no shmem key) */
     inst->mot_struct = rtapi_calloc(sizeof(emcmot_struct_t));
     if (!inst->mot_struct) {
-	stmak_log_errorf(log, inst->name, "MOTION: rtapi_calloc failed for emcmot_struct_t\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: rtapi_calloc failed for emcmot_struct_t\n");
 	return -1;
     }
 
@@ -1635,7 +1635,7 @@ static int export_functions(motmod_inst_t *inst)
     }
     /* servo period must be greater or equal to base period */
     if (inst->servo_period_nsec < inst->base_period_nsec) {
-	stmak_log_errorf(log, inst->name, "MOTION: bad servo period %ld nsec\n", inst->servo_period_nsec);
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: bad servo period %ld nsec\n", inst->servo_period_nsec);
 	return -1;
     }
     /* convert desired periods to floating point */
@@ -1651,14 +1651,14 @@ static int export_functions(motmod_inst_t *inst)
     retval = hal->export_funct(hal->ctx, fname, emcmotController, inst
 	 /* arg */ , 1 /* uses_fp */ , 0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: failed to export controller function\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to export controller function\n");
 	return -1;
     }
     snprintf(fname, sizeof(fname), "%smotion-command-handler", inst->pin_prefix);
     retval = hal->export_funct(hal->ctx, fname, emcmotCommandHandler, inst
 	 /* arg */ , 1 /* uses_fp */ , 0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: failed to export command handler function\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to export command handler function\n");
 	return -1;
     }
 /*! \todo Another #if 0 */
@@ -1669,7 +1669,7 @@ static int export_functions(motmod_inst_t *inst)
 	 /* arg */ , 1 /* uses_fp */ ,
 	0 /* reentrant */ , inst->comp_id);
     if (retval < 0) {
-	stmak_log_errorf(log, inst->name, "MOTION: failed to export traj planner function\n");
+	stmak_logf(log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: failed to export traj planner function\n");
 	return -1;
     }
 #endif

@@ -319,18 +319,18 @@ int New(const cmod_env_t *env, const char *name,
         else if (strcmp(argv[i], "tag") == 0)              tag = 1;
     }
 
-    if (!env->hal) { stmak_log_errorf(env->log, name, "HAL API not available"); return -EINVAL; }
+    if (!env->hal) { stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available"); return -EINVAL; }
 
     if (!stream_cfg && !sample_cfg) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "filestream needs stream_cfg= and/or sample_cfg=");
         return -EINVAL;
     }
     if (stream_cfg && !infile) {
-        stmak_log_errorf(env->log, name, "stream_cfg= requires infile="); return -EINVAL;
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "stream_cfg= requires infile="); return -EINVAL;
     }
     if (sample_cfg && !outfile) {
-        stmak_log_errorf(env->log, name, "sample_cfg= requires outfile="); return -EINVAL;
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "sample_cfg= requires outfile="); return -EINVAL;
     }
 
     filestream_priv_t *priv = calloc(1, sizeof(filestream_priv_t));
@@ -345,14 +345,14 @@ int New(const cmod_env_t *env, const char *name,
     if (stream_cfg) {
         m->n_stream = hal_stream_parse_cfg(stream_cfg, m->stream_types, HAL_STREAM_MAX_PINS);
         if (m->n_stream < 0) {
-            stmak_log_errorf(env->log, name, "invalid stream_cfg '%s'", stream_cfg);
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "invalid stream_cfg '%s'", stream_cfg);
             free(priv); return -EINVAL;
         }
     }
     if (sample_cfg) {
         m->n_sample = hal_stream_parse_cfg(sample_cfg, m->sample_types, HAL_STREAM_MAX_PINS);
         if (m->n_sample < 0) {
-            stmak_log_errorf(env->log, name, "invalid sample_cfg '%s'", sample_cfg);
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "invalid sample_cfg '%s'", sample_cfg);
             free(priv); return -EINVAL;
         }
     }
@@ -367,13 +367,13 @@ int New(const cmod_env_t *env, const char *name,
         const char *inpath = env->path->resolve(env->path->ctx, infile,
                                                 STMAK_PATH_READ, &inerr);
         if (!inpath) {
-            stmak_log_errorf(env->log, name, "infile '%s': %s", infile,
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "infile '%s': %s", infile,
                             inerr ? inerr : "cannot be resolved");
             retval = -ENOENT; goto fail_early;
         }
         m->infp = fopen(inpath, "r");
         if (!m->infp) {
-            stmak_log_errorf(env->log, name, "cannot open infile '%s'", infile);
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "cannot open infile '%s'", infile);
             retval = -ENOENT; goto fail_early;
         }
     }
@@ -388,13 +388,13 @@ int New(const cmod_env_t *env, const char *name,
         const char *outpath = env->path->resolve(env->path->ctx, outfile,
                                                  STMAK_PATH_WRITE, &outerr);
         if (!outpath) {
-            stmak_log_errorf(env->log, name, "outfile '%s': %s", outfile,
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "outfile '%s': %s", outfile,
                             outerr ? outerr : "cannot be resolved");
             retval = -ENOENT; goto fail_early;
         }
         m->outfp = fopen(outpath, "w");
         if (!m->outfp) {
-            stmak_log_errorf(env->log, name, "cannot open outfile '%s'", outfile);
+            stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "cannot open outfile '%s'", outfile);
             retval = -ENOENT; goto fail_early;
         }
     }
@@ -402,7 +402,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                    STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        stmak_log_errorf(env->log, name, "hal_init failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal_init failed");
         retval = -1; goto fail_early;
     }
 
@@ -467,18 +467,18 @@ int New(const cmod_env_t *env, const char *name,
         snprintf(fn, sizeof(fn), "%s.write", name);
         retval = env->hal->export_funct(env->hal->ctx, fn, write_funct, m,
                                         usefp_w, 0, priv->comp_id);
-        if (retval < 0) { stmak_log_errorf(env->log, name, "export .write failed"); goto fail; }
+        if (retval < 0) { stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "export .write failed"); goto fail; }
     }
     if (m->n_sample) {
         snprintf(fn, sizeof(fn), "%s.read", name);
         retval = env->hal->export_funct(env->hal->ctx, fn, read_funct, m,
                                         usefp_r, 0, priv->comp_id);
-        if (retval < 0) { stmak_log_errorf(env->log, name, "export .read failed"); goto fail; }
+        if (retval < 0) { stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "export .read failed"); goto fail; }
     }
 
     // Start the non-RT I/O thread.
     if (pthread_create(&m->io_tid, NULL, io_thread, priv) != 0) {
-        stmak_log_errorf(env->log, name, "pthread_create failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "pthread_create failed");
         retval = -1; goto fail;
     }
     m->io_running = 1;

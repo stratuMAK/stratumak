@@ -21,7 +21,7 @@ func TestNotifyLogError_FanOutAndFilter(t *testing.T) {
 	// milltask registers (forward iff filter == nil || filter matches component).
 	var coatGot, pnpGot []string
 	register := func(filter *regexp.Regexp, sink *[]string) {
-		OnLogError(func(component, msg string) {
+		OnLogError(func(component, msg string, severity int) {
 			if filter != nil && !filter.MatchString(component) {
 				return
 			}
@@ -32,12 +32,12 @@ func TestNotifyLogError_FanOutAndFilter(t *testing.T) {
 	register(regexp.MustCompile(`^pnp\.`), &pnpGot)
 
 	// An error from pnp's motion module must reach only pnp.
-	NotifyLogError("pnp.mot", "joint 2 following error")
+	NotifyOperatorMessage("pnp.mot", "joint 2 following error", 3)
 	// A homing-module error (distinct component name) must still be routed by
 	// the namespace filter, not just an exact motmod match.
-	NotifyLogError("pnp.home.0", "drive reported homing error")
+	NotifyOperatorMessage("pnp.home.0", "drive reported homing error", 3)
 	// An error from coat must reach only coat.
-	NotifyLogError("coat.mot", "joint 0 amplifier fault")
+	NotifyOperatorMessage("coat.mot", "joint 0 amplifier fault", 3)
 
 	wantPnp := []string{
 		"pnp.mot: joint 2 following error",
@@ -60,13 +60,13 @@ func TestNotifyLogError_UnfilteredForwardsAll(t *testing.T) {
 	t.Cleanup(resetLogHooks)
 
 	var got []string
-	OnLogError(func(component, msg string) {
+	OnLogError(func(component, msg string, severity int) {
 		got = append(got, component)
 	})
 
-	NotifyLogError("pnp.mot", "x")
-	NotifyLogError("coat.io", "y")
-	NotifyLogError("anything.else", "z")
+	NotifyOperatorMessage("pnp.mot", "x", 3)
+	NotifyOperatorMessage("coat.io", "y", 3)
+	NotifyOperatorMessage("anything.else", "z", 3)
 
 	want := []string{"pnp.mot", "coat.io", "anything.else"}
 	if !equalStrings(got, want) {
@@ -82,13 +82,13 @@ func TestOnLogError_Unregister(t *testing.T) {
 	t.Cleanup(resetLogHooks)
 
 	var got []string
-	unregister := OnLogError(func(component, msg string) {
+	unregister := OnLogError(func(component, msg string, severity int) {
 		got = append(got, component)
 	})
 
-	NotifyLogError("a.mot", "x")
+	NotifyOperatorMessage("a.mot", "x", 3)
 	unregister()
-	NotifyLogError("b.mot", "y") // must NOT reach the removed hook
+	NotifyOperatorMessage("b.mot", "y", 3) // must NOT reach the removed hook
 	unregister()                 // idempotent: second call is a no-op
 
 	if want := []string{"a.mot"}; !equalStrings(got, want) {
@@ -103,12 +103,12 @@ func TestOnLogError_UnregisterOneOfMany(t *testing.T) {
 	t.Cleanup(resetLogHooks)
 
 	var first, second []string
-	unregFirst := OnLogError(func(_, msg string) { first = append(first, msg) })
-	OnLogError(func(_, msg string) { second = append(second, msg) })
+	unregFirst := OnLogError(func(_, msg string, _ int) { first = append(first, msg) })
+	OnLogError(func(_, msg string, _ int) { second = append(second, msg) })
 
-	NotifyLogError("c", "1")
+	NotifyOperatorMessage("c", "1", 3)
 	unregFirst()
-	NotifyLogError("c", "2")
+	NotifyOperatorMessage("c", "2", 3)
 
 	if want := []string{"1"}; !equalStrings(first, want) {
 		t.Errorf("first hook got %v, want %v", first, want)
@@ -126,11 +126,11 @@ func TestNotifyLogError_PanicIsolation(t *testing.T) {
 	t.Cleanup(resetLogHooks)
 
 	var after []string
-	OnLogError(func(_, _ string) { panic("boom") })
-	OnLogError(func(component, _ string) { after = append(after, component) })
+	OnLogError(func(_, _ string, _ int) { panic("boom") })
+	OnLogError(func(component, _ string, _ int) { after = append(after, component) })
 
 	// Must not panic out to the caller.
-	NotifyLogError("d.mot", "z")
+	NotifyOperatorMessage("d.mot", "z", 3)
 
 	if want := []string{"d.mot"}; !equalStrings(after, want) {
 		t.Errorf("hook after the panicking one got %v, want %v (panic not isolated?)", after, want)
@@ -147,4 +147,34 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// The flag is orthogonal to severity: what reaches the operator is decided by
+// the mark, and how it is shown is decided by the level. A notice must arrive
+// as a notice — promoting it to an error to make it visible is exactly the
+// bind the flag exists to remove.
+func TestOperatorMessageCarriesSeverity(t *testing.T) {
+	type got struct {
+		msg string
+		sev int
+	}
+	var seen []got
+	unregister := OnLogError(func(_, msg string, sev int) {
+		seen = append(seen, got{msg, sev})
+	})
+	defer unregister()
+
+	NotifyOperatorMessage("coat.pnp", "keine Rohteile mehr", 1) // INFO
+	NotifyOperatorMessage("coat.pnp", "Portal nicht bereit!", 3) // ERROR
+
+	if len(seen) != 2 {
+		t.Fatalf("hook saw %d messages, want 2", len(seen))
+	}
+	if seen[0].sev != 1 {
+		t.Errorf("notice arrived with severity %d, want 1 (INFO): a batch that "+
+			"finished must not look like a fault", seen[0].sev)
+	}
+	if seen[1].sev != 3 {
+		t.Errorf("fault arrived with severity %d, want 3 (ERROR)", seen[1].sev)
+	}
 }

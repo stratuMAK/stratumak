@@ -122,13 +122,13 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (!fmt_string || !fmt_string[0]) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "The LCD component requires a 'fmt=' parameter");
         return -EINVAL;
     }
 
     if (!env->hal) {
-        stmak_log_errorf(env->log, name, "HAL API not available");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "HAL API not available");
         return -EINVAL;
     }
 
@@ -141,7 +141,7 @@ int New(const cmod_env_t *env, const char *name,
     priv->comp_id = env->hal->init(env->hal->ctx, name, env->dl_handle,
                                    STMAK_HAL_COMP_REALTIME);
     if (priv->comp_id < 0) {
-        stmak_log_errorf(env->log, name, "hal init failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "hal init failed");
         free(priv);
         return -1;
     }
@@ -153,7 +153,7 @@ int New(const cmod_env_t *env, const char *name,
     int fmt_len = strlen(fmt_string);
     char *fmt_copy = (char *)env->hal->malloc(env->hal->ctx, fmt_len + 1);
     if (!fmt_copy) {
-        stmak_log_errorf(env->log, name, "Out of memory");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Out of memory");
         env->hal->exit(env->hal->ctx, priv->comp_id);
         free(priv);
         return -ENOMEM;
@@ -167,7 +167,7 @@ int New(const cmod_env_t *env, const char *name,
     inst->pages = (lcd_page_t *)env->hal->malloc(env->hal->ctx,
                                                   inst->num_pages * sizeof(lcd_page_t));
     if (!inst->pages) {
-        stmak_log_errorf(env->log, name, "Out of memory");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "Out of memory");
         env->hal->exit(env->hal->ctx, priv->comp_id);
         free(priv);
         return -ENOMEM;
@@ -250,7 +250,7 @@ int New(const cmod_env_t *env, const char *name,
     retval = env->hal->export_funct(env->hal->ctx, name,
                                     do_write, inst, 1, 0, priv->comp_id);
     if (retval < 0) {
-        stmak_log_errorf(env->log, name, "function export failed");
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "function export failed");
         goto fail;
     }
 

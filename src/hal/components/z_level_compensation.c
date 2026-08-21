@@ -188,7 +188,7 @@ static int build_grid(inst_t *inst, const double *xs, const double *ys,
     inst->y_steps = inst->y_max - inst->y_min + 1;
 
     if (inst->x_steps > MAX_GRID_DIM || inst->y_steps > MAX_GRID_DIM) {
-        stmak_log_errorf(inst->env->log, COMP_NAME,
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "grid too large: %d x %d (max %d)",
                         inst->x_steps, inst->y_steps, MAX_GRID_DIM);
         return -1;
@@ -287,7 +287,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
     const char *path = inst->env->path->resolve(inst->env->path->ctx, filename,
                                                 STMAK_PATH_READ, &reserr);
     if (!path) {
-        stmak_log_errorf(inst->env->log, COMP_NAME,
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "probe file %s: %s", filename,
                         reserr ? reserr : "cannot be resolved");
         inst->grid_valid = 0;
@@ -296,7 +296,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
 
     FILE *f = fopen(path, "r");
     if (!f) {
-        stmak_log_errorf(inst->env->log, COMP_NAME,
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "cannot open probe file: %s", path);
         inst->grid_valid = 0;
         return -1;
@@ -321,7 +321,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
         if (n >= cap) {
             cap *= 2;
             if (cap > MAX_PROBE_POINTS) {
-                stmak_log_errorf(inst->env->log, COMP_NAME,
+                stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                                 "too many probe points (max %d)",
                                 MAX_PROBE_POINTS);
                 goto fail;
@@ -340,7 +340,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
     f = NULL;
 
     if (n < 3) {
-        stmak_log_errorf(inst->env->log, COMP_NAME,
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "too few probe points (%d, need at least 3)", n);
         goto fail;
     }
@@ -353,7 +353,7 @@ static int load_probe_map(inst_t *inst, const char *filename)
     return ret;
 
 oom:
-    stmak_log_errorf(inst->env->log, COMP_NAME, "out of memory loading probe map");
+    stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "out of memory loading probe map");
 fail:
     free(xs); free(ys); free(zs);
     if (f) fclose(f);
@@ -371,11 +371,11 @@ static bool gmi_z_level_compensation_load(void *ctx, const char *filename,
     inst_t *inst = (inst_t *)ctx;
 
     if (!filename || filename[0] == '\0') {
-        stmak_log_errorf(inst->env->log, COMP_NAME, "load: empty filename");
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER, "load: empty filename");
         return false;
     }
     if (scale <= 0.0) {
-        stmak_log_errorf(inst->env->log, COMP_NAME,
+        stmak_logf(inst->env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "load: scale must be positive (got %g)", scale);
         return false;
     }
@@ -557,7 +557,7 @@ int New(const cmod_env_t *env, const char *name,
         inst->api_cb.unload = gmi_z_level_compensation_unload;
         r = z_level_compensation_api_register(env->api, name, &inst->api_cb);
         if (r) {
-            stmak_log_errorf(env->log, COMP_NAME,
+            stmak_logf(env->log, COMP_NAME, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                             "failed to register GMI API: %d", r);
             goto err;
         }

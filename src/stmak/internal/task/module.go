@@ -34,6 +34,10 @@ func init() {
 // Compile-time interface checks.
 var _ MotionConfig = (*motctl.MotctlClient)(nil)
 
+// stmakLogError mirrors STMAK_LOG_ERROR in stmak_log.h -- the severity at or
+// above which an operator message is a fault rather than a notice.
+const stmakLogError = 3
+
 func factory(ini *inifile.IniFile, logger *slog.Logger, name string, args []string) (stmak.Module, error) {
 	logger = logger.With("module", name)
 	// milltask is INI-driven throughout (loadConfig reads TRAJ/KINS/JOINT_n/…),
@@ -369,11 +373,19 @@ func (m *milltaskModule) Start() error {
 	// final flush runs after Go modules are destroyed, so a hook left registered
 	// would forward a late error into this freed task (operatorError on a stopped
 	// task). Unregistering at Destroy closes that window.
-	unregisterLogHook := stmak.OnLogError(func(component, msg string) {
+	unregisterLogHook := stmak.OnLogError(func(component, msg string, severity int) {
 		if !m.forwardsErrorFrom(component) {
 			return
 		}
-		t.operatorError(msg)
+		// The severity the component gave the message decides how it reaches
+		// the operator: a fault is an error, anything milder is a notice.
+		// Without this a "batch finished" would arrive looking like a failure,
+		// which is how operators learn to ignore the red ones.
+		if severity >= int(stmakLogError) {
+			t.operatorError(msg)
+		} else {
+			t.operatorText(msg)
+		}
 	})
 	prevCleanupLog := m.apiCleanup
 	m.apiCleanup = func() {

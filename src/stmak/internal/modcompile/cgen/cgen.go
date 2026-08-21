@@ -690,6 +690,12 @@ func (g *generator) emitConvenienceDefines() {
 
 	// RT-safe logging convenience macros.
 	g.printf("\n/* RT-safe logging macros */\n")
+	// The general form: the caller composes severity and flags.  There is no
+	// macro per combination for the same reason there is no function per
+	// combination -- the cross-product is what grows.
+	g.printf("#define STMAK_LOG(level, fmt, ...) stmak_logf(__comp_inst->env->log, __comp_inst->name, (level), fmt, ##__VA_ARGS__)\n")
+	// Shorthands for the bare levels.  These do not multiply: add a flag and
+	// callers write STMAK_LOG(STMAK_LOG_ERROR | STMAK_LOG_NEWFLAG, ...).
 	g.printf("#define STMAK_LOG_ERR(fmt, ...) stmak_log_errorf(__comp_inst->env->log, __comp_inst->name, fmt, ##__VA_ARGS__)\n")
 	g.printf("#define STMAK_LOG_WARN(fmt, ...) stmak_log_warnf(__comp_inst->env->log, __comp_inst->name, fmt, ##__VA_ARGS__)\n")
 	g.printf("#define STMAK_LOG_INFO(fmt, ...) stmak_log_infof(__comp_inst->env->log, __comp_inst->name, fmt, ##__VA_ARGS__)\n")

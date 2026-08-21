@@ -76,7 +76,7 @@ int New(const cmod_env_t *env, const char *name,
     }
 
     if (num_bits < 1 || num_bits > MAX_BITS) {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                         "num_bits=%d out of range (1..%d)", num_bits, MAX_BITS);
         return -EINVAL;
     }

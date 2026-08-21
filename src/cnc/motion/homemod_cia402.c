@@ -193,7 +193,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: timeout waiting for homing mode", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -202,7 +202,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
     case DRV_HOME_WAIT_ATTAINED:
         track_drive_position(inst);
         if (*(p->homing_error)) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: drive reported homing error", jno);
             *(p->home_cmd) = 0;
             inst->drv_state = DRV_HOME_ERROR;
@@ -237,7 +237,7 @@ static int drive_home_tick(linmot_inst_t *inst) STMAK_NONBLOCKING
         }
         inst->mode_wait_count++;
         if (inst->mode_wait_count > MODE_SWITCH_TIMEOUT) {
-            stmak_log_errorf(inst->log, inst->name,
+            stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
                 "j%d: timeout waiting for CSP mode after homing", jno);
             inst->drv_state = DRV_HOME_ERROR;
         }
@@ -332,7 +332,7 @@ static int32_t gmi_home_init(void *ctx, int32_t comp_id, double servo_period)
     retval += stmak_hal_pin_s32_newf(inst->hal, STMAK_HAL_OUT, &inst->pins.home_state_pin, comp_id,
                               "%sjoint.%d.home-state", inst->pin_prefix, inst->jno);
     if (retval != 0) {
-        stmak_log_errorf(inst->log, inst->name, "failed to create HAL pins");
+        stmak_logf(inst->log, inst->name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to create HAL pins");
         return -1;
     }
 
@@ -548,7 +548,7 @@ int New(const cmod_env_t *env, const char *name,
     if (dot && dot[1] >= '0' && dot[1] <= '9') {
         inst->jno = atoi(dot + 1);
     } else {
-        stmak_log_errorf(env->log, name,
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot parse joint number from instance name '%s'", name);
         free(inst);
         return -1;
@@ -577,7 +577,7 @@ int New(const cmod_env_t *env, const char *name,
 
     int rc = home_api_register(env->api, name, &inst->callbacks);
     if (rc != 0) {
-        stmak_log_errorf(env->log, name, "failed to register home API: %d", rc);
+        stmak_logf(env->log, name, STMAK_LOG_ERROR | STMAK_LOG_OPER, "failed to register home API: %d", rc);
         free(inst);
         return rc;
     }

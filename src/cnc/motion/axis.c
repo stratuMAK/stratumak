@@ -138,7 +138,7 @@ int axis_init_hal_io(axis_inst_t *ai, const stmak_hal_t *hal, const stmak_log_t 
     ai->log = log;
     ai->hal_data = hal->malloc(hal->ctx, sizeof(axis_hal_data_t));
     if (!ai->hal_data) {
-        stmak_log_errorf(log, "motmod", "MOTION: axis_hal_data hal_malloc() failed");
+        stmak_logf(log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: axis_hal_data hal_malloc() failed");
         return -1;
     }
 
@@ -162,7 +162,7 @@ int axis_init_hal_io(axis_inst_t *ai, const stmak_hal_t *hal, const stmak_log_t 
 
         retval = export_axis(hal, comp_id, c, axis_data, P);
         if (retval) {
-            stmak_log_errorf(log, "motmod", "MOTION: axis %c pin/param export failed", c);
+            stmak_logf(log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER, "MOTION: axis %c pin/param export failed", c);
             return -1;
         }
     }
@@ -476,7 +476,7 @@ void axis_handle_jogwheels(axis_inst_t *ai, bool motion_teleop_flag, bool motion
         if (axis->kb_ajog_active)             { continue; }
 
         if (axis->locking_joint >= 0) {
-            stmak_log_errorf(ai->log, "motmod",
+            stmak_logf(ai->log, "motmod", STMAK_LOG_ERROR | STMAK_LOG_OPER,
             "Cannot wheel jog a locking indexer AXIS_%c",
             "XYZABCUVW"[axis_num]);
             continue;
