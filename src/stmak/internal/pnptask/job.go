@@ -83,12 +83,26 @@ type job struct {
 func (c *control) jobRequest() bool {
 	if !c.in.startJob {
 		c.jobArmed = true
+		c.jobUnarmedTicks = 0
 		return false
 	}
 	if !c.jobArmed {
+		// A level high since before this module armed is not a request and
+		// cannot become one: the PLC is waiting for the acknowledgement that
+		// accepting would have produced, and this is waiting for a low only the
+		// PLC can produce. Nothing here changes on its own, so say so — once.
+		// Silent, it presents as a job that simply never starts, and the reason
+		// is not visible on any pin.
+		c.jobUnarmedTicks++
+		if c.jobUnarmedTicks == jobUnarmedWarnTicks {
+			c.m.logger.Warn("pnptask: start-job has been high since before this " +
+				"module armed, so it is not a request (D26) and no job will " +
+				"start; drop start-job to arm the next one")
+		}
 		return false
 	}
 	c.jobArmed = false
+	c.jobUnarmedTicks = 0
 	return true
 }
 

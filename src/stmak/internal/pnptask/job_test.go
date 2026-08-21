@@ -3,8 +3,11 @@
 package pnptask
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1191,7 +1194,10 @@ func TestStartJobHeldAtStartupIsNotARequest(t *testing.T) {
 // the module's own clear is overwritten before the loop ever samples a low, and
 // the level would read as a fresh job on the very next cycle.
 func TestJobRequestArming(t *testing.T) {
-	c := &control{}
+	var logs bytes.Buffer
+	c := &control{m: &pnptaskModule{
+		logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	}}
 
 	// High from the first cycle: not a request (D26, and what primeEdges leaves
 	// jobArmed at).
@@ -1214,6 +1220,57 @@ func TestJobRequestArming(t *testing.T) {
 	}
 	if c.jobRequest() {
 		t.Error("one request was taken twice")
+	}
+}
+
+// TestHeldStartJobIsReported: the unarmed level is a deadlock -- the PLC waits
+// for the acknowledgement accepting would have produced, this waits for a low
+// only the PLC can produce -- and it used to be entirely silent. On the machine
+// that presented as a job that simply never started, with the reason on no pin.
+func TestHeldStartJobIsReported(t *testing.T) {
+	var logs bytes.Buffer
+	c := &control{m: &pnptaskModule{
+		logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	}}
+
+	c.in.startJob = true
+	for i := 0; i < jobUnarmedWarnTicks-1; i++ {
+		if c.jobRequest() {
+			t.Fatal("an unarmed level counted as a request")
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("warned before %d ticks: %s", jobUnarmedWarnTicks, logs.String())
+	}
+
+	c.jobRequest()
+	if !strings.Contains(logs.String(), "start-job") {
+		t.Errorf("no warning after %d ticks of a held level: %q",
+			jobUnarmedWarnTicks, logs.String())
+	}
+
+	// Once per episode, not once per cycle.
+	n := logs.Len()
+	for i := 0; i < 3*jobUnarmedWarnTicks; i++ {
+		c.jobRequest()
+	}
+	if logs.Len() != n {
+		t.Errorf("warned more than once: %s", logs.String()[n:])
+	}
+
+	// Breaking the tie re-arms, and a later held level is reported again.
+	c.in.startJob = false
+	c.jobRequest()
+	c.in.startJob = true
+	if !c.jobRequest() {
+		t.Fatal("a level raised after a low was not taken as a request")
+	}
+	n = logs.Len()
+	for i := 0; i < jobUnarmedWarnTicks; i++ {
+		c.jobRequest()
+	}
+	if logs.Len() == n {
+		t.Error("a second held level went unreported")
 	}
 }
 

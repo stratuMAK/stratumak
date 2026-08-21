@@ -461,6 +461,16 @@ within a servo cycle or two is invisible — the module sees a level that was
 never low, ignores it, and the requester waits forever for a job that was never
 taken. **Leave it low for at least five loop cycles (50 ms) between jobs.**
 
+That deadlock is symmetric and neither side can break it alone: the requester
+waits for the acknowledgement accepting would have produced, the module waits
+for a low only the requester can produce. It used to be entirely silent, and on
+a real machine it presented as a job that simply never started, with the reason
+visible on no pin. The module now warns once (`jobUnarmedWarnTicks`, two
+seconds) when `start-job` has been high since before it armed. A requester that
+holds the level until acknowledged must therefore also **withdraw it if it gives
+up** — otherwise the stuck level blocks every later request too, because the
+raise is conditioned on the level being low.
+
 Station resets have a second property worth knowing: they are latched when
 sampled but consumed **between jobs** (`updateStations` runs from `step()`, not
 from the `tick()` a running action spins on). A reset pressed mid-job therefore

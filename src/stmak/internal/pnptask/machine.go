@@ -37,6 +37,13 @@ var (
 	// split read; a full second of them means the RT side died or detached.
 	commFailureTicks = 100
 
+	// jobUnarmedWarnTicks is how long start-job may sit high, unarmed and
+	// therefore ignored, before saying so once. Two seconds: a PLC that raises
+	// it a cycle before this module arms is a normal race and resolves itself,
+	// while a level held past that is the deadlock jobRequest describes and
+	// nothing in it will ever change on its own.
+	jobUnarmedWarnTicks = 200
+
 	// statusStaleTicks is how many cycles the last good status snapshot keeps
 	// serving after failed reads. A single failed read is an expected split
 	// read (see commFailureTicks) and must not glitch state derived from the
@@ -224,6 +231,11 @@ type control struct {
 
 	// jobArmed is the start-job handshake's state: see jobRequest.
 	jobArmed bool
+
+	// jobUnarmedTicks counts cycles spent with start-job high and jobArmed
+	// false — the state that is not a request and cannot become one. Only so
+	// the warning is emitted once per episode rather than every cycle.
+	jobUnarmedTicks int
 
 	// trayPending is the latched tray reset request per station (D8): the
 	// value every slot is to get, snapshotted at press time (set-full carries
