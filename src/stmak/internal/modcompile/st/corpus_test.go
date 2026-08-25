@@ -115,6 +115,13 @@ func TestAcceptCorpusShape(t *testing.T) {
 				for _, vb := range prog.Vars {
 					if vb.Kind.IsHAL() {
 						pins += len(vb.Decls)
+						continue
+					}
+					// A plain VAR with an AT clause is HAL-facing too.
+					for _, d := range vb.Decls {
+						if d.Located != "" {
+							pins += len(d.Names)
+						}
 					}
 				}
 				if pins == 0 {

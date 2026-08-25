@@ -85,6 +85,11 @@ type checker struct {
 	// instanceNames are the names already taken in the component's single
 	// instance struct, across every PROGRAM and the globals.
 	instanceNames map[string]ast.Pos
+
+	// instances collects the function block instances of the PROGRAM being
+	// checked, so their published pins can be named by the path that reaches
+	// them.
+	instances []instanceVar
 }
 
 func (c *checker) errorf(pos ast.Pos, format string, args ...interface{}) {
@@ -158,16 +163,20 @@ func (c *checker) declareGlobals() {
 				continue
 			}
 			for _, name := range d.Names {
+				if c.subtreePublishes(typ) {
+					// Its pins would be loaded and stored by whichever
+					// function owns the instance, and one shared between two
+					// programs has no single owner to do that.
+					c.errorf(d.Pos, "%s publishes HAL pins, so it cannot be a VAR_GLOBAL; "+
+						"declare it in the VAR of the PROGRAM that drives it", name)
+					continue
+				}
 				c.declareLocal(d, name, typ, ast.StorageGlobal, b.Constant)
 			}
 		}
 	}
 }
 
-// rejectUnsupported reports the declarations that parse but that phase 2 does
-// not lower, each naming the phase that brings it.  Saying which feature is
-// missing beats a resolution failure at its first use, which is what a reader
-// would otherwise see.
 // componentAttributes maps a file-level attribute to the documentation field
 // it fills.  docgen turns these into the component's man page.
 var componentAttributes = map[string]func(*ast.Component, string){
@@ -240,7 +249,10 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	})
 
 	firstPin := len(c.pkg.Component.Pins)
+	c.instances = nil
 	c.declareVarSections(p.Vars)
+	instances := c.instances
+	c.instances = nil
 
 	// The pins this program declared, and only those: a function must not pay
 	// to copy pins it never touches, and writing back another program's
@@ -260,13 +272,41 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 		fnName = "_"
 	}
 
-	c.pkg.Component.Functions = append(c.pkg.Component.Functions, ast.Function{
+	f := ast.Function{
 		Pos:  p.Pos,
 		Name: fnName,
 		FP:   c.bodyUsesFloat(body),
 		Body: body,
 		Pins: pins,
-	})
+	}
+
+	// A function block instance may publish pins of its own through an AT
+	// clause.  They are named by the path that reaches the instance, and the
+	// function owning it loads and stores them around its body.
+	c.publishInstancePins(&f, instances)
+	for _, b := range f.PinBindings {
+		f.Pins = append(f.Pins, b.Pin)
+	}
+
+	c.pkg.Component.Functions = append(c.pkg.Component.Functions, f)
+}
+
+// noteInstance records a declared function block instance, which is where a
+// published pin's path begins.
+//
+// It is called while the declaration is being resolved, never afterwards by
+// walking the sections again: ST identifiers are case-insensitive, so once a
+// VAR named `state` exists it shadows a TYPE named `State`, and re-resolving
+// the same type reference would then fail.
+func (c *checker) noteInstance(name string, typ ast.Type, pos ast.Pos) {
+	elem := typ
+	for elem.Kind == ast.TypeArray && elem.Elem != nil {
+		elem = *elem.Elem
+	}
+	if elem.Kind != ast.TypeFB {
+		return
+	}
+	c.instances = append(c.instances, instanceVar{name: name, typ: typ, pos: pos})
 }
 
 // bodyUsesFloat reports whether one function's body touches floating point,
@@ -341,9 +381,9 @@ func (c *checker) declareVarSections(blocks []*st.VarBlock) {
 }
 
 func (c *checker) declareVar(b *st.VarBlock, d *st.VarDecl) {
-	if d.Located != "" {
-		c.errorf(d.Pos, "located variables (AT %s) are not supported; "+
-			"stratuMAK maps I/O through VAR_INPUT and VAR_OUTPUT onto HAL pins", d.Located)
+	if d.Located != "" && b.Kind.IsHAL() {
+		c.errorf(d.Pos, "AT is redundant in %s, which already maps onto a HAL pin; "+
+			"use one or the other", b.Kind)
 		return
 	}
 	if d.Edge != st.EdgeNone {
@@ -365,11 +405,21 @@ func (c *checker) declareVar(b *st.VarBlock, d *st.VarDecl) {
 	// One declaration may name several variables; each becomes its own
 	// symbol, sharing the type and the initialiser.
 	for _, name := range d.Names {
-		if b.Kind.IsHAL() {
-			c.declarePin(b, d, name, typ)
-			continue
+		switch {
+		case b.Kind.IsHAL():
+			c.declarePin(b, d, name, typ, ast.PinDir(-1), "")
+		case d.Located != "":
+			// An explicit mapping: direction and pin name come from the
+			// clause rather than from which section the variable sits in.
+			if bind := c.bindAT(d.Located, d.Pos, name, typ); bind != nil {
+				c.declarePin(b, d, name, typ, bind.Dir, bind.Name)
+			}
+		default:
+			c.declareLocal(d, name, typ, store, b.Constant)
+			if store == ast.StorageVar {
+				c.noteInstance(name, typ, d.Pos)
+			}
 		}
-		c.declareLocal(d, name, typ, store, b.Constant)
 	}
 }
 
@@ -436,7 +486,11 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 }
 
 // declarePin turns one HAL-facing declaration into a pin.
-func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast.Type) {
+//
+// A dir below zero means the direction comes from the VAR section it was
+// declared in; otherwise dir and pinName come from an AT clause, which is what
+// lets a plain VAR map onto a pin and name it something else.
+func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast.Type, dir ast.PinDir, pinName string) {
 	halType, fit := typ.HALType()
 	switch fit {
 	case ast.HALFitNone:
@@ -459,15 +513,20 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 			"loses precision when read back. Use LREAL for an exact pin", d.Pos, name)
 	}
 
-	dir := ast.PinIn
-	switch b.Kind {
-	case st.VarOutput:
-		dir = ast.PinOut
-	case st.VarInOut:
-		dir = ast.PinIO
+	if dir < 0 {
+		dir = ast.PinIn
+		switch b.Kind {
+		case st.VarOutput:
+			dir = ast.PinOut
+		case st.VarInOut:
+			dir = ast.PinIO
+		}
+	}
+	if pinName == "" {
+		pinName = name
 	}
 
-	if !c.claimInstanceName(name, d.Pos, "pin") {
+	if !c.claimInstanceName(pinName, d.Pos, "pin") {
 		return
 	}
 	sym := &symbol{
@@ -479,7 +538,7 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 		// An input pin is driven by whatever HAL signal is netted to it.
 		// Assigning one in the body would give it a second writer, which is
 		// exactly the conflict that kept function block I/O off HAL.
-		Const: b.Kind == st.VarInput,
+		Const: dir == ast.PinIn,
 	}
 	if !c.bind(sym) {
 		return
@@ -510,7 +569,7 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 
 	pin := ast.Pin{
 		Pos:     d.Pos,
-		Name:    name,
+		Name:    pinName,
 		Type:    halType,
 		Dir:     dir,
 		Default: def,
@@ -523,7 +582,7 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 		// declaration carries no such marker, so append one wide enough for
 		// the largest index: ARRAY[0..7] becomes comp.channel.0 .. .7, and
 		// ARRAY[0..99] becomes comp.channel.00 .. .99, so the names sort.
-		pin.Name = name + "." + strings.Repeat("#", digitsFor(pin.ArraySize-1))
+		pin.Name = pinName + "." + strings.Repeat("#", digitsFor(pin.ArraySize-1))
 		if typ.Dims[0].Lo != 0 {
 			// A HAL array pin is named comp.pin.0 .. comp.pin.N-1, so a
 			// declared lower bound other than zero would make the ST index and
@@ -534,6 +593,11 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 			return
 		}
 	}
+	// The symbol resolves to the pin's name: the backend reaches a pin through
+	// its member of inst_hal_t, and that member is named after the pin rather
+	// than after the variable.
+	sym.Name = pin.Name
+
 	c.pkg.Component.Pins = append(c.pkg.Component.Pins, pin)
 
 	for _, a := range d.Attrs {

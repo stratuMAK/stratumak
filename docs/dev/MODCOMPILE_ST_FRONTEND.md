@@ -56,7 +56,7 @@ modusoft's own.
 
 | Question | Decision |
 | --- | --- |
-| HAL surface | A `PROGRAM`'s `VAR_INPUT` / `VAR_OUTPUT` / `VAR_IN_OUT` become `in` / `out` / `io` pins. Nothing else reaches HAL. |
+| HAL surface | A `PROGRAM`'s `VAR_INPUT` / `VAR_OUTPUT` / `VAR_IN_OUT` become `in` / `out` / `io` pins, and any variable with an `AT %I` / `%Q` / `%IO` clause, at any depth. |
 | Other variables | `VAR` and `VAR_GLOBAL` become per-instance state in `inst_t`, exactly like a `.comp` `variable` declaration. |
 | Sub-components | `FUNCTION_BLOCK`, internal only. An instance nests as a struct inside `inst_t` and has no HAL identity. |
 | File shape | One `PROGRAM` per exported HAL function. `VAR_GLOBAL` is shared between the programs in a file. |
@@ -65,16 +65,22 @@ modusoft's own.
 
 Two of these were argued over and are worth recording with their reasons.
 
-**Function block instances do not publish HAL pins.** Publishing them was
-considered and rejected. An FB's `VAR_INPUT` is written by ST expression
-evaluation at the call site, so making it a HAL `in` pin gives it two writers —
-the ST body and whatever signal is `net`'d to it — and HAL in-pins are
-single-writer by design. Keeping them internal also keeps an instance as one C
-struct rather than splitting every instance across `inst_hal_t` (shared memory)
-and `inst_t` (private heap) at every nesting depth, and avoids
-`STMAK_HAL_NAME_LEN` (127) path-length failures on nested or arrayed instances.
-Nothing is lost: where a sub-component's input genuinely should be wirable,
-declare the pin at `PROGRAM` level and pass it in.
+**A function block's I/O is not published automatically, but an `AT` clause
+publishes explicitly.** Automatic publishing was considered and rejected: an
+FB's `VAR_INPUT` is written by ST expression evaluation at the call site, so
+making it a HAL `in` pin gives it two writers — the ST body and whatever signal
+is `net`'d to it — and HAL in-pins are single-writer by design.
+
+An `AT` variable does not have that problem, which is why it may live anywhere,
+inside a function block included. It is not an FB input: nothing at a call site
+writes it, and its direction is explicit in the clause rather than inferred
+from which `VAR` section it sits in. `%I` means HAL writes and ST reads; `%Q`
+means ST writes and HAL reads. There is no second writer to conflict with.
+
+So a `PROGRAM`'s `VAR_INPUT`/`VAR_OUTPUT`/`VAR_IN_OUT` are the concise
+shorthand for the common case, and `AT` is the explicit form that works at any
+depth. Neither replaces the other — a `PROGRAM` is not called by anything, so
+if its `VAR_INPUT` stopped being a pin it would have no meaning left.
 
 **Live watch is deferred, but the IR is not.** `.comp` `variable` declarations
 land in `inst_t`, which is on the private rtapi heap (`cgen.go:492-493`) — only
@@ -194,7 +200,62 @@ FUNCTION(_) {
 `ramplimit.enable` (in bit), `ramplimit.out` (out float) — and exports the
 function as `ramplimit` through `emitFunctionExport`.
 
-### 3.1 Type mapping
+### 3.1 Mapping a pin explicitly with AT
+
+A variable in any `VAR` block may name the HAL pin it maps to:
+
+```
+PROGRAM mycomp
+  VAR
+    enable AT %I       : BOOL;    (* mycomp.enable *)
+    out    AT %Q       : LREAL;   (* mycomp.out    *)
+    fault  AT %Q.alarm : BOOL;    (* mycomp.alarm  *)
+    level  AT %IO      : LREAL;   (* an io pin     *)
+  END_VAR
+```
+
+The direction comes from the clause — `%I` in, `%Q` out, `%IO` io — and the pin
+name defaults to the variable's own, written out only where the two differ.
+That reads like ST and avoids saying every name twice.
+
+An `AT` name goes through the same underscore-to-hyphen transform a
+`VAR_INPUT` pin does, so `at_home` and `at-home` both name `comp.at-home`.
+Consistency is the point: how a pin got its name should not change what it is
+called.
+
+This is deliberately *not* IEC's located-variable syntax, which it resembles.
+`%QX0.0` in CODESYS is a physical address: memory area, size code, offset. Here
+`%Q` names a direction and nothing else, because stratuMAK has no physical
+address space to locate a variable in — HAL signals are the addressing scheme.
+An address-shaped `AT %QX0.0` is refused rather than quietly reinterpreted.
+
+Inside a function block, an `AT` variable becomes a pin on every instance,
+prefixed by the instance path:
+
+```
+FUNCTION_BLOCK Ramp
+  VAR
+    pos AT %Q.position : LREAL;
+  END_VAR
+  ...
+END_FUNCTION_BLOCK
+
+PROGRAM mycomp
+  VAR
+    r    : Ramp;                  (* mycomp.r.position            *)
+    axes : ARRAY[0..3] OF Ramp;   (* mycomp.axes.0.position .. .3 *)
+  END_VAR
+```
+
+Two limits follow from HAL's naming, and they are the limits array pins already
+have: at most one array segment in the path, since a pin name carries one
+index, and the whole path must fit `STMAK_HAL_NAME_LEN`.
+
+A publishing instance lives in a `PROGRAM`'s `VAR` rather than `VAR_GLOBAL`.
+Its pins are loaded and stored by the function that owns it, and an instance
+shared between two programs has no single owner to do that.
+
+### 3.2 Type mapping
 
 HAL scalars are `bit`, `s32`, `u32`, `float` and `port`, and HAL `float` is a
 `double` (`pkg/cmodule/stmak_hal.h:81-85`). That constrains what may appear on a
@@ -229,7 +290,7 @@ names the pin and says to use `LREAL`, and travels through the existing
 (`cmd/modcompile/main.go:468`). Tightening this later is a one-line change if
 the warning turns out to be ignored in practice.
 
-### 3.2 Semantics worth stating
+### 3.3 Semantics worth stating
 
 **Inputs are stable for the cycle.** HAL scalars are `volatile`, so reading the
 same input pin twice in one body would re-read shared memory and could see two

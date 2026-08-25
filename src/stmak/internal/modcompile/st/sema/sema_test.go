@@ -509,10 +509,62 @@ func TestDiagnostics(t *testing.T) {
 			src:  wrap("VAR_INPUT\n s : STRING[8];\nEND_VAR", "q := TRUE;"),
 			want: "has no HAL representation",
 		},
+		// --- explicit pin mapping with AT ---
 		{
-			name: "located variables are refused by name",
+			// A PLC programmer reaches for %QX0.0 by reflex; say plainly why
+			// it cannot mean anything here rather than "unknown direction".
+			name: "an IEC physical address",
 			src:  wrap("VAR\n b AT %IX1 : BOOL;\nEND_VAR", "q := TRUE;"),
-			want: "stratuMAK maps I/O through VAR_INPUT and VAR_OUTPUT",
+			want: "is a physical address; stratuMAK has no address space",
+		},
+		{
+			name: "an unknown direction",
+			src:  wrap("VAR\n b AT %Z : BOOL;\nEND_VAR", "q := TRUE;"),
+			want: "write AT %I, AT %Q or AT %IO",
+		},
+		{
+			name: "AT in a section that already maps",
+			src:  wrap("VAR_INPUT\n b AT %I : BOOL;\nEND_VAR", "q := TRUE;"),
+			want: "AT is redundant in VAR_INPUT",
+		},
+		{
+			name: "assigning an AT input",
+			src:  wrap("VAR\n b AT %I : BOOL;\nEND_VAR", "b := TRUE;"),
+			want: "it is an input pin",
+		},
+		{
+			name: "a type that cannot reach a pin",
+			src:  wrap("VAR\n b AT %Q : LINT;\nEND_VAR", "q := TRUE;"),
+			want: "has no HAL representation",
+		},
+		{
+			name: "an AT name colliding with a pin",
+			src:  wrap("VAR\n b AT %Q.q : BOOL;\nEND_VAR", "q := TRUE;"),
+			want: "pin q is already declared",
+		},
+		{
+			name: "a publishing instance in VAR_GLOBAL",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"FUNCTION_BLOCK P\nVAR\n v AT %Q.value : LREAL;\nEND_VAR\nv := 1.0;\nEND_FUNCTION_BLOCK\n" +
+				"VAR_GLOBAL\n shared : P;\nEND_VAR\n" +
+				progWith("", "q := TRUE;"),
+			want: "cannot be a VAR_GLOBAL",
+		},
+		{
+			name: "a publishing instance in a multi-dimensional array",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"FUNCTION_BLOCK P\nVAR\n v AT %Q.value : LREAL;\nEND_VAR\nv := 1.0;\nEND_FUNCTION_BLOCK\n" +
+				progWith("VAR\n grid : ARRAY[0..1, 0..1] OF P;\nEND_VAR", "q := TRUE;"),
+			want: "a pin name carries one index",
+		},
+		{
+			name: "a pin path over HAL's name limit",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"FUNCTION_BLOCK P\nVAR\n " +
+				strings.Repeat("v", 130) + " AT %Q." + strings.Repeat("n", 130) + " : LREAL;\nEND_VAR\n" +
+				strings.Repeat("v", 130) + " := 1.0;\nEND_FUNCTION_BLOCK\n" +
+				progWith("VAR\n instance : P;\nEND_VAR", "q := TRUE;"),
+			want: "over HAL's limit",
 		},
 
 		// --- real-time rules, §4 ---

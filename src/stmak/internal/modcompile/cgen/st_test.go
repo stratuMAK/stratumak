@@ -28,6 +28,7 @@ var stLowers = []string{
 	"arrays", "structs", "statemachine", "types", // phase 4: types and arrays
 	"ramplimit", "fbnest", "funcs", // phase 5: function blocks and functions
 	"twoprograms", // phase 6: shared state and several programs
+	"atmap",       // explicit pin mapping with AT
 }
 
 // compile turns one fixture into C.
@@ -575,4 +576,67 @@ func between(s, start, end string) string {
 		return ""
 	}
 	return rest[:j]
+}
+
+// TestSTExplicitPinMapping covers the AT form of §3.1: a plain VAR mapped onto
+// a pin, renamed on the way out, and a function block publishing pins of its
+// own along the instance path.
+func TestSTExplicitPinMapping(t *testing.T) {
+	out := generateST(t, "atmap")
+
+	// A program-level AT variable is an ordinary pin, snapshotted like any
+	// other -- and renamed where the clause said so.
+	for _, want := range []string{
+		"const bool __pin_enable = (*(__comp_inst->hal->enable));",
+		"bool __pin_active = (*(__comp_inst->hal->active));",
+		"double __pin_feed = (*(__comp_inst->hal->feed));",
+		"(*(__comp_inst->hal->active)) = __pin_active;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("program-level AT pin missing:\n  %s", want)
+		}
+	}
+	// %I is read-only and %Q write-only, so an input keeps its const and an
+	// input is never written back.
+	if strings.Contains(out, "(*(__comp_inst->hal->enable)) =") {
+		t.Error("an %I pin was written back")
+	}
+
+	// A block's published pins are named by the path that reaches the
+	// instance, and an array segment becomes the pin's index.
+	for _, want := range []string{
+		`"%s.x.position", name`,
+		`"%s.x.error", name`,
+		`"%s.axes.%01d.position", name, j`,
+		`"%s.axes.%01d.error", name, j`,
+		// Underscores become hyphens on the way to HAL, the same transform a
+		// VAR_INPUT pin gets: `at_home` and `at-home` name one pin.
+		`"%s.x.at-home", name`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("published pin missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// They are loaded into the instance at entry and stored back at exit,
+	// which gives them the same cycle semantics as the function's own pins.
+	for _, want := range []string{
+		"__comp_inst->x.home = (*(__comp_inst->hal->x_at_home));",
+		"(*(__comp_inst->hal->x_position)) = __comp_inst->x.pos;",
+		"for (__pi = 0; __pi < 3; __pi++) __comp_inst->axes[__pi].home = (*(__comp_inst->hal->axes_at_home[__pi]));",
+		"for (__pi = 0; __pi < 3; __pi++) (*(__comp_inst->hal->axes_position[__pi])) = __comp_inst->axes[__pi].pos;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("published pin is not moved between HAL and its instance:\n  %s", want)
+		}
+	}
+
+	// The block body itself is untouched by any of this: it reads a plain
+	// member, which is the whole reason the copies happen at the boundary.
+	if !strings.Contains(out, "(__self->pos) = 0.0;") {
+		t.Errorf("block body does not reach its published member as an ordinary field:\n%s", out)
+	}
+	if strings.Contains(between(out, "static void Axis_body", "\n}\n"), "hal->") {
+		t.Error("block body reaches HAL directly; it should only touch its own instance")
+	}
 }

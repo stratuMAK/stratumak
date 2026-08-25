@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -104,6 +104,22 @@ if ! grep -q 'funct_write, inst, 1, 0,' twoprograms.c; then
     exit 1
 fi
 
+# An AT clause maps a plain VAR onto a pin and may rename it, and a function
+# block publishes pins along the path of each instance -- with an array segment
+# becoming the pin's index.
+for pin in '"%s.enable"' '"%s.active"' '"%s.x.position"' '"%s.axes.%01d.position"'; do
+    if ! grep -qF "$pin" atmap.c; then
+        echo "atmap.c is missing the pin $pin"
+        exit 1
+    fi
+done
+# Published pins move between HAL and the instance at the boundary, so the
+# block body itself only ever touches its own members.
+if ! grep -q '(\*(__comp_inst->hal->x_position)) = __comp_inst->x.pos;' atmap.c; then
+    echo 'atmap.c does not store a published pin back from its instance'
+    exit 1
+fi
+
 # --- these must fail ---
 rm -f bad_unbounded.c
 modcompile --preprocess bad_unbounded.st -o bad_unbounded.c
@@ -123,6 +139,13 @@ rm -f bad_recursive.c
 modcompile --preprocess bad_recursive.st -o bad_recursive.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a function block that contains itself'
+    exit 1
+fi
+
+rm -f bad_address.c
+modcompile --preprocess bad_address.st -o bad_address.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted an IEC physical address in an AT clause'
     exit 1
 fi
 

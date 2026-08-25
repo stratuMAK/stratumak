@@ -828,6 +828,43 @@ func (*InvokeStmt) stmtNode() {}
 // ST declarations
 // ---------------------------------------------------------------------------
 
+// HALBinding maps a variable onto a HAL pin, from an `AT %I` / `%Q` / `%IO`
+// clause.  Unlike a PROGRAM's VAR_INPUT, an AT variable is not written by any
+// call site, so its direction is unambiguous and it may live at any depth --
+// inside a function block included.  See
+// docs/dev/MODCOMPILE_ST_FRONTEND.md §3.1.
+type HALBinding struct {
+	Pos Pos
+
+	// Name is the pin's own name, defaulting to the variable's.
+	Name string
+
+	Dir  PinDir
+	Type HALType
+}
+
+// PinBinding maps one HAL pin onto a member of a function block instance
+// somewhere inside the component.  The instance path is what distinguishes two
+// instances of the same block, so it is resolved once here rather than being
+// rediscovered by the backend.
+type PinBinding struct {
+	// Pin is the HAL pin's name, as it appears in Component.Pins.  A path
+	// crossing an array of instances carries a '#' run there, exactly as an
+	// array pin does.
+	Pin string
+
+	// Path is the C member path from inst_t to the variable, with an array
+	// segment written as "[%d]": "r.pos", or "axes[%d].pos".
+	Path string
+
+	Dir PinDir
+
+	// ArrayOf is the element count when the path crosses an array of
+	// instances, and zero otherwise.  At most one segment may be an array,
+	// because a HAL pin name carries one index.
+	ArrayOf int
+}
+
 // VarDecl is one declared name inside a VAR block of any flavour.  Which
 // flavour it came from is recorded in Store, since that is what the backend
 // needs; the HAL-facing ones are additionally lowered into Component.Pins so
@@ -839,6 +876,11 @@ type VarDecl struct {
 	Store Storage
 	Init  Expr // nil when the declaration gave no initialiser
 	Doc   string
+
+	// HAL, when set, maps this variable onto a pin.  Inside a function block
+	// the pin's full name is not known until the instance path is, so the
+	// binding records only what the declaration said.
+	HAL *HALBinding
 }
 
 // EnumConst is one enumeration constant with its resolved value.

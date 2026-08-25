@@ -86,8 +86,9 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 			continue
 		}
 		for _, d := range blk.Decls {
-			if d.Located != "" {
-				c.errorf(d.Pos, "a function block may not have located variables (AT %s)", d.Located)
+			if d.Located != "" && blk.Kind.IsHAL() {
+				c.errorf(d.Pos, "AT is redundant in %s: a function block's %s is bound at the "+
+					"call site, not by HAL", blk.Kind, blk.Kind)
 				continue
 			}
 			if d.Edge != st.EdgeNone {
@@ -112,6 +113,14 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 					Typ:   typ,
 					Store: ast.StorageField,
 					Doc:   attrValue(d.Attrs, "doc"),
+				}
+				if d.Located != "" {
+					// The pin's full name is not known until an instance path
+					// is, so only what the declaration said is recorded here.
+					v.HAL = c.bindAT(d.Located, d.Pos, name, typ)
+					if v.HAL == nil {
+						continue
+					}
 				}
 				if d.Init != nil {
 					if typ.Kind == ast.TypeArray || typ.Kind == ast.TypeStruct || typ.Kind == ast.TypeFB {

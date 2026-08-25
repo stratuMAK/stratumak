@@ -357,10 +357,10 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	// Only this function's own pins: a file may hold several PROGRAMs, each
 	// exporting its own HAL function, and writing back another's outputs
 	// would fight whichever thread that one runs in.
-	pins := g.pinsOf(fn)
-	if len(pins) > 0 {
+	pins := g.ownPinsOf(fn)
+	if len(pins) > 0 || len(fn.PinBindings) > 0 {
 		g.printf("    /* Snapshot pins: stable for the whole cycle. */\n")
-		if anyArrayPin(pins) {
+		if anyArrayPin(pins) || anyArrayBinding(fn.PinBindings) {
 			g.printf("    int __pi;\n")
 		}
 		for _, pin := range pins {
@@ -383,12 +383,19 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 		g.printf("\n")
 	}
 
+	// A function block instance may publish pins of its own.  They are loaded
+	// into the instance here and stored back at exit, which gives them the
+	// same cycle semantics as the function's own pins while leaving the block
+	// body reading a plain member.
+	g.emitBindingLoads(fn)
+
 	e.emitStmts(fn.Body, 1)
 
-	if anyWritablePin(pins) {
+	if anyWritablePin(pins) || anyWritableBinding(fn.PinBindings) {
 		g.printf("\n")
 		e.lineBackToOutput()
 		g.printf("    /* Write pins back. */\n")
+		g.emitBindingStores(fn)
 		for _, pin := range pins {
 			if pin.Dir == ast.PinIn {
 				continue
@@ -407,17 +414,25 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	g.printf("}\n\n")
 }
 
-// pinsOf is the pins one ST function snapshots.
+// ownPinsOf is the pins one ST function snapshots into locals: the ones its
+// own PROGRAM declared, not those a nested instance publishes -- those are
+// loaded straight into the instance instead.
 //
 // A .comp names none, because its single body shares the whole component's
-// pins; an .st names exactly what its PROGRAM declared.  Falling back to all
-// pins for the unnamed case keeps one code path for both.
-func (g *generator) pinsOf(fn *ast.Function) []ast.Pin {
+// pins; falling back to all pins for that case keeps one code path for both.
+func (g *generator) ownPinsOf(fn *ast.Function) []ast.Pin {
 	if len(fn.Pins) == 0 {
 		return g.comp.Pins
 	}
+	bound := make(map[string]bool, len(fn.PinBindings))
+	for _, b := range fn.PinBindings {
+		bound[b.Pin] = true
+	}
 	out := make([]ast.Pin, 0, len(fn.Pins))
 	for _, name := range fn.Pins {
+		if bound[name] {
+			continue
+		}
 		for _, p := range g.comp.Pins {
 			if p.Name == name {
 				out = append(out, p)
@@ -426,6 +441,66 @@ func (g *generator) pinsOf(fn *ast.Function) []ast.Pin {
 		}
 	}
 	return out
+}
+
+// emitBindingLoads copies every readable published pin into its instance.
+func (g *generator) emitBindingLoads(fn *ast.Function) {
+	for _, b := range fn.PinBindings {
+		if b.Dir == ast.PinOut {
+			continue
+		}
+		g.emitBindingCopy(b, true)
+	}
+}
+
+// emitBindingStores copies every writable published pin back out of its
+// instance.
+func (g *generator) emitBindingStores(fn *ast.Function) {
+	for _, b := range fn.PinBindings {
+		if b.Dir == ast.PinIn {
+			continue
+		}
+		g.emitBindingCopy(b, false)
+	}
+}
+
+// emitBindingCopy moves one published pin between HAL and its instance.
+func (g *generator) emitBindingCopy(b ast.PinBinding, load bool) {
+	member := toC(b.Pin)
+	if b.ArrayOf > 0 {
+		path := strings.Replace(b.Path, "[%d]", "[__pi]", 1)
+		if load {
+			g.printf("    for (__pi = 0; __pi < %d; __pi++) __comp_inst->%s = (*(__comp_inst->hal->%s[__pi]));\n",
+				b.ArrayOf, path, member)
+		} else {
+			g.printf("    for (__pi = 0; __pi < %d; __pi++) (*(__comp_inst->hal->%s[__pi])) = __comp_inst->%s;\n",
+				b.ArrayOf, member, path)
+		}
+		return
+	}
+	if load {
+		g.printf("    __comp_inst->%s = (*(__comp_inst->hal->%s));\n", b.Path, member)
+		return
+	}
+	g.printf("    (*(__comp_inst->hal->%s)) = __comp_inst->%s;\n", member, b.Path)
+}
+
+func anyArrayBinding(bs []ast.PinBinding) bool {
+	for _, b := range bs {
+		if b.ArrayOf > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func anyWritableBinding(bs []ast.PinBinding) bool {
+	for _, b := range bs {
+		if b.Dir != ast.PinIn {
+			return true
+		}
+	}
+	return false
 }
 
 func anyArrayPin(pins []ast.Pin) bool {

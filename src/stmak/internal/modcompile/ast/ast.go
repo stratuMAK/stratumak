@@ -370,6 +370,12 @@ type Function struct {
 	// never carries both.
 	Body []Stmt
 
+	// PinBindings are the pins of function block instances this function owns.
+	// They are loaded into their instances at entry and stored back at exit,
+	// which gives them the same cycle semantics as the function's own pins
+	// while leaving a block body reading a plain member.
+	PinBindings []PinBinding
+
 	// Pins names the HAL pins this function's body reaches, in declaration
 	// order.  A file may hold several PROGRAMs, each exporting its own HAL
 	// function with its own pins, and each snapshots only what it declared --

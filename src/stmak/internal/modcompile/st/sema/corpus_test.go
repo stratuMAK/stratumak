@@ -42,6 +42,9 @@ var corpusStatus = map[string]string{
 
 	// Lowered by phase 6: shared state and several programs.
 	"twoprograms": "",
+
+	// Explicit pin mapping with AT, at any depth.
+	"atmap": "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.
