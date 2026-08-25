@@ -45,10 +45,83 @@ type Package struct {
 	// being quietly dropped.
 	Warnings []string
 
-	// Future ST support: user-defined types, sub-modules, helpers.
+	// ST declarations: user-defined types, function blocks, pure functions.
+	// Empty for a .comp, which has no way to declare any of them.
 	Types     []TypeDef
 	Blocks    []FunctionBlock
 	Functions []PureFunction
+}
+
+// HasSTBody reports whether this package came from an .st source, i.e. whether
+// any exported function carries a lowered body.
+func (p *Package) HasSTBody() bool {
+	for i := range p.Component.Functions {
+		if p.Component.Functions[i].Body != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate checks the structural invariants a backend is entitled to assume.
+//
+// The load-bearing one is that a component's body comes from exactly one
+// frontend: verbatim C from a .comp, or lowered statements from an .st, never
+// both.  cgen picks its body emission path from that distinction, so a package
+// carrying both would silently emit one and drop the other.
+func (p *Package) Validate() error {
+	hasC := p.Component.VerbatimC != ""
+	hasST := p.HasSTBody()
+
+	if hasC && hasST {
+		return fmt.Errorf("component %q carries both verbatim C and a lowered ST body; "+
+			"a package comes from one frontend or the other", p.Component.Name)
+	}
+	if !hasC && (len(p.Types) > 0 || len(p.Blocks) > 0 || len(p.Functions) > 0) && !hasST {
+		return fmt.Errorf("component %q declares ST types, function blocks or functions "+
+			"but no function has a body", p.Component.Name)
+	}
+	if hasST {
+		for i := range p.Component.Functions {
+			if p.Component.Functions[i].Body == nil {
+				return fmt.Errorf("component %q: function %q has no body while others do",
+					p.Component.Name, p.Component.Functions[i].Name)
+			}
+		}
+	}
+	return nil
+}
+
+// LookupType finds a user-defined type by name, case-insensitively.  It
+// returns a pointer into p, so a caller resolving a Type.Ref sees later edits
+// and cannot copy a definition out of step with the package.
+func (p *Package) LookupType(name string) *TypeDef {
+	for i := range p.Types {
+		if EqualName(p.Types[i].Name, name) {
+			return &p.Types[i]
+		}
+	}
+	return nil
+}
+
+// LookupBlock finds a function block by name, case-insensitively.
+func (p *Package) LookupBlock(name string) *FunctionBlock {
+	for i := range p.Blocks {
+		if EqualName(p.Blocks[i].Name, name) {
+			return &p.Blocks[i]
+		}
+	}
+	return nil
+}
+
+// LookupFunction finds a pure function by name, case-insensitively.
+func (p *Package) LookupFunction(name string) *PureFunction {
+	for i := range p.Functions {
+		if EqualName(p.Functions[i].Name, name) {
+			return &p.Functions[i]
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +363,12 @@ type Function struct {
 	Name string
 	FP   bool // true if function uses floating point (default true)
 	Doc  string
+
+	// Body is the lowered ST that runs each cycle, for a function that came
+	// from an .st PROGRAM.  Nil for .comp, where the body is verbatim C in
+	// Component.VerbatimC instead.  Package.Validate enforces that a package
+	// never carries both.
+	Body []Stmt
 }
 
 // Variable represents a per-instance C variable.
@@ -330,34 +409,119 @@ func (d PkgConfigDep) Name() string {
 }
 
 // ---------------------------------------------------------------------------
-// Future ST support — placeholder types
+// ST declarations
 // ---------------------------------------------------------------------------
 
-// TypeDefKind classifies user-defined types.
+// TypeDefKind classifies a user-defined type.  There is no separate array
+// kind: an array typedef is a DefAlias whose target is a TypeArray, which
+// keeps one path for "this name stands for that type".
 type TypeDefKind int
 
 const (
-	TypeStruct TypeDefKind = iota
-	TypeEnum
-	TypeAlias
-	TypeArray
+	DefAlias TypeDefKind = iota
+	DefEnum
+	DefStruct
 )
 
-// TypeDef represents a user-defined type (ST).
+var typeDefKindNames = map[TypeDefKind]string{
+	DefAlias:  "alias",
+	DefEnum:   "enumeration",
+	DefStruct: "struct",
+}
+
+func (k TypeDefKind) String() string {
+	if n, ok := typeDefKindNames[k]; ok {
+		return n
+	}
+	return fmt.Sprintf("TypeDefKind(%d)", int(k))
+}
+
+// TypeDef is one entry of a TYPE ... END_TYPE block.  Exactly one of Alias,
+// Consts or Fields is meaningful, selected by Kind.
 type TypeDef struct {
 	Pos  Pos
 	Name string
 	Kind TypeDefKind
+	Doc  string
+
+	// Alias is the target type when Kind is DefAlias.
+	Alias Type
+
+	// Consts are the constants when Kind is DefEnum, in declaration order and
+	// with values already resolved.
+	Consts []EnumConst
+
+	// Fields are the members when Kind is DefStruct, in declaration order.
+	// Declaration order is the emission order of the generated C struct, so it
+	// must not be sorted.
+	Fields []Field
 }
 
-// FunctionBlock represents a reusable sub-module (ST FUNCTION_BLOCK).
+// LookupConst finds an enumeration constant by name, case-insensitively.
+func (d *TypeDef) LookupConst(name string) (EnumConst, bool) {
+	for _, c := range d.Consts {
+		if EqualName(c.Name, name) {
+			return c, true
+		}
+	}
+	return EnumConst{}, false
+}
+
+// LookupField finds a struct field by name, case-insensitively.
+func (d *TypeDef) LookupField(name string) (Field, bool) {
+	for _, f := range d.Fields {
+		if EqualName(f.Name, name) {
+			return f, true
+		}
+	}
+	return Field{}, false
+}
+
+// FunctionBlock is a reusable sub-module (ST FUNCTION_BLOCK).  Instances are
+// internal: a function block has no HAL identity of its own, and only a
+// PROGRAM's I/O reaches HAL.  See docs/dev/MODCOMPILE_ST_FRONTEND.md §2.
+//
+// Inputs and Outputs persist between calls, per IEC semantics, so they live in
+// the instance struct alongside Vars rather than being parameters.
 type FunctionBlock struct {
 	Pos  Pos
 	Name string
+	Doc  string
+
+	Inputs  []VarDecl
+	Outputs []VarDecl
+	InOuts  []VarDecl
+	Vars    []VarDecl
+
+	Body []Stmt
 }
 
-// PureFunction represents a stateless helper function (ST FUNCTION).
+// LookupVar finds any declared name of the block, case-insensitively, and
+// reports which section it came from.
+func (b *FunctionBlock) LookupVar(name string) (VarDecl, bool) {
+	for _, set := range [][]VarDecl{b.Inputs, b.Outputs, b.InOuts, b.Vars} {
+		for _, v := range set {
+			if EqualName(v.Name, name) {
+				return v, true
+			}
+		}
+	}
+	return VarDecl{}, false
+}
+
+// PureFunction is a stateless helper (ST FUNCTION).  It keeps no state between
+// calls, so its parameters and locals are C locals rather than instance
+// members, and it may be called from an expression.
 type PureFunction struct {
 	Pos  Pos
 	Name string
+	Doc  string
+
+	// Result is the declared return type, from `FUNCTION name : TYPE`.
+	Result Type
+
+	Params []VarDecl
+	Vars   []VarDecl
+
+	Body []Stmt
 }
