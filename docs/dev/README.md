@@ -58,6 +58,7 @@ tags, and what was fixed. Ordered roughly as the program ran them.
 |---|---|
 | [DYNAMIC_API_DESIGN.md](DYNAMIC_API_DESIGN.md) | The GMI inter-module communication system that replaces NML: IDL, codegen targets, transport, the full step-by-step implementation record. |
 | [FIELD_VALIDATION_DESIGN.md](FIELD_VALIDATION_DESIGN.md) | Declarative field/parameter constraints in `.gmi` IDL, enforced by generated code. |
+| [MODCOMPILE_ST_FRONTEND.md](MODCOMPILE_ST_FRONTEND.md) | Compiling IEC 61131-3 Structured Text into cmod modules through a new `modcompile` frontend, reusing the `.comp` code generator. Proposed 2026-08-25; §4 is the real-time safety policy the compiler enforces. |
 | [EXTERNAL_MODULE_INSTALL_DESIGN.md](EXTERNAL_MODULE_INSTALL_DESIGN.md) | How out-of-tree modules build against a packaged install. Implemented and verified on hardware 2026-08-01; §7 records what the implementation decided. |
 | [VCP_MIGRATION.md](VCP_MIGRATION.md) | The architecture for migrating all UI code (pyvcp, gladevcp, qtvcp, full GUIs) onto stratuMAK infrastructure. The template future UI ports follow. |
 | [AXIS_MULTI_CLIENT.md](AXIS_MULTI_CLIENT.md) | Centralising AXIS UI state server-side so multiple clients can run at once. |
