@@ -211,7 +211,7 @@ program's I/O boundary.
 | enumeration | `s32` | `int32_t` + named constants |
 | `ARRAY [0..n] OF` scalar | array pin, 1-D only | C array, index offset applied |
 | `STRUCT`, `FUNCTION_BLOCK` | rejected — pins are scalar | nested struct |
-| `STRING [n]` | rejected — see §7 | `char[n+1]` |
+| `STRING [n]` | rejected — see §8 | `char[n+1]` |
 | `TIME` | rejected — see §6.1 | `int64_t` nanoseconds |
 
 `LREAL` is the type to use on a pin: HAL `float` *is* a `double`
@@ -393,8 +393,9 @@ every shipped `.comp` produces identical JSON.
 all three comment forms, based literals (`16#FF`, `2#1010`), typed literals
 (`INT#42`), and attribute pragmas. Recursive descent to an untyped syntax tree
 carrying positions. No sema, no codegen.
-*Done when* `modcompile --parse foo.st` prints the syntax tree, with parser
-tests covering each construct and each error message.
+*Done when* `modcompile --parse foo.st` prints the syntax tree, every file in
+`testdata/parse/` parses without a syntax error, and parser tests cover each
+construct and each error message.
 
 **2. Sema core, scalars only.** Symbol table and scope chain, expression typing
 and widening rules, constant folding, positioned diagnostics, and the §4 rules.
@@ -456,7 +457,67 @@ already carries the type information this is backend work only, and it should
 cover `.comp` `variable` declarations in the same pass rather than being
 ST-specific. The fault counter of §4 should become a HAL pin at the same time.
 
-## 7. Out of scope
+## 7. Test corpus
+
+Fixtures live in `src/stmak/internal/modcompile/st/testdata/`, in four tiers,
+because a fixture is only useful when it is clear what passing means for it:
+`parse/` (parses without a syntax error, nothing more), `accept/` (parses,
+passes sema, lowers to the IR), `reject/` (produces a specific diagnostic,
+asserted by message *and* position), and `golden/` (compiles, loads into
+`stmakd`, behaves as an accompanying HAL test asserts).
+
+A `reject/` case that passes because the compiler crashed, or because an
+unrelated earlier error fired, is worse than no case at all: it stays green
+while the diagnostic it was written for silently stops working. Assert the
+text.
+
+### 7.1 What was imported
+
+There is no public IEC 61131-3 conformance suite — PLCopen certification is a
+closed programme and the annex grammar is IEC-copyrighted — so the corpus is
+mostly ours to write. One import gives phase 1 a real head start.
+
+**IronPLC** (`https://github.com/ironplc/ironplc`, MIT) contributes 21 files,
+251 lines, under `testdata/thirdparty/ironplc/`, with the upstream licence and a
+README recording the commit and what was excluded. MIT inside this GPL-2+ tree
+needs only the notice preserved; the files are test input and reach no binary.
+`debian/copyright` carries a stanza for them regardless, since it covers the
+source package and the source is distributed even though tests are not.
+
+The two files that earn the import on their own are `expressions.st` — operator
+precedence across arithmetic, comparison, `MOD`, `**`, `XOR` and typed literals,
+which is exactly where a hand-written recursive-descent parser goes wrong — and
+`textual.st`, which exercises the whole statement set in one file.
+
+**These are parse-level fixtures.** Most reference identifiers that are never
+declared, because upstream uses them to test parsing: they are valid syntax and
+invalid programs. They belong in `parse/` and will be correctly rejected by sema
+from phase 2 onward. Promoting one to `accept/` means editing it, and the import
+README is where that gets recorded.
+
+Excluded on purpose: `CONFIGURATION`/`RESOURCE`/`TASK` and located variables
+(`AT %IX1`), the other IEC languages, references and pointers, `WSTRING`, and
+vendor extensions such as `SIZEOF` and `WORD` bit access — so that a failure in
+that directory always means a real defect rather than an unimplemented feature.
+
+### 7.2 What was deliberately not imported
+
+MatIEC (GPL-3), RuSTy and iec-checker (LGPL-3) are all worth reading and none
+were copied. The reason is value, not licence: this tree already ships GPL-3+
+files under a GPL-2+ package — `tests/trajectory-planner/circular-arcs/octave/`
+among them — so aggregation is settled practice here and a stanza would have
+sufficed. But MatIEC's actual corpus is three negative `.st` files plus a syntax
+directory, and the RuSTy and iec-checker suites live inside Rust and OCaml test
+harnesses rather than as portable files.
+
+What is worth taking from them is ideas, which carry no licence at all.
+MatIEC's `tests/syntax/identifier` matrix — the same identifier used as a
+datatype, function, function block, label, program, enumeration value and
+variable — is a good model for the case-insensitive scoping rules of §5.2, and a
+reimplementation is better than a copy because it can use our attribute syntax
+and assert our diagnostics.
+
+## 8. Out of scope
 
 Named so that leaving them out is a decision rather than an omission.
 
@@ -468,7 +529,7 @@ Named so that leaving them out is a decision rather than an omission.
 - The other IEC languages — ladder, function block diagram, sequential function
   chart. The existing `classicladder` integration already covers ladder.
 
-## 8. Open items
+## 9. Open items
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding

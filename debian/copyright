@@ -357,6 +357,13 @@ Files: debian/org.stratumak.stratumak.metainfo.xml
 Copyright: 2021 Petter Reinholdtsen <pere@debian.org>
 License: MIT
 
+Files: src/stmak/internal/modcompile/st/testdata/thirdparty/ironplc/*
+Copyright: 2022 Garret Fick
+Comment: IEC 61131-3 Structured Text fixtures imported from
+ https://github.com/ironplc/ironplc, used as test input for the .st frontend.
+ Not compiled into, linked with, or shipped in any binary.
+License: MIT
+
 Files: src/stmak/internal/halscope/testrt/greatest.h
 Copyright: 2011-2019 Scott Vokes <vokes.s@gmail.com>
 License: ISC
