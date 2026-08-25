@@ -1,0 +1,15 @@
+Differential test: Structured Text against .comp
+================================================
+
+Each shipped component driven here -- and2, or2, not and mux2 -- has a
+Structured Text twin in st_twins.st.  Both are netted to the same signals and
+both outputs are captured, so the columns come in pairs: the .comp result, then
+the .st one.
+
+The point is not that the twins work.  It is that the two frontends agree: a
+change to either that alters behaviour shows up as a diff here rather than as a
+surprise on a machine.  checkresult additionally asserts every pair is equal, so
+a change that happens to match a stale expected file still fails.
+
+The bodies of the twins are written the way the .comp ones are, deliberately.
+What is under test is the two toolchains, not two algorithms.

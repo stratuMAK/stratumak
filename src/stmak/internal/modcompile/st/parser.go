@@ -214,9 +214,20 @@ func (p *parser) parseFile() *File {
 	// makes `{attribute 'summary'}` at the top of a file mean the component
 	// even when a FUNCTION_BLOCK happens to be declared next.  A pin's `doc`
 	// is unaffected: it sits inside a VAR section, always past this point.
-	f.Attrs = p.parseAttributes()
-
+	//
+	// `doc` is the one exception, and it is why the parser knows that name at
+	// all: it documents a thing rather than the file, so it always belongs to
+	// whatever follows.  Without the exception the first declaration in a file
+	// could not be documented -- its `doc` would land among the component
+	// metadata and be reported as unknown there.
 	var attrs []Attribute
+	for _, a := range p.parseAttributes() {
+		if strings.EqualFold(a.Name, "doc") {
+			attrs = append(attrs, a)
+			continue
+		}
+		f.Attrs = append(f.Attrs, a)
+	}
 
 	for !p.at(EOF) {
 		if p.at(Pragma) {

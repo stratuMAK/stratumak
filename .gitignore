@@ -84,3 +84,8 @@ share/bash-completion/
 /tests/modcompile-st/*.c
 /tests/modcompile-st/*.so
 /tests/modcompile-st/*.9
+/tests/modcompile-st-behaviour/*.so
+/tests/modcompile-st-behaviour/*.c
+/tests/modcompile-st-behaviour/in.txt
+/tests/modcompile-st-behaviour/out.txt
+/tests/modcompile-st-behaviour/server.log

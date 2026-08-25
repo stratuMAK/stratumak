@@ -507,6 +507,18 @@ and the statement set — assignment, `IF`/`ELSIF`/`ELSE`, `CASE`, `FOR`, `WHILE
 rejection of each diagnostic class: narrowing assignment, unknown identifier,
 type mismatch, non-constant array bound, unbounded `WHILE`.
 
+**Differential testing.** `tests/modcompile-st-behaviour/` drives four shipped
+components — `and2`, `or2`, `not`, `mux2` — and Structured Text twins of them
+from the same signals, capturing both outputs. The columns come in pairs, and
+`checkresult` asserts every pair is equal as well as diffing against the
+expected file, so a change that altered both frontends the same way still
+fails. The twins are written the way the `.comp` bodies are, deliberately: what
+is under test is the two toolchains agreeing, not two algorithms.
+
+That is what a migration would need before it could be trusted, and it is worth
+more than the migration itself: it holds for every future change rather than
+proving one component once.
+
 **Integration tests.** From phase 3, when an `.st` compiles to a loadable
 `.so`, the accept fixtures should also get `tests/` runtests in the shape
 `tests/halcompile/names/` already uses -- a `test.sh` that drives `modcompile`

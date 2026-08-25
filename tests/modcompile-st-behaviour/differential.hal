@@ -1,0 +1,57 @@
+# Drive the shipped .comp components and their Structured Text twins from the
+# same signals, and capture both outputs.  A difference between the two
+# frontends shows up as a diff rather than as a surprise on a machine.
+
+newthread fast 100000
+
+load and2 <and2.0>
+load or2  <or2.0>
+load not  <not.0>
+load mux2 <mux2.0>
+
+# The twins come from st_twins.st, compiled by test.sh into this directory.
+load ./st_twins.so <st.0>
+
+load filestream stream_cfg=bbbb infile=in.txt sample_cfg=bbbbbbff outfile=out.txt depth=1000 samples=16
+
+net a filestream.stream.0
+net b filestream.stream.1
+net c filestream.stream.2
+net d filestream.stream.3
+
+# and2, both frontends
+net a and2.0.in0   st.0.in0
+net b and2.0.in1   st.0.in1
+net comp_and and2.0.out filestream.sample.0
+net st_and   st.0.out   filestream.sample.1
+
+# or2
+net a or2.0.in0    st.0.or-in0
+net b or2.0.in1    st.0.or-in1
+net comp_or or2.0.out  filestream.sample.2
+net st_or   st.0.or-out filestream.sample.3
+
+# not
+net a not.0.in     st.0.inv-in
+net comp_not not.0.out  filestream.sample.4
+net st_not   st.0.inv-out filestream.sample.5
+
+# mux2
+net a mux2.0.sel   st.0.sel
+setp mux2.0.in0 1
+setp mux2.0.in1 2
+setp st.0.mux-in0 1
+setp st.0.mux-in1 2
+net comp_mux mux2.0.out    filestream.sample.6
+net st_mux   st.0.mux-out  filestream.sample.7
+
+addf filestream.write fast
+addf and2.0 fast
+addf or2.0 fast
+addf not.0 fast
+addf mux2.0 fast
+addf st.0.and2 fast
+addf st.0.or2 fast
+addf st.0.inv fast
+addf st.0.mux2 fast
+addf filestream.read fast
