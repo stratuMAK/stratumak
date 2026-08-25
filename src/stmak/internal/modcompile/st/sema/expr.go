@@ -39,8 +39,7 @@ func (c *checker) checkExpr(e st.Expr, want ast.Type) ast.Expr {
 	case *st.FieldExpr:
 		return c.checkField(v)
 	case *st.CallExpr:
-		c.errorf(v.Pos, "function calls are not supported yet; they arrive with phase 5")
-		return nil
+		return c.checkCall(v)
 	case *st.DerefExpr:
 		c.errorf(v.Pos, "pointer dereference is not supported; stratuMAK ST has no pointers")
 		return nil
@@ -183,7 +182,7 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 	}
 
 	switch sym.Kind {
-	case symVar:
+	case symVar, symBuiltin:
 		return &ast.VarRef{Pos: v.Pos, Name: sym.Name, Store: sym.Store, Typ: sym.Type}
 
 	case symEnumConst:
@@ -299,9 +298,24 @@ func (c *checker) checkField(v *st.FieldExpr) ast.Expr {
 	bt := base.ExprType()
 
 	if bt.Kind == ast.TypeFB {
-		c.errorf(v.Pos, "reading a function block output is not supported yet; "+
-			"function blocks arrive with phase 5")
-		return nil
+		def := c.pkg.LookupBlock(bt.Ref)
+		if def == nil {
+			return nil
+		}
+		decl, found, public := c.blockFieldType(def, v.Name)
+		if !found {
+			c.errorf(v.Pos, "%s has no member %s; its interface is: %s",
+				bt.Ref, v.Name, blockNames(def))
+			return nil
+		}
+		if !public {
+			// A block's internal VARs are private: exposing them would make
+			// every instance's implementation part of its interface.
+			c.errorf(v.Pos, "%s is internal to %s; only its VAR_INPUT, VAR_OUTPUT "+
+				"and VAR_IN_OUT are readable from outside", v.Name, bt.Ref)
+			return nil
+		}
+		return &ast.FieldExpr{Pos: v.Pos, Base: base, Field: decl.Name, Typ: decl.Typ}
 	}
 	if bt.Kind != ast.TypeStruct {
 		c.errorf(v.Pos, "%s is not a structure, so it has no field %s", exprName(base, bt), v.Name)

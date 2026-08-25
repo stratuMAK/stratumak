@@ -26,6 +26,7 @@ const stCorpus = "../st/testdata/accept"
 var stLowers = []string{
 	"and2", "scale", "literals", "loops", // phase 2: scalars
 	"arrays", "structs", "statemachine", "types", // phase 4: types and arrays
+	"ramplimit", "fbnest", "funcs", // phase 5: function blocks and functions
 }
 
 // compile turns one fixture into C.
@@ -389,5 +390,124 @@ func TestSTArrayPinNaming(t *testing.T) {
 	// scalar: read once at entry, written back at exit.
 	if !strings.Contains(out, "__pin_channel[__pi] = (*(__comp_inst->hal->channel[__pi]));") {
 		t.Error("array pin is not snapshotted")
+	}
+}
+
+// TestSTFunctionBlocks checks that a block's instance holds its I/O as well as
+// its state, that the body is a plain function over that instance, and that an
+// invocation writes the inputs before running it.
+func TestSTFunctionBlocks(t *testing.T) {
+	out := generateST(t, "ramplimit")
+
+	// Inputs and outputs persist between calls, so they sit in the instance
+	// rather than being parameters.  This is what makes `r.out` a read of
+	// retained state.
+	for _, want := range []string{
+		"typedef struct {",
+		"/* VAR_INPUT */",
+		"double target;",
+		"/* VAR_OUTPUT */",
+		"double out;",
+		"} Ramp_t;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("instance struct is missing %q:\n%s", want, out)
+		}
+	}
+
+	// The instance is a plain member of inst_t: no allocation, no indirection.
+	if !strings.Contains(out, "Ramp_t r;") {
+		t.Error("the instance is not a member of inst_t")
+	}
+
+	if !strings.Contains(out, "static void Ramp_body(inst_t *__comp_inst, Ramp_t *__self)") {
+		t.Errorf("block body not emitted with the expected signature:\n%s", out)
+	}
+
+	// An invocation writes the inputs into the instance, then runs the body.
+	for _, want := range []string{
+		"(__comp_inst->r).target = __pin_target;",
+		"(__comp_inst->r).rate = __pin_max_rate;",
+		"(__comp_inst->r).dt = fperiod;",
+		"Ramp_body(__comp_inst, &(__comp_inst->r));",
+		"__pin_out = (__comp_inst->r).out;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("invocation is missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// A block body reaches its own members through the instance, never
+	// through inst_t.
+	if !strings.Contains(out, "(__self->step) = ((__self->rate) * (__self->dt));") {
+		t.Error("block body does not reach its members through the instance")
+	}
+}
+
+// TestSTNestedAndArrayedInstances checks the property that follows from a
+// block having no HAL identity: an instance nests, and an array of them is
+// unremarkable.
+func TestSTNestedAndArrayedInstances(t *testing.T) {
+	out := generateST(t, "fbnest")
+
+	// A block contained by another is declared first, since C needs the
+	// complete type.
+	accAt := strings.Index(out, "} Accumulator_t;")
+	avgAt := strings.Index(out, "} Averager_t;")
+	if accAt < 0 || avgAt < 0 {
+		t.Fatalf("instance structs missing:\n%s", out)
+	}
+	if accAt > avgAt {
+		t.Error("Averager_t is declared before the Accumulator_t it contains")
+	}
+	if !strings.Contains(out, "Accumulator_t acc;") {
+		t.Error("nested instance is not a member of its container")
+	}
+
+	// An array of instances.
+	if !strings.Contains(out, "Averager_t avg[4];") {
+		t.Errorf("array of instances not emitted:\n%s", out)
+	}
+	// Each element is initialised, not just the first.
+	if !strings.Contains(out, "for (__i = 0; __i < 4; __i++) Averager_init(&inst->avg[__i]);") {
+		t.Error("array of instances is not initialised element by element")
+	}
+	// Invoking through a subscript works like any other reference, and the
+	// subscript is clamped like any other.
+	if !strings.Contains(out, "Averager_body(__comp_inst, &(__comp_inst->avg)[") {
+		t.Errorf("invocation through a subscript not emitted:\n%s", out)
+	}
+}
+
+// TestSTPureFunctions checks that a function is a plain C function returning
+// its result, and is callable from an expression.
+func TestSTPureFunctions(t *testing.T) {
+	out := generateST(t, "funcs")
+
+	if !strings.Contains(out, "static double st_Clamp(inst_t *__comp_inst, double value, double low, double high)") {
+		t.Errorf("function not emitted with the expected signature:\n%s", out)
+	}
+	// The st_ prefix keeps an ST function called Clamp or Round from colliding
+	// with the C library, which is linked into every module.
+	if strings.Contains(out, "\ndouble Clamp(") || strings.Contains(out, "static double Clamp(") {
+		t.Error("function emitted without the st_ prefix; it could collide with libc")
+	}
+
+	// ST returns by assigning a name matching the function.
+	if !strings.Contains(out, "double Clamp = 0;") {
+		t.Error("result variable not declared and zeroed")
+	}
+	if !strings.Contains(out, "return Clamp;") {
+		t.Error("function does not return its result variable")
+	}
+
+	// Called from an expression, with the instance threaded through so a
+	// guard inside can record a fault.
+	if !strings.Contains(out, "st_Clamp(__comp_inst,") {
+		t.Errorf("function call not emitted:\n%s", out)
+	}
+	// A function calling another.
+	if !strings.Contains(out, "st_Lerp(__comp_inst,") {
+		t.Error("nested function call not emitted")
 	}
 }

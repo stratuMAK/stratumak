@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays; do
+for name in and2 loops statemachine arrays ramplimit fbnest; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -67,6 +67,28 @@ if ! grep -q 'double grid\[2\]\[3\];' arrays.c; then
     exit 1
 fi
 
+# A function block instance holds its I/O as well as its state, since IEC says
+# they persist between calls -- that is what makes a read of an output a read
+# of retained state.
+if ! grep -q 'Ramp_t r;' ramplimit.c; then
+    echo 'ramplimit.c does not hold its function block instance in inst_t'
+    exit 1
+fi
+if ! grep -q 'Ramp_body(__comp_inst, &(__comp_inst->r));' ramplimit.c; then
+    echo 'ramplimit.c does not invoke its function block'
+    exit 1
+fi
+
+# An instance nests and arrays because a block has no HAL identity of its own.
+if ! grep -q 'Averager_t avg\[4\];' fbnest.c; then
+    echo 'fbnest.c did not emit its array of instances'
+    exit 1
+fi
+if ! grep -q 'Accumulator_t acc;' fbnest.c; then
+    echo 'fbnest.c did not nest one instance inside another'
+    exit 1
+fi
+
 # --- these must fail ---
 rm -f bad_unbounded.c
 modcompile --preprocess bad_unbounded.st -o bad_unbounded.c
@@ -79,6 +101,13 @@ rm -f bad_index.c
 modcompile --preprocess bad_index.st -o bad_index.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a constant index outside the declared bounds'
+    exit 1
+fi
+
+rm -f bad_recursive.c
+modcompile --preprocess bad_recursive.st -o bad_recursive.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted a function block that contains itself'
     exit 1
 fi
 

@@ -788,6 +788,11 @@ type InvokeArg struct {
 	Pos   Pos
 	Name  string
 	Value Expr
+
+	// Out marks the `name => target` form, which copies one of the instance's
+	// outputs back into Value after the call rather than supplying an input.
+	// Value is then an lvalue.
+	Out bool
 }
 
 // InvokeStmt calls a function block instance: `inst(a := x, b := y);`.  It is a

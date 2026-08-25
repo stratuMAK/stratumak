@@ -72,8 +72,11 @@ func (g *generator) generate() error {
 	g.emitArchGuardOpen()  // "#if <arch cond>" — opens the real-module branch
 	g.emitModuleIncludes() // user + GMI headers (arch-specific, may be x86-only)
 	if g.hasSTBody() {
-		// Types come before the instance struct, which has members of them.
+		// Types come before the instance struct, which has members of them,
+		// and function block structs come before both -- a block's instance is
+		// a member of inst_t and may itself hold a struct.
 		g.emitSTTypedefs()
+		g.emitFBStructs()
 	}
 	g.emitInstanceStruct()
 	g.emitFunctionForwards()
@@ -84,6 +87,10 @@ func (g *generator) generate() error {
 		// verbatim C.  Package.Validate guarantees never both.
 		g.needClamp = g.anyRuntimeIndex()
 		g.emitSTRuntime()
+		// Blocks and functions are declared before any is defined, so they may
+		// call each other whatever order they were written in.
+		g.emitPOUForwards()
+		g.emitPOUBodies()
 		g.emitSTBodies()
 	} else {
 		g.emitUserCodeBody() // Emit rest of user code (without includes)
@@ -1196,6 +1203,16 @@ func (g *generator) emitNew() {
 		}
 	}
 	if len(g.comp.Variables) > 0 {
+		g.printf("\n")
+	}
+
+	// Function block instances get their declared starting state before the
+	// first cycle.  calloc already zeroed them, so this only matters for a
+	// member with an initialiser -- but a nested instance still has to be
+	// walked, since its own defaults are its business.
+	if g.hasSTBody() && g.hasInstances() {
+		g.printf("    /* Function block instances. */\n")
+		g.emitInstanceInit()
 		g.printf("\n")
 	}
 

@@ -110,6 +110,7 @@ func (c *checker) run() {
 	c.push()
 	defer c.pop()
 	c.checkTypeDecls(c.file.Types)
+	c.checkPOUs()
 
 	switch len(c.file.Programs) {
 	case 0:
@@ -136,14 +137,6 @@ func (c *checker) run() {
 // missing beats a resolution failure at its first use, which is what a reader
 // would otherwise see.
 func (c *checker) rejectUnsupported() {
-	for _, b := range c.file.Blocks {
-		c.errorf(b.Pos,
-			"FUNCTION_BLOCK %s: function blocks are not supported yet; they arrive with phase 5", b.Name)
-	}
-	for _, f := range c.file.Funcs {
-		c.errorf(f.Pos,
-			"FUNCTION %s: functions are not supported yet; they arrive with phase 5", f.Name)
-	}
 	for _, g := range c.file.Globals {
 		c.errorf(g.Pos,
 			"VAR_GLOBAL is not supported yet; state shared between programs arrives with phase 6")
@@ -208,6 +201,19 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	c.push()
 	defer c.pop()
 
+	// fperiod is the HAL function's period in seconds.  It exists only in a
+	// PROGRAM: a function block has no period of its own, and one that needs
+	// the cycle time takes it as an input -- which is what keeps a block
+	// reusable from a thread of any rate.
+	c.scope.declare(&symbol{
+		Name:  "fperiod",
+		Kind:  symBuiltin,
+		Type:  ast.Type{Kind: ast.TypeLReal},
+		Store: ast.StorageLocal,
+		Pos:   p.Pos,
+		Const: true,
+	})
+
 	c.declareVarSections(p.Vars)
 
 	body := c.checkStmts(p.Body)
@@ -234,6 +240,10 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 // save and restore.
 func (c *checker) usesFloat() bool {
 	found := false
+	// Only a name the author declared counts.  fperiod is a builtin present in
+	// every program, so counting it would make every component report as
+	// floating point; a body that actually uses it assigns it to something
+	// declared, and that is what is seen here.
 	for sc := c.scope; sc != nil; sc = sc.parent {
 		sc.each(func(s *symbol) {
 			if s.Kind == symVar && s.Type.IsFloat() {
@@ -340,6 +350,12 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		CType:   typ.CType(),
 		Name:    name,
 		Default: init,
+	}
+	if typ.Kind == ast.TypeFB || (typ.Kind == ast.TypeArray && typ.Elem != nil && typ.Elem.Kind == ast.TypeFB) {
+		// An instance is state; the backend emits its struct and its
+		// per-instance initialiser, so nothing more is needed here beyond the
+		// member itself.
+		v.CType = instCType(typ)
 	}
 	if typ.Kind == ast.TypeArray {
 		// Both fields are set: Array is the total so a reader of either sees
@@ -492,6 +508,15 @@ func digitsFor(n int) int {
 	return d
 }
 
+// instCType is the C type of a function block instance, or of an array of
+// them.
+func instCType(t ast.Type) string {
+	for t.Kind == ast.TypeArray && t.Elem != nil {
+		t = *t.Elem
+	}
+	return t.CType()
+}
+
 func attrValue(attrs []st.Attribute, name string) string {
 	for _, a := range attrs {
 		if strings.EqualFold(a.Name, name) {
@@ -550,6 +575,10 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 	// A user-defined type.  An alias resolves to its target, carrying its own
 	// name along for diagnostics; an enumeration or struct resolves to itself.
 	if sym := c.scope.lookup(ref.Name); sym != nil {
+		if sym.Kind == symBlock {
+			// A function block used as a type declares an instance of it.
+			return ast.Type{Kind: ast.TypeFB, Ref: sym.Name}, true
+		}
 		if sym.Kind != symType {
 			c.errorf(ref.Pos, "%s is a %s, not a type", ref.Name, sym.Kind)
 			return ast.Type{}, false

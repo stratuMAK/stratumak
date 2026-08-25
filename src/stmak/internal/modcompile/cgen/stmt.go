@@ -53,10 +53,27 @@ type stFeatures struct {
 // needsGuards reports whether any division guard is emitted.
 func (f stFeatures) needsGuards() bool { return len(f.guards) > 0 }
 
+// allBodies is every lowered body in the package: the exported HAL functions,
+// the function block bodies and the pure functions.  A guard used only inside
+// a block still has to be emitted, so every scan walks all of them.
+func (g *generator) allBodies() [][]ast.Stmt {
+	out := make([][]ast.Stmt, 0, len(g.comp.Functions)+len(g.pkg.Blocks)+len(g.pkg.Functions))
+	for i := range g.comp.Functions {
+		out = append(out, g.comp.Functions[i].Body)
+	}
+	for i := range g.pkg.Blocks {
+		out = append(out, g.pkg.Blocks[i].Body)
+	}
+	for i := range g.pkg.Functions {
+		out = append(out, g.pkg.Functions[i].Body)
+	}
+	return out
+}
+
 func (g *generator) stFeatures() stFeatures {
 	f := stFeatures{guards: make(map[string]bool)}
-	for i := range g.comp.Functions {
-		walkStmts(g.comp.Functions[i].Body, func(s ast.Stmt) {
+	for _, body := range g.allBodies() {
+		walkStmts(body, func(s ast.Stmt) {
 			switch s.(type) {
 			case *ast.WhileStmt, *ast.RepeatStmt:
 				f.boundLoop = true
@@ -106,8 +123,8 @@ func (g *generator) needsFaultCounter() bool {
 // constant, and so will be clamped.
 func (g *generator) anyRuntimeIndex() bool {
 	found := false
-	for i := range g.comp.Functions {
-		walkStmts(g.comp.Functions[i].Body, func(ast.Stmt) {}, func(e ast.Expr) {
+	for _, body := range g.allBodies() {
+		walkStmts(body, func(ast.Stmt) {}, func(e ast.Expr) {
 			ix, ok := e.(*ast.IndexExpr)
 			if !ok {
 				return
@@ -160,6 +177,11 @@ func walkStmts(list []ast.Stmt, onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 		case *ast.RepeatStmt:
 			walkStmts(v.Body, onStmt, onExpr)
 			walkExpr(v.Cond, onExpr)
+		case *ast.InvokeStmt:
+			walkExpr(v.Inst, onExpr)
+			for _, a := range v.Args {
+				walkExpr(a.Value, onExpr)
+			}
 		}
 	}
 }
@@ -293,6 +315,11 @@ func (g *generator) emitSTRuntime() {
 // stEmitter carries the state of emitting one function body.
 type stEmitter struct {
 	g *generator
+
+	// self is the C name of the enclosing function block instance while a
+	// block body is being emitted, empty elsewhere.  It is what a
+	// StorageField reference resolves through.
+	self string
 
 	// lastLine is the .st line the most recent #line directive named, so a
 	// run of statements on consecutive lines needs only one.
@@ -479,6 +506,9 @@ func (e *stEmitter) emitStmt(s ast.Stmt, depth int) {
 
 	case *ast.CaseStmt:
 		e.emitCase(v, depth)
+
+	case *ast.InvokeStmt:
+		e.emitInvoke(v, depth)
 
 	case *ast.ForStmt:
 		e.emitFor(v, depth)
@@ -739,6 +769,13 @@ func (e *stEmitter) expr(x ast.Expr) string {
 	case *ast.ConvExpr:
 		return fmt.Sprintf("((%s)%s)", v.Typ.CType(), e.expr(v.X))
 
+	case *ast.CallExpr:
+		args := "__comp_inst"
+		for _, a := range v.Args {
+			args += ", " + e.expr(a)
+		}
+		return fmt.Sprintf("%s(%s)", fnName(v.Func), args)
+
 	case *ast.UnaryExpr:
 		return fmt.Sprintf("(%s%s)", v.Op.C(), e.expr(v.X))
 
@@ -758,6 +795,12 @@ func (e *stEmitter) varRef(v *ast.VarRef) string {
 		return fmt.Sprintf("(__comp_inst->hal->%s)", toC(v.Name))
 	case ast.StorageVar, ast.StorageGlobal:
 		return fmt.Sprintf("(__comp_inst->%s)", toC(v.Name))
+	case ast.StorageField:
+		if e.self == "" {
+			e.g.err = fmt.Errorf("cgen: %s is a function block member but there is no instance in scope", v.Name)
+			return v.Name
+		}
+		return fmt.Sprintf("(%s->%s)", e.self, toC(v.Name))
 	case ast.StorageLocal:
 		return toC(v.Name)
 	}

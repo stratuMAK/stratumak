@@ -31,6 +31,16 @@ func mustCheck(t *testing.T, component, src string) *ast.Package {
 	return pkg
 }
 
+// fbSrc is a small function block with one of each kind of member, used by the
+// call-site diagnostics below.
+const fbSrc = "{attribute 'summary' := 'x'}\n" +
+	"FUNCTION_BLOCK Counter\n" +
+	"VAR_INPUT\n  step : DINT;\n  reset : BOOL;\nEND_VAR\n" +
+	"VAR_OUTPUT\n  total : DINT;\nEND_VAR\n" +
+	"VAR\n  scratch : DINT;\nEND_VAR\n" +
+	"IF reset THEN\n  total := 0;\nELSE\n  total := total + step;\nEND_IF;\n" +
+	"END_FUNCTION_BLOCK\n"
+
 // progWith builds just the PROGRAM, for a test that supplies its own leading
 // TYPE block and summary attribute.
 func progWith(decls, body string) string {
@@ -598,11 +608,6 @@ func TestDiagnostics(t *testing.T) {
 
 		// --- staged features, each naming the phase that brings it ---
 		{
-			name: "function blocks",
-			src:  "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK R\n x := 1;\nEND_FUNCTION_BLOCK\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM",
-			want: "function blocks are not supported yet",
-		},
-		{
 			name: "VAR_GLOBAL",
 			src:  "{attribute 'summary' := 'x'}\nVAR_GLOBAL\n g : DINT;\nEND_VAR\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM",
 			want: "arrives with phase 6",
@@ -720,6 +725,113 @@ func TestDiagnostics(t *testing.T) {
 			name: "an aggregate cannot be initialised in its declaration",
 			src:  progWith("VAR\n a : ARRAY[0..3] OF DINT := 0;\nEND_VAR", "q := TRUE;"),
 			want: "is an aggregate",
+		},
+
+		// --- function blocks ---
+		{
+			name: "unknown input at a call site",
+			src:  fbSrc + progWith("VAR\n r : Counter;\nEND_VAR", "r(nosuch := 1);"),
+			want: "Counter has no input nosuch",
+		},
+		{
+			name: "binding an output as an input",
+			src:  fbSrc + progWith("VAR\n r : Counter;\nEND_VAR", "r(total := 1);"),
+			want: "total is an output of Counter",
+		},
+		{
+			name: "an input bound twice",
+			src:  fbSrc + progWith("VAR\n r : Counter;\nEND_VAR", "r(step := 1, step := 2);"),
+			want: "input step is already bound",
+		},
+		{
+			name: "too many positional arguments",
+			src:  fbSrc + progWith("VAR\n r : Counter;\nEND_VAR", "r(1, 2, 3);"),
+			want: "one too many",
+		},
+		{
+			name: "reading an internal VAR of an instance",
+			src:  fbSrc + progWith("VAR\n r : Counter;\n n : DINT;\nEND_VAR", "n := r.scratch;"),
+			want: "internal to Counter",
+		},
+		{
+			name: "reading a member that does not exist",
+			src:  fbSrc + progWith("VAR\n r : Counter;\n n : DINT;\nEND_VAR", "n := r.nosuch;"),
+			want: "has no member nosuch",
+		},
+		{
+			name: "invoking something that is not an instance",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "n(1);"),
+			want: "not a function block instance",
+		},
+		{
+			name: "calling a function block in an expression",
+			src:  fbSrc + progWith("VAR\n n : DINT;\nEND_VAR", "n := Counter(1);"),
+			want: "invoke an instance of it",
+		},
+		{
+			name: "a function block may not declare VAR_GLOBAL",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR_GLOBAL\n g : DINT;\nEND_VAR\n" +
+				"g := 1;\nEND_FUNCTION_BLOCK\n" + progWith("", "q := TRUE;"),
+			want: "may not declare VAR_GLOBAL",
+		},
+
+		// --- recursion, in both its forms ---
+		{
+			name: "a function block that contains itself",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n inner : B;\nEND_VAR\n" +
+				"inner(  );\nEND_FUNCTION_BLOCK\n" + progWith("", "q := TRUE;"),
+			want: "can reach itself",
+		},
+		{
+			name: "two function blocks that contain each other",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"FUNCTION_BLOCK A\nVAR\n b : B;\nEND_VAR\nb();\nEND_FUNCTION_BLOCK\n" +
+				"FUNCTION_BLOCK B\nVAR\n a : A;\nEND_VAR\na();\nEND_FUNCTION_BLOCK\n" +
+				progWith("", "q := TRUE;"),
+			want: "can reach itself",
+		},
+		{
+			// A directly self-recursive function cannot be written at all:
+			// inside the body the function's own name is the result variable,
+			// per IEC.  Mutual recursion is the form that has to be caught.
+			name: "two functions that call each other",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"FUNCTION F : DINT\nVAR_INPUT\n n : DINT;\nEND_VAR\nF := G(n);\nEND_FUNCTION\n" +
+				"FUNCTION G : DINT\nVAR_INPUT\n n : DINT;\nEND_VAR\nG := F(n);\nEND_FUNCTION\n" +
+				progWith("", "q := TRUE;"),
+			want: "can reach itself",
+		},
+
+		// --- functions ---
+		{
+			name: "wrong argument count",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION Add : DINT\nVAR_INPUT\n a, b : DINT;\nEND_VAR\n" +
+				"Add := a + b;\nEND_FUNCTION\n" + progWith("VAR\n n : DINT;\nEND_VAR", "n := Add(1);"),
+			want: "takes 2 arguments, got 1",
+		},
+		{
+			name: "a function may not keep state",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION F : DINT\nVAR_OUTPUT\n o : DINT;\nEND_VAR\n" +
+				"F := 1;\nEND_FUNCTION\n" + progWith("", "q := TRUE;"),
+			want: "keeps no state between calls",
+		},
+		{
+			name: "a function may not hold an instance",
+			src: fbSrc + "FUNCTION F : DINT\nVAR\n c : Counter;\nEND_VAR\nF := 1;\nEND_FUNCTION\n" +
+				progWith("", "q := TRUE;"),
+			want: "may not hold a function block instance",
+		},
+		{
+			name: "discarding a function result",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION F : DINT\nVAR_INPUT\n n : DINT;\nEND_VAR\n" +
+				"F := n;\nEND_FUNCTION\n" + progWith("", "F(1);"),
+			want: "discards it",
+		},
+		{
+			name: "fperiod is not visible inside a function block",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n dt : LREAL;\nEND_VAR\n" +
+				"dt := fperiod;\nEND_FUNCTION_BLOCK\n" + progWith("", "q := TRUE;"),
+			want: "fperiod is not declared",
 		},
 
 		{

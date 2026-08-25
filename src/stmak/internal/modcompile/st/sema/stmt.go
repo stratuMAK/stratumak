@@ -51,9 +51,7 @@ func (c *checker) checkStmt(s st.Stmt) ast.Stmt {
 	case *st.ReturnStmt:
 		return &ast.ReturnStmt{Pos: v.Pos}
 	case *st.CallStmt:
-		c.errorf(v.Pos, "calls are not supported yet; "+
-			"function blocks arrive with phase 5 and functions with phase 5")
-		return nil
+		return c.checkInvoke(v)
 	case *st.EmptyStmt:
 		return nil
 	}

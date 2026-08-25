@@ -35,10 +35,10 @@ var corpusStatus = map[string]string{
 	"types":        "",
 	"arrays":       "",
 
-	// Waiting on phase 5: function blocks and functions.
-	"ramplimit": "function blocks are not supported yet",
-	"fbnest":    "function blocks are not supported yet",
-	"funcs":     "functions are not supported yet",
+	// Lowered by phase 5: function blocks and functions.
+	"ramplimit": "",
+	"fbnest":    "",
+	"funcs":     "",
 
 	// Waiting on phase 6: shared state and several programs.
 	"twoprograms": "VAR_GLOBAL is not supported yet",
