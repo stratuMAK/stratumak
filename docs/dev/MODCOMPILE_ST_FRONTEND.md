@@ -434,6 +434,14 @@ and the statement set — assignment, `IF`/`ELSIF`/`ELSE`, `CASE`, `FOR`, `WHILE
 rejection of each diagnostic class: narrowing assignment, unknown identifier,
 type mismatch, non-constant array bound, unbounded `WHILE`.
 
+**Integration tests.** From phase 3, when an `.st` compiles to a loadable
+`.so`, the accept fixtures should also get `tests/` runtests in the shape
+`tests/halcompile/names/` already uses -- a `test.sh` that drives `modcompile`
+and diffs against `expected`. Go tests cover the compiler; a runtest covers the
+component actually loading into `stmakd` and its pins behaving, which is the
+part a unit test cannot reach. Add them as each phase makes another fixture
+compile, rather than in one batch at the end.
+
 **3. Statement emitter, end to end.** `cgen/stmt.go`, pin snapshot and
 write-back, `inst_t` members from ST `VAR`, the fault helper and rate-limiter,
 `#line` back to the `.st`, and `.st` dispatch in `processFile` with the filename
