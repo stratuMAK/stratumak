@@ -369,6 +369,14 @@ type Function struct {
 	// Component.VerbatimC instead.  Package.Validate enforces that a package
 	// never carries both.
 	Body []Stmt
+
+	// Pins names the HAL pins this function's body reaches, in declaration
+	// order.  A file may hold several PROGRAMs, each exporting its own HAL
+	// function with its own pins, and each snapshots only what it declared --
+	// a function must not pay to copy pins it never touches, and writing back
+	// another function's outputs would fight whichever thread that one runs
+	// in.  Empty for .comp, where the whole component shares one body.
+	Pins []string
 }
 
 // Variable represents a per-instance C variable.

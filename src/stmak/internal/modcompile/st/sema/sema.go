@@ -81,6 +81,10 @@ type checker struct {
 	// result names the implicit result variable of the FUNCTION being
 	// checked, empty elsewhere.  Assigning to it is how ST returns a value.
 	result string
+
+	// instanceNames are the names already taken in the component's single
+	// instance struct, across every PROGRAM and the globals.
+	instanceNames map[string]ast.Pos
 }
 
 func (c *checker) errorf(pos ast.Pos, format string, args ...interface{}) {
@@ -102,7 +106,6 @@ func (c *checker) pop()  { c.scope = c.scope.parent }
 func (c *checker) run() {
 	c.pkg.Component.Name = c.component
 	c.checkFileAttributes()
-	c.rejectUnsupported()
 
 	// Types live in a scope outside the program's, so a program-level name
 	// may shadow an enumeration constant without a redeclaration error, and
@@ -112,37 +115,59 @@ func (c *checker) run() {
 	c.checkTypeDecls(c.file.Types)
 	c.checkPOUs()
 
-	switch len(c.file.Programs) {
-	case 0:
-		pos := c.file.Pos
-		c.errorf(pos, "no PROGRAM declared; a component needs at least one, "+
+	// Globals sit in a scope of their own, between the types and each
+	// program.  That is what lets several programs share state while keeping
+	// each program's own declarations private to it.
+	c.push()
+	defer c.pop()
+	c.declareGlobals()
+
+	if len(c.file.Programs) == 0 {
+		c.errorf(c.file.Pos, "no PROGRAM declared; a component needs at least one, "+
 			"and each PROGRAM becomes one HAL function")
-		return
-	case 1:
-	default:
-		// Several PROGRAMs mean several exported HAL functions sharing
-		// VAR_GLOBAL state.  That is the design, but the pieces it needs --
-		// a shared scope and per-function pin sets -- come with phase 6.
-		c.errorf(c.file.Programs[1].Pos,
-			"a file with more than one PROGRAM is not supported yet; "+
-				"one PROGRAM per exported HAL function arrives with phase 6")
 		return
 	}
 
-	c.checkProgram(c.file.Programs[0])
+	seen := make(map[string]ast.Pos)
+	for _, p := range c.file.Programs {
+		if prev, dup := seen[key(p.Name)]; dup {
+			c.errorf(p.Pos, "PROGRAM %s is already declared at %s", p.Name, prev)
+			continue
+		}
+		seen[key(p.Name)] = p.Pos
+		c.checkProgram(p)
+	}
+}
+
+// declareGlobals resolves VAR_GLOBAL, which becomes per-instance state shared
+// by every program in the file.  It lands in inst_t like any other variable;
+// what makes it global is only that it is visible from more than one program.
+func (c *checker) declareGlobals() {
+	for _, b := range c.file.Globals {
+		if b.Retain || b.NonRetain {
+			c.warnf("%s: RETAIN and NON_RETAIN have no effect; stratuMAK has no retentive memory", b.Pos)
+		}
+		for _, d := range b.Decls {
+			if d.Located != "" {
+				c.errorf(d.Pos, "located variables (AT %s) are not supported; "+
+					"stratuMAK maps I/O through VAR_INPUT and VAR_OUTPUT onto HAL pins", d.Located)
+				continue
+			}
+			typ, ok := c.resolveType(d.Type)
+			if !ok {
+				continue
+			}
+			for _, name := range d.Names {
+				c.declareLocal(d, name, typ, ast.StorageGlobal, b.Constant)
+			}
+		}
+	}
 }
 
 // rejectUnsupported reports the declarations that parse but that phase 2 does
 // not lower, each naming the phase that brings it.  Saying which feature is
 // missing beats a resolution failure at its first use, which is what a reader
 // would otherwise see.
-func (c *checker) rejectUnsupported() {
-	for _, g := range c.file.Globals {
-		c.errorf(g.Pos,
-			"VAR_GLOBAL is not supported yet; state shared between programs arrives with phase 6")
-	}
-}
-
 // componentAttributes maps a file-level attribute to the documentation field
 // it fills.  docgen turns these into the component's man page.
 var componentAttributes = map[string]func(*ast.Component, string){
@@ -214,7 +239,16 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 		Const: true,
 	})
 
+	firstPin := len(c.pkg.Component.Pins)
 	c.declareVarSections(p.Vars)
+
+	// The pins this program declared, and only those: a function must not pay
+	// to copy pins it never touches, and writing back another program's
+	// outputs would fight whichever thread that one runs in.
+	var pins []string
+	for _, pin := range c.pkg.Component.Pins[firstPin:] {
+		pins = append(pins, pin.Name)
+	}
 
 	body := c.checkStmts(p.Body)
 
@@ -226,32 +260,59 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 		fnName = "_"
 	}
 
-	c.pkg.Component.Functions = []ast.Function{{
+	c.pkg.Component.Functions = append(c.pkg.Component.Functions, ast.Function{
 		Pos:  p.Pos,
 		Name: fnName,
-		FP:   c.usesFloat(),
+		FP:   c.bodyUsesFloat(body),
 		Body: body,
-	}}
+		Pins: pins,
+	})
 }
 
-// usesFloat reports whether any declared name is a floating-point type, which
-// decides the fp flag on the exported HAL function.  A component that touches
-// no floating point exports with fp = 0 and can run in a thread without FPU
-// save and restore.
-func (c *checker) usesFloat() bool {
-	found := false
-	// Only a name the author declared counts.  fperiod is a builtin present in
-	// every program, so counting it would make every component report as
-	// floating point; a body that actually uses it assigns it to something
-	// declared, and that is what is seen here.
-	for sc := c.scope; sc != nil; sc = sc.parent {
-		sc.each(func(s *symbol) {
-			if s.Kind == symVar && s.Type.IsFloat() {
+// bodyUsesFloat reports whether one function's body touches floating point,
+// which decides the fp flag it exports with.  A function that touches none can
+// run in a thread without FPU save and restore.
+//
+// The question is asked of the body rather than of what is in scope: a
+// component may declare an LREAL that only one of its programs uses, and
+// several programs share one scope.  A call reaching a body that uses floating
+// point counts too, since that arithmetic happens on this function's stack.
+func (c *checker) bodyUsesFloat(body []ast.Stmt) bool {
+	seen := make(map[string]bool)
+
+	var check func(body []ast.Stmt) bool
+	check = func(body []ast.Stmt) bool {
+		found := false
+		walkStmtExprs(body, func(e ast.Expr) {
+			if e.ExprType().IsFloat() {
+				found = true
+			}
+			if call, ok := e.(*ast.CallExpr); ok && !seen[key(call.Func)] {
+				seen[key(call.Func)] = true
+				if def := c.pkg.LookupFunction(call.Func); def != nil {
+					if def.Result.IsFloat() || check(def.Body) {
+						found = true
+					}
+				}
+			}
+		})
+		walkBody(body, func(s ast.Stmt) {
+			inv, ok := s.(*ast.InvokeStmt)
+			if !ok {
+				return
+			}
+			ref := inv.Inst.ExprType().Ref
+			if seen[key(ref)] {
+				return
+			}
+			seen[key(ref)] = true
+			if def := c.pkg.LookupBlock(ref); def != nil && check(def.Body) {
 				found = true
 			}
 		})
+		return found
 	}
-	return found
+	return check(body)
 }
 
 // ---------------------------------------------------------------------------
@@ -262,10 +323,12 @@ func (c *checker) declareVarSections(blocks []*st.VarBlock) {
 	for _, b := range blocks {
 		switch b.Kind {
 		case st.VarExternal:
-			c.errorf(b.Pos, "VAR_EXTERNAL is not supported yet; it arrives with VAR_GLOBAL in phase 6")
+			c.errorf(b.Pos, "VAR_EXTERNAL is not needed; a VAR_GLOBAL is already visible "+
+				"from every PROGRAM in the file")
 			continue
 		case st.VarGlobal:
-			c.errorf(b.Pos, "VAR_GLOBAL is not supported yet; it arrives with phase 6")
+			c.errorf(b.Pos, "VAR_GLOBAL belongs at file level, outside any PROGRAM, "+
+				"since it is what several programs share")
 			continue
 		}
 		if b.Retain || b.NonRetain {
@@ -320,6 +383,9 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		Const: constant,
 	}
 	if !c.bind(sym) {
+		return
+	}
+	if !c.claimInstanceName(name, d.Pos, "variable") {
 		return
 	}
 
@@ -401,6 +467,9 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 		dir = ast.PinIO
 	}
 
+	if !c.claimInstanceName(name, d.Pos, "pin") {
+		return
+	}
 	sym := &symbol{
 		Name:  name,
 		Kind:  symVar,
@@ -472,6 +541,27 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 			c.warnf("%s: unknown attribute %q on %s, ignored", a.Pos, a.Name, name)
 		}
 	}
+}
+
+// claimInstanceName reserves a name in the component's single instance struct.
+//
+// A file's PROGRAMs are separate scopes but share one inst_t and one HAL
+// component, so two of them cannot both declare `n` or both export a pin
+// called `ready`.  Strict IEC would make a program's VAR private to it; here
+// the collision is refused instead, because a name that silently means
+// different storage in different programs is worse than a rename -- and
+// VAR_GLOBAL already exists for what is genuinely shared.
+func (c *checker) claimInstanceName(name string, pos ast.Pos, what string) bool {
+	if c.instanceNames == nil {
+		c.instanceNames = make(map[string]ast.Pos)
+	}
+	if prev, taken := c.instanceNames[key(name)]; taken {
+		c.errorf(pos, "%s %s is already declared at %s; the PROGRAMs of one file share a single "+
+			"instance, so give it another name or move it to VAR_GLOBAL", what, name, prev)
+		return false
+	}
+	c.instanceNames[key(name)] = pos
+	return true
 }
 
 // bind declares sym in the current scope, reporting a redeclaration.

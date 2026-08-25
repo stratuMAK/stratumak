@@ -15,13 +15,13 @@ import (
 // acceptCorpus is testdata/accept relative to this package.
 const acceptCorpus = "../testdata/accept"
 
-// corpusStatus records, for each first-party fixture, whether phase 2 lowers
-// it -- and if not, which staged feature it is waiting for.
+// corpusStatus records, for each first-party fixture, whether the frontend
+// lowers it -- and if not, which staged feature it is waiting for.
 //
-// This table is the ledger of what is left to build.  As each phase lands its
-// entries move to "" and the test starts requiring the fixture to lower, so
-// the corpus cannot quietly stop being checked and a finished phase cannot
-// quietly leave a fixture behind.
+// This table was the ledger of what was left to build.  Every entry is now
+// empty, so it has become the assertion that the language did not shrink: a
+// fixture that stops lowering fails here with the diagnostic that stopped it.
+// A feature added later takes a new fixture and a new entry.
 var corpusStatus = map[string]string{
 	// Lowered by phase 2: scalars, one PROGRAM, the statement set.
 	"and2":     "",
@@ -40,8 +40,8 @@ var corpusStatus = map[string]string{
 	"fbnest":    "",
 	"funcs":     "",
 
-	// Waiting on phase 6: shared state and several programs.
-	"twoprograms": "VAR_GLOBAL is not supported yet",
+	// Lowered by phase 6: shared state and several programs.
+	"twoprograms": "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

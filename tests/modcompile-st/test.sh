@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -89,6 +89,21 @@ if ! grep -q 'Accumulator_t acc;' fbnest.c; then
     exit 1
 fi
 
+# Each PROGRAM in a file becomes its own HAL function, with its own pins and
+# its own fp flag: read touches no floating point, write does.
+if ! grep -q '"%s.read"' twoprograms.c || ! grep -q '"%s.write"' twoprograms.c; then
+    echo 'twoprograms.c did not export one HAL function per PROGRAM'
+    exit 1
+fi
+if ! grep -q 'funct_read, inst, 0, 0,' twoprograms.c; then
+    echo 'twoprograms.c: read should export with fp = 0'
+    exit 1
+fi
+if ! grep -q 'funct_write, inst, 1, 0,' twoprograms.c; then
+    echo 'twoprograms.c: write should export with fp = 1'
+    exit 1
+fi
+
 # --- these must fail ---
 rm -f bad_unbounded.c
 modcompile --preprocess bad_unbounded.st -o bad_unbounded.c
@@ -108,6 +123,13 @@ rm -f bad_recursive.c
 modcompile --preprocess bad_recursive.st -o bad_recursive.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted a function block that contains itself'
+    exit 1
+fi
+
+rm -f bad_shared_name.c
+modcompile --preprocess bad_shared_name.st -o bad_shared_name.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted two programs declaring the same pin'
     exit 1
 fi
 

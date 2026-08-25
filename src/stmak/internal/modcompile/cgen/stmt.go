@@ -353,12 +353,17 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	// PLC programmer expects and is faster besides.  An input's local is
 	// const, so an assignment sema somehow let through fails to compile
 	// rather than corrupting a signal.
-	if len(g.comp.Pins) > 0 {
+	//
+	// Only this function's own pins: a file may hold several PROGRAMs, each
+	// exporting its own HAL function, and writing back another's outputs
+	// would fight whichever thread that one runs in.
+	pins := g.pinsOf(fn)
+	if len(pins) > 0 {
 		g.printf("    /* Snapshot pins: stable for the whole cycle. */\n")
-		if g.hasArrayPins() {
+		if anyArrayPin(pins) {
 			g.printf("    int __pi;\n")
 		}
-		for _, pin := range g.comp.Pins {
+		for _, pin := range pins {
 			if pin.ArraySize > 0 {
 				// An array pin is copied element by element.  The loop is
 				// bounded by a constant, so it costs a known handful of loads
@@ -380,11 +385,11 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 
 	e.emitStmts(fn.Body, 1)
 
-	if g.hasWritablePins() {
+	if anyWritablePin(pins) {
 		g.printf("\n")
 		e.lineBackToOutput()
 		g.printf("    /* Write pins back. */\n")
-		for _, pin := range g.comp.Pins {
+		for _, pin := range pins {
 			if pin.Dir == ast.PinIn {
 				continue
 			}
@@ -402,8 +407,38 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	g.printf("}\n\n")
 }
 
-func (g *generator) hasWritablePins() bool {
-	for _, p := range g.comp.Pins {
+// pinsOf is the pins one ST function snapshots.
+//
+// A .comp names none, because its single body shares the whole component's
+// pins; an .st names exactly what its PROGRAM declared.  Falling back to all
+// pins for the unnamed case keeps one code path for both.
+func (g *generator) pinsOf(fn *ast.Function) []ast.Pin {
+	if len(fn.Pins) == 0 {
+		return g.comp.Pins
+	}
+	out := make([]ast.Pin, 0, len(fn.Pins))
+	for _, name := range fn.Pins {
+		for _, p := range g.comp.Pins {
+			if p.Name == name {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func anyArrayPin(pins []ast.Pin) bool {
+	for _, p := range pins {
+		if p.ArraySize > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func anyWritablePin(pins []ast.Pin) bool {
+	for _, p := range pins {
 		if p.Dir != ast.PinIn {
 			return true
 		}

@@ -27,6 +27,7 @@ var stLowers = []string{
 	"and2", "scale", "literals", "loops", // phase 2: scalars
 	"arrays", "structs", "statemachine", "types", // phase 4: types and arrays
 	"ramplimit", "fbnest", "funcs", // phase 5: function blocks and functions
+	"twoprograms", // phase 6: shared state and several programs
 }
 
 // compile turns one fixture into C.
@@ -510,4 +511,68 @@ func TestSTPureFunctions(t *testing.T) {
 	if !strings.Contains(out, "st_Lerp(__comp_inst,") {
 		t.Error("nested function call not emitted")
 	}
+}
+
+// TestSTMultipleProgramsExportSeparately checks that each PROGRAM in a file
+// becomes its own HAL function, with its own pins and its own fp flag.
+func TestSTMultipleProgramsExportSeparately(t *testing.T) {
+	out := generateST(t, "twoprograms")
+
+	if !strings.Contains(out, `snprintf(fname, sizeof(fname), "%s.read", name);`) ||
+		!strings.Contains(out, `snprintf(fname, sizeof(fname), "%s.write", name);`) {
+		t.Fatalf("both programs are not exported as HAL functions:\n%s", out)
+	}
+
+	// The fp flag is inferred per function, not per component: read touches no
+	// floating point and can run in a thread without FPU save and restore,
+	// while write cannot.
+	if !strings.Contains(out, "funct_read, inst, 0, 0, inst->comp_id") {
+		t.Error("read should export with fp = 0; it touches no floating point")
+	}
+	if !strings.Contains(out, "funct_write, inst, 1, 0, inst->comp_id") {
+		t.Error("write should export with fp = 1; it uses LREAL")
+	}
+
+	// VAR_GLOBAL is shared state in the one instance struct.
+	for _, want := range []string{"int32_t latched;", "bool ready;"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("shared state missing from inst_t: %s", want)
+		}
+	}
+
+	// Each function snapshots only its own pins.  Copying another's would
+	// cost for nothing; writing another's outputs back would fight whichever
+	// thread that one runs in.
+	readBody := between(out, "FUNCTION(read) {", "\n}")
+	writeBody := between(out, "FUNCTION(write) {", "\n}")
+	if readBody == "" || writeBody == "" {
+		t.Fatalf("could not find both bodies:\n%s", out)
+	}
+	if strings.Contains(readBody, "__pin_gain") || strings.Contains(readBody, "__pin_scaled") {
+		t.Error("read snapshots pins belonging to write")
+	}
+	if strings.Contains(writeBody, "__pin_raw") || strings.Contains(writeBody, "__pin_strobe") {
+		t.Error("write snapshots pins belonging to read")
+	}
+	if !strings.Contains(readBody, "(__comp_inst->latched) = __pin_raw;") {
+		t.Error("read does not write the shared state")
+	}
+	if !strings.Contains(writeBody, "(__comp_inst->ready)") {
+		t.Error("write does not read the shared state")
+	}
+}
+
+// between returns the text between the first occurrence of start and the next
+// end after it.
+func between(s, start, end string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
 }

@@ -480,6 +480,16 @@ program that touches no floating point exports with `fp = 0`.
 *Done when* a two-program module exports `mycomp.read` and `mycomp.write` and
 both are addf-able to different threads.
 
+One rule fell out of implementing this, and it is a deliberate divergence from
+IEC: **the `PROGRAM`s of one file may not reuse a name.** Strict IEC makes a
+program's `VAR` private to it, but a file here is one component with one
+`inst_t` and one HAL component — two programs declaring `n`, or both exporting
+a pin called `ready`, would collide in the instance struct and at pin
+registration. Qualifying each program's variables with its name was the
+alternative and was rejected: a name that silently means different storage in
+different programs is worse than a rename, and `VAR_GLOBAL` already exists for
+what is genuinely shared.
+
 **7. Metadata pragmas and documentation.** Attribute vocabulary validated
 against a known list, unknown attributes surfaced through `Package.Warnings`
 rather than dropped, and every `docgen` field reachable from ST.

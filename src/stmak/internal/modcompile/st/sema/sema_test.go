@@ -607,18 +607,6 @@ func TestDiagnostics(t *testing.T) {
 		},
 
 		// --- staged features, each naming the phase that brings it ---
-		{
-			name: "VAR_GLOBAL",
-			src:  "{attribute 'summary' := 'x'}\nVAR_GLOBAL\n g : DINT;\nEND_VAR\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM",
-			want: "arrives with phase 6",
-		},
-		{
-			name: "two programs",
-			src: "{attribute 'summary' := 'x'}\n" +
-				"PROGRAM a\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM\n" +
-				"PROGRAM b\nVAR_OUTPUT\n r : BOOL;\nEND_VAR\nr := TRUE;\nEND_PROGRAM",
-			want: "more than one PROGRAM is not supported yet",
-		},
 		// --- user-defined types ---
 		{
 			name: "unknown enumeration constant",
@@ -832,6 +820,32 @@ func TestDiagnostics(t *testing.T) {
 			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n dt : LREAL;\nEND_VAR\n" +
 				"dt := fperiod;\nEND_FUNCTION_BLOCK\n" + progWith("", "q := TRUE;"),
 			want: "fperiod is not declared",
+		},
+
+		// --- several programs, and what they share ---
+		{
+			name: "two programs of the same name",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"PROGRAM a\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM\n" +
+				"PROGRAM a\nVAR_OUTPUT\n r : BOOL;\nEND_VAR\nr := TRUE;\nEND_PROGRAM",
+			want: "PROGRAM a is already declared",
+		},
+		{
+			name: "VAR_GLOBAL inside a PROGRAM",
+			src:  progWith("VAR_GLOBAL\n g : DINT;\nEND_VAR", "q := TRUE;"),
+			want: "belongs at file level",
+		},
+		{
+			name: "VAR_EXTERNAL is unnecessary",
+			src:  progWith("VAR_EXTERNAL\n g : DINT;\nEND_VAR", "q := TRUE;"),
+			want: "already visible from every PROGRAM",
+		},
+		{
+			name: "a pin name used by two programs",
+			src: "{attribute 'summary' := 'x'}\n" +
+				"PROGRAM a\nVAR_OUTPUT\n shared : BOOL;\nEND_VAR\nshared := TRUE;\nEND_PROGRAM\n" +
+				"PROGRAM b\nVAR_OUTPUT\n shared : BOOL;\nEND_VAR\nshared := TRUE;\nEND_PROGRAM",
+			want: "already declared",
 		},
 
 		{
