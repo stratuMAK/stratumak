@@ -77,6 +77,13 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 	}
 	def := ast.FunctionBlock{Pos: b.Pos, Name: b.Name, Doc: attrValue(b.Attrs, "doc")}
 
+	// A block's CONSTANTs go into scope as they are declared, so a later
+	// declaration may name one -- `aHist : ARRAY[1..MINUTES_PER_DAY]` is
+	// ordinary, and refusing it would make constants useless where they are
+	// most wanted.
+	c.push()
+	defer c.pop()
+
 	seen := make(map[string]ast.Pos)
 	for _, blk := range b.Vars {
 		switch blk.Kind {
@@ -113,6 +120,7 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 					Typ:   typ,
 					Store: ast.StorageField,
 					Doc:   attrValue(d.Attrs, "doc"),
+					Const: blk.Constant,
 				}
 				if d.Located != "" {
 					// The pin's full name is not known until an instance path
@@ -133,6 +141,14 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 							if _, ok := c.foldToC(v.Init); !ok {
 								c.errorf(d.Init.Position(),
 									"the initial value of %s must be a compile-time constant", name)
+							} else if blk.Constant {
+								// The declaration keeps the value, not the
+								// expression that produced it, so the backend
+								// can see it folded and drop the storage.
+								if lit := foldToConst(v.Init, typ); lit != nil {
+									v.Init = lit
+								}
+								c.scope.declare(constSymbol(v))
 							}
 						}
 					}
@@ -154,6 +170,22 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 	c.pkg.Blocks = append(c.pkg.Blocks, def)
 }
 
+// constSymbol builds the symbol for a CONSTANT, carrying the folded value that
+// makes a reference to it resolve to that value rather than to a read.
+func constSymbol(v ast.VarDecl) *symbol {
+	sym := &symbol{
+		Name: v.Name, Kind: symVar, Type: v.Typ,
+		Store: v.Store, Pos: v.Pos, Const: true,
+		ConstExpr: foldToConst(v.Init, v.Typ),
+		// v.Init has already been folded by the caller where it could be, so
+		// this is normally the same node's value.
+	}
+	if n, ok := foldInt(v.Init); ok {
+		sym.ConstValue, sym.HasConstValue = n, true
+	}
+	return sym
+}
+
 // checkBlockBody resolves one block's statements.
 //
 // The scope hangs off the type scope, not the program's: a function block is
@@ -169,6 +201,10 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 	defer c.pop()
 	for _, set := range [][]ast.VarDecl{def.Inputs, def.Outputs, def.InOuts, def.Vars} {
 		for _, v := range set {
+			if v.Const {
+				c.scope.declare(constSymbol(v))
+				continue
+			}
 			c.scope.declare(&symbol{
 				Name: v.Name, Kind: symVar, Type: v.Typ,
 				Store: ast.StorageField, Pos: v.Pos,
@@ -189,6 +225,9 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 		return
 	}
 	def := ast.PureFunction{Pos: f.Pos, Name: f.Name, Doc: attrValue(f.Attrs, "doc")}
+
+	c.push()
+	defer c.pop()
 
 	result, ok := c.resolveType(f.Result)
 	if !ok {
@@ -225,9 +264,18 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 				}
 				seen[key(name)] = d.Pos
 
-				v := ast.VarDecl{Pos: d.Pos, Name: name, Typ: typ, Store: ast.StorageLocal}
+				v := ast.VarDecl{
+					Pos: d.Pos, Name: name, Typ: typ,
+					Store: ast.StorageLocal, Const: blk.Constant,
+				}
 				if d.Init != nil {
 					v.Init = c.checkExpr(d.Init, typ)
+					if v.Init != nil && blk.Constant {
+						if lit := foldToConst(v.Init, typ); lit != nil {
+							v.Init = lit
+						}
+						c.scope.declare(constSymbol(v))
+					}
 				}
 				if blk.Kind == st.VarInput {
 					def.Params = append(def.Params, v)
@@ -260,6 +308,10 @@ func (c *checker) checkFunctionBody(f *st.FunctionDecl) {
 	})
 	for _, set := range [][]ast.VarDecl{def.Params, def.Vars} {
 		for _, v := range set {
+			if v.Const {
+				c.scope.declare(constSymbol(v))
+				continue
+			}
 			c.scope.declare(&symbol{
 				Name: v.Name, Kind: symVar, Type: v.Typ,
 				Store: ast.StorageLocal, Pos: v.Pos,

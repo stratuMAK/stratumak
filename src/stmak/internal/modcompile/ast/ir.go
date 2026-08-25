@@ -843,6 +843,20 @@ type HALBinding struct {
 	Type HALType
 }
 
+// FoldsAway reports whether every reference to this declaration was replaced
+// by its value, so it needs no storage.  A constant that could not be reduced
+// to a literal -- a STRING, say -- still does.
+func (v VarDecl) FoldsAway() bool {
+	if !v.Const || v.Init == nil {
+		return false
+	}
+	switch v.Init.(type) {
+	case *IntLit, *RealLit, *BoolLit, *EnumLit:
+		return true
+	}
+	return false
+}
+
 // PinBinding maps one HAL pin onto a member of a function block instance
 // somewhere inside the component.  The instance path is what distinguishes two
 // instances of the same block, so it is resolved once here rather than being
@@ -876,6 +890,11 @@ type VarDecl struct {
 	Store Storage
 	Init  Expr // nil when the declaration gave no initialiser
 	Doc   string
+
+	// Const marks a CONSTANT declaration.  A reference to one resolves to its
+	// value rather than to a read, which is what lets it bound a loop or size
+	// an array.
+	Const bool
 
 	// HAL, when set, maps this variable onto a pin.  Inside a function block
 	// the pin's full name is not known until the instance path is, so the

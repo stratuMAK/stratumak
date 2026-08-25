@@ -183,9 +183,24 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 
 	switch sym.Kind {
 	case symVar, symBuiltin:
+		// A CONSTANT resolves to its value rather than to a read.  That is
+		// what lets it bound a FOR, size an array or label a CASE arm -- all
+		// of which need a value the compiler can see, and real ST names its
+		// bounds far more often than it writes them out.
+		if sym.Const && sym.ConstExpr != nil {
+			if lit := cloneConst(sym.ConstExpr, v.Pos); lit != nil {
+				return lit
+			}
+		}
 		return &ast.VarRef{Pos: v.Pos, Name: sym.Name, Store: sym.Store, Typ: sym.Type}
 
 	case symEnumConst:
+		if len(sym.Ambiguous) > 0 {
+			c.errorf(v.Pos, "%s is a constant of %s and of %s; write it qualified, as %s.%s",
+				v.Name, sym.EnumType, strings.Join(sym.Ambiguous, " and of "),
+				sym.EnumType, sym.Name)
+			return nil
+		}
 		// Carrying the value here is what lets the backend emit the generated
 		// constant rather than an undefined identifier -- the defect that made
 		// the standalone prototype's own enum example uncompilable.
@@ -200,6 +215,81 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 
 	c.errorf(v.Pos, "%s is a %s, not a value", v.Name, sym.Kind)
 	return nil
+}
+
+// foldToConst reduces a constant's initialiser to a single literal.
+//
+// A constant is remembered as its value, not as the expression that produced
+// it: `MINUTES_PER_DAY : UINT := (24 * 60)` has to be usable as an array bound
+// and a loop limit, and only a literal folds at the use site.
+func foldToConst(e ast.Expr, typ ast.Type) ast.Expr {
+	if e == nil {
+		return nil
+	}
+	switch v := e.(type) {
+	case *ast.BoolLit, *ast.EnumLit:
+		return v.(ast.Expr)
+	case *ast.StringLit:
+		return v
+	}
+	if typ.IsFloat() {
+		if f, ok := foldFloat(e); ok {
+			return &ast.RealLit{Pos: e.Position(), Value: f, Typ: typ}
+		}
+		return nil
+	}
+	if n, ok := foldInt(e); ok {
+		return &ast.IntLit{Pos: e.Position(), Value: n, Typ: typ}
+	}
+	if f, ok := foldFloat(e); ok {
+		return &ast.RealLit{Pos: e.Position(), Value: f, Typ: typ}
+	}
+	return nil
+}
+
+// cloneConst copies a folded constant for one use site.
+//
+// Copying matters: coerce retypes a literal in place when it widens, so
+// handing out the same node twice would let one use change another's type.
+// A constant that is not one of these forms is not folded, and the reference
+// stays a read.
+func cloneConst(e ast.Expr, pos ast.Pos) ast.Expr {
+	switch v := e.(type) {
+	case *ast.IntLit:
+		return &ast.IntLit{Pos: pos, Value: v.Value, Typ: v.Typ}
+	case *ast.RealLit:
+		return &ast.RealLit{Pos: pos, Value: v.Value, Typ: v.Typ}
+	case *ast.BoolLit:
+		return &ast.BoolLit{Pos: pos, Value: v.Value}
+	case *ast.EnumLit:
+		return &ast.EnumLit{Pos: pos, Enum: v.Enum, Const: v.Const, Value: v.Value, Typ: v.Typ}
+	}
+	return nil
+}
+
+// qualifiedEnum resolves `EnumName.CONSTANT`.
+func (c *checker) qualifiedEnum(v *st.FieldExpr, typeName string) ast.Expr {
+	td := c.pkg.LookupType(typeName)
+	if td == nil {
+		return nil
+	}
+	if td.Kind != ast.DefEnum {
+		c.errorf(v.Pos, "%s is a %s, not an enumeration, so %s.%s names nothing",
+			typeName, td.Kind, typeName, v.Name)
+		return nil
+	}
+	k, ok := td.LookupConst(v.Name)
+	if !ok {
+		c.errorf(v.Pos, "enumeration %s has no constant %s", typeName, v.Name)
+		return nil
+	}
+	return &ast.EnumLit{
+		Pos:   v.Pos,
+		Enum:  td.Name,
+		Const: k.Name,
+		Value: k.Value,
+		Typ:   ast.Type{Kind: ast.TypeEnum, Ref: td.Name},
+	}
 }
 
 // checkIndex resolves an array subscript.
@@ -289,8 +379,31 @@ func exprName(e ast.Expr, t ast.Type) string {
 	return "this expression (" + t.String() + ")"
 }
 
-// checkField resolves a struct member access.
+// checkField resolves a member access.
+//
+// A base naming an enumeration is a qualified constant -- EN_STATE.OFF -- which
+// is how IEC 61131-3 3rd edition and CODESYS disambiguate two enumerations that
+// share a constant name.  It has to be tried before the base is resolved as a
+// value, because a type is not one.
 func (c *checker) checkField(v *st.FieldExpr) ast.Expr {
+	if ref, ok := v.Base.(*st.Ident); ok {
+		sym := c.scope.lookup(ref.Name)
+		if sym != nil && sym.Kind == symType {
+			return c.qualifiedEnum(v, sym.Name)
+		}
+		// A variable named after its own enumeration is idiomatic -- `mode :
+		// Mode` -- and ST is case-insensitive, so the variable shadows the
+		// type.  `Mode.OFF` still means the constant: an enumeration has no
+		// instance members, so there is no other reading to lose.  A struct is
+		// deliberately not treated this way, since `p.x` on a `p : Point` does
+		// mean the field.
+		if td := c.pkg.LookupType(ref.Name); td != nil && td.Kind == ast.DefEnum {
+			if _, isConst := td.LookupConst(v.Name); isConst {
+				return c.qualifiedEnum(v, td.Name)
+			}
+		}
+	}
+
 	base := c.checkExpr(v.Base, ast.Type{})
 	if base == nil {
 		return nil

@@ -60,6 +60,29 @@ func (c *checker) checkStmt(s st.Stmt) ast.Stmt {
 }
 
 func (c *checker) checkAssign(v *st.AssignStmt) ast.Stmt {
+	// A name that cannot be assigned is worth reporting as itself, before the
+	// target is resolved as a value: a CONSTANT folds to a literal, and
+	// "cannot assign to this expression" would then hide which name it was.
+	if ref, ok := v.Target.(*st.Ident); ok {
+		if sym := c.scope.lookup(ref.Name); sym != nil && sym.Const {
+			switch {
+			case sym.Store == ast.StoragePin:
+				c.errorf(v.Target.Position(),
+					"cannot assign to %s: it is an input pin, driven by whatever HAL signal is "+
+						"netted to it. Declare it in VAR_OUTPUT to write it, or in VAR for internal state",
+					sym.Name)
+			case sym.Kind == symEnumConst:
+				c.errorf(v.Target.Position(),
+					"cannot assign to %s: it is a constant of enumeration %s", sym.Name, sym.EnumType)
+			case sym.Kind == symBuiltin:
+				c.errorf(v.Target.Position(), "cannot assign to %s: it is a built-in", sym.Name)
+			default:
+				c.errorf(v.Target.Position(), "cannot assign to %s: it is a constant", sym.Name)
+			}
+			return nil
+		}
+	}
+
 	target := c.checkExpr(v.Target, ast.Type{})
 	if target == nil {
 		return nil
@@ -67,24 +90,6 @@ func (c *checker) checkAssign(v *st.AssignStmt) ast.Stmt {
 	if !ast.IsLValue(target) {
 		c.errorf(v.Target.Position(), "cannot assign to this expression")
 		return nil
-	}
-
-	// An input pin has exactly one writer, the HAL signal netted to it.  A
-	// second writer in the body is the conflict that kept function block I/O
-	// off HAL in the first place.
-	if ref, ok := target.(*ast.VarRef); ok {
-		if sym := c.scope.lookup(ref.Name); sym != nil && sym.Const {
-			switch {
-			case sym.Store == ast.StoragePin:
-				c.errorf(v.Target.Position(),
-					"cannot assign to %s: it is an input pin, driven by whatever HAL signal is "+
-						"netted to it. Declare it in VAR_OUTPUT to write it, or in VAR for internal state",
-					ref.Name)
-			default:
-				c.errorf(v.Target.Position(), "cannot assign to %s: it is a constant", ref.Name)
-			}
-			return nil
-		}
 	}
 
 	want := target.ExprType()

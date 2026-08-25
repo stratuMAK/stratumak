@@ -29,6 +29,7 @@ var stLowers = []string{
 	"ramplimit", "fbnest", "funcs", // phase 5: function blocks and functions
 	"twoprograms", // phase 6: shared state and several programs
 	"atmap",       // explicit pin mapping with AT
+	"constants",   // named constants as bounds, limits and labels
 }
 
 // compile turns one fixture into C.
@@ -638,5 +639,48 @@ func TestSTExplicitPinMapping(t *testing.T) {
 	}
 	if strings.Contains(between(out, "static void Axis_body", "\n}\n"), "hal->") {
 		t.Error("block body reaches HAL directly; it should only touch its own instance")
+	}
+}
+
+// TestSTConstantsFold checks that a named constant reaches the generated C as
+// its value.  Real ST names its bounds far more often than it writes them out,
+// so a constant that does not fold is a constant that cannot be used where it
+// is most wanted -- sizing an array, bounding a loop, labelling a CASE arm.
+func TestSTConstantsFold(t *testing.T) {
+	out := generateST(t, "constants")
+
+	// A block's array sized by the block's own constant, resolved while the
+	// rest of its declarations were still being read.
+	if !strings.Contains(out, "double slot[8];") {
+		t.Errorf("array not sized by a named constant:\n%s", out)
+	}
+	// A constant written as an expression is still a value.
+	if !strings.Contains(out, "__pin_minutes = 1440;") {
+		t.Error("a constant written as (24 * 60) did not fold to its value")
+	}
+	// And it costs no storage, since every reference folded.
+	for _, dead := range []string{"int32_t SLOTS;", "int32_t MINUTES_PER_DAY;", "int32_t WINDOW;"} {
+		if strings.Contains(out, dead) {
+			t.Errorf("a folded constant still occupies storage: %s", dead)
+		}
+	}
+}
+
+// TestSTQualifiedEnums checks the qualified form two enumerations need when
+// they share a constant name -- which is ordinary in real code.
+func TestSTQualifiedEnums(t *testing.T) {
+	out := generateST(t, "constants")
+
+	// Both enumerations declare OFF, and each keeps its own constant.
+	for _, want := range []string{"#define MODE_OFF 0", "#define STATE_OFF 0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "(__comp_inst->mode) = MODE_OFF;") {
+		t.Error("a qualified constant did not resolve to its own enumeration")
+	}
+	if !strings.Contains(out, "(__comp_inst->step) = STATE_OFF;") {
+		t.Error("the other enumeration's OFF did not resolve")
 	}
 }

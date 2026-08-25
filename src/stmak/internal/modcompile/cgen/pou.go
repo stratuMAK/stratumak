@@ -66,11 +66,19 @@ func (g *generator) emitFBStructs() {
 }
 
 func emitFBMembers(g *generator, what string, set []ast.VarDecl) {
-	if len(set) == 0 {
+	var live []ast.VarDecl
+	for _, v := range set {
+		// A constant every reference folded away needs no storage.
+		if v.FoldsAway() {
+			continue
+		}
+		live = append(live, v)
+	}
+	if len(live) == 0 {
 		return
 	}
 	g.printf("    /* %s */\n", what)
-	for _, v := range set {
+	for _, v := range live {
 		g.printf("    %s %s%s;\n", v.Typ.CType(), toC(v.Name), cTypeDims(v.Typ))
 	}
 }
@@ -135,6 +143,9 @@ func (g *generator) emitFBInit(b *ast.FunctionBlock) {
 
 	for _, set := range [][]ast.VarDecl{b.Inputs, b.Outputs, b.InOuts, b.Vars} {
 		for _, v := range set {
+			if v.FoldsAway() {
+				continue
+			}
 			switch {
 			case v.Typ.Kind == ast.TypeFB:
 				g.printf("    %s(&__self->%s);\n", fbInitName(v.Typ.Ref), toC(v.Name))
@@ -180,6 +191,9 @@ func (g *generator) emitFunction(f *ast.PureFunction) {
 	g.printf("    %s %s = 0;\n", f.Result.CType(), toC(f.Name))
 
 	for _, v := range f.Vars {
+		if v.FoldsAway() {
+			continue
+		}
 		init := "0"
 		if v.Init != nil {
 			init = e.expr(v.Init)

@@ -57,8 +57,21 @@ type symbol struct {
 	ConstValue    int64
 	HasConstValue bool
 
+	// ConstExpr is the folded initialiser of a CONSTANT.  A reference to one
+	// resolves to a copy of this rather than to a variable read, which is what
+	// lets `FOR i := 0 TO LAST_IDX` and `ARRAY[0..SIZE-1]` work -- both need a
+	// value the compiler can see, and real ST names its bounds far more often
+	// than it writes them out.
+	ConstExpr ast.Expr
+
 	// EnumType names the enumeration a symEnumConst belongs to.
 	EnumType string
+
+	// Ambiguous lists the other enumerations that declare a constant of this
+	// name.  Two enumerations sharing OFF is ordinary, so the declarations are
+	// accepted and only an unqualified use is refused -- with every candidate
+	// named, so the fix is obvious.
+	Ambiguous []string
 }
 
 // scope is one lexical level of the symbol table.

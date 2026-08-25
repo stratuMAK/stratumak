@@ -677,9 +677,31 @@ func TestDiagnostics(t *testing.T) {
 			want: "cannot assign L to n (DINT)",
 		},
 		{
-			name: "colliding enumeration constants",
-			src:  "{attribute 'summary' := 'x'}\nTYPE L : (A, B); M : (B, C); END_TYPE\n" + progWith("", "q := TRUE;"),
-			want: "collides with a constant of enumeration L",
+			// Two enumerations sharing a constant name is ordinary in real
+			// code, so the declarations stand and only an unqualified use is
+			// refused -- naming every candidate, so the fix is obvious.
+			name: "an ambiguous unqualified constant",
+			src: "{attribute 'summary' := 'x'}\nTYPE L : (A, OFF); M : (OFF, C); END_TYPE\n" +
+				progWith("VAR\n v : L;\nEND_VAR", "v := OFF;"),
+			want: "write it qualified, as L.OFF",
+		},
+		{
+			name: "a qualified constant of the wrong enumeration",
+			src: "{attribute 'summary' := 'x'}\nTYPE L : (A, B); M : (C, D); END_TYPE\n" +
+				progWith("VAR\n v : L;\nEND_VAR", "v := M.C;"),
+			want: "cannot assign M to v (L)",
+		},
+		{
+			name: "a qualified constant that does not exist",
+			src: "{attribute 'summary' := 'x'}\nTYPE L : (A, B); END_TYPE\n" +
+				progWith("VAR\n v : L;\nEND_VAR", "v := L.Z;"),
+			want: "enumeration L has no constant Z",
+		},
+		{
+			name: "qualifying something that is not an enumeration",
+			src: "{attribute 'summary' := 'x'}\nTYPE P : STRUCT x : LREAL; END_STRUCT; END_TYPE\n" +
+				progWith("", "q := P.x = 1.0;"),
+			want: "not an enumeration",
 		},
 		{
 			name: "a variable may not shadow an enumeration constant",

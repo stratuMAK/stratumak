@@ -648,7 +648,64 @@ Named so that leaving them out is a decision rather than an omission.
 - The other IEC languages — ladder, function block diagram, sequential function
   chart. The existing `classicladder` integration already covers ladder.
 
-## 9. Open items
+## 9. Measured against real projects
+
+Two existing CODESYS projects were compiled to find what synthetic fixtures
+miss. Neither is in this repository and nothing was copied from them; what came
+back is a gap list and three bug fixes.
+
+**Both ship PLCopen TC6 XML, not `.st`.** That is how real ST is interchanged,
+and it means an importer would be a separate tool rather than part of this
+frontend. One of the projects already carries `plcopen_extract.py`, which
+splits the monolithic export into a per-POU tree — prior art for what such a
+tool would do.
+
+The smaller project holds ten POUs, all ST, about 950 lines of body. **The
+parser accepted every line of it** — the only syntax errors came from the
+throwaway XML-to-ST converter's own placeholders. Sema found 365 problems,
+which fell to 331 after the fixes below, and the composition matters more than
+the count:
+
+| Diagnostics | Cause |
+| --- | --- |
+| 156 | pointer dereference — deliberate non-feature, see §8 |
+| 91 | undeclared: standard conversions (`INT_TO_REAL`, `TIME_TO_DINT`), vendor calls, and cascades from unresolved types |
+| 37 | unknown type: standard function block types, vendor types |
+| 25 | call-site binding against blocks the converter rendered imperfectly |
+| 20 | `TIME` — deferred with the standard library |
+| 1 | a genuinely unbounded `WHILE` — the §4 rule doing its job |
+
+Pointers dominate, and they are how that project passes structures into
+function blocks. `VAR_IN_OUT` is the IEC mechanism for the same thing and is
+already implemented; whether that covers enough of the real usage is the
+question to answer before revisiting §8.
+
+### 9.1 What it found that was broken
+
+**A named constant did not fold.** `FOR i := 0 TO LAST_IDX` with
+`LAST_IDX : DINT := 7` in a `VAR CONSTANT` was refused as an unbounded loop,
+and `ARRAY[1..MINUTES_PER_DAY]` as a non-constant bound. Real ST names its
+bounds far more often than it writes them out, so this made constants useless
+exactly where they are most wanted. Every synthetic fixture had used literal
+bounds, so nothing caught it. A reference to a constant now resolves to its
+value — including one written as an expression, `(24 * 60)` — and a constant
+whose references all fold costs no storage in the instance.
+
+**Qualified enumeration constants were missing.** `EN_STATE.OFF` is how IEC
+61131-3 3rd edition and CODESYS disambiguate two enumerations that share a
+constant name, and the project has exactly that: `EN_HEATPUMP_STATE` and
+`EN_HEATING_MODE` both declare `OFF`. The phase 4 rule refused the second
+declaration outright. Now both stand, and only an *unqualified* ambiguous use
+is refused — reported where it is written, naming every candidate.
+
+**A variable named after its own type hid the type.** `mode : Mode` is
+idiomatic, and ST is case-insensitive, so the variable shadowed the enumeration
+and `Mode.OFF` resolved to a field access on a variable. An enumeration has no
+instance members, so the qualified reading is preferred there; a struct is
+deliberately not treated that way, since `p.x` on a `p : Point` does mean the
+field.
+
+## 10. Open items
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding

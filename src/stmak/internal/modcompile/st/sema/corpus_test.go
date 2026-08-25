@@ -45,6 +45,10 @@ var corpusStatus = map[string]string{
 
 	// Explicit pin mapping with AT, at any depth.
 	"atmap": "",
+
+	// Named constants folding at their use sites, and qualified enumeration
+	// constants -- both found by measuring against a real project.
+	"constants": "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

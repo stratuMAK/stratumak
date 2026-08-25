@@ -103,17 +103,21 @@ func (c *checker) checkEnumDecl(d *st.TypeDecl, td *ast.TypeDef) {
 		}
 		next = value + 1
 
-		// A constant colliding with anything already visible would make
-		// `state := RUNNING` mean one of two things.  IEC 61131-3 has a
-		// qualified form for this; until that exists, refuse the collision
-		// rather than silently picking one.
+		// The constant always belongs to its enumeration, and is always
+		// reachable as `Light.RED`.  What a collision costs is the
+		// unqualified spelling: two enumerations sharing OFF is ordinary in
+		// real code, so the declaration is accepted and only a bare `OFF`
+		// becomes an error -- reported where it is written, naming both
+		// candidates.
+		td.Consts = append(td.Consts, ast.EnumConst{Pos: m.Pos, Name: m.Name, Value: value})
+
 		if prev := c.scope.lookup(m.Name); prev != nil {
-			what := "a " + prev.Kind.String()
 			if prev.Kind == symEnumConst {
-				what = "a constant of enumeration " + prev.EnumType
+				prev.Ambiguous = append(prev.Ambiguous, d.Name)
+				continue
 			}
-			c.errorf(m.Pos, "enumeration constant %s collides with %s declared at %s",
-				m.Name, what, prev.Pos)
+			c.errorf(m.Pos, "enumeration constant %s collides with the %s declared at %s",
+				m.Name, prev.Kind, prev.Pos)
 			continue
 		}
 
@@ -127,7 +131,6 @@ func (c *checker) checkEnumDecl(d *st.TypeDecl, td *ast.TypeDef) {
 			HasConstValue: true,
 			EnumType:      d.Name,
 		})
-		td.Consts = append(td.Consts, ast.EnumConst{Pos: m.Pos, Name: m.Name, Value: value})
 	}
 
 	if d.Init != nil {

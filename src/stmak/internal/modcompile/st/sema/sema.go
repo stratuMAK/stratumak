@@ -458,7 +458,19 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 			if v, isInt := foldInt(e); isInt {
 				sym.ConstValue, sym.HasConstValue = v, true
 			}
+			if constant && ok {
+				// A CONSTANT is remembered as its value, so a reference to it
+				// folds at the use site -- including one written as an
+				// expression, such as (24 * 60).
+				sym.ConstExpr = foldToConst(e, typ)
+			}
 		}
+	}
+
+	if sym.Const && sym.ConstExpr != nil {
+		// Every reference folded to its value, so the constant needs no
+		// storage in the instance.
+		return
 	}
 
 	v := ast.Variable{
