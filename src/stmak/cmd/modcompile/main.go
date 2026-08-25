@@ -413,14 +413,14 @@ func componentNameFor(path string) string {
 // in stages; today the frontend can parse, so --parse prints the syntax tree
 // and every other mode says plainly what is missing rather than failing in an
 // unrelated place.
-func processSTFile(path, mode string) error {
+func processSTFile(path, mode, outputFile string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	switch mode {
-	case "--parse":
+	if mode == "--parse" {
+		// The syntax tree, before anything is resolved.
 		file, err := st.Parse(path, string(src))
 		if err != nil {
 			return err
@@ -428,31 +428,35 @@ func processSTFile(path, mode string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(file)
-
-	case "--preprocess", "--compile", "--install", "--document", "--view-doc", "--deps":
-		// Parse and check anyway.  A real diagnostic about the source is worth
-		// far more than the not-implemented message, and running both stages
-		// means an author can develop a component today and only the final
-		// emission is missing.
-		file, err := st.Parse(path, string(src))
-		if err != nil {
-			return err
-		}
-		pkg, err := sema.Check(componentNameFor(path), file)
-		if err != nil {
-			return err
-		}
-		for _, w := range pkg.Warnings {
-			fmt.Fprintf(os.Stderr, "modcompile: warning: %s\n", w)
-		}
-		return fmt.Errorf("%s: Structured Text support is not finished; "+
-			"the source parses and type-checks, but %s needs the code generation "+
-			"stage, which is not implemented yet",
-			path, mode)
-
-	default:
-		return fmt.Errorf("%s: %s is not supported for .st files", path, mode)
 	}
+
+	file, err := st.Parse(path, string(src))
+	if err != nil {
+		return err
+	}
+	component := componentNameFor(path)
+	pkg, err := sema.Check(component, file)
+	if err != nil {
+		return err
+	}
+
+	// The same rule .comp gets: a PROGRAM whose name matches the file becomes
+	// the component itself, and any other name becomes a namespaced function.
+	// A file whose only PROGRAM is named after a different component is
+	// almost always a copy-and-paste that kept the original name, so say so
+	// rather than quietly exporting comp.otherName.
+	if len(file.Programs) == 1 && !ast.EqualName(file.Programs[0].Name, component) {
+		fmt.Fprintf(os.Stderr,
+			"modcompile: warning: %s: the only PROGRAM is named %q but the file is %s.st, "+
+				"so its HAL function is exported as %s.%s rather than %s\n",
+			path, file.Programs[0].Name, component, component,
+			pkg.Component.Functions[0].Name, component)
+	}
+	for _, w := range pkg.Warnings {
+		fmt.Fprintf(os.Stderr, "modcompile: warning: %s\n", w)
+	}
+
+	return runPackageMode(path, ".st", mode, outputFile, pkg)
 }
 
 // checkCModInstallCollision refuses `--install` when the packaged cmod
@@ -485,7 +489,7 @@ func processFile(path, mode, outputFile string) error {
 	// statement emitter are not, so there is nothing to generate C from yet.
 	// See docs/dev/MODCOMPILE_ST_FRONTEND.md §6.
 	if strings.HasSuffix(path, ".st") {
-		return processSTFile(path, mode)
+		return processSTFile(path, mode, outputFile)
 	}
 
 	// Handle raw .c files — only --compile and --install are supported.
@@ -534,102 +538,7 @@ func processFile(path, mode, outputFile string) error {
 		fmt.Fprintf(os.Stderr, "modcompile: warning: %s\n", w)
 	}
 
-	switch mode {
-	case "--parse":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(pkg)
-
-	case "--deps":
-		// One pkg-config module name per line, no version constraints: this is
-		// for a packager turning a module's declarations into build
-		// dependencies, and nothing else is machine-readable from here.
-		for _, d := range pkg.Component.PkgConfig {
-			fmt.Println(d.Name())
-		}
-		return nil
-
-	case "--preprocess":
-		if outputFile == "" {
-			// Writing to a pipe: the eventual filename is unknowable, so
-			// the output carries no #line directives (see cgen.GenerateTo).
-			// The build passes -o for exactly this reason.
-			return cgen.Generate(os.Stdout, pkg)
-		}
-		f, err := os.Create(outputFile)
-		if err != nil {
-			return err
-		}
-		if err := cgen.GenerateTo(f, pkg, outputFile); err != nil {
-			_ = f.Close()
-			return err
-		}
-		// Close checks the flush: a failed close on a written file loses output.
-		return f.Close()
-
-	case "--document":
-		outName := outputFile
-		if outName == "" {
-			// Default output filename
-			base := strings.TrimSuffix(filepath.Base(path), ".comp")
-			section := "9"
-			if pkg.Component.Options["userspace"] == "yes" {
-				section = "1"
-			}
-			outName = base + "." + section
-		}
-		f, err := os.Create(outName)
-		if err != nil {
-			return err
-		}
-		if err := docgen.Generate(f, pkg); err != nil {
-			_ = f.Close()
-			return err
-		}
-		// Close checks the flush: a failed close on a written file loses output.
-		return f.Close()
-
-	case "--view-doc":
-		// Generate to temp file and display with man
-		tmpFile, err := os.CreateTemp("", "modcompile-*.man")
-		if err != nil {
-			return err
-		}
-		tmpName := tmpFile.Name()
-		defer func() { _ = os.Remove(tmpName) }()
-
-		if err := docgen.Generate(tmpFile, pkg); err != nil {
-			_ = tmpFile.Close()
-			return err
-		}
-		// Flush before man reads the file back.
-		if err := tmpFile.Close(); err != nil {
-			return err
-		}
-
-		// Run man to display
-		cmd := exec.Command("man", tmpName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		return cmd.Run()
-
-	case "--compile":
-		return compileComp(path, pkg, ".")
-
-	case "--install":
-		requireCModInstallPrivilege()
-		if config.LocalCModDir() != "" {
-			acquireBuildLock("--install")
-		}
-		if err := checkCModInstallCollision(pkg.Component.Name); err != nil {
-			return err
-		}
-		return compileComp(path, pkg, cmodInstallDir())
-
-	default:
-		return fmt.Errorf("unknown mode %q", mode)
-	}
+	return runPackageMode(path, ".comp", mode, outputFile, pkg)
 }
 
 // linuxcncIncludeDir returns the directory holding LinuxCNC's own C headers —
@@ -2464,5 +2373,111 @@ func hintStmakDir(stmakDir string) {
 			config.StmakDirEnv)
 	} else {
 		fmt.Fprintf(os.Stderr, "modcompile: taken from %s in the environment\n", config.StmakDirEnv)
+	}
+}
+
+// runPackageMode carries out one mode against an already-parsed package.
+//
+// Both frontends end here: a .comp reaches it through comp.Parse and an .st
+// through st.Parse plus sema.Check.  Sharing this switch is what makes man
+// pages, --compile and --install work for Structured Text without a second
+// implementation -- and what keeps the two from drifting apart.  ext is the
+// source suffix, used only to build a default output name.
+func runPackageMode(path, ext, mode, outputFile string, pkg *ast.Package) error {
+	switch mode {
+	case "--parse":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(pkg)
+
+	case "--deps":
+		// One pkg-config module name per line, no version constraints: this is
+		// for a packager turning a module's declarations into build
+		// dependencies, and nothing else is machine-readable from here.
+		for _, d := range pkg.Component.PkgConfig {
+			fmt.Println(d.Name())
+		}
+		return nil
+
+	case "--preprocess":
+		if outputFile == "" {
+			// Writing to a pipe: the eventual filename is unknowable, so
+			// the output carries no #line directives (see cgen.GenerateTo).
+			// The build passes -o for exactly this reason.
+			return cgen.Generate(os.Stdout, pkg)
+		}
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return err
+		}
+		if err := cgen.GenerateTo(f, pkg, outputFile); err != nil {
+			_ = f.Close()
+			return err
+		}
+		// Close checks the flush: a failed close on a written file loses output.
+		return f.Close()
+
+	case "--document":
+		outName := outputFile
+		if outName == "" {
+			// Default output filename
+			base := strings.TrimSuffix(filepath.Base(path), ext)
+			section := "9"
+			if pkg.Component.Options["userspace"] == "yes" {
+				section = "1"
+			}
+			outName = base + "." + section
+		}
+		f, err := os.Create(outName)
+		if err != nil {
+			return err
+		}
+		if err := docgen.Generate(f, pkg); err != nil {
+			_ = f.Close()
+			return err
+		}
+		// Close checks the flush: a failed close on a written file loses output.
+		return f.Close()
+
+	case "--view-doc":
+		// Generate to temp file and display with man
+		tmpFile, err := os.CreateTemp("", "modcompile-*.man")
+		if err != nil {
+			return err
+		}
+		tmpName := tmpFile.Name()
+		defer func() { _ = os.Remove(tmpName) }()
+
+		if err := docgen.Generate(tmpFile, pkg); err != nil {
+			_ = tmpFile.Close()
+			return err
+		}
+		// Flush before man reads the file back.
+		if err := tmpFile.Close(); err != nil {
+			return err
+		}
+
+		// Run man to display
+		cmd := exec.Command("man", tmpName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		return cmd.Run()
+
+	case "--compile":
+		return compileComp(path, pkg, ".")
+
+	case "--install":
+		requireCModInstallPrivilege()
+		if config.LocalCModDir() != "" {
+			acquireBuildLock("--install")
+		}
+		if err := checkCModInstallCollision(pkg.Component.Name); err != nil {
+			return err
+		}
+		return compileComp(path, pkg, cmodInstallDir())
+
+	default:
+		return fmt.Errorf("unknown mode %q", mode)
 	}
 }

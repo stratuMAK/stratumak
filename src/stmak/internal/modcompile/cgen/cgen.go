@@ -31,7 +31,7 @@ func Generate(w io.Writer, pkg *ast.Package) error {
 // code against .comp lines that do not exist -- worse than not mapping at all,
 // so an empty outName emits no directives.
 func GenerateTo(w io.Writer, pkg *ast.Package, outName string) error {
-	g := &generator{w: w, comp: &pkg.Component, outName: outName}
+	g := &generator{w: w, pkg: pkg, comp: &pkg.Component, outName: outName}
 	return g.generate()
 }
 
@@ -40,7 +40,10 @@ func GenerateTo(w io.Writer, pkg *ast.Package, outName string) error {
 // ---------------------------------------------------------------------------
 
 type generator struct {
-	w    io.Writer
+	w io.Writer
+	// pkg is the whole compilation unit; comp is its component, which is what
+	// almost every emitter needs.
+	pkg  *ast.Package
 	comp *ast.Component
 	err  error
 
@@ -52,6 +55,9 @@ type generator struct {
 }
 
 func (g *generator) generate() error {
+	if err := g.pkg.Validate(); err != nil {
+		return err
+	}
 	if err := g.validateArchs(); err != nil {
 		return err
 	}
@@ -63,7 +69,14 @@ func (g *generator) generate() error {
 	g.emitFunctionForwards()
 	g.emitUserIncludes() // Extract and emit #include lines first
 	g.emitConvenienceDefines()
-	g.emitUserCodeBody() // Emit rest of user code (without includes)
+	if g.hasSTBody() {
+		// An .st contributes lowered statements where a .comp contributes
+		// verbatim C.  Package.Validate guarantees never both.
+		g.emitSTRuntime()
+		g.emitSTBodies()
+	} else {
+		g.emitUserCodeBody() // Emit rest of user code (without includes)
+	}
 	g.emitUndefConvenience()
 	g.emitInitStartStopDestroy()
 	g.emitNew()
@@ -355,6 +368,10 @@ func (g *generator) emitHeader() {
 		g.printf("#include \"stmak_user.h\"\n")
 		g.printf("#include <pthread.h>\n")
 	}
+	if g.hasSTBody() && g.stFeatures().pow {
+		// ** goes through pow(); libm is always linked.
+		g.printf("#include <math.h>\n")
+	}
 	g.printf("#include <stdlib.h>\n")
 	g.printf("#include <stdint.h>\n")
 	g.printf("#include <string.h>\n")
@@ -535,6 +552,12 @@ func (g *generator) emitInstanceStruct() {
 		}
 	}
 
+	// Structured Text fault counter: every runtime guard increments it, and
+	// the logging is rate-limited off it.
+	if g.hasSTBody() && g.needsFaultCounter() {
+		g.printf("    unsigned long __st_faults;\n")
+	}
+
 	// GMI consumed API pointers (populated during Start via api_get).
 	for _, entry := range g.comp.GMIConsume {
 		g.printf("    const %s_callbacks_t *__gmi_%s;\n", entry.API, entry.API)
@@ -627,37 +650,14 @@ func (g *generator) emitConvenienceDefines() {
 		g.printf("#define MCODE_SLEEP(us_) usleep(us_)\n\n")
 	}
 
-	// Pin convenience: scalar → dereference pointer.  Pins live in inst_hal_t.
-	// Array pin → function-like macro with index.
-	for _, pin := range g.comp.Pins {
-		cName := toC(pin.Name)
-		if pin.ArraySize > 0 {
-			g.printf("#define %s(i) (*(__comp_inst->hal->%s[i]))\n", cName, cName)
-		} else {
-			g.printf("#define %s (*(__comp_inst->hal->%s))\n", cName, cName)
-		}
-	}
-
-	// Param convenience: direct access (not pointer).  Params live in inst_hal_t.
-	for _, param := range g.comp.Params {
-		cName := toC(param.Name)
-		if param.ArraySize > 0 {
-			g.printf("#define %s(i) (__comp_inst->hal->%s[i])\n", cName, cName)
-		} else {
-			g.printf("#define %s (__comp_inst->hal->%s)\n", cName, cName)
-		}
-	}
-
-	// Variable convenience.
-	for _, v := range g.comp.Variables {
-		name := v.Name
-		// Strip leading * for pointer variables in the define.
-		defName := strings.TrimLeft(name, "*")
-		if v.Array > 0 {
-			g.printf("#define %s (__comp_inst->%s)\n", defName, defName)
-		} else {
-			g.printf("#define %s (__comp_inst->%s)\n", defName, defName)
-		}
+	// The name macros below exist so hand-written C in a .comp can say `out`
+	// instead of `(*(__comp_inst->hal->out))`.  Generated ST bodies write the
+	// full access themselves, and a macro named after a pin would then expand
+	// inside that access and break it -- `__comp_inst->hal->in0` with `in0`
+	// defined is not valid C.  So an ST component gets no name macros; it
+	// still gets FUNCTION, fperiod, the logging macros and the rest.
+	if !g.hasSTBody() {
+		g.emitNameMacros()
 	}
 
 	// Personality convenience.
@@ -809,6 +809,45 @@ func (g *generator) emitUserCodeBody() {
 	}
 }
 
+// emitNameMacros defines the short names a .comp body uses for its pins,
+// parameters and variables.  See the call site for why an ST component gets
+// none of them.
+func (g *generator) emitNameMacros() {
+	// Pin convenience: scalar → dereference pointer.  Pins live in inst_hal_t.
+	// Array pin → function-like macro with index.
+	for _, pin := range g.comp.Pins {
+		cName := toC(pin.Name)
+		if pin.ArraySize > 0 {
+			g.printf("#define %s(i) (*(__comp_inst->hal->%s[i]))\n", cName, cName)
+		} else {
+			g.printf("#define %s (*(__comp_inst->hal->%s))\n", cName, cName)
+		}
+	}
+
+	// Param convenience: direct access (not pointer).  Params live in inst_hal_t.
+	for _, param := range g.comp.Params {
+		cName := toC(param.Name)
+		if param.ArraySize > 0 {
+			g.printf("#define %s(i) (__comp_inst->hal->%s[i])\n", cName, cName)
+		} else {
+			g.printf("#define %s (__comp_inst->hal->%s)\n", cName, cName)
+		}
+	}
+
+	// Variable convenience.
+	for _, v := range g.comp.Variables {
+		name := v.Name
+		// Strip leading * for pointer variables in the define.
+		defName := strings.TrimLeft(name, "*")
+		if v.Array > 0 {
+			g.printf("#define %s (__comp_inst->%s)\n", defName, defName)
+		} else {
+			g.printf("#define %s (__comp_inst->%s)\n", defName, defName)
+		}
+	}
+
+}
+
 func (g *generator) emitUndefConvenience() {
 	g.printf("/* ---------------------------------------------------------------------------\n")
 	g.printf(" * Undefine convenience macros — clean namespace for generated code below.\n")
@@ -824,17 +863,22 @@ func (g *generator) emitUndefConvenience() {
 		g.printf("#undef FUNCTION\n")
 		g.printf("#undef fperiod\n")
 	}
-	for _, pin := range g.comp.Pins {
-		g.printf("#undef %s\n", toC(pin.Name))
-	}
-	for _, param := range g.comp.Params {
-		g.printf("#undef %s\n", toC(param.Name))
-	}
-	for _, v := range g.comp.Variables {
-		g.printf("#undef %s\n", strings.TrimLeft(v.Name, "*"))
-	}
-	if g.hasPersonality() {
-		g.printf("#undef personality\n")
+	// Undefine only what was defined: an ST component was never given the
+	// name macros, and #undef of a name that was never a macro would be
+	// harmless but misleading to anyone reading the generated file.
+	if !g.hasSTBody() {
+		for _, pin := range g.comp.Pins {
+			g.printf("#undef %s\n", toC(pin.Name))
+		}
+		for _, param := range g.comp.Params {
+			g.printf("#undef %s\n", toC(param.Name))
+		}
+		for _, v := range g.comp.Variables {
+			g.printf("#undef %s\n", strings.TrimLeft(v.Name, "*"))
+		}
+		if g.hasPersonality() {
+			g.printf("#undef personality\n")
+		}
 	}
 	if _, ok := g.comp.Options["data"]; ok {
 		g.printf("#undef data\n")

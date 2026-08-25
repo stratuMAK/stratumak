@@ -1,0 +1,5 @@
+#!/bin/bash
+# No golden output to diff: the generated C carries absolute paths in its
+# #line directives, which differ per tree.  test.sh asserts the properties
+# that matter and exits non-zero on failure, which is the whole result.
+exit 0
