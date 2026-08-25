@@ -11,6 +11,18 @@ useful if it is clear what "passing" means for it.
 | Reject | `reject/` | Produces a specific diagnostic, asserted by message and position — not merely "fails". |
 | Golden | `golden/` | Compiles to a `.so`, loads into `stmakd`, and behaves as the accompanying HAL test asserts. |
 
+## The accept tier is specification by example
+
+`accept/` is first-party and doubles as the readable definition of the dialect:
+what a stratuMAK ST component looks like, written out rather than described.
+Each file is a component someone might plausibly write, not a syntax exercise,
+and each is checked to declare a PROGRAM, carry a summary for docgen, and
+expose some HAL surface -- a fixture that stops being a component has drifted
+from its purpose, and a parse-only test would not notice.
+
+They earn their keep three times: today they must parse, from phase 2 they must
+pass sema, and from phase 3 they compile, load and run as golden fixtures.
+
 `thirdparty/` holds imported corpora, each in its own directory with the
 upstream licence and a README recording provenance and what was excluded. Those
 files are test input only — never compiled into, linked with, or shipped in any
