@@ -1,0 +1,117 @@
+'\" t
+.\" -*- mode: troff; coding: utf-8 -*-
+.\"*******************************************************************
+.\"
+.\" This file was generated from hal/components/pnpsim.comp using modcompile.
+.\" Modify the source file.
+.\"
+.\"*******************************************************************
+
+.TH PNPSIM "9" "2026-08-21" "LinuxCNC Documentation" "HAL Component"
+.SH NAME
+
+pnpsim \- Simulated pick-and-place gripper and fixture, for driving pnptask without hardware
+.SH SYNOPSIS
+.HP
+.B load pnpsim [pnpsim.\fIN\fB]
+.SH DESCRIPTION
+
+
+One instance simulates the two field devices a \fBpnptask\fR station pair needs:
+a \fBgripper\fR (a picker's close command and its opened/closed feedback) and a
+\fBfixture\fR (a process station's release request and its released feedback).
+Both halves are independent \(em wire the ones you need and leave the rest
+unlinked. A machine with two pickers and two process stations therefore loads
+two instances:
+
+.IP
+.nf
+load pnpsim <pnp.sim.0,pnp.sim.1>
+addf pnp.sim.0 servo-thread
+addf pnp.sim.1 servo-thread
+
+net p0-close  pnp.task.picker.0.close  => pnp.sim.0.gripper.close
+net p0-opened pnp.sim.0.gripper.opened => pnp.task.picker.0.opened
+net p0-closed pnp.sim.0.gripper.closed => pnp.task.picker.0.closed
+.fi
+
+.PP
+The gripper models the one thing a pick-and-place task cannot be tested without:
+the difference between closing onto a part and closing onto nothing. Feedback
+follows the command after \fBgripper.settle-time\fR, and lands on one of two
+states \(em \fBopened\fR high (released), or \fBopened\fR low with
+\fBclosed\fR saying what it found: low means the jaws stopped on a part, high
+means they met each other and the position was empty.
+
+.PP
+Which of the two a close produces is scripted with \fBgripper.miss-count\fR:
+0 (the default) grips a part every time, N makes the next N closes find nothing,
+and \-1 makes every close find nothing. The counter reloads only when the
+pin's \fIvalue changes\fR \(em a pin is a level, so writing the value it
+already carries is invisible. To re-arm a fresh run of the same length, write 0
+first and then the count. \fBgripper.miss-left\fR reports what is left of the
+current run.
+
+.PP
+\fBgripper.stuck\fR and \fBfixture.stuck\fR freeze the feedback where it
+stands, which is how the fault paths are reached: a gripper that never actuates
+raises PICKER_CLOSE_FAILED in pnptask, a fixture that never answers raises
+RELEASE_TIMEOUT.
+
+.SH FUNCTIONS
+.TP
+\fBpnpsim.\fIN\fB\fR (requires a floating-point thread)
+Advance both simulations by one servo period.
+.SH PINS
+.TP
+.B pnpsim.\fIN\fB.gripper.close\fR bit in \fR
+Close command, from the picker's \fBclose\fR output.
+.TP
+.B pnpsim.\fIN\fB.gripper.opened\fR bit out \fR(default: \fI1\fR) \fR
+Opened feedback. High while the gripper is
+released; the initial state.
+.TP
+.B pnpsim.\fIN\fB.gripper.closed\fR bit out \fR
+Fully-closed feedback: high when the jaws met each
+other, which after a pick means the position held nothing.
+.TP
+.B pnpsim.\fIN\fB.gripper.holding\fR bit out \fR
+High while the gripper holds a part.
+.TP
+.B pnpsim.\fIN\fB.gripper.miss-count\fR s32 in \fR(default: \fI0\fR) \fR
+How many of the next closes grip nothing:
+0 = none, N = the next N, \-1 = all of them. Reloaded whenever the value
+changes.
+.TP
+.B pnpsim.\fIN\fB.gripper.miss-left\fR s32 out \fR
+Closes still scheduled to grip nothing.
+.TP
+.B pnpsim.\fIN\fB.gripper.stuck\fR bit in \fR
+Freeze the gripper feedback where it stands \(em a
+gripper with no air on it.
+.TP
+.B pnpsim.\fIN\fB.gripper.settle-time\fR float in \fR(default: \fI0.05\fR) \fR
+Seconds between a close/open command
+and the feedback that answers it.
+.TP
+.B pnpsim.\fIN\fB.fixture.release\fR bit in \fR
+Release/unclamp request, from the station's \fBrelease\fR output.
+.TP
+.B pnpsim.\fIN\fB.fixture.released\fR bit out \fR
+Released feedback; follows the request after \fBfixture.release-time\fR.
+.TP
+.B pnpsim.\fIN\fB.fixture.stuck\fR bit in \fR
+Freeze the released feedback where it stands.
+.TP
+.B pnpsim.\fIN\fB.fixture.release-time\fR float in \fR(default: \fI0.02\fR) \fR
+Seconds the fixture takes to follow its request.
+.SH SEE ALSO
+
+\fBpnptask\fR(9), docs/dev/PNPTASK_DESIGN.md and the simulation
+config in tests/pnptask/.
+.SH AUTHOR
+
+Sascha Ittner
+.SH LICENSE
+
+GPL

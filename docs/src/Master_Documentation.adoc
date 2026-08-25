@@ -103,6 +103,8 @@ include::hal/rtcomps.adoc[]
 
 include::hal/comp.adoc[]
 
+include::hal/st.adoc[]
+
 
 include::gui/halui.adoc[]
 

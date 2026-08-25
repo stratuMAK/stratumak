@@ -4,7 +4,7 @@ modcompile \- compile HAL components, generate GMI code, manage stmakd packages
 
 .SH SYNOPSIS
 .B modcompile
-[\fIoptions\fR] \fIfile\fR.comp ...
+[\fIoptions\fR] \fIfile\fR.comp | \fIfile\fR.st ...
 .br
 .B modcompile gmi
 [\fIoptions\fR] \fIfile\fR.gmi ...
@@ -19,6 +19,8 @@ modcompile \- compile HAL components, generate GMI code, manage stmakd packages
 .B modcompile
 builds HAL components from
 .B .comp
+and
+.B .st
 sources, writing loadable cmod modules.  It replaces the
 .B halcompile
 utility of earlier LinuxCNC releases; the
@@ -32,9 +34,29 @@ or
 .BR \-\-extra-link-args ,
 and only
 .B .comp
+and
+.B .st
 files are accepted, not
 .B .c
 files.
+.PP
+A
+.B .st
+file is IEC 61131\-3 Structured Text.  A
+.B PROGRAM
+becomes one exported HAL function; its
+.BR VAR_INPUT ,
+.B VAR_OUTPUT
+and
+.B VAR_IN_OUT
+become
+.BR in ,
+.B out
+and
+.B io
+pins, and any variable may be mapped to a pin explicitly with an
+.B AT
+clause.  Every option below works the same for either source language.
 .PP
 It also generates client and server code from
 .B .gmi
@@ -42,13 +64,16 @@ interface definitions, and manages the Go packages compiled into
 .BR stmakd .
 
 .SH OPTIONS
-.SS Component compilation (.comp)
+.SS Component compilation (.comp, .st)
 .TP
 .BR \-\-help
 Show usage.
 .TP
 .BR \-\-parse
-Parse only; print the parsed AST as JSON.
+Parse only; print the parsed syntax tree as JSON.  For a
+.B .st
+file this is the tree before anything is resolved, which is why it prints even
+for a source that does not type-check.
 .TP
 .BR \-\-preprocess
 Preprocess only; emit the generated C code.
@@ -130,6 +155,15 @@ sudo modcompile \-\-install mycomp.comp
 .fi
 .RE
 .PP
+The same, from Structured Text:
+.PP
+.RS
+.nf
+modcompile \-\-compile mycomp.st
+sudo modcompile \-\-install mycomp.st
+.fi
+.RE
+.PP
 Generate its man page:
 .PP
 .RS
@@ -139,10 +173,10 @@ modcompile \-\-document \-o mycomp.9 mycomp.comp
 .RE
 
 .SH "SEE ALSO"
-The HAL Component Generator chapter of the LinuxCNC documentation
-describes the
+The HAL Component Generator chapter of the documentation describes the
 .B .comp
-language in full.
+language in full, and the Structured Text Components chapter describes
+.BR .st .
 
 .SH AUTHOR
 Part of the LinuxCNC project.

@@ -12,6 +12,8 @@ import (
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/comp"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/docgen"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st/sema"
 )
 
 // compRoots are the in-tree directories holding shipped .comp sources, relative
@@ -20,6 +22,73 @@ var compRoots = []string{
 	"../../../../hal/components",
 	"../../../../hal/user_comps",
 	"../../../../hal/drivers",
+}
+
+// findSTSources collects every shipped .st under compRoots.  There are none
+// yet; the sweep is here so the first one is compile-tested from the moment it
+// lands, without anybody having to remember this file.
+func findSTSources(t *testing.T) []string {
+	t.Helper()
+	var files []string
+	for _, root := range compRoots {
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		err := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !fi.IsDir() && strings.HasSuffix(p, ".st") {
+				files = append(files, p)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", root, err)
+		}
+	}
+	return files
+}
+
+// TestGenerateOverShippedST is the .st half of the risk-class-3 guard: every
+// shipped Structured Text component goes through parse, check, C generation
+// and man-page generation on every test run, exactly as the .comp corpus does.
+func TestGenerateOverShippedST(t *testing.T) {
+	files := findSTSources(t)
+	if len(files) == 0 {
+		t.Skip("no in-tree .st sources yet")
+	}
+	for _, path := range files {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			src, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading: %v", err)
+			}
+			name := strings.TrimSuffix(filepath.Base(path), ".st")
+			name = strings.ReplaceAll(name, "-", "_")
+
+			file, perr := st.Parse(path, string(src))
+			if perr != nil {
+				t.Fatalf("parse: %v", perr)
+			}
+			pkg, cerr := sema.Check(name, file)
+			if cerr != nil {
+				t.Fatalf("check: %v", cerr)
+			}
+
+			var buf bytes.Buffer
+			if err := Generate(&buf, pkg); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+			checkGeneratedC(t, pkg.Component.Name, buf.String())
+
+			var doc bytes.Buffer
+			if err := docgen.Generate(&doc, pkg); err != nil {
+				t.Fatalf("docgen: %v", err)
+			}
+			checkGeneratedMan(t, pkg.Component.Name, doc.String())
+		})
+	}
 }
 
 // findComps collects every .comp file under compRoots.

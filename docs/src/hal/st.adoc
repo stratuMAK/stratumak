@@ -1,0 +1,273 @@
+:lang: en
+:toc:
+
+[[cha:structured-text-components]]
+= Structured Text Components
+
+// Custom lang highlight
+// must come after the doc title, to work around a bug in asciidoc 8.6.6
+:ini: {basebackend@docbook:'':ini}
+:hal: {basebackend@docbook:'':hal}
+:ngc: {basebackend@docbook:'':ngc}
+
+(((HAL,Structured Text)))
+A HAL component can be written in IEC 61131-3 Structured Text instead of the
+`.comp` language. `modcompile` accepts a `.st` file wherever it accepts a
+`.comp` one, and produces the same loadable module, the same man page and the
+same HAL surface. Nothing else in the toolchain distinguishes them.
+
+The reason to reach for it is that Structured Text is what PLC programmers
+already write, and that a `.st` component is checked rather than trusted: the
+compiler resolves every name and type before emitting anything, so a mistake
+becomes a message with a line number instead of a C error in generated code
+nobody keeps.
+
+== A first component
+
+[source,pascal]
+----
+{attribute 'summary' := 'Two-input AND gate'}
+{attribute 'license' := 'GPL'}
+
+PROGRAM and2
+  VAR_INPUT
+    in0 : BOOL;
+    in1 : BOOL;
+  END_VAR
+  VAR_OUTPUT
+    out : BOOL;
+  END_VAR
+
+  out := in0 AND in1;
+END_PROGRAM
+----
+
+Build it exactly as a `.comp`:
+
+----
+modcompile --compile and2.st
+sudo modcompile --install and2.st
+----
+
+That gives a component `and2` with pins `and2.in0`, `and2.in1` and `and2.out`,
+and one HAL function `and2` to add to a thread.
+
+== What maps to what
+
+The component's name comes from the filename, as it does for a `.comp`. Inside:
+
+[cols="1,3"]
+|===
+|`PROGRAM` | one exported HAL function
+|`VAR_INPUT` / `VAR_OUTPUT` / `VAR_IN_OUT` | `in` / `out` / `io` pins
+|`VAR` | per-instance state, private to the component
+|`VAR_GLOBAL` | per-instance state shared between the programs of one file
+|`FUNCTION_BLOCK` | a reusable sub-component with state, internal to the file
+|`FUNCTION` | a stateless helper, callable from an expression
+|`TYPE` | enumerations, structures and aliases
+|===
+
+An underscore in a name becomes a hyphen on the pin, so `max_rate` is
+`comp.max-rate` — the same transform a `.comp` pin name gets.
+
+=== Types
+
+HAL has five scalar types and its `float` is a `double`, which decides what may
+appear on a pin:
+
+[cols="1,2,2"]
+|===
+|Structured Text |On a pin |Elsewhere
+
+|`BOOL` |`bit`, exactly |
+|`DINT` / `UDINT` |`s32` / `u32`, exactly |
+|`LREAL` |`float`, exactly |
+|`SINT` `INT` / `USINT` `UINT` |`s32` / `u32`, widened |
+|`REAL` |`float`, with a warning |accepted
+|enumeration |`s32` |
+|`ARRAY [0..n] OF` scalar |an array pin, one dimension |any shape
+|`LINT` `ULINT` `TIME` `STRING` `STRUCT` |not possible |accepted
+|===
+
+`REAL` reaches a pin without loss but not back, because HAL carries it as a
+double. The compiler accepts it and says so; use `LREAL` for an exact pin.
+
+=== Mapping a pin explicitly
+
+Any variable may name the pin it maps to, which is how a component gets a pin
+whose name differs from the variable, or a pin from inside a function block:
+
+[source,pascal]
+----
+PROGRAM mycomp
+  VAR
+    enable AT %I       : BOOL;    (* mycomp.enable *)
+    out    AT %Q       : LREAL;   (* mycomp.out    *)
+    fault  AT %Q.alarm : BOOL;    (* mycomp.alarm  *)
+  END_VAR
+----
+
+`%I` means HAL writes and the body reads; `%Q` the reverse; `%IO` both. The pin
+name defaults to the variable's own and is written out only where the two
+differ.
+
+This is deliberately not IEC's located-variable syntax, which it resembles.
+`%QX0.0` is a physical address, and there is no physical address space here —
+HAL signals are the addressing scheme — so `%Q` names a direction and nothing
+else. An address-shaped clause is refused rather than reinterpreted.
+
+Inside a `FUNCTION_BLOCK`, an `AT` variable becomes a pin on every instance,
+named by the path that reaches it: an instance `r` of a block declaring
+`pos AT %Q.position` gives `mycomp.r.position`.
+
+== Function blocks
+
+A function block is a reusable piece with its own state. Its inputs and outputs
+persist between calls, so reading an output reads what the last call left there:
+
+[source,pascal]
+----
+FUNCTION_BLOCK Ramp
+  VAR_INPUT
+    target : LREAL;
+    rate   : LREAL;
+    dt     : LREAL;
+  END_VAR
+  VAR_OUTPUT
+    out : LREAL;
+  END_VAR
+  ...
+END_FUNCTION_BLOCK
+----
+
+An instance is declared like a variable and invoked as a statement, then its
+outputs are read:
+
+[source,pascal]
+----
+VAR
+  r : Ramp;
+END_VAR
+
+r(target := setpoint, rate := 10.0, dt := fperiod);
+position := r.out;
+----
+
+`fperiod` is the HAL function's period in seconds. It exists in a `PROGRAM`
+only: a function block has no period of its own, and one that needs the cycle
+time takes it as an input — which is what keeps it usable from a thread of any
+rate.
+
+An instance has no HAL identity unless one of its variables carries an `AT`
+clause, so instances nest, and an array of them costs nothing special.
+
+== Several functions in one component
+
+Each `PROGRAM` in a file becomes its own HAL function, with its own pins, and
+`VAR_GLOBAL` is what they share:
+
+[source,pascal]
+----
+VAR_GLOBAL
+  latched : DINT;
+END_VAR
+
+PROGRAM read
+  ...
+END_PROGRAM
+
+PROGRAM write
+  ...
+END_PROGRAM
+----
+
+That gives `comp.read` and `comp.write`, addable to different threads. A
+function that touches no floating point is exported so it can run in a thread
+without floating-point support, which the compiler works out for itself.
+
+Because the programs of one file share a single instance, they may not reuse a
+name: two of them declaring `n`, or both exporting a pin called `ready`, is an
+error rather than two separate variables.
+
+== Running in the real-time thread
+
+A component runs inside the real-time process, so a fault in one is a fault in
+the machine. The compiler enforces what it can:
+
+* **Every loop carries a bound it can see.** `FOR i := 0 TO 7` is bounded by
+  construction. A `WHILE`, a `REPEAT`, or a `FOR` whose limit is not constant
+  needs one written out:
++
+[source,pascal]
+----
+{attribute 'max_iterations' := '50'}
+WHILE NOT settled DO
+  ...
+END_WHILE;
+----
++
+Exceeding the bound leaves the loop and records a fault rather than stalling
+the thread until the watchdog fires.
+
+* **A subscript the compiler cannot see is clamped.** One it can see is checked
+  when you compile, because an index outside its bounds is a mistake rather
+  than something to handle.
+
+* **Integer division and `MOD` are guarded.** A zero divisor yields zero and
+  records a fault; unguarded it would raise `SIGFPE` and take down the whole
+  process.
+
+* **Recursion is refused.** The stack depth cannot be bounded.
+
+Faults are counted per instance and logged at most occasionally, because one
+repeating every cycle would flood the journal and become the problem itself.
+
+== Documentation
+
+The pragmas before the first declaration describe the component and become its
+man page:
+
+[source,pascal]
+----
+{attribute 'summary'     := 'Limit how fast a value may change'}
+{attribute 'description' := 'Follows target at no more than ...'}
+{attribute 'license'     := 'GPL'}
+{attribute 'author'      := 'A. Programmer'}
+{attribute 'see_also'    := '\fBlimit1\fR(9).'}
+{attribute 'notes'       := '...'}
+{attribute 'examples'    := 'loadrt ramp$Naddf ramp servo-thread'}
+----
+
+A pragma heading a `PROGRAM` documents that program's HAL function, and one
+inside a `VAR` section documents the pin it precedes. A value takes the escapes
+an ST string does, so `$N` is a line break.
+
+`modcompile --document -o ramp.9 ramp.st` writes the page;
+`modcompile --view-doc ramp.st` shows it.
+
+== What is not supported
+
+Structured Text is a large language and this is a subset, chosen so that what
+compiles is safe to run in a servo thread. Refused, each by name:
+
+* pointers and `REFERENCE TO` — pass the value through a `VAR_IN_OUT`, which is
+  the IEC mechanism for reaching a caller's data
+* located variables (`AT %IX1`), and `VAR_CONFIG` — there is no physical address
+  space to locate a variable in
+* the bit-string types `BYTE`, `WORD`, `DWORD` and `LWORD`, and so partial
+  access (`word.0`)
+* `TIME` and the date types, which arrive with the standard function block
+  library
+* `WSTRING`, and `STRING` on a pin
+* the other IEC languages — Ladder, Function Block Diagram and Sequential
+  Function Chart
+
+== A worked example
+
+The following limits how fast a value may change. It shows a function block
+used from a program, per-pin documentation, and `fperiod`.
+
+[source,pascal]
+----
+include::ramp.st[]
+----

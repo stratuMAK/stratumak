@@ -24,11 +24,26 @@ CMOD_TARGETS := $(addprefix ../cmod/, $(addsuffix .so, $(CMOD_COMP_NAMES)))
 # for the hm2_serial GMI include path; pcl720 uses the generic .so rule.
 COMP_DRIVERS := $(wildcard hal/drivers/*.comp)
 CMOD_DRIVER_TARGETS := $(patsubst hal/drivers/%.comp, ../cmod/%.so, $(COMP_DRIVERS))
+
+# Structured Text components build exactly as .comp ones do: modcompile takes
+# either and emits the same cmod C, so they need only their own wildcards and
+# the pattern rules below.  There are none in the tree yet; the wiring is here
+# so the first one builds without anybody having to remember this file.
+CMOD_STS := $(wildcard hal/components/*.st)
+CMOD_ST_NAMES := $(patsubst hal/components/%.st,%,$(CMOD_STS))
+CMOD_ST_TARGETS := $(addprefix ../cmod/, $(addsuffix .so, $(CMOD_ST_NAMES)))
+ST_DRIVERS := $(wildcard hal/drivers/*.st)
+CMOD_ST_DRIVER_TARGETS := $(patsubst hal/drivers/%.st, ../cmod/%.so, $(ST_DRIVERS))
+
 COMP_MANPAGES := $(patsubst hal/components/%.comp, ../docs/man/man9/%.9, $(CMOD_COMPS))
 COMP_DRIVER_MANPAGES := $(patsubst hal/drivers/%.comp, ../docs/man/man9/%.9, $(COMP_DRIVERS))
+ST_MANPAGES := $(patsubst hal/components/%.st, ../docs/man/man9/%.9, $(CMOD_STS))
+ST_DRIVER_MANPAGES := $(patsubst hal/drivers/%.st, ../docs/man/man9/%.9, $(ST_DRIVERS))
 TARGETS += manpages
 GENERATED_MANPAGES += $(COMP_MANPAGES)
 GENERATED_MANPAGES += $(COMP_DRIVER_MANPAGES)
+GENERATED_MANPAGES += $(ST_MANPAGES)
+GENERATED_MANPAGES += $(ST_DRIVER_MANPAGES)
 .PHONY: manpages
 
 $(COMP_MANPAGES): ../docs/man/man9/%.9: hal/components/%.comp ../bin/modcompile
@@ -38,6 +53,18 @@ $(COMP_MANPAGES): ../docs/man/man9/%.9: hal/components/%.comp ../bin/modcompile
 	$(RM) $@.new
 
 $(COMP_DRIVER_MANPAGES): ../docs/man/man9/%.9: hal/drivers/%.comp ../bin/modcompile
+	$(ECHO) Making modcompile manpage $(notdir $@)
+	@mkdir -p $(dir $@)
+	$(Q)../bin/modcompile --document -o $@.new $< && preconv -r < $@.new > $@
+	$(RM) $@.new
+
+$(ST_MANPAGES): ../docs/man/man9/%.9: hal/components/%.st ../bin/modcompile
+	$(ECHO) Making modcompile manpage $(notdir $@)
+	@mkdir -p $(dir $@)
+	$(Q)../bin/modcompile --document -o $@.new $< && preconv -r < $@.new > $@
+	$(RM) $@.new
+
+$(ST_DRIVER_MANPAGES): ../docs/man/man9/%.9: hal/drivers/%.st ../bin/modcompile
 	$(ECHO) Making modcompile manpage $(notdir $@)
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --document -o $@.new $< && preconv -r < $@.new > $@
@@ -145,6 +172,19 @@ objects/cmod/%.c: hal/drivers/%.comp ../bin/modcompile
 	@mkdir -p $(dir $@)
 	$(Q)../bin/modcompile --preprocess $< -o $@
 
+# Structured Text sources take the same two steps.  -o matters here for the
+# same reason it does above: the #line directives name the file being written,
+# and a body mapped back to its .st is the whole point of emitting them.
+objects/cmod/%.c: hal/components/%.st ../bin/modcompile
+	$(ECHO) "Preprocessing cmod $(notdir $<)"
+	@mkdir -p $(dir $@)
+	$(Q)../bin/modcompile --preprocess $< -o $@
+
+objects/cmod/%.c: hal/drivers/%.st ../bin/modcompile
+	$(ECHO) "Preprocessing cmod $(notdir $<)"
+	@mkdir -p $(dir $@)
+	$(Q)../bin/modcompile --preprocess $< -o $@
+
 # Step 2: .c → .so via gcc -shared
 ../cmod/%.so: objects/cmod/%.c
 	$(ECHO) "Compiling cmod $(notdir $@)"
@@ -215,7 +255,9 @@ CMOD_HM2_SERIAL_CFLAGS := -fPIC -g -Os -Wall $(CWARNFLAGS) -shared -I $(CMOD_INC
 	$(Q)$(CC) $(CMOD_HM2_SERIAL_CFLAGS) -o $@ $< $(CMOD_LDFLAGS) -lm
 
 TARGETS += $(CMOD_TARGETS) $(CMOD_DRIVER_TARGETS)
+TARGETS += $(CMOD_ST_TARGETS) $(CMOD_ST_DRIVER_TARGETS)
 modules: $(CMOD_TARGETS) $(CMOD_DRIVER_TARGETS)
+modules: $(CMOD_ST_TARGETS) $(CMOD_ST_DRIVER_TARGETS)
 
 # ---------------------------------------------------------------------------
 # cmod native C components (hand-written .c files, not from .comp)

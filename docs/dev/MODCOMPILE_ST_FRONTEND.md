@@ -581,6 +581,20 @@ shipped module is compile-tested, `docs/man/man1/modcompile.1` updated, and an
 `st.adoc` chapter beside `docs/src/hal/comp.adoc`.
 *Done when* `make` builds every in-tree `.st` and its man page, and CI is green.
 
+**No `.st` is shipped yet.** The obvious candidate — a rate limiter — would
+duplicate `limit1`, `limit2` and `limit3`, and which component ought to be
+written in ST is a product decision rather than a compiler one. So the wiring
+sits ready and unexercised by the tree: `make` grows `.so` and `.9` targets the
+moment a file appears in `hal/components/` or `hal/drivers/`, and the
+shipped-corpus sweep picks it up in the same commit, neither needing an edit.
+The rules were verified by building a real `.st` through `make` — preprocess,
+compile, `.so`, man page — and then removing it.
+
+The worked example for the manual lives at `docs/src/hal/ramp.st`, following
+the `rand.comp` and `out8.comp` pattern already there: included into the
+chapter rather than shipped as a component, and it compiles, so the example
+cannot rot.
+
 ### 6.1 Deferred to later work
 
 **Standard function block library** — `TON`, `TOF`, `TP`, `R_TRIG`, `F_TRIG`,
