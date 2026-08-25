@@ -386,8 +386,36 @@ language.
 resolved types, storage classes, and real `TypeDef` / `FunctionBlock` /
 `PureFunction` replacing the stubs. Add `Body` to `ast.Function` and the
 verbatim-versus-body invariant. No behaviour change.
-*Done when* the existing modcompile tests pass unmodified and `--parse` over
-every shipped `.comp` produces identical JSON.
+*Done when* the existing modcompile tests pass unmodified and the generated C
+for every shipped `.comp` is byte-identical to its pre-phase-0 output:
+
+```
+# from the tree root, once per branch (main, then the phase 0 branch)
+snap() {
+  mkdir -p "$1"
+  for f in $(find "$PWD/src/hal" -name '*.comp'); do
+    ( cd "$1" && "$OLDPWD/bin/modcompile" --preprocess -o "$(basename "$f" .comp).c" "$f" )
+  done
+}
+snap /tmp/base    # on main
+snap /tmp/new     # on the phase 0 branch
+diff -r /tmp/base /tmp/new
+```
+
+The `-o` argument must be *relative* and the `.comp` path identical between the
+two runs. `GenerateTo` writes a `#line` directive naming the output file, so an
+absolute `-o` into two different directories makes every single file differ on
+that one line and the check is worthless. Verified over 100 shipped components:
+relative `-o`, byte-identical.
+
+Note this gate is on the *generated C*, not on `--parse`. That mode dumps the
+AST as JSON for inspection and nothing in the build consumes it; because the
+`ast` structs carry no `json` tags, Go's encoder emits every field including
+zero values, so adding `Body` to `ast.Function` changes every function's JSON
+by construction. A JSON diff would go red on a refactor that changed nothing
+that ships. The C is the artifact that matters, and `cgen/corpus_test.go`
+already sweeps the same corpus for structural invariants on every run — this
+adds byte-identity for the one phase where it must hold exactly.
 
 **1. ST scanner and parser.** Tokens, case-insensitive keywords and identifiers,
 all three comment forms, based literals (`16#FF`, `2#1010`), typed literals
