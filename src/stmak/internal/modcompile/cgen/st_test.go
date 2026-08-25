@@ -33,6 +33,7 @@ var stLowers = []string{
 	"documented",  // every documentation field
 	"actions",     // named pieces of a body
 	"params",      // HAL parameters, top level and inside a block
+	"period",      // fperiod in each kind of body
 }
 
 // compile turns one fixture into C.
@@ -840,5 +841,61 @@ func TestSTParams(t *testing.T) {
 	}
 	if strings.Contains(out, "__comp_inst->lim.hits = (__comp_inst->hal->lim_clamped);") {
 		t.Error("an ro parameter was loaded from HAL, which the component alone writes")
+	}
+}
+
+// TestSTPeriod checks the two routes to fperiod.
+//
+// It is one value -- the period of the thread this body is running in -- and
+// the backend picks how to reach it: through the HAL function's own argument
+// where that is in scope, and through the RT task where it is not, which is a
+// block body or an action of either kind.  The two agree by construction,
+// because a HAL function is invoked by its own thread.
+func TestSTPeriod(t *testing.T) {
+	out := generateST(t, "period")
+
+	// The exported body has the argument, so it uses the macro cgen already
+	// emits for .comp -- which is what keeps every shipped component
+	// generating exactly the C it did before.
+	if !strings.Contains(out, "((__p->elapsed) + fperiod)") {
+		t.Errorf("the exported body should reach fperiod through the period argument\n--- generated ---\n%s", out)
+	}
+
+	// A block body and an action are each their own C function and were never
+	// handed it.
+	for _, want := range []string{
+		"static double __st_fperiod(inst_t *__comp_inst) STMAK_NONBLOCKING;",
+		"int __task = __rt->task_self(__rt->ctx);",
+		"return (double)__rt->task_period(__rt->ctx, __task) * 1e-9;",
+		"((__self->rate) * __st_fperiod(__comp_inst))",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runtime fperiod is missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// Outside an RT task there is no cycle, and zero is the truth rather than
+	// an error nobody can act on.
+	if !strings.Contains(out, "if (__task < 0) return 0.0;") {
+		t.Error("the helper does not handle being called outside an RT task")
+	}
+}
+
+// TestSTPeriodHelperCostsNothingWhenUnused is the -Werror trap.
+//
+// The helper is a static function, and cmods build with -Werror, so emitting
+// one nothing calls fails the build outright.  A component whose only use of
+// fperiod is in its exported body must not get it.
+func TestSTPeriodHelperCostsNothingWhenUnused(t *testing.T) {
+	out := generateST(t, "ramplimit")
+
+	if strings.Contains(out, "__st_fperiod") {
+		t.Errorf("ramplimit uses fperiod only in its PROGRAM, so the helper is dead code "+
+			"and -Werror=unused-function would reject it\n--- generated ---\n%s", out)
+	}
+	// ...but it does use fperiod, so this is a real negative and not a fixture
+	// that happens to mention it nowhere.
+	if !strings.Contains(out, "fperiod") {
+		t.Error("ramplimit no longer uses fperiod; pick another fixture for this test")
 	}
 }

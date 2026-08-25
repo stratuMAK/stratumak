@@ -795,6 +795,17 @@ static int task_self(void) {
     return task->id;
 }
 
+/* The period a task was started with, in nanoseconds, or 0 for an id that
+   names no running task.  Zero rather than an error code because the callers
+   that want this -- a component body asking how long its own cycle is -- have
+   nothing useful to do with a negative duration, and 0 reads as "no cycle
+   here", which is the truth outside a task. */
+static long task_period(int task_id) {
+    struct rtapi_task *task = get_task(task_id);
+    if(!task) return 0;
+    return task->period;
+}
+
 static void task_wait(void) {
     /* Resolve the task before releasing the lock so the ownership flag can be
        cleared with it — pthread_getspecific is a plain TLS read, no syscall. */
@@ -955,11 +966,17 @@ int rtapi_task_resume(int task_id)
 
 /* TRUSTED: task_self and the pll accessors resolve per-thread state via
  * pthread_getspecific(), which is a plain TLS lookup — no lock, no
- * syscall, no allocation. */
+ * syscall, no allocation.  task_period is a bounds-checked index into
+ * task_array and two field reads, which is the same. */
 RTAPI_NONBLOCKING_TRUSTED_BEGIN
 int rtapi_task_self(void)
 {
     return task_self();
+}
+
+long rtapi_task_period(int task_id)
+{
+    return task_period(task_id);
 }
 
 struct rtapi_task *rtapi_task_self_ptr(void)

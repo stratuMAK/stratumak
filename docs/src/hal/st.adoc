@@ -187,10 +187,14 @@ r(target := setpoint, rate := 10.0, dt := fperiod);
 position := r.out;
 ----
 
-`fperiod` is the HAL function's period in seconds. It exists in a `PROGRAM`
-only: a function block has no period of its own, and one that needs the cycle
-time takes it as an input — which is what keeps it usable from a thread of any
-rate.
+`fperiod` is the period in seconds of the thread the body is running in. It is
+available in a `PROGRAM`, in a `FUNCTION_BLOCK` and in an `ACTION`, and a block
+that uses it sees whichever thread it is actually running in — so the same
+block added to a 1 kHz thread and a 100 Hz one gets the right answer in both.
+
+It is not available in a `FUNCTION`. A stateless function that depended on the
+rate of whatever thread called it would not be stateless; take the cycle time
+as an input instead, as IEC's own `DERIVATIVE` and `INTEGRAL` do.
 
 An instance has no HAL identity unless one of its variables carries an `AT`
 clause, so instances nest, and an array of them costs nothing special.

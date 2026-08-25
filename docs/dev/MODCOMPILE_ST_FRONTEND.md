@@ -304,9 +304,25 @@ between calls, which is why `Ramp_t` holds all of them and not just `step`. That
 makes `r.out` a read of retained state, and it is what lets a timer or an edge
 detector work at all.
 
-**A period is available.** `fperiod` is bound to the HAL function's period in
-seconds — the same `#define fperiod (period * 1e-9)` the generator already emits
-for `.comp` bodies.
+**A period is available, everywhere.** `fperiod` is the period in seconds of
+the thread this body is running in. It is one value reached two ways: through
+the HAL function's own `period` argument where that is in scope, which is the
+same `#define fperiod (period * 1e-9)` the generator already emits for `.comp`
+bodies; and through the RT task where it is not, which is a `FUNCTION_BLOCK`
+body or an `ACTION`, each of which is its own C function. The two agree by
+construction, because a HAL function is invoked by its own thread.
+
+Not in a `FUNCTION`. A stateless function that depended on the rate of whatever
+thread called it would not be stateless, and IEC's own `DERIVATIVE` and
+`INTEGRAL` take `CYCLE` as an explicit input for that reason.
+
+This revises an earlier decision — that `fperiod` existed in a `PROGRAM` only,
+and that a block needing the cycle time took it as an input. The reasoning then
+was that a block should be usable from a thread of any rate, which is right and
+is exactly what the task lookup delivers: the block sees whichever thread it is
+actually running in. See `MODCOMPILE_ST_STDLIB.md` §4, and
+`tests/modcompile-st-period`, which runs one block from two threads a decade
+apart and captures what each saw.
 
 ### 3.4 ACTION
 

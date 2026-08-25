@@ -333,6 +333,13 @@ type stEmitter struct {
 	// fn is the exported function being emitted, for naming its actions.
 	fn *ast.Function
 
+	// periodArg records that the HAL function's `long period` argument is in
+	// scope, which it is in an exported body and nowhere else -- a block body
+	// and an action are each their own C function.  fperiod resolves through
+	// it when it is set and through the RT task when it is not; the two are
+	// the same number, because a HAL function is invoked by its own thread.
+	periodArg bool
+
 	// lastLine is the .st line the most recent #line directive named, so a
 	// run of statements on consecutive lines needs only one.
 	lastLine int
@@ -355,7 +362,7 @@ func (g *generator) emitSTBodies() {
 }
 
 func (g *generator) emitSTFunction(fn *ast.Function) {
-	e := &stEmitter{g: g, fn: fn}
+	e := &stEmitter{g: g, fn: fn, periodArg: true}
 	if needsPinStruct(fn) {
 		e.pins = "__p"
 	}
@@ -945,6 +952,71 @@ func (e *stEmitter) expr(x ast.Expr) string {
 	return "/* unsupported */"
 }
 
+// fperiodHelper is the C function that resolves fperiod where the HAL
+// function's period argument is not in scope.
+const fperiodHelper = "__st_fperiod"
+
+// usesRuntimePeriod reports whether any body that is its own C function --
+// a block body, or an action of either kind -- reaches fperiod, and so needs
+// the helper.
+//
+// An exported body is not scanned: it has the period argument and resolves
+// through the macro.  The scan has to be exact in both directions, because a
+// helper emitted and not called is -Werror=unused-function and one called and
+// not emitted does not link.  This is the same trap the division guards hit,
+// and guardName() exists for the same reason.
+func (g *generator) usesRuntimePeriod() bool {
+	found := false
+	note := func(e ast.Expr) {
+		if ref, ok := e.(*ast.VarRef); ok && ref.Store == ast.StoragePeriod {
+			found = true
+		}
+	}
+	scan := func(body []ast.Stmt) {
+		walkStmts(body, func(ast.Stmt) {}, note)
+	}
+	for i := range g.pkg.Blocks {
+		b := &g.pkg.Blocks[i]
+		scan(b.Body)
+		for j := range b.Actions {
+			scan(b.Actions[j].Body)
+		}
+	}
+	for i := range g.comp.Functions {
+		fn := &g.comp.Functions[i]
+		for j := range fn.Actions {
+			scan(fn.Actions[j].Body)
+		}
+	}
+	return found
+}
+
+// emitFperiodHelper emits that function.
+//
+// task_self() names the thread this body is running in and task_period() its
+// cycle time, so the answer is the same one the exported body's argument
+// carries -- a HAL function is invoked by its own thread.  Called from
+// anywhere that is not an RT task, task_self() is negative and the period is
+// zero, which is the truth rather than an error.
+func (g *generator) emitFperiodHelper() {
+	if !g.usesRuntimePeriod() {
+		return
+	}
+	g.printf("/* ---------------------------------------------------------------------------\n")
+	g.printf(" * fperiod, away from the exported body\n")
+	g.printf(" *\n")
+	g.printf(" * A block body and an action are each their own C function and were never\n")
+	g.printf(" * handed the period argument, so they ask the RT task instead.  Same number.\n")
+	g.printf(" * ------------------------------------------------------------------------- */\n\n")
+	g.printf("static double %s(inst_t *__comp_inst) STMAK_NONBLOCKING;\n", fperiodHelper)
+	g.printf("static double %s(inst_t *__comp_inst) {\n", fperiodHelper)
+	g.printf("    const stmak_rtapi_t *__rt = __comp_inst->env->rtapi;\n")
+	g.printf("    int __task = __rt->task_self(__rt->ctx);\n")
+	g.printf("    if (__task < 0) return 0.0;\n")
+	g.printf("    return (double)__rt->task_period(__rt->ctx, __task) * 1e-9;\n")
+	g.printf("}\n\n")
+}
+
 func (e *stEmitter) varRef(v *ast.VarRef) string {
 	switch v.Store {
 	case ast.StoragePin:
@@ -964,6 +1036,14 @@ func (e *stEmitter) varRef(v *ast.VarRef) string {
 		return fmt.Sprintf("(%s->%s)", e.self, toC(v.Name))
 	case ast.StorageLocal:
 		return toC(v.Name)
+	case ast.StoragePeriod:
+		if e.periodArg {
+			// The macro cgen already emits for .comp, over the argument the
+			// thread passed in.  Free, and what keeps every shipped component
+			// generating exactly the C it did before.
+			return "fperiod"
+		}
+		return fperiodHelper + "(__comp_inst)"
 	}
 	e.g.err = fmt.Errorf("cgen: unknown storage class %v for %s", v.Store, v.Name)
 	return v.Name

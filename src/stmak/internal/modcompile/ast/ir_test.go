@@ -391,6 +391,7 @@ func TestStorageString(t *testing.T) {
 		StorageVar:    "var",
 		StorageGlobal: "global",
 		StorageField:  "field",
+		StoragePeriod: "period",
 	} {
 		if got := s.String(); got != want {
 			t.Errorf("Storage(%d).String() = %q, want %q", int(s), got, want)

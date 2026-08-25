@@ -900,10 +900,13 @@ func TestDiagnostics(t *testing.T) {
 			want: "discards it",
 		},
 		{
-			name: "fperiod is not visible inside a function block",
-			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n dt : LREAL;\nEND_VAR\n" +
-				"dt := fperiod;\nEND_FUNCTION_BLOCK\n" + progWith("", "q := TRUE;"),
-			want: "fperiod is not declared",
+			// A stateless function that depended on the rate of whatever
+			// thread called it would not be stateless.  A FUNCTION_BLOCK is a
+			// different matter -- it has an instance, and so a thread.
+			name: "fperiod inside a FUNCTION",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION F : LREAL\nVAR_INPUT\n v : LREAL;\nEND_VAR\n" +
+				"F := v * fperiod;\nEND_FUNCTION\n" + progWith("", "q := TRUE;"),
+			want: "fperiod is not available in a FUNCTION",
 		},
 
 		// --- several programs, and what they share ---
@@ -1188,5 +1191,44 @@ func TestParamAccepted(t *testing.T) {
 	// A parameter is not a pin, and must not be counted as one.
 	if len(pkg.Component.Pins) != 1 {
 		t.Errorf("got %d pins, want only the VAR_OUTPUT", len(pkg.Component.Pins))
+	}
+}
+
+// TestPeriodIsReachableEverywhere covers the reversal of frontend §3.3.
+//
+// fperiod is the period of the thread this body is running in, and the backend
+// can reach it from anywhere: from the HAL function's own argument where that
+// is in scope, and from the RT task otherwise.  So a FUNCTION_BLOCK and an
+// ACTION may both use it, which is what the standard library's timers need.
+func TestPeriodIsReachableEverywhere(t *testing.T) {
+	pkg := mustCheck(t, "p", "{attribute 'summary' := 'x'}\n"+
+		"FUNCTION_BLOCK B\nVAR_OUTPUT\n acc : LREAL;\nEND_VAR\n"+
+		"acc := acc + fperiod;\nEND_FUNCTION_BLOCK\n"+
+		"PROGRAM p\nVAR_OUTPUT\n q : LREAL;\nEND_VAR\n"+
+		"VAR\n b : B;\n own : LREAL;\nEND_VAR\n"+
+		"b();\nq := b.acc;\ntick();\n"+
+		"ACTION tick:\n own := own + fperiod;\nEND_ACTION\nEND_PROGRAM")
+
+	// Every reference is the period storage class, whichever body it came
+	// from: it is one thing, and the backend alone decides how to reach it.
+	var seen int
+	note := func(body []ast.Stmt) {
+		walkStmtExprs(body, func(e ast.Expr) {
+			ref, ok := e.(*ast.VarRef)
+			if !ok {
+				return
+			}
+			if ref.Name == "fperiod" {
+				seen++
+				if ref.Store != ast.StoragePeriod {
+					t.Errorf("fperiod resolved to storage %v, want period", ref.Store)
+				}
+			}
+		})
+	}
+	note(pkg.Blocks[0].Body)
+	note(pkg.Component.Functions[0].Actions[0].Body)
+	if seen != 2 {
+		t.Errorf("found %d fperiod references, want 2 (one in the block, one in the action)", seen)
 	}
 }

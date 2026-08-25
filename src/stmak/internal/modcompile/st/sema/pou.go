@@ -198,6 +198,7 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 
 	c.push()
 	defer c.pop()
+	c.declarePeriod(b.Pos)
 	for _, set := range [][]ast.VarDecl{def.Inputs, def.Outputs, def.InOuts, def.Vars} {
 		for _, v := range set {
 			if v.Const {

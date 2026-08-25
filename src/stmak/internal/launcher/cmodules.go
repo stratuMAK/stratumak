@@ -173,6 +173,10 @@ static int stmak_rtapi_task_self_cb(void *ctx) STMAK_NONBLOCKING {
     return rtapi_task_self();
 }
 
+static int64_t stmak_rtapi_task_period_cb(void *ctx, int task_id) STMAK_NONBLOCKING {
+    return (int64_t)rtapi_task_period(task_id);
+}
+
 // --- INI callbacks (forward-declared, implemented in Go via //export) ---
 // ctx is uintptr_t, not void*: it carries a cgo.Handle integer, and receiving
 // that in a Go unsafe.Pointer parameter puts a non-address value in a
@@ -236,6 +240,7 @@ static void stmak_rtapi_init_struct(stmak_rtapi_t *rtapi) {
     rtapi->pll_get_reference  = stmak_rtapi_pll_get_reference_cb;
     rtapi->pll_set_correction = stmak_rtapi_pll_set_correction_cb;
     rtapi->task_self          = stmak_rtapi_task_self_cb;
+    rtapi->task_period        = stmak_rtapi_task_period_cb;
 }
 
 static void stmak_api_init_struct(stmak_api_t *api) {

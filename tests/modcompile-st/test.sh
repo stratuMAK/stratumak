@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params period; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -208,6 +208,33 @@ if ! grep -q 'Multiplies the command before limiting' params.9; then
     exit 1
 fi
 
+# fperiod is the period of the thread the body is running in, and the backend
+# reaches it two ways: through the HAL function's own period argument where
+# that is in scope, and through the RT task where it is not -- a block body or
+# an action, each of which is its own C function.
+if ! grep -q '((__p->elapsed) + fperiod)' period.c; then
+    echo 'period.c: an exported body should use the period argument directly'
+    exit 1
+fi
+if ! grep -q 'static double __st_fperiod(inst_t \*__comp_inst)' period.c; then
+    echo 'period.c did not emit the runtime fperiod helper'
+    exit 1
+fi
+if ! grep -q '__rt->task_period(__rt->ctx, __task)' period.c; then
+    echo 'period.c does not ask the RT task for its period'
+    exit 1
+fi
+if ! grep -q '__st_fperiod(__comp_inst)' period.c; then
+    echo 'period.c: a block body should reach fperiod through the helper'
+    exit 1
+fi
+# The helper is a static function and cmods build with -Werror, so one that
+# nothing calls fails the build.  ramplimit uses fperiod in its PROGRAM only.
+if grep -q '__st_fperiod' ramplimit.c; then
+    echo 'ramplimit.c got the helper it never calls; -Werror=unused-function'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -274,6 +301,13 @@ rm -f bad_param.c
 modcompile --preprocess bad_param.st -o bad_param.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted an assignment to an rw parameter'
+    exit 1
+fi
+
+rm -f bad_period.c
+modcompile --preprocess bad_period.st -o bad_period.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted fperiod inside a FUNCTION'
     exit 1
 fi
 

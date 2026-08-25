@@ -1,0 +1,22 @@
+# The same FUNCTION_BLOCK, run from two threads a decade apart.  Each instance
+# reports the fperiod its body saw, so the captured columns are the two thread
+# periods in seconds -- which is only true if the RT task lookup really
+# resolves the calling thread rather than a constant.
+
+newthread quick  100000
+newthread slow  1000000
+
+load ./cycletime.so <ct.0>
+
+load filestream stream_cfg=b infile=in.txt sample_cfg=ff outfile=out.txt depth=1000 samples=16
+
+net tick filestream.stream.0
+
+net quick_dt ct.0.q.dt filestream.sample.0
+net slow_dt  ct.0.s.dt filestream.sample.1
+
+addf ct.0.quick quick
+
+addf filestream.write slow
+addf ct.0.slow        slow
+addf filestream.read  slow

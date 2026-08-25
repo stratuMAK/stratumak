@@ -154,6 +154,28 @@ func (c *checker) run() {
 	c.checkCallCycles()
 }
 
+// declarePeriod declares fperiod, the period in seconds of the thread this
+// body is running in.
+//
+// It is available in a PROGRAM and in a FUNCTION_BLOCK, and in the actions of
+// either, because the backend can reach it from anywhere: from the HAL
+// function's own period argument where that is in scope, and from the RT task
+// otherwise.  See docs/dev/MODCOMPILE_ST_STDLIB.md §4.
+//
+// Not in a FUNCTION.  A stateless function that silently depended on the rate
+// of whatever thread happened to call it would not be one, and IEC's own
+// analog blocks take CYCLE as an explicit input for exactly that reason.
+func (c *checker) declarePeriod(pos ast.Pos) {
+	c.scope.declare(&symbol{
+		Name:  "fperiod",
+		Kind:  symBuiltin,
+		Type:  ast.Type{Kind: ast.TypeLReal},
+		Store: ast.StoragePeriod,
+		Pos:   pos,
+		Const: true,
+	})
+}
+
 // declareGlobals resolves VAR_GLOBAL, which becomes per-instance state shared
 // by every program in the file.  It lands in inst_t like any other variable;
 // what makes it global is only that it is visible from more than one program.
@@ -242,18 +264,7 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	c.push()
 	defer c.pop()
 
-	// fperiod is the HAL function's period in seconds.  It exists only in a
-	// PROGRAM: a function block has no period of its own, and one that needs
-	// the cycle time takes it as an input -- which is what keeps a block
-	// reusable from a thread of any rate.
-	c.scope.declare(&symbol{
-		Name:  "fperiod",
-		Kind:  symBuiltin,
-		Type:  ast.Type{Kind: ast.TypeLReal},
-		Store: ast.StorageLocal,
-		Pos:   p.Pos,
-		Const: true,
-	})
+	c.declarePeriod(p.Pos)
 
 	firstPin := len(c.pkg.Component.Pins)
 	c.instances = nil

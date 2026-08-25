@@ -383,6 +383,11 @@ const (
 	// StorageField: a member of the enclosing function block instance,
 	// reached through that instance's own pointer rather than inst_t.
 	StorageField
+	// StoragePeriod: fperiod, the period of the thread this body is running
+	// in.  Not storage at all, but the backend has to decide how to reach it
+	// -- from the HAL function's own argument where that is in scope, and
+	// from the RT task otherwise -- and this is what tells it which.
+	StoragePeriod
 )
 
 var storageNames = map[Storage]string{
@@ -392,6 +397,7 @@ var storageNames = map[Storage]string{
 	StorageVar:    "var",
 	StorageGlobal: "global",
 	StorageField:  "field",
+	StoragePeriod: "period",
 }
 
 func (s Storage) String() string {

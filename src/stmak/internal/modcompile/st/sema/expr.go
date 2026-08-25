@@ -186,6 +186,14 @@ func isDateTimePrefix(upper string) bool {
 func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 	sym := c.scope.lookup(v.Name)
 	if sym == nil {
+		// fperiod exists in a PROGRAM and a FUNCTION_BLOCK but not here, and
+		// "not declared" would send the reader looking for a typo.
+		if strings.EqualFold(v.Name, "fperiod") {
+			c.errorf(v.Pos, "fperiod is not available in a FUNCTION: a stateless function that "+
+				"depended on the rate of whatever thread called it would not be stateless. "+
+				"Take the cycle time as an input, as IEC's own DERIVATIVE and INTEGRAL do")
+			return nil
+		}
 		c.errorf(v.Pos, "%s is not declared", v.Name)
 		return nil
 	}

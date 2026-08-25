@@ -68,6 +68,12 @@ typedef struct {
 
     // Returns >= 0 if called from a RT task, < 0 otherwise.  RT-safe.
     int     (*task_self)(void *ctx) STMAK_NONBLOCKING;
+
+    // The period in nanoseconds the given task was started with, or 0 for an
+    // id that names no running task.  With task_self() this is how code that
+    // is not the HAL function itself -- and so was never handed the period
+    // argument -- asks how long its own cycle is.  RT-safe.
+    int64_t (*task_period)(void *ctx, int task_id) STMAK_NONBLOCKING;
 } stmak_rtapi_t;
 
 // ---------------------------------------------------------------------------

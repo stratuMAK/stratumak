@@ -372,6 +372,14 @@ RTAPI_BEGIN_DECLS
 */
     extern int rtapi_task_self(void) RTAPI_NONBLOCKING;
 
+/** 'rtapi_task_period()' returns the period in nanoseconds that the given
+    task was started with, or 0 if the id names no running task.  Paired with
+    rtapi_task_self(), this is how code that is not the HAL function itself --
+    and so was never handed the period argument -- asks how long its own cycle
+    is.  May be called from within realtime tasks.
+*/
+    extern long rtapi_task_period(int task_id) RTAPI_NONBLOCKING;
+
 /** 'rtapi_task_self_ptr()' returns a pointer to the current task's
     rtapi_task struct, or NULL if not called from a task context.
     Used by thread_task() to check the cooperative exit flag.

@@ -71,9 +71,10 @@ matter.
 
 ## 3. Cycle time, and why the timers do not need it
 
-`§3.3` of the frontend note settled that `fperiod` exists in a `PROGRAM` only,
-and that a block needing the cycle time takes it as an input. A `TON` appears
-to break that, and the obvious repairs are both wrong:
+`§3.3` of the frontend note originally settled that `fperiod` exists in a
+`PROGRAM` only, and that a block needing the cycle time takes it as an input.
+A `TON` appears to break that, and the obvious repairs are both wrong — §4
+below settles it a third way, and has been implemented:
 
 - **Threading `period` down the call chain** gives a block the period of
   whichever HAL function called it. That is defensible, but a block instance
@@ -100,7 +101,7 @@ explicitly. Keeping IEC compatibility therefore *requires* an input rather than
 a query, and the call site becomes the honest place where "which thread's
 rate?" is answered.
 
-## 4. Phase 0: `task_period`, and `fperiod` everywhere
+## 4. Phase 0: `task_period`, and `fperiod` everywhere — **done**
 
 Independent of the library work, and first, because it fixes a live bug.
 
@@ -146,7 +147,20 @@ function is invoked by its own thread.
 yields zero, so `fperiod` is `0.0` rather than undefined. Named in the docs.
 
 This removes the `PROGRAM`-only restriction from frontend §3.3, which that note
-must be amended to say.
+has been amended to say. `fperiod` stays out of a `FUNCTION`, with a message
+that gives the reason rather than "not declared".
+
+**Verified on the machine, not only in the generated C.**
+`tests/modcompile-st-period` runs one `FUNCTION_BLOCK` from two threads a
+decade apart and captures the `fperiod` each instance saw:
+
+```
+0.000100 0.001000
+```
+
+which is the claim itself — a constant would fail it, and so would anything
+resolving to the wrong thread. The helper is emitted only where something
+reaches it, because it is a `static` function and cmods build with `-Werror`.
 
 ## 5. Phase 1: the `TIME` type
 
@@ -288,6 +302,12 @@ throughout, as it did for every phase of the frontend.
 - **Library versioning.** Nothing is checked today; a library is whatever the
   search path found. A version pragma and a `USING timers >= 1.2` constraint is
   the obvious next step and deliberately not in this plan.
+- **Calling a function block's action from outside it** — `inst.Action()`,
+  which CODESYS allows. Found while writing the phase 0 fixture: an action is
+  currently reachable only from the POU that declares it. None of the three
+  projects rely on it (their `inst.Name()` calls are CODESYS *methods*, a
+  separate ed.3 feature that is also out of scope), so it is noted rather than
+  planned.
 - **Binary libraries**, per §2, unless something later makes the case.
 - **Man pages for libraries.** `docgen` writes man9 for components, and a
   library is not a component. Section 3 is the conventional home for library

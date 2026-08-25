@@ -87,6 +87,7 @@ func (g *generator) generate() error {
 		// verbatim C.  Package.Validate guarantees never both.
 		g.needClamp = g.anyRuntimeIndex()
 		g.emitSTRuntime()
+		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may
 		// call each other whatever order they were written in.
 		g.emitPinStructs()

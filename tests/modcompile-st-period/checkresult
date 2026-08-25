@@ -1,0 +1,21 @@
+#!/bin/bash
+# Two columns: the fperiod a Tick instance saw in the 100 us thread, and the
+# one an identical instance saw in the 1 ms thread.  Both come from a
+# FUNCTION_BLOCK body, which is its own C function and never received the HAL
+# function's period argument -- so both are the RT task lookup, and getting
+# 0.000100 and 0.001000 is what proves it resolves the calling thread.
+here=$(dirname "$0")
+
+# The first sample is taken by the slow thread, which may run before the quick
+# thread has ticked once; that line alone is a start-up race and is skipped.
+diff -u <(tail -n +2 "$here/expected") <(tail -n +2 "$1") || exit 1
+
+# A constant would satisfy the diff above if expected were ever regenerated
+# from a broken build, so assert the two columns disagree as well: that is the
+# whole claim, and it cannot hold for any value that ignores the thread.
+awk 'NR > 1 {
+    if ($1 == $2) {
+        printf "line %d: both threads report %s; fperiod is not tracking the thread\n", NR, $1
+        bad = 1
+    }
+} END { exit bad }' "$1"
