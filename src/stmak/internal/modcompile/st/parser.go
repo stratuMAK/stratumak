@@ -199,7 +199,7 @@ func (p *parser) syncTo(kinds ...Kind) {
 // ---------------------------------------------------------------------------
 
 var declStarters = []Kind{
-	KwType, KwProgram, KwFunction, KwFunctionBlock, KwVarGlobal,
+	KwType, KwProgram, KwFunction, KwFunctionBlock, KwVarGlobal, KwAction,
 }
 
 func (p *parser) parseFile() *File {
@@ -220,6 +220,10 @@ func (p *parser) parseFile() *File {
 	// whatever follows.  Without the exception the first declaration in a file
 	// could not be documented -- its `doc` would land among the component
 	// metadata and be reported as unknown there.
+	// The POU an ACTION at file level belongs to: the one declared last.
+	lastPOU := -1
+	lastKind := EOF
+
 	var attrs []Attribute
 	for _, a := range p.parseAttributes() {
 		if strings.EqualFold(a.Name, "doc") {
@@ -247,16 +251,43 @@ func (p *parser) parseFile() *File {
 		case KwProgram:
 			if d := p.parseProgram(attrs); d != nil {
 				f.Programs = append(f.Programs, d)
+				lastPOU, lastKind = len(f.Programs)-1, KwProgram
 			}
 			attrs = nil
 		case KwFunctionBlock:
 			if d := p.parseFunctionBlock(attrs); d != nil {
 				f.Blocks = append(f.Blocks, d)
+				lastPOU, lastKind = len(f.Blocks)-1, KwFunctionBlock
 			}
 			attrs = nil
 		case KwFunction:
 			if d := p.parseFunction(attrs); d != nil {
 				f.Funcs = append(f.Funcs, d)
+				lastKind = KwFunction
+			}
+			attrs = nil
+		case KwAction:
+			// CODESYS 2.3 exports write a POU's actions after its END_
+			// keyword rather than inside it, so an ACTION here belongs to
+			// whatever was declared last.  Both placements mean the same
+			// thing; refusing the exported one would refuse real files for
+			// no reason.
+			acts := p.parseActions()
+			switch lastKind {
+			case KwProgram:
+				f.Programs[lastPOU].Actions = append(f.Programs[lastPOU].Actions, acts...)
+			case KwFunctionBlock:
+				f.Blocks[lastPOU].Actions = append(f.Blocks[lastPOU].Actions, acts...)
+			case KwFunction:
+				for _, a := range acts {
+					p.errorAt(a.Pos, "a FUNCTION may not have an ACTION; "+
+						"actions belong to a PROGRAM or a FUNCTION_BLOCK, whose variables they share")
+				}
+			default:
+				for _, a := range acts {
+					p.errorAt(a.Pos, "ACTION %s follows no PROGRAM or FUNCTION_BLOCK, "+
+						"so there is nothing for it to be part of", a.Name)
+				}
 			}
 			attrs = nil
 		case Semicolon:
@@ -815,8 +846,37 @@ func (p *parser) parseProgram(attrs []Attribute) *ProgramDecl {
 	}
 	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndProgram)
+	d.Actions = p.parseActions()
 	p.expect(KwEndProgram)
 	return d
+}
+
+// parseActions consumes the ACTION blocks that follow a POU's body.
+func (p *parser) parseActions() []*ActionDecl {
+	var out []*ActionDecl
+	for p.at(KwAction) || p.at(Pragma) {
+		attrs := p.parseAttributes()
+		if !p.at(KwAction) {
+			for _, a := range attrs {
+				p.errorAt(a.Pos, "attribute %q does not precede an ACTION", a.Name)
+			}
+			return out
+		}
+		a := &ActionDecl{Pos: p.tok.Pos, Attrs: attrs}
+		p.next()
+		a.Name = p.expectName("an action name")
+		if a.Name == "" {
+			p.syncTo(KwEndAction)
+			p.accept(KwEndAction)
+			continue
+		}
+		p.expect(Colon)
+		a.Body = p.parseStmtList(KwEndAction)
+		p.expect(KwEndAction)
+		p.accept(Semicolon)
+		out = append(out, a)
+	}
+	return out
 }
 
 func (p *parser) parseFunctionBlock(attrs []Attribute) *FunctionBlockDecl {
@@ -830,6 +890,7 @@ func (p *parser) parseFunctionBlock(attrs []Attribute) *FunctionBlockDecl {
 	}
 	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndFunctionBlock)
+	d.Actions = p.parseActions()
 	p.expect(KwEndFunctionBlock)
 	return d
 }
@@ -853,6 +914,18 @@ func (p *parser) parseFunction(attrs []Attribute) *FunctionDecl {
 	}
 	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndFunction)
+	if p.at(KwAction) {
+		// IEC gives actions to programs and function blocks, which have state
+		// for an action to share.  A function has only its own locals, so an
+		// action of one would be a function with no arguments and no result.
+		p.errorAt(p.tok.Pos, "a FUNCTION may not have an ACTION; "+
+			"actions belong to a PROGRAM or a FUNCTION_BLOCK, whose variables they share")
+		for p.at(KwAction) {
+			p.syncTo(KwEndAction)
+			p.accept(KwEndAction)
+			p.accept(Semicolon)
+		}
+	}
 	p.expect(KwEndFunction)
 	return d
 }
@@ -868,6 +941,9 @@ var stmtEnd = []Kind{
 	KwEndProgram, KwEndFunction, KwEndFunctionBlock,
 	KwEndIf, KwElsif, KwElse, KwEndCase, KwEndFor, KwEndWhile,
 	KwEndRepeat, KwUntil,
+	// An ACTION ends the body it follows: the actions of a POU come after its
+	// statements, not among them.
+	KwAction, KwEndAction,
 }
 
 func atStmtEnd(k Kind) bool {

@@ -109,6 +109,8 @@ const (
 	KwExit
 	KwContinue
 	KwReturn
+	KwAction
+	KwEndAction
 
 	// Word operators and literals.
 	KwAnd
@@ -213,6 +215,8 @@ var keywords = map[string]Kind{
 	"EXIT":       KwExit,
 	"CONTINUE":   KwContinue,
 	"RETURN":     KwReturn,
+	"ACTION":     KwAction,
+	"END_ACTION": KwEndAction,
 
 	"AND":   KwAnd,
 	"OR":    KwOr,

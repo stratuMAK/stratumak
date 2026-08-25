@@ -321,6 +321,18 @@ type stEmitter struct {
 	// StorageField reference resolves through.
 	self string
 
+	// owner is the function block whose body or action is being emitted, set
+	// alongside self.
+	owner string
+
+	// pins is the C name of the pin-snapshot pointer while emitting a
+	// function whose actions share it, empty when the snapshot is plain
+	// locals.  A pin reference resolves through whichever is set.
+	pins string
+
+	// fn is the exported function being emitted, for naming its actions.
+	fn *ast.Function
+
 	// lastLine is the .st line the most recent #line directive named, so a
 	// run of statements on consecutive lines needs only one.
 	lastLine int
@@ -343,7 +355,10 @@ func (g *generator) emitSTBodies() {
 }
 
 func (g *generator) emitSTFunction(fn *ast.Function) {
-	e := &stEmitter{g: g}
+	e := &stEmitter{g: g, fn: fn}
+	if needsPinStruct(fn) {
+		e.pins = "__p"
+	}
 
 	g.printf("FUNCTION(%s) {\n", fn.Name)
 
@@ -363,7 +378,22 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 		if anyArrayPin(pins) || anyArrayBinding(fn.PinBindings) {
 			g.printf("    int __pi;\n")
 		}
+		if e.pins != "" {
+			// The snapshot lives in a struct so this function's actions can
+			// see it; the body reaches it through the same pointer they do.
+			g.printf("    %s __pv;\n", g.pinsStructName(fn))
+			g.printf("    %s *__p = &__pv;\n", g.pinsStructName(fn))
+		}
 		for _, pin := range pins {
+			if e.pins != "" {
+				if pin.ArraySize > 0 {
+					g.printf("    for (__pi = 0; __pi < %d; __pi++) __p->%s[__pi] = (*(__comp_inst->hal->%s[__pi]));\n",
+						pin.ArraySize, toC(pin.Name), toC(pin.Name))
+					continue
+				}
+				g.printf("    __p->%s = (*(__comp_inst->hal->%s));\n", toC(pin.Name), toC(pin.Name))
+				continue
+			}
 			if pin.ArraySize > 0 {
 				// An array pin is copied element by element.  The loop is
 				// bounded by a constant, so it costs a known handful of loads
@@ -400,12 +430,16 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 			if pin.Dir == ast.PinIn {
 				continue
 			}
+			src := pinLocal(pin.Name)
+			if e.pins != "" {
+				src = "__p->" + toC(pin.Name)
+			}
 			if pin.ArraySize > 0 {
 				g.printf("    for (__pi = 0; __pi < %d; __pi++) (*(__comp_inst->hal->%s[__pi])) = %s[__pi];\n",
-					pin.ArraySize, toC(pin.Name), pinLocal(pin.Name))
+					pin.ArraySize, toC(pin.Name), src)
 				continue
 			}
-			g.printf("    (*(__comp_inst->hal->%s)) = %s;\n", toC(pin.Name), pinLocal(pin.Name))
+			g.printf("    (*(__comp_inst->hal->%s)) = %s;\n", toC(pin.Name), src)
 		}
 	} else {
 		e.lineBackToOutput()
@@ -619,6 +653,9 @@ func (e *stEmitter) emitStmt(s ast.Stmt, depth int) {
 
 	case *ast.InvokeStmt:
 		e.emitInvoke(v, depth)
+
+	case *ast.ActionCall:
+		e.emitActionCall(v, depth)
 
 	case *ast.ForStmt:
 		e.emitFor(v, depth)
@@ -900,6 +937,9 @@ func (e *stEmitter) expr(x ast.Expr) string {
 func (e *stEmitter) varRef(v *ast.VarRef) string {
 	switch v.Store {
 	case ast.StoragePin:
+		if e.pins != "" {
+			return fmt.Sprintf("(%s->%s)", e.pins, toC(v.Name))
+		}
 		return pinLocal(v.Name)
 	case ast.StorageParam:
 		return fmt.Sprintf("(__comp_inst->hal->%s)", toC(v.Name))

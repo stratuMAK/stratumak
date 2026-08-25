@@ -65,6 +65,7 @@ The component's name comes from the filename, as it does for a `.comp`. Inside:
 |`FUNCTION_BLOCK` | a reusable sub-component with state, internal to the file
 |`FUNCTION` | a stateless helper, callable from an expression
 |`TYPE` | enumerations, structures and aliases
+|`ACTION` | a named piece of a POU's body, sharing its variables
 |===
 
 An underscore in a name becomes a hyphen on the pin, so `max_rate` is
@@ -160,6 +161,52 @@ rate.
 
 An instance has no HAL identity unless one of its variables carries an `AT`
 clause, so instances nest, and an array of them costs nothing special.
+
+== Splitting a body with ACTION
+
+An `ACTION` is a named piece of a body that shares the variables around it:
+
+[source,pascal]
+----
+PROGRAM mycomp
+  VAR_INPUT
+    enable : BOOL;
+  END_VAR
+  VAR_OUTPUT
+    count : DINT;
+  END_VAR
+
+  IF enable THEN
+    advance();
+  ELSE
+    stop();
+  END_IF;
+
+ACTION advance:
+  count := count + 1;
+END_ACTION
+
+ACTION stop:
+  count := 0;
+END_ACTION
+
+END_PROGRAM
+----
+
+It has no variables and no interface of its own, which is what makes it
+different from the two things it resembles: a `FUNCTION_BLOCK` would need every
+value it touches passed in and out, and a `FUNCTION` cannot see the POU's
+variables at all. Reach for it to break up a long cyclic body without
+restructuring what that body operates on.
+
+`advance(count := 0)` is shorthand for setting one of the POU's own variables
+before running the action — not a parameter, since an action has none.
+
+Actions may also be written after the POU's `END_PROGRAM` or
+`END_FUNCTION_BLOCK` rather than inside it, which is how CODESYS exports them.
+Both placements mean the same thing.
+
+An action that can reach itself is refused, for the reason any recursion is.
 
 == Several functions in one component
 

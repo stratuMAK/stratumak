@@ -31,6 +31,7 @@ var stLowers = []string{
 	"atmap",       // explicit pin mapping with AT
 	"constants",   // named constants as bounds, limits and labels
 	"documented",  // every documentation field
+	"actions",     // named pieces of a body
 }
 
 // compile turns one fixture into C.
@@ -683,5 +684,72 @@ func TestSTQualifiedEnums(t *testing.T) {
 	}
 	if !strings.Contains(out, "(__comp_inst->step) = STATE_OFF;") {
 		t.Error("the other enumeration's OFF did not resolve")
+	}
+}
+
+// TestSTActions checks the two shapes an action takes.
+//
+// An action shares its POU's variables, so it emits as a C function over
+// whatever holds them.  For a function block that is the instance and the
+// signature is the block body's exactly.  For a PROGRAM the pins are the
+// difficulty: they are snapshotted into locals for the cycle, and a local is
+// not reachable from another function.
+func TestSTActions(t *testing.T) {
+	out := generateST(t, "actions")
+
+	// A function block's action takes the instance, like its body.
+	for _, want := range []string{
+		"static void Counter_clear(inst_t *__comp_inst, Counter_t *__self)",
+		"static void Counter_accumulate(inst_t *__comp_inst, Counter_t *__self)",
+		"Counter_clear(__comp_inst, __self);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("function block action missing:\n  %s", want)
+		}
+	}
+
+	// A program whose actions touch pins holds the snapshot in a struct, so
+	// the action sees the same values the body does rather than re-reading
+	// shared memory.
+	for _, want := range []string{
+		"} actions_pins_t;",
+		"actions_pins_t __pv;",
+		"actions_pins_t *__p = &__pv;",
+		"__p->enable = (*(__comp_inst->hal->enable));",
+		"static void actions_advance(inst_t *__comp_inst, actions_pins_t *__p)",
+		"actions_advance(__comp_inst, __p);",
+		"(*(__comp_inst->hal->count)) = __p->count;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("program action pin sharing missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// The preset form is two statements, and sema lowered it to exactly that.
+	if !strings.Contains(out, "(__comp_inst->selected) = (__p->amount);") {
+		t.Error("`advance(selected := amount)` did not lower to an assignment before the call")
+	}
+
+	// A pin is still read once and written once, whichever shape is used: the
+	// struct replaces the locals, it does not add a second read.
+	if strings.Count(out, "(*(__comp_inst->hal->enable))") != 1 {
+		t.Error("the enable pin is read more than once per cycle")
+	}
+	if strings.Count(out, "(*(__comp_inst->hal->count)) =") != 1 {
+		t.Error("the count pin is written more than once per cycle")
+	}
+}
+
+// TestSTActionsCostNothingWhenUnused checks that a component without actions is
+// emitted exactly as before -- no struct, no indirection.
+func TestSTActionsCostNothingWhenUnused(t *testing.T) {
+	out := generateST(t, "and2")
+	for _, bad := range []string{"_pins_t", "__pv", "__p->"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("a component with no actions emitted %q", bad)
+		}
+	}
+	if !strings.Contains(out, "const bool __pin_in0 =") {
+		t.Error("a component with no actions should still snapshot into plain locals")
 	}
 }

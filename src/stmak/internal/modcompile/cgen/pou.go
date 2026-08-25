@@ -167,7 +167,7 @@ func (g *generator) emitFBInit(b *ast.FunctionBlock) {
 // were written into the instance by the caller just before the call, so they
 // are already stable.
 func (g *generator) emitFBBody(b *ast.FunctionBlock) {
-	e := &stEmitter{g: g, self: "__self"}
+	e := &stEmitter{g: g, self: "__self", owner: b.Name}
 
 	g.printf("static void %s(inst_t *__comp_inst, %s *__self) {\n",
 		fbBodyName(b.Name), fbStructName(b.Name))

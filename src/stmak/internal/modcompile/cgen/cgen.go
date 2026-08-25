@@ -89,8 +89,11 @@ func (g *generator) generate() error {
 		g.emitSTRuntime()
 		// Blocks and functions are declared before any is defined, so they may
 		// call each other whatever order they were written in.
+		g.emitPinStructs()
 		g.emitPOUForwards()
+		g.emitActionForwards()
 		g.emitPOUBodies()
+		g.emitActionBodies()
 		g.emitSTBodies()
 	} else {
 		g.emitUserCodeBody() // Emit rest of user code (without includes)

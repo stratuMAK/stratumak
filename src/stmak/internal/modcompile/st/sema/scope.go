@@ -25,6 +25,7 @@ const (
 	symType
 	symBlock
 	symFunc
+	symAction
 	symBuiltin
 )
 
@@ -34,6 +35,7 @@ var symKindNames = map[symKind]string{
 	symType:      "type",
 	symBlock:     "function block",
 	symFunc:      "function",
+	symAction:    "action",
 	symBuiltin:   "built-in",
 }
 

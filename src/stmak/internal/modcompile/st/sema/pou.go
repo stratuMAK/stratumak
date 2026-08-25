@@ -46,8 +46,6 @@ func (c *checker) checkPOUs() {
 	for _, f := range c.file.Funcs {
 		c.checkFunctionBody(f)
 	}
-
-	c.checkCallCycles()
 }
 
 func (c *checker) registerPOU(name string, pos ast.Pos, kind symKind) {
@@ -213,7 +211,9 @@ func (c *checker) checkBlockBody(b *st.FunctionBlockDecl) {
 		}
 	}
 
+	c.declareActions(b.Actions, "FUNCTION_BLOCK", b.Name)
 	def.Body = c.checkStmts(b.Body)
+	def.Actions = c.checkActions(b.Actions, "FUNCTION_BLOCK", b.Name)
 }
 
 // ---------------------------------------------------------------------------
@@ -384,14 +384,19 @@ func walkBody(list []ast.Stmt, f func(ast.Stmt)) {
 // block invocation and a discarded function call look the same, so what the
 // target resolves to decides which it is.
 func (c *checker) checkInvoke(v *st.CallStmt) ast.Stmt {
-	// A bare name that turns out to be a function is worth saying plainly,
-	// and has to be caught before the target is resolved as a value -- a
-	// function is not one, and that message would win.
+	// A bare name that is an action or a function has to be caught before the
+	// target is resolved as a value, since neither is one and that message
+	// would win over the useful one.
 	if ref, ok := v.Target.(*st.Ident); ok {
-		if sym := c.scope.lookup(ref.Name); sym != nil && sym.Kind == symFunc {
-			c.errorf(v.Pos, "%s returns a value, so calling it as a statement discards it; "+
-				"assign the result", ref.Name)
-			return nil
+		if sym := c.scope.lookup(ref.Name); sym != nil {
+			switch sym.Kind {
+			case symAction:
+				return c.checkActionCall(v, sym.Name)
+			case symFunc:
+				c.errorf(v.Pos, "%s returns a value, so calling it as a statement discards it; "+
+					"assign the result", ref.Name)
+				return nil
+			}
 		}
 	}
 
@@ -569,31 +574,95 @@ func (c *checker) checkCall(v *st.CallExpr) ast.Expr {
 // Recursion
 // ---------------------------------------------------------------------------
 
-// checkCallCycles refuses anything that can reach itself.  The real-time stack
-// is fixed and there is no useful way to bound the depth, so recursion is a
-// compile error rather than a runtime hazard.
+// containedBlocks lists the function blocks one block holds an instance of,
+// through an array or directly.
+func containedBlocks(b *ast.FunctionBlock) []namedRef {
+	var refs []namedRef
+	for _, set := range [][]ast.VarDecl{b.Inputs, b.Outputs, b.InOuts, b.Vars} {
+		for _, v := range set {
+			t := v.Typ
+			for t.Kind == ast.TypeArray && t.Elem != nil {
+				t = *t.Elem
+			}
+			if t.Kind == ast.TypeFB {
+				refs = append(refs, namedRef{t.Ref, v.Pos})
+			}
+		}
+	}
+	return refs
+}
+
+// checkContainmentCycles refuses a function block that holds an instance of
+// itself, directly or through another block.  Such a block is infinitely large
+// before it ever runs.
 //
-// Containment counts as much as calling: a function block holding an instance
-// of itself is infinitely large before it ever runs.
+// This is separate from checkCallCycles, and runs much earlier, because it is
+// a property of the declarations alone: every later pass walks the instance
+// tree -- publishing AT pins down it, laying out inst_t -- and an infinite tree
+// does not terminate.  Catching it here is what lets those passes descend
+// without a depth guard of their own.  It reports whether the tree is finite.
+func (c *checker) checkContainmentCycles() bool {
+	edges := make(map[string][]namedRef, len(c.pkg.Blocks))
+	for i := range c.pkg.Blocks {
+		b := &c.pkg.Blocks[i]
+		edges[key(b.Name)] = containedBlocks(b)
+	}
+
+	const (
+		white = 0
+		grey  = 1
+		black = 2
+	)
+	state := make(map[string]int, len(edges))
+	ok := true
+
+	var visit func(name string, pos ast.Pos)
+	visit = func(name string, pos ast.Pos) {
+		k := key(name)
+		switch state[k] {
+		case grey:
+			c.errorf(pos, "%s can reach itself; recursion is not allowed in a real-time body, "+
+				"because the stack depth cannot be bounded", displayName(name))
+			ok = false
+			return
+		case black:
+			return
+		}
+		state[k] = grey
+		for _, ref := range edges[k] {
+			visit(ref.name, ref.pos)
+		}
+		state[k] = black
+	}
+	for i := range c.pkg.Blocks {
+		visit(c.pkg.Blocks[i].Name, c.pkg.Blocks[i].Pos)
+	}
+	return ok
+}
+
+// checkCallCycles refuses anything that can reach itself by calling.  The
+// real-time stack is fixed and there is no useful way to bound the depth, so
+// recursion is a compile error rather than a runtime hazard.
+//
+// Containment is the other way a block can reach itself, and is settled
+// earlier by checkContainmentCycles; the edges are repeated here so this check
+// stands on its own if it is ever run first.
 func (c *checker) checkCallCycles() {
 	edges := make(map[string][]namedRef)
 
 	for i := range c.pkg.Blocks {
 		b := &c.pkg.Blocks[i]
-		var refs []namedRef
-		for _, set := range [][]ast.VarDecl{b.Inputs, b.Outputs, b.InOuts, b.Vars} {
-			for _, v := range set {
-				t := v.Typ
-				for t.Kind == ast.TypeArray && t.Elem != nil {
-					t = *t.Elem
-				}
-				if t.Kind == ast.TypeFB {
-					refs = append(refs, namedRef{t.Ref, v.Pos})
-				}
-			}
-		}
+		refs := containedBlocks(b)
 		refs = append(refs, calleesOf(b.Body)...)
+		for i := range b.Actions {
+			refs = append(refs, calleesOf(b.Actions[i].Body)...)
+			refs = append(refs, actionEdges(b.Name, b.Actions[i].Body)...)
+		}
 		edges[key(b.Name)] = refs
+		for i := range b.Actions {
+			edges[actionKey(b.Name, b.Actions[i].Name)] =
+				append(calleesOf(b.Actions[i].Body), actionEdges(b.Name, b.Actions[i].Body)...)
+		}
 	}
 	for i := range c.pkg.Functions {
 		f := &c.pkg.Functions[i]
@@ -607,13 +676,37 @@ func (c *checker) checkCallCycles() {
 	)
 	state := make(map[string]int, len(edges))
 
-	var visit func(name string, at ast.Pos)
-	visit = func(name string, at ast.Pos) {
+	// A program's actions can reach each other too, and a program is not a
+	// block, so its edges go in under the same qualified keys.  This is why
+	// the check runs after the programs are checked rather than with the
+	// other POUs: their actions do not exist until then.
+	at := make(map[string]ast.Pos, len(edges))
+	for i := range c.pkg.Component.Functions {
+		fn := &c.pkg.Component.Functions[i]
+		for j := range fn.Actions {
+			k := actionKey(fn.Name, fn.Actions[j].Name)
+			edges[k] = append(calleesOf(fn.Actions[j].Body), actionEdges(fn.Name, fn.Actions[j].Body)...)
+			at[k] = fn.Actions[j].Pos
+		}
+	}
+	for i := range c.pkg.Blocks {
+		b := &c.pkg.Blocks[i]
+		for j := range b.Actions {
+			at[actionKey(b.Name, b.Actions[j].Name)] = b.Actions[j].Pos
+		}
+	}
+
+	var visit func(name string, pos ast.Pos)
+	visit = func(name string, pos ast.Pos) {
 		k := key(name)
+		if _, qualified := edges[name]; qualified {
+			// An action's key is already qualified and case-folded.
+			k = name
+		}
 		switch state[k] {
 		case grey:
-			c.errorf(at, "%s can reach itself; recursion is not allowed in a real-time body, "+
-				"because the stack depth cannot be bounded", name)
+			c.errorf(pos, "%s can reach itself; recursion is not allowed in a real-time body, "+
+				"because the stack depth cannot be bounded", displayName(name))
 			return
 		case black:
 			return
@@ -631,6 +724,31 @@ func (c *checker) checkCallCycles() {
 	for i := range c.pkg.Functions {
 		visit(c.pkg.Functions[i].Name, c.pkg.Functions[i].Pos)
 	}
+	for k := range edges {
+		visit(k, at[k])
+	}
+}
+
+// displayName renders a call-graph key for a diagnostic.  An action's key is
+// qualified and upper-cased for lookup; the message wants the action's name.
+func displayName(k string) string {
+	if i := strings.LastIndexByte(k, '.'); i >= 0 {
+		return k[i+1:]
+	}
+	return k
+}
+
+// actionKey names an action in the call graph, qualified by its POU so two
+// POUs may each have one called `init`.
+func actionKey(owner, action string) string { return key(owner) + "." + key(action) }
+
+// actionEdges lists the actions a body runs, qualified by their owner.
+func actionEdges(owner string, body []ast.Stmt) []namedRef {
+	var out []namedRef
+	for _, ref := range actionCallees(body) {
+		out = append(out, namedRef{owner + "." + ref.name, ref.pos})
+	}
+	return out
 }
 
 // calleesOf lists what a body invokes or calls.

@@ -795,6 +795,35 @@ type InvokeArg struct {
 	Out bool
 }
 
+// Action is a named piece of a POU's body, sharing every variable of the POU
+// that declares it and having none of its own.  See
+// docs/dev/MODCOMPILE_ST_FRONTEND.md §3.4.
+type Action struct {
+	Pos  Pos
+	Name string
+	Doc  string
+	Body []Stmt
+
+	// TouchesPins records that the body reaches one of the POU's pins.  A
+	// PROGRAM snapshots its pins into locals, so an action that reads one
+	// needs them passed in; one that does not can take the instance alone.
+	TouchesPins bool
+}
+
+// ActionCall runs one action of the enclosing POU.
+//
+// `Act(v := x)` is shorthand for `v := x; Act();` where v is a variable of the
+// POU, so the assignments are lowered here rather than left as a second kind
+// of argument binding.
+type ActionCall struct {
+	Pos     Pos
+	Action  string
+	Presets []*AssignStmt
+}
+
+func (s *ActionCall) Position() Pos { return s.Pos }
+func (*ActionCall) stmtNode()       {}
+
 // InvokeStmt calls a function block instance: `inst(a := x, b := y);`.  It is a
 // statement rather than an expression because it mutates the instance; reading
 // a result is a separate FieldExpr on the same instance.

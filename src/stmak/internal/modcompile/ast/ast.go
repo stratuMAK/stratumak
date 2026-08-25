@@ -370,6 +370,10 @@ type Function struct {
 	// never carries both.
 	Body []Stmt
 
+	// Actions are the named pieces of this function's body.  They share its
+	// variables and its pins, and are emitted as C functions beside it.
+	Actions []Action
+
 	// PinBindings are the pins of function block instances this function owns.
 	// They are loaded into their instances at entry and stored back at exit,
 	// which gives them the same cycle semantics as the function's own pins
@@ -516,6 +520,9 @@ type FunctionBlock struct {
 	Vars    []VarDecl
 
 	Body []Stmt
+
+	// Actions are the named pieces of this block's body, sharing its instance.
+	Actions []Action
 }
 
 // LookupVar finds any declared name of the block, case-insensitively, and

@@ -925,3 +925,145 @@ func TestParseRealWorldSpellings(t *testing.T) {
 		}
 	}
 }
+
+// TestParseActions covers the ACTION form: a named piece of a POU's body,
+// written after the statements it belongs with.
+func TestParseActions(t *testing.T) {
+	f := mustParse(t, `
+PROGRAM p
+  VAR
+    n : DINT;
+  END_VAR
+
+  first();
+  second(n := 1);
+
+ACTION first:
+  n := n + 1;
+END_ACTION
+
+{attribute 'doc' := 'The second one.'}
+ACTION second:
+  n := n * 2;
+END_ACTION
+
+END_PROGRAM`)
+
+	prog := f.Programs[0]
+	if len(prog.Body) != 2 {
+		t.Errorf("body has %d statements, want 2 -- an ACTION must end the body, not join it", len(prog.Body))
+	}
+	if len(prog.Actions) != 2 {
+		t.Fatalf("got %d actions, want 2", len(prog.Actions))
+	}
+	if prog.Actions[0].Name != "first" || prog.Actions[1].Name != "second" {
+		t.Errorf("action names = %q, %q", prog.Actions[0].Name, prog.Actions[1].Name)
+	}
+	if len(prog.Actions[1].Attrs) != 1 || prog.Actions[1].Attrs[0].Name != "doc" {
+		t.Errorf("an action's doc attribute did not attach: %+v", prog.Actions[1].Attrs)
+	}
+
+	// The preset form: `Act(v := x)` sets a variable of the POU first.
+	call, ok := prog.Body[1].(*CallStmt)
+	if !ok {
+		t.Fatalf("second statement is %T, want a call", prog.Body[1])
+	}
+	if len(call.Args) != 1 || call.Args[0].Form != ArgInput || call.Args[0].Name != "n" {
+		t.Errorf("preset argument = %+v", call.Args)
+	}
+
+	// A function block may have them too.
+	f = mustParse(t, "FUNCTION_BLOCK B\nVAR\n n : DINT;\nEND_VAR\ngo();\nACTION go:\n n := 1;\nEND_ACTION\nEND_FUNCTION_BLOCK")
+	if len(f.Blocks[0].Actions) != 1 {
+		t.Errorf("function block action not parsed")
+	}
+
+	// A FUNCTION may not: it has no state for an action to share.
+	errs := parseErrors(t, "FUNCTION F : DINT\nF := 1;\nACTION a:\n F := 2;\nEND_ACTION\nEND_FUNCTION")
+	if !strings.Contains(errs.Error(), "a FUNCTION may not have an ACTION") {
+		t.Errorf("diagnostics: %v", errs)
+	}
+}
+
+// TestParseActionsAfterPOU covers the placement CODESYS 2.3 exports use: the
+// actions follow the POU's END_ keyword rather than sitting inside it.  Both
+// spellings mean the same thing, so both must parse to the same tree.
+func TestParseActionsAfterPOU(t *testing.T) {
+	f := mustParse(t, `
+FUNCTION_BLOCK b
+  VAR
+    m : DINT;
+  END_VAR
+
+  bump();
+END_FUNCTION_BLOCK
+
+ACTION	bump:
+  m := m + 1;
+END_ACTION
+
+PROGRAM p
+  VAR
+    n : DINT;
+  END_VAR
+
+  first();
+END_PROGRAM
+
+ACTION first:
+  n := n + 1;
+END_ACTION`)
+
+	if len(f.Blocks) != 1 || len(f.Blocks[0].Actions) != 1 {
+		t.Fatalf("block got %d actions, want 1", len(f.Blocks[0].Actions))
+	}
+	if f.Blocks[0].Actions[0].Name != "bump" {
+		t.Errorf("block action = %q, want bump", f.Blocks[0].Actions[0].Name)
+	}
+	if len(f.Programs) != 1 || len(f.Programs[0].Actions) != 1 {
+		t.Fatalf("program got %d actions, want 1", len(f.Programs[0].Actions))
+	}
+	if f.Programs[0].Actions[0].Name != "first" {
+		t.Errorf("program action = %q, want first", f.Programs[0].Actions[0].Name)
+	}
+	// The action must not have been swept into the block that came first.
+	if len(f.Blocks[0].Actions) != 1 {
+		t.Errorf("a trailing action attached to the wrong POU")
+	}
+}
+
+// TestParseActionsWithoutPOU covers an ACTION that follows nothing it could be
+// part of.  A FUNCTION is refused for the same reason it is refused inside:
+// there is no instance for the action to share.
+func TestParseActionsWithoutPOU(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		src  string
+		want string
+	}{{
+		name: "no POU at all",
+		src: `
+ACTION orphan:
+  n := 1;
+END_ACTION`,
+		want: "follows no PROGRAM or FUNCTION_BLOCK",
+	}, {
+		name: "after a FUNCTION",
+		src: `
+FUNCTION f : DINT
+  f := 1;
+END_FUNCTION
+
+ACTION extra:
+  f := 2;
+END_ACTION`,
+		want: "a FUNCTION may not have an ACTION",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := parseErrors(t, tt.src)
+			if !strings.Contains(errs.Error(), tt.want) {
+				t.Errorf("errors =\n%v\nwant one containing %q", errs, tt.want)
+			}
+		})
+	}
+}

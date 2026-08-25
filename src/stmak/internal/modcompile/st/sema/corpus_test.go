@@ -52,6 +52,9 @@ var corpusStatus = map[string]string{
 
 	// Every documentation field, so the man page can be checked whole.
 	"documented": "",
+
+	// Named pieces of a body, in both the shapes they take.
+	"actions": "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

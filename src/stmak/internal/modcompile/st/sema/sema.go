@@ -120,6 +120,12 @@ func (c *checker) run() {
 	c.checkTypeDecls(c.file.Types)
 	c.checkPOUs()
 
+	// Before anything walks the instance tree.  A block that contains itself
+	// makes that tree infinite, and every pass below descends it.
+	if !c.checkContainmentCycles() {
+		return
+	}
+
 	// Globals sit in a scope of their own, between the types and each
 	// program.  That is what lets several programs share state while keeping
 	// each program's own declarations private to it.
@@ -142,6 +148,10 @@ func (c *checker) run() {
 		seen[key(p.Name)] = p.Pos
 		c.checkProgram(p)
 	}
+
+	// Last, because a program's actions are part of the call graph and do not
+	// exist until the program has been checked.
+	c.checkCallCycles()
 }
 
 // declareGlobals resolves VAR_GLOBAL, which becomes per-instance state shared
@@ -259,7 +269,9 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 		pins = append(pins, pin.Name)
 	}
 
+	c.declareActions(p.Actions, "PROGRAM", p.Name)
 	body := c.checkStmts(p.Body)
+	actions := c.checkActions(p.Actions, "PROGRAM", p.Name)
 
 	// One PROGRAM whose name matches the component exports as the component
 	// itself; any other name becomes a namespaced function, which is what
@@ -270,12 +282,13 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	}
 
 	f := ast.Function{
-		Pos:  p.Pos,
-		Name: fnName,
-		FP:   c.bodyUsesFloat(body),
-		Doc:  doc,
-		Body: body,
-		Pins: pins,
+		Pos:     p.Pos,
+		Name:    fnName,
+		FP:      c.bodyUsesFloat(body) || anyBodyUsesFloat(c, actions),
+		Doc:     doc,
+		Body:    body,
+		Pins:    pins,
+		Actions: actions,
 	}
 
 	// A function block instance may publish pins of its own through an AT
@@ -287,6 +300,18 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	}
 
 	c.pkg.Component.Functions = append(c.pkg.Component.Functions, f)
+}
+
+// anyBodyUsesFloat reports whether any of a function's actions touches floating
+// point.  An action runs on the calling function's stack, so its arithmetic
+// decides that function's fp flag just as the body's does.
+func anyBodyUsesFloat(c *checker, actions []ast.Action) bool {
+	for i := range actions {
+		if c.bodyUsesFloat(actions[i].Body) {
+			return true
+		}
+	}
+	return false
 }
 
 // pouAttributes reads the pragmas that head a PROGRAM, FUNCTION_BLOCK or

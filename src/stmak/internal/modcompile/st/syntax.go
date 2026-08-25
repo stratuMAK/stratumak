@@ -149,22 +149,38 @@ type VarDecl struct {
 	Located string
 }
 
-// ProgramDecl is a PROGRAM, which becomes one exported HAL function.
-type ProgramDecl struct {
+// ActionDecl is a named piece of a POU's body: `ACTION name: ... END_ACTION`.
+//
+// It shares every variable of the POU that declares it and has none of its
+// own, which is what distinguishes it from a FUNCTION_BLOCK -- there is no
+// state to lay out and no interface to pass through.  IEC 61131-3 defines it
+// for SFC steps; in ST-only code it is how a long cyclic body is split into
+// named pieces.
+type ActionDecl struct {
 	Pos   ast.Pos
 	Attrs []Attribute
 	Name  string
-	Vars  []*VarBlock
 	Body  []Stmt
+}
+
+// ProgramDecl is a PROGRAM, which becomes one exported HAL function.
+type ProgramDecl struct {
+	Pos     ast.Pos
+	Attrs   []Attribute
+	Name    string
+	Vars    []*VarBlock
+	Body    []Stmt
+	Actions []*ActionDecl
 }
 
 // FunctionBlockDecl is a FUNCTION_BLOCK: a reusable sub-component with state.
 type FunctionBlockDecl struct {
-	Pos   ast.Pos
-	Attrs []Attribute
-	Name  string
-	Vars  []*VarBlock
-	Body  []Stmt
+	Pos     ast.Pos
+	Attrs   []Attribute
+	Name    string
+	Vars    []*VarBlock
+	Body    []Stmt
+	Actions []*ActionDecl
 }
 
 // FunctionDecl is a FUNCTION: stateless, returns a value, callable from an

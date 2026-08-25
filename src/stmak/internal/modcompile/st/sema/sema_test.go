@@ -845,6 +845,16 @@ func TestDiagnostics(t *testing.T) {
 			want: "can reach itself",
 		},
 		{
+			// The form that reaches the passes below: a PROGRAM declaring an
+			// instance gives them an instance tree to walk, and the tree of a
+			// block containing itself is infinite.  The containment check has
+			// to come before any of that, or the walk does not terminate.
+			name: "a program holding a function block that contains itself",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n inner : B;\nEND_VAR\n" +
+				"inner();\nEND_FUNCTION_BLOCK\n" + progWith("VAR\n n : B;\nEND_VAR", "n();"),
+			want: "can reach itself",
+		},
+		{
 			name: "two function blocks that contain each other",
 			src: "{attribute 'summary' := 'x'}\n" +
 				"FUNCTION_BLOCK A\nVAR\n b : B;\nEND_VAR\nb();\nEND_FUNCTION_BLOCK\n" +
@@ -1010,5 +1020,87 @@ func TestMissingSummaryWarns(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("missing summary produced no warning: %v", pkg.Warnings)
+	}
+}
+
+// TestActionDiagnostics covers what an ACTION may and may not be.  An action
+// is a named piece of a POU's body sharing its variables, so most of the rules
+// follow from having no interface and no state of its own.
+func TestActionDiagnostics(t *testing.T) {
+	const fb = "{attribute 'summary' := 'x'}\n" +
+		"FUNCTION_BLOCK B\nVAR\n n : DINT;\nEND_VAR\n" +
+		"go();\n" +
+		"ACTION go:\n n := n + 1;\nEND_ACTION\n" +
+		"END_FUNCTION_BLOCK\n"
+
+	tests := []struct{ name, src, want string }{
+		{
+			name: "an action taking a positional argument",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "go(1);\nACTION go:\n n := 1;\nEND_ACTION"),
+			want: "an action has no parameters",
+		},
+		{
+			name: "an action with an output binding",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "go(n => n);\nACTION go:\n n := 1;\nEND_ACTION"),
+			want: "an action takes no output binding",
+		},
+		{
+			name: "presetting something that is not assignable",
+			src:  progWith("VAR_INPUT\n p : DINT;\nEND_VAR", "go(p := 1);\nACTION go:\n q := TRUE;\nEND_ACTION"),
+			want: "cannot assign to p",
+		},
+		{
+			name: "presetting a name that does not exist",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "go(nosuch := 1);\nACTION go:\n n := 1;\nEND_ACTION"),
+			want: "nosuch is not declared",
+		},
+		{
+			name: "two actions of one POU sharing a name",
+			src: progWith("VAR\n n : DINT;\nEND_VAR",
+				"q := TRUE;\nACTION go:\n n := 1;\nEND_ACTION\nACTION go:\n n := 2;\nEND_ACTION"),
+			want: "go is already declared",
+		},
+		{
+			name: "an action colliding with a variable",
+			src:  progWith("VAR\n go : DINT;\nEND_VAR", "q := TRUE;\nACTION go:\n go := 1;\nEND_ACTION"),
+			want: "go is already declared",
+		},
+		{
+			// The stack depth cannot be bounded, and an action calling itself
+			// is the cheapest way to write an unbounded one.
+			name: "an action that calls itself",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "go();\nACTION go:\n n := n + 1;\n go();\nEND_ACTION"),
+			want: "can reach itself",
+		},
+		{
+			name: "two actions that call each other",
+			src: progWith("VAR\n n : DINT;\nEND_VAR",
+				"a();\nACTION a:\n b();\nEND_ACTION\nACTION b:\n a();\nEND_ACTION"),
+			want: "can reach itself",
+		},
+		{
+			name: "an action of a function block that calls itself",
+			src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n n : DINT;\nEND_VAR\n" +
+				"go();\nACTION go:\n go();\nEND_ACTION\nEND_FUNCTION_BLOCK\n" +
+				progWith("", "q := TRUE;"),
+			want: "can reach itself",
+		},
+		{
+			name: "an action reached from outside its POU",
+			src:  fb + progWith("VAR\n b : B;\nEND_VAR", "go();"),
+			want: "go is not declared",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.src)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant a message containing %q", err, tt.want)
+			}
+		})
 	}
 }

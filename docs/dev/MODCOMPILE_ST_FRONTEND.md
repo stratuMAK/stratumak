@@ -308,6 +308,78 @@ detector work at all.
 seconds — the same `#define fperiod (period * 1e-9)` the generator already emits
 for `.comp` bodies.
 
+### 3.4 ACTION
+
+An `ACTION` is a named piece of a POU's body. It shares every variable of the
+POU that declares it and has none of its own, which is what distinguishes it
+from the two things it resembles: a `FUNCTION_BLOCK` would change the state
+layout and force every touched variable through an interface, and a `FUNCTION`
+cannot see the POU's variables at all. It is how a long cyclic body is split
+without restructuring what it operates on.
+
+```
+FUNCTION_BLOCK Counter
+  VAR_INPUT
+    step : DINT;
+  END_VAR
+  VAR_OUTPUT
+    total : DINT;
+  END_VAR
+
+  accumulate();
+
+ACTION accumulate:
+  total := total + step;
+END_ACTION
+
+END_FUNCTION_BLOCK
+```
+
+**Both placements are accepted.** The form above, with the actions inside the
+POU, is what a reader expects and what PLCopen XML nests. CODESYS 2.3 `.EXP`
+exports instead write them *after* the POU's `END_` keyword, at file level, and
+that is the form the production sources arrive in — so an `ACTION` at file
+level belongs to whatever POU was declared last. They mean the same thing;
+refusing the exported one would refuse real files for no reason.
+
+**Calls.** `Act()` runs it. `Act(v := x)` is CODESYS shorthand for assigning a
+variable of the POU first, and is lowered in sema to exactly the two statements
+it stands for, so the backend sees ordinary assignments rather than a second
+kind of argument binding. There are no parameters and no output bindings — an
+action has no interface — and both are refused by name.
+
+**Lowering.** An action emits as a C function over whatever holds the POU's
+variables. For a function block that is the instance, so the signature is the
+block body's exactly:
+
+```c
+static void Counter_accumulate(inst_t *__comp_inst, Counter_t *__self);
+```
+
+A `PROGRAM` is more involved. Its pins are snapshotted into locals for the
+cycle (§3.3), and a local is not reachable from another function. So a program
+whose actions touch a pin holds that snapshot in a struct and hands a pointer
+to each action:
+
+```c
+typedef struct { bool enable; int32_t count; } actions_pins_t;
+static void actions_advance(inst_t *__comp_inst, actions_pins_t *__p);
+```
+
+which keeps the cycle semantics that made the snapshot worth having while
+letting the action read the same values the body sees. The struct is per
+function rather than per action: if any of a function's actions reads a pin
+they all take the pointer, because one signature for all of them is easier to
+follow than two and the pointer costs nothing. A program none of whose actions
+touch a pin pays none of it, and a file with no actions is byte-identical to
+what it generated before.
+
+**Recursion.** An action is part of the call graph, so an action that reaches
+itself is refused under §4 like any other recursion. This is why the call-cycle
+check runs last: a program's actions do not exist until the program has been
+checked. Containment cycles are checked separately and much earlier, because
+every pass that walks the instance tree needs that tree to be finite.
+
 ## 4. Real-time safety policy
 
 These modules run inside the RT process, so a fault here stops the machine
@@ -736,8 +808,11 @@ remainder is accounted for rather than outstanding:
 - **4 files are CODESYS project structure**, not ST — `RESOURCE`, `TASK`,
   workspace and alarm configuration. Correctly rejected.
 - **2 use `VAR_CONFIG`**, now refused by name rather than as a syntax error.
-- **4 use `ACTION`** — a named sub-body of a POU, invoked as `POU.Action()`.
-  That is a genuine IEC construct and the one real language gap left; see §10.
+- **4 used `ACTION`** — a named sub-body of a POU. This was the one real
+  language gap the measurement found, and it is now implemented (§3.4). The
+  measurement also turned up the placement it has to accept: CODESYS 2.3
+  exports write a POU's actions after its `END_` keyword, not inside it. All
+  four files parse.
 - **7 of the 8 remaining lines come from one expression shape**, at five sites
   in four functions of the PLCopen project — `delete_varienties`,
   `read_varieties`, `scan_varieties` and `write_varieties`. Each is a
@@ -800,14 +875,6 @@ declare one at all. The obvious spelling is another `AT` area — IEC's `%M`
 names memory that is not physical I/O, which is exactly what a parameter is —
 but it needs two directions, and inventing that unilaterally is how a language
 accumulates regret.
-
-**`ACTION`.** A named sub-body of a POU, written `ACTION name: ... END_ACTION`
-inside the declaring POU and invoked as `POU.name()`. Four files in one
-production project use it, and it has no equivalent in what is implemented —
-splitting the body into a `FUNCTION_BLOCK` changes the state layout, and a
-`FUNCTION` cannot touch the POU's variables. Worth doing, and it is a real
-feature rather than a spelling.
-
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding
