@@ -694,11 +694,21 @@ remainder is accounted for rather than outstanding:
 - **2 use `VAR_CONFIG`**, now refused by name rather than as a syntax error.
 - **4 use `ACTION`** — a named sub-body of a POU, invoked as `POU.Action()`.
   That is a genuine IEC construct and the one real language gap left; see §10.
-- **7 of the 8 remaining lines are one malformed expression** in the PLCopen
-  project — `STR2 := ,UINT_TO_STRING(...)`, an assignment with nothing on its
-  right. It is in `delete_varienties` and three sibling functions. Worth the
-  owners checking rather than us assuming: CODESYS evidently accepted it, so
-  either it is tolerated there or those functions are never called.
+- **7 of the 8 remaining lines come from one expression shape**, at five sites
+  in four functions of the PLCopen project — `delete_varienties`,
+  `read_varieties`, `scan_varieties` and `write_varieties`. Each is a
+  named-argument `concat` whose last binding reads `STR2 := ,UINT_TO_STRING(x)`:
+  a comma directly after the `:=`, with the value sitting where a third
+  argument would be, as though a positional call had been half-converted to
+  named arguments. Every other binding on the same line has a value.
+
+  Whether that is a source defect or something the PLCopen export lost is not
+  something this measurement can settle. The text is identical in `export.xml`
+  and in the per-POU extraction, but the extraction is derived from the XML, so
+  that only shows what the XML says. The project is in production, which makes
+  "the export dropped something" at least as likely as "four functions have
+  never worked". Either way it is not a frontend gap — nothing parses `:= ,` --
+  so it is left out of the coverage figures rather than counted against them.
 
 The spellings that had to be added, none of them exotic:
 
