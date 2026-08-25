@@ -251,6 +251,22 @@ func (p *parser) parseFile() *File {
 		case Semicolon:
 			// A stray separator between declarations is harmless.
 			p.next()
+		case TokIdent:
+			if strings.EqualFold(p.tok.Text, "VAR_CONFIG") {
+				p.errorAt(p.tok.Pos,
+					"VAR_CONFIG is not supported; stratuMAK has no located variables to configure")
+				p.syncTo(KwEndVar)
+				p.accept(KwEndVar)
+				attrs = nil
+				continue
+			}
+			p.errorAt(p.tok.Pos,
+				"expected a TYPE, VAR_GLOBAL, PROGRAM, FUNCTION or FUNCTION_BLOCK declaration, found %s",
+				p.describe())
+			p.syncTo(declStarters...)
+			if p.at(EOF) {
+				return f
+			}
 		default:
 			p.errorAt(p.tok.Pos,
 				"expected a TYPE, VAR_GLOBAL, PROGRAM, FUNCTION or FUNCTION_BLOCK declaration, found %s",
@@ -403,6 +419,11 @@ func (p *parser) parseTypeDecl(attrs []Attribute) *TypeDecl {
 	if p.accept(Assign) {
 		d.Init = p.parseExpr()
 	}
+	if d.Struct != nil {
+		// parseStructBody already consumed any separator.
+		p.accept(Semicolon)
+		return d
+	}
 	p.expect(Semicolon)
 	return d
 }
@@ -431,6 +452,10 @@ func (p *parser) parseStructBody() []*FieldDecl {
 		fields = append(fields, fd)
 	}
 	p.expect(KwEndStruct)
+	// The separator after END_STRUCT is optional: CODESYS omits it, and
+	// insisting would reject files every other toolchain accepts -- the same
+	// bargain the compound statements get.
+	p.accept(Semicolon)
 	return fields
 }
 
@@ -487,6 +512,28 @@ func (p *parser) parseTypeRef() *TypeRef {
 		return t
 	}
 
+	// `POINTER TO T` and `REFERENCE TO T`.  Neither is implemented, but both
+	// parse so sema can refuse them by name rather than the parser failing on
+	// the word TO.
+	if p.at(KwTo) && (strings.EqualFold(t.Name, "POINTER") || strings.EqualFold(t.Name, "REFERENCE")) {
+		p.next()
+		t.Pointer = true
+		t.Name = ""
+		t.Elem = p.parseTypeRef()
+		return t
+	}
+
+	// A namespaced type: `visuElems.IDialogManager`.  It is one name here;
+	// whether the namespace exists is sema's question.
+	for p.at(Dot) {
+		p.next()
+		part := p.expectName("a type name after the namespace")
+		if part == "" {
+			return t
+		}
+		t.Name += "." + part
+	}
+
 	// STRING[10] -- and `STRING [1]`, since whitespace is not significant.
 	if p.at(LBracket) {
 		p.next()
@@ -495,11 +542,19 @@ func (p *parser) parseTypeRef() *TypeRef {
 		return t
 	}
 
-	// A subrange, as in `INT (1..2)`.
+	// A parenthesised suffix is either a subrange, `INT (1..2)`, or the older
+	// spelling of a string length, `STRING(11)`.  Which one is settled by
+	// whether `..` follows the first expression.
 	if p.at(LParen) {
+		pos := p.tok.Pos
 		p.next()
-		r := p.parseRange()
-		t.Subrange = &r
+		first := p.parseExpr()
+		if p.accept(DotDot) {
+			r := Range{Pos: pos, Lo: first, Hi: p.parseExpr()}
+			t.Subrange = &r
+		} else {
+			t.StringLen = first
+		}
 		p.expect(RParen)
 	}
 	return t
@@ -529,14 +584,26 @@ var varBlockKinds = map[Kind]VarKind{
 
 // atVarBlock reports whether a VAR section starts here.
 func (p *parser) atVarBlock() bool {
-	_, ok := varBlockKinds[p.tok.Kind]
-	return ok || p.at(KwVarAccess)
+	if _, ok := varBlockKinds[p.tok.Kind]; ok {
+		return true
+	}
+	// VAR_ACCESS and VAR_CONFIG are recognised here only so parseVarBlock can
+	// refuse them by name.  VAR_CONFIG is not a keyword -- nothing else needs
+	// it to be -- so it arrives as an identifier.
+	return p.at(KwVarAccess) || (p.at(TokIdent) && strings.EqualFold(p.tok.Text, "VAR_CONFIG"))
 }
 
 func (p *parser) parseVarBlock() *VarBlock {
 	// VAR_ACCESS has a shape of its own and names a facility stratuMAK does
 	// not have.  Say so here rather than letting it fail as a syntax error on
 	// the second colon of `VarPath : VarName.Path : BOOL READ_ONLY;`.
+	if p.at(TokIdent) && strings.EqualFold(p.tok.Text, "VAR_CONFIG") {
+		p.errorAt(p.tok.Pos,
+			"VAR_CONFIG is not supported; stratuMAK has no located variables to configure")
+		p.syncTo(KwEndVar)
+		p.accept(KwEndVar)
+		return nil
+	}
 	if p.at(KwVarAccess) {
 		p.errorAt(p.tok.Pos,
 			"VAR_ACCESS is not supported; stratuMAK exposes variables through HAL pins declared in VAR_INPUT/VAR_OUTPUT")
@@ -625,10 +692,37 @@ func (p *parser) parseVarDecl(attrs []Attribute) *VarDecl {
 	}
 
 	if p.accept(Assign) {
-		d.Init = p.parseExpr()
+		d.Init = p.parseInitialiser()
 	}
 	p.expect(Semicolon)
 	return d
+}
+
+// parseInitialiser parses the value after `:=` in a declaration.
+//
+// An array of structured values is written as a comma-separated list of them
+// with no enclosing brackets -- `X : ARRAY[1..2] OF T := (a := 1), (a := 2);`
+// -- which is a shape that appears nowhere else, so it is recognised here
+// rather than in the expression grammar.
+func (p *parser) parseInitialiser() Expr {
+	first := p.parseExpr()
+	lit, ok := first.(*StructLit)
+	if !ok || !p.at(Comma) {
+		return first
+	}
+
+	out := &StructLit{Pos: lit.Pos, Elems: []*StructLit{lit}}
+	for p.accept(Comma) {
+		next := p.parseExpr()
+		elem, ok := next.(*StructLit)
+		if !ok {
+			p.errorAt(next.Position(),
+				"an array of structured values takes one per element, each in parentheses")
+			return out
+		}
+		out.Elems = append(out.Elems, elem)
+	}
+	return out
 }
 
 // parseVarSections consumes every VAR block at the head of a body.
@@ -1161,6 +1255,15 @@ func (p *parser) parsePostfix() Expr {
 		case Dot:
 			pos := p.tok.Pos
 			p.next()
+			// `word.0` is partial access: the Nth bit of an integer.  IEC
+			// spells it this way and real code uses it constantly, so it
+			// parses here and sema refuses it by name.
+			if p.at(TokIntLit) {
+				bit := p.tok.Int
+				p.next()
+				e = &BitExpr{Pos: pos, Base: e, Bit: bit}
+				continue
+			}
 			name := p.expectName("a field name")
 			if name == "" {
 				return e
@@ -1238,6 +1341,62 @@ func (p *parser) parseArgs() []Arg {
 	}
 }
 
+// tryStructLit parses `(name := value, ...)` if that is what follows, and
+// returns nil having consumed nothing otherwise.
+func (p *parser) tryStructLit() Expr {
+	cp := p.mark()
+	pos := p.tok.Pos
+	p.next() // '('
+
+	// An array of structured values: ( (a := 1), (a := 2) ).
+	if p.at(LParen) {
+		lit := &StructLit{Pos: pos}
+		for {
+			elem := p.tryStructLit()
+			if elem == nil {
+				p.reset(cp)
+				return nil
+			}
+			lit.Elems = append(lit.Elems, elem.(*StructLit))
+			if !p.accept(Comma) {
+				break
+			}
+		}
+		p.expect(RParen)
+		return lit
+	}
+
+	if !p.at(TokIdent) {
+		p.reset(cp)
+		return nil
+	}
+	save := p.mark()
+	p.next()
+	if !p.at(Assign) {
+		p.reset(cp)
+		return nil
+	}
+	p.reset(save)
+
+	lit := &StructLit{Pos: pos}
+	for {
+		f := FieldInit{Pos: p.tok.Pos}
+		f.Name = p.expectName("a field name")
+		if f.Name == "" {
+			p.reset(cp)
+			return nil
+		}
+		p.expect(Assign)
+		f.Value = p.parseExpr()
+		lit.Fields = append(lit.Fields, f)
+		if !p.accept(Comma) {
+			break
+		}
+	}
+	p.expect(RParen)
+	return lit
+}
+
 func (p *parser) parsePrimary() Expr {
 	tok := p.tok
 	switch tok.Kind {
@@ -1274,6 +1433,11 @@ func (p *parser) parsePrimary() Expr {
 		return &BoolLit{Pos: tok.Pos, Value: false}
 
 	case LParen:
+		// `(name := value, ...)` is a structured initialiser rather than a
+		// parenthesised expression.  One token past the name settles it.
+		if lit := p.tryStructLit(); lit != nil {
+			return lit
+		}
 		p.next()
 		e := p.parseExpr()
 		p.expect(RParen)

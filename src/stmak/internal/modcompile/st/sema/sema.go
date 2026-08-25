@@ -702,6 +702,12 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 		return ast.Type{}, false
 	}
 
+	if ref.Pointer {
+		c.errorf(ref.Pos, "POINTER TO and REFERENCE TO are not supported; stratuMAK ST has no "+
+			"pointers. Pass the value through a VAR_IN_OUT, which is the IEC way to reach a "+
+			"caller's data")
+		return ast.Type{}, false
+	}
 	if ref.IsArray() {
 		return c.resolveArrayType(ref)
 	}
@@ -761,6 +767,15 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 		case ast.DefStruct:
 			return ast.Type{Kind: ast.TypeStruct, Ref: td.Name}, true
 		}
+	}
+
+	if strings.Contains(ref.Name, ".") {
+		// A namespaced type names a library; saying that is more use than
+		// "unknown type", since the fix is to stop depending on the library
+		// rather than to declare something.
+		c.errorf(ref.Pos, "%s names a type in another library; stratuMAK ST has no library "+
+			"namespaces, so the type has to be declared in this file", ref.Name)
+		return ast.Type{}, false
 	}
 
 	c.errorf(ref.Pos, "unknown type %s", ref.Name)

@@ -41,7 +41,16 @@ func (c *checker) checkExpr(e st.Expr, want ast.Type) ast.Expr {
 	case *st.CallExpr:
 		return c.checkCall(v)
 	case *st.DerefExpr:
-		c.errorf(v.Pos, "pointer dereference is not supported; stratuMAK ST has no pointers")
+		c.errorf(v.Pos, "pointer dereference is not supported; stratuMAK ST has no pointers. "+
+			"Pass the value through a VAR_IN_OUT, which is the IEC way to reach a caller's data")
+		return nil
+	case *st.BitExpr:
+		c.errorf(v.Pos, "partial access (.%d) needs the bit-string types BYTE, WORD, DWORD "+
+			"and LWORD, which are not implemented yet", v.Bit)
+		return nil
+	case *st.StructLit:
+		c.errorf(v.Pos, "a structured initialiser is not supported; "+
+			"assign the members separately in the body")
 		return nil
 	}
 	c.errorf(e.Position(), "unsupported expression")

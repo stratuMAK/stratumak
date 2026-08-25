@@ -854,3 +854,74 @@ func TestErrorListFormatting(t *testing.T) {
 func timeoutAfterSeconds(n int) <-chan time.Time {
 	return time.After(time.Duration(n) * time.Second)
 }
+
+// TestParseRealWorldSpellings covers constructs found by parsing three
+// existing CODESYS projects.  Each was a parse failure before; each is either
+// accepted now or refused by name, because a construct that reaches sema can
+// be explained and one that dies in the parser cannot.
+func TestParseRealWorldSpellings(t *testing.T) {
+	// STRING(11) is the older spelling of STRING[11].  It shares its opening
+	// paren with a subrange, and only the '..' tells them apart.
+	f := mustParse(t, wrapFB("VAR\n s : STRING(11); r : INT (1..2); END_VAR\nx := 1;"))
+	d := f.Blocks[0].Vars[0].Decls
+	if d[0].Type.StringLen == nil {
+		t.Error("STRING(11) length not recorded")
+	}
+	if d[1].Type.Subrange == nil {
+		t.Error("INT (1..2) subrange not recorded")
+	}
+
+	// POINTER TO and REFERENCE TO parse so sema can refuse them by name.
+	f = mustParse(t, wrapFB("VAR\n p : POINTER TO BYTE; r : REFERENCE TO INT; END_VAR\nx := 1;"))
+	for i, d := range f.Blocks[0].Vars[0].Decls {
+		if !d.Type.Pointer || d.Type.Elem == nil {
+			t.Errorf("declaration %d did not record a pointer type: %+v", i, d.Type)
+		}
+	}
+
+	// A namespaced type is one name here; whether the library exists is
+	// sema's question.
+	f = mustParse(t, wrapFB("VAR\n d : visuElems.IDialogManager; END_VAR\nx := 1;"))
+	if got := f.Blocks[0].Vars[0].Decls[0].Type.Name; got != "visuElems.IDialogManager" {
+		t.Errorf("namespaced type name = %q", got)
+	}
+
+	// The separator after END_STRUCT is optional, as CODESYS writes it.
+	mustParse(t, "TYPE T : STRUCT a : INT; END_STRUCT END_TYPE\nPROGRAM p\nx := 1;\nEND_PROGRAM")
+
+	// Partial access: the Nth bit of an integer.  129 uses in one project.
+	s := firstStmt(t, "flag := word.0;")
+	as, ok := s.(*AssignStmt)
+	if !ok {
+		t.Fatalf("got %T", s)
+	}
+	bit, ok := as.Value.(*BitExpr)
+	if !ok || bit.Bit != 0 {
+		t.Errorf("word.0 did not parse as partial access: %T", as.Value)
+	}
+
+	// A structured initialiser, and an array of them written as a
+	// comma-separated list with no enclosing brackets.
+	f = mustParse(t, wrapFB(
+		"VAR\n one : T := (a := 1, b := 2);\n many : ARRAY[1..2] OF T := (a := 1), (a := 2);\nEND_VAR\nx := 1;"))
+	d = f.Blocks[0].Vars[0].Decls
+	lit, ok := d[0].Init.(*StructLit)
+	if !ok || len(lit.Fields) != 2 {
+		t.Errorf("structured initialiser not parsed: %#v", d[0].Init)
+	}
+	arr, ok := d[1].Init.(*StructLit)
+	if !ok || len(arr.Elems) != 2 {
+		t.Errorf("array of structured values not parsed: %#v", d[1].Init)
+	}
+
+	// VAR_CONFIG is refused by name, at file level and inside a POU.
+	for _, src := range []string{
+		"VAR_CONFIG\n p.x AT %IX1 : BOOL;\nEND_VAR\nPROGRAM p\nx := 1;\nEND_PROGRAM",
+		"PROGRAM p\nVAR_CONFIG\n a : INT;\nEND_VAR\nx := 1;\nEND_PROGRAM",
+	} {
+		errs := parseErrors(t, src)
+		if !strings.Contains(errs.Error(), "VAR_CONFIG is not supported") {
+			t.Errorf("VAR_CONFIG not refused by name:\n%v", errs)
+		}
+	}
+}

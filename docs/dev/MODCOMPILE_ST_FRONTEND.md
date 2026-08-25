@@ -650,15 +650,18 @@ Named so that leaving them out is a decision rather than an omission.
 
 ## 9. Measured against real projects
 
-Two existing CODESYS projects were compiled to find what synthetic fixtures
-miss. Neither is in this repository and nothing was copied from them; what came
-back is a gap list and three bug fixes.
+Three existing CODESYS projects, **all of them running in production**, were
+compiled to find what synthetic fixtures miss. None is in this repository,
+nothing was copied from them, and all three working trees were left untouched;
+what came back is a gap list and a set of fixes.
 
-**Both ship PLCopen TC6 XML, not `.st`.** That is how real ST is interchanged,
-and it means an importer would be a separate tool rather than part of this
-frontend. One of the projects already carries `plcopen_extract.py`, which
-splits the monolithic export into a per-POU tree — prior art for what such a
-tool would do.
+**None of them ships bare `.st`.** Two are PLCopen TC6 XML and one is a set of
+CODESYS 2.3 `.EXP` text exports, so an importer for each would be a separate
+tool rather than part of this frontend. One project already carries
+`plcopen_extract.py`, which splits the monolithic export into a per-POU tree —
+prior art for what such a tool would do. The `.EXP` form is very nearly raw ST:
+its metadata rides in `(* @KEY := 'value' *)` comments, which the scanner
+already skips.
 
 The smaller project holds ten POUs, all ST, about 950 lines of body. **The
 parser accepted every line of it** — the only syntax errors came from the
@@ -680,7 +683,36 @@ function blocks. `VAR_IN_OUT` is the IEC mechanism for the same thing and is
 already implemented; whether that covers enough of the real usage is the
 question to answer before revisiting §8.
 
-### 9.1 What it found that was broken
+### 9.1 Parser coverage
+
+After the spelling fixes below, the parser accepts **59 of the 69 non-library
+`.EXP` files** and all but 8 lines of the 17,649-line PLCopen project. The
+remainder is accounted for rather than outstanding:
+
+- **4 files are CODESYS project structure**, not ST — `RESOURCE`, `TASK`,
+  workspace and alarm configuration. Correctly rejected.
+- **2 use `VAR_CONFIG`**, now refused by name rather than as a syntax error.
+- **4 use `ACTION`** — a named sub-body of a POU, invoked as `POU.Action()`.
+  That is a genuine IEC construct and the one real language gap left; see §10.
+- **7 of the 8 remaining lines are one malformed expression** in the PLCopen
+  project — `STR2 := ,UINT_TO_STRING(...)`, an assignment with nothing on its
+  right. It is in `delete_varienties` and three sibling functions. Worth the
+  owners checking rather than us assuming: CODESYS evidently accepted it, so
+  either it is tolerated there or those functions are never called.
+
+The spellings that had to be added, none of them exotic:
+
+| Spelling | Uses | Now |
+| --- | --- | --- |
+| `word.0` — partial access | 147 | parses; sema names the missing bit-string types |
+| `POINTER TO T` | 30 | parses; sema points at `VAR_IN_OUT` |
+| `END_STRUCT` with no `;` | 31 | accepted, as for compound statements |
+| `(a := 1, b := 2)` and arrays of them | 12 | parses; sema explains |
+| `STRING(11)` | 3 | accepted beside `STRING[11]` |
+| `VAR_CONFIG` | 6 | refused by name |
+| `ns.Type` | 6 | parses; sema names the library |
+
+### 9.2 What it found that was broken
 
 **A named constant did not fold.** `FOR i := 0 TO LAST_IDX` with
 `LAST_IDX : DINT := 7` in a `VAR CONSTANT` was refused as an unbounded loop,
@@ -706,6 +738,14 @@ deliberately not treated that way, since `p.x` on a `p : Point` does mean the
 field.
 
 ## 10. Open items
+
+**`ACTION`.** A named sub-body of a POU, written `ACTION name: ... END_ACTION`
+inside the declaring POU and invoked as `POU.name()`. Four files in one
+production project use it, and it has no equivalent in what is implemented —
+splitting the body into a `FUNCTION_BLOCK` changes the state layout, and a
+`FUNCTION` cannot touch the POU's variables. Worth doing, and it is a real
+feature rather than a spelling.
+
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding

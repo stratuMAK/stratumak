@@ -201,6 +201,12 @@ type TypeRef struct {
 	// this is an array.
 	Dims []Range
 	Elem *TypeRef
+
+	// Pointer marks `POINTER TO Elem` or `REFERENCE TO Elem`.  stratuMAK
+	// implements neither, so sema refuses it -- but only once it has parsed,
+	// which is what lets the refusal name the construct instead of failing on
+	// the word TO.
+	Pointer bool
 }
 
 // IsArray reports whether this reference is an array type.
@@ -462,6 +468,34 @@ type CallExpr struct {
 	Args []Arg
 }
 
+// BitExpr is `Base.N`, the Nth bit of an integer.  IEC 61131-3 spells partial
+// access this way, and real code uses it heavily -- so it parses, and sema
+// refuses it by name until the bit-string types exist.
+type BitExpr struct {
+	Pos  ast.Pos
+	Base Expr
+	Bit  int64
+}
+
+// FieldInit is one `name := value` of a structured initialiser.
+type FieldInit struct {
+	Pos   ast.Pos
+	Name  string
+	Value Expr
+}
+
+// StructLit is a structured initialiser: `(a := 1, b := 2)`.  It appears where
+// a value is expected, so the parser has to tell it from a parenthesised
+// expression, which it does by looking for `name :=` after the paren.
+//
+// An array of them is written `( (a := 1), (a := 2) )`, and lands in Elems
+// rather than Fields.  Exactly one of the two is set.
+type StructLit struct {
+	Pos    ast.Pos
+	Fields []FieldInit
+	Elems  []*StructLit
+}
+
 // DerefExpr is `Base^`, a pointer or reference dereference.  stratuMAK
 // implements neither, so sema rejects it; the parser accepts it so that the
 // rejection names the construct instead of being a syntax error on '^'.
@@ -502,6 +536,8 @@ func (e *IndexExpr) Position() ast.Pos  { return e.Pos }
 func (e *FieldExpr) Position() ast.Pos  { return e.Pos }
 func (e *CallExpr) Position() ast.Pos   { return e.Pos }
 func (e *DerefExpr) Position() ast.Pos  { return e.Pos }
+func (e *BitExpr) Position() ast.Pos    { return e.Pos }
+func (e *StructLit) Position() ast.Pos  { return e.Pos }
 
 func (*Ident) exprNode()      {}
 func (*IntLit) exprNode()     {}
@@ -515,3 +551,5 @@ func (*IndexExpr) exprNode()  {}
 func (*FieldExpr) exprNode()  {}
 func (*CallExpr) exprNode()   {}
 func (*DerefExpr) exprNode()  {}
+func (*BitExpr) exprNode()    {}
+func (*StructLit) exprNode()  {}
