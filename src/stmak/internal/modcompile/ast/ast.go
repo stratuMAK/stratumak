@@ -378,6 +378,14 @@ type Variable struct {
 	Name    string // variable name (may include leading * for pointers)
 	Array   int    // element count; 0 if not an array
 	Default string // initial value expression (empty if none)
+
+	// Dims is the extent of each dimension of a multi-dimensional array,
+	// outermost first.  A .comp cannot declare one and leaves this nil, using
+	// Array alone; an .st sets both, with Array the product, so a reader of
+	// either field sees something true.  The backend emits `T name[2][3]`
+	// rather than a flattened `T name[6]` with computed subscripts, because
+	// the generated C is read by people debugging a machine.
+	Dims []int
 }
 
 // Modparam represents a module parameter (becomes argv parsing in cmod).

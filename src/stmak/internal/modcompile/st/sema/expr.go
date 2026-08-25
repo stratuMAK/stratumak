@@ -35,12 +35,9 @@ func (c *checker) checkExpr(e st.Expr, want ast.Type) ast.Expr {
 	case *st.UnaryExpr:
 		return c.checkUnary(v, want)
 	case *st.IndexExpr:
-		c.errorf(v.Pos, "array indexing is not supported yet; arrays arrive with phase 4")
-		return nil
+		return c.checkIndex(v)
 	case *st.FieldExpr:
-		c.errorf(v.Pos, "field access is not supported yet; "+
-			"structures arrive with phase 4 and function blocks with phase 5")
-		return nil
+		return c.checkField(v)
 	case *st.CallExpr:
 		c.errorf(v.Pos, "function calls are not supported yet; they arrive with phase 5")
 		return nil
@@ -184,11 +181,146 @@ func (c *checker) checkIdent(v *st.Ident) ast.Expr {
 		c.errorf(v.Pos, "%s is not declared", v.Name)
 		return nil
 	}
-	if sym.Kind != symVar {
-		c.errorf(v.Pos, "%s is a %s, not a value", v.Name, sym.Kind)
+
+	switch sym.Kind {
+	case symVar:
+		return &ast.VarRef{Pos: v.Pos, Name: sym.Name, Store: sym.Store, Typ: sym.Type}
+
+	case symEnumConst:
+		// Carrying the value here is what lets the backend emit the generated
+		// constant rather than an undefined identifier -- the defect that made
+		// the standalone prototype's own enum example uncompilable.
+		return &ast.EnumLit{
+			Pos:   v.Pos,
+			Enum:  sym.EnumType,
+			Const: sym.Name,
+			Value: sym.ConstValue,
+			Typ:   sym.Type,
+		}
+	}
+
+	c.errorf(v.Pos, "%s is a %s, not a value", v.Name, sym.Kind)
+	return nil
+}
+
+// checkIndex resolves an array subscript.
+//
+// ST spells a multi-dimensional access two ways -- `a[i, j]` and `a[i][j]` --
+// and the parser keeps whichever the source wrote.  Both mean one access, so
+// the whole chain is collected before anything is checked and the backend sees
+// a single node either way.
+func (c *checker) checkIndex(v *st.IndexExpr) ast.Expr {
+	// Walk down to the innermost base, collecting subscript groups.
+	var groups [][]st.Expr
+	base := st.Expr(v)
+	for {
+		ix, ok := base.(*st.IndexExpr)
+		if !ok {
+			break
+		}
+		groups = append([][]st.Expr{ix.Indices}, groups...)
+		base = ix.Base
+	}
+
+	arr := c.checkExpr(base, ast.Type{})
+	if arr == nil {
 		return nil
 	}
-	return &ast.VarRef{Pos: v.Pos, Name: sym.Name, Store: sym.Store, Typ: sym.Type}
+	arrType := arr.ExprType()
+	if arrType.Kind != ast.TypeArray {
+		c.errorf(v.Pos, "%s is not an array", exprName(arr, arrType))
+		return nil
+	}
+
+	var indices []ast.Expr
+	for _, group := range groups {
+		for _, ix := range group {
+			dim := len(indices)
+			if dim >= len(arrType.Dims) {
+				c.errorf(ix.Position(), "too many subscripts for %s: it has %d %s",
+					arrType, len(arrType.Dims),
+					plural(len(arrType.Dims), "dimension", "dimensions"))
+				return nil
+			}
+			e := c.checkExpr(ix, ast.Type{Kind: ast.TypeDInt})
+			if e == nil {
+				return nil
+			}
+			if !e.ExprType().IsInteger() {
+				c.errorf(ix.Position(), "an array index must be an integer, got %s", e.ExprType())
+				return nil
+			}
+			// An index the compiler can see is settled now: an out-of-range
+			// constant is a mistake, not something to clamp at run time.
+			if n, ok := foldInt(e); ok {
+				d := arrType.Dims[dim]
+				if n < int64(d.Lo) || n > int64(d.Hi) {
+					c.errorf(ix.Position(), "index %d is outside %s of %s", n, d, arrType)
+					return nil
+				}
+			}
+			indices = append(indices, e)
+		}
+	}
+
+	// A partial subscript would name a sub-array, which has nowhere to go:
+	// stratuMAK ST has no array-valued expressions.
+	if len(indices) != len(arrType.Dims) {
+		c.errorf(v.Pos, "%s needs %d %s, got %d",
+			arrType, len(arrType.Dims),
+			plural(len(arrType.Dims), "subscript", "subscripts"), len(indices))
+		return nil
+	}
+
+	return &ast.IndexExpr{Pos: v.Pos, Base: arr, Indices: indices, Typ: *arrType.Elem}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// exprName describes an expression for a diagnostic, preferring its name.
+func exprName(e ast.Expr, t ast.Type) string {
+	if ref, ok := e.(*ast.VarRef); ok {
+		return ref.Name
+	}
+	return "this expression (" + t.String() + ")"
+}
+
+// checkField resolves a struct member access.
+func (c *checker) checkField(v *st.FieldExpr) ast.Expr {
+	base := c.checkExpr(v.Base, ast.Type{})
+	if base == nil {
+		return nil
+	}
+	bt := base.ExprType()
+
+	if bt.Kind == ast.TypeFB {
+		c.errorf(v.Pos, "reading a function block output is not supported yet; "+
+			"function blocks arrive with phase 5")
+		return nil
+	}
+	if bt.Kind != ast.TypeStruct {
+		c.errorf(v.Pos, "%s is not a structure, so it has no field %s", exprName(base, bt), v.Name)
+		return nil
+	}
+
+	td := c.pkg.LookupType(bt.Ref)
+	if td == nil {
+		c.errorf(v.Pos, "unknown structure %s", bt.Ref)
+		return nil
+	}
+	f, ok := td.LookupField(v.Name)
+	if !ok {
+		c.errorf(v.Pos, "%s has no field %s", bt.Ref, v.Name)
+		return nil
+	}
+	// The declared spelling, not what the source wrote: ST is case-insensitive
+	// but the generated C is not.
+	return &ast.FieldExpr{Pos: v.Pos, Base: base, Field: f.Name, Typ: f.Typ}
 }
 
 // checkBinary types a binary operator, inserting the conversions that make its
@@ -386,6 +518,10 @@ func (c *checker) assign(pos ast.Pos, what string, want ast.Type, value ast.Expr
 func foldInt(e ast.Expr) (int64, bool) {
 	switch v := e.(type) {
 	case *ast.IntLit:
+		return v.Value, true
+	case *ast.EnumLit:
+		// An enumeration constant is a compile-time value, which is what lets
+		// it initialise a variable and label a CASE arm.
 		return v.Value, true
 	case *ast.ConvExpr:
 		return foldInt(v.X)

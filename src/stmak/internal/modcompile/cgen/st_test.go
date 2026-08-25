@@ -23,7 +23,10 @@ const stCorpus = "../st/testdata/accept"
 // in st/sema/corpus_test.go; the two are kept in step by
 // TestSTLedgersAgree below, so a phase landing cannot update one and forget
 // the other.
-var stLowers = []string{"and2", "scale", "literals", "loops"}
+var stLowers = []string{
+	"and2", "scale", "literals", "loops", // phase 2: scalars
+	"arrays", "structs", "statemachine", "types", // phase 4: types and arrays
+}
 
 // compile turns one fixture into C.
 func generateST(t *testing.T, name string) string {
@@ -277,5 +280,114 @@ func TestSTLedgersAgree(t *testing.T) {
 		case cerr != nil && claimed[name]:
 			t.Errorf("%s is in stLowers but no longer lowers: %v", name, cerr)
 		}
+	}
+}
+
+// TestSTTypedefs checks the user-defined types reach the generated C in a
+// usable form: constants as macros, structs dependency-ordered so each is
+// declared before its first use, and aliases resolved away.
+func TestSTTypedefs(t *testing.T) {
+	out := generateST(t, "statemachine")
+	for _, want := range []string{
+		"#define STATE_IDLE 0",
+		"#define STATE_RUNNING 1",
+		"#define STATE_FAULTED 2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing enumeration constant:\n  %s", want)
+		}
+	}
+	// Resolving a constant to its value is the defect that made the
+	// standalone prototype's own enum example uncompilable: it emitted
+	// `inst->RED`.
+	if strings.Contains(out, "->IDLE") || strings.Contains(out, "->RUNNING") {
+		t.Error("an enumeration constant was emitted as a struct member")
+	}
+	if !strings.Contains(out, "case STATE_IDLE:") {
+		t.Errorf("CASE arm not labelled by the resolved constant:\n%s", out)
+	}
+
+	out = generateST(t, "structs")
+	pointAt := strings.Index(out, "} Point_t;")
+	rectAt := strings.Index(out, "} Rect_t;")
+	if pointAt < 0 || rectAt < 0 {
+		t.Fatalf("struct typedefs missing:\n%s", out)
+	}
+	if pointAt > rectAt {
+		t.Error("Rect_t is declared before the Point_t it contains; C requires the other order")
+	}
+	if !strings.Contains(out, "Point_t topLeft;") {
+		t.Error("nested struct field not emitted")
+	}
+
+	// An alias resolves away; nothing is emitted for it.
+	out = generateST(t, "types")
+	if strings.Contains(out, "Celsius_t") || strings.Contains(out, "Counter_t") {
+		t.Error("an alias produced a typedef; it should resolve to its target")
+	}
+}
+
+// TestSTArrayShapeIsKept checks that a multi-dimensional array stays
+// multi-dimensional in the generated C rather than being flattened, and that a
+// non-zero lower bound is subtracted at the index site.
+func TestSTArrayShapeIsKept(t *testing.T) {
+	out := generateST(t, "arrays")
+
+	if !strings.Contains(out, "double grid[2][3];") {
+		t.Errorf("multi-dimensional array was not emitted with its shape:\n%s", out)
+	}
+	if !strings.Contains(out, "double window[4];") {
+		t.Error("ARRAY[1..4] should be a C array of four")
+	}
+	// The declared lower bound is subtracted at the index, not stored.
+	if !strings.Contains(out, `, 1, 4, "window"`) {
+		t.Error("the declared bounds 1..4 did not reach the index check")
+	}
+	// A multi-dimensional fault message names which dimension went wrong.
+	if !strings.Contains(out, `"grid dimension 2"`) {
+		t.Error("a multi-dimensional index fault does not name the dimension")
+	}
+}
+
+// TestSTIndexClamping is the §4 rule for subscripts: an index the compiler
+// could not see is clamped, because an out-of-range access inside the
+// real-time process corrupts stmakd rather than the component that caused it.
+func TestSTIndexClamping(t *testing.T) {
+	out := generateST(t, "arrays")
+
+	if !strings.Contains(out, "static int __st_idx(inst_t *__comp_inst, int64_t i, int lo, int hi, const char *what)") {
+		t.Fatalf("index clamp helper not emitted:\n%s", out)
+	}
+	if !strings.Contains(out, "__st_fault(__comp_inst, what); return 0;") {
+		t.Error("an index below the lower bound is not clamped")
+	}
+	if !strings.Contains(out, "__st_fault(__comp_inst, what); return hi - lo;") {
+		t.Error("an index above the upper bound is not clamped")
+	}
+
+	// A constant index was already proved in range by sema, so it costs no
+	// check and no arithmetic.
+	if !strings.Contains(out, "__pin_channel[0]") && !strings.Contains(out, "pts[0]") {
+		t.Log("no constant subscript in this fixture to check")
+	}
+	out = generateST(t, "structs")
+	if strings.Contains(out, "__st_idx(__comp_inst, (int64_t)0,") {
+		t.Error("a constant index was emitted with a runtime range check")
+	}
+}
+
+// TestSTArrayPinNaming checks that an array pin gets HAL's indexed names.
+// cgen builds them from a run of '#' in the pin name, which an .st declaration
+// does not carry -- so sema has to add one, and a mismatch here emits a printf
+// with an unused argument that fails the build.
+func TestSTArrayPinNaming(t *testing.T) {
+	out := generateST(t, "arrays")
+	if !strings.Contains(out, `"%s.channel.%01d", name, j`) {
+		t.Errorf("array pin does not get an indexed HAL name:\n%s", out)
+	}
+	// The copy loop is what keeps an array pin on the same footing as a
+	// scalar: read once at entry, written back at exit.
+	if !strings.Contains(out, "__pin_channel[__pi] = (*(__comp_inst->hal->channel[__pi]));") {
+		t.Error("array pin is not snapshotted")
 	}
 }

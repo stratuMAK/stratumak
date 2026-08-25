@@ -104,6 +104,13 @@ func (c *checker) run() {
 	c.checkFileAttributes()
 	c.rejectUnsupported()
 
+	// Types live in a scope outside the program's, so a program-level name
+	// may shadow an enumeration constant without a redeclaration error, and
+	// so the type scope survives for every program in phase 6.
+	c.push()
+	defer c.pop()
+	c.checkTypeDecls(c.file.Types)
+
 	switch len(c.file.Programs) {
 	case 0:
 		pos := c.file.Pos
@@ -129,10 +136,6 @@ func (c *checker) run() {
 // missing beats a resolution failure at its first use, which is what a reader
 // would otherwise see.
 func (c *checker) rejectUnsupported() {
-	for i := range c.file.Types {
-		c.errorf(c.file.Types[i].Pos,
-			"TYPE declarations are not supported yet; user-defined types arrive with phase 4")
-	}
 	for _, b := range c.file.Blocks {
 		c.errorf(b.Pos,
 			"FUNCTION_BLOCK %s: function blocks are not supported yet; they arrive with phase 5", b.Name)
@@ -311,6 +314,12 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 	}
 
 	init := ""
+	if d.Init != nil && (typ.Kind == ast.TypeArray || typ.Kind == ast.TypeStruct) {
+		c.errorf(d.Init.Position(),
+			"%s cannot be given an initial value in its declaration; "+
+				"%s is an aggregate, so initialise its elements in the body", name, typ)
+		return
+	}
 	if d.Init != nil {
 		e := c.checkExpr(d.Init, typ)
 		if e != nil {
@@ -326,11 +335,22 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		}
 	}
 
-	c.pkg.Component.Variables = append(c.pkg.Component.Variables, ast.Variable{
+	v := ast.Variable{
+		Pos:     d.Pos,
 		CType:   typ.CType(),
 		Name:    name,
 		Default: init,
-	})
+	}
+	if typ.Kind == ast.TypeArray {
+		// Both fields are set: Array is the total so a reader of either sees
+		// something true, and Dims keeps the shape so the generated C reads
+		// like the declaration rather than a flattened block.
+		v.Array = typ.Elements()
+		for _, d := range typ.Dims {
+			v.Dims = append(v.Dims, d.Count())
+		}
+	}
+	c.pkg.Component.Variables = append(c.pkg.Component.Variables, v)
 }
 
 // declarePin turns one HAL-facing declaration into a pin.
@@ -338,6 +358,14 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 	halType, fit := typ.HALType()
 	switch fit {
 	case ast.HALFitNone:
+		// A multi-dimensional array is worth its own message: it is not that
+		// the element type cannot reach HAL, but that a pin name carries one
+		// index.
+		if typ.Kind == ast.TypeArray && len(typ.Dims) > 1 {
+			c.errorf(d.Pos, "%s cannot be a HAL pin: a pin name carries one index, "+
+				"so only a one-dimensional array maps to an array pin", name)
+			return
+		}
 		c.errorf(d.Pos, "%s cannot be a HAL pin: %s has no HAL representation. "+
 			"Move it to a VAR section, or use one of BOOL, SINT, INT, DINT, USINT, UINT, UDINT, REAL or LREAL",
 			name, typ)
@@ -373,6 +401,12 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 	}
 
 	def := ""
+	if d.Init != nil && typ.Kind == ast.TypeArray {
+		c.errorf(d.Init.Position(),
+			"array pin %s cannot be given a default in its declaration; "+
+				"set its elements in the body", name)
+		return
+	}
 	if d.Init != nil {
 		if b.Kind == st.VarOutput {
 			c.warnf("%s: initial value on output pin %s is applied once at load; "+
@@ -389,14 +423,33 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 		}
 	}
 
-	c.pkg.Component.Pins = append(c.pkg.Component.Pins, ast.Pin{
+	pin := ast.Pin{
 		Pos:     d.Pos,
 		Name:    name,
 		Type:    halType,
 		Dir:     dir,
 		Default: def,
 		Doc:     attrValue(d.Attrs, "doc"),
-	})
+	}
+	if typ.Kind == ast.TypeArray {
+		pin.ArraySize = typ.Dims[0].Count()
+		// HAL names an array pin's elements by index, and cgen builds that
+		// name from a run of '#' in the pin name -- one per digit.  An .st
+		// declaration carries no such marker, so append one wide enough for
+		// the largest index: ARRAY[0..7] becomes comp.channel.0 .. .7, and
+		// ARRAY[0..99] becomes comp.channel.00 .. .99, so the names sort.
+		pin.Name = name + "." + strings.Repeat("#", digitsFor(pin.ArraySize-1))
+		if typ.Dims[0].Lo != 0 {
+			// A HAL array pin is named comp.pin.0 .. comp.pin.N-1, so a
+			// declared lower bound other than zero would make the ST index and
+			// the pin name disagree -- `ch[1]` would be `comp.ch.0`.  Refuse
+			// rather than let the two drift apart.
+			c.errorf(d.Pos, "array pin %s must start at index 0, not %d: "+
+				"HAL names an array pin's elements %s.0 upwards", name, typ.Dims[0].Lo, name)
+			return
+		}
+	}
+	c.pkg.Component.Pins = append(c.pkg.Component.Pins, pin)
 
 	for _, a := range d.Attrs {
 		if !strings.EqualFold(a.Name, "doc") {
@@ -411,8 +464,32 @@ func (c *checker) bind(sym *symbol) bool {
 		c.errorf(sym.Pos, "%s is already declared at %s", sym.Name, prev.Pos)
 		return false
 	}
+
+	// Shadowing an enumeration constant is refused rather than allowed.  ST is
+	// case-insensitive, so a variable `running` and a constant `RUNNING` are
+	// one name: the declaration would silently change what every later
+	// mention means, and `state := RUNNING` would assign a BOOL.  A shadowed
+	// ordinary variable is fine -- it is only the constant that becomes
+	// unreachable and unmentionable.
+	if prev := c.scope.lookup(sym.Name); prev != nil && prev.Kind == symEnumConst {
+		c.errorf(sym.Pos, "%s would shadow the constant %s of enumeration %s declared at %s; "+
+			"ST identifiers are case-insensitive, so the two are one name",
+			sym.Name, prev.Name, prev.EnumType, prev.Pos)
+		return false
+	}
+
 	c.scope.declare(sym)
 	return true
+}
+
+// digitsFor is how many decimal digits n needs, at least one.
+func digitsFor(n int) int {
+	d := 1
+	for n >= 10 {
+		n /= 10
+		d++
+	}
+	return d
 }
 
 func attrValue(attrs []st.Attribute, name string) string {
@@ -435,8 +512,7 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 	}
 
 	if ref.IsArray() {
-		c.errorf(ref.Pos, "array types are not supported yet; they arrive with phase 4")
-		return ast.Type{}, false
+		return c.resolveArrayType(ref)
 	}
 	if ref.Subrange != nil {
 		c.errorf(ref.Pos, "subrange types are not supported yet; declare %s without the range", ref.Name)
@@ -471,8 +547,88 @@ func (c *checker) resolveType(ref *st.TypeRef) (ast.Type, bool) {
 		return ast.Type{}, false
 	}
 
-	// A name that is not elementary would be a user-defined type, which
-	// arrives with phase 4.  Saying so beats "unknown type".
-	c.errorf(ref.Pos, "unknown type %s; user-defined types arrive with phase 4", ref.Name)
+	// A user-defined type.  An alias resolves to its target, carrying its own
+	// name along for diagnostics; an enumeration or struct resolves to itself.
+	if sym := c.scope.lookup(ref.Name); sym != nil {
+		if sym.Kind != symType {
+			c.errorf(ref.Pos, "%s is a %s, not a type", ref.Name, sym.Kind)
+			return ast.Type{}, false
+		}
+		td := c.pkg.LookupType(ref.Name)
+		if td == nil {
+			return ast.Type{}, false
+		}
+		switch td.Kind {
+		case ast.DefAlias:
+			return td.Alias, true
+		case ast.DefEnum:
+			return ast.Type{Kind: ast.TypeEnum, Ref: td.Name}, true
+		case ast.DefStruct:
+			return ast.Type{Kind: ast.TypeStruct, Ref: td.Name}, true
+		}
+	}
+
+	c.errorf(ref.Pos, "unknown type %s", ref.Name)
 	return ast.Type{}, false
+}
+
+// arrayDimLimit caps how many elements one array may hold.  It is a
+// plausibility limit, not a correctness one: an array of ten million doubles
+// inside an instance struct is a mistake worth catching at compile time rather
+// than at the allocation that fails on a machine.
+const arrayDimLimit = 1 << 20
+
+// resolveArrayType resolves ARRAY[lo..hi, ...] OF elem.
+func (c *checker) resolveArrayType(ref *st.TypeRef) (ast.Type, bool) {
+	elem, ok := c.resolveType(ref.Elem)
+	if !ok {
+		return ast.Type{}, false
+	}
+	if elem.Kind == ast.TypeArray {
+		// `ARRAY[..] OF ARRAY[..] OF T` is the same shape as a
+		// multi-dimensional array; flattening it here keeps one
+		// representation, so indexing and emission have one case to handle.
+		dims := make([]ast.ArrayDim, 0, len(ref.Dims)+len(elem.Dims))
+		outer, dimsOK := c.resolveDims(ref)
+		if !dimsOK {
+			return ast.Type{}, false
+		}
+		dims = append(dims, outer...)
+		dims = append(dims, elem.Dims...)
+		return c.finishArray(ref, dims, *elem.Elem)
+	}
+
+	dims, ok := c.resolveDims(ref)
+	if !ok {
+		return ast.Type{}, false
+	}
+	return c.finishArray(ref, dims, elem)
+}
+
+func (c *checker) finishArray(ref *st.TypeRef, dims []ast.ArrayDim, elem ast.Type) (ast.Type, bool) {
+	t := ast.Type{Kind: ast.TypeArray, Elem: &elem, Dims: dims}
+	if n := t.Elements(); n > arrayDimLimit {
+		c.errorf(ref.Pos, "array of %d elements is too large (the limit is %d)", n, arrayDimLimit)
+		return ast.Type{}, false
+	}
+	return t, true
+}
+
+// resolveDims folds the bounds of each dimension.
+func (c *checker) resolveDims(ref *st.TypeRef) ([]ast.ArrayDim, bool) {
+	dims := make([]ast.ArrayDim, 0, len(ref.Dims))
+	for _, d := range ref.Dims {
+		lo, okLo := c.constOf(d.Lo, ast.Type{Kind: ast.TypeDInt})
+		hi, okHi := c.constOf(d.Hi, ast.Type{Kind: ast.TypeDInt})
+		if !okLo || !okHi {
+			c.errorf(d.Pos, "array bounds must be compile-time constants")
+			return nil, false
+		}
+		if hi < lo {
+			c.errorf(d.Pos, "array bound %d..%d is empty; the bounds are the wrong way round", lo, hi)
+			return nil, false
+		}
+		dims = append(dims, ast.ArrayDim{Lo: int(lo), Hi: int(hi)})
+	}
+	return dims, true
 }

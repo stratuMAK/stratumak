@@ -31,6 +31,12 @@ func mustCheck(t *testing.T, component, src string) *ast.Package {
 	return pkg
 }
 
+// progWith builds just the PROGRAM, for a test that supplies its own leading
+// TYPE block and summary attribute.
+func progWith(decls, body string) string {
+	return "PROGRAM p\nVAR_OUTPUT\n  q : BOOL;\nEND_VAR\n" + decls + "\n" + body + "\nEND_PROGRAM"
+}
+
 // wrap builds a minimal component around a body, with the declarations a test
 // needs in front of it.
 func wrap(decls, body string) string {
@@ -592,11 +598,6 @@ func TestDiagnostics(t *testing.T) {
 
 		// --- staged features, each naming the phase that brings it ---
 		{
-			name: "TYPE declarations",
-			src:  "{attribute 'summary' := 'x'}\nTYPE L : (A, B); END_TYPE\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM",
-			want: "user-defined types arrive with phase 4",
-		},
-		{
 			name: "function blocks",
 			src:  "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK R\n x := 1;\nEND_FUNCTION_BLOCK\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\nq := TRUE;\nEND_PROGRAM",
 			want: "function blocks are not supported yet",
@@ -613,11 +614,114 @@ func TestDiagnostics(t *testing.T) {
 				"PROGRAM b\nVAR_OUTPUT\n r : BOOL;\nEND_VAR\nr := TRUE;\nEND_PROGRAM",
 			want: "more than one PROGRAM is not supported yet",
 		},
+		// --- user-defined types ---
 		{
-			name: "arrays",
-			src:  wrap("VAR\n a : ARRAY[0..3] OF DINT;\nEND_VAR", "q := TRUE;"),
-			want: "array types are not supported yet; they arrive with phase 4",
+			name: "unknown enumeration constant",
+			src:  "{attribute 'summary' := 'x'}\nTYPE L : (A, B); END_TYPE\n" + progWith("VAR\n v : L;\nEND_VAR", "v := C;"),
+			want: "C is not declared",
 		},
+		{
+			name: "enumerations do not mix",
+			src: "{attribute 'summary' := 'x'}\nTYPE L : (A, B); M : (X, Y); END_TYPE\n" +
+				progWith("VAR\n v : L;\nEND_VAR", "v := X;"),
+			want: "cannot assign M to v (L)",
+		},
+		{
+			name: "an enumeration is not an integer",
+			src:  "{attribute 'summary' := 'x'}\nTYPE L : (A, B); END_TYPE\n" + progWith("VAR\n v : L;\n n : DINT;\nEND_VAR", "n := v;"),
+			want: "cannot assign L to n (DINT)",
+		},
+		{
+			name: "colliding enumeration constants",
+			src:  "{attribute 'summary' := 'x'}\nTYPE L : (A, B); M : (B, C); END_TYPE\n" + progWith("", "q := TRUE;"),
+			want: "collides with a constant of enumeration L",
+		},
+		{
+			name: "a variable may not shadow an enumeration constant",
+			src:  "{attribute 'summary' := 'x'}\nTYPE L : (RUNNING, STOPPED); END_TYPE\n" + progWith("VAR\n running : BOOL;\nEND_VAR", "q := TRUE;"),
+			want: "would shadow the constant RUNNING",
+		},
+		{
+			name: "a type that contains itself",
+			src: "{attribute 'summary' := 'x'}\nTYPE P : STRUCT a : P; END_STRUCT; END_TYPE\n" +
+				progWith("", "q := TRUE;"),
+			want: "contains itself, so it has no size",
+		},
+		{
+			name: "unknown struct field",
+			src: "{attribute 'summary' := 'x'}\nTYPE P : STRUCT x : LREAL; END_STRUCT; END_TYPE\n" +
+				progWith("VAR\n p : P;\nEND_VAR", "p.y := 1.0;"),
+			want: "P has no field y",
+		},
+		{
+			name: "field of a non-structure",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "n.x := 1;"),
+			want: "is not a structure",
+		},
+		{
+			name: "duplicate struct field",
+			src: "{attribute 'summary' := 'x'}\nTYPE P : STRUCT x : LREAL; x : DINT; END_STRUCT; END_TYPE\n" +
+				progWith("", "q := TRUE;"),
+			want: "field x is already declared",
+		},
+
+		// --- arrays ---
+		{
+			name: "index outside the declared bounds",
+			src:  progWith("VAR\n a : ARRAY[1..4] OF DINT;\nEND_VAR", "a[5] := 1;"),
+			want: "index 5 is outside 1..4",
+		},
+		{
+			name: "too few subscripts",
+			src:  progWith("VAR\n a : ARRAY[0..1, 0..2] OF DINT;\nEND_VAR", "a[0] := 1;"),
+			want: "needs 2 subscripts, got 1",
+		},
+		{
+			name: "too many subscripts",
+			src:  progWith("VAR\n a : ARRAY[0..3] OF DINT;\nEND_VAR", "a[0, 1] := 1;"),
+			want: "too many subscripts",
+		},
+		{
+			name: "indexing something that is not an array",
+			src:  progWith("VAR\n n : DINT;\nEND_VAR", "n[0] := 1;"),
+			want: "n is not an array",
+		},
+		{
+			name: "a non-integer index",
+			src:  progWith("VAR\n a : ARRAY[0..3] OF DINT;\n f : LREAL;\nEND_VAR", "a[f] := 1;"),
+			want: "array index must be an integer",
+		},
+		{
+			name: "backwards array bounds",
+			src:  progWith("VAR\n a : ARRAY[4..1] OF DINT;\nEND_VAR", "q := TRUE;"),
+			want: "bounds are the wrong way round",
+		},
+		{
+			name: "non-constant array bound",
+			src:  progWith("VAR_INPUT\n n : DINT;\nEND_VAR\nVAR\n a : ARRAY[0..n] OF DINT;\nEND_VAR", "q := TRUE;"),
+			want: "array bounds must be compile-time constants",
+		},
+		{
+			name: "an array is too large to live in an instance",
+			src:  progWith("VAR\n a : ARRAY[0..99999999] OF DINT;\nEND_VAR", "q := TRUE;"),
+			want: "too large",
+		},
+		{
+			name: "a multi-dimensional array pin",
+			src:  progWith("VAR_INPUT\n a : ARRAY[0..1, 0..2] OF DINT;\nEND_VAR", "q := TRUE;"),
+			want: "a pin name carries one index",
+		},
+		{
+			name: "an array pin must start at zero",
+			src:  progWith("VAR_INPUT\n a : ARRAY[1..4] OF DINT;\nEND_VAR", "q := TRUE;"),
+			want: "must start at index 0",
+		},
+		{
+			name: "an aggregate cannot be initialised in its declaration",
+			src:  progWith("VAR\n a : ARRAY[0..3] OF DINT := 0;\nEND_VAR", "q := TRUE;"),
+			want: "is an aggregate",
+		},
+
 		{
 			name: "TIME is named, not merely unknown",
 			src:  wrap("VAR\n t : TIME;\nEND_VAR", "q := TRUE;"),

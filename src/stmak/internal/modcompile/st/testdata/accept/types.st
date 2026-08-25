@@ -29,6 +29,8 @@ PROGRAM types
     ok       : BOOL;
     sum      : DINT;
     scaled   : LREAL;
+    ticked   : UDINT;
+    widened  : UDINT;
   END_VAR
   VAR
     (* No HAL representation: internal only. *)
@@ -42,9 +44,9 @@ PROGRAM types
   ok := flag;
   sum := small + medium + large;
   scaled := precise + temp;
-  ticks := ticks + 1;
+  ticked := ticks + 1;
   wide := large;
   uwide := ularge;
   approx := 1.5;
-  ularge := usmall + umedium;
+  widened := ularge + usmall + umedium;
 END_PROGRAM

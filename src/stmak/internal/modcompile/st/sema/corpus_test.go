@@ -29,11 +29,11 @@ var corpusStatus = map[string]string{
 	"literals": "",
 	"loops":    "",
 
-	// Waiting on phase 4: user-defined types and arrays.
-	"statemachine": "user-defined types arrive with phase 4",
-	"structs":      "user-defined types arrive with phase 4",
-	"types":        "user-defined types arrive with phase 4",
-	"arrays":       "array types are not supported yet",
+	// Lowered by phase 4: user-defined types and arrays.
+	"statemachine": "",
+	"structs":      "",
+	"types":        "",
+	"arrays":       "",
 
 	// Waiting on phase 5: function blocks and functions.
 	"ramplimit": "function blocks are not supported yet",

@@ -45,7 +45,13 @@ type generator struct {
 	// almost every emitter needs.
 	pkg  *ast.Package
 	comp *ast.Component
-	err  error
+
+	// needClamp is set while emitting when a subscript turns out not to fold,
+	// so the range helper is emitted.  The runtime section is emitted before
+	// the bodies, so the decision is taken from anyRuntimeIndex up front and
+	// this only records what actually happened, for the assertion in tests.
+	needClamp bool
+	err       error
 
 	// outName is the path the generated C will be saved as; empty disables
 	// #line emission. line counts newlines written so far, which is what
@@ -65,6 +71,10 @@ func (g *generator) generate() error {
 	g.emitHeader()         // portable framework prologue (both branches)
 	g.emitArchGuardOpen()  // "#if <arch cond>" — opens the real-module branch
 	g.emitModuleIncludes() // user + GMI headers (arch-specific, may be x86-only)
+	if g.hasSTBody() {
+		// Types come before the instance struct, which has members of them.
+		g.emitSTTypedefs()
+	}
 	g.emitInstanceStruct()
 	g.emitFunctionForwards()
 	g.emitUserIncludes() // Extract and emit #include lines first
@@ -72,6 +82,7 @@ func (g *generator) generate() error {
 	if g.hasSTBody() {
 		// An .st contributes lowered statements where a .comp contributes
 		// verbatim C.  Package.Validate guarantees never both.
+		g.needClamp = g.anyRuntimeIndex()
 		g.emitSTRuntime()
 		g.emitSTBodies()
 	} else {
@@ -545,9 +556,12 @@ func (g *generator) emitInstanceStruct() {
 
 	// Variables.
 	for _, v := range g.comp.Variables {
-		if v.Array > 0 {
+		switch {
+		case len(v.Dims) > 0:
+			g.printf("    %s %s%s;\n", v.CType, v.Name, cDims(v.Dims))
+		case v.Array > 0:
 			g.printf("    %s %s[%d];\n", v.CType, v.Name, v.Array)
-		} else {
+		default:
 			g.printf("    %s %s;\n", v.CType, v.Name)
 		}
 	}

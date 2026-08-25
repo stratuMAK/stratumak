@@ -37,6 +37,12 @@ type stFeatures struct {
 	pow       bool // uses **, so needs math.h
 	boundLoop bool // WHILE or REPEAT, so needs the iteration counter
 
+	// clampIndex records that some subscript is not knowable at compile time
+	// and so needs the range helper.  It is discovered during emission rather
+	// than by the pre-scan, because whether a given index folds is exactly the
+	// question the emitter answers.
+	clampIndex bool
+
 	// guards records which division helpers are reached, keyed by the name
 	// suffix ("div_s", "mod_u", ...).  The set has to be exact: the build
 	// runs with -Werror=unused-function, so emitting a helper nothing calls
@@ -93,7 +99,27 @@ func guardName(b *ast.BinaryExpr) (string, bool) {
 // needs somewhere to count faults.
 func (g *generator) needsFaultCounter() bool {
 	f := g.stFeatures()
-	return f.needsGuards() || f.boundLoop
+	return f.needsGuards() || f.boundLoop || g.anyRuntimeIndex()
+}
+
+// anyRuntimeIndex reports whether some subscript is not a compile-time
+// constant, and so will be clamped.
+func (g *generator) anyRuntimeIndex() bool {
+	found := false
+	for i := range g.comp.Functions {
+		walkStmts(g.comp.Functions[i].Body, func(ast.Stmt) {}, func(e ast.Expr) {
+			ix, ok := e.(*ast.IndexExpr)
+			if !ok {
+				return
+			}
+			for _, sub := range ix.Indices {
+				if _, isConst := constInt(sub); !isConst {
+					found = true
+				}
+			}
+		})
+	}
+	return found
 }
 
 // walkStmts calls onStmt for every statement and onExpr for every expression
@@ -180,7 +206,8 @@ const faultLogEvery = 1000
 // no division guard.
 func (g *generator) emitSTRuntime() {
 	f := g.stFeatures()
-	if !f.needsGuards() && !f.boundLoop {
+	f.clampIndex = g.needClamp
+	if !f.needsGuards() && !f.boundLoop && !f.clampIndex {
 		return
 	}
 
@@ -200,6 +227,19 @@ func (g *generator) emitSTRuntime() {
 	g.printf("        STMAK_LOG_ERR(\"%%s (occurrence %%lu)\", what, __n + 1UL);\n")
 	g.printf("    }\n")
 	g.printf("}\n\n")
+
+	if f.clampIndex {
+		// A runtime index is clamped rather than trusted.  The alternative is
+		// an out-of-bounds access inside the real-time process, which corrupts
+		// stmakd rather than the component that caused it -- a component bug
+		// must not become a daemon bug.
+		g.printf("static int __st_idx(inst_t *__comp_inst, int64_t i, int lo, int hi, const char *what) STMAK_NONBLOCKING;\n")
+		g.printf("static int __st_idx(inst_t *__comp_inst, int64_t i, int lo, int hi, const char *what) {\n")
+		g.printf("    if (i < lo) { __st_fault(__comp_inst, what); return 0; }\n")
+		g.printf("    if (i > hi) { __st_fault(__comp_inst, what); return hi - lo; }\n")
+		g.printf("    return (int)(i - lo);\n")
+		g.printf("}\n\n")
+	}
 
 	// Integer division by zero is undefined behaviour and raises SIGFPE,
 	// which kills the whole process rather than the component that caused it.
@@ -288,7 +328,19 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	// rather than corrupting a signal.
 	if len(g.comp.Pins) > 0 {
 		g.printf("    /* Snapshot pins: stable for the whole cycle. */\n")
+		if g.hasArrayPins() {
+			g.printf("    int __pi;\n")
+		}
 		for _, pin := range g.comp.Pins {
+			if pin.ArraySize > 0 {
+				// An array pin is copied element by element.  The loop is
+				// bounded by a constant, so it costs a known handful of loads
+				// and keeps array pins on the same footing as scalar ones.
+				g.printf("    %s %s[%d];\n", halCType(pin.Type), pinLocal(pin.Name), pin.ArraySize)
+				g.printf("    for (__pi = 0; __pi < %d; __pi++) %s[__pi] = (*(__comp_inst->hal->%s[__pi]));\n",
+					pin.ArraySize, pinLocal(pin.Name), toC(pin.Name))
+				continue
+			}
 			qual := ""
 			if pin.Dir == ast.PinIn {
 				qual = "const "
@@ -307,6 +359,11 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 		g.printf("    /* Write pins back. */\n")
 		for _, pin := range g.comp.Pins {
 			if pin.Dir == ast.PinIn {
+				continue
+			}
+			if pin.ArraySize > 0 {
+				g.printf("    for (__pi = 0; __pi < %d; __pi++) (*(__comp_inst->hal->%s[__pi])) = %s[__pi];\n",
+					pin.ArraySize, toC(pin.Name), pinLocal(pin.Name))
 				continue
 			}
 			g.printf("    (*(__comp_inst->hal->%s)) = %s;\n", toC(pin.Name), pinLocal(pin.Name))
@@ -473,7 +530,7 @@ func (e *stEmitter) emitCase(v *ast.CaseStmt, depth int) {
 		g.printf("%sswitch (%s) {\n", in, sel)
 		for _, cl := range v.Clauses {
 			for _, l := range cl.Labels {
-				g.printf("%scase %d:\n", indent(depth+1), l.Lo)
+				g.printf("%scase %s:\n", indent(depth+1), e.caseLabel(v, l.Lo))
 			}
 			e.emitStmts(cl.Body, depth+2)
 			g.printf("%sbreak;\n", indent(depth+2))
@@ -497,9 +554,10 @@ func (e *stEmitter) emitCase(v *ast.CaseStmt, depth int) {
 		var conds []string
 		for _, l := range cl.Labels {
 			if l.IsRange() {
-				conds = append(conds, fmt.Sprintf("(%s >= %d && %s <= %d)", tmp, l.Lo, tmp, l.Hi))
+				conds = append(conds, fmt.Sprintf("(%s >= %s && %s <= %s)",
+					tmp, e.caseLabel(v, l.Lo), tmp, e.caseLabel(v, l.Hi)))
 			} else {
-				conds = append(conds, fmt.Sprintf("(%s == %d)", tmp, l.Lo))
+				conds = append(conds, fmt.Sprintf("(%s == %s)", tmp, e.caseLabel(v, l.Lo)))
 			}
 		}
 		kw := "if"
@@ -519,6 +577,24 @@ func (e *stEmitter) emitCase(v *ast.CaseStmt, depth int) {
 		e.emitStmts(v.Else, depth+1)
 	}
 	g.printf("%s}\n", in)
+}
+
+// caseLabel renders a label value.  Sema folded an enumeration constant to its
+// number, but generated C that says `case 0:` where the source said `case
+// IDLE:` is materially harder to read on a machine, so the name is recovered
+// from the selector's type.
+func (e *stEmitter) caseLabel(v *ast.CaseStmt, value int64) string {
+	t := v.Selector.ExprType()
+	if t.Kind == ast.TypeEnum {
+		if td := e.g.pkg.LookupType(t.Ref); td != nil {
+			for _, k := range td.Consts {
+				if k.Value == value {
+					return enumConstName(td.Name, k.Name)
+				}
+			}
+		}
+	}
+	return strconv.FormatInt(value, 10)
 }
 
 // emitFor emits a counting loop.  ST's limit is inclusive, and the comparison
@@ -648,8 +724,17 @@ func (e *stEmitter) expr(x ast.Expr) string {
 	case *ast.StringLit:
 		return cStringLiteral(v.Value)
 
+	case *ast.EnumLit:
+		return enumConstName(v.Enum, v.Const)
+
 	case *ast.VarRef:
 		return e.varRef(v)
+
+	case *ast.IndexExpr:
+		return e.index(v)
+
+	case *ast.FieldExpr:
+		return fmt.Sprintf("%s.%s", e.expr(v.Base), toC(v.Field))
 
 	case *ast.ConvExpr:
 		return fmt.Sprintf("((%s)%s)", v.Typ.CType(), e.expr(v.X))
@@ -678,6 +763,59 @@ func (e *stEmitter) varRef(v *ast.VarRef) string {
 	}
 	e.g.err = fmt.Errorf("cgen: unknown storage class %v for %s", v.Store, v.Name)
 	return v.Name
+}
+
+// index emits an array subscript.
+//
+// The declared lower bound is subtracted at every site, so ARRAY[1..8] is a C
+// array of eight starting at zero.  An index the compiler could see was
+// checked by sema; one it could not is clamped here, because an out-of-range
+// write inside the real-time process corrupts stmakd rather than the component
+// that caused it.  See docs/dev/MODCOMPILE_ST_FRONTEND.md §4.
+func (e *stEmitter) index(v *ast.IndexExpr) string {
+	arrType := v.Base.ExprType()
+	var b strings.Builder
+	b.WriteString(e.expr(v.Base))
+
+	for i, ix := range v.Indices {
+		if i >= len(arrType.Dims) {
+			break
+		}
+		d := arrType.Dims[i]
+		raw := e.expr(ix)
+
+		if n, ok := constInt(ix); ok {
+			// Sema proved this one is in range, so it needs no check and no
+			// arithmetic: emit the offset directly.
+			fmt.Fprintf(&b, "[%d]", n-int64(d.Lo))
+			continue
+		}
+		e.g.needClamp = true
+		fmt.Fprintf(&b, "[__st_idx(__comp_inst, (int64_t)%s, %d, %d, \"%s\")]",
+			raw, d.Lo, d.Hi, cEscape(indexWhat(v.Base, i)))
+	}
+	return b.String()
+}
+
+// indexWhat names an index site for the fault message, so a clamped write says
+// which array and which dimension rather than only that one happened.
+func indexWhat(base ast.Expr, dim int) string {
+	name := "array"
+	if ref, ok := base.(*ast.VarRef); ok {
+		name = ref.Name
+	}
+	if base.ExprType().Kind == ast.TypeArray && len(base.ExprType().Dims) > 1 {
+		return fmt.Sprintf("%s dimension %d", name, dim+1)
+	}
+	return name
+}
+
+// cEscape makes a Go string safe inside a C string literal.  The names here
+// come from ST identifiers so they are already tame, but a generated literal
+// should never depend on that.
+func cEscape(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	return r.Replace(s)
 }
 
 func (e *stEmitter) binary(v *ast.BinaryExpr) string {
@@ -740,4 +878,72 @@ func realLiteral(v float64, t ast.Type) string {
 		s += "f"
 	}
 	return s
+}
+
+// cDims renders array extents as C declarator brackets: [2][3].
+func cDims(dims []int) string {
+	var b strings.Builder
+	for _, d := range dims {
+		fmt.Fprintf(&b, "[%d]", d)
+	}
+	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// User-defined types
+// ---------------------------------------------------------------------------
+
+// emitSTTypedefs emits the enumeration constants and struct typedefs an ST
+// component declared.  Sema has already ordered them so each is declared
+// before its first use, which is what C requires.
+func (g *generator) emitSTTypedefs() {
+	if len(g.pkg.Types) == 0 {
+		return
+	}
+	g.printf("/* ---------------------------------------------------------------------------\n")
+	g.printf(" * Structured Text types\n")
+	g.printf(" * ------------------------------------------------------------------------- */\n\n")
+
+	for i := range g.pkg.Types {
+		td := &g.pkg.Types[i]
+		switch td.Kind {
+		case ast.DefEnum:
+			// Constants become macros named <ENUM>_<CONST>, which keeps two
+			// enumerations from colliding in C even though sema already
+			// refuses that in ST.
+			g.printf("/* enumeration %s */\n", td.Name)
+			for _, k := range td.Consts {
+				g.printf("#define %s %d\n", enumConstName(td.Name, k.Name), k.Value)
+			}
+			g.printf("\n")
+
+		case ast.DefStruct:
+			g.printf("typedef struct {\n")
+			for _, f := range td.Fields {
+				g.printf("    %s %s%s;\n", f.Typ.CType(), toC(f.Name), cTypeDims(f.Typ))
+			}
+			g.printf("} %s_t;\n\n", td.Name)
+
+		case ast.DefAlias:
+			// An alias resolves away in sema; nothing is emitted for it.  The
+			// name survives only in diagnostics.
+		}
+	}
+}
+
+// enumConstName is the C spelling of an enumeration constant.
+func enumConstName(enum, konst string) string {
+	return strings.ToUpper(toC(enum)) + "_" + strings.ToUpper(toC(konst))
+}
+
+// cTypeDims renders the declarator brackets an array type needs.
+func cTypeDims(t ast.Type) string {
+	if t.Kind != ast.TypeArray {
+		return ""
+	}
+	var b strings.Builder
+	for _, d := range t.Dims {
+		fmt.Fprintf(&b, "[%d]", d.Count())
+	}
+	return b.String()
 }

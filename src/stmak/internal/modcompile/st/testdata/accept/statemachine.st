@@ -17,7 +17,7 @@ PROGRAM statemachine
     reset   : BOOL;
   END_VAR
   VAR_OUTPUT
-    running : BOOL;
+    is_running : BOOL;
     alarm   : BOOL;
   END_VAR
   VAR
@@ -45,6 +45,6 @@ PROGRAM statemachine
     state := FAULTED;
   END_CASE;
 
-  running := state = RUNNING;
+  is_running := state = RUNNING;
   alarm   := state = FAULTED;
 END_PROGRAM
