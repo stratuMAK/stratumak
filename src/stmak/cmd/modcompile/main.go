@@ -57,6 +57,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/cgen"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/comp"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/docgen"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
@@ -399,6 +400,43 @@ func cmodInstallDir() string {
 	return config.EMC2CmodDir
 }
 
+// processSTFile handles an .st source.  Structured Text support is being built
+// in stages; today the frontend can parse, so --parse prints the syntax tree
+// and every other mode says plainly what is missing rather than failing in an
+// unrelated place.
+func processSTFile(path, mode string) error {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	switch mode {
+	case "--parse":
+		file, err := st.Parse(path, string(src))
+		if err != nil {
+			return err
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(file)
+
+	case "--preprocess", "--compile", "--install", "--document", "--view-doc", "--deps":
+		// Parse anyway: a syntax error is worth reporting now, and it is more
+		// useful than the not-implemented message on a file that is also
+		// malformed.
+		if _, err := st.Parse(path, string(src)); err != nil {
+			return err
+		}
+		return fmt.Errorf("%s: Structured Text support is not finished; "+
+			"%s needs the semantic analysis and code generation stages, "+
+			"which are not implemented yet. Only --parse works on .st files today",
+			path, mode)
+
+	default:
+		return fmt.Errorf("%s: %s is not supported for .st files", path, mode)
+	}
+}
+
 // checkCModInstallCollision refuses `--install` when the packaged cmod
 // directory already ships a module of the same name. The launcher refuses to
 // resolve a name found in both cmod directories (see resolveCModule in the
@@ -424,6 +462,14 @@ func checkCModInstallCollision(soName string) error {
 }
 
 func processFile(path, mode, outputFile string) error {
+	// .st sources go through the Structured Text frontend.  Only --parse is
+	// wired up so far: the scanner and parser are done (phase 1), sema and the
+	// statement emitter are not, so there is nothing to generate C from yet.
+	// See docs/dev/MODCOMPILE_ST_FRONTEND.md §6.
+	if strings.HasSuffix(path, ".st") {
+		return processSTFile(path, mode)
+	}
+
 	// Handle raw .c files — only --compile and --install are supported.
 	if strings.HasSuffix(path, ".c") {
 		switch mode {
