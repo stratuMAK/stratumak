@@ -32,6 +32,7 @@ var stLowers = []string{
 	"constants",   // named constants as bounds, limits and labels
 	"documented",  // every documentation field
 	"actions",     // named pieces of a body
+	"params",      // HAL parameters, top level and inside a block
 }
 
 // compile turns one fixture into C.
@@ -751,5 +752,93 @@ func TestSTActionsCostNothingWhenUnused(t *testing.T) {
 	}
 	if !strings.Contains(out, "const bool __pin_in0 =") {
 		t.Error("a component with no actions should still snapshot into plain locals")
+	}
+}
+
+// TestSTParams checks how a HAL parameter reaches the generated C.
+//
+// A parameter is the same shared memory as a pin with no signal able to
+// connect to it, which decides everything below: inst_hal_t holds the storage
+// rather than a pointer to it, so every access is one dereference shallower
+// than a pin's, and the body reads it in place rather than from a snapshot.
+func TestSTParams(t *testing.T) {
+	out := generateST(t, "params")
+
+	// Storage, not a pointer -- the difference a pin's `*` makes.
+	for _, want := range []string{
+		"    stmak_hal_float_t gain;",
+		"    stmak_hal_bit_t active;",
+		"    stmak_hal_float_t lim_ceiling;",
+		"    stmak_hal_s32_t lim_clamped;",
+		"    stmak_hal_float_t *cmd;", // a pin, for contrast
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("inst_hal_t is missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// Registered with HAL's own directions: rw is HAL's to set, ro the
+	// component's.
+	for _, want := range []string{
+		"stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,",
+		"stmak_hal_param_bit_newf(env->hal, STMAK_HAL_RO,",
+		"\"%s.gain\", name);",
+		"\"%s.active\", name);",
+		"\"%s.lim.ceiling\", name);",
+		"\"%s.lim.clamped\", name);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("parameter registration is missing:\n  %s", want)
+		}
+	}
+
+	// A default is applied before registration, whether the declaration sits
+	// at the top level or inside a block.  The block case is the one that has
+	// to be carried out to HAL: the member is loaded from shared memory at
+	// entry, so a value set only on the instance would be overwritten before
+	// the body ever saw it.
+	for _, want := range []string{
+		"    inst->hal->gain = 1.0;",
+		"    inst->hal->lim_ceiling = 100.0;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("parameter default is missing:\n  %s", want)
+		}
+	}
+
+	// The body reads a top-level parameter in place.  It is not snapshotted:
+	// a pin is driven by a thread and could change under the body, while a
+	// parameter is changed by a person typing setp.
+	for _, want := range []string{
+		"(__pin_cmd * (__comp_inst->hal->gain))",
+		"if ((__comp_inst->hal->invert)) {",
+		"(__comp_inst->hal->active) = ((__comp_inst->hal->gain) < 1.0);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("body access to a parameter is missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "__pin_gain") {
+		t.Error("a parameter was snapshotted into a local; only pins are")
+	}
+
+	// A parameter inside a function block is loaded into the instance at entry
+	// and stored back at exit, as a published pin is -- but without the
+	// dereference, because the parameter is the storage.
+	for _, want := range []string{
+		"    __comp_inst->lim.ceiling = (__comp_inst->hal->lim_ceiling);",
+		"    (__comp_inst->hal->lim_clamped) = __comp_inst->lim.hits;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("function block parameter binding is missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+	// An rw parameter is HAL's to write, so it is never stored back; an ro one
+	// is the component's, so it is never loaded.
+	if strings.Contains(out, "(__comp_inst->hal->lim_ceiling) = __comp_inst->lim.ceiling;") {
+		t.Error("an rw parameter was stored back, which would clobber a setp")
+	}
+	if strings.Contains(out, "__comp_inst->lim.hits = (__comp_inst->hal->lim_clamped);") {
+		t.Error("an ro parameter was loaded from HAL, which the component alone writes")
 	}
 }

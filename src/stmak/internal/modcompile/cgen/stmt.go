@@ -374,7 +374,9 @@ func (g *generator) emitSTFunction(fn *ast.Function) {
 	// would fight whichever thread that one runs in.
 	pins := g.ownPinsOf(fn)
 	if len(pins) > 0 || len(fn.PinBindings) > 0 {
-		g.printf("    /* Snapshot pins: stable for the whole cycle. */\n")
+		if len(pins) > 0 {
+			g.printf("    /* Snapshot pins: stable for the whole cycle. */\n")
+		}
 		if anyArrayPin(pins) || anyArrayBinding(fn.PinBindings) {
 			g.printf("    int __pi;\n")
 		}
@@ -498,25 +500,34 @@ func (g *generator) emitBindingStores(fn *ast.Function) {
 	}
 }
 
-// emitBindingCopy moves one published pin between HAL and its instance.
+// emitBindingCopy moves one published pin or parameter between HAL and its
+// instance.
+//
+// The two differ only in how inst_hal_t holds them: a pin is a pointer into
+// shared memory and needs the dereference, a parameter is the storage itself
+// and does not.
 func (g *generator) emitBindingCopy(b ast.PinBinding, load bool) {
 	member := toC(b.Pin)
+	open, shut := "(*(", "))"
+	if b.Param {
+		open, shut = "(", ")"
+	}
 	if b.ArrayOf > 0 {
 		path := strings.Replace(b.Path, "[%d]", "[__pi]", 1)
 		if load {
-			g.printf("    for (__pi = 0; __pi < %d; __pi++) __comp_inst->%s = (*(__comp_inst->hal->%s[__pi]));\n",
-				b.ArrayOf, path, member)
+			g.printf("    for (__pi = 0; __pi < %d; __pi++) __comp_inst->%s = %s__comp_inst->hal->%s[__pi]%s;\n",
+				b.ArrayOf, path, open, member, shut)
 		} else {
-			g.printf("    for (__pi = 0; __pi < %d; __pi++) (*(__comp_inst->hal->%s[__pi])) = __comp_inst->%s;\n",
-				b.ArrayOf, member, path)
+			g.printf("    for (__pi = 0; __pi < %d; __pi++) %s__comp_inst->hal->%s[__pi]%s = __comp_inst->%s;\n",
+				b.ArrayOf, open, member, shut, path)
 		}
 		return
 	}
 	if load {
-		g.printf("    __comp_inst->%s = (*(__comp_inst->hal->%s));\n", b.Path, member)
+		g.printf("    __comp_inst->%s = %s__comp_inst->hal->%s%s;\n", b.Path, open, member, shut)
 		return
 	}
-	g.printf("    (*(__comp_inst->hal->%s)) = __comp_inst->%s;\n", member, b.Path)
+	g.printf("    %s__comp_inst->hal->%s%s = __comp_inst->%s;\n", open, member, shut, b.Path)
 }
 
 func anyArrayBinding(bs []ast.PinBinding) bool {

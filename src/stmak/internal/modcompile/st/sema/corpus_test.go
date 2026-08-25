@@ -55,6 +55,7 @@ var corpusStatus = map[string]string{
 
 	// Named pieces of a body, in both the shapes they take.
 	"actions": "",
+	"params":  "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

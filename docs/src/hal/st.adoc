@@ -61,6 +61,8 @@ The component's name comes from the filename, as it does for a `.comp`. Inside:
 |`PROGRAM` | one exported HAL function
 |`VAR_INPUT` / `VAR_OUTPUT` / `VAR_IN_OUT` | `in` / `out` / `io` pins
 |`VAR` | per-instance state, private to the component
+|`AT %I` / `%Q` / `%IO` | a HAL pin, at any depth
+|`AT %MRW` / `%MR` | a HAL parameter, at any depth
 |`VAR_GLOBAL` | per-instance state shared between the programs of one file
 |`FUNCTION_BLOCK` | a reusable sub-component with state, internal to the file
 |`FUNCTION` | a stateless helper, callable from an expression
@@ -120,6 +122,37 @@ else. An address-shaped clause is refused rather than reinterpreted.
 Inside a `FUNCTION_BLOCK`, an `AT` variable becomes a pin on every instance,
 named by the path that reaches it: an instance `r` of a block declaring
 `pos AT %Q.position` gives `mycomp.r.position`.
+
+== Parameters
+
+A parameter is a value in shared memory that no HAL signal connects to. `%MRW`
+is a tunable you set from outside and the component reads; `%MR` is a
+diagnostic the component writes and you can only read:
+
+[source,pascal]
+----
+PROGRAM mycomp
+  VAR
+    gain      AT %MRW      : LREAL := 1.0;   (* mycomp.gain, rw      *)
+    saturated AT %MR       : BOOL;           (* mycomp.saturated, r  *)
+    err       AT %MR.error : LREAL;          (* mycomp.error, r      *)
+  END_VAR
+----
+
+----
+setp mycomp.gain 2.5
+show param mycomp.*
+----
+
+The `:=` value is the parameter's default, applied when the component loads.
+Everything else works as it does for a pin: the name after the dot renames it,
+and a parameter declared inside a `FUNCTION_BLOCK` becomes one per instance,
+named by the path that reaches it.
+
+An `rw` parameter cannot be assigned in the body, for the same reason an input
+pin cannot: you are its writer. To clamp a tunable, read it and keep the
+clamped value in a `VAR`. A parameter is a single value — there is no array
+form.
 
 == Function blocks
 

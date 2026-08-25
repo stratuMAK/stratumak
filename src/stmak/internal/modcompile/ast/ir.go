@@ -870,6 +870,15 @@ type HALBinding struct {
 
 	Dir  PinDir
 	Type HALType
+
+	// Param marks a binding that reaches a HAL parameter rather than a pin,
+	// from an `AT %MRW` / `%MR` clause.  It is the same shared memory with no
+	// signal able to connect to it, so ParamDir carries HAL's own r/rw while
+	// Dir stays set to the pin direction that moves the value the same way --
+	// rw like an input, r like an output -- which lets everything that only
+	// cares which way the value travels stay as it is.
+	Param    bool
+	ParamDir ParamDir
 }
 
 // FoldsAway reports whether every reference to this declaration was replaced
@@ -906,6 +915,12 @@ type PinBinding struct {
 	// instances, and zero otherwise.  At most one segment may be an array,
 	// because a HAL pin name carries one index.
 	ArrayOf int
+
+	// Param marks a binding onto a HAL parameter rather than a pin.  The two
+	// differ in inst_hal_t: a pin is a pointer into shared memory and a
+	// parameter is the storage itself, so the copy is a dereference for one
+	// and a plain assignment for the other.
+	Param bool
 }
 
 // VarDecl is one declared name inside a VAR block of any flavour.  Which

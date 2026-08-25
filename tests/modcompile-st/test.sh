@@ -5,7 +5,7 @@ set -x
 # module, and must refuse a body that breaks the real-time rules.
 
 # --- these must succeed ---
-for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions; do
+for name in and2 loops statemachine arrays ramplimit fbnest twoprograms atmap actions params; do
     rm -f $name.c $name.so
     modcompile --preprocess $name.st -o $name.c
     if [ $? -ne 0 ]; then
@@ -152,6 +152,62 @@ if grep -q 'advance;' actions.c; then
     exit 1
 fi
 
+# A HAL parameter is a value in shared memory that no signal connects to.  It
+# differs from a pin in inst_hal_t: a pin is a pointer into shared memory, a
+# parameter is the storage itself, so every access is one dereference less.
+if ! grep -q 'stmak_hal_float_t gain;' params.c; then
+    echo 'params.c holds its parameter as a pointer, like a pin'
+    exit 1
+fi
+if ! grep -q 'stmak_hal_float_t \*cmd;' params.c; then
+    echo 'params.c does not hold its pin as a pointer'
+    exit 1
+fi
+# Registered with HAL's own directions, and defaults applied before
+# registration -- including one declared inside a function block, which has to
+# reach HAL rather than only the instance.
+if ! grep -q 'stmak_hal_param_float_newf(env->hal, STMAK_HAL_RW,' params.c; then
+    echo 'params.c did not register an rw parameter'
+    exit 1
+fi
+if ! grep -q 'stmak_hal_param_bit_newf(env->hal, STMAK_HAL_RO,' params.c; then
+    echo 'params.c did not register an r parameter'
+    exit 1
+fi
+if ! grep -q 'inst->hal->lim_ceiling = 100.0;' params.c; then
+    echo "params.c lost a function block parameter's default"
+    exit 1
+fi
+# A parameter inside a block is named by the path that reaches it, exactly as
+# a published pin is.
+for p in '"%s.gain"' '"%s.active"' '"%s.lim.ceiling"' '"%s.lim.clamped"'; do
+    if ! grep -qF "$p" params.c; then
+        echo "params.c is missing the parameter $p"
+        exit 1
+    fi
+done
+# The body reads a parameter in place: a pin is driven by a thread and could
+# change under the body, a parameter is changed by a person typing setp.
+if grep -q '__pin_gain' params.c; then
+    echo 'params.c snapshotted a parameter; only pins are'
+    exit 1
+fi
+# The man page documents parameters as it documents pins.
+rm -f params.9
+modcompile --document params.st -o params.9
+if [ $? -ne 0 ]; then
+    echo 'modcompile failed to document params.st'
+    exit 1
+fi
+if ! grep -q '^\.SH PARAMETERS' params.9; then
+    echo 'params.9 has no PARAMETERS section'
+    exit 1
+fi
+if ! grep -q 'Multiplies the command before limiting' params.9; then
+    echo 'params.9 does not document its parameters'
+    exit 1
+fi
+
 # A man page generated from an .st carries what one generated from a .comp
 # does.  docgen is shared, so this really checks that every field it reads is
 # reachable from ST.
@@ -211,6 +267,13 @@ rm -f bad_action.c
 modcompile --preprocess bad_action.st -o bad_action.c
 if [ $? -eq 0 ]; then
     echo 'modcompile accepted an action that calls itself'
+    exit 1
+fi
+
+rm -f bad_param.c
+modcompile --preprocess bad_param.st -o bad_param.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted an assignment to an rw parameter'
     exit 1
 fi
 

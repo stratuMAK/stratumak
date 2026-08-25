@@ -1104,3 +1104,89 @@ func TestActionDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+// TestParamDiagnostics covers the rules an AT parameter carries.
+//
+// A parameter is a pin with no signal able to connect to it, so the direction
+// rule is the same one pins have: rw is HAL's to set and the component's to
+// read, r the reverse.  What differs is that there is no array form -- a HAL
+// parameter is a single value.
+func TestParamDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		src  string
+		want string
+	}{{
+		name: "assigning an rw parameter",
+		src: wrap("VAR\n gain AT %MRW : LREAL := 1.0;\nEND_VAR",
+			"gain := 2.0;"),
+		want: "it is an rw parameter, which HAL sets and the component reads",
+	}, {
+		name: "an unknown area",
+		src:  wrap("VAR\n gain AT %MX : LREAL;\nEND_VAR", "q := TRUE;"),
+		want: "is a physical address",
+	}, {
+		name: "an area that is neither pin nor parameter",
+		src:  wrap("VAR\n gain AT %Z : LREAL;\nEND_VAR", "q := TRUE;"),
+		want: "unknown HAL area %Z",
+	}, {
+		name: "an array parameter",
+		src:  wrap("VAR\n gains AT %MRW : ARRAY [0..3] OF LREAL;\nEND_VAR", "q := TRUE;"),
+		want: "a HAL parameter is a single value",
+	}, {
+		name: "a type with no HAL representation",
+		src: "{attribute 'summary' := 'x'}\nTYPE P : STRUCT\n a : DINT;\nEND_STRUCT\nEND_TYPE\n" +
+			progWith("VAR\n p AT %MRW : P;\nEND_VAR", "q := TRUE;"),
+		want: "cannot be mapped to a HAL parameter",
+	}, {
+		name: "a non-constant default",
+		src:  wrap("VAR\n n : DINT;\n gain AT %MRW : LREAL := n;\nEND_VAR", "q := TRUE;"),
+		want: "default value of parameter gain must be a compile-time constant",
+	}, {
+		name: "a parameter colliding with a pin",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n ready : BOOL;\nEND_VAR\n" +
+			"VAR\n flag AT %MR.ready : BOOL;\nEND_VAR\nready := TRUE;\nEND_PROGRAM",
+		want: "parameter ready is already declared",
+	}, {
+		name: "assigning an rw parameter from an action",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n q : BOOL;\nEND_VAR\n" +
+			"VAR\n gain AT %MRW : LREAL := 1.0;\nEND_VAR\n" +
+			"go(gain := 2.0);\nACTION go:\n q := TRUE;\nEND_ACTION\nEND_PROGRAM",
+		want: "it is an rw parameter",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.src)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant a message containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestParamAccepted covers what an AT parameter is allowed to do: an r
+// parameter is written by the body, and an rw one is read by it.
+func TestParamAccepted(t *testing.T) {
+	pkg := mustCheck(t, "p", wrap(
+		"VAR\n gain AT %MRW : LREAL := 2.0;\n hits AT %MR.count : DINT;\nEND_VAR",
+		"hits := hits + 1;\nq := gain > 1.0;"))
+
+	if len(pkg.Component.Params) != 2 {
+		t.Fatalf("got %d parameters, want 2", len(pkg.Component.Params))
+	}
+	gain, hits := pkg.Component.Params[0], pkg.Component.Params[1]
+	if gain.Name != "gain" || gain.Dir != ast.ParamRW || gain.Default != "2.0" {
+		t.Errorf("gain = %+v", gain)
+	}
+	// The AT clause renamed it, so the parameter is `count` and the variable
+	// stays `hits`.
+	if hits.Name != "count" || hits.Dir != ast.ParamR {
+		t.Errorf("hits = %+v", hits)
+	}
+	// A parameter is not a pin, and must not be counted as one.
+	if len(pkg.Component.Pins) != 1 {
+		t.Errorf("got %d pins, want only the VAR_OUTPUT", len(pkg.Component.Pins))
+	}
+}

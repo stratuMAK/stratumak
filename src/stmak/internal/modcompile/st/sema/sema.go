@@ -296,6 +296,11 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	// function owning it loads and stores them around its body.
 	c.publishInstancePins(&f, instances)
 	for _, b := range f.PinBindings {
+		if b.Param {
+			// A parameter is not snapshotted, so it is not one of the pins
+			// this function copies around its body.
+			continue
+		}
 		f.Pins = append(f.Pins, b.Pin)
 	}
 
@@ -458,9 +463,14 @@ func (c *checker) declareVar(b *st.VarBlock, d *st.VarDecl) {
 		case b.Kind.IsHAL():
 			c.declarePin(b, d, name, typ, ast.PinDir(-1), "")
 		case d.Located != "":
-			// An explicit mapping: direction and pin name come from the
+			// An explicit mapping: direction and HAL name come from the
 			// clause rather than from which section the variable sits in.
-			if bind := c.bindAT(d.Located, d.Pos, name, typ); bind != nil {
+			bind := c.bindAT(d.Located, d.Pos, name, typ)
+			switch {
+			case bind == nil:
+			case bind.Param:
+				c.declareParam(d, name, typ, bind)
+			default:
 				c.declarePin(b, d, name, typ, bind.Dir, bind.Name)
 			}
 		default:
@@ -544,6 +554,67 @@ func (c *checker) declareLocal(d *st.VarDecl, name string, typ ast.Type, store a
 		}
 	}
 	c.pkg.Component.Variables = append(c.pkg.Component.Variables, v)
+}
+
+// declareParam turns an `AT %MRW` or `AT %MR` declaration into a HAL
+// parameter.  See docs/dev/MODCOMPILE_ST_FRONTEND.md §3.5.
+//
+// A parameter is not snapshotted the way a pin is.  A pin is a pointer into
+// shared memory that a signal drives, so reading it twice in one cycle could
+// see two values; a parameter is the storage itself and is changed by a person
+// typing setp, not by a thread, so the body reads it in place -- which is also
+// what a .comp body does.
+func (c *checker) declareParam(d *st.VarDecl, name string, typ ast.Type, bind *ast.HALBinding) {
+	if !c.claimInstanceName(bind.Name, d.Pos, "parameter") {
+		return
+	}
+	sym := &symbol{
+		Name:  name,
+		Kind:  symVar,
+		Type:  typ,
+		Store: ast.StorageParam,
+		Pos:   d.Pos,
+		// An rw parameter is HAL's to set and the component's to read, which
+		// is the same division an input pin has -- so writing one is refused
+		// for the same reason.  A component that wants to clamp a tunable
+		// reads it and keeps the clamped value in a VAR.
+		Const: bind.ParamDir == ast.ParamRW,
+	}
+	if !c.bind(sym) {
+		return
+	}
+
+	def := ""
+	if d.Init != nil {
+		e := c.checkExpr(d.Init, typ)
+		if e != nil {
+			lit, ok := c.foldToC(e)
+			if !ok {
+				c.errorf(d.Init.Position(),
+					"the default value of parameter %s must be a compile-time constant", name)
+			}
+			def = lit
+		}
+	}
+
+	// The symbol resolves to the parameter's HAL name, because that is what
+	// its member of inst_hal_t is called.
+	sym.Name = bind.Name
+
+	c.pkg.Component.Params = append(c.pkg.Component.Params, ast.Param{
+		Pos:     d.Pos,
+		Name:    bind.Name,
+		Type:    bind.Type,
+		Dir:     bind.ParamDir,
+		Default: def,
+		Doc:     attrValue(d.Attrs, "doc"),
+	})
+
+	for _, a := range d.Attrs {
+		if !strings.EqualFold(a.Name, "doc") {
+			c.warnf("%s: unknown attribute %q on %s, ignored", a.Pos, a.Name, name)
+		}
+	}
 }
 
 // declarePin turns one HAL-facing declaration into a pin.

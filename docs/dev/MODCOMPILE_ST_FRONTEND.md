@@ -380,6 +380,61 @@ check runs last: a program's actions do not exist until the program has been
 checked. Containment cycles are checked separately and much earlier, because
 every pass that walks the instance tree needs that tree to be finite.
 
+### 3.5 HAL parameters
+
+A parameter is a value in shared memory that no signal connects to: `rw` is a
+tunable HAL sets and the component reads, `r` a diagnostic the component writes
+and HAL only reads. 161 declarations across 52 of the shipped components use
+one, so ST needs to be able to declare one.
+
+The spelling is another `AT` area. A parameter differs from a pin in exactly
+one way — no signal may connect to it — so it belongs in the one syntax that
+already means "map this variable onto HAL" rather than in a new construct. IEC
+already has an area letter for memory that is not physical I/O, `%M`, and HAL
+already has words for the two directions, so the clause is `%M` followed by
+HAL's own `rw` or `r`:
+
+```
+PROGRAM pid
+  VAR
+    gain      AT %MRW       : LREAL := 1.0;   (* pid.gain, rw     *)
+    saturated AT %MR        : BOOL;           (* pid.saturated, r *)
+    err       AT %MR.error  : LREAL;          (* pid.error, r     *)
+  END_VAR
+```
+
+The dot-rename rule, the instance path and the name-length check are the pin
+ones unchanged, so a parameter declared inside a `FUNCTION_BLOCK` becomes one
+per instance — `pid.lim.ceiling` — exactly as a published pin does.
+
+**The direction rule is the pin rule.** `rw` moves the value the way `%I` does
+and `r` the way `%Q` does, so an `rw` parameter is refused as an assignment
+target for the same reason an input pin is: it has one writer, and that writer
+is outside. A component that wants to clamp a tunable reads it and keeps the
+clamped value in a `VAR`. This is stricter than `.comp`, where a body can write
+its own `rw` param, and deliberately so — without it, a block-level `rw`
+parameter written by the body would have that write silently overwritten by the
+next cycle's load.
+
+**A parameter is not snapshotted.** §3.3 snapshots pins because a pin is a
+`volatile` pointer into shared memory that a thread drives, so reading it twice
+in one cycle could see two values. A parameter is the storage itself and is
+changed by a person typing `setp`, so the body reads it in place — one
+dereference shallower than a pin, and what a `.comp` body does too. The one
+exception is a parameter inside a function block, which is loaded into the
+instance at entry and stored back at exit like a published pin, because the
+block body reads a plain member; the copy is a plain assignment rather than a
+dereference.
+
+**An initialiser is the HAL default.** It reaches `inst_hal_t` before
+registration, for a block-level declaration as much as a top-level one — a
+value set only on the instance would be overwritten by the entry load before
+the body ever saw it.
+
+**There is no array parameter.** `emitParamCreation` supports one and nothing
+in the shipped tree uses one; ST refuses it by name rather than growing a
+second array-naming path for a case with no demand.
+
 ## 4. Real-time safety policy
 
 These modules run inside the RT process, so a fault here stops the machine
@@ -867,14 +922,6 @@ deliberately not treated that way, since `p.x` on a `p : Point` does mean the
 field.
 
 ## 10. Open items
-
-**HAL parameters.** A parameter is a value in shared memory that no signal
-connects to: `rw` is a tunable the component reads, `r` a diagnostic it writes.
-129 declarations across 44 of the 123 shipped components use one, and ST cannot
-declare one at all. The obvious spelling is another `AT` area — IEC's `%M`
-names memory that is not physical I/O, which is exactly what a parameter is —
-but it needs two directions, and inventing that unilaterally is how a language
-accumulates regret.
 
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding

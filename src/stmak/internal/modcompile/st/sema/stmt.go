@@ -71,6 +71,12 @@ func (c *checker) checkAssign(v *st.AssignStmt) ast.Stmt {
 					"cannot assign to %s: it is an input pin, driven by whatever HAL signal is "+
 						"netted to it. Declare it in VAR_OUTPUT to write it, or in VAR for internal state",
 					sym.Name)
+			case sym.Store == ast.StorageParam:
+				c.errorf(v.Target.Position(),
+					"cannot assign to %s: it is an rw parameter, which HAL sets and the component "+
+						"reads. Use AT %%MR for one the component writes, or read this one into a "+
+						"VAR if you need to clamp it",
+					sym.Name)
 			case sym.Kind == symEnumConst:
 				c.errorf(v.Target.Position(),
 					"cannot assign to %s: it is a constant of enumeration %s", sym.Name, sym.EnumType)

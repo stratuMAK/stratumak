@@ -98,10 +98,14 @@ func (c *checker) checkActionCall(v *st.CallStmt, name string) ast.Stmt {
 		if sym := c.scope.lookup(a.Name); sym != nil && sym.Const {
 			// The same rule an ordinary assignment gets: an input pin has one
 			// writer, and it is the signal netted to it.
-			if sym.Store == ast.StoragePin {
+			switch sym.Store {
+			case ast.StoragePin:
 				c.errorf(a.Pos, "cannot assign to %s: it is an input pin, driven by whatever "+
 					"HAL signal is netted to it", sym.Name)
-			} else {
+			case ast.StorageParam:
+				c.errorf(a.Pos, "cannot assign to %s: it is an rw parameter, which HAL sets "+
+					"and the component reads", sym.Name)
+			default:
 				c.errorf(a.Pos, "cannot assign to %s: it is a constant", sym.Name)
 			}
 			continue

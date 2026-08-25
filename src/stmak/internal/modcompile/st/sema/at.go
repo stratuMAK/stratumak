@@ -20,20 +20,35 @@ import (
 // direction and nothing else, and an address-shaped clause is refused rather
 // than quietly reinterpreted.
 
-// atDirs maps the area letters to a pin direction.
-var atDirs = map[string]ast.PinDir{
-	"I":  ast.PinIn,
-	"Q":  ast.PinOut,
-	"IO": ast.PinIO,
+// atArea is what an AT clause's area letters name.
+type atArea struct {
+	dir   ast.PinDir
+	param bool
+	pdir  ast.ParamDir
+}
+
+// atAreas maps the area letters to what they map onto.
+//
+// A HAL parameter is the same shared memory as a pin with no signal able to
+// connect to it, so IEC's %M -- memory that is not physical I/O -- is the area
+// letter, followed by HAL's own r/rw.  The equivalent pin direction is kept in
+// step with it: rw is HAL's to write and the component's to read, exactly like
+// an input, and r is the reverse.  See §3.5.
+var atAreas = map[string]atArea{
+	"I":   {dir: ast.PinIn},
+	"Q":   {dir: ast.PinOut},
+	"IO":  {dir: ast.PinIO},
+	"MRW": {dir: ast.PinIn, param: true, pdir: ast.ParamRW},
+	"MR":  {dir: ast.PinOut, param: true, pdir: ast.ParamR},
 }
 
 // parseAT reads an AT clause.  The returned name is empty when the clause gave
 // none, meaning the pin takes the variable's own name.
-func (c *checker) parseAT(text string, pos ast.Pos, varName string) (ast.PinDir, string, bool) {
+func (c *checker) parseAT(text string, pos ast.Pos, varName string) (atArea, string, bool) {
 	raw := strings.TrimSpace(text)
 	if !strings.HasPrefix(raw, "%") {
 		c.errorf(pos, "AT needs a HAL direction, as in `%s AT %%Q : ...`", varName)
-		return 0, "", false
+		return atArea{}, "", false
 	}
 	body := raw[1:]
 
@@ -42,30 +57,32 @@ func (c *checker) parseAT(text string, pos ast.Pos, varName string) (ast.PinDir,
 		area, rest = body[:i], body[i+1:]
 	}
 
-	dir, ok := atDirs[strings.ToUpper(area)]
+	spec, ok := atAreas[strings.ToUpper(area)]
 	if !ok {
 		// An address-shaped area is the likely mistake, and worth naming: a
 		// PLC programmer reaches for %QX0.0 by reflex.
 		if looksLikeAddress(area) {
 			c.errorf(pos, "AT %%%s is a physical address; stratuMAK has no address space, "+
-				"so a variable is mapped to a HAL pin by direction instead. "+
-				"Write AT %%I, AT %%Q or AT %%IO, optionally with a pin name after a dot",
+				"so a variable is mapped to HAL by direction instead. "+
+				"Write AT %%I, AT %%Q or AT %%IO for a pin, or AT %%MRW or AT %%MR for a "+
+				"parameter, optionally with a name after a dot",
 				area)
-			return 0, "", false
+			return atArea{}, "", false
 		}
-		c.errorf(pos, "unknown HAL direction %%%s; write AT %%I, AT %%Q or AT %%IO", area)
-		return 0, "", false
+		c.errorf(pos, "unknown HAL area %%%s; write AT %%I, AT %%Q or AT %%IO for a pin, "+
+			"or AT %%MRW or AT %%MR for a parameter", area)
+		return atArea{}, "", false
 	}
 
 	if rest == "" {
-		return dir, varName, true
+		return spec, varName, true
 	}
 	if !isPinName(rest) {
-		c.errorf(pos, "%q is not a usable pin name; use letters, digits and underscores, "+
+		c.errorf(pos, "%q is not a usable HAL name; use letters, digits and underscores, "+
 			"separated by dots", rest)
-		return 0, "", false
+		return atArea{}, "", false
 	}
-	return dir, rest, true
+	return spec, rest, true
 }
 
 // looksLikeAddress reports whether an area reads like IEC's located syntax --
@@ -119,25 +136,38 @@ func isPinName(s string) bool {
 // bindAT resolves an AT clause into a binding, checking that the type can
 // reach a pin at all.
 func (c *checker) bindAT(text string, pos ast.Pos, varName string, typ ast.Type) *ast.HALBinding {
-	dir, pinName, ok := c.parseAT(text, pos, varName)
+	spec, halName, ok := c.parseAT(text, pos, varName)
 	if !ok {
 		return nil
 	}
+	what := "pin"
+	if spec.param {
+		what = "parameter"
+	}
 	if typ.Kind == ast.TypeArray {
+		if spec.param {
+			c.errorf(pos, "%s cannot be mapped with AT: a HAL parameter is a single value, "+
+				"so an array cannot be one", varName)
+			return nil
+		}
 		c.errorf(pos, "%s cannot be mapped with AT: an array maps to an array pin only "+
 			"from a PROGRAM's VAR_INPUT or VAR_OUTPUT", varName)
 		return nil
 	}
 	halType, fit := typ.HALType()
 	if fit == ast.HALFitNone {
-		c.errorf(pos, "%s cannot be mapped to a HAL pin: %s has no HAL representation", varName, typ)
+		c.errorf(pos, "%s cannot be mapped to a HAL %s: %s has no HAL representation",
+			varName, what, typ)
 		return nil
 	}
 	if fit == ast.HALFitLossy {
-		c.warnf("%s: pin %s is REAL; HAL carries it as a double, so a value written by HAL "+
-			"loses precision when read back. Use LREAL for an exact pin", pos, pinName)
+		c.warnf("%s: %s %s is REAL; HAL carries it as a double, so a value written by HAL "+
+			"loses precision when read back. Use LREAL for an exact %s", pos, what, halName, what)
 	}
-	return &ast.HALBinding{Pos: pos, Name: pinName, Dir: dir, Type: halType}
+	return &ast.HALBinding{
+		Pos: pos, Name: halName, Dir: spec.dir, Type: halType,
+		Param: spec.param, ParamDir: spec.pdir,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -216,38 +246,72 @@ func (c *checker) walkInstance(fn *ast.Function, path string, typ ast.Type, pos 
 
 // publishOne creates the pin for one AT member of an instance.
 func (c *checker) publishOne(fn *ast.Function, path string, count int, v ast.VarDecl, pos ast.Pos) {
-	pinName := path + "." + v.HAL.Name
+	halName := path + "." + v.HAL.Name
 	cPath := path + "." + v.Name
 
-	pin := ast.Pin{
-		Pos:  v.HAL.Pos,
-		Name: pinName,
-		Type: v.HAL.Type,
-		Dir:  v.HAL.Dir,
-		Doc:  v.Doc,
+	what := "pin"
+	if v.HAL.Param {
+		what = "parameter"
 	}
-	binding := ast.PinBinding{Pin: pinName, Path: cPath, Dir: v.HAL.Dir}
+
+	binding := ast.PinBinding{Pin: halName, Path: cPath, Dir: v.HAL.Dir, Param: v.HAL.Param}
+	arraySize := 0
 
 	if count > 0 {
-		// The array segment becomes the pin's index, exactly as an array pin's
-		// does: axes.0.position .. axes.3.position.
-		pin.Name = path + "." + strings.Repeat("#", digitsFor(count-1)) + "." + v.HAL.Name
-		pin.ArraySize = count
-		binding.Pin = pin.Name
+		// The array segment becomes the index, exactly as an array pin's does:
+		// axes.0.position .. axes.3.position.
+		halName = path + "." + strings.Repeat("#", digitsFor(count-1)) + "." + v.HAL.Name
+		arraySize = count
+		binding.Pin = halName
 		binding.Path = fmt.Sprintf("%s[%%d].%s", path, v.Name)
 		binding.ArrayOf = count
 	}
 
-	if !c.claimInstanceName(pin.Name, pos, "pin") {
+	if !c.claimInstanceName(halName, pos, what) {
 		return
 	}
-	if n := len(c.component) + 1 + len(pin.Name); n > halNameLimit {
-		c.errorf(pos, "the pin name %s.%s is %d characters, over HAL's limit of %d; "+
-			"shorten the instance or member name", c.component, pin.Name, n, halNameLimit)
+	if n := len(c.component) + 1 + len(halName); n > halNameLimit {
+		c.errorf(pos, "the %s name %s.%s is %d characters, over HAL's limit of %d; "+
+			"shorten the instance or member name", what, c.component, halName, n, halNameLimit)
 		return
 	}
 
-	c.pkg.Component.Pins = append(c.pkg.Component.Pins, pin)
+	// An initialiser on a published member is the HAL default, not just the
+	// instance's: the member is loaded from shared memory at entry, so a value
+	// set only on the instance would be overwritten before the body saw it.
+	def := ""
+	if v.Init != nil {
+		lit, ok := c.foldToC(v.Init)
+		if !ok {
+			c.errorf(v.Pos, "the default value of %s %s must be a compile-time constant",
+				what, halName)
+		}
+		def = lit
+	}
+
+	if v.HAL.Param {
+		c.pkg.Component.Params = append(c.pkg.Component.Params, ast.Param{
+			Pos:       v.HAL.Pos,
+			Name:      halName,
+			Type:      v.HAL.Type,
+			Dir:       v.HAL.ParamDir,
+			ArraySize: arraySize,
+			Default:   def,
+			Doc:       v.Doc,
+		})
+		fn.PinBindings = append(fn.PinBindings, binding)
+		return
+	}
+
+	c.pkg.Component.Pins = append(c.pkg.Component.Pins, ast.Pin{
+		Pos:       v.HAL.Pos,
+		Name:      halName,
+		Type:      v.HAL.Type,
+		Dir:       v.HAL.Dir,
+		ArraySize: arraySize,
+		Default:   def,
+		Doc:       v.Doc,
+	})
 	fn.PinBindings = append(fn.PinBindings, binding)
 }
 
