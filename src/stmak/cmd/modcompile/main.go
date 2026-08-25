@@ -58,6 +58,7 @@ import (
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/comp"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/docgen"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st"
+	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/st/sema"
 	"github.com/stratuMAK/stratumak/src/stmak/internal/pkgreg"
 )
 
@@ -400,6 +401,14 @@ func cmodInstallDir() string {
 	return config.EMC2CmodDir
 }
 
+// componentNameFor derives a component name from a source path, applying the
+// same normalisation .comp gets: HAL component names cannot contain '-', so a
+// filename may use one where the name uses '_'.
+func componentNameFor(path string) string {
+	base := strings.TrimSuffix(filepath.Base(path), ".st")
+	return strings.ReplaceAll(base, "-", "_")
+}
+
 // processSTFile handles an .st source.  Structured Text support is being built
 // in stages; today the frontend can parse, so --parse prints the syntax tree
 // and every other mode says plainly what is missing rather than failing in an
@@ -421,15 +430,24 @@ func processSTFile(path, mode string) error {
 		return enc.Encode(file)
 
 	case "--preprocess", "--compile", "--install", "--document", "--view-doc", "--deps":
-		// Parse anyway: a syntax error is worth reporting now, and it is more
-		// useful than the not-implemented message on a file that is also
-		// malformed.
-		if _, err := st.Parse(path, string(src)); err != nil {
+		// Parse and check anyway.  A real diagnostic about the source is worth
+		// far more than the not-implemented message, and running both stages
+		// means an author can develop a component today and only the final
+		// emission is missing.
+		file, err := st.Parse(path, string(src))
+		if err != nil {
 			return err
 		}
+		pkg, err := sema.Check(componentNameFor(path), file)
+		if err != nil {
+			return err
+		}
+		for _, w := range pkg.Warnings {
+			fmt.Fprintf(os.Stderr, "modcompile: warning: %s\n", w)
+		}
 		return fmt.Errorf("%s: Structured Text support is not finished; "+
-			"%s needs the semantic analysis and code generation stages, "+
-			"which are not implemented yet. Only --parse works on .st files today",
+			"the source parses and type-checks, but %s needs the code generation "+
+			"stage, which is not implemented yet",
 			path, mode)
 
 	default:

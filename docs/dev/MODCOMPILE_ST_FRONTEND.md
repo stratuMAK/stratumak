@@ -273,6 +273,18 @@ runaway loop stalls the servo thread until the watchdog fires. A flat ban was
 considered and rejected as impractical — iterative settling is a real pattern
 and a bounded `WHILE` expresses it more honestly than a `FOR` with a `break`.
 
+A `FOR` needs the same cap whenever its limit or step is *not* a constant.
+`FOR i := 0 TO 7` is bounded by construction; `FOR i := 0 TO count` with `count`
+read from a pin is bounded by nothing better than the integer range, and two
+billion iterations of a servo thread is indistinguishable from a hang. The rule
+is therefore uniform: every loop carries a bound the compiler can see, and
+constant `FOR` bounds are simply the case where it can see one already.
+
+The cap itself has a ceiling of one million. That is not a correctness limit
+but a plausibility one — a loop asking for ten million iterations inside a
+servo cycle has misunderstood where it is running, and saying so at compile
+time beats finding out from the watchdog.
+
 **Dynamic array indices are clamped, never trusted.** A statically-known
 out-of-range index is a compile error. A runtime index is emitted with a clamp
 to the array bounds plus a fault. The alternative is an out-of-bounds write
