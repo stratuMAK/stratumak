@@ -49,6 +49,9 @@ var corpusStatus = map[string]string{
 	// Named constants folding at their use sites, and qualified enumeration
 	// constants -- both found by measuring against a real project.
 	"constants": "",
+
+	// Every documentation field, so the man page can be checked whole.
+	"documented": "",
 }
 
 // TestAcceptCorpusStatus checks every first-party fixture against the ledger.

@@ -227,10 +227,7 @@ func (c *checker) checkFileAttributes() {
 func (c *checker) checkProgram(p *st.ProgramDecl) {
 	c.pkg.Component.Pos = p.Pos
 
-	for _, a := range p.Attrs {
-		c.warnf("%s: attribute %q on a PROGRAM has no meaning; "+
-			"component metadata goes before the first declaration", a.Pos, a.Name)
-	}
+	doc := c.pouAttributes(p.Attrs, "PROGRAM", p.Name)
 
 	c.push()
 	defer c.pop()
@@ -276,6 +273,7 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 		Pos:  p.Pos,
 		Name: fnName,
 		FP:   c.bodyUsesFloat(body),
+		Doc:  doc,
 		Body: body,
 		Pins: pins,
 	}
@@ -289,6 +287,32 @@ func (c *checker) checkProgram(p *st.ProgramDecl) {
 	}
 
 	c.pkg.Component.Functions = append(c.pkg.Component.Functions, f)
+}
+
+// pouAttributes reads the pragmas that head a PROGRAM, FUNCTION_BLOCK or
+// FUNCTION, returning the doc text among them.
+//
+// Only `doc` means anything here.  Component metadata -- summary, licence and
+// the rest -- belongs before the first declaration, because it describes the
+// file rather than one of the things in it; saying so beats ignoring it.
+func (c *checker) pouAttributes(attrs []st.Attribute, kind, name string) string {
+	var doc string
+	for _, a := range attrs {
+		switch {
+		case strings.EqualFold(a.Name, "doc"):
+			if doc != "" {
+				c.errorf(a.Pos, "%s %s already has a doc attribute", kind, name)
+				continue
+			}
+			doc = a.Value
+		case componentAttributes[strings.ToLower(a.Name)] != nil:
+			c.warnf("%s: attribute %q describes the component, not one %s in it; "+
+				"move it before the first declaration", a.Pos, a.Name, kind)
+		default:
+			c.warnf("%s: unknown attribute %q on %s %s, ignored", a.Pos, a.Name, kind, name)
+		}
+	}
+	return doc
 }
 
 // noteInstance records a declared function block instance, which is where a

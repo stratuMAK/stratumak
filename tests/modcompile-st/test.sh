@@ -120,6 +120,32 @@ if ! grep -q '(\*(__comp_inst->hal->x_position)) = __comp_inst->x.pos;' atmap.c;
     exit 1
 fi
 
+# A man page generated from an .st carries what one generated from a .comp
+# does.  docgen is shared, so this really checks that every field it reads is
+# reachable from ST.
+rm -f documented.9
+modcompile --document documented.st -o documented.9
+if [ $? -ne 0 ]; then
+    echo 'modcompile failed to document documented.st'
+    exit 1
+fi
+for section in NAME SYNOPSIS DESCRIPTION FUNCTIONS PINS EXAMPLES 'SEE ALSO' NOTES AUTHOR LICENSE; do
+    if ! grep -q "^\.SH $section" documented.9; then
+        echo "documented.9 has no $section section"
+        exit 1
+    fi
+done
+# Each PROGRAM is documented as its own HAL function, and a pin's doc stays
+# with its pin rather than drifting onto the next one.
+if ! grep -q 'Latches the raw input when strobed' documented.9; then
+    echo 'documented.9 does not document its functions'
+    exit 1
+fi
+if ! grep -q 'Value to latch\.' documented.9; then
+    echo 'documented.9 does not document its pins'
+    exit 1
+fi
+
 # --- these must fail ---
 rm -f bad_unbounded.c
 modcompile --preprocess bad_unbounded.st -o bad_unbounded.c

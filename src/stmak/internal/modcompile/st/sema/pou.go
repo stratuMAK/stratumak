@@ -75,7 +75,8 @@ func (c *checker) declareBlockSignature(b *st.FunctionBlockDecl) {
 	if b.Name == "" {
 		return
 	}
-	def := ast.FunctionBlock{Pos: b.Pos, Name: b.Name, Doc: attrValue(b.Attrs, "doc")}
+	def := ast.FunctionBlock{Pos: b.Pos, Name: b.Name}
+	def.Doc = c.pouAttributes(b.Attrs, "FUNCTION_BLOCK", b.Name)
 
 	// A block's CONSTANTs go into scope as they are declared, so a later
 	// declaration may name one -- `aHist : ARRAY[1..MINUTES_PER_DAY]` is
@@ -224,7 +225,8 @@ func (c *checker) declareFunctionSignature(f *st.FunctionDecl) {
 	if f.Name == "" {
 		return
 	}
-	def := ast.PureFunction{Pos: f.Pos, Name: f.Name, Doc: attrValue(f.Attrs, "doc")}
+	def := ast.PureFunction{Pos: f.Pos, Name: f.Name}
+	def.Doc = c.pouAttributes(f.Attrs, "FUNCTION", f.Name)
 
 	c.push()
 	defer c.pop()

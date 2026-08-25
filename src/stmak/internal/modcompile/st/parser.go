@@ -342,24 +342,55 @@ func (p *parser) parseAttribute(tok Token) (Attribute, bool) {
 	return Attribute{Pos: tok.Pos, Name: name, Value: value}, true
 }
 
-// cutQuoted takes a single-quoted string off the front of s, honouring the ST
-// doubled-quote escape, and returns it with the remainder.
+// cutQuoted takes a single-quoted string off the front of s and returns it with
+// the remainder.
+//
+// It honours the same escapes an ST string literal does -- `$N` for a newline,
+// `$$` for a dollar, `”` or `$'` for a quote -- because a pragma value is a
+// string and a PLC programmer will reach for those.  A man page needs line
+// breaks in its EXAMPLES section, and `$N` is how ST spells one.  A literal
+// newline inside the quotes works too.
 func cutQuoted(s string) (value, rest string, ok bool) {
 	if len(s) == 0 || s[0] != '\'' {
 		return "", s, false
 	}
 	var b strings.Builder
 	for i := 1; i < len(s); i++ {
-		if s[i] != '\'' {
-			b.WriteByte(s[i])
-			continue
-		}
-		if i+1 < len(s) && s[i+1] == '\'' {
-			b.WriteByte('\'')
+		switch s[i] {
+		case '\'':
+			if i+1 < len(s) && s[i+1] == '\'' {
+				b.WriteByte('\'')
+				i++
+				continue
+			}
+			return b.String(), s[i+1:], true
+
+		case '$':
+			if i+1 >= len(s) {
+				return "", s, false
+			}
 			i++
-			continue
+			switch s[i] {
+			case '$', '\'', '"':
+				b.WriteByte(s[i])
+			case 'N', 'n', 'L', 'l':
+				b.WriteByte('\n')
+			case 'R', 'r':
+				b.WriteByte('\r')
+			case 'T', 't':
+				b.WriteByte('\t')
+			case 'P', 'p':
+				b.WriteByte('\f')
+			default:
+				// An unknown escape is kept as written rather than dropped:
+				// a man page macro such as \fB is not an escape here.
+				b.WriteByte('$')
+				b.WriteByte(s[i])
+			}
+
+		default:
+			b.WriteByte(s[i])
 		}
-		return b.String(), s[i+1:], true
 	}
 	return "", s, false
 }
@@ -725,29 +756,28 @@ func (p *parser) parseInitialiser() Expr {
 	return out
 }
 
-// parseVarSections consumes every VAR block at the head of a body.
-func (p *parser) parseVarSections() []*VarBlock {
+// parseVarSections consumes the VAR blocks at the head of a body, gathering any
+// pragma between them into attrs.
+//
+// A pragma *outside* a VAR block belongs to the declaration it heads -- the POU
+// itself -- while one *inside* belongs to the variable it precedes.  That is
+// the same split the file level uses, and it is what lets a PROGRAM carry a
+// doc attribute for its HAL function without the attribute silently becoming
+// the first pin's instead.
+//
+// A pragma that turns out to head the body rather than a VAR section is left
+// alone, since that is how a loop receives its max_iterations bound.
+func (p *parser) parseVarSections(attrs *[]Attribute) []*VarBlock {
 	var out []*VarBlock
 	for {
 		if p.at(Pragma) {
-			// A pragma here attaches to whatever follows.  If that is a VAR
-			// section it belongs to its first declaration; if it is the start
-			// of the body it belongs to the first statement, so rewind and
-			// leave it for the statement parser -- that is how a loop receives
-			// its max_iterations bound.
 			cp := p.mark()
-			save := p.parseAttributes()
+			found := p.parseAttributes()
 			if !p.atVarBlock() {
 				p.reset(cp)
 				return out
 			}
-			b := p.parseVarBlock()
-			if b != nil {
-				if len(b.Decls) > 0 {
-					b.Decls[0].Attrs = append(save, b.Decls[0].Attrs...)
-				}
-				out = append(out, b)
-			}
+			*attrs = append(*attrs, found...)
 			continue
 		}
 		if !p.atVarBlock() {
@@ -772,7 +802,7 @@ func (p *parser) parseProgram(attrs []Attribute) *ProgramDecl {
 		p.accept(KwEndProgram)
 		return nil
 	}
-	d.Vars = p.parseVarSections()
+	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndProgram)
 	p.expect(KwEndProgram)
 	return d
@@ -787,7 +817,7 @@ func (p *parser) parseFunctionBlock(attrs []Attribute) *FunctionBlockDecl {
 		p.accept(KwEndFunctionBlock)
 		return nil
 	}
-	d.Vars = p.parseVarSections()
+	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndFunctionBlock)
 	p.expect(KwEndFunctionBlock)
 	return d
@@ -810,7 +840,7 @@ func (p *parser) parseFunction(attrs []Attribute) *FunctionDecl {
 		p.errorAt(p.tok.Pos,
 			"function %q needs a result type, as in `FUNCTION %s : INT`", d.Name, d.Name)
 	}
-	d.Vars = p.parseVarSections()
+	d.Vars = p.parseVarSections(&d.Attrs)
 	d.Body = p.parseStmtList(KwEndFunction)
 	p.expect(KwEndFunction)
 	return d

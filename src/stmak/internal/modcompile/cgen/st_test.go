@@ -30,6 +30,7 @@ var stLowers = []string{
 	"twoprograms", // phase 6: shared state and several programs
 	"atmap",       // explicit pin mapping with AT
 	"constants",   // named constants as bounds, limits and labels
+	"documented",  // every documentation field
 }
 
 // compile turns one fixture into C.

@@ -557,6 +557,24 @@ rather than dropped, and every `docgen` field reachable from ST.
 *Done when* `modcompile --document ramplimit.st` renders a man page as complete
 as a `.comp` one — pin table, description, author, licence, see-also.
 
+Where a pragma sits decides what it describes, and the rule is the same at
+every level: **outside** a declaration it belongs to the thing it heads,
+**inside** one it belongs to the member it precedes. So metadata before the
+first declaration describes the component, a pragma heading a `PROGRAM`
+documents that program's HAL function, and one inside a `VAR` section documents
+its pin. Getting the middle case wrong is not visibly wrong — the man page
+still renders, with one pin's description silently sitting on another.
+
+A pragma value takes the escapes an ST string literal does, `$N` among them.
+The EXAMPLES section of a man page needs line breaks and `$N` is how ST spells
+one.
+
+HAL **parameters** remain unreachable from ST: there is no spelling for
+`param r` / `param rw`, so the PARAMETERS section is always empty. 44 of the
+123 shipped `.comp` files declare one, so this is a real gap rather than a
+legacy corner — it is listed in §10 rather than settled here, because the
+spelling is a language decision and not a documentation one.
+
 **8. Build wiring and corpus.** `Submakefile` wildcards for `*.st` producing
 both `.so` and `.9`, `cgen/corpus_test.go` extended to sweep `.st` so every
 shipped module is compile-tested, `docs/man/man1/modcompile.1` updated, and an
@@ -748,6 +766,14 @@ deliberately not treated that way, since `p.x` on a `p : Point` does mean the
 field.
 
 ## 10. Open items
+
+**HAL parameters.** A parameter is a value in shared memory that no signal
+connects to: `rw` is a tunable the component reads, `r` a diagnostic it writes.
+129 declarations across 44 of the 123 shipped components use one, and ST cannot
+declare one at all. The obvious spelling is another `AT` area — IEC's `%M`
+names memory that is not physical I/O, which is exactly what a parameter is —
+but it needs two directions, and inventing that unilaterally is how a language
+accumulates regret.
 
 **`ACTION`.** A named sub-body of a POU, written `ACTION name: ... END_ACTION`
 inside the declaring POU and invoked as `POU.name()`. Four files in one
