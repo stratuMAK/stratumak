@@ -633,6 +633,11 @@ throughout, as it did for every phase of the frontend.
   nothing left to decide.
 
   Still refused: a `ptr`, which is opaque by construction.
+- **String concatenation**, and the rest of IEC's string functions. `CONCAT`,
+  `LEFT`, `MID` and the `*_TO_STRING` family all *return* a STRING, which C
+  cannot do, so they need a temporary per call site rather than a shared
+  buffer — nested calls are the common shape and would otherwise collide.
+  Comparison is done and needed none of that.
 - ~~**`THIS`.**~~ Done, and not by making `THIS` a value. A method needs an
   instance and there is always one in scope — `__self`, already a parameter of
   the generated function — so a bare `helper(x := 1)` inside a block's body,

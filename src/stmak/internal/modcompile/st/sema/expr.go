@@ -566,6 +566,14 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 		return c.checkTimeBinary(v, x, y, xt, yt)
 	}
 
+	// Two STRINGs compare whatever their declared lengths: the comparison is
+	// of the characters, and how much room each was given to hold them is not
+	// part of the question.  unify would refuse a STRING[4] against a
+	// STRING[8] because sameType counts the width.
+	if xt.Kind == ast.TypeString && yt.Kind == ast.TypeString && v.Op.IsComparison() {
+		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
+	}
+
 	common, ok := unify(xt, yt)
 	if !ok {
 		c.errorf(v.Pos, "cannot apply %s to %s and %s", v.Op, xt, yt)
@@ -575,10 +583,6 @@ func (c *checker) checkBinary(v *st.BinaryExpr, want ast.Type) ast.Expr {
 	y = c.coerce(y, common)
 
 	if v.Op.IsComparison() {
-		if common.Kind == ast.TypeString {
-			c.errorf(v.Pos, "strings cannot be compared with %s yet", v.Op)
-			return nil
-		}
 		return &ast.BinaryExpr{Pos: v.Pos, Op: v.Op, X: x, Y: y, Typ: ast.Type{Kind: ast.TypeBool}}
 	}
 

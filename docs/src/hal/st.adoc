@@ -657,8 +657,9 @@ compiles is safe to run in a servo thread. Refused, each by name:
   counted and logged rather than passing quietly. It may be a function block
   member, a struct field, an array element or a parameter — though a parameter
   is a view of the caller's characters and cannot be assigned, and no function
-  or method may return one, because C returns no arrays. Comparison and
-  concatenation are not implemented.
+  or method may return one, because C returns no arrays. Two strings compare
+  with `=`, `<>`, `<` and the rest, character by character and regardless of
+  their declared widths. Concatenation is not implemented.
 * the other IEC languages — Ladder, Function Block Diagram and Sequential
   Function Chart
 

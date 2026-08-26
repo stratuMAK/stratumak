@@ -1063,3 +1063,51 @@ func TestSTStringHelperCostsNothingWhenUnused(t *testing.T) {
 			"-Werror=unused-function would reject it")
 	}
 }
+
+// TestSTStringComparison covers comparing two STRINGs.
+//
+// `a = b` in C compares two addresses and is always false, so the characters
+// are compared instead. Declared widths do not enter into it: how much room
+// each was given to hold its characters is not part of the question.
+func TestSTStringComparison(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    same   : BOOL;
+    before : BOOL;
+  END_VAR
+  VAR
+    a : STRING[8]  := 'abc';
+    b : STRING[16] := 'abd';
+  END_VAR
+  same   := a = b;
+  before := a < b;
+END_PROGRAM`)
+
+	for _, want := range []string{
+		"__pin_same = (__st_strcmp((__comp_inst->a), (__comp_inst->b)) == 0)",
+		"__pin_before = (__st_strcmp((__comp_inst->a), (__comp_inst->b)) < 0)",
+		"return (int)(unsigned char)*a - (int)(unsigned char)*b;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// Comparing cannot fault, so a component that only compares must not get
+	// the counter or the reporter -- an emitted __st_fault nothing calls is
+	// -Werror=unused-function, which is how this was found.
+	if strings.Contains(out, "__st_fault") {
+		t.Errorf("string comparison pulled in the fault reporter, which nothing here calls")
+	}
+	if strings.Contains(out, "__st_faults") {
+		t.Error("string comparison pulled in the fault counter")
+	}
+}
+
+// TestSTStringCompareHelperCostsNothingWhenUnused is the -Werror trap.
+func TestSTStringCompareHelperCostsNothingWhenUnused(t *testing.T) {
+	if out := generateST(t, "and2"); strings.Contains(out, "__st_strcmp") {
+		t.Error("a component that compares no strings got the compare helper")
+	}
+}

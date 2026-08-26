@@ -49,6 +49,11 @@ type stFeatures struct {
 	// fails the compile.
 	guards map[string]bool
 
+	// cmpString records that two STRINGs are compared somewhere, so the
+	// compare helper is needed.  Discovered in the same pre-scan and for the
+	// same reason as copyString.
+	cmpString bool
+
 	// copyString records that a STRING is assigned somewhere, so the copy
 	// helper is needed.  Like clampIndex it is discovered during emission,
 	// since it depends on the type of an assignment's target.
@@ -149,6 +154,22 @@ func (g *generator) anyStringAssign() bool {
 				found = true
 			}
 		}, func(ast.Expr) {})
+	}
+	return found
+}
+
+// anyStringCompare reports whether two STRINGs are compared anywhere, and so
+// whether the compare helper is needed.  A pre-scan for the same reason as
+// anyStringAssign: the helper is emitted before the bodies that call it.
+func (g *generator) anyStringCompare() bool {
+	found := false
+	for _, body := range g.allBodies() {
+		walkStmts(body, func(ast.Stmt) {}, func(e ast.Expr) {
+			b, ok := e.(*ast.BinaryExpr)
+			if ok && b.Op.IsComparison() && b.X.ExprType().Kind == ast.TypeString {
+				found = true
+			}
+		})
 	}
 	return found
 }
@@ -275,7 +296,8 @@ func (g *generator) emitSTRuntime() {
 	f := g.stFeatures()
 	f.clampIndex = g.needClamp
 	f.copyString = g.needStrCopy
-	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString {
+	f.cmpString = g.needStrCmp
+	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString && !f.cmpString {
 		return
 	}
 
@@ -287,14 +309,19 @@ func (g *generator) emitSTRuntime() {
 	g.printf(" * fault repeating every cycle must not flood the journal.\n")
 	g.printf(" * ------------------------------------------------------------------------- */\n\n")
 
-	g.printf("#define __ST_FAULT_LOG_EVERY %d\n\n", faultLogEvery)
-	g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) STMAK_NONBLOCKING;\n")
-	g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) {\n")
-	g.printf("    unsigned long __n = __comp_inst->__st_faults++;\n")
-	g.printf("    if ((__n %% __ST_FAULT_LOG_EVERY) == 0) {\n")
-	g.printf("        STMAK_LOG_ERR(\"%%s (occurrence %%lu)\", what, __n + 1UL);\n")
-	g.printf("    }\n")
-	g.printf("}\n\n")
+	// Only where something can fault.  Comparing two strings cannot, and a
+	// component that only does that would carry a counter nothing increments
+	// and a __st_fault nothing calls -- which is -Werror=unused-function.
+	if f.needsGuards() || f.boundLoop || f.clampIndex || f.copyString {
+		g.printf("#define __ST_FAULT_LOG_EVERY %d\n\n", faultLogEvery)
+		g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) STMAK_NONBLOCKING;\n")
+		g.printf("static void __st_fault(inst_t *__comp_inst, const char *what) {\n")
+		g.printf("    unsigned long __n = __comp_inst->__st_faults++;\n")
+		g.printf("    if ((__n %% __ST_FAULT_LOG_EVERY) == 0) {\n")
+		g.printf("        STMAK_LOG_ERR(\"%%s (occurrence %%lu)\", what, __n + 1UL);\n")
+		g.printf("    }\n")
+		g.printf("}\n\n")
+	}
 
 	if f.copyString {
 		// A STRING is a char array, so `b := a` is not an assignment in C.
@@ -311,6 +338,18 @@ func (g *generator) emitSTRuntime() {
 		g.printf("    while (__i < cap - 1 && src[__i] != '\\0') { dst[__i] = src[__i]; __i++; }\n")
 		g.printf("    dst[__i] = '\\0';\n")
 		g.printf("    if (src[__i] != '\\0') __st_fault(__comp_inst, what);\n")
+		g.printf("}\n\n")
+	}
+
+	if f.cmpString {
+		// Character by character, as IEC compares them, returning the sign of
+		// the first difference.  Written out rather than calling strcmp: this
+		// runs in the real-time body, and a loop the compiler can see is one
+		// less thing that has to be taken on trust about libc.
+		g.printf("static int __st_strcmp(const char *a, const char *b) STMAK_NONBLOCKING;\n")
+		g.printf("static int __st_strcmp(const char *a, const char *b) {\n")
+		g.printf("    while (*a != '\\0' && *a == *b) { a++; b++; }\n")
+		g.printf("    return (int)(unsigned char)*a - (int)(unsigned char)*b;\n")
 		g.printf("}\n\n")
 	}
 
@@ -1285,6 +1324,12 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 		}
 		return fmt.Sprintf("((%s)__st_%s(__comp_inst, (%s)%s, (%s)%s))",
 			v.Typ.CType(), name, cast, x, cast, y)
+	}
+
+	if v.Op.IsComparison() && v.X.ExprType().Kind == ast.TypeString {
+		// The characters are compared, not the arrays: `a = b` in C would
+		// compare two addresses and always be false.
+		return fmt.Sprintf("(__st_strcmp(%s, %s) %s 0)", x, y, v.Op.C())
 	}
 
 	op := v.Op.C()

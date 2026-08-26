@@ -56,7 +56,10 @@ type generator struct {
 	// copy helper is emitted.  A STRING is a char array and C has no
 	// assignment for one.
 	needStrCopy bool
-	err         error
+
+	// needStrCmp is set when two STRINGs are compared anywhere.
+	needStrCmp bool
+	err        error
 
 	// outName is the path the generated C will be saved as; empty disables
 	// #line emission. line counts newlines written so far, which is what
@@ -92,6 +95,7 @@ func (g *generator) generate() error {
 		// verbatim C.  Package.Validate guarantees never both.
 		g.needClamp = g.anyRuntimeIndex()
 		g.needStrCopy = g.anyStringAssign()
+		g.needStrCmp = g.anyStringCompare()
 		g.emitSTRuntime()
 		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may
