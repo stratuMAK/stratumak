@@ -51,7 +51,12 @@ type generator struct {
 	// the bodies, so the decision is taken from anyRuntimeIndex up front and
 	// this only records what actually happened, for the assertion in tests.
 	needClamp bool
-	err       error
+
+	// needStrCopy is set when a STRING is assigned anywhere, so the bounded
+	// copy helper is emitted.  A STRING is a char array and C has no
+	// assignment for one.
+	needStrCopy bool
+	err         error
 
 	// outName is the path the generated C will be saved as; empty disables
 	// #line emission. line counts newlines written so far, which is what
@@ -86,6 +91,7 @@ func (g *generator) generate() error {
 		// An .st contributes lowered statements where a .comp contributes
 		// verbatim C.  Package.Validate guarantees never both.
 		g.needClamp = g.anyRuntimeIndex()
+		g.needStrCopy = g.anyStringAssign()
 		g.emitSTRuntime()
 		g.emitFperiodHelper()
 		// Blocks and functions are declared before any is defined, so they may

@@ -48,6 +48,11 @@ type stFeatures struct {
 	// runs with -Werror=unused-function, so emitting a helper nothing calls
 	// fails the compile.
 	guards map[string]bool
+
+	// copyString records that a STRING is assigned somewhere, so the copy
+	// helper is needed.  Like clampIndex it is discovered during emission,
+	// since it depends on the type of an assignment's target.
+	copyString bool
 }
 
 // needsGuards reports whether any division guard is emitted.
@@ -127,7 +132,25 @@ func guardName(b *ast.BinaryExpr) (string, bool) {
 // needs somewhere to count faults.
 func (g *generator) needsFaultCounter() bool {
 	f := g.stFeatures()
-	return f.needsGuards() || f.boundLoop || g.anyRuntimeIndex()
+	// A truncated string copy records one too, so the counter has to exist
+	// wherever the copy helper does.
+	return f.needsGuards() || f.boundLoop || g.anyRuntimeIndex() || g.anyStringAssign()
+}
+
+// anyStringAssign reports whether a STRING is assigned anywhere, and so
+// whether the copy helper is needed.  A pre-scan rather than a discovery
+// during emission, because the helper is emitted before the bodies that call
+// it -- and emitting one nothing calls is -Werror=unused-function.
+func (g *generator) anyStringAssign() bool {
+	found := false
+	for _, body := range g.allBodies() {
+		walkStmts(body, func(s ast.Stmt) {
+			if a, ok := s.(*ast.AssignStmt); ok && a.Target.ExprType().Kind == ast.TypeString {
+				found = true
+			}
+		}, func(ast.Expr) {})
+	}
+	return found
 }
 
 // anyRuntimeIndex reports whether some subscript is not a compile-time
@@ -251,7 +274,8 @@ const faultLogEvery = 1000
 func (g *generator) emitSTRuntime() {
 	f := g.stFeatures()
 	f.clampIndex = g.needClamp
-	if !f.needsGuards() && !f.boundLoop && !f.clampIndex {
+	f.copyString = g.needStrCopy
+	if !f.needsGuards() && !f.boundLoop && !f.clampIndex && !f.copyString {
 		return
 	}
 
@@ -271,6 +295,24 @@ func (g *generator) emitSTRuntime() {
 	g.printf("        STMAK_LOG_ERR(\"%%s (occurrence %%lu)\", what, __n + 1UL);\n")
 	g.printf("    }\n")
 	g.printf("}\n\n")
+
+	if f.copyString {
+		// A STRING is a char array, so `b := a` is not an assignment in C.
+		// Copied within the destination's own size, because the two need not
+		// be the same length: STRING[16] := STRING[80] is a legal ST
+		// assignment and a buffer overrun if taken literally.
+		//
+		// Truncation records a fault rather than passing silently, on the same
+		// grounds as a clamped index: the component carries on, and the
+		// machine's log says what it lost.
+		g.printf("static void __st_strcpy(inst_t *__comp_inst, char *dst, int cap, const char *src, const char *what) STMAK_NONBLOCKING;\n")
+		g.printf("static void __st_strcpy(inst_t *__comp_inst, char *dst, int cap, const char *src, const char *what) {\n")
+		g.printf("    int __i = 0;\n")
+		g.printf("    while (__i < cap - 1 && src[__i] != '\\0') { dst[__i] = src[__i]; __i++; }\n")
+		g.printf("    dst[__i] = '\\0';\n")
+		g.printf("    if (src[__i] != '\\0') __st_fault(__comp_inst, what);\n")
+		g.printf("}\n\n")
+	}
 
 	if f.clampIndex {
 		// A runtime index is clamped rather than trusted.  The alternative is
@@ -689,6 +731,16 @@ func (e *stEmitter) emitStmt(s ast.Stmt, depth int) {
 	switch v := s.(type) {
 	case *ast.AssignStmt:
 		e.lineTo(v.Pos)
+		if v.Target.ExprType().Kind == ast.TypeString {
+			// A STRING is a char array, and C has no assignment for one.
+			// Bounded by the destination, because the two need not be the
+			// same length.
+			dst := e.expr(v.Target)
+			g.printf("%s__st_strcpy(__comp_inst, %s, (int)sizeof(%s), %s, %s);\n",
+				in, dst, dst, e.expr(v.Value),
+				cStringLiteral("assignment to "+assignWhat(v.Target)+" truncated"))
+			return
+		}
 		g.printf("%s%s = %s;\n", in, e.expr(v.Target), e.expr(v.Value))
 
 	case *ast.IfStmt:
@@ -1339,4 +1391,17 @@ func (e *stEmitter) timeConv(v *ast.TimeConvExpr) string {
 	}
 	// An integer target divides in int64: exact, and no double rounding.
 	return fmt.Sprintf("((%s)(%s / (int64_t)%s))", v.Typ.CType(), inner, scale)
+}
+
+// assignWhat names an assignment's target for a runtime fault message.
+func assignWhat(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.VarRef:
+		return v.Name
+	case *ast.FieldExpr:
+		return assignWhat(v.Base) + "." + v.Field
+	case *ast.IndexExpr:
+		return assignWhat(v.Base)
+	}
+	return "a string"
 }

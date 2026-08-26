@@ -607,7 +607,10 @@ compiles is safe to run in a servo thread. Refused, each by name:
   access (`word.0`)
 * the date and time-of-day types — `DATE`, `TIME_OF_DAY`, `DATE_AND_TIME` —
   though `TIME` itself is supported
-* `WSTRING`, and `STRING` on a pin
+* `WSTRING`, and `STRING` on a pin. A `STRING` variable works: it is copied on
+  assignment, bounded by the destination, and a copy that loses characters is
+  counted and logged rather than passing quietly. Comparison and concatenation
+  are not implemented.
 * the other IEC languages — Ladder, Function Block Diagram and Sequential
   Function Chart
 

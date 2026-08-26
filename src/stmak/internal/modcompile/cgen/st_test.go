@@ -1004,3 +1004,62 @@ END_PROGRAM`)
 			"unguarded it is a SIGFPE in the RT thread\n--- generated ---\n%s", out)
 	}
 }
+
+// TestSTStringAssignment is a regression, and the last of the STRING paths.
+//
+// A STRING is a char array, and C has no assignment for one: `b := a` emitted
+// `(inst->b) = (inst->a);`, which does not compile. It is copied instead,
+// bounded by the destination -- IEC assigns a longer string to a shorter one
+// by truncating, so the two need not be the same width -- and a copy that
+// loses characters records a counted fault, on the same terms as a clamped
+// index. Truncation is allowed; silent truncation is not.
+func TestSTStringAssignment(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : DINT;
+  END_VAR
+  VAR
+    small : STRING[4];
+    big   : STRING[40] := 'a much longer string';
+  END_VAR
+  small := big;
+  q := 1;
+END_PROGRAM`)
+
+	// Sized, terminator included, and initialised by copying rather than by
+	// filling every element with the same value.
+	for _, want := range []string{
+		"char small[5];",
+		"char big[41];",
+		`snprintf(inst->big, sizeof(inst->big), "%s", "a much longer string");`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+
+	// The assignment is a bounded copy, sized from the destination.
+	if !strings.Contains(out,
+		"__st_strcpy(__comp_inst, (__comp_inst->small), (int)sizeof((__comp_inst->small)), (__comp_inst->big),") {
+		t.Errorf("string assignment is not a bounded copy\n--- generated ---\n%s", out)
+	}
+	// ...and losing characters is reported rather than passing quietly.
+	if !strings.Contains(out, "if (src[__i] != '\\0') __st_fault(__comp_inst, what);") {
+		t.Error("a truncated copy does not record a fault")
+	}
+	// The helper needs the counter, so it has to exist here even though
+	// nothing else in this component would have asked for one.
+	if !strings.Contains(out, "__st_faults") {
+		t.Error("the fault counter is missing, so the copy helper would not link")
+	}
+}
+
+// TestSTStringHelperCostsNothingWhenUnused is the -Werror trap again.
+func TestSTStringHelperCostsNothingWhenUnused(t *testing.T) {
+	out := generateST(t, "and2")
+	if strings.Contains(out, "__st_strcpy") {
+		t.Error("a component that assigns no string got the copy helper; " +
+			"-Werror=unused-function would reject it")
+	}
+}

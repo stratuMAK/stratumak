@@ -689,6 +689,18 @@ func (c *checker) assign(pos ast.Pos, what string, want ast.Type, value ast.Expr
 		return nil
 	}
 	got := value.ExprType()
+
+	// A STRING assigns to a STRING of any declared length.  IEC copies and
+	// truncates, and refusing it would make the width part of the type in a
+	// way ST does not mean: `s := name` would depend on the two having been
+	// declared the same size.  No conversion node, because a char array is
+	// not cast -- the emitter copies it, bounded by the destination, and
+	// records a counted fault if characters are lost.  Truncation is
+	// therefore not silent, which is the part that matters.
+	if got.Kind == ast.TypeString && want.Kind == ast.TypeString {
+		return value
+	}
+
 	switch convert(got, want) {
 	case convIdentical:
 		return value
