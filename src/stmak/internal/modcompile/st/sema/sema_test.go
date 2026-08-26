@@ -4,6 +4,7 @@
 package sema
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -1878,6 +1879,98 @@ func TestDayAndClockArithmetic(t *testing.T) {
 			_, err := check(t, "p", wrap(decls, tt.body))
 			if err == nil {
 				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestIntegerLiteralExtremes covers the two values at the ends of what a
+// 64-bit word holds.
+//
+// Both were unwritable. The scanner read every literal as a signed int64, but
+// a literal carries no sign -- the minus in `-1` is an operator -- so what it
+// scans is a magnitude, and a magnitude runs to 2^64-1 because a ULINT does.
+// Reading it as signed refused ULINT's largest value outright and refused
+// LINT's lowest for the magnitude it never has.
+func TestIntegerLiteralExtremes(t *testing.T) {
+	decls := "VAR\n lo : LINT;\n hi : ULINT;\n" +
+		" hx : ULINT := 16#FFFFFFFFFFFFFFFF;\n" +
+		" tl : ULINT := ULINT#18446744073709551615;\nEND_VAR"
+
+	pkg := mustCheck(t, "p", wrap(decls,
+		"lo := -9223372036854775808;\nhi := 18446744073709551615;\nq := TRUE;"))
+
+	body := pkg.Component.Functions[0].Body
+	got := map[string]int64{}
+	for _, s := range body {
+		as, ok := s.(*ast.AssignStmt)
+		if !ok {
+			continue
+		}
+		lit, ok := as.Value.(*ast.IntLit)
+		if !ok {
+			continue
+		}
+		got[as.Target.(*ast.VarRef).Name] = lit.Value
+	}
+	if got["lo"] != math.MinInt64 {
+		t.Errorf("LINT's lowest lowered to %d, want %d", got["lo"], int64(math.MinInt64))
+	}
+	// Held as the pattern, which is what the type says it is: read as
+	// unsigned it is the value written, and only ULINT can be here.
+	if uint64(got["hi"]) != math.MaxUint64 {
+		t.Errorf("ULINT's highest lowered to %d, want the pattern of %d",
+			got["hi"], uint64(math.MaxUint64))
+	}
+
+	// The same value written the other two ways a literal can be -- in a
+	// base, and with the type spelled out -- both of which parsed the value
+	// signed as well. Their initialisers reach C verbatim, so what is checked
+	// is the text: unsigned, and suffixed, or a 32-bit long takes it as -1.
+	defaults := map[string]string{}
+	for _, v := range pkg.Component.Variables {
+		defaults[v.Name] = v.Default
+	}
+	for _, name := range []string{"hx", "tl"} {
+		if got := defaults[name]; got != "18446744073709551615ULL" {
+			t.Errorf("%s initialises to %q, want 18446744073709551615ULL", name, got)
+		}
+	}
+}
+
+// TestIntegerLiteralExtremeRefusals covers what is still out of range, and
+// that each says so in terms of the type rather than of the machine.
+func TestIntegerLiteralExtremeRefusals(t *testing.T) {
+	decls := "VAR\n n : DINT;\n big : LINT;\n u : ULINT;\nEND_VAR"
+
+	for _, tt := range []struct{ name, body, want string }{{
+		// The bound printed is ULINT's real one now.  It used to say
+		// 9223372036854775807, which is not where a ULINT stops.
+		name: "negative into an unsigned",
+		body: "u := -1;",
+		want: "-1 is out of range for ULINT (0 to 18446744073709551615)",
+	}, {
+		name: "ULINT's highest into a LINT",
+		body: "big := 18446744073709551615;",
+		want: "out of range for LINT (-9223372036854775808 to 9223372036854775807)",
+	}, {
+		name: "ULINT's highest into a DINT",
+		body: "n := 18446744073709551615;",
+		want: "out of range for DINT (-2147483648 to 2147483647)",
+	}, {
+		// Only one magnitude past int64 has a negative counterpart, and this
+		// is not it.
+		name: "negated, and past LINT's lowest",
+		body: "big := -9223372036854775809;",
+		want: "out of range for every integer type; the lowest is LINT's -9223372036854775808",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", wrap(decls, tt.body+"\nq := TRUE;"))
+			if err == nil {
+				t.Fatalf("expected a diagnostic, got none\n--- source ---\n%s", tt.body)
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)

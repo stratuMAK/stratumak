@@ -288,7 +288,14 @@ type Token struct {
 
 	// Int, Real and Base carry a scanned numeric literal.  Base is 10 unless
 	// the literal was written in another radix (16#FF).
+	//
+	// Int is the two's-complement pattern of the magnitude, not the value: a
+	// literal is written without a sign, since the minus in `-1` is an
+	// operator, so what is scanned runs from 0 to 2^64-1 because a ULINT
+	// does.  Big says the magnitude is past what an int64 holds, and Int then
+	// reads as negative until a type is chosen for it.
 	Int  int64
+	Big  bool
 	Real float64
 	Base int
 

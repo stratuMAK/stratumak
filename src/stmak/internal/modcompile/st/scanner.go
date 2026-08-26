@@ -5,6 +5,7 @@ package st
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -326,7 +327,7 @@ func (s *Scanner) scanNumber(pos ast.Pos) Token {
 				Text: fmt.Sprintf("base-%d literal has no digits", radix),
 			}
 		}
-		v, err := strconv.ParseInt(digits, radix, 64)
+		v, err := strconv.ParseUint(digits, radix, 64)
 		if err != nil {
 			return Token{
 				Kind: Invalid,
@@ -336,7 +337,7 @@ func (s *Scanner) scanNumber(pos ast.Pos) Token {
 		}
 		return Token{
 			Kind: TokIntLit, Pos: pos, Text: s.src[start:s.off],
-			Int: v, Base: radix,
+			Int: int64(v), Big: v > math.MaxInt64, Base: radix,
 		}
 	}
 
@@ -383,11 +384,14 @@ func (s *Scanner) scanNumber(pos ast.Pos) Token {
 		return Token{Kind: TokRealLit, Pos: pos, Text: text, Real: v}
 	}
 
-	v, err := strconv.ParseInt(clean, 10, 64)
+	// Scanned as the magnitude it is: unsigned, so the largest ULINT has a
+	// spelling, and the lowest LINT is reachable as the negation of one.
+	// Reading it as a signed int64 here refused both.
+	v, err := strconv.ParseUint(clean, 10, 64)
 	if err != nil {
 		return Token{Kind: Invalid, Pos: pos, Text: fmt.Sprintf("integer literal %s does not fit in 64 bits", text)}
 	}
-	return Token{Kind: TokIntLit, Pos: pos, Text: text, Int: v, Base: 10}
+	return Token{Kind: TokIntLit, Pos: pos, Text: text, Int: int64(v), Big: v > math.MaxInt64, Base: 10}
 }
 
 // scanString scans a quoted literal.  ST escapes with '$': $' is a quote, $$ a

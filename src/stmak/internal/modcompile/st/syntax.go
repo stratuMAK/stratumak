@@ -440,9 +440,14 @@ type Ident struct {
 // IntLit is an integer literal.  Base records the radix as written so a
 // diagnostic can quote the source spelling.
 type IntLit struct {
-	Pos   ast.Pos
-	Text  string
+	Pos  ast.Pos
+	Text string
+	// Value is the two's-complement pattern of the magnitude the source
+	// wrote, and Big says that magnitude is past what an int64 holds -- in
+	// which case Value reads as negative until a type is chosen. A literal
+	// carries no sign of its own: the minus in `-1` is an operator.
 	Value int64
+	Big   bool
 	Base  int
 }
 

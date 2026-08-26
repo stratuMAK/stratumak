@@ -4,6 +4,7 @@
 package sema
 
 import (
+	"math"
 	"strings"
 
 	"github.com/stratuMAK/stratumak/src/stmak/internal/modcompile/ast"
@@ -179,7 +180,11 @@ func unify(a, b ast.Type) (ast.Type, bool) {
 
 // intRange is the inclusive range of an integer type, used to decide whether
 // an untyped literal fits its context.
-func intRange(k ast.TypeKind) (lo, hi int64, ok bool) {
+// The bounds are split by sign because no single Go type holds both ends of
+// every ST integer: LINT's lowest needs an int64 and ULINT's highest a uint64.
+// Every lower bound is negative or zero and every upper bound is positive, so
+// one of each is exact.
+func intRange(k ast.TypeKind) (lo int64, hi uint64, ok bool) {
 	switch k {
 	case ast.TypeSInt:
 		return -128, 127, true
@@ -196,18 +201,35 @@ func intRange(k ast.TypeKind) (lo, hi int64, ok bool) {
 	case ast.TypeUDInt:
 		return 0, 4294967295, true
 	case ast.TypeULInt:
-		// The upper bound does not fit in an int64.  Every non-negative
-		// int64 is in range, which is all a folded literal can offer.
-		return 0, 9223372036854775807, true
+		return 0, 18446744073709551615, true
 	}
 	return 0, 0, false
 }
 
-// fitsIn reports whether a folded integer value is representable in t.
-func fitsIn(v int64, t ast.Type) bool {
+// fitsIn reports whether an integer value is representable in t.
+//
+// big says v is a magnitude past what an int64 holds, so v is its
+// two's-complement pattern and reads as negative -- only a type whose own
+// upper bound is that large can take it, which is ULINT and nothing else.
+func fitsIn(v int64, big bool, t ast.Type) bool {
 	lo, hi, ok := intRange(t.Kind)
 	if !ok {
 		return false
 	}
-	return v >= lo && v <= hi
+	if big {
+		return hi > math.MaxInt64 && uint64(v) <= hi
+	}
+	if v < 0 {
+		return v >= lo
+	}
+	return uint64(v) <= hi
+}
+
+// litIsBig reports whether a typed literal already holds such a value.
+//
+// Once a type has been chosen the type says it: only ULINT accepts a
+// magnitude past int64, so an unsigned literal whose pattern reads as
+// negative is one of those and nothing else can be.
+func litIsBig(t ast.Type, v int64) bool {
+	return v < 0 && t.IsInteger() && !t.IsSigned()
 }

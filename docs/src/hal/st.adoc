@@ -104,6 +104,12 @@ appear on a pin:
 `REAL` reaches a pin without loss but not back, because HAL carries it as a
 double. The compiler accepts it and says so; use `LREAL` for an exact pin.
 
+An integer literal covers the whole of each type's range, both ends included:
+`-9223372036854775808` is a `LINT` and `18446744073709551615` is a `ULINT`. A
+literal is written without a sign — the minus is an operator — so what the
+compiler reads is a magnitude, and one past what a `LINT` holds is a `ULINT`
+unless something negates it.
+
 === Mapping a pin explicitly
 
 Any variable may name the pin it maps to, which is how a component gets a pin

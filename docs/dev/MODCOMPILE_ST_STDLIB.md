@@ -345,7 +345,8 @@ proves a library block may use another from the same file.
   `FUNCTION_BLOCK` body could not see one at all. They now live with the types.
 - `-32768` was not a writable `INT`. The literal was range-checked before the
   negation folded, so the most negative value of every signed type was
-  unwritable. The sign now folds into the literal first.
+  unwritable. The sign now folds into the literal first. (`LINT`'s lowest
+  needed the scanner fixed as well, which came later — see §9.)
 
 **And one bug in a block**, caught by running it rather than by reading it:
 `F_TRIG`'s `M` must start true. An instance loads with its members zeroed, so
@@ -709,11 +710,26 @@ throughout, as it did for every phase of the frontend.
   calendar for all 213,300 days of that range, and the clock for every second
   of a day on both sides of the epoch.
 
-  Two literals turn out to be unwritable, which is the scanner's limit and not
-  this family's: the magnitude of the most negative `LINT`, and anything above
-  `LINT`'s maximum for a `ULINT`. The scanner parses into an `int64` before
-  the sign is seen. `-9223372036854775807 - 1` reaches the first; the second
-  has no spelling.
+  Writing these out is what turned up two literals that had no spelling at
+  all, since fixed: the magnitude of the most negative `LINT`, and anything
+  above `LINT`'s maximum for a `ULINT`. The scanner read every literal as a
+  signed `int64`, but a literal carries no sign — the minus in `-1` is an
+  operator — so what it scans is a *magnitude*, and a magnitude runs to
+  2^64-1 because a `ULINT` does. It is scanned unsigned now, with a flag
+  saying whether the pattern is past what an `int64` holds; only a `ULINT`
+  takes one that is, and negating one is valid for exactly the magnitude
+  2^63, which is `LINT`'s lowest and the reason the sign folds into a literal
+  at all. `ULINT`'s bound in a diagnostic is its real one now rather than
+  `int64`'s.
+
+  That also needed the C spelling. `-9223372036854775808` is a unary minus
+  applied to a constant a signed `long long` cannot hold, so gcc refuses it
+  under `-Werror`; it is emitted as `(-9223372036854775807LL - 1)`, which is
+  what `<stdint.h>` spells `INT64_MIN` as. A `ULINT` past `int64` is held as
+  the pattern and printed unsigned, because the type is what says which it
+  is — and for the same reason the constant folder declines to fold one:
+  every caller of it wants a value to count or compare with, and the pattern
+  read as signed is not that.
 
   Still open: `STRING_TO_*`. Parsing an integer back is a bounded loop, but a
   float needs `strtod` or a decimal parser written out, and neither has been

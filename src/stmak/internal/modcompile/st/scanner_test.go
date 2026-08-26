@@ -320,3 +320,48 @@ func TestScanBadRadix(t *testing.T) {
 		}
 	}
 }
+
+// TestScanIntegerMagnitude covers the range a literal is scanned over.
+//
+// A literal carries no sign -- the minus in `-1` is an operator -- so what is
+// scanned is a magnitude, and it runs to 2^64-1 because a ULINT does. Reading
+// it as a signed int64 refused ULINT's largest value outright, and refused
+// LINT's lowest for the magnitude it never has.
+func TestScanIntegerMagnitude(t *testing.T) {
+	for _, tt := range []struct {
+		src  string
+		bits int64
+		big  bool
+	}{
+		{"0", 0, false},
+		{"42", 42, false},
+		{"9223372036854775807", 9223372036854775807, false},
+		// LINT's lowest, as the magnitude the unary minus is applied to.
+		{"9223372036854775808", -9223372036854775808, true},
+		{"18446744073709551615", -1, true},
+		// And in a base, which parsed signed as well.
+		{"16#FFFFFFFFFFFFFFFF", -1, true},
+		{"16#7FFFFFFFFFFFFFFF", 9223372036854775807, false},
+	} {
+		t.Run(tt.src, func(t *testing.T) {
+			got := scan(tt.src)
+			if len(got) != 1 || got[0].Kind != TokIntLit {
+				t.Fatalf("%s scanned as %v, want one integer literal", tt.src, kinds(tt.src))
+			}
+			if got[0].Int != tt.bits {
+				t.Errorf("%s has pattern %d, want %d", tt.src, got[0].Int, tt.bits)
+			}
+			if got[0].Big != tt.big {
+				t.Errorf("%s: Big is %v, want %v -- it says whether the pattern reads "+
+					"as the value or has still to be given a type", tt.src, got[0].Big, tt.big)
+			}
+		})
+	}
+
+	// One past what a 64-bit word holds is still refused, and says so.
+	got := scan("18446744073709551616")
+	if len(got) != 1 || got[0].Kind != Invalid ||
+		!strings.Contains(got[0].Text, "does not fit in 64 bits") {
+		t.Errorf("2^64 scanned as %v, want a refusal naming the width", got)
+	}
+}

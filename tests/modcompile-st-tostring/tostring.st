@@ -34,13 +34,12 @@ PROGRAM tostring
   ok[2]  := SINT_TO_STRING(-128) = '-128';
   ok[3]  := INT_TO_STRING(-32768) = '-32768';
   ok[4]  := DINT_TO_STRING(-2147483648) = '-2147483648';
-  (* The most negative LINT, which a naive negation turns into itself.
-     Written as a subtraction because the magnitude on its own is one past
-     what an int64 literal holds. *)
-  ok[5]  := LINT_TO_STRING(-9223372036854775807 - 1) = '-9223372036854775808';
+  (* The most negative LINT, which a naive negation turns into itself, and
+     the largest ULINT, which is past what a signed word holds at all. *)
+  ok[5]  := LINT_TO_STRING(-9223372036854775808) = '-9223372036854775808';
   ok[6]  := USINT_TO_STRING(255) = '255';
   ok[7]  := UDINT_TO_STRING(4294967295) = '4294967295';
-  ok[8]  := ULINT_TO_STRING(9223372036854775807) = '9223372036854775807';
+  ok[8]  := ULINT_TO_STRING(18446744073709551615) = '18446744073709551615';
   ok[9]  := INT_TO_STRING(0) = '0';
 
   (* Six decimals, with the trailing zeros dropped -- so a whole number has

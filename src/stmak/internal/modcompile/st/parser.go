@@ -1652,7 +1652,7 @@ func (p *parser) parsePrimary() Expr {
 
 	case TokIntLit:
 		p.next()
-		return &IntLit{Pos: tok.Pos, Text: tok.Text, Value: tok.Int, Base: tok.Base}
+		return &IntLit{Pos: tok.Pos, Text: tok.Text, Value: tok.Int, Big: tok.Big, Base: tok.Base}
 
 	case TokRealLit:
 		p.next()

@@ -5,6 +5,7 @@ package cgen
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -1138,6 +1139,12 @@ func (e *stEmitter) emitBoundCheck(counter string, max int, kw string, depth int
 func constInt(e ast.Expr) (int64, bool) {
 	switch v := e.(type) {
 	case *ast.IntLit:
+		if v.Typ.IsInteger() && !v.Typ.IsSigned() && v.Typ.Bits() == 64 && v.Value < 0 {
+			// A ULINT past what an int64 holds.  Callers here want a value to
+			// count or compare with, and the pattern read as signed is not
+			// one.
+			return 0, false
+		}
 		return v.Value, true
 	case *ast.ConvExpr:
 		return constInt(v.X)
@@ -1433,6 +1440,18 @@ func (e *stEmitter) binary(v *ast.BinaryExpr) string {
 // intLiteral renders an integer with the suffix its type needs, so a value is
 // never silently narrowed by C's own literal typing.
 func intLiteral(v int64, t ast.Type) string {
+	if t.IsInteger() && !t.IsSigned() && t.Bits() == 64 && v < 0 {
+		// A ULINT past what an int64 holds: the value is the pattern read the
+		// way the type says, so the largest one is 18446744073709551615 and
+		// not -1.  No other type can be here -- every narrower unsigned one
+		// was range-checked against a bound an int64 holds.
+		return strconv.FormatUint(uint64(v), 10) + "ULL"
+	}
+	if v == math.MinInt64 {
+		// Nothing narrower could hold it, so the type is a 64-bit signed one
+		// or a count of nanoseconds, and both want the same spelling.
+		return ast.MinInt64Literal
+	}
 	s := strconv.FormatInt(v, 10)
 	switch {
 	case t.Kind == ast.TypeTime, t.Kind == ast.TypeDateTime,

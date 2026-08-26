@@ -11,7 +11,7 @@ names=(
     "SINT_TO_STRING at its lowest" "INT_TO_STRING at its lowest"
     "DINT_TO_STRING at its lowest" "LINT_TO_STRING at its lowest"
     "USINT_TO_STRING at its highest" "UDINT_TO_STRING at its highest"
-    "ULINT_TO_STRING of a large value" "INT_TO_STRING(0)"
+    "ULINT_TO_STRING at its highest" "INT_TO_STRING(0)"
     "LREAL_TO_STRING(1.5)" "LREAL_TO_STRING(2.0)"
     "LREAL_TO_STRING(-0.5)" "LREAL_TO_STRING(-12.25)" "REAL_TO_STRING(0.0)"
     "TIME_TO_STRING(T#1m30s)" "TIME_TO_STRING(T#0s)"

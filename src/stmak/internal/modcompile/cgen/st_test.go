@@ -1377,3 +1377,46 @@ END_PROGRAM`)
 		t.Error("the float writer keeps its trailing zeros")
 	}
 }
+
+// TestSTExtremeIntegerLiterals covers how the ends of a 64-bit word reach C.
+//
+// C has no literal for the most negative int64: 9223372036854775808 is past
+// what a signed long long holds, so -9223372036854775808 is a unary minus on
+// an unsigned constant and gcc refuses it under -Werror. And a ULINT above
+// int64 is held as the pattern, which reads as -1 unless the type is asked.
+// Both spellings have to be right in the body and in the initialiser, which
+// are separate emitters.
+func TestSTExtremeIntegerLiterals(t *testing.T) {
+	out := generateSTSource(t, `{attribute 'summary' := 'x'}
+PROGRAM p
+  VAR_OUTPUT
+    q : BOOL;
+  END_VAR
+  VAR
+    lo : LINT := -9223372036854775808;
+    hi : ULINT := 18446744073709551615;
+    a : LINT;
+    b : ULINT;
+  END_VAR
+  a := -9223372036854775808;
+  b := 18446744073709551615;
+  q := TRUE;
+END_PROGRAM`)
+
+	for _, want := range []string{
+		// The initialisers, emitted verbatim into the loader.
+		"inst->lo = (-9223372036854775807LL - 1);",
+		"inst->hi = 18446744073709551615ULL;",
+		// And the body, which renders literals through its own path.
+		"(__comp_inst->a) = (-9223372036854775807LL - 1);",
+		"(__comp_inst->b) = 18446744073709551615ULL;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing:\n  %s\n--- generated ---\n%s", want, out)
+		}
+	}
+	// The spelling C rejects must appear nowhere.
+	if strings.Contains(out, "-9223372036854775808") {
+		t.Error("emitted -9223372036854775808, which C reads as a minus on an unsigned constant")
+	}
+}

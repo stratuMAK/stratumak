@@ -5,6 +5,7 @@ package sema
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -62,7 +63,7 @@ func (c *checker) checkExpr(e st.Expr, want ast.Type) ast.Expr {
 // `x : SINT := 300` is refused with the range that made it impossible.
 func (c *checker) checkIntLit(v *st.IntLit, want ast.Type) ast.Expr {
 	if want.IsInteger() {
-		if !fitsIn(v.Value, want) {
+		if !fitsIn(v.Value, v.Big, want) {
 			lo, hi, _ := intRange(want.Kind)
 			c.errorf(v.Pos, "%s is out of range for %s (%d to %d)", v.Text, want, lo, hi)
 			return nil
@@ -70,10 +71,25 @@ func (c *checker) checkIntLit(v *st.IntLit, want ast.Type) ast.Expr {
 		return &ast.IntLit{Pos: v.Pos, Value: v.Value, Typ: want}
 	}
 	if want.IsFloat() {
-		return &ast.RealLit{Pos: v.Pos, Value: float64(v.Value), Typ: want}
+		return &ast.RealLit{Pos: v.Pos, Value: litFloat(v.Value, v.Big), Typ: want}
 	}
-	// No usable context: DINT is the default integer, as in most ST dialects.
-	return &ast.IntLit{Pos: v.Pos, Value: v.Value, Typ: ast.Type{Kind: ast.TypeDInt}}
+	// No usable context: DINT is the default integer, as in most ST dialects
+	// -- except for a magnitude past what an int64 holds, which is a ULINT
+	// and can be nothing else.
+	typ := ast.Type{Kind: ast.TypeDInt}
+	if v.Big {
+		typ = ast.Type{Kind: ast.TypeULInt}
+	}
+	return &ast.IntLit{Pos: v.Pos, Value: v.Value, Typ: typ}
+}
+
+// litFloat is a literal's value as a float, reading the pattern the way its
+// magnitude says rather than the way an int64 would.
+func litFloat(v int64, big bool) float64 {
+	if big {
+		return float64(uint64(v))
+	}
+	return float64(v)
 }
 
 func (c *checker) checkRealLit(v *st.RealLit, want ast.Type) ast.Expr {
@@ -166,12 +182,12 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 		return &ast.RealLit{Pos: v.Pos, Value: f, Typ: typ}
 	}
 
-	n, err := parseIntBody(v.Body)
+	n, big, err := parseIntBody(v.Body)
 	if err != nil {
 		c.errorf(v.Pos, "%s is not a valid %s value", v.Body, v.Prefix)
 		return nil
 	}
-	if !fitsIn(n, typ) {
+	if !fitsIn(n, big, typ) {
 		lo, hi, _ := intRange(kind)
 		c.errorf(v.Pos, "%s is out of range for %s (%d to %d)", v.Body, v.Prefix, lo, hi)
 		return nil
@@ -181,16 +197,23 @@ func (c *checker) checkTypedLit(v *st.TypedLit) ast.Expr {
 
 // parseIntBody reads the numeric body of a typed literal, which may itself be
 // written in a base: UDINT#16#DEAD_BEEF.
-func parseIntBody(body string) (int64, error) {
+//
+// Unsigned, like the scanner's own: the body is a magnitude and runs to
+// 2^64-1, so ULINT#18446744073709551615 has a spelling.  It reports whether
+// the magnitude is past what an int64 holds.
+func parseIntBody(body string) (int64, bool, error) {
 	body = strings.ReplaceAll(body, "_", "")
+	radix := 10
 	if i := strings.IndexByte(body, '#'); i >= 0 {
-		radix, err := strconv.Atoi(body[:i])
+		var err error
+		radix, err = strconv.Atoi(body[:i])
 		if err != nil || radix < 2 || radix > 36 {
-			return 0, fmt.Errorf("bad radix")
+			return 0, false, fmt.Errorf("bad radix")
 		}
-		return strconv.ParseInt(body[i+1:], radix, 64)
+		body = body[i+1:]
 	}
-	return strconv.ParseInt(body, 10, 64)
+	v, err := strconv.ParseUint(body, radix, 64)
+	return int64(v), v > math.MaxInt64, err
 }
 
 // checkIdent resolves a name.
@@ -625,6 +648,21 @@ func (c *checker) checkUnary(v *st.UnaryExpr, want ast.Type) ast.Expr {
 			// written any other way: INT runs -32768 to 32767, so 32768 does
 			// not fit on its own and `-32768` would be refused for the
 			// magnitude it never has.
+			if lit.Big {
+				// A magnitude past what an int64 holds.  Exactly one of them
+				// has a negative counterpart -- 2^63, which is LINT's lowest
+				// -- and it is the case this whole fold exists for.
+				if uint64(lit.Value) != 1<<63 {
+					c.errorf(lit.Pos, "-%s is out of range for every integer type; "+
+						"the lowest is LINT's %d", lit.Text, int64(math.MinInt64))
+					return nil
+				}
+				return c.checkIntLit(&st.IntLit{
+					Pos:   lit.Pos,
+					Value: math.MinInt64,
+					Text:  "-" + lit.Text,
+				}, want)
+			}
 			return c.checkIntLit(&st.IntLit{
 				Pos:   lit.Pos,
 				Value: -lit.Value,
@@ -683,12 +721,13 @@ func (c *checker) coerce(e ast.Expr, t ast.Type) ast.Expr {
 	// emit the literal at the right type, not a cast of a double.
 	switch lit := e.(type) {
 	case *ast.IntLit:
-		if t.IsInteger() && fitsIn(lit.Value, t) {
+		big := litIsBig(lit.Typ, lit.Value)
+		if t.IsInteger() && fitsIn(lit.Value, big, t) {
 			lit.Typ = t
 			return lit
 		}
 		if t.IsFloat() {
-			return &ast.RealLit{Pos: lit.Pos, Value: float64(lit.Value), Typ: t}
+			return &ast.RealLit{Pos: lit.Pos, Value: litFloat(lit.Value, big), Typ: t}
 		}
 	case *ast.RealLit:
 		if t.IsFloat() {
@@ -748,6 +787,12 @@ func (c *checker) assign(pos ast.Pos, what string, want ast.Type, value ast.Expr
 func foldInt(e ast.Expr) (int64, bool) {
 	switch v := e.(type) {
 	case *ast.IntLit:
+		if litIsBig(v.Typ, v.Value) {
+			// A ULINT past what an int64 holds.  Every caller here treats the
+			// answer as the value -- an array bound, a divisor, a count of
+			// characters -- and the pattern read as signed is not it.
+			return 0, false
+		}
 		return v.Value, true
 	case *ast.EnumLit:
 		// An enumeration constant is a compile-time value, which is what lets
@@ -848,7 +893,17 @@ func (c *checker) foldToC(e ast.Expr) (string, bool) {
 	case *ast.StringLit:
 		return strconv.Quote(v.Value), true
 	}
+	if lit, ok := e.(*ast.IntLit); ok && litIsBig(lit.Typ, lit.Value) {
+		// foldInt declines this one, so it is handled before: the pattern is
+		// the value once the type says it is unsigned.
+		return strconv.FormatUint(uint64(lit.Value), 10) + "ULL", true
+	}
 	if n, ok := foldInt(e); ok {
+		if n == math.MinInt64 {
+			// C has no literal for it, and the initialiser is emitted
+			// verbatim, so the spelling has to be one a compiler takes.
+			return ast.MinInt64Literal, true
+		}
 		s := strconv.FormatInt(n, 10)
 		switch e.ExprType().Kind {
 		case ast.TypeTime, ast.TypeDateTime, ast.TypeDate, ast.TypeTimeOfDay:

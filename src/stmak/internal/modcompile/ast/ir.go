@@ -109,6 +109,15 @@ func (k TypeKind) String() string {
 // DefaultStringLen is the STRING length used when a declaration gives none.
 const DefaultStringLen = 80
 
+// MinInt64Literal is how C spells the most negative int64.
+//
+// C has no literal for it: 9223372036854775808 is past what a signed long long
+// holds, so `-9223372036854775808` is a unary minus applied to an unsigned
+// constant, and gcc refuses that under -Werror. Subtracting from the largest
+// magnitude that does fit is the way round it, and is what <stdint.h> spells
+// INT64_MIN as.
+const MinInt64Literal = "(-9223372036854775807LL - 1)"
+
 // MaxStringLen bounds the buffer a string function's result is built in.
 //
 // It is CODESYS's own limit -- a CONCAT there produces a STRING(255) whatever
