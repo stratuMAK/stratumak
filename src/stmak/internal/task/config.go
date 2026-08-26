@@ -408,8 +408,23 @@ func loadJoint(ini *inifile.IniFile, t *Task, joint int32, mc MotionConfig) erro
 	if lockingIndexer != 0 {
 		flags |= 8 // HOME_UNLOCK_FIRST
 	}
-	if absoluteEncoder != 0 {
+	// HOME_ABSOLUTE_ENCODER selects between two distinct behaviours; folding
+	// them into one flag makes 2 behave like 1 and moves the joint. Mapping
+	// follows the reference implementation (emc/task/taskintf.cc).
+	switch absoluteEncoder {
+	case 0:
+	case 1:
+		// Position is taken from HOME_OFFSET, then a final move to HOME runs.
 		flags |= 16 // HOME_ABSOLUTE_ENCODER
+		flags |= 32 // HOME_NO_REHOME
+	case 2:
+		// As above, but the joint must not move at all.
+		flags |= 16 // HOME_ABSOLUTE_ENCODER
+		flags |= 32 // HOME_NO_REHOME
+		flags |= 64 // HOME_NO_FINAL_MOVE
+	default:
+		return fmt.Errorf("joint %d: unknown HOME_ABSOLUTE_ENCODER value %d (expected 0, 1 or 2)",
+			joint, absoluteEncoder)
 	}
 	if noEncoderReset != 0 {
 		flags |= 128 // HOME_INDEX_NO_ENCODER_RESET
