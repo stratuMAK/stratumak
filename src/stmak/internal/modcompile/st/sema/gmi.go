@@ -304,18 +304,6 @@ func (c *checker) checkMethodMatches(pos ast.Pos, api *gmiast.API, f *gmiast.Fun
 				api.Name, f.Name, p.Name)
 			return
 		}
-		if p.Type.Kind == gmiast.TypePrimitive && p.Type.Name == "string" {
-			// The callback hands over a pointer into the caller's memory, and
-			// an ST STRING is a value with a fixed size.  Receiving one means
-			// a bounded copy and a rule for what happens when it does not fit,
-			// and that is a decision to make deliberately rather than in a
-			// thunk.  Consuming an interface that takes strings is unaffected.
-			c.errorf(m.Pos, "%s.%s takes the string %s, and a provider written in "+
-				"Structured Text cannot receive one: the interface passes a pointer "+
-				"into the caller's memory, and a STRING here is a value of fixed size",
-				api.Name, f.Name, p.Name)
-			return
-		}
 		typ, ctype, err := gmiType(api, p.Type)
 		if err != nil {
 			c.errorf(m.Pos, "%s.%s parameter %s: %s", api.Name, f.Name, p.Name, err)

@@ -624,12 +624,15 @@ throughout, as it did for every phase of the frontend.
   rather than approximated. A string reaches the callback as `const char *`
   and an ST STRING is a char array, so passing one costs nothing.
 
-  Still refused: a `ptr`, which is opaque by construction; and a **provider**
-  receiving a string, because the interface hands over a pointer into the
-  caller's memory while a STRING here is a value of fixed size — receiving one
-  means a bounded copy and a rule for what happens when it does not fit, which
-  is a decision to make deliberately rather than in a thunk. Consuming an
-  interface that takes strings is unaffected, which is the common direction.
+  A provider receiving one works too, though it was refused at first. The
+  reason given was that the interface hands over a pointer into the caller's
+  memory while a STRING here is a value of fixed size, so receiving one would
+  mean a bounded copy and a truncation rule. That stopped being true when a
+  STRING parameter became `const char *` and read-only — which is exactly what
+  the callback provides, so the thunk hands the pointer over and there is
+  nothing left to decide.
+
+  Still refused: a `ptr`, which is opaque by construction.
 - ~~**`THIS`.**~~ Done, and not by making `THIS` a value. A method needs an
   instance and there is always one in scope — `__self`, already a parameter of
   the generated function — so a bare `helper(x := 1)` inside a block's body,
