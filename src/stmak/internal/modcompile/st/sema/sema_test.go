@@ -1506,3 +1506,62 @@ func TestBlocksOrderedByContainment(t *testing.T) {
 
 // walkStmtsFor visits every statement of a body, including nested ones.
 func walkStmtsFor(body []ast.Stmt, f func(ast.Stmt)) { walkBody(body, f) }
+
+// TestHALNameLength covers the limit HAL stores a name in.
+//
+// Truncation is the failure worth preventing: two pins differing only past the
+// limit become one on the machine, and nothing says so. The check used to
+// exist only for a pin published along an instance path -- the case that grows
+// without anyone noticing -- and not for a POU's own, which is the one an
+// author is more likely to write.
+func TestHALNameLength(t *testing.T) {
+	long := func(n int) string { return strings.Repeat("z", n) }
+
+	for _, tt := range []struct {
+		name string
+		src  string
+		want string
+	}{{
+		name: "a pin",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n " +
+			long(130) + " : DINT;\nEND_VAR\n" + long(130) + " := 1;\nEND_PROGRAM",
+		want: "over HAL's limit of 127",
+	}, {
+		// An array pin only reaches its full width once the index is on it:
+		// what has to fit is comp.name.99, not comp.name.
+		name: "an array pin, measured at its widest element",
+		src: "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n " +
+			long(124) + " : ARRAY [0..99] OF DINT;\nEND_VAR\n" +
+			long(124) + "[0] := 1;\nEND_PROGRAM",
+		want: ".## is 129 characters",
+	}, {
+		name: "a parameter",
+		src:  wrap("VAR\n "+long(130)+" AT %MRW : LREAL;\nEND_VAR", "q := TRUE;"),
+		want: "the parameter name",
+	}, {
+		name: "a pin published along an instance path",
+		src: "{attribute 'summary' := 'x'}\nFUNCTION_BLOCK B\nVAR\n " +
+			long(130) + " AT %Q : DINT;\nEND_VAR\n" + long(130) + " := 1;\nEND_FUNCTION_BLOCK\n" +
+			progWith("VAR\n inst : B;\nEND_VAR", "inst();"),
+		want: "over HAL's limit of 127",
+	}} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := check(t, "p", tt.src)
+			if err == nil {
+				t.Fatal("expected a diagnostic, got none")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("diagnostics:\n%v\nwant one containing %q", err, tt.want)
+			}
+		})
+	}
+
+	// And the boundary is not off by one: exactly 127 fits.
+	fits := "p." + strings.Repeat("z", 125)
+	if len(fits) != 127 {
+		t.Fatalf("test is wrong: %d", len(fits))
+	}
+	mustCheck(t, "p", "{attribute 'summary' := 'x'}\nPROGRAM p\nVAR_OUTPUT\n "+
+		strings.Repeat("z", 125)+" : DINT;\nEND_VAR\n"+
+		strings.Repeat("z", 125)+" := 1;\nEND_PROGRAM")
+}

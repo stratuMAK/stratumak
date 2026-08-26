@@ -710,6 +710,9 @@ func (c *checker) declareParam(d *st.VarDecl, name string, typ ast.Type, bind *a
 	if !c.checkCName(bind.Name, d.Pos, "a parameter") {
 		return
 	}
+	if !c.checkHALNameLength(bind.Name, d.Pos, "parameter") {
+		return
+	}
 	if !c.claimInstanceName(bind.Name, d.Pos, "parameter") {
 		return
 	}
@@ -883,6 +886,13 @@ func (c *checker) declarePin(b *st.VarBlock, d *st.VarDecl, name string, typ ast
 			return
 		}
 	}
+	// Checked here rather than beside claimInstanceName, because an array pin
+	// only reaches its full width once the '#' run is appended above: it is
+	// the widest element, comp.channel.99, that has to fit.
+	if !c.checkHALNameLength(pin.Name, d.Pos, "pin") {
+		return
+	}
+
 	// The symbol resolves to the pin's name: the backend reaches a pin through
 	// its member of inst_hal_t, and that member is named after the pin rather
 	// than after the variable.

@@ -276,9 +276,7 @@ func (c *checker) publishOne(fn *ast.Function, path string, count int, v ast.Var
 	if !c.claimInstanceName(halName, pos, what) {
 		return
 	}
-	if n := len(c.component) + 1 + len(halName); n > halNameLimit {
-		c.errorf(pos, "the %s name %s.%s is %d characters, over HAL's limit of %d; "+
-			"shorten the instance or member name", what, c.component, halName, n, halNameLimit)
+	if !c.checkHALNameLength(halName, pos, what) {
 		return
 	}
 
@@ -321,9 +319,31 @@ func (c *checker) publishOne(fn *ast.Function, path string, count int, v ast.Var
 	fn.PinBindings = append(fn.PinBindings, binding)
 }
 
-// halNameLimit is STMAK_HAL_NAME_LEN.  A pin whose name does not fit is
-// refused here rather than being truncated into a collision at load time.
+// halNameLimit is STMAK_HAL_NAME_LEN.  A name that does not fit is refused
+// rather than being truncated into a collision at load time.
 const halNameLimit = 127
+
+// checkHALNameLength refuses a HAL name the daemon would have to truncate.
+//
+// Truncation is the failure worth preventing: two pins whose names differ only
+// past the limit become one pin on the machine, and nothing says so -- the
+// second create fails or silently aliases, a long way from the declaration.
+//
+// The length counted is the whole thing, `component.name`, because that is
+// what HAL stores.  For an array pin, name already carries the run of '#' that
+// cgen turns into the index, so the widest element is measured rather than the
+// stem.
+func (c *checker) checkHALNameLength(name string, pos ast.Pos, what string) bool {
+	n := len(c.component) + 1 + len(name)
+	if n <= halNameLimit {
+		return true
+	}
+	c.errorf(pos, "the %s name %s.%s is %d characters, over HAL's limit of %d; "+
+		"shorten it, or the daemon truncates it into a collision with whatever "+
+		"else shares its first %d",
+		what, c.component, name, n, halNameLimit, halNameLimit)
+	return false
+}
 
 func pathJoin(path, name string, indexed bool) string {
 	if indexed {

@@ -458,6 +458,13 @@ if [ $? -eq 0 ]; then
     exit 1
 fi
 
+rm -f bad_pinlen.c
+modcompile --preprocess bad_pinlen.st -o bad_pinlen.c
+if [ $? -eq 0 ]; then
+    echo 'modcompile accepted a pin name HAL would have to truncate'
+    exit 1
+fi
+
 rm -f bad_shared_name.c
 modcompile --preprocess bad_shared_name.st -o bad_shared_name.c
 if [ $? -eq 0 ]; then

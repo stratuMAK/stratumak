@@ -939,12 +939,17 @@ field.
 
 ## 10. Open items
 
+None outstanding here; what remains for Structured Text is tracked in
+`MODCOMPILE_ST_STDLIB.md` §9.
+
 **Pin name length.** `STMAK_HAL_NAME_LEN` is 127. A long component name with a
 long array pin can exceed it, and truncation would silently produce colliding
 pin names. Check at compile time and fail with the offending name.
 
-Half done, and the half that is missing is the more likely one. `publishOne`
-checks it for a pin published along an instance path — the case that grows
-without anyone noticing — but `declarePin` does not check a PROGRAM's own,
-so a long array pin declared directly still passes and is truncated on the
-machine.
+Done. One check, `checkHALNameLength`, used by all three paths: a PROGRAM's
+own pin, a parameter, and a pin published along an instance path. It had
+existed only for the last of those.
+
+An array pin is measured at its widest element, because that is what HAL
+stores: `comp.channel.99`, not `comp.channel`. The check therefore runs after
+the run of `#` is appended, not beside the other name checks.
